@@ -1,0 +1,267 @@
+{
+  "schema_version": 1,
+  "goal": "QuestInfiniteScan end-to-end fork",
+  "allowed_statuses": ["pending", "in_progress", "done", "blocked"],
+  "nodes": [
+    {
+      "id": "A01",
+      "title": "Audit QRS code, environment, licenses, and upstream contracts",
+      "status": "done",
+      "depends_on": [],
+      "acceptance": [
+        "Lifecycle and persistence extension points are mapped to concrete symbols",
+        "Unity, Android, CUDA, Python, and GPU availability are recorded",
+        "DiffSoup and server licenses plus exact input/output contracts are recorded"
+      ],
+      "evidence": [
+        "docs/architecture/UPSTREAM_AUDIT.md pins all three upstream commits and maps scanner, volume, mesh, persistence, keyframe, anchor, refinement, and export extension points",
+        "Audit records QRS and DiffSoup MIT licenses and the missing license artifact in the pinned Gaussian server repository",
+        "Audit records the exact DiffSoup mesh/LUT/MLP artifact, training-adapter gap, resumable-checkpoint requirements, and verified machine/device/build baseline"
+      ]
+    },
+    {
+      "id": "A02",
+      "title": "Create named GitHub fork and safe upstream/origin topology",
+      "status": "done",
+      "depends_on": ["A01"],
+      "acceptance": [
+        "origin points to the writable fork and upstream to QuestRoomScan",
+        "feature branch exists on the fork without rewriting upstream history"
+      ],
+      "evidence": [
+        "GitHub fork https://github.com/fladirm/QuestInfiniteScan reports parent arghyasur1991/QuestRoomScan",
+        "origin is the writable fork; upstream fetches QuestRoomScan and has push URL DISABLED",
+        "origin/feat/infinite-submaps-diffsoup exists at audited upstream commit 2fdaaae71f60b21b7853e67db943fc42f75d0c2f"
+      ]
+    },
+    {
+      "id": "B01",
+      "title": "Implement versioned world, chunk, bounds, revision, and pose-graph domain model",
+      "status": "in_progress",
+      "depends_on": ["A01"],
+      "acceptance": [
+        "JSON round trips preserve transforms and identifiers",
+        "Malformed/unsupported manifests fail closed",
+        "Pose graph can update world transforms without changing local geometry"
+      ],
+      "evidence": []
+    },
+    {
+      "id": "B02",
+      "title": "Implement atomic world/chunk persistence and migration-safe layout",
+      "status": "pending",
+      "depends_on": ["B01"],
+      "acceptance": [
+        "world/chunks layout is versioned and atomically committed",
+        "Legacy single-scan packages still load",
+        "Interrupted writes cannot replace last known-good metadata"
+      ],
+      "evidence": []
+    },
+    {
+      "id": "B03",
+      "title": "Implement SubmapManager rollover, overlap, hysteresis, and bounded active set",
+      "status": "pending",
+      "depends_on": ["B01", "B02"],
+      "acceptance": [
+        "Camera world pose is transformed into active chunk-local space",
+        "Boundary traversal rolls chunks without oscillation",
+        "Resident volume count stays within configured limit"
+      ],
+      "evidence": []
+    },
+    {
+      "id": "B04",
+      "title": "Integrate chunk lifecycle with scanner, TSDF reuse, finalization, and rendering",
+      "status": "pending",
+      "depends_on": ["B03"],
+      "acceptance": [
+        "Existing mapper kernels remain compatible",
+        "Finalization and reload do not block the scan frame loop on file/network I/O",
+        "Nearby persisted chunk meshes can be shown with correct transforms"
+      ],
+      "evidence": []
+    },
+    {
+      "id": "B05",
+      "title": "Route keyframes, atlas refinement, anchors, and revisions per chunk",
+      "status": "pending",
+      "depends_on": ["B04"],
+      "acceptance": [
+        "Frames and poses are stored in chunk-local coordinates",
+        "Revisit creates a monotonic revision with newly selected observations",
+        "Triplanar defaults off only in explicitly enabled large-world mode"
+      ],
+      "evidence": []
+    },
+    {
+      "id": "C01",
+      "title": "Define and test versioned LAN job and DiffSoup artifact contracts",
+      "status": "pending",
+      "depends_on": ["A01", "B01"],
+      "acceptance": [
+        "Jobs are idempotently keyed by world/chunk/revision",
+        "Upload and artifact hashes/sizes/versions are validated",
+        "Client can retry, cancel, poll, and remain offline safely"
+      ],
+      "evidence": []
+    },
+    {
+      "id": "C02",
+      "title": "Implement local server API, durable job store, scheduler, and fake backend",
+      "status": "pending",
+      "depends_on": ["C01"],
+      "acceptance": [
+        "API contract tests pass without CUDA",
+        "Restart preserves terminal jobs and safely recovers interrupted jobs",
+        "Path traversal, zip bombs, oversized uploads, and duplicate submissions are rejected"
+      ],
+      "evidence": []
+    },
+    {
+      "id": "C03",
+      "title": "Integrate pinned upstream DiffSoup CUDA worker and warm-start revisions",
+      "status": "pending",
+      "depends_on": ["C02"],
+      "acceptance": [
+        "QRS mesh/keyframes are converted to verified DiffSoup inputs",
+        "Worker emits the canonical artifact or a structured failure",
+        "Supported revisits warm-start; unsupported cases safely fall back to a fresh job"
+      ],
+      "evidence": []
+    },
+    {
+      "id": "D01",
+      "title": "Implement Unity heavy-compute interface, LAN backend, scheduler, and offline queue",
+      "status": "pending",
+      "depends_on": ["B05", "C01"],
+      "acceptance": [
+        "None and LAN backends share one lifecycle",
+        "Jobs survive transient network loss and stale responses cannot overwrite newer revisions",
+        "No network await occurs in the real-time integration path"
+      ],
+      "evidence": []
+    },
+    {
+      "id": "D02",
+      "title": "Implement validated DiffSoupArtifact import, persistence, and atomic promotion",
+      "status": "pending",
+      "depends_on": ["C01", "D01"],
+      "acceptance": [
+        "Artifact parser is bounded and rejects corrupt indices/dimensions/versions",
+        "Artifact is stored by chunk/revision/hash",
+        "Promotion is atomic and keeps the prior renderer on any error"
+      ],
+      "evidence": []
+    },
+    {
+      "id": "D03",
+      "title": "Port DiffSoup triangle/LUT appearance renderer to Unity URP",
+      "status": "pending",
+      "depends_on": ["A01", "D02"],
+      "acceptance": [
+        "Reference artifact renders with coordinate/color parity against upstream viewer",
+        "Stereo, depth, culling, relocation, and resource disposal work on Quest",
+        "Unsupported appearance networks are rejected or baked to a supported representation"
+      ],
+      "evidence": []
+    },
+    {
+      "id": "E01",
+      "title": "Implement overlap constraints, ICP interface, and pose-graph optimization",
+      "status": "pending",
+      "depends_on": ["B04"],
+      "acceptance": [
+        "Neighbor constraints carry covariance/confidence and provenance",
+        "Synthetic graph tests reduce loop error",
+        "Optimization changes only chunk world transforms"
+      ],
+      "evidence": []
+    },
+    {
+      "id": "E02",
+      "title": "Wire setup wizard, UI/status, diagnostics, and large-world defaults",
+      "status": "pending",
+      "depends_on": ["B05", "D01", "D03", "E01"],
+      "acceptance": [
+        "Setup is idempotent and existing single-room setup remains available",
+        "Operators can see chunk, queue, storage, graph, network, and artifact state",
+        "Large-world default memory settings are explicit"
+      ],
+      "evidence": []
+    },
+    {
+      "id": "G01",
+      "title": "Implement deterministic chunk GLB 2.0 writer and honest PBR material export",
+      "status": "pending",
+      "depends_on": ["B05"],
+      "acceptance": [
+        "Refined or enhanced mesh exports positions, normals, generated tangents, UV0, indices, base color, and normal texture",
+        "Material uses metallicFactor=0 and configurable constant roughness without inventing measured maps",
+        "Coordinate handedness, winding, texture orientation, alignment, and GLB length fields pass golden tests"
+      ],
+      "evidence": []
+    },
+    {
+      "id": "G02",
+      "title": "Implement pose-graph world export as chunk nodes, sharded GLBs, and optional bounded monolithic GLB",
+      "status": "pending",
+      "depends_on": ["B02", "E01", "G01"],
+      "acceptance": [
+        "World export applies the current T_world_chunk exactly once and preserves chunk names/revisions",
+        "Large worlds stream to a versioned building manifest plus per-chunk GLBs without loading every mesh/texture at once",
+        "Monolithic export enforces configurable size/resource limits and fails with an actionable sharded-export fallback"
+      ],
+      "evidence": []
+    },
+    {
+      "id": "G03",
+      "title": "Validate GLB interoperability and add optional compression capability negotiation",
+      "status": "pending",
+      "depends_on": ["G01", "G02"],
+      "acceptance": [
+        "Chunk and world fixtures pass Khronos glTF Validator with no errors",
+        "Fixtures import with correct PBR textures/transforms in an independent consumer",
+        "meshopt and KTX2/BasisU are emitted only when a verified available implementation and declared extension support exist; uncompressed GLB remains mandatory fallback"
+      ],
+      "evidence": []
+    },
+    {
+      "id": "F01",
+      "title": "Automated validation, migration, failure-injection, and performance harness",
+      "status": "pending",
+      "depends_on": ["B02", "B04", "C03", "D03", "E01", "G03"],
+      "acceptance": [
+        "Unit/contract/integration tests pass",
+        "Offline, corrupt artifact, interrupted write, duplicate job, and server restart cases pass",
+        "Profiling records frame time and resident memory as chunk count grows"
+      ],
+      "evidence": []
+    },
+    {
+      "id": "F02",
+      "title": "Unity Android build and Quest 3S end-to-end acceptance",
+      "status": "pending",
+      "depends_on": ["E02", "F01"],
+      "acceptance": [
+        "Vulkan ARM64 build installs and starts",
+        "Multi-chunk scan continues with notebook disconnected",
+        "CUDA-refined artifact returns and swaps atomically",
+        "Reload/anchor relocation/revisit and bounded active memory pass on device"
+      ],
+      "evidence": []
+    },
+    {
+      "id": "F03",
+      "title": "Finalize operator/developer runbooks, compatibility notes, and release",
+      "status": "pending",
+      "depends_on": ["F02"],
+      "acceptance": [
+        "Fresh-machine setup and recovery runbooks are reproducible",
+        "Licenses/notices and pinned dependencies are complete",
+        "Goal state and release evidence match the shipped commit"
+      ],
+      "evidence": []
+    }
+  ]
+}
