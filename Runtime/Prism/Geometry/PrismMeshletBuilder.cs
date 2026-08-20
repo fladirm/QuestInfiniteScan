@@ -16,6 +16,7 @@ namespace Genesis.RoomScan.Prism
         [SerializeField] private PrismFilmSpawner filmSpawner;
         [SerializeField] private PrismPredictionRenderer predictionRenderer;
         [SerializeField] private PrismBoundaryGraph boundaryGraph;
+        [SerializeField] private PrismDisplacementTopology displacementTopology;
         [SerializeField] private ComputeShader meshletBuildCompute;
         [SerializeField, Min(65536)] private int vertexBudget = 1500000;
         [SerializeField, Min(196608)] private int indexBudget = 6000000;
@@ -39,6 +40,16 @@ namespace Genesis.RoomScan.Prism
         private static readonly int BoundaryCellsPerAxisId = Shader.PropertyToID("_BoundaryCellsPerAxis");
         private static readonly int BoundaryHeadersId = Shader.PropertyToID("_BoundaryHeaders");
         private static readonly int BoundaryHashId = Shader.PropertyToID("_BoundaryHash");
+        private static readonly int HasDisplacementId = Shader.PropertyToID("_HasDisplacement");
+        private static readonly int BasePageCapacityId = Shader.PropertyToID("_BasePageCapacity");
+        private static readonly int MicroPageCapacityId = Shader.PropertyToID("_MicroPageCapacity");
+        private static readonly int BaseCellCapacityId = Shader.PropertyToID("_BaseCellCapacity");
+        private static readonly int MaximumMicroLevelsId = Shader.PropertyToID("_MaximumMicroLevels");
+        private static readonly int DisplacementPagesId = Shader.PropertyToID("_DisplacementPages");
+        private static readonly int BaseCellsId = Shader.PropertyToID("_BaseDisplacementCells");
+        private static readonly int MicroCellsId = Shader.PropertyToID("_MicroDisplacementCells");
+        private static readonly int BaseChildrenId = Shader.PropertyToID("_BaseChildPages");
+        private static readonly int MicroChildrenId = Shader.PropertyToID("_MicroChildPages");
 
         private int _clearKernel = -1;
         private int _buildArgsKernel = -1;
@@ -51,15 +62,19 @@ namespace Genesis.RoomScan.Prism
 
         public void StartBuilding(PrismFilmSpawner films = null,
             PrismPredictionRenderer prediction = null,
-            PrismBoundaryGraph boundaries = null)
+            PrismBoundaryGraph boundaries = null,
+            PrismDisplacementTopology displacement = null)
         {
             if (_running) return;
             filmSpawner = films != null ? films : filmSpawner;
             predictionRenderer = prediction != null ? prediction : predictionRenderer;
             boundaryGraph = boundaries != null ? boundaries : boundaryGraph;
+            displacementTopology = displacement != null ? displacement :
+                displacementTopology;
             filmSpawner ??= GetComponent<PrismFilmSpawner>();
             predictionRenderer ??= GetComponent<PrismPredictionRenderer>();
             boundaryGraph ??= GetComponent<PrismBoundaryGraph>();
+            displacementTopology ??= GetComponent<PrismDisplacementTopology>();
             meshletBuildCompute ??= Resources.Load<ComputeShader>("Prism/MeshletBuild");
             if (filmSpawner?.FilmPool == null || predictionRenderer?.Meshlets == null ||
                 meshletBuildCompute == null)
@@ -145,6 +160,33 @@ namespace Genesis.RoomScan.Prism
                     boundaries.Headers);
                 meshletBuildCompute.SetBuffer(_buildKernel, BoundaryHashId,
                     boundaries.HashEntries);
+            }
+            ContactDisplacementPool displacement =
+                displacementTopology?.DisplacementPool;
+            bool hasDisplacement = displacement != null &&
+                !displacement.IsDisposed;
+            meshletBuildCompute.SetInt(HasDisplacementId,
+                hasDisplacement ? 1 : 0);
+            if (hasDisplacement)
+            {
+                meshletBuildCompute.SetInt(BasePageCapacityId,
+                    displacement.BasePageCapacity);
+                meshletBuildCompute.SetInt(MicroPageCapacityId,
+                    displacement.MicroPageCapacity);
+                meshletBuildCompute.SetInt(BaseCellCapacityId,
+                    displacement.BaseCellCapacity);
+                meshletBuildCompute.SetInt(MaximumMicroLevelsId,
+                    displacementTopology.MaximumMicroLevels);
+                meshletBuildCompute.SetBuffer(_buildKernel, DisplacementPagesId,
+                    displacement.PageHeaders);
+                meshletBuildCompute.SetBuffer(_buildKernel, BaseCellsId,
+                    displacement.BaseCells);
+                meshletBuildCompute.SetBuffer(_buildKernel, MicroCellsId,
+                    displacement.MicroCells);
+                meshletBuildCompute.SetBuffer(_buildKernel, BaseChildrenId,
+                    displacement.BaseChildPages);
+                meshletBuildCompute.SetBuffer(_buildKernel, MicroChildrenId,
+                    displacement.MicroChildPages);
             }
             int[] kernels =
             {

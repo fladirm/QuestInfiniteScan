@@ -407,8 +407,10 @@ void SpawnContactFilms(uint3 groupId : SV_GroupID,
     film.confidence = saturate(confidenceSum / max(1.0, (float)supportCount));
     film.contradiction = 0.0;
     film.revision = 1u;
-    film.displacementPage = 0xffffffffu;
-    film.appearancePage = 0xffffffffu;
+    // Zero is the durable "not allocated" handle. UINT_MAX is reserved for
+    // a short-lived GPU CAS claim and must never escape film publication.
+    film.displacementPage = 0u;
+    film.appearancePage = 0u;
     film.boundaryStart = 0xffffffffu;
     film.boundaryCount = 0u;
     film.reserved0 = film.reserved1 = film.reserved2 = 0u;

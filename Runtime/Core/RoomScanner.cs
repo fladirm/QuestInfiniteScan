@@ -130,6 +130,7 @@ namespace Genesis.RoomScan
         private PrismFilmSpawner _prismFilmSpawner;
         private PrismFilmUpdater _prismFilmUpdater;
         private PrismBoundaryGraph _prismBoundaryGraph;
+        private PrismDisplacementTopology _prismDisplacementTopology;
         private PrismMeshletBuilder _prismMeshletBuilder;
         private TriplanarCache _triplanarCache;
         private KeyframeCollector _keyframeCollector;
@@ -214,6 +215,9 @@ namespace Genesis.RoomScan
         public PrismFilmUpdater PrismFilmUpdater => _prismFilmUpdater;
         /// <summary>Persistent GPU ContactBoundary graph.</summary>
         public PrismBoundaryGraph PrismBoundaryGraph => _prismBoundaryGraph;
+        /// <summary>Sparse hierarchical micro-geometry and topology posterior.</summary>
+        public PrismDisplacementTopology PrismDisplacementTopology =>
+            _prismDisplacementTopology;
         /// <summary>GPU ContactFilm-to-meshlet publication stage.</summary>
         public PrismMeshletBuilder PrismMeshletBuilder => _prismMeshletBuilder;
         /// <summary>The optional Gaussian Splat provider, or null if the GSplat module is not attached.</summary>
@@ -413,6 +417,10 @@ namespace Genesis.RoomScan
             _prismBoundaryGraph = GetComponent<PrismBoundaryGraph>();
             if (_prismBoundaryGraph == null)
                 _prismBoundaryGraph = gameObject.AddComponent<PrismBoundaryGraph>();
+            _prismDisplacementTopology = GetComponent<PrismDisplacementTopology>();
+            if (_prismDisplacementTopology == null)
+                _prismDisplacementTopology =
+                    gameObject.AddComponent<PrismDisplacementTopology>();
             _prismMeshletBuilder = GetComponent<PrismMeshletBuilder>();
             if (_prismMeshletBuilder == null)
                 _prismMeshletBuilder = gameObject.AddComponent<PrismMeshletBuilder>();
@@ -671,11 +679,14 @@ namespace Genesis.RoomScan
                     _prismFilmSpawner);
                 _prismBoundaryGraph?.StartTracking(_prismFilmUpdater,
                     _prismFilmSpawner);
+                _prismDisplacementTopology?.StartUpdating(_prismBoundaryGraph,
+                    _prismFilmSpawner);
                 _prismConeClassifier?.StartClassifying(_prismPredictionRenderer,
                     _prismBoundaryGraph);
                 _prismPredictionRenderer?.StartRendering(_prismDepthPreprocessor);
                 _prismMeshletBuilder?.StartBuilding(_prismFilmSpawner,
-                    _prismPredictionRenderer, _prismBoundaryGraph);
+                    _prismPredictionRenderer, _prismBoundaryGraph,
+                    _prismDisplacementTopology);
                 _prismDepthPreprocessor?.StartProcessing(_prismRigCapture);
                 _prismRigCapture?.StartCapture();
                 _depthCapture.StartDepthCapture();
@@ -739,6 +750,7 @@ namespace Genesis.RoomScan
 
             ICameraProvider provider = GetActiveCameraProvider();
             _prismMeshletBuilder?.StopBuilding();
+            _prismDisplacementTopology?.StopUpdating();
             _prismBoundaryGraph?.StopTracking();
             _prismFilmUpdater?.StopUpdating();
             _prismFilmSpawner?.StopSpawning();

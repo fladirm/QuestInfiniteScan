@@ -1,0 +1,768 @@
+#pragma kernel ClearDisplacementFrame
+#pragma kernel InitializeDisplacementState
+#pragma kernel AllocateBasePages
+#pragma kernel BuildDisplacementArguments
+#pragma kernel InitializeBasePages
+#pragma kernel AccumulateDisplacement
+#pragma kernel SolveDirtyDisplacement
+#pragma kernel AllocateMicrotiles
+#pragma kernel InitializeMicroPages
+#pragma kernel SolveTopologyEvidence
+
+struct ConeEvent
+{
+    uint pixelLinear;
+    uint packedPixel;
+    uint classification;
+    uint flags;
+    float measuredRange;
+    float predictedRange;
+    float combinedSigma;
+    float confidence;
+    float3 measuredNormal;
+    float boundaryEvidence;
+    uint filmId;
+    uint filmGeneration;
+    float2 predictedUv;
+    float footprintArea;
+    float incidence;
+    float pressurePrecision;
+    uint occluderFilmId;
+    uint occluderGeneration;
+};
+
+struct ContactFilmHeader
+{
+    uint id;
+    uint generation;
+    uint chunkId;
+    uint flags;
+    float3 origin;
+    float supportTotal;
+    float3 normal;
+    float sigmaNormal;
+    float3 tangentU;
+    float extentU;
+    float3 tangentV;
+    float extentV;
+    float4 quadratic0123;
+    float2 quadratic45;
+    float confidence;
+    float contradiction;
+    uint revision;
+    uint displacementPage;
+    uint appearancePage;
+    uint boundaryStart;
+    uint boundaryCount;
+    uint reserved0;
+    uint reserved1;
+    uint reserved2;
+};
+
+struct DisplacementPageHeader
+{
+    uint id;
+    uint generation;
+    uint filmId;
+    uint filmGeneration;
+    uint level;
+    uint parentPage;
+    uint parentCell;
+    uint flags;
+    float4 uvBounds;
+    uint bestFootprintBits;
+    uint maximumVarianceBits;
+    uint supportFixed;
+    uint revision;
+};
+
+struct DisplacementCell
+{
+    float displacement;
+    float sigma;
+    float support;
+    float coverage;
+    float bestPrecision;
+    float bestFootprint;
+    float residualVariance;
+    uint revision;
+};
+
+struct ContactTopologyEvidence
+{
+    float positiveMoment;
+    float positiveSupport;
+    float negativeMoment;
+    float negativeSupport;
+    float residualVariance;
+    float boundarySupport;
+    float totalSupport;
+    uint revision;
+};
+
+StructuredBuffer<ConeEvent> _ConeEvents;
+StructuredBuffer<uint> _ClassifiedIndices;
+StructuredBuffer<uint> _ClassCounters;
+RWStructuredBuffer<ContactFilmHeader> _FilmHeaders;
+RWStructuredBuffer<float4> _FilmInformation;
+RWStructuredBuffer<DisplacementPageHeader> _DisplacementPages;
+RWStructuredBuffer<DisplacementCell> _BaseDisplacementCells;
+RWStructuredBuffer<DisplacementCell> _MicroDisplacementCells;
+RWStructuredBuffer<uint> _BaseChildPages;
+RWStructuredBuffer<uint> _MicroChildPages;
+RWStructuredBuffer<uint> _DisplacementAllocator;
+RWStructuredBuffer<int> _DisplacementCellAccumulator;
+RWStructuredBuffer<uint> _DisplacementCellDirtyFlags;
+RWStructuredBuffer<uint> _DirtyDisplacementCellIndices;
+RWStructuredBuffer<uint> _DisplacementDirtyState;
+RWStructuredBuffer<uint> _NewBasePages;
+RWStructuredBuffer<uint> _NewMicroPages;
+RWStructuredBuffer<uint> _DisplacementPageState;
+RWStructuredBuffer<uint3> _DisplacementDispatchArguments;
+RWStructuredBuffer<ContactTopologyEvidence> _TopologyEvidence;
+RWStructuredBuffer<int> _TopologyAccumulator;
+RWStructuredBuffer<uint> _TopologyDirtyFlags;
+RWStructuredBuffer<uint> _DirtyTopologyIndices;
+RWStructuredBuffer<uint> _TopologyState;
+
+Texture2D<float4> _DepthRayCenterLeft;
+Texture2D<float4> _DepthRayCenterRight;
+
+uint _FilmCapacity;
+uint _EventCapacity;
+uint _BasePageCapacity;
+uint _MicroPageCapacity;
+uint _BaseCellCapacity;
+uint _MicroCellCapacity;
+uint _MaximumMicroLevels;
+float _QualityFloor;
+float _MinimumSigma;
+float _MinimumHuber;
+float _RefinementFootprintRatio;
+float _RefinementVariance;
+float4x4 _ChunkFromDepth[2];
+
+static const uint CLASS_MATCH = 1u;
+static const uint FILM_ACTIVE = 1u;
+static const uint FILM_DIRTY_GEOMETRY = 8u;
+static const uint FILM_DIRTY_MESHLET = 16u;
+static const uint FILM_HAS_DISPLACEMENT = 32u;
+static const uint PAGE_ACTIVE = 1u;
+static const uint PAGE_BASE = 2u;
+static const uint PAGE_MICRO = 4u;
+static const uint PAGE_DIRTY = 8u;
+static const uint BASE_GRID = 16u;
+static const uint MICRO_GRID = 8u;
+static const uint BASE_CELLS_PER_PAGE = 256u;
+static const uint MICRO_CELLS_PER_PAGE = 64u;
+static const uint WORDS_PER_CELL = 8u;
+static const uint WORDS_PER_FILM = 8u;
+static const uint ALLOCATION_CLAIM = 0xffffffffu;
+static const float WEIGHT_SCALE = 4096.0;
+static const float VALUE_SCALE = 1048576.0;
+
+float3 LoadRay(uint2 pixel, uint eye)
+{
+    return eye == 0u ? _DepthRayCenterLeft[pixel].xyz :
+        _DepthRayCenterRight[pixel].xyz;
+}
+
+float Height(ContactFilmHeader film, float u, float v)
+{
+    return film.quadratic0123.x + film.quadratic0123.y * u +
+        film.quadratic0123.z * v + film.quadratic0123.w * u * u +
+        film.quadratic45.x * u * v + film.quadratic45.y * v * v;
+}
+
+void AtomicAddScaled(uint address, float value, float scale)
+{
+    int quantized = (int)round(clamp(value * scale,
+        -2140000000.0, 2140000000.0));
+    if (quantized != 0)
+        InterlockedAdd(_DisplacementCellAccumulator[address], quantized);
+}
+
+DisplacementCell EmptyCell(float sigma)
+{
+    DisplacementCell cell = (DisplacementCell)0;
+    cell.sigma = max(_MinimumSigma, sigma);
+    cell.bestFootprint = 3.402823466e+38;
+    return cell;
+}
+
+bool IsMicroCell(uint globalCell) { return globalCell >= _BaseCellCapacity; }
+
+DisplacementCell LoadCell(uint globalCell)
+{
+    return IsMicroCell(globalCell)
+        ? _MicroDisplacementCells[globalCell - _BaseCellCapacity]
+        : _BaseDisplacementCells[globalCell];
+}
+
+void StoreCell(uint globalCell, DisplacementCell cell)
+{
+    if (IsMicroCell(globalCell))
+        _MicroDisplacementCells[globalCell - _BaseCellCapacity] = cell;
+    else
+        _BaseDisplacementCells[globalCell] = cell;
+}
+
+uint LoadChild(uint globalCell)
+{
+    return IsMicroCell(globalCell)
+        ? _MicroChildPages[globalCell - _BaseCellCapacity]
+        : _BaseChildPages[globalCell];
+}
+
+void StoreChild(uint globalCell, uint child)
+{
+    if (IsMicroCell(globalCell))
+        _MicroChildPages[globalCell - _BaseCellCapacity] = child;
+    else
+        _BaseChildPages[globalCell] = child;
+}
+
+uint PageHeaderIndex(bool micro, uint pageIndex)
+{
+    return micro ? _BasePageCapacity + pageIndex : pageIndex;
+}
+
+uint CellForPage(bool micro, uint pageIndex, uint localCell)
+{
+    return micro
+        ? _BaseCellCapacity + pageIndex * MICRO_CELLS_PER_PAGE + localCell
+        : pageIndex * BASE_CELLS_PER_PAGE + localCell;
+}
+
+bool ResolveLeaf(ContactFilmHeader film, float2 uv, out uint globalCell,
+    out DisplacementPageHeader page)
+{
+    globalCell = 0u;
+    page = (DisplacementPageHeader)0;
+    if (film.displacementPage == 0u || film.displacementPage == ALLOCATION_CLAIM)
+        return false;
+    uint basePage = film.displacementPage - 1u;
+    if (basePage >= _BasePageCapacity) return false;
+    page = _DisplacementPages[basePage];
+    if (page.filmId != film.id || page.filmGeneration != film.generation ||
+        (page.flags & PAGE_ACTIVE) == 0u) return false;
+    float2 normalized = saturate(uv);
+    uint2 baseCell = min((uint2)(normalized * (float)BASE_GRID), BASE_GRID - 1u);
+    globalCell = CellForPage(false, basePage,
+        baseCell.y * BASE_GRID + baseCell.x);
+
+    [loop]
+    for (uint level = 0u; level < _MaximumMicroLevels; ++level)
+    {
+        uint childHandle = LoadChild(globalCell);
+        if (childHandle == 0u || childHandle == ALLOCATION_CLAIM) break;
+        uint microPage = childHandle - 1u;
+        if (microPage >= _MicroPageCapacity) break;
+        DisplacementPageHeader child =
+            _DisplacementPages[PageHeaderIndex(true, microPage)];
+        if ((child.flags & PAGE_ACTIVE) == 0u || child.filmId != film.id ||
+            child.filmGeneration != film.generation) break;
+        float2 span = max(child.uvBounds.zw - child.uvBounds.xy, 1e-8);
+        float2 localUv = saturate((normalized - child.uvBounds.xy) / span);
+        uint2 microCell = min((uint2)(localUv * (float)MICRO_GRID),
+            MICRO_GRID - 1u);
+        globalCell = CellForPage(true, microPage,
+            microCell.y * MICRO_GRID + microCell.x);
+        page = child;
+    }
+    return true;
+}
+
+void MarkCellDirty(uint globalCell)
+{
+    uint prior;
+    InterlockedCompareExchange(_DisplacementCellDirtyFlags[globalCell],
+        0u, 1u, prior);
+    if (prior != 0u) return;
+    uint slot;
+    InterlockedAdd(_DisplacementDirtyState[0], 1u, slot);
+    uint capacity = _BaseCellCapacity + _MicroCellCapacity;
+    if (slot < capacity)
+        _DirtyDisplacementCellIndices[slot] = globalCell;
+    else
+        InterlockedAdd(_DisplacementDirtyState[1], 1u);
+}
+
+void MarkTopologyDirty(uint filmIndex)
+{
+    uint prior;
+    InterlockedCompareExchange(_TopologyDirtyFlags[filmIndex], 0u, 1u, prior);
+    if (prior != 0u) return;
+    uint slot;
+    InterlockedAdd(_TopologyState[0], 1u, slot);
+    if (slot < _FilmCapacity) _DirtyTopologyIndices[slot] = filmIndex;
+    else InterlockedAdd(_TopologyState[1], 1u);
+}
+
+[numthreads(64, 1, 1)]
+void InitializeDisplacementState(uint3 id : SV_DispatchThreadID)
+{
+    uint filmIndex = id.x;
+    if (filmIndex >= _FilmCapacity) return;
+    _TopologyEvidence[filmIndex] = (ContactTopologyEvidence)0;
+    _TopologyDirtyFlags[filmIndex] = 0u;
+    _DirtyTopologyIndices[filmIndex] = 0u;
+    uint baseWord = filmIndex * WORDS_PER_FILM;
+    [unroll] for (uint word = 0u; word < WORDS_PER_FILM; ++word)
+        _TopologyAccumulator[baseWord + word] = 0;
+    if (filmIndex == 0u)
+    {
+        [unroll] for (uint state = 0u; state < 4u; ++state)
+            _TopologyState[state] = 0u;
+    }
+}
+
+[numthreads(1, 1, 1)]
+void ClearDisplacementFrame(uint3 id : SV_DispatchThreadID)
+{
+    [unroll] for (uint index = 0u; index < 4u; ++index)
+    {
+        _DisplacementDirtyState[index] = 0u;
+        _DisplacementPageState[index] = 0u;
+        _TopologyState[index] = 0u;
+    }
+    [unroll] for (uint index = 0u; index < 3u; ++index)
+        _DisplacementDispatchArguments[index] = uint3(0u, 1u, 1u);
+}
+
+[numthreads(64, 1, 1)]
+void AllocateBasePages(uint3 id : SV_DispatchThreadID)
+{
+    uint matchCount = min(_ClassCounters[CLASS_MATCH], _EventCapacity);
+    if (id.x >= matchCount) return;
+    uint eventIndex = _ClassifiedIndices[CLASS_MATCH * _EventCapacity + id.x];
+    ConeEvent eventData = _ConeEvents[eventIndex];
+    if (eventData.classification != CLASS_MATCH || eventData.filmId == 0u) return;
+    uint filmIndex = eventData.filmId - 1u;
+    if (filmIndex >= _FilmCapacity) return;
+    ContactFilmHeader film = _FilmHeaders[filmIndex];
+    if (film.id != eventData.filmId || film.generation != eventData.filmGeneration ||
+        (film.flags & FILM_ACTIVE) == 0u || film.displacementPage != 0u) return;
+
+    uint prior;
+    InterlockedCompareExchange(_FilmHeaders[filmIndex].displacementPage,
+        0u, ALLOCATION_CLAIM, prior);
+    if (prior != 0u) return;
+    uint pageIndex;
+    InterlockedAdd(_DisplacementAllocator[0], 1u, pageIndex);
+    if (pageIndex >= _BasePageCapacity)
+    {
+        InterlockedAdd(_DisplacementAllocator[2], 1u);
+        _FilmHeaders[filmIndex].displacementPage = 0u;
+        return;
+    }
+
+    DisplacementPageHeader page = (DisplacementPageHeader)0;
+    page.id = pageIndex + 1u;
+    page.generation = max(1u, _DisplacementAllocator[4]);
+    page.filmId = film.id;
+    page.filmGeneration = film.generation;
+    page.level = 0u;
+    page.flags = PAGE_ACTIVE | PAGE_BASE | PAGE_DIRTY;
+    page.uvBounds = float4(0, 0, 1, 1);
+    page.bestFootprintBits = asuint(3.402823466e+38);
+    _DisplacementPages[pageIndex] = page;
+    uint queueSlot;
+    InterlockedAdd(_DisplacementPageState[0], 1u, queueSlot);
+    if (queueSlot < _BasePageCapacity)
+        _NewBasePages[queueSlot] = pageIndex;
+    else
+        InterlockedAdd(_DisplacementPageState[2], 1u);
+    _FilmHeaders[filmIndex].flags |= FILM_HAS_DISPLACEMENT |
+        FILM_DIRTY_GEOMETRY | FILM_DIRTY_MESHLET;
+    DeviceMemoryBarrier();
+    _FilmHeaders[filmIndex].displacementPage = pageIndex + 1u;
+}
+
+[numthreads(1, 1, 1)]
+void BuildDisplacementArguments(uint3 id : SV_DispatchThreadID)
+{
+    uint newBase = min(_DisplacementPageState[0], _BasePageCapacity);
+    uint dirty = min(_DisplacementDirtyState[0],
+        _BaseCellCapacity + _MicroCellCapacity);
+    uint newMicro = min(_DisplacementPageState[1], _MicroPageCapacity);
+    _DisplacementDispatchArguments[0] =
+        uint3((newBase * BASE_CELLS_PER_PAGE + 63u) / 64u, 1u, 1u);
+    _DisplacementDispatchArguments[1] = uint3((dirty + 63u) / 64u, 1u, 1u);
+    _DisplacementDispatchArguments[2] =
+        uint3((newMicro * MICRO_CELLS_PER_PAGE + 63u) / 64u, 1u, 1u);
+    uint topologyDirty = min(_TopologyState[0], _FilmCapacity);
+    _DisplacementDispatchArguments[3] =
+        uint3((topologyDirty + 63u) / 64u, 1u, 1u);
+}
+
+[numthreads(64, 1, 1)]
+void InitializeBasePages(uint3 id : SV_DispatchThreadID)
+{
+    uint pageListIndex = id.x / BASE_CELLS_PER_PAGE;
+    uint localCell = id.x % BASE_CELLS_PER_PAGE;
+    uint pageCount = min(_DisplacementPageState[0], _BasePageCapacity);
+    if (pageListIndex >= pageCount) return;
+    uint pageIndex = _NewBasePages[pageListIndex];
+    if (pageIndex >= _BasePageCapacity) return;
+    DisplacementPageHeader page = _DisplacementPages[pageIndex];
+    ContactFilmHeader film = _FilmHeaders[page.filmId - 1u];
+    uint globalCell = CellForPage(false, pageIndex, localCell);
+    _BaseDisplacementCells[globalCell] = EmptyCell(film.sigmaNormal);
+    _BaseChildPages[globalCell] = 0u;
+    _DisplacementCellDirtyFlags[globalCell] = 0u;
+    uint baseWord = globalCell * WORDS_PER_CELL;
+    [unroll] for (uint word = 0u; word < WORDS_PER_CELL; ++word)
+        _DisplacementCellAccumulator[baseWord + word] =
+            word == 6u ? 0x7f7fffff : 0;
+}
+
+[numthreads(64, 1, 1)]
+void AccumulateDisplacement(uint3 id : SV_DispatchThreadID)
+{
+    uint matchCount = min(_ClassCounters[CLASS_MATCH], _EventCapacity);
+    if (id.x >= matchCount) return;
+    uint eventIndex = _ClassifiedIndices[CLASS_MATCH * _EventCapacity + id.x];
+    ConeEvent eventData = _ConeEvents[eventIndex];
+    if (eventData.classification != CLASS_MATCH || eventData.filmId == 0u ||
+        eventData.measuredRange <= 0.0 || eventData.pressurePrecision <= 0.0)
+        return;
+    uint filmIndex = eventData.filmId - 1u;
+    if (filmIndex >= _FilmCapacity) return;
+    ContactFilmHeader film = _FilmHeaders[filmIndex];
+    if (film.id != eventData.filmId || film.generation != eventData.filmGeneration ||
+        (film.flags & FILM_ACTIVE) == 0u) return;
+
+    uint2 pixel = uint2(eventData.packedPixel & 0xffffu,
+        (eventData.packedPixel >> 16u) & 0x7fffu);
+    uint eye = eventData.packedPixel >> 31u;
+    float3 measuredDepth = LoadRay(pixel, eye) * eventData.measuredRange;
+    float3 measuredChunk = mul(_ChunkFromDepth[eye],
+        float4(measuredDepth, 1.0)).xyz;
+    float3 delta = measuredChunk - film.origin;
+    float u = dot(delta, film.tangentU);
+    float v = dot(delta, film.tangentV);
+    float z = dot(delta, film.normal);
+    float2 uv = float2(u / max(2.0 * film.extentU, 0.002) + 0.5,
+        v / max(2.0 * film.extentV, 0.002) + 0.5);
+    if (any(uv < 0.0) || any(uv > 1.0)) return;
+    uint globalCell;
+    DisplacementPageHeader page;
+    if (!ResolveLeaf(film, uv, globalCell, page)) return;
+    DisplacementCell cell = LoadCell(globalCell);
+    float target = z - Height(film, u, v);
+    float innovation = target - cell.displacement;
+    float bestPressure = max(cell.bestPrecision, eventData.pressurePrecision);
+    float ratio = saturate(eventData.pressurePrecision / max(bestPressure, 1e-8));
+    float gate = saturate((ratio - _QualityFloor) /
+        max(1.0 - _QualityFloor, 1e-4));
+    gate = gate * gate * (3.0 - 2.0 * gate);
+    if (cell.support <= 0.0) gate = 1.0;
+    float huberDelta = max(_MinimumHuber, 2.0 * eventData.combinedSigma);
+    float robust = abs(innovation) <= huberDelta ? 1.0 :
+        huberDelta / max(abs(innovation), 1e-8);
+    float weight = saturate(eventData.confidence) * gate * robust;
+    if (weight <= 0.0) return;
+
+    MarkTopologyDirty(filmIndex);
+    uint topologyWord = filmIndex * WORDS_PER_FILM;
+    if (innovation >= 0.0)
+    {
+        AtomicAddScaled(topologyWord + 0u, weight * innovation, VALUE_SCALE);
+        AtomicAddScaled(topologyWord + 1u, weight, WEIGHT_SCALE);
+    }
+    else
+    {
+        AtomicAddScaled(topologyWord + 2u, weight * innovation, VALUE_SCALE);
+        AtomicAddScaled(topologyWord + 3u, weight, WEIGHT_SCALE);
+    }
+    AtomicAddScaled(topologyWord + 4u, weight * innovation * innovation,
+        VALUE_SCALE);
+    AtomicAddScaled(topologyWord + 5u, weight, WEIGHT_SCALE);
+    AtomicAddScaled(topologyWord + 6u,
+        weight * saturate(eventData.boundaryEvidence), WEIGHT_SCALE);
+    InterlockedAdd(_TopologyAccumulator[topologyWord + 7u], 1);
+
+    MarkCellDirty(globalCell);
+    uint baseWord = globalCell * WORDS_PER_CELL;
+    AtomicAddScaled(baseWord + 0u, weight, WEIGHT_SCALE);
+    AtomicAddScaled(baseWord + 1u, weight * target, VALUE_SCALE);
+    AtomicAddScaled(baseWord + 2u, weight * target * target, VALUE_SCALE);
+    float2 uvSpan = max(page.uvBounds.zw - page.uvBounds.xy, 1e-8);
+    float grid = page.level == 0u ? (float)BASE_GRID : (float)MICRO_GRID;
+    float metricCellArea = max(4.0 * film.extentU * film.extentV *
+        uvSpan.x * uvSpan.y / (grid * grid), 1e-10);
+    float covered = saturate(eventData.footprintArea / metricCellArea);
+    AtomicAddScaled(baseWord + 3u, covered, WEIGHT_SCALE);
+    InterlockedAdd(_DisplacementCellAccumulator[baseWord + 4u], 1);
+    InterlockedMax(_DisplacementCellAccumulator[baseWord + 5u],
+        asint(eventData.pressurePrecision));
+    InterlockedMin(_DisplacementCellAccumulator[baseWord + 6u],
+        asint(max(eventData.footprintArea, 1e-12)));
+    AtomicAddScaled(baseWord + 7u,
+        saturate(eventData.confidence) * max(0.05, ratio), WEIGHT_SCALE);
+    _FilmHeaders[filmIndex].flags |= FILM_DIRTY_GEOMETRY |
+        FILM_DIRTY_MESHLET;
+}
+
+[numthreads(64, 1, 1)]
+void SolveDirtyDisplacement(uint3 id : SV_DispatchThreadID)
+{
+    uint dirtyCount = min(_DisplacementDirtyState[0],
+        _BaseCellCapacity + _MicroCellCapacity);
+    if (id.x >= dirtyCount) return;
+    uint globalCell = _DirtyDisplacementCellIndices[id.x];
+    if (globalCell >= _BaseCellCapacity + _MicroCellCapacity) return;
+    uint baseWord = globalCell * WORDS_PER_CELL;
+    float weight = max(0.0,
+        (float)_DisplacementCellAccumulator[baseWord + 0u] / WEIGHT_SCALE);
+    DisplacementCell cell = LoadCell(globalCell);
+    if (weight > 0.0)
+    {
+        float mean = (float)_DisplacementCellAccumulator[baseWord + 1u] /
+            VALUE_SCALE / weight;
+        float secondMoment = (float)_DisplacementCellAccumulator[baseWord + 2u] /
+            VALUE_SCALE / weight;
+        float frameVariance = max(0.0, secondMoment - mean * mean);
+        float previousSupport = max(0.0, cell.support);
+        float totalSupport = previousSupport + weight;
+        float delta = mean - cell.displacement;
+        float updated = previousSupport > 0.0
+            ? cell.displacement + delta * weight / max(totalSupport, 1e-8)
+            : mean;
+        float combinedVariance = previousSupport > 0.0
+            ? (previousSupport * cell.residualVariance + weight * frameVariance +
+                previousSupport * weight / max(totalSupport, 1e-8) * delta * delta) /
+                max(totalSupport, 1e-8)
+            : frameVariance;
+        float candidateSigma = max(_MinimumSigma,
+            sqrt(max(combinedVariance, _MinimumSigma * _MinimumSigma)) /
+            sqrt(max(1.0, totalSupport * 0.25)));
+        cell.displacement = updated;
+        cell.sigma = previousSupport > 0.0
+            ? min(cell.sigma, candidateSigma)
+            : candidateSigma;
+        cell.support = totalSupport;
+        float frameCoverage = saturate(
+            (float)_DisplacementCellAccumulator[baseWord + 3u] / WEIGHT_SCALE);
+        cell.coverage = saturate(cell.coverage +
+            frameCoverage * (1.0 - cell.coverage));
+        cell.bestPrecision = max(cell.bestPrecision,
+            asfloat(_DisplacementCellAccumulator[baseWord + 5u]));
+        cell.bestFootprint = min(cell.bestFootprint,
+            asfloat(_DisplacementCellAccumulator[baseWord + 6u]));
+        cell.residualVariance = combinedVariance;
+        cell.revision = cell.revision == 0xffffffffu ? 1u : cell.revision + 1u;
+        StoreCell(globalCell, cell);
+
+        bool micro = IsMicroCell(globalCell);
+        uint localIndex = micro ? globalCell - _BaseCellCapacity : globalCell;
+        uint pageIndex = micro ? localIndex / MICRO_CELLS_PER_PAGE :
+            localIndex / BASE_CELLS_PER_PAGE;
+        uint headerIndex = PageHeaderIndex(micro, pageIndex);
+        InterlockedMin(_DisplacementPages[headerIndex].bestFootprintBits,
+            asuint(max(cell.bestFootprint, 1e-12)));
+        InterlockedMax(_DisplacementPages[headerIndex].maximumVarianceBits,
+            asuint(max(cell.residualVariance, 0.0)));
+        InterlockedAdd(_DisplacementPages[headerIndex].supportFixed,
+            (uint)max(0.0, round(weight * WEIGHT_SCALE)));
+        InterlockedAdd(_DisplacementPages[headerIndex].revision, 1u);
+        _DisplacementPages[headerIndex].flags |= PAGE_DIRTY;
+    }
+
+    [unroll] for (uint word = 0u; word < WORDS_PER_CELL; ++word)
+        _DisplacementCellAccumulator[baseWord + word] =
+            word == 6u ? 0x7f7fffff : 0;
+}
+
+[numthreads(64, 1, 1)]
+void AllocateMicrotiles(uint3 id : SV_DispatchThreadID)
+{
+    uint dirtyCount = min(_DisplacementDirtyState[0],
+        _BaseCellCapacity + _MicroCellCapacity);
+    if (id.x >= dirtyCount) return;
+    uint globalCell = _DirtyDisplacementCellIndices[id.x];
+    if (globalCell >= _BaseCellCapacity + _MicroCellCapacity) return;
+    bool sourceMicro = IsMicroCell(globalCell);
+    uint sourceIndex = sourceMicro ? globalCell - _BaseCellCapacity : globalCell;
+    uint sourcePage = sourceMicro ? sourceIndex / MICRO_CELLS_PER_PAGE :
+        sourceIndex / BASE_CELLS_PER_PAGE;
+    uint localCell = sourceMicro ? sourceIndex % MICRO_CELLS_PER_PAGE :
+        sourceIndex % BASE_CELLS_PER_PAGE;
+    uint headerIndex = PageHeaderIndex(sourceMicro, sourcePage);
+    DisplacementPageHeader parent = _DisplacementPages[headerIndex];
+    DisplacementCell cell = LoadCell(globalCell);
+    if ((parent.flags & PAGE_ACTIVE) == 0u ||
+        parent.level >= _MaximumMicroLevels || cell.support < 2.0 ||
+        !isfinite(cell.bestFootprint))
+    {
+        _DisplacementCellDirtyFlags[globalCell] = 0u;
+        return;
+    }
+    ContactFilmHeader film = _FilmHeaders[parent.filmId - 1u];
+    uint grid = sourceMicro ? MICRO_GRID : BASE_GRID;
+    uint cellX = localCell % grid;
+    uint cellY = localCell / grid;
+    float2 parentSpan = parent.uvBounds.zw - parent.uvBounds.xy;
+    float2 cellSpan = parentSpan / (float)grid;
+    float metricWidth = length(float2(2.0 * film.extentU * cellSpan.x,
+        2.0 * film.extentV * cellSpan.y));
+    bool footprintSupports = sqrt(max(cell.bestFootprint, 0.0)) <
+        metricWidth * _RefinementFootprintRatio;
+    bool shapeSupports = cell.residualVariance >= _RefinementVariance ||
+        (film.boundaryCount > 0u &&
+         cell.residualVariance >= _RefinementVariance * 0.25);
+    if (!footprintSupports || !shapeSupports)
+    {
+        _DisplacementCellDirtyFlags[globalCell] = 0u;
+        return;
+    }
+
+    uint prior;
+    if (sourceMicro)
+        InterlockedCompareExchange(_MicroChildPages[sourceIndex], 0u,
+            ALLOCATION_CLAIM, prior);
+    else
+        InterlockedCompareExchange(_BaseChildPages[sourceIndex], 0u,
+            ALLOCATION_CLAIM, prior);
+    if (prior != 0u)
+    {
+        _DisplacementCellDirtyFlags[globalCell] = 0u;
+        return;
+    }
+    uint microPage;
+    InterlockedAdd(_DisplacementAllocator[1], 1u, microPage);
+    if (microPage >= _MicroPageCapacity)
+    {
+        InterlockedAdd(_DisplacementAllocator[3], 1u);
+        StoreChild(globalCell, 0u);
+        _DisplacementCellDirtyFlags[globalCell] = 0u;
+        return;
+    }
+
+    DisplacementPageHeader child = (DisplacementPageHeader)0;
+    child.id = microPage + 1u;
+    child.generation = max(1u, _DisplacementAllocator[4]);
+    child.filmId = parent.filmId;
+    child.filmGeneration = parent.filmGeneration;
+    child.level = parent.level + 1u;
+    child.parentPage = headerIndex + 1u;
+    child.parentCell = localCell;
+    child.flags = PAGE_ACTIVE | PAGE_MICRO | PAGE_DIRTY;
+    child.uvBounds = float4(
+        parent.uvBounds.xy + float2(cellX, cellY) * cellSpan,
+        parent.uvBounds.xy + float2(cellX + 1u, cellY + 1u) * cellSpan);
+    child.bestFootprintBits = asuint(3.402823466e+38);
+    _DisplacementPages[PageHeaderIndex(true, microPage)] = child;
+    uint queueSlot;
+    InterlockedAdd(_DisplacementPageState[1], 1u, queueSlot);
+    if (queueSlot < _MicroPageCapacity)
+        _NewMicroPages[queueSlot] = microPage;
+    else
+        InterlockedAdd(_DisplacementPageState[3], 1u);
+    DeviceMemoryBarrier();
+    StoreChild(globalCell, microPage + 1u);
+    _DisplacementCellDirtyFlags[globalCell] = 0u;
+}
+
+[numthreads(64, 1, 1)]
+void InitializeMicroPages(uint3 id : SV_DispatchThreadID)
+{
+    uint pageListIndex = id.x / MICRO_CELLS_PER_PAGE;
+    uint localCell = id.x % MICRO_CELLS_PER_PAGE;
+    uint pageCount = min(_DisplacementPageState[1], _MicroPageCapacity);
+    if (pageListIndex >= pageCount) return;
+    uint pageIndex = _NewMicroPages[pageListIndex];
+    if (pageIndex >= _MicroPageCapacity) return;
+    DisplacementPageHeader page =
+        _DisplacementPages[PageHeaderIndex(true, pageIndex)];
+    ContactFilmHeader film = _FilmHeaders[page.filmId - 1u];
+    uint microCell = pageIndex * MICRO_CELLS_PER_PAGE + localCell;
+    uint globalCell = _BaseCellCapacity + microCell;
+    DisplacementCell inherited = EmptyCell(film.sigmaNormal);
+    if (page.parentPage > 0u)
+    {
+        uint parentHeaderIndex = page.parentPage - 1u;
+        bool parentMicro = parentHeaderIndex >= _BasePageCapacity;
+        uint parentPage = parentMicro ? parentHeaderIndex - _BasePageCapacity :
+            parentHeaderIndex;
+        uint parentGlobalCell = CellForPage(parentMicro, parentPage,
+            page.parentCell);
+        inherited = LoadCell(parentGlobalCell);
+        // The parent posterior is a spatial prior for the 8x8 children, not
+        // 64 independent copies of the same evidence.  Partition support so
+        // refinement cannot manufacture information merely by allocating a page.
+        inherited.support /= (float)MICRO_CELLS_PER_PAGE;
+        inherited.coverage = 0.0;
+        inherited.revision = 0u;
+    }
+    _MicroDisplacementCells[microCell] = inherited;
+    _MicroChildPages[microCell] = 0u;
+    _DisplacementCellDirtyFlags[globalCell] = 0u;
+    uint baseWord = globalCell * WORDS_PER_CELL;
+    [unroll] for (uint word = 0u; word < WORDS_PER_CELL; ++word)
+        _DisplacementCellAccumulator[baseWord + word] =
+            word == 6u ? 0x7f7fffff : 0;
+}
+
+[numthreads(64, 1, 1)]
+void SolveTopologyEvidence(uint3 id : SV_DispatchThreadID)
+{
+    uint dirtyCount = min(_TopologyState[0], _FilmCapacity);
+    if (id.x >= dirtyCount) return;
+    uint filmIndex = _DirtyTopologyIndices[id.x];
+    if (filmIndex >= _FilmCapacity) return;
+    uint baseWord = filmIndex * WORDS_PER_FILM;
+    float positiveWeight = max(0.0,
+        (float)_TopologyAccumulator[baseWord + 1u] / WEIGHT_SCALE);
+    float negativeWeight = max(0.0,
+        (float)_TopologyAccumulator[baseWord + 3u] / WEIGHT_SCALE);
+    float frameWeight = max(0.0,
+        (float)_TopologyAccumulator[baseWord + 5u] / WEIGHT_SCALE);
+    ContactTopologyEvidence evidence = _TopologyEvidence[filmIndex];
+    if (positiveWeight > 0.0)
+    {
+        float mean = (float)_TopologyAccumulator[baseWord + 0u] /
+            VALUE_SCALE / positiveWeight;
+        evidence.positiveMoment += mean * positiveWeight;
+        evidence.positiveSupport += positiveWeight;
+    }
+    if (negativeWeight > 0.0)
+    {
+        float mean = (float)_TopologyAccumulator[baseWord + 2u] /
+            VALUE_SCALE / negativeWeight;
+        evidence.negativeMoment += mean * negativeWeight;
+        evidence.negativeSupport += negativeWeight;
+    }
+    if (frameWeight > 0.0)
+    {
+        float secondMoment = (float)_TopologyAccumulator[baseWord + 4u] /
+            VALUE_SCALE / frameWeight;
+        float previous = evidence.totalSupport;
+        evidence.residualVariance = previous > 0.0
+            ? (evidence.residualVariance * previous + secondMoment * frameWeight) /
+                max(previous + frameWeight, 1e-8)
+            : secondMoment;
+        evidence.boundarySupport +=
+            (float)_TopologyAccumulator[baseWord + 6u] / WEIGHT_SCALE;
+        evidence.totalSupport += frameWeight;
+        evidence.revision = evidence.revision == 0xffffffffu ? 1u :
+            evidence.revision + 1u;
+        // Cap old evidence without changing its means.  This lets topology react
+        // to sustained new contacts while retaining a durable multi-view prior.
+        if (evidence.totalSupport > 256.0)
+        {
+            const float decay = 0.75;
+            evidence.positiveMoment *= decay;
+            evidence.positiveSupport *= decay;
+            evidence.negativeMoment *= decay;
+            evidence.negativeSupport *= decay;
+            evidence.boundarySupport *= decay;
+            evidence.totalSupport *= decay;
+        }
+        _TopologyEvidence[filmIndex] = evidence;
+    }
+    [unroll] for (uint word = 0u; word < WORDS_PER_FILM; ++word)
+        _TopologyAccumulator[baseWord + word] = 0;
+    _TopologyDirtyFlags[filmIndex] = 0u;
+}

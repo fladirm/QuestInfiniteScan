@@ -56,11 +56,18 @@ Updated: 2026-08-20 (Europe/Prague)
   conservative. Persistent curves protect association and snap adaptive meshlet
   vertices without CPU traversal/readback. PRISM format v2 stores the expanded
   resumable boundary state.
-- `Q3-11` is active: add sparse hierarchical displacement pages and topology queues,
-  then preserve posterior/boundary state through split/merge rather than treating
-  the quadratic base or Grid16 as a detail ceiling.
-- Foundations already implemented ahead of their formal DAG position: Q3-12 has a
-  bounded curvature/sigma-adaptive indirect meshlet builder; Q3-13 has a strict
+- `Q3-11` is implemented. A segmented GPU Grid16/Grid8 hierarchy stores measured
+  displacement, sigma, support, coverage, residual modes, best precision and best
+  footprint without any binding exceeding 128 MiB. Close/precise observations resist
+  weaker later pressure. GPU-indirect split/merge transforms quadratic H/g posterior,
+  support, microdetail, generations, and multi-segment ContactBoundaries rather than
+  discarding them. Derived meshlets sample the deepest detail and its normal derivative.
+  Unity imported all kernels and passed 104/104 runnable tests (3 intentionally skipped).
+- `Q3-12` is active: replace the current whole-generation adaptive builder with
+  generation-safe dirty meshlet arenas, exact boundary clipping, independent dynamic
+  geometry/appearance LOD, frustum/Hi-Z culling, and fully indirect visible draw lists.
+- Foundations already implemented ahead of their formal DAG position: Q3-12 already has a
+  bounded curvature/sigma/displacement-aware indirect meshlet builder; Q3-13 has a strict
   native canonical chunk codec, fenced asynchronous GPU snapshot capture, and
   atomic `WorldStore` publication. These runs stay pending until their remaining
   acceptance work is complete.
@@ -105,12 +112,12 @@ Remove from the shipped product after PRISM parity:
 
 ## Immediate implementation actions
 
-1. Implement Q3-11 sparse hierarchical displacement and lossless split/merge while
-   preserving posterior statistics and boundary relations.
-2. Complete adaptive boundary-aware indirect meshlets and PRISM page rehydration
+1. Complete Q3-12 adaptive boundary-aware generation-safe meshlets, GPU culling,
+   dynamic LOD, and indirect visible draw publication.
+2. Complete PRISM page rehydration
    while keeping the scan hot path GPU-only.
-3. Batch the first physical Quest validation only after multilayer films,
-   boundaries, adaptive meshlets, and preview form one useful vertical slice.
+3. Batch the first physical Quest validation after Q3-12, when multilayer films,
+   boundaries, displacement, adaptive meshlets, and preview form one useful vertical slice.
 
 ## Safety
 

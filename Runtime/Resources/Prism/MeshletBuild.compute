@@ -77,10 +77,44 @@ struct BoundaryHashEntry
     uint boundaryId;
 };
 
+struct DisplacementPageHeader
+{
+    uint id;
+    uint generation;
+    uint filmId;
+    uint filmGeneration;
+    uint level;
+    uint parentPage;
+    uint parentCell;
+    uint flags;
+    float4 uvBounds;
+    uint bestFootprintBits;
+    uint maximumVarianceBits;
+    uint supportFixed;
+    uint revision;
+};
+
+struct DisplacementCell
+{
+    float displacement;
+    float sigma;
+    float support;
+    float coverage;
+    float bestPrecision;
+    float bestFootprint;
+    float residualVariance;
+    uint revision;
+};
+
 StructuredBuffer<ContactFilmHeader> _FilmHeaders;
 StructuredBuffer<uint> _FilmAllocator;
 StructuredBuffer<ContactBoundaryHeader> _BoundaryHeaders;
 StructuredBuffer<BoundaryHashEntry> _BoundaryHash;
+StructuredBuffer<DisplacementPageHeader> _DisplacementPages;
+StructuredBuffer<DisplacementCell> _BaseDisplacementCells;
+StructuredBuffer<DisplacementCell> _MicroDisplacementCells;
+StructuredBuffer<uint> _BaseChildPages;
+StructuredBuffer<uint> _MicroChildPages;
 RWStructuredBuffer<ContactMeshletVertex> _ContactVertices;
 RWStructuredBuffer<uint> _ContactIndices;
 RWStructuredBuffer<uint4> _DrawArguments;
@@ -94,11 +128,106 @@ float _MinimumTessellationError;
 uint _HasBoundaries;
 uint _BoundaryHashMask;
 uint _BoundaryCellsPerAxis;
+uint _HasDisplacement;
+uint _BasePageCapacity;
+uint _MicroPageCapacity;
+uint _BaseCellCapacity;
+uint _MaximumMicroLevels;
 
 static const uint FILM_ACTIVE = 1u;
 static const uint BOUNDARY_ACTIVE = 1u;
 static const uint BOUNDARY_PERSISTENT = 8u;
 static const uint VERTEX_BOUNDARY = 1u << 8u;
+static const uint FILM_HAS_DISPLACEMENT = 1u << 5u;
+static const uint PAGE_ACTIVE = 1u;
+static const uint BASE_GRID = 16u;
+static const uint MICRO_GRID = 8u;
+static const uint BASE_CELLS_PER_PAGE = 256u;
+static const uint MICRO_CELLS_PER_PAGE = 64u;
+static const uint ALLOCATION_CLAIM = 0xffffffffu;
+
+DisplacementCell LoadDisplacementCell(bool micro, uint pageIndex, uint localCell)
+{
+    return micro
+        ? _MicroDisplacementCells[pageIndex * MICRO_CELLS_PER_PAGE + localCell]
+        : _BaseDisplacementCells[pageIndex * BASE_CELLS_PER_PAGE + localCell];
+}
+
+uint LoadDisplacementChild(bool micro, uint pageIndex, uint localCell)
+{
+    return micro
+        ? _MicroChildPages[pageIndex * MICRO_CELLS_PER_PAGE + localCell]
+        : _BaseChildPages[pageIndex * BASE_CELLS_PER_PAGE + localCell];
+}
+
+bool ResolveDisplacementPage(ContactFilmHeader film, float2 uv,
+    out bool micro, out uint pageIndex, out DisplacementPageHeader page)
+{
+    micro = false;
+    pageIndex = 0u;
+    page = (DisplacementPageHeader)0;
+    if (_HasDisplacement == 0u ||
+        (film.flags & FILM_HAS_DISPLACEMENT) == 0u ||
+        film.displacementPage == 0u ||
+        film.displacementPage == ALLOCATION_CLAIM)
+        return false;
+    pageIndex = film.displacementPage - 1u;
+    if (pageIndex >= _BasePageCapacity) return false;
+    page = _DisplacementPages[pageIndex];
+    if ((page.flags & PAGE_ACTIVE) == 0u || page.filmId != film.id ||
+        page.filmGeneration != film.generation) return false;
+
+    float2 normalized = saturate(uv);
+    [loop]
+    for (uint level = 0u; level < _MaximumMicroLevels; ++level)
+    {
+        float2 span = max(page.uvBounds.zw - page.uvBounds.xy, 1e-8);
+        float2 localUv = saturate((normalized - page.uvBounds.xy) / span);
+        uint grid = micro ? MICRO_GRID : BASE_GRID;
+        uint2 cell = min((uint2)(localUv * (float)grid), grid - 1u);
+        uint childHandle = LoadDisplacementChild(micro, pageIndex,
+            cell.y * grid + cell.x);
+        if (childHandle == 0u || childHandle == ALLOCATION_CLAIM) break;
+        uint childIndex = childHandle - 1u;
+        if (childIndex >= _MicroPageCapacity) break;
+        DisplacementPageHeader child =
+            _DisplacementPages[_BasePageCapacity + childIndex];
+        if ((child.flags & PAGE_ACTIVE) == 0u || child.filmId != film.id ||
+            child.filmGeneration != film.generation) break;
+        micro = true;
+        pageIndex = childIndex;
+        page = child;
+    }
+    return true;
+}
+
+float SampleDisplacement(ContactFilmHeader film, float2 uv)
+{
+    bool micro;
+    uint pageIndex;
+    DisplacementPageHeader page;
+    if (!ResolveDisplacementPage(film, uv, micro, pageIndex, page)) return 0.0;
+    uint grid = micro ? MICRO_GRID : BASE_GRID;
+    float2 span = max(page.uvBounds.zw - page.uvBounds.xy, 1e-8);
+    float2 localUv = saturate((uv - page.uvBounds.xy) / span);
+    float2 samplePosition = localUv * (float)grid - 0.5;
+    int2 lower = (int2)floor(samplePosition);
+    float2 fraction = frac(samplePosition);
+    uint2 p00 = (uint2)clamp(lower, 0, (int)grid - 1);
+    uint2 p10 = uint2(min(p00.x + 1u, grid - 1u), p00.y);
+    uint2 p01 = uint2(p00.x, min(p00.y + 1u, grid - 1u));
+    uint2 p11 = min(p00 + 1u, grid - 1u);
+    float d00 = LoadDisplacementCell(micro, pageIndex,
+        p00.y * grid + p00.x).displacement;
+    float d10 = LoadDisplacementCell(micro, pageIndex,
+        p10.y * grid + p10.x).displacement;
+    float d01 = LoadDisplacementCell(micro, pageIndex,
+        p01.y * grid + p01.x).displacement;
+    float d11 = LoadDisplacementCell(micro, pageIndex,
+        p11.y * grid + p11.x).displacement;
+    return lerp(lerp(d00, d10, fraction.x),
+        lerp(d01, d11, fraction.x), fraction.y);
+}
 
 uint BoundaryHashKey(uint filmId, uint generation, uint cellKey)
 {
@@ -167,19 +296,33 @@ bool ClosestBoundaryPoint(ContactFilmHeader film, float2 uv,
     return bestDistance <= 0.55 / (float)cells;
 }
 
-float Height(ContactFilmHeader film, float u, float v)
+float Height(ContactFilmHeader film, float u, float v, float2 uv)
 {
     return film.quadratic0123.x + film.quadratic0123.y * u +
         film.quadratic0123.z * v + film.quadratic0123.w * u * u +
-        film.quadratic45.x * u * v + film.quadratic45.y * v * v;
+        film.quadratic45.x * u * v + film.quadratic45.y * v * v +
+        SampleDisplacement(film, uv);
 }
 
-float3 SurfaceNormal(ContactFilmHeader film, float u, float v)
+float3 SurfaceNormal(ContactFilmHeader film, float u, float v, float2 uv)
 {
     float dhdu = film.quadratic0123.y + 2.0 * film.quadratic0123.w * u +
         film.quadratic45.x * v;
     float dhdv = film.quadratic0123.z + film.quadratic45.x * u +
         2.0 * film.quadratic45.y * v;
+    const float epsilon = 1.0 / 1024.0;
+    float left = SampleDisplacement(film,
+        float2(max(0.0, uv.x - epsilon), uv.y));
+    float right = SampleDisplacement(film,
+        float2(min(1.0, uv.x + epsilon), uv.y));
+    float down = SampleDisplacement(film,
+        float2(uv.x, max(0.0, uv.y - epsilon)));
+    float up = SampleDisplacement(film,
+        float2(uv.x, min(1.0, uv.y + epsilon)));
+    dhdu += (right - left) /
+        max(4.0 * film.extentU * epsilon, 1e-8);
+    dhdv += (up - down) /
+        max(4.0 * film.extentV * epsilon, 1e-8);
     float3 du = film.tangentU + dhdu * film.normal;
     float3 dv = film.tangentV + dhdv * film.normal;
     float3 n = normalize(cross(du, dv));
@@ -215,6 +358,8 @@ uint ChooseSubdivision(ContactFilmHeader film)
         min(0.01, film.sigmaNormal * 0.5));
     float required = sqrt(max(1.0, curvatureSag / targetError));
     if (film.boundaryCount > 0u) required = max(required, 4.0);
+    if ((film.flags & FILM_HAS_DISPLACEMENT) != 0u)
+        required = max(required, 16.0);
     uint segments = 1u;
     [loop]
     while ((float)segments < required && segments < _MaximumSubdivision)
@@ -278,9 +423,9 @@ void BuildAdaptiveFilmMeshlets(uint3 id : SV_DispatchThreadID)
             float v = lerp(-film.extentV, film.extentV, surfaceUv.y);
             ContactMeshletVertex vertex;
             vertex.position = film.origin + u * film.tangentU + v * film.tangentV +
-                Height(film, u, v) * film.normal;
+                Height(film, u, v, surfaceUv) * film.normal;
             vertex.filmId = film.id;
-            vertex.normal = SurfaceNormal(film, u, v);
+            vertex.normal = SurfaceNormal(film, u, v, surfaceUv);
             vertex.generation = film.generation;
             vertex.uv = surfaceUv;
             vertex.sigma = film.sigmaNormal;

@@ -22,3 +22,15 @@ Assistant: Reported 9/22 formally accepted runs and roughly 55-60% weighted work
 remaining. Then completed Q3-10's GPU multi-view RGB/depth boundary posterior, 3D
 cubic controls, conservative promotion/retirement, association protection, and
 boundary-aware meshlet snapping; Unity compilation and 10/10 focused tests passed.
+
+## Exchange 3
+
+User: Repeatedly requested concrete implementation progress and a percentage, while
+requiring the permanent code file/function graph to remain current after every task.
+
+Assistant: Completed Q3-11 rather than only reporting it. Added segmented hierarchical
+Grid16/Grid8 displacement with close-view quality resistance, persistent bimodal
+evidence, GPU-indirect posterior-preserving film split, multi-segment boundary transfer,
+conservative stable-plane merge, and displacement-aware meshlet positions/normals.
+Unity 6000.5.9f1 passed 104/104 runnable EditMode tests; Q3-12 is now active and the
+code graph was regenerated at task close.

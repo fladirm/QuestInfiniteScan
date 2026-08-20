@@ -204,7 +204,7 @@
     {
       "id": "Q3-11",
       "title": "Implement ContactFilm split/merge and hierarchical displacement microtiles",
-      "status": "in_progress",
+      "status": "done",
       "depends_on": ["Q3-10"],
       "acceptance": [
         "Quadratic residual updates logical Grid16 displacement with information/sigma/support/coverage and monotonic quality",
@@ -213,12 +213,18 @@
         "Merge requires compatible sidedness/continuation/normal/appearance and no persistent boundary",
         "Planes simplify while pipes, frames, folds, gaps, relief, and thin detail remain geometrically faithful"
       ],
-      "evidence": []
+      "evidence": [
+        "ContactDisplacementPool and DisplacementTopology.compute implement bounded segmented Grid16/Grid8 pages with per-cell displacement, sigma, support, coverage, residual variance, best precision/footprint, lazy GPU allocation, and recursive footprint-supported microtiles",
+        "The displacement posterior uses the same pressure-quality envelope as the quadratic film solve: weaker distant/grazing observations can add bounded support but cannot inflate sigma or overwrite a more precise close-view displacement",
+        "TopologyAdapt.compute persists signed residual modes and performs GPU-indirect 2-to-4-way adaptation: split transforms each child's 6x6 H/g posterior, quadratic frame, support, topology evidence, displacement, and canonical boundary segments without CPU traversal/readback",
+        "Conservative spatial-hash merge requires stable low-variance support, identical sidedness/appearance ownership, <3 degree normal/tangent continuation, metric surface overlap, zero canonical boundaries, and creates a new generation while retaining retired source posteriors until derived detail is materialized",
+        "PrismMeshletBuilder samples the deepest resident displacement page with bilinear filtering and displacement derivatives for geometry/normals; Unity 6000.5.9f1 imported every kernel and passed 104/104 runnable EditMode tests (3 intentionally skipped): /mnt/kingston-unity/Unity/Projects/QuestInfiniteScanHost/Logs/cone-prism-q3-11-final-tests.xml"
+      ]
     },
     {
       "id": "Q3-12",
       "title": "Implement adaptive ContactFilm meshlets, culling, dynamic LOD, and indirect rendering",
-      "status": "pending",
+      "status": "in_progress",
       "depends_on": ["Q3-11"],
       "acceptance": [
         "ContactFilms and ContactBoundaries materialize entirely on GPU into inactive generation-safe meshlet buffers",

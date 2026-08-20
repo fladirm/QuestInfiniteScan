@@ -13,7 +13,11 @@ namespace Genesis.RoomScan.Prism
         OneSided = 1u << 1,
         Uncertain = 1u << 2,
         DirtyGeometry = 1u << 3,
-        DirtyMeshlet = 1u << 4
+        DirtyMeshlet = 1u << 4,
+        HasDisplacement = 1u << 5,
+        SplitParent = 1u << 6,
+        Retired = 1u << 7,
+        TopologyLocked = 1u << 8
     }
 
     [StructLayout(LayoutKind.Sequential)]

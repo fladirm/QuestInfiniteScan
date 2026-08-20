@@ -42,6 +42,7 @@ namespace Genesis.RoomScan.Editor
         PrismFilmSpawner _prismFilmSpawner;
         PrismFilmUpdater _prismFilmUpdater;
         PrismBoundaryGraph _prismBoundaryGraph;
+        PrismDisplacementTopology _prismDisplacementTopology;
         PrismMeshletBuilder _prismMeshletBuilder;
         PassthroughCameraAccess _pcaComponent;
         CameraDebugOverlay _cameraDebug;
@@ -132,6 +133,7 @@ namespace Genesis.RoomScan.Editor
             _prismFilmSpawner = FindAny<PrismFilmSpawner>();
             _prismFilmUpdater = FindAny<PrismFilmUpdater>();
             _prismBoundaryGraph = FindAny<PrismBoundaryGraph>();
+            _prismDisplacementTopology = FindAny<PrismDisplacementTopology>();
             _prismMeshletBuilder = FindAny<PrismMeshletBuilder>();
             _pcaComponent = FindAny<PassthroughCameraAccess>();
             _cameraDebug = FindAny<CameraDebugOverlay>();
@@ -969,6 +971,8 @@ namespace Genesis.RoomScan.Editor
                 Undo.AddComponent<PrismFilmUpdater>(root);
             if (root.GetComponent<PrismBoundaryGraph>() == null)
                 Undo.AddComponent<PrismBoundaryGraph>(root);
+            if (root.GetComponent<PrismDisplacementTopology>() == null)
+                Undo.AddComponent<PrismDisplacementTopology>(root);
             if (root.GetComponent<PrismMeshletBuilder>() == null)
                 Undo.AddComponent<PrismMeshletBuilder>(root);
 
@@ -1001,6 +1005,8 @@ namespace Genesis.RoomScan.Editor
                 Undo.AddComponent<PrismFilmUpdater>(root);
             if (root.GetComponent<PrismBoundaryGraph>() == null)
                 Undo.AddComponent<PrismBoundaryGraph>(root);
+            if (root.GetComponent<PrismDisplacementTopology>() == null)
+                Undo.AddComponent<PrismDisplacementTopology>(root);
             if (root.GetComponent<PrismMeshletBuilder>() == null)
                 Undo.AddComponent<PrismMeshletBuilder>(root);
 
@@ -1366,6 +1372,8 @@ namespace Genesis.RoomScan.Editor
                 Undo.AddComponent<PrismFilmUpdater>(root);
             if (root.GetComponent<PrismBoundaryGraph>() == null)
                 Undo.AddComponent<PrismBoundaryGraph>(root);
+            if (root.GetComponent<PrismDisplacementTopology>() == null)
+                Undo.AddComponent<PrismDisplacementTopology>(root);
             if (root.GetComponent<PrismMeshletBuilder>() == null)
                 Undo.AddComponent<PrismMeshletBuilder>(root);
 
