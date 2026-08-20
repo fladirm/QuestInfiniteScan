@@ -1,8 +1,12 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
+using Genesis.RoomScan.World;
 using UnityEngine;
 using UnityEngine.Rendering;
 
@@ -42,9 +46,25 @@ namespace Genesis.RoomScan
         private float _prevRotTime;
         private float _lastCaptureTime;
         private bool _initialized;
+        private readonly object _manifestGate = new();
+        private string _chunkId = string.Empty;
+        private int _chunkRevision;
+        private RigidPoseData _worldFromCaptureFrame = RigidPoseData.Identity;
+        private bool _captureInChunkSpace;
+        private bool _captureEnabled = true;
 
         /// <summary>Number of keyframes saved so far in this session.</summary>
         public int SavedCount => _nextId;
+
+        public int PendingWriteCount => Volatile.Read(ref _pendingWrites);
+
+        public string ChunkId => _chunkId;
+
+        public bool CaptureEnabled
+        {
+            get => _captureEnabled;
+            set => _captureEnabled = value;
+        }
 
         /// <summary>Absolute path to the keyframe export directory on device.</summary>
         public string ExportDirectory => _exportDir;
@@ -67,6 +87,60 @@ namespace Genesis.RoomScan
         /// Pass null to disable keyframe capture.
         /// </summary>
         public void SetExportDirectory(string dir)
+        {
+            _chunkId = string.Empty;
+            _chunkRevision = 0;
+            _worldFromCaptureFrame = RigidPoseData.Identity;
+            _captureInChunkSpace = false;
+            ConfigureDirectory(dir);
+        }
+
+        /// <summary>
+        /// Routes subsequent frames into one chunk working directory and stores camera poses
+        /// in that chunk's local coordinate frame. Switching chunks resets motion selection;
+        /// append mode keeps monotonically increasing image IDs for revisit observations.
+        /// Call only after <see cref="WaitForPendingWritesAsync"/> succeeds.
+        /// </summary>
+        public void SetChunkContext(string dir, string chunkId, int chunkRevision,
+            RigidPoseData worldFromChunk, bool appendExisting)
+        {
+            if (string.IsNullOrEmpty(chunkId))
+                throw new ArgumentException("Chunk identifier is required.", nameof(chunkId));
+            _chunkId = chunkId;
+            _chunkRevision = chunkRevision;
+            _worldFromCaptureFrame = worldFromChunk;
+            _captureInChunkSpace = true;
+            _savedPositions.Clear();
+            _savedRotations.Clear();
+            _nextId = 0;
+            ConfigureDirectory(dir);
+            if (appendExisting && !string.IsNullOrEmpty(_manifestPath))
+                _nextId = FindNextFrameId(_manifestPath);
+        }
+
+        /// <summary>
+        /// Updates only the world placement of the current immutable chunk frame after a
+        /// pose-graph correction. Existing and future keyframe poses remain chunk-local;
+        /// capture numbering and motion selection are intentionally not reset.
+        /// </summary>
+        public bool TryUpdateChunkWorldPose(string chunkId,
+            RigidPoseData worldFromChunk)
+        {
+            if (!_captureInChunkSpace || string.IsNullOrEmpty(chunkId) ||
+                !string.Equals(_chunkId, chunkId, StringComparison.Ordinal))
+                return false;
+            Vector3 position = worldFromChunk.position;
+            Quaternion rotation = worldFromChunk.rotation;
+            float norm = rotation.x * rotation.x + rotation.y * rotation.y +
+                         rotation.z * rotation.z + rotation.w * rotation.w;
+            if (!Finite(position.x) || !Finite(position.y) || !Finite(position.z) ||
+                !Finite(norm) || Mathf.Abs(norm - 1f) > 0.01f)
+                return false;
+            _worldFromCaptureFrame = worldFromChunk;
+            return true;
+        }
+
+        private void ConfigureDirectory(string dir)
         {
             if (string.IsNullOrEmpty(dir))
             {
@@ -102,7 +176,7 @@ namespace Genesis.RoomScan
         public void TrySaveKeyframe(Texture frame, Vector3 pos, Quaternion rot,
             Vector2 focalLen, Vector2 principalPt, Vector2 sensorRes, Vector2 currentRes)
         {
-            if (!_initialized || frame == null || _exportDir == null) return;
+            if (!_initialized || !_captureEnabled || frame == null || _exportDir == null) return;
 
             if (Time.time - _lastCaptureTime < minCaptureInterval) return;
 
@@ -115,26 +189,46 @@ namespace Genesis.RoomScan
                 if (angVel > maxAngularVelocity) return;
             }
 
-            if (!ShouldCapture(pos, rot)) return;
+            Pose capturePose = _captureInChunkSpace
+                ? ConvertWorldPoseToFrame(new Pose(pos, rot), _worldFromCaptureFrame)
+                : new Pose(pos, rot);
+
+            if (!ShouldCapture(capturePose.position, capturePose.rotation)) return;
 
             int id = _nextId++;
-            _savedPositions.Add(pos);
-            _savedRotations.Add(rot);
+            _savedPositions.Add(capturePose.position);
+            _savedRotations.Add(capturePose.rotation);
             _lastCaptureTime = Time.time;
 
             float timestamp = Time.realtimeSinceStartup;
+            string imagesDir = _imagesDir;
+            string manifestPath = _manifestPath;
+            string chunkId = _chunkId;
+            int chunkRevision = _chunkRevision;
 
             if (frame is RenderTexture rt)
             {
-                _pendingWrites++;
+                Interlocked.Increment(ref _pendingWrites);
                 AsyncGPUReadback.Request(rt, 0, TextureFormat.RGBA32, req =>
-                    OnReadbackComplete(req, id, timestamp, pos, rot,
-                        focalLen, principalPt, sensorRes, currentRes));
+                    OnReadbackComplete(req, id, timestamp, capturePose.position,
+                        capturePose.rotation, focalLen, principalPt, sensorRes, currentRes,
+                        imagesDir, manifestPath, chunkId, chunkRevision));
             }
             else if (frame is Texture2D tex2d)
             {
-                SaveKeyframeData(tex2d.EncodeToJPG(jpegQuality), id, timestamp,
-                    pos, rot, focalLen, principalPt, sensorRes, currentRes);
+                Interlocked.Increment(ref _pendingWrites);
+                try
+                {
+                    QueueKeyframeWrite(tex2d.EncodeToJPG(jpegQuality), id, timestamp,
+                        capturePose.position, capturePose.rotation, focalLen, principalPt,
+                        sensorRes, currentRes, imagesDir, manifestPath, chunkId, chunkRevision);
+                }
+                catch (Exception exception)
+                {
+                    Logger.Error($"KeyframeCollector: encode error frame {id}: " +
+                                 exception.Message);
+                    Interlocked.Decrement(ref _pendingWrites);
+                }
             }
         }
 
@@ -152,12 +246,13 @@ namespace Genesis.RoomScan
 
         private void OnReadbackComplete(AsyncGPUReadbackRequest req, int id, float timestamp,
             Vector3 pos, Quaternion rot, Vector2 focalLen, Vector2 principalPt,
-            Vector2 sensorRes, Vector2 currentRes)
+            Vector2 sensorRes, Vector2 currentRes, string imagesDir, string manifestPath,
+            string chunkId, int chunkRevision)
         {
-            _pendingWrites--;
             if (req.hasError)
             {
                 Logger.Warning($"KeyframeCollector: readback error for frame {id}");
+                Interlocked.Decrement(ref _pendingWrites);
                 return;
             }
 
@@ -170,49 +265,61 @@ namespace Genesis.RoomScan
                 byte[] jpg = tex.EncodeToJPG(jpegQuality);
                 Destroy(tex);
 
-                SaveKeyframeData(jpg, id, timestamp, pos, rot,
-                    focalLen, principalPt, sensorRes, currentRes);
+                QueueKeyframeWrite(jpg, id, timestamp, pos, rot,
+                    focalLen, principalPt, sensorRes, currentRes, imagesDir,
+                    manifestPath, chunkId, chunkRevision);
             }
             catch (Exception e)
             {
                 Logger.Error($"KeyframeCollector: encode error frame {id}: {e.Message}");
+                Interlocked.Decrement(ref _pendingWrites);
             }
         }
 
-        private void SaveKeyframeData(byte[] jpgBytes, int id, float timestamp,
+        private void QueueKeyframeWrite(byte[] jpgBytes, int id, float timestamp,
             Vector3 pos, Quaternion rot, Vector2 focalLen, Vector2 principalPt,
-            Vector2 sensorRes, Vector2 currentRes)
+            Vector2 sensorRes, Vector2 currentRes, string imagesDir, string manifestPath,
+            string chunkId, int chunkRevision)
         {
-            Task.Run(() =>
+            _ = Task.Run(() =>
             {
                 try
                 {
-                    string imgPath = Path.Combine(_imagesDir, $"{id:D6}.jpg");
+                    if (string.IsNullOrEmpty(imagesDir) || string.IsNullOrEmpty(manifestPath))
+                        throw new InvalidOperationException("Keyframe destination changed or closed.");
+                    Directory.CreateDirectory(imagesDir);
+                    string imgPath = Path.Combine(imagesDir, $"{id:D6}.jpg");
                     File.WriteAllBytes(imgPath, jpgBytes);
 
                     var sb = new StringBuilder(256);
                     sb.Append("{\"id\":").Append(id);
-                    sb.Append(",\"ts\":").Append(timestamp.ToString("F3"));
-                    sb.Append(",\"px\":").Append(pos.x.ToString("F6"));
-                    sb.Append(",\"py\":").Append(pos.y.ToString("F6"));
-                    sb.Append(",\"pz\":").Append(pos.z.ToString("F6"));
-                    sb.Append(",\"qx\":").Append(rot.x.ToString("F6"));
-                    sb.Append(",\"qy\":").Append(rot.y.ToString("F6"));
-                    sb.Append(",\"qz\":").Append(rot.z.ToString("F6"));
-                    sb.Append(",\"qw\":").Append(rot.w.ToString("F6"));
-                    sb.Append(",\"fx\":").Append(focalLen.x.ToString("F4"));
-                    sb.Append(",\"fy\":").Append(focalLen.y.ToString("F4"));
-                    sb.Append(",\"cx\":").Append(principalPt.x.ToString("F4"));
-                    sb.Append(",\"cy\":").Append(principalPt.y.ToString("F4"));
+                    sb.Append(",\"ts\":").Append(timestamp.ToString("F3", CultureInfo.InvariantCulture));
+                    if (!string.IsNullOrEmpty(chunkId))
+                    {
+                        sb.Append(",\"space\":\"chunk\"");
+                        sb.Append(",\"chunk\":\"").Append(chunkId).Append('"');
+                        sb.Append(",\"revision\":").Append(chunkRevision);
+                    }
+                    sb.Append(",\"px\":").Append(pos.x.ToString("F6", CultureInfo.InvariantCulture));
+                    sb.Append(",\"py\":").Append(pos.y.ToString("F6", CultureInfo.InvariantCulture));
+                    sb.Append(",\"pz\":").Append(pos.z.ToString("F6", CultureInfo.InvariantCulture));
+                    sb.Append(",\"qx\":").Append(rot.x.ToString("F6", CultureInfo.InvariantCulture));
+                    sb.Append(",\"qy\":").Append(rot.y.ToString("F6", CultureInfo.InvariantCulture));
+                    sb.Append(",\"qz\":").Append(rot.z.ToString("F6", CultureInfo.InvariantCulture));
+                    sb.Append(",\"qw\":").Append(rot.w.ToString("F6", CultureInfo.InvariantCulture));
+                    sb.Append(",\"fx\":").Append(focalLen.x.ToString("F4", CultureInfo.InvariantCulture));
+                    sb.Append(",\"fy\":").Append(focalLen.y.ToString("F4", CultureInfo.InvariantCulture));
+                    sb.Append(",\"cx\":").Append(principalPt.x.ToString("F4", CultureInfo.InvariantCulture));
+                    sb.Append(",\"cy\":").Append(principalPt.y.ToString("F4", CultureInfo.InvariantCulture));
                     sb.Append(",\"sw\":").Append((int)sensorRes.x);
                     sb.Append(",\"sh\":").Append((int)sensorRes.y);
                     sb.Append(",\"w\":").Append((int)currentRes.x);
                     sb.Append(",\"h\":").Append((int)currentRes.y);
                     sb.Append('}');
 
-                    lock (_manifestPath)
+                    lock (_manifestGate)
                     {
-                        File.AppendAllText(_manifestPath, sb.ToString() + "\n");
+                        File.AppendAllText(manifestPath, sb.ToString() + "\n");
                     }
 
                     if (id < 5 || id % 50 == 0)
@@ -221,6 +328,10 @@ namespace Genesis.RoomScan
                 catch (Exception e)
                 {
                     Logger.Error($"KeyframeCollector: write error frame {id}: {e.Message}");
+                }
+                finally
+                {
+                    Interlocked.Decrement(ref _pendingWrites);
                 }
             });
         }
@@ -235,13 +346,41 @@ namespace Genesis.RoomScan
             Vector3 pos, Quaternion rot, Vector2 focalLen, Vector2 principalPt,
             Vector2 sensorRes, Vector2 currentRes)
         {
-            if (_exportDir == null || jpgBytes == null || jpgBytes.Length == 0) return -1;
+            if (!_captureEnabled || _exportDir == null || jpgBytes == null ||
+                jpgBytes.Length == 0) return -1;
+            Pose capturePose = _captureInChunkSpace
+                ? ConvertWorldPoseToFrame(new Pose(pos, rot), _worldFromCaptureFrame)
+                : new Pose(pos, rot);
             int id = _nextId++;
-            _savedPositions.Add(pos);
-            _savedRotations.Add(rot);
-            SaveKeyframeData(jpgBytes, id, timestamp, pos, rot,
-                focalLen, principalPt, sensorRes, currentRes);
+            _savedPositions.Add(capturePose.position);
+            _savedRotations.Add(capturePose.rotation);
+            Interlocked.Increment(ref _pendingWrites);
+            QueueKeyframeWrite(jpgBytes, id, timestamp, capturePose.position,
+                capturePose.rotation, focalLen, principalPt, sensorRes, currentRes,
+                _imagesDir, _manifestPath, _chunkId, _chunkRevision);
             return id;
+        }
+
+        public async Task<bool> WaitForPendingWritesAsync(int timeoutMilliseconds = 30_000)
+        {
+            if (timeoutMilliseconds < 0)
+                throw new ArgumentOutOfRangeException(nameof(timeoutMilliseconds));
+            var stopwatch = Stopwatch.StartNew();
+            while (Volatile.Read(ref _pendingWrites) > 0)
+            {
+                if (stopwatch.ElapsedMilliseconds >= timeoutMilliseconds)
+                    return false;
+                await Task.Delay(10);
+            }
+            return true;
+        }
+
+        public static Pose ConvertWorldPoseToFrame(Pose cameraWorld,
+            RigidPoseData worldFromFrame)
+        {
+            RigidPoseData frameFromWorld = worldFromFrame.Inverse();
+            return new Pose(frameFromWorld.TransformPoint(cameraWorld.position),
+                frameFromWorld.rotation * cameraWorld.rotation);
         }
 
         /// <summary>
@@ -252,6 +391,32 @@ namespace Genesis.RoomScan
             _savedPositions.Clear();
             _savedRotations.Clear();
             _nextId = 0;
+        }
+
+        private static int FindNextFrameId(string manifestPath)
+        {
+            if (!File.Exists(manifestPath))
+                return 0;
+            int maximum = -1;
+            foreach (string line in File.ReadLines(manifestPath))
+            {
+                int marker = line.IndexOf("\"id\":", StringComparison.Ordinal);
+                if (marker < 0)
+                    continue;
+                marker += 5;
+                int end = marker;
+                while (end < line.Length && char.IsDigit(line[end]))
+                    end++;
+                if (end > marker && int.TryParse(line.Substring(marker, end - marker),
+                        NumberStyles.None, CultureInfo.InvariantCulture, out int id))
+                    maximum = Math.Max(maximum, id);
+            }
+            return maximum == int.MaxValue ? int.MaxValue : maximum + 1;
+        }
+
+        private static bool Finite(float value)
+        {
+            return !float.IsNaN(value) && !float.IsInfinity(value);
         }
 
     }

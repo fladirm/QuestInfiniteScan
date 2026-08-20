@@ -1,5 +1,5 @@
 /* ============================================
-   QUESTROOMSCAN DEBUG MENU — Two-Panel Layout
+   QUESTINFINITESCAN OPERATOR MENU — Two-Panel Layout
    Dark technical HUD — world-space VR panel
    ============================================ */
 
@@ -34,10 +34,17 @@
 }
 
 .nav-header-title {
-    font-size: 13px;
+    font-size: 11px;
     -unity-font-style: bold;
     color: rgb(0, 200, 255);
     letter-spacing: 3px;
+}
+
+.hint-label {
+    margin-top: 9px;
+    font-size: 10px;
+    color: rgba(145, 165, 190, 0.7);
+    white-space: normal;
 }
 
 .nav-header-sub {

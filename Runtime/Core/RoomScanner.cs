@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Threading.Tasks;
 using Genesis.RoomScan.UI;
+using Genesis.RoomScan.World;
 using UnityEngine;
 using UnityEngine.Rendering;
 
@@ -127,6 +128,7 @@ namespace Genesis.RoomScan
         private TextureRefinement _textureRefinement;
         private RoomUnderstanding _roomUnderstanding;
         private DebugMenuController _debugMenu;
+        private SubmapManager _submapManager;
         private ICameraProvider _customCameraProvider;
         private IRoomScanModule[] _modules;
 
@@ -185,6 +187,8 @@ namespace Genesis.RoomScan
         public DepthCapture DepthCapture => _depthCapture;
         /// <summary>The core mesh extractor component.</summary>
         public MeshExtractor MeshExtractor => _meshExtractor;
+        /// <summary>The optional keyframe collector used by large-world routing.</summary>
+        public KeyframeCollector KeyframeCollector => _keyframeCollector;
         /// <summary>The active camera provider (custom or passthrough).</summary>
         public ICameraProvider ActiveCameraProvider => GetActiveCameraProvider();
         /// <summary>The optional Gaussian Splat provider, or null if the GSplat module is not attached.</summary>
@@ -212,6 +216,8 @@ namespace Genesis.RoomScan
         public event Action Integrated;
         /// <summary>Raised after each mesh extraction pass.</summary>
         public event Action MeshExtracted;
+        /// <summary>Raised after the per-scan spatial anchor is persisted successfully.</summary>
+        public event Action<Guid, Matrix4x4> ScanAnchorCreated;
 
         // ─────────────────────────────────────────────────────────────
         //  Private state
@@ -247,6 +253,8 @@ namespace Genesis.RoomScan
         private Texture2D _normalMapTexture;
         private Mesh _refinedMesh;
         private UnwrappedMeshResult? _cachedUnwrap;
+        private string _cachedUnwrapChunkId;
+        private RigidPoseData _refinedWorldFromLocal = RigidPoseData.Identity;
 
         // Scene object registry
         private SceneObjectRegistry _sceneObjectRegistry;
@@ -367,6 +375,7 @@ namespace Genesis.RoomScan
             _roomUnderstanding = GetComponent<RoomUnderstanding>();
             _debugMenu = GetComponentInChildren<DebugMenuController>();
             _roomAnchor = GetComponent<RoomAnchorManager>();
+            _submapManager = GetComponent<SubmapManager>();
         }
 
         /// <summary>
@@ -413,6 +422,13 @@ namespace Genesis.RoomScan
                 Shader.SetGlobalFloat(TriAvailableID, 0f);
 
             if (!IsScanning || !DepthCapture.DepthAvailable) return;
+
+            // During the short rollover readback window the single TSDF is the source of
+            // an immutable CPU snapshot. Do not enqueue another integration/extraction into
+            // those buffers. The gate drops immediately after the target volume is cleared;
+            // background file writes never pause real-time mapping.
+            if (_submapManager != null && _submapManager.IsVolumeTransitioning)
+                return;
 
             float t = Time.time;
 
@@ -486,6 +502,8 @@ namespace Genesis.RoomScan
             {
                 KeyframeRelocation = Matrix4x4.identity;
                 _cachedUnwrap = null;
+                _cachedUnwrapChunkId = null;
+                SetRefinedWorldFromLocal(RigidPoseData.Identity);
 
                 // ── Stage 1: GPU volume bring-up ────────────────────────
                 // Both calls are idempotent: ReallocateVolumes early-returns
@@ -556,6 +574,7 @@ namespace Genesis.RoomScan
                     LastRefinedResult = null;
                     LastSimplifiedResult = null;
                     _cachedUnwrap = null;
+                    _cachedUnwrapChunkId = null;
                     _refinedMesh = null;
                     if (_normalMapTexture != null)
                     {
@@ -645,6 +664,7 @@ namespace Genesis.RoomScan
             {
                 _persistence.WriteSessionAnchorData(
                     result.Value.uuid.ToString(), result.Value.matrix);
+                ScanAnchorCreated?.Invoke(result.Value.uuid, result.Value.matrix);
             }
         }
 
@@ -746,6 +766,7 @@ namespace Genesis.RoomScan
                 LastRefinedResult = null;
                 LastSimplifiedResult = null;
                 _cachedUnwrap = null;
+                _cachedUnwrapChunkId = null;
                 _refinedMesh = null;
                 if (_normalMapTexture != null)
                 {
@@ -980,10 +1001,43 @@ namespace Genesis.RoomScan
             _textureRefinement.StatusChanged += statusHandler;
             try
             {
+                ChunkRefinementContext chunkContext = null;
                 string keyframeDir = KeyframeDirectory;
-                var unwrap = await EnsureUnwrappedAsync();
+                Matrix4x4 keyframeRelocation = KeyframeRelocation;
+                if (_submapManager != null && _submapManager.LargeWorldMode &&
+                    _submapManager.HasWorld)
+                {
+                    await _submapManager.WaitForRefinementReadyAsync();
+                    if (!_submapManager.TryCaptureRefinementContext(out chunkContext,
+                            out string contextError))
+                        throw new InvalidOperationException(contextError);
+                    keyframeDir = chunkContext.KeyframeDirectory;
+                    keyframeRelocation = Matrix4x4.identity;
+                    if (!string.Equals(_cachedUnwrapChunkId, chunkContext.ChunkId,
+                            StringComparison.Ordinal))
+                    {
+                        _cachedUnwrap = null;
+                        LastRefinedResult = null;
+                        LastSimplifiedResult = null;
+                    }
+                    _cachedUnwrapChunkId = chunkContext.ChunkId;
+                    SetRefinedWorldFromLocal(chunkContext.WorldFromChunk);
+                }
+                else
+                {
+                    if (_cachedUnwrapChunkId != null)
+                    {
+                        _cachedUnwrap = null;
+                        LastRefinedResult = null;
+                        LastSimplifiedResult = null;
+                    }
+                    _cachedUnwrapChunkId = null;
+                    SetRefinedWorldFromLocal(RigidPoseData.Identity);
+                }
+
+                var unwrap = await EnsureUnwrappedAsync(keyframeDir, keyframeRelocation);
                 var (atlasPixels, normalPixels) = await _textureRefinement.BakeAtlasAsync(
-                    unwrap, keyframeDir, KeyframeRelocation);
+                    unwrap, keyframeDir, keyframeRelocation);
 
                 var original = new RefinedTextureResult
                 {
@@ -1008,22 +1062,33 @@ namespace Genesis.RoomScan
                     toRender = simplified;
                 }
 
-                ApplyRefinedAtlas(toRender);
-                HasRefinedTexture = true;
-                SetRenderMode(ScanRenderMode.Refined);
-
                 // IMPORTANT: persist refined artifacts BEFORE firing RefinedMeshReady.
                 // RoomScanSession.FinalizeScanAsync wakes on this event and then calls
                 // SaveScanAsync → Directory.Move(_tmp → pkg_xxx). If the event fired first,
                 // SaveArtifactAsync would race against that Move (the captured pkgDir would
                 // point at _tmp while the directory was being renamed), and refined_mesh.bin
                 // would silently fail to land in the final package.
-                if (_persistence != null && _persistence.HasActivePackage)
+                if (chunkContext != null)
+                {
+                    ChunkRefinedPublishResult publication =
+                        await _submapManager.PublishRefinedArtifactsAsync(chunkContext,
+                            toRender);
+                    if (!publication.Success)
+                        throw new IOException("Chunk refined artifact publication failed: " +
+                                              publication.Error);
+                    Logger.Info($"Chunk {chunkContext.ChunkId} refined artifacts published " +
+                                $"as revision {publication.Revision}");
+                }
+                else if (_persistence != null && _persistence.HasActivePackage)
                 {
                     await _persistence.SaveArtifactAsync(ArtifactType.Refined, null, original);
                     if (LastSimplifiedResult.HasValue)
                         await _persistence.SaveArtifactAsync(ArtifactType.SimplifiedMesh, null, LastSimplifiedResult);
                 }
+
+                ApplyRefinedAtlas(toRender);
+                HasRefinedTexture = true;
+                SetRenderMode(ScanRenderMode.Refined);
 
                 RefinedMeshReady?.Invoke(_refinedMesh, _refinedAtlasTexture);
 
@@ -1417,7 +1482,8 @@ namespace Genesis.RoomScan
         /// Returns the cached UV-unwrapped mesh, or runs the unwrap if not yet done.
         /// Shared by both on-device refine and HQ refine paths.
         /// </summary>
-        private async Task<UnwrappedMeshResult> EnsureUnwrappedAsync()
+        private async Task<UnwrappedMeshResult> EnsureUnwrappedAsync(string keyframeDirectory,
+            Matrix4x4 keyframeRelocation)
         {
             if (_cachedUnwrap.HasValue)
             {
@@ -1436,8 +1502,8 @@ namespace Genesis.RoomScan
                 return unwrap;
             }
 
-            string kfDir = KeyframeDirectory;
-            var unwrap2 = await _textureRefinement.UnwrapMeshAsync(kfDir, KeyframeRelocation);
+            var unwrap2 = await _textureRefinement.UnwrapMeshAsync(keyframeDirectory,
+                keyframeRelocation);
             _cachedUnwrap = unwrap2;
 
             EnsureRefinedMesh(unwrap2);
@@ -1509,6 +1575,8 @@ namespace Genesis.RoomScan
 
             var go = new GameObject("RefinedMeshRenderer");
             go.transform.SetParent(transform, false);
+            go.transform.SetPositionAndRotation(_refinedWorldFromLocal.position,
+                _refinedWorldFromLocal.rotation);
             _refinedMeshFilter = go.AddComponent<MeshFilter>();
             _refinedRenderer = go.AddComponent<MeshRenderer>();
 
@@ -1525,6 +1593,14 @@ namespace Genesis.RoomScan
             var occShader = _textureRefinement != null ? _textureRefinement.occlusionMeshShader : null;
             if (occShader != null)
                 _occlusionMaterial = new Material(occShader);
+        }
+
+        private void SetRefinedWorldFromLocal(RigidPoseData worldFromLocal)
+        {
+            _refinedWorldFromLocal = worldFromLocal;
+            if (_refinedMeshFilter != null)
+                _refinedMeshFilter.transform.SetPositionAndRotation(worldFromLocal.position,
+                    worldFromLocal.rotation);
         }
 
         // ─────────────────────────────────────────────────────────────

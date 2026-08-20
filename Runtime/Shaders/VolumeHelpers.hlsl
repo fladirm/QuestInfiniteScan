@@ -8,6 +8,8 @@ uint3 gsVoxCount;
 float gsVoxSize;
 float gsVoxDist;
 float gsVoxMin;
+float4x4 gsWorldFromVolume;
+float4x4 gsVolumeFromWorld;
 StructuredBuffer<float3> gsFrustumVolume;
 
 Texture2D<float4> gsDilatedDepth;
@@ -19,19 +21,21 @@ float3 gsExclusionHeads[64];
 
 float3 gsVoxelToWorld(uint3 indices)
 {
-    return ((float3)indices + 0.5 - (float3)gsVoxCount / 2.0) * gsVoxSize;
+    float3 volumePos = ((float3)indices + 0.5 - (float3)gsVoxCount / 2.0) * gsVoxSize;
+    return mul(gsWorldFromVolume, float4(volumePos, 1.0)).xyz;
 }
 
 float3 gsWorldToVoxelFloat(float3 worldPos)
 {
-    return worldPos / gsVoxSize + (float3)gsVoxCount / 2.0;
+    float3 volumePos = mul(gsVolumeFromWorld, float4(worldPos, 1.0)).xyz;
+    return volumePos / gsVoxSize + (float3)gsVoxCount / 2.0;
 }
 
 uint3 gsWorldToVoxel(float3 pos)
 {
     pos = gsWorldToVoxelFloat(pos);
     uint3 id = (uint3)floor(pos);
-    id = clamp(id, uint3(0, 0, 0), gsVoxCount);
+    id = clamp(id, uint3(0, 0, 0), gsVoxCount - 1);
     return id;
 }
 

@@ -92,6 +92,42 @@ namespace Genesis.RoomScan.Editor
         }
 
         /// <summary>
+        /// Hard build gate for the AR Foundation providers used by RoomScan.
+        /// A missing provider package used to be logged as a warning by the
+        /// fixer and then produced an installable APK with no depth subsystem.
+        /// Automated Quest builds must never accept that degraded state.
+        /// </summary>
+        public static void RequireQuestScanningFeatures()
+        {
+            Audit();
+
+            var required = new[]
+            {
+                FID_AR_CAMERA,
+                FID_AR_SESSION,
+                FID_AR_OCCLUSION,
+            };
+            var invalid = new List<string>();
+            foreach (string featureId in required)
+            {
+                var feature = FeatureHelpers.GetFeatureWithIdForBuildTarget(
+                    BuildTargetGroup.Android, featureId);
+                if (feature == null)
+                    invalid.Add(featureId + " (not registered)");
+                else if (!feature.enabled)
+                    invalid.Add(featureId + " (disabled)");
+            }
+
+            if (invalid.Count > 0)
+            {
+                throw new InvalidOperationException(
+                    "Quest scan OpenXR feature gate failed: " +
+                    string.Join(", ", invalid) + ". Ensure the project resolves " +
+                    "com.unity.xr.meta-openxr and enables Camera, Session and Occlusion for Android.");
+            }
+        }
+
+        /// <summary>
         /// Runs Fix() on each check whose severity is at-or-above
         /// <paramref name="includeUpTo"/>. "Outstanding" runs only the
         /// hard-required ones; "Recommended" runs both tiers.
@@ -323,6 +359,14 @@ namespace Genesis.RoomScan.Editor
                     isOk: c => c.insightPassthroughSupport >= OVRProjectConfig.FeatureSupport.Supported,
                     fix:  c => c.insightPassthroughSupport = OVRProjectConfig.FeatureSupport.Supported,
                     target: ">= Supported"),
+
+                MakeOvrConfigEnumCheck(
+                    id: "ovr.projectconfig.passthroughcameraaccess",
+                    label: "OVRProjectConfig: passthrough camera access enabled",
+                    read: c => c.isPassthroughCameraAccessEnabled.ToString(),
+                    isOk: c => c.isPassthroughCameraAccessEnabled,
+                    fix:  c => c.isPassthroughCameraAccessEnabled = true,
+                    target: "True"),
 
                 new VRCheck {
                     Id = "meta.runtime.settings.preloaded",
@@ -612,8 +656,9 @@ namespace Genesis.RoomScan.Editor
             var f = FeatureHelpers.GetFeatureWithIdForBuildTarget(group, featureId);
             if (f == null)
             {
-                Debug.LogWarning($"[VR Bootstrap] OpenXR feature '{featureId}' not registered for {group} — package providing it may not be installed.");
-                return;
+                throw new InvalidOperationException(
+                    $"OpenXR feature '{featureId}' is not registered for {group}; " +
+                    "the package providing it is missing or failed to resolve.");
             }
             if (f.enabled == enabled) return;
             f.enabled = enabled;

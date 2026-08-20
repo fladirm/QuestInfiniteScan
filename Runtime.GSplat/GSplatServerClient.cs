@@ -15,7 +15,7 @@ namespace Genesis.RoomScan.GSplat
     public class GSplatServerClient : MonoBehaviour
     {
         [SerializeField, Tooltip("IP:port of your PC running the GS training server (gs-server)")]
-        string serverUrl = "http://192.168.1.100:8420";
+        string serverUrl = "http://127.0.0.1:8420";
         [SerializeField, Tooltip("Number of training iterations on the server. Lower = faster but fewer/coarser splats.")]
         int trainingIterations = 7000;
         [SerializeField, Range(1f, 30f)] float pollIntervalSeconds = 3f;

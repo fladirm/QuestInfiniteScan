@@ -1,0 +1,60 @@
+#pragma kernel Evaluate
+
+#include "../../Runtime/Shaders/TsdfFusionPolicy.hlsl"
+
+struct FusionInput
+{
+    float oldTsdf;
+    float oldWeight;
+    float existingBestQuality;
+    float incomingTsdf;
+    float surfaceDistance;
+    float maximumDistance;
+    float incidence;
+    float visible;
+    float hasOrientation;
+    float orientationDot;
+};
+
+struct FusionOutput
+{
+    float accepted;
+    float tsdf;
+    float weight;
+    float quality;
+    float blend;
+    float existingQuality;
+    int decision;
+    float padding;
+};
+
+StructuredBuffer<FusionInput> _Inputs;
+RWStructuredBuffer<FusionOutput> _Outputs;
+uint _CaseCount;
+float _MaxWeight;
+float _BlendRate;
+float _Stability;
+float _WeightGrowth;
+
+[numthreads(64, 1, 1)]
+void Evaluate(uint id : SV_DispatchThreadID)
+{
+    if (id >= _CaseCount) return;
+    FusionInput input = _Inputs[id];
+    GsTsdfFusionResult result = gsFuseTsdf(input.oldTsdf, input.oldWeight,
+        input.existingBestQuality, input.incomingTsdf, input.surfaceDistance,
+        input.maximumDistance, input.incidence, input.visible > 0.5,
+        input.hasOrientation > 0.5, input.orientationDot, _MaxWeight,
+        _BlendRate, _Stability, _WeightGrowth);
+
+    FusionOutput output;
+    output.accepted = result.accepted;
+    output.tsdf = result.tsdf;
+    output.weight = result.weight;
+    output.quality = result.quality;
+    output.blend = result.blend;
+    output.existingQuality = result.existingQuality;
+    output.decision = result.decision;
+    output.padding = 0.0;
+    _Outputs[id] = output;
+}

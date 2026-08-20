@@ -14,10 +14,13 @@ namespace Genesis.RoomScan
         private GPUSurfaceNets _surfaceNets;
         private MaterialPropertyBlock _props;
         private bool _ready;
-        private Bounds _bounds;
+        private Bounds _localBounds;
+        private Matrix4x4 _worldFromVolume = Matrix4x4.identity;
 
         private static readonly int ID_SurfaceVerts = Shader.PropertyToID("_SurfaceVerts");
         private static readonly int ID_SurfaceIndices = Shader.PropertyToID("_SurfaceIndices");
+        private static readonly int ID_WorldFromVolume = Shader.PropertyToID("gsWorldFromVolume");
+        private static readonly int ID_VolumeFromWorld = Shader.PropertyToID("gsVolumeFromWorld");
 
         private bool _renderVisible = true;
 
@@ -39,14 +42,19 @@ namespace Genesis.RoomScan
         internal void Initialize(GPUSurfaceNets surfaceNets, Bounds volumeBounds)
         {
             _surfaceNets = surfaceNets;
-            _bounds = volumeBounds;
+            _localBounds = volumeBounds;
             _props = new MaterialPropertyBlock();
             _ready = true;
         }
 
         public void UpdateBounds(Bounds bounds)
         {
-            _bounds = bounds;
+            _localBounds = bounds;
+        }
+
+        public void SetWorldFromVolume(Matrix4x4 worldFromVolume)
+        {
+            _worldFromVolume = worldFromVolume;
         }
 
         private void LateUpdate()
@@ -63,10 +71,12 @@ namespace Genesis.RoomScan
 
             _props.SetBuffer(ID_SurfaceVerts, vertBuf);
             _props.SetBuffer(ID_SurfaceIndices, idxBuf);
+            _props.SetMatrix(ID_WorldFromVolume, _worldFromVolume);
+            _props.SetMatrix(ID_VolumeFromWorld, _worldFromVolume.inverse);
 
             var rp = new RenderParams(gpuMeshMaterial)
             {
-                worldBounds = _bounds,
+                worldBounds = TransformBounds(_localBounds, _worldFromVolume),
                 matProps = _props,
                 receiveShadows = false,
                 shadowCastingMode = ShadowCastingMode.Off,
@@ -74,6 +84,19 @@ namespace Genesis.RoomScan
             };
 
             Graphics.RenderPrimitivesIndirect(rp, MeshTopology.Triangles, argsBuf, 1);
+        }
+
+        private static Bounds TransformBounds(Bounds localBounds, Matrix4x4 matrix)
+        {
+            Vector3 localExtents = localBounds.extents;
+            Vector3 axisX = matrix.MultiplyVector(new Vector3(localExtents.x, 0f, 0f));
+            Vector3 axisY = matrix.MultiplyVector(new Vector3(0f, localExtents.y, 0f));
+            Vector3 axisZ = matrix.MultiplyVector(new Vector3(0f, 0f, localExtents.z));
+            var worldExtents = new Vector3(
+                Mathf.Abs(axisX.x) + Mathf.Abs(axisY.x) + Mathf.Abs(axisZ.x),
+                Mathf.Abs(axisX.y) + Mathf.Abs(axisY.y) + Mathf.Abs(axisZ.y),
+                Mathf.Abs(axisX.z) + Mathf.Abs(axisY.z) + Mathf.Abs(axisZ.z));
+            return new Bounds(matrix.MultiplyPoint3x4(localBounds.center), worldExtents * 2f);
         }
 
         private void OnDisable()

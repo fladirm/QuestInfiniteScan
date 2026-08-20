@@ -11,14 +11,15 @@
         <!-- ===== LEFT NAV PANEL ===== -->
         <ui:VisualElement name="nav-panel" class="nav-panel">
             <ui:VisualElement class="nav-header">
-                <ui:Label text="QUESTROOMSCAN" class="nav-header-title" />
-                <ui:Label text="DEBUG" class="nav-header-sub" />
+                <ui:Label text="QUESTINFINITESCAN" class="nav-header-title" />
+                <ui:Label text="OPERATOR" class="nav-header-sub" />
             </ui:VisualElement>
 
             <ui:Button name="nav-scan"        text="Scan"        class="nav-btn nav-btn--active" />
             <ui:Button name="nav-saved"       text="Saved Scans" class="nav-btn" />
+            <ui:Button name="nav-world"       text="Infinite World" class="nav-btn" />
             <ui:Button name="nav-refine"      text="Refine"      class="nav-btn" />
-            <ui:Button name="nav-training"    text="Gaussian Splat"    class="nav-btn" />
+            <ui:Button name="nav-training"    text="Legacy GS"    class="nav-btn" />
             <ui:Button name="nav-tools"       text="Tools"       class="nav-btn" />
 
             <ui:VisualElement class="nav-spacer" />
@@ -83,6 +84,7 @@
                     <ui:Button name="btn-save-scan" text="Save Scan" class="action-btn" />
                     <ui:Button name="btn-delete-artifact" text="Delete Artifact" class="action-btn action-btn--danger" />
                 </ui:VisualElement>
+                <ui:Label text="Freeze Tint only shows the blue frozen-voxel overlay. Freeze/Unfreeze In View changes the integration lock; Render changes presentation only." class="hint-label" />
             </ui:VisualElement>
 
             <!-- ── SAVED SCANS VIEW ── -->
@@ -90,6 +92,60 @@
                 <ui:Label text="SAVED SCANS" class="view-title" />
                 <ui:ScrollView name="scan-list" class="scan-list" />
                 <ui:Label name="lbl-no-scans" text="No saved scans" class="empty-label" />
+            </ui:VisualElement>
+
+            <!-- ── INFINITE WORLD VIEW ── -->
+            <ui:VisualElement name="view-world" class="detail-view" style="display:none;">
+                <ui:Label text="INFINITE WORLD" class="view-title" />
+                <ui:VisualElement class="status-row">
+                    <ui:Label text="Mode" class="status-key" />
+                    <ui:Label name="val-world-mode" text="--" class="status-val status-val--small" />
+                </ui:VisualElement>
+                <ui:VisualElement class="status-row">
+                    <ui:Label text="World" class="status-key" />
+                    <ui:Label name="val-world-id" text="--" class="status-val status-val--small" />
+                </ui:VisualElement>
+                <ui:VisualElement class="status-row">
+                    <ui:Label text="Active Chunk" class="status-key" />
+                    <ui:Label name="val-active-chunk" text="--" class="status-val status-val--small" />
+                </ui:VisualElement>
+                <ui:VisualElement class="status-row">
+                    <ui:Label text="Lifecycle" class="status-key" />
+                    <ui:Label name="val-chunk-lifecycle" text="--" class="status-val status-val--small" />
+                </ui:VisualElement>
+                <ui:VisualElement class="status-row">
+                    <ui:Label text="Residency" class="status-key" />
+                    <ui:Label name="val-residency" text="--" class="status-val status-val--small" />
+                </ui:VisualElement>
+                <ui:VisualElement class="status-row">
+                    <ui:Label text="Pose Graph" class="status-key" />
+                    <ui:Label name="val-graph" text="--" class="status-val status-val--small" />
+                </ui:VisualElement>
+                <ui:VisualElement class="status-row">
+                    <ui:Label text="DiffSoup Queue" class="status-key" />
+                    <ui:Label name="val-heavy-queue" text="--" class="status-val status-val--small" />
+                </ui:VisualElement>
+                <ui:VisualElement class="status-row">
+                    <ui:Label text="Network" class="status-key" />
+                    <ui:Label name="val-heavy-network" text="--" class="status-val status-val--small" />
+                </ui:VisualElement>
+                <ui:VisualElement class="status-row">
+                    <ui:Label text="Artifacts" class="status-key" />
+                    <ui:Label name="val-world-artifacts" text="--" class="status-val status-val--small" />
+                </ui:VisualElement>
+                <ui:VisualElement class="status-row">
+                    <ui:Label text="Storage" class="status-key" />
+                    <ui:Label name="val-world-storage" text="--" class="status-val status-val--small" />
+                </ui:VisualElement>
+                <ui:VisualElement class="status-row">
+                    <ui:Label text="GLB Export" class="status-key" />
+                    <ui:Label name="val-glb-export" text="Idle" class="status-val status-val--small" />
+                </ui:VisualElement>
+                <ui:VisualElement class="btn-group">
+                    <ui:Button name="btn-export-chunk-glb" text="Export Active Chunk GLB" class="action-btn" />
+                    <ui:Button name="btn-export-world-glb" text="Export World GLB/PBR" class="action-btn action-btn--primary" />
+                </ui:VisualElement>
+                <ui:Label text="Stop scanning and refine every desired chunk first. World export always writes building.json + chunks/*.glb; world.glb is added only below its configured size limit." class="hint-label" />
             </ui:VisualElement>
 
             <!-- ── REFINE VIEW ── -->
@@ -128,9 +184,9 @@
 
             <!-- ── TRAINING VIEW ── -->
             <ui:VisualElement name="view-training" class="detail-view" style="display:none;">
-                <ui:Label text="GAUSSIAN SPLAT" class="view-title" />
+                <ui:Label text="LEGACY GAUSSIAN SPLAT" class="view-title" />
 
-                <ui:TextField name="field-server-url" label="Server" value="http://192.168.1.100:8420" class="server-url-field" />
+                <ui:TextField name="field-server-url" label="Server" value="http://127.0.0.1:8420" class="server-url-field" />
 
                 <ui:VisualElement class="status-row">
                     <ui:Label text="State" class="status-key" />

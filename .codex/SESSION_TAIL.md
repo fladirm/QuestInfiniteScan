@@ -1,22 +1,30 @@
-# Latest two exchange snapshots
+# Latest exchange snapshots
 
-This file is intentionally concise. It preserves intent needed after compaction;
-the durable specification is `.codex/GOAL.md` and the executable state is
-`.codex/TASK_DAG.json` plus the code.
+Durable goal and implementation truth remain `.codex/GOAL.md`, `.codex/STATE.md`,
+`.codex/TASK_DAG.json`, code, and retained external verification evidence.
 
 ## Exchange 1
 
-User: Offered the sudo password while prerequisite installation and dedicated
-KINGSTON storage setup were in progress.
+User: Finish the complete feature DAG breadth, rewrite GitHub README/runbooks for
+QuestInfiniteScan rather than upstream QuestRoomScan, push the finished feature
+checkpoint, and only then return to runtime bug tuning so implementation does not get
+trapped in one defect.
 
-Assistant: Declined the password because non-interactive sudo already works and
-continued with the 250 GiB ext4 Unity container, while reiterating the hard rule
-that no Codex state may be touched.
+Assistant: Implemented world/chunk GLB, interoperability/compression negotiation,
+operator UI/diagnostics, unified server/Unity/GLB/CUDA/Android verification,
+performance telemetry/parser, reproducible setup, and public project documentation.
+Kept hardware-dependent nodes truthful because the retained device capture exposes a
+real Finalizing/revisit/cache lifecycle defect.
 
 ## Exchange 2
 
-User: Explicitly instructed not to repeat completed work after compaction.
+User: Directional TSDF should address general thin structures including columns, and
+for this explicitly non-commercial project its reference implementation may be
+mechanically ported. It is intended to replace the current TSDF, not become a second
+product geometry subsystem.
 
-Assistant: Confirmed that checked-in code and DAG evidence are the resume source of
-truth, resumed at the outstanding format/mount and A01/A02 boundary, and did not
-rerun completed inventory or installation steps.
+Assistant: Corrected the architecture decision. After the feature checkpoint and P0
+lifecycle fix, depth-edge confidence/conflict telemetry lead into a temporary A/B
+migration boundary; then a licensed, attributed sparse DTSDF + directional extraction
+port replaces scalar TSDF + scalar Surface Nets in the main mapper. No active-DAG
+scope was silently expanded before the requested push.

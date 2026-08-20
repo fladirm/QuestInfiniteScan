@@ -32,6 +32,28 @@ namespace Genesis.RoomScan
         /// <summary>Whether triplanar texturing is active (false = vertex-color fallback).</summary>
         public bool IsTriplanarEnabled => enableTriplanar;
 
+        /// <summary>
+        /// Explicit runtime/configuration switch used by large-world mode. Disabling releases
+        /// already allocated projection textures; enabling initializes them on demand.
+        /// </summary>
+        public void SetTriplanarEnabled(bool value)
+        {
+            if (enableTriplanar == value)
+                return;
+            enableTriplanar = value;
+            if (!value)
+            {
+                ReleaseTextures();
+                _kernelsReady = false;
+                Shader.SetGlobalFloat(TriAvailableID, 0f);
+                Logger.Info("Triplanar disabled — projection textures released");
+            }
+            else if (isActiveAndEnabled)
+            {
+                InitializeResources();
+            }
+        }
+
         private RenderTexture _triXZ, _triXY, _triYZ;
         private RenderTexture _depthXZ, _depthXY, _depthYZ;
         private RenderTexture _camFrameCopy;
@@ -103,7 +125,18 @@ namespace Genesis.RoomScan
                 Logger.Info("Triplanar disabled — using vertex colors");
                 return;
             }
+            InitializeResources();
+        }
 
+        private void OnDestroy()
+        {
+            ReleaseTextures();
+        }
+
+        private void InitializeResources()
+        {
+            if (_triXZ != null)
+                return;
             CreateTextures();
             if (bakeCompute != null)
             {
@@ -116,21 +149,34 @@ namespace Genesis.RoomScan
 
             long bytes = (long)textureResolution * textureResolution * 4 * 3;
             long mb = bytes / (1024 * 1024);
-            int splatR = splatRadiusOverride > 0 ? splatRadiusOverride : Mathf.Max(1, textureResolution / 2048);
-            Logger.Info($"Triplanar cache: 3x {textureResolution}x{textureResolution} RGBA8 = {mb}MB, splatR={splatR}");
+            int splatR = splatRadiusOverride > 0
+                ? splatRadiusOverride
+                : Mathf.Max(1, textureResolution / 2048);
+            Logger.Info($"Triplanar cache: 3x {textureResolution}x{textureResolution} " +
+                        $"RGBA8 = {mb}MB, splatR={splatR}");
             if (mb > 300)
-                Logger.Warning($"Triplanar memory {mb}MB is very high! Consider reducing textureResolution (4096 = 192MB).");
+                Logger.Warning($"Triplanar memory {mb}MB is very high! Consider reducing " +
+                               "textureResolution (4096 = 192MB).");
         }
 
-        private void OnDestroy()
+        private void ReleaseTextures()
         {
-            if (_triXZ) Destroy(_triXZ);
-            if (_triXY) Destroy(_triXY);
-            if (_triYZ) Destroy(_triYZ);
-            if (_depthXZ) Destroy(_depthXZ);
-            if (_depthXY) Destroy(_depthXY);
-            if (_depthYZ) Destroy(_depthYZ);
-            if (_camFrameCopy) Destroy(_camFrameCopy);
+            ReleaseTexture(ref _triXZ);
+            ReleaseTexture(ref _triXY);
+            ReleaseTexture(ref _triYZ);
+            ReleaseTexture(ref _depthXZ);
+            ReleaseTexture(ref _depthXY);
+            ReleaseTexture(ref _depthYZ);
+            ReleaseTexture(ref _camFrameCopy);
+        }
+
+        private static void ReleaseTexture(ref RenderTexture texture)
+        {
+            if (texture == null)
+                return;
+            texture.Release();
+            Destroy(texture);
+            texture = null;
         }
 
         private void CreateTextures()

@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "python": "3.14.4",
+  "platform": "linux-x86_64",
+  "packages": {
+    "diffsoup": "0.1.0",
+    "numpy": "2.5.2",
+    "pillow": "12.3.0",
+    "pytorch-msssim": "1.0.0",
+    "scipy": "1.18.0",
+    "torch": "2.13.0+cu130"
+  },
+  "pytorchIndex": "https://download.pytorch.org/whl/cu130",
+  "upstream": {
+    "repository": "https://github.com/kenji-tojo/diffsoup.git",
+    "commit": "c74e35de74ad0116977b23e7951f4cbc25ab0f6b"
+  },
+  "build": {
+    "cudaToolkit": "13.3",
+    "cudaArchitecture": "89"
+  }
+}

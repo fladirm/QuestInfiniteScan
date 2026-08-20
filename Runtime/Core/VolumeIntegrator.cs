@@ -1,6 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+using Genesis.RoomScan.World;
 using Unity.Mathematics;
+using Unity.Profiling;
 using UnityEngine;
 using UnityEngine.Experimental.Rendering;
 using UnityEngine.Rendering;
@@ -40,6 +43,20 @@ namespace Genesis.RoomScan
         [Tooltip("Maximum weight any voxel can reach. Lower = all areas correct equally fast. (default 0.5)")]
         [SerializeField, Range(0.1f, 1f)] private float maxWeight = 0.5f;
 
+        [Header("Surface Protection")]
+        [Tooltip("Protect confident surfaces from lower-quality, opposite-facing, and occluded observations.")]
+        [SerializeField] private bool protectStableSurfaces = true;
+        [Tooltip("Maximum integration distance behind a measured surface, in voxels. The physical voxelMin limit still applies.")]
+        [SerializeField, Range(0.5f, 2f)] private float behindSurfaceBandVoxels = 1.25f;
+        [Tooltip("Normalized TSDF confidence at which surface-quality arbitration starts.")]
+        [SerializeField, Range(0.1f, 0.9f)] private float stableSurfaceConfidence = 0.35f;
+        [Tooltip("Quality difference tolerated before a worse observation is rejected.")]
+        [SerializeField, Range(0f, 0.2f)] private float surfaceQualityHysteresis = 0.04f;
+        [Tooltip("Existing/incoming normal dot below this value identifies the opposite wall face.")]
+        [SerializeField, Range(-1f, 0.5f)] private float oppositeSurfaceNormalDot = -0.15f;
+        [Tooltip("Maximum normalized TSDF residual accepted from a non-improving stable observation.")]
+        [SerializeField, Range(0.02f, 0.5f)] private float stableSurfaceResidualTolerance = 0.12f;
+
         [Header("Meshing")]
         [Tooltip("Min voxel confidence weight for Surface Nets to generate mesh. Higher = fewer phantom surfaces. (default 0.08)")]
         [SerializeField, Range(0.01f, 0.5f)] private float minMeshWeight = 0.08f;
@@ -51,6 +68,9 @@ namespace Genesis.RoomScan
 
         private RenderTexture _volume;
         private RenderTexture _colorVolume;
+        private RigidPoseData _worldFromVolume = RigidPoseData.Identity;
+        private Matrix4x4 _worldFromVolumeMatrix = Matrix4x4.identity;
+        private Matrix4x4 _volumeFromWorldMatrix = Matrix4x4.identity;
 
         /// <summary>3D RenderTexture (R8G8_SNorm) storing the truncated signed distance field.</summary>
         public RenderTexture Volume => _volume;
@@ -59,6 +79,18 @@ namespace Genesis.RoomScan
         public int3 VoxelCount => voxelCount;
         public float VoxelSize => voxelSize;
         public float VoxelDistance => voxelDistance;
+        public bool ProtectStableSurfaces => protectStableSurfaces;
+        public float BehindSurfaceBandMeters => TsdfFusionPolicy.BehindSurfaceBandMeters(
+            voxelMin, voxelSize, behindSurfaceBandVoxels);
+        /// <summary>
+        /// Quest 3/3S Adreno 740 reports Vulkan maxStorageBufferRange=134217728.
+        /// This applies to storage/structured buffers, not Texture3D allocations.
+        /// </summary>
+        public const long MaximumStorageBufferRangeBytes = 128L * 1024L * 1024L;
+        /// <summary>Rigid transform from the active volume/chunk frame into tracking world.</summary>
+        public RigidPoseData WorldFromVolume => _worldFromVolume;
+        public Matrix4x4 WorldFromVolumeMatrix => _worldFromVolumeMatrix;
+        public Matrix4x4 VolumeFromWorldMatrix => _volumeFromWorldMatrix;
 
         private static readonly int VolumeRWID = Shader.PropertyToID("gsVolumeRW");
         private static readonly int VolumeID = Shader.PropertyToID("gsVolume");
@@ -77,6 +109,18 @@ namespace Genesis.RoomScan
         private static readonly int StabilityID = Shader.PropertyToID("gsStability");
         private static readonly int WeightGrowthID = Shader.PropertyToID("gsWeightGrowth");
         private static readonly int MaxWeightID = Shader.PropertyToID("gsMaxWeight");
+        private static readonly int FusionProtectionEnabledID = Shader.PropertyToID("gsFusionProtectionEnabled");
+        private static readonly int FusionStableConfidenceID = Shader.PropertyToID("gsFusionStableConfidence");
+        private static readonly int FusionExistingQualityFloorID = Shader.PropertyToID("gsFusionExistingQualityFloor");
+        private static readonly int FusionQualityHysteresisID = Shader.PropertyToID("gsFusionQualityHysteresis");
+        private static readonly int FusionOppositeOrientationDotID = Shader.PropertyToID("gsFusionOppositeOrientationDot");
+        private static readonly int FusionSurfaceBandID = Shader.PropertyToID("gsFusionSurfaceBand");
+        private static readonly int FusionResidualToleranceID = Shader.PropertyToID("gsFusionResidualTolerance");
+        private static readonly int FusionResidualConfidenceSlackID = Shader.PropertyToID("gsFusionResidualConfidenceSlack");
+        private static readonly int FusionImprovementResidualScaleID = Shader.PropertyToID("gsFusionImprovementResidualScale");
+        private static readonly int FusionStableBlendFloorID = Shader.PropertyToID("gsFusionStableBlendFloor");
+        private static readonly int FusionNormalMinWeightID = Shader.PropertyToID("gsFusionNormalMinWeight");
+        private static readonly int FusionBackBandVoxelsID = Shader.PropertyToID("gsFusionBackBandVoxels");
         private static readonly int CamRGBID = Shader.PropertyToID("gsCamRGB");
         private static readonly int CamAvailableID = Shader.PropertyToID("gsCamAvailable");
         private static readonly int CamPosID = Shader.PropertyToID("gsCamPos");
@@ -86,6 +130,8 @@ namespace Genesis.RoomScan
         private static readonly int CamSensorResID = Shader.PropertyToID("gsCamSensorRes");
         private static readonly int CamCurrentResID = Shader.PropertyToID("gsCamCurrentRes");
         private static readonly int CamExposureID = Shader.PropertyToID("gsCamExposure");
+        private static readonly int WorldFromVolumeID = Shader.PropertyToID("gsWorldFromVolume");
+        private static readonly int VolumeFromWorldID = Shader.PropertyToID("gsVolumeFromWorld");
 
         public float CameraExposure => cameraExposure;
 
@@ -113,10 +159,27 @@ namespace Genesis.RoomScan
         private bool _coverageReadbackPending;
         private static readonly int CoverageCountersID = Shader.PropertyToID("_CoverageCounters");
         private static readonly int ColorVolumeReadID = Shader.PropertyToID("gsColorVolumeRead");
+        private static readonly ProfilerMarker IntegrateMarker =
+            new("QIS.VolumeIntegrator.Integrate");
+        private static readonly ProfilerMarker FusionDispatchMarker =
+            new("QIS.VolumeIntegrator.FusionDispatch");
 
         [Header("Coverage Metrics")]
         [Tooltip("Dispatch coverage count every N integrations (0 = disabled). Higher = less GPU overhead.")]
         [SerializeField] private int coverageUpdateInterval = 30;
+
+        [Header("Development Profiling")]
+        [Tooltip("Emit bounded frame/integration timing summaries in development builds.")]
+        [SerializeField] private bool enableDevelopmentProfiling = true;
+        [SerializeField, Range(60, 1200)] private int profilingSampleInterval = 300;
+        private readonly FrameTiming[] _latestFrameTiming = new FrameTiming[1];
+        private int _profilingSamples;
+        private double _cpuIntegrationTotalMs;
+        private double _cpuIntegrationMaxMs;
+        private double _cpuFrameTotalMs;
+        private double _cpuFrameMaxMs;
+        private double _gpuFrameTotalMs;
+        private double _gpuFrameMaxMs;
 
         /// <summary>Number of voxels near the zero-crossing with sufficient weight (surface voxels).</summary>
         public int SurfaceVoxelCount { get; private set; }
@@ -139,6 +202,8 @@ namespace Genesis.RoomScan
         public event Action Integrated;
         /// <summary>Raised after the volume is cleared.</summary>
         public event Action Cleared;
+        /// <summary>Raised when the active local volume is placed at a new world pose.</summary>
+        public event Action<RigidPoseData> VolumeFrameChanged;
 
         private Texture _pendingCamFrame;
         private Vector3 _pendingCamPos;
@@ -149,6 +214,7 @@ namespace Genesis.RoomScan
         private Vector2 _pendingCurrentRes;
         private RenderTexture _camFrameCopy;
         private Texture2D _dummyCamTex;
+        private readonly GpuResourceRetirementQueue _gpuRetirement = new();
 
         private void Awake()
         {
@@ -217,6 +283,11 @@ namespace Genesis.RoomScan
             if (_dummyCamTex) Destroy(_dummyCamTex);
         }
 
+        private void LateUpdate()
+        {
+            _gpuRetirement.DrainCompleted();
+        }
+
         /// <summary>
         /// Destroys the TSDF + color volume RenderTextures and the frustum buffer to free GPU memory.
         /// The component stays alive; calling <see cref="CreateVolume"/> + <see cref="SetShaderConstants"/>
@@ -227,8 +298,16 @@ namespace Genesis.RoomScan
             _frustumVolume?.Release();
             _frustumVolume = null;
             _frustumReady = false;
-            if (_volume) { Destroy(_volume); _volume = null; }
-            if (_colorVolume) { Destroy(_colorVolume); _colorVolume = null; }
+            if (_volume)
+            {
+                _gpuRetirement.RetireAfterCurrentGpuWork(_volume);
+                _volume = null;
+            }
+            if (_colorVolume)
+            {
+                _gpuRetirement.RetireAfterCurrentGpuWork(_colorVolume);
+                _colorVolume = null;
+            }
             IntegrationCount = 0;
             Logger.Info("VolumeIntegrator: GPU volumes released");
         }
@@ -261,7 +340,8 @@ namespace Genesis.RoomScan
             // backing field as the "never initialized" sentinel.
             bool firstAlloc = (_clearKernel.Shader == null);
 
-            CreateVolume();
+            if (!CreateVolume())
+                return;
 
             if (firstAlloc) InitKernels();
             else            RebindKernelTextures();
@@ -314,10 +394,18 @@ namespace Genesis.RoomScan
             ColoredSurfaceCount = (int)data[2];
         }
 
-        private void CreateVolume()
+        private bool CreateVolume()
         {
-            long tsdfBytes = (long)voxelCount.x * voxelCount.y * voxelCount.z * 2;
-            long colorBytes = (long)voxelCount.x * voxelCount.y * voxelCount.z * 4;
+            if (!TryCalculateActiveVolumeMemory(voxelCount, maxFrustumPositions,
+                    out long tsdfBytes, out long colorBytes, out long frustumBytes) ||
+                frustumBytes > MaximumStorageBufferRangeBytes)
+            {
+                Logger.Error($"VolumeIntegrator rejected unsafe GPU allocation: voxels={voxelCount}, " +
+                    $"TSDF={tsdfBytes}, color={colorBytes}, frustum={frustumBytes}; " +
+                    $"storage buffer must be <= {MaximumStorageBufferRangeBytes} bytes.");
+                return false;
+            }
+
             Logger.Info($"TSDF volume: {voxelCount} RG8_SNorm = {tsdfBytes / (1024 * 1024)}MB");
             Logger.Info($"Color volume: {voxelCount} RGBA8_UNorm = {colorBytes / (1024 * 1024)}MB");
 
@@ -340,6 +428,33 @@ namespace Genesis.RoomScan
                 wrapMode = TextureWrapMode.Clamp
             };
             _colorVolume.Create();
+            return true;
+        }
+
+        internal static bool TryCalculateActiveVolumeMemory(int3 count,
+            int maximumFrustumPositions, out long tsdfBytes, out long colorBytes,
+            out long frustumBytes)
+        {
+            tsdfBytes = 0;
+            colorBytes = 0;
+            frustumBytes = 0;
+            if (count.x <= 0 || count.y <= 0 || count.z <= 0 ||
+                maximumFrustumPositions <= 0)
+                return false;
+
+            try
+            {
+                long voxels = checked((long)count.x * count.y * count.z);
+                tsdfBytes = checked(voxels * 2L);
+                colorBytes = checked(voxels * 4L);
+                frustumBytes = checked((long)maximumFrustumPositions * 12L);
+                return true;
+            }
+            catch (OverflowException)
+            {
+                tsdfBytes = colorBytes = frustumBytes = long.MaxValue;
+                return false;
+            }
         }
 
         private void SetShaderConstants()
@@ -361,9 +476,70 @@ namespace Genesis.RoomScan
             compute.SetFloat(StabilityID, stability);
             compute.SetFloat(WeightGrowthID, weightGrowth);
             compute.SetFloat(MaxWeightID, maxWeight);
+            ApplyFusionPolicyConstants();
 
             Shader.SetGlobalTexture(VolumeID, _volume);
             Shader.SetGlobalTexture(ColorVolumeID, _colorVolume);
+            ApplyVolumeFrameShaderConstants();
+        }
+
+        private void ApplyFusionPolicyConstants()
+        {
+            if (compute == null) return;
+            compute.SetInt(FusionProtectionEnabledID, protectStableSurfaces ? 1 : 0);
+            compute.SetFloat(FusionStableConfidenceID, stableSurfaceConfidence);
+            compute.SetFloat(FusionExistingQualityFloorID, 0.55f);
+            compute.SetFloat(FusionQualityHysteresisID, surfaceQualityHysteresis);
+            compute.SetFloat(FusionOppositeOrientationDotID, oppositeSurfaceNormalDot);
+            compute.SetFloat(FusionSurfaceBandID, 0.85f);
+            compute.SetFloat(FusionResidualToleranceID, stableSurfaceResidualTolerance);
+            compute.SetFloat(FusionResidualConfidenceSlackID, 0.18f);
+            compute.SetFloat(FusionImprovementResidualScaleID, 1.5f);
+            compute.SetFloat(FusionStableBlendFloorID, 0.15f);
+            compute.SetFloat(FusionNormalMinWeightID, minMeshWeight);
+            compute.SetFloat(FusionBackBandVoxelsID, behindSurfaceBandVoxels);
+        }
+
+        /// <summary>
+        /// Places the reusable TSDF volume in world space without resampling its local voxels.
+        /// Depth, exclusion, freeze, and camera-color kernels receive both transform directions.
+        /// </summary>
+        public bool TrySetWorldFromVolume(RigidPoseData worldFromVolume, out string error)
+        {
+            error = null;
+            Vector3 position = worldFromVolume.position;
+            Quaternion rotation = worldFromVolume.rotation;
+            float norm = rotation.x * rotation.x + rotation.y * rotation.y +
+                         rotation.z * rotation.z + rotation.w * rotation.w;
+            if (!IsFinite(position.x) || !IsFinite(position.y) || !IsFinite(position.z) ||
+                !IsFinite(norm) || Mathf.Abs(norm - 1f) > 0.01f)
+            {
+                error = "Volume frame must contain a finite position and unit quaternion.";
+                return false;
+            }
+
+            _worldFromVolume = worldFromVolume;
+            _worldFromVolumeMatrix = worldFromVolume.ToMatrix();
+            _volumeFromWorldMatrix = worldFromVolume.Inverse().ToMatrix();
+            ApplyVolumeFrameShaderConstants();
+            VolumeFrameChanged?.Invoke(worldFromVolume);
+            return true;
+        }
+
+        private void ApplyVolumeFrameShaderConstants()
+        {
+            if (compute != null)
+            {
+                compute.SetMatrix(WorldFromVolumeID, _worldFromVolumeMatrix);
+                compute.SetMatrix(VolumeFromWorldID, _volumeFromWorldMatrix);
+            }
+            Shader.SetGlobalMatrix(WorldFromVolumeID, _worldFromVolumeMatrix);
+            Shader.SetGlobalMatrix(VolumeFromWorldID, _volumeFromWorldMatrix);
+        }
+
+        private static bool IsFinite(float value)
+        {
+            return !float.IsNaN(value) && !float.IsInfinity(value);
         }
 
         /// <summary>
@@ -604,6 +780,7 @@ namespace Genesis.RoomScan
         /// </summary>
         public void Integrate()
         {
+            using ProfilerMarker.AutoScope integrateScope = IntegrateMarker.Auto();
             var dc = DepthCapture.Instance;
             if (dc == null || !DepthCapture.DepthAvailable || dc.DepthTex == null) return;
             // Defensive: with lazy GPU alloc a stray Integrate() before
@@ -613,6 +790,7 @@ namespace Genesis.RoomScan
             if (_volume == null || _integrateKernel.Shader == null) return;
             if (!_frustumReady) SetupFrustumVolume();
             if (!_frustumReady) return;
+            double integrationCpuStart = Time.realtimeSinceStartupAsDouble;
 
             dc.UpdateDilationIfNeeded();
 
@@ -634,6 +812,7 @@ namespace Genesis.RoomScan
             compute.SetFloat(StabilityID, stability);
             compute.SetFloat(WeightGrowthID, weightGrowth);
             compute.SetFloat(MaxWeightID, maxWeight);
+            ApplyFusionPolicyConstants();
 
             EnsureCamFrameCopy();
             if (_pendingCamFrame != null && _camFrameCopy != null)
@@ -658,7 +837,8 @@ namespace Genesis.RoomScan
             _integrateKernel.Set(DepthCapture.NormTexID, dc.NormTex);
             _integrateKernel.Set(DepthCapture.DilatedDepthTexID, dc.DilatedDepthTex);
 
-            _integrateKernel.DispatchFit(_frustumVolume.count, 1);
+            using (FusionDispatchMarker.Auto())
+                _integrateKernel.DispatchFit(_frustumVolume.count, 1);
 
             IntegrationCount++;
             _pendingCamFrame = null;
@@ -688,7 +868,59 @@ namespace Genesis.RoomScan
                 }
             }
 
+            CaptureDevelopmentTiming(
+                (Time.realtimeSinceStartupAsDouble - integrationCpuStart) * 1000.0);
             Integrated?.Invoke();
+        }
+
+        private void CaptureDevelopmentTiming(double cpuIntegrationMs)
+        {
+            if (!enableDevelopmentProfiling || !Debug.isDebugBuild ||
+                profilingSampleInterval <= 0)
+                return;
+
+            FrameTimingManager.CaptureFrameTimings();
+            uint count = FrameTimingManager.GetLatestTimings(1, _latestFrameTiming);
+            if (count == 0)
+                return;
+
+            FrameTiming timing = _latestFrameTiming[0];
+            if (timing.cpuFrameTime <= 0.0 && timing.gpuFrameTime <= 0.0)
+                return;
+
+            _profilingSamples++;
+            _cpuIntegrationTotalMs += cpuIntegrationMs;
+            _cpuIntegrationMaxMs = Math.Max(_cpuIntegrationMaxMs, cpuIntegrationMs);
+            _cpuFrameTotalMs += timing.cpuFrameTime;
+            _cpuFrameMaxMs = Math.Max(_cpuFrameMaxMs, timing.cpuFrameTime);
+            _gpuFrameTotalMs += timing.gpuFrameTime;
+            _gpuFrameMaxMs = Math.Max(_gpuFrameMaxMs, timing.gpuFrameTime);
+            if (_profilingSamples < profilingSampleInterval)
+                return;
+
+            TryCalculateActiveVolumeMemory(voxelCount,
+                _frustumVolume != null ? _frustumVolume.count : maxFrustumPositions,
+                out long tsdfBytes, out long colorBytes, out long frustumBytes);
+            double samples = _profilingSamples;
+            Logger.Info(string.Format(CultureInfo.InvariantCulture,
+                "QIS_TSDF_PROFILE samples={0} protection={1} " +
+                "cpuIntegrationAvgMs={2:F3} cpuIntegrationMaxMs={3:F3} " +
+                "cpuFrameAvgMs={4:F3} cpuFrameMaxMs={5:F3} " +
+                "gpuFrameAvgMs={6:F3} gpuFrameMaxMs={7:F3} " +
+                "tsdfBytes={8} colorBytes={9} frustumBytes={10} integrations={11}",
+                _profilingSamples, protectStableSurfaces ? 1 : 0,
+                _cpuIntegrationTotalMs / samples, _cpuIntegrationMaxMs,
+                _cpuFrameTotalMs / samples, _cpuFrameMaxMs,
+                _gpuFrameTotalMs / samples, _gpuFrameMaxMs,
+                tsdfBytes, colorBytes, frustumBytes, IntegrationCount));
+
+            _profilingSamples = 0;
+            _cpuIntegrationTotalMs = 0.0;
+            _cpuIntegrationMaxMs = 0.0;
+            _cpuFrameTotalMs = 0.0;
+            _cpuFrameMaxMs = 0.0;
+            _gpuFrameTotalMs = 0.0;
+            _gpuFrameMaxMs = 0.0;
         }
 
         /// <summary>
@@ -724,14 +956,17 @@ namespace Genesis.RoomScan
             tsdfTex.SetPixelData(tsdfBytes, 0);
             tsdfTex.Apply(false, false);
             Graphics.CopyTexture(tsdfTex, _volume);
-            Destroy(tsdfTex);
+            _gpuRetirement.RetireAfterCurrentGpuWork(tsdfTex);
 
             var colorTex = new Texture3D(s.x, s.y, s.z, GraphicsFormat.R8G8B8A8_UNorm, TextureCreationFlags.None);
             colorTex.SetPixelData(colorBytes, 0);
             colorTex.Apply(false, false);
             Graphics.CopyTexture(colorTex, _colorVolume);
-            Destroy(colorTex);
+            _gpuRetirement.RetireAfterCurrentGpuWork(colorTex);
 
+            // Submit the uploads, but never destroy their source allocations merely after
+            // GL.Flush: flush is not completion. The retirement queue above waits for an
+            // actual GPU fence, preventing the Quest Vulkan "premature free" page fault.
             GL.Flush();
 
             IntegrationCount = integrationCount;

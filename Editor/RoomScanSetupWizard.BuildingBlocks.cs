@@ -14,6 +14,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using System.Threading.Tasks;
+using Meta.XR;
 using Meta.XR.BuildingBlocks;
 using UnityEditor;
 using UnityEditor.SceneManagement;
@@ -292,11 +293,84 @@ namespace Genesis.RoomScan.Editor
             // the startup dialog). Mirrors Meta's
             // PassthroughCameraAccessProjectSetup Optional task.
             bool pcaBlockPresent = _bbPresent.TryGetValue(BB_PASSTHROUGH_CAMERA_ACCESS, out var pp) && pp;
+
+            // This project-level switch is what Meta's manifest preprocessor
+            // uses to retain horizonsos.permission.HEADSET_CAMERA. The PCA
+            // Building Block alone does not guarantee it is enabled.
+            if (pcaBlockPresent)
+            {
+                var projectConfig = OVRProjectConfig.CachedProjectConfig;
+                if (projectConfig != null &&
+                    (!projectConfig.isPassthroughCameraAccessEnabled ||
+                     projectConfig.insightPassthroughSupport == OVRProjectConfig.FeatureSupport.None))
+                {
+                    projectConfig.isPassthroughCameraAccessEnabled = true;
+                    if (projectConfig.insightPassthroughSupport == OVRProjectConfig.FeatureSupport.None)
+                    {
+                        projectConfig.insightPassthroughSupport =
+                            OVRProjectConfig.FeatureSupport.Supported;
+                    }
+                    OVRProjectConfig.CommitProjectConfig(projectConfig);
+                    changed++;
+                    Debug.Log("[RoomScan Setup] Enabled passthrough camera access in OVRProjectConfig.");
+                }
+            }
+
             if (ovrManager != null && pcaBlockPresent
                 && WriteOvrManagerStartupPermFlag(ovrManager, true))
             {
                 changed++;
                 Debug.Log("[RoomScan Setup] Enabled OVRManager.requestPassthroughCameraAccessPermissionOnStartup.");
+            }
+
+            // PassthroughCameraAccess auto-starts in OnEnable. Its MaxFramerate
+            // setter explicitly forbids changes while enabled, so trying to
+            // impose the RoomScan provider's preferences at StartScan time
+            // requires a native CameraStop/Play cycle. On Quest that cycle can
+            // stall the XR render fence immediately after the mapper's Vulkan
+            // allocation. Serialize the shared Building-Block component to the
+            // provider's desired settings here, before the player ever runs.
+            var pca = FindAny<PassthroughCameraAccess>();
+            if (pca != null)
+            {
+                int desiredPosition = 0;
+                var desiredResolution = new Vector2Int(1280, 960);
+                int desiredMaxFramerate = 30;
+
+                var provider = FindAny<PassthroughCameraProvider>();
+                if (provider != null)
+                {
+                    var providerSo = new SerializedObject(provider);
+                    var positionProp = providerSo.FindProperty("cameraPosition");
+                    var resolutionProp = providerSo.FindProperty("requestedResolution");
+                    var framerateProp = providerSo.FindProperty("maxFramerate");
+                    if (positionProp != null) desiredPosition = positionProp.enumValueIndex;
+                    if (resolutionProp != null) desiredResolution = resolutionProp.vector2IntValue;
+                    if (framerateProp != null) desiredMaxFramerate = framerateProp.intValue;
+                }
+
+                var pcaSo = new SerializedObject(pca);
+                var pcaPosition = pcaSo.FindProperty("CameraPosition");
+                var pcaResolution = pcaSo.FindProperty("RequestedResolution");
+                var pcaFramerate = pcaSo.FindProperty("_maxFramerate");
+                bool pcaChanged =
+                    pcaPosition != null && pcaPosition.enumValueIndex != desiredPosition ||
+                    pcaResolution != null && pcaResolution.vector2IntValue != desiredResolution ||
+                    pcaFramerate != null && pcaFramerate.intValue != desiredMaxFramerate;
+
+                if (pcaChanged)
+                {
+                    Undo.RecordObject(pca, "Configure Passthrough Camera Access");
+                    if (pcaPosition != null) pcaPosition.enumValueIndex = desiredPosition;
+                    if (pcaResolution != null) pcaResolution.vector2IntValue = desiredResolution;
+                    if (pcaFramerate != null) pcaFramerate.intValue = desiredMaxFramerate;
+                    pcaSo.ApplyModifiedPropertiesWithoutUndo();
+                    EditorUtility.SetDirty(pca);
+                    changed++;
+                    Debug.Log($"[RoomScan Setup] Configured PassthroughCameraAccess: " +
+                              $"camera={desiredPosition}, resolution={desiredResolution}, " +
+                              $"maxFps={desiredMaxFramerate}.");
+                }
             }
 
             var rig = FindAny<OVRCameraRig>();

@@ -51,6 +51,8 @@ Shader "Genesis/ScanMeshVertexColor"
             SAMPLER(sampler_gsVolume);
             float4 gsVoxCount;
             float gsVoxSize;
+            float4x4 gsWorldFromVolume;
+            float4x4 gsVolumeFromWorld;
 
             // ── Globals set by RoomScanner ──
             float _RSNoFreezeTint;
@@ -62,7 +64,8 @@ Shader "Genesis/ScanMeshVertexColor"
 
             float3 WorldToVoxelUVW(float3 worldPos)
             {
-                float3 local = worldPos / gsVoxSize + gsVoxCount.xyz / 2.0;
+                float3 volumePos = mul(gsVolumeFromWorld, float4(worldPos, 1.0)).xyz;
+                float3 local = volumePos / gsVoxSize + gsVoxCount.xyz / 2.0;
                 return saturate(local / gsVoxCount.xyz);
             }
 
@@ -130,10 +133,12 @@ Shader "Genesis/ScanMeshVertexColor"
 
                 uint idx = _SurfaceIndices[vertID];
                 GPUVertex gv = _SurfaceVerts[idx];
+                float3 worldPos = mul(gsWorldFromVolume, float4(gv.pos, 1.0)).xyz;
+                float3 worldNormal = normalize(mul((float3x3)gsWorldFromVolume, gv.norm));
 
-                OUT.positionWS  = gv.pos;
-                OUT.positionHCS = TransformWorldToHClip(gv.pos);
-                OUT.normalWS    = gv.norm;
+                OUT.positionWS  = worldPos;
+                OUT.positionHCS = TransformWorldToHClip(worldPos);
+                OUT.normalWS    = worldNormal;
                 OUT.color       = UnpackColor(gv.packedColor);
 
                 // Barycentric coords for wireframe: each triangle vertex gets one axis
@@ -219,6 +224,7 @@ Shader "Genesis/ScanMeshVertexColor"
             };
             StructuredBuffer<GPUVertex> _SurfaceVerts;
             StructuredBuffer<uint>      _SurfaceIndices;
+            float4x4 gsWorldFromVolume;
 
             struct Varyings
             {
@@ -231,7 +237,9 @@ Shader "Genesis/ScanMeshVertexColor"
                 Varyings OUT = (Varyings)0;
                 UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(OUT);
                 uint idx = _SurfaceIndices[vertID];
-                OUT.positionHCS = TransformWorldToHClip(_SurfaceVerts[idx].pos);
+                float3 worldPos = mul(gsWorldFromVolume,
+                    float4(_SurfaceVerts[idx].pos, 1.0)).xyz;
+                OUT.positionHCS = TransformWorldToHClip(worldPos);
                 return OUT;
             }
 
@@ -264,6 +272,7 @@ Shader "Genesis/ScanMeshVertexColor"
             };
             StructuredBuffer<GPUVertex> _SurfaceVerts;
             StructuredBuffer<uint>      _SurfaceIndices;
+            float4x4 gsWorldFromVolume;
 
             struct Varyings
             {
@@ -278,8 +287,9 @@ Shader "Genesis/ScanMeshVertexColor"
                 UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(OUT);
                 uint idx = _SurfaceIndices[vertID];
                 GPUVertex gv = _SurfaceVerts[idx];
-                OUT.positionHCS = TransformWorldToHClip(gv.pos);
-                OUT.normalWS    = gv.norm;
+                float3 worldPos = mul(gsWorldFromVolume, float4(gv.pos, 1.0)).xyz;
+                OUT.positionHCS = TransformWorldToHClip(worldPos);
+                OUT.normalWS = normalize(mul((float3x3)gsWorldFromVolume, gv.norm));
                 return OUT;
             }
 

@@ -1,3 +1,6 @@
+using Genesis.RoomScan.Exporting;
+using Genesis.RoomScan.HeavyCompute;
+using Genesis.RoomScan.World;
 using UnityEngine;
 using UnityEngine.UIElements;
 
@@ -16,11 +19,12 @@ namespace Genesis.RoomScan.UI
         private bool _visible;
 
         // Nav buttons
-        private Button _navScan, _navSaved, _navRefine, _navTraining, _navTools;
+        private Button _navScan, _navSaved, _navWorld, _navRefine, _navTraining, _navTools;
         private Button[] _navButtons;
 
         // Views
-        private VisualElement _viewScan, _viewSaved, _viewRefine, _viewTraining, _viewTools;
+        private VisualElement _viewScan, _viewSaved, _viewWorld, _viewRefine,
+            _viewTraining, _viewTools;
         private VisualElement[] _views;
 
         // Scan view elements
@@ -47,6 +51,13 @@ namespace Genesis.RoomScan.UI
         // Tools view
         private Button _btnExportPc, _btnClearAll;
 
+        // Infinite-world view
+        private Label _valWorldMode, _valWorldId, _valActiveChunk, _valChunkLifecycle;
+        private Label _valResidency, _valGraph, _valHeavyQueue, _valHeavyNetwork;
+        private Label _valWorldArtifacts, _valWorldStorage, _valGlbExport;
+        private Button _btnExportChunkGlb, _btnExportWorldGlb;
+        private GlbExportController _glbExporter;
+
         // Footer
         private Label _valFps;
 
@@ -56,6 +67,7 @@ namespace Genesis.RoomScan.UI
         private int _fpsFrames;
         private float _currentFps;
         private float _scanListRefreshTimer;
+        private float _worldStatusRefreshTimer;
 
         public bool IsVisible => _visible;
 
@@ -67,6 +79,7 @@ namespace Genesis.RoomScan.UI
 
         private bool _refineAvailable;
         private bool _gsplatAvailable;
+        private bool _worldAvailable;
 
         private void OnEnable()
         {
@@ -131,18 +144,26 @@ namespace Genesis.RoomScan.UI
             // Nav
             _navScan = _root.Q<Button>("nav-scan");
             _navSaved = _root.Q<Button>("nav-saved");
+            _navWorld = _root.Q<Button>("nav-world");
             _navRefine = _root.Q<Button>("nav-refine");
             _navTraining = _root.Q<Button>("nav-training");
             _navTools = _root.Q<Button>("nav-tools");
-            _navButtons = new[] { _navScan, _navSaved, _navRefine, _navTraining, _navTools };
+            _navButtons = new[]
+            {
+                _navScan, _navSaved, _navWorld, _navRefine, _navTraining, _navTools
+            };
 
             // Views
             _viewScan = _root.Q<VisualElement>("view-scan");
             _viewSaved = _root.Q<VisualElement>("view-saved");
+            _viewWorld = _root.Q<VisualElement>("view-world");
             _viewRefine = _root.Q<VisualElement>("view-refine");
             _viewTraining = _root.Q<VisualElement>("view-training");
             _viewTools = _root.Q<VisualElement>("view-tools");
-            _views = new[] { _viewScan, _viewSaved, _viewRefine, _viewTraining, _viewTools };
+            _views = new[]
+            {
+                _viewScan, _viewSaved, _viewWorld, _viewRefine, _viewTraining, _viewTools
+            };
 
             // Scan view
             _valScanning = _root.Q<Label>("val-scanning");
@@ -166,6 +187,21 @@ namespace Genesis.RoomScan.UI
             // Saved scans
             _scanList = _root.Q<ScrollView>("scan-list");
             _lblNoScans = _root.Q<Label>("lbl-no-scans");
+
+            // Infinite world
+            _valWorldMode = _root.Q<Label>("val-world-mode");
+            _valWorldId = _root.Q<Label>("val-world-id");
+            _valActiveChunk = _root.Q<Label>("val-active-chunk");
+            _valChunkLifecycle = _root.Q<Label>("val-chunk-lifecycle");
+            _valResidency = _root.Q<Label>("val-residency");
+            _valGraph = _root.Q<Label>("val-graph");
+            _valHeavyQueue = _root.Q<Label>("val-heavy-queue");
+            _valHeavyNetwork = _root.Q<Label>("val-heavy-network");
+            _valWorldArtifacts = _root.Q<Label>("val-world-artifacts");
+            _valWorldStorage = _root.Q<Label>("val-world-storage");
+            _valGlbExport = _root.Q<Label>("val-glb-export");
+            _btnExportChunkGlb = _root.Q<Button>("btn-export-chunk-glb");
+            _btnExportWorldGlb = _root.Q<Button>("btn-export-world-glb");
 
             // Refine
             _valRefineStatus = _root.Q<Label>("val-refine-status");
@@ -202,6 +238,7 @@ namespace Genesis.RoomScan.UI
             // Nav switching
             _navScan?.RegisterCallback<ClickEvent>(_ => SelectNav(_navScan));
             _navSaved?.RegisterCallback<ClickEvent>(_ => { SelectNav(_navSaved); PopulateScanList(); });
+            _navWorld?.RegisterCallback<ClickEvent>(_ => SelectNav(_navWorld));
             _navRefine?.RegisterCallback<ClickEvent>(_ => SelectNav(_navRefine));
             _navTraining?.RegisterCallback<ClickEvent>(_ => SelectNav(_navTraining));
             _navTools?.RegisterCallback<ClickEvent>(_ => SelectNav(_navTools));
@@ -281,6 +318,28 @@ namespace Genesis.RoomScan.UI
                 RoomScanner.Instance.ClearAllDataAsync(() =>
                     SetButtonReady(_btnClearAll, "Clear All Data"));
             });
+
+            _btnExportChunkGlb?.RegisterCallback<ClickEvent>(async _ =>
+            {
+                EnsureGlbExporter();
+                if (_glbExporter == null) return;
+                SetButtonBusy(_btnExportChunkGlb, "Exporting chunk...");
+                GlbUserExportResult result = await _glbExporter.ExportActiveChunkAsync();
+                SetButtonReady(_btnExportChunkGlb, "Export Active Chunk GLB");
+                SetLabel(_valGlbExport, result.Success ? result.Path : result.Error);
+                FlashStatus(_btnExportChunkGlb, result.Success);
+            });
+
+            _btnExportWorldGlb?.RegisterCallback<ClickEvent>(async _ =>
+            {
+                EnsureGlbExporter();
+                if (_glbExporter == null) return;
+                SetButtonBusy(_btnExportWorldGlb, "Exporting world...");
+                GlbUserExportResult result = await _glbExporter.ExportWorldAsync();
+                SetButtonReady(_btnExportWorldGlb, "Export World GLB/PBR");
+                SetLabel(_valGlbExport, result.Success ? result.Path : result.Error);
+                FlashStatus(_btnExportWorldGlb, result.Success);
+            });
         }
 
         // ─────────────────────────────────────────────────────────────
@@ -292,7 +351,12 @@ namespace Genesis.RoomScan.UI
             var scanner = RoomScanner.Instance;
             _refineAvailable = scanner != null && scanner.HasTextureRefinementModule;
             _gsplatAvailable = scanner != null && scanner.GSplatProvider != null;
+            SubmapManager submaps = scanner != null
+                ? scanner.GetComponent<SubmapManager>()
+                : null;
+            _worldAvailable = submaps != null && submaps.LargeWorldMode;
 
+            SetNavAvailable(_navWorld, _worldAvailable);
             SetNavAvailable(_navRefine, _refineAvailable);
             SetNavAvailable(_navTraining, _gsplatAvailable);
         }
@@ -468,6 +532,7 @@ namespace Genesis.RoomScan.UI
             if (scanner == null) return;
 
             RefreshScanView(scanner);
+            RefreshWorldView(scanner);
             RefreshRefineView(scanner);
             RefreshTrainingStatus();
             RefreshDisabledStates(scanner);
@@ -486,6 +551,29 @@ namespace Genesis.RoomScan.UI
                     _navSaved.text = count > 0 ? $"Saved Scans ({count})" : "Saved Scans";
                 }
             }
+        }
+
+        private void RefreshWorldView(RoomScanner scanner)
+        {
+            _worldStatusRefreshTimer -= Time.unscaledDeltaTime;
+            if (_worldStatusRefreshTimer > 0f) return;
+            _worldStatusRefreshTimer = 0.5f;
+            SubmapManager submaps = scanner.GetComponent<SubmapManager>();
+            ChunkRefinementScheduler scheduler = scanner.GetComponent<ChunkRefinementScheduler>();
+            EnsureGlbExporter();
+            InfiniteScanStatus status = InfiniteScanDiagnostics.Capture(submaps, scheduler,
+                _glbExporter);
+            SetLabel(_valWorldMode, status.Mode);
+            SetLabel(_valWorldId, status.World);
+            SetLabel(_valActiveChunk, status.ActiveChunk);
+            SetLabel(_valChunkLifecycle, status.Lifecycle);
+            SetLabel(_valResidency, status.Residency);
+            SetLabel(_valGraph, status.Graph);
+            SetLabel(_valHeavyQueue, status.Queue);
+            SetLabel(_valHeavyNetwork, status.Network);
+            SetLabel(_valWorldArtifacts, status.Artifacts);
+            SetLabel(_valWorldStorage, status.Storage);
+            SetLabel(_valGlbExport, status.Export);
         }
 
         private void RefreshScanView(RoomScanner scanner)
@@ -704,6 +792,17 @@ namespace Genesis.RoomScan.UI
             // Export Point Cloud: disabled if no volume
             if (_btnExportPc != null && !_btnExportPc.text.Contains("..."))
                 _btnExportPc.SetEnabled(hasVolume);
+
+            bool canExportGlb = _worldAvailable && !scanner.IsScanning &&
+                                _glbExporter != null && !_glbExporter.IsBusy;
+            if (_btnExportChunkGlb != null &&
+                !_btnExportChunkGlb.text.Contains("..."))
+                _btnExportChunkGlb.SetEnabled(canExportGlb &&
+                                              _glbExporter != null);
+            if (_btnExportWorldGlb != null &&
+                !_btnExportWorldGlb.text.Contains("..."))
+                _btnExportWorldGlb.SetEnabled(canExportGlb &&
+                                              _glbExporter != null);
         }
 
         // ─────────────────────────────────────────────────────────────
@@ -757,6 +856,14 @@ namespace Genesis.RoomScan.UI
                     return;
                 }
             }
+        }
+
+        private void EnsureGlbExporter()
+        {
+            if (_glbExporter != null) return;
+            RoomScanner scanner = RoomScanner.Instance;
+            if (scanner != null)
+                _glbExporter = scanner.GetComponent<GlbExportController>();
         }
 
         private static void SetButtonBusy(Button btn, string text)

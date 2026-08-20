@@ -44,9 +44,12 @@ namespace Genesis.RoomScan
         private GPUSurfaceNets _gpuSurfaceNets;
         private GPUMeshRenderer _gpuRenderer;
         private int _extractCount;
+        private bool _counterReadbackPending;
 
         internal GPUSurfaceNets GpuSurfaceNets => _gpuSurfaceNets;
         public bool IsInitialized => _gpuSurfaceNets != null;
+        /// <summary>Material configured for the procedural live mesh renderer.</summary>
+        public Material LiveMeshMaterial => scanMeshMaterial;
 
         /// <summary>Current GPU mesh vertex count (updated after each extraction via async readback).</summary>
         public int LastVertexCount { get; private set; }
@@ -123,6 +126,7 @@ namespace Genesis.RoomScan
             _gpuRenderer = gameObject.AddComponent<GPUMeshRenderer>();
             _gpuRenderer.GpuMeshMaterial = scanMeshMaterial;
             _gpuRenderer.Initialize(_gpuSurfaceNets, _gpuSurfaceNets.GetVolumeBounds(_volume.VoxelSize));
+            _gpuRenderer.SetWorldFromVolume(_volume.WorldFromVolumeMatrix);
 
             Logger.Info($"GPU Surface Nets initialized lazily: voxels={_volume.VoxelCount}, " +
                       $"voxSize={_volume.VoxelSize}");
@@ -142,22 +146,39 @@ namespace Genesis.RoomScan
             _gpuSurfaceNets.Extract(_volume.Volume, _volume.ColorVolume, _volume.VoxelSize);
 
             if (_gpuRenderer != null)
+            {
                 _gpuRenderer.UpdateBounds(_gpuSurfaceNets.GetVolumeBounds(_volume.VoxelSize));
+                _gpuRenderer.SetWorldFromVolume(_volume.WorldFromVolumeMatrix);
+            }
 
             var counters = _gpuSurfaceNets.CountersBuffer;
-            if (counters != null)
+            if (counters != null && !_counterReadbackPending)
             {
+                _counterReadbackPending = true;
                 AsyncGPUReadback.Request(counters, (req) =>
                 {
-                    if (req.hasError) return;
-                    var data = req.GetData<uint>();
-                    if (data.Length >= 2)
+                    try
                     {
-                        LastVertexCount = (int)data[0];
-                        LastIndexCount = (int)data[1];
+                        if (req.hasError) return;
+                        var data = req.GetData<uint>();
+                        if (data.Length >= 2)
+                        {
+                            LastVertexCount = (int)data[0];
+                            LastIndexCount = (int)data[1];
+                        }
+                    }
+                    finally
+                    {
+                        _counterReadbackPending = false;
                     }
                 });
             }
+        }
+
+        /// <summary>Starts temporal stabilization from the currently bound chunk only.</summary>
+        public void ResetTemporalState()
+        {
+            _gpuSurfaceNets?.ResetTemporalState();
         }
 
         /// <summary>
@@ -176,6 +197,7 @@ namespace Genesis.RoomScan
             }
             _gpuSurfaceNets?.Dispose();
             _gpuSurfaceNets = null;
+            _counterReadbackPending = false;
         }
 
         /// <summary>
@@ -191,6 +213,7 @@ namespace Genesis.RoomScan
             }
             _gpuSurfaceNets?.Dispose();
             _gpuSurfaceNets = null;
+            _counterReadbackPending = false;
             Init();
         }
     }

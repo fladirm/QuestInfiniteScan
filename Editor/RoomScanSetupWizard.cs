@@ -2,7 +2,10 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Xml.Linq;
+using Genesis.RoomScan.Exporting;
+using Genesis.RoomScan.HeavyCompute;
 using Genesis.RoomScan.UI;
+using Genesis.RoomScan.World;
 using Meta.XR;
 using UnityEditor;
 using UnityEditor.SceneManagement;
@@ -41,6 +44,8 @@ namespace Genesis.RoomScan.Editor
         DebugMenuController _debugMenu;
         RoomScanInputHandler _inputHandler;
         RoomAnchorManager _roomAnchor;
+        SubmapManager _submapManager;
+        GlbExportController _glbExportController;
         EventSystem _eventSystem;
         OVRInputModule _ovrInputModule;
         VRDocumentRaycaster _vrRaycaster;
@@ -121,6 +126,8 @@ namespace Genesis.RoomScan.Editor
             _debugMenu = FindAny<DebugMenuController>();
             _inputHandler = FindAny<RoomScanInputHandler>();
             _roomAnchor = FindAny<RoomAnchorManager>();
+            _submapManager = FindAny<SubmapManager>();
+            _glbExportController = FindAny<GlbExportController>();
             _eventSystem = FindAny<EventSystem>();
             _ovrInputModule = FindAny<OVRInputModule>();
             _vrRaycaster = FindAny<VRDocumentRaycaster>();
@@ -215,7 +222,7 @@ namespace Genesis.RoomScan.Editor
         void DrawHeader()
         {
             EditorGUILayout.BeginHorizontal(EditorStyles.toolbar);
-            GUILayout.Label("Room Scan Setup", EditorStyles.boldLabel);
+            GUILayout.Label("QuestInfiniteScan Setup", EditorStyles.boldLabel);
             GUILayout.FlexibleSpace();
             if (GUILayout.Button("Refresh", EditorStyles.toolbarButton, GUILayout.Width(60)))
                 Refresh();
@@ -332,6 +339,10 @@ namespace Genesis.RoomScan.Editor
         // -- Project Settings ---------------------------------------------
 
         const string MANIFEST_PATH = "Assets/Plugins/Android/AndroidManifest.xml";
+        const string ROOMSCAN_MANIFEST_DIR =
+            "Assets/Plugins/Android/QuestRoomScanManifest.androidlib";
+        const string ROOMSCAN_MANIFEST_PATH =
+            ROOMSCAN_MANIFEST_DIR + "/AndroidManifest.xml";
 
         // Every <uses-feature> + <uses-permission> entry that QRS or its
         // satellite modules expect at runtime. Some of these (HEADSET_CAMERA,
@@ -359,11 +370,12 @@ namespace Genesis.RoomScan.Editor
             "horizonos.permission.HEADSET_CAMERA",
         };
 
-        // horizonos SDK declaration — anchored to a current floor so MR
-        // features (camera, anchors) are exposed.
+        // Fallback values only. At setup time the owned manifest mirrors the
+        // installed Meta SDK's OVRProjectConfig, so upgrading Meta XR never
+        // leaves this package pinned to an obsolete Horizon OS target.
         const string HORIZONOS_NS = "http://schemas.horizonos/sdk";
         const string HORIZONOS_MIN_SDK_VERSION = "60";
-        const string HORIZONOS_TARGET_SDK_VERSION = "85";
+        const string HORIZONOS_TARGET_SDK_VERSION = "207";
 
         void DrawProjectSettings()
         {
@@ -423,34 +435,104 @@ namespace Genesis.RoomScan.Editor
         /// already present in the manifest. Used by the status row + by the
         /// orchestrators to decide whether to re-run the ensure-pass.
         /// </summary>
+        static List<XDocument> LoadQuestManifestDocuments()
+        {
+            var documents = new List<XDocument>();
+            foreach (string relativePath in new[] { MANIFEST_PATH, ROOMSCAN_MANIFEST_PATH })
+            {
+                string fullPath = Path.Combine(Application.dataPath, "..", relativePath);
+                if (!File.Exists(fullPath)) continue;
+
+                try
+                {
+                    documents.Add(XDocument.Load(fullPath));
+                }
+                catch (System.Exception ex)
+                {
+                    Debug.LogWarning($"[RoomScan Setup] Ignoring invalid manifest '{relativePath}': {ex.Message}");
+                }
+            }
+            return documents;
+        }
+
+        /// <summary>
+        /// Creates a merge-only Android library manifest owned by RoomScan.
+        /// A minimal custom main manifest would replace Unity 6's generated
+        /// GameActivity launcher, so fresh projects must not manufacture one.
+        /// </summary>
+        static string EnsureOwnedQuestManifest()
+        {
+            string projectRoot = Path.GetFullPath(Path.Combine(Application.dataPath, ".."));
+            string manifestFull = Path.Combine(projectRoot, ROOMSCAN_MANIFEST_PATH);
+            string libraryFull = Path.Combine(projectRoot, ROOMSCAN_MANIFEST_DIR);
+            Directory.CreateDirectory(libraryFull);
+
+            if (!File.Exists(manifestFull))
+            {
+                XNamespace android = "http://schemas.android.com/apk/res/android";
+                var manifest = new XElement("manifest",
+                    new XAttribute(XNamespace.Xmlns + "android", android.NamespaceName),
+                    new XAttribute(XNamespace.Xmlns + "horizonos", HORIZONOS_NS),
+                    new XAttribute("package", "com.genesis.roomscan.manifest"),
+                    new XElement("application"));
+                new XDocument(new XDeclaration("1.0", "utf-8", null), manifest)
+                    .Save(manifestFull);
+            }
+
+            string propertiesFull = Path.Combine(libraryFull, "project.properties");
+            if (!File.Exists(propertiesFull))
+                File.WriteAllText(propertiesFull, "android.library=true\n");
+
+            return manifestFull;
+        }
+
+        static bool SetAttribute(XElement element, XName name, string value)
+        {
+            var attribute = element.Attribute(name);
+            if (attribute != null && attribute.Value == value) return false;
+
+            if (attribute == null)
+                element.Add(new XAttribute(name, value));
+            else
+                attribute.Value = value;
+            return true;
+        }
+
         static bool ManifestHasAllQuestVREntries()
         {
-            string fullPath = Path.Combine(Application.dataPath, "..", MANIFEST_PATH);
-            if (!File.Exists(fullPath)) return false;
-
             try
             {
-                var doc = XDocument.Load(fullPath);
-                if (doc.Root == null) return false;
-                XNamespace android = "http://schemas.android.com/apk/res/android";
-                XNamespace horizonos = HORIZONOS_NS;
+                var docs = LoadQuestManifestDocuments();
+                if (docs.Count == 0) return false;
 
+                XNamespace android = "http://schemas.android.com/apk/res/android";
                 foreach (var f in REQUIRED_FEATURES)
                 {
-                    bool found = doc.Root.Elements("uses-feature")
-                        .Any(e => e.Attribute(android + "name")?.Value == f.Name);
+                    bool found = docs.Any(doc => doc.Root != null &&
+                        doc.Root.Elements("uses-feature")
+                            .Any(e => e.Attribute(android + "name")?.Value == f.Name));
                     if (!found) return false;
                 }
 
                 foreach (var p in REQUIRED_PERMISSIONS)
                 {
-                    bool found = doc.Root.Elements("uses-permission")
-                        .Any(e => e.Attribute(android + "name")?.Value == p);
+                    bool found = docs.Any(doc => doc.Root != null &&
+                        doc.Root.Elements("uses-permission")
+                            .Any(e => e.Attribute(android + "name")?.Value == p));
                     if (!found) return false;
                 }
 
-                bool hasHorizonOsSdk = doc.Root.Elements(horizonos + "uses-horizonos-sdk").Any();
-                if (!hasHorizonOsSdk) return false;
+                // Meta XR owns the Horizon OS SDK declaration and writes it
+                // during manifest preprocessing. Duplicating it in this
+                // merge-only fragment produces two declarations in the final
+                // manifest. Validate the authoritative project config here.
+                var projectConfig = OVRProjectConfig.CachedProjectConfig;
+                if (projectConfig == null || projectConfig.horizonOsSdkDisabled ||
+                    projectConfig.minHorizonOsSdkVersion < int.Parse(HORIZONOS_MIN_SDK_VERSION) ||
+                    projectConfig.targetHorizonOsSdkVersion < System.Math.Max(
+                        projectConfig.minHorizonOsSdkVersion,
+                        int.Parse(HORIZONOS_TARGET_SDK_VERSION)))
+                    return false;
 
                 return true;
             }
@@ -461,8 +543,9 @@ namespace Genesis.RoomScan.Editor
         }
 
         /// <summary>
-        /// Idempotent: adds every required uses-feature, uses-permission, and
-        /// the horizonos:uses-horizonos-sdk declaration if any are missing.
+        /// Idempotent: adds every required uses-feature and uses-permission if
+        /// any are missing. Meta XR remains the sole owner of the Horizon OS
+        /// SDK declaration generated from OVRProjectConfig.
         /// Never removes existing entries — safe to run after Meta's
         /// OVRProjectSetup.FixAllAsync has rewritten the manifest from
         /// OVRProjectConfig defaults (which strips MR-only permissions like
@@ -470,19 +553,39 @@ namespace Genesis.RoomScan.Editor
         /// </summary>
         static void EnsureQuestVRManifest()
         {
-            string fullPath = Path.Combine(Application.dataPath, "..", MANIFEST_PATH);
-
-            if (!File.Exists(fullPath))
-            {
-                EditorUtility.DisplayDialog("Room Scan Setup",
-                    "AndroidManifest.xml not found at:\n" + MANIFEST_PATH + "\n\n" +
-                    "Build the project once or create a custom manifest first.",
-                    "OK");
-                return;
-            }
-
             try
             {
+                // Meta XR Core 205 is the current package, while Horizon OS 2.7
+                // exposes Meta VR API 207. Target the tested OS behavior without
+                // raising the minimum API needed by older supported Quest builds.
+                var projectConfig = OVRProjectConfig.CachedProjectConfig;
+                if (projectConfig != null)
+                {
+                    int minimum = int.Parse(HORIZONOS_MIN_SDK_VERSION);
+                    int target = int.Parse(HORIZONOS_TARGET_SDK_VERSION);
+                    bool configDirty = false;
+                    if (projectConfig.horizonOsSdkDisabled)
+                    {
+                        projectConfig.horizonOsSdkDisabled = false;
+                        configDirty = true;
+                    }
+                    if (projectConfig.minHorizonOsSdkVersion < minimum)
+                    {
+                        projectConfig.minHorizonOsSdkVersion = minimum;
+                        configDirty = true;
+                    }
+                    int requiredTarget = System.Math.Max(target,
+                        projectConfig.minHorizonOsSdkVersion);
+                    if (projectConfig.targetHorizonOsSdkVersion < requiredTarget)
+                    {
+                        projectConfig.targetHorizonOsSdkVersion = requiredTarget;
+                        configDirty = true;
+                    }
+                    if (configDirty)
+                        OVRProjectConfig.CommitProjectConfig(projectConfig);
+                }
+
+                string fullPath = EnsureOwnedQuestManifest();
                 var doc = XDocument.Load(fullPath);
                 if (doc.Root == null)
                 {
@@ -491,17 +594,21 @@ namespace Genesis.RoomScan.Editor
                 }
 
                 XNamespace android = "http://schemas.android.com/apk/res/android";
-                XNamespace horizonos = HORIZONOS_NS;
                 bool dirty = false;
                 var added = new List<string>();
 
-                // Make sure xmlns:horizonos is declared on root so the SDK
-                // element below can use the prefix without serializing as
-                // xmlns="...". Unity templates usually include it but
-                // OVR-regenerated manifests may not.
-                if (doc.Root.Attribute(XNamespace.Xmlns + "horizonos") == null)
+                // Older RoomScan setup code put its own network security
+                // resource on <application>. Meta XR 205 now generates
+                // @xml/network_sec_config itself; retaining our differently
+                // named resource makes Android's manifest merger fail. Keep
+                // only usesCleartextTraffic in the RoomScan fragment and let
+                // Meta own networkSecurityConfig.
+                var ownedApplication = doc.Root.Element("application");
+                var legacyNetworkConfig = ownedApplication?
+                    .Attribute(android + "networkSecurityConfig");
+                if (legacyNetworkConfig != null)
                 {
-                    doc.Root.Add(new XAttribute(XNamespace.Xmlns + "horizonos", HORIZONOS_NS));
+                    legacyNetworkConfig.Remove();
                     dirty = true;
                 }
 
@@ -538,14 +645,13 @@ namespace Genesis.RoomScan.Editor
                     dirty = true;
                 }
 
-                // <horizonos:uses-horizonos-sdk>
-                bool hasHorizonOsSdk = doc.Root.Elements(horizonos + "uses-horizonos-sdk").Any();
-                if (!hasHorizonOsSdk)
+                // Remove legacy package-owned Horizon SDK declarations. Meta's
+                // build preprocessor writes exactly one from OVRProjectConfig.
+                XNamespace horizonos = HORIZONOS_NS;
+                foreach (var horizonSdk in doc.Root
+                             .Elements(horizonos + "uses-horizonos-sdk").ToList())
                 {
-                    doc.Root.Add(new XElement(horizonos + "uses-horizonos-sdk",
-                        new XAttribute(horizonos + "minSdkVersion",    HORIZONOS_MIN_SDK_VERSION),
-                        new XAttribute(horizonos + "targetSdkVersion", HORIZONOS_TARGET_SDK_VERSION)));
-                    added.Add("horizonos:uses-horizonos-sdk");
+                    horizonSdk.Remove();
                     dirty = true;
                 }
 
@@ -572,18 +678,13 @@ namespace Genesis.RoomScan.Editor
 
         static bool ManifestHasCleartextTraffic()
         {
-            string fullPath = Path.Combine(Application.dataPath, "..", MANIFEST_PATH);
-            if (!File.Exists(fullPath)) return false;
-
             try
             {
-                var doc = XDocument.Load(fullPath);
                 XNamespace android = "http://schemas.android.com/apk/res/android";
-                var app = doc.Root?.Element("application");
-                if (app == null) return false;
-
-                string val = app.Attribute(android + "usesCleartextTraffic")?.Value;
-                if (val != "true") return false;
+                bool manifestAllowsCleartext = LoadQuestManifestDocuments()
+                    .Any(doc => doc.Root?.Element("application")?
+                        .Attribute(android + "usesCleartextTraffic")?.Value == "true");
+                if (!manifestAllowsCleartext) return false;
 
                 string nscFull = Path.Combine(Application.dataPath, "..", ANDROIDLIB_NSC);
                 return File.Exists(nscFull);
@@ -596,22 +697,17 @@ namespace Genesis.RoomScan.Editor
 
         static void FixCleartextTraffic()
         {
-            string manifestFull = Path.Combine(Application.dataPath, "..", MANIFEST_PATH);
-
-            if (!File.Exists(manifestFull))
-            {
-                EditorUtility.DisplayDialog("Room Scan Setup",
-                    "AndroidManifest.xml not found at:\n" + MANIFEST_PATH + "\n\n" +
-                    "Build the project once or create a custom manifest first.",
-                    "OK");
-                return;
-            }
-
             try
             {
+                string manifestFull = EnsureOwnedQuestManifest();
                 var doc = XDocument.Load(manifestFull);
                 XNamespace android = "http://schemas.android.com/apk/res/android";
                 var app = doc.Root?.Element("application");
+                if (app == null && doc.Root != null)
+                {
+                    app = new XElement("application");
+                    doc.Root.Add(app);
+                }
                 if (app == null) return;
 
                 // android:usesCleartextTraffic="true"
@@ -621,12 +717,12 @@ namespace Genesis.RoomScan.Editor
                 else
                     cleartext.Value = "true";
 
-                // android:networkSecurityConfig="@xml/network_security_config"
+                // Meta XR 205 owns android:networkSecurityConfig and points it
+                // at @xml/network_sec_config. Remove the legacy RoomScan value
+                // if upgrading an already-prepared project; a second value
+                // with a different resource name is a fatal merge collision.
                 var nscAttr = app.Attribute(android + "networkSecurityConfig");
-                if (nscAttr == null)
-                    app.Add(new XAttribute(android + "networkSecurityConfig", "@xml/network_security_config"));
-                else
-                    nscAttr.Value = "@xml/network_security_config";
+                nscAttr?.Remove();
 
                 doc.Save(manifestFull);
                 Debug.Log("[RoomScan Setup] Added cleartext HTTP attributes to AndroidManifest.xml");
@@ -862,6 +958,8 @@ namespace Genesis.RoomScan.Editor
                 Undo.AddComponent<TextureRefinement>(root);
             if (root.GetComponent<RoomUnderstanding>() == null)
                 Undo.AddComponent<RoomUnderstanding>(root);
+            if (root.GetComponent<ChunkRefinementScheduler>() == null)
+                Undo.AddComponent<ChunkRefinementScheduler>(root);
 
             // Public game-dev facade — see comment in AddGameReadyComponentsToRoot.
             if (root.GetComponent<RoomScanSession>() == null)
@@ -947,6 +1045,17 @@ namespace Genesis.RoomScan.Editor
             StatusRowOptional("RoomUnderstanding (MRUK bridge)", hasRoomUnderstanding);
             StatusRowOptional("RoomScanSession (game-dev async API: StartScanAsync / FinalizeScanAsync / LoadLatestAsync)",
                               _session != null);
+            StatusRowOptional("Infinite submaps (bounded TSDF + chunk persistence)",
+                              _submapManager != null && _submapManager.LargeWorldMode);
+            StatusRowOptional("GLB/PBR chunk + world export", _glbExportController != null);
+            if (_submapManager != null && _submapManager.LargeWorldMode)
+            {
+                StatusRowOptional(
+                    $"Large-world memory defaults (1 TSDF, " +
+                    $"{_submapManager.MaximumResidentChunkMeshCount} visible representations, " +
+                    $"triplanar off)",
+                    _submapManager.UsesLargeWorldDefaults && _triplanarCache == null);
+            }
 
             if (hasRefinement)
             {
@@ -998,7 +1107,9 @@ namespace Genesis.RoomScan.Editor
             }
 
             bool sceneMissing   = !hasPCA || !hasPCAProvider || !hasRefinement || !hasRoomUnderstanding
-                                  || _session == null;
+                                  || _session == null || _submapManager == null ||
+                                  !_submapManager.LargeWorldMode ||
+                                  _glbExportController == null;
             bool projectMissing = !buildTargetIsAndroid
                                   || !activeProfileIsMetaQuest
                                   || !_urpConfigured
@@ -1100,7 +1211,11 @@ namespace Genesis.RoomScan.Editor
 
                 EditorUtility.DisplayProgressBar("Game-Ready Setup",
                     "Fixing VR prerequisites (XR Plug-in, OpenXR, OVRProjectConfig\u2026)", 0.15f);
-                await VRProjectBootstrap.FixAllAsync(CheckSeverity.Outstanding);
+                // Environment depth, passthrough and scene/anchor support are
+                // classified as Recommended by Meta's project setup tool, but
+                // they are runtime requirements for RoomScan. Apply the full
+                // RoomScan prerequisite set rather than only build blockers.
+                await VRProjectBootstrap.FixAllAsync(CheckSeverity.Recommended);
 
                 // EnsureQuestVRManifest is unconditional (and idempotent) on
                 // purpose — it has to undo any permission stripping that
@@ -1136,6 +1251,7 @@ namespace Genesis.RoomScan.Editor
                 EditorUtility.DisplayProgressBar("Game-Ready Setup",
                     "Adding game-ready scene components\u2026", 0.80f);
                 AddGameReadyComponentsToRoot();
+                EnsurePassthroughSceneConfig();
 
                 EditorUtility.DisplayProgressBar("Game-Ready Setup",
                     "Wiring shaders\u2026", 0.90f);
@@ -1192,6 +1308,28 @@ namespace Genesis.RoomScan.Editor
                 Undo.AddComponent<TextureRefinement>(root);
             if (root.GetComponent<RoomUnderstanding>() == null)
                 Undo.AddComponent<RoomUnderstanding>(root);
+            var submaps = root.GetComponent<SubmapManager>();
+            bool addedSubmaps = submaps == null;
+            if (submaps == null)
+                submaps = Undo.AddComponent<SubmapManager>(root);
+            if (addedSubmaps)
+            {
+                Undo.RecordObject(submaps, "Apply QuestInfiniteScan large-world defaults");
+                submaps.ApplyLargeWorldDefaults();
+                EditorUtility.SetDirty(submaps);
+            }
+            else if (!submaps.LargeWorldMode)
+            {
+                // Re-running setup enables the opt-in module but preserves an existing
+                // operator's tuned overlap/hysteresis/residency values.
+                Undo.RecordObject(submaps, "Enable Infinite Submaps");
+                submaps.LargeWorldMode = true;
+                EditorUtility.SetDirty(submaps);
+            }
+            if (root.GetComponent<ChunkRefinementScheduler>() == null)
+                Undo.AddComponent<ChunkRefinementScheduler>(root);
+            if (root.GetComponent<GlbExportController>() == null)
+                Undo.AddComponent<GlbExportController>(root);
 
             // RoomScanSession: public game-dev facade (StartScanAsync / FinalizeScanAsync /
             // LoadLatestAsync / HasSavedScan / ProgressUpdated). Without it,
@@ -2050,6 +2188,7 @@ namespace Genesis.RoomScan.Editor
                 EditorUtility.DisplayProgressBar("Setup Everything",
                     "Adding all components + wiring shaders\u2026", 0.75f);
                 FixComponents();
+                EnsurePassthroughSceneConfig();
                 FixShaderWiring();
 
                 RefreshNativePlugins();

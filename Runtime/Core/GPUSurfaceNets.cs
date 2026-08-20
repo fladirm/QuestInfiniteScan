@@ -6,6 +6,38 @@ using UnityEngine.Rendering;
 
 namespace Genesis.RoomScan
 {
+    internal readonly struct GpuSurfaceNetsMemoryPlan
+    {
+        internal readonly int TotalVoxels;
+        internal readonly int MaximumVertices;
+        internal readonly int MaximumIndices;
+        internal readonly long CoordMapBytes;
+        internal readonly long VertexBytes;
+        internal readonly long IndexBytes;
+        internal readonly long SmoothBufferBytes;
+        internal readonly long TemporalTextureBytes;
+
+        internal GpuSurfaceNetsMemoryPlan(int totalVoxels, int maximumVertices,
+            int maximumIndices, long coordMapBytes, long vertexBytes, long indexBytes,
+            long smoothBufferBytes, long temporalTextureBytes)
+        {
+            TotalVoxels = totalVoxels;
+            MaximumVertices = maximumVertices;
+            MaximumIndices = maximumIndices;
+            CoordMapBytes = coordMapBytes;
+            VertexBytes = vertexBytes;
+            IndexBytes = indexBytes;
+            SmoothBufferBytes = smoothBufferBytes;
+            TemporalTextureBytes = temporalTextureBytes;
+        }
+
+        internal long MaximumStorageBufferBytes => Math.Max(CoordMapBytes,
+            Math.Max(VertexBytes, Math.Max(IndexBytes, SmoothBufferBytes)));
+        internal long TotalBytes => CoordMapBytes + VertexBytes + IndexBytes +
+                                    SmoothBufferBytes * 2L + TemporalTextureBytes +
+                                    40L;
+    }
+
     internal class GPUSurfaceNets : IDisposable
     {
         private readonly ComputeShader _compute;
@@ -32,7 +64,8 @@ namespace Genesis.RoomScan
         private GraphicsBuffer _smoothPosA;
         private GraphicsBuffer _smoothPosB;
 
-        // Temporal state as 3D texture (avoids 128MB structured buffer limit on Quest)
+        // Temporal state is a storage image, not a storage buffer. The Quest-reported
+        // 128 MiB maxStorageBufferRange therefore does not apply to this texture.
         private RenderTexture _temporalState;
 
         // Sizing
@@ -103,21 +136,33 @@ namespace Genesis.RoomScan
 
         public void EnsureBuffers(int3 voxCount, float vertexBudgetPercent = 0.05f)
         {
-            int totalVoxels = voxCount.x * voxCount.y * voxCount.z;
-            if (_totalVoxels == totalVoxels && _coordVertMap != null)
+            if (!TryCreateMemoryPlan(voxCount, vertexBudgetPercent,
+                    out GpuSurfaceNetsMemoryPlan plan))
+                throw new ArgumentOutOfRangeException(nameof(voxCount),
+                    "Surface Nets dimensions or vertex budget overflow GPU buffer counts.");
+            if (plan.MaximumStorageBufferBytes >
+                VolumeIntegrator.MaximumStorageBufferRangeBytes)
+                throw new InvalidOperationException(
+                    $"Surface Nets storage buffer plan exceeds Quest Vulkan limit: " +
+                    $"largest={plan.MaximumStorageBufferBytes}, limit=" +
+                    $"{VolumeIntegrator.MaximumStorageBufferRangeBytes} bytes.");
+
+            if (_totalVoxels == plan.TotalVoxels &&
+                _maxVertices == plan.MaximumVertices && _coordVertMap != null)
                 return;
 
             Dispose();
 
             _voxCount = voxCount;
-            _totalVoxels = totalVoxels;
-            _maxVertices = Mathf.Max(1024, (int)(totalVoxels * vertexBudgetPercent));
-            _maxIndices = _maxVertices * 18;
+            _totalVoxels = plan.TotalVoxels;
+            _maxVertices = plan.MaximumVertices;
+            _maxIndices = plan.MaximumIndices;
 
             const GraphicsBuffer.Target structuredIndirect =
                 GraphicsBuffer.Target.Structured | GraphicsBuffer.Target.IndirectArguments;
 
-            _coordVertMap = new GraphicsBuffer(GraphicsBuffer.Target.Structured, totalVoxels, 4);
+            _coordVertMap = new GraphicsBuffer(GraphicsBuffer.Target.Structured,
+                _totalVoxels, 4);
             _vertices = new GraphicsBuffer(GraphicsBuffer.Target.Structured, _maxVertices, VertexStride);
             _indices = new GraphicsBuffer(GraphicsBuffer.Target.Structured, _maxIndices, 4);
             _counters = new GraphicsBuffer(GraphicsBuffer.Target.Structured, 2, 4);
@@ -126,8 +171,8 @@ namespace Genesis.RoomScan
             _smoothPosA = new GraphicsBuffer(GraphicsBuffer.Target.Structured, _maxVertices, Float3Stride);
             _smoothPosB = new GraphicsBuffer(GraphicsBuffer.Target.Structured, _maxVertices, Float3Stride);
 
-            // Temporal state as RWTexture3D<float4> -- avoids the 128MB structured buffer limit.
-            // 256^3 x RGBA32Float = 256MB as a 3D texture, which Quest supports (same as TSDF volume path).
+            // 256^3 x RGBA32Float = 256 MiB. This is legal on the measured Quest device
+            // (1 GiB maxMemoryAllocationSize) and retains the upstream float precision.
             _temporalState = new RenderTexture(voxCount.x, voxCount.y, 0, GraphicsFormat.R32G32B32A32_SFloat)
             {
                 dimension = TextureDimension.Tex3D,
@@ -140,15 +185,46 @@ namespace Genesis.RoomScan
 
             _temporalInitialized = false;
 
-            long totalBytes = (long)totalVoxels * 4
-                            + (long)_maxVertices * VertexStride
-                            + (long)_maxIndices * 4
-                            + 2 * 4 + 3 * 4 + 5 * 4
-                            + (long)_maxVertices * Float3Stride * 2
-                            + (long)totalVoxels * 16;
             Logger.Info($"[GPUSurfaceNets] Allocated buffers: vox={voxCount}, " +
                       $"maxVerts={_maxVertices}, maxIdx={_maxIndices}, " +
-                      $"totalGPU={totalBytes / (1024 * 1024)}MB");
+                      $"maxStorageBuffer={plan.MaximumStorageBufferBytes / (1024 * 1024)}MiB, " +
+                      $"temporalTexture={plan.TemporalTextureBytes / (1024 * 1024)}MiB, " +
+                      $"totalGPU={plan.TotalBytes / (1024 * 1024)}MiB");
+        }
+
+        internal static bool TryCreateMemoryPlan(int3 voxCount,
+            float vertexBudgetPercent, out GpuSurfaceNetsMemoryPlan plan)
+        {
+            plan = default;
+            if (voxCount.x <= 0 || voxCount.y <= 0 || voxCount.z <= 0 ||
+                float.IsNaN(vertexBudgetPercent) ||
+                float.IsInfinity(vertexBudgetPercent) || vertexBudgetPercent <= 0f)
+                return false;
+            try
+            {
+                long voxelLong = checked((long)voxCount.x * voxCount.y * voxCount.z);
+                if (voxelLong > int.MaxValue)
+                    return false;
+                long vertexLong = Math.Max(1024L,
+                    (long)(voxelLong * (double)vertexBudgetPercent));
+                long indexLong = checked(vertexLong * 18L);
+                if (vertexLong > int.MaxValue || indexLong > int.MaxValue)
+                    return false;
+
+                long coordBytes = checked(voxelLong * 4L);
+                long vertexBytes = checked(vertexLong * VertexStride);
+                long indexBytes = checked(indexLong * 4L);
+                long smoothBytes = checked(vertexLong * Float3Stride);
+                long temporalBytes = checked(voxelLong * 16L);
+                plan = new GpuSurfaceNetsMemoryPlan((int)voxelLong, (int)vertexLong,
+                    (int)indexLong, coordBytes, vertexBytes, indexBytes, smoothBytes,
+                    temporalBytes);
+                return true;
+            }
+            catch (OverflowException)
+            {
+                return false;
+            }
         }
 
         public void InitTemporalState()
@@ -162,6 +238,19 @@ namespace Genesis.RoomScan
             int gz = CeilDiv(_voxCount.z, 4);
             _compute.Dispatch(_kInitTemporal, gx, gy, gz);
             _temporalInitialized = true;
+        }
+
+        /// <summary>
+        /// Clears history keyed by local voxel coordinate. A reused TSDF buffer may represent
+        /// a different chunk at the same coordinates, so carrying history across a rollover
+        /// would blend unrelated walls and recreate stale gray geometry.
+        /// </summary>
+        public void ResetTemporalState()
+        {
+            if (_temporalState == null)
+                return;
+            _temporalInitialized = false;
+            InitTemporalState();
         }
 
         public void Extract(RenderTexture tsdfVolume, RenderTexture colorVolume, float voxelSize)

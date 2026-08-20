@@ -1,0 +1,20 @@
+{
+  "name": "Genesis.RoomScan.Tests",
+  "rootNamespace": "Genesis.RoomScan.Tests",
+  "references": [
+    "Genesis.RoomScan"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": false,
+  "defineConstraints": [],
+  "optionalUnityReferences": [
+    "TestAssemblies"
+  ],
+  "noEngineReferences": false
+}

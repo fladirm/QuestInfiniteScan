@@ -21,6 +21,13 @@
 *.VC.db
 *.DS_Store
 Thumbs.db
+__pycache__/
+.pytest_cache/
+*.py[cod]
+__pycache__.meta
+.pytest_cache.meta
+*.py[cod].meta
+.venv/
 
 # Native plugin build outputs (built by RoomScanSetupWizard)
 Runtime/Plugins/

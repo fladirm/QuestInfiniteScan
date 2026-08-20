@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 2,
+  "jobId": "30b28e11e4d78ea8765a83b544a41c55ccc1397d0a16be9b3700792ee910993c",
+  "requestFingerprint": "90a6517f476541d6b68905c8b04dda0497fdf188d0630f64614c90e3f988b9ba",
+  "key": {
+    "worldId": "world-01",
+    "chunkId": "chunk-000042",
+    "chunkRevision": 7
+  },
+  "inputBundle": {
+    "mediaType": "application/vnd.questinfinitescan.chunk+zip",
+    "formatVersion": 1,
+    "byteLength": 1024,
+    "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "backend": "diffsoup",
+  "profile": "balanced",
+  "allowFreshFallback": true,
+  "warmStart": null
+}

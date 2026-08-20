@@ -32,35 +32,38 @@ namespace Genesis.RoomScan
         [SerializeField] private int maxFramerate = 30;
 
         private PassthroughCameraAccess _pca;
+        private bool _ownsPca;
+        private bool _captureRequested;
 
         /// <inheritdoc />
-        public bool IsReady => _pca != null && _pca.IsPlaying && _pca.IsUpdatedThisFrame;
+        public bool IsReady => _captureRequested && _pca != null &&
+                               _pca.IsPlaying && _pca.IsUpdatedThisFrame;
 
         /// <inheritdoc />
-        public bool IsPlaying => _pca != null && _pca.IsPlaying;
+        public bool IsPlaying => _captureRequested && _pca != null && _pca.IsPlaying;
 
         /// <inheritdoc />
-        public Texture CurrentFrame => _pca != null && _pca.IsPlaying ? _pca.GetTexture() : null;
+        public Texture CurrentFrame => IsPlaying ? _pca.GetTexture() : null;
 
         /// <inheritdoc />
         public Pose CameraPose =>
-            _pca != null && _pca.IsPlaying ? _pca.GetCameraPose() : Pose.identity;
+            IsPlaying ? _pca.GetCameraPose() : Pose.identity;
 
         /// <inheritdoc />
         public Vector2 FocalLength =>
-            _pca != null && _pca.IsPlaying ? _pca.Intrinsics.FocalLength : Vector2.one;
+            IsPlaying ? _pca.Intrinsics.FocalLength : Vector2.one;
 
         /// <inheritdoc />
         public Vector2 PrincipalPoint =>
-            _pca != null && _pca.IsPlaying ? _pca.Intrinsics.PrincipalPoint : Vector2.zero;
+            IsPlaying ? _pca.Intrinsics.PrincipalPoint : Vector2.zero;
 
         /// <inheritdoc />
         public Vector2 SensorResolution =>
-            _pca != null && _pca.IsPlaying ? _pca.Intrinsics.SensorResolution : new Vector2(1280, 960);
+            IsPlaying ? _pca.Intrinsics.SensorResolution : new Vector2(1280, 960);
 
         /// <inheritdoc />
         public Vector2 CurrentResolution =>
-            _pca != null && _pca.IsPlaying
+            IsPlaying
                 ? new Vector2(_pca.CurrentResolution.x, _pca.CurrentResolution.y)
                 : new Vector2(1280, 960);
 
@@ -112,6 +115,7 @@ namespace Genesis.RoomScan
         /// <inheritdoc />
         public void StartCapture()
         {
+            _captureRequested = true;
 #if UNITY_ANDROID && !UNITY_EDITOR
             if (!Permission.HasUserAuthorizedPermission(CameraPermissionId))
             {
@@ -135,37 +139,91 @@ namespace Genesis.RoomScan
                 _pca = FindAnyObjectByType<PassthroughCameraAccess>(FindObjectsInactive.Include);
                 if (_pca == null)
                 {
-                    Logger.Warning("PassthroughCameraProvider: no PassthroughCameraAccess in scene — adding one to " +
-                                   $"'{gameObject.name}'. Prefer letting Meta's Building Block place it on the OVRCameraRig.");
-                    _pca = gameObject.AddComponent<PassthroughCameraAccess>();
+                    Logger.Warning("PassthroughCameraProvider: no PassthroughCameraAccess in scene — " +
+                                   "creating a provider-owned instance. Prefer letting Meta's Building Block place it.");
+                    _pca = CreateOwnedPca();
+                    _ownsPca = true;
                 }
                 else
                 {
                     Logger.Info($"PassthroughCameraProvider: adopted existing PassthroughCameraAccess on '{_pca.gameObject.name}'.");
+                    _ownsPca = false;
                 }
             }
 
-            // PCA forbids MaxFramerate changes while running. Drive it disabled
-            // for the property writes, then re-enable so OnEnable runs cleanly.
-            // No-op if it was already disabled.
-            bool wasEnabled = _pca.enabled;
-            if (wasEnabled) _pca.enabled = false;
-            _pca.CameraPosition = cameraPosition;
-            _pca.RequestedResolution = requestedResolution;
-            _pca.MaxFramerate = maxFramerate;
+            // A Building-Block PCA starts during scene initialization. Never
+            // bounce an already-active native camera merely to apply provider
+            // preferences: PCA.OnDisable calls CameraStop + IssuePluginEvent,
+            // which can block the XR render fence for tens of seconds when the
+            // mapper's Vulkan resources have just been created. The setup
+            // wizard serializes matching settings before build. For legacy or
+            // hand-authored scenes, keep the already-running stream and report
+            // the mismatch instead of disrupting the native camera lifecycle.
+            if (_pca.isActiveAndEnabled)
+            {
+                if (!ConfigurationMatches(_pca))
+                {
+                    Logger.Warning("PassthroughCameraProvider: adopted PCA is already active with " +
+                                   $"camera={_pca.CameraPosition}, resolution={_pca.RequestedResolution}, " +
+                                   $"maxFps={_pca.MaxFramerate}; requested camera={cameraPosition}, " +
+                                   $"resolution={requestedResolution}, maxFps={maxFramerate}. " +
+                                   "Keeping the active stream; run the setup wizard to serialize the desired settings.");
+                }
+                return;
+            }
+
+            // MaxFramerate may only be assigned while Behaviour.enabled is
+            // false. An inactive GameObject can still contain an enabled
+            // Behaviour, so normalize both cases before configuring it.
+            _pca.enabled = false;
+            ApplyConfiguration(_pca);
             _pca.enabled = true;
         }
 
         /// <inheritdoc />
         public void StopCapture()
         {
-            if (_pca != null)
+            _captureRequested = false;
+
+            // A scene/building-block PCA is shared infrastructure and its
+            // native lifetime is not owned by this adapter. Only stop an
+            // instance that this provider created itself.
+            if (_ownsPca && _pca != null)
                 _pca.enabled = false;
         }
 
         private void OnDestroy()
         {
             StopCapture();
+        }
+
+        private PassthroughCameraAccess CreateOwnedPca()
+        {
+            var host = new GameObject("[RoomScan] Passthrough Camera Access");
+            host.transform.SetParent(transform, false);
+            host.SetActive(false);
+
+            var pca = host.AddComponent<PassthroughCameraAccess>();
+            pca.enabled = false;
+            ApplyConfiguration(pca);
+
+            host.SetActive(true);
+            pca.enabled = true;
+            return pca;
+        }
+
+        private void ApplyConfiguration(PassthroughCameraAccess pca)
+        {
+            pca.CameraPosition = cameraPosition;
+            pca.RequestedResolution = requestedResolution;
+            pca.MaxFramerate = maxFramerate;
+        }
+
+        private bool ConfigurationMatches(PassthroughCameraAccess pca)
+        {
+            return pca.CameraPosition == cameraPosition &&
+                   pca.RequestedResolution == requestedResolution &&
+                   pca.MaxFramerate == maxFramerate;
         }
     }
 }

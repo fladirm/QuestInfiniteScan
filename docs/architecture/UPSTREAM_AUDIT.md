@@ -189,9 +189,10 @@ exactly compatible prior revision; otherwise it deliberately starts a fresh job.
 - Authorized ADB target: Quest 3S, Android 14. Runtime depth delivery—not the model
   label—is the device acceptance criterion.
 - Unity Hub 3.19.5 was installed from the user's downloaded official Debian
-  package. Unity 6000.0.81f1 plus Hub-managed Android Build Support, SDK/NDK, and
-  OpenJDK is the pinned editor target; editor installation is tracked separately
-  from this completed source audit.
+  package. The user selected Unity 6.5 `6000.5.9f1` as the primary editor, with
+  Hub-managed Android Build Support, SDK/NDK, and OpenJDK. The package declares
+  Unity 6000.0 as its baseline; install 6000.0.81f1 side-by-side only if device or
+  package compilation demonstrates a 6.5 compatibility regression.
 - Development/Unity storage is allocated only in the dedicated KINGSTON ext4
   image. No Codex state under `~/.codex` is eligible for deletion, movement,
   compression, or cleanup.
@@ -208,4 +209,3 @@ exactly compatible prior revision; otherwise it deliberately starts a fresh job.
    triangle/LUT renderer.
 7. Export deterministic chunk GLB, sharded world GLBs, and a bounded optional
    monolithic GLB with honest PBR defaults.
-

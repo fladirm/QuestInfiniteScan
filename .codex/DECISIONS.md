@@ -58,3 +58,60 @@ The frozen source audit is `docs/architecture/UPSTREAM_AUDIT.md`.
   upstream server source.
 - Consequences: slightly more API work, with clear licensing, bounded inputs,
   durable jobs, restart recovery, and deterministic contract tests.
+
+## ADR-0006 — Surface protection reuses the packed TSDF and derives orientation
+
+- Status: accepted
+- Context: distant revisits pulled already-good surfaces, and the upstream
+  normalized/metre comparison integrated roughly 30 cm behind a default depth
+  surface. A separate normal/quality volume would increase active Quest memory and
+  require a snapshot-format migration.
+- Decision: retain the exact RG8_SNORM TSDF/confidence and RGBA8 color/quality
+  layout; derive existing orientation from six TSDF neighbors only for confident
+  near-surface voxels; arbitrate with distance, incidence, confidence, best known
+  quality, orientation, and dilated-depth visibility; cap negative support by the
+  smaller of `voxelMin` and 1.25 voxels.
+- Consequences: old chunk snapshots remain byte-compatible and the active volume
+  stays 96 MiB, while resolvable opposite wall faces no longer share a deep update
+  band. Close, genuinely better observations can still correct geometry in bounded
+  steps; physical Quest performance remains an explicit acceptance gate.
+
+## ADR-0007 — Durable robust pose graph over immutable chunk-local geometry
+
+- Status: accepted
+- Context: tracking edges establish nominal chunk placement, but overlap and loop
+  observations must correct accumulated drift without resampling local TSDFs or
+  blocking the scan frame. A graph correction also changes the frame used by the
+  active volume and future keyframes.
+- Decision: build immutable bounded point/normal clouds from finalized Surface Nets
+  readbacks, run deterministic point-to-plane ICP in a cancellable worker, and admit
+  only constraints with explicit covariance, confidence, and provenance. Optimize
+  SE(3) chunk vertices with robust outlier rejection and one fixed root per connected
+  component. Persist the edge and detached pose solution through atomic, revision-
+  checked `WorldStore` commits; never edit local geometry or artifact payloads.
+- Consequences: global corrections are cheap in world size and auditable. Cached
+  meshes, DiffSoup renderers, the active TSDF frame, and future keyframe conversion
+  are refreshed together. A persisted local volume remains valid after its world pose
+  moves; its stored capture pose is diagnostic metadata, not an equality lock.
+
+## ADR-0008 — Directional geometry replaces the scalar mapper after checkpoint
+
+- Status: accepted as a post-checkpoint boundary
+- Context: scalar TSDF surface protection can reject contradictory observations but
+  cannot retain two surface hypotheses in one voxel. Directional TSDF addresses this
+  class of thin partitions, columns, pipes, rails, and object edges, but does not
+  eliminate voxel-resolution limits. Its public InfiniTAM-derived reference code is
+  non-commercial, and the user explicitly scopes this project as non-commercial.
+- Decision: first stabilize chunk lifecycle, then add general depth-edge/normal
+  confidence and bounded fusion-conflict telemetry to the scalar baseline. Use a
+  temporary backend boundary and captured corpus to port and compare the reference
+  directional allocation/fusion/extraction code under its retained copyright,
+  source, attribution, and non-commercial license. Once parity, memory, persistence,
+  and device gates pass, sparse DTSDF replaces scalar TSDF + scalar Surface Nets in
+  the main mapper path. Do not add six dense volumes, speculative K=2 voxels,
+  RGB-generated geometry, or adaptive fine bricks before the simpler port proves
+  parity.
+- Consequences: low-risk measurement improvements are reusable now, while the large
+  replacement remains testable, license-separated, memory-bounded, and does not delay
+  the current feature checkpoint. Detailed reasoning is in
+  `docs/architecture/DIRECTIONAL_GEOMETRY_DECISION.md`.

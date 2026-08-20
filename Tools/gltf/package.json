@@ -1,0 +1,10 @@
+{
+  "name": "quest-infinite-scan-gltf-verification",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "dependencies": {
+    "@gltf-transform/core": "4.4.2",
+    "gltf-validator": "2.0.0-dev.3.10"
+  }
+}
