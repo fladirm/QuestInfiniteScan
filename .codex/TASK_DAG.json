@@ -1,383 +1,407 @@
 {
   "schema_version": 1,
-  "goal": "QuestInfiniteScan end-to-end fork",
+  "goal": "QuestInfiniteScan on-device layered radiance surface meshlets",
   "allowed_statuses": ["pending", "in_progress", "done", "blocked"],
   "nodes": [
     {
-      "id": "A01",
-      "title": "Audit QRS code, environment, licenses, and upstream contracts",
+      "id": "P00",
+      "title": "Preserve the hybrid implementation and its original DAG",
       "status": "done",
       "depends_on": [],
       "acceptance": [
-        "Lifecycle and persistence extension points are mapped to concrete symbols",
-        "Unity, Android, CUDA, Python, and GPU availability are recorded",
-        "DiffSoup and server licenses plus exact input/output contracts are recorded"
+        "All pre-pivot tracked and untracked source work is committed without generated captures, credentials, addresses, or device identifiers",
+        "A dedicated remote branch retains the exact hybrid code, old goal, and old DAG",
+        "The new implementation continues on a separate branch"
       ],
       "evidence": [
-        "docs/architecture/UPSTREAM_AUDIT.md pins all three upstream commits and maps scanner, volume, mesh, persistence, keyframe, anchor, refinement, and export extension points",
-        "Audit records QRS and DiffSoup MIT licenses and the missing license artifact in the pinned Gaussian server repository",
-        "Audit records the exact DiffSoup mesh/LUT/MLP artifact, training-adapter gap, resumable-checkpoint requirements, and verified machine/device/build baseline"
+        "Commit e9f37c1 preserves 304 files and the original 22-node hybrid/DiffSoup DAG",
+        "Remote branch origin/archive/hybrid-diffsoup-checkpoint-20260820 exists and tracks the immutable checkpoint",
+        "Active implementation branch is feat/quest-radiance-meshlets"
       ]
     },
     {
-      "id": "A02",
-      "title": "Create named GitHub fork and safe upstream/origin topology",
+      "id": "P01",
+      "title": "Retain the verified Quest Unity/Vulkan shell and device toolchain",
       "status": "done",
-      "depends_on": ["A01"],
+      "depends_on": ["P00"],
       "acceptance": [
-        "origin points to the writable fork and upstream to QuestRoomScan",
-        "feature branch exists on the fork without rewriting upstream history"
+        "Unity 6000.5.9f1 Android ARM64 Vulkan project builds",
+        "Meta XR permissions, tracking, passthrough bootstrap, and ADB deploy path remain available",
+        "Generated builds and caches stay outside the repository"
       ],
       "evidence": [
-        "GitHub fork https://github.com/fladirm/QuestInfiniteScan reports parent arghyasur1991/QuestRoomScan",
-        "origin is the writable fork; upstream fetches QuestRoomScan and has push URL DISABLED",
-        "origin/feat/infinite-submaps-diffsoup exists at audited upstream commit 2fdaaae71f60b21b7853e67db943fc42f75d0c2f"
+        "Verification report /mnt/kingston-unity/Builds/Verification/20260820T132533Z/verification-report.json records successful Unity tests and Android/Vulkan build",
+        "The preserved fork deployed and scanned on the connected Quest 3/3S before the architecture pivot",
+        "Kingston-hosted Unity/build scripts remain under Tools/storage and Tools/unity"
       ]
     },
     {
-      "id": "B01",
-      "title": "Implement versioned world, chunk, bounds, revision, and pose-graph domain model",
+      "id": "P02",
+      "title": "Retain versioned world, atomic store, pose graph, and transform foundations",
       "status": "done",
-      "depends_on": ["A01"],
+      "depends_on": ["P00"],
       "acceptance": [
-        "JSON round trips preserve transforms and identifiers",
-        "Malformed/unsupported manifests fail closed",
-        "Pose graph can update world transforms without changing local geometry"
+        "World/chunk manifests validate and round-trip rigid transforms",
+        "Atomic publication preserves the prior revision after interruption",
+        "Pose graph updates worldFromChunk without mutating local geometry"
       ],
       "evidence": [
-        "Runtime/World defines schema-v1 world/chunk/artifact/edge records, rigid destinationFromSource transforms, and fail-closed validation",
-        "WorldManifestTests cover JSON round-trip, malformed input, duplicate/path/quaternion rejection, and pose updates without local-geometry mutation",
-        "Unity 6000.5.9f1 EditMode run on 2026-08-20 passed all 20 tests"
+        "Runtime/World/WorldManifest*, WorldStore, PoseGraphModel, and PoseGraphOptimizer are present with deterministic EditMode coverage",
+        "The retained 93-test Unity checkpoint reports no failures, including manifest/store/pose tests",
+        "New meshlet page formats will version rather than reinterpret legacy TSDF payloads"
       ]
     },
     {
-      "id": "B02",
-      "title": "Implement atomic world/chunk persistence and migration-safe layout",
+      "id": "P03",
+      "title": "Retain standards-compliant GLB/PBR writer foundations",
       "status": "done",
-      "depends_on": ["B01"],
+      "depends_on": ["P00"],
       "acceptance": [
-        "world/chunks layout is versioned and atomically committed",
-        "Legacy single-scan packages still load",
-        "Interrupted writes cannot replace last known-good metadata"
+        "Chunk, sharded world, and bounded monolithic GLB paths exist",
+        "Pose-graph node transforms and honest metallic/roughness semantics are preserved",
+        "Official and independent validators are reproducible"
       ],
       "evidence": [
-        "WorldStore atomically commits world.json with a last-known-good backup and publishes payload directories before manifest references",
-        "Chunk revision transactions stream, flush, hash, verify, rollback, and reject stale or changed same-revision metadata",
-        "WorldStoreTests cover interrupted metadata, corrupt-primary recovery, staged revision rollback, streamed artifact tampering, and read-only QRS v1 package compatibility"
+        "Runtime/Export contains chunk/world GLB writers and atomic export controller",
+        "The retained verification report records zero Khronos errors/warnings and successful independent NodeIO validation",
+        "Tools/gltf contains locked interoperability checks"
       ]
     },
     {
-      "id": "B03",
-      "title": "Implement SubmapManager rollover, overlap, hysteresis, and bounded active set",
+      "id": "R00",
+      "title": "Freeze the on-device radiance-meshlet architecture and migration contracts",
       "status": "done",
-      "depends_on": ["B01", "B02"],
+      "depends_on": ["P00", "P01", "P02", "P03"],
       "acceptance": [
-        "Camera world pose is transformed into active chunk-local space",
-        "Boundary traversal rolls chunks without oscillation",
-        "Resident volume count stays within configured limit"
+        "Goal, DAG, decisions, state, resume tail, architecture spec, and AGENTS guardrails consistently name one production architecture",
+        "Reusable, replaceable, and removable code is mapped to concrete symbols",
+        "Buffer layouts, coordinate spaces, frame ownership, lifecycle states, quality gates, and migration order are explicit",
+        "Control-plane validation passes and the old DAG remains recoverable from the archive branch"
       ],
       "evidence": [
-        "SubmapRolloverController transforms camera world poses into chunk-local space and creates tracking edges with configured overlap",
-        "SubmapRolloverTests cover normal and emergency traversal, anti-oscillation hysteresis, and 32 monotonic rollovers",
-        "Repeated-rollover test proves one resident TSDF volume independent of world chunk count"
-      ]
-    },
-    {
-      "id": "B04",
-      "title": "Integrate chunk lifecycle with scanner, TSDF reuse, finalization, and rendering",
-      "status": "done",
-      "depends_on": ["B03"],
-      "acceptance": [
-        "Existing mapper kernels remain compatible",
-        "Finalization and reload do not block the scan frame loop on file/network I/O",
-        "Nearby persisted chunk meshes can be shown with correct transforms"
-      ],
-      "evidence": [
-        "SubmapManager queues one final Surface Nets extraction, exact-range GPU readbacks, worker-thread artifact writes, atomic revision publication, and only then clears/reuses the TSDF",
-        "Active chunks are snapshotted on stop and verified volume artifacts restore asynchronously after world attach",
-        "PersistedChunkMeshCache renders chunk-local meshes under pose-graph transforms with a strict bounded resident set; its transform/eviction test passes",
-        "Unity 6000.5.9f1 compiles runtime/editor/shaders and passes 21/21 EditMode tests without compiler warnings"
-      ]
-    },
-    {
-      "id": "B05",
-      "title": "Route keyframes, atlas refinement, anchors, and revisions per chunk",
-      "status": "done",
-      "depends_on": ["B04"],
-      "acceptance": [
-        "Frames and poses are stored in chunk-local coordinates",
-        "Revisit creates a monotonic revision with newly selected observations",
-        "Triplanar defaults off only in explicitly enabled large-world mode"
-      ],
-      "evidence": [
-        "KeyframeCollector writes invariant-culture camera metadata in chunk-local coordinates and appends monotonically numbered observations on revisit; pose conversion has deterministic EditMode coverage",
-        "Chunk snapshot and refined-artifact transactions publish keyframes, UV mesh, RGBA atlas, and optional Sobel normal map under monotonic chunk revisions while preserving mapper and future backend/export artifacts",
-        "SubmapManager routes capture/restore/refinement through each chunk working directory, uses the persistent world anchor as the scalable relocation root, and keeps individual chunk transforms in the pose graph",
-        "Unity 6000.5.9f1 passed 31/31 EditMode tests; Android/Vulkan build succeeded with zero C# or shader errors as APK SHA-256 bdbd46f14b1541675caafb273c972b937201a420815980f36aa973c8b41534fe"
-      ]
-    },
-    {
-      "id": "B06",
-      "title": "Implement distance/normal-aware TSDF fusion with thin-wall and occlusion protection",
-      "status": "pending",
-      "depends_on": ["B05"],
-      "acceptance": [
-        "Lower-quality distant observations cannot erode or pull a stable higher-quality surface on the same side, while genuinely better close observations can still refine it",
-        "Observation arbitration uses distance, incidence angle, existing-versus-incoming surface orientation, confidence, and visibility instead of a distance-only lock",
-        "Opposite-facing surfaces of a thin wall remain distinct and scanning the adjoining room cannot update through the already observed wall",
-        "Deterministic synthetic tests cover near-then-far, far-then-near, grazing-angle, thin-wall front/back, occluded surface, revisit, and noisy-depth sequences",
-        "Quest profiling verifies bounded GPU memory and no unacceptable regression in integration frame time"
-      ],
-      "evidence": [
-        "Runtime/Core/TsdfFusionPolicy.cs and the Vulkan-parity TsdfFusionPolicy.hlsl reject occluded, lower-quality, opposite-facing, and inconsistent observations while allowing bounded better-quality and consistent revisit corrections",
-        "VolumeIntegration.compute derives the existing world-space normal from the confident TSDF gradient only near stable surfaces and fixes the upstream dimensional error that integrated approximately 30 cm behind a default surface; the protected band is now min(voxelMin, 1.25 voxels)=6.25 cm",
-        "The persistent volume layout remains exactly RG8_SNORM TSDF/confidence plus RGBA8 color/best-quality: 32 MiB + 64 MiB at 256^3. Direct Quest vkjson reports maxStorageBufferRange=128 MiB, maxMemoryAllocationSize=1 GiB, and maxImageDimension3D=2048; the fail-closed 128 MiB guard therefore applies to structured/storage buffers rather than legal 3D images",
-        "TsdfFusionPolicyTests deterministically pass near-then-far, far-then-near, grazing, 8 cm front/back thin-wall, occlusion, revisit, noisy-depth, corrected-band, and memory sequences; full EditMode result is 64 total, 59 passed, 0 failed, 5 intentional hardware/live skips",
-        "A real NVIDIA/Vulkan compute parity gate passes 1/1 for all HLSL arbitration outcomes; Android/Vulkan ARM64 APK cfe76ddd443a11dcf13b335cc1b037b32b359a43b12433e9d67b384fe442f8b2 builds without VolumeIntegration warnings and installs successfully",
-        "Physical Quest testing confirmed one-sided thin-wall protection works, but exposed oblique-wall incompleteness and a post-rollover Vulkan premature-free page fault. Remediation projects the back band into surface-normal space, accumulates repeated provisional oblique evidence below mesh confidence, fences rollover resource retirement, resets per-chunk temporal history, and bounds telemetry readbacks",
-        "The remediated policy passes 10 CPU tests plus a real-GPU parity gate, the full runtime suite has no mapper failures, and Android/Vulkan APK a8baf1f1d0432c56638af5bab25bdb0653b3129f67cc90bdf2a1afd59359a29e installs with data preservation; repeated >6-rollover physical acceptance remains pending"
+        "AGENTS.md and .codex/GOAL.md freeze the pure Quest GPU/indirect mapper, monotonic quality contract, quantitative acceptance gates, and post-compaction guardrails",
+        "docs/architecture/RADIANCE_MESHLET_ARCHITECTURE.md defines coordinate/time ownership, GPU pass graph, draft aligned buffer capacities, dynamic geometry/appearance LOD, two-arena page lifecycle, UI boundary, and migration sequence",
+        ".codex/DECISIONS.md records the active ADR set and points superseded hybrid/DTSDF decisions to archive commit e9f37c1",
+        "The unintegrated DTSDF scaffold and obsolete directional decision were removed only from the new branch; the remote archive retains them",
+        "python3 Tools/validate_goal_state.py passes: 28 nodes, one active node, four reusable foundations done before this status transition"
       ]
     },
     {
       "id": "C01",
-      "title": "Define and test versioned LAN job and DiffSoup artifact contracts",
-      "status": "done",
-      "depends_on": ["A01", "B01"],
+      "title": "Implement immutable StereoRigFrame contracts and dual GPU camera capture",
+      "status": "in_progress",
+      "depends_on": ["R00"],
       "acceptance": [
-        "Jobs are idempotently keyed by world/chunk/revision",
-        "Upload and artifact hashes/sizes/versions are validated",
-        "Client can retry, cancel, poll, and remain offline safely"
+        "One frame exposes RGB-L/R, depth-L/R, timestamps, intrinsics, extrinsics, poses, dimensions, and ownership without CPU color readback",
+        "Both passthrough camera streams are opened, permissioned, and disposed deterministically",
+        "Quest 3 and 3S capability differences are discovered at runtime rather than hard-coded",
+        "Unit tests cover contract validation, resource ownership, camera ordering, and unsupported capability failure"
       ],
-      "evidence": [
-        "Server/src/quest_infinite_server/contracts.py defines strict protocol-v2 JobKey, immutable request fingerprint, blob, warm-start, state-machine, status, and bounded DiffSoup artifact contracts",
-        "Server/contracts/v2/PROTOCOL.md freezes idempotent replay/conflict semantics, retry/cancel/offline behavior, streaming HTTP resources, chunk-bundle v1, and DiffSoup runtime artifact v1",
-        "A golden request freezes cross-language job ID and request fingerprint; 9/9 dependency-free Python 3.14 contract tests pass malformed hash/size/version/path/role and state-transition cases"
-      ]
+      "evidence": []
     },
     {
       "id": "C02",
-      "title": "Implement local server API, durable job store, scheduler, and fake backend",
-      "status": "done",
+      "title": "Implement frame synchronization, pose sampling, and capture diagnostics",
+      "status": "pending",
       "depends_on": ["C01"],
       "acceptance": [
-        "API contract tests pass without CUDA",
-        "Restart preserves terminal jobs and safely recovers interrupted jobs",
-        "Path traversal, zip bombs, oversized uploads, and duplicate submissions are rejected"
+        "Configurable timestamp delta, pose age, tracking validity, and intrinsic-version gates fail closed",
+        "Depth and RGB timestamps are paired with the correct per-eye pose/extrinsics",
+        "Diagnostics report accepted/dropped frames, pair deltas, per-stream rates, latency, and failure reasons",
+        "Deterministic jitter/out-of-order/missing-eye tests prove no stale-frame fusion"
       ],
-      "evidence": [
-        "FastAPI protocol-v2 service implements capability, create/replay, bounded streaming upload, enqueue/retry, poll, cancel, and streamed artifact resources without global job state",
-        "SQLite WAL synchronous-FULL JobStore atomically enforces identity conflicts and state transitions, preserves terminal jobs, and recovers interrupted running work as queued",
-        "Chunk bundle validation rejects traversal, absolute/backslash paths, links/special/encrypted entries, duplicates, undeclared/tampered files, unsafe compression ratios, and declared/aggregate limit violations",
-        "Deterministic fake backend emits a contract-valid mesh/LUT/MLP artifact; 22/22 Python 3.14 tests and a real Uvicorn loopback capabilities/OpenAPI smoke pass without CUDA",
-        "Current FastAPI 0.141.1, Starlette 1.6.0, Uvicorn 0.52.4, httpx2 2.12.0, and pytest 9.1.1 are locked; environment/cache/data remain on Kingston ext4"
-      ]
-    },
-    {
-      "id": "C03",
-      "title": "Integrate pinned upstream DiffSoup CUDA worker and warm-start revisions",
-      "status": "done",
-      "depends_on": ["C02"],
-      "acceptance": [
-        "QRS mesh/keyframes are converted to verified DiffSoup inputs",
-        "Worker emits the canonical artifact or a structured failure",
-        "Supported revisits warm-start; unsupported cases safely fall back to a fresh job"
-      ],
-      "evidence": [
-        "A strict QISM/QIRM plus frames.jsonl adapter validates finite geometry, indices, poses, intrinsics, declared JPEG dimensions, revisions, hashes, and bounded bundle membership before GPU work",
-        "The isolated Python 3.14 worker pins upstream DiffSoup c74e35de74ad0116977b23e7951f4cbc25ab0f6b, compiles its CUDA extension for SM89, runs the upstream multires rasterization/optimization path, and emits a fail-closed canonical mesh/LUT/MLP/checkpoint artifact",
-        "Process isolation keeps torch/CUDA out of FastAPI, propagates structured durable failures, supports cancellation and atomic artifact promotion, and restores exact-compatible optimizer/RNG state while safely falling back fresh on allowed incompatibilities",
-        "Server suite passes 29 tests with one opt-in CUDA test skipped; the real RTX 4070 CUDA integration passes revision-0 optimization, revision-1 exact warm-start, incompatible-checkpoint fresh fallback, and canonical artifact validation"
-      ]
+      "evidence": []
     },
     {
       "id": "D01",
-      "title": "Implement Unity heavy-compute interface, LAN backend, scheduler, and offline queue",
-      "status": "done",
-      "depends_on": ["B05", "C01"],
+      "title": "Implement GPU depth consensus, normals, discontinuity mask, and confidence",
+      "status": "pending",
+      "depends_on": ["C02", "M01"],
       "acceptance": [
-        "None and LAN backends share one lifecycle",
-        "Jobs survive transient network loss and stale responses cannot overwrite newer revisions",
-        "No network await occurs in the real-time integration path"
+        "Left/right depth is reprojected with depth-dependent calibration and fused only when geometrically consistent",
+        "Confidence incorporates sensor validity, local noise, incidence, cross-eye agreement, temporal agreement, and tracking quality",
+        "Strong discontinuities suppress cross-edge fusion and rear-space carving",
+        "Captured fixtures and real-GPU parity tests cover planes, slants, silhouettes, poles, missing depth, and mixed pixels"
       ],
-      "evidence": [
-        "Unity protocol-v2 contracts reproduce the frozen Python job ID and request fingerprint exactly; deterministic QRS chunk bundles are byte-identical across rebuilds and the Python C03 adapter accepts the C# fixture",
-        "None and LAN backends share one async lifecycle; UploadHandlerFile and DownloadHandlerFile stream payloads without loading multi-GB bodies into managed memory, while chunk publication only starts background bundle work",
-        "Atomic queue state survives restart and transient network loss; idempotent stages resume independently, cancel/retry are durable, and a newer local chunk revision supersedes a late result before download or promotion",
-        "39/39 Unity EditMode tests pass including a real UnityWebRequest to FastAPI to Python 3.14 to DiffSoup CUDA to verified artifact loopback; this exposed and fixed venv symlink dereferencing, now covered by the 30-test server suite",
-        "Unity 6000.5.9f1 Android/ARM64 IL2CPP build succeeds without C# or shader errors as APK SHA-256 41a94718851327610ec55e01fa7586128d0a94e6ca2b4f99581ad741907053bb"
-      ]
+      "evidence": []
     },
     {
       "id": "D02",
-      "title": "Implement validated DiffSoupArtifact import, persistence, and atomic promotion",
-      "status": "done",
-      "depends_on": ["C01", "D01"],
+      "title": "Implement uncertain-tile scheduler and narrow stereo/temporal MVS",
+      "status": "pending",
+      "depends_on": ["D01", "M03"],
       "acceptance": [
-        "Artifact parser is bounded and rejects corrupt indices/dimensions/versions",
-        "Artifact is stored by chunk/revision/hash",
-        "Promotion is atomic and keeps the prior renderer on any error"
+        "Only uncertain/problem tiles enter refinement and work is bounded per frame",
+        "Native depth defines a narrow metric hypothesis interval with 8-16 candidates",
+        "Census/gradient cost uses the other eye and 2-4 pose-valid temporal observations",
+        "Left-right and temporal consistency reject ambiguous solutions rather than inventing geometry",
+        "Scheduling respects mapper GPU budget and thermal backpressure"
       ],
-      "evidence": [
-        "DiffSoupArtifactImporter performs bounded fail-closed ZIP membership, path, compression, descriptor/hash, protocol, PLY index/count, PNG RGBA8/dimension, MLP-shape, metadata, and producer validation before retaining renderer data",
-        "WorldStore and DiffSoupArtifactPublisher stage content-addressed chunks/{id}/enhancements/{revision}/diffsoup-{sha256}/diffsoup.zip and atomically add the manifest reference only while the exact chunk revision remains current",
-        "DiffSoupArtifactTests prove corrupt index/dimension/version/path/hash rejection, idempotent promotion, interrupted/stale/conflicting promotion rollback, retention of the last-known-good artifact, restart reconciliation, and successful import of the actual pinned CUDA worker artifact; Unity result: 47 total, 46 passed, 0 failed, 1 unrelated opt-in LAN test skipped"
-      ]
+      "evidence": []
     },
     {
-      "id": "D03",
-      "title": "Port DiffSoup triangle/LUT appearance renderer to Unity URP",
+      "id": "M01",
+      "title": "Define packed surface, accumulator, meshlet, page, and memory contracts",
       "status": "pending",
-      "depends_on": ["A01", "D02"],
+      "depends_on": ["R00"],
       "acceptance": [
-        "Reference artifact renders with coordinate/color parity against upstream viewer",
-        "Stereo, depth, culling, relocation, and resource disposal work on Quest",
-        "Unsupported appearance networks are rejected or baked to a supported representation"
+        "C# and HLSL layouts have explicit byte size/alignment and parity tests",
+        "Active records retain sufficient precision for point-to-plane solving; stable pages use chunk-local quantization with declared error bounds",
+        "Every buffer allocation is checked, no storage buffer exceeds 128 MiB, target active memory is <=1.2 GiB, and allocation fails closed before 2 GiB",
+        "Generation IDs and invalid sentinels prevent use-after-recycle",
+        "All live structures support GPU-only append/compact/scan plus indirect dispatch and draw arguments without CPU count readback"
       ],
-      "evidence": [
-        "DiffSoupShaderContract and DiffSoup.shader implement the pinned upstream level/LUT addressing, SH2 encoding, 16x16x16x3 MLP, residual blend, alpha discard, ordinary double-sided triangle depth rasterization, linear-project color conversion, and reject unsupported feature encodings or mobile buffers above 128 MiB",
-        "DiffSoupRendererCache builds candidates disabled, atomically swaps only fully valid chunk-local mesh/LUT/MLP resources, preserves the prior renderer on failure, refreshes pose-graph transforms, bounds residency, suppresses the coarse cache, and disposes owned meshes/materials/textures",
-        "Unity EditMode with the actual CUDA artifact reports 55 total, 53 passed, 0 failed, with only the opt-in LAN lifecycle and explicit real-GPU test skipped in -nographics; the separate NVIDIA Vulkan GPU parity gate passes 1/1 against the CPU/upstream golden pixel",
-        "Android/Vulkan ARM64 APK b6bf6d1e4f3aa1ff00bc1865ae188a1aa6431f17e445443dac1f0f414698d6e6 builds with zero errors, serializes the LAN scheduler with preview profile, installs on Quest 3S, and declares modern uses-metavr-sdk min API 60 / target API 207 without the former Horizon OS deprecation warning",
-        "Physical stereo/depth/culling and live CUDA artifact-swap acceptance remains pending because the connected headset is currently asleep behind SensorLockActivity; D03 intentionally remains pending"
-      ]
+      "evidence": []
+    },
+    {
+      "id": "M02",
+      "title": "Implement bounded GPU layered-surface allocator and spatial index",
+      "status": "pending",
+      "depends_on": ["M01"],
+      "acceptance": [
+        "Chunk-local cells reference multiple surface layers without imposing voxel geometry resolution",
+        "Allocation, reuse, overflow, compaction, and generation validation are deterministic",
+        "Opposite normals and incompatible visibility can coexist in one spatial region",
+        "Stress tests hit capacity without memory corruption or unbounded growth"
+      ],
+      "evidence": []
+    },
+    {
+      "id": "M03",
+      "title": "Implement hardware association raster for stable surface IDs",
+      "status": "pending",
+      "depends_on": ["C02", "M02"],
+      "acceptance": [
+        "Existing meshlets rasterize ID, predicted depth, normal, generation, and visibility into observation space",
+        "Association rejects depth, normal, generation, edge, and occlusion incompatibility",
+        "Unmatched valid observations are routed to new-layer candidates",
+        "Raster resources are double-buffered and never read while incomplete"
+      ],
+      "evidence": []
+    },
+    {
+      "id": "M04",
+      "title": "Implement layered point-to-plane fusion and stable-surface protection",
+      "status": "pending",
+      "depends_on": ["D01", "M03"],
+      "acceptance": [
+        "Active surfaces update bounded information matrices/vectors with robust weights",
+        "Distance, incidence, confidence, visibility, dynamics, and residual history control fusion",
+        "A persistent information-quality envelope prevents lower-resolution, farther, blurrier, or more grazing observations from degrading stable geometry",
+        "Opposite-facing or occluded evidence never erases an existing layer",
+        "Near-then-far, far-then-near, grazing, thin-panel, pole, pipe, occlusion, dynamic-object, and noisy revisit tests pass",
+        "Stable close surfaces move <=2 mm under later lower-quality distant evidence"
+      ],
+      "evidence": []
+    },
+    {
+      "id": "M05",
+      "title": "Implement local regularization, boundary ownership, and chunk-overlap blending",
+      "status": "pending",
+      "depends_on": ["M04", "W01"],
+      "acceptance": [
+        "Regularization improves compatible coplanar/curved support without crossing locked discontinuities or layers",
+        "Chunk overlap assigns deterministic surface ownership and avoids duplicate z-fighting",
+        "Boundary updates are local, budgeted, and revision-safe",
+        "Synthetic and captured seams remain continuous under pose-graph transform updates"
+      ],
+      "evidence": []
+    },
+    {
+      "id": "M06",
+      "title": "Implement adaptive local meshlet topology with atomic publication",
+      "status": "pending",
+      "depends_on": ["M04", "M05"],
+      "acceptance": [
+        "Stable planar regions consolidate while curvature, silhouettes, thin features, and uncertain boundaries retain detail",
+        "Split/merge/stitch operations preserve layer identity, winding, manifold intent, and edge locks",
+        "Topology is built into an inactive generation and atomically swapped after validation",
+        "Fixed-capacity meshlets handle overflow without corrupting the published generation",
+        "No triangle bridges a strong depth discontinuity in accepted fixtures",
+        "GPU compaction and indirect arguments publish topology without CPU geometry traversal, count readback, or Unity Mesh rebuilding"
+      ],
+      "evidence": []
+    },
+    {
+      "id": "R01",
+      "title": "Implement GPU-indirect world meshlet rendering and dynamic LOD",
+      "status": "pending",
+      "depends_on": ["M06"],
+      "acceptance": [
+        "Provisional and stable geometry use bounded ordinary Vulkan triangle rendering with depth testing and GPU-generated indirect draw lists",
+        "GPU frustum/occlusion culling and screen-space-error LOD select meshlet detail without CPU traversal",
+        "Geometry and appearance choose independent LOD so close inspection uses maximum captured detail while distant chunks remain cheap",
+        "Natural, Coverage, Geometry, Uncertainty, and Wireframe modes apply to active and persisted chunks",
+        "Published geometry remains spatially stable under head motion, chunk swaps, and pose-graph changes",
+        "Renderer never consumes retired or mutating generations and maintains 72 Hz target"
+      ],
+      "evidence": []
+    },
+    {
+      "id": "W01",
+      "title": "Replace rollover with a nonblocking two-arena chunk lifecycle",
+      "status": "pending",
+      "depends_on": ["R00", "P02", "M01"],
+      "acceptance": [
+        "Current and next arenas overlap with Schmitt hysteresis in all axes including vertical travel",
+        "Source geometry remains published and visible while target mapping begins",
+        "Transition cannot outrun durable publication or strand multiple chunks in Finalizing",
+        "Dirty pages read back incrementally and no transition blocks the main thread >20 ms",
+        "Live mapping and rendering perform no synchronous readback; persistence uses only fenced asynchronous immutable page staging",
+        "Regression test reproduces and eliminates the archived four-rollover disappearance failure"
+      ],
+      "evidence": []
+    },
+    {
+      "id": "W02",
+      "title": "Implement versioned meshlet-page persistence, streaming, reload, and revisit",
+      "status": "pending",
+      "depends_on": ["W01", "M06", "P02"],
+      "acceptance": [
+        "Surface, topology, appearance, observation, and quality pages publish atomically under a new schema",
+        "Last complete revision survives interruption, hash failure, cancellation, and app termination",
+        "Visible/near chunks dynamically rehydrate after eviction with bounded GPU/RAM residency",
+        "Revisit preserves stable layers and commits a monotonic revision",
+        "Legacy manifests remain read-only/migratable without reinterpreting TSDF bytes as new pages"
+      ],
+      "evidence": []
+    },
+    {
+      "id": "W03",
+      "title": "Integrate pose graph, relocation, loop closure, and multi-floor worlds",
+      "status": "pending",
+      "depends_on": ["W02", "P02"],
+      "acceptance": [
+        "Tracking/overlap/loop constraints update only worldFromChunk",
+        "Active capture, association, renderer, export, and future observations use one coherent transform snapshot",
+        "Anchor relocation restores a world without flattening vertical topology",
+        "Long corridor loop and multi-floor fixtures converge without local-geometry mutation"
+      ],
+      "evidence": []
+    },
+    {
+      "id": "A01",
+      "title": "Implement bounded observation reservoir and robust base-color fusion",
+      "status": "pending",
+      "depends_on": ["C02", "M03", "W01"],
+      "acceptance": [
+        "Chunk-local observations retain calibrated views by coverage, baseline, sharpness, exposure, and geometry support",
+        "Reservoir size is bounded and revisits replace weaker redundant evidence",
+        "Exposure-normalized color rejects occlusions, dynamics, blur, and grazing samples",
+        "Base color and confidence improve monotonically on accepted fixtures",
+        "A per-texel quality envelope preserves the sharpest valid close-range evidence and permits replacement only on measured information gain"
+      ],
+      "evidence": []
+    },
+    {
+      "id": "A02",
+      "title": "Implement compact directional appearance and confidence-bearing PBR",
+      "status": "pending",
+      "depends_on": ["A01", "D02", "M04"],
+      "acceptance": [
+        "Incremental bounded least-squares state captures diffuse plus compact view-dependent residual",
+        "Geometric/detail normals carry confidence and do not hide unresolved geometry",
+        "Roughness is emitted only with adequate angular evidence; metallic stays zero when uncertain",
+        "Appearance update is time-sliced and does not require training, Python, CUDA, or network",
+        "Multiresolution GPU appearance pages support independently streamed texture LOD and retain maximum accepted texel detail"
+      ],
+      "evidence": []
     },
     {
       "id": "E01",
-      "title": "Implement overlap constraints, ICP interface, and pose-graph optimization",
-      "status": "done",
-      "depends_on": ["B04"],
-      "acceptance": [
-        "Neighbor constraints carry covariance/confidence and provenance",
-        "Synthetic graph tests reduce loop error",
-        "Optimization changes only chunk world transforms"
-      ],
-      "evidence": [
-        "PoseGraphConstraintFactory is the fail-closed construction boundary for rollover and ICP edges: every new neighbor constraint has six positive covariance values, confidence in (0,1], a finite sourceFromTarget pose, timestamp, and non-empty provenance",
-        "PointToPlaneIcpEstimator performs deterministic bounded background registration over immutable Surface Nets point/normal snapshots with normal compatibility, Huber weighting, cancellation, confidence, covariance, outlier rejection, and a None backend; SubmapManager queues consecutive finalized overlaps without blocking the scan frame",
-        "PoseGraphOptimizer robustly relaxes SE(3) components while fixing one deterministic root per component; detached solutions and optimistic atomic WorldStore commits update only worldFromChunk plus required metadata timestamps/revision, with complete rollback on stale pose or durable revision conflict",
-        "Synthetic square-loop, covariance weighting, disconnected-component, gross-outlier provenance, ICP six-DoF corner, deterministic sampling, cancellation, durable coordinator, and rollback tests pass; full Unity EditMode result is 80 total, 75 passed, 0 failed, 5 intentional hardware/live skips",
-        "Android/Vulkan IL2CPP ARM64 APK 8bcfa420be7e457dedba65128e21a370be0bccbea1c915325d44c75643456707 builds with zero errors, serializes overlap ICP enabled with a 4096-sample cap, contains the coordinator/ICP metadata, and installs with data preservation on Quest 3S"
-      ]
-    },
-    {
-      "id": "E02",
-      "title": "Wire setup wizard, UI/status, diagnostics, and large-world defaults",
+      "title": "Adapt chunk and world GLB/PBR export to canonical meshlet pages",
       "status": "pending",
-      "depends_on": ["B05", "D01", "D03", "E01"],
+      "depends_on": ["P03", "W02", "A02"],
       "acceptance": [
-        "Setup is idempotent and existing single-room setup remains available",
-        "Operators can see chunk, queue, storage, graph, network, and artifact state",
-        "Large-world default memory settings are explicit"
+        "Exporter consumes stable canonical meshlet generations rather than TSDF/refined/DiffSoup artifacts",
+        "Positions, normals, tangents, UV0, indices, base color, normal, and honest metallic-roughness semantics are correct",
+        "Selected chunk, sharded world, and bounded monolithic world preserve pose-graph transforms and revisions",
+        "Official validator and independent importer pass generated and physical fixtures"
       ],
-      "evidence": [
-        "The QuestInfiniteScan setup wizard idempotently enables large-world mode, applies the documented 1 m boundary / 2 m overlap / 0.75 m Schmitt hysteresis / one-volume / three-mesh baseline to newly created components, preserves operator-tuned rollover values on existing scenes, disables triplanar only for large-world mode, and adds the GLB export controller without removing the upstream single-room path",
-        "The Infinite World debug view reports world/chunk lifecycle, resident volume/coarse/DiffSoup counts, pose-graph state, durable refinement queue, LAN/offline state, declared artifact storage, and export status; chunk and world GLB actions are disabled while unsafe or busy",
-        "The operator UI explicitly distinguishes display-only Freeze Tint from Freeze/Unfreeze In View integration locks and render-mode presentation; OperatorExperienceTests plus the full Unity 6000.5.9f1 EditMode suite report 93 total, 88 passed, 0 failed, and 5 intentional hardware/live skips",
-        "E02 implementation is complete but the node remains pending until its D03 physical renderer dependency is accepted on Quest"
-      ]
+      "evidence": []
     },
     {
-      "id": "G01",
-      "title": "Implement deterministic chunk GLB 2.0 writer and honest PBR material export",
-      "status": "done",
-      "depends_on": ["B05"],
-      "acceptance": [
-        "Refined or enhanced mesh exports positions, normals, generated tangents, UV0, indices, base color, and normal texture",
-        "Material uses metallicFactor=0 and configurable constant roughness without inventing measured maps",
-        "Coordinate handedness, winding, texture orientation, alignment, and GLB length fields pass golden tests"
-      ],
-      "evidence": [
-        "ChunkGlbWriter emits deterministic GLB 2.0 with chunk-local positions, normalized normals, generated tangent handedness, UV0, reversed winding after Unity-to-glTF X reflection, uint32 indices, embedded base-color and normal PNGs, and aligned/checked JSON and BIN chunks",
-        "The material deliberately exports metallicFactor=0, configurable constant roughness, configurable normal scale, no invented metallic-roughness or occlusion map, and defaults to double-sided geometry for one-sided scan surfaces",
-        "ChunkGlbExporter hash-verifies refined source artifacts, generates off the scan frame, content-addresses and atomically promotes an immutable revision-specific GLB while preserving the last good artifact on cancellation, stale revision, corruption, or conflict",
-        "Golden SHA-256 e680b118e41ce8332d8f95c9dc5bc14ca00ec35bfd3c2f953c9baf624c9f8e28 freezes handedness, winding, tangents, UV/image row orientation, honest PBR JSON, and binary offsets; full Unity EditMode reports 87 total, 82 passed, 0 failed, 5 intentional hardware/live skips"
-      ]
-    },
-    {
-      "id": "G02",
-      "title": "Implement pose-graph world export as chunk nodes, sharded GLBs, and optional bounded monolithic GLB",
-      "status": "done",
-      "depends_on": ["B02", "E01", "G01"],
-      "acceptance": [
-        "World export applies the current T_world_chunk exactly once and preserves chunk names/revisions",
-        "Large worlds stream to a versioned building manifest plus per-chunk GLBs without loading every mesh/texture at once",
-        "Monolithic export enforces configurable size/resource limits and fails with an actionable sharded-export fallback"
-      ],
-      "evidence": [
-        "WorldGlbExporter streams one validated refined chunk at a time into content-addressed per-chunk GLBs, copies only hash-verified immutable artifacts, and atomically publishes a deterministic schema-v1 building.json with world/chunk IDs, revisions, SHA-256, lengths, and glTF node transforms",
-        "WorldGlbWriter concatenates validated chunk BIN payloads through a fixed 1 MiB buffer, creates one named node per chunk, and applies each current pose-graph T_world_chunk exactly once through the Unity-to-glTF basis conversion",
-        "Optional monolithic export enforces configured and GLB uint32 bounds; an oversized world keeps the valid sharded export and reports an actionable per-chunk fallback instead of producing a partial world.glb",
-        "WorldGlbExporterTests cover two-node transforms, unchanged BIN concatenation, bounded fallback, atomic sharded publication, cancellation, and duplicate destinations; Unity 6000.5.9f1 reports zero failures"
-      ]
-    },
-    {
-      "id": "G03",
-      "title": "Validate GLB interoperability and add optional compression capability negotiation",
-      "status": "done",
-      "depends_on": ["G01", "G02"],
-      "acceptance": [
-        "Chunk and world fixtures pass Khronos glTF Validator with no errors",
-        "Fixtures import with correct PBR textures/transforms in an independent consumer",
-        "meshopt and KTX2/BasisU are emitted only when a verified available implementation and declared extension support exist; uncompressed GLB remains mandatory fallback"
-      ],
-      "evidence": [
-        "Deterministic chunk, second-chunk, and two-node world fixtures pass the official Khronos glTF Validator 2.0.0-dev.3.10 with 0 errors and 0 warnings",
-        "An independent @gltf-transform/core 4.4.2 NodeIO consumer verifies mesh/material/texture counts, PBR factors, geometry accessors, scene graph, and world-node transforms; the machine-readable report is emitted outside the repository under the Kingston build root",
-        "GlbCompressionNegotiation requires both a concrete verified encoder implementation ID and declared consumer extension support before selecting EXT_meshopt_compression or KHR_texture_basisu; Prefer records a baseline fallback reason and Require fails actionably",
-        "The shipped v1 writer truthfully emits mandatory uncompressed GLB because no encoder binary is bundled; compression negotiation tests and the full Unity suite pass"
-      ]
-    },
-    {
-      "id": "F01",
-      "title": "Automated validation, migration, failure-injection, and performance harness",
-      "status": "in_progress",
-      "depends_on": ["B02", "B04", "B06", "C03", "D03", "E01", "G03"],
-      "acceptance": [
-        "Unit/contract/integration tests pass",
-        "Offline, corrupt artifact, interrupted write, duplicate job, and server restart cases pass",
-        "Profiling records frame time and resident memory as chunk count grows"
-      ],
-      "evidence": [
-        "Tools/verify_all.sh is a fail-reporting single entry point for control state, diff hygiene, profile-parser tests, dependency-free protocol contracts, the full fake server, Unity EditMode, official/independent GLB interoperability, opt-in real DiffSoup CUDA, and opt-in Android/Vulkan; every step writes an external schema-v1 JSON report and individual log",
-        "The 2026-08-20 full target-machine run passed all nine gates: 9 contract tests, 30 server tests plus one intentional CUDA skip, 93 Unity tests with 88 pass / 0 fail / 5 live skips, official Khronos fixtures at 0 errors / 0 warnings, independent NodeIO import, one real two-revision CUDA warm-start test, and an Android Vulkan/IL2CPP build",
-        "Existing deterministic suites inject offline retry, stale/corrupt artifact, interrupted atomic world/artifact write, duplicate/conflicting job, hostile archive, cancellation, and SQLite restart recovery; none depends on a live CUDA server except the separately gated worker test",
-        "Development builds emit bounded QIS_WORLD_PROFILE residency/chunk telemetry and QIS_TSDF_PROFILE CPU integration plus CPU/GPU frame timing; profile_tsdf_on_quest.sh captures raw ADB/GPU/process evidence and analyze_quest_profile.py joins both streams into CSV/JSON while failing closed on missing telemetry",
-        "The synthetic profile-parser acceptance proves correlation across chunk counts 1 and 3 with one resident volume; F01 remains active until B06/D03 dependencies and a fresh physical growing-world capture satisfy the hardware portion"
-      ]
-    },
-    {
-      "id": "F02",
-      "title": "Unity Android build and Quest 3S end-to-end acceptance",
+      "id": "U01",
+      "title": "Replace debug-centric UI with the production scan workflow",
       "status": "pending",
-      "depends_on": ["E02", "F01"],
+      "depends_on": ["C02", "W01", "R01"],
       "acceptance": [
-        "Vulkan ARM64 build installs and starts",
-        "Multi-chunk scan continues with notebook disconnected",
-        "CUDA-refined artifact returns and swaps atomically",
-        "Reload/anchor relocation/revisit and bounded active memory pass on device"
+        "Primary navigation is Scan, Worlds, Quality, Export, and Settings; Diagnostics is an explicit developer view",
+        "Workflow state machine is Idle -> Permission/Warmup -> Scanning <-> Paused -> Finalizing -> Ready/Fault",
+        "Scan view exposes tracking, stereo sync/rates, mapping lag, stable geometry, unresolved edges, chunk, memory, and thermal health",
+        "Quality offers Fast/Balanced/Detail and honest geometry/appearance/material confidence",
+        "Legacy GS, server URL, DiffSoup, HQ-server refinement, freeze tint, and normal-operator clutter are absent"
       ],
-      "evidence": [
-        "Unity 6000.5.9f1 builds the development ARM64 IL2CPP Vulkan APK through the reproducible setup/build entry points; the full verifier reports zero build errors",
-        "Physical testing has already confirmed permission flow, passthrough/depth delivery, live scanning, one-sided surface protection, and initial chunk transitions on Quest 3S",
-        "Repeated traversal currently fails the acceptance gate: Finalizing targets can be selected before a durable volume exists and a bounded presentation can evict them, causing revisit disappearance/stalled visible updates. This is documented as P0 and F02 remains pending rather than treating install/launch as end-to-end success"
-      ]
+      "evidence": []
     },
     {
-      "id": "F03",
-      "title": "Finalize operator/developer runbooks, compatibility notes, and release",
+      "id": "X01",
+      "title": "Remove legacy TSDF/DTSDF/Surface Nets/GS/DiffSoup/server production wiring",
       "status": "pending",
-      "depends_on": ["F02"],
+      "depends_on": ["E01", "U01", "V01"],
       "acceptance": [
-        "Fresh-machine setup and recovery runbooks are reproducible",
-        "Licenses/notices and pinned dependencies are complete",
-        "Goal state and release evidence match the shipped commit"
+        "Production scenes, assembly references, setup wizard, resources, shaders, UI, and package docs use only the new mapper",
+        "Unintegrated DTSDF scaffolding and scalar TSDF/Surface Nets mapping are removed from shipped code",
+        "Runtime.GSplat, HeavyCompute, DiffSoup renderer/client, and Python server are absent from the shipped package",
+        "Reusable representation-independent tests/tools remain, and archive branch provides full historical recovery",
+        "Clean Unity import and Android build prove no dangling serialization or shader references"
       ],
-      "evidence": [
-        "README.md now describes QuestInfiniteScan rather than the upstream product: architecture, pinned target stack, setup/build/deploy, UI semantics, server, world/GLB formats, verification, truthful resolution, status, and limits",
-        "Public operator, development/recovery, known-issues, release-checklist, protocol/server, upstream-audit, directional-geometry, license, and third-party notice documents cover the implemented workflows and exact unclosed physical gates",
-        "Tools/server/bootstrap_diffsoup.sh idempotently accepts the already current Python 3.14.4/Torch cu130/DiffSoup environment, refuses a dirty upstream checkout, provisions only when the lock is unmet, and passes a real RTX 4070 worker probe",
-        "F03 remains pending because its dependency F02 is not accepted and release evidence must ultimately name the shipped post-bugfix commit"
-      ]
+      "evidence": []
+    },
+    {
+      "id": "V01",
+      "title": "Build the fixed captured/synthetic quality corpus and continuous verification gates",
+      "status": "pending",
+      "depends_on": ["M04", "M06", "W02", "A01", "E01", "U01"],
+      "acceptance": [
+        "Corpus covers planes, oblique walls, corners, 20/40 mm panels, round/square poles, pipes, rails, silhouettes, opposing faces, occlusion, exposure, dynamics, revisits, and vertical paths",
+        "Expected geometry, visibility, and confidence outcomes are versioned without committing private room imagery",
+        "CPU contract, GPU parity, failure injection, Unity, GLB, Android, and control-plane checks run from one verifier",
+        "Baseline comparison prevents regressions hidden by aggregate scores"
+      ],
+      "evidence": []
+    },
+    {
+      "id": "V02",
+      "title": "Meet mapper performance, memory, thermal, and lifecycle gates",
+      "status": "pending",
+      "depends_on": ["V01", "R01", "D02"],
+      "acceptance": [
+        "Quest render stays 72 Hz and balanced mapping stays >=10 Hz",
+        "Mapper GPU p95 is <=4 ms amortized or an explicitly profiled quality fallback is selected",
+        "No buffer exceeds 128 MiB and active mapper memory stays <=1.2 GiB target / <2 GiB hard guard",
+        "Transitions show no >20 ms main-thread stall, synchronous/full-chunk readback, CPU mesh rebuild, premature resource retirement, or thermal runaway",
+        "GPU captures prove indirect culling/LOD/draw and no per-frame geometry readback in production",
+        "Profiles are retained outside git with machine-readable summaries in evidence"
+      ],
+      "evidence": []
+    },
+    {
+      "id": "V03",
+      "title": "Pass physical Quest geometry, revisit, scale, offline, and export acceptance",
+      "status": "pending",
+      "depends_on": ["V02", "W03", "A02", "X01"],
+      "acceptance": [
+        "Accepted corpus measures median <=8 mm and p95 <=20 mm at 0.5-2.0 m with >=95% deliberate planar coverage",
+        "Thin structures, occlusion, discontinuities, near/far revisits, and material-confidence gates pass",
+        "At least 20 transitions plus return visits and a multi-floor route keep all chunks visible/reloadable with bounded residency",
+        "Scan/refine/restart/revisit/export work with networking disabled",
+        "Physical chunk/world GLBs validate and import with correct geometry, transforms, and PBR semantics"
+      ],
+      "evidence": []
+    },
+    {
+      "id": "V04",
+      "title": "Finalize product docs, runbooks, clean verification, and publish the branch",
+      "status": "pending",
+      "depends_on": ["V03"],
+      "acceptance": [
+        "README, architecture, setup, operator, recovery, data-format, profiling, acceptance, and release docs describe the actual on-device product",
+        "Fresh clone/bootstrap/import/build/deploy/export runbook succeeds",
+        "Control validator, diff hygiene, secret scan, full verifier, and clean-tree checks pass",
+        "Implementation commits and final branch are pushed to origin without generated/private artifacts"
+      ],
+      "evidence": []
     }
   ]
 }
