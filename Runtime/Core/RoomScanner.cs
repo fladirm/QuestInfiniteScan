@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Threading.Tasks;
+using Genesis.RoomScan.Prism;
 using Genesis.RoomScan.UI;
 using Genesis.RoomScan.World;
 using UnityEngine;
@@ -122,6 +123,8 @@ namespace Genesis.RoomScan
 
         // Optional modules (discovered, not required)
         private PassthroughCameraProvider _cameraProvider;
+        private PrismRigCapture _prismRigCapture;
+        private PrismDepthPreprocessor _prismDepthPreprocessor;
         private TriplanarCache _triplanarCache;
         private KeyframeCollector _keyframeCollector;
         private IGSplatProvider _gsplatProvider;
@@ -191,6 +194,10 @@ namespace Genesis.RoomScan
         public KeyframeCollector KeyframeCollector => _keyframeCollector;
         /// <summary>The active camera provider (custom or passthrough).</summary>
         public ICameraProvider ActiveCameraProvider => GetActiveCameraProvider();
+        /// <summary>The coherent Cone-PRISM stereo RGB-D GPU capture.</summary>
+        public PrismRigCapture PrismRigCapture => _prismRigCapture;
+        /// <summary>Cone LUT and metric stereo-depth GPU preprocessing.</summary>
+        public PrismDepthPreprocessor PrismDepthPreprocessor => _prismDepthPreprocessor;
         /// <summary>The optional Gaussian Splat provider, or null if the GSplat module is not attached.</summary>
         public IGSplatProvider GSplatProvider => _gsplatProvider;
         /// <summary>True when the TextureRefinement module is attached.</summary>
@@ -367,6 +374,12 @@ namespace Genesis.RoomScan
             _volumeIntegrator = GetComponent<VolumeIntegrator>();
             _meshExtractor = GetComponent<MeshExtractor>();
             _cameraProvider = GetComponent<PassthroughCameraProvider>();
+            _prismRigCapture = GetComponent<PrismRigCapture>();
+            if (_prismRigCapture == null)
+                _prismRigCapture = gameObject.AddComponent<PrismRigCapture>();
+            _prismDepthPreprocessor = GetComponent<PrismDepthPreprocessor>();
+            if (_prismDepthPreprocessor == null)
+                _prismDepthPreprocessor = gameObject.AddComponent<PrismDepthPreprocessor>();
             _triplanarCache = GetComponent<TriplanarCache>();
             _persistence = GetComponent<RoomScanPersistence>();
             _keyframeCollector = GetComponent<KeyframeCollector>();
@@ -617,6 +630,8 @@ namespace Genesis.RoomScan
                 // pulling frames steadily.
                 ICameraProvider provider = GetActiveCameraProvider();
                 provider?.StartCapture();
+                _prismDepthPreprocessor?.StartProcessing(_prismRigCapture);
+                _prismRigCapture?.StartCapture();
                 _depthCapture.StartDepthCapture();
 
                 if (!resuming)
@@ -677,6 +692,8 @@ namespace Genesis.RoomScan
             IsScanning = false;
 
             ICameraProvider provider = GetActiveCameraProvider();
+            _prismDepthPreprocessor?.StopProcessing();
+            _prismRigCapture?.StopCapture();
             provider?.StopCapture();
             _depthCapture.StopDepthCapture();
 

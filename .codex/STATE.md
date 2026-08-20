@@ -26,17 +26,23 @@ Updated: 2026-08-20 (Europe/Prague)
   `origin/archive/hybrid-diffsoup-checkpoint-20260820`.
 - The archive preserves the old DAG and all hybrid/DiffSoup/DTSDF work. Do not
   rewrite it.
-- PRISM control checkpoints `9fee431` and `00fee18` are pushed on the active branch;
-  current frozen Cone-PRISM spec/DAG refinements are not yet committed.
+- PRISM control checkpoints `9fee431`, `00fee18`, and frozen-spec commit `a29be7b`
+  are pushed on the active branch.
 
 ## Current DAG position
 
 - `Q3-01` is done: fork/build/device baseline, archive branch, active PRISM branch,
   and canonical spec are preserved.
-- `Q3-02` is the only active run: coherent 2x RGB + 2x depth + exact pose/calibration
-  immutable GPU capture.
-- No new PRISM reconstruction core is yet falsely claimed implemented. The next code
-  change is the capture contract, not another architecture rewrite.
+- `Q3-02` is done: coherent 2x RGB + 2x depth, exact timestamped poses/calibration,
+  immutable GPU leases, fail-closed pairing, and diagnostics compile and pass focused
+  contracts. Its physical diagnostic is intentionally batched into the first
+  capture-to-film Quest milestone.
+- `Q3-03` is done. Immutable calibration epochs, four GPU cone LUTs, radial metric
+  depth normalization, validity flags, exact-pose reprojection, surface-footprint
+  Jacobians, and fenced output leases are implemented and wired into `RoomScanner`.
+- `Q3-04` is active. Its production GPU passes now implement independent L/R
+  agreement/occlusion/disagreement, signed residual histograms with six-bin MAD/EMA
+  sigma, discontinuity-aware local plane fits, and depth/normal/RGB boundary evidence.
 
 ## Reuse map
 
@@ -78,14 +84,11 @@ Remove from the shipped product after PRISM parity:
 
 ## Immediate implementation actions
 
-1. Validate and commit `specka.md`, canonical 22-run DAG, controls, and decisions.
-2. Implement `StereoRigFrame`, calibration/pose/timestamp value contracts, GPU
-   resource leases, rejection reasons, and deterministic tests.
-3. Replace single-PCA discovery with two explicitly eye-keyed Meta PCA streams while
-   retaining old `ICameraProvider` only as a temporary fallback adapter.
-4. Expose both environment-depth slices plus frame FOV/pose/near-far metadata into
-   the same coherent frame without CPU image copies.
-5. Run Unity tests/build, deploy, and physically verify `Q3-02` before closing it.
+1. Finish Q3-04 confidence/flag fixtures and shader-level diagnostics, then close it.
+2. Implement Q3-05 dual-eye prediction MRTs over generation-safe ContactFilm
+   meshlets and Q3-06 exhaustive first-hit ConeEvent classification.
+3. Batch the first physical Quest validation only after capture, preprocessing,
+   classification, film spawn/update, and preview form one useful vertical slice.
 
 ## Safety
 

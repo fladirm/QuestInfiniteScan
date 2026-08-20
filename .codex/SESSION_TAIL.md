@@ -6,27 +6,18 @@ session/history data.
 
 ## Exchange 1
 
-User: Supplied the final Cone-PRISM synthesis and asked to freeze it into the spec
-and DAG: calibrated finite pixel cones establish only pre-hit free space, deposit a
-one-sided probabilistic ContactFilm at first contact, leave everything behind
-UNKNOWN, refine via pressure/information equilibrium, preserve independent layers,
-derive ContactBoundaries, focus stereo/temporal evidence along the film normal,
-deposit measured RGB footprints, materialize meshlets, and page an unbounded world.
+User: Rejected per-triviality Quest testing and fixed the execution ratio at roughly
+90% implementation, 5% tests, and 5% control/prose.
 
-Assistant: Accepted this as the canonical reconstruction physics rather than a
-parallel metaphor, kept SurfaceChartGeometry as the film parameterization and
-meshlets as derived state, and began locking `CPQ3-2026-08-20-v1` into the canonical
-spec, 22-node DAG, ADRs, goal, guardrails, and architecture before continuing Q3-02.
+Assistant: Adopted milestone-batched physical tests: cheap contracts/compilation
+during implementation, with Quest runs only for useful vertical slices such as
+capture-to-film, multilayer/boundary, persistence/revisit, and final export/quality.
 
 ## Exchange 2
 
-User: Added that cone pressure should weaken with distance/angle; a close, precise
-observation should compress the baked film strongly, store how strongly it was
-supported, and resist later distant or grazing observations overwriting it.
+User: Asked for status while expecting continued implementation rather than another
+architecture cycle.
 
-Assistant: Incorporated this as range/footprint/incidence/pose/calibration-aware
-measurement information, not an arbitrary constant or universal `1/r^2` rule.
-Persisted H/covariance plus geometry and photometric quality envelopes are the
-film's resistance: weak later evidence may confirm support but cannot pull, blur,
-inflate sigma, or erase superior close geometry/texture; stronger valid evidence
-can still improve the same posterior.
+Assistant: Completed the Q3-02 four-stream GPU capture contracts and proceeded into
+Q3-03: immutable calibration, finite-cone center/Jacobian/angular LUTs, raw Meta
+depth encoding metadata, metric depth normalization, and fenced GPU output leases.

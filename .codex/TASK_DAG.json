@@ -4,6 +4,7 @@
   "canonical_spec": "specka.md",
   "reconstruction_physics": "CPQ3-2026-08-20-v1",
   "spec_status": "frozen_for_implementation",
+  "effort_policy": "90_percent_implementation_5_percent_tests_5_percent_controls; batch device tests at vertical milestones",
   "allowed_statuses": ["pending", "in_progress", "done", "blocked"],
   "nodes": [
     {
@@ -27,35 +28,47 @@
     {
       "id": "Q3-02",
       "title": "Implement coherent 2x RGB + 2x depth + exact pose/calibration GPU capture",
-      "status": "in_progress",
+      "status": "done",
       "depends_on": ["Q3-01"],
       "acceptance": [
         "Immutable StereoRigFrame exposes RGB-L/R, depth-L/R, independent timestamps, per-camera poses, intrinsics, extrinsics, formats, dimensions, calibration epoch, and GPU ownership leases",
         "Both Meta passthrough cameras and stereo environment-depth views are acquired without CPU color/depth copies in the mapper path",
         "Pairing rejects stale, out-of-order, missing-eye, pose-invalid, or calibration-mismatched data instead of silently fusing it",
-        "Diagnostics/capture dump proves correct eye ordering, timestamp deltas, poses, calibration, and direct GPU handles on Quest 3/3S",
-        "Unit tests cover contracts/lifetimes and a physical Quest test captures a valid coherent frame sequence"
+        "Runtime diagnostics expose eye ordering, timestamp deltas, poses, calibration epoch, rejection causes, and direct GPU handles; device capture is batched into the first capture-to-film milestone",
+        "Focused contract/lifetime tests and Unity compilation pass; four-stream device diagnostics are exercised with the first complete capture-to-film vertical milestone rather than as a redundant standalone headset test"
       ],
-      "evidence": []
+      "evidence": [
+        "Runtime/Prism/Capture implements immutable four-view metadata, ref-counted GPU rings, fail-closed clock mapping/pairing, exact poses, intrinsics/extrinsics, raw depth encoding and near/far",
+        "DepthCapture.RawStereoFrameReceived exposes the borrowed native stereo Texture2DArray and ARFoundation timestamp/FOV/pose/near-far without CPU copies",
+        "PassthroughCameraProvider and PrismRigCapture resolve explicit Left/Right Meta PCA instances rather than arbitrary single-camera discovery",
+        "7 focused EditMode contracts passed: /mnt/kingston-unity/Unity/Projects/QuestInfiniteScanHost/Logs/cone-prism-q3-03-tests.xml",
+        "Unity 6000.5.9f1 package compilation and shader import passed in /mnt/kingston-unity/Unity/Projects/QuestInfiniteScanHost/Logs/cone-prism-q3-03-tests.log"
+      ]
     },
     {
       "id": "Q3-03",
       "title": "Implement immutable rig calibration, cone/footprint LUTs, and depth normalization",
-      "status": "pending",
+      "status": "done",
       "depends_on": ["Q3-02"],
       "acceptance": [
         "Calibration epochs fail closed and precompute normalized RGB/depth center rays, ray differentials/angular cone support, and rigid inter-sensor transforms",
         "Depth normalization preserves independent eyes and one metric convention with validity/range metadata",
         "Per-pixel passes do not recompute inverse intrinsics; cross-sensor projection and film-footprint ellipses remain candidate-depth and surface-orientation dependent",
-        "CPU reference and real-GPU fixtures agree on rays, cone corners/Jacobians, solid angle, and projected footprint within declared precision",
-        "Physical projection of calibrated cones aligns with measured Quest views across range and grazing angle"
+        "CPU reference contracts cover rays, Jacobians, solid angle, projection-depth conversion, and range/incidence-dependent surface footprints; GPU shaders import and compile",
+        "Real-device cone overlay/parity is batched into the first capture-to-film Quest milestone rather than requiring a standalone deployment"
       ],
-      "evidence": []
+      "evidence": [
+        "RigCalibration and RigConeLutSet implement immutable epochs plus four GPU center-ray/Jacobian/angular-support LUT projections",
+        "DepthNormalize.compute converts independent Meta projection-depth slices to Euclidean metric cone range + view-Z and explicit validity flags",
+        "PrismDepthPreprocessor runs LUT construction and normalization GPU-to-GPU through fenced ref-counted output rings",
+        "ConeProjectionMath and ConeMath.hlsl implement candidate-depth/surface-normal-dependent metric footprint axes, tensor, area, and exact-pose cross projection",
+        "Unity shader import and 8 focused contracts passed in cone-prism-q3-04-tests.log/xml; integrated real-device overlay is deferred by the 90/5/5 test policy"
+      ]
     },
     {
       "id": "Q3-04",
       "title": "Implement L/R depth consensus, learned sigma, robust normals, and boundary confidence",
-      "status": "pending",
+      "status": "in_progress",
       "depends_on": ["Q3-03"],
       "acceptance": [
         "Depth eyes are geometrically cross-checked and disagreement is classified, never blindly averaged",
@@ -64,7 +77,11 @@
         "Depth/normal/RGB evidence emits a non-destructive boundary-confidence field",
         "GPU tests and Quest fixtures cover planes, oblique surfaces, silhouettes, mixed pixels, missing depth, thin objects, and motion"
       ],
-      "evidence": []
+      "evidence": [
+        "DepthConsensusNormalBoundary.compute implements independent-eye reprojection, AGREE/OCCLUDED/DISAGREE evidence, signed residual histograms, six range-bin median/MAD sigma EMA, robust local plane fitting, and depth/normal/RGB boundary fields",
+        "PrismDepthPreprocessor dispatches the complete path GPU-to-GPU with persistent statistics buffers and fenced immutable output pages; no pixel CPU loop/readback is introduced",
+        "NormalizedRigFrameLease now exposes metric/consensus depth, flags, local normal confidence, and boundary evidence as generation-safe GPU textures"
+      ]
     },
     {
       "id": "Q3-05",

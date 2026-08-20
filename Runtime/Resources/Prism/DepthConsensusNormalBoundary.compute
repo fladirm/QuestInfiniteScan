@@ -1,0 +1,419 @@
+#pragma kernel InitializeRangeSigma
+#pragma kernel ClearResidualHistogram
+#pragma kernel DepthConsensus
+#pragma kernel SolveRangeSigma
+#pragma kernel DepthPlaneFit
+#pragma kernel BoundaryEvidence
+
+#include "ConeMath.hlsl"
+
+Texture2DArray<float2> _MetricDepth;
+RWTexture2DArray<uint> _DepthFlagsRW;
+RWTexture2DArray<float4> _ConsensusDepth;
+RWTexture2DArray<float4> _LocalNormal;
+RWTexture2DArray<float4> _BoundaryEvidence;
+
+Texture2D<float4> _DepthRayCenterLeft;
+Texture2D<float4> _DepthRayCenterRight;
+Texture2D<float4> _RgbLeft;
+Texture2D<float4> _RgbRight;
+
+RWStructuredBuffer<uint> _ResidualHistogram;
+RWStructuredBuffer<float> _RangeSigma;
+
+uint2 _DepthResolution;
+uint2 _RgbResolution;
+float4 _DepthIntrinsics[2]; // fx, fy, cx, cy
+float4 _RgbIntrinsics[2];
+float4x4 _OtherDepthFromThis[2];
+float4x4 _RgbFromDepth[2];
+float _BootstrapSigma;
+float _BootstrapSigmaSlope;
+float _SigmaEmaAlpha;
+
+static const uint FLAG_VALID = 1u;
+static const uint FLAG_LR_AGREE = 16u;
+static const uint FLAG_LR_OCCLUDED = 32u;
+static const uint FLAG_LR_DISAGREE = 64u;
+static const uint FLAG_NORMAL_VALID = 128u;
+static const uint FLAG_BOUNDARY = 256u;
+static const uint RANGE_BIN_COUNT = 6u;
+static const uint HISTOGRAM_BINS = 128u;
+static const float HISTOGRAM_STEP_METERS = 0.001;
+
+float3 LoadRay(uint2 pixel, uint eye)
+{
+    return eye == 0u
+        ? _DepthRayCenterLeft[pixel].xyz
+        : _DepthRayCenterRight[pixel].xyz;
+}
+
+float4 LoadRgb(int2 pixel, uint eye)
+{
+    return eye == 0u ? _RgbLeft.Load(int3(pixel, 0)) : _RgbRight.Load(int3(pixel, 0));
+}
+
+uint RangeBin(float rangeMeters)
+{
+    if (rangeMeters < 0.5) return 0u;
+    if (rangeMeters < 1.0) return 1u;
+    if (rangeMeters < 2.0) return 2u;
+    if (rangeMeters < 3.0) return 3u;
+    if (rangeMeters < 5.0) return 4u;
+    return 5u;
+}
+
+float BinCenter(uint bin)
+{
+    if (bin == 0u) return 0.35;
+    if (bin == 1u) return 0.75;
+    if (bin == 2u) return 1.5;
+    if (bin == 3u) return 2.5;
+    if (bin == 4u) return 4.0;
+    return 6.0;
+}
+
+bool InDepthBounds(int2 pixel)
+{
+    return all(pixel >= 0) && all(pixel < (int2)_DepthResolution);
+}
+
+bool LocallyStableDepth(int2 pixel, uint eye, float centerRange, float threshold)
+{
+    static const int2 offsets[4] = {
+        int2(-1, 0), int2(1, 0), int2(0, -1), int2(0, 1)
+    };
+    [unroll]
+    for (uint i = 0u; i < 4u; ++i)
+    {
+        int2 q = pixel + offsets[i];
+        if (!InDepthBounds(q)) return false;
+        float neighbour = _MetricDepth[uint3((uint2)q, eye)].x;
+        if (neighbour <= 0.0 || abs(neighbour - centerRange) > threshold)
+            return false;
+    }
+    return true;
+}
+
+[numthreads(8, 1, 1)]
+void InitializeRangeSigma(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= RANGE_BIN_COUNT) return;
+    _RangeSigma[id.x] = _BootstrapSigma +
+        _BootstrapSigmaSlope * BinCenter(id.x);
+}
+
+[numthreads(64, 1, 1)]
+void ClearResidualHistogram(uint3 id : SV_DispatchThreadID)
+{
+    uint count = RANGE_BIN_COUNT * HISTOGRAM_BINS;
+    if (id.x < count) _ResidualHistogram[id.x] = 0u;
+}
+
+[numthreads(8, 8, 1)]
+void DepthConsensus(uint3 id : SV_DispatchThreadID)
+{
+    if (any(id.xy >= _DepthResolution) || id.z >= 2u) return;
+    uint flags = _DepthFlagsRW[id];
+    float2 metric = _MetricDepth[id];
+    if ((flags & FLAG_VALID) == 0u || metric.x <= 0.0)
+    {
+        _ConsensusDepth[id] = 0.0;
+        return;
+    }
+
+    uint eye = id.z;
+    uint otherEye = 1u - eye;
+    uint rangeBin = RangeBin(metric.x);
+    float sigma = max(_RangeSigma[rangeBin], 0.0015);
+    float confidence = 0.45;
+    float3 localContact = LoadRay(id.xy, eye) * metric.x;
+    float3 otherContact = mul(_OtherDepthFromThis[eye],
+        float4(localContact, 1.0)).xyz;
+
+    if (otherContact.z > 1e-5)
+    {
+        float4 intrinsics = _DepthIntrinsics[otherEye];
+        float2 projected = float2(
+            otherContact.x / otherContact.z * intrinsics.x + intrinsics.z,
+            otherContact.y / otherContact.z * intrinsics.y + intrinsics.w);
+        int2 targetPixel = (int2)floor(projected);
+        if (InDepthBounds(targetPixel))
+        {
+            float targetRange = _MetricDepth[uint3((uint2)targetPixel, otherEye)].x;
+            if (targetRange > 0.0)
+            {
+                float predictedRange = length(otherContact);
+                float targetSigma = max(_RangeSigma[RangeBin(targetRange)], 0.0015);
+                float gate = 3.0 * sqrt(sigma * sigma + targetSigma * targetSigma) + 0.002;
+                float residual = targetRange - predictedRange;
+                float absResidual = abs(residual);
+
+                bool stable = LocallyStableDepth((int2)id.xy, eye, metric.x,
+                    max(0.02, 4.0 * sigma)) &&
+                    LocallyStableDepth(targetPixel, otherEye, targetRange,
+                    max(0.02, 4.0 * targetSigma));
+                if (stable && absResidual < 0.064)
+                {
+                    int histogramBin = clamp((int)floor(residual /
+                        HISTOGRAM_STEP_METERS) + 64, 0, 127);
+                    InterlockedAdd(_ResidualHistogram[rangeBin * HISTOGRAM_BINS +
+                        (uint)histogramBin], 1u);
+                }
+
+                if (absResidual <= gate)
+                {
+                    flags |= FLAG_LR_AGREE;
+                    confidence = saturate(1.0 - absResidual / max(gate, 1e-6));
+                }
+                else if (residual < -gate)
+                {
+                    // The other eye sees a nearer first hit: this sample is merely
+                    // occluded there, not evidence to average or erase either surface.
+                    flags |= FLAG_LR_OCCLUDED;
+                    confidence = 0.6;
+                }
+                else
+                {
+                    flags |= FLAG_LR_DISAGREE;
+                    confidence = 0.2;
+                    sigma = min(0.08, sigma + 0.5 * absResidual);
+                }
+            }
+        }
+    }
+
+    _DepthFlagsRW[id] = flags;
+    _ConsensusDepth[id] = float4(metric.x, metric.y, sigma, confidence);
+}
+
+[numthreads(64, 1, 1)]
+void SolveRangeSigma(uint3 groupId : SV_GroupID, uint3 threadId : SV_GroupThreadID)
+{
+    uint rangeBin = groupId.x;
+    if (rangeBin >= RANGE_BIN_COUNT || threadId.x != 0u) return;
+    uint baseIndex = rangeBin * HISTOGRAM_BINS;
+    uint total = 0u;
+    for (uint i = 0u; i < HISTOGRAM_BINS; ++i)
+        total += _ResidualHistogram[baseIndex + i];
+    if (total < 32u) return;
+
+    uint target = (total + 1u) / 2u;
+    uint cumulative = 0u;
+    int medianBin = 64;
+    for (uint i = 0u; i < HISTOGRAM_BINS; ++i)
+    {
+        cumulative += _ResidualHistogram[baseIndex + i];
+        if (cumulative >= target)
+        {
+            medianBin = (int)i;
+            break;
+        }
+    }
+
+    cumulative = 0u;
+    uint madBins = 1u;
+    for (uint radius = 0u; radius < HISTOGRAM_BINS; ++radius)
+    {
+        int low = medianBin - (int)radius;
+        int high = medianBin + (int)radius;
+        if (low >= 0) cumulative += _ResidualHistogram[baseIndex + (uint)low];
+        if (radius > 0u && high < (int)HISTOGRAM_BINS)
+            cumulative += _ResidualHistogram[baseIndex + (uint)high];
+        if (cumulative >= target)
+        {
+            madBins = max(1u, radius);
+            break;
+        }
+    }
+
+    float measured = clamp(1.4826 * (float)madBins *
+        HISTOGRAM_STEP_METERS, 0.0015, 0.05);
+    float previous = max(_RangeSigma[rangeBin], 0.0015);
+    _RangeSigma[rangeBin] = lerp(previous, measured,
+        saturate(_SigmaEmaAlpha));
+}
+
+float3 SolveSymmetric3x3(float a, float b, float c, float d, float e, float f,
+    float3 rhs)
+{
+    float i00 = d * f - e * e;
+    float i01 = c * e - b * f;
+    float i02 = b * e - c * d;
+    float i11 = a * f - c * c;
+    float i12 = b * c - a * e;
+    float i22 = a * d - b * b;
+    float determinant = a * i00 + b * i01 + c * i02;
+    if (abs(determinant) <= 1e-20) return rhs;
+    float invDet = rcp(determinant);
+    return float3(
+        dot(float3(i00, i01, i02), rhs),
+        dot(float3(i01, i11, i12), rhs),
+        dot(float3(i02, i12, i22), rhs)) * invDet;
+}
+
+[numthreads(8, 8, 1)]
+void DepthPlaneFit(uint3 id : SV_DispatchThreadID)
+{
+    if (any(id.xy >= _DepthResolution) || id.z >= 2u) return;
+    float4 center = _ConsensusDepth[id];
+    if (center.x <= 0.0)
+    {
+        _LocalNormal[id] = 0.0;
+        _BoundaryEvidence[id] = 0.0;
+        return;
+    }
+
+    float rejectDistance = max(0.012, 3.0 * center.z);
+    float3 centroid = 0.0;
+    float weightSum = 0.0;
+    uint support = 0u;
+    float maxDepthDelta = 0.0;
+    [unroll]
+    for (int y = -1; y <= 1; ++y)
+    [unroll]
+    for (int x = -1; x <= 1; ++x)
+    {
+        int2 pixel = (int2)id.xy + int2(x, y);
+        if (!InDepthBounds(pixel)) continue;
+        float4 sample = _ConsensusDepth[uint3((uint2)pixel, id.z)];
+        float delta = abs(sample.x - center.x);
+        maxDepthDelta = max(maxDepthDelta, sample.x > 0.0 ? delta : rejectDistance * 2.0);
+        if (sample.x <= 0.0 || delta > rejectDistance) continue;
+        float weight = rcp(1.0 + delta * delta /
+            max(center.z * center.z, 1e-8));
+        centroid += LoadRay((uint2)pixel, id.z) * sample.x * weight;
+        weightSum += weight;
+        support++;
+    }
+    if (support < 5u || weightSum <= 0.0)
+    {
+        _LocalNormal[id] = 0.0;
+        float depthBoundary = saturate(maxDepthDelta / rejectDistance - 0.5);
+        _BoundaryEvidence[id] = float4(depthBoundary, 0.0, 0.0, depthBoundary);
+        return;
+    }
+    centroid /= weightSum;
+
+    float a = 0.0, b = 0.0, c = 0.0, d = 0.0, e = 0.0, f = 0.0;
+    [unroll]
+    for (int cy = -1; cy <= 1; ++cy)
+    [unroll]
+    for (int cx = -1; cx <= 1; ++cx)
+    {
+        int2 pixel = (int2)id.xy + int2(cx, cy);
+        if (!InDepthBounds(pixel)) continue;
+        float4 sample = _ConsensusDepth[uint3((uint2)pixel, id.z)];
+        float delta = abs(sample.x - center.x);
+        if (sample.x <= 0.0 || delta > rejectDistance) continue;
+        float weight = rcp(1.0 + delta * delta /
+            max(center.z * center.z, 1e-8));
+        float3 q = LoadRay((uint2)pixel, id.z) * sample.x - centroid;
+        a += weight * q.x * q.x;
+        b += weight * q.x * q.y;
+        c += weight * q.x * q.z;
+        d += weight * q.y * q.y;
+        e += weight * q.y * q.z;
+        f += weight * q.z * q.z;
+    }
+    float trace = a + d + f;
+    float regularizer = max(1e-10, trace * 1e-4);
+    a += regularizer; d += regularizer; f += regularizer;
+    float3 normal = -normalize(LoadRay(id.xy, id.z));
+    [unroll]
+    for (uint iteration = 0u; iteration < 5u; ++iteration)
+        normal = normalize(SolveSymmetric3x3(a, b, c, d, e, f, normal));
+    float3 centerPoint = LoadRay(id.xy, id.z) * center.x;
+    if (dot(normal, -centerPoint) < 0.0) normal = -normal;
+
+    float3 covarianceNormal = float3(
+        a * normal.x + b * normal.y + c * normal.z,
+        b * normal.x + d * normal.y + e * normal.z,
+        c * normal.x + e * normal.y + f * normal.z);
+    float normalVariance = max(0.0, dot(normal, covarianceNormal) - regularizer);
+    float planarity = saturate(1.0 - 12.0 * normalVariance / max(trace, 1e-10));
+    float normalConfidence = planarity * saturate((float)(support - 4u) / 5.0) * center.w;
+    _LocalNormal[id] = float4(normal, normalConfidence);
+    _DepthFlagsRW[id] |= FLAG_NORMAL_VALID;
+    float depthBoundary = saturate(maxDepthDelta / rejectDistance - 0.5);
+    _BoundaryEvidence[id] = float4(depthBoundary, 0.0, 0.0, depthBoundary);
+}
+
+float RgbLuminanceAt(int2 pixel, uint eye)
+{
+    pixel = clamp(pixel, int2(0, 0), (int2)_RgbResolution - 1);
+    float3 rgb = LoadRgb(pixel, eye).rgb;
+    return dot(rgb, float3(0.2126, 0.7152, 0.0722));
+}
+
+[numthreads(8, 8, 1)]
+void BoundaryEvidence(uint3 id : SV_DispatchThreadID)
+{
+    if (any(id.xy >= _DepthResolution) || id.z >= 2u) return;
+    float4 consensus = _ConsensusDepth[id];
+    if (consensus.x <= 0.0) return;
+    float4 normal = _LocalNormal[id];
+    float4 evidence = _BoundaryEvidence[id];
+
+    float normalBoundary = 0.0;
+    static const int2 offsets[4] = {
+        int2(-1, 0), int2(1, 0), int2(0, -1), int2(0, 1)
+    };
+    [unroll]
+    for (uint i = 0u; i < 4u; ++i)
+    {
+        int2 q = (int2)id.xy + offsets[i];
+        if (!InDepthBounds(q))
+        {
+            normalBoundary = 1.0;
+            continue;
+        }
+        float4 neighbour = _LocalNormal[uint3((uint2)q, id.z)];
+        if (neighbour.w <= 0.0)
+        {
+            normalBoundary = max(normalBoundary, 0.6);
+            continue;
+        }
+        normalBoundary = max(normalBoundary,
+            saturate((1.0 - dot(normal.xyz, neighbour.xyz)) / 0.12));
+    }
+
+    float rgbBoundary = 0.0;
+    float3 depthPoint = LoadRay(id.xy, id.z) * consensus.x;
+    float3 rgbPoint = mul(_RgbFromDepth[id.z], float4(depthPoint, 1.0)).xyz;
+    if (rgbPoint.z > 1e-5)
+    {
+        float4 intrinsics = _RgbIntrinsics[id.z];
+        int2 p = (int2)floor(float2(
+            rgbPoint.x / rgbPoint.z * intrinsics.x + intrinsics.z,
+            rgbPoint.y / rgbPoint.z * intrinsics.y + intrinsics.w));
+        if (all(p >= 1) && all(p < (int2)_RgbResolution - 1))
+        {
+            float gx = RgbLuminanceAt(p + int2(1, -1), id.z) +
+                       2.0 * RgbLuminanceAt(p + int2(1, 0), id.z) +
+                       RgbLuminanceAt(p + int2(1, 1), id.z) -
+                       RgbLuminanceAt(p + int2(-1, -1), id.z) -
+                       2.0 * RgbLuminanceAt(p + int2(-1, 0), id.z) -
+                       RgbLuminanceAt(p + int2(-1, 1), id.z);
+            float gy = RgbLuminanceAt(p + int2(-1, 1), id.z) +
+                       2.0 * RgbLuminanceAt(p + int2(0, 1), id.z) +
+                       RgbLuminanceAt(p + int2(1, 1), id.z) -
+                       RgbLuminanceAt(p + int2(-1, -1), id.z) -
+                       2.0 * RgbLuminanceAt(p + int2(0, -1), id.z) -
+                       RgbLuminanceAt(p + int2(1, -1), id.z);
+            rgbBoundary = saturate(length(float2(gx, gy)) * 1.5);
+        }
+    }
+
+    float combined = max(evidence.x, max(normalBoundary * normal.w,
+        rgbBoundary * 0.75));
+    evidence = float4(evidence.x, normalBoundary, rgbBoundary, combined);
+    _BoundaryEvidence[id] = evidence;
+    if (combined > 0.35)
+    {
+        _DepthFlagsRW[id] |= FLAG_BOUNDARY;
+        consensus.z = min(0.1, consensus.z * lerp(1.0, 2.5, combined));
+        consensus.w *= lerp(1.0, 0.55, combined);
+        _ConsensusDepth[id] = consensus;
+    }
+}

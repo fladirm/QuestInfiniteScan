@@ -128,7 +128,7 @@ namespace Genesis.RoomScan
             }
 #endif
 
-            // Scene-wide find: re-use the PCA from the Meta XR Building Block
+            // Scene-wide, eye-keyed find: re-use the PCA from the Meta XR Building Block
             // (typically attached to OVRCameraRig). Falling back to a
             // GameObject-local AddComponent here was the bug that caused two
             // PCAs to race for the camera handle — PCA's native side allows
@@ -136,7 +136,7 @@ namespace Genesis.RoomScan
             // self-disables and from then on neither one plays.
             if (_pca == null)
             {
-                _pca = FindAnyObjectByType<PassthroughCameraAccess>(FindObjectsInactive.Include);
+                _pca = FindForEye(cameraPosition);
                 if (_pca == null)
                 {
                     Logger.Warning("PassthroughCameraProvider: no PassthroughCameraAccess in scene — " +
@@ -224,6 +224,30 @@ namespace Genesis.RoomScan
             return pca.CameraPosition == cameraPosition &&
                    pca.RequestedResolution == requestedResolution &&
                    pca.MaxFramerate == maxFramerate;
+        }
+
+        internal static PassthroughCameraAccess FindForEye(
+            PassthroughCameraAccess.CameraPositionType eye)
+        {
+            PassthroughCameraAccess selected = null;
+            PassthroughCameraAccess[] all = FindObjectsByType<PassthroughCameraAccess>(
+                FindObjectsInactive.Include);
+            foreach (PassthroughCameraAccess candidate in all)
+            {
+                if (candidate.CameraPosition != eye)
+                    continue;
+                if (selected == null || (!selected.isActiveAndEnabled &&
+                                         candidate.isActiveAndEnabled))
+                {
+                    selected = candidate;
+                }
+                else
+                {
+                    Logger.Warning($"PassthroughCameraProvider: duplicate {eye} PCA " +
+                                   $"'{candidate.gameObject.name}' ignored; keep exactly one component per eye.");
+                }
+            }
+            return selected;
         }
     }
 }

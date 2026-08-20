@@ -1,0 +1,63 @@
+#pragma kernel NormalizeStereoDepth
+
+#include "ConeMath.hlsl"
+
+Texture2DArray<float> _RawDepth;
+Texture2D<float4> _DepthRayCenterLeft;
+Texture2D<float4> _DepthRayCenterRight;
+RWTexture2DArray<float2> _MetricDepth;
+RWTexture2DArray<uint> _DepthFlags;
+
+uint2 _Resolution;
+float2 _NearFar;
+
+static const uint DEPTH_VALID = 1u;
+static const uint DEPTH_RAW_INVALID = 2u;
+static const uint DEPTH_RANGE_INVALID = 4u;
+static const uint DEPTH_RAY_INVALID = 8u;
+
+[numthreads(8, 8, 1)]
+void NormalizeStereoDepth(uint3 id : SV_DispatchThreadID)
+{
+    if (any(id.xy >= _Resolution) || id.z >= 2u)
+        return;
+
+    float raw = _RawDepth[id];
+    uint flags = 0u;
+    if (!isfinite(raw) || raw <= 0.000001 || raw >= 0.999999)
+    {
+        _MetricDepth[id] = 0.0;
+        _DepthFlags[id] = DEPTH_RAW_INVALID;
+        return;
+    }
+
+    float viewZ = ConeProjectionDepthToViewZ(raw, _NearFar);
+    if (!isfinite(viewZ) || viewZ < _NearFar.x || viewZ > _NearFar.y)
+    {
+        _MetricDepth[id] = 0.0;
+        _DepthFlags[id] = DEPTH_RANGE_INVALID;
+        return;
+    }
+
+    float3 ray = id.z == 0u
+        ? _DepthRayCenterLeft[id.xy].xyz
+        : _DepthRayCenterRight[id.xy].xyz;
+    if (!all(isfinite(ray)) || ray.z <= 1e-6)
+    {
+        _MetricDepth[id] = 0.0;
+        _DepthFlags[id] = DEPTH_RAY_INVALID;
+        return;
+    }
+
+    float rangeMeters = viewZ / ray.z;
+    if (!isfinite(rangeMeters) || rangeMeters <= 0.0)
+    {
+        _MetricDepth[id] = 0.0;
+        _DepthFlags[id] = DEPTH_RANGE_INVALID;
+        return;
+    }
+
+    flags |= DEPTH_VALID;
+    _MetricDepth[id] = float2(rangeMeters, viewZ);
+    _DepthFlags[id] = flags;
+}

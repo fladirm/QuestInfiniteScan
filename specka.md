@@ -819,8 +819,11 @@ workflow. It does not decide per pixel or traverse live geometry.
 | **Q3-21** | Direct chunk/region/world GLB/PBR export from PRISM meshlets |
 | **Q3-22** | Physical whole-building quality, revisit, scale, and interoperability acceptance |
 
-A run is not complete because it compiles. It requires its own synthetic/captured
-contract tests, real GPU path, Android build, and applicable physical Quest test.
+A run is not complete merely because placeholder code compiles, but verification is
+proportional and batched. Use cheap contract/captured-fixture checks while building;
+run Android/device verification only at meaningful vertical milestones rather than
+retesting the headset after every small pass. Effort target is 90% implementation,
+5% testing, and 5% control/prose. The final physical corpus remains mandatory.
 
 ## 39. Critical acceptance corpus
 

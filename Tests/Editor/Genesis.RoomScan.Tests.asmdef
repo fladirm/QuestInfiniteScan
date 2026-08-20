@@ -2,7 +2,8 @@
   "name": "Genesis.RoomScan.Tests",
   "rootNamespace": "Genesis.RoomScan.Tests",
   "references": [
-    "Genesis.RoomScan"
+    "Genesis.RoomScan",
+    "Unity.XR.ARSubsystems"
   ],
   "includePlatforms": [
     "Editor"

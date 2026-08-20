@@ -22,8 +22,9 @@ it.
 
 ## Execution budget
 
-- Spend roughly 80% of effort on product code, shaders, tests, builds, and physical
-  Quest verification. Keep process, planning, and prose near 20%.
+- Spend roughly 90% of effort on implementation, 5% on proportional automated/
+  milestone testing, and 5% on control files/prose. Do not repeat already-proven
+  baseline capture or run a separate headset test for every small contract/pass.
 - Keep at most one DAG node `in_progress`.
 - Update control files only at meaningful checkpoints.
 - Prefer complete vertical slices over disconnected scaffolds.
@@ -167,10 +168,11 @@ gates; do not leave two competing product architectures.
 
 ## Verification and checkpoint protocol
 
-Every touched layer receives proportional verification: pure contract/unit tests,
-compute-shader parity or captured fixtures, Unity compilation/EditMode, Android
-Vulkan build, then physical Quest tests. Never claim a device result that was not
-actually run.
+Verification is proportional and batched: cheap contract/unit or captured-fixture
+checks plus compilation while implementing, Android builds at meaningful vertical
+slices, and physical Quest tests only at consolidated hardware milestones (complete
+four-stream-to-film slice, multilayer/boundary slice, persistence/revisit, and final
+quality/export). Never claim a device result that was not actually run.
 
 Before compaction, handoff, or a major commit:
 

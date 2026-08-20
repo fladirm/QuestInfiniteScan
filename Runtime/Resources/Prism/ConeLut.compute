@@ -1,0 +1,51 @@
+#pragma kernel BuildConeLut
+
+RWTexture2D<float4> _ConeCenter;
+RWTexture2D<float4> _ConeDifferentialX;
+RWTexture2D<float4> _ConeDifferentialY;
+
+uint2 _Resolution;
+float2 _FocalLength;
+float2 _PrincipalPoint;
+
+float3 LocalRay(float2 pixel)
+{
+    return normalize(float3(
+        (pixel.x - _PrincipalPoint.x) / _FocalLength.x,
+        (pixel.y - _PrincipalPoint.y) / _FocalLength.y,
+        1.0));
+}
+
+[numthreads(8, 8, 1)]
+void BuildConeLut(uint3 id : SV_DispatchThreadID)
+{
+    if (any(id.xy >= _Resolution))
+        return;
+
+    float2 pixel = (float2)id.xy + 0.5;
+    float3 p = float3(
+        (pixel.x - _PrincipalPoint.x) / _FocalLength.x,
+        (pixel.y - _PrincipalPoint.y) / _FocalLength.y,
+        1.0);
+    float pLength = length(p);
+    float3 ray = p / pLength;
+
+    // Analytic normalized-ray Jacobian per one image pixel. Later passes turn it
+    // into a candidate-depth/surface-orientation-dependent footprint ellipse.
+    float3 inputDx = float3(rcp(_FocalLength.x), 0.0, 0.0);
+    float3 inputDy = float3(0.0, rcp(_FocalLength.y), 0.0);
+    float3 rayDx = (inputDx - ray * dot(ray, inputDx)) / pLength;
+    float3 rayDy = (inputDy - ray * dot(ray, inputDy)) / pLength;
+
+    float3 rayMinusX = LocalRay(pixel - float2(0.5, 0.0));
+    float3 rayPlusX = LocalRay(pixel + float2(0.5, 0.0));
+    float3 rayMinusY = LocalRay(pixel - float2(0.0, 0.5));
+    float3 rayPlusY = LocalRay(pixel + float2(0.0, 0.5));
+    float halfAngleX = 0.5 * acos(clamp(dot(rayMinusX, rayPlusX), -1.0, 1.0));
+    float halfAngleY = 0.5 * acos(clamp(dot(rayMinusY, rayPlusY), -1.0, 1.0));
+    float solidAngle = abs(dot(ray, cross(rayDx, rayDy)));
+
+    _ConeCenter[id.xy] = float4(ray, solidAngle);
+    _ConeDifferentialX[id.xy] = float4(rayDx, halfAngleX);
+    _ConeDifferentialY[id.xy] = float4(rayDy, halfAngleY);
+}

@@ -1,4 +1,5 @@
 using System;
+using Genesis.RoomScan.Prism;
 using Unity.XR.CoreUtils.Collections;
 using UnityEngine;
 using UnityEngine.Experimental.Rendering;
@@ -139,6 +140,13 @@ namespace Genesis.RoomScan
 
         /// <summary>Raised after each depth frame is processed (filtering, normals computed, globals set).</summary>
         public event Action Updated;
+
+        /// <summary>
+        /// Raised synchronously with the borrowed native stereo depth texture and exact
+        /// timestamp/poses/FOV metadata, before legacy filtering mutates its own view.
+        /// Consumers must enqueue a GPU copy during the callback if they retain pixels.
+        /// </summary>
+        public event Action<RawStereoDepthFrame> RawStereoFrameReceived;
 
         /// <summary>
         /// Provide an RGB texture as edge guide for bilateral depth filtering.
@@ -413,6 +421,8 @@ namespace Genesis.RoomScan
             if (_frameCount <= 3 || _frameCount % 100 == 0)
                 Logger.Info($"OnDepthFrame #{_frameCount}, textures={args.externalTextures.Count}");
 
+            PublishRawStereoDepthFrame(args);
+
             if (Application.isEditor)
                 HandleEditorSimulation(args);
             else
@@ -426,6 +436,26 @@ namespace Genesis.RoomScan
             _dilationDirty = true;
 
             Updated?.Invoke();
+        }
+
+        private void PublishRawStereoDepthFrame(AROcclusionFrameEventArgs args)
+        {
+            if (RawStereoFrameReceived == null || args.externalTextures.Count < 1)
+                return;
+            Texture texture = args.externalTextures[0].texture;
+            if (texture == null || !args.TryGetTimestamp(out long timestampNs) ||
+                !args.TryGetFovs(out ReadOnlyList<XRFov> fovs) || fovs.Count < 2 ||
+                !args.TryGetPoses(out ReadOnlyList<Pose> poses) || poses.Count < 2 ||
+                !args.TryGetNearFarPlanes(out XRNearFarPlanes planes))
+            {
+                return;
+            }
+
+            // ARFoundation 6 specifies these poses in Unity world space at the depth
+            // frame timestamp. Preserve them verbatim in the new rig contract.
+            RawStereoFrameReceived.Invoke(new RawStereoDepthFrame(texture, timestampNs,
+                poses[0], poses[1], fovs[0], fovs[1],
+                new Vector2(planes.nearZ, planes.farZ), _frameCount));
         }
 
         /// <summary>
