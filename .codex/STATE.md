@@ -49,11 +49,16 @@ Updated: 2026-08-20 (Europe/Prague)
   peel; classification can reassociate a compatible hidden layer while keeping the
   foreground occluder separate, and refinement applies pressure and contradiction
   to the correct films without proximity averaging or carving behind first hit.
-- `Q3-10` is active. A bounded GPU `ContactBoundaryPool`, hashed per-film/UV-cell
-  accumulation, covariance-derived curve direction, persistent confidence/sigma,
-  and event-chain integration are implemented. Multi-view RGB narrow-band edge
-  focusing, calibrated 3D curve refinement, topology constraints, and retirement
-  remain.
+- `Q3-10` is implemented. Boundary events accumulate calibrated depth/normal/RGB,
+  footprint, adjacency, and distinct-view evidence; a GPU +/-4 px RGB edge search
+  focuses the film UV posterior and persists four chunk-local 3D cubic controls.
+  Promotion is multi-view, absence is contradiction-only, and retirement is
+  conservative. Persistent curves protect association and snap adaptive meshlet
+  vertices without CPU traversal/readback. PRISM format v2 stores the expanded
+  resumable boundary state.
+- `Q3-11` is active: add sparse hierarchical displacement pages and topology queues,
+  then preserve posterior/boundary state through split/merge rather than treating
+  the quadratic base or Grid16 as a detail ceiling.
 - Foundations already implemented ahead of their formal DAG position: Q3-12 has a
   bounded curvature/sigma-adaptive indirect meshlet builder; Q3-13 has a strict
   native canonical chunk codec, fenced asynchronous GPU snapshot capture, and
@@ -100,13 +105,11 @@ Remove from the shipped product after PRISM parity:
 
 ## Immediate implementation actions
 
-1. Finish Q3-10 multi-view ContactBoundary refinement and make boundaries constrain
-   association, UV domains, topology, and tessellation.
-2. Implement Q3-11 sparse hierarchical displacement and lossless split/merge while
+1. Implement Q3-11 sparse hierarchical displacement and lossless split/merge while
    preserving posterior statistics and boundary relations.
-3. Complete adaptive boundary-aware indirect meshlets and PRISM page rehydration
+2. Complete adaptive boundary-aware indirect meshlets and PRISM page rehydration
    while keeping the scan hot path GPU-only.
-4. Batch the first physical Quest validation only after multilayer films,
+3. Batch the first physical Quest validation only after multilayer films,
    boundaries, adaptive meshlets, and preview form one useful vertical slice.
 
 ## Safety

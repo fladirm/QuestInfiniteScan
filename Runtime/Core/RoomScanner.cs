@@ -671,10 +671,11 @@ namespace Genesis.RoomScan
                     _prismFilmSpawner);
                 _prismBoundaryGraph?.StartTracking(_prismFilmUpdater,
                     _prismFilmSpawner);
-                _prismConeClassifier?.StartClassifying(_prismPredictionRenderer);
+                _prismConeClassifier?.StartClassifying(_prismPredictionRenderer,
+                    _prismBoundaryGraph);
                 _prismPredictionRenderer?.StartRendering(_prismDepthPreprocessor);
                 _prismMeshletBuilder?.StartBuilding(_prismFilmSpawner,
-                    _prismPredictionRenderer);
+                    _prismPredictionRenderer, _prismBoundaryGraph);
                 _prismDepthPreprocessor?.StartProcessing(_prismRigCapture);
                 _prismRigCapture?.StartCapture();
                 _depthCapture.StartDepthCapture();

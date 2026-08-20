@@ -183,7 +183,7 @@
     {
       "id": "Q3-10",
       "title": "Implement persistent ContactBoundaries with multi-view 3D BoundaryCurves",
-      "status": "in_progress",
+      "status": "done",
       "depends_on": ["Q3-09"],
       "acceptance": [
         "Depth/normal/RGB/first-hit visibility/coverage discontinuities accumulate into stable uncertainty-bearing ContactBoundaries with spline controls and film-side relations",
@@ -192,12 +192,19 @@
         "Boundaries constrain association, UV domains, topology, and tessellation",
         "Physical frames, corners, plate edges, pipes, rails, and recesses show lower edge error than raw depth alone"
       ],
-      "evidence": []
+      "evidence": [
+        "ContactBoundaryUpdate.compute accumulates depth, normal, RGB-gradient, first-hit adjacency, metric footprint, and calibrated view-bin evidence into sparse generation-tagged boundary segments",
+        "The GPU pass searches a configurable RGB image-normal band (default +/-4 px), intersects the calibrated RGB edge ray with the ContactFilm manifold, and persists four chunk-local 3D cubic control points plus covariance/quality state",
+        "Promotion requires multi-frame support and distinct view bins; protected curves treat smooth subsequent views as conservative absence evidence and retire only after persistent contradiction, never after one noisy frame",
+        "ConeClassify.compute queries persistent boundary curves to protect association, while MeshletBuild.compute increases local tessellation and snaps boundary-near vertices to the canonical cubic without CPU traversal or readback",
+        "Native PRISM format v2 persists eight boundary information records including UV posterior, evidence, 3D controls, view diversity, and retirement state",
+        "Unity 6000.5.9f1 imported all changed compute shaders and passed 10/10 focused PRISM EditMode tests: /mnt/kingston-unity/Unity/Projects/QuestInfiniteScanHost/Logs/cone-prism-q3-10-final-tests.xml; physical edge-error validation remains batched with the multilayer/boundary/adaptive-meshlet Quest milestone"
+      ]
     },
     {
       "id": "Q3-11",
       "title": "Implement ContactFilm split/merge and hierarchical displacement microtiles",
-      "status": "pending",
+      "status": "in_progress",
       "depends_on": ["Q3-10"],
       "acceptance": [
         "Quadratic residual updates logical Grid16 displacement with information/sigma/support/coverage and monotonic quality",

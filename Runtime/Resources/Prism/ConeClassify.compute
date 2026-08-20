@@ -23,6 +23,40 @@ Texture2D<float4> _DepthRayDifferentialXRight;
 Texture2D<float4> _DepthRayDifferentialYLeft;
 Texture2D<float4> _DepthRayDifferentialYRight;
 
+struct ContactBoundaryHeader
+{
+    uint id;
+    uint generation;
+    uint chunkId;
+    uint flags;
+    uint filmA;
+    uint filmAGeneration;
+    uint filmB;
+    uint filmBGeneration;
+    float4 controlUv01;
+    float4 controlUv23;
+    float sigma;
+    float support;
+    float confidence;
+    float contradiction;
+    uint revision;
+    uint cellKey;
+    uint viewBinMask;
+    uint lastSeenSequence;
+};
+
+struct BoundaryHashEntry
+{
+    uint hash;
+    uint filmId;
+    uint filmGeneration;
+    uint cellKey;
+    uint boundaryId;
+};
+
+StructuredBuffer<ContactBoundaryHeader> _CanonicalBoundaryHeaders;
+StructuredBuffer<BoundaryHashEntry> _CanonicalBoundaryHash;
+
 struct ConeEvent
 {
     uint pixelLinear;
@@ -54,6 +88,9 @@ uint2 _Resolution;
 uint _EventCapacity;
 float _NormalCosineGate;
 float _BoundaryGate;
+uint _HasCanonicalBoundaries;
+uint _CanonicalBoundaryHashMask;
+uint _CanonicalBoundaryCellsPerAxis;
 
 static const uint CLASS_INVALID = 0u;
 static const uint CLASS_MATCH = 1u;
@@ -64,6 +101,9 @@ static const uint CLASS_UNSEEN = 5u;
 static const uint CLASS_BOUNDARY = 6u;
 static const uint CLASS_COUNT = 7u;
 static const uint FLAG_VALID = 1u;
+static const uint FLAG_CANONICAL_BOUNDARY = 1u << 20u;
+static const uint BOUNDARY_ACTIVE = 1u;
+static const uint BOUNDARY_PERSISTENT = 8u;
 
 float3 LoadRay(uint2 pixel, uint eye)
 {
@@ -81,6 +121,81 @@ float3 LoadRayDy(uint2 pixel, uint eye)
 {
     return eye == 0u ? _DepthRayDifferentialYLeft[pixel].xyz :
         _DepthRayDifferentialYRight[pixel].xyz;
+}
+
+uint BoundaryHashKey(uint filmId, uint generation, uint cellKey)
+{
+    uint value = filmId * 0x9e3779b9u;
+    value ^= generation + 0x85ebca6bu + (value << 6u) + (value >> 2u);
+    value ^= cellKey + 0xc2b2ae35u + (value << 6u) + (value >> 2u);
+    value ^= value >> 16u;
+    value *= 0x7feb352du;
+    value ^= value >> 15u;
+    return max(1u, value & 0x7fffffffu);
+}
+
+float2 BoundaryCubic(ContactBoundaryHeader boundary, float t)
+{
+    float s = 1.0 - t;
+    return s * s * s * boundary.controlUv01.xy +
+        3.0 * s * s * t * boundary.controlUv01.zw +
+        3.0 * s * t * t * boundary.controlUv23.xy +
+        t * t * t * boundary.controlUv23.zw;
+}
+
+float BoundaryDistance(ContactBoundaryHeader boundary, float2 uv)
+{
+    float distance = 1e9;
+    float2 previous = boundary.controlUv01.xy;
+    [unroll]
+    for (uint sample = 1u; sample <= 8u; ++sample)
+    {
+        float2 current = BoundaryCubic(boundary, (float)sample / 8.0);
+        float2 segment = current - previous;
+        float along = saturate(dot(uv - previous, segment) /
+            max(dot(segment, segment), 1e-10));
+        distance = min(distance, length(uv - previous - along * segment));
+        previous = current;
+    }
+    return distance;
+}
+
+bool HasCanonicalBoundary(uint filmId, uint generation, float2 uv)
+{
+    if (_HasCanonicalBoundaries == 0u || filmId == 0u || generation == 0u)
+        return false;
+    uint cells = max(_CanonicalBoundaryCellsPerAxis, 1u);
+    int2 center = (int2)min((uint2)(saturate(uv) * (float)cells), cells - 1u);
+    [unroll]
+    for (int y = -1; y <= 1; ++y)
+    [unroll]
+    for (int x = -1; x <= 1; ++x)
+    {
+        int2 cell = center + int2(x, y);
+        if (any(cell < 0) || any(cell >= (int)cells)) continue;
+        uint cellKey = (uint)cell.x | ((uint)cell.y << 16u);
+        uint hash = BoundaryHashKey(filmId, generation, cellKey);
+        [loop]
+        for (uint probe = 0u; probe < 16u; ++probe)
+        {
+            uint slot = (hash + probe * 0x9e3779b9u) &
+                _CanonicalBoundaryHashMask;
+            BoundaryHashEntry entry = _CanonicalBoundaryHash[slot];
+            if (entry.hash == 0u) break;
+            if (entry.hash != hash || entry.filmId != filmId ||
+                entry.filmGeneration != generation || entry.cellKey != cellKey ||
+                entry.boundaryId == 0u) continue;
+            ContactBoundaryHeader boundary =
+                _CanonicalBoundaryHeaders[entry.boundaryId - 1u];
+            if (boundary.filmA != filmId ||
+                boundary.filmAGeneration != generation ||
+                (boundary.flags & (BOUNDARY_ACTIVE | BOUNDARY_PERSISTENT)) !=
+                    (BOUNDARY_ACTIVE | BOUNDARY_PERSISTENT)) continue;
+            float threshold = max(1.5 * boundary.sigma, 0.45 / (float)cells);
+            if (BoundaryDistance(boundary, uv) <= threshold) return true;
+        }
+    }
+    return false;
 }
 
 void PublishEvent(uint eventIndex, uint classification, ConeEvent eventData)
@@ -167,14 +282,17 @@ void ClassifyConeEvents(uint3 id : SV_DispatchThreadID)
             max(measured.z * measured.z + footprintArea, 1e-10);
     }
 
-    if (boundary >= _BoundaryGate)
+    bool hasPrediction = film.x != 0u && film.y != 0u && predicted.x > 0.0 &&
+        isfinite(predicted.x);
+    bool canonicalBoundary = hasPrediction &&
+        HasCanonicalBoundary(film.x, film.y, predictedUvMetadata.xy);
+    if (boundary >= _BoundaryGate || canonicalBoundary)
     {
+        if (canonicalBoundary) eventData.flags |= FLAG_CANONICAL_BOUNDARY;
         PublishEvent(eventIndex, CLASS_BOUNDARY, eventData);
         return;
     }
 
-    bool hasPrediction = film.x != 0u && film.y != 0u && predicted.x > 0.0 &&
-        isfinite(predicted.x);
     if (!hasPrediction)
     {
         PublishEvent(eventIndex, CLASS_UNSEEN, eventData);

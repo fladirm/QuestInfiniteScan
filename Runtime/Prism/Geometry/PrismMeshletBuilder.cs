@@ -15,6 +15,7 @@ namespace Genesis.RoomScan.Prism
     {
         [SerializeField] private PrismFilmSpawner filmSpawner;
         [SerializeField] private PrismPredictionRenderer predictionRenderer;
+        [SerializeField] private PrismBoundaryGraph boundaryGraph;
         [SerializeField] private ComputeShader meshletBuildCompute;
         [SerializeField, Min(65536)] private int vertexBudget = 1500000;
         [SerializeField, Min(196608)] private int indexBudget = 6000000;
@@ -33,6 +34,11 @@ namespace Genesis.RoomScan.Prism
         private static readonly int IndexCapacityId = Shader.PropertyToID("_IndexCapacity");
         private static readonly int MaximumSubdivisionId = Shader.PropertyToID("_MaximumSubdivision");
         private static readonly int MinimumTessellationErrorId = Shader.PropertyToID("_MinimumTessellationError");
+        private static readonly int HasBoundariesId = Shader.PropertyToID("_HasBoundaries");
+        private static readonly int BoundaryHashMaskId = Shader.PropertyToID("_BoundaryHashMask");
+        private static readonly int BoundaryCellsPerAxisId = Shader.PropertyToID("_BoundaryCellsPerAxis");
+        private static readonly int BoundaryHeadersId = Shader.PropertyToID("_BoundaryHeaders");
+        private static readonly int BoundaryHashId = Shader.PropertyToID("_BoundaryHash");
 
         private int _clearKernel = -1;
         private int _buildArgsKernel = -1;
@@ -44,13 +50,16 @@ namespace Genesis.RoomScan.Prism
         private uint _publicationGeneration;
 
         public void StartBuilding(PrismFilmSpawner films = null,
-            PrismPredictionRenderer prediction = null)
+            PrismPredictionRenderer prediction = null,
+            PrismBoundaryGraph boundaries = null)
         {
             if (_running) return;
             filmSpawner = films != null ? films : filmSpawner;
             predictionRenderer = prediction != null ? prediction : predictionRenderer;
+            boundaryGraph = boundaries != null ? boundaries : boundaryGraph;
             filmSpawner ??= GetComponent<PrismFilmSpawner>();
             predictionRenderer ??= GetComponent<PrismPredictionRenderer>();
+            boundaryGraph ??= GetComponent<PrismBoundaryGraph>();
             meshletBuildCompute ??= Resources.Load<ComputeShader>("Prism/MeshletBuild");
             if (filmSpawner?.FilmPool == null || predictionRenderer?.Meshlets == null ||
                 meshletBuildCompute == null)
@@ -123,6 +132,20 @@ namespace Genesis.RoomScan.Prism
             meshletBuildCompute.SetInt(MaximumSubdivisionId, maximumSubdivision);
             meshletBuildCompute.SetFloat(MinimumTessellationErrorId,
                 minimumTessellationError);
+            ContactBoundaryPool boundaries = boundaryGraph?.BoundaryPool;
+            bool hasBoundaries = boundaries != null && !boundaries.IsDisposed;
+            meshletBuildCompute.SetInt(HasBoundariesId, hasBoundaries ? 1 : 0);
+            if (hasBoundaries)
+            {
+                meshletBuildCompute.SetInt(BoundaryHashMaskId,
+                    boundaries.HashCapacity - 1);
+                meshletBuildCompute.SetInt(BoundaryCellsPerAxisId,
+                    boundaryGraph.CellsPerAxis);
+                meshletBuildCompute.SetBuffer(_buildKernel, BoundaryHeadersId,
+                    boundaries.Headers);
+                meshletBuildCompute.SetBuffer(_buildKernel, BoundaryHashId,
+                    boundaries.HashEntries);
+            }
             int[] kernels =
             {
                 _clearKernel, _buildArgsKernel, _buildKernel, _finalizeKernel

@@ -49,7 +49,9 @@ namespace Genesis.RoomScan.World
                 checked(boundaryCount * ContactBoundaryHeaderGpu.Stride),
                 cancellationToken);
             Task<byte[]> boundaryInformation = RequestBytes(boundaries.Information,
-                checked(boundaryCount * 3 * sizeof(float) * 4), cancellationToken);
+                checked(boundaryCount *
+                    ContactBoundaryPool.InformationRecordsPerBoundary *
+                    sizeof(float) * 4), cancellationToken);
             await Task.WhenAll(filmHeaders, filmInformation, boundaryHeaders,
                 boundaryInformation);
             cancellationToken.ThrowIfCancellationRequested();

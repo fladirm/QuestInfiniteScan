@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "source_digest": "a0420d51ebfa5e7df63f4bde0a9e53a1a6700e53b925047ca6051fb4991d19b1",
+  "source_digest": "3f7eca7759d3636a667108d01b54be3a4ad9fd609250635e3768b6fca0f039cd",
   "scope": [
     "Runtime/Prism/**/*.cs",
     "Runtime/Resources/Prism/*.*",
@@ -13,9 +13,9 @@
   ],
   "summary": {
     "files": 76,
-    "symbols": 1015,
-    "methods_and_functions": 791,
-    "gpu_kernels": 27,
+    "symbols": 1048,
+    "methods_and_functions": 819,
+    "gpu_kernels": 28,
     "event_links": 16
   },
   "files": [
@@ -752,46 +752,46 @@
       "line": 192
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::AddExclusionZone@1034",
+      "id": "Runtime/Core/RoomScanner.cs::AddExclusionZone@1035",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "AddExclusionZone",
       "kind": "method",
-      "line": 1034
+      "line": 1035
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::ApplyEnhancedMesh@1414",
+      "id": "Runtime/Core/RoomScanner.cs::ApplyEnhancedMesh@1415",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "ApplyEnhancedMesh",
       "kind": "method",
-      "line": 1414
+      "line": 1415
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::ApplyHQTexture@1541",
+      "id": "Runtime/Core/RoomScanner.cs::ApplyHQTexture@1542",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "ApplyHQTexture",
       "kind": "method",
-      "line": 1541
+      "line": 1542
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::ApplyRefinedAtlas@1435",
+      "id": "Runtime/Core/RoomScanner.cs::ApplyRefinedAtlas@1436",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "ApplyRefinedAtlas",
       "kind": "method",
-      "line": 1435
+      "line": 1436
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::ApplyRefinedTexture@1483",
+      "id": "Runtime/Core/RoomScanner.cs::ApplyRefinedTexture@1484",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "ApplyRefinedTexture",
       "kind": "method",
-      "line": 1483
+      "line": 1484
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::ApplyRenderMode@1896",
+      "id": "Runtime/Core/RoomScanner.cs::ApplyRenderMode@1897",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "ApplyRenderMode",
       "kind": "method",
-      "line": 1896
+      "line": 1897
     },
     {
       "id": "Runtime/Core/RoomScanner.cs::Awake@339",
@@ -801,18 +801,18 @@
       "line": 339
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::BuildCoverage@1733",
+      "id": "Runtime/Core/RoomScanner.cs::BuildCoverage@1734",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "BuildCoverage",
       "kind": "method",
-      "line": 1733
+      "line": 1734
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::BuildProgress@1759",
+      "id": "Runtime/Core/RoomScanner.cs::BuildProgress@1760",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "BuildProgress",
       "kind": "method",
-      "line": 1759
+      "line": 1760
     },
     {
       "id": "Runtime/Core/RoomScanner.cs::CacheComponents@388",
@@ -822,18 +822,18 @@
       "line": 388
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::ClearAllDataAsync@819",
+      "id": "Runtime/Core/RoomScanner.cs::ClearAllDataAsync@820",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "ClearAllDataAsync",
       "kind": "method",
-      "line": 819
+      "line": 820
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::ClearScan@802",
+      "id": "Runtime/Core/RoomScanner.cs::ClearScan@803",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "ClearScan",
       "kind": "method",
-      "line": 802
+      "line": 803
     },
     {
       "id": "Runtime/Core/RoomScanner.cs::CompleteRoomStartup@433",
@@ -843,109 +843,109 @@
       "line": 433
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::CreateScanAnchorAsync@716",
+      "id": "Runtime/Core/RoomScanner.cs::CreateScanAnchorAsync@717",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "CreateScanAnchorAsync",
       "kind": "method",
-      "line": 716
+      "line": 717
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::CycleRenderMode@889",
+      "id": "Runtime/Core/RoomScanner.cs::CycleRenderMode@890",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "CycleRenderMode",
       "kind": "method",
-      "line": 889
+      "line": 890
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::DeleteActiveArtifact@1979",
+      "id": "Runtime/Core/RoomScanner.cs::DeleteActiveArtifact@1980",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "DeleteActiveArtifact",
       "kind": "method",
-      "line": 1979
+      "line": 1980
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::DeleteEnhancedMesh@2021",
+      "id": "Runtime/Core/RoomScanner.cs::DeleteEnhancedMesh@2022",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "DeleteEnhancedMesh",
       "kind": "method",
-      "line": 2021
+      "line": 2022
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::DeserializeRefinedMesh@1380",
+      "id": "Runtime/Core/RoomScanner.cs::DeserializeRefinedMesh@1381",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "DeserializeRefinedMesh",
       "kind": "method",
-      "line": 1380
+      "line": 1381
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::EnsureRefinedMesh@1622",
+      "id": "Runtime/Core/RoomScanner.cs::EnsureRefinedMesh@1623",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "EnsureRefinedMesh",
       "kind": "method",
-      "line": 1622
+      "line": 1623
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::EnsureRefinedRenderer@1639",
+      "id": "Runtime/Core/RoomScanner.cs::EnsureRefinedRenderer@1640",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "EnsureRefinedRenderer",
       "kind": "method",
-      "line": 1639
+      "line": 1640
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::EnsureUnwrappedAsync@1553",
+      "id": "Runtime/Core/RoomScanner.cs::EnsureUnwrappedAsync@1554",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "EnsureUnwrappedAsync",
       "kind": "method",
-      "line": 1553
+      "line": 1554
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::ExportPointCloudAsync@1006",
+      "id": "Runtime/Core/RoomScanner.cs::ExportPointCloudAsync@1007",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "ExportPointCloudAsync",
       "kind": "method",
-      "line": 1006
+      "line": 1007
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::FreezeInView@940",
+      "id": "Runtime/Core/RoomScanner.cs::FreezeInView@941",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "FreezeInView",
       "kind": "method",
-      "line": 940
+      "line": 941
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::GetActiveCameraProvider@2098",
+      "id": "Runtime/Core/RoomScanner.cs::GetActiveCameraProvider@2099",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "GetActiveCameraProvider",
       "kind": "method",
-      "line": 2098
+      "line": 2099
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::IsModeAvailable@921",
+      "id": "Runtime/Core/RoomScanner.cs::IsModeAvailable@922",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "IsModeAvailable",
       "kind": "method",
-      "line": 921
+      "line": 922
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::LoadDownloadedSplat@2053",
+      "id": "Runtime/Core/RoomScanner.cs::LoadDownloadedSplat@2054",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "LoadDownloadedSplat",
       "kind": "method",
-      "line": 2053
+      "line": 2054
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::LoadPackageAsync@986",
+      "id": "Runtime/Core/RoomScanner.cs::LoadPackageAsync@987",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "LoadPackageAsync",
       "kind": "method",
-      "line": 986
+      "line": 987
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::LoadRefinedOnlyAsync@997",
+      "id": "Runtime/Core/RoomScanner.cs::LoadRefinedOnlyAsync@998",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "LoadRefinedOnlyAsync",
       "kind": "method",
-      "line": 997
+      "line": 998
     },
     {
       "id": "Runtime/Core/RoomScanner.cs::OnDisable@440",
@@ -955,11 +955,11 @@
       "line": 440
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::OnMrukAnchorsChanged@1535",
+      "id": "Runtime/Core/RoomScanner.cs::OnMrukAnchorsChanged@1536",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "OnMrukAnchorsChanged",
       "kind": "method",
-      "line": 1535
+      "line": 1536
     },
     {
       "id": "Runtime/Core/RoomScanner.cs::OnRoomAnchorReady@379",
@@ -969,39 +969,39 @@
       "line": 379
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::PopulateSceneObjectRegistry@1512",
+      "id": "Runtime/Core/RoomScanner.cs::PopulateSceneObjectRegistry@1513",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "PopulateSceneObjectRegistry",
       "kind": "method",
-      "line": 1512
+      "line": 1513
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::ProvideColorFrame@1830",
+      "id": "Runtime/Core/RoomScanner.cs::ProvideColorFrame@1831",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "ProvideColorFrame",
       "kind": "method",
-      "line": 1830
+      "line": 1831
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::ReconstructUnwrapFromResult@1598",
+      "id": "Runtime/Core/RoomScanner.cs::ReconstructUnwrapFromResult@1599",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "ReconstructUnwrapFromResult",
       "kind": "method",
-      "line": 1598
+      "line": 1599
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::ReleaseScanResources@779",
+      "id": "Runtime/Core/RoomScanner.cs::ReleaseScanResources@780",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "ReleaseScanResources",
       "kind": "method",
-      "line": 779
+      "line": 780
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::RemoveExclusionZone@1043",
+      "id": "Runtime/Core/RoomScanner.cs::RemoveExclusionZone@1044",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "RemoveExclusionZone",
       "kind": "method",
-      "line": 1043
+      "line": 1044
     },
     {
       "id": "Runtime/Core/RoomScanner.cs::RoomScanner",
@@ -1011,18 +1011,18 @@
       "line": 94
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::RunServerTrainingAsync@2064",
+      "id": "Runtime/Core/RoomScanner.cs::RunServerTrainingAsync@2065",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "RunServerTrainingAsync",
       "kind": "method",
-      "line": 2064
+      "line": 2065
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::SaveScanAsync@967",
+      "id": "Runtime/Core/RoomScanner.cs::SaveScanAsync@968",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "SaveScanAsync",
       "kind": "method",
-      "line": 967
+      "line": 968
     },
     {
       "id": "Runtime/Core/RoomScanner.cs::ScanCoverage",
@@ -1053,53 +1053,53 @@
       "line": 16
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::SerializeRefinedMesh@1353",
+      "id": "Runtime/Core/RoomScanner.cs::SerializeRefinedMesh@1354",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "SerializeRefinedMesh",
       "kind": "method",
-      "line": 1353
+      "line": 1354
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::SetCameraProvider@1026",
+      "id": "Runtime/Core/RoomScanner.cs::SetCameraProvider@1027",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "SetCameraProvider",
       "kind": "method",
-      "line": 1026
+      "line": 1027
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::SetRefinedWorldFromLocal@1665",
+      "id": "Runtime/Core/RoomScanner.cs::SetRefinedWorldFromLocal@1666",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "SetRefinedWorldFromLocal",
       "kind": "method",
-      "line": 1665
+      "line": 1666
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::SetRenderMode@877",
+      "id": "Runtime/Core/RoomScanner.cs::SetRenderMode@878",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "SetRenderMode",
       "kind": "method",
-      "line": 877
+      "line": 878
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::SetSafeShaderDefaults@1818",
+      "id": "Runtime/Core/RoomScanner.cs::SetSafeShaderDefaults@1819",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "SetSafeShaderDefaults",
       "kind": "method",
-      "line": 1818
+      "line": 1819
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::SetSceneObjectRegistry@1502",
+      "id": "Runtime/Core/RoomScanner.cs::SetSceneObjectRegistry@1503",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "SetSceneObjectRegistry",
       "kind": "method",
-      "line": 1502
+      "line": 1503
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::SetupHeadExclusion@1713",
+      "id": "Runtime/Core/RoomScanner.cs::SetupHeadExclusion@1714",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "SetupHeadExclusion",
       "kind": "method",
-      "line": 1713
+      "line": 1714
     },
     {
       "id": "Runtime/Core/RoomScanner.cs::Start@347",
@@ -1109,18 +1109,18 @@
       "line": 347
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::StartHQRefinement@1181",
+      "id": "Runtime/Core/RoomScanner.cs::StartHQRefinement@1182",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "StartHQRefinement",
       "kind": "method",
-      "line": 1181
+      "line": 1182
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::StartMeshEnhancement@1290",
+      "id": "Runtime/Core/RoomScanner.cs::StartMeshEnhancement@1291",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "StartMeshEnhancement",
       "kind": "method",
-      "line": 1290
+      "line": 1291
     },
     {
       "id": "Runtime/Core/RoomScanner.cs::StartScanningAsync@546",
@@ -1130,67 +1130,67 @@
       "line": 546
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::StartServerTraining@1011",
+      "id": "Runtime/Core/RoomScanner.cs::StartServerTraining@1012",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "StartServerTraining",
       "kind": "method",
-      "line": 1011
+      "line": 1012
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::StartTextureRefinement@1057",
+      "id": "Runtime/Core/RoomScanner.cs::StartTextureRefinement@1058",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "StartTextureRefinement",
       "kind": "method",
-      "line": 1057
+      "line": 1058
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::StopScanning@734",
+      "id": "Runtime/Core/RoomScanner.cs::StopScanning@735",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "StopScanning",
       "kind": "method",
-      "line": 734
+      "line": 735
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::SubscribeToAnchorsChanged@1521",
+      "id": "Runtime/Core/RoomScanner.cs::SubscribeToAnchorsChanged@1522",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "SubscribeToAnchorsChanged",
       "kind": "method",
-      "line": 1521
+      "line": 1522
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::ToggleDebugMenu@1018",
+      "id": "Runtime/Core/RoomScanner.cs::ToggleDebugMenu@1019",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "ToggleDebugMenu",
       "kind": "method",
-      "line": 1018
+      "line": 1019
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::ToggleScanning@764",
+      "id": "Runtime/Core/RoomScanner.cs::ToggleScanning@765",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "ToggleScanning",
       "kind": "method",
-      "line": 764
+      "line": 765
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::TryGetCameraIntrinsics@1677",
+      "id": "Runtime/Core/RoomScanner.cs::TryGetCameraIntrinsics@1678",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "TryGetCameraIntrinsics",
       "kind": "method",
-      "line": 1677
+      "line": 1678
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::UnfreezeInView@953",
+      "id": "Runtime/Core/RoomScanner.cs::UnfreezeInView@954",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "UnfreezeInView",
       "kind": "method",
-      "line": 953
+      "line": 954
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::UnsubscribeFromAnchorsChanged@1528",
+      "id": "Runtime/Core/RoomScanner.cs::UnsubscribeFromAnchorsChanged@1529",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "UnsubscribeFromAnchorsChanged",
       "kind": "method",
-      "line": 1528
+      "line": 1529
     },
     {
       "id": "Runtime/Core/RoomScanner.cs::Update@450",
@@ -1200,11 +1200,11 @@
       "line": 450
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::UpdatePlateauDetection@1785",
+      "id": "Runtime/Core/RoomScanner.cs::UpdatePlateauDetection@1786",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "UpdatePlateauDetection",
       "kind": "method",
-      "line": 1785
+      "line": 1786
     },
     {
       "id": "Runtime/Export/ChunkGlbExporter.cs::ChunkGlbExportFailure",
@@ -2152,32 +2152,39 @@
       "line": 119
     },
     {
-      "id": "Runtime/Prism/Association/PrismConeClassifier.cs::BindTextures@156",
+      "id": "Runtime/Prism/Association/PrismConeClassifier.cs::BindCanonicalBoundaries@166",
+      "file": "Runtime/Prism/Association/PrismConeClassifier.cs",
+      "name": "BindCanonicalBoundaries",
+      "kind": "method",
+      "line": 166
+    },
+    {
+      "id": "Runtime/Prism/Association/PrismConeClassifier.cs::BindTextures@178",
       "file": "Runtime/Prism/Association/PrismConeClassifier.cs",
       "name": "BindTextures",
       "kind": "method",
-      "line": 156
+      "line": 178
     },
     {
-      "id": "Runtime/Prism/Association/PrismConeClassifier.cs::CeilDiv@189",
+      "id": "Runtime/Prism/Association/PrismConeClassifier.cs::CeilDiv@211",
       "file": "Runtime/Prism/Association/PrismConeClassifier.cs",
       "name": "CeilDiv",
       "kind": "method",
-      "line": 189
+      "line": 211
     },
     {
-      "id": "Runtime/Prism/Association/PrismConeClassifier.cs::OnDestroy@101",
+      "id": "Runtime/Prism/Association/PrismConeClassifier.cs::OnDestroy@110",
       "file": "Runtime/Prism/Association/PrismConeClassifier.cs",
       "name": "OnDestroy",
       "kind": "method",
-      "line": 101
+      "line": 110
     },
     {
-      "id": "Runtime/Prism/Association/PrismConeClassifier.cs::OnPrediction@103",
+      "id": "Runtime/Prism/Association/PrismConeClassifier.cs::OnPrediction@112",
       "file": "Runtime/Prism/Association/PrismConeClassifier.cs",
       "name": "OnPrediction",
       "kind": "method",
-      "line": 103
+      "line": 112
     },
     {
       "id": "Runtime/Prism/Association/PrismConeClassifier.cs::PrismConeClassifier",
@@ -2187,25 +2194,25 @@
       "line": 13
     },
     {
-      "id": "Runtime/Prism/Association/PrismConeClassifier.cs::StartClassifying@71",
+      "id": "Runtime/Prism/Association/PrismConeClassifier.cs::StartClassifying@77",
       "file": "Runtime/Prism/Association/PrismConeClassifier.cs",
       "name": "StartClassifying",
       "kind": "method",
-      "line": 71
+      "line": 77
     },
     {
-      "id": "Runtime/Prism/Association/PrismConeClassifier.cs::StopClassifying@90",
+      "id": "Runtime/Prism/Association/PrismConeClassifier.cs::StopClassifying@99",
       "file": "Runtime/Prism/Association/PrismConeClassifier.cs",
       "name": "StopClassifying",
       "kind": "method",
-      "line": 90
+      "line": 99
     },
     {
-      "id": "Runtime/Prism/Association/PrismConeClassifier.cs::TryAcquireLatest@60",
+      "id": "Runtime/Prism/Association/PrismConeClassifier.cs::TryAcquireLatest@66",
       "file": "Runtime/Prism/Association/PrismConeClassifier.cs",
       "name": "TryAcquireLatest",
       "kind": "method",
-      "line": 60
+      "line": 66
     },
     {
       "id": "Runtime/Prism/Calibration/ConeLutResources.cs::Acquire@118",
@@ -3150,28 +3157,28 @@
       "file": "Runtime/Prism/Geometry/ContactBoundaryPool.cs",
       "name": "ContactBoundaryHeaderGpu",
       "kind": "struct",
-      "line": 19
+      "line": 21
     },
     {
       "id": "Runtime/Prism/Geometry/ContactBoundaryPool.cs::ContactBoundaryPool",
       "file": "Runtime/Prism/Geometry/ContactBoundaryPool.cs",
       "name": "ContactBoundaryPool",
       "kind": "class",
-      "line": 48
+      "line": 50
     },
     {
-      "id": "Runtime/Prism/Geometry/ContactBoundaryPool.cs::Dispose@75",
+      "id": "Runtime/Prism/Geometry/ContactBoundaryPool.cs::Dispose@81",
       "file": "Runtime/Prism/Geometry/ContactBoundaryPool.cs",
       "name": "Dispose",
       "kind": "method",
-      "line": 75
+      "line": 81
     },
     {
-      "id": "Runtime/Prism/Geometry/ContactBoundaryPool.cs::NextPowerOfTwo@87",
+      "id": "Runtime/Prism/Geometry/ContactBoundaryPool.cs::NextPowerOfTwo@93",
       "file": "Runtime/Prism/Geometry/ContactBoundaryPool.cs",
       "name": "NextPowerOfTwo",
       "kind": "method",
-      "line": 87
+      "line": 93
     },
     {
       "id": "Runtime/Prism/Geometry/ContactFilmPool.cs::ContactFilmFlags",
@@ -3405,67 +3412,102 @@
       "line": 93
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::AllocateFrameBuffers@139",
+      "id": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::AllocateFrameBuffers@241",
       "file": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs",
       "name": "AllocateFrameBuffers",
       "kind": "method",
-      "line": 139
+      "line": 241
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::BindAll@155",
+      "id": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::BindFrame@195",
       "file": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs",
-      "name": "BindAll",
-      "kind": "method",
-      "line": 155
-    },
-    {
-      "id": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::CeilDiv@195",
-      "file": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs",
-      "name": "CeilDiv",
+      "name": "BindFrame",
       "kind": "method",
       "line": 195
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::DisposeFrameBuffers@181",
+      "id": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::BindPersistent@257",
+      "file": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs",
+      "name": "BindPersistent",
+      "kind": "method",
+      "line": 257
+    },
+    {
+      "id": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::CeilDiv@308",
+      "file": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs",
+      "name": "CeilDiv",
+      "kind": "method",
+      "line": 308
+    },
+    {
+      "id": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::ConfigureFrame@179",
+      "file": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs",
+      "name": "ConfigureFrame",
+      "kind": "method",
+      "line": 179
+    },
+    {
+      "id": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::DisposeFrameBuffers@287",
       "file": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs",
       "name": "DisposeFrameBuffers",
       "kind": "method",
-      "line": 181
+      "line": 287
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::OnDestroy@101",
+      "id": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::Intrinsics@301",
+      "file": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs",
+      "name": "Intrinsics",
+      "kind": "method",
+      "line": 301
+    },
+    {
+      "id": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::OnDestroy@140",
       "file": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs",
       "name": "OnDestroy",
       "kind": "method",
-      "line": 101
+      "line": 140
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::OnFilmUpdateCompleted@109",
+      "id": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::OnFilmUpdateCompleted@149",
       "file": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs",
       "name": "OnFilmUpdateCompleted",
       "kind": "method",
-      "line": 109
+      "line": 149
+    },
+    {
+      "id": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::PoseMatrix@305",
+      "file": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs",
+      "name": "PoseMatrix",
+      "kind": "method",
+      "line": 305
     },
     {
       "id": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::PrismBoundaryGraph",
       "file": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs",
       "name": "PrismBoundaryGraph",
       "kind": "class",
-      "line": 14
+      "line": 15
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::StartTracking@64",
+      "id": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::SetChunkFrame@95",
+      "file": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs",
+      "name": "SetChunkFrame",
+      "kind": "method",
+      "line": 95
+    },
+    {
+      "id": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::StartTracking@98",
       "file": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs",
       "name": "StartTracking",
       "kind": "method",
-      "line": 64
+      "line": 98
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::StopTracking@94",
+      "id": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::StopTracking@133",
       "file": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs",
       "name": "StopTracking",
       "kind": "method",
-      "line": 94
+      "line": 133
     },
     {
       "id": "Runtime/Prism/Geometry/PrismFilmSpawner.cs::CeilDiv@131",
@@ -3608,25 +3650,25 @@
       "line": 106
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::Bind@117",
+      "id": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::Bind@126",
       "file": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs",
       "name": "Bind",
       "kind": "method",
-      "line": 117
+      "line": 126
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::OnDestroy@84",
+      "id": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::OnDestroy@93",
       "file": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs",
       "name": "OnDestroy",
       "kind": "method",
-      "line": 84
+      "line": 93
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::OnFilmsMutated@93",
+      "id": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::OnFilmsMutated@102",
       "file": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs",
       "name": "OnFilmsMutated",
       "kind": "method",
-      "line": 93
+      "line": 102
     },
     {
       "id": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::PrismMeshletBuilder",
@@ -3636,18 +3678,18 @@
       "line": 14
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::StartBuilding@45",
+      "id": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::StartBuilding@51",
       "file": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs",
       "name": "StartBuilding",
       "kind": "method",
-      "line": 45
+      "line": 51
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::StopBuilding@77",
+      "id": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::StopBuilding@86",
       "file": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs",
       "name": "StopBuilding",
       "kind": "method",
-      "line": 77
+      "line": 86
     },
     {
       "id": "Runtime/Prism/Geometry/PrismPredictionRenderer.cs::BindMeshlets@179",
@@ -3993,60 +4035,102 @@
       "line": 98
     },
     {
-      "id": "Runtime/Resources/Prism/ConeClassify.compute::BuildClassDispatchArguments@239",
+      "id": "Runtime/Resources/Prism/ConeClassify.compute::BoundaryCubic@136",
+      "file": "Runtime/Resources/Prism/ConeClassify.compute",
+      "name": "BoundaryCubic",
+      "kind": "gpu_function",
+      "line": 136
+    },
+    {
+      "id": "Runtime/Resources/Prism/ConeClassify.compute::BoundaryDistance@145",
+      "file": "Runtime/Resources/Prism/ConeClassify.compute",
+      "name": "BoundaryDistance",
+      "kind": "gpu_function",
+      "line": 145
+    },
+    {
+      "id": "Runtime/Resources/Prism/ConeClassify.compute::BoundaryHashEntry",
+      "file": "Runtime/Resources/Prism/ConeClassify.compute",
+      "name": "BoundaryHashEntry",
+      "kind": "struct",
+      "line": 47
+    },
+    {
+      "id": "Runtime/Resources/Prism/ConeClassify.compute::BoundaryHashKey@125",
+      "file": "Runtime/Resources/Prism/ConeClassify.compute",
+      "name": "BoundaryHashKey",
+      "kind": "gpu_function",
+      "line": 125
+    },
+    {
+      "id": "Runtime/Resources/Prism/ConeClassify.compute::BuildClassDispatchArguments@357",
       "file": "Runtime/Resources/Prism/ConeClassify.compute",
       "name": "BuildClassDispatchArguments",
       "kind": "gpu_function",
-      "line": 239
+      "line": 357
     },
     {
-      "id": "Runtime/Resources/Prism/ConeClassify.compute::ClassifyConeEvents@105",
+      "id": "Runtime/Resources/Prism/ConeClassify.compute::ClassifyConeEvents@220",
       "file": "Runtime/Resources/Prism/ConeClassify.compute",
       "name": "ClassifyConeEvents",
       "kind": "gpu_function",
-      "line": 105
+      "line": 220
     },
     {
-      "id": "Runtime/Resources/Prism/ConeClassify.compute::ClearClassCounters@95",
+      "id": "Runtime/Resources/Prism/ConeClassify.compute::ClearClassCounters@210",
       "file": "Runtime/Resources/Prism/ConeClassify.compute",
       "name": "ClearClassCounters",
       "kind": "gpu_function",
-      "line": 95
+      "line": 210
     },
     {
       "id": "Runtime/Resources/Prism/ConeClassify.compute::ConeEvent",
       "file": "Runtime/Resources/Prism/ConeClassify.compute",
       "name": "ConeEvent",
       "kind": "struct",
+      "line": 59
+    },
+    {
+      "id": "Runtime/Resources/Prism/ConeClassify.compute::ContactBoundaryHeader",
+      "file": "Runtime/Resources/Prism/ConeClassify.compute",
+      "name": "ContactBoundaryHeader",
+      "kind": "struct",
       "line": 25
     },
     {
-      "id": "Runtime/Resources/Prism/ConeClassify.compute::LoadRay@67",
+      "id": "Runtime/Resources/Prism/ConeClassify.compute::HasCanonicalBoundary@162",
+      "file": "Runtime/Resources/Prism/ConeClassify.compute",
+      "name": "HasCanonicalBoundary",
+      "kind": "gpu_function",
+      "line": 162
+    },
+    {
+      "id": "Runtime/Resources/Prism/ConeClassify.compute::LoadRay@107",
       "file": "Runtime/Resources/Prism/ConeClassify.compute",
       "name": "LoadRay",
       "kind": "gpu_function",
-      "line": 67
+      "line": 107
     },
     {
-      "id": "Runtime/Resources/Prism/ConeClassify.compute::LoadRayDx@73",
+      "id": "Runtime/Resources/Prism/ConeClassify.compute::LoadRayDx@113",
       "file": "Runtime/Resources/Prism/ConeClassify.compute",
       "name": "LoadRayDx",
       "kind": "gpu_function",
-      "line": 73
+      "line": 113
     },
     {
-      "id": "Runtime/Resources/Prism/ConeClassify.compute::LoadRayDy@79",
+      "id": "Runtime/Resources/Prism/ConeClassify.compute::LoadRayDy@119",
       "file": "Runtime/Resources/Prism/ConeClassify.compute",
       "name": "LoadRayDy",
       "kind": "gpu_function",
-      "line": 79
+      "line": 119
     },
     {
-      "id": "Runtime/Resources/Prism/ConeClassify.compute::PublishEvent@85",
+      "id": "Runtime/Resources/Prism/ConeClassify.compute::PublishEvent@200",
       "file": "Runtime/Resources/Prism/ConeClassify.compute",
       "name": "PublishEvent",
       "kind": "gpu_function",
-      "line": 85
+      "line": 200
     },
     {
       "id": "Runtime/Resources/Prism/ConeClassify.compute::kernel:BuildClassDispatchArguments",
@@ -4105,95 +4189,207 @@
       "line": 13
     },
     {
-      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::AccumulateBoundaryEvents@264",
+      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::AccumulateBoundaryAbsence@620",
+      "file": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute",
+      "name": "AccumulateBoundaryAbsence",
+      "kind": "gpu_function",
+      "line": 620
+    },
+    {
+      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::AccumulateBoundaryEvents@517",
       "file": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute",
       "name": "AccumulateBoundaryEvents",
       "kind": "gpu_function",
-      "line": 264
+      "line": 517
     },
     {
-      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::AtomicAddScaled@127",
+      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::AtomicAddScaled@248",
       "file": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute",
       "name": "AtomicAddScaled",
       "kind": "gpu_function",
-      "line": 127
+      "line": 248
     },
     {
       "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::BoundaryHashEntry",
       "file": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute",
       "name": "BoundaryHashEntry",
       "kind": "struct",
-      "line": 78
+      "line": 79
     },
     {
-      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::BuildBoundarySolveArguments@300",
+      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::BuildBoundarySolveArguments@657",
       "file": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute",
       "name": "BuildBoundarySolveArguments",
       "kind": "gpu_function",
-      "line": 300
+      "line": 657
     },
     {
-      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::ClearBoundaryFrame@256",
+      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::ClearBoundaryFrame@509",
       "file": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute",
       "name": "ClearBoundaryFrame",
       "kind": "gpu_function",
-      "line": 256
+      "line": 509
     },
     {
       "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::ConeEvent",
       "file": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute",
       "name": "ConeEvent",
       "kind": "struct",
-      "line": 6
+      "line": 7
     },
     {
       "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::ContactBoundaryHeader",
       "file": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute",
       "name": "ContactBoundaryHeader",
       "kind": "struct",
-      "line": 56
+      "line": 57
     },
     {
       "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::ContactFilmHeader",
       "file": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute",
       "name": "ContactFilmHeader",
       "kind": "struct",
-      "line": 28
+      "line": 29
     },
     {
-      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::HashKey@116",
+      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::Cubic@223",
+      "file": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute",
+      "name": "Cubic",
+      "kind": "gpu_function",
+      "line": 223
+    },
+    {
+      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::DistanceToCurve@230",
+      "file": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute",
+      "name": "DistanceToCurve",
+      "kind": "gpu_function",
+      "line": 230
+    },
+    {
+      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::FindAdjacentFilm@463",
+      "file": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute",
+      "name": "FindAdjacentFilm",
+      "kind": "gpu_function",
+      "line": 463
+    },
+    {
+      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::FindBoundary@269",
+      "file": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute",
+      "name": "FindBoundary",
+      "kind": "gpu_function",
+      "line": 269
+    },
+    {
+      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::HashKey@141",
       "file": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute",
       "name": "HashKey",
       "kind": "gpu_function",
-      "line": 116
+      "line": 141
     },
     {
-      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::InitializeBoundaryState@231",
+      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::Height@188",
+      "file": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute",
+      "name": "Height",
+      "kind": "gpu_function",
+      "line": 188
+    },
+    {
+      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::InitializeBoundaryState@487",
       "file": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute",
       "name": "InitializeBoundaryState",
       "kind": "gpu_function",
-      "line": 231
+      "line": 487
     },
     {
-      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::MarkDirty@135",
+      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::LoadDepthRay@152",
+      "file": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute",
+      "name": "LoadDepthRay",
+      "kind": "gpu_function",
+      "line": 152
+    },
+    {
+      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::LoadRgb@158",
+      "file": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute",
+      "name": "LoadRgb",
+      "kind": "gpu_function",
+      "line": 158
+    },
+    {
+      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::Luminance@165",
+      "file": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute",
+      "name": "Luminance",
+      "kind": "gpu_function",
+      "line": 165
+    },
+    {
+      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::MarkDirty@256",
       "file": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute",
       "name": "MarkDirty",
       "kind": "gpu_function",
-      "line": 135
+      "line": 256
     },
     {
-      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::ResolveBoundary@148",
+      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::PointToUv@216",
+      "file": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute",
+      "name": "PointToUv",
+      "kind": "gpu_function",
+      "line": 216
+    },
+    {
+      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::RefineUvWithRgb@388",
+      "file": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute",
+      "name": "RefineUvWithRgb",
+      "kind": "gpu_function",
+      "line": 388
+    },
+    {
+      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::ResolveBoundary@291",
       "file": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute",
       "name": "ResolveBoundary",
       "kind": "gpu_function",
-      "line": 148
+      "line": 291
     },
     {
-      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::SolveDirtyBoundaries@307",
+      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::SobelMagnitude@170",
+      "file": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute",
+      "name": "SobelMagnitude",
+      "kind": "gpu_function",
+      "line": 170
+    },
+    {
+      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::SolveDirtyBoundaries@664",
       "file": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute",
       "name": "SolveDirtyBoundaries",
       "kind": "gpu_function",
-      "line": 307
+      "line": 664
+    },
+    {
+      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::SurfaceNormal@203",
+      "file": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute",
+      "name": "SurfaceNormal",
+      "kind": "gpu_function",
+      "line": 203
+    },
+    {
+      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::SurfacePoint@195",
+      "file": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute",
+      "name": "SurfacePoint",
+      "kind": "gpu_function",
+      "line": 195
+    },
+    {
+      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::ViewBin@377",
+      "file": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute",
+      "name": "ViewBin",
+      "kind": "gpu_function",
+      "line": 377
+    },
+    {
+      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::kernel:AccumulateBoundaryAbsence",
+      "file": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute",
+      "name": "AccumulateBoundaryAbsence",
+      "kind": "gpu_kernel",
+      "line": 4
     },
     {
       "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::kernel:AccumulateBoundaryEvents",
@@ -4207,7 +4403,7 @@
       "file": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute",
       "name": "BuildBoundarySolveArguments",
       "kind": "gpu_kernel",
-      "line": 4
+      "line": 5
     },
     {
       "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::kernel:ClearBoundaryFrame",
@@ -4228,7 +4424,7 @@
       "file": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute",
       "name": "SolveDirtyBoundaries",
       "kind": "gpu_kernel",
-      "line": 5
+      "line": 6
     },
     {
       "id": "Runtime/Resources/Prism/ContactFilmSpawn.compute::Compatible@92",
@@ -4595,32 +4791,67 @@
       "line": 1
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::BuildAdaptiveFilmMeshlets@136",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::BoundaryCubic@113",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
-      "name": "BuildAdaptiveFilmMeshlets",
+      "name": "BoundaryCubic",
       "kind": "gpu_function",
-      "line": 136
+      "line": 113
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::BuildMeshDispatchArguments@129",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::BoundaryHashEntry",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
-      "name": "BuildMeshDispatchArguments",
-      "kind": "gpu_function",
-      "line": 129
+      "name": "BoundaryHashEntry",
+      "kind": "struct",
+      "line": 70
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::ChooseSubdivision@102",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::BoundaryHashKey@102",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
-      "name": "ChooseSubdivision",
+      "name": "BoundaryHashKey",
       "kind": "gpu_function",
       "line": 102
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::ClearMeshletBuild@118",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::BuildAdaptiveFilmMeshlets@242",
+      "file": "Runtime/Resources/Prism/MeshletBuild.compute",
+      "name": "BuildAdaptiveFilmMeshlets",
+      "kind": "gpu_function",
+      "line": 242
+    },
+    {
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::BuildMeshDispatchArguments@235",
+      "file": "Runtime/Resources/Prism/MeshletBuild.compute",
+      "name": "BuildMeshDispatchArguments",
+      "kind": "gpu_function",
+      "line": 235
+    },
+    {
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::ChooseSubdivision@208",
+      "file": "Runtime/Resources/Prism/MeshletBuild.compute",
+      "name": "ChooseSubdivision",
+      "kind": "gpu_function",
+      "line": 208
+    },
+    {
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::ClearMeshletBuild@224",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "ClearMeshletBuild",
       "kind": "gpu_function",
-      "line": 118
+      "line": 224
+    },
+    {
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::ClosestBoundaryPoint@122",
+      "file": "Runtime/Resources/Prism/MeshletBuild.compute",
+      "name": "ClosestBoundaryPoint",
+      "kind": "gpu_function",
+      "line": 122
+    },
+    {
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::ContactBoundaryHeader",
+      "file": "Runtime/Resources/Prism/MeshletBuild.compute",
+      "name": "ContactBoundaryHeader",
+      "kind": "struct",
+      "line": 48
     },
     {
       "id": "Runtime/Resources/Prism/MeshletBuild.compute::ContactFilmHeader",
@@ -4637,32 +4868,32 @@
       "line": 33
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::FinalizeMeshletDrawArguments@204",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::FinalizeMeshletDrawArguments@313",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "FinalizeMeshletDrawArguments",
       "kind": "gpu_function",
-      "line": 204
+      "line": 313
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::Height@63",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::Height@169",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "Height",
       "kind": "gpu_function",
-      "line": 63
+      "line": 169
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::Reserve@82",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::Reserve@188",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "Reserve",
       "kind": "gpu_function",
-      "line": 82
+      "line": 188
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::SurfaceNormal@70",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::SurfaceNormal@176",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "SurfaceNormal",
       "kind": "gpu_function",
-      "line": 70
+      "line": 176
     },
     {
       "id": "Runtime/Resources/Prism/MeshletBuild.compute::kernel:BuildAdaptiveFilmMeshlets",
@@ -6058,11 +6289,11 @@
       "line": 176
     },
     {
-      "id": "Runtime/World/PrismCanonicalChunkCodec.cs::LengthIs@164",
+      "id": "Runtime/World/PrismCanonicalChunkCodec.cs::LengthIs@168",
       "file": "Runtime/World/PrismCanonicalChunkCodec.cs",
       "name": "LengthIs",
       "kind": "method",
-      "line": 164
+      "line": 168
     },
     {
       "id": "Runtime/World/PrismCanonicalChunkCodec.cs::PrismCanonicalChunkCodec",
@@ -6079,11 +6310,11 @@
       "line": 9
     },
     {
-      "id": "Runtime/World/PrismCanonicalChunkCodec.cs::ReadBytes@173",
+      "id": "Runtime/World/PrismCanonicalChunkCodec.cs::ReadBytes@177",
       "file": "Runtime/World/PrismCanonicalChunkCodec.cs",
       "name": "ReadBytes",
       "kind": "method",
-      "line": 173
+      "line": 177
     },
     {
       "id": "Runtime/World/PrismCanonicalChunkCodec.cs::TryRead@80",
@@ -6107,25 +6338,25 @@
       "line": 41
     },
     {
-      "id": "Runtime/World/PrismCanonicalChunkCodec.cs::Validate@137",
+      "id": "Runtime/World/PrismCanonicalChunkCodec.cs::Validate@139",
       "file": "Runtime/World/PrismCanonicalChunkCodec.cs",
       "name": "Validate",
       "kind": "method",
-      "line": 137
+      "line": 139
     },
     {
-      "id": "Runtime/World/PrismCanonicalChunkCodec.cs::ValidateCounts@157",
+      "id": "Runtime/World/PrismCanonicalChunkCodec.cs::ValidateCounts@161",
       "file": "Runtime/World/PrismCanonicalChunkCodec.cs",
       "name": "ValidateCounts",
       "kind": "method",
-      "line": 157
+      "line": 161
     },
     {
-      "id": "Runtime/World/PrismCanonicalChunkCodec.cs::WriteBytes@167",
+      "id": "Runtime/World/PrismCanonicalChunkCodec.cs::WriteBytes@171",
       "file": "Runtime/World/PrismCanonicalChunkCodec.cs",
       "name": "WriteBytes",
       "kind": "method",
-      "line": 167
+      "line": 171
     },
     {
       "id": "Runtime/World/PrismChunkPublisher.cs::Failure@119",
@@ -6184,11 +6415,11 @@
       "line": 15
     },
     {
-      "id": "Runtime/World/PrismGpuSnapshotCapture.cs::RequestBytes@70",
+      "id": "Runtime/World/PrismGpuSnapshotCapture.cs::RequestBytes@72",
       "file": "Runtime/World/PrismGpuSnapshotCapture.cs",
       "name": "RequestBytes",
       "kind": "method",
-      "line": 70
+      "line": 72
     },
     {
       "id": "Runtime/World/SubmapManager.cs::ApplyLargeWorldDefaults@128",
@@ -7325,11 +7556,11 @@
       "line": 1063
     },
     {
-      "id": "Tests/Editor/PrismPersistenceContractTests.cs::CanonicalSnapshotRejectsTrailingOrMismatchedPayload@43",
+      "id": "Tests/Editor/PrismPersistenceContractTests.cs::CanonicalSnapshotRejectsTrailingOrMismatchedPayload@44",
       "file": "Tests/Editor/PrismPersistenceContractTests.cs",
       "name": "CanonicalSnapshotRejectsTrailingOrMismatchedPayload",
       "kind": "method",
-      "line": 43
+      "line": 44
     },
     {
       "id": "Tests/Editor/PrismPersistenceContractTests.cs::CanonicalSnapshotRoundTripsExactPosteriorBytes@11",
@@ -7339,11 +7570,11 @@
       "line": 11
     },
     {
-      "id": "Tests/Editor/PrismPersistenceContractTests.cs::Pattern@63",
+      "id": "Tests/Editor/PrismPersistenceContractTests.cs::Pattern@64",
       "file": "Tests/Editor/PrismPersistenceContractTests.cs",
       "name": "Pattern",
       "kind": "method",
-      "line": 63
+      "line": 64
     },
     {
       "id": "Tests/Editor/PrismPersistenceContractTests.cs::PrismPersistenceContractTests",
@@ -7538,7 +7769,7 @@
       "source_type": "TextureRefinement",
       "event": "StatusChanged",
       "handler": "statusHandler",
-      "line": 1069
+      "line": 1070
     },
     {
       "file": "Runtime/Core/RoomScanner.cs",
@@ -7546,7 +7777,7 @@
       "source_type": "TextureRefinement",
       "event": "StatusChanged",
       "handler": "hqStatusHandler",
-      "line": 1205
+      "line": 1206
     },
     {
       "file": "Runtime/Core/RoomScanner.cs",
@@ -7554,7 +7785,7 @@
       "source_type": "RoomUnderstanding",
       "event": "AnchorsChanged",
       "handler": "OnMrukAnchorsChanged",
-      "line": 1525
+      "line": 1526
     },
     {
       "file": "Runtime/Prism/Association/PrismConeClassifier.cs",
@@ -7562,7 +7793,7 @@
       "source_type": "PrismPredictionRenderer",
       "event": "PredictionReady",
       "handler": "OnPrediction",
-      "line": 87
+      "line": 96
     },
     {
       "file": "Runtime/Prism/Capture/PrismRigCapture.cs",
@@ -7578,7 +7809,7 @@
       "source_type": "PrismFilmUpdater",
       "event": "UpdateCompleted",
       "handler": "OnFilmUpdateCompleted",
-      "line": 91
+      "line": 130
     },
     {
       "file": "Runtime/Prism/Geometry/PrismFilmSpawner.cs",
@@ -7602,7 +7833,7 @@
       "source_type": "PrismFilmSpawner",
       "event": "FilmsMutated",
       "handler": "OnFilmsMutated",
-      "line": 74
+      "line": 83
     },
     {
       "file": "Runtime/Prism/Geometry/PrismPredictionRenderer.cs",
@@ -7768,7 +7999,7 @@
     {
       "id": "Q3-10",
       "title": "Implement persistent ContactBoundaries with multi-view 3D BoundaryCurves",
-      "status": "in_progress",
+      "status": "done",
       "depends_on": [
         "Q3-09"
       ],
@@ -7782,7 +8013,7 @@
     {
       "id": "Q3-11",
       "title": "Implement ContactFilm split/merge and hierarchical displacement microtiles",
-      "status": "pending",
+      "status": "in_progress",
       "depends_on": [
         "Q3-10"
       ],
@@ -8260,62 +8491,62 @@
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::AddExclusionZone@1034",
+      "source": "Runtime/Core/RoomScanner.cs::AddExclusionZone@1035",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::ApplyEnhancedMesh@1414",
-      "target": "Runtime/Core/RoomScanner.cs::EnsureRefinedRenderer@1639",
+      "source": "Runtime/Core/RoomScanner.cs::ApplyEnhancedMesh@1415",
+      "target": "Runtime/Core/RoomScanner.cs::EnsureRefinedRenderer@1640",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::ApplyEnhancedMesh@1414",
+      "source": "Runtime/Core/RoomScanner.cs::ApplyEnhancedMesh@1415",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::ApplyEnhancedMesh@1414",
+      "source": "Runtime/Core/RoomScanner.cs::ApplyEnhancedMesh@1415",
       "target": "Runtime/World/PersistedChunkMeshCache.cs::Clear@225",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::ApplyHQTexture@1541",
-      "target": "Runtime/Core/RoomScanner.cs::EnsureRefinedRenderer@1639",
+      "source": "Runtime/Core/RoomScanner.cs::ApplyHQTexture@1542",
+      "target": "Runtime/Core/RoomScanner.cs::EnsureRefinedRenderer@1640",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::ApplyRefinedAtlas@1435",
-      "target": "Runtime/Core/RoomScanner.cs::EnsureRefinedRenderer@1639",
+      "source": "Runtime/Core/RoomScanner.cs::ApplyRefinedAtlas@1436",
+      "target": "Runtime/Core/RoomScanner.cs::EnsureRefinedRenderer@1640",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::ApplyRefinedAtlas@1435",
+      "source": "Runtime/Core/RoomScanner.cs::ApplyRefinedAtlas@1436",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::ApplyRefinedAtlas@1435",
+      "source": "Runtime/Core/RoomScanner.cs::ApplyRefinedAtlas@1436",
       "target": "Runtime/World/PersistedChunkMeshCache.cs::Clear@225",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::ApplyRefinedTexture@1483",
-      "target": "Runtime/Core/RoomScanner.cs::EnsureRefinedRenderer@1639",
+      "source": "Runtime/Core/RoomScanner.cs::ApplyRefinedTexture@1484",
+      "target": "Runtime/Core/RoomScanner.cs::EnsureRefinedRenderer@1640",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::ApplyRefinedTexture@1483",
-      "target": "Runtime/Core/RoomScanner.cs::PopulateSceneObjectRegistry@1512",
+      "source": "Runtime/Core/RoomScanner.cs::ApplyRefinedTexture@1484",
+      "target": "Runtime/Core/RoomScanner.cs::PopulateSceneObjectRegistry@1513",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::ApplyRefinedTexture@1483",
+      "source": "Runtime/Core/RoomScanner.cs::ApplyRefinedTexture@1484",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::ApplyRenderMode@1896",
+      "source": "Runtime/Core/RoomScanner.cs::ApplyRenderMode@1897",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
@@ -8326,16 +8557,16 @@
     },
     {
       "source": "Runtime/Core/RoomScanner.cs::Awake@339",
-      "target": "Runtime/Core/RoomScanner.cs::SetSafeShaderDefaults@1818",
+      "target": "Runtime/Core/RoomScanner.cs::SetSafeShaderDefaults@1819",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::BuildProgress@1759",
-      "target": "Runtime/Core/RoomScanner.cs::BuildCoverage@1733",
+      "source": "Runtime/Core/RoomScanner.cs::BuildProgress@1760",
+      "target": "Runtime/Core/RoomScanner.cs::BuildCoverage@1734",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::BuildProgress@1759",
+      "source": "Runtime/Core/RoomScanner.cs::BuildProgress@1760",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
@@ -8345,27 +8576,27 @@
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::ClearAllDataAsync@819",
-      "target": "Runtime/Core/RoomScanner.cs::StopScanning@734",
+      "source": "Runtime/Core/RoomScanner.cs::ClearAllDataAsync@820",
+      "target": "Runtime/Core/RoomScanner.cs::StopScanning@735",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::ClearAllDataAsync@819",
+      "source": "Runtime/Core/RoomScanner.cs::ClearAllDataAsync@820",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::ClearAllDataAsync@819",
+      "source": "Runtime/Core/RoomScanner.cs::ClearAllDataAsync@820",
       "target": "Runtime/World/PersistedChunkMeshCache.cs::Clear@225",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::ClearScan@802",
+      "source": "Runtime/Core/RoomScanner.cs::ClearScan@803",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::ClearScan@802",
+      "source": "Runtime/Core/RoomScanner.cs::ClearScan@803",
       "target": "Runtime/World/PersistedChunkMeshCache.cs::Clear@225",
       "kind": "calls"
     },
@@ -8375,128 +8606,128 @@
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::CreateScanAnchorAsync@716",
+      "source": "Runtime/Core/RoomScanner.cs::CreateScanAnchorAsync@717",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::CycleRenderMode@889",
-      "target": "Runtime/Core/RoomScanner.cs::IsModeAvailable@921",
+      "source": "Runtime/Core/RoomScanner.cs::CycleRenderMode@890",
+      "target": "Runtime/Core/RoomScanner.cs::IsModeAvailable@922",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::CycleRenderMode@889",
-      "target": "Runtime/Core/RoomScanner.cs::LoadDownloadedSplat@2053",
+      "source": "Runtime/Core/RoomScanner.cs::CycleRenderMode@890",
+      "target": "Runtime/Core/RoomScanner.cs::LoadDownloadedSplat@2054",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::CycleRenderMode@889",
+      "source": "Runtime/Core/RoomScanner.cs::CycleRenderMode@890",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::DeleteActiveArtifact@1979",
-      "target": "Runtime/Core/RoomScanner.cs::DeleteEnhancedMesh@2021",
+      "source": "Runtime/Core/RoomScanner.cs::DeleteActiveArtifact@1980",
+      "target": "Runtime/Core/RoomScanner.cs::DeleteEnhancedMesh@2022",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::DeleteActiveArtifact@1979",
+      "source": "Runtime/Core/RoomScanner.cs::DeleteActiveArtifact@1980",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::DeleteEnhancedMesh@2021",
-      "target": "Runtime/Core/RoomScanner.cs::EnsureRefinedRenderer@1639",
+      "source": "Runtime/Core/RoomScanner.cs::DeleteEnhancedMesh@2022",
+      "target": "Runtime/Core/RoomScanner.cs::EnsureRefinedRenderer@1640",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::DeleteEnhancedMesh@2021",
+      "source": "Runtime/Core/RoomScanner.cs::DeleteEnhancedMesh@2022",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::DeleteEnhancedMesh@2021",
+      "source": "Runtime/Core/RoomScanner.cs::DeleteEnhancedMesh@2022",
       "target": "Runtime/World/PersistedChunkMeshCache.cs::Clear@225",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::DeserializeRefinedMesh@1380",
+      "source": "Runtime/Core/RoomScanner.cs::DeserializeRefinedMesh@1381",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::EnsureRefinedMesh@1622",
-      "target": "Runtime/Core/RoomScanner.cs::EnsureRefinedRenderer@1639",
+      "source": "Runtime/Core/RoomScanner.cs::EnsureRefinedMesh@1623",
+      "target": "Runtime/Core/RoomScanner.cs::EnsureRefinedRenderer@1640",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::EnsureRefinedMesh@1622",
+      "source": "Runtime/Core/RoomScanner.cs::EnsureRefinedMesh@1623",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::EnsureRefinedRenderer@1639",
+      "source": "Runtime/Core/RoomScanner.cs::EnsureRefinedRenderer@1640",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::EnsureUnwrappedAsync@1553",
-      "target": "Runtime/Core/RoomScanner.cs::EnsureRefinedMesh@1622",
+      "source": "Runtime/Core/RoomScanner.cs::EnsureUnwrappedAsync@1554",
+      "target": "Runtime/Core/RoomScanner.cs::EnsureRefinedMesh@1623",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::EnsureUnwrappedAsync@1553",
-      "target": "Runtime/Core/RoomScanner.cs::ReconstructUnwrapFromResult@1598",
+      "source": "Runtime/Core/RoomScanner.cs::EnsureUnwrappedAsync@1554",
+      "target": "Runtime/Core/RoomScanner.cs::ReconstructUnwrapFromResult@1599",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::EnsureUnwrappedAsync@1553",
+      "source": "Runtime/Core/RoomScanner.cs::EnsureUnwrappedAsync@1554",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::FreezeInView@940",
-      "target": "Runtime/Core/RoomScanner.cs::TryGetCameraIntrinsics@1677",
+      "source": "Runtime/Core/RoomScanner.cs::FreezeInView@941",
+      "target": "Runtime/Core/RoomScanner.cs::TryGetCameraIntrinsics@1678",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::FreezeInView@940",
+      "source": "Runtime/Core/RoomScanner.cs::FreezeInView@941",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::GetActiveCameraProvider@2098",
+      "source": "Runtime/Core/RoomScanner.cs::GetActiveCameraProvider@2099",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::LoadDownloadedSplat@2053",
+      "source": "Runtime/Core/RoomScanner.cs::LoadDownloadedSplat@2054",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::LoadPackageAsync@986",
+      "source": "Runtime/Core/RoomScanner.cs::LoadPackageAsync@987",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::LoadRefinedOnlyAsync@997",
+      "source": "Runtime/Core/RoomScanner.cs::LoadRefinedOnlyAsync@998",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
     {
       "source": "Runtime/Core/RoomScanner.cs::OnDisable@440",
-      "target": "Runtime/Core/RoomScanner.cs::StopScanning@734",
+      "target": "Runtime/Core/RoomScanner.cs::StopScanning@735",
       "kind": "calls"
     },
     {
       "source": "Runtime/Core/RoomScanner.cs::OnDisable@440",
-      "target": "Runtime/Core/RoomScanner.cs::UnsubscribeFromAnchorsChanged@1528",
+      "target": "Runtime/Core/RoomScanner.cs::UnsubscribeFromAnchorsChanged@1529",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::OnMrukAnchorsChanged@1535",
-      "target": "Runtime/Core/RoomScanner.cs::PopulateSceneObjectRegistry@1512",
+      "source": "Runtime/Core/RoomScanner.cs::OnMrukAnchorsChanged@1536",
+      "target": "Runtime/Core/RoomScanner.cs::PopulateSceneObjectRegistry@1513",
       "kind": "calls"
     },
     {
@@ -8510,42 +8741,42 @@
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::PopulateSceneObjectRegistry@1512",
+      "source": "Runtime/Core/RoomScanner.cs::PopulateSceneObjectRegistry@1513",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::ProvideColorFrame@1830",
-      "target": "Runtime/Core/RoomScanner.cs::GetActiveCameraProvider@2098",
+      "source": "Runtime/Core/RoomScanner.cs::ProvideColorFrame@1831",
+      "target": "Runtime/Core/RoomScanner.cs::GetActiveCameraProvider@2099",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::ProvideColorFrame@1830",
+      "source": "Runtime/Core/RoomScanner.cs::ProvideColorFrame@1831",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::ReleaseScanResources@779",
-      "target": "Runtime/Core/RoomScanner.cs::StopScanning@734",
+      "source": "Runtime/Core/RoomScanner.cs::ReleaseScanResources@780",
+      "target": "Runtime/Core/RoomScanner.cs::StopScanning@735",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::ReleaseScanResources@779",
+      "source": "Runtime/Core/RoomScanner.cs::ReleaseScanResources@780",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::ReleaseScanResources@779",
+      "source": "Runtime/Core/RoomScanner.cs::ReleaseScanResources@780",
       "target": "Runtime/World/PersistedChunkMeshCache.cs::Clear@225",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::RemoveExclusionZone@1043",
+      "source": "Runtime/Core/RoomScanner.cs::RemoveExclusionZone@1044",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::RemoveExclusionZone@1043",
+      "source": "Runtime/Core/RoomScanner.cs::RemoveExclusionZone@1044",
       "target": "Runtime/World/PersistedChunkMeshCache.cs::Remove@413",
       "kind": "calls"
     },
@@ -8560,37 +8791,37 @@
       "kind": "event:ScanAnchorCreated"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::RunServerTrainingAsync@2064",
-      "target": "Runtime/Core/RoomScanner.cs::LoadDownloadedSplat@2053",
+      "source": "Runtime/Core/RoomScanner.cs::RunServerTrainingAsync@2065",
+      "target": "Runtime/Core/RoomScanner.cs::LoadDownloadedSplat@2054",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::RunServerTrainingAsync@2064",
+      "source": "Runtime/Core/RoomScanner.cs::RunServerTrainingAsync@2065",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::SaveScanAsync@967",
+      "source": "Runtime/Core/RoomScanner.cs::SaveScanAsync@968",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::SetRefinedWorldFromLocal@1665",
+      "source": "Runtime/Core/RoomScanner.cs::SetRefinedWorldFromLocal@1666",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::SetRenderMode@877",
-      "target": "Runtime/Core/RoomScanner.cs::ApplyRenderMode@1896",
+      "source": "Runtime/Core/RoomScanner.cs::SetRenderMode@878",
+      "target": "Runtime/Core/RoomScanner.cs::ApplyRenderMode@1897",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::SetupHeadExclusion@1713",
-      "target": "Runtime/Core/RoomScanner.cs::AddExclusionZone@1034",
+      "source": "Runtime/Core/RoomScanner.cs::SetupHeadExclusion@1714",
+      "target": "Runtime/Core/RoomScanner.cs::AddExclusionZone@1035",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::SetupHeadExclusion@1713",
+      "source": "Runtime/Core/RoomScanner.cs::SetupHeadExclusion@1714",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
@@ -8601,7 +8832,7 @@
     },
     {
       "source": "Runtime/Core/RoomScanner.cs::Start@347",
-      "target": "Runtime/Core/RoomScanner.cs::SetupHeadExclusion@1713",
+      "target": "Runtime/Core/RoomScanner.cs::SetupHeadExclusion@1714",
       "kind": "calls"
     },
     {
@@ -8610,78 +8841,78 @@
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::StartHQRefinement@1181",
-      "target": "Runtime/Core/RoomScanner.cs::EnsureRefinedRenderer@1639",
+      "source": "Runtime/Core/RoomScanner.cs::StartHQRefinement@1182",
+      "target": "Runtime/Core/RoomScanner.cs::EnsureRefinedRenderer@1640",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::StartHQRefinement@1181",
-      "target": "Runtime/Core/RoomScanner.cs::StartTextureRefinement@1057",
+      "source": "Runtime/Core/RoomScanner.cs::StartHQRefinement@1182",
+      "target": "Runtime/Core/RoomScanner.cs::StartTextureRefinement@1058",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::StartHQRefinement@1181",
+      "source": "Runtime/Core/RoomScanner.cs::StartHQRefinement@1182",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::StartMeshEnhancement@1290",
-      "target": "Runtime/Core/RoomScanner.cs::ApplyEnhancedMesh@1414",
+      "source": "Runtime/Core/RoomScanner.cs::StartMeshEnhancement@1291",
+      "target": "Runtime/Core/RoomScanner.cs::ApplyEnhancedMesh@1415",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::StartMeshEnhancement@1290",
-      "target": "Runtime/Core/RoomScanner.cs::DeserializeRefinedMesh@1380",
+      "source": "Runtime/Core/RoomScanner.cs::StartMeshEnhancement@1291",
+      "target": "Runtime/Core/RoomScanner.cs::DeserializeRefinedMesh@1381",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::StartMeshEnhancement@1290",
-      "target": "Runtime/Core/RoomScanner.cs::SerializeRefinedMesh@1353",
+      "source": "Runtime/Core/RoomScanner.cs::StartMeshEnhancement@1291",
+      "target": "Runtime/Core/RoomScanner.cs::SerializeRefinedMesh@1354",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::StartMeshEnhancement@1290",
+      "source": "Runtime/Core/RoomScanner.cs::StartMeshEnhancement@1291",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
     {
       "source": "Runtime/Core/RoomScanner.cs::StartScanningAsync@546",
-      "target": "Runtime/Core/RoomScanner.cs::CreateScanAnchorAsync@716",
+      "target": "Runtime/Core/RoomScanner.cs::CreateScanAnchorAsync@717",
       "kind": "calls"
     },
     {
       "source": "Runtime/Core/RoomScanner.cs::StartScanningAsync@546",
-      "target": "Runtime/Core/RoomScanner.cs::GetActiveCameraProvider@2098",
+      "target": "Runtime/Core/RoomScanner.cs::GetActiveCameraProvider@2099",
       "kind": "calls"
     },
     {
       "source": "Runtime/Core/RoomScanner.cs::StartScanningAsync@546",
-      "target": "Runtime/Core/RoomScanner.cs::IsModeAvailable@921",
+      "target": "Runtime/Core/RoomScanner.cs::IsModeAvailable@922",
       "kind": "calls"
     },
     {
       "source": "Runtime/Core/RoomScanner.cs::StartScanningAsync@546",
-      "target": "Runtime/Core/RoomScanner.cs::LoadRefinedOnlyAsync@997",
+      "target": "Runtime/Core/RoomScanner.cs::LoadRefinedOnlyAsync@998",
       "kind": "calls"
     },
     {
       "source": "Runtime/Core/RoomScanner.cs::StartScanningAsync@546",
-      "target": "Runtime/Core/RoomScanner.cs::PopulateSceneObjectRegistry@1512",
+      "target": "Runtime/Core/RoomScanner.cs::PopulateSceneObjectRegistry@1513",
       "kind": "calls"
     },
     {
       "source": "Runtime/Core/RoomScanner.cs::StartScanningAsync@546",
-      "target": "Runtime/Core/RoomScanner.cs::SetRefinedWorldFromLocal@1665",
+      "target": "Runtime/Core/RoomScanner.cs::SetRefinedWorldFromLocal@1666",
       "kind": "calls"
     },
     {
       "source": "Runtime/Core/RoomScanner.cs::StartScanningAsync@546",
-      "target": "Runtime/Core/RoomScanner.cs::StartTextureRefinement@1057",
+      "target": "Runtime/Core/RoomScanner.cs::StartTextureRefinement@1058",
       "kind": "calls"
     },
     {
       "source": "Runtime/Core/RoomScanner.cs::StartScanningAsync@546",
-      "target": "Runtime/Core/RoomScanner.cs::SubscribeToAnchorsChanged@1521",
+      "target": "Runtime/Core/RoomScanner.cs::SubscribeToAnchorsChanged@1522",
       "kind": "calls"
     },
     {
@@ -8691,7 +8922,7 @@
     },
     {
       "source": "Runtime/Core/RoomScanner.cs::StartScanningAsync@546",
-      "target": "Runtime/Prism/Association/PrismConeClassifier.cs::StartClassifying@71",
+      "target": "Runtime/Prism/Association/PrismConeClassifier.cs::StartClassifying@77",
       "kind": "calls"
     },
     {
@@ -8701,7 +8932,7 @@
     },
     {
       "source": "Runtime/Core/RoomScanner.cs::StartScanningAsync@546",
-      "target": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::StartTracking@64",
+      "target": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::StartTracking@98",
       "kind": "calls"
     },
     {
@@ -8716,7 +8947,7 @@
     },
     {
       "source": "Runtime/Core/RoomScanner.cs::StartScanningAsync@546",
-      "target": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::StartBuilding@45",
+      "target": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::StartBuilding@51",
       "kind": "calls"
     },
     {
@@ -8740,163 +8971,163 @@
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::StartServerTraining@1011",
-      "target": "Runtime/Core/RoomScanner.cs::RunServerTrainingAsync@2064",
+      "source": "Runtime/Core/RoomScanner.cs::StartServerTraining@1012",
+      "target": "Runtime/Core/RoomScanner.cs::RunServerTrainingAsync@2065",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::StartServerTraining@1011",
+      "source": "Runtime/Core/RoomScanner.cs::StartServerTraining@1012",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::StartTextureRefinement@1057",
-      "target": "Runtime/Core/RoomScanner.cs::ApplyRefinedAtlas@1435",
+      "source": "Runtime/Core/RoomScanner.cs::StartTextureRefinement@1058",
+      "target": "Runtime/Core/RoomScanner.cs::ApplyRefinedAtlas@1436",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::StartTextureRefinement@1057",
-      "target": "Runtime/Core/RoomScanner.cs::EnsureUnwrappedAsync@1553",
+      "source": "Runtime/Core/RoomScanner.cs::StartTextureRefinement@1058",
+      "target": "Runtime/Core/RoomScanner.cs::EnsureUnwrappedAsync@1554",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::StartTextureRefinement@1057",
-      "target": "Runtime/Core/RoomScanner.cs::SetRefinedWorldFromLocal@1665",
+      "source": "Runtime/Core/RoomScanner.cs::StartTextureRefinement@1058",
+      "target": "Runtime/Core/RoomScanner.cs::SetRefinedWorldFromLocal@1666",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::StartTextureRefinement@1057",
+      "source": "Runtime/Core/RoomScanner.cs::StartTextureRefinement@1058",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::StartTextureRefinement@1057",
+      "source": "Runtime/Core/RoomScanner.cs::StartTextureRefinement@1058",
       "target": "Runtime/World/SubmapManager.cs::PublishRefinedArtifactsAsync@189",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::StartTextureRefinement@1057",
+      "source": "Runtime/Core/RoomScanner.cs::StartTextureRefinement@1058",
       "target": "Runtime/World/SubmapManager.cs::TryCaptureRefinementContext@148",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::StartTextureRefinement@1057",
+      "source": "Runtime/Core/RoomScanner.cs::StartTextureRefinement@1058",
       "target": "Runtime/World/SubmapManager.cs::WaitForRefinementReadyAsync@134",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::StopScanning@734",
-      "target": "Runtime/Core/RoomScanner.cs::GetActiveCameraProvider@2098",
+      "source": "Runtime/Core/RoomScanner.cs::StopScanning@735",
+      "target": "Runtime/Core/RoomScanner.cs::GetActiveCameraProvider@2099",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::StopScanning@734",
-      "target": "Runtime/Prism/Association/PrismConeClassifier.cs::StopClassifying@90",
+      "source": "Runtime/Core/RoomScanner.cs::StopScanning@735",
+      "target": "Runtime/Prism/Association/PrismConeClassifier.cs::StopClassifying@99",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::StopScanning@734",
+      "source": "Runtime/Core/RoomScanner.cs::StopScanning@735",
       "target": "Runtime/Prism/Capture/PrismRigCapture.cs::StopCapture@103",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::StopScanning@734",
-      "target": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::StopTracking@94",
+      "source": "Runtime/Core/RoomScanner.cs::StopScanning@735",
+      "target": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::StopTracking@133",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::StopScanning@734",
+      "source": "Runtime/Core/RoomScanner.cs::StopScanning@735",
       "target": "Runtime/Prism/Geometry/PrismFilmSpawner.cs::StopSpawning@69",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::StopScanning@734",
+      "source": "Runtime/Core/RoomScanner.cs::StopScanning@735",
       "target": "Runtime/Prism/Geometry/PrismFilmUpdater.cs::StopUpdating@106",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::StopScanning@734",
-      "target": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::StopBuilding@77",
+      "source": "Runtime/Core/RoomScanner.cs::StopScanning@735",
+      "target": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::StopBuilding@86",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::StopScanning@734",
+      "source": "Runtime/Core/RoomScanner.cs::StopScanning@735",
       "target": "Runtime/Prism/Geometry/PrismPredictionRenderer.cs::StopRendering@82",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::StopScanning@734",
+      "source": "Runtime/Core/RoomScanner.cs::StopScanning@735",
       "target": "Runtime/Prism/Preprocessing/PrismDepthPreprocessor.cs::StopProcessing@146",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::StopScanning@734",
+      "source": "Runtime/Core/RoomScanner.cs::StopScanning@735",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::StopScanning@734",
+      "source": "Runtime/Core/RoomScanner.cs::StopScanning@735",
       "target": "Runtime/World/SubmapManager.cs::OnScanStopped@317",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::SubscribeToAnchorsChanged@1521",
+      "source": "Runtime/Core/RoomScanner.cs::SubscribeToAnchorsChanged@1522",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::ToggleDebugMenu@1018",
+      "source": "Runtime/Core/RoomScanner.cs::ToggleDebugMenu@1019",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::ToggleScanning@764",
+      "source": "Runtime/Core/RoomScanner.cs::ToggleScanning@765",
       "target": "Runtime/Core/RoomScanner.cs::StartScanningAsync@546",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::ToggleScanning@764",
-      "target": "Runtime/Core/RoomScanner.cs::StopScanning@734",
+      "source": "Runtime/Core/RoomScanner.cs::ToggleScanning@765",
+      "target": "Runtime/Core/RoomScanner.cs::StopScanning@735",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::ToggleScanning@764",
+      "source": "Runtime/Core/RoomScanner.cs::ToggleScanning@765",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::TryGetCameraIntrinsics@1677",
-      "target": "Runtime/Core/RoomScanner.cs::GetActiveCameraProvider@2098",
+      "source": "Runtime/Core/RoomScanner.cs::TryGetCameraIntrinsics@1678",
+      "target": "Runtime/Core/RoomScanner.cs::GetActiveCameraProvider@2099",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::TryGetCameraIntrinsics@1677",
+      "source": "Runtime/Core/RoomScanner.cs::TryGetCameraIntrinsics@1678",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::UnfreezeInView@953",
-      "target": "Runtime/Core/RoomScanner.cs::TryGetCameraIntrinsics@1677",
+      "source": "Runtime/Core/RoomScanner.cs::UnfreezeInView@954",
+      "target": "Runtime/Core/RoomScanner.cs::TryGetCameraIntrinsics@1678",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::UnfreezeInView@953",
+      "source": "Runtime/Core/RoomScanner.cs::UnfreezeInView@954",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::UnsubscribeFromAnchorsChanged@1528",
+      "source": "Runtime/Core/RoomScanner.cs::UnsubscribeFromAnchorsChanged@1529",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
     {
       "source": "Runtime/Core/RoomScanner.cs::Update@450",
-      "target": "Runtime/Core/RoomScanner.cs::ProvideColorFrame@1830",
+      "target": "Runtime/Core/RoomScanner.cs::ProvideColorFrame@1831",
       "kind": "calls"
     },
     {
       "source": "Runtime/Core/RoomScanner.cs::Update@450",
-      "target": "Runtime/Core/RoomScanner.cs::UpdatePlateauDetection@1785",
+      "target": "Runtime/Core/RoomScanner.cs::UpdatePlateauDetection@1786",
       "kind": "calls"
     },
     {
@@ -8905,7 +9136,7 @@
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::UpdatePlateauDetection@1785",
+      "source": "Runtime/Core/RoomScanner.cs::UpdatePlateauDetection@1786",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
@@ -9680,12 +9911,22 @@
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Association/PrismConeClassifier.cs::OnPrediction@103",
-      "target": "Runtime/Prism/Association/PrismConeClassifier.cs::BindTextures@156",
+      "source": "Runtime/Prism/Association/PrismConeClassifier.cs::BindCanonicalBoundaries@166",
+      "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Association/PrismConeClassifier.cs::OnPrediction@103",
+      "source": "Runtime/Prism/Association/PrismConeClassifier.cs::OnPrediction@112",
+      "target": "Runtime/Prism/Association/PrismConeClassifier.cs::BindCanonicalBoundaries@166",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Prism/Association/PrismConeClassifier.cs::OnPrediction@112",
+      "target": "Runtime/Prism/Association/PrismConeClassifier.cs::BindTextures@178",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Prism/Association/PrismConeClassifier.cs::OnPrediction@112",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
@@ -9695,22 +9936,22 @@
       "kind": "event:EventsReady"
     },
     {
-      "source": "Runtime/Prism/Association/PrismConeClassifier.cs::StartClassifying@71",
+      "source": "Runtime/Prism/Association/PrismConeClassifier.cs::StartClassifying@77",
       "target": "Runtime/Prism/Association/ConeEventFrame.cs::ConeEventBufferRing",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Association/PrismConeClassifier.cs::StartClassifying@71",
+      "source": "Runtime/Prism/Association/PrismConeClassifier.cs::StartClassifying@77",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Association/PrismConeClassifier.cs::StopClassifying@90",
+      "source": "Runtime/Prism/Association/PrismConeClassifier.cs::StopClassifying@99",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Association/PrismConeClassifier.cs::TryAcquireLatest@60",
+      "source": "Runtime/Prism/Association/PrismConeClassifier.cs::TryAcquireLatest@66",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
@@ -10480,57 +10721,62 @@
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::AllocateFrameBuffers@139",
+      "source": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::AllocateFrameBuffers@241",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::OnDestroy@101",
-      "target": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::DisposeFrameBuffers@181",
+      "source": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::ConfigureFrame@179",
+      "target": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::Intrinsics@301",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::OnDestroy@101",
-      "target": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::StopTracking@94",
+      "source": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::OnDestroy@140",
+      "target": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::DisposeFrameBuffers@287",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::OnFilmUpdateCompleted@109",
-      "target": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::BindAll@155",
+      "source": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::OnDestroy@140",
+      "target": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::StopTracking@133",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::OnFilmUpdateCompleted@109",
+      "source": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::OnFilmUpdateCompleted@149",
+      "target": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::BindFrame@195",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::OnFilmUpdateCompleted@149",
+      "target": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::ConfigureFrame@179",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::OnFilmUpdateCompleted@149",
       "target": "Runtime/Prism/Geometry/PrismFilmSpawner.cs::NotifyFilmsMutated@44",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::OnFilmUpdateCompleted@109",
+      "source": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::OnFilmUpdateCompleted@149",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::StartTracking@64",
+      "source": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::StartTracking@98",
       "target": "Runtime/Prism/Geometry/ContactBoundaryPool.cs::ContactBoundaryPool",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::StartTracking@64",
-      "target": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::AllocateFrameBuffers@139",
+      "source": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::StartTracking@98",
+      "target": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::AllocateFrameBuffers@241",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::StartTracking@64",
-      "target": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::BindAll@155",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::StartTracking@64",
+      "source": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::StartTracking@98",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::StopTracking@94",
+      "source": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::StopTracking@133",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
@@ -10556,7 +10802,7 @@
     },
     {
       "source": "Runtime/Prism/Geometry/PrismFilmSpawner.cs::PrismFilmSpawner",
-      "target": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::OnFilmsMutated@93",
+      "target": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::OnFilmsMutated@102",
       "kind": "event:FilmsMutated"
     },
     {
@@ -10596,11 +10842,6 @@
     },
     {
       "source": "Runtime/Prism/Geometry/PrismFilmUpdater.cs::OnConeEvents@119",
-      "target": "Runtime/Prism/Geometry/PrismFilmUpdater.cs::BindPersistent@193",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Prism/Geometry/PrismFilmUpdater.cs::OnConeEvents@119",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
@@ -10616,13 +10857,8 @@
     },
     {
       "source": "Runtime/Prism/Geometry/PrismFilmUpdater.cs::PrismFilmUpdater",
-      "target": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::OnFilmUpdateCompleted@109",
+      "target": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::OnFilmUpdateCompleted@149",
       "kind": "event:UpdateCompleted"
-    },
-    {
-      "source": "Runtime/Prism/Geometry/PrismFilmUpdater.cs::StartUpdating@72",
-      "target": "Runtime/Prism/Geometry/PrismFilmUpdater.cs::BindPersistent@193",
-      "kind": "calls"
     },
     {
       "source": "Runtime/Prism/Geometry/PrismFilmUpdater.cs::StartUpdating@72",
@@ -10635,42 +10871,47 @@
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::OnDestroy@84",
-      "target": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::StopBuilding@77",
+      "source": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::Bind@126",
+      "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::OnFilmsMutated@93",
+      "source": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::OnDestroy@93",
+      "target": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::StopBuilding@86",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::OnFilmsMutated@102",
       "target": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::MarkPublished@79",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::OnFilmsMutated@93",
-      "target": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::Bind@117",
+      "source": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::OnFilmsMutated@102",
+      "target": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::Bind@126",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::OnFilmsMutated@93",
+      "source": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::OnFilmsMutated@102",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::StartBuilding@45",
+      "source": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::StartBuilding@51",
       "target": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::EnsureCapacity@49",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::StartBuilding@45",
-      "target": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::Bind@117",
+      "source": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::StartBuilding@51",
+      "target": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::Bind@126",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::StartBuilding@45",
+      "source": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::StartBuilding@51",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::StopBuilding@77",
+      "source": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::StopBuilding@86",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
@@ -10711,7 +10952,7 @@
     },
     {
       "source": "Runtime/Prism/Geometry/PrismPredictionRenderer.cs::PrismPredictionRenderer",
-      "target": "Runtime/Prism/Association/PrismConeClassifier.cs::OnPrediction@103",
+      "target": "Runtime/Prism/Association/PrismConeClassifier.cs::OnPrediction@112",
       "kind": "event:PredictionReady"
     },
     {
@@ -10905,42 +11146,57 @@
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/ConeClassify.compute::BuildClassDispatchArguments@239",
+      "source": "Runtime/Resources/Prism/ConeClassify.compute::BuildClassDispatchArguments@357",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/ConeClassify.compute::ClassifyConeEvents@105",
-      "target": "Runtime/Resources/Prism/ConeClassify.compute::LoadRayDx@73",
+      "source": "Runtime/Resources/Prism/ConeClassify.compute::ClassifyConeEvents@220",
+      "target": "Runtime/Resources/Prism/ConeClassify.compute::HasCanonicalBoundary@162",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/ConeClassify.compute::ClassifyConeEvents@105",
-      "target": "Runtime/Resources/Prism/ConeClassify.compute::LoadRayDy@79",
+      "source": "Runtime/Resources/Prism/ConeClassify.compute::ClassifyConeEvents@220",
+      "target": "Runtime/Resources/Prism/ConeClassify.compute::LoadRayDx@113",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/ConeClassify.compute::ClassifyConeEvents@105",
-      "target": "Runtime/Resources/Prism/ConeClassify.compute::PublishEvent@85",
+      "source": "Runtime/Resources/Prism/ConeClassify.compute::ClassifyConeEvents@220",
+      "target": "Runtime/Resources/Prism/ConeClassify.compute::LoadRayDy@119",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/ConeClassify.compute::ClassifyConeEvents@105",
+      "source": "Runtime/Resources/Prism/ConeClassify.compute::ClassifyConeEvents@220",
+      "target": "Runtime/Resources/Prism/ConeClassify.compute::PublishEvent@200",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/Prism/ConeClassify.compute::ClassifyConeEvents@220",
       "target": "Runtime/Resources/Prism/ConeMath.hlsl::ConeSurfaceFootprint@13",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/ConeClassify.compute::ClassifyConeEvents@105",
+      "source": "Runtime/Resources/Prism/ConeClassify.compute::ClassifyConeEvents@220",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/ConeClassify.compute::ClearClassCounters@95",
+      "source": "Runtime/Resources/Prism/ConeClassify.compute::ClearClassCounters@210",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/ConeClassify.compute::PublishEvent@85",
+      "source": "Runtime/Resources/Prism/ConeClassify.compute::HasCanonicalBoundary@162",
+      "target": "Runtime/Resources/Prism/ConeClassify.compute::BoundaryDistance@145",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/Prism/ConeClassify.compute::HasCanonicalBoundary@162",
+      "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/Prism/ConeClassify.compute::PublishEvent@200",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
@@ -10960,42 +11216,152 @@
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::AccumulateBoundaryEvents@264",
-      "target": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::ResolveBoundary@148",
+      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::AccumulateBoundaryAbsence@620",
+      "target": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::DistanceToCurve@230",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::AccumulateBoundaryEvents@264",
+      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::AccumulateBoundaryAbsence@620",
+      "target": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::FindBoundary@269",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::AccumulateBoundaryAbsence@620",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::AtomicAddScaled@127",
+      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::AccumulateBoundaryEvents@517",
+      "target": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::DistanceToCurve@230",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::AccumulateBoundaryEvents@517",
+      "target": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::FindAdjacentFilm@463",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::AccumulateBoundaryEvents@517",
+      "target": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::FindBoundary@269",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::AccumulateBoundaryEvents@517",
+      "target": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::LoadDepthRay@152",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::AccumulateBoundaryEvents@517",
+      "target": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::RefineUvWithRgb@388",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::AccumulateBoundaryEvents@517",
+      "target": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::ResolveBoundary@291",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::AccumulateBoundaryEvents@517",
+      "target": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::ViewBin@377",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::AccumulateBoundaryEvents@517",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::InitializeBoundaryState@231",
+      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::AtomicAddScaled@248",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::MarkDirty@135",
+      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::DistanceToCurve@230",
+      "target": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::Cubic@223",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::FindAdjacentFilm@463",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::ResolveBoundary@148",
-      "target": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::HashKey@116",
+      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::FindBoundary@269",
+      "target": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::HashKey@141",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::ResolveBoundary@148",
+      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::FindBoundary@269",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::SolveDirtyBoundaries@307",
+      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::InitializeBoundaryState@487",
+      "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::MarkDirty@256",
+      "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::RefineUvWithRgb@388",
+      "target": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::LoadDepthRay@152",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::RefineUvWithRgb@388",
+      "target": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::PointToUv@216",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::RefineUvWithRgb@388",
+      "target": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::SobelMagnitude@170",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::RefineUvWithRgb@388",
+      "target": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::SurfacePoint@195",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::RefineUvWithRgb@388",
+      "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::ResolveBoundary@291",
+      "target": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::FindBoundary@269",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::ResolveBoundary@291",
+      "target": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::HashKey@141",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::ResolveBoundary@291",
+      "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::SobelMagnitude@170",
+      "target": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::Luminance@165",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::SobelMagnitude@170",
+      "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::SolveDirtyBoundaries@664",
+      "target": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::SurfacePoint@195",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::SolveDirtyBoundaries@664",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
@@ -11160,11 +11526,6 @@
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::RgbLuminanceAt@341",
-      "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::LoadRgb@50",
-      "kind": "calls"
-    },
-    {
       "source": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::SolveRangeSigma@189",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
@@ -11185,37 +11546,37 @@
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildAdaptiveFilmMeshlets@136",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildAdaptiveFilmMeshlets@242",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildAdaptiveFilmMeshlets@136",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::ChooseSubdivision@102",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildAdaptiveFilmMeshlets@242",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::ChooseSubdivision@208",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildAdaptiveFilmMeshlets@136",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::Height@63",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildAdaptiveFilmMeshlets@242",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::ClosestBoundaryPoint@122",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildAdaptiveFilmMeshlets@136",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::Reserve@82",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildAdaptiveFilmMeshlets@242",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::Reserve@188",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildAdaptiveFilmMeshlets@136",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::SurfaceNormal@70",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::ChooseSubdivision@102",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::ChooseSubdivision@208",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::Reserve@82",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::ClosestBoundaryPoint@122",
+      "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::Reserve@188",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
@@ -11326,7 +11687,7 @@
     },
     {
       "source": "Runtime/World/ChunkKeyframeArchive.cs::TryExtract@106",
-      "target": "Runtime/World/PrismCanonicalChunkCodec.cs::ReadBytes@173",
+      "target": "Runtime/World/PrismCanonicalChunkCodec.cs::ReadBytes@177",
       "kind": "calls"
     },
     {
@@ -11386,7 +11747,7 @@
     },
     {
       "source": "Runtime/World/ChunkRefinedArtifactCodec.cs::TryReadRgbaTexture@184",
-      "target": "Runtime/World/PrismCanonicalChunkCodec.cs::ReadBytes@173",
+      "target": "Runtime/World/PrismCanonicalChunkCodec.cs::ReadBytes@177",
       "kind": "calls"
     },
     {
@@ -11536,7 +11897,7 @@
     },
     {
       "source": "Runtime/World/ChunkSnapshotCodec.cs::ReadExact@341",
-      "target": "Runtime/World/PrismCanonicalChunkCodec.cs::ReadBytes@173",
+      "target": "Runtime/World/PrismCanonicalChunkCodec.cs::ReadBytes@177",
       "kind": "calls"
     },
     {
@@ -12520,7 +12881,7 @@
       "kind": "calls"
     },
     {
-      "source": "Runtime/World/PrismCanonicalChunkCodec.cs::ReadBytes@173",
+      "source": "Runtime/World/PrismCanonicalChunkCodec.cs::ReadBytes@177",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
@@ -12531,12 +12892,12 @@
     },
     {
       "source": "Runtime/World/PrismCanonicalChunkCodec.cs::TryRead@80",
-      "target": "Runtime/World/PrismCanonicalChunkCodec.cs::ReadBytes@173",
+      "target": "Runtime/World/PrismCanonicalChunkCodec.cs::ReadBytes@177",
       "kind": "calls"
     },
     {
       "source": "Runtime/World/PrismCanonicalChunkCodec.cs::TryRead@80",
-      "target": "Runtime/World/PrismCanonicalChunkCodec.cs::ValidateCounts@157",
+      "target": "Runtime/World/PrismCanonicalChunkCodec.cs::ValidateCounts@161",
       "kind": "calls"
     },
     {
@@ -12551,26 +12912,26 @@
     },
     {
       "source": "Runtime/World/PrismCanonicalChunkCodec.cs::TryWrite@41",
-      "target": "Runtime/World/PrismCanonicalChunkCodec.cs::WriteBytes@167",
+      "target": "Runtime/World/PrismCanonicalChunkCodec.cs::WriteBytes@171",
       "kind": "calls"
     },
     {
-      "source": "Runtime/World/PrismCanonicalChunkCodec.cs::Validate@137",
+      "source": "Runtime/World/PrismCanonicalChunkCodec.cs::Validate@139",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
     {
-      "source": "Runtime/World/PrismCanonicalChunkCodec.cs::Validate@137",
-      "target": "Runtime/World/PrismCanonicalChunkCodec.cs::LengthIs@164",
+      "source": "Runtime/World/PrismCanonicalChunkCodec.cs::Validate@139",
+      "target": "Runtime/World/PrismCanonicalChunkCodec.cs::LengthIs@168",
       "kind": "calls"
     },
     {
-      "source": "Runtime/World/PrismCanonicalChunkCodec.cs::Validate@137",
-      "target": "Runtime/World/PrismCanonicalChunkCodec.cs::ValidateCounts@157",
+      "source": "Runtime/World/PrismCanonicalChunkCodec.cs::Validate@139",
+      "target": "Runtime/World/PrismCanonicalChunkCodec.cs::ValidateCounts@161",
       "kind": "calls"
     },
     {
-      "source": "Runtime/World/PrismCanonicalChunkCodec.cs::ValidateCounts@157",
+      "source": "Runtime/World/PrismCanonicalChunkCodec.cs::ValidateCounts@161",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
@@ -12616,11 +12977,11 @@
     },
     {
       "source": "Runtime/World/PrismGpuSnapshotCapture.cs::CaptureAsync@17",
-      "target": "Runtime/World/PrismGpuSnapshotCapture.cs::RequestBytes@70",
+      "target": "Runtime/World/PrismGpuSnapshotCapture.cs::RequestBytes@72",
       "kind": "calls"
     },
     {
-      "source": "Runtime/World/PrismGpuSnapshotCapture.cs::RequestBytes@70",
+      "source": "Runtime/World/PrismGpuSnapshotCapture.cs::RequestBytes@72",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
@@ -14030,7 +14391,7 @@
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/PrismPersistenceContractTests.cs::CanonicalSnapshotRejectsTrailingOrMismatchedPayload@43",
+      "source": "Tests/Editor/PrismPersistenceContractTests.cs::CanonicalSnapshotRejectsTrailingOrMismatchedPayload@44",
       "target": "Runtime/World/PrismCanonicalChunkCodec.cs::TryRead@80",
       "kind": "calls"
     },
@@ -14041,7 +14402,7 @@
     },
     {
       "source": "Tests/Editor/PrismPersistenceContractTests.cs::CanonicalSnapshotRoundTripsExactPosteriorBytes@11",
-      "target": "Tests/Editor/PrismPersistenceContractTests.cs::Pattern@63",
+      "target": "Tests/Editor/PrismPersistenceContractTests.cs::Pattern@64",
       "kind": "calls"
     },
     {

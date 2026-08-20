@@ -12,7 +12,9 @@ namespace Genesis.RoomScan.Prism
         Active = 1u << 0,
         Uncertain = 1u << 1,
         Dirty = 1u << 2,
-        Persistent = 1u << 3
+        Persistent = 1u << 3,
+        Retired = 1u << 4,
+        MultiView = 1u << 5
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -34,8 +36,8 @@ namespace Genesis.RoomScan.Prism
         public float Contradiction;
         public uint Revision;
         public uint CellKey;
-        public uint Reserved0;
-        public uint Reserved1;
+        public uint ViewBinMask;
+        public uint LastSeenSequence;
 
         public const int Stride = 96;
     }
@@ -48,6 +50,8 @@ namespace Genesis.RoomScan.Prism
     public sealed class ContactBoundaryPool : IDisposable
     {
         private static readonly uint[] InitialAllocator = { 0u, 0u, 0u, 1u };
+        public const int InformationRecordsPerBoundary = 8;
+        public const int HashEntryStride = sizeof(uint) * 5;
 
         public ContactBoundaryPool(int capacity, int hashCapacity)
         {
@@ -55,11 +59,13 @@ namespace Genesis.RoomScan.Prism
             HashCapacity = NextPowerOfTwo(Math.Max(Capacity * 2, hashCapacity));
             Headers = new GraphicsBuffer(GraphicsBuffer.Target.Structured,
                 Capacity, ContactBoundaryHeaderGpu.Stride);
-            // Three float4 records: persistent UV moments, support/evidence, quality.
+            // UV posterior, evidence/quality, four canonical 3D cubic controls and
+            // multi-view/retirement state. These are resumable canonical data, not a
+            // transient render cache.
             Information = new GraphicsBuffer(GraphicsBuffer.Target.Structured,
-                checked(Capacity * 3), sizeof(float) * 4);
+                checked(Capacity * InformationRecordsPerBoundary), sizeof(float) * 4);
             HashEntries = new GraphicsBuffer(GraphicsBuffer.Target.Structured,
-                HashCapacity, sizeof(uint) * 5);
+                HashCapacity, HashEntryStride);
             Allocator = new GraphicsBuffer(GraphicsBuffer.Target.Structured,
                 4, sizeof(uint));
             Allocator.SetData(InitialAllocator);

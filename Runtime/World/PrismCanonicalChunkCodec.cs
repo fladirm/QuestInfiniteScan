@@ -26,7 +26,7 @@ namespace Genesis.RoomScan.World
     /// </summary>
     public static class PrismCanonicalChunkCodec
     {
-        public const int FormatVersion = 1;
+        public const int FormatVersion = 2;
         private const uint Magic = 0x33515043; // "CPQ3"
         private const uint EndianMarker = 0x01020304;
         private const int MaximumFilms = 1_000_000;
@@ -116,7 +116,9 @@ namespace Genesis.RoomScan.World
                 candidate.BoundaryHeaders = ReadBytes(reader,
                     checked(candidate.BoundaryCount * ContactBoundaryHeaderGpu.Stride));
                 candidate.BoundaryInformation = ReadBytes(reader,
-                    checked(candidate.BoundaryCount * 3 * sizeof(float) * 4));
+                    checked(candidate.BoundaryCount *
+                        ContactBoundaryPool.InformationRecordsPerBoundary *
+                        sizeof(float) * 4));
                 if (stream.Position != stream.Length)
                     throw new InvalidDataException("PRISM payload has trailing bytes.");
                 error = Validate(candidate);
@@ -147,7 +149,9 @@ namespace Genesis.RoomScan.World
                 !LengthIs(snapshot.BoundaryHeaders,
                     (long)snapshot.BoundaryCount * ContactBoundaryHeaderGpu.Stride) ||
                 !LengthIs(snapshot.BoundaryInformation,
-                    (long)snapshot.BoundaryCount * 3 * sizeof(float) * 4))
+                    (long)snapshot.BoundaryCount *
+                    ContactBoundaryPool.InformationRecordsPerBoundary *
+                    sizeof(float) * 4))
                 return "PRISM payload lengths do not match canonical counts.";
             if ((snapshot.FilmCount > 0 && snapshot.FilmGeneration == 0) ||
                 (snapshot.BoundaryCount > 0 && snapshot.BoundaryGeneration == 0))

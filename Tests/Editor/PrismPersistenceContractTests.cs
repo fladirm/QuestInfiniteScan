@@ -20,7 +20,8 @@ namespace Genesis.RoomScan.Tests
                 FilmHeaders = Pattern(2 * ContactFilmHeaderGpu.Stride, 3),
                 FilmInformation = Pattern(2 * 9 * 16, 5),
                 BoundaryHeaders = Pattern(ContactBoundaryHeaderGpu.Stride, 7),
-                BoundaryInformation = Pattern(3 * 16, 11)
+                BoundaryInformation = Pattern(
+                    ContactBoundaryPool.InformationRecordsPerBoundary * 16, 11)
             };
             using var stream = new MemoryStream();
 

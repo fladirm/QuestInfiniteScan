@@ -46,8 +46,41 @@ struct ContactMeshletVertex
     uint reserved1;
 };
 
+struct ContactBoundaryHeader
+{
+    uint id;
+    uint generation;
+    uint chunkId;
+    uint flags;
+    uint filmA;
+    uint filmAGeneration;
+    uint filmB;
+    uint filmBGeneration;
+    float4 controlUv01;
+    float4 controlUv23;
+    float sigma;
+    float support;
+    float confidence;
+    float contradiction;
+    uint revision;
+    uint cellKey;
+    uint viewBinMask;
+    uint lastSeenSequence;
+};
+
+struct BoundaryHashEntry
+{
+    uint hash;
+    uint filmId;
+    uint filmGeneration;
+    uint cellKey;
+    uint boundaryId;
+};
+
 StructuredBuffer<ContactFilmHeader> _FilmHeaders;
 StructuredBuffer<uint> _FilmAllocator;
+StructuredBuffer<ContactBoundaryHeader> _BoundaryHeaders;
+StructuredBuffer<BoundaryHashEntry> _BoundaryHash;
 RWStructuredBuffer<ContactMeshletVertex> _ContactVertices;
 RWStructuredBuffer<uint> _ContactIndices;
 RWStructuredBuffer<uint4> _DrawArguments;
@@ -58,8 +91,81 @@ uint _VertexCapacity;
 uint _IndexCapacity;
 uint _MaximumSubdivision;
 float _MinimumTessellationError;
+uint _HasBoundaries;
+uint _BoundaryHashMask;
+uint _BoundaryCellsPerAxis;
 
 static const uint FILM_ACTIVE = 1u;
+static const uint BOUNDARY_ACTIVE = 1u;
+static const uint BOUNDARY_PERSISTENT = 8u;
+static const uint VERTEX_BOUNDARY = 1u << 8u;
+
+uint BoundaryHashKey(uint filmId, uint generation, uint cellKey)
+{
+    uint value = filmId * 0x9e3779b9u;
+    value ^= generation + 0x85ebca6bu + (value << 6u) + (value >> 2u);
+    value ^= cellKey + 0xc2b2ae35u + (value << 6u) + (value >> 2u);
+    value ^= value >> 16u;
+    value *= 0x7feb352du;
+    value ^= value >> 15u;
+    return max(1u, value & 0x7fffffffu);
+}
+
+float2 BoundaryCubic(ContactBoundaryHeader boundary, float t)
+{
+    float s = 1.0 - t;
+    return s * s * s * boundary.controlUv01.xy +
+        3.0 * s * s * t * boundary.controlUv01.zw +
+        3.0 * s * t * t * boundary.controlUv23.xy +
+        t * t * t * boundary.controlUv23.zw;
+}
+
+bool ClosestBoundaryPoint(ContactFilmHeader film, float2 uv,
+    out float2 closestUv)
+{
+    closestUv = uv;
+    if (_HasBoundaries == 0u || film.boundaryCount == 0u) return false;
+    uint cells = max(_BoundaryCellsPerAxis, 1u);
+    int2 center = (int2)min((uint2)(saturate(uv) * (float)cells), cells - 1u);
+    float bestDistance = 1e9;
+    [unroll]
+    for (int cellY = -1; cellY <= 1; ++cellY)
+    [unroll]
+    for (int cellX = -1; cellX <= 1; ++cellX)
+    {
+        int2 cell = center + int2(cellX, cellY);
+        if (any(cell < 0) || any(cell >= (int)cells)) continue;
+        uint cellKey = (uint)cell.x | ((uint)cell.y << 16u);
+        uint hash = BoundaryHashKey(film.id, film.generation, cellKey);
+        [loop]
+        for (uint probe = 0u; probe < 16u; ++probe)
+        {
+            uint slot = (hash + probe * 0x9e3779b9u) & _BoundaryHashMask;
+            BoundaryHashEntry entry = _BoundaryHash[slot];
+            if (entry.hash == 0u) break;
+            if (entry.hash != hash || entry.filmId != film.id ||
+                entry.filmGeneration != film.generation ||
+                entry.cellKey != cellKey || entry.boundaryId == 0u) continue;
+            ContactBoundaryHeader boundary = _BoundaryHeaders[entry.boundaryId - 1u];
+            if (boundary.filmA != film.id ||
+                boundary.filmAGeneration != film.generation ||
+                (boundary.flags & (BOUNDARY_ACTIVE | BOUNDARY_PERSISTENT)) !=
+                    (BOUNDARY_ACTIVE | BOUNDARY_PERSISTENT)) continue;
+            [unroll]
+            for (uint sample = 0u; sample <= 16u; ++sample)
+            {
+                float2 candidate = BoundaryCubic(boundary, (float)sample / 16.0);
+                float distance = length(candidate - uv);
+                if (distance < bestDistance)
+                {
+                    bestDistance = distance;
+                    closestUv = candidate;
+                }
+            }
+        }
+    }
+    return bestDistance <= 0.55 / (float)cells;
+}
 
 float Height(ContactFilmHeader film, float u, float v)
 {
@@ -165,19 +271,22 @@ void BuildAdaptiveFilmMeshlets(uint3 id : SV_DispatchThreadID)
         for (uint x = 0u; x <= segments; ++x)
         {
             float2 uv = float2((float)x, (float)y) / (float)segments;
-            float u = lerp(-film.extentU, film.extentU, uv.x);
-            float v = lerp(-film.extentV, film.extentV, uv.y);
+            float2 surfaceUv;
+            bool onBoundary = ClosestBoundaryPoint(film, uv, surfaceUv);
+            if (!onBoundary) surfaceUv = uv;
+            float u = lerp(-film.extentU, film.extentU, surfaceUv.x);
+            float v = lerp(-film.extentV, film.extentV, surfaceUv.y);
             ContactMeshletVertex vertex;
             vertex.position = film.origin + u * film.tangentU + v * film.tangentV +
                 Height(film, u, v) * film.normal;
             vertex.filmId = film.id;
             vertex.normal = SurfaceNormal(film, u, v);
             vertex.generation = film.generation;
-            vertex.uv = uv;
+            vertex.uv = surfaceUv;
             vertex.sigma = film.sigmaNormal;
             vertex.confidence = film.confidence;
             vertex.sidedness = 1u;
-            vertex.flags = film.flags;
+            vertex.flags = film.flags | (onBoundary ? VERTEX_BOUNDARY : 0u);
             vertex.reserved0 = vertex.reserved1 = 0u;
             _ContactVertices[vertexBase + y * rowVertices + x] = vertex;
         }

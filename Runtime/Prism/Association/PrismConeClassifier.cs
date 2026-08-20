@@ -13,6 +13,7 @@ namespace Genesis.RoomScan.Prism
     public sealed class PrismConeClassifier : MonoBehaviour
     {
         [SerializeField] private PrismPredictionRenderer predictionRenderer;
+        [SerializeField] private PrismBoundaryGraph boundaryGraph;
         [SerializeField] private ComputeShader classifyCompute;
         [SerializeField, Range(3, 10)] private int eventRingSlots = 4;
         [SerializeField, Range(1f, 60f)] private float normalGateDegrees = 25f;
@@ -44,6 +45,11 @@ namespace Genesis.RoomScan.Prism
         private static readonly int ClassifiedIndicesId = Shader.PropertyToID("_ClassifiedIndices");
         private static readonly int ClassCountersId = Shader.PropertyToID("_ClassCounters");
         private static readonly int DispatchArgumentsId = Shader.PropertyToID("_ClassDispatchArguments");
+        private static readonly int HasCanonicalBoundariesId = Shader.PropertyToID("_HasCanonicalBoundaries");
+        private static readonly int BoundaryHashMaskId = Shader.PropertyToID("_CanonicalBoundaryHashMask");
+        private static readonly int BoundaryCellsPerAxisId = Shader.PropertyToID("_CanonicalBoundaryCellsPerAxis");
+        private static readonly int CanonicalBoundaryHeadersId = Shader.PropertyToID("_CanonicalBoundaryHeaders");
+        private static readonly int CanonicalBoundaryHashId = Shader.PropertyToID("_CanonicalBoundaryHash");
 
         private ConeEventBufferRing _ring;
         private ConeEventFrameLease _latest;
@@ -69,11 +75,14 @@ namespace Genesis.RoomScan.Prism
             return true;
         }
 
-        public void StartClassifying(PrismPredictionRenderer source = null)
+        public void StartClassifying(PrismPredictionRenderer source = null,
+            PrismBoundaryGraph boundaries = null)
         {
             if (_running) return;
             predictionRenderer = source != null ? source : predictionRenderer;
+            boundaryGraph = boundaries != null ? boundaries : boundaryGraph;
             predictionRenderer ??= GetComponent<PrismPredictionRenderer>();
+            boundaryGraph ??= GetComponent<PrismBoundaryGraph>();
             classifyCompute ??= Resources.Load<ComputeShader>("Prism/ConeClassify");
             if (predictionRenderer == null || classifyCompute == null)
             {
@@ -122,6 +131,7 @@ namespace Genesis.RoomScan.Prism
                 classifyCompute.SetFloat(BoundaryGateId, boundaryGate);
 
                 BindTextures(_classifyKernel, measured, prediction, luts);
+                BindCanonicalBoundaries(_classifyKernel);
                 classifyCompute.SetBuffer(_clearKernel, ClassCountersId,
                     eventsFrame.ClassCounters);
                 classifyCompute.SetBuffer(_clearKernel, DispatchArgumentsId,
@@ -152,6 +162,18 @@ namespace Genesis.RoomScan.Prism
                 eventsFrame.Dispose();
                 Logger.Error($"Cone-PRISM classification failed: {exception.Message}");
             }
+        }
+
+        private void BindCanonicalBoundaries(int kernel)
+        {
+            ContactBoundaryPool pool = boundaryGraph?.BoundaryPool;
+            bool available = pool != null && !pool.IsDisposed;
+            classifyCompute.SetInt(HasCanonicalBoundariesId, available ? 1 : 0);
+            if (!available) return;
+            classifyCompute.SetInt(BoundaryHashMaskId, pool.HashCapacity - 1);
+            classifyCompute.SetInt(BoundaryCellsPerAxisId, boundaryGraph.CellsPerAxis);
+            classifyCompute.SetBuffer(kernel, CanonicalBoundaryHeadersId, pool.Headers);
+            classifyCompute.SetBuffer(kernel, CanonicalBoundaryHashId, pool.HashEntries);
         }
 
         private void BindTextures(int kernel, NormalizedRigFrameLease measured,
