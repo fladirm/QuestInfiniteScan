@@ -1,0 +1,448 @@
+#pragma kernel PrepareChunkStage
+#pragma kernel ClearFilmRemap
+#pragma kernel StageFilms
+#pragma kernel StageBoundaries
+#pragma kernel ClearPageRemap
+#pragma kernel IndexBasePages
+#pragma kernel IndexMicroPages
+#pragma kernel CopyBasePages
+#pragma kernel CopyMicroPages
+#pragma kernel PatchFilmDisplacement
+#pragma kernel StageMeshlets
+#pragma kernel FinalizeChunkStage
+
+struct ContactFilmHeader
+{
+    uint id; uint generation; uint chunkId; uint flags;
+    float3 origin; float supportTotal;
+    float3 normal; float sigmaNormal;
+    float3 tangentU; float extentU;
+    float3 tangentV; float extentV;
+    float4 quadratic0123; float2 quadratic45;
+    float confidence; float contradiction;
+    uint revision; uint displacementPage; uint appearancePage;
+    uint boundaryStart; uint boundaryCount;
+    uint reserved0; uint reserved1; uint reserved2;
+};
+
+struct ContactBoundaryHeader
+{
+    uint id; uint generation; uint chunkId; uint flags;
+    uint filmA; uint filmAGeneration; uint filmB; uint filmBGeneration;
+    float4 controlUv01; float4 controlUv23;
+    float sigma; float support; float confidence; float contradiction;
+    uint revision; uint cellKey; uint viewBinMask; uint lastSeenSequence;
+};
+
+struct DisplacementPageHeader
+{
+    uint id; uint generation; uint filmId; uint filmGeneration;
+    uint level; uint parentPage; uint parentCell; uint flags;
+    float4 uvBounds;
+    uint bestFootprintBits; uint maximumVarianceBits; uint supportFixed;
+    uint revision;
+};
+
+struct DisplacementCell
+{
+    float displacement; float sigma; float support; float coverage;
+    float bestPrecision; float bestFootprint; float residualVariance;
+    uint revision;
+};
+
+struct ContactTopologyEvidence
+{
+    float positiveMoment; float positiveSupport;
+    float negativeMoment; float negativeSupport;
+    float residualVariance; float boundarySupport; float totalSupport;
+    uint revision;
+};
+
+struct ContactMeshletVertex
+{
+    float3 position; uint filmId;
+    float3 normal; uint generation;
+    float2 uv; float sigma; float confidence;
+    uint sidedness; uint flags; uint appearancePage; uint meshletIndex;
+};
+
+struct ContactMeshletDescriptor
+{
+    uint filmId; uint generation; uint vertexBase; uint maximumSegments;
+    float3 center; float radius;
+    float4 uvBounds;
+    float geometricError; float detailFootprint; float confidence;
+    uint appearancePage;
+    uint flags; uint sourceIndexBase; uint sourceIndexCount; uint reserved;
+};
+
+StructuredBuffer<ContactFilmHeader> _SourceFilmHeaders;
+StructuredBuffer<float4> _SourceFilmInformation;
+StructuredBuffer<uint> _SourceFilmAllocator;
+StructuredBuffer<ContactBoundaryHeader> _SourceBoundaryHeaders;
+StructuredBuffer<float4> _SourceBoundaryInformation;
+StructuredBuffer<uint> _SourceBoundaryAllocator;
+StructuredBuffer<DisplacementPageHeader> _SourceDisplacementPages;
+StructuredBuffer<DisplacementCell> _SourceBaseCells;
+StructuredBuffer<DisplacementCell> _SourceMicroCells;
+StructuredBuffer<uint> _SourceBaseChildren;
+StructuredBuffer<uint> _SourceMicroChildren;
+StructuredBuffer<ContactTopologyEvidence> _SourceTopologyEvidence;
+StructuredBuffer<uint> _SourceDisplacementAllocator;
+StructuredBuffer<ContactMeshletVertex> _SourceMeshletVertices;
+StructuredBuffer<uint> _SourceMeshletIndices;
+StructuredBuffer<ContactMeshletDescriptor> _SourceMeshletDescriptors;
+StructuredBuffer<uint> _SourceMeshletCounters;
+
+RWStructuredBuffer<ContactFilmHeader> _StageFilmHeaders;
+RWStructuredBuffer<float4> _StageFilmInformation;
+RWStructuredBuffer<uint> _StageFilmAllocator;
+RWStructuredBuffer<ContactBoundaryHeader> _StageBoundaryHeaders;
+RWStructuredBuffer<float4> _StageBoundaryInformation;
+RWStructuredBuffer<uint> _StageBoundaryAllocator;
+RWStructuredBuffer<DisplacementPageHeader> _StageDisplacementPages;
+RWStructuredBuffer<DisplacementCell> _StageBaseCells;
+RWStructuredBuffer<DisplacementCell> _StageMicroCells;
+RWStructuredBuffer<uint> _StageBaseChildren;
+RWStructuredBuffer<uint> _StageMicroChildren;
+RWStructuredBuffer<ContactTopologyEvidence> _StageTopologyEvidence;
+RWStructuredBuffer<uint> _StageDisplacementAllocator;
+RWStructuredBuffer<ContactMeshletVertex> _StageMeshletVertices;
+RWStructuredBuffer<uint> _StageMeshletIndices;
+RWStructuredBuffer<ContactMeshletDescriptor> _StageMeshletDescriptors;
+RWStructuredBuffer<uint> _StageMeshletCounters;
+RWStructuredBuffer<uint4> _StageMeshletDrawArguments;
+RWStructuredBuffer<uint3> _StageMeshletCullArguments;
+
+RWStructuredBuffer<uint> _FilmRemap;
+RWStructuredBuffer<uint> _BasePageRemap;
+RWStructuredBuffer<uint> _MicroPageRemap;
+RWStructuredBuffer<uint3> _StageDispatchArguments;
+
+uint _TargetChunkId;
+uint _SourceFilmCapacity;
+uint _SourceBoundaryCapacity;
+uint _SourceBasePageCapacity;
+uint _SourceMicroPageCapacity;
+uint _SourceDescriptorCapacity;
+uint _StageFilmCapacity;
+uint _StageBoundaryCapacity;
+uint _StageBasePageCapacity;
+uint _StageMicroPageCapacity;
+uint _StageVertexCapacity;
+uint _StageIndexCapacity;
+uint _StageDescriptorCapacity;
+
+static const uint FILM_ACTIVE = 1u;
+static const uint PAGE_ACTIVE = 1u;
+static const uint BASE_CELLS = 256u;
+static const uint MICRO_CELLS = 64u;
+
+[numthreads(1, 1, 1)]
+void PrepareChunkStage(uint3 id : SV_DispatchThreadID)
+{
+    uint films = min(_SourceFilmAllocator[0], _SourceFilmCapacity);
+    uint boundaries = min(_SourceBoundaryAllocator[0], _SourceBoundaryCapacity);
+    uint basePages = min(_SourceDisplacementAllocator[0],
+        _SourceBasePageCapacity);
+    uint microPages = min(_SourceDisplacementAllocator[1],
+        _SourceMicroPageCapacity);
+    uint descriptors = min(_SourceMeshletCounters[4],
+        _SourceDescriptorCapacity);
+    _StageDispatchArguments[0] = uint3((films + 63u) / 64u, 1u, 1u);
+    _StageDispatchArguments[1] = uint3((boundaries + 63u) / 64u, 1u, 1u);
+    _StageDispatchArguments[2] = uint3((basePages + 63u) / 64u, 1u, 1u);
+    _StageDispatchArguments[3] = uint3((microPages + 63u) / 64u, 1u, 1u);
+    _StageDispatchArguments[4] = uint3((descriptors + 63u) / 64u, 1u, 1u);
+    _StageFilmAllocator[0] = 0u;
+    _StageFilmAllocator[1] = 0u;
+    _StageFilmAllocator[2] = 0u;
+    _StageFilmAllocator[3] = max(1u, _SourceFilmAllocator[3]);
+    _StageBoundaryAllocator[0] = 0u;
+    _StageBoundaryAllocator[1] = 0u;
+    _StageBoundaryAllocator[2] = 0u;
+    _StageBoundaryAllocator[3] = max(1u, _SourceBoundaryAllocator[3]);
+    [unroll] for (uint i = 0u; i < 8u; ++i)
+        _StageDisplacementAllocator[i] = 0u;
+    _StageDisplacementAllocator[4] = max(1u, _SourceDisplacementAllocator[4]);
+    [unroll] for (uint i = 0u; i < 8u; ++i)
+        _StageMeshletCounters[i] = 0u;
+    _StageMeshletDrawArguments[0] = uint4(0u, 1u, 0u, 0u);
+    _StageMeshletCullArguments[0] = uint3(0u, 1u, 1u);
+}
+
+[numthreads(64, 1, 1)]
+void ClearFilmRemap(uint3 id : SV_DispatchThreadID)
+{
+    uint count = min(_SourceFilmAllocator[0], _SourceFilmCapacity);
+    if (id.x < count) _FilmRemap[id.x] = 0u;
+}
+
+[numthreads(64, 1, 1)]
+void StageFilms(uint3 id : SV_DispatchThreadID)
+{
+    uint count = min(_SourceFilmAllocator[0], _SourceFilmCapacity);
+    uint sourceIndex = id.x;
+    if (sourceIndex >= count) return;
+    ContactFilmHeader film = _SourceFilmHeaders[sourceIndex];
+    if (film.id == 0u || film.chunkId != _TargetChunkId) return;
+    uint destination;
+    InterlockedAdd(_StageFilmAllocator[0], 1u, destination);
+    if (destination >= _StageFilmCapacity)
+    {
+        InterlockedAdd(_StageFilmAllocator[2], 1u);
+        return;
+    }
+    uint localId = destination + 1u;
+    _FilmRemap[sourceIndex] = localId;
+    if ((film.flags & FILM_ACTIVE) != 0u)
+        InterlockedAdd(_StageFilmAllocator[1], 1u);
+    film.id = localId;
+    film.displacementPage = 0u;
+    film.boundaryStart = 0u;
+    film.boundaryCount = 0u;
+    _StageFilmHeaders[destination] = film;
+    [unroll] for (uint record = 0u; record < 9u; ++record)
+        _StageFilmInformation[destination * 9u + record] =
+            _SourceFilmInformation[sourceIndex * 9u + record];
+    _StageTopologyEvidence[destination] = _SourceTopologyEvidence[sourceIndex];
+}
+
+[numthreads(64, 1, 1)]
+void StageBoundaries(uint3 id : SV_DispatchThreadID)
+{
+    uint count = min(_SourceBoundaryAllocator[0], _SourceBoundaryCapacity);
+    uint sourceIndex = id.x;
+    if (sourceIndex >= count) return;
+    ContactBoundaryHeader boundary = _SourceBoundaryHeaders[sourceIndex];
+    if (boundary.id == 0u || boundary.chunkId != _TargetChunkId ||
+        boundary.filmA == 0u || boundary.filmA > _SourceFilmCapacity) return;
+    uint localA = _FilmRemap[boundary.filmA - 1u];
+    if (localA == 0u) return;
+    uint localB = 0u;
+    if (boundary.filmB > 0u && boundary.filmB <= _SourceFilmCapacity)
+        localB = _FilmRemap[boundary.filmB - 1u];
+    uint destination;
+    InterlockedAdd(_StageBoundaryAllocator[0], 1u, destination);
+    if (destination >= _StageBoundaryCapacity)
+    {
+        InterlockedAdd(_StageBoundaryAllocator[2], 1u);
+        return;
+    }
+    boundary.id = destination + 1u;
+    boundary.filmA = localA;
+    boundary.filmB = localB;
+    if (localB == 0u) boundary.filmBGeneration = 0u;
+    _StageBoundaryHeaders[destination] = boundary;
+    [unroll] for (uint record = 0u; record < 8u; ++record)
+        _StageBoundaryInformation[destination * 8u + record] =
+            _SourceBoundaryInformation[sourceIndex * 8u + record];
+    InterlockedAdd(_StageFilmHeaders[localA - 1u].boundaryCount, 1u);
+    if (localB > 0u)
+        InterlockedAdd(_StageFilmHeaders[localB - 1u].boundaryCount, 1u);
+    InterlockedAdd(_StageBoundaryAllocator[1], 1u);
+}
+
+[numthreads(64, 1, 1)]
+void ClearPageRemap(uint3 id : SV_DispatchThreadID)
+{
+    uint baseCount = min(_SourceDisplacementAllocator[0],
+        _SourceBasePageCapacity);
+    uint microCount = min(_SourceDisplacementAllocator[1],
+        _SourceMicroPageCapacity);
+    if (id.x < baseCount) _BasePageRemap[id.x] = 0u;
+    if (id.x < microCount) _MicroPageRemap[id.x] = 0u;
+}
+
+[numthreads(64, 1, 1)]
+void IndexBasePages(uint3 id : SV_DispatchThreadID)
+{
+    uint count = min(_SourceDisplacementAllocator[0],
+        _SourceBasePageCapacity);
+    uint sourceIndex = id.x;
+    if (sourceIndex >= count) return;
+    DisplacementPageHeader page = _SourceDisplacementPages[sourceIndex];
+    if ((page.flags & PAGE_ACTIVE) == 0u || page.filmId == 0u ||
+        page.filmId > _SourceFilmCapacity ||
+        _FilmRemap[page.filmId - 1u] == 0u) return;
+    uint destination;
+    InterlockedAdd(_StageDisplacementAllocator[0], 1u, destination);
+    if (destination >= _StageBasePageCapacity)
+    {
+        InterlockedAdd(_StageDisplacementAllocator[2], 1u);
+        return;
+    }
+    _BasePageRemap[sourceIndex] = destination + 1u;
+}
+
+[numthreads(64, 1, 1)]
+void IndexMicroPages(uint3 id : SV_DispatchThreadID)
+{
+    uint count = min(_SourceDisplacementAllocator[1],
+        _SourceMicroPageCapacity);
+    uint sourceIndex = id.x;
+    if (sourceIndex >= count) return;
+    DisplacementPageHeader page =
+        _SourceDisplacementPages[_SourceBasePageCapacity + sourceIndex];
+    if ((page.flags & PAGE_ACTIVE) == 0u || page.filmId == 0u ||
+        page.filmId > _SourceFilmCapacity ||
+        _FilmRemap[page.filmId - 1u] == 0u) return;
+    uint destination;
+    InterlockedAdd(_StageDisplacementAllocator[1], 1u, destination);
+    if (destination >= _StageMicroPageCapacity)
+    {
+        InterlockedAdd(_StageDisplacementAllocator[3], 1u);
+        return;
+    }
+    _MicroPageRemap[sourceIndex] = destination + 1u;
+}
+
+[numthreads(64, 1, 1)]
+void CopyBasePages(uint3 id : SV_DispatchThreadID)
+{
+    uint count = min(_SourceDisplacementAllocator[0],
+        _SourceBasePageCapacity);
+    uint sourceIndex = id.x;
+    if (sourceIndex >= count) return;
+    uint destinationHandle = _BasePageRemap[sourceIndex];
+    if (destinationHandle == 0u) return;
+    uint destination = destinationHandle - 1u;
+    DisplacementPageHeader page = _SourceDisplacementPages[sourceIndex];
+    page.id = destinationHandle;
+    page.filmId = _FilmRemap[page.filmId - 1u];
+    page.parentPage = 0u;
+    _StageDisplacementPages[destination] = page;
+    uint sourceCellBase = sourceIndex * BASE_CELLS;
+    uint destinationCellBase = destination * BASE_CELLS;
+    [loop] for (uint cell = 0u; cell < BASE_CELLS; ++cell)
+    {
+        _StageBaseCells[destinationCellBase + cell] =
+            _SourceBaseCells[sourceCellBase + cell];
+        uint child = _SourceBaseChildren[sourceCellBase + cell];
+        _StageBaseChildren[destinationCellBase + cell] =
+            child > 0u && child <= _SourceMicroPageCapacity
+                ? _MicroPageRemap[child - 1u]
+                : 0u;
+    }
+}
+
+[numthreads(64, 1, 1)]
+void CopyMicroPages(uint3 id : SV_DispatchThreadID)
+{
+    uint count = min(_SourceDisplacementAllocator[1],
+        _SourceMicroPageCapacity);
+    uint sourceIndex = id.x;
+    if (sourceIndex >= count) return;
+    uint destinationHandle = _MicroPageRemap[sourceIndex];
+    if (destinationHandle == 0u) return;
+    uint destination = destinationHandle - 1u;
+    DisplacementPageHeader page =
+        _SourceDisplacementPages[_SourceBasePageCapacity + sourceIndex];
+    page.id = destinationHandle;
+    page.filmId = _FilmRemap[page.filmId - 1u];
+    if (page.parentPage > 0u)
+    {
+        uint parentIndex = page.parentPage - 1u;
+        if (parentIndex < _SourceBasePageCapacity)
+            page.parentPage = _BasePageRemap[parentIndex];
+        else
+        {
+            uint parentMicro = parentIndex - _SourceBasePageCapacity;
+            uint mapped = parentMicro < _SourceMicroPageCapacity
+                ? _MicroPageRemap[parentMicro]
+                : 0u;
+            page.parentPage = mapped > 0u
+                ? _StageBasePageCapacity + mapped
+                : 0u;
+        }
+    }
+    _StageDisplacementPages[_StageBasePageCapacity + destination] = page;
+    uint sourceCellBase = sourceIndex * MICRO_CELLS;
+    uint destinationCellBase = destination * MICRO_CELLS;
+    [loop] for (uint cell = 0u; cell < MICRO_CELLS; ++cell)
+    {
+        _StageMicroCells[destinationCellBase + cell] =
+            _SourceMicroCells[sourceCellBase + cell];
+        uint child = _SourceMicroChildren[sourceCellBase + cell];
+        _StageMicroChildren[destinationCellBase + cell] =
+            child > 0u && child <= _SourceMicroPageCapacity
+                ? _MicroPageRemap[child - 1u]
+                : 0u;
+    }
+}
+
+[numthreads(64, 1, 1)]
+void PatchFilmDisplacement(uint3 id : SV_DispatchThreadID)
+{
+    uint count = min(_SourceFilmAllocator[0], _SourceFilmCapacity);
+    uint sourceIndex = id.x;
+    if (sourceIndex >= count) return;
+    uint localFilm = _FilmRemap[sourceIndex];
+    if (localFilm == 0u) return;
+    uint sourceHandle = _SourceFilmHeaders[sourceIndex].displacementPage;
+    uint mapped = sourceHandle > 0u && sourceHandle <= _SourceBasePageCapacity
+        ? _BasePageRemap[sourceHandle - 1u]
+        : 0u;
+    _StageFilmHeaders[localFilm - 1u].displacementPage = mapped;
+}
+
+[numthreads(64, 1, 1)]
+void StageMeshlets(uint3 id : SV_DispatchThreadID)
+{
+    uint count = min(_SourceMeshletCounters[4], _SourceDescriptorCapacity);
+    uint sourceDescriptorIndex = id.x;
+    if (sourceDescriptorIndex >= count) return;
+    ContactMeshletDescriptor descriptor =
+        _SourceMeshletDescriptors[sourceDescriptorIndex];
+    if (descriptor.filmId == 0u || descriptor.filmId > _SourceFilmCapacity)
+        return;
+    uint localFilm = _FilmRemap[descriptor.filmId - 1u];
+    if (localFilm == 0u || descriptor.maximumSegments == 0u) return;
+    uint row = descriptor.maximumSegments + 1u;
+    uint vertexCount = row * row;
+    uint vertexBase;
+    uint indexBase;
+    uint destinationDescriptor;
+    InterlockedAdd(_StageMeshletCounters[0], vertexCount, vertexBase);
+    InterlockedAdd(_StageMeshletCounters[1], descriptor.sourceIndexCount, indexBase);
+    InterlockedAdd(_StageMeshletCounters[4], 1u, destinationDescriptor);
+    if (vertexBase + vertexCount > _StageVertexCapacity ||
+        indexBase + descriptor.sourceIndexCount > _StageIndexCapacity ||
+        destinationDescriptor >= _StageDescriptorCapacity)
+    {
+        InterlockedAdd(_StageMeshletCounters[2], 1u);
+        return;
+    }
+    [loop] for (uint vertex = 0u; vertex < vertexCount; ++vertex)
+    {
+        ContactMeshletVertex value =
+            _SourceMeshletVertices[descriptor.vertexBase + vertex];
+        value.filmId = localFilm;
+        value.meshletIndex = destinationDescriptor;
+        _StageMeshletVertices[vertexBase + vertex] = value;
+    }
+    [loop] for (uint index = 0u; index < descriptor.sourceIndexCount; ++index)
+    {
+        uint sourceVertex =
+            _SourceMeshletIndices[descriptor.sourceIndexBase + index];
+        _StageMeshletIndices[indexBase + index] = vertexBase +
+            (sourceVertex - descriptor.vertexBase);
+    }
+    descriptor.filmId = localFilm;
+    descriptor.vertexBase = vertexBase;
+    descriptor.sourceIndexBase = indexBase;
+    descriptor.reserved = localFilm - 1u;
+    _StageMeshletDescriptors[destinationDescriptor] = descriptor;
+    InterlockedAdd(_StageMeshletCounters[3], 1u);
+}
+
+[numthreads(1, 1, 1)]
+void FinalizeChunkStage(uint3 id : SV_DispatchThreadID)
+{
+    uint indexCount = min(_StageMeshletCounters[1], _StageIndexCapacity);
+    uint descriptorCount = min(_StageMeshletCounters[4],
+        _StageDescriptorCapacity);
+    _StageMeshletDrawArguments[0] = uint4(indexCount, 1u, 0u, 0u);
+    _StageMeshletCullArguments[0] =
+        uint3((descriptorCount + 63u) / 64u, 1u, 1u);
+}

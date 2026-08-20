@@ -70,10 +70,17 @@ Updated: 2026-08-20 (Europe/Prague)
   Hi-Z culling emits compact indirect indices plus independent geometry/appearance LOD;
   the peeled association layer conservatively retains hidden films. Both OpenGL and
   forced-Vulkan focused contracts passed 5/5 with no CPU geometry/readback path.
-- `Q3-13` is active. Existing foundations include a strict
-  native canonical chunk codec, fenced asynchronous GPU snapshot capture, and
-  atomic `WorldStore` publication. These runs stay pending until their remaining
-  acceptance work is complete.
+- `Q3-13` is implemented. Cone-PRISM schema v3 persists the exact film posterior,
+  hierarchical displacement/topology state, multi-segment boundaries, appearance,
+  observations, meshlets, transforms, and keyframe references. GPU compaction stages
+  immutable chunk snapshots; background readback cannot enter the capture/render hot
+  path. Revisit bulk-rehydrates the same canonical solve, visible recent chunks retain
+  GPU-indirect meshlet caches, interrupted publication preserves the prior revision,
+  and 20 alternating transitions no longer enter the archived disappearance/finalizing
+  failure. Forced-Vulkan EditMode passed 115/115 runnable tests (3 intentionally skipped).
+- `Q3-14` is active. The next production path conditions calibrated L/R photometric
+  pressure on unresolved ContactFilm posterior intervals and feeds accepted normal-axis
+  corrections into the same geometry/displacement information state.
 
 ## Reuse map
 
@@ -115,11 +122,11 @@ Remove from the shipped product after PRISM parity:
 
 ## Immediate implementation actions
 
-1. Complete Q3-13 native PRISM chunk residency, page rehydration, restart, and revisit
-   while keeping the scan hot path GPU-only.
+1. Implement Q3-14 ContactFilm-conditioned L/R narrow stereo with posterior-centered
+   coarse/fine candidates, ambiguity rejection, and same-posterior pressure updates.
 2. Keep physical Quest validation batched at useful vertical milestones rather than
    interrupting implementation for trivial plumbing checks.
-3. Continue Q3-14 surface-conditioned stereo immediately after durable revisits work.
+3. Continue directly into Q3-15 temporal cone-bundle focusing after stereo contracts.
 
 ## Safety
 

@@ -132,6 +132,7 @@ namespace Genesis.RoomScan
         private PrismBoundaryGraph _prismBoundaryGraph;
         private PrismDisplacementTopology _prismDisplacementTopology;
         private PrismMeshletBuilder _prismMeshletBuilder;
+        private PrismChunkResidencyManager _prismChunkResidency;
         private TriplanarCache _triplanarCache;
         private KeyframeCollector _keyframeCollector;
         private IGSplatProvider _gsplatProvider;
@@ -220,6 +221,9 @@ namespace Genesis.RoomScan
             _prismDisplacementTopology;
         /// <summary>GPU ContactFilm-to-meshlet publication stage.</summary>
         public PrismMeshletBuilder PrismMeshletBuilder => _prismMeshletBuilder;
+        /// <summary>Native PRISM chunk staging, paging, restart, and revisit.</summary>
+        public PrismChunkResidencyManager PrismChunkResidency =>
+            _prismChunkResidency;
         /// <summary>The optional Gaussian Splat provider, or null if the GSplat module is not attached.</summary>
         public IGSplatProvider GSplatProvider => _gsplatProvider;
         /// <summary>True when the TextureRefinement module is attached.</summary>
@@ -433,6 +437,10 @@ namespace Genesis.RoomScan
             _debugMenu = GetComponentInChildren<DebugMenuController>();
             _roomAnchor = GetComponent<RoomAnchorManager>();
             _submapManager = GetComponent<SubmapManager>();
+            _prismChunkResidency = GetComponent<PrismChunkResidencyManager>();
+            if (_submapManager != null && _prismChunkResidency == null)
+                _prismChunkResidency =
+                    gameObject.AddComponent<PrismChunkResidencyManager>();
         }
 
         /// <summary>
@@ -674,21 +682,7 @@ namespace Genesis.RoomScan
                 // pulling frames steadily.
                 ICameraProvider provider = GetActiveCameraProvider();
                 provider?.StartCapture();
-                _prismFilmSpawner?.StartSpawning(_prismConeClassifier);
-                _prismFilmUpdater?.StartUpdating(_prismConeClassifier,
-                    _prismFilmSpawner);
-                _prismBoundaryGraph?.StartTracking(_prismFilmUpdater,
-                    _prismFilmSpawner);
-                _prismDisplacementTopology?.StartUpdating(_prismBoundaryGraph,
-                    _prismFilmSpawner);
-                _prismConeClassifier?.StartClassifying(_prismPredictionRenderer,
-                    _prismBoundaryGraph);
-                _prismPredictionRenderer?.StartRendering(_prismDepthPreprocessor);
-                _prismMeshletBuilder?.StartBuilding(_prismFilmSpawner,
-                    _prismPredictionRenderer, _prismBoundaryGraph,
-                    _prismDisplacementTopology);
-                _prismDepthPreprocessor?.StartProcessing(_prismRigCapture);
-                _prismRigCapture?.StartCapture();
+                StartPrismPipeline();
                 _depthCapture.StartDepthCapture();
 
                 if (!resuming)
@@ -749,6 +743,59 @@ namespace Genesis.RoomScan
             IsScanning = false;
 
             ICameraProvider provider = GetActiveCameraProvider();
+            StopPrismPipeline();
+            provider?.StopCapture();
+            _depthCapture.StopDepthCapture();
+
+            ScanStopped?.Invoke();
+            if (_modules != null)
+                foreach (var m in _modules) m.OnScanStopped();
+        }
+
+        /// <summary>
+        /// Pauses only Cone-PRISM consumers while a durable chunk is atomically
+        /// rehydrated. There is no synchronous GPU readback in this path.
+        /// </summary>
+        internal void PausePrismForResidency() => StopPrismPipeline();
+
+        internal void ResumePrismAfterResidency()
+        {
+            if (IsScanning) StartPrismPipeline();
+        }
+
+        internal void ConfigurePrismChunk(ChunkRecord chunk)
+        {
+            if (chunk == null) return;
+            uint numericId = PrismChunkIdentity.ToNumericId(chunk.chunkId);
+            Matrix4x4 worldFromChunk = chunk.worldFromChunk.ToMatrix();
+            _prismFilmSpawner?.SetChunkFrame(numericId, worldFromChunk);
+            _prismFilmUpdater?.SetChunkFrame(worldFromChunk);
+            _prismBoundaryGraph?.SetChunkFrame(worldFromChunk);
+            _prismDisplacementTopology?.SetChunkFrame(worldFromChunk);
+            _prismPredictionRenderer?.Meshlets?.SetChunkTransform(worldFromChunk);
+        }
+
+        private void StartPrismPipeline()
+        {
+            _prismFilmSpawner?.StartSpawning(_prismConeClassifier);
+            _prismFilmUpdater?.StartUpdating(_prismConeClassifier,
+                _prismFilmSpawner);
+            _prismBoundaryGraph?.StartTracking(_prismFilmUpdater,
+                _prismFilmSpawner);
+            _prismDisplacementTopology?.StartUpdating(_prismBoundaryGraph,
+                _prismFilmSpawner);
+            _prismConeClassifier?.StartClassifying(_prismPredictionRenderer,
+                _prismBoundaryGraph);
+            _prismPredictionRenderer?.StartRendering(_prismDepthPreprocessor);
+            _prismMeshletBuilder?.StartBuilding(_prismFilmSpawner,
+                _prismPredictionRenderer, _prismBoundaryGraph,
+                _prismDisplacementTopology);
+            _prismDepthPreprocessor?.StartProcessing(_prismRigCapture);
+            _prismRigCapture?.StartCapture();
+        }
+
+        private void StopPrismPipeline()
+        {
             _prismMeshletBuilder?.StopBuilding();
             _prismDisplacementTopology?.StopUpdating();
             _prismBoundaryGraph?.StopTracking();
@@ -758,12 +805,6 @@ namespace Genesis.RoomScan
             _prismPredictionRenderer?.StopRendering();
             _prismDepthPreprocessor?.StopProcessing();
             _prismRigCapture?.StopCapture();
-            provider?.StopCapture();
-            _depthCapture.StopDepthCapture();
-
-            ScanStopped?.Invoke();
-            if (_modules != null)
-                foreach (var m in _modules) m.OnScanStopped();
         }
 
         /// <summary>

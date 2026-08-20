@@ -1,4 +1,6 @@
 #pragma kernel InitializeBoundaryState
+#pragma kernel ClearLoadedBoundaryHash
+#pragma kernel RehashLoadedBoundaries
 #pragma kernel ClearBoundaryFrame
 #pragma kernel AccumulateBoundaryEvents
 #pragma kernel AccumulateBoundaryAbsence
@@ -505,6 +507,45 @@ void InitializeBoundaryState(uint3 id : SV_DispatchThreadID)
             _BoundaryDirtyState[state] = 0u;
         _BoundarySolveArguments[0] = uint3(0u, 1u, 1u);
     }
+}
+
+[numthreads(64, 1, 1)]
+void ClearLoadedBoundaryHash(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x <= _HashMask) _BoundaryHash[id.x] = (BoundaryHashEntry)0;
+}
+
+[numthreads(64, 1, 1)]
+void RehashLoadedBoundaries(uint3 id : SV_DispatchThreadID)
+{
+    uint count = min(_BoundaryAllocator[0], _BoundaryCapacity);
+    uint index = id.x;
+    if (index >= count) return;
+    ContactBoundaryHeader boundary = _BoundaryHeaders[index];
+    if ((boundary.flags & BOUNDARY_ACTIVE) == 0u ||
+        (boundary.flags & BOUNDARY_RETIRED) != 0u || boundary.filmA == 0u)
+        return;
+    uint hash = HashKey(boundary.filmA, boundary.filmAGeneration,
+        boundary.cellKey);
+    [loop]
+    for (uint probe = 0u; probe < 32u; ++probe)
+    {
+        uint slot = (hash + probe * 0x9e3779b9u) & _HashMask;
+        uint observed;
+        InterlockedCompareExchange(_BoundaryHash[slot].hash, 0u, hash, observed);
+        if (observed == 0u || observed == hash)
+        {
+            BoundaryHashEntry entry;
+            entry.hash = hash;
+            entry.filmId = boundary.filmA;
+            entry.filmGeneration = boundary.filmAGeneration;
+            entry.cellKey = boundary.cellKey;
+            entry.boundaryId = boundary.id;
+            _BoundaryHash[slot] = entry;
+            return;
+        }
+    }
+    InterlockedAdd(_BoundaryAllocator[2], 1u);
 }
 
 [numthreads(1, 1, 1)]

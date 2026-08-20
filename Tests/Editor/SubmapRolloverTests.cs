@@ -164,6 +164,47 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
+        public void TwentyAlternatingRevisitsKeepBothChunksRecoverable()
+        {
+            SubmapRolloverController controller = CreateController(out WorldStore store);
+            long time = 10_000;
+            for (int transition = 0; transition < 20; transition++)
+            {
+                Vector3 center = controller.ActiveChunk.worldFromChunk.TransformPoint(
+                    Vector3.zero);
+                Assert.That(controller.TryObserveCamera(center, time += 1_100,
+                    out _, out string centerError), Is.False, centerError);
+                float direction = transition % 2 == 0 ? 1f : -1f;
+                Vector3 crossing = controller.ActiveChunk.worldFromChunk.TransformPoint(
+                    new Vector3(direction * 6.25f, 0f, 0f));
+                Assert.That(controller.TryObserveCamera(crossing, time += 1_100,
+                    out SubmapRolloverRequest request, out string observeError),
+                    Is.True, observeError);
+                if (transition >= 1)
+                    Assert.That(request.IsRevisit, Is.True,
+                        $"transition {transition} must revisit the existing peer");
+                Assert.That(controller.TryCommitPending(store, ++time,
+                    out ChunkRecord active, out string commitError), Is.True,
+                    commitError);
+                Assert.That(active.state, Is.EqualTo(ChunkLifecycleState.Active));
+                Assert.That(controller.Manifest.chunks,
+                    Has.None.Matches<ChunkRecord>(chunk =>
+                        chunk.state == ChunkLifecycleState.Finalizing));
+                Assert.That(controller.ResidentVolumeCount, Is.EqualTo(1));
+            }
+
+            Assert.That(controller.Manifest.chunks.Count, Is.EqualTo(2));
+            Assert.That(controller.Manifest.edges.Count, Is.EqualTo(20));
+            Assert.That(store.TryLoadManifest(controller.Manifest.worldId,
+                out WorldManifest persisted, out _, out string loadError), Is.True,
+                loadError);
+            Assert.That(persisted.chunks.Count, Is.EqualTo(2));
+            Assert.That(persisted.chunks,
+                Has.None.Matches<ChunkRecord>(chunk =>
+                    chunk.state == ChunkLifecycleState.Finalizing));
+        }
+
+        [Test]
         public void WorldFactoryNeverOverwritesAnExistingWorld()
         {
             var store = new WorldStore(_root);

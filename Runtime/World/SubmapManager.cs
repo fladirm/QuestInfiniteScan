@@ -371,6 +371,7 @@ namespace Genesis.RoomScan.World
             _volume.ReallocateVolumes();
             _volume.Clear();
             ConfigureChunkKeyframes(_controller.ActiveChunk, false);
+            _scanner?.ConfigurePrismChunk(_controller.ActiveChunk);
             ActiveChunkChanged?.Invoke(_controller.ActiveChunk);
             Logger.Info($"Infinite world started: {worldId}, chunk={_controller.ActiveChunk.chunkId}, " +
                         $"bounds={bounds.extents * 2f}");
@@ -406,6 +407,7 @@ namespace Genesis.RoomScan.World
             _recentVolumeChunkId = null;
             _recentVolumeSnapshot = null;
             ResetOverlapPipeline();
+            _scanner?.ConfigurePrismChunk(_controller.ActiveChunk);
             ActiveChunkChanged?.Invoke(_controller.ActiveChunk);
             _volume.ReallocateVolumes();
             _volume.Clear();
@@ -486,6 +488,7 @@ namespace Genesis.RoomScan.World
             if (_keyframes != null)
                 _keyframes.CaptureEnabled = !pending.IsRevisit ||
                     _keyframeRestoreTask == null || _keyframeRestoreTask.IsCompleted;
+            _scanner?.ConfigurePrismChunk(target);
             ActiveChunkChanged?.Invoke(target);
             _meshCache?.RefreshTransforms(_controller.Manifest);
             _diffSoupCache?.RefreshTransforms(_controller.Manifest);

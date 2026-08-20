@@ -89,8 +89,10 @@ namespace Genesis.RoomScan.World
             if (manifest.chunks == null || !manifest.chunks.Contains(chunk))
                 return "Chunk is not part of the supplied world.";
             if (chunk.state != ChunkLifecycleState.Active &&
-                chunk.state != ChunkLifecycleState.Finalizing)
-                return "Only active/finalizing chunks can publish PRISM state.";
+                chunk.state != ChunkLifecycleState.Finalizing &&
+                chunk.state != ChunkLifecycleState.Persisted &&
+                chunk.state != ChunkLifecycleState.Cached)
+                return "Only live or durable chunks can publish PRISM state.";
             if (chunk.revision == int.MaxValue || manifest.revision == int.MaxValue)
                 return "PRISM revision is exhausted.";
             if (unixMilliseconds < chunk.updatedUnixMilliseconds ||

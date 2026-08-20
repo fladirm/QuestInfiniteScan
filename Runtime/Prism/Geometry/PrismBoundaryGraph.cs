@@ -79,6 +79,8 @@ namespace Genesis.RoomScan.Prism
         private GraphicsBuffer _dirtyState;
         private GraphicsBuffer _solveArguments;
         private int _initializeKernel = -1;
+        private int _clearLoadedHashKernel = -1;
+        private int _rehashLoadedKernel = -1;
         private int _clearKernel = -1;
         private int _accumulateKernel = -1;
         private int _absenceKernel = -1;
@@ -115,6 +117,10 @@ namespace Genesis.RoomScan.Prism
             _pool ??= new ContactBoundaryPool(boundaryCapacity, hashCapacity);
             AllocateFrameBuffers(_pool.Capacity);
             _initializeKernel = boundaryCompute.FindKernel("InitializeBoundaryState");
+            _clearLoadedHashKernel =
+                boundaryCompute.FindKernel("ClearLoadedBoundaryHash");
+            _rehashLoadedKernel =
+                boundaryCompute.FindKernel("RehashLoadedBoundaries");
             _clearKernel = boundaryCompute.FindKernel("ClearBoundaryFrame");
             _accumulateKernel = boundaryCompute.FindKernel("AccumulateBoundaryEvents");
             _absenceKernel = boundaryCompute.FindKernel("AccumulateBoundaryAbsence");
@@ -129,6 +135,31 @@ namespace Genesis.RoomScan.Prism
             }
             filmUpdater.UpdateCompleted += OnFilmUpdateCompleted;
             _running = true;
+        }
+
+        /// <summary>Rebuilds only the derived lookup after canonical bulk restore.</summary>
+        public void RebuildCanonicalIndex()
+        {
+            if (_pool == null || _pool.IsDisposed) return;
+            boundaryCompute ??=
+                Resources.Load<ComputeShader>("Prism/ContactBoundaryUpdate");
+            if (boundaryCompute == null) return;
+            if (_clearLoadedHashKernel < 0)
+                _clearLoadedHashKernel =
+                    boundaryCompute.FindKernel("ClearLoadedBoundaryHash");
+            if (_rehashLoadedKernel < 0)
+                _rehashLoadedKernel =
+                    boundaryCompute.FindKernel("RehashLoadedBoundaries");
+            if (_initializeKernel < 0)
+                _initializeKernel = boundaryCompute.FindKernel(
+                    "InitializeBoundaryState");
+            AllocateFrameBuffers(_pool.Capacity);
+            BindPersistent();
+            boundaryCompute.Dispatch(_clearLoadedHashKernel,
+                CeilDiv(_pool.HashCapacity, 64), 1, 1);
+            boundaryCompute.Dispatch(_rehashLoadedKernel,
+                CeilDiv(_pool.Capacity, 64), 1, 1);
+            _initialized = true;
         }
 
         public void StopTracking()
@@ -261,8 +292,9 @@ namespace Genesis.RoomScan.Prism
             boundaryCompute.SetInt(HashMaskId, _pool.HashCapacity - 1);
             int[] kernels =
             {
-                _initializeKernel, _clearKernel, _accumulateKernel, _absenceKernel,
-                _buildArgsKernel, _solveKernel
+                _initializeKernel, _clearLoadedHashKernel, _rehashLoadedKernel,
+                _clearKernel, _accumulateKernel, _absenceKernel, _buildArgsKernel,
+                _solveKernel
             };
             foreach (int kernel in kernels)
             {

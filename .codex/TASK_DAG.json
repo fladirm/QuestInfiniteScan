@@ -244,7 +244,7 @@
     {
       "id": "Q3-13",
       "title": "Implement infinite chunk paging, native PRISM persistence, restart, and revisit",
-      "status": "in_progress",
+      "status": "done",
       "depends_on": ["Q3-12"],
       "acceptance": [
         "Chunks store local ContactFilms, SurfaceChartGeometry, posterior statistics, sigma, ContactBoundaries, displacement/microtiles, deposited appearance, meshlet cache, transforms, and keyframe references under a versioned Cone-PRISM schema",
@@ -253,12 +253,19 @@
         "Revisit resumes the same posterior and publishes a monotonic revision",
         "At least 20 transitions and returns reproduce none of the archived Finalizing/disappearance failure"
       ],
-      "evidence": []
+      "evidence": [
+        "Cone-PRISM schema v3 round-trips films, quadratic information posterior, sigma/support, hierarchical displacement and topology evidence, multi-segment ContactBoundaries, appearance/observation payloads, meshlet generations, chunk transforms, and keyframe references while retaining a strict v2 upgrade reader",
+        "ChunkStage.compute compacts a target chunk and remaps films, page hierarchies, boundaries, and meshlets into an immutable fenced GPU staging arena; only the detached background persistence path uses AsyncGPUReadback and the capture/render hot path remains readback-free",
+        "PrismGpuSnapshotRestore bulk-rehydrates canonical buffers and allocators, rebuilds the GPU boundary index, publishes meshlets through the inactive generation, and can materialize bounded display-only resident meshlet caches without CPU Mesh construction",
+        "PrismChunkResidencyManager serializes rollovers, atomically preserves the previous complete revision on interruption, keeps a bounded recent snapshot/cache set, restores exact posterior state on revisit, and publishes monotonic revisions through WorldStore",
+        "PrismWorldMeshletRenderer draws the active and recent visible chunks with GPU indirect buffers and pose-graph transforms while association IDs remain local to the active canonical chunk",
+        "Twenty alternating transitions retained two recoverable chunks with one active resident and no stuck Finalizing state; Unity 6000.5.9f1 forced-Vulkan EditMode completed 115 passed, 0 failed, 3 intentionally skipped in cone-prism-q3-13-full-vulkan-tests.xml"
+      ]
     },
     {
       "id": "Q3-14",
       "title": "Implement ContactFilm-conditioned L/R narrow stereo pressure/focusing",
-      "status": "pending",
+      "status": "in_progress",
       "depends_on": ["Q3-08", "Q3-13"],
       "acceptance": [
         "Only unresolved/information-positive ContactFilm regions evaluate a posterior-centered normal interval",
