@@ -4,12 +4,16 @@ Updated: 2026-08-20 (Europe/Prague)
 
 ## Source of truth
 
-- `specka.md` is the canonical PRISM-Q3 implementation specification.
+- `specka.md` is the canonical Cone-PRISM-Q3 implementation specification;
+  reconstruction physics `CPQ3-2026-08-20-v1` is frozen for implementation.
 - `.codex/TASK_DAG.json` contains only the canonical `Q3-01` through `Q3-22` runs.
-- Current goal: pure-Quest probabilistic SurfaceCharts, not TSDF/DTSDF, fixed
+- Current goal: pure-Quest finite ConeEvents and probabilistic one-sided
+  ContactFilms with SurfaceChartGeometry, not TSDF/DTSDF, fixed
   surfels/triangle soup, GS, DiffSoup, or server reconstruction.
-- Never simplify away quadratic manifolds, posterior information/uncertainty,
-  multihypothesis first-hit semantics, persistent 3D boundaries, soft-to-hard shell,
+- Never simplify away finite pixel footprints, explicit unknown-behind semantics,
+  quadratic manifolds, range/footprint-aware pressure and stored film resistance,
+  posterior information/uncertainty, multihypothesis first-hit semantics,
+  persistent 3D ContactBoundaries, soft-to-hard shell,
   surface-conditioned stereo/temporal focusing, hierarchical displacement,
   measured texture superresolution, directional appearance, or resumable chunks.
 
@@ -17,13 +21,13 @@ Updated: 2026-08-20 (Europe/Prague)
 
 - Writable fork: `git@github.com:fladirm/QuestInfiniteScan.git` (`origin`).
 - Upstream QuestRoomScan has push disabled.
-- Active branch: `feat/quest-radiance-meshlets` (PRISM-Q3 implementation).
+- Active branch: `feat/quest-radiance-meshlets` (Cone-PRISM-Q3 implementation).
 - Preserved pre-PRISM checkpoint: commit `e9f37c1`, pushed as
   `origin/archive/hybrid-diffsoup-checkpoint-20260820`.
 - The archive preserves the old DAG and all hybrid/DiffSoup/DTSDF work. Do not
   rewrite it.
-- PRISM control checkpoint `9fee431` is already pushed on the active branch; current
-  canonical-spec/DAG refinements are not yet committed.
+- PRISM control checkpoints `9fee431` and `00fee18` are pushed on the active branch;
+  current frozen Cone-PRISM spec/DAG refinements are not yet committed.
 
 ## Current DAG position
 
@@ -41,7 +45,7 @@ Keep/adapt:
 - QuestRoomScan Meta XR/OpenXR/Vulkan setup, permissions, tracking, anchors, Android
   storage/build/deploy, UI/input shell, and GPU resource retirement.
 - `Runtime/World/WorldManifest*`, `WorldStore`, pose graph, transforms, and atomic
-  revision foundations; payload becomes PRISM chart/page state.
+  revision foundations; payload becomes Cone-PRISM film/page state.
 - `Runtime/Export/ChunkGlbWriter`, `WorldGlb*`, deterministic PNG, and glTF validators;
   source becomes stable PRISM meshlets/appearance.
 

@@ -9,43 +9,48 @@ remain recoverable from archive commit `e9f37c1` and are not active on this bran
   work and its DAG on `archive/hybrid-diffsoup-checkpoint-20260820`.
 - Consequence: `specka.md` wins over summaries and may be improved but not weakened.
 
-## ADR-P002 — Probabilistic one-sided SurfaceCharts are canonical
+## ADR-P002 — Probabilistic one-sided ContactFilms are canonical
 
-- Decision: canonical geometry is a graph of one-sided local manifolds with
-  quadratic base, sparse hierarchical displacement, posterior information/
-  covariance, sidedness, visibility, boundaries, UV, appearance, and revision.
+- Decision: canonical world state is a graph of one-sided `ContactFilm` hypotheses;
+  each film owns `SurfaceChartGeometry` with quadratic base, sparse hierarchical
+  displacement, posterior information/covariance, sidedness, first-contact
+  visibility, ContactBoundaries, UV, deposited observations, appearance, and revision.
   Meshlets and GLB are derived materializations.
 - Consequence: representation resolution follows evidence, and opposing/nearby
   surfaces do not compete for one voxel or averaged primitive.
 
-## ADR-P003 — First-hit rays and renderer-based association
+## ADR-P003 — Finite first-hit cones and renderer-based association
 
-- Decision: depth supplies supported free space only before its first hit. Render
-  current charts from exact eye poses into depth/normal/chart/UV/sigma MRTs and
-  classify measured rays against that prediction. Never carve behind a hit.
+- Decision: each calibrated pixel is a finite cone/truncated-pyramid measurement
+  with a projected elliptical footprint. It supplies supported free space only
+  before its first hit, a contact constraint at the hit, and explicitly UNKNOWN
+  state behind it. Render current films from exact eye poses into
+  depth/normal/film/UV/sigma MRTs and classify ConeEvents against that prediction.
 - Consequence: visibility and association use the hardware rasterizer; contradictory
   evidence becomes a hypothesis/boundary/split rather than an average.
 
-## ADR-P004 — Posterior update and monotonic information quality
+## ADR-P004 — Pressure-equilibrium posterior and monotonic information resistance
 
-- Decision: charts accumulate quadratic-basis `H/g` and solve deterministic 6x6
-  systems; displacement, boundaries, and texels likewise retain uncertainty and
-  quality envelopes. Lower-information observations cannot degrade stable better
-  data.
+- Decision: compatible cone contact pressure linearizes to quadratic-basis `H/g`
+  and a deterministic 6x6 solve; it is one solver, not simulated forces plus a
+  second estimator. Precision follows measured range noise, footprint, incidence,
+  pose/calibration covariance, motion, consensus, and robust innovation. Persisted
+  information/covariance and geometry/appearance quality envelopes are film
+  resistance. Lower-information observations cannot degrade stable better data.
 - Consequence: revisits converge a posterior instead of repeatedly smoothing the
   map, and uncertainty directly schedules refinement.
 
 ## ADR-P005 — Persistent boundaries and probabilistic soft-to-hard surfaces
 
 - Decision: multi-view depth/RGB/visibility evidence creates uncertainty-bearing 3D
-  spline BoundaryCurves. Immature charts procedurally sample their normal posterior
+  `ContactBoundary` entities with spline BoundaryCurve geometry. Immature films procedurally sample their normal posterior
   as an adaptive GPU shell and collapse to one opaque surface as sigma shrinks.
 - Consequence: edges and capture range are first-class without a volume, permanent
   alpha cloud, or depth-edge bridges.
 
 ## ADR-P006 — Surface-conditioned RGB geometry refinement
 
-- Decision: after a chart exists, stereo and temporal refinement solve only a small
+- Decision: after a ContactFilm exists, stereo and temporal refinement solve only a small
   normal displacement using calibrated current/historical views and posterior prior.
   There is no global correspondence search, cost volume, or neural MVS.
 - Consequence: Quest motion and both RGB cameras contribute sub-depth information
@@ -53,7 +58,7 @@ remain recoverable from archive commit `e9f37c1` and are not active on this bran
 
 ## ADR-P007 — Surface-space measured appearance remains richer than PBR
 
-- Decision: chart UV exists at spawn. EWA footprints build multiresolution measured
+- Decision: film UV exists at spawn. Finite RGB cone EWA footprints build multiresolution measured
   superresolution and canonical diffuse plus adaptive directional state. PBR is a
   confidence-bearing derivative; uncertain metallic is zero.
 - Consequence: GLB interoperability does not destroy measured view-dependent data or
@@ -61,7 +66,7 @@ remain recoverable from archive commit `e9f37c1` and are not active on this bran
 
 ## ADR-P008 — GPU-only hot path and indirect derived caches
 
-- Decision: pixel work, chart allocation/update, topology, meshlet build, culling,
+- Decision: pixel work, ContactFilm allocation/update, topology, meshlet build, culling,
   LOD, virtual-page feedback, and drawing are GPU/indirect. CPU owns small workflow
   and durable manifests. Only fenced immutable dirty pages stage asynchronously for
   persistence/export.
@@ -85,3 +90,14 @@ remain recoverable from archive commit `e9f37c1` and are not active on this bran
   wiring after PRISM physical parity.
 - Consequence: implementation can remain buildable during migration while shipping
   one coherent product architecture.
+
+## ADR-P011 — Freeze Cone-PRISM reconstruction physics
+
+- Decision: `specka.md` baseline `CPQ3-2026-08-20-v1` freezes finite-cone
+  first-hit/contact/unknown semantics, ContactFilms, pressure-information solve,
+  ContactBoundaries, monotonic resistance, and meshlets as derived state. Evidence
+  may strengthen it; changing those foundations requires explicit user authority, a
+  replacement ADR, and DAG re-baseline.
+- Consequence: implementation work now proceeds from Q3-02 and cannot silently
+  collapse the design back to infinitesimal rays, constant averaging, voxels,
+  surfels, or fixed triangle soup for convenience.

@@ -1,7 +1,9 @@
 {
   "schema_version": 1,
-  "goal": "PRISM-Q3 pure-Quest continuous probabilistic surface reconstruction",
+  "goal": "Cone-PRISM-Q3 pure-Quest continuous probabilistic contact-film reconstruction",
   "canonical_spec": "specka.md",
+  "reconstruction_physics": "CPQ3-2026-08-20-v1",
+  "spec_status": "frozen_for_implementation",
   "allowed_statuses": ["pending", "in_progress", "done", "blocked"],
   "nodes": [
     {
@@ -19,7 +21,7 @@
         "Unity/Android/Quest baseline report: /mnt/kingston-unity/Builds/Verification/20260820T132533Z/verification-report.json",
         "Hybrid checkpoint e9f37c1 and original DAG are pushed at origin/archive/hybrid-diffsoup-checkpoint-20260820",
         "Active pushed branch feat/quest-radiance-meshlets contains control checkpoint 9fee431",
-        "specka.md defines the single canonical PRISM-Q3 product, mathematics, GPU passes, persistence, export, and acceptance corpus"
+        "specka.md defines the single canonical Cone-PRISM-Q3 product, mathematics, GPU passes, persistence, export, and acceptance corpus"
       ]
     },
     {
@@ -38,15 +40,15 @@
     },
     {
       "id": "Q3-03",
-      "title": "Implement immutable rig calibration, ray LUTs, and depth normalization",
+      "title": "Implement immutable rig calibration, cone/footprint LUTs, and depth normalization",
       "status": "pending",
       "depends_on": ["Q3-02"],
       "acceptance": [
-        "Calibration epochs fail closed and precompute normalized RGB/depth rays plus rigid inter-sensor transforms",
+        "Calibration epochs fail closed and precompute normalized RGB/depth center rays, ray differentials/angular cone support, and rigid inter-sensor transforms",
         "Depth normalization preserves independent eyes and one metric convention with validity/range metadata",
-        "Per-pixel passes do not recompute inverse intrinsics and cross-sensor projection remains candidate-depth dependent",
-        "CPU reference and real-GPU fixtures agree within declared precision",
-        "Physical projection of calibrated rays aligns with measured Quest views"
+        "Per-pixel passes do not recompute inverse intrinsics; cross-sensor projection and film-footprint ellipses remain candidate-depth and surface-orientation dependent",
+        "CPU reference and real-GPU fixtures agree on rays, cone corners/Jacobians, solid angle, and projected footprint within declared precision",
+        "Physical projection of calibrated cones aligns with measured Quest views across range and grazing angle"
       ],
       "evidence": []
     },
@@ -66,11 +68,11 @@
     },
     {
       "id": "Q3-05",
-      "title": "Implement dual-eye prediction raster of current chart meshlets",
+      "title": "Implement dual-eye prediction raster of current ContactFilm meshlets",
       "status": "pending",
       "depends_on": ["Q3-03"],
       "acceptance": [
-        "Published meshlets rasterize PredDepth, PredNormal, PredChartID, PredUV, PredSigma, generation, sidedness, and confidence from exact depth-eye poses",
+        "Published meshlets rasterize PredDepth, PredNormal, PredFilmID, PredUV, PredSigma, generation, sidedness, and confidence from exact depth-eye poses",
         "Hardware depth testing produces the front-most visible compatible surface with no CPU geometry traversal",
         "Targets are generation-safe and double-buffered so classification never consumes incomplete output",
         "Synthetic occlusion/layer fixtures and physical overlay validate projection and visibility in both eyes"
@@ -79,13 +81,13 @@
     },
     {
       "id": "Q3-06",
-      "title": "Implement exhaustive first-hit ray classification",
+      "title": "Implement exhaustive finite-cone first-hit ContactEvent classification",
       "status": "pending",
       "depends_on": ["Q3-04", "Q3-05"],
       "acceptance": [
-        "Every valid ray is classified exactly once as MATCH, NEW_FRONT, BEHIND, NEW_LAYER, UNSEEN, BOUNDARY, or INVALID",
-        "Gates use measured/predicted posterior sigma, normal, sidedness, visibility ordering, boundary support, and generation validity",
-        "BEHIND only accumulates supported front-space contradiction and nothing behind a first hit is carved",
+        "Every valid finite cone event is classified exactly once as MATCH, NEW_FRONT, BEHIND, NEW_LAYER, UNSEEN, BOUNDARY, or INVALID",
+        "Gates use measured/predicted posterior sigma, cone footprint, normal, sidedness, visibility ordering, boundary support, and generation validity",
+        "BEHIND only accumulates contradiction inside the observed pre-hit cone segment; everything after the measured first hit remains explicitly UNKNOWN and is never carved",
         "Residual bimodality can select a new hypothesis/split even for similar normals",
         "CPU contract and real-GPU parity cover all classes, occlusions, stale generations, and adversarial edge cases"
       ],
@@ -93,39 +95,40 @@
     },
     {
       "id": "Q3-07",
-      "title": "Implement robust GPU SurfaceChart spawn",
+      "title": "Implement robust GPU ContactFilm and SurfaceChartGeometry spawn",
       "status": "pending",
       "depends_on": ["Q3-06"],
       "acceptance": [
         "UNSEEN/NEW_FRONT samples are tile-component clustered by depth/normal continuity entirely on GPU",
-        "Local PCA establishes a stable one-sided tangent frame and bounded two-pass IRLS/Huber fits the quadratic base",
-        "Actual support determines extent and allocates stable ID/generation without a global primitive size",
-        "Bounded allocator handles overflow without corrupting published charts",
-        "Quest test spawns stable charts on planar, curved, small-object, and partial-view geometry"
+        "Local PCA establishes a stable one-sided tangent frame and bounded two-pass IRLS/Huber fits the quadratic SurfaceChartGeometry base",
+        "Actual cone-contact support determines film extent and allocates stable ID/generation without a global primitive size",
+        "Bounded allocator handles overflow without corrupting published ContactFilms",
+        "Quest test spawns stable ContactFilms on planar, curved, small-object, and partial-view geometry while hidden backs remain UNKNOWN"
       ],
       "evidence": []
     },
     {
       "id": "Q3-08",
-      "title": "Implement 6x6 information-filter chart refinement and posterior uncertainty",
+      "title": "Implement robust pressure-equilibrium 6x6 ContactFilm posterior refinement",
       "status": "pending",
       "depends_on": ["Q3-07"],
       "acceptance": [
-        "MATCH observations robustly accumulate quadratic-basis H/g sufficient statistics on GPU",
-        "Deterministic regularized 6x6 Cholesky solve updates chart parameters and covariance/sigma without simple averaging",
+        "Compatible cone contacts robustly accumulate footprint-aware quadratic-basis H/g sufficient statistics on GPU",
+        "Deterministic regularized 6x6 Cholesky solves the linearized pressure equilibrium and updates film geometry plus covariance/sigma without simple averaging or a second force solver",
+        "Pressure precision derives from learned range noise, metric cone footprint, incidence, pose/calibration covariance, motion, consensus, and robust innovation rather than a constant vote or assumed universal inverse-square curve",
         "Information rises and uncertainty shrinks for consistent revisits",
-        "A lower-information distant, grazing, noisy, or blurred measurement cannot move stable close geometry beyond its tighter posterior bound",
-        "Synthetic ordering tests and physical repeat passes demonstrate monotonic or unchanged error"
+        "Persisted H/covariance and quality envelope act as film resistance: a lower-information distant, grazing, noisy, or blurred measurement cannot move stable close geometry beyond its tighter posterior bound or inflate accepted uncertainty",
+        "View-order permutation, bounded-outlier, synthetic, and physical repeat tests converge to the same supported film within tolerance with monotonic or unchanged error"
       ],
       "evidence": []
     },
     {
       "id": "Q3-09",
-      "title": "Implement multihypothesis one-sided and bimodal surface geometry",
+      "title": "Implement multihypothesis one-sided and bimodal ContactFilms",
       "status": "pending",
       "depends_on": ["Q3-08"],
       "acceptance": [
-        "Orientation-, sidedness-, visibility-, or residual-mode-incompatible evidence creates an independent chart hypothesis",
+        "Orientation-, sidedness-, first-contact visibility-, or residual-mode-incompatible evidence creates an independent ContactFilm hypothesis",
         "Nearby parallel/opposing surfaces never proximity-merge and contradictory evidence is not averaged",
         "Layer association remains stable when revisiting either side and under partial occlusion",
         "Physical front/back scans retain independent 5/10/20/50 mm plates whenever sensor evidence resolves them",
@@ -135,11 +138,11 @@
     },
     {
       "id": "Q3-10",
-      "title": "Implement persistent multi-view 3D BoundaryCurves",
+      "title": "Implement persistent ContactBoundaries with multi-view 3D BoundaryCurves",
       "status": "pending",
       "depends_on": ["Q3-09"],
       "acceptance": [
-        "Depth/normal/RGB/visibility/coverage evidence accumulates into stable uncertainty-bearing spline controls with chart-side relations",
+        "Depth/normal/RGB/first-hit visibility/coverage discontinuities accumulate into stable uncertainty-bearing ContactBoundaries with spline controls and film-side relations",
         "Promotion/retirement requires consistent multi-view evidence and one noisy edge is non-destructive",
         "Projected curves search a narrow image-normal band and triangulate sub-depth-pixel 3D updates from calibrated views",
         "Boundaries constrain association, UV domains, topology, and tessellation",
@@ -149,13 +152,13 @@
     },
     {
       "id": "Q3-11",
-      "title": "Implement chart split/merge and hierarchical displacement microtiles",
+      "title": "Implement ContactFilm split/merge and hierarchical displacement microtiles",
       "status": "pending",
       "depends_on": ["Q3-10"],
       "acceptance": [
         "Quadratic residual updates logical Grid16 displacement with information/sigma/support/coverage and monotonic quality",
         "Measured footprint can allocate recursive sparse microtiles so Grid16 is not a detail ceiling",
-        "Bimodality, boundaries, curvature, non-single-valued support, or incompatible normals split into 2-4 children with statistics preserved",
+        "Bimodality, ContactBoundaries, curvature, non-single-valued support, or incompatible first-contact evidence split a film into 2-4 children with statistics preserved",
         "Merge requires compatible sidedness/continuation/normal/appearance and no persistent boundary",
         "Planes simplify while pipes, frames, folds, gaps, relief, and thin detail remain geometrically faithful"
       ],
@@ -163,11 +166,11 @@
     },
     {
       "id": "Q3-12",
-      "title": "Implement adaptive GPU meshlets, culling, dynamic LOD, and indirect rendering",
+      "title": "Implement adaptive ContactFilm meshlets, culling, dynamic LOD, and indirect rendering",
       "status": "pending",
       "depends_on": ["Q3-11"],
       "acceptance": [
-        "Charts and boundaries materialize entirely on GPU into inactive generation-safe meshlet buffers",
+        "ContactFilms and ContactBoundaries materialize entirely on GPU into inactive generation-safe meshlet buffers",
         "Adaptive tessellation follows analytic error, microtile detail, confidence, and exact BoundaryCurves without silhouette bridges",
         "GPU frustum/Hi-Z culling and screen-space error generate indirect draw lists with independent geometry/appearance LOD",
         "No synchronous readback, CPU count, CPU mesh, or per-frame geometry traversal exists in the production path",
@@ -181,7 +184,7 @@
       "status": "pending",
       "depends_on": ["Q3-12"],
       "acceptance": [
-        "Chunks store local charts, posterior statistics, sigma, boundaries, displacement/microtiles, appearance pages, meshlet cache, transforms, and keyframe references under a versioned PRISM schema",
+        "Chunks store local ContactFilms, SurfaceChartGeometry, posterior statistics, sigma, ContactBoundaries, displacement/microtiles, deposited appearance, meshlet cache, transforms, and keyframe references under a versioned Cone-PRISM schema",
         "Current/overlap/visible/dirty chunks are GPU-resident while durable distant pages evict and rehydrate on demand",
         "Fenced async immutable dirty-page staging never blocks capture/render and previous complete revision survives interruption",
         "Revisit resumes the same posterior and publishes a monotonic revision",
@@ -191,26 +194,26 @@
     },
     {
       "id": "Q3-14",
-      "title": "Implement surface-conditioned L/R narrow stereo focusing",
+      "title": "Implement ContactFilm-conditioned L/R narrow stereo pressure/focusing",
       "status": "pending",
       "depends_on": ["Q3-08", "Q3-13"],
       "acceptance": [
-        "Only unresolved/information-positive chart regions evaluate a posterior-centered normal interval",
+        "Only unresolved/information-positive ContactFilm regions evaluate a posterior-centered normal interval",
         "Adaptive coarse/fine candidates use calibrated L/R Census plus gradient cost and parabolic sub-step fit",
         "Best-versus-second-best, texture, occlusion, calibration, pose, and L/R checks reject ambiguity",
-        "Accepted updates enter chart information/displacement state rather than a detached depth map",
+        "Accepted photometric pressure enters the same film information/displacement posterior rather than a detached depth map or competing solver",
         "Physical textured targets demonstrate lower surface error than native depth without degrading weak-texture regions"
       ],
       "evidence": []
     },
     {
       "id": "Q3-15",
-      "title": "Implement temporal ray-bundle focusing and information-gain keyframes",
+      "title": "Implement temporal cone-bundle focusing and information-gain keyframes",
       "status": "pending",
       "depends_on": ["Q3-14"],
       "acceptance": [
-        "Per-chart active views maximize sharpness, footprint, angular/baseline diversity, frontality, visibility, and unresolved information",
-        "Known chart/poses reproject normal-offset candidates into current stereo plus 4-8 best temporal views without feature matching or global MVS",
+        "Per-film active views maximize sharpness, cone footprint, angular/baseline diversity, frontality, visibility, and unresolved information",
+        "Known ContactFilm/poses reproject normal-offset candidates into current stereo plus 4-8 best temporal cone fields without feature matching or global MVS",
         "Robust photometric solve is posterior-constrained and fails closed on occlusion/exposure/dynamic inconsistency",
         "Redundant active references can be replaced without losing sufficient resumable evidence",
         "Physical repeated passes measurably reduce observable geometry error"
@@ -237,8 +240,9 @@
       "status": "pending",
       "depends_on": ["Q3-13", "Q3-15"],
       "acceptance": [
-        "Charts receive inherent UV at creation and accepted visible RGB footprints accumulate directly into surface pages",
+        "ContactFilms receive inherent UV at creation and accepted visible RGB cone footprints accumulate directly into surface pages",
         "Weights include sharpness, view/incidence, elliptical footprint, motion, occlusion, geometry confidence, exposure, and dynamics",
+        "Photometric quality resistance is independent from geometric pressure so weak imagery cannot replace the best footprint and sharp RGB cannot masquerade as metric depth information",
         "Per-texel color information, variance, coverage, best footprint, and quality are resumable",
         "Lower-quality imagery can add support but cannot overwrite sharper stable texels",
         "Quest preview shows stable chart-space color without global unwrap/rebake"
@@ -275,13 +279,13 @@
     },
     {
       "id": "Q3-20",
-      "title": "Implement bounded revisit pose and chunk correction",
+      "title": "Implement bounded ContactFilm revisit pose and chunk correction",
       "status": "pending",
       "depends_on": ["Q3-13", "Q3-15"],
       "acceptance": [
-        "GPU residual reduction produces a robust point-to-chart 6x6 SE(3) correction only with adequate overlap/information",
+        "GPU residual reduction produces a robust point-to-film 6x6 SE(3) correction only with adequate overlap/information",
         "Meta pose/covariance remains a strong prior and raw frame timestamps/poses are immutable",
-        "Accepted revisit constraints update worldFromChunk through the existing pose graph without mutating local chart geometry",
+        "Accepted revisit constraints update worldFromChunk through the existing pose graph without mutating local ContactFilm geometry",
         "Renderer, association, persistence, future frames, and export consume one coherent transform snapshot",
         "Long corridor loop and multi-floor return reduce drift without oscillation or global remesh"
       ],
@@ -289,14 +293,14 @@
     },
     {
       "id": "Q3-21",
-      "title": "Implement direct PRISM-to-GLB/PBR chunk, region, and world export",
+      "title": "Implement direct Cone-PRISM-to-GLB/PBR chunk, region, and world export",
       "status": "pending",
       "depends_on": ["Q3-19", "Q3-20"],
       "acceptance": [
-        "Stable PRISM charts/meshlets and requested appearance pages directly emit POSITION, NORMAL, TANGENT, UV0, indices, base color, normal, and metallic-roughness semantics without PLY",
+        "Stable ContactFilms/meshlets and requested appearance pages directly emit POSITION, NORMAL, TANGENT, UV0, indices, base color, normal, and metallic-roughness semantics without PLY",
         "Boundary welding preserves topology and chunk nodes preserve final pose-graph transforms",
         "Chunk, selected region, sharded world, and bounded flattened world modes publish atomically",
-        "Canonical PRISM state remains richer/resumable and is never replaced by the GLB derivative",
+        "Canonical Cone-PRISM state remains richer/resumable and is never replaced by the GLB derivative",
         "Khronos glTF Validator and an independent importer accept generated and physical exports with correct transforms/materials"
       ],
       "evidence": []
@@ -307,7 +311,11 @@
       "status": "pending",
       "depends_on": ["Q3-21"],
       "acceptance": [
-        "Physical 5/10/20/50 mm plate sequence preserves independent front/back surfaces whenever sensor evidence resolves them and error improves across passes",
+        "Physical 5/10/20/50 mm plate sequence preserves independent front/back ContactFilms whenever sensor evidence resolves them and error improves across passes",
+        "Front-only pole/plate/recess/open-door scans prove pre-hit cone space becomes FREE, first contact becomes a film, and every hidden back/shadow region remains UNKNOWN until directly observed",
+        "Projected cone footprint ellipse area/orientation is correct across range/grazing angle and measured subpixel footprints sharpen rather than blur supported detail",
+        "Pressure-equilibrium tests are view-order invariant within tolerance, robust to bounded outliers, shrink sigma under compatible baselines, and reject weaker later pull on stable films",
+        "Near-good then far/grazing repeated scans preserve the close film geometry, microdetail, sigma, and best texture footprint; far-first then near-good scans demonstrably improve them",
         "Doors, frames, corners, recesses, pipes, poles, railings, trims, stairs, gaps, and oblique walls contain no supported silhouette bridges and refined boundaries beat raw depth where observable",
         "For observable static targets repeated-pass geometry and texture error satisfy E5 < E2 < E1 and worse later views do not degrade better earlier state",
         "Room, floor, stairwell, next floor, whole-building, restart, eviction, and return tests keep active cost local and every durable chunk rehydratable",

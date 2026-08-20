@@ -1,4 +1,4 @@
-# PRISM-Q3 — Probabilistic Ray-Integrated Surface Manifold
+# Cone-PRISM-Q3 — finite-cone probabilistic ContactFilm reconstruction
 
 Canonical algorithm and acceptance requirements live in
 [`specka.md`](../../specka.md). This document is supporting architecture rationale;
@@ -11,10 +11,11 @@ Hardware: Meta Quest 3 and Quest 3S, Unity 6000.5, Android ARM64, Vulkan
 
 ## 1. System boundary
 
-QuestInfiniteScan treats the headset as a calibrated moving stereo RGB-D rig with a
+QuestInfiniteScan treats the headset as a calibrated moving stereo RGB-D cone-field rig with a
 tracked metric trajectory. The mapper does not solve general camera pose recovery
-and does not train a radiance field. PRISM turns synchronized ray constraints into a
-graph of probabilistic local surface charts. Ordinary GPU meshlets and GLB are
+and does not train a radiance field. Cone-PRISM turns synchronized finite-footprint
+first-contact constraints into a graph of probabilistic one-sided ContactFilms.
+Ordinary GPU meshlets and GLB are
 continuously regenerated views of that richer canonical state.
 
 ```text
@@ -22,12 +23,12 @@ Meta XR capture/tracking
   -> StereoRigFrame
   -> DepthConsensus + EdgeConfidence
   -> UncertainTileQueue -> NarrowMVS (budgeted)
-  -> RayObservationBuffer (hit + supported free space)
-  -> PredictSurface raster (chart/UV/depth/normal/sigma)
-  -> RayCompare + RayClassify
-  -> ChartAssociate + ChartUpdate
+  -> ConeEventBuffer (pre-hit free + contact + unknown behind + footprint)
+  -> PredictSurface raster (film/UV/depth/normal/sigma)
+  -> ContactCompare + ContactClassify
+  -> ContactFilmAssociate + pressure/information update
   -> soft-shell focusing + BoundaryEvidence
-  -> chart split/merge + hierarchical displacement
+  -> film split/merge + hierarchical displacement
   -> MeshletTopology inactive generation
   -> atomic publish
   -> GPU cull + geometry LOD + appearance LOD + indirect draw
@@ -63,13 +64,14 @@ correct timestamp, and the calibration version is coherent. It drops data rather
 than pairing a stale eye. A ring of immutable frame leases prevents texture reuse
 until all consuming GPU fences complete.
 
-Ray, undistortion, and epipolar direction LUTs are calibration-dependent and may be
-cached. Depth-to-RGB coordinates are evaluated with each candidate metric depth.
+Center-ray, ray-differential/cone-footprint, undistortion, and epipolar LUTs are
+calibration-dependent and may be cached. Depth-to-RGB coordinates and projected
+elliptical footprints are evaluated with candidate metric depth and surface frame.
 
-## 3. Canonical chart model
+## 3. Canonical ContactFilm model
 
-Each `SurfaceChart` owns a local orthonormal frame `(p,U,V,N)` and a bounded 2D UV
-domain. Its geometry is hierarchical:
+Each one-sided `ContactFilm` owns local `SurfaceChartGeometry`, an orthonormal frame
+`(p,U,V,N)`, and a bounded 2D UV domain. Its geometry is hierarchical:
 
 ```text
 x(u,v) = p + uU + vV + h_base(u,v)N + h_micro(u,v)N
@@ -83,14 +85,15 @@ surface and coarse LOD. Sparse GPU microtiles retain supported relief, curved
 profiles, and high-frequency detail at observation-driven resolution. Charts may
 remain tiny where a single local parameterization is invalid.
 
-Canonical state also contains normal covariance, robust ray sufficient statistics,
-sidedness, visibility/free-space state, adjacency, persistent spline boundaries,
+Canonical state also contains normal covariance, robust ConeEvent sufficient
+statistics, sidedness, first-contact/free-space/unknown visibility state, adjacency,
+persistent ContactBoundaries with spline BoundaryCurve geometry,
 UV/virtual-texture page tables, surface-light-field lobes, material estimates with
 confidence, and monotonic revision/generation IDs.
 
-An immature chart represents a probability density along its normal. GPU procedural
+An immature film represents a probability density along its normal. GPU procedural
 draw/compute emits an adaptive 3/5/7/9-sample quadrature shell over `mu +/- k*sigma`
-for association and ray-bundle photometric focusing. Layer count follows projected
+for association and cone-bundle photometric focusing. Layer count follows projected
 uncertainty and information gain. As covariance shrinks, weights and offsets
 continuously collapse to the single opaque canonical surface. No volumetric grid or
 duplicated persistent shell is introduced.
@@ -109,31 +112,32 @@ GPU-written indirect arguments. CPU does not fetch element counts.
 4. `NarrowMvs`: evaluates 8–16 depth hypotheses around native depth using
    Census/gradient cost in the other eye and 2–4 pose-valid temporal frames;
    ambiguous consistency remains invalid.
-5. `BuildRayObservations`: creates discontinuity-safe transient hit constraints,
-   first-hit free-space intervals, normal/covariance, color footprints, and quality.
-6. `PredictSurface`: rasterizes the published chart meshlet cache from both
-   observation poses to integer chart/generation, mean depth, normal, UV, sidedness,
-   visibility, confidence, and sigma targets. Uncertain charts may procedurally emit
+5. `BuildConeEvents`: creates discontinuity-safe transient pre-hit free-space and
+   first-contact constraints, explicit unknown-behind state, normal/covariance,
+   finite elliptical geometry/color footprints, and quality.
+6. `PredictSurface`: rasterizes the published ContactFilm meshlet cache from both
+   observation poses to integer film/generation, mean depth, normal, UV, sidedness,
+   visibility, confidence, and sigma targets. Uncertain films may procedurally emit
    adaptive shell samples into the refinement targets.
-7. `RayCompare` / `RayClassify`: classify agree, nearer foreground, persistent
+7. `ContactCompare` / `ContactClassify`: classify agree, nearer foreground, persistent
    front-space contradiction, uncovered, wrong-sided, edge, dynamic, or invalid.
    Nothing behind the first hit is carved.
-8. `ChartAssociate`: validates residual distributions, normal, generation,
+8. `ContactFilmAssociate`: validates residual distributions, normal, generation,
    silhouette/boundary, visibility, dynamics, uncertainty, and information gain;
-   route to existing chart, new hypothesis, or rejection.
-9. `ChartUpdate`: robustly accumulates chart basis/surface information, covariance,
-   and hierarchical displacement evidence without degrading stable high-quality
-   estimates.
+   route to existing film, new hypothesis, or rejection.
+9. `ContactFilmUpdate`: linearizes robust range/footprint/incidence-aware contact
+   pressure into the film's basis `H/g`, covariance, quality resistance, and
+   hierarchical displacement evidence without degrading stable high-quality estimates.
 10. `BoundaryEvidence`: fuses multi-view RGB/depth silhouettes into 3D spline
-    control points and covariance, and emits chart-domain/topology constraints.
-11. `RayBundleFocus`: for high-value dirty chart tiles, jointly samples the shell
-    along the chart normal against current stereo and selected temporal views.
-12. `TopologyScheduler`: spawns/splits/merges/retires charts from multimodal
+    control points and covariance, and emits film-domain/topology constraints.
+11. `ConeBundleFocus`: for high-value dirty film tiles, jointly samples the shell
+    along the film normal against current stereo and selected temporal views.
+12. `TopologyScheduler`: spawns/splits/merges/retires films from multimodal
     residuals, boundary evidence, curvature, and persistent free-space evidence.
-13. `BuildDirtyMeshlets`: tessellates chart base, boundaries, and resident microtiles
+13. `BuildDirtyMeshlets`: tessellates film chart geometry, boundaries, and resident microtiles
     into the inactive topology generation, validates
     capacities/winding/IDs, emits LOD error metrics, then atomically publishes.
-14. `UpdateAppearance`: EWA-projects accepted RGB footprints into chart virtual
+14. `UpdateAppearance`: EWA-projects accepted RGB cone footprints into film virtual
     texture pages, preserves best sampling detail, and incrementally fits diffuse
     plus adaptive directional lobe mixtures with confidence.
 15. `MicroRegister`: optional bounded GPU reductions estimate small keyframe/chunk
@@ -159,8 +163,8 @@ C#/HLSL parity tests):
 
 | Buffer | Draft stride | Purpose | Initial bounded capacity |
 |---|---:|---|---:|
-| `ChartState` | 96 B | frame/domain, shape variant, sigma, flags/generation, page/boundary/appearance handles, quality | segmented <=128 MiB |
-| `ChartInformation` | 112 B | symmetric quadratic-basis information, RHS, robust residual/covariance state | segmented <=128 MiB |
+| `ContactFilmState` | 96 B | chart frame/domain, shape variant, sigma, flags/generation, page/boundary/appearance handles, quality | segmented <=128 MiB |
+| `ContactFilmInformation` | 112 B | symmetric quadratic-basis information, RHS, robust residual/covariance/resistance state | segmented <=128 MiB |
 | `DisplacementMicrotile` | format-dependent | sparse multiresolution normal displacement + covariance/detail quality | virtual segmented pages |
 | `BoundaryControl` | 64 B | 3D spline control point/tangent, covariance, evidence, chart/side handles | segmented <=128 MiB |
 | `CellHeader` | 16 B | key, first reference, count, generation | 1,048,576 = 16 MiB |
@@ -181,7 +185,7 @@ remains full precision. Every handle combines index and generation.
 
 ## 6. Monotonic geometry quality
 
-Each observation, chart basis/microtile, boundary control point, and texel records a
+Each ConeEvent, film chart basis/microtile, boundary control point, and texel records a
 quality envelope, not a single weight:
 
 - native/stereo/temporal confidence;
@@ -192,12 +196,24 @@ quality envelope, not a single weight:
 - baseline/view diversity;
 - residual history and observation count.
 
-For an unstable chart, robust information fusion may move the estimate within its
+Contact pressure is not a constant vote. Its precision derives from the learned
+range-dependent Quest depth residual, finite metric footprint, incidence, pose and
+calibration covariance, motion, L/R consensus, and bounded robust innovation. Range
+normally lowers pressure through larger noise and footprint, but the implementation
+does not blindly hard-code `1/r^2`; physical calibration determines the curve.
+
+For an unstable film, robust information fusion may move the estimate within its
 uncertainty. Once stable, a lower-information observation may confirm visibility or
 increase a disagreement counter, but it cannot move the surface outside the tighter
 existing bound or reduce stored sampling detail. A move/replacement requires both
 compatible multi-view residuals and measured information gain. Persistent conflict
 creates a separate layer, dynamic hypothesis, or unresolved status.
+
+Persisted `H`/covariance plus the quality envelope are the film's resistance: a
+close, frontal, precise contact is strongly compressed and weak far/grazing contacts
+cannot later pull it. Appearance retains an independent resistance envelope based
+on sharpness, exposure, footprint, and visibility, so metric and photometric
+confidence are never conflated.
 
 This directly covers near-then-far, grazing revisits, opposite sides, and observations
 through a wall. The UI visualizes unresolved evidence instead of silently smoothing
@@ -205,9 +221,9 @@ it.
 
 ## 7. Boundaries, topology, and rendering LOD
 
-Persistent RGB/depth silhouettes triangulate uncertainty-bearing 3D spline control
-curves. They are first-class canonical geometry: they delimit UV domains, lock
-occlusion sides, guide chart split/merge, and provide sub-depth-pixel edge
+Persistent RGB/depth first-contact discontinuities triangulate uncertainty-bearing
+3D `BoundaryCurve` controls inside canonical `ContactBoundary` entities. They
+delimit UV domains, lock occlusion sides, guide film split/merge, and provide sub-depth-pixel edge
 localization when multiple calibrated RGB views agree. One frame cannot promote or
 erase a boundary.
 
@@ -268,7 +284,7 @@ roughness as an explicitly declared fallback but never invent material maps.
 
 ## 10. Native PRISM artifact and GLB derivative
 
-`.prism` is a versioned resumable artifact containing chart graph, frames/domains,
+`.prism` is a versioned resumable artifact containing ContactFilm graph and chart frames/domains,
 base coefficients, displacement microtiles, covariance/sufficient statistics,
 boundary splines, observation reservoir, virtual-texture pages, directional lobes,
 material estimates/confidence, chunk transforms, and revision hashes. Opening it a
@@ -298,8 +314,8 @@ snapshots; presenters do not query GPU resources directly.
 
 1. Keep the archived branch as immutable recovery.
 2. Introduce capture and mapping interfaces beside the fallback mapper.
-3. Complete the first GPU vertical slice on a fixed fixture: rig frame -> ray
-   consensus -> predicted chart -> chart update/sigma collapse -> boundary evidence
+3. Complete the first GPU vertical slice on a fixed fixture: rig frame -> finite
+   cone consensus -> predicted film -> pressure/information update and sigma collapse -> boundary evidence
    -> tessellated meshlet -> indirect render -> one persisted PRISM page.
 4. Extend layers, topology, appearance, chunks, and GLB while A/B testing against
    retained captured inputs.

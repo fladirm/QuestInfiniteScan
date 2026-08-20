@@ -33,11 +33,11 @@ it.
 ## Product invariant
 
 The production product is a fully on-device Quest 3/3S spatial scanner named
-PRISM-Q3 (Probabilistic Ray-Integrated Surface Manifold). Canonical geometry is a
-chunk-local graph of probabilistic surface charts with explicit sidedness,
-normal-direction uncertainty, persistent boundary curves, sufficient statistics,
-UV domains, and confidence-bearing surface-light-field appearance. GPU meshlets are
-a derived render/export cache, not canonical state. The product does not require a
+Cone-PRISM-Q3. Reconstruction physics `CPQ3-2026-08-20-v1` is frozen in
+`specka.md`. Canonical world state is a chunk-local graph of one-sided probabilistic
+`ContactFilm`s; `SurfaceChartGeometry` is their quadratic plus hierarchical
+displacement parameterization, `ContactBoundary` is their persistent contact
+discontinuity, and meshlets are only derived render/export caches. The product does not require a
 notebook, network, Python, CUDA, DiffSoup, Gaussian splatting, TSDF, or DTSDF to
 scan, refine, render, persist, revisit, or export.
 
@@ -54,29 +54,38 @@ gates; do not leave two competing product architectures.
   `StereoRigFrame` contract.
 - Pair frames by timestamp and pose validity. Reject mismatched data; never silently
   fuse a stale eye or reuse a pose from another timestamp.
-- Static LUTs may contain rays, distortion, and epipolar geometry. Depth-to-RGB
+- Static LUTs contain center rays, ray differentials/cone footprint support,
+  distortion, and epipolar geometry. Depth-to-RGB
   reprojection remains depth-dependent.
-- Treat depth triangles/patches as ray-hit/free-space observations, never permanent
-  canonical topology. Never carve behind the first supported hit.
-- Associate observations by rasterizing chart ID, mean depth, normal, UV,
+- Treat each pixel as a finite calibrated cone event: pre-hit space is observed
+  free, first hit is contact, and everything behind it is UNKNOWN. Treat transient
+  depth triangles/patches as observations, never permanent canonical topology.
+- Associate observations by rasterizing film ID, mean depth, normal, UV,
   sidedness, confidence, and normal uncertainty from the observation pose. A
   spatial hash/page table is an index, not a voxel geometry resolution.
 - Fuse only position-, normal-, visibility-, and confidence-compatible evidence.
   Opposite-facing or occluded observations create/target another layer or are
   rejected; they never erase a stable surface.
-- Update active chart shape with bounded robust sufficient statistics. Geometry is
+- Update active film shape with bounded robust pressure/information sufficient
+  statistics. Pressure precision follows learned range noise, projected footprint,
+  incidence, pose/calibration uncertainty, motion, consensus, and robust innovation;
+  never use constant voting or blindly assume a universal inverse-square law.
+  Persisted information/covariance and quality envelopes are the film's resistance:
+  weak far/grazing observations may confirm but cannot pull or blur a strongly
+  compressed close film. Geometry is
   hierarchical: a tangent/quadratic base plus sparse multiresolution displacement
   microtiles. The base supplies stable low-frequency structure; microtiles preserve
   all supported high-frequency detail without forcing a global resolution.
-- Model the capture basin as normal uncertainty `mu +/- k*sigma`. Uncertain charts
+- Model the capture basin as normal uncertainty `mu +/- k*sigma`. Uncertain films
   procedurally emit adaptive quadrature shell layers for association/photometric
   focusing; as covariance shrinks they collapse continuously to one opaque surface.
   Shell samples are derived GPU work, not duplicated canonical geometry.
-- Accumulate persistent RGB/depth silhouette evidence into uncertainty-bearing 3D
-  spline `BoundaryCurve` records with GPU-refined control points. Curves constrain
-  chart domains, splits, and tessellation; a noisy single-frame edge cannot create
+- Accumulate persistent RGB/depth/visibility discontinuities into canonical
+  `ContactBoundary` records with uncertainty-bearing 3D spline `BoundaryCurve`
+  geometry and GPU-refined controls. Boundaries constrain
+  film domains, splits, and tessellation; a noisy single-frame edge cannot create
   or erase a boundary.
-- Build adaptive local meshlets from charts. Publish topology with
+- Build adaptive local meshlets from ContactFilms. Publish topology with
   generation IDs and double buffering; the renderer must never consume buffers
   being mutated.
 - Keep association, fusion, regularization, topology construction, visibility
@@ -107,7 +116,7 @@ gates; do not leave two competing product architectures.
 
 ## World and persistence guardrails
 
-- Reuse the versioned world/pose-graph/store foundations, but store chart, boundary,
+- Reuse the versioned world/pose-graph/store foundations, but store ContactFilm, ContactBoundary,
   sufficient-statistic, meshlet-cache, observation, and appearance pages rather than
   TSDF snapshots in the versioned `.prism` format.
 - Chunk transition is a two-arena overlap: the source remains visible while the
@@ -123,7 +132,8 @@ gates; do not leave two competing product architectures.
 
 ## Appearance and export guardrails
 
-- Every chart owns UV at creation. Fuse exposure-normalized RGB directly in chart
+- Every ContactFilm owns UV at creation. Deposit exposure-normalized finite RGB
+  cone footprints directly in film/chart
   space with EWA/footprint weighting, producing multi-frame surface superresolution
   without hallucinated upscaling. Preserve the surface light field using an online
   adaptive mixture of compact directional lobes plus diffuse state; do not collapse
