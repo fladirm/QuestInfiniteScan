@@ -2,109 +2,89 @@
 
 Updated: 2026-08-20 (Europe/Prague)
 
+## Source of truth
+
+- `specka.md` is the canonical PRISM-Q3 implementation specification.
+- `.codex/TASK_DAG.json` contains only the canonical `Q3-01` through `Q3-22` runs.
+- Current goal: pure-Quest probabilistic SurfaceCharts, not TSDF/DTSDF, fixed
+  surfels/triangle soup, GS, DiffSoup, or server reconstruction.
+- Never simplify away quadratic manifolds, posterior information/uncertainty,
+  multihypothesis first-hit semantics, persistent 3D boundaries, soft-to-hard shell,
+  surface-conditioned stereo/temporal focusing, hierarchical displacement,
+  measured texture superresolution, directional appearance, or resumable chunks.
+
 ## Repository and branch safety
 
-- Product: QuestInfiniteScan, fully on-device Quest 3/3S scanner.
 - Writable fork: `git@github.com:fladirm/QuestInfiniteScan.git` (`origin`).
-- Upstream: `arghyasur1991/QuestRoomScan` (`upstream`, push disabled).
-- Active branch: `feat/quest-radiance-meshlets`.
-- Preserved hybrid checkpoint: commit `e9f37c1`, pushed as
+- Upstream QuestRoomScan has push disabled.
+- Active branch: `feat/quest-radiance-meshlets` (PRISM-Q3 implementation).
+- Preserved pre-PRISM checkpoint: commit `e9f37c1`, pushed as
   `origin/archive/hybrid-diffsoup-checkpoint-20260820`.
-- The archive contains the old 22-node DAG, hybrid/DiffSoup implementation, DTSDF
-  scaffold, documentation, and all prior test evidence. Do not rewrite it.
+- The archive preserves the old DAG and all hybrid/DiffSoup/DTSDF work. Do not
+  rewrite it.
+- PRISM control checkpoint `9fee431` is already pushed on the active branch; current
+  canonical-spec/DAG refinements are not yet committed.
 
 ## Current DAG position
 
-- `R00` is complete: goal, 28-node DAG, ADRs, guardrails, architecture/pass graph,
-  buffer budget, migration map, UI target, and measurable quality gates agree.
-- `C01` is the only active node: immutable capture contracts and dual GPU RGB
-  ownership.
-- Reusable foundations `P00`–`P03` are accepted: branch checkpoint, Quest build
-  shell, versioned world/store/pose graph, and GLB/PBR writers.
-- No new radiance-meshlet production mapper code has yet been claimed complete.
+- `Q3-01` is done: fork/build/device baseline, archive branch, active PRISM branch,
+  and canonical spec are preserved.
+- `Q3-02` is the only active run: coherent 2x RGB + 2x depth + exact pose/calibration
+  immutable GPU capture.
+- No new PRISM reconstruction core is yet falsely claimed implemented. The next code
+  change is the capture contract, not another architecture rewrite.
 
-## Active product architecture
-
-- Capture: immutable synchronized `StereoRigFrame` containing RGB-L/R, depth-L/R,
-  timestamps, intrinsics/extrinsics, and per-view poses, all GPU-backed.
-- Measurement: GPU depth consensus/edge confidence, followed by bounded narrow
-  stereo/temporal refinement only for uncertain tiles.
-- Geometry: transient depth patches -> association raster -> layered point-to-plane
-  surface pool -> regularization -> adaptive double-buffered meshlets.
-- Runtime: GPU-only association/fusion/topology/culling/LOD and indirect dispatch/
-  draw. No synchronous readback, CPU meshing, or Unity `Mesh` rebuild in the live
-  path.
-- Quality: persistent information envelopes prevent worse distant/grazing/blurred
-  observations from degrading better close geometry or texture.
-- World: two-arena overlap, page-level asynchronous persistence, bounded residency,
-  on-demand rehydration, revisits, pose graph, anchors, and multi-floor support.
-- Appearance: exposure-normalized multiresolution base color, geometric/detail
-  normal, compact directional residual, honest confidence-bearing PBR.
-- Output: chunk, sharded world, and bounded monolithic GLB/PBR.
-- Production is offline/local: no Python, CUDA, notebook, server, DiffSoup, GS,
-  TSDF, or DTSDF dependency.
-
-## Concrete migration map
+## Reuse map
 
 Keep/adapt:
 
-- `Runtime/World/WorldManifest*`, `WorldStore`, pose graph, anchors, and transform
-  conventions.
-- `Runtime/Export/ChunkGlbWriter`, `WorldGlb*`, deterministic PNG and validation
-  tools; change their source artifact to canonical meshlet/appearance pages.
-- Meta XR/OpenXR/Vulkan setup, permissions, manifest/build automation, tracking, and
-  `GpuResourceRetirementQueue`.
-- UI Toolkit/VR input shell; replace information architecture/controllers.
+- QuestRoomScan Meta XR/OpenXR/Vulkan setup, permissions, tracking, anchors, Android
+  storage/build/deploy, UI/input shell, and GPU resource retirement.
+- `Runtime/World/WorldManifest*`, `WorldStore`, pose graph, transforms, and atomic
+  revision foundations; payload becomes PRISM chart/page state.
+- `Runtime/Export/ChunkGlbWriter`, `WorldGlb*`, deterministic PNG, and glTF validators;
+  source becomes stable PRISM meshlets/appearance.
 
-Replace:
+Replace during `Q3-02`–`Q3-13`:
 
-- `PassthroughCameraProvider` single-eye abstraction with dual `StereoRigCapture`.
-- `DepthCapture` with synchronized rig-frame and confidence pipeline.
-- `VolumeIntegrator` with layered surface allocation/fusion.
-- `GPUSurfaceNets`, `MeshExtractor`, and CPU/Unity mesh paths with GPU adaptive
-  meshlets plus indirect renderer.
-- `SubmapManager` and `PersistedChunkMeshCache` payload/lifecycle with two arenas and
-  page residency.
-- `KeyframeCollector`/atlas bake with bounded observation reservoir and GPU
-  multiresolution appearance.
-- The ~2000-line `RoomScanner` god object with a thin workflow coordinator and
-  explicit services/snapshots.
+- Single-eye `PassthroughCameraProvider`/`ICameraProvider` with coherent stereo rig
+  capture and GPU frame leases.
+- `DepthCapture`, `VolumeIntegrator`, `GPUSurfaceNets`, `MeshExtractor`, and
+  `GPUMeshRenderer` with the 17 GPU passes and PRISM orchestrators in `specka.md`.
+- `SubmapManager`/persisted mesh cache with PRISM chunk residency and resumable page
+  state; explicitly eliminate the archived four-rollover disappearance failure.
+- Keyframe/atlas model with information-gain views and immediate surface-space
+  virtual appearance pages.
+- `RoomScanner` god object and debug-centric UI with a thin PRISM workflow.
 
-Remove after replacement A/B gate:
+Remove from the shipped product after PRISM parity:
 
-- Scalar TSDF, DTSDF scaffold, Surface Nets, triplanar mapping.
-- `Runtime.GSplat`, `Runtime/HeavyCompute`, DiffSoup renderer/resources/contracts,
-  server code and server UI.
-- Legacy freeze-tint/server/HQ/GS operator controls.
+- Scalar TSDF, proposed DTSDF, Surface Nets, triplanar canonical path.
+- `Runtime.GSplat`, `Runtime/HeavyCompute`, DiffSoup resources/client/renderer, Python
+  server, and their operator controls.
 
-## Quality and physical truth
+## Retained evidence
 
-- Target median geometry error is <=8 mm and p95 <=20 mm at 0.5–2.0 m under valid
-  capture conditions; unsupported regions remain visibly unresolved.
-- Required topology corpus includes 20/40 mm panels, thin walls, round/square poles,
-  pipes, rails, door edges, opposing faces, oblique planes, and occlusion.
-- Required scale corpus includes >=20 transitions, revisits after eviction/restart,
-  and a vertical multi-floor route.
-- Prior physical failure must be explicitly regression-tested: after roughly four
-  rollovers, chunks could remain `Finalizing`, disappear, and fail to rehydrate.
-  Capture retained at
+- Foundation verifier:
+  `/mnt/kingston-unity/Builds/Verification/20260820T132533Z/verification-report.json`.
+- Archived lifecycle failure corpus:
   `/mnt/kingston-unity/Builds/DeviceCaptures/2026-08-20-141107-revisit-disappears/`.
-- Existing successful full verifier is retained at
-  `/mnt/kingston-unity/Builds/Verification/20260820T132533Z/verification-report.json`;
-  it proves foundations, not the new mapper.
+- These prove the reusable baseline and a regression to eliminate, not the PRISM
+  mapper.
 
-## Immediate next actions
+## Immediate implementation actions
 
-1. Commit and push the completed `R00` control/architecture checkpoint.
-2. Execute `C01`: introduce pure immutable capture contracts and tests, then adapt
-   Meta dual-camera ownership without touching the fallback mapper.
-3. Implement `M01` layouts/memory planner in parallel dependency order after the
-   capture contract, then close the first GPU vertical slice through association,
-   fusion, meshlet publication, indirect rendering, and a persisted page.
+1. Validate and commit `specka.md`, canonical 22-run DAG, controls, and decisions.
+2. Implement `StereoRigFrame`, calibration/pose/timestamp value contracts, GPU
+   resource leases, rejection reasons, and deterministic tests.
+3. Replace single-PCA discovery with two explicitly eye-keyed Meta PCA streams while
+   retaining old `ICameraProvider` only as a temporary fallback adapter.
+4. Expose both environment-depth slices plus frame FOV/pose/near-far metadata into
+   the same coherent frame without CPU image copies.
+5. Run Unity tests/build, deploy, and physically verify `Q3-02` before closing it.
 
 ## Safety
 
 - Never delete, move, compress, prune, or modify `~/.codex` or Codex sessions.
-- Source stays in this checkout; large builds/caches/captures stay on Kingston.
-- Do not commit captures, generated models, APKs, caches, addresses, credentials,
-  or device identifiers.
+- Keep builds/caches/captures on Kingston; do not commit them, device IDs, addresses,
+  credentials, or room imagery.

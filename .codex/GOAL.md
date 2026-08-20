@@ -1,10 +1,14 @@
 # Goal
 
-Build QuestInfiniteScan as a production-oriented, fully on-device Quest 3/3S
-scanner for room-to-building-scale capture. It must continuously refine metrically
-accurate, thin-structure-safe geometry and confidence-bearing appearance into an
-ordinary renderable/exportable PBR mesh while keeping GPU residency bounded as the
-world grows.
+The canonical build specification is [`specka.md`](../specka.md). This file states
+the pursuit outcome and acceptance boundary; it must not weaken that specification.
+
+Build PRISM-Q3 (Probabilistic Ray-Integrated Surface Manifold) inside
+QuestInfiniteScan as a production-oriented, fully on-device Quest 3/3S scanner for
+room-to-building-scale capture. It must continuously refine metrically accurate,
+thin-structure-safe probabilistic surface charts and surface-light-field appearance
+into an ordinary renderable/exportable PBR mesh while keeping GPU residency bounded
+as the world grows.
 
 ## Product outcome
 
@@ -15,20 +19,25 @@ stereo RGB + stereo depth + timestamped poses/intrinsics
   -> synchronized StereoRigFrame
   -> depth consensus and discontinuity confidence
   -> narrow stereo/temporal refinement for uncertain tiles
-  -> ephemeral observation patches
-  -> ID/depth/normal association raster
-  -> layered point-to-plane surface fusion
-  -> local regularization and adaptive meshlets
-  -> on-device directional appearance/PBR refinement
-  -> versioned chunk pages, streaming world, GLB/PBR export
+  -> ray hit + free-space observations
+  -> predicted chart depth/normal/ID/UV/uncertainty raster
+  -> ray classification and chart association
+  -> robust probabilistic chart update + soft-to-hard uncertainty collapse
+  -> persistent boundary evidence + chart split/merge/retire
+  -> GPU tessellation, adaptive meshlets, dynamic LOD
+  -> surface-space superresolution + directional appearance/PBR
+  -> versioned PRISM chunk pages, streaming world, GLB/PBR derivative
 ```
 
-The canonical geometry is not a scalar field and not a permanent per-frame triangle
-soup. Each chunk owns layered surface records, stable local identifiers,
-point-to-plane information state, confidence, adaptive meshlet topology, appearance
-pages, bounds, revision, and `worldFromChunk`. Depth-derived patches are transient
-measurements. Opposite-facing and visibility-incompatible measurements remain
-separate surfaces.
+The canonical geometry is not a scalar field, surfel cloud, or permanent per-frame
+triangle soup. Each chunk owns a graph of local parameterized `SurfaceChart`s,
+stable IDs, tangent frames, planar/quadratic/micro-detail shape variants,
+normal-direction covariance, robust sufficient statistics, sidedness/visibility,
+a tangent/quadratic base with sparse displacement microtiles, persistent
+uncertainty-bearing spline `BoundaryCurve`s, UV domains, appearance pages, adjacency, bounds,
+revision, and `worldFromChunk`. Meshlets are a replaceable derived cache.
+Depth-derived patches are transient ray measurements. Opposite-facing and
+visibility-incompatible measurements remain separate hypotheses.
 
 ## Required capabilities
 
@@ -38,16 +47,23 @@ separate surfaces.
   health in diagnostics.
 - Refine reliable native metric depth with stereo/temporal evidence only in tiles
   where edge, disagreement, or topology confidence requires it.
-- Incrementally associate and fuse observations without global nearest-neighbor
-  searches or training loops.
+- Incrementally associate observations using the hardware rasterizer, without
+  global nearest-neighbor searches or training loops.
 - Run the live geometry and appearance pipeline on GPU with indirect dispatch,
   GPU-generated draw lists, GPU culling, and GPU-selected dynamic LOD. There is no
   synchronous geometry/texture readback or CPU `Mesh` rebuild in the scan/render
   critical path.
+- Use an uncertainty-driven soft capture interval around immature charts and shrink
+  it through adaptive GPU quadrature shell layers to a hard opaque surface as
+  multi-view information increases.
+- Treat persistent RGB/depth silhouettes as first-class 3D boundaries that control
+  chart domain, topology, and tessellation.
 - Preserve thin walls, panels, poles, pipes, rails, door edges, and separately
   visible opposing surfaces without carving through occluders.
 - Adapt topology: large stable planar regions become coarse meshlets; edges,
   curvature, thin objects, and unresolved regions retain finer support.
+- Preserve supported sub-chart detail in sparse multiresolution displacement
+  microtiles; analytic chart shape is a stable base/LOD, not a ceiling on geometry.
 - Retain the highest supported geometric and photometric sampling density and select
   geometry/texture detail dynamically by screen-space error. A lower-information
   later measurement cannot overwrite higher-quality close-range geometry or
@@ -55,9 +71,16 @@ separate surfaces.
 - Keep live geometry visible and spatially stable throughout chunk rollover,
   persistence, eviction, reload, revisit, pose-graph correction, and application
   restart.
-- Refine exposure-normalized base color, geometric normals, compact directional
-  residuals, and confidence on device. Material estimates must be honest about
-  uncertainty.
+- Give every chart a UV domain at birth and incrementally refine multiframe
+  footprint-weighted surface superresolution, compact directional appearance, and
+  confidence on device. Material estimates must be honest about uncertainty.
+- Preserve canonical surface-light-field samples as adaptive directional lobe
+  mixtures; PBR and GLB are derived approximations, never destructive replacements.
+- Use Meta tracking as a strong prior while allowing bounded residual-driven
+  keyframe/chunk micro-registration and pose-graph correction.
+- Persist a native `.prism` artifact containing charts, boundaries, uncertainty,
+  sufficient statistics, observations, and directional appearance so refinement can
+  continue after restart or a later revisit.
 - Export chunk and world GLB/PBR assets with correct transforms and a sharded mode
   for unbounded worlds.
 - Provide a task-oriented VR UI for Scan, Worlds, Quality, Export, and Settings;
@@ -76,6 +99,8 @@ or unsupported regions rather than fabricating certainty.
   <=20 mm.
 - Deliberately covered planar regions reach >=95% completeness.
 - Edge-bridge rate across strong depth discontinuities is <1% on the fixed corpus.
+- Persistent boundary localization median error is <=5 mm where calibrated RGB
+  silhouettes have adequate multi-view support.
 - Supported 20 mm panels/objects retain distinct opposite faces; general supported
   40 mm thin structures, round/square poles, pipes, rails, and door/panel edges
   retain correct topology.
@@ -85,13 +110,15 @@ or unsupported regions rather than fabricating certainty.
 
 ### Runtime and scale
 
-- Quest display remains at 72 Hz; mapping sustains >=10 Hz under the balanced
-  profile.
-- Amortized mapper GPU time targets p95 <=4 ms, without full-volume or whole-chunk
-  synchronous readback. Production rendering uses GPU-generated indirect draw
-  arguments and contains no per-frame CPU geometry traversal.
-- No individual storage buffer exceeds 128 MiB. Active mapper memory targets
-  <=1.2 GiB and fails closed before 2 GiB.
+- Preview remains interactive on the physical Quest while capture/refinement work is
+  driven by dirty/information-positive GPU queues. Profiling selects scheduling and
+  residency, never a lower canonical data resolution.
+- Production rendering uses GPU-generated indirect draw arguments and contains no
+  synchronous geometry readback, CPU meshing, or per-frame CPU geometry traversal.
+- No individual storage buffer exceeds the device-reported Vulkan range (128 MiB on
+  the measured Quest). Total residency uses segmented pools and a runtime-discovered
+  safe app budget with measured compositor/Unity headroom; there is no arbitrary
+  product-wide memory cap and memory pressure never deletes canonical detail.
 - A physical run with >=20 chunk transitions, revisits, and a vertical/multi-floor
   route keeps all durable chunks reloadable and visible with an O(1) GPU active set.
 - No chunk transition causes a main-thread stall >20 ms or a one-frame loss of the
@@ -103,6 +130,9 @@ or unsupported regions rather than fabricating certainty.
   deterministic and revisions are monotonic.
 - Base color is robust to exposure changes. Directional/PBR values always carry
   confidence; uncertain metallic is exactly zero.
+- Reprojection error and accepted texel sampling footprint improve or remain stable
+  across revisits; lower-quality imagery cannot lower an existing texture mip/detail
+  envelope.
 - Live geometry and appearance have independently selected multiresolution LOD;
   close views use the best captured detail while distant views consume bounded
   bandwidth and memory.
@@ -127,7 +157,9 @@ or unsupported regions rather than fabricating certainty.
   with the existing pose graph correcting chunk transforms.
 - Full-frame neural stereo, unconstrained RGB hallucination, or global optimization
   in the real-time loop.
-- CPU meshing, CPU surface association, per-frame `GraphicsBuffer.GetData`, Unity
+- A fixed global geometry/texture resolution, destructive decimation of canonical
+  detail, or a low-order appearance model as the only retained visual truth.
+- CPU meshing, CPU chart association, per-frame `GraphicsBuffer.GetData`, Unity
   `Mesh` reconstruction, or synchronous GPU readback in the live pipeline.
 - Pretending roughness/metallic are measured when view/illumination evidence cannot
   support them.
@@ -139,14 +171,16 @@ or unsupported regions rather than fabricating certainty.
 1. Every node in `.codex/TASK_DAG.json` is `done` with inspectable evidence.
 2. The legacy hybrid checkpoint and old DAG remain recoverable from
    `archive/hybrid-diffsoup-checkpoint-20260820`.
-3. Captured-corpus tests cover sync rejection, discontinuities, layered fusion,
+3. Captured-corpus tests cover sync rejection, ray/free-space classification,
+   uncertainty collapse, chart association/update, discontinuities, boundaries,
    thin structures, occlusion, revisit ordering, topology, persistence interruption,
-   and GPU/CPU contract parity.
+   micro-registration, and GPU/CPU contract parity.
 4. Unity EditMode/runtime validation and Android ARM64 Vulkan builds pass without
    mapper or shader errors.
-5. Physical Quest 3/3S acceptance meets the geometry, performance, memory,
-   transition, revisit, multi-floor, offline, and thermal gates above.
-6. GLB chunk/world fixtures and physical exports pass official and independent
+5. Physical Quest 3/3S acceptance meets the geometry, interactive preview, memory,
+   transition, revisit, multi-floor, and offline gates above.
+6. Native `.prism` fixtures reopen and continue refinement deterministically; GLB
+   chunk/world fixtures and physical exports pass official and independent
    interoperability checks.
 7. Production scenes, setup wizard, UI, package metadata, README, and runbooks use
    the new on-device mapper; legacy TSDF/DTSDF/GS/DiffSoup/server wiring is absent

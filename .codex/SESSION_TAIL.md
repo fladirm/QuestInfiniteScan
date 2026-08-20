@@ -1,28 +1,27 @@
 # Latest exchange snapshots
 
-After compaction, load `.codex/GOAL.md`, `.codex/STATE.md`,
-`.codex/TASK_DAG.json`, this file, and relevant decisions before acting. Do not
-repeat accepted work. Never touch `~/.codex` or session/history data.
+After compaction read `specka.md`, goal, state, DAG, this file, and relevant ADRs in
+the order in `AGENTS.md`. Do not repeat accepted work. Never touch `~/.codex` or
+session/history data.
 
 ## Exchange 1
 
-User: Replace the previous goal pursuit and refactor the repository to the new pure
-Quest 3/3S architecture. Preserve all current work and the old DAG in another new
-branch, then develop on a second new branch.
+User: Asked whether the implementation mental model is exact and complete.
 
-Assistant: Audited the dirty worktree, committed all source/control work as
-`e9f37c1`, pushed `archive/hybrid-diffsoup-checkpoint-20260820`, switched to
-`feat/quest-radiance-meshlets`, and began replacing the goal/DAG/guardrails with the
-layered radiance-surface meshlet architecture.
+Assistant: Confirmed the full pipeline: coherent stereo RGB-D rig; one-sided
+probabilistic quadratic charts with information/covariance and sparse detail;
+renderer-based first-hit association; non-averaged hypotheses; persistent 3D
+boundaries; soft shell; chart-conditioned stereo/temporal focusing; adaptive GPU
+meshlets/LOD; surface-space superresolution/directional appearance; resumable chunks,
+pose graph, and direct GLB, all GPU/indirect and fully offline.
 
 ## Exchange 2
 
-User: Do not introduce CPU readbacks. Keep everything GPU/indirect for maximum
-speed, geometry resolution, and texture quality; use dynamic display LOD, and never
-let a poorer later observation cripple a precise close high-quality scan.
+User: Supplied the final 40-section PRISM-Q3 specification, explicitly declared it
+canonical, authorized improvements but no quality-reducing simplification, and asked
+to save it as `specka.md`, put it into the DAG, and implement it.
 
-Assistant: Made this a hard architecture invariant: GPU association/fusion/
-topology/culling/LOD/indirect draw, no synchronous live readback or CPU mesh rebuild,
-only fenced asynchronous immutable-page staging for persistence/export, independent
-geometry/appearance LOD, and monotonic information-quality envelopes for geometry
-and texels.
+Assistant: Saved an enhanced canonical `specka.md` preserving every reconstruction
+mechanism and adding hierarchical microtiles, procedural posterior shell, monotonic
+geometry/texture quality, GPU-indirect hot path, dynamic non-destructive LOD, native
+PRISM resumability, and the exact `Q3-01` through `Q3-22` implementation runs.

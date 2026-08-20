@@ -8,11 +8,12 @@ after context compaction without rediscovering or repeating completed work.
 At the start of every implementation turn and after every compaction, read, in
 order:
 
-1. `.codex/GOAL.md`
-2. `.codex/STATE.md`
-3. `.codex/TASK_DAG.json`
-4. `.codex/SESSION_TAIL.md`
-5. `.codex/DECISIONS.md` when the current node touches architecture
+1. `specka.md` (canonical reconstruction/product specification)
+2. `.codex/GOAL.md`
+3. `.codex/STATE.md`
+4. `.codex/TASK_DAG.json`
+5. `.codex/SESSION_TAIL.md`
+6. `.codex/DECISIONS.md` when the current node touches architecture
 
 `SESSION_TAIL.md` must preserve the intent of the latest two user/assistant
 exchanges. Trust checked-in code and verification evidence over prose. Never redo a
@@ -31,11 +32,14 @@ it.
 
 ## Product invariant
 
-The production product is a fully on-device Quest 3/3S spatial scanner. Its
-canonical geometry is a chunk-local layered surface pool with adaptive meshlet
-topology and confidence-bearing appearance. It does not require a notebook,
-network, Python, CUDA, DiffSoup, Gaussian splatting, TSDF, or DTSDF to scan, refine,
-render, persist, revisit, or export.
+The production product is a fully on-device Quest 3/3S spatial scanner named
+PRISM-Q3 (Probabilistic Ray-Integrated Surface Manifold). Canonical geometry is a
+chunk-local graph of probabilistic surface charts with explicit sidedness,
+normal-direction uncertainty, persistent boundary curves, sufficient statistics,
+UV domains, and confidence-bearing surface-light-field appearance. GPU meshlets are
+a derived render/export cache, not canonical state. The product does not require a
+notebook, network, Python, CUDA, DiffSoup, Gaussian splatting, TSDF, or DTSDF to
+scan, refine, render, persist, revisit, or export.
 
 The retained QuestRoomScan shell supplies Meta XR permissions/session plumbing,
 tracking, Unity/Vulkan build setup, anchors, and selected reusable utilities. The
@@ -52,17 +56,27 @@ gates; do not leave two competing product architectures.
   fuse a stale eye or reuse a pose from another timestamp.
 - Static LUTs may contain rays, distortion, and epipolar geometry. Depth-to-RGB
   reprojection remains depth-dependent.
-- Treat depth triangles/patches as observations, never permanent canonical
-  topology.
-- Associate observations by rasterizing stable surface IDs/depth/normals from the
-  observation pose. A spatial hash/page table is an index, not a voxel geometry
-  resolution.
+- Treat depth triangles/patches as ray-hit/free-space observations, never permanent
+  canonical topology. Never carve behind the first supported hit.
+- Associate observations by rasterizing chart ID, mean depth, normal, UV,
+  sidedness, confidence, and normal uncertainty from the observation pose. A
+  spatial hash/page table is an index, not a voxel geometry resolution.
 - Fuse only position-, normal-, visibility-, and confidence-compatible evidence.
   Opposite-facing or occluded observations create/target another layer or are
   rejected; they never erase a stable surface.
-- Update active geometry with bounded point-to-plane information accumulators.
-  Distant or grazing observations cannot degrade a stable close surface.
-- Build adaptive local meshlets from stable surfaces. Publish topology with
+- Update active chart shape with bounded robust sufficient statistics. Geometry is
+  hierarchical: a tangent/quadratic base plus sparse multiresolution displacement
+  microtiles. The base supplies stable low-frequency structure; microtiles preserve
+  all supported high-frequency detail without forcing a global resolution.
+- Model the capture basin as normal uncertainty `mu +/- k*sigma`. Uncertain charts
+  procedurally emit adaptive quadrature shell layers for association/photometric
+  focusing; as covariance shrinks they collapse continuously to one opaque surface.
+  Shell samples are derived GPU work, not duplicated canonical geometry.
+- Accumulate persistent RGB/depth silhouette evidence into uncertainty-bearing 3D
+  spline `BoundaryCurve` records with GPU-refined control points. Curves constrain
+  chart domains, splits, and tessellation; a noisy single-frame edge cannot create
+  or erase a boundary.
+- Build adaptive local meshlets from charts. Publish topology with
   generation IDs and double buffering; the renderer must never consume buffers
   being mutated.
 - Keep association, fusion, regularization, topology construction, visibility
@@ -74,20 +88,28 @@ gates; do not leave two competing product architectures.
   persistence/export, outside the frame-critical path and behind fences.
 - Schedule narrow stereo/temporal MVS only for uncertain tiles and only around the
   native metric depth prior. Inconsistent photometric evidence must fail closed.
-- Keep the headset renderer at 72 Hz. Mapping may be time-sliced at 10–15 Hz with a
-  p95 amortized mapper GPU target of 4 ms.
-- No storage buffer may exceed 128 MiB. Target active mapper working memory is
-  <=1.2 GiB, with a hard fail-closed guard at 2 GiB. World size grows on flash, not
-  in the GPU active set.
+- Keep realtime preview responsive through GPU queues, dirty work, and indirect
+  scheduling. Performance tuning may delay refinement work or evict derived pages;
+  it must not lower canonical measurement resolution or discard accepted detail.
+- No individual storage buffer may exceed the device-reported Vulkan range (128 MiB
+  on the measured Quest). Total mapper residency is not capped by that per-buffer
+  value. A runtime memory governor discovers the actual device/app budget, reserves
+  measured Horizon/compositor/Unity headroom, and may use multiple segmented pools
+  up to the safe budget. Pressure evicts/reloads derived or durable pages; it never
+  discards canonical detail. World size grows on flash, not without bound in GPU.
 - Preserve a monotonic per-surface/per-texel quality envelope (projected sampling
   density, range, incidence, sharpness, baseline, exposure, residual, confidence).
   A weaker observation may add support but cannot lower stable geometry or texture
   detail. Replacement requires measured information gain.
+- Treat Meta tracking as a strong pose prior. Optional GPU residual reduction may
+  estimate a small bounded keyframe/chunk micro-correction; it never becomes an
+  unconstrained second SLAM or rewrites historical frame timestamps.
 
 ## World and persistence guardrails
 
-- Reuse the versioned world/pose-graph/store foundations, but store surface,
-  meshlet, and appearance pages rather than TSDF snapshots in the new format.
+- Reuse the versioned world/pose-graph/store foundations, but store chart, boundary,
+  sufficient-statistic, meshlet-cache, observation, and appearance pages rather than
+  TSDF snapshots in the versioned `.prism` format.
 - Chunk transition is a two-arena overlap: the source remains visible while the
   target accepts observations and dirty source pages publish incrementally.
 - Durable publication precedes eviction. A chunk cannot disappear merely because
@@ -101,15 +123,21 @@ gates; do not leave two competing product architectures.
 
 ## Appearance and export guardrails
 
-- First produce exposure-normalized base color and geometric normals with explicit
-  confidence. Add compact directional residuals incrementally.
+- Every chart owns UV at creation. Fuse exposure-normalized RGB directly in chart
+  space with EWA/footprint weighting, producing multi-frame surface superresolution
+  without hallucinated upscaling. Preserve the surface light field using an online
+  adaptive mixture of compact directional lobes plus diffuse state; do not collapse
+  canonical appearance to PBR or low-order SH merely for export convenience.
 - Keep live appearance in GPU-resident, independently streamable multiresolution
   pages. Select geometry and appearance LOD independently from screen-space error,
   visibility, confidence, and bandwidth so close inspection reveals the best
   captured detail without globally inflating residency.
 - Roughness is emitted only with evidence and confidence. Metallic remains zero
   until reliable evidence exists; never invent polished PBR maps.
-- GLB/PBR export remains mandatory. Support selected chunk, bounded monolithic
+- `.prism` persistence/export is mandatory so a scan can reopen and continue
+  refining with uncertainty, chart graph, boundaries, directional appearance, and
+  sufficient statistics intact. GLB/PBR remains the interoperable derivative.
+  Support selected chunk, bounded monolithic
   world, and `building.json + chunks/*.glb`; preserve pose-graph node transforms.
 - Validate output with Khronos glTF Validator and an independent importer.
 

@@ -1,405 +1,318 @@
 {
   "schema_version": 1,
-  "goal": "QuestInfiniteScan on-device layered radiance surface meshlets",
+  "goal": "PRISM-Q3 pure-Quest continuous probabilistic surface reconstruction",
+  "canonical_spec": "specka.md",
   "allowed_statuses": ["pending", "in_progress", "done", "blocked"],
   "nodes": [
     {
-      "id": "P00",
-      "title": "Preserve the hybrid implementation and its original DAG",
+      "id": "Q3-01",
+      "title": "Preserve the fork/build baseline and activate the canonical PRISM branch",
       "status": "done",
       "depends_on": [],
       "acceptance": [
-        "All pre-pivot tracked and untracked source work is committed without generated captures, credentials, addresses, or device identifiers",
-        "A dedicated remote branch retains the exact hybrid code, old goal, and old DAG",
-        "The new implementation continues on a separate branch"
+        "Original QuestRoomScan-derived Android/Vulkan app builds, deploys, and scans on Quest 3/3S",
+        "All pre-PRISM implementation work and its old DAG are preserved on a separate pushed archive branch",
+        "PRISM development has its own pushed branch and one canonical reconstruction specification",
+        "No captures, generated builds, addresses, credentials, or device identifiers enter git"
       ],
       "evidence": [
-        "Commit e9f37c1 preserves 304 files and the original 22-node hybrid/DiffSoup DAG",
-        "Remote branch origin/archive/hybrid-diffsoup-checkpoint-20260820 exists and tracks the immutable checkpoint",
-        "Active implementation branch is feat/quest-radiance-meshlets"
+        "Unity/Android/Quest baseline report: /mnt/kingston-unity/Builds/Verification/20260820T132533Z/verification-report.json",
+        "Hybrid checkpoint e9f37c1 and original DAG are pushed at origin/archive/hybrid-diffsoup-checkpoint-20260820",
+        "Active pushed branch feat/quest-radiance-meshlets contains control checkpoint 9fee431",
+        "specka.md defines the single canonical PRISM-Q3 product, mathematics, GPU passes, persistence, export, and acceptance corpus"
       ]
     },
     {
-      "id": "P01",
-      "title": "Retain the verified Quest Unity/Vulkan shell and device toolchain",
-      "status": "done",
-      "depends_on": ["P00"],
-      "acceptance": [
-        "Unity 6000.5.9f1 Android ARM64 Vulkan project builds",
-        "Meta XR permissions, tracking, passthrough bootstrap, and ADB deploy path remain available",
-        "Generated builds and caches stay outside the repository"
-      ],
-      "evidence": [
-        "Verification report /mnt/kingston-unity/Builds/Verification/20260820T132533Z/verification-report.json records successful Unity tests and Android/Vulkan build",
-        "The preserved fork deployed and scanned on the connected Quest 3/3S before the architecture pivot",
-        "Kingston-hosted Unity/build scripts remain under Tools/storage and Tools/unity"
-      ]
-    },
-    {
-      "id": "P02",
-      "title": "Retain versioned world, atomic store, pose graph, and transform foundations",
-      "status": "done",
-      "depends_on": ["P00"],
-      "acceptance": [
-        "World/chunk manifests validate and round-trip rigid transforms",
-        "Atomic publication preserves the prior revision after interruption",
-        "Pose graph updates worldFromChunk without mutating local geometry"
-      ],
-      "evidence": [
-        "Runtime/World/WorldManifest*, WorldStore, PoseGraphModel, and PoseGraphOptimizer are present with deterministic EditMode coverage",
-        "The retained 93-test Unity checkpoint reports no failures, including manifest/store/pose tests",
-        "New meshlet page formats will version rather than reinterpret legacy TSDF payloads"
-      ]
-    },
-    {
-      "id": "P03",
-      "title": "Retain standards-compliant GLB/PBR writer foundations",
-      "status": "done",
-      "depends_on": ["P00"],
-      "acceptance": [
-        "Chunk, sharded world, and bounded monolithic GLB paths exist",
-        "Pose-graph node transforms and honest metallic/roughness semantics are preserved",
-        "Official and independent validators are reproducible"
-      ],
-      "evidence": [
-        "Runtime/Export contains chunk/world GLB writers and atomic export controller",
-        "The retained verification report records zero Khronos errors/warnings and successful independent NodeIO validation",
-        "Tools/gltf contains locked interoperability checks"
-      ]
-    },
-    {
-      "id": "R00",
-      "title": "Freeze the on-device radiance-meshlet architecture and migration contracts",
-      "status": "done",
-      "depends_on": ["P00", "P01", "P02", "P03"],
-      "acceptance": [
-        "Goal, DAG, decisions, state, resume tail, architecture spec, and AGENTS guardrails consistently name one production architecture",
-        "Reusable, replaceable, and removable code is mapped to concrete symbols",
-        "Buffer layouts, coordinate spaces, frame ownership, lifecycle states, quality gates, and migration order are explicit",
-        "Control-plane validation passes and the old DAG remains recoverable from the archive branch"
-      ],
-      "evidence": [
-        "AGENTS.md and .codex/GOAL.md freeze the pure Quest GPU/indirect mapper, monotonic quality contract, quantitative acceptance gates, and post-compaction guardrails",
-        "docs/architecture/RADIANCE_MESHLET_ARCHITECTURE.md defines coordinate/time ownership, GPU pass graph, draft aligned buffer capacities, dynamic geometry/appearance LOD, two-arena page lifecycle, UI boundary, and migration sequence",
-        ".codex/DECISIONS.md records the active ADR set and points superseded hybrid/DTSDF decisions to archive commit e9f37c1",
-        "The unintegrated DTSDF scaffold and obsolete directional decision were removed only from the new branch; the remote archive retains them",
-        "python3 Tools/validate_goal_state.py passes: 28 nodes, one active node, four reusable foundations done before this status transition"
-      ]
-    },
-    {
-      "id": "C01",
-      "title": "Implement immutable StereoRigFrame contracts and dual GPU camera capture",
+      "id": "Q3-02",
+      "title": "Implement coherent 2x RGB + 2x depth + exact pose/calibration GPU capture",
       "status": "in_progress",
-      "depends_on": ["R00"],
+      "depends_on": ["Q3-01"],
       "acceptance": [
-        "One frame exposes RGB-L/R, depth-L/R, timestamps, intrinsics, extrinsics, poses, dimensions, and ownership without CPU color readback",
-        "Both passthrough camera streams are opened, permissioned, and disposed deterministically",
-        "Quest 3 and 3S capability differences are discovered at runtime rather than hard-coded",
-        "Unit tests cover contract validation, resource ownership, camera ordering, and unsupported capability failure"
+        "Immutable StereoRigFrame exposes RGB-L/R, depth-L/R, independent timestamps, per-camera poses, intrinsics, extrinsics, formats, dimensions, calibration epoch, and GPU ownership leases",
+        "Both Meta passthrough cameras and stereo environment-depth views are acquired without CPU color/depth copies in the mapper path",
+        "Pairing rejects stale, out-of-order, missing-eye, pose-invalid, or calibration-mismatched data instead of silently fusing it",
+        "Diagnostics/capture dump proves correct eye ordering, timestamp deltas, poses, calibration, and direct GPU handles on Quest 3/3S",
+        "Unit tests cover contracts/lifetimes and a physical Quest test captures a valid coherent frame sequence"
       ],
       "evidence": []
     },
     {
-      "id": "C02",
-      "title": "Implement frame synchronization, pose sampling, and capture diagnostics",
+      "id": "Q3-03",
+      "title": "Implement immutable rig calibration, ray LUTs, and depth normalization",
       "status": "pending",
-      "depends_on": ["C01"],
+      "depends_on": ["Q3-02"],
       "acceptance": [
-        "Configurable timestamp delta, pose age, tracking validity, and intrinsic-version gates fail closed",
-        "Depth and RGB timestamps are paired with the correct per-eye pose/extrinsics",
-        "Diagnostics report accepted/dropped frames, pair deltas, per-stream rates, latency, and failure reasons",
-        "Deterministic jitter/out-of-order/missing-eye tests prove no stale-frame fusion"
+        "Calibration epochs fail closed and precompute normalized RGB/depth rays plus rigid inter-sensor transforms",
+        "Depth normalization preserves independent eyes and one metric convention with validity/range metadata",
+        "Per-pixel passes do not recompute inverse intrinsics and cross-sensor projection remains candidate-depth dependent",
+        "CPU reference and real-GPU fixtures agree within declared precision",
+        "Physical projection of calibrated rays aligns with measured Quest views"
       ],
       "evidence": []
     },
     {
-      "id": "D01",
-      "title": "Implement GPU depth consensus, normals, discontinuity mask, and confidence",
+      "id": "Q3-04",
+      "title": "Implement L/R depth consensus, learned sigma, robust normals, and boundary confidence",
       "status": "pending",
-      "depends_on": ["C02", "M01"],
+      "depends_on": ["Q3-03"],
       "acceptance": [
-        "Left/right depth is reprojected with depth-dependent calibration and fused only when geometrically consistent",
-        "Confidence incorporates sensor validity, local noise, incidence, cross-eye agreement, temporal agreement, and tracking quality",
-        "Strong discontinuities suppress cross-edge fusion and rear-space carving",
-        "Captured fixtures and real-GPU parity tests cover planes, slants, silhouettes, poles, missing depth, and mixed pixels"
+        "Depth eyes are geometrically cross-checked and disagreement is classified, never blindly averaged",
+        "Range-binned robust MAD/EMA learns sensor residual sigma from stable surfaces and propagates per-pixel uncertainty factors",
+        "Discontinuity-aware plane fitting emits position, oriented normal, and normal confidence",
+        "Depth/normal/RGB evidence emits a non-destructive boundary-confidence field",
+        "GPU tests and Quest fixtures cover planes, oblique surfaces, silhouettes, mixed pixels, missing depth, thin objects, and motion"
       ],
       "evidence": []
     },
     {
-      "id": "D02",
-      "title": "Implement uncertain-tile scheduler and narrow stereo/temporal MVS",
+      "id": "Q3-05",
+      "title": "Implement dual-eye prediction raster of current chart meshlets",
       "status": "pending",
-      "depends_on": ["D01", "M03"],
+      "depends_on": ["Q3-03"],
       "acceptance": [
-        "Only uncertain/problem tiles enter refinement and work is bounded per frame",
-        "Native depth defines a narrow metric hypothesis interval with 8-16 candidates",
-        "Census/gradient cost uses the other eye and 2-4 pose-valid temporal observations",
-        "Left-right and temporal consistency reject ambiguous solutions rather than inventing geometry",
-        "Scheduling respects mapper GPU budget and thermal backpressure"
+        "Published meshlets rasterize PredDepth, PredNormal, PredChartID, PredUV, PredSigma, generation, sidedness, and confidence from exact depth-eye poses",
+        "Hardware depth testing produces the front-most visible compatible surface with no CPU geometry traversal",
+        "Targets are generation-safe and double-buffered so classification never consumes incomplete output",
+        "Synthetic occlusion/layer fixtures and physical overlay validate projection and visibility in both eyes"
       ],
       "evidence": []
     },
     {
-      "id": "M01",
-      "title": "Define packed surface, accumulator, meshlet, page, and memory contracts",
+      "id": "Q3-06",
+      "title": "Implement exhaustive first-hit ray classification",
       "status": "pending",
-      "depends_on": ["R00"],
+      "depends_on": ["Q3-04", "Q3-05"],
       "acceptance": [
-        "C# and HLSL layouts have explicit byte size/alignment and parity tests",
-        "Active records retain sufficient precision for point-to-plane solving; stable pages use chunk-local quantization with declared error bounds",
-        "Every buffer allocation is checked, no storage buffer exceeds 128 MiB, target active memory is <=1.2 GiB, and allocation fails closed before 2 GiB",
-        "Generation IDs and invalid sentinels prevent use-after-recycle",
-        "All live structures support GPU-only append/compact/scan plus indirect dispatch and draw arguments without CPU count readback"
+        "Every valid ray is classified exactly once as MATCH, NEW_FRONT, BEHIND, NEW_LAYER, UNSEEN, BOUNDARY, or INVALID",
+        "Gates use measured/predicted posterior sigma, normal, sidedness, visibility ordering, boundary support, and generation validity",
+        "BEHIND only accumulates supported front-space contradiction and nothing behind a first hit is carved",
+        "Residual bimodality can select a new hypothesis/split even for similar normals",
+        "CPU contract and real-GPU parity cover all classes, occlusions, stale generations, and adversarial edge cases"
       ],
       "evidence": []
     },
     {
-      "id": "M02",
-      "title": "Implement bounded GPU layered-surface allocator and spatial index",
+      "id": "Q3-07",
+      "title": "Implement robust GPU SurfaceChart spawn",
       "status": "pending",
-      "depends_on": ["M01"],
+      "depends_on": ["Q3-06"],
       "acceptance": [
-        "Chunk-local cells reference multiple surface layers without imposing voxel geometry resolution",
-        "Allocation, reuse, overflow, compaction, and generation validation are deterministic",
-        "Opposite normals and incompatible visibility can coexist in one spatial region",
-        "Stress tests hit capacity without memory corruption or unbounded growth"
+        "UNSEEN/NEW_FRONT samples are tile-component clustered by depth/normal continuity entirely on GPU",
+        "Local PCA establishes a stable one-sided tangent frame and bounded two-pass IRLS/Huber fits the quadratic base",
+        "Actual support determines extent and allocates stable ID/generation without a global primitive size",
+        "Bounded allocator handles overflow without corrupting published charts",
+        "Quest test spawns stable charts on planar, curved, small-object, and partial-view geometry"
       ],
       "evidence": []
     },
     {
-      "id": "M03",
-      "title": "Implement hardware association raster for stable surface IDs",
+      "id": "Q3-08",
+      "title": "Implement 6x6 information-filter chart refinement and posterior uncertainty",
       "status": "pending",
-      "depends_on": ["C02", "M02"],
+      "depends_on": ["Q3-07"],
       "acceptance": [
-        "Existing meshlets rasterize ID, predicted depth, normal, generation, and visibility into observation space",
-        "Association rejects depth, normal, generation, edge, and occlusion incompatibility",
-        "Unmatched valid observations are routed to new-layer candidates",
-        "Raster resources are double-buffered and never read while incomplete"
+        "MATCH observations robustly accumulate quadratic-basis H/g sufficient statistics on GPU",
+        "Deterministic regularized 6x6 Cholesky solve updates chart parameters and covariance/sigma without simple averaging",
+        "Information rises and uncertainty shrinks for consistent revisits",
+        "A lower-information distant, grazing, noisy, or blurred measurement cannot move stable close geometry beyond its tighter posterior bound",
+        "Synthetic ordering tests and physical repeat passes demonstrate monotonic or unchanged error"
       ],
       "evidence": []
     },
     {
-      "id": "M04",
-      "title": "Implement layered point-to-plane fusion and stable-surface protection",
+      "id": "Q3-09",
+      "title": "Implement multihypothesis one-sided and bimodal surface geometry",
       "status": "pending",
-      "depends_on": ["D01", "M03"],
+      "depends_on": ["Q3-08"],
       "acceptance": [
-        "Active surfaces update bounded information matrices/vectors with robust weights",
-        "Distance, incidence, confidence, visibility, dynamics, and residual history control fusion",
-        "A persistent information-quality envelope prevents lower-resolution, farther, blurrier, or more grazing observations from degrading stable geometry",
-        "Opposite-facing or occluded evidence never erases an existing layer",
-        "Near-then-far, far-then-near, grazing, thin-panel, pole, pipe, occlusion, dynamic-object, and noisy revisit tests pass",
-        "Stable close surfaces move <=2 mm under later lower-quality distant evidence"
+        "Orientation-, sidedness-, visibility-, or residual-mode-incompatible evidence creates an independent chart hypothesis",
+        "Nearby parallel/opposing surfaces never proximity-merge and contradictory evidence is not averaged",
+        "Layer association remains stable when revisiting either side and under partial occlusion",
+        "Physical front/back scans retain independent 5/10/20/50 mm plates whenever sensor evidence resolves them",
+        "First-side geometry survives all second-side and return passes"
       ],
       "evidence": []
     },
     {
-      "id": "M05",
-      "title": "Implement local regularization, boundary ownership, and chunk-overlap blending",
+      "id": "Q3-10",
+      "title": "Implement persistent multi-view 3D BoundaryCurves",
       "status": "pending",
-      "depends_on": ["M04", "W01"],
+      "depends_on": ["Q3-09"],
       "acceptance": [
-        "Regularization improves compatible coplanar/curved support without crossing locked discontinuities or layers",
-        "Chunk overlap assigns deterministic surface ownership and avoids duplicate z-fighting",
-        "Boundary updates are local, budgeted, and revision-safe",
-        "Synthetic and captured seams remain continuous under pose-graph transform updates"
+        "Depth/normal/RGB/visibility/coverage evidence accumulates into stable uncertainty-bearing spline controls with chart-side relations",
+        "Promotion/retirement requires consistent multi-view evidence and one noisy edge is non-destructive",
+        "Projected curves search a narrow image-normal band and triangulate sub-depth-pixel 3D updates from calibrated views",
+        "Boundaries constrain association, UV domains, topology, and tessellation",
+        "Physical frames, corners, plate edges, pipes, rails, and recesses show lower edge error than raw depth alone"
       ],
       "evidence": []
     },
     {
-      "id": "M06",
-      "title": "Implement adaptive local meshlet topology with atomic publication",
+      "id": "Q3-11",
+      "title": "Implement chart split/merge and hierarchical displacement microtiles",
       "status": "pending",
-      "depends_on": ["M04", "M05"],
+      "depends_on": ["Q3-10"],
       "acceptance": [
-        "Stable planar regions consolidate while curvature, silhouettes, thin features, and uncertain boundaries retain detail",
-        "Split/merge/stitch operations preserve layer identity, winding, manifold intent, and edge locks",
-        "Topology is built into an inactive generation and atomically swapped after validation",
-        "Fixed-capacity meshlets handle overflow without corrupting the published generation",
-        "No triangle bridges a strong depth discontinuity in accepted fixtures",
-        "GPU compaction and indirect arguments publish topology without CPU geometry traversal, count readback, or Unity Mesh rebuilding"
+        "Quadratic residual updates logical Grid16 displacement with information/sigma/support/coverage and monotonic quality",
+        "Measured footprint can allocate recursive sparse microtiles so Grid16 is not a detail ceiling",
+        "Bimodality, boundaries, curvature, non-single-valued support, or incompatible normals split into 2-4 children with statistics preserved",
+        "Merge requires compatible sidedness/continuation/normal/appearance and no persistent boundary",
+        "Planes simplify while pipes, frames, folds, gaps, relief, and thin detail remain geometrically faithful"
       ],
       "evidence": []
     },
     {
-      "id": "R01",
-      "title": "Implement GPU-indirect world meshlet rendering and dynamic LOD",
+      "id": "Q3-12",
+      "title": "Implement adaptive GPU meshlets, culling, dynamic LOD, and indirect rendering",
       "status": "pending",
-      "depends_on": ["M06"],
+      "depends_on": ["Q3-11"],
       "acceptance": [
-        "Provisional and stable geometry use bounded ordinary Vulkan triangle rendering with depth testing and GPU-generated indirect draw lists",
-        "GPU frustum/occlusion culling and screen-space-error LOD select meshlet detail without CPU traversal",
-        "Geometry and appearance choose independent LOD so close inspection uses maximum captured detail while distant chunks remain cheap",
-        "Natural, Coverage, Geometry, Uncertainty, and Wireframe modes apply to active and persisted chunks",
-        "Published geometry remains spatially stable under head motion, chunk swaps, and pose-graph changes",
-        "Renderer never consumes retired or mutating generations and maintains 72 Hz target"
+        "Charts and boundaries materialize entirely on GPU into inactive generation-safe meshlet buffers",
+        "Adaptive tessellation follows analytic error, microtile detail, confidence, and exact BoundaryCurves without silhouette bridges",
+        "GPU frustum/Hi-Z culling and screen-space error generate indirect draw lists with independent geometry/appearance LOD",
+        "No synchronous readback, CPU count, CPU mesh, or per-frame geometry traversal exists in the production path",
+        "Published geometry remains stable during rebuild and close viewing reveals maximum measured detail"
       ],
       "evidence": []
     },
     {
-      "id": "W01",
-      "title": "Replace rollover with a nonblocking two-arena chunk lifecycle",
+      "id": "Q3-13",
+      "title": "Implement infinite chunk paging, native PRISM persistence, restart, and revisit",
       "status": "pending",
-      "depends_on": ["R00", "P02", "M01"],
+      "depends_on": ["Q3-12"],
       "acceptance": [
-        "Current and next arenas overlap with Schmitt hysteresis in all axes including vertical travel",
-        "Source geometry remains published and visible while target mapping begins",
-        "Transition cannot outrun durable publication or strand multiple chunks in Finalizing",
-        "Dirty pages read back incrementally and no transition blocks the main thread >20 ms",
-        "Live mapping and rendering perform no synchronous readback; persistence uses only fenced asynchronous immutable page staging",
-        "Regression test reproduces and eliminates the archived four-rollover disappearance failure"
+        "Chunks store local charts, posterior statistics, sigma, boundaries, displacement/microtiles, appearance pages, meshlet cache, transforms, and keyframe references under a versioned PRISM schema",
+        "Current/overlap/visible/dirty chunks are GPU-resident while durable distant pages evict and rehydrate on demand",
+        "Fenced async immutable dirty-page staging never blocks capture/render and previous complete revision survives interruption",
+        "Revisit resumes the same posterior and publishes a monotonic revision",
+        "At least 20 transitions and returns reproduce none of the archived Finalizing/disappearance failure"
       ],
       "evidence": []
     },
     {
-      "id": "W02",
-      "title": "Implement versioned meshlet-page persistence, streaming, reload, and revisit",
+      "id": "Q3-14",
+      "title": "Implement surface-conditioned L/R narrow stereo focusing",
       "status": "pending",
-      "depends_on": ["W01", "M06", "P02"],
+      "depends_on": ["Q3-08", "Q3-13"],
       "acceptance": [
-        "Surface, topology, appearance, observation, and quality pages publish atomically under a new schema",
-        "Last complete revision survives interruption, hash failure, cancellation, and app termination",
-        "Visible/near chunks dynamically rehydrate after eviction with bounded GPU/RAM residency",
-        "Revisit preserves stable layers and commits a monotonic revision",
-        "Legacy manifests remain read-only/migratable without reinterpreting TSDF bytes as new pages"
+        "Only unresolved/information-positive chart regions evaluate a posterior-centered normal interval",
+        "Adaptive coarse/fine candidates use calibrated L/R Census plus gradient cost and parabolic sub-step fit",
+        "Best-versus-second-best, texture, occlusion, calibration, pose, and L/R checks reject ambiguity",
+        "Accepted updates enter chart information/displacement state rather than a detached depth map",
+        "Physical textured targets demonstrate lower surface error than native depth without degrading weak-texture regions"
       ],
       "evidence": []
     },
     {
-      "id": "W03",
-      "title": "Integrate pose graph, relocation, loop closure, and multi-floor worlds",
+      "id": "Q3-15",
+      "title": "Implement temporal ray-bundle focusing and information-gain keyframes",
       "status": "pending",
-      "depends_on": ["W02", "P02"],
+      "depends_on": ["Q3-14"],
       "acceptance": [
-        "Tracking/overlap/loop constraints update only worldFromChunk",
-        "Active capture, association, renderer, export, and future observations use one coherent transform snapshot",
-        "Anchor relocation restores a world without flattening vertical topology",
-        "Long corridor loop and multi-floor fixtures converge without local-geometry mutation"
+        "Per-chart active views maximize sharpness, footprint, angular/baseline diversity, frontality, visibility, and unresolved information",
+        "Known chart/poses reproject normal-offset candidates into current stereo plus 4-8 best temporal views without feature matching or global MVS",
+        "Robust photometric solve is posterior-constrained and fails closed on occlusion/exposure/dynamic inconsistency",
+        "Redundant active references can be replaced without losing sufficient resumable evidence",
+        "Physical repeated passes measurably reduce observable geometry error"
       ],
       "evidence": []
     },
     {
-      "id": "A01",
-      "title": "Implement bounded observation reservoir and robust base-color fusion",
+      "id": "Q3-16",
+      "title": "Implement measured hierarchical displacement and normal refinement",
       "status": "pending",
-      "depends_on": ["C02", "M03", "W01"],
+      "depends_on": ["Q3-11", "Q3-15"],
       "acceptance": [
-        "Chunk-local observations retain calibrated views by coverage, baseline, sharpness, exposure, and geometry support",
-        "Reservoir size is bounded and revisits replace weaker redundant evidence",
-        "Exposure-normalized color rejects occlusions, dynamics, blur, and grazing samples",
-        "Base color and confidence improve monotonically on accepted fixtures",
-        "A per-texel quality envelope preserves the sharpest valid close-range evidence and permits replacement only on measured information gain"
+        "Depth/stereo/temporal residuals update analytic base versus displacement at the correct scale with posterior uncertainty",
+        "Recursive microtiles allocate only from supported projected footprint and consistent information",
+        "Normals derive from analytic plus displacement derivatives and carry confidence",
+        "Fine close geometry cannot be flattened by later coarse/distant observations",
+        "Relief, trim, pipe curvature, and small static detail improve across close revisits"
       ],
       "evidence": []
     },
     {
-      "id": "A02",
-      "title": "Implement compact directional appearance and confidence-bearing PBR",
+      "id": "Q3-17",
+      "title": "Implement immediate surface-space RGB/EWA accumulation",
       "status": "pending",
-      "depends_on": ["A01", "D02", "M04"],
+      "depends_on": ["Q3-13", "Q3-15"],
       "acceptance": [
-        "Incremental bounded least-squares state captures diffuse plus compact view-dependent residual",
-        "Geometric/detail normals carry confidence and do not hide unresolved geometry",
-        "Roughness is emitted only with adequate angular evidence; metallic stays zero when uncertain",
-        "Appearance update is time-sliced and does not require training, Python, CUDA, or network",
-        "Multiresolution GPU appearance pages support independently streamed texture LOD and retain maximum accepted texel detail"
+        "Charts receive inherent UV at creation and accepted visible RGB footprints accumulate directly into surface pages",
+        "Weights include sharpness, view/incidence, elliptical footprint, motion, occlusion, geometry confidence, exposure, and dynamics",
+        "Per-texel color information, variance, coverage, best footprint, and quality are resumable",
+        "Lower-quality imagery can add support but cannot overwrite sharper stable texels",
+        "Quest preview shows stable chart-space color without global unwrap/rebake"
       ],
       "evidence": []
     },
     {
-      "id": "E01",
-      "title": "Adapt chunk and world GLB/PBR export to canonical meshlet pages",
+      "id": "Q3-18",
+      "title": "Implement measured multi-view texture superresolution and virtual pages",
       "status": "pending",
-      "depends_on": ["P03", "W02", "A02"],
+      "depends_on": ["Q3-17"],
       "acceptance": [
-        "Exporter consumes stable canonical meshlet generations rather than TSDF/refined/DiffSoup artifacts",
-        "Positions, normals, tangents, UV0, indices, base color, normal, and honest metallic-roughness semantics are correct",
-        "Selected chunk, sharded world, and bounded monolithic world preserve pose-graph transforms and revisions",
-        "Official validator and independent importer pass generated and physical fixtures"
+        "Subpixel-shifted calibrated footprints accumulate with EWA weighting into sparse multiresolution surface pages",
+        "Page density follows best measured footprint and information, not blind upscale or one global texels-per-metre cap",
+        "GPU feedback/residency provides fallback mips without discarding maximum canonical detail",
+        "Revisit texture reprojection error decreases and accepted sampling detail is monotonic",
+        "Close physical captures resolve more measured texture detail than single-frame passthrough"
       ],
       "evidence": []
     },
     {
-      "id": "U01",
-      "title": "Replace debug-centric UI with the production scan workflow",
+      "id": "Q3-19",
+      "title": "Implement directional appearance and confidence-bearing PBR derivation",
       "status": "pending",
-      "depends_on": ["C02", "W01", "R01"],
+      "depends_on": ["Q3-16", "Q3-18"],
       "acceptance": [
-        "Primary navigation is Scan, Worlds, Quality, Export, and Settings; Diagnostics is an explicit developer view",
-        "Workflow state machine is Idle -> Permission/Warmup -> Scanning <-> Paused -> Finalizing -> Ready/Fault",
-        "Scan view exposes tracking, stereo sync/rates, mapping lag, stable geometry, unresolved edges, chunk, memory, and thermal health",
-        "Quality offers Fast/Balanced/Detail and honest geometry/appearance/material confidence",
-        "Legacy GS, server URL, DiffSoup, HQ-server refinement, freeze tint, and normal-operator clutter are absent"
+        "GPU incremental fit separates robust view-stable appearance from SH1 baseline and promotes compact directional lobes only with evidence",
+        "Canonical directional measurements survive PBR derivation and restart",
+        "Base color, analytic/displacement normal, roughness, metallic, and material confidence are derived consistently",
+        "Insufficient roughness evidence uses a declared fallback and insufficient metallic evidence yields exactly zero",
+        "Quest viewer preserves supported view-dependent effects without Gaussian sorting or neural textures"
       ],
       "evidence": []
     },
     {
-      "id": "X01",
-      "title": "Remove legacy TSDF/DTSDF/Surface Nets/GS/DiffSoup/server production wiring",
+      "id": "Q3-20",
+      "title": "Implement bounded revisit pose and chunk correction",
       "status": "pending",
-      "depends_on": ["E01", "U01", "V01"],
+      "depends_on": ["Q3-13", "Q3-15"],
       "acceptance": [
-        "Production scenes, assembly references, setup wizard, resources, shaders, UI, and package docs use only the new mapper",
-        "Unintegrated DTSDF scaffolding and scalar TSDF/Surface Nets mapping are removed from shipped code",
-        "Runtime.GSplat, HeavyCompute, DiffSoup renderer/client, and Python server are absent from the shipped package",
-        "Reusable representation-independent tests/tools remain, and archive branch provides full historical recovery",
-        "Clean Unity import and Android build prove no dangling serialization or shader references"
+        "GPU residual reduction produces a robust point-to-chart 6x6 SE(3) correction only with adequate overlap/information",
+        "Meta pose/covariance remains a strong prior and raw frame timestamps/poses are immutable",
+        "Accepted revisit constraints update worldFromChunk through the existing pose graph without mutating local chart geometry",
+        "Renderer, association, persistence, future frames, and export consume one coherent transform snapshot",
+        "Long corridor loop and multi-floor return reduce drift without oscillation or global remesh"
       ],
       "evidence": []
     },
     {
-      "id": "V01",
-      "title": "Build the fixed captured/synthetic quality corpus and continuous verification gates",
+      "id": "Q3-21",
+      "title": "Implement direct PRISM-to-GLB/PBR chunk, region, and world export",
       "status": "pending",
-      "depends_on": ["M04", "M06", "W02", "A01", "E01", "U01"],
+      "depends_on": ["Q3-19", "Q3-20"],
       "acceptance": [
-        "Corpus covers planes, oblique walls, corners, 20/40 mm panels, round/square poles, pipes, rails, silhouettes, opposing faces, occlusion, exposure, dynamics, revisits, and vertical paths",
-        "Expected geometry, visibility, and confidence outcomes are versioned without committing private room imagery",
-        "CPU contract, GPU parity, failure injection, Unity, GLB, Android, and control-plane checks run from one verifier",
-        "Baseline comparison prevents regressions hidden by aggregate scores"
+        "Stable PRISM charts/meshlets and requested appearance pages directly emit POSITION, NORMAL, TANGENT, UV0, indices, base color, normal, and metallic-roughness semantics without PLY",
+        "Boundary welding preserves topology and chunk nodes preserve final pose-graph transforms",
+        "Chunk, selected region, sharded world, and bounded flattened world modes publish atomically",
+        "Canonical PRISM state remains richer/resumable and is never replaced by the GLB derivative",
+        "Khronos glTF Validator and an independent importer accept generated and physical exports with correct transforms/materials"
       ],
       "evidence": []
     },
     {
-      "id": "V02",
-      "title": "Meet mapper performance, memory, thermal, and lifecycle gates",
+      "id": "Q3-22",
+      "title": "Pass physical whole-building quality, revisit, scale, and product acceptance",
       "status": "pending",
-      "depends_on": ["V01", "R01", "D02"],
+      "depends_on": ["Q3-21"],
       "acceptance": [
-        "Quest render stays 72 Hz and balanced mapping stays >=10 Hz",
-        "Mapper GPU p95 is <=4 ms amortized or an explicitly profiled quality fallback is selected",
-        "No buffer exceeds 128 MiB and active mapper memory stays <=1.2 GiB target / <2 GiB hard guard",
-        "Transitions show no >20 ms main-thread stall, synchronous/full-chunk readback, CPU mesh rebuild, premature resource retirement, or thermal runaway",
-        "GPU captures prove indirect culling/LOD/draw and no per-frame geometry readback in production",
-        "Profiles are retained outside git with machine-readable summaries in evidence"
-      ],
-      "evidence": []
-    },
-    {
-      "id": "V03",
-      "title": "Pass physical Quest geometry, revisit, scale, offline, and export acceptance",
-      "status": "pending",
-      "depends_on": ["V02", "W03", "A02", "X01"],
-      "acceptance": [
-        "Accepted corpus measures median <=8 mm and p95 <=20 mm at 0.5-2.0 m with >=95% deliberate planar coverage",
-        "Thin structures, occlusion, discontinuities, near/far revisits, and material-confidence gates pass",
-        "At least 20 transitions plus return visits and a multi-floor route keep all chunks visible/reloadable with bounded residency",
-        "Scan/refine/restart/revisit/export work with networking disabled",
-        "Physical chunk/world GLBs validate and import with correct geometry, transforms, and PBR semantics"
-      ],
-      "evidence": []
-    },
-    {
-      "id": "V04",
-      "title": "Finalize product docs, runbooks, clean verification, and publish the branch",
-      "status": "pending",
-      "depends_on": ["V03"],
-      "acceptance": [
-        "README, architecture, setup, operator, recovery, data-format, profiling, acceptance, and release docs describe the actual on-device product",
-        "Fresh clone/bootstrap/import/build/deploy/export runbook succeeds",
-        "Control validator, diff hygiene, secret scan, full verifier, and clean-tree checks pass",
-        "Implementation commits and final branch are pushed to origin without generated/private artifacts"
+        "Physical 5/10/20/50 mm plate sequence preserves independent front/back surfaces whenever sensor evidence resolves them and error improves across passes",
+        "Doors, frames, corners, recesses, pipes, poles, railings, trims, stairs, gaps, and oblique walls contain no supported silhouette bridges and refined boundaries beat raw depth where observable",
+        "For observable static targets repeated-pass geometry and texture error satisfy E5 < E2 < E1 and worse later views do not degrade better earlier state",
+        "Room, floor, stairwell, next floor, whole-building, restart, eviction, and return tests keep active cost local and every durable chunk rehydratable",
+        "Both RGB and both depth streams, exact rig/poses, posterior refinement, boundaries, stereo/temporal focusing, texture SR, directional/PBR appearance, realtime mesh, PRISM persistence, and GLB work fully offline on Quest",
+        "Production scenes/UI/setup/package no longer wire TSDF/DTSDF/Surface Nets/GS/DiffSoup/server reconstruction, while the archive branch retains historical recovery"
       ],
       "evidence": []
     }

@@ -1,134 +1,87 @@
 # Active architecture decisions
 
-Earlier hybrid/DiffSoup and directional-TSDF decisions remain intact on
-`archive/hybrid-diffsoup-checkpoint-20260820` at commit `e9f37c1`. They are not
-active product decisions on this branch.
+The canonical detail is in `specka.md`. Superseded hybrid/DiffSoup/DTSDF decisions
+remain recoverable from archive commit `e9f37c1` and are not active on this branch.
 
-## ADR-1001 — Isolate the architecture pivot in a new branch
+## ADR-P001 — One canonical spec and isolated branch
 
-- Status: accepted
-- Context: the hybrid implementation contains valuable world, persistence, GLB,
-  build, and diagnostic work but its production mapper/server goal is superseded.
-- Decision: preserve it verbatim in the pushed archive branch and implement the
-  on-device mapper on `feat/quest-radiance-meshlets`.
-- Consequences: reusable foundations can be adapted without losing a buildable
-  historical checkpoint or the old DAG.
+- Decision: develop PRISM-Q3 on `feat/quest-radiance-meshlets`; preserve all earlier
+  work and its DAG on `archive/hybrid-diffsoup-checkpoint-20260820`.
+- Consequence: `specka.md` wins over summaries and may be improved but not weakened.
 
-## ADR-1002 — Canonical layered surfaces with adaptive meshlets
+## ADR-P002 — Probabilistic one-sided SurfaceCharts are canonical
 
-- Status: accepted
-- Context: scalar/directional voxel fields impose resolution/memory trade-offs, and
-  permanent per-frame depth triangles accumulate noisy duplicate topology.
-- Decision: transient depth patches are observations. Canonical chunk geometry is a
-  layered pool of stable surface records plus point-to-plane information state;
-  adaptive meshlets are a separately published topology over those records.
-  Position/normal/visibility-incompatible evidence allocates or targets a separate
-  surface layer.
-- Consequences: opposing sides, thin objects, poles, and silhouettes do not compete
-  for one signed-distance value; topology and spatial indexing no longer determine
-  metric resolution.
+- Decision: canonical geometry is a graph of one-sided local manifolds with
+  quadratic base, sparse hierarchical displacement, posterior information/
+  covariance, sidedness, visibility, boundaries, UV, appearance, and revision.
+  Meshlets and GLB are derived materializations.
+- Consequence: representation resolution follows evidence, and opposing/nearby
+  surfaces do not compete for one voxel or averaged primitive.
 
-## ADR-1003 — One immutable synchronized stereo RGB-D frame contract
+## ADR-P003 — First-hit rays and renderer-based association
 
-- Status: accepted
-- Context: Quest exposes two calibrated RGB cameras, stereo environment depth,
-  timestamps, intrinsics/extrinsics, and tracked poses. Wrong timestamp/pose pairing
-  creates irreversible map errors.
-- Decision: `StereoRigFrame` owns all four GPU views and calibration/pose metadata.
-  `RigFrameSynchronizer` accepts only frames satisfying explicit timestamp, pose,
-  tracking, and intrinsic-version gates. It fails closed and records rejection
-  reason. Static LUTs contain ray/distortion/epipolar terms only; reprojection uses
-  actual depth.
-- Consequences: every downstream pass consumes one coherent frame and stale-eye
-  fusion is structurally difficult.
+- Decision: depth supplies supported free space only before its first hit. Render
+  current charts from exact eye poses into depth/normal/chart/UV/sigma MRTs and
+  classify measured rays against that prediction. Never carve behind a hit.
+- Consequence: visibility and association use the hardware rasterizer; contradictory
+  evidence becomes a hypothesis/boundary/split rather than an average.
 
-## ADR-1004 — GPU-only live pipeline, indirect work, and dynamic LOD
+## ADR-P004 — Posterior update and monotonic information quality
 
-- Status: accepted
-- Context: CPU readback, Unity `Mesh` reconstruction, and CPU draw traversal would
-  destroy latency and bandwidth on Quest as resolution grows.
-- Decision: association, fusion, regularization, topology build, compaction,
-  visibility, LOD, and rendering remain in compute/raster GPU passes. GPU-generated
-  counters drive indirect dispatch and indexed indirect draw. Geometry and
-  appearance LOD are selected independently from screen-space error and confidence.
-  CPU handles small workflow/manifests only. Persistence/export may consume fenced,
-  immutable pages through bounded `AsyncGPUReadback`; it never blocks capture or
-  rendering.
-- Consequences: the hot path scales with visible/dirty work, not world size. Export
-  latency is decoupled from scanning.
+- Decision: charts accumulate quadratic-basis `H/g` and solve deterministic 6x6
+  systems; displacement, boundaries, and texels likewise retain uncertainty and
+  quality envelopes. Lower-information observations cannot degrade stable better
+  data.
+- Consequence: revisits converge a posterior instead of repeatedly smoothing the
+  map, and uncertainty directly schedules refinement.
 
-## ADR-1005 — Monotonic information quality
+## ADR-P005 — Persistent boundaries and probabilistic soft-to-hard surfaces
 
-- Status: accepted
-- Context: the previous mapper let later distant or grazing depth pull a stable
-  surface and let weak imagery wash out sharper texture.
-- Decision: geometry and texels retain a quality envelope including projected
-  sampling density, range, incidence, sharpness, stereo/temporal baseline,
-  exposure, residual, and confidence. A weaker observation can confirm occupancy or
-  update uncertainty but cannot reduce spatial/detail state. Replacing or moving a
-  stable value requires measured information gain and a bounded robust residual.
-- Consequences: deliberate close scans remain authoritative while genuinely better
-  revisits can still refine them.
+- Decision: multi-view depth/RGB/visibility evidence creates uncertainty-bearing 3D
+  spline BoundaryCurves. Immature charts procedurally sample their normal posterior
+  as an adaptive GPU shell and collapse to one opaque surface as sigma shrinks.
+- Consequence: edges and capture range are first-class without a volume, permanent
+  alpha cloud, or depth-edge bridges.
 
-## ADR-1006 — Native depth first, narrow MVS only on uncertain tiles
+## ADR-P006 — Surface-conditioned RGB geometry refinement
 
-- Status: accepted
-- Context: full-frame learned stereo is too expensive and may hallucinate; native
-  depth is metric but loses detail at edges and weak surfaces.
-- Decision: first compute cross-eye/temporal depth consensus, normals, discontinuity,
-  and confidence. A budgeted GPU tile scheduler runs 8–16 native-depth-centered
-  hypotheses using robust gradient/Census costs against the other eye and 2–4 valid
-  temporal frames. Inconsistent solutions remain unresolved.
-- Consequences: compute concentrates on silhouettes, thin structures, and missing
-  regions while stable planes stay cheap.
+- Decision: after a chart exists, stereo and temporal refinement solve only a small
+  normal displacement using calibrated current/historical views and posterior prior.
+  There is no global correspondence search, cost volume, or neural MVS.
+- Consequence: Quest motion and both RGB cameras contribute sub-depth information
+  exactly where unresolved geometry can benefit.
 
-## ADR-1007 — Two-arena transitions and page-level durability
+## ADR-P007 — Surface-space measured appearance remains richer than PBR
 
-- Status: accepted
-- Context: the archived mapper allowed transitions to outrun finalization, retained
-  only one previous snapshot, and failed to rehydrate evicted chunks, causing map
-  disappearance after repeated rollovers.
-- Decision: source and target chunk arenas overlap. Source remains published and
-  renderable while target integrates. Dirty immutable pages stage asynchronously;
-  durable publication precedes eviction. Visible-page residency actively
-  rehydrates on demand. Revisit starts from the last complete revision.
-- Consequences: world growth remains O(1) in active GPU residency without sacrificing
-  continuity or recovery.
+- Decision: chart UV exists at spawn. EWA footprints build multiresolution measured
+  superresolution and canonical diffuse plus adaptive directional state. PBR is a
+  confidence-bearing derivative; uncertain metallic is zero.
+- Consequence: GLB interoperability does not destroy measured view-dependent data or
+  block later refinement.
 
-## ADR-1008 — Honest incremental appearance, not training
+## ADR-P008 — GPU-only hot path and indirect derived caches
 
-- Status: accepted
-- Context: view-dependent appearance improves perceived fidelity, but server-side
-  training contradicts the on-device goal and unconstrained PBR inference is not
-  physically identifiable.
-- Decision: use bounded GPU incremental least-squares for exposure-normalized
-  diffuse plus compact directional residuals. Multiresolution appearance pages keep
-  the best supported texel density. Normals/roughness/metallic carry confidence;
-  uncertain metallic is zero.
-- Consequences: appearance improves during revisits without network, optimizer
-  state, or fabricated certainty.
+- Decision: pixel work, chart allocation/update, topology, meshlet build, culling,
+  LOD, virtual-page feedback, and drawing are GPU/indirect. CPU owns small workflow
+  and durable manifests. Only fenced immutable dirty pages stage asynchronously for
+  persistence/export.
+- Consequence: no synchronous readback, CPU mesh, CPU per-pixel work, or fixed global
+  geometry/texture resolution enters the production loop.
 
-## ADR-1009 — Retire legacy paths only after captured-corpus parity
+## ADR-P009 — Resumable PRISM chunks and pose corrections
 
-- Status: accepted
-- Context: deleting the old mapper before the replacement can build and render
-  would prevent device iteration; leaving it indefinitely would produce a confused
-  product and UI.
-- Decision: introduce the new mapper behind a temporary migration boundary, pass
-  synthetic/captured A/B and Android gates, then remove TSDF/DTSDF/Surface Nets,
-  GS, HeavyCompute/DiffSoup/server production code and UI. The archive branch is the
-  recovery path.
-- Consequences: migration stays testable, while the shipped package ends with one
-  coherent architecture.
+- Decision: chunks are local storage/residency units containing the full posterior,
+  boundaries, microtiles, appearance, and views. Revisit resumes it. Meta pose is a
+  strong prior; accepted small SE(3) revisit constraints update chunk transforms,
+  not local geometry.
+- Consequence: world size grows on flash with local active cost, and week-later
+  refinement remains possible.
 
-## ADR-1010 — Task-oriented operator experience
+## ADR-P010 — Reuse infrastructure, replace the reconstruction product
 
-- Status: accepted
-- Context: the inherited debug menu exposes implementation mechanisms and server
-  controls rather than scan quality and workflow.
-- Decision: the primary UI is Scan, Worlds, Quality, Export, Settings, backed by an
-  explicit workflow state machine and immutable diagnostic snapshots. Fast,
-  Balanced, and Detail profiles change budgets, not data semantics. Developer
-  diagnostics are opt-in.
-- Consequences: operators see whether capture is trustworthy and where more views
-  are needed without learning mapper internals.
+- Decision: retain Quest shell, world/store/pose graph, resource fences, and GLB
+  primitives. Replace the mapper, renderer, appearance model, persistence payload,
+  workflow/UI, then remove TSDF/DTSDF/Surface Nets/GS/DiffSoup/server production
+  wiring after PRISM physical parity.
+- Consequence: implementation can remain buildable during migration while shipping
+  one coherent product architecture.

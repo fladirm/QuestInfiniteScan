@@ -5,14 +5,14 @@ Use the applicable layers in this order; later layers do not replace earlier one
 1. Control plane: `python3 Tools/validate_goal_state.py`
 2. Formatting/static hygiene: `git diff --check`, targeted source analyzers
 3. Pure C# domain/format tests in Unity EditMode
-4. Server unit and HTTP contract tests without CUDA (fake backend)
-5. DiffSoup conversion/golden-artifact tests and CUDA smoke job
-6. Unity package compilation in a pinned Unity 6000.x test project
-7. Android Vulkan/IL2CPP ARM64 build
-8. Quest 3 smoke and failure-injection matrix
+4. CPU reference versus real-GPU compute/raster parity on synthetic/captured PRISM fixtures
+5. Unity package compilation in the pinned Unity 6000.5 project
+6. Android Vulkan/IL2CPP ARM64 build
+7. Quest 3/3S physical run-specific acceptance from `Q3-02` through `Q3-22`
 
 Device acceptance must capture at least: Unity version, headset OS, package commit,
-scene/preset, chunk dimensions, resident-volume cap, number of traversed chunks,
-peak GPU/RAM/storage, median and p95 scan frame cost, network-disconnect behavior,
-artifact revision/hash, reload/relocation result, and logs for any fallback.
-
+calibration epoch, stream timing/poses, scene/corpus item, PRISM revision, chart/
+boundary/posterior metrics, number of traversed chunks, GPU/RAM/storage residency,
+scan/render frame costs, restart/revisit result, GLB validation where applicable,
+and logs for any rejected/fallback evidence. Do not substitute a build for the
+physical acceptance item named by the active DAG run.

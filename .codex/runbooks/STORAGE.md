@@ -15,8 +15,10 @@ Tools/storage/mount_kingston_container.sh
 source Tools/storage/dev_environment.sh
 ```
 
-The environment routes Unity projects/builds, temp data, Gradle, Python/uv,
-PyTorch extensions, CUDA cache, NuGet, DiffSoup work, and server jobs to ext4.
+The existing environment routes Unity projects/builds, temp data, Gradle, and other
+large legacy development caches to ext4. PRISM production itself has no Python,
+CUDA, DiffSoup, or server dependency; retained legacy cache directories may remain
+until normal repository-specific cleanup is useful.
 
 Start the graphical Hub with the same cache/temp routing:
 

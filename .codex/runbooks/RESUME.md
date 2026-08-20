@@ -2,7 +2,7 @@
 
 ## Resume
 
-1. Read the five files listed in root `AGENTS.md` in order.
+1. Read `specka.md` and the five control files listed in root `AGENTS.md` in order.
 2. Run `git status --short --branch` and preserve unknown changes.
 3. Run `python3 Tools/validate_goal_state.py`.
 4. Confirm exactly one DAG node is `in_progress`; if none, select the earliest
@@ -25,4 +25,3 @@
 - Record the exact missing hardware, credential, external state, or user decision.
 - Keep the node active unless the goal system's blocked threshold is actually met.
 - Provide the exact resume command or device procedure, not only a prose label.
-
