@@ -16,6 +16,10 @@ namespace Genesis.RoomScan.Prism
         [SerializeField] private PrismFilmSpawner filmSpawner;
         [SerializeField] private PrismPredictionRenderer predictionRenderer;
         [SerializeField] private ComputeShader meshletBuildCompute;
+        [SerializeField, Min(65536)] private int vertexBudget = 1500000;
+        [SerializeField, Min(196608)] private int indexBudget = 6000000;
+        [SerializeField, Range(1, 16)] private int maximumSubdivision = 16;
+        [SerializeField, Min(0.00025f)] private float minimumTessellationError = 0.00075f;
 
         private static readonly int FilmCapacityId = Shader.PropertyToID("_FilmCapacity");
         private static readonly int FilmHeadersId = Shader.PropertyToID("_FilmHeaders");
@@ -24,10 +28,18 @@ namespace Genesis.RoomScan.Prism
         private static readonly int IndicesId = Shader.PropertyToID("_ContactIndices");
         private static readonly int DrawArgumentsId = Shader.PropertyToID("_DrawArguments");
         private static readonly int MeshDispatchArgumentsId = Shader.PropertyToID("_MeshDispatchArguments");
+        private static readonly int MeshletAllocatorId = Shader.PropertyToID("_MeshletAllocator");
+        private static readonly int VertexCapacityId = Shader.PropertyToID("_VertexCapacity");
+        private static readonly int IndexCapacityId = Shader.PropertyToID("_IndexCapacity");
+        private static readonly int MaximumSubdivisionId = Shader.PropertyToID("_MaximumSubdivision");
+        private static readonly int MinimumTessellationErrorId = Shader.PropertyToID("_MinimumTessellationError");
 
+        private int _clearKernel = -1;
         private int _buildArgsKernel = -1;
         private int _buildKernel = -1;
+        private int _finalizeKernel = -1;
         private GraphicsBuffer _dispatchArguments;
+        private GraphicsBuffer _meshletAllocator;
         private bool _running;
         private uint _publicationGeneration;
 
@@ -46,14 +58,18 @@ namespace Genesis.RoomScan.Prism
                 Logger.Error("Cone-PRISM meshlet builder dependencies are missing.");
                 return;
             }
+            _clearKernel = meshletBuildCompute.FindKernel("ClearMeshletBuild");
             _buildArgsKernel = meshletBuildCompute.FindKernel("BuildMeshDispatchArguments");
-            _buildKernel = meshletBuildCompute.FindKernel("BuildFilmQuads");
+            _buildKernel = meshletBuildCompute.FindKernel("BuildAdaptiveFilmMeshlets");
+            _finalizeKernel = meshletBuildCompute.FindKernel("FinalizeMeshletDrawArguments");
             _dispatchArguments ??= new GraphicsBuffer(
                 GraphicsBuffer.Target.Structured | GraphicsBuffer.Target.IndirectArguments,
                 1, sizeof(uint) * 3);
+            _meshletAllocator ??= new GraphicsBuffer(GraphicsBuffer.Target.Structured,
+                4, sizeof(uint));
             ContactFilmPool pool = filmSpawner.FilmPool;
             predictionRenderer.Meshlets.EnsureCapacity(
-                checked(pool.Capacity * 4), checked(pool.Capacity * 6));
+                vertexBudget, indexBudget);
             Bind(pool, predictionRenderer.Meshlets);
             filmSpawner.FilmsMutated += OnFilmsMutated;
             _running = true;
@@ -70,7 +86,9 @@ namespace Genesis.RoomScan.Prism
         {
             StopBuilding();
             _dispatchArguments?.Dispose();
+            _meshletAllocator?.Dispose();
             _dispatchArguments = null;
+            _meshletAllocator = null;
         }
 
         private void OnFilmsMutated(ContactFilmPool pool)
@@ -81,9 +99,11 @@ namespace Genesis.RoomScan.Prism
             {
                 ContactMeshletBuffers meshlets = predictionRenderer.Meshlets;
                 Bind(pool, meshlets);
+                meshletBuildCompute.Dispatch(_clearKernel, 1, 1, 1);
                 meshletBuildCompute.Dispatch(_buildArgsKernel, 1, 1, 1);
                 meshletBuildCompute.DispatchIndirect(_buildKernel,
                     _dispatchArguments, 0);
+                meshletBuildCompute.Dispatch(_finalizeKernel, 1, 1, 1);
                 _publicationGeneration = _publicationGeneration == uint.MaxValue
                     ? 1u
                     : _publicationGeneration + 1u;
@@ -98,12 +118,26 @@ namespace Genesis.RoomScan.Prism
         private void Bind(ContactFilmPool pool, ContactMeshletBuffers meshlets)
         {
             meshletBuildCompute.SetInt(FilmCapacityId, pool.Capacity);
+            meshletBuildCompute.SetInt(VertexCapacityId, meshlets.VertexCapacity);
+            meshletBuildCompute.SetInt(IndexCapacityId, meshlets.IndexCapacity);
+            meshletBuildCompute.SetInt(MaximumSubdivisionId, maximumSubdivision);
+            meshletBuildCompute.SetFloat(MinimumTessellationErrorId,
+                minimumTessellationError);
+            int[] kernels =
+            {
+                _clearKernel, _buildArgsKernel, _buildKernel, _finalizeKernel
+            };
+            foreach (int kernel in kernels)
+            {
+                meshletBuildCompute.SetBuffer(kernel, MeshletAllocatorId,
+                    _meshletAllocator);
+                meshletBuildCompute.SetBuffer(kernel, DrawArgumentsId,
+                    meshlets.DrawArguments);
+                meshletBuildCompute.SetBuffer(kernel, MeshDispatchArgumentsId,
+                    _dispatchArguments);
+            }
             meshletBuildCompute.SetBuffer(_buildArgsKernel, FilmAllocatorId,
                 pool.Allocator);
-            meshletBuildCompute.SetBuffer(_buildArgsKernel, DrawArgumentsId,
-                meshlets.DrawArguments);
-            meshletBuildCompute.SetBuffer(_buildArgsKernel, MeshDispatchArgumentsId,
-                _dispatchArguments);
             meshletBuildCompute.SetBuffer(_buildKernel, FilmHeadersId, pool.Headers);
             meshletBuildCompute.SetBuffer(_buildKernel, FilmAllocatorId, pool.Allocator);
             meshletBuildCompute.SetBuffer(_buildKernel, VerticesId, meshlets.Vertices);

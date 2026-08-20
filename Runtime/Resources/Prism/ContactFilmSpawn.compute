@@ -21,7 +21,8 @@ struct ConeEvent
     float footprintArea;
     float incidence;
     float pressurePrecision;
-    float reserved;
+    uint occluderFilmId;
+    uint occluderGeneration;
 };
 
 struct ContactFilmHeader

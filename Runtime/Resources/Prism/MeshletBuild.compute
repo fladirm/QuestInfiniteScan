@@ -1,5 +1,7 @@
+#pragma kernel ClearMeshletBuild
 #pragma kernel BuildMeshDispatchArguments
-#pragma kernel BuildFilmQuads
+#pragma kernel BuildAdaptiveFilmMeshlets
+#pragma kernel FinalizeMeshletDrawArguments
 
 struct ContactFilmHeader
 {
@@ -50,7 +52,12 @@ RWStructuredBuffer<ContactMeshletVertex> _ContactVertices;
 RWStructuredBuffer<uint> _ContactIndices;
 RWStructuredBuffer<uint4> _DrawArguments;
 RWStructuredBuffer<uint3> _MeshDispatchArguments;
+RWStructuredBuffer<uint> _MeshletAllocator;
 uint _FilmCapacity;
+uint _VertexCapacity;
+uint _IndexCapacity;
+uint _MaximumSubdivision;
+float _MinimumTessellationError;
 
 static const uint FILM_ACTIVE = 1u;
 
@@ -73,16 +80,62 @@ float3 SurfaceNormal(ContactFilmHeader film, float u, float v)
     return dot(n, film.normal) >= 0.0 ? n : -n;
 }
 
+bool Reserve(uint counter, uint amount, uint capacity, out uint baseOffset)
+{
+    baseOffset = 0u;
+    [loop]
+    for (uint attempt = 0u; attempt < 64u; ++attempt)
+    {
+        uint current = _MeshletAllocator[counter];
+        if (amount > capacity || current > capacity - amount) return false;
+        uint observed;
+        InterlockedCompareExchange(_MeshletAllocator[counter], current,
+            current + amount, observed);
+        if (observed == current)
+        {
+            baseOffset = current;
+            return true;
+        }
+    }
+    return false;
+}
+
+uint ChooseSubdivision(ContactFilmHeader film)
+{
+    float curvatureSag = abs(film.quadratic0123.w) * film.extentU * film.extentU +
+        abs(film.quadratic45.x) * film.extentU * film.extentV +
+        abs(film.quadratic45.y) * film.extentV * film.extentV;
+    float targetError = max(_MinimumTessellationError,
+        min(0.01, film.sigmaNormal * 0.5));
+    float required = sqrt(max(1.0, curvatureSag / targetError));
+    if (film.boundaryCount > 0u) required = max(required, 4.0);
+    uint segments = 1u;
+    [loop]
+    while ((float)segments < required && segments < _MaximumSubdivision)
+        segments <<= 1u;
+    return min(segments, _MaximumSubdivision);
+}
+
+[numthreads(1, 1, 1)]
+void ClearMeshletBuild(uint3 id : SV_DispatchThreadID)
+{
+    _MeshletAllocator[0] = 0u; // vertices
+    _MeshletAllocator[1] = 0u; // indices
+    _MeshletAllocator[2] = 0u; // overflowed films
+    _MeshletAllocator[3] = 0u; // emitted films
+    _MeshDispatchArguments[0] = uint3(0u, 1u, 1u);
+    _DrawArguments[0] = uint4(0u, 1u, 0u, 0u);
+}
+
 [numthreads(1, 1, 1)]
 void BuildMeshDispatchArguments(uint3 id : SV_DispatchThreadID)
 {
     uint filmCount = min(_FilmAllocator[0], _FilmCapacity);
     _MeshDispatchArguments[0] = uint3((filmCount + 63u) / 64u, 1u, 1u);
-    _DrawArguments[0] = uint4(filmCount * 6u, 1u, 0u, 0u);
 }
 
 [numthreads(64, 1, 1)]
-void BuildFilmQuads(uint3 id : SV_DispatchThreadID)
+void BuildAdaptiveFilmMeshlets(uint3 id : SV_DispatchThreadID)
 {
     uint filmCount = min(_FilmAllocator[0], _FilmCapacity);
     uint filmIndex = id.x;
@@ -90,38 +143,68 @@ void BuildFilmQuads(uint3 id : SV_DispatchThreadID)
     ContactFilmHeader film = _FilmHeaders[filmIndex];
     if ((film.flags & FILM_ACTIVE) == 0u) return;
 
-    uint vertexBase = filmIndex * 4u;
-    float2 domains[4] = {
-        float2(-film.extentU, -film.extentV),
-        float2( film.extentU, -film.extentV),
-        float2(-film.extentU,  film.extentV),
-        float2( film.extentU,  film.extentV)
-    };
-    [unroll]
-    for (uint corner = 0u; corner < 4u; ++corner)
+    uint segments = ChooseSubdivision(film);
+    uint rowVertices = segments + 1u;
+    uint vertexCount = rowVertices * rowVertices;
+    uint indexCount = segments * segments * 6u;
+    uint vertexBase;
+    if (!Reserve(0u, vertexCount, _VertexCapacity, vertexBase))
     {
-        float u = domains[corner].x;
-        float v = domains[corner].y;
-        ContactMeshletVertex vertex;
-        vertex.position = film.origin + u * film.tangentU + v * film.tangentV +
-            Height(film, u, v) * film.normal;
-        vertex.filmId = film.id;
-        vertex.normal = SurfaceNormal(film, u, v);
-        vertex.generation = film.generation;
-        vertex.uv = float2(corner & 1u, (corner >> 1u) & 1u);
-        vertex.sigma = film.sigmaNormal;
-        vertex.confidence = film.confidence;
-        vertex.sidedness = 1u;
-        vertex.flags = film.flags;
-        vertex.reserved0 = vertex.reserved1 = 0u;
-        _ContactVertices[vertexBase + corner] = vertex;
+        InterlockedAdd(_MeshletAllocator[2], 1u);
+        return;
+    }
+    uint indexBase;
+    if (!Reserve(1u, indexCount, _IndexCapacity, indexBase))
+    {
+        InterlockedAdd(_MeshletAllocator[2], 1u);
+        return;
     }
 
-    uint indexBase = filmIndex * 6u;
-    _ContactIndices[indexBase + 0u] = vertexBase + 0u;
-    _ContactIndices[indexBase + 1u] = vertexBase + 1u;
-    _ContactIndices[indexBase + 2u] = vertexBase + 2u;
-    _ContactIndices[indexBase + 3u] = vertexBase + 2u;
-    _ContactIndices[indexBase + 4u] = vertexBase + 1u;
-    _ContactIndices[indexBase + 5u] = vertexBase + 3u;
+    for (uint y = 0u; y <= segments; ++y)
+    {
+        for (uint x = 0u; x <= segments; ++x)
+        {
+            float2 uv = float2((float)x, (float)y) / (float)segments;
+            float u = lerp(-film.extentU, film.extentU, uv.x);
+            float v = lerp(-film.extentV, film.extentV, uv.y);
+            ContactMeshletVertex vertex;
+            vertex.position = film.origin + u * film.tangentU + v * film.tangentV +
+                Height(film, u, v) * film.normal;
+            vertex.filmId = film.id;
+            vertex.normal = SurfaceNormal(film, u, v);
+            vertex.generation = film.generation;
+            vertex.uv = uv;
+            vertex.sigma = film.sigmaNormal;
+            vertex.confidence = film.confidence;
+            vertex.sidedness = 1u;
+            vertex.flags = film.flags;
+            vertex.reserved0 = vertex.reserved1 = 0u;
+            _ContactVertices[vertexBase + y * rowVertices + x] = vertex;
+        }
+    }
+    uint writeIndex = indexBase;
+    for (uint y = 0u; y < segments; ++y)
+    {
+        for (uint x = 0u; x < segments; ++x)
+        {
+            uint v00 = vertexBase + y * rowVertices + x;
+            uint v10 = v00 + 1u;
+            uint v01 = v00 + rowVertices;
+            uint v11 = v01 + 1u;
+            _ContactIndices[writeIndex++] = v00;
+            _ContactIndices[writeIndex++] = v10;
+            _ContactIndices[writeIndex++] = v01;
+            _ContactIndices[writeIndex++] = v01;
+            _ContactIndices[writeIndex++] = v10;
+            _ContactIndices[writeIndex++] = v11;
+        }
+    }
+    InterlockedAdd(_MeshletAllocator[3], 1u);
+}
+
+[numthreads(1, 1, 1)]
+void FinalizeMeshletDrawArguments(uint3 id : SV_DispatchThreadID)
+{
+    _DrawArguments[0] = uint4(min(_MeshletAllocator[1], _IndexCapacity),
+        1u, 0u, 0u);
 }

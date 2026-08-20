@@ -72,7 +72,13 @@ namespace Genesis.RoomScan.World
         RefinedAtlas = 5,
         RefinedNormal = 6,
         DiffSoup = 7,
-        Glb = 8
+        Glb = 8,
+        /// <summary>Resumable Cone-PRISM films, posterior statistics and boundaries.</summary>
+        PrismCanonical = 9,
+        /// <summary>Optional derived ContactFilm meshlet cache.</summary>
+        PrismMeshlets = 10,
+        /// <summary>Surface-space measured appearance pages.</summary>
+        PrismAppearance = 11
     }
 
     [Serializable]

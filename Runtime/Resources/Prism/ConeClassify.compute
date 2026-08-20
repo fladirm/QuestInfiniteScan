@@ -12,6 +12,10 @@ Texture2DArray<float2> _PredictedDepthSigma;
 Texture2DArray<float4> _PredictedNormalConfidence;
 Texture2DArray<uint2> _PredictedFilmIdGeneration;
 Texture2DArray<float4> _PredictedUvMetadata;
+Texture2DArray<float2> _Layer1DepthSigma;
+Texture2DArray<float4> _Layer1NormalConfidence;
+Texture2DArray<uint2> _Layer1FilmIdGeneration;
+Texture2DArray<float4> _Layer1UvMetadata;
 Texture2D<float4> _DepthRayCenterLeft;
 Texture2D<float4> _DepthRayCenterRight;
 Texture2D<float4> _DepthRayDifferentialXLeft;
@@ -37,7 +41,8 @@ struct ConeEvent
     float footprintArea;
     float incidence;
     float pressurePrecision;
-    float reserved;
+    uint occluderFilmId;
+    uint occluderGeneration;
 };
 
 RWStructuredBuffer<ConeEvent> _ConeEvents;
@@ -112,6 +117,10 @@ void ClassifyConeEvents(uint3 id : SV_DispatchThreadID)
     float4 predictedNormal = _PredictedNormalConfidence[id];
     uint2 film = _PredictedFilmIdGeneration[id];
     float4 predictedUvMetadata = _PredictedUvMetadata[id];
+    float2 layer1 = _Layer1DepthSigma[id];
+    float4 layer1Normal = _Layer1NormalConfidence[id];
+    uint2 layer1Film = _Layer1FilmIdGeneration[id];
+    float4 layer1UvMetadata = _Layer1UvMetadata[id];
 
     ConeEvent eventData;
     eventData.pixelLinear = eventIndex;
@@ -130,7 +139,8 @@ void ClassifyConeEvents(uint3 id : SV_DispatchThreadID)
     eventData.footprintArea = 0.0;
     eventData.incidence = 0.0;
     eventData.pressurePrecision = 0.0;
-    eventData.reserved = 0.0;
+    eventData.occluderFilmId = 0u;
+    eventData.occluderGeneration = 0u;
 
     if ((measuredFlags & FLAG_VALID) == 0u || measured.x <= 0.0 ||
         !isfinite(measured.x))
@@ -181,10 +191,44 @@ void ClassifyConeEvents(uint3 id : SV_DispatchThreadID)
         dot(measuredNormal.xyz, predictedNormal.xyz) >= _NormalCosineGate;
     bool visibleSide = dot(predictedNormal.xyz, -ray) > 0.0;
 
-    uint classification;
     if (abs(residual) <= gate && normalCompatible && visibleSide)
-        classification = CLASS_MATCH;
-    else if (residual < -gate)
+    {
+        PublishEvent(eventIndex, CLASS_MATCH, eventData);
+        return;
+    }
+
+    // A persistent contact hidden behind a contradicted foreground film remains
+    // refinable.  The second hardware depth peel avoids respawning it every frame
+    // and records the front occluder as separate contradiction evidence.
+    bool hasLayer1 = layer1Film.x != 0u && layer1Film.y != 0u &&
+        layer1Film.x != film.x && layer1.x > 0.0 && isfinite(layer1.x);
+    if (hasLayer1)
+    {
+        float layerCombinedSigma = sqrt(max(0.0,
+            measured.z * measured.z + layer1.y * layer1.y));
+        float layerGate = 3.0 * layerCombinedSigma + 0.002;
+        float layerResidual = measured.x - layer1.x;
+        bool layerNormalCompatible = measuredNormal.w <= 0.0 ||
+            layer1Normal.w <= 0.0 ||
+            dot(measuredNormal.xyz, layer1Normal.xyz) >= _NormalCosineGate;
+        bool layerVisibleSide = dot(layer1Normal.xyz, -ray) > 0.0;
+        if (abs(layerResidual) <= layerGate && layerNormalCompatible &&
+            layerVisibleSide)
+        {
+            eventData.predictedRange = layer1.x;
+            eventData.combinedSigma = layerCombinedSigma;
+            eventData.filmId = layer1Film.x;
+            eventData.filmGeneration = layer1Film.y;
+            eventData.predictedUv = layer1UvMetadata.xy;
+            eventData.occluderFilmId = film.x;
+            eventData.occluderGeneration = film.y;
+            PublishEvent(eventIndex, CLASS_MATCH, eventData);
+            return;
+        }
+    }
+
+    uint classification;
+    if (residual < -gate)
         classification = CLASS_NEW_FRONT;
     else if (residual > gate)
         classification = CLASS_BEHIND;

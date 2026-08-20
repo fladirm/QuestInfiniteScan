@@ -27,6 +27,10 @@ it.
   baseline capture or run a separate headset test for every small contract/pass.
 - Keep at most one DAG node `in_progress`.
 - Update control files only at meaningful checkpoints.
+- After every completed DAG task, run `python3 Tools/generate_code_graph.py`; the
+  generated `.codex/CODE_GRAPH.json` and `docs/architecture/CODE_GRAPH.md` are the
+  current file/type/function/GPU-kernel/data-flow map and must land in the same
+  checkpoint. `validate_goal_state.py` rejects a stale graph.
 - Prefer complete vertical slices over disconnected scaffolds.
 - Do not report percentages from file count. Report accepted DAG nodes and the next
   blocked or executable gate.
@@ -179,6 +183,7 @@ Before compaction, handoff, or a major commit:
 1. Update `.codex/STATE.md` with the current node, changed files, next exact action,
    and verification evidence.
 2. Update `.codex/TASK_DAG.json`, then run `python3 Tools/validate_goal_state.py`.
+   Generate the code graph first with `python3 Tools/generate_code_graph.py`.
 3. Record only real architecture decisions in `.codex/DECISIONS.md`.
 4. Replace `.codex/SESSION_TAIL.md` with concise snapshots of the latest two
    user/assistant exchanges.

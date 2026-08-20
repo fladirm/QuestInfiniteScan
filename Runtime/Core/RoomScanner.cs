@@ -129,6 +129,7 @@ namespace Genesis.RoomScan
         private PrismConeClassifier _prismConeClassifier;
         private PrismFilmSpawner _prismFilmSpawner;
         private PrismFilmUpdater _prismFilmUpdater;
+        private PrismBoundaryGraph _prismBoundaryGraph;
         private PrismMeshletBuilder _prismMeshletBuilder;
         private TriplanarCache _triplanarCache;
         private KeyframeCollector _keyframeCollector;
@@ -211,6 +212,8 @@ namespace Genesis.RoomScan
         public PrismFilmSpawner PrismFilmSpawner => _prismFilmSpawner;
         /// <summary>Persistent pressure/information refinement of matched films.</summary>
         public PrismFilmUpdater PrismFilmUpdater => _prismFilmUpdater;
+        /// <summary>Persistent GPU ContactBoundary graph.</summary>
+        public PrismBoundaryGraph PrismBoundaryGraph => _prismBoundaryGraph;
         /// <summary>GPU ContactFilm-to-meshlet publication stage.</summary>
         public PrismMeshletBuilder PrismMeshletBuilder => _prismMeshletBuilder;
         /// <summary>The optional Gaussian Splat provider, or null if the GSplat module is not attached.</summary>
@@ -407,6 +410,9 @@ namespace Genesis.RoomScan
             _prismFilmUpdater = GetComponent<PrismFilmUpdater>();
             if (_prismFilmUpdater == null)
                 _prismFilmUpdater = gameObject.AddComponent<PrismFilmUpdater>();
+            _prismBoundaryGraph = GetComponent<PrismBoundaryGraph>();
+            if (_prismBoundaryGraph == null)
+                _prismBoundaryGraph = gameObject.AddComponent<PrismBoundaryGraph>();
             _prismMeshletBuilder = GetComponent<PrismMeshletBuilder>();
             if (_prismMeshletBuilder == null)
                 _prismMeshletBuilder = gameObject.AddComponent<PrismMeshletBuilder>();
@@ -663,6 +669,8 @@ namespace Genesis.RoomScan
                 _prismFilmSpawner?.StartSpawning(_prismConeClassifier);
                 _prismFilmUpdater?.StartUpdating(_prismConeClassifier,
                     _prismFilmSpawner);
+                _prismBoundaryGraph?.StartTracking(_prismFilmUpdater,
+                    _prismFilmSpawner);
                 _prismConeClassifier?.StartClassifying(_prismPredictionRenderer);
                 _prismPredictionRenderer?.StartRendering(_prismDepthPreprocessor);
                 _prismMeshletBuilder?.StartBuilding(_prismFilmSpawner,
@@ -730,6 +738,7 @@ namespace Genesis.RoomScan
 
             ICameraProvider provider = GetActiveCameraProvider();
             _prismMeshletBuilder?.StopBuilding();
+            _prismBoundaryGraph?.StopTracking();
             _prismFilmUpdater?.StopUpdating();
             _prismFilmSpawner?.StopSpawning();
             _prismConeClassifier?.StopClassifying();

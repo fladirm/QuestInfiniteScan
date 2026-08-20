@@ -164,7 +164,7 @@
     {
       "id": "Q3-09",
       "title": "Implement multihypothesis one-sided and bimodal ContactFilms",
-      "status": "in_progress",
+      "status": "done",
       "depends_on": ["Q3-08"],
       "acceptance": [
         "Orientation-, sidedness-, first-contact visibility-, or residual-mode-incompatible evidence creates an independent ContactFilm hypothesis",
@@ -173,12 +173,17 @@
         "Physical front/back scans retain independent 5/10/20/50 mm plates whenever sensor evidence resolves them",
         "First-side geometry survives all second-side and return passes"
       ],
-      "evidence": []
+      "evidence": [
+        "PredictionFrame and PrismPredictionRenderer publish generation-safe front and second-layer depth/normal/film/UV targets using a hardware depth peel",
+        "ConeClassify.compute preferentially reassociates a compatible second layer while preserving the first-layer occluder identity and never averaging incompatible first-hit evidence",
+        "ContactFilmUpdate.compute refines the matched layer and independently accumulates contradiction on the foreground occluder; NEW_LAYER/UNSEEN allocation remains one-sided and generation tagged",
+        "Unity 6000.5.9f1 shader import, compilation, and focused multilayer contracts pass in cone-prism-q3-09-peel-tests.log/xml; the physical plate corpus is batched with the boundary/adaptive-meshlet vertical Quest milestone under the 90/5/5 policy"
+      ]
     },
     {
       "id": "Q3-10",
       "title": "Implement persistent ContactBoundaries with multi-view 3D BoundaryCurves",
-      "status": "pending",
+      "status": "in_progress",
       "depends_on": ["Q3-09"],
       "acceptance": [
         "Depth/normal/RGB/first-hit visibility/coverage discontinuities accumulate into stable uncertainty-bearing ContactBoundaries with spline controls and film-side relations",

@@ -41,6 +41,7 @@ namespace Genesis.RoomScan.Editor
         PrismConeClassifier _prismConeClassifier;
         PrismFilmSpawner _prismFilmSpawner;
         PrismFilmUpdater _prismFilmUpdater;
+        PrismBoundaryGraph _prismBoundaryGraph;
         PrismMeshletBuilder _prismMeshletBuilder;
         PassthroughCameraAccess _pcaComponent;
         CameraDebugOverlay _cameraDebug;
@@ -130,6 +131,7 @@ namespace Genesis.RoomScan.Editor
             _prismConeClassifier = FindAny<PrismConeClassifier>();
             _prismFilmSpawner = FindAny<PrismFilmSpawner>();
             _prismFilmUpdater = FindAny<PrismFilmUpdater>();
+            _prismBoundaryGraph = FindAny<PrismBoundaryGraph>();
             _prismMeshletBuilder = FindAny<PrismMeshletBuilder>();
             _pcaComponent = FindAny<PassthroughCameraAccess>();
             _cameraDebug = FindAny<CameraDebugOverlay>();
@@ -965,6 +967,8 @@ namespace Genesis.RoomScan.Editor
                 Undo.AddComponent<PrismFilmSpawner>(root);
             if (root.GetComponent<PrismFilmUpdater>() == null)
                 Undo.AddComponent<PrismFilmUpdater>(root);
+            if (root.GetComponent<PrismBoundaryGraph>() == null)
+                Undo.AddComponent<PrismBoundaryGraph>(root);
             if (root.GetComponent<PrismMeshletBuilder>() == null)
                 Undo.AddComponent<PrismMeshletBuilder>(root);
 
@@ -995,6 +999,8 @@ namespace Genesis.RoomScan.Editor
                 Undo.AddComponent<PrismFilmSpawner>(root);
             if (root.GetComponent<PrismFilmUpdater>() == null)
                 Undo.AddComponent<PrismFilmUpdater>(root);
+            if (root.GetComponent<PrismBoundaryGraph>() == null)
+                Undo.AddComponent<PrismBoundaryGraph>(root);
             if (root.GetComponent<PrismMeshletBuilder>() == null)
                 Undo.AddComponent<PrismMeshletBuilder>(root);
 
@@ -1358,6 +1364,8 @@ namespace Genesis.RoomScan.Editor
                 Undo.AddComponent<PrismFilmSpawner>(root);
             if (root.GetComponent<PrismFilmUpdater>() == null)
                 Undo.AddComponent<PrismFilmUpdater>(root);
+            if (root.GetComponent<PrismBoundaryGraph>() == null)
+                Undo.AddComponent<PrismBoundaryGraph>(root);
             if (root.GetComponent<PrismMeshletBuilder>() == null)
                 Undo.AddComponent<PrismMeshletBuilder>(root);
 

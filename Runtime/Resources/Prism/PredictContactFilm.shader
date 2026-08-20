@@ -35,6 +35,9 @@ Shader "Hidden/Genesis/ConePrism/PredictContactFilm"
             StructuredBuffer<uint> _ContactIndices;
             float4x4 _ClipFromChunk;
             float4x4 _OpticalFromChunk;
+            Texture2DArray<float2> _PeelDepth;
+            int _PeelEye;
+            float _PeelEnabled;
 
             struct Varyings
             {
@@ -86,8 +89,19 @@ Shader "Hidden/Genesis/ConePrism/PredictContactFilm"
                 if (dot(normal, surfaceToEye) <= 0.0)
                     discard;
 
+                float contactRange = length(input.positionOptical);
+                if (_PeelEnabled > 0.5)
+                {
+                    uint2 pixel = (uint2)input.positionCS.xy;
+                    float firstRange = _PeelDepth.Load(
+                        int4(pixel.x, pixel.y, _PeelEye, 0)).x;
+                    float peelGate = max(0.0015, 1.5 * input.sigma);
+                    if (firstRange <= 0.0 || contactRange <= firstRange + peelGate)
+                        discard;
+                }
+
                 PredictionOutput output;
-                output.depthSigma = float2(length(input.positionOptical), input.sigma);
+                output.depthSigma = float2(contactRange, input.sigma);
                 output.normalConfidence = float4(normal, input.confidence);
                 output.idGeneration = uint2(input.filmId, input.generation);
                 output.uvMetadata = float4(input.uv,

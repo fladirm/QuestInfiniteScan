@@ -26,7 +26,8 @@ struct ConeEvent
     float footprintArea;
     float incidence;
     float pressurePrecision;
-    float reserved;
+    uint occluderFilmId;
+    uint occluderGeneration;
 };
 
 struct ContactFilmHeader
@@ -255,6 +256,46 @@ void AccumulateMatchedFilms(uint3 id : SV_DispatchThreadID)
         asint(max(eventData.pressurePrecision, 0.0)));
     InterlockedMin(_FrameAccumulator[baseWord + 30u],
         asint(max(eventData.footprintArea, 1e-12)));
+
+    if (eventData.occluderFilmId > 0u &&
+        eventData.occluderFilmId != eventData.filmId)
+    {
+        uint occluderIndex = eventData.occluderFilmId - 1u;
+        if (occluderIndex < _FilmCapacity)
+        {
+            ContactFilmHeader occluder = _FilmHeaders[occluderIndex];
+            if (occluder.id == eventData.occluderFilmId &&
+                occluder.generation == eventData.occluderGeneration &&
+                (occluder.flags & FILM_ACTIVE) != 0u)
+            {
+                uint occluderInfo = occluderIndex * 9u;
+                float occluderBest = max(_FilmInformation[occluderInfo + 8u].w,
+                    eventData.pressurePrecision);
+                float occluderRatio = saturate(eventData.pressurePrecision /
+                    max(occluderBest, 1e-8));
+                float occluderSupport = saturate(eventData.confidence) *
+                    max(0.05, occluderRatio);
+                uint occluderBase = occluderIndex * WORDS_PER_FILM;
+                uint priorOccluderDirty;
+                InterlockedCompareExchange(_FilmDirtyFlags[occluderIndex], 0u, 1u,
+                    priorOccluderDirty);
+                if (priorOccluderDirty == 0u)
+                {
+                    uint occluderDirtySlot;
+                    InterlockedAdd(_DirtyState[0], 1u, occluderDirtySlot);
+                    if (occluderDirtySlot < _FilmCapacity)
+                        _DirtyFilmIndices[occluderDirtySlot] = occluderIndex;
+                    else
+                        InterlockedAdd(_DirtyState[1], 1u);
+                }
+                AtomicAddScaled(occluderBase + 27u, occluderSupport,
+                    SUPPORT_FIXED_SCALE);
+                InterlockedAdd(_FrameAccumulator[occluderBase + 28u], 1);
+                AtomicAddScaled(occluderBase + 31u, occluderSupport,
+                    SUPPORT_FIXED_SCALE);
+            }
+        }
+    }
 }
 
 [numthreads(64, 1, 1)]

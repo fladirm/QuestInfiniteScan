@@ -21,6 +21,9 @@ namespace Genesis.RoomScan.Prism
         private static readonly int IndicesId = Shader.PropertyToID("_ContactIndices");
         private static readonly int ClipFromChunkId = Shader.PropertyToID("_ClipFromChunk");
         private static readonly int OpticalFromChunkId = Shader.PropertyToID("_OpticalFromChunk");
+        private static readonly int PeelDepthId = Shader.PropertyToID("_PeelDepth");
+        private static readonly int PeelEyeId = Shader.PropertyToID("_PeelEye");
+        private static readonly int PeelEnabledId = Shader.PropertyToID("_PeelEnabled");
 
         private readonly RenderTargetIdentifier[] _mrt = new RenderTargetIdentifier[4];
         private PredictionTargetRing _targets;
@@ -113,12 +116,6 @@ namespace Genesis.RoomScan.Prism
             CommandBuffer command = CommandBufferPool.Get("Cone-PRISM Predict ContactFilm");
             try
             {
-                _mrt[0] = new RenderTargetIdentifier(prediction.DepthSigma);
-                _mrt[1] = new RenderTargetIdentifier(prediction.NormalConfidence);
-                _mrt[2] = new RenderTargetIdentifier(prediction.FilmIdGeneration);
-                _mrt[3] = new RenderTargetIdentifier(prediction.UvMetadata);
-                var depthTarget = new RenderTargetIdentifier(prediction.HardwareDepth);
-
                 BindMeshlets();
                 for (int eye = 0; eye < 2; eye++)
                 {
@@ -133,8 +130,28 @@ namespace Genesis.RoomScan.Prism
                         clipFromWorld * _meshlets.WorldFromChunk);
                     _properties.SetMatrix(OpticalFromChunkId,
                         opticalFromWorld * _meshlets.WorldFromChunk);
+                    _properties.SetFloat(PeelEnabledId, 0f);
+                    SetMrt(prediction.DepthSigma, prediction.NormalConfidence,
+                        prediction.FilmIdGeneration, prediction.UvMetadata);
+                    command.SetRenderTarget(_mrt,
+                        new RenderTargetIdentifier(prediction.HardwareDepth), 0,
+                        CubemapFace.Unknown, eye);
+                    command.ClearRenderTarget(true, true, Color.clear, 1f);
+                    command.DrawProceduralIndirect(Matrix4x4.identity, _material, 0,
+                        MeshTopology.Triangles, _meshlets.DrawArguments, 0, _properties);
 
-                    command.SetRenderTarget(_mrt, depthTarget, 0,
+                    // Second visible ContactFilm layer.  The first depth texture is
+                    // immutable during this draw, so the fragment shader peels every
+                    // first-layer contact before hardware Z selects the next one.
+                    _properties.SetFloat(PeelEnabledId, 1f);
+                    _properties.SetInt(PeelEyeId, eye);
+                    _properties.SetTexture(PeelDepthId, prediction.DepthSigma);
+                    SetMrt(prediction.Layer1DepthSigma,
+                        prediction.Layer1NormalConfidence,
+                        prediction.Layer1FilmIdGeneration,
+                        prediction.Layer1UvMetadata);
+                    command.SetRenderTarget(_mrt,
+                        new RenderTargetIdentifier(prediction.Layer1HardwareDepth), 0,
                         CubemapFace.Unknown, eye);
                     command.ClearRenderTarget(true, true, Color.clear, 1f);
                     command.DrawProceduralIndirect(Matrix4x4.identity, _material, 0,
@@ -165,6 +182,15 @@ namespace Genesis.RoomScan.Prism
             _properties.Clear();
             _properties.SetBuffer(VerticesId, _meshlets.Vertices);
             _properties.SetBuffer(IndicesId, _meshlets.Indices);
+        }
+
+        private void SetMrt(RenderTexture depthSigma, RenderTexture normalConfidence,
+            RenderTexture idGeneration, RenderTexture uvMetadata)
+        {
+            _mrt[0] = new RenderTargetIdentifier(depthSigma);
+            _mrt[1] = new RenderTargetIdentifier(normalConfidence);
+            _mrt[2] = new RenderTargetIdentifier(idGeneration);
+            _mrt[3] = new RenderTargetIdentifier(uvMetadata);
         }
 
         private static Matrix4x4 BuildClipFromWorld(GpuImageView view,

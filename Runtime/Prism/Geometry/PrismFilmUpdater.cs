@@ -64,6 +64,7 @@ namespace Genesis.RoomScan.Prism
         private long _updatedFrames;
         private Matrix4x4 _chunkFromWorld = Matrix4x4.identity;
 
+        public event Action<ConeEventFrameLease> UpdateCompleted;
         public long UpdatedFrames => _updatedFrames;
 
         public void SetChunkFrame(Matrix4x4 worldFromChunk) =>
@@ -162,7 +163,8 @@ namespace Genesis.RoomScan.Prism
                 updateCompute.DispatchIndirect(_solveKernel,
                     _solveDispatchArguments, 0);
                 _updatedFrames++;
-                filmSpawner.NotifyFilmsMutated();
+                if (UpdateCompleted != null) UpdateCompleted.Invoke(eventFrame);
+                else filmSpawner.NotifyFilmsMutated();
             }
             catch (Exception exception)
             {

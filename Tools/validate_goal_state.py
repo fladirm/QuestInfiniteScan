@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -101,6 +102,11 @@ def main() -> None:
         f"active={active[0] if active else 'none'}, "
         f"done={sum(node['status'] == 'done' for node in nodes)}"
     )
+    graph_check = subprocess.run(
+        [sys.executable, str(ROOT / "Tools" / "generate_code_graph.py"), "--check"],
+        cwd=ROOT, check=False)
+    if graph_check.returncode != 0:
+        fail("code graph is stale; run python3 Tools/generate_code_graph.py")
 
 
 if __name__ == "__main__":

@@ -30,6 +30,10 @@ namespace Genesis.RoomScan.Prism
         private static readonly int PredictedNormalConfidenceId = Shader.PropertyToID("_PredictedNormalConfidence");
         private static readonly int PredictedFilmIdGenerationId = Shader.PropertyToID("_PredictedFilmIdGeneration");
         private static readonly int PredictedUvMetadataId = Shader.PropertyToID("_PredictedUvMetadata");
+        private static readonly int Layer1DepthSigmaId = Shader.PropertyToID("_Layer1DepthSigma");
+        private static readonly int Layer1NormalConfidenceId = Shader.PropertyToID("_Layer1NormalConfidence");
+        private static readonly int Layer1FilmIdGenerationId = Shader.PropertyToID("_Layer1FilmIdGeneration");
+        private static readonly int Layer1UvMetadataId = Shader.PropertyToID("_Layer1UvMetadata");
         private static readonly int RayLeftId = Shader.PropertyToID("_DepthRayCenterLeft");
         private static readonly int RayRightId = Shader.PropertyToID("_DepthRayCenterRight");
         private static readonly int RayDxLeftId = Shader.PropertyToID("_DepthRayDifferentialXLeft");
@@ -163,6 +167,14 @@ namespace Genesis.RoomScan.Prism
             classifyCompute.SetTexture(kernel, PredictedFilmIdGenerationId,
                 prediction.FilmIdGeneration);
             classifyCompute.SetTexture(kernel, PredictedUvMetadataId, prediction.UvMetadata);
+            classifyCompute.SetTexture(kernel, Layer1DepthSigmaId,
+                prediction.Layer1DepthSigma);
+            classifyCompute.SetTexture(kernel, Layer1NormalConfidenceId,
+                prediction.Layer1NormalConfidence);
+            classifyCompute.SetTexture(kernel, Layer1FilmIdGenerationId,
+                prediction.Layer1FilmIdGeneration);
+            classifyCompute.SetTexture(kernel, Layer1UvMetadataId,
+                prediction.Layer1UvMetadata);
             classifyCompute.SetTexture(kernel, RayLeftId, luts.DepthLeft.CenterRaySolidAngle);
             classifyCompute.SetTexture(kernel, RayRightId, luts.DepthRight.CenterRaySolidAngle);
             classifyCompute.SetTexture(kernel, RayDxLeftId,
