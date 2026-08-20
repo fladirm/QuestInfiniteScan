@@ -125,6 +125,11 @@ namespace Genesis.RoomScan
         private PassthroughCameraProvider _cameraProvider;
         private PrismRigCapture _prismRigCapture;
         private PrismDepthPreprocessor _prismDepthPreprocessor;
+        private PrismPredictionRenderer _prismPredictionRenderer;
+        private PrismConeClassifier _prismConeClassifier;
+        private PrismFilmSpawner _prismFilmSpawner;
+        private PrismFilmUpdater _prismFilmUpdater;
+        private PrismMeshletBuilder _prismMeshletBuilder;
         private TriplanarCache _triplanarCache;
         private KeyframeCollector _keyframeCollector;
         private IGSplatProvider _gsplatProvider;
@@ -198,6 +203,16 @@ namespace Genesis.RoomScan
         public PrismRigCapture PrismRigCapture => _prismRigCapture;
         /// <summary>Cone LUT and metric stereo-depth GPU preprocessing.</summary>
         public PrismDepthPreprocessor PrismDepthPreprocessor => _prismDepthPreprocessor;
+        /// <summary>Dual-eye hardware first-hit prediction/association raster.</summary>
+        public PrismPredictionRenderer PrismPredictionRenderer => _prismPredictionRenderer;
+        /// <summary>GPU finite-cone first-hit event classifier.</summary>
+        public PrismConeClassifier PrismConeClassifier => _prismConeClassifier;
+        /// <summary>Canonical GPU ContactFilm pool and robust spawn stage.</summary>
+        public PrismFilmSpawner PrismFilmSpawner => _prismFilmSpawner;
+        /// <summary>Persistent pressure/information refinement of matched films.</summary>
+        public PrismFilmUpdater PrismFilmUpdater => _prismFilmUpdater;
+        /// <summary>GPU ContactFilm-to-meshlet publication stage.</summary>
+        public PrismMeshletBuilder PrismMeshletBuilder => _prismMeshletBuilder;
         /// <summary>The optional Gaussian Splat provider, or null if the GSplat module is not attached.</summary>
         public IGSplatProvider GSplatProvider => _gsplatProvider;
         /// <summary>True when the TextureRefinement module is attached.</summary>
@@ -380,6 +395,21 @@ namespace Genesis.RoomScan
             _prismDepthPreprocessor = GetComponent<PrismDepthPreprocessor>();
             if (_prismDepthPreprocessor == null)
                 _prismDepthPreprocessor = gameObject.AddComponent<PrismDepthPreprocessor>();
+            _prismPredictionRenderer = GetComponent<PrismPredictionRenderer>();
+            if (_prismPredictionRenderer == null)
+                _prismPredictionRenderer = gameObject.AddComponent<PrismPredictionRenderer>();
+            _prismConeClassifier = GetComponent<PrismConeClassifier>();
+            if (_prismConeClassifier == null)
+                _prismConeClassifier = gameObject.AddComponent<PrismConeClassifier>();
+            _prismFilmSpawner = GetComponent<PrismFilmSpawner>();
+            if (_prismFilmSpawner == null)
+                _prismFilmSpawner = gameObject.AddComponent<PrismFilmSpawner>();
+            _prismFilmUpdater = GetComponent<PrismFilmUpdater>();
+            if (_prismFilmUpdater == null)
+                _prismFilmUpdater = gameObject.AddComponent<PrismFilmUpdater>();
+            _prismMeshletBuilder = GetComponent<PrismMeshletBuilder>();
+            if (_prismMeshletBuilder == null)
+                _prismMeshletBuilder = gameObject.AddComponent<PrismMeshletBuilder>();
             _triplanarCache = GetComponent<TriplanarCache>();
             _persistence = GetComponent<RoomScanPersistence>();
             _keyframeCollector = GetComponent<KeyframeCollector>();
@@ -630,6 +660,13 @@ namespace Genesis.RoomScan
                 // pulling frames steadily.
                 ICameraProvider provider = GetActiveCameraProvider();
                 provider?.StartCapture();
+                _prismFilmSpawner?.StartSpawning(_prismConeClassifier);
+                _prismFilmUpdater?.StartUpdating(_prismConeClassifier,
+                    _prismFilmSpawner);
+                _prismConeClassifier?.StartClassifying(_prismPredictionRenderer);
+                _prismPredictionRenderer?.StartRendering(_prismDepthPreprocessor);
+                _prismMeshletBuilder?.StartBuilding(_prismFilmSpawner,
+                    _prismPredictionRenderer);
                 _prismDepthPreprocessor?.StartProcessing(_prismRigCapture);
                 _prismRigCapture?.StartCapture();
                 _depthCapture.StartDepthCapture();
@@ -692,6 +729,11 @@ namespace Genesis.RoomScan
             IsScanning = false;
 
             ICameraProvider provider = GetActiveCameraProvider();
+            _prismMeshletBuilder?.StopBuilding();
+            _prismFilmUpdater?.StopUpdating();
+            _prismFilmSpawner?.StopSpawning();
+            _prismConeClassifier?.StopClassifying();
+            _prismPredictionRenderer?.StopRendering();
             _prismDepthPreprocessor?.StopProcessing();
             _prismRigCapture?.StopCapture();
             provider?.StopCapture();

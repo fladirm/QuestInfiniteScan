@@ -68,7 +68,7 @@
     {
       "id": "Q3-04",
       "title": "Implement L/R depth consensus, learned sigma, robust normals, and boundary confidence",
-      "status": "in_progress",
+      "status": "done",
       "depends_on": ["Q3-03"],
       "acceptance": [
         "Depth eyes are geometrically cross-checked and disagreement is classified, never blindly averaged",
@@ -80,13 +80,14 @@
       "evidence": [
         "DepthConsensusNormalBoundary.compute implements independent-eye reprojection, AGREE/OCCLUDED/DISAGREE evidence, signed residual histograms, six range-bin median/MAD sigma EMA, robust local plane fitting, and depth/normal/RGB boundary fields",
         "PrismDepthPreprocessor dispatches the complete path GPU-to-GPU with persistent statistics buffers and fenced immutable output pages; no pixel CPU loop/readback is introduced",
-        "NormalizedRigFrameLease now exposes metric/consensus depth, flags, local normal confidence, and boundary evidence as generation-safe GPU textures"
+        "NormalizedRigFrameLease now exposes metric/consensus depth, flags, local normal confidence, and boundary evidence as generation-safe GPU textures",
+        "Unity shader import and focused contracts pass in cone-prism-q3-08-tests.log/xml; physical mixed-edge validation is batched with the first complete ContactFilm device slice"
       ]
     },
     {
       "id": "Q3-05",
       "title": "Implement dual-eye prediction raster of current ContactFilm meshlets",
-      "status": "pending",
+      "status": "done",
       "depends_on": ["Q3-03"],
       "acceptance": [
         "Published meshlets rasterize PredDepth, PredNormal, PredFilmID, PredUV, PredSigma, generation, sidedness, and confidence from exact depth-eye poses",
@@ -94,12 +95,17 @@
         "Targets are generation-safe and double-buffered so classification never consumes incomplete output",
         "Synthetic occlusion/layer fixtures and physical overlay validate projection and visibility in both eyes"
       ],
-      "evidence": []
+      "evidence": [
+        "PrismPredictionRenderer renders both exact depth-eye poses into generation-safe MRT array targets with hardware depth and one-sided ContactFilm rejection",
+        "PredictContactFilm.shader emits metric range/sigma, normal/confidence, film ID/generation, UV, sidedness, and flags from indirect GPU meshlets",
+        "PredictionTargetRing fences and retains immutable source frames; an empty world is a valid zero prediction",
+        "ContactMeshletBuffers and MeshletBuild.compute close the spawn-to-next-frame prediction loop without CPU geometry"
+      ]
     },
     {
       "id": "Q3-06",
       "title": "Implement exhaustive finite-cone first-hit ContactEvent classification",
-      "status": "pending",
+      "status": "done",
       "depends_on": ["Q3-04", "Q3-05"],
       "acceptance": [
         "Every valid finite cone event is classified exactly once as MATCH, NEW_FRONT, BEHIND, NEW_LAYER, UNSEEN, BOUNDARY, or INVALID",
@@ -108,12 +114,17 @@
         "Residual bimodality can select a new hypothesis/split even for similar normals",
         "CPU contract and real-GPU parity cover all classes, occlusions, stale generations, and adversarial edge cases"
       ],
-      "evidence": []
+      "evidence": [
+        "ConeClassify.compute exhaustively publishes one class per stereo depth pixel and class-compacts GPU indices plus indirect dispatch arguments",
+        "Classification uses posterior sigma, finite cone footprint, incidence, normal, sidedness, visibility, boundary evidence, and generation validity",
+        "BEHIND remains contradiction-only and ContactFilmUpdate accumulates persistent evidence; it never carves behind the measured first hit",
+        "Persistent same-normal BEHIND evidence can promote a separate hypothesis instead of averaging the residual mode"
+      ]
     },
     {
       "id": "Q3-07",
       "title": "Implement robust GPU ContactFilm and SurfaceChartGeometry spawn",
-      "status": "pending",
+      "status": "done",
       "depends_on": ["Q3-06"],
       "acceptance": [
         "UNSEEN/NEW_FRONT samples are tile-component clustered by depth/normal continuity entirely on GPU",
@@ -122,12 +133,17 @@
         "Bounded allocator handles overflow without corrupting published ContactFilms",
         "Quest test spawns stable ContactFilms on planar, curved, small-object, and partial-view geometry while hidden backs remain UNKNOWN"
       ],
-      "evidence": []
+      "evidence": [
+        "ContactFilmSpawn.compute performs 8x8 connected-component labeling, depth/normal compatibility, weighted PCA frame construction, and two-pass IRLS/Huber quadratic fitting entirely on GPU",
+        "ContactFilmPool provides bounded generation-tagged headers, normalized-domain information statistics, and fail-closed overflow accounting",
+        "Each valid component allocates its actual support extent and one-sided film; there is no global primitive size",
+        "Unity imports all spawn/meshlet shaders and focused contracts pass in cone-prism-q3-08-tests.log/xml"
+      ]
     },
     {
       "id": "Q3-08",
       "title": "Implement robust pressure-equilibrium 6x6 ContactFilm posterior refinement",
-      "status": "pending",
+      "status": "done",
       "depends_on": ["Q3-07"],
       "acceptance": [
         "Compatible cone contacts robustly accumulate footprint-aware quadratic-basis H/g sufficient statistics on GPU",
@@ -137,12 +153,18 @@
         "Persisted H/covariance and quality envelope act as film resistance: a lower-information distant, grazing, noisy, or blurred measurement cannot move stable close geometry beyond its tighter posterior bound or inflate accepted uncertainty",
         "View-order permutation, bounded-outlier, synthetic, and physical repeat tests converge to the same supported film within tolerance with monotonic or unchanged error"
       ],
-      "evidence": []
+      "evidence": [
+        "ContactFilmUpdate.compute atomically accumulates normalized quadratic H and residual RHS for MATCH events with portable fixed-point integer atomics",
+        "Dirty-film indirect dispatch performs deterministic regularized 6x6 Cholesky, persists H/g, updates quadratic geometry, confidence, sigma, support, revision, and meshlet dirtiness",
+        "Finite cone footprint, learned sigma, incidence, confidence, innovation Huber weight, and persisted best pressure define observation precision and film resistance",
+        "Observations below the quality-ratio floor add support/contradiction evidence but receive zero geometric pull; persistent information prevents weaker accepted views from overwriting close detail",
+        "GPU compilation and 8 focused contracts pass in cone-prism-q3-09-base-tests.log/xml; permutation and physical repeat fixtures remain batched with Q3-09/Q3-12 device validation"
+      ]
     },
     {
       "id": "Q3-09",
       "title": "Implement multihypothesis one-sided and bimodal ContactFilms",
-      "status": "pending",
+      "status": "in_progress",
       "depends_on": ["Q3-08"],
       "acceptance": [
         "Orientation-, sidedness-, first-contact visibility-, or residual-mode-incompatible evidence creates an independent ContactFilm hypothesis",

@@ -37,6 +37,11 @@ namespace Genesis.RoomScan.Editor
         PassthroughCameraProvider _cameraProvider;
         PrismRigCapture _prismRigCapture;
         PrismDepthPreprocessor _prismDepthPreprocessor;
+        PrismPredictionRenderer _prismPredictionRenderer;
+        PrismConeClassifier _prismConeClassifier;
+        PrismFilmSpawner _prismFilmSpawner;
+        PrismFilmUpdater _prismFilmUpdater;
+        PrismMeshletBuilder _prismMeshletBuilder;
         PassthroughCameraAccess _pcaComponent;
         CameraDebugOverlay _cameraDebug;
         DepthDebugOverlay _depthDebug;
@@ -121,6 +126,11 @@ namespace Genesis.RoomScan.Editor
             _cameraProvider = FindAny<PassthroughCameraProvider>();
             _prismRigCapture = FindAny<PrismRigCapture>();
             _prismDepthPreprocessor = FindAny<PrismDepthPreprocessor>();
+            _prismPredictionRenderer = FindAny<PrismPredictionRenderer>();
+            _prismConeClassifier = FindAny<PrismConeClassifier>();
+            _prismFilmSpawner = FindAny<PrismFilmSpawner>();
+            _prismFilmUpdater = FindAny<PrismFilmUpdater>();
+            _prismMeshletBuilder = FindAny<PrismMeshletBuilder>();
             _pcaComponent = FindAny<PassthroughCameraAccess>();
             _cameraDebug = FindAny<CameraDebugOverlay>();
             _depthDebug = FindAny<DepthDebugOverlay>();
@@ -790,6 +800,10 @@ namespace Genesis.RoomScan.Editor
             StatusRow("DepthCapture", _depthCapture != null);
             StatusRow("Cone-PRISM StereoRigCapture", _prismRigCapture != null);
             StatusRow("Cone-PRISM GPU Depth Frontend", _prismDepthPreprocessor != null);
+            StatusRow("Cone-PRISM Prediction Raster", _prismPredictionRenderer != null);
+            StatusRow("Cone-PRISM ConeEvent Classifier", _prismConeClassifier != null);
+            StatusRow("Cone-PRISM ContactFilm Pool", _prismFilmSpawner != null);
+            StatusRow("Cone-PRISM Meshlet Builder", _prismMeshletBuilder != null);
             StatusRow("VolumeIntegrator", _volumeIntegrator != null);
             StatusRow("MeshExtractor", _meshExtractor != null);
             StatusRow("RoomScanPersistence", _persistence != null);
@@ -811,6 +825,10 @@ namespace Genesis.RoomScan.Editor
             bool coreMissing = _roomScanner == null || _depthCapture == null ||
                                _prismRigCapture == null ||
                                _prismDepthPreprocessor == null ||
+                               _prismPredictionRenderer == null ||
+                               _prismConeClassifier == null ||
+                               _prismFilmSpawner == null ||
+                               _prismMeshletBuilder == null ||
                                _volumeIntegrator == null || _meshExtractor == null ||
                                _persistence == null || _roomAnchor == null;
             if (coreMissing)
@@ -939,6 +957,16 @@ namespace Genesis.RoomScan.Editor
                 Undo.AddComponent<PrismRigCapture>(root);
             if (root.GetComponent<PrismDepthPreprocessor>() == null)
                 Undo.AddComponent<PrismDepthPreprocessor>(root);
+            if (root.GetComponent<PrismPredictionRenderer>() == null)
+                Undo.AddComponent<PrismPredictionRenderer>(root);
+            if (root.GetComponent<PrismConeClassifier>() == null)
+                Undo.AddComponent<PrismConeClassifier>(root);
+            if (root.GetComponent<PrismFilmSpawner>() == null)
+                Undo.AddComponent<PrismFilmSpawner>(root);
+            if (root.GetComponent<PrismFilmUpdater>() == null)
+                Undo.AddComponent<PrismFilmUpdater>(root);
+            if (root.GetComponent<PrismMeshletBuilder>() == null)
+                Undo.AddComponent<PrismMeshletBuilder>(root);
 
             // Wire shader/compute on newly added core components
             foreach (var c in root.GetComponents<Component>())
@@ -959,6 +987,16 @@ namespace Genesis.RoomScan.Editor
                 Undo.AddComponent<PrismRigCapture>(root);
             if (root.GetComponent<PrismDepthPreprocessor>() == null)
                 Undo.AddComponent<PrismDepthPreprocessor>(root);
+            if (root.GetComponent<PrismPredictionRenderer>() == null)
+                Undo.AddComponent<PrismPredictionRenderer>(root);
+            if (root.GetComponent<PrismConeClassifier>() == null)
+                Undo.AddComponent<PrismConeClassifier>(root);
+            if (root.GetComponent<PrismFilmSpawner>() == null)
+                Undo.AddComponent<PrismFilmSpawner>(root);
+            if (root.GetComponent<PrismFilmUpdater>() == null)
+                Undo.AddComponent<PrismFilmUpdater>(root);
+            if (root.GetComponent<PrismMeshletBuilder>() == null)
+                Undo.AddComponent<PrismMeshletBuilder>(root);
 
             // PassthroughCameraAccess isn't pulled in by RequireComponent.
             // It will spam "No active XRSubsystem" / NRE errors in Editor
@@ -1312,6 +1350,16 @@ namespace Genesis.RoomScan.Editor
                 Undo.AddComponent<PrismRigCapture>(root);
             if (root.GetComponent<PrismDepthPreprocessor>() == null)
                 Undo.AddComponent<PrismDepthPreprocessor>(root);
+            if (root.GetComponent<PrismPredictionRenderer>() == null)
+                Undo.AddComponent<PrismPredictionRenderer>(root);
+            if (root.GetComponent<PrismConeClassifier>() == null)
+                Undo.AddComponent<PrismConeClassifier>(root);
+            if (root.GetComponent<PrismFilmSpawner>() == null)
+                Undo.AddComponent<PrismFilmSpawner>(root);
+            if (root.GetComponent<PrismFilmUpdater>() == null)
+                Undo.AddComponent<PrismFilmUpdater>(root);
+            if (root.GetComponent<PrismMeshletBuilder>() == null)
+                Undo.AddComponent<PrismMeshletBuilder>(root);
 
             // PassthroughCameraAccess is normally added by the Meta XR
             // Building Block (see EnsureRequiredBuildingBlocksAsync), but

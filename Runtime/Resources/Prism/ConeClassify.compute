@@ -1,0 +1,202 @@
+#pragma kernel ClearClassCounters
+#pragma kernel ClassifyConeEvents
+#pragma kernel BuildClassDispatchArguments
+
+#include "ConeMath.hlsl"
+
+Texture2DArray<float4> _MeasuredConsensus;
+Texture2DArray<uint> _MeasuredFlags;
+Texture2DArray<float4> _MeasuredNormal;
+Texture2DArray<float4> _BoundaryEvidence;
+Texture2DArray<float2> _PredictedDepthSigma;
+Texture2DArray<float4> _PredictedNormalConfidence;
+Texture2DArray<uint2> _PredictedFilmIdGeneration;
+Texture2DArray<float4> _PredictedUvMetadata;
+Texture2D<float4> _DepthRayCenterLeft;
+Texture2D<float4> _DepthRayCenterRight;
+Texture2D<float4> _DepthRayDifferentialXLeft;
+Texture2D<float4> _DepthRayDifferentialXRight;
+Texture2D<float4> _DepthRayDifferentialYLeft;
+Texture2D<float4> _DepthRayDifferentialYRight;
+
+struct ConeEvent
+{
+    uint pixelLinear;
+    uint packedPixel;
+    uint classification;
+    uint flags;
+    float measuredRange;
+    float predictedRange;
+    float combinedSigma;
+    float confidence;
+    float3 measuredNormal;
+    float boundaryEvidence;
+    uint filmId;
+    uint filmGeneration;
+    float2 predictedUv;
+    float footprintArea;
+    float incidence;
+    float pressurePrecision;
+    float reserved;
+};
+
+RWStructuredBuffer<ConeEvent> _ConeEvents;
+RWStructuredBuffer<uint> _ClassifiedIndices;
+RWStructuredBuffer<uint> _ClassCounters;
+RWStructuredBuffer<uint3> _ClassDispatchArguments;
+
+uint2 _Resolution;
+uint _EventCapacity;
+float _NormalCosineGate;
+float _BoundaryGate;
+
+static const uint CLASS_INVALID = 0u;
+static const uint CLASS_MATCH = 1u;
+static const uint CLASS_NEW_FRONT = 2u;
+static const uint CLASS_BEHIND = 3u;
+static const uint CLASS_NEW_LAYER = 4u;
+static const uint CLASS_UNSEEN = 5u;
+static const uint CLASS_BOUNDARY = 6u;
+static const uint CLASS_COUNT = 7u;
+static const uint FLAG_VALID = 1u;
+
+float3 LoadRay(uint2 pixel, uint eye)
+{
+    return eye == 0u ? _DepthRayCenterLeft[pixel].xyz :
+        _DepthRayCenterRight[pixel].xyz;
+}
+
+float3 LoadRayDx(uint2 pixel, uint eye)
+{
+    return eye == 0u ? _DepthRayDifferentialXLeft[pixel].xyz :
+        _DepthRayDifferentialXRight[pixel].xyz;
+}
+
+float3 LoadRayDy(uint2 pixel, uint eye)
+{
+    return eye == 0u ? _DepthRayDifferentialYLeft[pixel].xyz :
+        _DepthRayDifferentialYRight[pixel].xyz;
+}
+
+void PublishEvent(uint eventIndex, uint classification, ConeEvent eventData)
+{
+    eventData.classification = classification;
+    _ConeEvents[eventIndex] = eventData;
+    uint classSlot;
+    InterlockedAdd(_ClassCounters[classification], 1u, classSlot);
+    if (classSlot < _EventCapacity)
+        _ClassifiedIndices[classification * _EventCapacity + classSlot] = eventIndex;
+}
+
+[numthreads(8, 1, 1)]
+void ClearClassCounters(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x < CLASS_COUNT)
+    {
+        _ClassCounters[id.x] = 0u;
+        _ClassDispatchArguments[id.x] = uint3(0u, 1u, 1u);
+    }
+}
+
+[numthreads(8, 8, 1)]
+void ClassifyConeEvents(uint3 id : SV_DispatchThreadID)
+{
+    if (any(id.xy >= _Resolution) || id.z >= 2u) return;
+    uint pixelsPerEye = _Resolution.x * _Resolution.y;
+    uint eventIndex = id.z * pixelsPerEye + id.y * _Resolution.x + id.x;
+    float4 measured = _MeasuredConsensus[id];
+    uint measuredFlags = _MeasuredFlags[id];
+    float4 measuredNormal = _MeasuredNormal[id];
+    float boundary = _BoundaryEvidence[id].w;
+    float2 predicted = _PredictedDepthSigma[id];
+    float4 predictedNormal = _PredictedNormalConfidence[id];
+    uint2 film = _PredictedFilmIdGeneration[id];
+    float4 predictedUvMetadata = _PredictedUvMetadata[id];
+
+    ConeEvent eventData;
+    eventData.pixelLinear = eventIndex;
+    eventData.packedPixel = (id.x & 0xffffu) | ((id.y & 0x7fffu) << 16u) |
+        ((id.z & 1u) << 31u);
+    eventData.flags = measuredFlags;
+    eventData.measuredRange = measured.x;
+    eventData.predictedRange = predicted.x;
+    eventData.combinedSigma = measured.z;
+    eventData.confidence = measured.w;
+    eventData.measuredNormal = measuredNormal.xyz;
+    eventData.boundaryEvidence = boundary;
+    eventData.filmId = film.x;
+    eventData.filmGeneration = film.y;
+    eventData.predictedUv = predictedUvMetadata.xy;
+    eventData.footprintArea = 0.0;
+    eventData.incidence = 0.0;
+    eventData.pressurePrecision = 0.0;
+    eventData.reserved = 0.0;
+
+    if ((measuredFlags & FLAG_VALID) == 0u || measured.x <= 0.0 ||
+        !isfinite(measured.x))
+    {
+        PublishEvent(eventIndex, CLASS_INVALID, eventData);
+        return;
+    }
+
+    float3 ray = LoadRay(id.xy, id.z);
+    float3 footprintNormal = measuredNormal.w > 0.0 ? measuredNormal.xyz :
+        (predictedNormal.w > 0.0 ? predictedNormal.xyz : -ray);
+    float3 axisX, axisY;
+    float footprintArea, incidence;
+    if (ConeSurfaceFootprint(ray, LoadRayDx(id.xy, id.z),
+        LoadRayDy(id.xy, id.z), measured.x, footprintNormal,
+        axisX, axisY, footprintArea, incidence))
+    {
+        eventData.footprintArea = footprintArea;
+        eventData.incidence = incidence;
+        // Initial information carried into Q3-08. Metric range sigma and finite
+        // surface footprint are both variances in metres; angle/contact confidence
+        // attenuate weak far or grazing observations without an arbitrary 1/r^2 law.
+        eventData.pressurePrecision = measured.w * incidence * incidence /
+            max(measured.z * measured.z + footprintArea, 1e-10);
+    }
+
+    if (boundary >= _BoundaryGate)
+    {
+        PublishEvent(eventIndex, CLASS_BOUNDARY, eventData);
+        return;
+    }
+
+    bool hasPrediction = film.x != 0u && film.y != 0u && predicted.x > 0.0 &&
+        isfinite(predicted.x);
+    if (!hasPrediction)
+    {
+        PublishEvent(eventIndex, CLASS_UNSEEN, eventData);
+        return;
+    }
+
+    float combinedSigma = sqrt(max(0.0,
+        measured.z * measured.z + predicted.y * predicted.y));
+    float gate = 3.0 * combinedSigma + 0.002;
+    float residual = measured.x - predicted.x;
+    eventData.combinedSigma = combinedSigma;
+    bool normalCompatible = measuredNormal.w <= 0.0 ||
+        predictedNormal.w <= 0.0 ||
+        dot(measuredNormal.xyz, predictedNormal.xyz) >= _NormalCosineGate;
+    bool visibleSide = dot(predictedNormal.xyz, -ray) > 0.0;
+
+    uint classification;
+    if (abs(residual) <= gate && normalCompatible && visibleSide)
+        classification = CLASS_MATCH;
+    else if (residual < -gate)
+        classification = CLASS_NEW_FRONT;
+    else if (residual > gate)
+        classification = CLASS_BEHIND;
+    else
+        classification = CLASS_NEW_LAYER;
+    PublishEvent(eventIndex, classification, eventData);
+}
+
+[numthreads(8, 1, 1)]
+void BuildClassDispatchArguments(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= CLASS_COUNT) return;
+    uint count = min(_ClassCounters[id.x], _EventCapacity);
+    _ClassDispatchArguments[id.x] = uint3((count + 63u) / 64u, 1u, 1u);
+}

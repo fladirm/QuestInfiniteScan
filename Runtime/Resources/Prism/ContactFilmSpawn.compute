@@ -1,0 +1,428 @@
+#pragma kernel SpawnContactFilms
+
+Texture2D<float4> _DepthRayCenterLeft;
+Texture2D<float4> _DepthRayCenterRight;
+
+struct ConeEvent
+{
+    uint pixelLinear;
+    uint packedPixel;
+    uint classification;
+    uint flags;
+    float measuredRange;
+    float predictedRange;
+    float combinedSigma;
+    float confidence;
+    float3 measuredNormal;
+    float boundaryEvidence;
+    uint filmId;
+    uint filmGeneration;
+    float2 predictedUv;
+    float footprintArea;
+    float incidence;
+    float pressurePrecision;
+    float reserved;
+};
+
+struct ContactFilmHeader
+{
+    uint id;
+    uint generation;
+    uint chunkId;
+    uint flags;
+    float3 origin;
+    float supportTotal;
+    float3 normal;
+    float sigmaNormal;
+    float3 tangentU;
+    float extentU;
+    float3 tangentV;
+    float extentV;
+    float4 quadratic0123;
+    float2 quadratic45;
+    float confidence;
+    float contradiction;
+    uint revision;
+    uint displacementPage;
+    uint appearancePage;
+    uint boundaryStart;
+    uint boundaryCount;
+    uint reserved0;
+    uint reserved1;
+    uint reserved2;
+};
+
+StructuredBuffer<ConeEvent> _ConeEvents;
+RWStructuredBuffer<ContactFilmHeader> _FilmHeaders;
+RWStructuredBuffer<float4> _FilmInformation;
+RWStructuredBuffer<uint> _FilmAllocator;
+
+uint2 _Resolution;
+uint _FilmCapacity;
+uint _ChunkId;
+float4x4 _ChunkFromDepth[2];
+float _BehindLayerThreshold;
+
+static const uint CLASS_NEW_FRONT = 2u;
+static const uint CLASS_BEHIND = 3u;
+static const uint CLASS_NEW_LAYER = 4u;
+static const uint CLASS_UNSEEN = 5u;
+static const uint CLASS_BOUNDARY = 6u;
+static const uint FILM_ACTIVE = 1u;
+static const uint FILM_ONE_SIDED = 2u;
+static const uint FILM_UNCERTAIN = 4u;
+static const uint FILM_DIRTY_GEOMETRY = 8u;
+static const uint FILM_DIRTY_MESHLET = 16u;
+
+groupshared uint sActive[64];
+groupshared uint sLabel[64];
+groupshared float3 sPosition[64];
+groupshared float3 sNormal[64];
+groupshared float sWeight[64];
+groupshared float sSigma[64];
+groupshared float sConfidence[64];
+groupshared float sFootprint[64];
+
+float3 LoadRay(uint2 pixel, uint eye)
+{
+    return eye == 0u ? _DepthRayCenterLeft[pixel].xyz :
+        _DepthRayCenterRight[pixel].xyz;
+}
+
+bool Compatible(uint a, uint b)
+{
+    if (sActive[a] == 0u || sActive[b] == 0u) return false;
+    float distanceGate = max(0.015, 3.0 * max(sSigma[a], sSigma[b]));
+    if (distance(sPosition[a], sPosition[b]) > distanceGate * 2.5) return false;
+    float normalLengthA = length(sNormal[a]);
+    float normalLengthB = length(sNormal[b]);
+    return normalLengthA < 0.5 || normalLengthB < 0.5 ||
+        dot(sNormal[a] / normalLengthA, sNormal[b] / normalLengthB) > 0.8660254;
+}
+
+float3 SolveSymmetric3x3(float a, float b, float c, float d, float e, float f,
+    float3 rhs)
+{
+    float i00 = d * f - e * e;
+    float i01 = c * e - b * f;
+    float i02 = b * e - c * d;
+    float i11 = a * f - c * c;
+    float i12 = b * c - a * e;
+    float i22 = a * d - b * b;
+    float determinant = a * i00 + b * i01 + c * i02;
+    if (abs(determinant) <= 1e-20) return rhs;
+    return float3(
+        dot(float3(i00, i01, i02), rhs),
+        dot(float3(i01, i11, i12), rhs),
+        dot(float3(i02, i12, i22), rhs)) / determinant;
+}
+
+[numthreads(8, 8, 1)]
+void SpawnContactFilms(uint3 groupId : SV_GroupID,
+    uint3 threadId : SV_GroupThreadID,
+    uint3 dispatchId : SV_DispatchThreadID)
+{
+    uint localIndex = threadId.y * 8u + threadId.x;
+    uint eye = groupId.z;
+    bool inBounds = all(dispatchId.xy < _Resolution) && eye < 2u;
+    ConeEvent eventData = (ConeEvent)0;
+    if (inBounds)
+    {
+        uint pixelsPerEye = _Resolution.x * _Resolution.y;
+        uint eventIndex = eye * pixelsPerEye + dispatchId.y * _Resolution.x + dispatchId.x;
+        eventData = _ConeEvents[eventIndex];
+    }
+    bool promotedBehind = false;
+    if (inBounds && eventData.classification == CLASS_BEHIND &&
+        eventData.filmId > 0u && eventData.filmId <= _FilmCapacity)
+    {
+        ContactFilmHeader occluder = _FilmHeaders[eventData.filmId - 1u];
+        promotedBehind = occluder.id == eventData.filmId &&
+            occluder.generation == eventData.filmGeneration &&
+            occluder.contradiction >= _BehindLayerThreshold;
+    }
+    bool spawnClass = inBounds &&
+        (eventData.classification == CLASS_UNSEEN ||
+         eventData.classification == CLASS_NEW_FRONT ||
+         eventData.classification == CLASS_NEW_LAYER ||
+         promotedBehind ||
+         (eventData.classification == CLASS_BOUNDARY && eventData.filmId == 0u)) &&
+        eventData.measuredRange > 0.0;
+    sActive[localIndex] = spawnClass ? 1u : 0u;
+    sLabel[localIndex] = localIndex;
+    if (spawnClass)
+    {
+        float3 positionDepth = LoadRay(dispatchId.xy, eye) * eventData.measuredRange;
+        sPosition[localIndex] = mul(_ChunkFromDepth[eye],
+            float4(positionDepth, 1.0)).xyz;
+        sNormal[localIndex] = normalize(mul((float3x3)_ChunkFromDepth[eye],
+            eventData.measuredNormal));
+        sWeight[localIndex] = clamp(eventData.pressurePrecision, 0.01, 100000.0);
+        sSigma[localIndex] = max(eventData.combinedSigma, 0.0015);
+        sConfidence[localIndex] = saturate(eventData.confidence);
+        sFootprint[localIndex] = max(eventData.footprintArea, 1e-12);
+    }
+    else
+    {
+        sPosition[localIndex] = 0.0;
+        sNormal[localIndex] = 0.0;
+        sWeight[localIndex] = 0.0;
+        sSigma[localIndex] = 0.1;
+        sConfidence[localIndex] = 0.0;
+        sFootprint[localIndex] = 3.402823466e+38;
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    // Exact convergence bound for an 8x8 four-connected tile is 14 edges.
+    [unroll]
+    for (uint iteration = 0u; iteration < 14u; ++iteration)
+    {
+        uint best = sLabel[localIndex];
+        if (sActive[localIndex] != 0u)
+        {
+            if (threadId.x > 0u && Compatible(localIndex, localIndex - 1u))
+                best = min(best, sLabel[localIndex - 1u]);
+            if (threadId.x < 7u && Compatible(localIndex, localIndex + 1u))
+                best = min(best, sLabel[localIndex + 1u]);
+            if (threadId.y > 0u && Compatible(localIndex, localIndex - 8u))
+                best = min(best, sLabel[localIndex - 8u]);
+            if (threadId.y < 7u && Compatible(localIndex, localIndex + 8u))
+                best = min(best, sLabel[localIndex + 8u]);
+        }
+        GroupMemoryBarrierWithGroupSync();
+        sLabel[localIndex] = best;
+        GroupMemoryBarrierWithGroupSync();
+    }
+
+    if (sActive[localIndex] == 0u || sLabel[localIndex] != localIndex) return;
+
+    uint supportCount = 0u;
+    float totalWeight = 0.0;
+    float3 centroid = 0.0;
+    float3 normalSum = 0.0;
+    float sigmaSum = 0.0;
+    float confidenceSum = 0.0;
+    float bestPressure = 0.0;
+    float minimumFootprint = 3.402823466e+38;
+    for (uint i = 0u; i < 64u; ++i)
+    {
+        if (sActive[i] == 0u || sLabel[i] != localIndex) continue;
+        float weight = sWeight[i];
+        centroid += sPosition[i] * weight;
+        normalSum += sNormal[i] * weight;
+        sigmaSum += sSigma[i] * weight;
+        confidenceSum += sConfidence[i];
+        bestPressure = max(bestPressure, sWeight[i]);
+        minimumFootprint = min(minimumFootprint, sFootprint[i]);
+        totalWeight += weight;
+        supportCount++;
+    }
+    if (supportCount < 4u || totalWeight <= 0.0) return;
+    centroid /= totalWeight;
+    float3 normal = length(normalSum) > 1e-5 ? normalize(normalSum) : float3(0, 1, 0);
+
+    // Stabilize the normal with the component's smallest covariance direction.
+    float a = 0, b = 0, c = 0, d = 0, e = 0, f = 0;
+    for (uint covarianceIndex = 0u; covarianceIndex < 64u; ++covarianceIndex)
+    {
+        if (sActive[covarianceIndex] == 0u ||
+            sLabel[covarianceIndex] != localIndex) continue;
+        float3 qv = sPosition[covarianceIndex] - centroid;
+        float weight = sWeight[covarianceIndex];
+        a += weight * qv.x * qv.x; b += weight * qv.x * qv.y;
+        c += weight * qv.x * qv.z; d += weight * qv.y * qv.y;
+        e += weight * qv.y * qv.z; f += weight * qv.z * qv.z;
+    }
+    float trace = a + d + f;
+    float regularizer = max(1e-10, trace * 1e-4);
+    a += regularizer; d += regularizer; f += regularizer;
+    [unroll]
+    for (uint inverseIteration = 0u; inverseIteration < 5u; ++inverseIteration)
+        normal = normalize(SolveSymmetric3x3(a, b, c, d, e, f, normal));
+    if (dot(normal, normalSum) < 0.0) normal = -normal;
+
+    float3 reference = abs(normal.y) < 0.9 ? float3(0, 1, 0) : float3(1, 0, 0);
+    float3 tangentU = normalize(cross(reference, normal));
+    float3 tangentV = normalize(cross(normal, tangentU));
+    float quadratic[6] = { 0, 0, 0, 0, 0, 0 };
+    float finalH[36];
+    float finalG[6];
+
+    // Two deterministic IRLS/Huber passes over at most 64 support samples.
+    [unroll]
+    for (uint fitPass = 0u; fitPass < 2u; ++fitPass)
+    {
+        [unroll] for (uint hi = 0u; hi < 36u; ++hi) finalH[hi] = 0.0;
+        [unroll] for (uint gi = 0u; gi < 6u; ++gi) finalG[gi] = 0.0;
+        for (uint sampleIndex = 0u; sampleIndex < 64u; ++sampleIndex)
+        {
+            if (sActive[sampleIndex] == 0u ||
+                sLabel[sampleIndex] != localIndex) continue;
+            float3 delta = sPosition[sampleIndex] - centroid;
+            float u = dot(delta, tangentU);
+            float v = dot(delta, tangentV);
+            float z = dot(delta, normal);
+            float basis[6] = { 1.0, u, v, u * u, u * v, v * v };
+            float predicted = 0.0;
+            [unroll] for (uint qi = 0u; qi < 6u; ++qi)
+                predicted += quadratic[qi] * basis[qi];
+            float residual = z - predicted;
+            float huberDelta = max(0.003, 2.0 * sSigma[sampleIndex]);
+            float robust = abs(residual) <= huberDelta ? 1.0 :
+                huberDelta / max(abs(residual), 1e-8);
+            float weight = sWeight[sampleIndex] * robust;
+            [unroll]
+            for (uint row = 0u; row < 6u; ++row)
+            {
+                finalG[row] += weight * basis[row] * z;
+                [unroll]
+                for (uint column = 0u; column < 6u; ++column)
+                    finalH[row * 6u + column] += weight * basis[row] * basis[column];
+            }
+        }
+
+        float diagonalRegularizer = max(1e-7, totalWeight * 1e-7);
+        [unroll] for (uint diagonal = 0u; diagonal < 6u; ++diagonal)
+            finalH[diagonal * 6u + diagonal] += diagonalRegularizer;
+        float lower[36];
+        [unroll] for (uint li = 0u; li < 36u; ++li) lower[li] = 0.0;
+        bool solvable = true;
+        [unroll]
+        for (uint row = 0u; row < 6u; ++row)
+        {
+            [unroll]
+            for (uint column = 0u; column <= row; ++column)
+            {
+                float sum = finalH[row * 6u + column];
+                [unroll]
+                for (uint k = 0u; k < column; ++k)
+                    sum -= lower[row * 6u + k] * lower[column * 6u + k];
+                if (row == column)
+                {
+                    if (sum <= 1e-12) solvable = false;
+                    lower[row * 6u + column] = sqrt(max(sum, 1e-12));
+                }
+                else
+                    lower[row * 6u + column] = sum /
+                        max(lower[column * 6u + column], 1e-8);
+            }
+        }
+        if (solvable)
+        {
+            float y[6];
+            [unroll]
+            for (uint row = 0u; row < 6u; ++row)
+            {
+                float sum = finalG[row];
+                [unroll] for (uint k = 0u; k < row; ++k)
+                    sum -= lower[row * 6u + k] * y[k];
+                y[row] = sum / max(lower[row * 6u + row], 1e-8);
+            }
+            for (int row = 5; row >= 0; --row)
+            {
+                float sum = y[row];
+                for (int k = row + 1; k < 6; ++k)
+                    sum -= lower[k * 6 + row] * quadratic[k];
+                quadratic[row] = sum / max(lower[row * 6 + row], 1e-8);
+            }
+        }
+    }
+
+    float extentU = 0.005;
+    float extentV = 0.005;
+    for (uint extentIndex = 0u; extentIndex < 64u; ++extentIndex)
+    {
+        if (sActive[extentIndex] == 0u || sLabel[extentIndex] != localIndex) continue;
+        float3 delta = sPosition[extentIndex] - centroid;
+        extentU = max(extentU, abs(dot(delta, tangentU)));
+        extentV = max(extentV, abs(dot(delta, tangentV)));
+    }
+
+    // Persist information in the normalized chart domain.  U,V stay near [-1,1],
+    // which keeps the 6x6 solve well-conditioned and lets Q3-08 accumulate future
+    // observations with portable integer atomics on Quest Vulkan.
+    [unroll] for (uint hi = 0u; hi < 36u; ++hi) finalH[hi] = 0.0;
+    [unroll] for (uint gi = 0u; gi < 6u; ++gi) finalG[gi] = 0.0;
+    float normalizedSupport = 0.0;
+    for (uint infoSample = 0u; infoSample < 64u; ++infoSample)
+    {
+        if (sActive[infoSample] == 0u || sLabel[infoSample] != localIndex) continue;
+        float3 delta = sPosition[infoSample] - centroid;
+        float u = dot(delta, tangentU);
+        float v = dot(delta, tangentV);
+        float U = u / max(extentU, 0.001);
+        float V = v / max(extentV, 0.001);
+        float z = dot(delta, normal);
+        float basis[6] = { 1.0, U, V, U * U, U * V, V * V };
+        float predicted = quadratic[0] + quadratic[1] * u + quadratic[2] * v +
+            quadratic[3] * u * u + quadratic[4] * u * v + quadratic[5] * v * v;
+        float residual = z - predicted;
+        float huberDelta = max(0.003, 2.0 * sSigma[infoSample]);
+        float robust = abs(residual) <= huberDelta ? 1.0 :
+            huberDelta / max(abs(residual), 1e-8);
+        float relativeQuality = saturate(sWeight[infoSample] /
+            max(bestPressure, 1e-8));
+        float weight = robust * relativeQuality;
+        normalizedSupport += weight;
+        [unroll]
+        for (uint row = 0u; row < 6u; ++row)
+        {
+            finalG[row] += weight * basis[row] * z;
+            [unroll]
+            for (uint column = 0u; column < 6u; ++column)
+                finalH[row * 6u + column] +=
+                    weight * basis[row] * basis[column];
+        }
+    }
+    float normalizedRegularizer = max(1e-7, (float)supportCount * 1e-7);
+    [unroll] for (uint diagonal = 0u; diagonal < 6u; ++diagonal)
+        finalH[diagonal * 6u + diagonal] += normalizedRegularizer;
+
+    uint slot;
+    InterlockedAdd(_FilmAllocator[0], 1u, slot);
+    if (slot >= _FilmCapacity)
+    {
+        InterlockedAdd(_FilmAllocator[2], 1u);
+        return;
+    }
+    InterlockedAdd(_FilmAllocator[1], 1u);
+    uint generation = max(1u, _FilmAllocator[3]);
+    ContactFilmHeader film;
+    film.id = slot + 1u;
+    film.generation = generation;
+    film.chunkId = _ChunkId;
+    film.flags = FILM_ACTIVE | FILM_ONE_SIDED | FILM_UNCERTAIN |
+        FILM_DIRTY_GEOMETRY | FILM_DIRTY_MESHLET;
+    film.origin = centroid;
+    film.supportTotal = normalizedSupport;
+    film.normal = normal;
+    film.sigmaNormal = clamp(sigmaSum / totalWeight, 0.0015, 0.1);
+    film.tangentU = tangentU;
+    film.extentU = extentU;
+    film.tangentV = tangentV;
+    film.extentV = extentV;
+    film.quadratic0123 = float4(quadratic[0], quadratic[1], quadratic[2], quadratic[3]);
+    film.quadratic45 = float2(quadratic[4], quadratic[5]);
+    film.confidence = saturate(confidenceSum / max(1.0, (float)supportCount));
+    film.contradiction = 0.0;
+    film.revision = 1u;
+    film.displacementPage = 0xffffffffu;
+    film.appearancePage = 0xffffffffu;
+    film.boundaryStart = 0xffffffffu;
+    film.boundaryCount = 0u;
+    film.reserved0 = film.reserved1 = film.reserved2 = 0u;
+    _FilmHeaders[slot] = film;
+
+    uint info = slot * 9u;
+    _FilmInformation[info + 0u] = float4(finalH[0], finalH[1], finalH[2], finalH[3]);
+    _FilmInformation[info + 1u] = float4(finalH[4], finalH[5], finalH[7], finalH[8]);
+    _FilmInformation[info + 2u] = float4(finalH[9], finalH[10], finalH[11], finalH[14]);
+    _FilmInformation[info + 3u] = float4(finalH[15], finalH[16], finalH[17], finalH[21]);
+    _FilmInformation[info + 4u] = float4(finalH[22], finalH[23], finalH[28], finalH[29]);
+    _FilmInformation[info + 5u] = float4(finalH[35], 0.0, 0.0, 0.0);
+    _FilmInformation[info + 6u] = float4(finalG[0], finalG[1], finalG[2], finalG[3]);
+    _FilmInformation[info + 7u] = float4(finalG[4], finalG[5],
+        (float)supportCount, normalizedSupport);
+    _FilmInformation[info + 8u] = float4(film.sigmaNormal, film.confidence,
+        minimumFootprint, bestPressure);
+}

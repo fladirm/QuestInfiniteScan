@@ -1,0 +1,127 @@
+#pragma kernel BuildMeshDispatchArguments
+#pragma kernel BuildFilmQuads
+
+struct ContactFilmHeader
+{
+    uint id;
+    uint generation;
+    uint chunkId;
+    uint flags;
+    float3 origin;
+    float supportTotal;
+    float3 normal;
+    float sigmaNormal;
+    float3 tangentU;
+    float extentU;
+    float3 tangentV;
+    float extentV;
+    float4 quadratic0123;
+    float2 quadratic45;
+    float confidence;
+    float contradiction;
+    uint revision;
+    uint displacementPage;
+    uint appearancePage;
+    uint boundaryStart;
+    uint boundaryCount;
+    uint reserved0;
+    uint reserved1;
+    uint reserved2;
+};
+
+struct ContactMeshletVertex
+{
+    float3 position;
+    uint filmId;
+    float3 normal;
+    uint generation;
+    float2 uv;
+    float sigma;
+    float confidence;
+    uint sidedness;
+    uint flags;
+    uint reserved0;
+    uint reserved1;
+};
+
+StructuredBuffer<ContactFilmHeader> _FilmHeaders;
+StructuredBuffer<uint> _FilmAllocator;
+RWStructuredBuffer<ContactMeshletVertex> _ContactVertices;
+RWStructuredBuffer<uint> _ContactIndices;
+RWStructuredBuffer<uint4> _DrawArguments;
+RWStructuredBuffer<uint3> _MeshDispatchArguments;
+uint _FilmCapacity;
+
+static const uint FILM_ACTIVE = 1u;
+
+float Height(ContactFilmHeader film, float u, float v)
+{
+    return film.quadratic0123.x + film.quadratic0123.y * u +
+        film.quadratic0123.z * v + film.quadratic0123.w * u * u +
+        film.quadratic45.x * u * v + film.quadratic45.y * v * v;
+}
+
+float3 SurfaceNormal(ContactFilmHeader film, float u, float v)
+{
+    float dhdu = film.quadratic0123.y + 2.0 * film.quadratic0123.w * u +
+        film.quadratic45.x * v;
+    float dhdv = film.quadratic0123.z + film.quadratic45.x * u +
+        2.0 * film.quadratic45.y * v;
+    float3 du = film.tangentU + dhdu * film.normal;
+    float3 dv = film.tangentV + dhdv * film.normal;
+    float3 n = normalize(cross(du, dv));
+    return dot(n, film.normal) >= 0.0 ? n : -n;
+}
+
+[numthreads(1, 1, 1)]
+void BuildMeshDispatchArguments(uint3 id : SV_DispatchThreadID)
+{
+    uint filmCount = min(_FilmAllocator[0], _FilmCapacity);
+    _MeshDispatchArguments[0] = uint3((filmCount + 63u) / 64u, 1u, 1u);
+    _DrawArguments[0] = uint4(filmCount * 6u, 1u, 0u, 0u);
+}
+
+[numthreads(64, 1, 1)]
+void BuildFilmQuads(uint3 id : SV_DispatchThreadID)
+{
+    uint filmCount = min(_FilmAllocator[0], _FilmCapacity);
+    uint filmIndex = id.x;
+    if (filmIndex >= filmCount) return;
+    ContactFilmHeader film = _FilmHeaders[filmIndex];
+    if ((film.flags & FILM_ACTIVE) == 0u) return;
+
+    uint vertexBase = filmIndex * 4u;
+    float2 domains[4] = {
+        float2(-film.extentU, -film.extentV),
+        float2( film.extentU, -film.extentV),
+        float2(-film.extentU,  film.extentV),
+        float2( film.extentU,  film.extentV)
+    };
+    [unroll]
+    for (uint corner = 0u; corner < 4u; ++corner)
+    {
+        float u = domains[corner].x;
+        float v = domains[corner].y;
+        ContactMeshletVertex vertex;
+        vertex.position = film.origin + u * film.tangentU + v * film.tangentV +
+            Height(film, u, v) * film.normal;
+        vertex.filmId = film.id;
+        vertex.normal = SurfaceNormal(film, u, v);
+        vertex.generation = film.generation;
+        vertex.uv = float2(corner & 1u, (corner >> 1u) & 1u);
+        vertex.sigma = film.sigmaNormal;
+        vertex.confidence = film.confidence;
+        vertex.sidedness = 1u;
+        vertex.flags = film.flags;
+        vertex.reserved0 = vertex.reserved1 = 0u;
+        _ContactVertices[vertexBase + corner] = vertex;
+    }
+
+    uint indexBase = filmIndex * 6u;
+    _ContactIndices[indexBase + 0u] = vertexBase + 0u;
+    _ContactIndices[indexBase + 1u] = vertexBase + 1u;
+    _ContactIndices[indexBase + 2u] = vertexBase + 2u;
+    _ContactIndices[indexBase + 3u] = vertexBase + 2u;
+    _ContactIndices[indexBase + 4u] = vertexBase + 1u;
+    _ContactIndices[indexBase + 5u] = vertexBase + 3u;
+}

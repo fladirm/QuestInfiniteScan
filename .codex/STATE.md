@@ -40,9 +40,15 @@ Updated: 2026-08-20 (Europe/Prague)
 - `Q3-03` is done. Immutable calibration epochs, four GPU cone LUTs, radial metric
   depth normalization, validity flags, exact-pose reprojection, surface-footprint
   Jacobians, and fenced output leases are implemented and wired into `RoomScanner`.
-- `Q3-04` is active. Its production GPU passes now implement independent L/R
-  agreement/occlusion/disagreement, signed residual histograms with six-bin MAD/EMA
-  sigma, discontinuity-aware local plane fits, and depth/normal/RGB boundary evidence.
+- `Q3-04` through `Q3-08` are implemented. The GPU pipeline now runs coherent
+  stereo preprocessing, dual-eye prediction raster, exhaustive finite-cone
+  classification, robust ContactFilm spawn, normalized information accumulation,
+  quality-resistant 6x6 pressure solve, and immediate meshlet publication without
+  pixel readback or CPU geometry.
+- `Q3-09` is active. NEW_LAYER and one-sided UNSEEN contacts already allocate
+  independent films; persistent BEHIND evidence is accumulated without carving and
+  can promote a separate hypothesis. Stable multilayer reassociation/depth peeling
+  and duplicate-hypothesis suppression are the remaining Q3-09 work.
 
 ## Reuse map
 
@@ -84,11 +90,12 @@ Remove from the shipped product after PRISM parity:
 
 ## Immediate implementation actions
 
-1. Finish Q3-04 confidence/flag fixtures and shader-level diagnostics, then close it.
-2. Implement Q3-05 dual-eye prediction MRTs over generation-safe ContactFilm
-   meshlets and Q3-06 exhaustive first-hit ConeEvent classification.
-3. Batch the first physical Quest validation only after capture, preprocessing,
-   classification, film spawn/update, and preview form one useful vertical slice.
+1. Finish Q3-09 stable multilayer association, then implement canonical persistent
+   ContactBoundaries and topology adaptation.
+2. Replace the initial one-quad ContactFilm materialization with adaptive boundary-
+   and curvature-aware indirect meshlets while keeping the hot path GPU-only.
+3. Batch the first physical Quest validation only after multilayer films,
+   boundaries, adaptive meshlets, and preview form one useful vertical slice.
 
 ## Safety
 
