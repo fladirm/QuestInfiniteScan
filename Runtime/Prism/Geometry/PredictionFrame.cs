@@ -28,6 +28,7 @@ namespace Genesis.RoomScan.Prism
         public RenderTexture FilmIdGeneration => Owner.Get(_slot, _generation).FilmIdGeneration;
         public RenderTexture UvMetadata => Owner.Get(_slot, _generation).UvMetadata;
         public RenderTexture HardwareDepth => Owner.Get(_slot, _generation).HardwareDepth;
+        public RenderTexture HiZRange => Owner.Get(_slot, _generation).HiZRange;
         public RenderTexture Layer1DepthSigma => Owner.Get(_slot, _generation).Layer1DepthSigma;
         public RenderTexture Layer1NormalConfidence => Owner.Get(_slot, _generation).Layer1NormalConfidence;
         public RenderTexture Layer1FilmIdGeneration => Owner.Get(_slot, _generation).Layer1FilmIdGeneration;
@@ -69,6 +70,7 @@ namespace Genesis.RoomScan.Prism
             internal RenderTexture FilmIdGeneration;
             internal RenderTexture UvMetadata;
             internal RenderTexture HardwareDepth;
+            internal RenderTexture HiZRange;
             internal RenderTexture Layer1DepthSigma;
             internal RenderTexture Layer1NormalConfidence;
             internal RenderTexture Layer1FilmIdGeneration;
@@ -178,6 +180,7 @@ namespace Genesis.RoomScan.Prism
                 Compatible(slot.UvMetadata, resolution,
                     GraphicsFormat.R16G16B16A16_SFloat) &&
                 CompatibleDepth(slot.HardwareDepth, resolution) &&
+                CompatibleHiZ(slot.HiZRange, resolution) &&
                 Compatible(slot.Layer1DepthSigma, resolution,
                     GraphicsFormat.R32G32_SFloat) &&
                 Compatible(slot.Layer1NormalConfidence, resolution,
@@ -197,6 +200,7 @@ namespace Genesis.RoomScan.Prism
             slot.UvMetadata = CreateColor("UV Metadata", index, resolution,
                 GraphicsFormat.R16G16B16A16_SFloat);
             slot.HardwareDepth = CreateDepth(index, resolution);
+            slot.HiZRange = CreateHiZ(index, resolution);
             slot.Layer1DepthSigma = CreateColor("Layer 1 Depth Sigma", index,
                 resolution, GraphicsFormat.R32G32_SFloat);
             slot.Layer1NormalConfidence = CreateColor("Layer 1 Normal Confidence",
@@ -238,6 +242,23 @@ namespace Genesis.RoomScan.Prism
             return texture;
         }
 
+        private static RenderTexture CreateHiZ(int index, Vector2Int resolution)
+        {
+            var descriptor = ArrayDescriptor(resolution);
+            descriptor.graphicsFormat = GraphicsFormat.R32_SFloat;
+            descriptor.enableRandomWrite = true;
+            descriptor.useMipMap = true;
+            descriptor.autoGenerateMips = false;
+            var texture = new RenderTexture(descriptor)
+            {
+                name = $"[Cone-PRISM] Conservative Range Hi-Z {index}",
+                filterMode = FilterMode.Point,
+                wrapMode = TextureWrapMode.Clamp
+            };
+            if (!texture.Create()) throw new InvalidOperationException(texture.name);
+            return texture;
+        }
+
         private static RenderTextureDescriptor ArrayDescriptor(Vector2Int resolution) =>
             new(resolution.x, resolution.y)
             {
@@ -260,6 +281,12 @@ namespace Genesis.RoomScan.Prism
             texture.height == resolution.y && texture.volumeDepth == 2 &&
             texture.depthStencilFormat == GraphicsFormat.D32_SFloat;
 
+        private static bool CompatibleHiZ(RenderTexture texture, Vector2Int resolution) =>
+            texture != null && texture.width == resolution.x &&
+            texture.height == resolution.y && texture.volumeDepth == 2 &&
+            texture.graphicsFormat == GraphicsFormat.R32_SFloat &&
+            texture.useMipMap && texture.enableRandomWrite;
+
         private static bool FencePassed(Slot slot)
         {
             if (!slot.HasFence) return true;
@@ -274,6 +301,7 @@ namespace Genesis.RoomScan.Prism
             DestroyTexture(slot.FilmIdGeneration);
             DestroyTexture(slot.UvMetadata);
             DestroyTexture(slot.HardwareDepth);
+            DestroyTexture(slot.HiZRange);
             DestroyTexture(slot.Layer1DepthSigma);
             DestroyTexture(slot.Layer1NormalConfidence);
             DestroyTexture(slot.Layer1FilmIdGeneration);
@@ -284,6 +312,7 @@ namespace Genesis.RoomScan.Prism
             slot.FilmIdGeneration = null;
             slot.UvMetadata = null;
             slot.HardwareDepth = null;
+            slot.HiZRange = null;
             slot.Layer1DepthSigma = null;
             slot.Layer1NormalConfidence = null;
             slot.Layer1FilmIdGeneration = null;

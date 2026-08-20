@@ -224,7 +224,7 @@
     {
       "id": "Q3-12",
       "title": "Implement adaptive ContactFilm meshlets, culling, dynamic LOD, and indirect rendering",
-      "status": "in_progress",
+      "status": "done",
       "depends_on": ["Q3-11"],
       "acceptance": [
         "ContactFilms and ContactBoundaries materialize entirely on GPU into inactive generation-safe meshlet buffers",
@@ -233,12 +233,18 @@
         "No synchronous readback, CPU count, CPU mesh, or per-frame geometry traversal exists in the production path",
         "Published geometry remains stable during rebuild and close viewing reveals maximum measured detail"
       ],
-      "evidence": []
+      "evidence": [
+        "ContactMeshletBuffers owns distinct immutable published and inactive generations for vertices, indices, descriptors, counters, indirect build/cull arguments, and per-view LOD; a graphics fence prevents reuse while Adreno can still read the old publication and pending mutations coalesce without blocking capture",
+        "MeshletBuild.compute derives tessellation from quadratic error, posterior sigma/confidence, hierarchical displacement variance, best measured footprint, and persistent cubic ContactBoundaries; crossed boundary cells are omitted rather than bridging foreground/background and adjacent vertices snap to canonical curves",
+        "MeshletViewCull.compute performs fully GPU-indirect descriptor dispatch, conservative sphere frustum/previous-frame range Hi-Z rejection, screen-space geometry LOD, independent measured-footprint appearance mip selection, and compact visible-index publication with no CPU-visible count",
+        "HiZRangePyramid.compute builds a conservative max-range pyramid in both depth eyes where unknown remains infinity; first-hit prediction uses Hi-Z while the second peeled layer deliberately reculls without occlusion so hidden ContactFilms remain associable",
+        "The production path contains no AsyncGPUReadback, buffer GetData, CPU Mesh, or per-frame CPU geometry traversal; Unity 6000.5.9f1 passed all 5 Q3-12 contracts on both OpenGL and forced Vulkan: cone-prism-q3-12-fence-tests.xml and cone-prism-q3-12-vulkan-tests.xml"
+      ]
     },
     {
       "id": "Q3-13",
       "title": "Implement infinite chunk paging, native PRISM persistence, restart, and revisit",
-      "status": "pending",
+      "status": "in_progress",
       "depends_on": ["Q3-12"],
       "acceptance": [
         "Chunks store local ContactFilms, SurfaceChartGeometry, posterior statistics, sigma, ContactBoundaries, displacement/microtiles, deposited appearance, meshlet cache, transforms, and keyframe references under a versioned Cone-PRISM schema",

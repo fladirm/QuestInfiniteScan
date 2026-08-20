@@ -34,3 +34,14 @@ evidence, GPU-indirect posterior-preserving film split, multi-segment boundary t
 conservative stable-plane merge, and displacement-aware meshlet positions/normals.
 Unity 6000.5.9f1 passed 104/104 runnable EditMode tests; Q3-12 is now active and the
 code graph was regenerated at task close.
+
+## Exchange 4
+
+User: Repeatedly requested implementation progress and the exact remaining percentage,
+with implementation strongly preferred over repeated explanations or trivial device tests.
+
+Assistant: Completed Q3-12. Replaced mutable whole-generation rendering with fenced
+front/back GPU publications, descriptor-driven adaptive tessellation, conservative exact
+boundary clipping, dual-eye range Hi-Z, GPU frustum/occlusion culling, compact indirect
+view indices, and independent geometry/appearance LOD. Five focused contracts passed on
+both OpenGL and forced Vulkan; Q3-13 native persistence/paging is now active.

@@ -46,6 +46,25 @@ struct ContactMeshletVertex
     uint reserved1;
 };
 
+struct ContactMeshletDescriptor
+{
+    uint filmId;
+    uint generation;
+    uint vertexBase;
+    uint maximumSegments;
+    float3 center;
+    float radius;
+    float4 uvBounds;
+    float geometricError;
+    float detailFootprint;
+    float confidence;
+    uint appearancePage;
+    uint flags;
+    uint sourceIndexBase;
+    uint sourceIndexCount;
+    uint reserved;
+};
+
 struct ContactBoundaryHeader
 {
     uint id;
@@ -117,12 +136,15 @@ StructuredBuffer<uint> _BaseChildPages;
 StructuredBuffer<uint> _MicroChildPages;
 RWStructuredBuffer<ContactMeshletVertex> _ContactVertices;
 RWStructuredBuffer<uint> _ContactIndices;
+RWStructuredBuffer<ContactMeshletDescriptor> _MeshletDescriptors;
 RWStructuredBuffer<uint4> _DrawArguments;
 RWStructuredBuffer<uint3> _MeshDispatchArguments;
+RWStructuredBuffer<uint3> _CullDispatchArguments;
 RWStructuredBuffer<uint> _MeshletAllocator;
 uint _FilmCapacity;
 uint _VertexCapacity;
 uint _IndexCapacity;
+uint _DescriptorCapacity;
 uint _MaximumSubdivision;
 float _MinimumTessellationError;
 uint _HasBoundaries;
@@ -138,6 +160,7 @@ static const uint FILM_ACTIVE = 1u;
 static const uint BOUNDARY_ACTIVE = 1u;
 static const uint BOUNDARY_PERSISTENT = 8u;
 static const uint VERTEX_BOUNDARY = 1u << 8u;
+static const uint MESHLET_HAS_BOUNDARY = 1u << 20u;
 static const uint FILM_HAS_DISPLACEMENT = 1u << 5u;
 static const uint PAGE_ACTIVE = 1u;
 static const uint BASE_GRID = 16u;
@@ -199,6 +222,56 @@ bool ResolveDisplacementPage(ContactFilmHeader film, float2 uv,
         page = child;
     }
     return true;
+}
+
+void DisplacementMetrics(ContactFilmHeader film, out float bestFootprint,
+    out float maximumVariance, out uint deepestLevel)
+{
+    bestFootprint = max(2.0 * film.extentU, 2.0 * film.extentV);
+    maximumVariance = 0.0;
+    deepestLevel = 0u;
+    if (_HasDisplacement == 0u ||
+        (film.flags & FILM_HAS_DISPLACEMENT) == 0u ||
+        film.displacementPage == 0u ||
+        film.displacementPage == ALLOCATION_CLAIM) return;
+    uint pageIndex = film.displacementPage - 1u;
+    if (pageIndex >= _BasePageCapacity) return;
+    DisplacementPageHeader page = _DisplacementPages[pageIndex];
+    if ((page.flags & PAGE_ACTIVE) == 0u || page.filmId != film.id ||
+        page.filmGeneration != film.generation) return;
+    bestFootprint = max(asfloat(page.bestFootprintBits), 1e-5);
+    maximumVariance = max(asfloat(page.maximumVarianceBits), 0.0);
+
+    // Page headers retain aggregate quality for every resident descendant. Sampling
+    // the centre path provides a conservative hierarchy-depth signal without a CPU
+    // traversal; variance and footprint still force detail outside that path.
+    bool micro = false;
+    float2 uv = 0.5;
+    [loop]
+    for (uint level = 0u; level < _MaximumMicroLevels; ++level)
+    {
+        float2 span = max(page.uvBounds.zw - page.uvBounds.xy, 1e-8);
+        float2 localUv = saturate((uv - page.uvBounds.xy) / span);
+        uint grid = micro ? MICRO_GRID : BASE_GRID;
+        uint2 cell = min((uint2)(localUv * (float)grid), grid - 1u);
+        uint childHandle = LoadDisplacementChild(micro, pageIndex,
+            cell.y * grid + cell.x);
+        if (childHandle == 0u || childHandle == ALLOCATION_CLAIM) break;
+        uint childIndex = childHandle - 1u;
+        if (childIndex >= _MicroPageCapacity) break;
+        DisplacementPageHeader child =
+            _DisplacementPages[_BasePageCapacity + childIndex];
+        if ((child.flags & PAGE_ACTIVE) == 0u || child.filmId != film.id ||
+            child.filmGeneration != film.generation) break;
+        micro = true;
+        pageIndex = childIndex;
+        page = child;
+        deepestLevel = max(deepestLevel, child.level);
+        bestFootprint = min(bestFootprint,
+            max(asfloat(child.bestFootprintBits), 1e-5));
+        maximumVariance = max(maximumVariance,
+            max(asfloat(child.maximumVarianceBits), 0.0));
+    }
 }
 
 float SampleDisplacement(ContactFilmHeader film, float2 uv)
@@ -296,6 +369,20 @@ bool ClosestBoundaryPoint(ContactFilmHeader film, float2 uv,
     return bestDistance <= 0.55 / (float)cells;
 }
 
+bool CellTouchesPersistentBoundary(ContactFilmHeader film, float2 uvMinimum,
+    float2 uvMaximum)
+{
+    if (_HasBoundaries == 0u || film.boundaryCount == 0u) return false;
+    float2 centre = 0.5 * (uvMinimum + uvMaximum);
+    float2 closest;
+    if (!ClosestBoundaryPoint(film, centre, closest)) return false;
+    float2 halfSpan = 0.5 * (uvMaximum - uvMinimum);
+    // A crossed cell is intentionally omitted instead of bridging foreground to
+    // background. Boundary-following vertices from adjacent cells remain snapped to
+    // the canonical cubic; later local refinement closes only the supported side.
+    return all(abs(closest - centre) <= halfSpan * 1.05 + 1e-6);
+}
+
 float Height(ContactFilmHeader film, float u, float v, float2 uv)
 {
     return film.quadratic0123.x + film.quadratic0123.y * u +
@@ -354,12 +441,20 @@ uint ChooseSubdivision(ContactFilmHeader film)
     float curvatureSag = abs(film.quadratic0123.w) * film.extentU * film.extentU +
         abs(film.quadratic45.x) * film.extentU * film.extentV +
         abs(film.quadratic45.y) * film.extentV * film.extentV;
+    float bestFootprint;
+    float displacementVariance;
+    uint deepestLevel;
+    DisplacementMetrics(film, bestFootprint, displacementVariance, deepestLevel);
     float targetError = max(_MinimumTessellationError,
-        min(0.01, film.sigmaNormal * 0.5));
-    float required = sqrt(max(1.0, curvatureSag / targetError));
+        min(0.01, film.sigmaNormal * lerp(0.8, 0.35, saturate(film.confidence))));
+    float displacementError = sqrt(max(displacementVariance, 0.0));
+    float physicalSpan = max(2.0 * film.extentU, 2.0 * film.extentV);
+    float footprintRequired = physicalSpan / max(bestFootprint, targetError);
+    float required = max(sqrt(max(1.0,
+        (curvatureSag + displacementError) / targetError)), footprintRequired);
     if (film.boundaryCount > 0u) required = max(required, 4.0);
-    if ((film.flags & FILM_HAS_DISPLACEMENT) != 0u)
-        required = max(required, 16.0);
+    if (deepestLevel > 0u)
+        required = max(required, exp2(min(deepestLevel + 3u, 6u)));
     uint segments = 1u;
     [loop]
     while ((float)segments < required && segments < _MaximumSubdivision)
@@ -374,7 +469,12 @@ void ClearMeshletBuild(uint3 id : SV_DispatchThreadID)
     _MeshletAllocator[1] = 0u; // indices
     _MeshletAllocator[2] = 0u; // overflowed films
     _MeshletAllocator[3] = 0u; // emitted films
+    _MeshletAllocator[4] = 0u; // descriptors
+    _MeshletAllocator[5] = 0u; // boundary-clipped cells
+    _MeshletAllocator[6] = 0u; // reserved
+    _MeshletAllocator[7] = 0u; // publication revision
     _MeshDispatchArguments[0] = uint3(0u, 1u, 1u);
+    _CullDispatchArguments[0] = uint3(0u, 1u, 1u);
     _DrawArguments[0] = uint4(0u, 1u, 0u, 0u);
 }
 
@@ -397,7 +497,29 @@ void BuildAdaptiveFilmMeshlets(uint3 id : SV_DispatchThreadID)
     uint segments = ChooseSubdivision(film);
     uint rowVertices = segments + 1u;
     uint vertexCount = rowVertices * rowVertices;
-    uint indexCount = segments * segments * 6u;
+    uint emittedCellCount = segments * segments;
+    if (_HasBoundaries != 0u && film.boundaryCount > 0u)
+    {
+        emittedCellCount = 0u;
+        for (uint countY = 0u; countY < segments; ++countY)
+        for (uint countX = 0u; countX < segments; ++countX)
+        {
+            float2 uvMinimum = float2((float)countX, (float)countY) /
+                (float)segments;
+            float2 uvMaximum = float2((float)(countX + 1u),
+                (float)(countY + 1u)) / (float)segments;
+            if (!CellTouchesPersistentBoundary(film, uvMinimum, uvMaximum))
+                emittedCellCount++;
+        }
+    }
+    uint indexCount = emittedCellCount * 6u;
+    uint descriptorIndex;
+    if (!Reserve(4u, 1u, _DescriptorCapacity, descriptorIndex))
+    {
+        InterlockedAdd(_MeshletAllocator[2], 1u);
+        return;
+    }
+    _MeshletDescriptors[descriptorIndex] = (ContactMeshletDescriptor)0;
     uint vertexBase;
     if (!Reserve(0u, vertexCount, _VertexCapacity, vertexBase))
     {
@@ -410,7 +532,6 @@ void BuildAdaptiveFilmMeshlets(uint3 id : SV_DispatchThreadID)
         InterlockedAdd(_MeshletAllocator[2], 1u);
         return;
     }
-
     for (uint y = 0u; y <= segments; ++y)
     {
         for (uint x = 0u; x <= segments; ++x)
@@ -432,7 +553,8 @@ void BuildAdaptiveFilmMeshlets(uint3 id : SV_DispatchThreadID)
             vertex.confidence = film.confidence;
             vertex.sidedness = 1u;
             vertex.flags = film.flags | (onBoundary ? VERTEX_BOUNDARY : 0u);
-            vertex.reserved0 = vertex.reserved1 = 0u;
+            vertex.reserved0 = film.appearancePage;
+            vertex.reserved1 = descriptorIndex;
             _ContactVertices[vertexBase + y * rowVertices + x] = vertex;
         }
     }
@@ -441,6 +563,14 @@ void BuildAdaptiveFilmMeshlets(uint3 id : SV_DispatchThreadID)
     {
         for (uint x = 0u; x < segments; ++x)
         {
+            float2 uvMinimum = float2((float)x, (float)y) / (float)segments;
+            float2 uvMaximum = float2((float)(x + 1u), (float)(y + 1u)) /
+                (float)segments;
+            if (CellTouchesPersistentBoundary(film, uvMinimum, uvMaximum))
+            {
+                InterlockedAdd(_MeshletAllocator[5], 1u);
+                continue;
+            }
             uint v00 = vertexBase + y * rowVertices + x;
             uint v10 = v00 + 1u;
             uint v01 = v00 + rowVertices;
@@ -453,6 +583,39 @@ void BuildAdaptiveFilmMeshlets(uint3 id : SV_DispatchThreadID)
             _ContactIndices[writeIndex++] = v11;
         }
     }
+    uint emittedIndexCount = writeIndex - indexBase;
+    float bestFootprint;
+    float displacementVariance;
+    uint deepestLevel;
+    DisplacementMetrics(film, bestFootprint, displacementVariance, deepestLevel);
+    float curvatureSag = abs(film.quadratic0123.w) * film.extentU * film.extentU +
+        abs(film.quadratic45.x) * film.extentU * film.extentV +
+        abs(film.quadratic45.y) * film.extentV * film.extentV;
+    float2 centreUv = 0.5;
+    float centreU = 0.0;
+    float centreV = 0.0;
+    ContactMeshletDescriptor descriptor;
+    descriptor.filmId = film.id;
+    descriptor.generation = film.generation;
+    descriptor.vertexBase = vertexBase;
+    descriptor.maximumSegments = segments;
+    descriptor.center = film.origin + Height(film, centreU, centreV, centreUv) *
+        film.normal;
+    descriptor.radius = sqrt(film.extentU * film.extentU +
+        film.extentV * film.extentV) + abs(curvatureSag) +
+        3.0 * film.sigmaNormal;
+    descriptor.uvBounds = float4(0.0, 0.0, 1.0, 1.0);
+    descriptor.geometricError = max(_MinimumTessellationError,
+        max(curvatureSag, sqrt(max(displacementVariance, 0.0))));
+    descriptor.detailFootprint = max(bestFootprint, _MinimumTessellationError);
+    descriptor.confidence = film.confidence;
+    descriptor.appearancePage = film.appearancePage;
+    descriptor.flags = film.flags | (deepestLevel << 24u) |
+        (film.boundaryCount > 0u ? MESHLET_HAS_BOUNDARY : 0u);
+    descriptor.sourceIndexBase = indexBase;
+    descriptor.sourceIndexCount = emittedIndexCount;
+    descriptor.reserved = filmIndex;
+    _MeshletDescriptors[descriptorIndex] = descriptor;
     InterlockedAdd(_MeshletAllocator[3], 1u);
 }
 
@@ -461,4 +624,7 @@ void FinalizeMeshletDrawArguments(uint3 id : SV_DispatchThreadID)
 {
     _DrawArguments[0] = uint4(min(_MeshletAllocator[1], _IndexCapacity),
         1u, 0u, 0u);
+    _CullDispatchArguments[0] = uint3(
+        (min(_MeshletAllocator[4], _DescriptorCapacity) + 63u) / 64u,
+        1u, 1u);
 }

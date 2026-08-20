@@ -1,0 +1,247 @@
+#pragma kernel ClearMeshletView
+#pragma kernel CullMeshletView
+#pragma kernel FinalizeMeshletView
+
+struct ContactMeshletDescriptor
+{
+    uint filmId;
+    uint generation;
+    uint vertexBase;
+    uint maximumSegments;
+    float3 center;
+    float radius;
+    float4 uvBounds;
+    float geometricError;
+    float detailFootprint;
+    float confidence;
+    uint appearancePage;
+    uint flags;
+    uint sourceIndexBase;
+    uint sourceIndexCount;
+    uint reserved;
+};
+
+struct ContactMeshletViewLod
+{
+    uint geometrySegments;
+    float appearanceMip;
+    float projectedPixels;
+    uint flags;
+};
+
+StructuredBuffer<ContactMeshletDescriptor> _MeshletDescriptors;
+StructuredBuffer<uint> _SourceIndices;
+StructuredBuffer<uint> _MeshletBuildCounters;
+RWStructuredBuffer<uint> _VisibleIndices;
+RWStructuredBuffer<ContactMeshletViewLod> _MeshletViewLod;
+RWStructuredBuffer<uint4> _VisibleDrawArguments;
+RWStructuredBuffer<uint> _ViewCounters;
+Texture2DArray<float> _HiZRange;
+
+float4x4 _ClipFromChunk;
+float4x4 _OpticalFromChunk;
+uint2 _ViewportSize;
+uint _DescriptorCapacity;
+uint _VisibleIndexCapacity;
+uint _EnableHiZ;
+uint _HiZMipCount;
+uint _Eye;
+float _GeometryPixelError;
+float _AppearanceMipBias;
+
+static const uint MESHLET_HAS_BOUNDARY = 1u << 20u;
+static const uint VIEW_VISIBLE = 1u;
+static const uint VIEW_OCCLUDED = 1u << 1u;
+static const uint VIEW_FRUSTUM_REJECTED = 1u << 2u;
+static const uint VIEW_OVERFLOW = 1u << 3u;
+
+bool ReserveVisibleIndices(uint count, out uint offset)
+{
+    offset = 0u;
+    [loop]
+    for (uint attempt = 0u; attempt < 64u; ++attempt)
+    {
+        uint current = _ViewCounters[0];
+        if (count > _VisibleIndexCapacity ||
+            current > _VisibleIndexCapacity - count) return false;
+        uint observed;
+        InterlockedCompareExchange(_ViewCounters[0], current, current + count,
+            observed);
+        if (observed == current)
+        {
+            offset = current;
+            return true;
+        }
+    }
+    return false;
+}
+
+bool SphereInFrustum(float3 centre, float radius, out float4 clip,
+    out float projectedRadiusPixels)
+{
+    clip = mul(_ClipFromChunk, float4(centre, 1.0));
+    float radiusX = radius * length(float3(_ClipFromChunk._m00,
+        _ClipFromChunk._m01, _ClipFromChunk._m02));
+    float radiusY = radius * length(float3(_ClipFromChunk._m10,
+        _ClipFromChunk._m11, _ClipFromChunk._m12));
+    float radiusW = radius * length(float3(_ClipFromChunk._m30,
+        _ClipFromChunk._m31, _ClipFromChunk._m32));
+    float safeW = max(abs(clip.w), 1e-5);
+    projectedRadiusPixels = radiusY / safeW * 0.5 * (float)_ViewportSize.y;
+    if (clip.w + radiusW <= 0.0) return false;
+    if (clip.x < -clip.w - radiusX || clip.x > clip.w + radiusX) return false;
+    if (clip.y < -clip.w - radiusY || clip.y > clip.w + radiusY) return false;
+    if (clip.z < -radiusW || clip.z > clip.w + radiusW) return false;
+    return true;
+}
+
+bool OccludedByHiZ(ContactMeshletDescriptor descriptor, float4 clip,
+    float projectedRadiusPixels)
+{
+    if (_EnableHiZ == 0u || _HiZMipCount == 0u) return false;
+    float2 ndc = clip.xy / max(abs(clip.w), 1e-5);
+    float2 pixel = (ndc * float2(0.5, -0.5) + 0.5) * (float2)_ViewportSize;
+    if (any(pixel < 0.0) || any(pixel >= (float2)_ViewportSize)) return false;
+    float diameter = max(1.0, 2.0 * projectedRadiusPixels);
+    uint mip = min((uint)max(0.0, ceil(log2(diameter))), _HiZMipCount - 1u);
+    uint2 mipSize = max(uint2(1u, 1u), _ViewportSize >> mip);
+    uint2 coordinate = min((uint2)(pixel / exp2((float)mip)), mipSize - 1u);
+    float farthestOccluder = _HiZRange.Load(int4(coordinate, _Eye, mip));
+    if (!isfinite(farthestOccluder) || farthestOccluder <= 0.0) return false;
+    float3 opticalCentre = mul(_OpticalFromChunk,
+        float4(descriptor.center, 1.0)).xyz;
+    float nearestRange = max(0.0, length(opticalCentre) - descriptor.radius);
+    return nearestRange > farthestOccluder +
+        max(0.006, 0.02 * descriptor.radius);
+}
+
+uint SelectGeometrySegments(ContactMeshletDescriptor descriptor,
+    float projectedRadiusPixels)
+{
+    uint maximum = max(1u, descriptor.maximumSegments);
+    float pixelsPerMetre = projectedRadiusPixels / max(descriptor.radius, 1e-5);
+    float projectedError = descriptor.geometricError * pixelsPerMetre;
+    float targetPixels = lerp(1.75, max(0.35, _GeometryPixelError),
+        saturate(descriptor.confidence));
+    float required = sqrt(max(1.0, projectedError / targetPixels));
+
+    // Once the smallest measured footprint becomes screen-visible the renderer
+    // exposes the full canonical detail. Distance can reduce display work but can
+    // never destroy or rewrite that detail.
+    float measuredFootprintPixels = descriptor.detailFootprint * pixelsPerMetre;
+    if (measuredFootprintPixels >= 0.75) required = (float)maximum;
+    uint segments = 1u;
+    [loop]
+    while ((float)segments < required && segments < maximum) segments <<= 1u;
+    return min(segments, maximum);
+}
+
+float SelectAppearanceMip(ContactMeshletDescriptor descriptor,
+    float projectedRadiusPixels)
+{
+    float pixelsPerMetre = projectedRadiusPixels / max(descriptor.radius, 1e-5);
+    float measuredFootprintPixels = max(1e-5,
+        descriptor.detailFootprint * pixelsPerMetre);
+    return max(0.0, log2(1.0 / measuredFootprintPixels) +
+        _AppearanceMipBias);
+}
+
+[numthreads(1, 1, 1)]
+void ClearMeshletView(uint3 id : SV_DispatchThreadID)
+{
+    _ViewCounters[0] = 0u; // visible indices
+    _ViewCounters[1] = 0u; // visible descriptors
+    _ViewCounters[2] = 0u; // occluded descriptors
+    _ViewCounters[3] = 0u; // overflowed descriptors
+    _VisibleDrawArguments[0] = uint4(0u, 1u, 0u, 0u);
+}
+
+[numthreads(64, 1, 1)]
+void CullMeshletView(uint3 id : SV_DispatchThreadID)
+{
+    uint descriptorCount = min(_MeshletBuildCounters[4], _DescriptorCapacity);
+    uint descriptorIndex = id.x;
+    if (descriptorIndex >= descriptorCount) return;
+    ContactMeshletDescriptor descriptor = _MeshletDescriptors[descriptorIndex];
+    ContactMeshletViewLod lod = (ContactMeshletViewLod)0;
+    if (descriptor.maximumSegments == 0u || descriptor.sourceIndexCount == 0u)
+    {
+        _MeshletViewLod[descriptorIndex] = lod;
+        return;
+    }
+
+    float4 clip;
+    float projectedRadiusPixels;
+    if (!SphereInFrustum(descriptor.center, descriptor.radius, clip,
+        projectedRadiusPixels))
+    {
+        lod.flags = VIEW_FRUSTUM_REJECTED;
+        _MeshletViewLod[descriptorIndex] = lod;
+        return;
+    }
+    if (OccludedByHiZ(descriptor, clip, projectedRadiusPixels))
+    {
+        lod.flags = VIEW_OCCLUDED;
+        _MeshletViewLod[descriptorIndex] = lod;
+        InterlockedAdd(_ViewCounters[2], 1u);
+        return;
+    }
+
+    uint segments = SelectGeometrySegments(descriptor, projectedRadiusPixels);
+    bool exactBoundary = (descriptor.flags & MESHLET_HAS_BOUNDARY) != 0u;
+    uint indexCount = exactBoundary
+        ? descriptor.sourceIndexCount
+        : segments * segments * 6u;
+    uint outputBase;
+    if (!ReserveVisibleIndices(indexCount, outputBase))
+    {
+        lod.flags = VIEW_OVERFLOW;
+        _MeshletViewLod[descriptorIndex] = lod;
+        InterlockedAdd(_ViewCounters[3], 1u);
+        return;
+    }
+
+    if (exactBoundary)
+    {
+        for (uint i = 0u; i < indexCount; ++i)
+            _VisibleIndices[outputBase + i] =
+                _SourceIndices[descriptor.sourceIndexBase + i];
+    }
+    else
+    {
+        uint maximum = descriptor.maximumSegments;
+        uint row = maximum + 1u;
+        uint step = max(1u, maximum / max(segments, 1u));
+        uint write = outputBase;
+        for (uint y = 0u; y < segments; ++y)
+        for (uint x = 0u; x < segments; ++x)
+        {
+            uint sourceX = x * step;
+            uint sourceY = y * step;
+            uint v00 = descriptor.vertexBase + sourceY * row + sourceX;
+            uint v10 = v00 + step;
+            uint v01 = v00 + step * row;
+            uint v11 = v01 + step;
+            _VisibleIndices[write++] = v00;
+            _VisibleIndices[write++] = v10;
+            _VisibleIndices[write++] = v01;
+            _VisibleIndices[write++] = v01;
+            _VisibleIndices[write++] = v10;
+            _VisibleIndices[write++] = v11;
+        }
+    }
+
+    lod.geometrySegments = segments;
+    lod.appearanceMip = SelectAppearanceMip(descriptor, projectedRadiusPixels);
+    lod.projectedPixels = 2.0 * projectedRadiusPixels;
+    lod.flags = VIEW_VISIBLE;
+    _MeshletViewLod[descriptorIndex] = lod;
+    InterlockedAdd(_ViewCounters[1], 1u);
+}
+
+[numthreads(1, 1, 1)]
+void FinalizeMeshletView(uint3 id : SV_DispatchThreadID)
+{
+    _VisibleDrawArguments[0] = uint4(
+        min(_ViewCounters[0], _VisibleIndexCapacity), 1u, 0u, 0u);
+}
