@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "source_digest": "c748763d73f26a16ab1f5443c5dae94925b92424174f48ba944779d343fe331e",
+  "source_digest": "e5908f1e5f1cc8c37e2088f801ff3ee3f40d41ab6414b296f06db43741617f30",
   "scope": [
     "Runtime/**/*.cs",
     "Runtime/Resources/Prism/*.*",

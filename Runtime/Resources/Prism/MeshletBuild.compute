@@ -640,12 +640,12 @@ bool BoundarySignedDistance(ContactFilmHeader film, float2 uv,
                 float2 segment = current - previous;
                 float t = saturate(dot(uv - previous, segment) /
                     max(dot(segment, segment), 1e-10));
-                float2 point = lerp(previous, current, t);
-                float distanceToCurve = distance(point, uv);
+                float2 closestPoint = lerp(previous, current, t);
+                float distanceToCurve = distance(closestPoint, uv);
                 if (distanceToCurve < bestDistance)
                 {
                     bestDistance = distanceToCurve;
-                    bestPoint = point;
+                    bestPoint = closestPoint;
                     bestTangent = segment;
                     boundaryId = boundary.id;
                 }
