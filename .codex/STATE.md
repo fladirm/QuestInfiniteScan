@@ -85,9 +85,25 @@ Updated: 2026-08-21 (Europe/Prague)
   graph, arenas and last meshlet publication. Full teardown is explicit only.
 - Native PRISM schema v4 persists support and local pressure. Strict v3/v2 readers
   widen legacy 144-byte film headers and 32-byte cells with new state zeroed.
+- Scan start is now a serialized `Stopped/Starting/Running/Stopping` transaction.
+  Repeated Start calls share one task; toggle input during Starting cannot become
+  Stop or trigger canonical staging, stale continuations cannot reopen sensors, and
+  activation failure is retained/logged as a retryable stopped state.
+- `DebugMenuController` binds callbacks once per concrete UI Toolkit visual-tree
+  generation. This removes the measured one-click Start/Stop callback multiplication
+  that launched a roughly 300 MiB snapshot before depth ingress. Chunk residency now
+  has one explicitly awaited startup activation rather than an additional fire-and-
+  forget `ScanStarted` activation, and its GPU-idle wait fails visibly instead of
+  hanging forever.
 
 ## Verification evidence
 
+- Scan-lifecycle repair Real-Vulkan EditMode: 120 total, 117 passed, 0 failed,
+  3 intentionally ignored. Results and log remain under
+  `/mnt/kingston-unity/Builds/TestResults/`.
+- Scan-lifecycle repair Android Vulkan/IL2CPP build completed with BuildReport
+  `errors=0`: `/mnt/kingston-unity/Builds/QuestInfiniteScan/QuestInfiniteScan-dev.apk`,
+  SHA-256 `88b16c306b703e45e948c63e2e0c9424539964b3f335e2a8e3758229351d5781`.
 - Real-Vulkan Unity EditMode: 119 total, 116 passed, 0 failed, 3 intentionally
   ignored. Results: `/mnt/kingston-unity/Builds/TestResults/editmode-results.xml`;
   log: `/mnt/kingston-unity/Builds/TestResults/editmode.log`.

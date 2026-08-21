@@ -144,3 +144,17 @@ remain recoverable from archive commit `e9f37c1` and are not active on this bran
   cannot block XR. The last immutable mesh generation remains visible until a fenced
   replacement is complete; throttling derived publication never drops measurements
   or lowers canonical detail.
+
+## ADR-P015 — Serialized transactional scan lifecycle
+
+- Decision: live ingress has explicit `Stopped -> Starting -> Running -> Stopping`
+  states. Concurrent Start requests share one activation task. A toggle received
+  while Starting is coalesced and cannot become Stop; only a genuinely Running scan
+  emits Stop and begins canonical staging. UI Toolkit callbacks bind once per
+  concrete visual-tree generation. Active-chunk residency is invoked exactly once
+  by the awaited start path, and GPU-fence wait is bounded with a surfaced retryable
+  error.
+- Consequence: one physical UI click cannot create alternating Start/Stop tasks or a
+  snapshot dependency cycle before depth capture. Sensor ingress begins only after
+  canonical arenas are resident, while failed/cancelled starts remain stopped
+  without publishing or destroying durable state.

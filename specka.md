@@ -430,6 +430,13 @@ meshlet cache; every accepted cone still updates canonical state at native input
 resolution. Fences/back-pressure may lower publication cadence, never canonical
 detail, while the last complete generation remains spatially stable on screen.
 
+Scan lifecycle is serialized and transactional. Concurrent Start requests coalesce
+onto one active-chunk preparation task; repeated UI enable cannot multiply click
+callbacks, and a toggle received while `Starting` cannot become Stop or initiate a
+canonical snapshot. Sensor ingress opens only after active canonical arenas are
+resident. A failed activation is surfaced, leaves the scanner stopped/retryable,
+and preserves the last durable revision and last complete render publication.
+
 ## 7. Prediction raster: renderer as measurement associator
 
 Before fusion, render the published world from the exact current depth-camera poses.

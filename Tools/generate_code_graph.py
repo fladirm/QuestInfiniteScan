@@ -19,14 +19,12 @@ MARKDOWN_PATH = ROOT / "docs" / "architecture" / "CODE_GRAPH.md"
 DAG_PATH = ROOT / ".codex" / "TASK_DAG.json"
 
 SOURCE_PATTERNS = (
-    "Runtime/Prism/**/*.cs",
+    "Runtime/**/*.cs",
     "Runtime/Resources/Prism/*.*",
-    "Runtime/World/*.cs",
-    "Runtime/Export/*.cs",
-    "Runtime/Core/RoomScanner.cs",
-    "Editor/RoomScanSetupWizard.cs",
-    "Tools/*.py",
-    "Tests/Editor/Prism*.cs",
+    "Runtime/Shaders/*.*",
+    "Editor/**/*.cs",
+    "Tools/**/*.py",
+    "Tests/Editor/*.cs",
 )
 
 CONTROL_SOURCES = (
@@ -52,7 +50,8 @@ TASK_GLOBS = {
     "Q3-10": ("*Boundary*",),
     "Q3-11": ("*Topology*", "*Displacement*"),
     "Q3-12": ("*Meshlet*", "*PredictContactFilm*"),
-    "Q3-13": ("Runtime/World/*", "*PrismCanonical*", "*PrismGpuSnapshot*", "*PrismChunkPublisher*"),
+    "Q3-13": ("Runtime/World/*", "Runtime/UI/*", "Runtime/Core/RoomScanner.cs",
+              "*PrismCanonical*", "*PrismGpuSnapshot*", "*PrismChunkPublisher*"),
     "Q3-14": ("*Stereo*", "*Photometric*", "*ContactFilmUpdate*"),
     "Q3-15": ("*Temporal*", "*Keyframe*", "*Photometric*"),
     "Q3-16": ("*Displacement*", "*NormalRefine*"),

@@ -6,28 +6,22 @@ and never touch `~/.codex` or session/history data.
 
 ## Exchange 1
 
-User: Clarified that the injection-moulding model is literal: depth cones do not
-remove/carve matter. Pressure deforms one conserved elastic membrane outwards from
-the optical seed until first contact; neighbouring pressure points remain connected,
-and only the unresolved outside frontier may remain collapsed at the eye. Requested
-the promised exact-source ZIP rather than a GitHub push.
+User: Reported that Start Scanning no longer worked at all.
 
-Assistant: Rebased terminology and mechanics on pre-hit pressure/displacement,
-removed coverage-driven topology deletion, retained the complete logical chart
-lattice, preserved manifold membership through merge, and materialized measured
-FilmA/FilmB links as prediction-invisible elastic connectors. No per-film optical
-cap was introduced; the canonical ordered outer-frontier pool remains an explicit
-Q3-11 acceptance gate.
+Assistant: Device evidence showed the app remained resumed without a crash, but
+depth ingress never opened. The UI generated repeated partial Start sequences from
+one physical click and every sequence stopped before the explicitly awaited active-
+chunk residency boundary.
 
 ## Exchange 2
 
-User: Asked to sharpen `specka.md` and finish it as a usable production-grade
-specification without repeating completed development.
+User: Required the repaired APK to be deployed and the exact sources preserved as a
+local commit plus a workspace `git archive` ZIP.
 
-Assistant: Froze `CPQ3-2026-08-21-v5` with exact stream-reordering semantics,
-PressureManifold/link/frontier records and lifecycle, topology invariants,
-monotonic close-bake resistance, a 30x30-degree spawn aperture plus information-
-positive revisit band, bounded in-flight/coalesced immutable publication, mesh-local
-non-dithered preview alpha, production asset/class names, persistence ABI and DAG
-acceptance. The matching C#/GPU changes import successfully under Vulkan and the
-consolidated EditMode run passed 116 runnable tests with zero failures.
+Assistant: Root cause was duplicate retained UI Toolkit ClickEvent handlers: one
+click alternated Start/Stop, and the false Stop began a roughly 300 MiB canonical
+snapshot which subsequent starts awaited. The fix makes UI binding idempotent,
+serializes scan lifecycle and coalesces Start requests, prevents Starting from
+staging, removes redundant residency activation, surfaces activation failure, and
+bounds the GPU-fence wait. Vulkan tests and Android build passed; deployment and the
+exact-source checkpoint are the remaining actions.

@@ -16,6 +16,7 @@ namespace Genesis.RoomScan.UI
         private UIDocument _doc;
         private DebugMenuFollower _follower;
         private VisualElement _root;
+        private VisualElement _boundRoot;
         private bool _visible;
 
         // Nav buttons
@@ -88,7 +89,14 @@ namespace Genesis.RoomScan.UI
             _visible = false;
 
             QueryElements();
-            BindButtons();
+            // UIDocument can disable/enable around XR focus changes while preserving the
+            // same visual tree. Registering lambdas again made one physical click invoke
+            // Start/Stop repeatedly. Bind exactly once per concrete root generation.
+            if (_boundRoot != _root)
+            {
+                BindButtons();
+                _boundRoot = _root;
+            }
             UpdateModuleAvailability();
             SelectNav(_navScan);
         }
@@ -578,7 +586,16 @@ namespace Genesis.RoomScan.UI
 
         private void RefreshScanView(RoomScanner scanner)
         {
-            SetLabel(_valScanning, scanner.IsScanning ? "Active" : "Stopped");
+            string lifecycle = scanner.ScanLifecycle switch
+            {
+                ScanLifecycleState.Starting => "Starting...",
+                ScanLifecycleState.Running => "Active",
+                ScanLifecycleState.Stopping => "Stopping...",
+                _ when !string.IsNullOrEmpty(scanner.LastScanStartError) =>
+                    "Start failed",
+                _ => "Stopped"
+            };
+            SetLabel(_valScanning, lifecycle);
             SetLabel(_valRender, scanner.CurrentRenderMode.ToString());
 
             var persistence = RoomScanPersistence.Instance;
@@ -586,7 +603,9 @@ namespace Genesis.RoomScan.UI
                 ? persistence.ActivePackageId : "None");
 
             if (_btnToggleScan != null)
-                _btnToggleScan.text = scanner.IsScanning ? "Stop Scanning" : "Start Scanning";
+                _btnToggleScan.text = scanner.IsScanStarting
+                    ? "Starting..."
+                    : scanner.IsScanning ? "Stop Scanning" : "Start Scanning";
 
             if (_btnRenderMode != null)
                 _btnRenderMode.text = $"Render: {scanner.CurrentRenderMode}";
@@ -754,6 +773,9 @@ namespace Genesis.RoomScan.UI
             var persistence = RoomScanPersistence.Instance;
             bool hasVolume = vi != null && vi.IntegrationCount > 0;
             bool hasActivePackage = persistence != null && persistence.HasActivePackage;
+
+            if (_btnToggleScan != null)
+                _btnToggleScan.SetEnabled(!scanner.IsScanStarting);
 
             // Save Scan: disabled if no volume data or while scanning
             if (_btnSaveScan != null && !_btnSaveScan.text.Contains("..."))

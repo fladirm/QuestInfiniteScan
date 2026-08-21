@@ -48,6 +48,19 @@ namespace Genesis.RoomScan
         Complete
     }
 
+    /// <summary>
+    /// Serialized lifecycle of live sensor ingress. Starting is deliberately distinct
+    /// from Running: UI/input retries during asynchronous chunk rehydration must not be
+    /// interpreted as Stop requests and must never start canonical snapshot staging.
+    /// </summary>
+    public enum ScanLifecycleState
+    {
+        Stopped,
+        Starting,
+        Running,
+        Stopping
+    }
+
     /// <summary>Raw scan coverage metrics. Updated periodically during scanning.</summary>
     public struct ScanCoverage
     {
@@ -190,7 +203,17 @@ namespace Genesis.RoomScan
             }
         }
 
-        public bool IsScanning { get; private set; }
+        public ScanLifecycleState ScanLifecycle { get; private set; } =
+            ScanLifecycleState.Stopped;
+        /// <summary>
+        /// True while a scan is starting or running. Keeping Starting visible here is
+        /// required by chunk residency, which prepares the active canonical arenas before
+        /// sensor ingress opens.
+        /// </summary>
+        public bool IsScanning => ScanLifecycle is ScanLifecycleState.Starting or
+                                  ScanLifecycleState.Running;
+        public bool IsScanStarting => ScanLifecycle == ScanLifecycleState.Starting;
+        public string LastScanStartError { get; private set; }
         public ScanRenderMode CurrentRenderMode => renderMode;
         public bool IsGsTrainingInProgress => _serverTrainingInProgress;
         public DebugMenuController DebugMenu => _debugMenu;
@@ -269,6 +292,8 @@ namespace Genesis.RoomScan
         private bool _scanResourcesReleased;
         private bool _prismPipelinePrepared;
         private bool _prismCaptureRunning;
+        private Task _scanStartTask = Task.CompletedTask;
+        private uint _scanLifecycleGeneration;
 
         internal bool IsPrismCaptureRunning => _prismCaptureRunning;
 
@@ -549,10 +574,22 @@ namespace Genesis.RoomScan
         /// the 600 MB cost) and add the inline staging instead.
         /// </para>
         /// </summary>
-        public async Task StartScanningAsync()
+        public Task StartScanningAsync()
         {
-            if (IsScanning) return;
-            IsScanning = true;
+            if (ScanLifecycle == ScanLifecycleState.Running)
+                return Task.CompletedTask;
+            if (ScanLifecycle == ScanLifecycleState.Starting)
+                return _scanStartTask;
+
+            uint generation = ++_scanLifecycleGeneration;
+            ScanLifecycle = ScanLifecycleState.Starting;
+            LastScanStartError = null;
+            _scanStartTask = StartScanningCoreAsync(generation);
+            return _scanStartTask;
+        }
+
+        private async Task StartScanningCoreAsync(uint generation)
+        {
             try
             {
                 KeyframeRelocation = Matrix4x4.identity;
@@ -641,19 +678,34 @@ namespace Genesis.RoomScan
                 if (_prismChunkResidency != null)
                     await _prismChunkResidency.PrepareActiveChunkAsync();
 
+                // A direct Stop/disable may invalidate an in-flight start while chunk I/O
+                // is awaited. Never reopen sensors from the stale continuation.
+                if (generation != _scanLifecycleGeneration ||
+                    ScanLifecycle != ScanLifecycleState.Starting)
+                {
+                    Logger.Info("StartScanning cancelled before sensor ingress");
+                    return;
+                }
+
                 _depthCapture.StartDepthCapture();
                 StartPrismCapture();
+                if (_prismRigCapture != null && !_prismCaptureRunning)
+                    throw new InvalidOperationException(
+                        "Cone-PRISM rig capture did not enter the requested state.");
+                ScanLifecycle = ScanLifecycleState.Running;
                 Logger.Info($"StartScanning — Cone-PRISM canonical, resuming={resuming}");
                 ScanStarted?.Invoke();
             }
-            catch
+            catch (Exception exception)
             {
-                // Reset the re-entry guard so the user can retry. Without
-                // this, a throw mid-warmup would leave IsScanning=true
-                // forever and every subsequent A-press would no-op.
-                IsScanning = false;
+                if (generation == _scanLifecycleGeneration)
+                {
+                    ScanLifecycle = ScanLifecycleState.Stopped;
+                    LastScanStartError = exception.Message;
+                }
                 PausePrismPipeline();
                 _depthCapture?.StopDepthCapture();
+                Logger.Error("StartScanning failed before sensor ingress: " + exception);
                 throw;
             }
         }
@@ -684,8 +736,24 @@ namespace Genesis.RoomScan
         /// </summary>
         public void StopScanning()
         {
-            if (!IsScanning) return;
-            IsScanning = false;
+            if (ScanLifecycle is ScanLifecycleState.Stopped or
+                ScanLifecycleState.Stopping)
+                return;
+
+            ++_scanLifecycleGeneration;
+            if (ScanLifecycle == ScanLifecycleState.Starting)
+            {
+                // No ScanStopped notification here: capture never opened, therefore
+                // residency must not stage hundreds of MiB in response to a cancelled
+                // warm-up. The stale async continuation observes the generation change.
+                ScanLifecycle = ScanLifecycleState.Stopped;
+                PausePrismPipeline();
+                _depthCapture?.StopDepthCapture();
+                Logger.Info("StartScanning cancelled while preparing active chunk");
+                return;
+            }
+
+            ScanLifecycle = ScanLifecycleState.Stopping;
 
             PausePrismPipeline();
             _depthCapture.StopDepthCapture();
@@ -693,6 +761,7 @@ namespace Genesis.RoomScan
             ScanStopped?.Invoke();
             if (_modules != null)
                 foreach (var m in _modules) m.OnScanStopped();
+            ScanLifecycle = ScanLifecycleState.Stopped;
         }
 
         /// <summary>
@@ -708,7 +777,7 @@ namespace Genesis.RoomScan
 
         internal void ResumePrismAfterResidency()
         {
-            if (IsScanning) StartPrismCapture();
+            if (ScanLifecycle == ScanLifecycleState.Running) StartPrismCapture();
         }
 
         internal void ConfigurePrismChunk(ChunkRecord chunk)
@@ -815,8 +884,28 @@ namespace Genesis.RoomScan
         /// </summary>
         public void ToggleScanning()
         {
-            if (IsScanning) StopScanning();
-            else _ = StartScanningAsync();
+            if (ScanLifecycle == ScanLifecycleState.Starting)
+            {
+                Logger.Info("ToggleScanning ignored while start is already in progress");
+                return;
+            }
+            if (ScanLifecycle == ScanLifecycleState.Running)
+                StopScanning();
+            else
+                ObserveStart(StartScanningAsync());
+        }
+
+        private static async void ObserveStart(Task startTask)
+        {
+            try
+            {
+                await startTask;
+            }
+            catch
+            {
+                // StartScanningCoreAsync already records and logs the complete exception.
+                // This observer exists solely to consume faults from UI fire-and-forget.
+            }
         }
 
         /// <summary>True after <see cref="ReleaseScanResources"/> has been called. Cleared when scanning restarts.</summary>

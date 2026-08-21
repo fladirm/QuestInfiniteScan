@@ -284,7 +284,8 @@
         "PrismWorldMeshletRenderer draws the active and recent visible chunks with GPU indirect buffers and pose-graph transforms while association IDs remain local to the active canonical chunk",
         "Twenty alternating transitions retained two recoverable chunks with one active resident and no stuck Finalizing state; Unity 6000.5.9f1 forced-Vulkan EditMode completed 115 passed, 0 failed, 3 intentionally skipped in cone-prism-q3-13-full-vulkan-tests.xml",
         "2026-08-21 Stop/resume evidence reopened the run; RoomScanner now separates sensor-only PausePrismPipeline from explicit ShutdownPrismPipeline so ordinary UX stop retains the complete canonical graph. One Stop -> Start physical acceptance remains",
-        "Schema-v4 migration tests prove current support/pressure cells round-trip and schema-v3 144-byte headers plus 32-byte cells widen deterministically with new state zeroed rather than misaligned"
+        "Schema-v4 migration tests prove current support/pressure cells round-trip and schema-v3 144-byte headers plus 32-byte cells widen deterministically with new state zeroed rather than misaligned",
+        "2026-08-21 start failure was traced to duplicate retained UI Toolkit ClickEvent registrations: one physical click alternated asynchronous Start/Stop and Stop began a roughly 300 MiB canonical snapshot before depth ingress. DebugMenuController now binds once per visual-tree generation, RoomScanner serializes Stopped/Starting/Running/Stopping with one shared start task and generation cancellation, Starting toggles cannot stage, and PrismChunkResidencyManager has one explicitly awaited activation path with a bounded GPU fence. Forced-Vulkan EditMode passed 117/117 runnable tests and Android Vulkan/IL2CPP built with BuildReport errors=0; device start acceptance remains pending."
       ]
     },
     {

@@ -73,5 +73,30 @@ namespace Genesis.RoomScan.Tests
                 0, ChunkLifecycleState.New, 0, 0, 1, 0, 0, 0, 0, 0),
                 Does.Contain("reason=unknown"));
         }
+
+        [Test]
+        public void ScanStartAndUiBindingContractsPreventReentrantSnapshotStaging()
+        {
+            string scannerPath = Path.GetFullPath(
+                "Packages/com.genesis.roomscan/Runtime/Core/RoomScanner.cs");
+            string menuPath = Path.GetFullPath(
+                "Packages/com.genesis.roomscan/Runtime/UI/DebugMenuController.cs");
+            string residencyPath = Path.GetFullPath(
+                "Packages/com.genesis.roomscan/Runtime/World/" +
+                "PrismChunkResidencyManager.cs");
+
+            string scanner = File.ReadAllText(scannerPath);
+            string menu = File.ReadAllText(menuPath);
+            string residency = File.ReadAllText(residencyPath);
+
+            Assert.That(scanner, Does.Contain("ScanLifecycleState.Starting"));
+            Assert.That(scanner, Does.Contain(
+                "ToggleScanning ignored while start is already in progress"));
+            Assert.That(scanner, Does.Contain(
+                "No ScanStopped notification here"));
+            Assert.That(menu, Does.Contain("if (_boundRoot != _root)"));
+            Assert.That(residency, Does.Not.Contain(
+                "_scanner.ScanStarted += OnScanStarted"));
+        }
     }
 }

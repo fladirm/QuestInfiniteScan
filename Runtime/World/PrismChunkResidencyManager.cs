@@ -34,6 +34,7 @@ namespace Genesis.RoomScan.World
         private Task _activationTail = Task.CompletedTask;
         private string _activationTargetKey;
         private string _residentActiveKey;
+        private Exception _lastActivationError;
         private bool _subscribed;
 
         public bool IsTransitioning => !_activationTail.IsCompleted;
@@ -57,7 +58,6 @@ namespace Genesis.RoomScan.World
             _submaps.RolloverRequested += OnRolloverRequested;
             _submaps.ActiveChunkChanged += OnActiveChunkChanged;
             _submaps.PoseGraphRefined += OnPoseGraphRefined;
-            _scanner.ScanStarted += OnScanStarted;
             _scanner.ScanStopped += OnScanStopped;
             _subscribed = true;
             if (_submaps.ActiveChunk != null)
@@ -71,7 +71,6 @@ namespace Genesis.RoomScan.World
                 _submaps.RolloverRequested -= OnRolloverRequested;
                 _submaps.ActiveChunkChanged -= OnActiveChunkChanged;
                 _submaps.PoseGraphRefined -= OnPoseGraphRefined;
-                _scanner.ScanStarted -= OnScanStarted;
                 _scanner.ScanStopped -= OnScanStopped;
             }
             _lifetime?.Cancel();
@@ -105,11 +104,6 @@ namespace Genesis.RoomScan.World
             if (active != null) BeginStage(active.chunkId);
         }
 
-        private void OnScanStarted()
-        {
-            _ = PrepareActiveChunkAsync();
-        }
-
         /// <summary>
         /// Establishes the active canonical arenas before capture is opened. The method
         /// is idempotent for the already resident chunk and makes startup ordering an
@@ -127,7 +121,8 @@ namespace Genesis.RoomScan.World
             if (!string.Equals(_residentActiveKey, ActiveKey(active),
                     StringComparison.Ordinal))
                 throw new InvalidOperationException(
-                    $"Cone-PRISM failed to make {active.chunkId} resident.");
+                    $"Cone-PRISM failed to make {active.chunkId} resident.",
+                    _lastActivationError);
         }
 
         private void BeginStage(string chunkId)
@@ -247,6 +242,7 @@ namespace Genesis.RoomScan.World
             bool resumeCapture = false;
             try
             {
+                _lastActivationError = null;
                 if (prior != null) await prior;
                 token.ThrowIfCancellationRequested();
                 PrismCanonicalChunkSnapshot snapshot = await ResolveSnapshotAsync(
@@ -299,6 +295,7 @@ namespace Genesis.RoomScan.World
             catch (OperationCanceledException) { }
             catch (Exception exception)
             {
+                _lastActivationError = exception;
                 Logger.Error($"Cone-PRISM chunk activation failed: {exception}");
             }
             finally
@@ -400,11 +397,15 @@ namespace Genesis.RoomScan.World
                 await Task.Yield();
                 return;
             }
+            double deadline = Time.realtimeSinceStartupAsDouble + 5.0;
             while (true)
             {
                 token.ThrowIfCancellationRequested();
                 try { if (fence.passed) return; }
                 catch (Exception) { return; }
+                if (Time.realtimeSinceStartupAsDouble >= deadline)
+                    throw new TimeoutException(
+                        "Cone-PRISM GPU idle fence did not pass within 5 seconds.");
                 await Task.Yield();
             }
         }
