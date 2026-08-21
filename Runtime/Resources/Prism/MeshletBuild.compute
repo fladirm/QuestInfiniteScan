@@ -540,9 +540,9 @@ bool ClosestBoundaryPoint(ContactFilmHeader film, float2 uv,
     uint cells = max(_BoundaryCellsPerAxis, 1u);
     int2 center = (int2)min((uint2)(saturate(uv) * (float)cells), cells - 1u);
     float bestDistance = 1e9;
-    [unroll]
+    [loop]
     for (int cellY = -1; cellY <= 1; ++cellY)
-    [unroll]
+    [loop]
     for (int cellX = -1; cellX <= 1; ++cellX)
     {
         int2 cell = center + int2(cellX, cellY);
@@ -565,7 +565,7 @@ bool ClosestBoundaryPoint(ContactFilmHeader film, float2 uv,
                 boundary.filmAGeneration != film.generation ||
                 (boundary.flags & (BOUNDARY_ACTIVE | BOUNDARY_PERSISTENT)) !=
                     (BOUNDARY_ACTIVE | BOUNDARY_PERSISTENT)) continue;
-            [unroll]
+            [loop]
             for (uint sampleIndex = 0u; sampleIndex <= 16u; ++sampleIndex)
             {
                 float2 candidate = uv;
@@ -608,9 +608,9 @@ bool BoundarySignedDistance(ContactFilmHeader film, float2 uv,
     float bestDistance = 1e9;
     float2 bestPoint = uv;
     float2 bestTangent = float2(1.0, 0.0);
-    [unroll]
+    [loop]
     for (int cellY = -1; cellY <= 1; ++cellY)
-    [unroll]
+    [loop]
     for (int cellX = -1; cellX <= 1; ++cellX)
     {
         int2 cell = center + int2(cellX, cellY);
@@ -633,7 +633,7 @@ bool BoundarySignedDistance(ContactFilmHeader film, float2 uv,
                 (boundary.flags & (BOUNDARY_ACTIVE | BOUNDARY_PERSISTENT)) !=
                     (BOUNDARY_ACTIVE | BOUNDARY_PERSISTENT)) continue;
             float2 previous = BoundaryCubic(boundary, 0.0);
-            [unroll]
+            [loop]
             for (uint sample = 1u; sample <= 24u; ++sample)
             {
                 float2 current = BoundaryCubic(boundary, (float)sample / 24.0);
@@ -1435,8 +1435,9 @@ void BuildAdaptiveFilmMeshlets(uint3 groupId : SV_GroupID,
     uint groupIndex : SV_GroupIndex)
 {
     uint activeOrdinal = groupId.x;
-    MeshletBuildPlan plan = activeOrdinal < _BuildPlanCapacity ?
-        _MeshletBuildPlans[activeOrdinal] : (MeshletBuildPlan)0;
+    MeshletBuildPlan plan = (MeshletBuildPlan)0;
+    if (activeOrdinal < _BuildPlanCapacity)
+        plan = _MeshletBuildPlans[activeOrdinal];
     uint filmIndex = plan.filmIndex;
     if (groupIndex == 0u)
     {
