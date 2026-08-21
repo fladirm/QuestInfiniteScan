@@ -9,12 +9,18 @@ namespace Genesis.RoomScan.Prism
     /// Draws the current and bounded resident chunk meshlet generations directly from
     /// GPU buffers. It is display-only: prediction/association still consumes only the
     /// active canonical chunk, so local film IDs from neighbouring chunks cannot alias.
+    ///
+    /// The draw is registered through <see cref="Graphics.RenderPrimitivesIndirect"/>
+    /// from <c>LateUpdate</c>. A command issued from
+    /// <c>RenderPipelineManager.beginCameraRendering</c> is too early for URP: the camera
+    /// clear/render passes run afterwards and erase the preview in the same frame.
     /// </summary>
     [DisallowMultipleComponent]
     [DefaultExecutionOrder(90)]
     public sealed class PrismWorldMeshletRenderer : MonoBehaviour
     {
         [SerializeField] private Shader previewShader;
+        [SerializeField, Min(4f)] private float conservativeChunkBounds = 12f;
 
         private static readonly int VerticesId =
             Shader.PropertyToID("_ContactVertices");
@@ -44,11 +50,9 @@ namespace Genesis.RoomScan.Prism
                     hideFlags = HideFlags.HideAndDontSave
                 };
             _properties ??= new MaterialPropertyBlock();
-            RenderPipelineManager.beginCameraRendering += OnBeginCameraRendering;
         }
 
-        private void OnDisable() =>
-            RenderPipelineManager.beginCameraRendering -= OnBeginCameraRendering;
+        private void OnDisable() { }
 
         public void SetActive(string chunkId, ContactMeshletBuffers meshlets)
         {
@@ -91,31 +95,16 @@ namespace Genesis.RoomScan.Prism
                     _retiring.RemoveAt(i);
                 }
             }
+
+            if (!RenderVisible || _material == null) return;
+            Draw(_active);
+            foreach (KeyValuePair<string, ContactMeshletBuffers> pair in _resident)
+                if (!string.Equals(pair.Key, _activeChunkId,
+                        StringComparison.Ordinal))
+                    Draw(pair.Value);
         }
 
-        private void OnBeginCameraRendering(ScriptableRenderContext context,
-            Camera camera)
-        {
-            if (!RenderVisible || _material == null || camera == null ||
-                camera.cameraType != CameraType.Game) return;
-            CommandBuffer command = CommandBufferPool.Get(
-                "Cone-PRISM World Meshlets");
-            try
-            {
-                Draw(command, _active);
-                foreach (KeyValuePair<string, ContactMeshletBuffers> pair in _resident)
-                    if (!string.Equals(pair.Key, _activeChunkId,
-                            StringComparison.Ordinal))
-                        Draw(command, pair.Value);
-                context.ExecuteCommandBuffer(command);
-            }
-            finally
-            {
-                CommandBufferPool.Release(command);
-            }
-        }
-
-        private void Draw(CommandBuffer command, ContactMeshletBuffers meshlets)
+        private void Draw(ContactMeshletBuffers meshlets)
         {
             if (meshlets == null || meshlets.IsDisposed ||
                 meshlets.PublicationGeneration == 0u) return;
@@ -124,13 +113,22 @@ namespace Genesis.RoomScan.Prism
             _properties.SetBuffer(VerticesId, published.Vertices);
             _properties.SetBuffer(IndicesId, published.Indices);
             _properties.SetMatrix(WorldFromChunkId, meshlets.WorldFromChunk);
-            command.SetGlobalBuffer(VerticesId, published.Vertices);
-            command.SetGlobalBuffer(IndicesId, published.Indices);
-            command.DrawProceduralIndirect(Matrix4x4.identity, _material, 0,
-                MeshTopology.Triangles, published.DrawArguments, 0, _properties);
+            Vector3 chunkOrigin = meshlets.WorldFromChunk.MultiplyPoint3x4(
+                Vector3.zero);
+            var renderParams = new RenderParams(_material)
+            {
+                worldBounds = new Bounds(chunkOrigin,
+                    Vector3.one * conservativeChunkBounds),
+                matProps = _properties,
+                receiveShadows = false,
+                shadowCastingMode = ShadowCastingMode.Off,
+                layer = gameObject.layer
+            };
+            Graphics.RenderPrimitivesIndirect(renderParams,
+                MeshTopology.Triangles, published.DrawArguments, 1);
             try
             {
-                GraphicsFence fence = command.CreateGraphicsFence(
+                GraphicsFence fence = Graphics.CreateGraphicsFence(
                     GraphicsFenceType.AsyncQueueSynchronisation,
                     SynchronisationStageFlags.AllGPUOperations);
                 published.MarkRead(fence);
@@ -146,7 +144,6 @@ namespace Genesis.RoomScan.Prism
 
         private void OnDestroy()
         {
-            OnDisable();
             foreach (ContactMeshletBuffers buffers in _resident.Values)
                 buffers?.Dispose();
             foreach (ContactMeshletBuffers buffers in _retiring)

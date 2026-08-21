@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "source_digest": "4e8ee130084c757568606fd814449cad855f4a40f96613a49d7e07c5bed1a4df",
+  "source_digest": "468cc6132aec3c0fa27e637de3870c01528543d6addbd02e965e15d3d53606c6",
   "scope": [
     "Runtime/Prism/**/*.cs",
     "Runtime/Resources/Prism/*.*",
@@ -13,10 +13,10 @@
   ],
   "summary": {
     "files": 95,
-    "symbols": 1452,
-    "methods_and_functions": 1111,
+    "symbols": 1451,
+    "methods_and_functions": 1110,
     "gpu_kernels": 81,
-    "event_links": 23
+    "event_links": 22
   },
   "files": [
     {
@@ -4333,88 +4333,81 @@
       "line": 159
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::Draw@117",
+      "id": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::Draw@106",
       "file": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs",
       "name": "Draw",
       "kind": "method",
-      "line": 117
+      "line": 106
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::LateUpdate@81",
+      "id": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::LateUpdate@85",
       "file": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs",
       "name": "LateUpdate",
       "kind": "method",
-      "line": 81
+      "line": 85
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::OnBeginCameraRendering@95",
-      "file": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs",
-      "name": "OnBeginCameraRendering",
-      "kind": "method",
-      "line": 95
-    },
-    {
-      "id": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::OnDestroy@146",
+      "id": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::OnDestroy@144",
       "file": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs",
       "name": "OnDestroy",
       "kind": "method",
-      "line": 146
+      "line": 144
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::OnDisable@49",
+      "id": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::OnDisable@54",
       "file": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs",
       "name": "OnDisable",
       "kind": "method",
-      "line": 49
+      "line": 54
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::OnEnable@36",
+      "id": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::OnEnable@42",
       "file": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs",
       "name": "OnEnable",
       "kind": "method",
-      "line": 36
+      "line": 42
     },
     {
       "id": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::PrismWorldMeshletRenderer",
       "file": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs",
       "name": "PrismWorldMeshletRenderer",
       "kind": "class",
-      "line": 15
+      "line": 20
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::RegisterResident@58",
+      "id": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::RegisterResident@62",
       "file": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs",
       "name": "RegisterResident",
       "kind": "method",
-      "line": 58
+      "line": 62
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::RemoveResident@68",
+      "id": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::RemoveResident@72",
       "file": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs",
       "name": "RemoveResident",
       "kind": "method",
-      "line": 68
+      "line": 72
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::Retire@140",
+      "id": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::Retire@138",
       "file": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs",
       "name": "Retire",
       "kind": "method",
-      "line": 140
+      "line": 138
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::SetActive@52",
+      "id": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::SetActive@56",
       "file": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs",
       "name": "SetActive",
       "kind": "method",
-      "line": 52
+      "line": 56
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::SetResidentTransform@74",
+      "id": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::SetResidentTransform@78",
       "file": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs",
       "name": "SetResidentTransform",
       "kind": "method",
-      "line": 74
+      "line": 78
     },
     {
       "id": "Runtime/Prism/Preprocessing/NormalizedDepthFrame.cs::CommitGpuWrite@160",
@@ -10775,14 +10768,6 @@
       "line": 124
     },
     {
-      "file": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs",
-      "source_variable": "RenderPipelineManager",
-      "source_type": null,
-      "event": "beginCameraRendering",
-      "handler": "OnBeginCameraRendering",
-      "line": 47
-    },
-    {
       "file": "Runtime/Prism/PrismGpuWorkGraph.cs",
       "source_variable": "_preprocessor",
       "source_type": "PrismDepthPreprocessor",
@@ -11803,7 +11788,7 @@
     },
     {
       "source": "Runtime/Core/RoomScanner.cs::PreparePrismPipeline@726",
-      "target": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::SetActive@52",
+      "target": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::SetActive@56",
       "kind": "calls"
     },
     {
@@ -13458,7 +13443,7 @@
     },
     {
       "source": "Runtime/Prism/Capture/PrismRigCapture.cs::ResolveEye@320",
-      "target": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::SetActive@52",
+      "target": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::SetActive@56",
       "kind": "calls"
     },
     {
@@ -14327,82 +14312,77 @@
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::Draw@117",
+      "source": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::Draw@106",
       "target": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::MarkRead@127",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::Draw@117",
+      "source": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::Draw@106",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::Draw@117",
+      "source": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::Draw@106",
       "target": "Runtime/World/PersistedChunkMeshCache.cs::Clear@225",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::LateUpdate@81",
+      "source": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::LateUpdate@85",
+      "target": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::Draw@106",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::LateUpdate@85",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::OnBeginCameraRendering@95",
-      "target": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::Draw@117",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::OnBeginCameraRendering@95",
+      "source": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::OnDestroy@144",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::OnDestroy@146",
-      "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::OnDestroy@146",
+      "source": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::OnDestroy@144",
       "target": "Runtime/World/PersistedChunkMeshCache.cs::Clear@225",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::OnEnable@36",
+      "source": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::OnEnable@42",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::RegisterResident@58",
+      "source": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::RegisterResident@62",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::RemoveResident@68",
+      "source": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::RemoveResident@72",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::RemoveResident@68",
+      "source": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::RemoveResident@72",
       "target": "Runtime/World/PersistedChunkMeshCache.cs::Remove@413",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::Retire@140",
+      "source": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::Retire@138",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::Retire@140",
+      "source": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::Retire@138",
       "target": "Runtime/World/PersistedChunkMeshCache.cs::Contains@45",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::SetResidentTransform@74",
+      "source": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::SetResidentTransform@78",
       "target": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::SetChunkTransform@254",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::SetResidentTransform@74",
+      "source": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::SetResidentTransform@78",
       "target": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::if@169",
       "kind": "calls"
     },
@@ -17533,7 +17513,7 @@
     },
     {
       "source": "Runtime/World/PrismChunkResidencyManager.cs::ActivateAfterAsync@243",
-      "target": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::SetActive@52",
+      "target": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::SetActive@56",
       "kind": "calls"
     },
     {
@@ -17628,7 +17608,7 @@
     },
     {
       "source": "Runtime/World/PrismChunkResidencyManager.cs::OnActiveChunkChanged@223",
-      "target": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::SetActive@52",
+      "target": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::SetActive@56",
       "kind": "calls"
     },
     {
@@ -17658,7 +17638,7 @@
     },
     {
       "source": "Runtime/World/PrismChunkResidencyManager.cs::OnPoseGraphRefined@88",
-      "target": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::SetResidentTransform@74",
+      "target": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::SetResidentTransform@78",
       "kind": "calls"
     },
     {
@@ -17748,12 +17728,12 @@
     },
     {
       "source": "Runtime/World/PrismChunkResidencyManager.cs::RetainRecent@331",
-      "target": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::RegisterResident@58",
+      "target": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::RegisterResident@62",
       "kind": "calls"
     },
     {
       "source": "Runtime/World/PrismChunkResidencyManager.cs::RetainRecent@331",
-      "target": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::RemoveResident@68",
+      "target": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::RemoveResident@72",
       "kind": "calls"
     },
     {
