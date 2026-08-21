@@ -27,6 +27,7 @@ namespace Genesis.RoomScan.Prism
         private const int FilmAdaptArgumentsOffset = sizeof(uint) * 12;
         private const int FilmHashClearArgumentsOffset = sizeof(uint) * 15;
         private const int MergeInitializeArgumentsOffset = sizeof(uint) * 18;
+        private const int MergeFilmArgumentsOffset = sizeof(uint) * 21;
         private const int AccumulatorWordsPerCell = 8;
         private const int AccumulatorWordsPerFilm = 8;
 
@@ -157,6 +158,7 @@ namespace Genesis.RoomScan.Prism
         private int _buildMergeArgumentsKernel = -1;
         private int _initializeMergeKernel = -1;
         private bool _running;
+        private bool _subscribedToSource;
         private bool _initialized;
         private long _processedFrames;
 
@@ -169,7 +171,7 @@ namespace Genesis.RoomScan.Prism
             _chunkFromWorld = worldFromChunk.inverse;
 
         public void StartUpdating(PrismBoundaryGraph boundaries = null,
-            PrismFilmSpawner films = null)
+            PrismFilmSpawner films = null, bool subscribeToSource = true)
         {
             if (_running) return;
             boundaryGraph = boundaries != null ? boundaries : boundaryGraph;
@@ -230,14 +232,19 @@ namespace Genesis.RoomScan.Prism
                     CeilDiv(_pool.FilmCapacity, 64), 1, 1);
                 _initialized = true;
             }
-            boundaryGraph.BoundariesUpdated += OnBoundariesUpdated;
+            if (subscribeToSource)
+            {
+                boundaryGraph.BoundariesUpdated += OnBoundariesUpdated;
+                _subscribedToSource = true;
+            }
             _running = true;
         }
 
         public void StopUpdating()
         {
-            if (_running && boundaryGraph != null)
+            if (_subscribedToSource && boundaryGraph != null)
                 boundaryGraph.BoundariesUpdated -= OnBoundariesUpdated;
+            _subscribedToSource = false;
             _running = false;
         }
 
@@ -249,10 +256,13 @@ namespace Genesis.RoomScan.Prism
             _pool = null;
         }
 
-        private void OnBoundariesUpdated(ConeEventFrameLease frame)
+        private void OnBoundariesUpdated(ConeEventFrameLease frame) =>
+            DispatchDisplacement(frame);
+
+        internal bool DispatchDisplacement(ConeEventFrameLease frame)
         {
             if (!_running || frame == null || frame.IsDisposed ||
-                _pool == null || _pool.IsDisposed) return;
+                _pool == null || _pool.IsDisposed) return false;
             try
             {
                 NormalizedRigFrameLease measured = frame.Source.Source;
@@ -287,11 +297,13 @@ namespace Genesis.RoomScan.Prism
                 _processedFrames++;
                 if (DisplacementUpdated != null) DisplacementUpdated.Invoke(frame);
                 else filmSpawner.NotifyFilmsMutated();
+                return true;
             }
             catch (Exception exception)
             {
                 Logger.Error($"Cone-PRISM displacement update failed: {exception.Message}");
                 filmSpawner.NotifyFilmsMutated();
+                return false;
             }
         }
 
@@ -528,7 +540,7 @@ namespace Genesis.RoomScan.Prism
             topologyCompute.DispatchIndirect(_buildFilmMergeHashKernel,
                 _adaptArguments, FilmAdaptArgumentsOffset);
             topologyCompute.DispatchIndirect(_mergeFilmsKernel,
-                _adaptArguments, FilmAdaptArgumentsOffset);
+                _adaptArguments, MergeFilmArgumentsOffset);
             topologyCompute.Dispatch(_buildMergeArgumentsKernel, 1, 1, 1);
             topologyCompute.DispatchIndirect(_initializeMergeKernel,
                 _adaptArguments, MergeInitializeArgumentsOffset);

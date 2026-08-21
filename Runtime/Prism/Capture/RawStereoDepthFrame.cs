@@ -32,6 +32,23 @@ namespace Genesis.RoomScan.Prism
         public Vector2 NearFar { get; }
         public long Sequence { get; }
         public bool IsValid => StereoTexture != null && TimestampNanoseconds > 0L &&
-                               StereoTexture.dimension == UnityEngine.Rendering.TextureDimension.Tex2DArray;
+                               StereoTexture.width > 0 && StereoTexture.height > 0 &&
+                               StereoTexture.dimension == UnityEngine.Rendering.TextureDimension.Tex2DArray &&
+                               IsFinite(WorldFromLeft) && IsFinite(WorldFromRight) &&
+                               IsFinite(LeftFov) && IsFinite(RightFov) &&
+                               RigDepthContract.IsValidRange(NearFar);
+
+        private static bool IsFinite(Pose pose) =>
+            float.IsFinite(pose.position.x) && float.IsFinite(pose.position.y) &&
+            float.IsFinite(pose.position.z) && float.IsFinite(pose.rotation.x) &&
+            float.IsFinite(pose.rotation.y) && float.IsFinite(pose.rotation.z) &&
+            float.IsFinite(pose.rotation.w) &&
+            pose.rotation.x * pose.rotation.x + pose.rotation.y * pose.rotation.y +
+            pose.rotation.z * pose.rotation.z + pose.rotation.w * pose.rotation.w > 0.5f;
+
+        private static bool IsFinite(XRFov fov) =>
+            float.IsFinite(fov.angleLeft) && float.IsFinite(fov.angleRight) &&
+            float.IsFinite(fov.angleUp) && float.IsFinite(fov.angleDown) &&
+            fov.angleRight > fov.angleLeft && fov.angleUp > fov.angleDown;
     }
 }

@@ -148,9 +148,10 @@ float BoundaryDistance(ContactBoundaryHeader boundary, float2 uv)
     float distance = 1e9;
     float2 previous = boundary.controlUv01.xy;
     [unroll]
-    for (uint sample = 1u; sample <= 8u; ++sample)
+    for (uint sampleIndex = 1u; sampleIndex <= 8u; ++sampleIndex)
     {
-        float2 current = BoundaryCubic(boundary, (float)sample / 8.0);
+        float2 current = BoundaryCubic(boundary,
+            (float)sampleIndex / 8.0);
         float2 segment = current - previous;
         float along = saturate(dot(uv - previous, segment) /
             max(dot(segment, segment), 1e-10));

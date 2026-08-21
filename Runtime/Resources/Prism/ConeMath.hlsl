@@ -3,6 +3,8 @@
 
 float ConeProjectionDepthToViewZ(float rawDepth, float2 nearFar)
 {
+    if (!isfinite(nearFar.y) || nearFar.y > 1e20)
+        return nearFar.x / max(1.0 - rawDepth, 1e-8);
     float denominator = nearFar.y - rawDepth * (nearFar.y - nearFar.x);
     return denominator > 1e-8
         ? (nearFar.x * nearFar.y) / denominator

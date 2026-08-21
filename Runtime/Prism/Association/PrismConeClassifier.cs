@@ -57,6 +57,7 @@ namespace Genesis.RoomScan.Prism
         private int _classifyKernel = -1;
         private int _buildArgsKernel = -1;
         private bool _running;
+        private bool _subscribedToSource;
         private long _classifiedFrames;
         private long _backpressureFrames;
 
@@ -76,7 +77,7 @@ namespace Genesis.RoomScan.Prism
         }
 
         public void StartClassifying(PrismPredictionRenderer source = null,
-            PrismBoundaryGraph boundaries = null)
+            PrismBoundaryGraph boundaries = null, bool subscribeToSource = true)
         {
             if (_running) return;
             predictionRenderer = source != null ? source : predictionRenderer;
@@ -93,14 +94,19 @@ namespace Genesis.RoomScan.Prism
             _classifyKernel = classifyCompute.FindKernel("ClassifyConeEvents");
             _buildArgsKernel = classifyCompute.FindKernel("BuildClassDispatchArguments");
             _ring ??= new ConeEventBufferRing(eventRingSlots);
-            predictionRenderer.PredictionReady += OnPrediction;
+            if (subscribeToSource)
+            {
+                predictionRenderer.PredictionReady += OnPrediction;
+                _subscribedToSource = true;
+            }
             _running = true;
         }
 
         public void StopClassifying()
         {
-            if (_running && predictionRenderer != null)
+            if (_subscribedToSource && predictionRenderer != null)
                 predictionRenderer.PredictionReady -= OnPrediction;
+            _subscribedToSource = false;
             _running = false;
             _latest?.Dispose();
             _latest = null;
@@ -110,13 +116,18 @@ namespace Genesis.RoomScan.Prism
 
         private void OnDestroy() => StopClassifying();
 
-        private void OnPrediction(PredictionFrameLease prediction)
+        private void OnPrediction(PredictionFrameLease prediction) =>
+            TryClassifyFrame(prediction, out _);
+
+        internal bool TryClassifyFrame(PredictionFrameLease prediction,
+            out ConeEventFrameLease classifiedFrame)
         {
-            if (!_running || prediction == null || prediction.IsDisposed) return;
+            classifiedFrame = null;
+            if (!_running || prediction == null || prediction.IsDisposed) return false;
             if (!_ring.TryBegin(prediction, out ConeEventFrameLease eventsFrame))
             {
                 _backpressureFrames++;
-                return;
+                return false;
             }
 
             try
@@ -155,12 +166,15 @@ namespace Genesis.RoomScan.Prism
                 _latest = eventsFrame;
                 previous?.Dispose();
                 _classifiedFrames++;
+                classifiedFrame = eventsFrame;
                 EventsReady?.Invoke(eventsFrame);
+                return true;
             }
             catch (Exception exception)
             {
                 eventsFrame.Dispose();
                 Logger.Error($"Cone-PRISM classification failed: {exception.Message}");
+                return false;
             }
         }
 

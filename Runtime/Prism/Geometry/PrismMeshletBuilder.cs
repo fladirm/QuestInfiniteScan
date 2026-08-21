@@ -60,13 +60,15 @@ namespace Genesis.RoomScan.Prism
         private int _buildKernel = -1;
         private int _finalizeKernel = -1;
         private bool _running;
+        private bool _subscribedToSource;
         private bool _rebuildPending;
         private uint _publicationGeneration;
 
         public void StartBuilding(PrismFilmSpawner films = null,
             PrismPredictionRenderer prediction = null,
             PrismBoundaryGraph boundaries = null,
-            PrismDisplacementTopology displacement = null)
+            PrismDisplacementTopology displacement = null,
+            bool subscribeToSource = true)
         {
             if (_running) return;
             filmSpawner = films != null ? films : filmSpawner;
@@ -92,14 +94,19 @@ namespace Genesis.RoomScan.Prism
             ContactFilmPool pool = filmSpawner.FilmPool;
             predictionRenderer.Meshlets.EnsureCapacity(
                 vertexBudget, indexBudget, descriptorBudget);
-            filmSpawner.FilmsMutated += OnFilmsMutated;
+            if (subscribeToSource)
+            {
+                filmSpawner.FilmsMutated += OnFilmsMutated;
+                _subscribedToSource = true;
+            }
             _running = true;
         }
 
         public void StopBuilding()
         {
-            if (_running && filmSpawner != null)
+            if (_subscribedToSource && filmSpawner != null)
                 filmSpawner.FilmsMutated -= OnFilmsMutated;
+            _subscribedToSource = false;
             _running = false;
         }
 
@@ -120,15 +127,21 @@ namespace Genesis.RoomScan.Prism
             TryBuild(pool);
         }
 
-        private void TryBuild(ContactFilmPool pool)
+        internal bool BuildCurrent()
+        {
+            _rebuildPending = true;
+            return TryBuild(filmSpawner?.FilmPool);
+        }
+
+        private bool TryBuild(ContactFilmPool pool)
         {
             if (!_running || pool == null || pool.IsDisposed ||
-                predictionRenderer?.Meshlets == null) return;
+                predictionRenderer?.Meshlets == null) return false;
             try
             {
                 ContactMeshletBuffers meshlets = predictionRenderer.Meshlets;
                 if (!meshlets.TryBeginBuild(out ContactMeshletGenerationBuffers target))
-                    return;
+                    return false;
                 Bind(pool, target);
                 meshletBuildCompute.Dispatch(_clearKernel, 1, 1, 1);
                 meshletBuildCompute.Dispatch(_buildArgsKernel, 1, 1, 1);
@@ -140,10 +153,12 @@ namespace Genesis.RoomScan.Prism
                     : _publicationGeneration + 1u;
                 meshlets.Publish(_publicationGeneration);
                 _rebuildPending = false;
+                return true;
             }
             catch (Exception exception)
             {
                 Logger.Error($"Cone-PRISM meshlet build failed: {exception.Message}");
+                return false;
             }
         }
 

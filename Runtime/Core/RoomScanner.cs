@@ -89,7 +89,7 @@ namespace Genesis.RoomScan
     /// the same GameObject and are resolved automatically via GetComponent.
     /// Input bindings are handled by <see cref="RoomScanInputHandler"/> (optional).
     /// </summary>
-    [RequireComponent(typeof(DepthCapture), typeof(VolumeIntegrator), typeof(MeshExtractor))]
+    [RequireComponent(typeof(DepthCapture))]
     [RequireComponent(typeof(RoomScanPersistence), typeof(RoomAnchorManager))]
     public class RoomScanner : MonoBehaviour
     {
@@ -128,11 +128,14 @@ namespace Genesis.RoomScan
         private PrismPredictionRenderer _prismPredictionRenderer;
         private PrismConeClassifier _prismConeClassifier;
         private PrismFilmSpawner _prismFilmSpawner;
+        private PrismPhotometricRefiner _prismPhotometricRefiner;
         private PrismFilmUpdater _prismFilmUpdater;
         private PrismBoundaryGraph _prismBoundaryGraph;
         private PrismDisplacementTopology _prismDisplacementTopology;
         private PrismMeshletBuilder _prismMeshletBuilder;
         private PrismChunkResidencyManager _prismChunkResidency;
+        private PrismWorldMeshletRenderer _prismWorldRenderer;
+        private PrismGpuWorkGraph _prismWorkGraph;
         private TriplanarCache _triplanarCache;
         private KeyframeCollector _keyframeCollector;
         private IGSplatProvider _gsplatProvider;
@@ -212,6 +215,9 @@ namespace Genesis.RoomScan
         public PrismConeClassifier PrismConeClassifier => _prismConeClassifier;
         /// <summary>Canonical GPU ContactFilm pool and robust spawn stage.</summary>
         public PrismFilmSpawner PrismFilmSpawner => _prismFilmSpawner;
+        /// <summary>GPU L/R and temporal normal-axis photometric pressure.</summary>
+        public PrismPhotometricRefiner PrismPhotometricRefiner =>
+            _prismPhotometricRefiner;
         /// <summary>Persistent pressure/information refinement of matched films.</summary>
         public PrismFilmUpdater PrismFilmUpdater => _prismFilmUpdater;
         /// <summary>Persistent GPU ContactBoundary graph.</summary>
@@ -261,6 +267,10 @@ namespace Genesis.RoomScan
         private bool _started;
         private bool _serverTrainingInProgress;
         private bool _scanResourcesReleased;
+        private bool _prismPipelinePrepared;
+        private bool _prismCaptureRunning;
+
+        internal bool IsPrismCaptureRunning => _prismCaptureRunning;
 
         // Plateau detection state
         private int _prevVertexCount;
@@ -397,8 +407,15 @@ namespace Genesis.RoomScan
         private void CacheComponents()
         {
             _depthCapture = GetComponent<DepthCapture>();
+            _depthCapture.RawStereoOnly = true;
             _volumeIntegrator = GetComponent<VolumeIntegrator>();
             _meshExtractor = GetComponent<MeshExtractor>();
+            // Kept only for historical QRS package import. Live reconstruction has
+            // exactly one canonical path: Cone-PRISM ContactFilms.
+            if (_volumeIntegrator != null) _volumeIntegrator.enabled = false;
+            if (_meshExtractor != null) _meshExtractor.enabled = false;
+            GPUMeshRenderer legacyRenderer = GetComponent<GPUMeshRenderer>();
+            if (legacyRenderer != null) legacyRenderer.RenderVisible = false;
             _cameraProvider = GetComponent<PassthroughCameraProvider>();
             _prismRigCapture = GetComponent<PrismRigCapture>();
             if (_prismRigCapture == null)
@@ -415,6 +432,10 @@ namespace Genesis.RoomScan
             _prismFilmSpawner = GetComponent<PrismFilmSpawner>();
             if (_prismFilmSpawner == null)
                 _prismFilmSpawner = gameObject.AddComponent<PrismFilmSpawner>();
+            _prismPhotometricRefiner = GetComponent<PrismPhotometricRefiner>();
+            if (_prismPhotometricRefiner == null)
+                _prismPhotometricRefiner =
+                    gameObject.AddComponent<PrismPhotometricRefiner>();
             _prismFilmUpdater = GetComponent<PrismFilmUpdater>();
             if (_prismFilmUpdater == null)
                 _prismFilmUpdater = gameObject.AddComponent<PrismFilmUpdater>();
@@ -428,6 +449,13 @@ namespace Genesis.RoomScan
             _prismMeshletBuilder = GetComponent<PrismMeshletBuilder>();
             if (_prismMeshletBuilder == null)
                 _prismMeshletBuilder = gameObject.AddComponent<PrismMeshletBuilder>();
+            _prismWorldRenderer = GetComponent<PrismWorldMeshletRenderer>();
+            if (_prismWorldRenderer == null)
+                _prismWorldRenderer =
+                    gameObject.AddComponent<PrismWorldMeshletRenderer>();
+            _prismWorkGraph = GetComponent<PrismGpuWorkGraph>();
+            if (_prismWorkGraph == null)
+                _prismWorkGraph = gameObject.AddComponent<PrismGpuWorkGraph>();
             _triplanarCache = GetComponent<TriplanarCache>();
             _persistence = GetComponent<RoomScanPersistence>();
             _keyframeCollector = GetComponent<KeyframeCollector>();
@@ -471,11 +499,6 @@ namespace Genesis.RoomScan
                 _clearDone = false;
                 _clearInProgress = false;
 
-                // Re-create GPU mesh pipeline (deferred from ClearAllDataAsync to
-                // give the GPU a frame to finish using the old buffers).
-                if (_meshExtractor != null && !_meshExtractor.IsInitialized)
-                    _meshExtractor.Reinitialize();
-
                 Logger.Info("All scan + export data cleared");
                 _clearDoneCallback?.Invoke();
                 _clearDoneCallback = null;
@@ -486,41 +509,8 @@ namespace Genesis.RoomScan
             if (renderMode == ScanRenderMode.Vertex)
                 Shader.SetGlobalFloat(TriAvailableID, 0f);
 
-            if (!IsScanning || !DepthCapture.DepthAvailable) return;
-
-            // During the short rollover readback window the single TSDF is the source of
-            // an immutable CPU snapshot. Do not enqueue another integration/extraction into
-            // those buffers. The gate drops immediately after the target volume is cleared;
-            // background file writes never pause real-time mapping.
-            if (_submapManager != null && _submapManager.IsVolumeTransitioning)
-                return;
-
-            float t = Time.time;
-
-            if (t - _lastIntegrationTime >= IntegrationInterval)
-            {
-                _lastIntegrationTime = t;
-
-                ProvideColorFrame();
-                _volumeIntegrator.Integrate();
-                Integrated?.Invoke();
-                _integrateCount++;
-
-                if (t - _lastMeshTime >= MeshInterval)
-                {
-                    _lastMeshTime = t;
-                    _meshExtractor.Extract();
-                    UpdatePlateauDetection();
-                    MeshExtracted?.Invoke();
-                }
-            }
-
-            if (t - _lastScannerLog >= 5f)
-            {
-                _lastScannerLog = t;
-                Logger.Verbose($"Scanner: integrations={_integrateCount}, " +
-                    $"depthAvail={DepthCapture.DepthAvailable}");
-            }
+            // No TSDF integration or Surface Nets extraction is allowed here.
+            // The GPU work graph is driven by PrismDepthPreprocessor.Update().
         }
 
         // ═════════════════════════════════════════════════════════════
@@ -569,50 +559,8 @@ namespace Genesis.RoomScan
                 _cachedUnwrap = null;
                 _cachedUnwrapChunkId = null;
                 SetRefinedWorldFromLocal(RigidPoseData.Identity);
-
-                // ── Stage 1: GPU volume bring-up ────────────────────────
-                // Both calls are idempotent: ReallocateVolumes early-returns
-                // if RTs already exist; EnsureInitialized / Reinitialize
-                // early-return for the same reason on the mesh side. The
-                // _scanResourcesReleased branch uses Reinitialize because
-                // ReleaseScanResources explicitly disposes the mesh
-                // extractor and we need a true rebuild, not a no-op.
-                _volumeIntegrator.ReallocateVolumes();
-
-                // Yield twice so the render thread can (a) actually commit
-                // the two 256³ 3D RT allocations to VRAM, and (b) run the
-                // first Clear compute dispatch. One yield is "next frame";
-                // two yields gives the compositor a clean frame in between
-                // before the much bigger Surface Nets alloc lands.
-                await Task.Yield();
-                await Task.Yield();
-
-                // ── Stage 2: Surface Nets mesh extractor ────────────────
-                if (_scanResourcesReleased)
-                {
-                    _meshExtractor.Reinitialize();
-                    _scanResourcesReleased = false;
-                }
-                else
-                {
-                    _meshExtractor.EnsureInitialized();
-                }
-
-                // Yield twice so the render thread can commit the ~480 MB
-                // ComputeBuffers + cell-table upload before PCA enables.
-                // This is the critical pair — without it, PCA's native
-                // OnEnable lands in the same frame as the first Surface
-                // Nets dispatch and the MRUK fence handshake fails.
-                await Task.Yield();
-                await Task.Yield();
-
-                // ── Stage 3: persistence + per-scan invalidation ────────
-                // Resume within the same session: if we already have an
-                // active tmp package with scan data, keep it instead of
-                // nuking everything.
-                bool resuming = _persistence != null
-                    && _persistence.ActivePackageId == RoomScanPersistence.TmpPkgId
-                    && _volumeIntegrator.IntegrationCount > 0;
+                _scanResourcesReleased = false;
+                bool resuming = _submapManager != null && _submapManager.HasWorld;
 
                 if (!resuming)
                 {
@@ -668,22 +616,11 @@ namespace Genesis.RoomScan
                 _keyframeCollector?.SetExportDirectory(
                     Path.Combine(_persistence.ActivePackageDirectory, "keyframes"));
 
-                float t = Time.time;
-                _lastIntegrationTime = t;
-                _lastMeshTime = t;
-
                 _cameraAvailable = false;
-
-                // ── Stage 4: camera + depth (now safe) ──────────────────
-                // PCA's native OnEnable handshakes with MRUK to grab the
-                // passthrough hardware buffer queue. By this point the
-                // GPU resources are committed and the render-thread queue
-                // is clean, so PCA can win the handshake and MRUK keeps
-                // pulling frames steadily.
-                ICameraProvider provider = GetActiveCameraProvider();
-                provider?.StartCapture();
-                StartPrismPipeline();
-                _depthCapture.StartDepthCapture();
+                // Live reconstruction has one display source. Historical QRS modes
+                // must never leave the canonical PRISM mesh hidden on resume.
+                SetRenderMode(ScanRenderMode.Vertex);
+                PreparePrismPipeline();
 
                 if (!resuming)
                 {
@@ -698,10 +635,16 @@ namespace Genesis.RoomScan
                 PopulateSceneObjectRegistry();
                 SubscribeToAnchorsChanged();
 
-                Logger.Info($"StartScanning — resuming={resuming}, integrationCount={_volumeIntegrator.IntegrationCount}");
-                ScanStarted?.Invoke();
                 if (_modules != null)
                     foreach (var m in _modules) m.OnScanStarted();
+
+                if (_prismChunkResidency != null)
+                    await _prismChunkResidency.PrepareActiveChunkAsync();
+
+                _depthCapture.StartDepthCapture();
+                StartPrismCapture();
+                Logger.Info($"StartScanning — Cone-PRISM canonical, resuming={resuming}");
+                ScanStarted?.Invoke();
             }
             catch
             {
@@ -709,6 +652,8 @@ namespace Genesis.RoomScan
                 // this, a throw mid-warmup would leave IsScanning=true
                 // forever and every subsequent A-press would no-op.
                 IsScanning = false;
+                StopPrismPipeline();
+                _depthCapture?.StopDepthCapture();
                 throw;
             }
         }
@@ -742,9 +687,7 @@ namespace Genesis.RoomScan
             if (!IsScanning) return;
             IsScanning = false;
 
-            ICameraProvider provider = GetActiveCameraProvider();
             StopPrismPipeline();
-            provider?.StopCapture();
             _depthCapture.StopDepthCapture();
 
             ScanStopped?.Invoke();
@@ -756,11 +699,16 @@ namespace Genesis.RoomScan
         /// Pauses only Cone-PRISM consumers while a durable chunk is atomically
         /// rehydrated. There is no synchronous GPU readback in this path.
         /// </summary>
-        internal void PausePrismForResidency() => StopPrismPipeline();
+        internal void PausePrismForResidency()
+        {
+            if (!_prismCaptureRunning) return;
+            _prismRigCapture?.StopCapture();
+            _prismCaptureRunning = false;
+        }
 
         internal void ResumePrismAfterResidency()
         {
-            if (IsScanning) StartPrismPipeline();
+            if (IsScanning) StartPrismCapture();
         }
 
         internal void ConfigurePrismChunk(ChunkRecord chunk)
@@ -769,42 +717,78 @@ namespace Genesis.RoomScan
             uint numericId = PrismChunkIdentity.ToNumericId(chunk.chunkId);
             Matrix4x4 worldFromChunk = chunk.worldFromChunk.ToMatrix();
             _prismFilmSpawner?.SetChunkFrame(numericId, worldFromChunk);
+            _prismPhotometricRefiner?.SetChunkFrame(worldFromChunk);
             _prismFilmUpdater?.SetChunkFrame(worldFromChunk);
             _prismBoundaryGraph?.SetChunkFrame(worldFromChunk);
             _prismDisplacementTopology?.SetChunkFrame(worldFromChunk);
             _prismPredictionRenderer?.Meshlets?.SetChunkTransform(worldFromChunk);
         }
 
-        private void StartPrismPipeline()
+        private void PreparePrismPipeline()
         {
-            _prismFilmSpawner?.StartSpawning(_prismConeClassifier);
+            if (_prismPipelinePrepared) return;
+            _prismFilmSpawner?.StartSpawning(_prismConeClassifier, false);
+            _prismPhotometricRefiner?.StartRefining(_prismFilmSpawner);
             _prismFilmUpdater?.StartUpdating(_prismConeClassifier,
-                _prismFilmSpawner);
+                _prismFilmSpawner, false);
             _prismBoundaryGraph?.StartTracking(_prismFilmUpdater,
-                _prismFilmSpawner);
+                _prismFilmSpawner, false);
             _prismDisplacementTopology?.StartUpdating(_prismBoundaryGraph,
-                _prismFilmSpawner);
+                _prismFilmSpawner, false);
             _prismConeClassifier?.StartClassifying(_prismPredictionRenderer,
-                _prismBoundaryGraph);
-            _prismPredictionRenderer?.StartRendering(_prismDepthPreprocessor);
+                _prismBoundaryGraph, false);
+            _prismPredictionRenderer?.StartRendering(_prismDepthPreprocessor,
+                false);
             _prismMeshletBuilder?.StartBuilding(_prismFilmSpawner,
                 _prismPredictionRenderer, _prismBoundaryGraph,
-                _prismDisplacementTopology);
+                _prismDisplacementTopology, false);
+            // The display path must be connected synchronously with the canonical
+            // arenas. Chunk residency may later replace the active transform/state,
+            // but first-frame visibility cannot depend on an ActiveChunkChanged
+            // event having happened after the meshlet buffers were allocated.
+            if (_prismWorldRenderer != null &&
+                _prismPredictionRenderer?.Meshlets != null)
+            {
+                string activeChunkId = _submapManager?.ActiveChunk?.chunkId ??
+                                       "cone-prism-active";
+                _prismWorldRenderer.SetActive(activeChunkId,
+                    _prismPredictionRenderer.Meshlets);
+                _prismWorldRenderer.RenderVisible = true;
+            }
+            _prismWorkGraph?.StartGraph(_prismDepthPreprocessor,
+                _prismPredictionRenderer, _prismConeClassifier,
+                _prismFilmSpawner, _prismPhotometricRefiner,
+                _prismFilmUpdater, _prismBoundaryGraph,
+                _prismDisplacementTopology, _prismMeshletBuilder);
             _prismDepthPreprocessor?.StartProcessing(_prismRigCapture);
+            _prismPipelinePrepared = true;
+        }
+
+        private void StartPrismCapture()
+        {
+            PreparePrismPipeline();
+            if (_prismCaptureRunning) return;
             _prismRigCapture?.StartCapture();
+            _prismCaptureRunning = _prismRigCapture != null &&
+                                   _prismRigCapture.IsCapturing;
         }
 
         private void StopPrismPipeline()
         {
+            _prismRigCapture?.StopCapture();
+            _prismCaptureRunning = false;
+            if (!_prismPipelinePrepared) return;
+            _prismWorkGraph?.StopGraph();
             _prismMeshletBuilder?.StopBuilding();
             _prismDisplacementTopology?.StopUpdating();
             _prismBoundaryGraph?.StopTracking();
             _prismFilmUpdater?.StopUpdating();
+            _prismPhotometricRefiner?.StopRefining();
             _prismFilmSpawner?.StopSpawning();
             _prismConeClassifier?.StopClassifying();
             _prismPredictionRenderer?.StopRendering();
             _prismDepthPreprocessor?.StopProcessing();
-            _prismRigCapture?.StopCapture();
+            _prismPipelinePrepared = false;
         }
 
         /// <summary>
@@ -1952,15 +1936,16 @@ namespace Genesis.RoomScan
         {
             var gpuRenderer = _meshExtractor != null ? _meshExtractor.GetComponent<GPUMeshRenderer>() : null;
 
-            bool gpuMeshVisible = renderMode == ScanRenderMode.Vertex
-                               || renderMode == ScanRenderMode.Triplanar
-                               || renderMode == ScanRenderMode.Wireframe;
+            bool prismMeshVisible = renderMode == ScanRenderMode.Vertex
+                                 || renderMode == ScanRenderMode.Wireframe;
             bool refinedVisible = renderMode == ScanRenderMode.Refined
                                || renderMode == ScanRenderMode.HQRefined
                                || renderMode == ScanRenderMode.Occlusion;
 
             if (gpuRenderer != null)
-                gpuRenderer.RenderVisible = gpuMeshVisible;
+                gpuRenderer.RenderVisible = false;
+            if (_prismWorldRenderer != null)
+                _prismWorldRenderer.RenderVisible = IsScanning || prismMeshVisible;
             if (_gsplatProvider != null)
                 _gsplatProvider.RenderVisible = renderMode == ScanRenderMode.Splat;
             if (_refinedRenderer != null)

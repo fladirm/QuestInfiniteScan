@@ -132,7 +132,7 @@ namespace Genesis.RoomScan.Prism
                 return false;
 
             Slot slot = _slots[selected];
-            Vector2Int resolution = source.DepthLeft.Resolution;
+            Vector2Int resolution = source.DepthResolution;
             EnsureTextures(slot, resolution, selected);
             slot.Generation = NextGeneration(slot.Generation);
             slot.References = 1;

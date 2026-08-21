@@ -119,8 +119,10 @@ namespace Genesis.RoomScan.Prism
 
         internal static float ProjectionDepth01FromViewZ(float viewZ, Vector2 nearFar)
         {
-            if (!(viewZ > 0f) || !(nearFar.x > 0f) || !(nearFar.y > nearFar.x))
+            if (!(viewZ > 0f) || !RigDepthContract.IsValidRange(nearFar))
                 return 0f;
+            if (float.IsPositiveInfinity(nearFar.y))
+                return 1f - nearFar.x / viewZ;
             return nearFar.y / (nearFar.y - nearFar.x) -
                    (nearFar.y * nearFar.x) /
                    ((nearFar.y - nearFar.x) * viewZ);
@@ -129,8 +131,10 @@ namespace Genesis.RoomScan.Prism
         internal static float ViewZFromProjectionDepth01(float rawDepth, Vector2 nearFar)
         {
             if (!(rawDepth > 0f) || !(rawDepth < 1f) ||
-                !(nearFar.x > 0f) || !(nearFar.y > nearFar.x))
+                !RigDepthContract.IsValidRange(nearFar))
                 return 0f;
+            if (float.IsPositiveInfinity(nearFar.y))
+                return nearFar.x / (1f - rawDepth);
             float denominator = nearFar.y - rawDepth * (nearFar.y - nearFar.x);
             return denominator > 1e-8f ? nearFar.x * nearFar.y / denominator : 0f;
         }

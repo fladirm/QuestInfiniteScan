@@ -216,9 +216,10 @@ float3 SurfaceNormal(ContactFilmHeader film, float2 uv)
     return dot(normal, film.normal) >= 0.0 ? normal : -normal;
 }
 
-float2 PointToUv(ContactFilmHeader film, float3 point)
+float2 PointToUv(ContactFilmHeader film, float3 surfacePosition)
 {
-    float3 delta = point - film.origin;
+    // `point` is an HLSL interpolation modifier on Vulkan backends.
+    float3 delta = surfacePosition - film.origin;
     return float2(dot(delta, film.tangentU) / max(2.0 * film.extentU, 0.002) + 0.5,
         dot(delta, film.tangentV) / max(2.0 * film.extentV, 0.002) + 0.5);
 }
@@ -235,10 +236,10 @@ float DistanceToCurve(ContactBoundaryHeader boundary, float2 uv)
     float distance = 1e9;
     float2 previous = boundary.controlUv01.xy;
     [unroll]
-    for (uint sample = 1u; sample <= 12u; ++sample)
+    for (uint sampleIndex = 1u; sampleIndex <= 12u; ++sampleIndex)
     {
         float2 current = Cubic(boundary.controlUv01, boundary.controlUv23,
-            (float)sample / 12.0);
+            (float)sampleIndex / 12.0);
         float2 segment = current - previous;
         float t = saturate(dot(uv - previous, segment) /
             max(dot(segment, segment), 1e-10));

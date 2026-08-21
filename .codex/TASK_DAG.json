@@ -274,7 +274,12 @@
         "Accepted photometric pressure enters the same film information/displacement posterior rather than a detached depth map or competing solver",
         "Physical textured targets demonstrate lower surface error than native depth without degrading weak-texture regions"
       ],
-      "evidence": []
+      "evidence": [
+        "PhotometricFocus.compute evaluates only unresolved MATCH contacts in rotating 2x2 phases, searches a posterior-centred 9-candidate coarse plus 5-candidate fine interval, and applies a parabolic sub-step over calibrated current L/R RGB",
+        "Census plus normalized-gradient cost, texture-energy and best-versus-second ambiguity gates, one-sidedness, calibrated pose projection, and dual-depth first-hit checks fail closed before pressure publication",
+        "PrismPhotometricRefiner keeps pixels and compact pressure equations GPU-resident; ContactFilmUpdate.compute injects accepted normal residuals into the same per-film 6x6 H/g accumulator and preserves range/footprint/incidence pressure resistance",
+        "Unity 6000.5.9f1 Android IL2CPP and all seven Vulkan PhotometricFocus variants built successfully in QuestInfiniteScan-dev.apk sha256 0cd80871469f7c5cc8645315c8bd8e299fe1b06fed5d0f7ae1d619c1ec9484fd; physical quality acceptance is batched with Q3-15"
+      ]
     },
     {
       "id": "Q3-15",
@@ -288,7 +293,13 @@
         "Redundant active references can be replaced without losing sufficient resumable evidence",
         "Physical repeated passes measurably reduce observable geometry error"
       ],
-      "evidence": []
+      "evidence": [
+        "PrismPhotometricRefiner maintains a bounded GPU array of 16 stereo keyframes and eight generation-safe active references per ContactFilm without CPU pixel readback",
+        "SelectTemporalViews scores projected footprint, frontality, range, and angular novelty, fills empty or stale references, and replaces the weakest redundant reference only on positive information gain",
+        "TemporalFocusPressure reprojects the known film and normal-offset candidates into the current eye plus 2-8 historical cone fields, robustly truncates view outliers, rejects ambiguous or occluded minima, and emits pressure into the canonical posterior without feature matching or a global cost volume",
+        "Film-generation ownership plus chunk-frame and calibration-epoch invalidation prevent stale temporal matrices from crossing residency boundaries while preserving canonical film information",
+        "The complete Q3-14/Q3-15 Android/Vulkan build succeeded; one batched Quest repeated-pass acceptance remains before both runs can be marked done"
+      ]
     },
     {
       "id": "Q3-16",

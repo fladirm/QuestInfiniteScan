@@ -53,7 +53,8 @@ namespace Genesis.RoomScan.Prism
         ClockMappingUncertain = 1u << 11,
         RingExhausted = 1u << 12,
         GpuCopyFailed = 1u << 13,
-        QueueOverflow = 1u << 14
+        QueueOverflow = 1u << 14,
+        StereoDepthContractMismatch = 1u << 15
     }
 
     /// <summary>
@@ -206,7 +207,7 @@ namespace Genesis.RoomScan.Prism
                                IsFinite(WorldFromCamera.position) && IsFinite(WorldFromCamera.rotation) &&
                                (Kind != RigStreamKind.Depth ||
                                 (DepthEncoding != RigDepthEncoding.NotDepth &&
-                                 DepthNearFar.x > 0f && DepthNearFar.y > DepthNearFar.x));
+                                 RigDepthContract.IsValidRange(DepthNearFar)));
 
         private static bool IsFinite(Vector3 value) =>
             float.IsFinite(value.x) && float.IsFinite(value.y) && float.IsFinite(value.z);
@@ -216,6 +217,35 @@ namespace Genesis.RoomScan.Prism
             float.IsFinite(value.z) && float.IsFinite(value.w) &&
             value.x * value.x + value.y * value.y + value.z * value.z +
             value.w * value.w > 0.5f;
+    }
+
+    /// <summary>Immutable contract shared by both slices of one native depth frame.</summary>
+    internal static class RigDepthContract
+    {
+        internal static bool IsValid(Vector2Int resolution, Vector2 nearFar) =>
+            resolution.x > 0 && resolution.y > 0 && IsValidRange(nearFar);
+
+        internal static bool IsValidRange(Vector2 nearFar) =>
+            float.IsFinite(nearFar.x) && nearFar.x > 0f &&
+            ((float.IsFinite(nearFar.y) && nearFar.y > nearFar.x) ||
+             float.IsPositiveInfinity(nearFar.y));
+
+        internal static bool EquivalentRange(Vector2 first, Vector2 second) =>
+            IsValidRange(first) && IsValidRange(second) && first.x == second.x &&
+            (first.y == second.y ||
+             (float.IsPositiveInfinity(first.y) &&
+              float.IsPositiveInfinity(second.y)));
+
+        internal static bool ViewMatches(GpuImageView view, RigEye eye,
+            Texture sharedTexture, int slice, Vector2Int resolution, Vector2 nearFar) =>
+            view.IsValid && view.Kind == RigStreamKind.Depth && view.Eye == eye &&
+            ReferenceEquals(view.Texture, sharedTexture) && view.ArraySlice == slice &&
+            view.Resolution == resolution &&
+            view.DepthEncoding == RigDepthEncoding.ProjectionDepth01 &&
+            EquivalentRange(view.DepthNearFar, nearFar);
+
+        internal static float FiniteRasterFar(Vector2 nearFar) =>
+            float.IsFinite(nearFar.y) ? nearFar.y : Mathf.Max(1000f, nearFar.x + 1f);
     }
 
     public readonly struct RigExtrinsicsSnapshot
@@ -288,6 +318,8 @@ namespace Genesis.RoomScan.Prism
             GpuTextureLease depthOwner,
             GpuImageView depthLeft,
             GpuImageView depthRight,
+            Vector2Int depthResolution,
+            Vector2 depthNearFar,
             RigPairingHealth health)
         {
             Sequence = sequence;
@@ -299,6 +331,8 @@ namespace Genesis.RoomScan.Prism
             RgbRight = rgbRight;
             DepthLeft = depthLeft;
             DepthRight = depthRight;
+            DepthResolution = depthResolution;
+            DepthNearFar = depthNearFar;
             Health = health;
             Extrinsics = RigExtrinsicsSnapshot.FromViews(rgbLeft, rgbRight, depthLeft,
                 depthRight);
@@ -310,11 +344,19 @@ namespace Genesis.RoomScan.Prism
         public GpuImageView RgbRight { get; }
         public GpuImageView DepthLeft { get; }
         public GpuImageView DepthRight { get; }
+        public Vector2Int DepthResolution { get; }
+        public Vector2 DepthNearFar { get; }
         public RigExtrinsicsSnapshot Extrinsics { get; }
         public RigPairingHealth Health { get; }
         public bool IsDisposed => _disposed;
         public bool IsValid => !_disposed && CalibrationEpoch != 0u && RgbLeft.IsValid &&
-                               RgbRight.IsValid && DepthLeft.IsValid && DepthRight.IsValid;
+                               RgbRight.IsValid &&
+                               RigDepthContract.IsValid(DepthResolution, DepthNearFar) &&
+                               RigDepthContract.ViewMatches(DepthLeft, RigEye.Left,
+                                   DepthLeft.Texture, 0, DepthResolution, DepthNearFar) &&
+                               RigDepthContract.ViewMatches(DepthRight, RigEye.Right,
+                                   DepthLeft.Texture, 1, DepthResolution, DepthNearFar) &&
+                               DepthLeft.Timestamp == DepthRight.Timestamp;
 
         public StereoRigFrameLease Retain()
         {
@@ -323,7 +365,8 @@ namespace Genesis.RoomScan.Prism
             return new StereoRigFrameLease(Sequence, CalibrationEpoch,
                 _rgbLeftOwner.Retain(), RgbLeft,
                 _rgbRightOwner.Retain(), RgbRight,
-                _depthOwner.Retain(), DepthLeft, DepthRight, Health);
+                _depthOwner.Retain(), DepthLeft, DepthRight,
+                DepthResolution, DepthNearFar, Health);
         }
 
         public void Dispose()

@@ -194,9 +194,11 @@ bool IsMicroCell(uint globalCell) { return globalCell >= _BaseCellCapacity; }
 
 DisplacementCell LoadCell(uint globalCell)
 {
-    return IsMicroCell(globalCell)
-        ? _MicroDisplacementCells[globalCell - _BaseCellCapacity]
-        : _BaseDisplacementCells[globalCell];
+    // Vulkan's HLSL lowering cannot select structured-buffer struct lvalues
+    // through ?: even though scalar backends accept it.
+    if (IsMicroCell(globalCell))
+        return _MicroDisplacementCells[globalCell - _BaseCellCapacity];
+    return _BaseDisplacementCells[globalCell];
 }
 
 void StoreCell(uint globalCell, DisplacementCell cell)
@@ -209,9 +211,9 @@ void StoreCell(uint globalCell, DisplacementCell cell)
 
 uint LoadChild(uint globalCell)
 {
-    return IsMicroCell(globalCell)
-        ? _MicroChildPages[globalCell - _BaseCellCapacity]
-        : _BaseChildPages[globalCell];
+    if (IsMicroCell(globalCell))
+        return _MicroChildPages[globalCell - _BaseCellCapacity];
+    return _BaseChildPages[globalCell];
 }
 
 void StoreChild(uint globalCell, uint child)

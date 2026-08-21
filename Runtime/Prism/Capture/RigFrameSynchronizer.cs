@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using UnityEngine;
 
 namespace Genesis.RoomScan.Prism
 {
@@ -33,18 +34,30 @@ namespace Genesis.RoomScan.Prism
     internal sealed class StereoDepthRigSample : IDisposable
     {
         internal StereoDepthRigSample(GpuTextureLease lease, GpuImageView left,
-            GpuImageView right, uint calibrationEpoch)
+            GpuImageView right, uint calibrationEpoch, Vector2Int resolution,
+            Vector2 nearFar)
         {
             Lease = lease ?? throw new ArgumentNullException(nameof(lease));
             Left = left;
             Right = right;
             CalibrationEpoch = calibrationEpoch;
+            Resolution = resolution;
+            NearFar = nearFar;
         }
 
         internal GpuTextureLease Lease { get; private set; }
         internal GpuImageView Left { get; }
         internal GpuImageView Right { get; }
         internal uint CalibrationEpoch { get; }
+        internal Vector2Int Resolution { get; }
+        internal Vector2 NearFar { get; }
+        internal bool HasValidStereoContract =>
+            RigDepthContract.IsValid(Resolution, NearFar) &&
+            RigDepthContract.ViewMatches(Left, RigEye.Left, Lease?.Texture, 0,
+                Resolution, NearFar) &&
+            RigDepthContract.ViewMatches(Right, RigEye.Right, Lease?.Texture, 1,
+                Resolution, NearFar) &&
+            Left.SourceSequence == Right.SourceSequence && Left.Timestamp == Right.Timestamp;
 
         internal GpuTextureLease TakeLease()
         {
@@ -142,11 +155,9 @@ namespace Genesis.RoomScan.Prism
         {
             if (sample == null)
                 return false;
-            if (!sample.Left.IsValid || !sample.Right.IsValid ||
-                sample.Left.Timestamp != sample.Right.Timestamp)
+            if (!sample.HasValidStereoContract)
             {
-                Reject(sample, RigFrameRejectionReason.MissingEye |
-                               RigFrameRejectionReason.MissingPose);
+                Reject(sample, RigFrameRejectionReason.StereoDepthContractMismatch);
                 return false;
             }
             if (!ValidateIncoming(sample.Left, sample.CalibrationEpoch, ref _lastDepthNs,
@@ -212,7 +223,7 @@ namespace Genesis.RoomScan.Prism
                 var health = new RigPairingHealth(rgbDelta, rgbDepthDelta, clockUncertainty);
                 frame = new StereoRigFrameLease(++_sequence, left.CalibrationEpoch,
                     leftLease, left.View, rightLease, right.View, depthLease,
-                    depth.Left, depth.Right, health);
+                    depth.Left, depth.Right, depth.Resolution, depth.NearFar, health);
                 _accepted++;
                 _lastRgbDelta = rgbDelta;
                 _lastRgbDepthDelta = rgbDepthDelta;

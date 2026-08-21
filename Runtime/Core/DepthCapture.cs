@@ -149,6 +149,13 @@ namespace Genesis.RoomScan
         public event Action<RawStereoDepthFrame> RawStereoFrameReceived;
 
         /// <summary>
+        /// Pure Cone-PRISM mode. ARFoundation still owns the native stereo-depth
+        /// provider, but the legacy QRS bilateral/normal/dilation path is bypassed.
+        /// The borrowed native frame is published once and no duplicate GPU work runs.
+        /// </summary>
+        public bool RawStereoOnly { get; set; }
+
+        /// <summary>
         /// Provide an RGB texture as edge guide for bilateral depth filtering.
         /// Call each frame from RoomScanner with the passthrough camera frame.
         /// </summary>
@@ -422,6 +429,13 @@ namespace Genesis.RoomScan
                 Logger.Info($"OnDepthFrame #{_frameCount}, textures={args.externalTextures.Count}");
 
             PublishRawStereoDepthFrame(args);
+
+            if (RawStereoOnly)
+            {
+                DepthAvailable = args.externalTextures.Count > 0 &&
+                                 args.externalTextures[0].texture != null;
+                return;
+            }
 
             if (Application.isEditor)
                 HandleEditorSimulation(args);

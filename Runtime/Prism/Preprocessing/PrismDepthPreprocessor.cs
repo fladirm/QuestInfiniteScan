@@ -85,6 +85,9 @@ namespace Genesis.RoomScan.Prism
         private long _accepted;
         private long _rejected;
         private long _ringBackpressure;
+        private long _lastConsumedSequence;
+        private GraphicsFence _workGraphFence;
+        private bool _hasWorkGraphFence;
 
         /// <summary>
         /// The callback borrows the frame. Retain it in the callback before storing it.
@@ -140,15 +143,14 @@ namespace Genesis.RoomScan.Prism
             _boundaryKernel = depthConsensusNormalBoundaryCompute.FindKernel("BoundaryEvidence");
             _outputRing ??= new NormalizedDepthRing(outputRingSlots);
             EnsureStatisticsBuffers();
-            rigCapture.FrameReady += OnRigFrame;
             _processing = true;
         }
 
         public void StopProcessing()
         {
-            if (rigCapture != null && _processing)
-                rigCapture.FrameReady -= OnRigFrame;
             _processing = false;
+            _hasWorkGraphFence = false;
+            _lastConsumedSequence = 0L;
             _latestFrame?.Dispose();
             _latestFrame = null;
             _coneLutSet?.Retire();
@@ -164,7 +166,27 @@ namespace Genesis.RoomScan.Prism
 
         private void OnDestroy() => StopProcessing();
 
-        private void OnRigFrame(StereoRigFrameLease source)
+        /// <summary>
+        /// Capture is a mailbox, never a reconstruction callback. The native camera
+        /// callback only copies external textures into leased GPU rings and returns.
+        /// One newest coherent frame is consumed here after the previous complete GPU
+        /// work graph has retired, preventing unbounded command-queue growth.
+        /// </summary>
+        private void Update()
+        {
+            if (!_processing || !WorkGraphFencePassed() || rigCapture == null ||
+                !rigCapture.TryAcquireLatest(out StereoRigFrameLease source))
+                return;
+            using (source)
+            {
+                if (source.Sequence <= _lastConsumedSequence)
+                    return;
+                _lastConsumedSequence = source.Sequence;
+                ProcessRigFrame(source);
+            }
+        }
+
+        private void ProcessRigFrame(StereoRigFrameLease source)
         {
             if (!_processing || source == null || !source.IsValid)
             {
@@ -178,14 +200,7 @@ namespace Genesis.RoomScan.Prism
                 return;
             }
 
-            Vector2 nearFar = source.DepthLeft.DepthNearFar;
-            Vector2 rightNearFar = source.DepthRight.DepthNearFar;
-            if (!Approximately(nearFar, rightNearFar) ||
-                source.DepthLeft.Resolution != source.DepthRight.Resolution)
-            {
-                _rejected++;
-                return;
-            }
+            Vector2 nearFar = source.DepthNearFar;
 
             using ConeLutLease currentLuts = _coneLutSet.Acquire();
             if (!_outputRing.TryBegin(source, currentLuts,
@@ -198,7 +213,7 @@ namespace Genesis.RoomScan.Prism
 
             try
             {
-                Vector2Int resolution = source.DepthLeft.Resolution;
+                Vector2Int resolution = source.DepthResolution;
                 depthNormalizeCompute.SetInts(ResolutionId, resolution.x, resolution.y);
                 depthNormalizeCompute.SetVector(NearFarId, nearFar);
                 depthNormalizeCompute.SetTexture(_normalizeKernel, RawDepthId,
@@ -223,6 +238,7 @@ namespace Genesis.RoomScan.Prism
                 previous?.Dispose();
                 _accepted++;
                 FrameReady?.Invoke(normalized);
+                MarkWorkGraphSubmitted();
             }
             catch (Exception exception)
             {
@@ -260,8 +276,32 @@ namespace Genesis.RoomScan.Prism
             return true;
         }
 
-        private static bool Approximately(Vector2 a, Vector2 b) =>
-            Mathf.Abs(a.x - b.x) <= 1e-5f && Mathf.Abs(a.y - b.y) <= 1e-4f;
+        private bool WorkGraphFencePassed()
+        {
+            if (!_hasWorkGraphFence) return true;
+            try
+            {
+                if (!_workGraphFence.passed) return false;
+            }
+            catch (Exception) { }
+            _hasWorkGraphFence = false;
+            return true;
+        }
+
+        private void MarkWorkGraphSubmitted()
+        {
+            try
+            {
+                _workGraphFence = Graphics.CreateGraphicsFence(
+                    GraphicsFenceType.AsyncQueueSynchronisation,
+                    SynchronisationStageFlags.AllGPUOperations);
+                _hasWorkGraphFence = true;
+            }
+            catch (Exception)
+            {
+                _hasWorkGraphFence = false;
+            }
+        }
 
         private static int CeilDiv(int value, int divisor) =>
             Math.Max(1, (value + divisor - 1) / divisor);

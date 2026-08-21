@@ -171,16 +171,18 @@ static const uint ALLOCATION_CLAIM = 0xffffffffu;
 
 DisplacementCell LoadDisplacementCell(bool micro, uint pageIndex, uint localCell)
 {
-    return micro
-        ? _MicroDisplacementCells[pageIndex * MICRO_CELLS_PER_PAGE + localCell]
-        : _BaseDisplacementCells[pageIndex * BASE_CELLS_PER_PAGE + localCell];
+    if (micro)
+        return _MicroDisplacementCells[
+            pageIndex * MICRO_CELLS_PER_PAGE + localCell];
+    return _BaseDisplacementCells[
+        pageIndex * BASE_CELLS_PER_PAGE + localCell];
 }
 
 uint LoadDisplacementChild(bool micro, uint pageIndex, uint localCell)
 {
-    return micro
-        ? _MicroChildPages[pageIndex * MICRO_CELLS_PER_PAGE + localCell]
-        : _BaseChildPages[pageIndex * BASE_CELLS_PER_PAGE + localCell];
+    if (micro)
+        return _MicroChildPages[pageIndex * MICRO_CELLS_PER_PAGE + localCell];
+    return _BaseChildPages[pageIndex * BASE_CELLS_PER_PAGE + localCell];
 }
 
 bool ResolveDisplacementPage(ContactFilmHeader film, float2 uv,
@@ -239,7 +241,9 @@ void DisplacementMetrics(ContactFilmHeader film, out float bestFootprint,
     DisplacementPageHeader page = _DisplacementPages[pageIndex];
     if ((page.flags & PAGE_ACTIVE) == 0u || page.filmId != film.id ||
         page.filmGeneration != film.generation) return;
-    bestFootprint = max(asfloat(page.bestFootprintBits), 1e-5);
+    // Displacement pages persist cone footprint area in square metres. Meshlet
+    // tessellation and screen LOD require a linear metric sampling diameter.
+    bestFootprint = sqrt(max(asfloat(page.bestFootprintBits), 1e-10));
     maximumVariance = max(asfloat(page.maximumVarianceBits), 0.0);
 
     // Page headers retain aggregate quality for every resident descendant. Sampling
@@ -268,7 +272,7 @@ void DisplacementMetrics(ContactFilmHeader film, out float bestFootprint,
         page = child;
         deepestLevel = max(deepestLevel, child.level);
         bestFootprint = min(bestFootprint,
-            max(asfloat(child.bestFootprintBits), 1e-5));
+            sqrt(max(asfloat(child.bestFootprintBits), 1e-10)));
         maximumVariance = max(maximumVariance,
             max(asfloat(child.maximumVarianceBits), 0.0));
     }
@@ -354,9 +358,10 @@ bool ClosestBoundaryPoint(ContactFilmHeader film, float2 uv,
                 (boundary.flags & (BOUNDARY_ACTIVE | BOUNDARY_PERSISTENT)) !=
                     (BOUNDARY_ACTIVE | BOUNDARY_PERSISTENT)) continue;
             [unroll]
-            for (uint sample = 0u; sample <= 16u; ++sample)
+            for (uint sampleIndex = 0u; sampleIndex <= 16u; ++sampleIndex)
             {
-                float2 candidate = BoundaryCubic(boundary, (float)sample / 16.0);
+                float2 candidate = BoundaryCubic(boundary,
+                    (float)sampleIndex / 16.0);
                 float distance = length(candidate - uv);
                 if (distance < bestDistance)
                 {

@@ -25,11 +25,11 @@ namespace Genesis.RoomScan.Prism
         [SerializeField, Min(1f)] private float maxRgbDeltaMilliseconds = 20f;
         [SerializeField, Min(1f)] private float maxRgbDepthDeltaMilliseconds = 35f;
         [SerializeField, Min(0.1f)] private float maxClockUncertaintyMilliseconds = 5f;
-        [SerializeField, Range(3, 12)] private int gpuRingSlots = 5;
+        [SerializeField, Range(5, 24)] private int gpuRingSlots = 8;
         [SerializeField, Range(3, 24)] private int metadataQueueCapacity = 10;
 
-        private readonly ulong[] _calibrationSignatures = new ulong[4];
-        private readonly bool[] _hasCalibrationSignature = new bool[4];
+        private readonly RigIntrinsics[] _sessionIntrinsics = new RigIntrinsics[4];
+        private readonly bool[] _hasSessionIntrinsics = new bool[4];
         private GpuTextureRing _rgbLeftRing;
         private GpuTextureRing _rgbRightRing;
         private GpuTextureRing _depthRing;
@@ -49,12 +49,6 @@ namespace Genesis.RoomScan.Prism
         private float _lastDiagnosticLog;
         private long _localRejections;
         private RigFrameRejectionReason _lastLocalRejection;
-
-        /// <summary>
-        /// The callback owns no reference. Call <see cref="StereoRigFrameLease.Retain"/>
-        /// inside the callback before keeping the frame.
-        /// </summary>
-        public event Action<StereoRigFrameLease> FrameReady;
 
         public bool IsCapturing => _captureRequested;
         public bool HasCoherentFrame => _latestFrame != null && _latestFrame.IsValid;
@@ -163,10 +157,14 @@ namespace Genesis.RoomScan.Prism
         {
             _rgbLeftRing ??= new GpuTextureRing("Cone-PRISM RGB Left", gpuRingSlots);
             _rgbRightRing ??= new GpuTextureRing("Cone-PRISM RGB Right", gpuRingSlots);
-            _depthRing ??= new GpuTextureRing("Cone-PRISM Stereo Depth", gpuRingSlots);
+            _depthRing ??= new GpuTextureRing("Cone-PRISM Stereo Depth", gpuRingSlots,
+                UnityEngine.Experimental.Rendering.GraphicsFormat.R32_SFloat,
+                GpuTextureCopyMode.ProjectionDepthArray);
+            int boundedMetadataQueue = Mathf.Max(3,
+                Mathf.Min(metadataQueueCapacity, gpuRingSlots - 2));
             _synchronizer ??= new RigFrameSynchronizer(maxRgbDeltaMilliseconds,
                 maxRgbDepthDeltaMilliseconds, maxClockUncertaintyMilliseconds,
-                metadataQueueCapacity);
+                boundedMetadataQueue);
             _clockMapper ??= RigClockMapper.CreateRuntime();
         }
 
@@ -190,9 +188,21 @@ namespace Genesis.RoomScan.Prism
                 return;
 
             Texture source = access.GetTexture();
-            RigIntrinsics intrinsics = RigCalibrationMath.FromPassthrough(access);
             int signatureIndex = eye == RigEye.Left ? 0 : 1;
-            ObserveCalibrationSignature(signatureIndex, intrinsics.Signature);
+            if (!_hasSessionIntrinsics[signatureIndex] &&
+                !FreezeSessionIntrinsics(signatureIndex,
+                    RigCalibrationMath.FromPassthrough(access)))
+            {
+                ReportLocalRejection(RigFrameRejectionReason.InvalidIntrinsics);
+                return;
+            }
+            RigIntrinsics intrinsics = _sessionIntrinsics[signatureIndex];
+            if (source == null || source.width != intrinsics.ImageResolution.x ||
+                source.height != intrinsics.ImageResolution.y)
+            {
+                ReportLocalRejection(RigFrameRejectionReason.CalibrationMismatch);
+                return;
+            }
             if (_calibrationEpoch == 0u)
                 return;
 
@@ -229,13 +239,28 @@ namespace Genesis.RoomScan.Prism
             }
 
             Vector2Int resolution = new(raw.StereoTexture.width, raw.StereoTexture.height);
-            RigIntrinsics leftIntrinsics = RigCalibrationMath.FromDepthFov(raw.LeftFov,
-                resolution);
-            RigIntrinsics rightIntrinsics = RigCalibrationMath.FromDepthFov(raw.RightFov,
-                resolution);
-            bool signatureChanged = SetCalibrationSignature(2, leftIntrinsics.Signature) |
-                                    SetCalibrationSignature(3, rightIntrinsics.Signature);
-            CommitCalibrationChange(signatureChanged);
+            if (!_hasSessionIntrinsics[2] &&
+                !FreezeSessionIntrinsics(2,
+                    RigCalibrationMath.FromDepthFov(raw.LeftFov, resolution)))
+            {
+                ReportLocalRejection(RigFrameRejectionReason.InvalidIntrinsics);
+                return;
+            }
+            if (!_hasSessionIntrinsics[3] &&
+                !FreezeSessionIntrinsics(3,
+                    RigCalibrationMath.FromDepthFov(raw.RightFov, resolution)))
+            {
+                ReportLocalRejection(RigFrameRejectionReason.InvalidIntrinsics);
+                return;
+            }
+            RigIntrinsics leftIntrinsics = _sessionIntrinsics[2];
+            RigIntrinsics rightIntrinsics = _sessionIntrinsics[3];
+            if (resolution != leftIntrinsics.ImageResolution ||
+                resolution != rightIntrinsics.ImageResolution)
+            {
+                ReportLocalRejection(RigFrameRejectionReason.CalibrationMismatch);
+                return;
+            }
             if (_calibrationEpoch == 0u)
                 return;
 
@@ -253,7 +278,7 @@ namespace Genesis.RoomScan.Prism
                 1, raw.Sequence, timestamp, raw.WorldFromRight, rightIntrinsics,
                 lease.GraphicsFormat, RigDepthEncoding.ProjectionDepth01, raw.NearFar);
             _synchronizer.AddDepth(new StereoDepthRigSample(lease, left, right,
-                _calibrationEpoch));
+                _calibrationEpoch, resolution, raw.NearFar));
             PublishAvailableFrames();
         }
 
@@ -264,48 +289,33 @@ namespace Genesis.RoomScan.Prism
                 StereoRigFrameLease previous = _latestFrame;
                 _latestFrame = frame;
                 previous?.Dispose();
-                FrameReady?.Invoke(frame);
             }
         }
 
-        private void ObserveCalibrationSignature(int index, ulong signature)
+        private bool FreezeSessionIntrinsics(int index, RigIntrinsics intrinsics)
         {
-            bool changed = SetCalibrationSignature(index, signature);
-            CommitCalibrationChange(changed);
-        }
-
-        private bool SetCalibrationSignature(int index, ulong signature)
-        {
-            if (signature == 0UL)
+            if ((uint)index >= (uint)_sessionIntrinsics.Length || !intrinsics.IsValid)
                 return false;
-            if (_hasCalibrationSignature[index] && _calibrationSignatures[index] == signature)
-                return false;
-            _hasCalibrationSignature[index] = true;
-            _calibrationSignatures[index] = signature;
-            return true;
-        }
-
-        private void CommitCalibrationChange(bool changed)
-        {
-            if (!changed)
-                return;
-            for (int i = 0; i < _hasCalibrationSignature.Length; i++)
+            if (_hasSessionIntrinsics[index])
+                return _sessionIntrinsics[index].Signature == intrinsics.Signature;
+            _sessionIntrinsics[index] = intrinsics;
+            _hasSessionIntrinsics[index] = true;
+            for (int i = 0; i < _hasSessionIntrinsics.Length; i++)
             {
-                if (!_hasCalibrationSignature[i])
-                    return;
+                if (!_hasSessionIntrinsics[i])
+                    return true;
             }
 
             ulong combined = RigCalibrationMath.CombineSignatures(
-                _calibrationSignatures[0], _calibrationSignatures[1],
-                _calibrationSignatures[2], _calibrationSignatures[3]);
-            if (_calibrationEpoch != 0u && combined == _combinedCalibrationSignature)
-                return;
+                _sessionIntrinsics[0].Signature, _sessionIntrinsics[1].Signature,
+                _sessionIntrinsics[2].Signature, _sessionIntrinsics[3].Signature);
             _combinedCalibrationSignature = combined;
-            _calibrationEpoch = _calibrationEpoch == uint.MaxValue ? 1u : _calibrationEpoch + 1u;
+            _calibrationEpoch = 1u;
             _synchronizer?.Flush(RigFrameRejectionReason.CalibrationMismatch);
             _latestFrame?.Dispose();
             _latestFrame = null;
-            Logger.Info($"Cone-PRISM calibration epoch {_calibrationEpoch}, signature=0x{combined:x16}");
+            Logger.Info($"Cone-PRISM immutable rig calibration frozen, signature=0x{combined:x16}");
+            return true;
         }
 
         private PassthroughCameraAccess ResolveEye(PassthroughCameraAccess assigned,

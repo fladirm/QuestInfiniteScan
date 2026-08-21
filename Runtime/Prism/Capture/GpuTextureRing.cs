@@ -5,6 +5,12 @@ using UnityEngine.Rendering;
 
 namespace Genesis.RoomScan.Prism
 {
+    internal enum GpuTextureCopyMode : byte
+    {
+        Color = 0,
+        ProjectionDepthArray = 1
+    }
+
     /// <summary>
     /// A ref-counted view of one immutable GPU copy. Holding the lease prevents its
     /// preallocated ring slot from being overwritten.
@@ -70,15 +76,33 @@ namespace Genesis.RoomScan.Prism
 
         private readonly Slot[] _slots;
         private readonly string _name;
+        private readonly GraphicsFormat _fallbackFormat;
+        private readonly GpuTextureCopyMode _copyMode;
+        private readonly ComputeShader _imageCopyCompute;
+        private readonly int _copyDepthArrayKernel;
         private int _cursor;
         private bool _disposed;
 
-        internal GpuTextureRing(string name, int capacity)
+        internal GpuTextureRing(string name, int capacity,
+            GraphicsFormat fallbackFormat = GraphicsFormat.R8G8B8A8_UNorm,
+            GpuTextureCopyMode copyMode = GpuTextureCopyMode.Color)
         {
             if (capacity < 3)
                 throw new ArgumentOutOfRangeException(nameof(capacity),
                     "A capture ring needs at least three slots.");
             _name = string.IsNullOrWhiteSpace(name) ? "RigCapture" : name;
+            _fallbackFormat = fallbackFormat;
+            _copyMode = copyMode;
+            if (_copyMode == GpuTextureCopyMode.ProjectionDepthArray)
+            {
+                _imageCopyCompute = Resources.Load<ComputeShader>(
+                    "Prism/RigImageCopy");
+                if (_imageCopyCompute == null)
+                    throw new InvalidOperationException(
+                        "Cone-PRISM depth-copy compute resource is missing.");
+                _copyDepthArrayKernel = _imageCopyCompute.FindKernel(
+                    "CopyProjectionDepthArray");
+            }
             _slots = new Slot[capacity];
             for (int i = 0; i < capacity; i++)
                 _slots[i] = new Slot();
@@ -97,8 +121,8 @@ namespace Genesis.RoomScan.Prism
                 return false;
             }
 
-            if (!IsSupportedDimension(source.dimension) || source.width <= 0 ||
-                source.height <= 0 || source.graphicsFormat == GraphicsFormat.None)
+            if (!IsSupportedDimension(source) || source.width <= 0 ||
+                source.height <= 0)
             {
                 rejection = RigFrameRejectionReason.UnsupportedTexture;
                 return false;
@@ -125,7 +149,7 @@ namespace Genesis.RoomScan.Prism
             try
             {
                 EnsureCompatibleTarget(target, source, selected);
-                Graphics.CopyTexture(source, target.Texture);
+                CopyOnGpu(source, target.Texture);
                 try
                 {
                     target.Fence = Graphics.CreateGraphicsFence(
@@ -218,12 +242,22 @@ namespace Genesis.RoomScan.Prism
 
         private void EnsureCompatibleTarget(Slot slot, Texture source, int slotIndex)
         {
-            int volumeDepth = GetVolumeDepth(source);
+            int volumeDepth = _copyMode == GpuTextureCopyMode.ProjectionDepthArray
+                ? Math.Max(2, GetVolumeDepth(source))
+                : GetVolumeDepth(source);
+            TextureDimension targetDimension =
+                _copyMode == GpuTextureCopyMode.ProjectionDepthArray
+                    ? TextureDimension.Tex2DArray
+                    : TargetDimension(source);
+            GraphicsFormat targetFormat =
+                _copyMode == GpuTextureCopyMode.ProjectionDepthArray
+                    ? _fallbackFormat
+                    : TargetFormat(source);
             if (slot.Texture != null && slot.Texture.width == source.width &&
                 slot.Texture.height == source.height &&
-                slot.Texture.dimension == source.dimension &&
+                slot.Texture.dimension == targetDimension &&
                 slot.Texture.volumeDepth == volumeDepth &&
-                slot.Texture.graphicsFormat == source.graphicsFormat)
+                slot.Texture.graphicsFormat == targetFormat)
             {
                 return;
             }
@@ -231,14 +265,15 @@ namespace Genesis.RoomScan.Prism
             DestroySlot(slot);
             var descriptor = new RenderTextureDescriptor(source.width, source.height)
             {
-                graphicsFormat = source.graphicsFormat,
+                graphicsFormat = targetFormat,
                 depthBufferBits = 0,
                 msaaSamples = 1,
-                dimension = source.dimension,
+                dimension = targetDimension,
                 volumeDepth = volumeDepth,
                 useMipMap = false,
                 autoGenerateMips = false,
-                enableRandomWrite = false
+                enableRandomWrite =
+                    _copyMode == GpuTextureCopyMode.ProjectionDepthArray
             };
             slot.Texture = new RenderTexture(descriptor)
             {
@@ -259,8 +294,67 @@ namespace Genesis.RoomScan.Prism
             return 1;
         }
 
-        private static bool IsSupportedDimension(TextureDimension dimension) =>
-            dimension == TextureDimension.Tex2D || dimension == TextureDimension.Tex2DArray;
+        private static bool IsSupportedDimension(Texture texture)
+        {
+            TextureDimension dimension = texture.dimension;
+            return dimension == TextureDimension.Tex2D ||
+                   dimension == TextureDimension.Tex2DArray ||
+                   dimension == TextureDimension.Unknown &&
+                   texture is not Cubemap && texture is not Texture3D;
+        }
+
+        private static TextureDimension TargetDimension(Texture source) =>
+            source.dimension == TextureDimension.Tex2DArray
+                ? TextureDimension.Tex2DArray
+                : TextureDimension.Tex2D;
+
+        private GraphicsFormat TargetFormat(Texture source) =>
+            source.graphicsFormat != GraphicsFormat.None
+                ? source.graphicsFormat
+                : _fallbackFormat;
+
+        private void CopyOnGpu(Texture source, RenderTexture target)
+        {
+            if (_copyMode == GpuTextureCopyMode.ProjectionDepthArray)
+            {
+                int slices = Math.Min(GetVolumeDepth(source), target.volumeDepth);
+                if (slices < 2)
+                    throw new InvalidOperationException(
+                        "Quest environment depth did not expose both array layers.");
+                _imageCopyCompute.SetInts("_Resolution", source.width,
+                    source.height);
+                _imageCopyCompute.SetInt("_SliceCount", slices);
+                _imageCopyCompute.SetTexture(_copyDepthArrayKernel,
+                    "_SourceProjectionDepth", source);
+                _imageCopyCompute.SetTexture(_copyDepthArrayKernel,
+                    "_TargetProjectionDepth", target);
+                _imageCopyCompute.Dispatch(_copyDepthArrayKernel,
+                    Math.Max(1, (source.width + 7) / 8),
+                    Math.Max(1, (source.height + 7) / 8), slices);
+                return;
+            }
+
+            bool exactCopy = source.dimension != TextureDimension.Unknown &&
+                             source.graphicsFormat != GraphicsFormat.None &&
+                             source.graphicsFormat == target.graphicsFormat;
+            if (exactCopy)
+            {
+                Graphics.CopyTexture(source, target);
+                return;
+            }
+            // Passthrough camera textures can be external/format-less on Horizon OS.
+            // Blit remains GPU-only and performs external-image format conversion.
+            // Array slices must be selected explicitly; a plain array Blit does not
+            // preserve the two eye layers on Vulkan.
+            if (target.dimension == TextureDimension.Tex2DArray)
+            {
+                int slices = Math.Min(GetVolumeDepth(source), target.volumeDepth);
+                for (int slice = 0; slice < slices; slice++)
+                    Graphics.Blit(source, target, slice, slice);
+                return;
+            }
+            Graphics.Blit(source, target);
+        }
 
         private static uint NextGeneration(uint current) => current == uint.MaxValue ? 1u : current + 1u;
 

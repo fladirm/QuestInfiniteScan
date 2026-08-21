@@ -58,3 +58,17 @@ pose-graph display transforms, atomic monotonic revisions, and prior-revision su
 interrupted writes. Twenty alternating returns remained recoverable and the full forced-
 Vulkan EditMode suite passed 115 runnable tests with zero failures. Q3-14 stereo pressure
 is now active; physical Quest validation remains batched after Q3-15.
+
+## Exchange 6
+
+User: Rejected further blind hotfixes after the prior deployed build produced no visible
+mesh and required the implementation to follow the frozen Cone-PRISM DAG rather than
+repeat capture analysis or deploy logging-only variants.
+
+Assistant: Preserved the failed event-chain branch, completed the single canonical GPU
+work graph through Q3-15, directly bound the published PRISM meshlets to the world renderer,
+and added calibrated L/R plus temporal normal-axis photometric pressure. The new pressure
+is ambiguity/texture/first-hit gated, enters the same film H/g posterior, retains eight
+generation-safe views per film, and invalidates temporal coordinates across chunk/calibration
+epochs. Android IL2CPP and all Vulkan compute variants built successfully; the checkpoint
+now awaits one batched Quest acceptance rather than another diagnostic-only deployment.

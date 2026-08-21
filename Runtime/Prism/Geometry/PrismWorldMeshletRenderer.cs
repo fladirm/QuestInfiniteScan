@@ -32,6 +32,7 @@ namespace Genesis.RoomScan.Prism
         private ContactMeshletBuffers _active;
 
         public int ResidentCount => _resident.Count;
+        public bool RenderVisible { get; set; } = true;
 
         private void OnEnable()
         {
@@ -95,7 +96,7 @@ namespace Genesis.RoomScan.Prism
         private void OnBeginCameraRendering(ScriptableRenderContext context,
             Camera camera)
         {
-            if (_material == null || camera == null ||
+            if (!RenderVisible || _material == null || camera == null ||
                 camera.cameraType != CameraType.Game) return;
             CommandBuffer command = CommandBufferPool.Get(
                 "Cone-PRISM World Meshlets");
@@ -123,6 +124,8 @@ namespace Genesis.RoomScan.Prism
             _properties.SetBuffer(VerticesId, published.Vertices);
             _properties.SetBuffer(IndicesId, published.Indices);
             _properties.SetMatrix(WorldFromChunkId, meshlets.WorldFromChunk);
+            command.SetGlobalBuffer(VerticesId, published.Vertices);
+            command.SetGlobalBuffer(IndicesId, published.Indices);
             command.DrawProceduralIndirect(Matrix4x4.identity, _material, 0,
                 MeshTopology.Triangles, published.DrawArguments, 0, _properties);
             try

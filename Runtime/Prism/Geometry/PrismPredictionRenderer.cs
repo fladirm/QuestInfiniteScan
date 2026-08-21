@@ -63,6 +63,7 @@ namespace Genesis.RoomScan.Prism
         private int _copyHiZKernel = -1;
         private int _reduceHiZKernel = -1;
         private bool _rendering;
+        private bool _subscribedToSource;
         private long _rendered;
         private long _backpressure;
 
@@ -83,7 +84,8 @@ namespace Genesis.RoomScan.Prism
             return true;
         }
 
-        public void StartRendering(PrismDepthPreprocessor source = null)
+        public void StartRendering(PrismDepthPreprocessor source = null,
+            bool subscribeToSource = true)
         {
             if (_rendering) return;
             depthPreprocessor = source != null ? source : depthPreprocessor;
@@ -117,14 +119,19 @@ namespace Genesis.RoomScan.Prism
             _finalizeViewKernel = meshletViewCullCompute.FindKernel("FinalizeMeshletView");
             _copyHiZKernel = hiZRangeCompute.FindKernel("CopyHiZLevelZero");
             _reduceHiZKernel = hiZRangeCompute.FindKernel("ReduceHiZLevel");
-            depthPreprocessor.FrameReady += OnDepthFrame;
+            if (subscribeToSource)
+            {
+                depthPreprocessor.FrameReady += OnDepthFrame;
+                _subscribedToSource = true;
+            }
             _rendering = true;
         }
 
         public void StopRendering()
         {
-            if (_rendering && depthPreprocessor != null)
+            if (_subscribedToSource && depthPreprocessor != null)
                 depthPreprocessor.FrameReady -= OnDepthFrame;
+            _subscribedToSource = false;
             _rendering = false;
             _latest?.Dispose();
             _latest = null;
@@ -147,13 +154,18 @@ namespace Genesis.RoomScan.Prism
             }
         }
 
-        private void OnDepthFrame(NormalizedRigFrameLease source)
+        private void OnDepthFrame(NormalizedRigFrameLease source) =>
+            TryRenderFrame(source, out _);
+
+        internal bool TryRenderFrame(NormalizedRigFrameLease source,
+            out PredictionFrameLease renderedFrame)
         {
-            if (!_rendering || source == null || !source.IsValid) return;
+            renderedFrame = null;
+            if (!_rendering || source == null || !source.IsValid) return false;
             if (!_targets.TryBegin(source, out PredictionFrameLease prediction))
             {
                 _backpressure++;
-                return;
+                return false;
             }
 
             CommandBuffer command = CommandBufferPool.Get("Cone-PRISM Predict ContactFilm");
@@ -231,12 +243,15 @@ namespace Genesis.RoomScan.Prism
                 _latest = prediction;
                 previous?.Dispose();
                 _rendered++;
+                renderedFrame = prediction;
                 PredictionReady?.Invoke(prediction);
+                return true;
             }
             catch (Exception exception)
             {
                 prediction.Dispose();
                 Logger.Error($"Cone-PRISM prediction raster failed: {exception.Message}");
+                return false;
             }
             finally
             {
@@ -365,6 +380,7 @@ namespace Genesis.RoomScan.Prism
             RigIntrinsics intrinsics = view.Intrinsics;
             Vector2Int resolution = intrinsics.ImageResolution;
             Vector2 nearFar = view.DepthNearFar;
+            float rasterFar = RigDepthContract.FiniteRasterFar(nearFar);
             float left = -intrinsics.PrincipalPoint.x / intrinsics.FocalLength.x * nearFar.x;
             float right = (resolution.x - intrinsics.PrincipalPoint.x) /
                           intrinsics.FocalLength.x * nearFar.x;
@@ -372,7 +388,7 @@ namespace Genesis.RoomScan.Prism
             float top = (resolution.y - intrinsics.PrincipalPoint.y) /
                         intrinsics.FocalLength.y * nearFar.x;
             Matrix4x4 projection = Matrix4x4.Frustum(left, right, bottom, top,
-                nearFar.x, nearFar.y);
+                nearFar.x, rasterFar);
             Matrix4x4 graphicsFromOptical = Matrix4x4.Scale(new Vector3(1f, 1f, -1f));
             Matrix4x4 gpuProjection = GL.GetGPUProjectionMatrix(projection, true);
             return gpuProjection * graphicsFromOptical * opticalFromWorld;

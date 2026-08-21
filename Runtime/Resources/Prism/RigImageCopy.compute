@@ -1,0 +1,20 @@
+#pragma kernel CopyProjectionDepthArray
+
+// Horizon exposes Environment Depth as a depth-stencil RenderTexture backed by
+// an external OpenXR image. Graphics.Blit copies only its (non-existent) colour
+// attachment and Graphics.CopyTexture cannot portably reinterpret depth as R32.
+// Sample the depth attachment explicitly while it is borrowed and materialize it
+// into an immutable R32 GPU ring. No pixel crosses the CPU.
+Texture2DArray<float> _SourceProjectionDepth;
+RWTexture2DArray<float> _TargetProjectionDepth;
+
+uint2 _Resolution;
+uint _SliceCount;
+
+[numthreads(8, 8, 1)]
+void CopyProjectionDepthArray(uint3 id : SV_DispatchThreadID)
+{
+    if (any(id.xy >= _Resolution) || id.z >= _SliceCount)
+        return;
+    _TargetProjectionDepth[id] = _SourceProjectionDepth[id];
+}

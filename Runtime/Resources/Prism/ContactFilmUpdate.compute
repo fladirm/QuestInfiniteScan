@@ -2,6 +2,7 @@
 #pragma kernel ClearFilmUpdateFrame
 #pragma kernel AccumulateMatchedFilms
 #pragma kernel AccumulateBehindEvidence
+#pragma kernel AccumulatePhotometricPressure
 #pragma kernel BuildFilmSolveArguments
 #pragma kernel SolveDirtyFilms
 
@@ -58,6 +59,21 @@ struct ContactFilmHeader
     uint reserved2;
 };
 
+struct PhotometricPressure
+{
+    uint filmId;
+    uint generation;
+    float2 uv;
+    float normalResidual;
+    float precision;
+    float confidence;
+    float bestCost;
+    float secondCost;
+    float footprintArea;
+    uint sourceMask;
+    uint validViews;
+};
+
 StructuredBuffer<ConeEvent> _ConeEvents;
 StructuredBuffer<uint> _ClassifiedIndices;
 StructuredBuffer<uint> _ClassCounters;
@@ -68,9 +84,12 @@ RWStructuredBuffer<uint> _FilmDirtyFlags;
 RWStructuredBuffer<uint> _DirtyFilmIndices;
 RWStructuredBuffer<uint> _DirtyState;
 RWStructuredBuffer<uint3> _SolveDispatchArguments;
+StructuredBuffer<PhotometricPressure> _PhotometricPressures;
+StructuredBuffer<uint> _PhotometricState;
 
 uint _FilmCapacity;
 uint _EventCapacity;
+uint _PhotometricCapacity;
 float _QualityFloor;
 float _MinimumSigma;
 float _MinimumHuber;
@@ -102,7 +121,11 @@ float InformationH(uint filmInfo, uint packedIndex)
 {
     uint record = packedIndex >> 2u;
     uint lane = packedIndex & 3u;
-    return _FilmInformation[filmInfo + record][lane];
+    float4 data = _FilmInformation[filmInfo + record];
+    if (lane == 0u) return data.x;
+    if (lane == 1u) return data.y;
+    if (lane == 2u) return data.z;
+    return data.w;
 }
 
 void SetInformationH(uint filmInfo, uint packedIndex, float value)
@@ -110,23 +133,40 @@ void SetInformationH(uint filmInfo, uint packedIndex, float value)
     uint record = packedIndex >> 2u;
     uint lane = packedIndex & 3u;
     float4 data = _FilmInformation[filmInfo + record];
-    data[lane] = value;
+    if (lane == 0u) data.x = value;
+    else if (lane == 1u) data.y = value;
+    else if (lane == 2u) data.z = value;
+    else data.w = value;
     _FilmInformation[filmInfo + record] = data;
 }
 
 float InformationG(uint filmInfo, uint index)
 {
-    return index < 4u ? _FilmInformation[filmInfo + 6u][index] :
-        _FilmInformation[filmInfo + 7u][index - 4u];
+    float4 low = _FilmInformation[filmInfo + 6u];
+    if (index == 0u) return low.x;
+    if (index == 1u) return low.y;
+    if (index == 2u) return low.z;
+    if (index == 3u) return low.w;
+    float4 high = _FilmInformation[filmInfo + 7u];
+    return index == 4u ? high.x : high.y;
 }
 
 void SetInformationG(uint filmInfo, uint index, float value)
 {
-    uint record = index < 4u ? filmInfo + 6u : filmInfo + 7u;
-    uint lane = index < 4u ? index : index - 4u;
-    float4 data = _FilmInformation[record];
-    data[lane] = value;
-    _FilmInformation[record] = data;
+    if (index < 4u)
+    {
+        float4 low = _FilmInformation[filmInfo + 6u];
+        if (index == 0u) low.x = value;
+        else if (index == 1u) low.y = value;
+        else if (index == 2u) low.z = value;
+        else low.w = value;
+        _FilmInformation[filmInfo + 6u] = low;
+        return;
+    }
+    float4 high = _FilmInformation[filmInfo + 7u];
+    if (index == 4u) high.x = value;
+    else high.y = value;
+    _FilmInformation[filmInfo + 7u] = high;
 }
 
 void AtomicAddScaled(uint address, float value, float scale)
@@ -341,6 +381,80 @@ void AccumulateBehindEvidence(uint3 id : SV_DispatchThreadID)
         asint(max(eventData.footprintArea, 1e-12)));
 }
 
+[numthreads(64, 1, 1)]
+void AccumulatePhotometricPressure(uint3 id : SV_DispatchThreadID)
+{
+    uint pressureCount = min(_PhotometricState[0], _PhotometricCapacity);
+    uint pressureIndex = id.x;
+    if (pressureIndex >= pressureCount) return;
+    PhotometricPressure pressure = _PhotometricPressures[pressureIndex];
+    if (pressure.filmId == 0u || pressure.precision <= 0.0 ||
+        pressure.confidence <= 0.0 || !isfinite(pressure.normalResidual) ||
+        pressure.validViews < 2u) return;
+    uint filmIndex = pressure.filmId - 1u;
+    if (filmIndex >= _FilmCapacity) return;
+    ContactFilmHeader film = _FilmHeaders[filmIndex];
+    if (film.id != pressure.filmId || film.generation != pressure.generation ||
+        (film.flags & FILM_ACTIVE) == 0u) return;
+
+    float U = clamp(pressure.uv.x * 2.0 - 1.0, -1.25, 1.25);
+    float V = clamp(pressure.uv.y * 2.0 - 1.0, -1.25, 1.25);
+    float basis[6] = { 1.0, U, V, U * U, U * V, V * V };
+    uint filmInfo = filmIndex * 9u;
+    float4 quality = _FilmInformation[filmInfo + 8u];
+    float bestPressure = max(quality.w, pressure.precision);
+    float qualityRatio = saturate(pressure.precision /
+        max(bestPressure, 1e-8));
+    float geometryGate = saturate((qualityRatio - _QualityFloor) /
+        max(1.0 - _QualityFloor, 1e-4));
+    geometryGate = geometryGate * geometryGate * (3.0 - 2.0 * geometryGate);
+    float huberDelta = max(_MinimumHuber,
+        2.0 * max(film.sigmaNormal, _MinimumSigma));
+    float robust = abs(pressure.normalResidual) <= huberDelta ? 1.0 :
+        huberDelta / max(abs(pressure.normalResidual), 1e-8);
+    float geometryWeight = saturate(pressure.confidence) * geometryGate * robust;
+    if (geometryWeight <= 0.0)
+    {
+        InterlockedAdd(_DirtyState[3], 1u);
+        return;
+    }
+
+    uint baseWord = filmIndex * WORDS_PER_FILM;
+    uint priorDirty;
+    InterlockedCompareExchange(_FilmDirtyFlags[filmIndex], 0u, 1u, priorDirty);
+    if (priorDirty == 0u)
+    {
+        uint dirtySlot;
+        InterlockedAdd(_DirtyState[0], 1u, dirtySlot);
+        if (dirtySlot < _FilmCapacity)
+            _DirtyFilmIndices[dirtySlot] = filmIndex;
+        else
+            InterlockedAdd(_DirtyState[1], 1u);
+    }
+
+    [unroll]
+    for (uint row = 0u; row < 6u; ++row)
+    {
+        [unroll]
+        for (uint column = row; column < 6u; ++column)
+            AtomicAddScaled(baseWord + UpperIndex(row, column),
+                geometryWeight * basis[row] * basis[column], H_FIXED_SCALE);
+        AtomicAddScaled(baseWord + 21u + row,
+            geometryWeight * basis[row] * pressure.normalResidual,
+            B_FIXED_SCALE);
+    }
+    float supportWeight = saturate(pressure.confidence) *
+        max(0.05, qualityRatio);
+    AtomicAddScaled(baseWord + 27u, supportWeight, SUPPORT_FIXED_SCALE);
+    InterlockedAdd(_FrameAccumulator[baseWord + 28u], 1);
+    AtomicAddScaled(baseWord + 31u, -supportWeight, SUPPORT_FIXED_SCALE);
+    InterlockedMax(_FrameAccumulator[baseWord + 29u],
+        asint(max(pressure.precision, 0.0)));
+    InterlockedMin(_FrameAccumulator[baseWord + 30u],
+        asint(max(pressure.footprintArea, 1e-12)));
+    InterlockedAdd(_DirtyState[2], 1u);
+}
+
 [numthreads(1, 1, 1)]
 void BuildFilmSolveArguments(uint3 id : SV_DispatchThreadID)
 {
@@ -348,7 +462,8 @@ void BuildFilmSolveArguments(uint3 id : SV_DispatchThreadID)
     _SolveDispatchArguments[0] = uint3((dirtyCount + 63u) / 64u, 1u, 1u);
 }
 
-bool CholeskySolve(float matrix[36], float rhs[6], out float solution[6])
+bool CholeskySolve(float coefficientMatrix[36], float rhs[6],
+    out float solution[6])
 {
     float lower[36];
     [unroll] for (uint i = 0u; i < 36u; ++i) lower[i] = 0.0;
@@ -358,7 +473,7 @@ bool CholeskySolve(float matrix[36], float rhs[6], out float solution[6])
         [unroll]
         for (uint column = 0u; column <= row; ++column)
         {
-            float sum = matrix[row * 6u + column];
+            float sum = coefficientMatrix[row * 6u + column];
             [unroll] for (uint k = 0u; k < column; ++k)
                 sum -= lower[row * 6u + k] * lower[column * 6u + k];
             if (row == column)

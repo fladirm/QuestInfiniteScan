@@ -265,7 +265,10 @@ void DepthPlaneFit(uint3 id : SV_DispatchThreadID)
     }
 
     float rejectDistance = max(0.012, 3.0 * center.z);
-    float3 centroid = 0.0;
+    // `centroid` is an HLSL interpolation modifier and is rejected as an
+    // identifier by Unity's Vulkan compiler. Keep the plane-fit accumulator
+    // unambiguous across DXC/glslang backends.
+    float3 sampleCentroid = 0.0;
     float weightSum = 0.0;
     uint support = 0u;
     float maxDepthDelta = 0.0;
@@ -276,13 +279,15 @@ void DepthPlaneFit(uint3 id : SV_DispatchThreadID)
     {
         int2 pixel = (int2)id.xy + int2(x, y);
         if (!InDepthBounds(pixel)) continue;
-        float4 sample = _ConsensusDepth[uint3((uint2)pixel, id.z)];
-        float delta = abs(sample.x - center.x);
-        maxDepthDelta = max(maxDepthDelta, sample.x > 0.0 ? delta : rejectDistance * 2.0);
-        if (sample.x <= 0.0 || delta > rejectDistance) continue;
+        float4 neighbourSample = _ConsensusDepth[uint3((uint2)pixel, id.z)];
+        float delta = abs(neighbourSample.x - center.x);
+        maxDepthDelta = max(maxDepthDelta,
+            neighbourSample.x > 0.0 ? delta : rejectDistance * 2.0);
+        if (neighbourSample.x <= 0.0 || delta > rejectDistance) continue;
         float weight = rcp(1.0 + delta * delta /
             max(center.z * center.z, 1e-8));
-        centroid += LoadRay((uint2)pixel, id.z) * sample.x * weight;
+        sampleCentroid += LoadRay((uint2)pixel, id.z) *
+            neighbourSample.x * weight;
         weightSum += weight;
         support++;
     }
@@ -293,7 +298,7 @@ void DepthPlaneFit(uint3 id : SV_DispatchThreadID)
         _BoundaryEvidence[id] = float4(depthBoundary, 0.0, 0.0, depthBoundary);
         return;
     }
-    centroid /= weightSum;
+    sampleCentroid /= weightSum;
 
     float a = 0.0, b = 0.0, c = 0.0, d = 0.0, e = 0.0, f = 0.0;
     [unroll]
@@ -303,12 +308,13 @@ void DepthPlaneFit(uint3 id : SV_DispatchThreadID)
     {
         int2 pixel = (int2)id.xy + int2(cx, cy);
         if (!InDepthBounds(pixel)) continue;
-        float4 sample = _ConsensusDepth[uint3((uint2)pixel, id.z)];
-        float delta = abs(sample.x - center.x);
-        if (sample.x <= 0.0 || delta > rejectDistance) continue;
+        float4 neighbourSample = _ConsensusDepth[uint3((uint2)pixel, id.z)];
+        float delta = abs(neighbourSample.x - center.x);
+        if (neighbourSample.x <= 0.0 || delta > rejectDistance) continue;
         float weight = rcp(1.0 + delta * delta /
             max(center.z * center.z, 1e-8));
-        float3 q = LoadRay((uint2)pixel, id.z) * sample.x - centroid;
+        float3 q = LoadRay((uint2)pixel, id.z) * neighbourSample.x -
+            sampleCentroid;
         a += weight * q.x * q.x;
         b += weight * q.x * q.y;
         c += weight * q.x * q.z;

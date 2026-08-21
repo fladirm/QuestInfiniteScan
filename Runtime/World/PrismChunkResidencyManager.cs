@@ -32,6 +32,8 @@ namespace Genesis.RoomScan.World
             new(StringComparer.Ordinal);
         private readonly LinkedList<string> _recentLru = new();
         private Task _activationTail = Task.CompletedTask;
+        private string _activationTargetKey;
+        private string _residentActiveKey;
         private bool _subscribed;
 
         public bool IsTransitioning => !_activationTail.IsCompleted;
@@ -54,7 +56,6 @@ namespace Genesis.RoomScan.World
             _lifetime = new CancellationTokenSource();
             _submaps.RolloverRequested += OnRolloverRequested;
             _submaps.ActiveChunkChanged += OnActiveChunkChanged;
-            _submaps.ChunkRevisionPublished += OnLegacyRevisionPublished;
             _submaps.PoseGraphRefined += OnPoseGraphRefined;
             _scanner.ScanStarted += OnScanStarted;
             _scanner.ScanStopped += OnScanStopped;
@@ -69,7 +70,6 @@ namespace Genesis.RoomScan.World
             {
                 _submaps.RolloverRequested -= OnRolloverRequested;
                 _submaps.ActiveChunkChanged -= OnActiveChunkChanged;
-                _submaps.ChunkRevisionPublished -= OnLegacyRevisionPublished;
                 _submaps.PoseGraphRefined -= OnPoseGraphRefined;
                 _scanner.ScanStarted -= OnScanStarted;
                 _scanner.ScanStopped -= OnScanStopped;
@@ -107,8 +107,27 @@ namespace Genesis.RoomScan.World
 
         private void OnScanStarted()
         {
+            _ = PrepareActiveChunkAsync();
+        }
+
+        /// <summary>
+        /// Establishes the active canonical arenas before capture is opened. The method
+        /// is idempotent for the already resident chunk and makes startup ordering an
+        /// explicit awaitable contract instead of a stop/restart side effect.
+        /// </summary>
+        internal async Task PrepareActiveChunkAsync()
+        {
+            Bind();
             ChunkRecord active = _submaps?.ActiveChunk;
-            if (active != null) OnActiveChunkChanged(active);
+            if (active == null)
+                throw new InvalidOperationException(
+                    "Cone-PRISM has no active chunk to prepare.");
+            OnActiveChunkChanged(active);
+            await _activationTail;
+            if (!string.Equals(_residentActiveKey, ActiveKey(active),
+                    StringComparison.Ordinal))
+                throw new InvalidOperationException(
+                    $"Cone-PRISM failed to make {active.chunkId} resident.");
         }
 
         private void BeginStage(string chunkId)
@@ -130,6 +149,59 @@ namespace Genesis.RoomScan.World
                 cancellationToken: _lifetime.Token);
             _staging.Add(chunkId, task);
             _ = RetainWhenReadyAsync(chunkId, task, _lifetime.Token);
+        }
+
+        /// <summary>
+        /// Captures the live canonical PRISM arenas for a chunk. The GPU compaction and
+        /// readbacks are asynchronous; no TSDF, Surface Nets, or synchronous CPU readback
+        /// participates in a world transition.
+        /// </summary>
+        internal async Task<PrismCanonicalChunkSnapshot> StageChunkAsync(string chunkId)
+        {
+            Bind();
+            if (string.IsNullOrEmpty(chunkId))
+                throw new ArgumentException("A PRISM chunk id is required.", nameof(chunkId));
+            if (_lifetime == null || _lifetime.IsCancellationRequested)
+                throw new InvalidOperationException("PRISM residency is not active.");
+            BeginStage(chunkId);
+            if (!_staging.TryGetValue(chunkId,
+                    out Task<PrismCanonicalChunkSnapshot> task))
+                throw new InvalidOperationException(
+                    "Cone-PRISM pools are unavailable for canonical staging.");
+            PrismCanonicalChunkSnapshot snapshot = await task;
+            _lifetime.Token.ThrowIfCancellationRequested();
+            RetainRecent(chunkId, snapshot);
+            return snapshot;
+        }
+
+        /// <summary>
+        /// Atomically publishes an already staged canonical snapshot through WorldStore.
+        /// This is the sole reconstruction payload writer used by the live PRISM path.
+        /// </summary>
+        internal async Task<PrismChunkPublishResult> PublishChunkAsync(ChunkRecord chunk,
+            PrismCanonicalChunkSnapshot snapshot,
+            ChunkLifecycleState? stateAfterPublish = null)
+        {
+            Bind();
+            if (_submaps?.Store == null || _submaps.Manifest == null)
+                return new PrismChunkPublishResult
+                {
+                    Error = "No PRISM world is attached for publication."
+                };
+            long timestamp = Math.Max(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                Math.Max(chunk?.updatedUnixMilliseconds ?? 0L,
+                    _submaps.Manifest.updatedUnixMilliseconds));
+            PrismChunkPublishResult result = await PrismChunkPublisher.PublishAsync(
+                _submaps.Store, _submaps.Manifest, chunk, snapshot, timestamp,
+                stateAfterPublish);
+            if (result.Success && chunk != null)
+            {
+                _staging.Remove(chunk.chunkId);
+                RetainRecent(chunk.chunkId, snapshot);
+                Logger.Info($"Published Cone-PRISM {chunk.chunkId} revision " +
+                            result.Revision);
+            }
+            return result;
         }
 
         private async Task RetainWhenReadyAsync(string chunkId,
@@ -156,6 +228,15 @@ namespace Genesis.RoomScan.World
             _worldRenderer?.SetActive(chunk.chunkId,
                 _scanner.PrismPredictionRenderer?.Meshlets);
             if (!_scanner.IsScanning) return;
+            string activeKey = ActiveKey(chunk);
+            if (string.Equals(_residentActiveKey, activeKey,
+                    StringComparison.Ordinal))
+                return;
+            if (!_activationTail.IsCompleted && string.Equals(
+                    _activationTargetKey, activeKey,
+                    StringComparison.Ordinal))
+                return;
+            _activationTargetKey = activeKey;
             Task prior = _activationTail;
             _activationTail = ActivateAfterAsync(prior, chunk, _lifetime.Token);
         }
@@ -163,6 +244,7 @@ namespace Genesis.RoomScan.World
         private async Task ActivateAfterAsync(Task prior, ChunkRecord chunk,
             CancellationToken token)
         {
+            bool resumeCapture = false;
             try
             {
                 if (prior != null) await prior;
@@ -175,7 +257,9 @@ namespace Genesis.RoomScan.World
                         StringComparison.Ordinal))
                     return;
 
-                _scanner.PausePrismForResidency();
+                resumeCapture = _scanner.IsPrismCaptureRunning;
+                if (resumeCapture)
+                    _scanner.PausePrismForResidency();
                 await AwaitGpuIdleAsync(token);
                 ContactFilmPool films = _scanner.PrismFilmSpawner?.FilmPool;
                 ContactBoundaryPool boundaries =
@@ -206,6 +290,7 @@ namespace Genesis.RoomScan.World
                 _scanner.PrismBoundaryGraph?.RebuildCanonicalIndex();
                 _scanner.ConfigurePrismChunk(chunk);
                 _worldRenderer?.SetActive(chunk.chunkId, meshlets);
+                _residentActiveKey = ActiveKey(chunk);
                 Logger.Info(snapshot == null
                     ? $"Cone-PRISM activated empty {chunk.chunkId}"
                     : $"Cone-PRISM resumed {chunk.chunkId} revision {chunk.revision} " +
@@ -218,7 +303,8 @@ namespace Genesis.RoomScan.World
             }
             finally
             {
-                if (_scanner != null) _scanner.ResumePrismAfterResidency();
+                if (resumeCapture && _scanner != null)
+                    _scanner.ResumePrismAfterResidency();
             }
         }
 
@@ -241,37 +327,6 @@ namespace Genesis.RoomScan.World
             WorldStore store = _submaps.Store;
             string worldId = _submaps.Manifest.worldId;
             return await Task.Run(() => LoadSnapshot(store, worldId, artifact), token);
-        }
-
-        private async void OnLegacyRevisionPublished(WorldStore store, string worldId,
-            string chunkId, int revision)
-        {
-            try
-            {
-                if (!_staging.TryGetValue(chunkId,
-                        out Task<PrismCanonicalChunkSnapshot> staged)) return;
-                PrismCanonicalChunkSnapshot snapshot = await staged;
-                if (_lifetime == null || _lifetime.IsCancellationRequested) return;
-                ChunkRecord chunk = _submaps.Manifest?.chunks?.Find(candidate =>
-                    candidate != null && string.Equals(candidate.chunkId, chunkId,
-                        StringComparison.Ordinal));
-                if (chunk == null || chunk.revision < revision) return;
-                PrismChunkPublishResult result = await PrismChunkPublisher.PublishAsync(
-                    store, _submaps.Manifest, chunk, snapshot,
-                    DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
-                if (!result.Success)
-                    throw new IOException(result.Error);
-                _staging.Remove(chunkId);
-                RetainRecent(chunkId, snapshot);
-                Logger.Info($"Published Cone-PRISM {chunkId} revision " +
-                    result.Revision);
-            }
-            catch (OperationCanceledException) { }
-            catch (Exception exception)
-            {
-                Logger.Error($"Cone-PRISM publication failed for {chunkId}: " +
-                    exception.Message);
-            }
         }
 
         private void RetainRecent(string chunkId,
@@ -327,6 +382,9 @@ namespace Genesis.RoomScan.World
                 throw new InvalidDataException(error);
             return snapshot;
         }
+
+        private string ActiveKey(ChunkRecord chunk) =>
+            $"{_submaps?.Manifest?.worldId ?? string.Empty}/{chunk?.chunkId ?? string.Empty}";
 
         private static async Task AwaitGpuIdleAsync(CancellationToken token)
         {

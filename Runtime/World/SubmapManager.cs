@@ -31,6 +31,8 @@ namespace Genesis.RoomScan.World
     {
         [Header("Large World")]
         [SerializeField] private bool largeWorldMode;
+        [SerializeField, Min(2f), Tooltip("Storage/pose-graph extent of a canonical PRISM chunk; geometry itself is not voxelized")]
+        private float prismChunkSizeMeters = 4f;
         [SerializeField] private SubmapRolloverSettings rollover = new();
         [SerializeField, Tooltip("Finalize and advance automatically at a chunk boundary")]
         private bool autoFinalizeRollover = true;
@@ -98,14 +100,9 @@ namespace Genesis.RoomScan.World
         public float RearmHysteresisMeters => rollover.rearmHysteresisMeters;
         public bool UsesLargeWorldDefaults => rollover.UsesLargeWorldDefaults;
         public bool IsFinalizing => _finalizationTask != null && !_finalizationTask.IsCompleted;
-        /// <summary>
-        /// True only while the single reusable TSDF must not receive another integration.
-        /// Large disk writes intentionally do not hold this gate: they continue after the
-        /// volume has switched to the next chunk.
-        /// </summary>
-        public bool IsVolumeTransitioning =>
-            _controller?.PendingRequest != null &&
-            (IsFinalizing || _preparedRequest != null);
+        /// <summary>True while canonical PRISM arenas are staged or activated.</summary>
+        public bool IsVolumeTransitioning => IsFinalizing ||
+            (_scanner?.PrismChunkResidency?.IsTransitioning ?? false);
         public int BackgroundPublicationCount => _backgroundPublicationCount;
         public bool IsPoseGraphRefining => _poseGraphTask != null &&
                                            !_poseGraphTask.IsCompleted;
@@ -318,27 +315,17 @@ namespace Genesis.RoomScan.World
         public void OnScanStopped()
         {
             if (!largeWorldMode || _controller == null || _store == null ||
-                _controller.PendingRequest != null || IsFinalizing || IsRestoring ||
-                _volume == null || _volume.IntegrationCount <= 0)
+                _controller.PendingRequest != null || IsFinalizing || IsRestoring)
                 return;
-            _finalizationTask = FinalizeActiveChunkAsync();
+            _finalizationTask = FinalizeActivePrismChunkAsync();
         }
 
         public bool TryStartNewWorld(string worldId, string displayName, Pose cameraWorldPose,
             out string error)
         {
             error = null;
-            _volume ??= _scanner != null ? _scanner.VolumeIntegrator :
-                GetComponent<VolumeIntegrator>();
-            if (_volume == null)
-            {
-                error = "VolumeIntegrator is missing.";
-                return false;
-            }
-
-            int3 count = _volume.VoxelCount;
-            var extents = new Vector3(count.x, count.y, count.z) *
-                          (_volume.VoxelSize * 0.5f);
+            float extent = Mathf.Max(1f, prismChunkSizeMeters * 0.5f);
+            var extents = Vector3.one * extent;
             float yaw = cameraWorldPose.rotation.eulerAngles.y;
             var initialPose = new RigidPoseData(cameraWorldPose.position,
                 Quaternion.Euler(0f, yaw, 0f));
@@ -352,9 +339,6 @@ namespace Genesis.RoomScan.World
             if (!SubmapRolloverController.TryCreate(manifest, rollover,
                     out SubmapRolloverController controller, out error))
                 return false;
-            if (!_volume.TrySetWorldFromVolume(initialPose, out error))
-                return false;
-
             _store = store;
             _controller = controller;
             _lastRaisedRequest = null;
@@ -368,8 +352,6 @@ namespace Genesis.RoomScan.World
             _keyframeRestoreTask = null;
             _diffSoupCache?.Clear();
             _meshCache?.Clear();
-            _volume.ReallocateVolumes();
-            _volume.Clear();
             ConfigureChunkKeyframes(_controller.ActiveChunk, false);
             _scanner?.ConfigurePrismChunk(_controller.ActiveChunk);
             ActiveChunkChanged?.Invoke(_controller.ActiveChunk);
@@ -390,11 +372,6 @@ namespace Genesis.RoomScan.World
             if (!SubmapRolloverController.TryCreate(manifest, rollover,
                     out SubmapRolloverController controller, out error))
                 return false;
-            _volume ??= _scanner != null ? _scanner.VolumeIntegrator :
-                GetComponent<VolumeIntegrator>();
-            if (_volume == null ||
-                !_volume.TrySetWorldFromVolume(controller.ActiveChunk.worldFromChunk, out error))
-                return false;
             _diffSoupCache?.Clear();
             _meshCache?.Clear();
             _store = store;
@@ -409,9 +386,7 @@ namespace Genesis.RoomScan.World
             ResetOverlapPipeline();
             _scanner?.ConfigurePrismChunk(_controller.ActiveChunk);
             ActiveChunkChanged?.Invoke(_controller.ActiveChunk);
-            _volume.ReallocateVolumes();
-            _volume.Clear();
-            _restoreTask = RestoreActiveVolumeAsync();
+            _restoreTask = null;
             BeginRestoreChunkKeyframes(_controller.ActiveChunk);
             if (_meshCache != null)
             {
@@ -430,8 +405,50 @@ namespace Genesis.RoomScan.World
         /// </summary>
         public bool TryCompletePendingRollover(out string error)
         {
-            return TryCompletePendingRollover(ChunkLifecycleState.Persisted, null,
+            return TryCompletePrismRollover(ChunkLifecycleState.Persisted,
                 out _, out _, out error);
+        }
+
+        private bool TryCompletePrismRollover(ChunkLifecycleState sourceState,
+            out ChunkRecord source, out ChunkRecord target, out string error)
+        {
+            source = null;
+            target = null;
+            error = null;
+            if (_controller == null || _store == null)
+            {
+                error = "No active infinite world.";
+                return false;
+            }
+            SubmapRolloverRequest pending = _controller.PendingRequest;
+            source = pending != null ? FindChunk(pending.SourceChunkId) : null;
+            if (source == null)
+            {
+                error = "Pending rollover source chunk is missing.";
+                return false;
+            }
+            long now = Math.Max(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                _controller.Manifest.updatedUnixMilliseconds);
+            if (!_controller.TryCommitPending(_store, now, sourceState,
+                    out target, out error))
+                return false;
+
+            if (pending.IsRevisit)
+                BeginRestoreChunkKeyframes(target);
+            else
+                ConfigureChunkKeyframes(target, false);
+            _lastRaisedRequest = null;
+            if (_keyframes != null)
+                _keyframes.CaptureEnabled = !pending.IsRevisit ||
+                    _keyframeRestoreTask == null || _keyframeRestoreTask.IsCompleted;
+            _scanner?.ConfigurePrismChunk(target);
+            ActiveChunkChanged?.Invoke(target);
+            _meshCache?.RefreshTransforms(_controller.Manifest);
+            _diffSoupCache?.RefreshTransforms(_controller.Manifest);
+            Logger.Info($"Cone-PRISM rollover complete: active={target.chunkId}, " +
+                        $"revisit={pending.IsRevisit}");
+            EmitWorldProfile("rollover");
+            return true;
         }
 
         private bool TryCompletePendingRollover(ChunkLifecycleState sourceState,
@@ -523,11 +540,6 @@ namespace Genesis.RoomScan.World
             }
             if (IsRestoring)
                 return;
-            if (_preparedRequest != null && Time.unscaledTime >= _retryAfterUnscaledTime)
-            {
-                TryCompletePreparedRollover();
-                return;
-            }
             Camera camera = Camera.main;
             if (camera == null)
                 return;
@@ -550,7 +562,7 @@ namespace Genesis.RoomScan.World
                             $"direction={request.BoundaryDirection}");
                 if (autoFinalizeRollover && !IsFinalizing &&
                     Time.unscaledTime >= _retryAfterUnscaledTime)
-                    _finalizationTask = FinalizeAndAdvanceAsync(request);
+                    _finalizationTask = FinalizePrismAndAdvanceAsync(request);
             }
         }
 
@@ -625,6 +637,158 @@ namespace Genesis.RoomScan.World
             return null;
         }
 
+        private async Task FinalizePrismAndAdvanceAsync(SubmapRolloverRequest request)
+        {
+            SetFinalizationStatus("Staging canonical PRISM chunk");
+            try
+            {
+                if (_controller == null || _store == null || request == null ||
+                    !ReferenceEquals(request, _controller.PendingRequest))
+                    throw new InvalidOperationException(
+                        "Rollover request is no longer active.");
+                PrismChunkResidencyManager residency = _scanner?.PrismChunkResidency;
+                if (residency == null)
+                    throw new InvalidOperationException(
+                        "PRISM chunk residency manager is unavailable.");
+                ChunkRecord requestedSource = FindChunk(request.SourceChunkId);
+                if (requestedSource == null)
+                    throw new InvalidOperationException(
+                        "Source PRISM chunk is missing from the world.");
+                if (_keyframes != null)
+                    _keyframes.CaptureEnabled = false;
+                if (_keyframes != null &&
+                    !await _keyframes.WaitForPendingWritesAsync())
+                    throw new IOException(
+                        "Timed out waiting for active keyframe writes.");
+
+                PrismCanonicalChunkSnapshot snapshot =
+                    await residency.StageChunkAsync(request.SourceChunkId);
+                SetFinalizationStatus("Switching canonical PRISM chunk");
+                if (!TryCompletePrismRollover(ChunkLifecycleState.Finalizing,
+                        out ChunkRecord source, out ChunkRecord target,
+                        out string commitError))
+                    throw new InvalidOperationException(commitError);
+
+                QueuePrismPublication(source, snapshot);
+                long elapsed = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() -
+                               request.RequestedUnixMilliseconds;
+                Logger.Info($"Cone-PRISM live switch: {source.chunkId} -> " +
+                            $"{target.chunkId} in {elapsed}ms; canonical persistence " +
+                            "continues in background");
+            }
+            catch (Exception exception)
+            {
+                SetFinalizationStatus("Failed: " + exception.Message);
+                Logger.Error("Cone-PRISM rollover failed: " + exception);
+                _controller?.CancelPending();
+                _lastRaisedRequest = null;
+                _retryAfterUnscaledTime = Time.unscaledTime +
+                    Mathf.Max(0.25f, finalizationRetrySeconds);
+            }
+            finally
+            {
+                if (_keyframes != null)
+                    _keyframes.CaptureEnabled = true;
+                _finalizationTask = null;
+            }
+        }
+
+        private async Task FinalizeActivePrismChunkAsync()
+        {
+            SetFinalizationStatus("Saving canonical PRISM chunk");
+            try
+            {
+                ChunkRecord chunk = _controller?.ActiveChunk;
+                PrismChunkResidencyManager residency = _scanner?.PrismChunkResidency;
+                if (chunk == null || _store == null || residency == null)
+                    throw new InvalidOperationException(
+                        "No active PRISM chunk can be finalized.");
+                Task pending = GetChunkPublicationTail(_controller.Manifest.worldId,
+                    chunk.chunkId);
+                if (pending != null && !pending.IsCompleted)
+                    await pending;
+                if (_keyframes != null)
+                    _keyframes.CaptureEnabled = false;
+                if (_keyframes != null &&
+                    !await _keyframes.WaitForPendingWritesAsync())
+                    throw new IOException(
+                        "Timed out waiting for active keyframe writes.");
+                PrismCanonicalChunkSnapshot snapshot =
+                    await residency.StageChunkAsync(chunk.chunkId);
+                PrismChunkPublishResult publication =
+                    await residency.PublishChunkAsync(chunk, snapshot);
+                if (!publication.Success)
+                    throw new IOException(publication.Error);
+                ChunkRevisionPublished?.Invoke(_store, _controller.Manifest.worldId,
+                    chunk.chunkId, publication.Revision);
+                SetFinalizationStatus("Idle");
+            }
+            catch (Exception exception)
+            {
+                SetFinalizationStatus("Failed: " + exception.Message);
+                Logger.Error("Active Cone-PRISM finalization failed: " + exception);
+            }
+            finally
+            {
+                if (_keyframes != null)
+                    _keyframes.CaptureEnabled = true;
+                _finalizationTask = null;
+            }
+        }
+
+        private void QueuePrismPublication(ChunkRecord source,
+            PrismCanonicalChunkSnapshot snapshot)
+        {
+            if (source == null || snapshot == null || _controller?.Manifest == null)
+                return;
+            string publicationKey = PublicationKey(_controller.Manifest.worldId,
+                source.chunkId);
+            _chunkPublicationTails.TryGetValue(publicationKey, out Task previous);
+            _backgroundPublicationCount++;
+            SetFinalizationStatus($"Scanning; persisting " +
+                                  $"{_backgroundPublicationCount} chunk(s)");
+            Task tail = PersistPrismChunkAfterAsync(previous, source, snapshot);
+            _chunkPublicationTails[publicationKey] = tail;
+        }
+
+        private async Task PersistPrismChunkAfterAsync(Task previous, ChunkRecord source,
+            PrismCanonicalChunkSnapshot snapshot)
+        {
+            try
+            {
+                if (previous != null)
+                    await previous;
+                PrismChunkResidencyManager residency = _scanner?.PrismChunkResidency;
+                if (residency == null)
+                    throw new InvalidOperationException(
+                        "PRISM residency manager disappeared during publication.");
+                PrismChunkPublishResult result = await residency.PublishChunkAsync(
+                    source, snapshot, ChunkLifecycleState.Persisted);
+                if (!result.Success)
+                    throw new IOException(result.Error);
+                ChunkRevisionPublished?.Invoke(_store, _controller.Manifest.worldId,
+                    source.chunkId, result.Revision);
+            }
+            catch (Exception exception)
+            {
+                Logger.Error($"Canonical PRISM publication failed for " +
+                             $"{source?.chunkId}: {exception}");
+                SetFinalizationStatus("Background persistence failed: " +
+                                      exception.Message);
+            }
+            finally
+            {
+                _backgroundPublicationCount = Math.Max(0,
+                    _backgroundPublicationCount - 1);
+                if (_backgroundPublicationCount == 0 &&
+                    !FinalizationStatus.StartsWith(
+                        "Background persistence failed", StringComparison.Ordinal))
+                    SetFinalizationStatus("Idle");
+            }
+        }
+
+        // Retained only for importing historical QRS volume packages. The live scanner
+        // never calls this legacy path.
         private async Task FinalizeAndAdvanceAsync(SubmapRolloverRequest request)
         {
             SetFinalizationStatus("Capturing GPU snapshot");
@@ -913,11 +1077,9 @@ namespace Genesis.RoomScan.World
             ChunkRecord active = _controller?.ActiveChunk;
             if (active != null)
             {
-                if (_volume != null && !_volume.TrySetWorldFromVolume(
-                        active.worldFromChunk, out string volumeError))
-                    Logger.Error("Optimized active volume pose was rejected: " + volumeError);
                 _keyframes?.TryUpdateChunkWorldPose(active.chunkId,
                     active.worldFromChunk);
+                _scanner?.ConfigurePrismChunk(active);
             }
             _meshCache?.RefreshTransforms(_controller?.Manifest);
             _diffSoupCache?.RefreshTransforms(_controller?.Manifest);

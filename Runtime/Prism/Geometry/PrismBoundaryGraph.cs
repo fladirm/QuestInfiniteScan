@@ -87,6 +87,7 @@ namespace Genesis.RoomScan.Prism
         private int _buildArgsKernel = -1;
         private int _solveKernel = -1;
         private bool _running;
+        private bool _subscribedToSource;
         private bool _initialized;
         private long _processedFrames;
 
@@ -99,7 +100,7 @@ namespace Genesis.RoomScan.Prism
             _chunkFromWorld = worldFromChunk.inverse;
 
         public void StartTracking(PrismFilmUpdater updater = null,
-            PrismFilmSpawner films = null)
+            PrismFilmSpawner films = null, bool subscribeToSource = true)
         {
             if (_running) return;
             filmUpdater = updater != null ? updater : filmUpdater;
@@ -133,7 +134,11 @@ namespace Genesis.RoomScan.Prism
                     CeilDiv(Math.Max(_pool.Capacity, _pool.HashCapacity), 64), 1, 1);
                 _initialized = true;
             }
-            filmUpdater.UpdateCompleted += OnFilmUpdateCompleted;
+            if (subscribeToSource)
+            {
+                filmUpdater.UpdateCompleted += OnFilmUpdateCompleted;
+                _subscribedToSource = true;
+            }
             _running = true;
         }
 
@@ -164,8 +169,9 @@ namespace Genesis.RoomScan.Prism
 
         public void StopTracking()
         {
-            if (_running && filmUpdater != null)
+            if (_subscribedToSource && filmUpdater != null)
                 filmUpdater.UpdateCompleted -= OnFilmUpdateCompleted;
+            _subscribedToSource = false;
             _running = false;
         }
 
@@ -178,9 +184,13 @@ namespace Genesis.RoomScan.Prism
             _initialized = false;
         }
 
-        private void OnFilmUpdateCompleted(ConeEventFrameLease frame)
+        private void OnFilmUpdateCompleted(ConeEventFrameLease frame) =>
+            DispatchBoundaries(frame);
+
+        internal bool DispatchBoundaries(ConeEventFrameLease frame)
         {
-            if (!_running || frame == null || frame.IsDisposed || _pool == null) return;
+            if (!_running || frame == null || frame.IsDisposed || _pool == null)
+                return false;
             try
             {
                 NormalizedRigFrameLease measured = frame.Source.Source;
@@ -200,11 +210,13 @@ namespace Genesis.RoomScan.Prism
                 _processedFrames++;
                 if (BoundariesUpdated != null) BoundariesUpdated.Invoke(frame);
                 else filmSpawner.NotifyFilmsMutated();
+                return true;
             }
             catch (Exception exception)
             {
                 Logger.Error($"Cone-PRISM boundary update failed: {exception.Message}");
                 filmSpawner.NotifyFilmsMutated();
+                return false;
             }
         }
 

@@ -78,9 +78,17 @@ Updated: 2026-08-20 (Europe/Prague)
   GPU-indirect meshlet caches, interrupted publication preserves the prior revision,
   and 20 alternating transitions no longer enter the archived disappearance/finalizing
   failure. Forced-Vulkan EditMode passed 115/115 runnable tests (3 intentionally skipped).
-- `Q3-14` is active. The next production path conditions calibrated L/R photometric
-  pressure on unresolved ContactFilm posterior intervals and feeds accepted normal-axis
-  corrections into the same geometry/displacement information state.
+- `Q3-14` and `Q3-15` are code-complete and Android/Vulkan build-verified, with their
+  shared physical Quest acceptance still pending. `PhotometricFocus.compute` performs
+  rotating sparse posterior-centred 9+5 L/R and temporal normal searches using robust
+  Census/gradient costs, ambiguity/texture/first-hit gates, and parabolic sub-steps.
+  `PrismPhotometricRefiner` retains 16 stereo GPU keyframes and eight information-scored,
+  generation-safe views per film. Accepted corrections enter the canonical `6x6 H/g`
+  solve, remain bounded by the original range/footprint/incidence pressure, and therefore
+  cannot let a weak distant view overwrite close compressed geometry. Chunk-frame and
+  calibration changes invalidate only temporal view coordinates, never film posterior
+  state. Unity 6000.5.9f1 produced the Android/Vulkan APK with no shader or C# errors
+  (`sha256 0cd80871469f7c5cc8645315c8bd8e299fe1b06fed5d0f7ae1d619c1ec9484fd`).
 
 ## Reuse map
 
@@ -122,11 +130,12 @@ Remove from the shipped product after PRISM parity:
 
 ## Immediate implementation actions
 
-1. Implement Q3-14 ContactFilm-conditioned L/R narrow stereo with posterior-centered
-   coarse/fine candidates, ambiguity rejection, and same-posterior pressure updates.
-2. Keep physical Quest validation batched at useful vertical milestones rather than
-   interrupting implementation for trivial plumbing checks.
-3. Continue directly into Q3-15 temporal cone-bundle focusing after stereo contracts.
+1. Deploy the Q3-14/Q3-15 vertical checkpoint once and run the batched live geometry,
+   thin-surface, and repeated-pass acceptance; do not repeat trivial capture plumbing tests.
+2. If the physical acceptance passes, close Q3-14/Q3-15 and continue directly into Q3-16
+   measured hierarchical displacement/normal refinement.
+3. If it fails, diagnose the failed invariant from the single canonical GPU work graph;
+   do not reintroduce TSDF, a parallel mapper, or detached debug geometry.
 
 ## Safety
 

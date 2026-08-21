@@ -30,6 +30,8 @@ namespace Genesis.RoomScan.Prism
 
         private static readonly int FilmCapacityId = Shader.PropertyToID("_FilmCapacity");
         private static readonly int EventCapacityId = Shader.PropertyToID("_EventCapacity");
+        private static readonly int PhotometricCapacityId =
+            Shader.PropertyToID("_PhotometricCapacity");
         private static readonly int QualityFloorId = Shader.PropertyToID("_QualityFloor");
         private static readonly int MinimumSigmaId = Shader.PropertyToID("_MinimumSigma");
         private static readonly int MinimumHuberId = Shader.PropertyToID("_MinimumHuber");
@@ -46,6 +48,10 @@ namespace Genesis.RoomScan.Prism
         private static readonly int DirtyFilmIndicesId = Shader.PropertyToID("_DirtyFilmIndices");
         private static readonly int DirtyStateId = Shader.PropertyToID("_DirtyState");
         private static readonly int SolveDispatchArgumentsId = Shader.PropertyToID("_SolveDispatchArguments");
+        private static readonly int PhotometricPressuresId =
+            Shader.PropertyToID("_PhotometricPressures");
+        private static readonly int PhotometricStateId =
+            Shader.PropertyToID("_PhotometricState");
 
         private readonly Matrix4x4[] _chunkFromDepth = new Matrix4x4[2];
         private GraphicsBuffer _frameAccumulator;
@@ -57,9 +63,11 @@ namespace Genesis.RoomScan.Prism
         private int _clearFrameKernel = -1;
         private int _accumulateKernel = -1;
         private int _contradictionKernel = -1;
+        private int _photometricKernel = -1;
         private int _buildSolveArgsKernel = -1;
         private int _solveKernel = -1;
         private bool _running;
+        private bool _subscribedToSource;
         private bool _initialized;
         private long _updatedFrames;
         private Matrix4x4 _chunkFromWorld = Matrix4x4.identity;
@@ -71,7 +79,7 @@ namespace Genesis.RoomScan.Prism
             _chunkFromWorld = worldFromChunk.inverse;
 
         public void StartUpdating(PrismConeClassifier events = null,
-            PrismFilmSpawner films = null)
+            PrismFilmSpawner films = null, bool subscribeToSource = true)
         {
             if (_running) return;
             coneClassifier = events != null ? events : coneClassifier;
@@ -91,6 +99,8 @@ namespace Genesis.RoomScan.Prism
             _clearFrameKernel = updateCompute.FindKernel("ClearFilmUpdateFrame");
             _accumulateKernel = updateCompute.FindKernel("AccumulateMatchedFilms");
             _contradictionKernel = updateCompute.FindKernel("AccumulateBehindEvidence");
+            _photometricKernel = updateCompute.FindKernel(
+                "AccumulatePhotometricPressure");
             _buildSolveArgsKernel = updateCompute.FindKernel("BuildFilmSolveArguments");
             _solveKernel = updateCompute.FindKernel("SolveDirtyFilms");
             Allocate(pool.Capacity);
@@ -100,14 +110,19 @@ namespace Genesis.RoomScan.Prism
                 updateCompute.Dispatch(_initializeKernel, CeilDiv(pool.Capacity, 64), 1, 1);
                 _initialized = true;
             }
-            filmSpawner.SpawnCompleted += OnConeEvents;
+            if (subscribeToSource)
+            {
+                filmSpawner.SpawnCompleted += OnConeEvents;
+                _subscribedToSource = true;
+            }
             _running = true;
         }
 
         public void StopUpdating()
         {
-            if (_running && filmSpawner != null)
+            if (_subscribedToSource && filmSpawner != null)
                 filmSpawner.SpawnCompleted -= OnConeEvents;
+            _subscribedToSource = false;
             _running = false;
         }
 
@@ -117,11 +132,15 @@ namespace Genesis.RoomScan.Prism
             DisposeBuffers();
         }
 
-        private void OnConeEvents(ConeEventFrameLease eventFrame)
+        private void OnConeEvents(ConeEventFrameLease eventFrame) =>
+            DispatchUpdate(eventFrame);
+
+        internal bool DispatchUpdate(ConeEventFrameLease eventFrame,
+            PrismPhotometricRefiner photometric = null)
         {
             ContactFilmPool pool = filmSpawner?.FilmPool;
             if (!_running || eventFrame == null || eventFrame.IsDisposed ||
-                pool == null || pool.IsDisposed) return;
+                pool == null || pool.IsDisposed) return false;
             try
             {
                 NormalizedRigFrameLease measured = eventFrame.Source.Source;
@@ -159,16 +178,31 @@ namespace Genesis.RoomScan.Prism
                     eventFrame.ClassDispatchArguments, MatchClassDispatchOffset);
                 updateCompute.DispatchIndirect(_contradictionKernel,
                     eventFrame.ClassDispatchArguments, BehindClassDispatchOffset);
+                if (photometric?.Pressures != null &&
+                    photometric.PressureState != null &&
+                    photometric.PressureArguments != null)
+                {
+                    updateCompute.SetInt(PhotometricCapacityId,
+                        photometric.PressureCapacity);
+                    updateCompute.SetBuffer(_photometricKernel,
+                        PhotometricPressuresId, photometric.Pressures);
+                    updateCompute.SetBuffer(_photometricKernel,
+                        PhotometricStateId, photometric.PressureState);
+                    updateCompute.DispatchIndirect(_photometricKernel,
+                        photometric.PressureArguments, 0);
+                }
                 updateCompute.Dispatch(_buildSolveArgsKernel, 1, 1, 1);
                 updateCompute.DispatchIndirect(_solveKernel,
                     _solveDispatchArguments, 0);
                 _updatedFrames++;
                 if (UpdateCompleted != null) UpdateCompleted.Invoke(eventFrame);
                 else filmSpawner.NotifyFilmsMutated();
+                return true;
             }
             catch (Exception exception)
             {
                 Logger.Error($"Cone-PRISM film information update failed: {exception.Message}");
+                return false;
             }
         }
 
@@ -197,7 +231,7 @@ namespace Genesis.RoomScan.Prism
             int[] kernels =
             {
                 _initializeKernel, _clearFrameKernel, _accumulateKernel,
-                _contradictionKernel,
+                _contradictionKernel, _photometricKernel,
                 _buildSolveArgsKernel, _solveKernel
             };
             foreach (int kernel in kernels)
@@ -215,6 +249,9 @@ namespace Genesis.RoomScan.Prism
                 pool.Information);
             updateCompute.SetBuffer(_contradictionKernel, FilmHeadersId, pool.Headers);
             updateCompute.SetBuffer(_contradictionKernel, FilmInformationId,
+                pool.Information);
+            updateCompute.SetBuffer(_photometricKernel, FilmHeadersId, pool.Headers);
+            updateCompute.SetBuffer(_photometricKernel, FilmInformationId,
                 pool.Information);
             updateCompute.SetBuffer(_solveKernel, FilmHeadersId, pool.Headers);
             updateCompute.SetBuffer(_solveKernel, FilmInformationId,

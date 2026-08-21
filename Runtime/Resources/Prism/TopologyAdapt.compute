@@ -159,13 +159,23 @@ uint UpperIndex(uint row, uint column)
 float LoadH(uint info, uint row, uint column)
 {
     uint packed = UpperIndex(min(row, column), max(row, column));
-    return _FilmInformation[info + (packed >> 2u)][packed & 3u];
+    float4 data = _FilmInformation[info + (packed >> 2u)];
+    uint lane = packed & 3u;
+    if (lane == 0u) return data.x;
+    if (lane == 1u) return data.y;
+    if (lane == 2u) return data.z;
+    return data.w;
 }
 
 float LoadG(uint info, uint index)
 {
-    return index < 4u ? _FilmInformation[info + 6u][index] :
-        _FilmInformation[info + 7u][index - 4u];
+    float4 low = _FilmInformation[info + 6u];
+    if (index == 0u) return low.x;
+    if (index == 1u) return low.y;
+    if (index == 2u) return low.z;
+    if (index == 3u) return low.w;
+    float4 high = _FilmInformation[info + 7u];
+    return index == 4u ? high.x : high.y;
 }
 
 void StoreInformation(uint info, float H[36], float g[6],
@@ -194,16 +204,16 @@ bool IsMicroCell(uint globalCell) { return globalCell >= _BaseCellCapacity; }
 
 DisplacementCell LoadCell(uint globalCell)
 {
-    return IsMicroCell(globalCell)
-        ? _MicroDisplacementCells[globalCell - _BaseCellCapacity]
-        : _BaseDisplacementCells[globalCell];
+    if (IsMicroCell(globalCell))
+        return _MicroDisplacementCells[globalCell - _BaseCellCapacity];
+    return _BaseDisplacementCells[globalCell];
 }
 
 uint LoadChild(uint globalCell)
 {
-    return IsMicroCell(globalCell)
-        ? _MicroChildPages[globalCell - _BaseCellCapacity]
-        : _BaseChildPages[globalCell];
+    if (IsMicroCell(globalCell))
+        return _MicroChildPages[globalCell - _BaseCellCapacity];
+    return _BaseChildPages[globalCell];
 }
 
 uint PageHeaderIndex(bool micro, uint pageIndex)
@@ -276,7 +286,7 @@ float QuadrantSupport(ContactFilmHeader film, uint quadrant, out float total)
 
 void ChildBasisTransform(uint quadrant, out float A[36])
 {
-    [unroll] for (uint i = 0u; i < 36u; ++i) A[i] = 0.0;
+    [loop] for (uint element = 0u; element < 36u; ++element) A[element] = 0.0;
     float uc = (quadrant & 1u) != 0u ? 0.5 : -0.5;
     float vc = (quadrant & 2u) != 0u ? 0.5 : -0.5;
     A[0 * 6 + 0] = 1.0;
@@ -295,39 +305,53 @@ void TransformChildInformation(uint parentInfo, uint childInfo, uint quadrant,
 {
     float parentH[36];
     float parentG[6];
-    [unroll]
+    [loop]
     for (uint row = 0u; row < 6u; ++row)
     {
         parentG[row] = LoadG(parentInfo, row);
-        [unroll] for (uint column = 0u; column < 6u; ++column)
+        [loop] for (uint column = 0u; column < 6u; ++column)
             parentH[row * 6u + column] = LoadH(parentInfo, row, column);
     }
     float A[36];
     ChildBasisTransform(quadrant, A);
+    // Factor A^T H A as (H A) followed by A^T (H A).  Besides reducing the
+    // arithmetic from 6^4 to 2*6^3, this avoids exploding mobile SPIR-V when
+    // SplitContactFilms processes four children in one invocation.
+    float hTimesA[36];
+    [loop]
+    for (uint sourceRow = 0u; sourceRow < 6u; ++sourceRow)
+    [loop]
+    for (uint childColumn = 0u; childColumn < 6u; ++childColumn)
+    {
+        float value = 0.0;
+        [loop]
+        for (uint sourceColumn = 0u; sourceColumn < 6u; ++sourceColumn)
+            value += parentH[sourceRow * 6u + sourceColumn] *
+                A[sourceColumn * 6u + childColumn];
+        hTimesA[sourceRow * 6u + childColumn] = value;
+    }
     float childH[36];
     float childG[6];
-    [unroll]
+    [loop]
     for (uint row = 0u; row < 6u; ++row)
     {
         float g = 0.0;
-        [unroll] for (uint source = 0u; source < 6u; ++source)
+        [loop] for (uint source = 0u; source < 6u; ++source)
             g += A[source * 6u + row] * parentG[source];
         childG[row] = fraction * g;
-        [unroll]
+        [loop]
         for (uint column = 0u; column < 6u; ++column)
         {
             float value = 0.0;
-            [unroll]
-            for (uint a = 0u; a < 6u; ++a)
-            [unroll]
-            for (uint b = 0u; b < 6u; ++b)
-                value += A[a * 6u + row] * parentH[a * 6u + b] *
-                    A[b * 6u + column];
+            [loop]
+            for (uint source = 0u; source < 6u; ++source)
+                value += A[source * 6u + row] *
+                    hTimesA[source * 6u + column];
             childH[row * 6u + column] = fraction * value;
         }
     }
-    [unroll] for (uint i = 0u; i < 6u; ++i)
-        childG[i] -= heightOffset * childH[i];
+    [loop] for (uint coefficient = 0u; coefficient < 6u; ++coefficient)
+        childG[coefficient] -= heightOffset * childH[coefficient];
     float4 countSupport = _FilmInformation[parentInfo + 7u];
     countSupport.zw *= fraction;
     float4 quality = _FilmInformation[parentInfo + 8u];
@@ -400,7 +424,7 @@ void SplitContactFilms(uint3 id : SV_DispatchThreadID)
     float totalPageSupport;
     QuadrantSupport(parent, 0u, totalPageSupport);
     uint parentInfo = parentIndex * 9u;
-    [unroll]
+    [loop]
     for (uint quadrant = 0u; quadrant < 4u; ++quadrant)
     {
         float ignored;
@@ -500,6 +524,10 @@ void BuildTopologyAdaptArguments(uint3 id : SV_DispatchThreadID)
     _AdaptDispatchArguments[4] = uint3((filmCount + 63u) / 64u, 1u, 1u);
     _AdaptDispatchArguments[5] = uint3(
         ((_FilmMergeHashMask + 1u) + 63u) / 64u, 1u, 1u);
+    // Merge carries two 6x6 information transforms per invocation. A 16-wide
+    // group keeps the complete warp useful without spilling the large private
+    // matrix state that a 64-wide mobile group would force on Adreno.
+    _AdaptDispatchArguments[7] = uint3((filmCount + 15u) / 16u, 1u, 1u);
 }
 
 [numthreads(64, 1, 1)]
@@ -640,12 +668,12 @@ void WriteSplitBoundary(uint targetIndex, ContactBoundaryHeader source,
     float2 mean = 0.0;
     float uu = 0.0, uv = 0.0, vv = 0.0;
     [unroll]
-    for (uint sample = 0u; sample < 4u; ++sample)
+    for (uint sampleIndex = 0u; sampleIndex < 4u; ++sampleIndex)
     {
-        mean += samples[sample];
-        uu += samples[sample].x * samples[sample].x;
-        uv += samples[sample].x * samples[sample].y;
-        vv += samples[sample].y * samples[sample].y;
+        mean += samples[sampleIndex];
+        uu += samples[sampleIndex].x * samples[sampleIndex].x;
+        uv += samples[sampleIndex].x * samples[sampleIndex].y;
+        vv += samples[sampleIndex].y * samples[sampleIndex].y;
     }
     mean *= 0.25; uu *= 0.25; uv *= 0.25; vv *= 0.25;
     _BoundaryInformation[targetInfo + 0u] =
@@ -702,12 +730,12 @@ void TransferSplitBoundaries(uint3 id : SV_DispatchThreadID)
         uint firstSample = 33u;
         uint lastSample = 0u;
         [unroll]
-        for (uint sample = 0u; sample <= 32u; ++sample)
+        for (uint sampleIndex = 0u; sampleIndex <= 32u; ++sampleIndex)
         {
-            float t = (float)sample / 32.0;
+            float t = (float)sampleIndex / 32.0;
             if (UvQuadrant(BoundaryUv(boundary, t)) != quadrant) continue;
-            firstSample = min(firstSample, sample);
-            lastSample = max(lastSample, sample);
+            firstSample = min(firstSample, sampleIndex);
+            lastSample = max(lastSample, sampleIndex);
         }
         if (firstSample > 32u) continue;
         float t0 = (float)(firstSample > 0u ? firstSample - 1u : 0u) / 32.0;
@@ -878,9 +906,9 @@ void IncludeFilmBounds(ContactFilmHeader film, float3 center, float3 tangentU,
     {
         float su = (corner & 1u) != 0u ? 1.0 : -1.0;
         float sv = (corner & 2u) != 0u ? 1.0 : -1.0;
-        float3 point = film.origin + su * film.extentU * film.tangentU +
+        float3 surfacePosition = film.origin + su * film.extentU * film.tangentU +
             sv * film.extentV * film.tangentV;
-        float3 delta = point - center;
+        float3 delta = surfacePosition - center;
         float2 projected = float2(dot(delta, tangentU), dot(delta, tangentV));
         minimum = min(minimum, projected);
         maximum = max(maximum, projected);
@@ -890,7 +918,7 @@ void IncludeFilmBounds(ContactFilmHeader film, float3 center, float3 tangentU,
 void GeneralBasisTransform(ContactFilmHeader source,
     ContactFilmHeader merged, out float A[36])
 {
-    [unroll] for (uint i = 0u; i < 36u; ++i) A[i] = 0.0;
+    [loop] for (uint element = 0u; element < 36u; ++element) A[element] = 0.0;
     float3 offset = merged.origin - source.origin;
     float bu = dot(offset, source.tangentU) / max(source.extentU, 0.001);
     float bv = dot(offset, source.tangentV) / max(source.extentV, 0.001);
@@ -922,33 +950,44 @@ void AddTransformedInformation(ContactFilmHeader source,
 {
     float sourceH[36];
     float sourceG[6];
-    [unroll]
+    [loop]
     for (uint row = 0u; row < 6u; ++row)
     {
         sourceG[row] = LoadG(sourceInfo, row);
-        [unroll] for (uint column = 0u; column < 6u; ++column)
+        [loop] for (uint column = 0u; column < 6u; ++column)
             sourceH[row * 6u + column] = LoadH(sourceInfo, row, column);
     }
     float A[36];
     GeneralBasisTransform(source, merged, A);
+    float hTimesA[36];
+    [loop]
+    for (uint sourceRow = 0u; sourceRow < 6u; ++sourceRow)
+    [loop]
+    for (uint mergedColumn = 0u; mergedColumn < 6u; ++mergedColumn)
+    {
+        float value = 0.0;
+        [loop]
+        for (uint sourceColumn = 0u; sourceColumn < 6u; ++sourceColumn)
+            value += sourceH[sourceRow * 6u + sourceColumn] *
+                A[sourceColumn * 6u + mergedColumn];
+        hTimesA[sourceRow * 6u + mergedColumn] = value;
+    }
     float transformedH[36];
     float heightOffset = dot(source.origin - merged.origin, merged.normal);
-    [unroll]
+    [loop]
     for (uint row = 0u; row < 6u; ++row)
     {
         float g = 0.0;
-        [unroll] for (uint a = 0u; a < 6u; ++a)
-            g += A[a * 6u + row] * sourceG[a];
-        [unroll]
+        [loop] for (uint sourceRow = 0u; sourceRow < 6u; ++sourceRow)
+            g += A[sourceRow * 6u + row] * sourceG[sourceRow];
+        [loop]
         for (uint column = 0u; column < 6u; ++column)
         {
             float value = 0.0;
-            [unroll]
-            for (uint a = 0u; a < 6u; ++a)
-            [unroll]
-            for (uint b = 0u; b < 6u; ++b)
-                value += A[a * 6u + row] * sourceH[a * 6u + b] *
-                    A[b * 6u + column];
+            [loop]
+            for (uint sourceRow = 0u; sourceRow < 6u; ++sourceRow)
+                value += A[sourceRow * 6u + row] *
+                    hTimesA[sourceRow * 6u + column];
             transformedH[row * 6u + column] = value;
             totalH[row * 6u + column] += value;
         }
@@ -956,7 +995,7 @@ void AddTransformedInformation(ContactFilmHeader source,
     }
 }
 
-bool SolveSix(float matrix[36], float rhs[6], out float solution[6])
+bool SolveSix(float coefficientMatrix[36], float rhs[6], out float solution[6])
 {
     float lower[36];
     [unroll] for (uint i = 0u; i < 36u; ++i) lower[i] = 0.0;
@@ -966,7 +1005,7 @@ bool SolveSix(float matrix[36], float rhs[6], out float solution[6])
         [unroll]
         for (uint column = 0u; column <= row; ++column)
         {
-            float sum = matrix[row * 6u + column];
+            float sum = coefficientMatrix[row * 6u + column];
             [unroll] for (uint k = 0u; k < column; ++k)
                 sum -= lower[row * 6u + k] * lower[column * 6u + k];
             if (row == column)
@@ -997,7 +1036,7 @@ bool SolveSix(float matrix[36], float rhs[6], out float solution[6])
     return true;
 }
 
-[numthreads(64, 1, 1)]
+[numthreads(16, 1, 1)]
 void MergeCompatibleFilms(uint3 id : SV_DispatchThreadID)
 {
     uint filmCount = min(_FilmAllocator[0], _FilmCapacity);
@@ -1189,10 +1228,10 @@ void BuildMergeArguments(uint3 id : SV_DispatchThreadID)
         (mergeCount * BASE_CELLS_PER_PAGE + 63u) / 64u, 1u, 1u);
 }
 
-bool SourceDisplacement(ContactFilmHeader source, float3 point,
+bool SourceDisplacement(ContactFilmHeader source, float3 surfacePosition,
     out float displacement, out DisplacementCell cell)
 {
-    float3 delta = point - source.origin;
+    float3 delta = surfacePosition - source.origin;
     float u = dot(delta, source.tangentU);
     float v = dot(delta, source.tangentV);
     float2 uv = float2(u / max(2.0 * source.extentU, 0.002) + 0.5,
@@ -1204,7 +1243,7 @@ bool SourceDisplacement(ContactFilmHeader source, float3 point,
     float3 sourceSurface = source.origin + u * source.tangentU +
         v * source.tangentV + (Height(source, u, v) + cell.displacement) *
         source.normal;
-    displacement = dot(sourceSurface - point, source.normal);
+    displacement = dot(sourceSurface - surfacePosition, source.normal);
     return true;
 }
 
