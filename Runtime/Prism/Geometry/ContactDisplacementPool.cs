@@ -119,6 +119,11 @@ namespace Genesis.RoomScan.Prism
     {
         public const int BaseCellsPerPage = 16 * 16;
         public const int MicroCellsPerPage = 8 * 8;
+        // Per-frame contact W/sum/sum2, coverage, pressure view mask,
+        // best precision/footprint, support, and opposing-pressure W/sum/sum2.
+        // The base and micro arenas are separate Vulkan storage bindings so the
+        // default high-detail pool never crosses Quest's 128 MiB binding limit.
+        public const int TransientAccumulatorWordsPerCell = 11;
 
         private static readonly uint[] InitialAllocator =
             { 0u, 0u, 0u, 0u, 1u, 0u, 0u, 0u };

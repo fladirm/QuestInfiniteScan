@@ -38,6 +38,16 @@ namespace Genesis.RoomScan.Tests
             const long microPages = 16_384;
             long baseCells = basePages * ContactDisplacementPool.BaseCellsPerPage;
             long microCells = microPages * ContactDisplacementPool.MicroCellsPerPage;
+            long accumulatorWords =
+                ContactDisplacementPool.TransientAccumulatorWordsPerCell;
+
+            // The old combined transient arena is deliberately larger than the
+            // Quest/Vulkan single-binding limit. Capacity and information are kept
+            // by segmenting it along the canonical base/micro address spaces.
+            long legacyCombinedAccumulator = (baseCells + microCells) *
+                accumulatorWords * sizeof(int);
+            Assert.That(legacyCombinedAccumulator,
+                Is.GreaterThan(MaxStorageBindingBytes));
 
             long[] bindingBytes =
             {
@@ -45,7 +55,8 @@ namespace Genesis.RoomScan.Tests
                 films * 9L * 16L,
                 baseCells * DisplacementCellGpu.Stride,
                 microCells * DisplacementCellGpu.Stride,
-                (baseCells + microCells) * 8L * sizeof(int),
+                baseCells * accumulatorWords * sizeof(int),
+                microCells * accumulatorWords * sizeof(int),
                 films * ContactTopologyEvidenceGpu.Stride,
                 films * FilmMergeHashEntryGpu.Stride * 2L
             };

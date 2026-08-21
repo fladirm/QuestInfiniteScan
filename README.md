@@ -257,6 +257,11 @@ per-storage-buffer limit, not an app-, APK-, total-RAM-, or texture-allocation l
 The app may use shared headset RAM, but every allocation and the active-set policy
 must still be bounded and profiled.
 
+Cone-PRISM therefore keeps its complete sparse detail capacity while splitting the
+eleven-word transient displacement solve into base-Grid16 and micro-Grid8 storage
+bindings. This is physical Vulkan segmentation only; it does not lower scan
+resolution, posterior precision, microtile refinement, or total usable app memory.
+
 Do not interpret an approximately 8 mm texture-cache/atlas sampling figure as 8 mm
 geometric accuracy. Geometry quality is constrained by the depth stream, voxel size,
 view incidence, calibration, motion, lighting, and fusion policy. Multi-floor motion

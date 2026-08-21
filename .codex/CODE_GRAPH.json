@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "source_digest": "5fc674a47eaa86dc70777f36db8f0c11691b002b60151c9a758594240fdfdcef",
+  "source_digest": "8e0061070c16a4e0c67dc80b9f3e80c2b3866c53bd8c61739e7dc6aeb4a99f40",
   "scope": [
     "Runtime/**/*.cs",
     "Runtime/Resources/Prism/*.*",
@@ -11,8 +11,8 @@
   ],
   "summary": {
     "files": 191,
-    "symbols": 2657,
-    "methods_and_functions": 2098,
+    "symbols": 2664,
+    "methods_and_functions": 2105,
     "gpu_kernels": 122,
     "event_links": 30
   },
@@ -8577,11 +8577,11 @@
       "line": 19
     },
     {
-      "id": "Runtime/Prism/Geometry/ContactDisplacementPool.cs::Dispose@167",
+      "id": "Runtime/Prism/Geometry/ContactDisplacementPool.cs::Dispose@172",
       "file": "Runtime/Prism/Geometry/ContactDisplacementPool.cs",
       "name": "Dispose",
       "kind": "method",
-      "line": 167
+      "line": 172
     },
     {
       "id": "Runtime/Prism/Geometry/ContactDisplacementPool.cs::FilmMergeHashEntryGpu",
@@ -9039,81 +9039,81 @@
       "line": 170
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::AllocateTransientBuffers@375",
+      "id": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::AllocateTransientBuffers@380",
       "file": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs",
       "name": "AllocateTransientBuffers",
       "kind": "method",
-      "line": 375
+      "line": 380
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::BindPersistent@423",
+      "id": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::BindPersistent@438",
       "file": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs",
       "name": "BindPersistent",
       "kind": "method",
-      "line": 423
+      "line": 438
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::BindTopology@482",
+      "id": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::BindTopology@499",
       "file": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs",
       "name": "BindTopology",
       "kind": "method",
-      "line": 482
+      "line": 499
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::CeilDiv@641",
+      "id": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::CeilDiv@660",
       "file": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs",
       "name": "CeilDiv",
       "kind": "method",
-      "line": 641
+      "line": 660
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::ConfigureFrame@335",
+      "id": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::ConfigureFrame@340",
       "file": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs",
       "name": "ConfigureFrame",
       "kind": "method",
-      "line": 335
+      "line": 340
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::DispatchDisplacement@279",
+      "id": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::DispatchDisplacement@284",
       "file": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs",
       "name": "DispatchDisplacement",
       "kind": "method",
-      "line": 279
+      "line": 284
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::DisposeTransientBuffers@600",
+      "id": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::DisposeTransientBuffers@617",
       "file": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs",
       "name": "DisposeTransientBuffers",
       "kind": "method",
-      "line": 600
+      "line": 617
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::NextPowerOfTwo@644",
+      "id": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::NextPowerOfTwo@663",
       "file": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs",
       "name": "NextPowerOfTwo",
       "kind": "method",
-      "line": 644
+      "line": 663
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::OnBoundariesUpdated@276",
+      "id": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::OnBoundariesUpdated@281",
       "file": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs",
       "name": "OnBoundariesUpdated",
       "kind": "method",
-      "line": 276
+      "line": 281
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::OnDestroy@268",
+      "id": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::OnDestroy@273",
       "file": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs",
       "name": "OnDestroy",
       "kind": "method",
-      "line": 268
+      "line": 273
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::PoseMatrix@638",
+      "id": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::PoseMatrix@657",
       "file": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs",
       "name": "PoseMatrix",
       "kind": "method",
-      "line": 638
+      "line": 657
     },
     {
       "id": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::PrismDisplacementTopology",
@@ -9123,32 +9123,32 @@
       "line": 15
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::RunTopologyAdaptation@563",
+      "id": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::RunTopologyAdaptation@580",
       "file": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs",
       "name": "RunTopologyAdaptation",
       "kind": "method",
-      "line": 563
+      "line": 580
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::SetChunkFrame@177",
+      "id": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::SetChunkFrame@182",
       "file": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs",
       "name": "SetChunkFrame",
       "kind": "method",
-      "line": 177
+      "line": 182
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::StartUpdating@180",
+      "id": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::StartUpdating@185",
       "file": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs",
       "name": "StartUpdating",
       "kind": "method",
-      "line": 180
+      "line": 185
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::StopUpdating@260",
+      "id": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::StopUpdating@265",
       "file": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs",
       "name": "StopUpdating",
       "kind": "method",
-      "line": 260
+      "line": 265
     },
     {
       "id": "Runtime/Prism/Geometry/PrismFilmSpawner.cs::CeilDiv@219",
@@ -11146,88 +11146,95 @@
       "line": 1
     },
     {
-      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::AccumulateDisplacement@582",
+      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::AccumulateDisplacement@640",
       "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
       "name": "AccumulateDisplacement",
+      "kind": "gpu_function",
+      "line": 640
+    },
+    {
+      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::AccumulateOccluderPreHitPressure@797",
+      "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
+      "name": "AccumulateOccluderPreHitPressure",
+      "kind": "gpu_function",
+      "line": 797
+    },
+    {
+      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::AccumulatePreHitPressure@743",
+      "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
+      "name": "AccumulatePreHitPressure",
+      "kind": "gpu_function",
+      "line": 743
+    },
+    {
+      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::AccumulatorBaseWordCapacity@203",
+      "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
+      "name": "AccumulatorBaseWordCapacity",
+      "kind": "gpu_function",
+      "line": 203
+    },
+    {
+      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::AllocateBasePages@434",
+      "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
+      "name": "AllocateBasePages",
+      "kind": "gpu_function",
+      "line": 434
+    },
+    {
+      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::AllocateBasePagesBehind@483",
+      "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
+      "name": "AllocateBasePagesBehind",
+      "kind": "gpu_function",
+      "line": 483
+    },
+    {
+      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::AllocateBasePagesOccluder@533",
+      "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
+      "name": "AllocateBasePagesOccluder",
+      "kind": "gpu_function",
+      "line": 533
+    },
+    {
+      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::AllocateMicrotiles@992",
+      "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
+      "name": "AllocateMicrotiles",
+      "kind": "gpu_function",
+      "line": 992
+    },
+    {
+      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::AtomicAddScaled@260",
+      "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
+      "name": "AtomicAddScaled",
+      "kind": "gpu_function",
+      "line": 260
+    },
+    {
+      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::BootstrapSupport@278",
+      "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
+      "name": "BootstrapSupport",
+      "kind": "gpu_function",
+      "line": 278
+    },
+    {
+      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::BuildDisplacementArguments@582",
+      "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
+      "name": "BuildDisplacementArguments",
       "kind": "gpu_function",
       "line": 582
     },
     {
-      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::AccumulateOccluderPreHitPressure@739",
-      "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
-      "name": "AccumulateOccluderPreHitPressure",
-      "kind": "gpu_function",
-      "line": 739
-    },
-    {
-      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::AccumulatePreHitPressure@685",
-      "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
-      "name": "AccumulatePreHitPressure",
-      "kind": "gpu_function",
-      "line": 685
-    },
-    {
-      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::AllocateBasePages@376",
-      "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
-      "name": "AllocateBasePages",
-      "kind": "gpu_function",
-      "line": 376
-    },
-    {
-      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::AllocateBasePagesBehind@425",
-      "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
-      "name": "AllocateBasePagesBehind",
-      "kind": "gpu_function",
-      "line": 425
-    },
-    {
-      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::AllocateBasePagesOccluder@475",
-      "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
-      "name": "AllocateBasePagesOccluder",
-      "kind": "gpu_function",
-      "line": 475
-    },
-    {
-      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::AllocateMicrotiles@934",
-      "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
-      "name": "AllocateMicrotiles",
-      "kind": "gpu_function",
-      "line": 934
-    },
-    {
-      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::AtomicAddScaled@202",
-      "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
-      "name": "AtomicAddScaled",
-      "kind": "gpu_function",
-      "line": 202
-    },
-    {
-      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::BootstrapSupport@220",
-      "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
-      "name": "BootstrapSupport",
-      "kind": "gpu_function",
-      "line": 220
-    },
-    {
-      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::BuildDisplacementArguments@524",
-      "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
-      "name": "BuildDisplacementArguments",
-      "kind": "gpu_function",
-      "line": 524
-    },
-    {
-      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::CellForPage@265",
+      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::CellForPage@323",
       "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
       "name": "CellForPage",
       "kind": "gpu_function",
-      "line": 265
+      "line": 323
     },
     {
-      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::ClearDisplacementFrame@363",
+      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::ClearDisplacementFrame@421",
       "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
       "name": "ClearDisplacementFrame",
       "kind": "gpu_function",
-      "line": 363
+      "line": 421
     },
     {
       "id": "Runtime/Resources/Prism/DisplacementTopology.compute::ConeEvent",
@@ -11265,144 +11272,186 @@
       "line": 68
     },
     {
-      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::EmptyCell@210",
+      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::EmptyCell@268",
       "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
       "name": "EmptyCell",
       "kind": "gpu_function",
-      "line": 210
+      "line": 268
     },
     {
-      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::Height@195",
+      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::Height@196",
       "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
       "name": "Height",
       "kind": "gpu_function",
-      "line": 195
+      "line": 196
     },
     {
-      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::InitializeBasePages@541",
+      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::InitializeBasePages@599",
       "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
       "name": "InitializeBasePages",
       "kind": "gpu_function",
-      "line": 541
+      "line": 599
     },
     {
-      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::InitializeDisplacementState@345",
+      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::InitializeDisplacementState@403",
       "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
       "name": "InitializeDisplacementState",
       "kind": "gpu_function",
-      "line": 345
+      "line": 403
     },
     {
-      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::InitializeMicroPages@1024",
+      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::InitializeMicroPages@1082",
       "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
       "name": "InitializeMicroPages",
       "kind": "gpu_function",
-      "line": 1024
+      "line": 1082
     },
     {
-      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::IsMicroCell@218",
+      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::InterlockedAddAccumulator@224",
+      "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
+      "name": "InterlockedAddAccumulator",
+      "kind": "gpu_function",
+      "line": 224
+    },
+    {
+      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::InterlockedMaxAccumulator@233",
+      "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
+      "name": "InterlockedMaxAccumulator",
+      "kind": "gpu_function",
+      "line": 233
+    },
+    {
+      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::InterlockedMinAccumulator@242",
+      "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
+      "name": "InterlockedMinAccumulator",
+      "kind": "gpu_function",
+      "line": 242
+    },
+    {
+      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::InterlockedOrAccumulator@251",
+      "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
+      "name": "InterlockedOrAccumulator",
+      "kind": "gpu_function",
+      "line": 251
+    },
+    {
+      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::IsMicroCell@276",
       "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
       "name": "IsMicroCell",
       "kind": "gpu_function",
-      "line": 218
+      "line": 276
     },
     {
-      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::LoadCell@228",
+      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::LoadAccumulator@208",
+      "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
+      "name": "LoadAccumulator",
+      "kind": "gpu_function",
+      "line": 208
+    },
+    {
+      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::LoadCell@286",
       "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
       "name": "LoadCell",
       "kind": "gpu_function",
-      "line": 228
+      "line": 286
     },
     {
-      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::LoadChild@245",
+      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::LoadChild@303",
       "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
       "name": "LoadChild",
       "kind": "gpu_function",
-      "line": 245
+      "line": 303
     },
     {
-      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::LoadRay@176",
+      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::LoadRay@177",
       "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
       "name": "LoadRay",
       "kind": "gpu_function",
-      "line": 176
+      "line": 177
     },
     {
-      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::MarkCellDirty@319",
+      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::MarkCellDirty@377",
       "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
       "name": "MarkCellDirty",
       "kind": "gpu_function",
-      "line": 319
+      "line": 377
     },
     {
-      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::MarkTopologyDirty@334",
+      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::MarkTopologyDirty@392",
       "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
       "name": "MarkTopologyDirty",
       "kind": "gpu_function",
-      "line": 334
+      "line": 392
     },
     {
-      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::PageHeaderIndex@260",
+      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::PageHeaderIndex@318",
       "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
       "name": "PageHeaderIndex",
       "kind": "gpu_function",
-      "line": 260
+      "line": 318
     },
     {
-      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::PreHitPressureViewBit@182",
+      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::PreHitPressureViewBit@183",
       "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
       "name": "PreHitPressureViewBit",
       "kind": "gpu_function",
-      "line": 182
+      "line": 183
     },
     {
-      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::ResolveBaseCell@272",
+      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::ResolveBaseCell@330",
       "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
       "name": "ResolveBaseCell",
       "kind": "gpu_function",
-      "line": 272
+      "line": 330
     },
     {
-      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::ResolveLeaf@291",
+      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::ResolveLeaf@349",
       "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
       "name": "ResolveLeaf",
       "kind": "gpu_function",
-      "line": 291
+      "line": 349
     },
     {
-      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::SolveDirtyDisplacement@800",
+      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::SolveDirtyDisplacement@858",
       "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
       "name": "SolveDirtyDisplacement",
       "kind": "gpu_function",
-      "line": 800
+      "line": 858
     },
     {
-      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::SolveTopologyEvidence@1066",
+      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::SolveTopologyEvidence@1124",
       "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
       "name": "SolveTopologyEvidence",
       "kind": "gpu_function",
-      "line": 1066
+      "line": 1124
     },
     {
-      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::StoreCell@237",
+      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::StoreAccumulator@215",
+      "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
+      "name": "StoreAccumulator",
+      "kind": "gpu_function",
+      "line": 215
+    },
+    {
+      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::StoreCell@295",
       "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
       "name": "StoreCell",
       "kind": "gpu_function",
-      "line": 237
+      "line": 295
     },
     {
-      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::StoreChild@252",
+      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::StoreChild@310",
       "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
       "name": "StoreChild",
       "kind": "gpu_function",
-      "line": 252
+      "line": 310
     },
     {
-      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::if@867",
+      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::if@925",
       "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
       "name": "if",
       "kind": "gpu_function",
-      "line": 867
+      "line": 925
     },
     {
       "id": "Runtime/Resources/Prism/DisplacementTopology.compute::kernel:AccumulateDisplacement",
@@ -18937,11 +18986,11 @@
       "line": 34
     },
     {
-      "id": "Tests/Editor/PrismTopologyContractTests.cs::FilmFlagsKeepOneSidedDetailAndRetiredParentsDistinct@92",
+      "id": "Tests/Editor/PrismTopologyContractTests.cs::FilmFlagsKeepOneSidedDetailAndRetiredParentsDistinct@103",
       "file": "Tests/Editor/PrismTopologyContractTests.cs",
       "name": "FilmFlagsKeepOneSidedDetailAndRetiredParentsDistinct",
       "kind": "method",
-      "line": 92
+      "line": 103
     },
     {
       "id": "Tests/Editor/PrismTopologyContractTests.cs::PrismTopologyContractTests",
@@ -18951,11 +19000,11 @@
       "line": 10
     },
     {
-      "id": "Tests/Editor/PrismTopologyContractTests.cs::RequiredQ311ComputeKernelsImport@58",
+      "id": "Tests/Editor/PrismTopologyContractTests.cs::RequiredQ311ComputeKernelsImport@69",
       "file": "Tests/Editor/PrismTopologyContractTests.cs",
       "name": "RequiredQ311ComputeKernelsImport",
       "kind": "method",
-      "line": 58
+      "line": 69
     },
     {
       "id": "Tests/Editor/PrismTopologyContractTests.cs::TopologyGpuAbiMatchesDeclaredStrides@15",
@@ -19717,7 +19766,7 @@
       "source_type": "PrismBoundaryGraph",
       "event": "BoundariesUpdated",
       "handler": "OnBoundariesUpdated",
-      "line": 255
+      "line": 260
     },
     {
       "file": "Runtime/Prism/Geometry/PrismFilmSpawner.cs",
@@ -25834,7 +25883,7 @@
     },
     {
       "source": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::PrismBoundaryGraph",
-      "target": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::OnBoundariesUpdated@276",
+      "target": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::OnBoundariesUpdated@281",
       "kind": "event:BoundariesUpdated"
     },
     {
@@ -25868,67 +25917,67 @@
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::DispatchDisplacement@279",
-      "target": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::RunTopologyAdaptation@563",
+      "source": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::DispatchDisplacement@284",
+      "target": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::RunTopologyAdaptation@580",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::DispatchDisplacement@279",
+      "source": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::DispatchDisplacement@284",
       "target": "Runtime/Prism/Geometry/PrismFilmSpawner.cs::NotifyFilmsMutated@58",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::DispatchDisplacement@279",
+      "source": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::DispatchDisplacement@284",
       "target": "Runtime/Utils/Logger.cs::Error@42",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::DispatchDisplacement@279",
+      "source": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::DispatchDisplacement@284",
       "target": "Runtime/World/PrismChunkSnapshotStager.cs::Dispatch@257",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::DispatchDisplacement@279",
+      "source": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::DispatchDisplacement@284",
       "target": "Runtime/World/PrismChunkSnapshotStager.cs::DispatchIndirect@274",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::OnDestroy@268",
-      "target": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::DisposeTransientBuffers@600",
+      "source": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::OnDestroy@273",
+      "target": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::DisposeTransientBuffers@617",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::RunTopologyAdaptation@563",
+      "source": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::RunTopologyAdaptation@580",
       "target": "Runtime/World/PrismChunkSnapshotStager.cs::Dispatch@257",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::RunTopologyAdaptation@563",
+      "source": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::RunTopologyAdaptation@580",
       "target": "Runtime/World/PrismChunkSnapshotStager.cs::DispatchIndirect@274",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::StartUpdating@180",
+      "source": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::StartUpdating@185",
       "target": "Runtime/Prism/Geometry/ContactDisplacementPool.cs::ContactDisplacementPool",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::StartUpdating@180",
-      "target": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::AllocateTransientBuffers@375",
+      "source": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::StartUpdating@185",
+      "target": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::AllocateTransientBuffers@380",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::StartUpdating@180",
-      "target": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::BindTopology@482",
+      "source": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::StartUpdating@185",
+      "target": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::BindTopology@499",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::StartUpdating@180",
+      "source": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::StartUpdating@185",
       "target": "Runtime/Utils/Logger.cs::Error@42",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::StartUpdating@180",
+      "source": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::StartUpdating@185",
       "target": "Runtime/World/PrismChunkSnapshotStager.cs::Dispatch@257",
       "kind": "calls"
     },
@@ -26299,7 +26348,7 @@
     },
     {
       "source": "Runtime/Prism/PrismGpuWorkGraph.cs::ExecuteFrame@71",
-      "target": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::DispatchDisplacement@279",
+      "target": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::DispatchDisplacement@284",
       "kind": "calls"
     },
     {
@@ -26608,68 +26657,148 @@
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/DisplacementTopology.compute::AccumulateDisplacement@582",
-      "target": "Runtime/Resources/Prism/DisplacementTopology.compute::MarkCellDirty@319",
+      "source": "Runtime/Resources/Prism/DisplacementTopology.compute::AccumulateDisplacement@640",
+      "target": "Runtime/Resources/Prism/DisplacementTopology.compute::InterlockedMaxAccumulator@233",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/DisplacementTopology.compute::AccumulateDisplacement@582",
-      "target": "Runtime/Resources/Prism/DisplacementTopology.compute::MarkTopologyDirty@334",
+      "source": "Runtime/Resources/Prism/DisplacementTopology.compute::AccumulateDisplacement@640",
+      "target": "Runtime/Resources/Prism/DisplacementTopology.compute::InterlockedMinAccumulator@242",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/DisplacementTopology.compute::AccumulateDisplacement@582",
-      "target": "Runtime/Resources/Prism/DisplacementTopology.compute::ResolveBaseCell@272",
+      "source": "Runtime/Resources/Prism/DisplacementTopology.compute::AccumulateDisplacement@640",
+      "target": "Runtime/Resources/Prism/DisplacementTopology.compute::MarkCellDirty@377",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/DisplacementTopology.compute::AccumulateOccluderPreHitPressure@739",
-      "target": "Runtime/Resources/Prism/DisplacementTopology.compute::MarkCellDirty@319",
+      "source": "Runtime/Resources/Prism/DisplacementTopology.compute::AccumulateDisplacement@640",
+      "target": "Runtime/Resources/Prism/DisplacementTopology.compute::MarkTopologyDirty@392",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/DisplacementTopology.compute::AccumulateOccluderPreHitPressure@739",
-      "target": "Runtime/Resources/Prism/DisplacementTopology.compute::ResolveBaseCell@272",
+      "source": "Runtime/Resources/Prism/DisplacementTopology.compute::AccumulateDisplacement@640",
+      "target": "Runtime/Resources/Prism/DisplacementTopology.compute::ResolveBaseCell@330",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/DisplacementTopology.compute::AccumulatePreHitPressure@685",
-      "target": "Runtime/Resources/Prism/DisplacementTopology.compute::MarkCellDirty@319",
+      "source": "Runtime/Resources/Prism/DisplacementTopology.compute::AccumulateOccluderPreHitPressure@797",
+      "target": "Runtime/Resources/Prism/DisplacementTopology.compute::InterlockedOrAccumulator@251",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/DisplacementTopology.compute::AccumulatePreHitPressure@685",
-      "target": "Runtime/Resources/Prism/DisplacementTopology.compute::ResolveBaseCell@272",
+      "source": "Runtime/Resources/Prism/DisplacementTopology.compute::AccumulateOccluderPreHitPressure@797",
+      "target": "Runtime/Resources/Prism/DisplacementTopology.compute::MarkCellDirty@377",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/DisplacementTopology.compute::AllocateMicrotiles@934",
-      "target": "Runtime/Resources/Prism/DisplacementTopology.compute::StoreChild@252",
+      "source": "Runtime/Resources/Prism/DisplacementTopology.compute::AccumulateOccluderPreHitPressure@797",
+      "target": "Runtime/Resources/Prism/DisplacementTopology.compute::ResolveBaseCell@330",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/DisplacementTopology.compute::InitializeBasePages@541",
-      "target": "Runtime/Resources/Prism/DisplacementTopology.compute::BootstrapSupport@220",
+      "source": "Runtime/Resources/Prism/DisplacementTopology.compute::AccumulatePreHitPressure@743",
+      "target": "Runtime/Resources/Prism/DisplacementTopology.compute::InterlockedOrAccumulator@251",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/DisplacementTopology.compute::InitializeBasePages@541",
-      "target": "Runtime/Resources/Prism/DisplacementTopology.compute::EmptyCell@210",
+      "source": "Runtime/Resources/Prism/DisplacementTopology.compute::AccumulatePreHitPressure@743",
+      "target": "Runtime/Resources/Prism/DisplacementTopology.compute::MarkCellDirty@377",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/DisplacementTopology.compute::InitializeMicroPages@1024",
-      "target": "Runtime/Resources/Prism/DisplacementTopology.compute::EmptyCell@210",
+      "source": "Runtime/Resources/Prism/DisplacementTopology.compute::AccumulatePreHitPressure@743",
+      "target": "Runtime/Resources/Prism/DisplacementTopology.compute::ResolveBaseCell@330",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/DisplacementTopology.compute::ResolveLeaf@291",
-      "target": "Runtime/Resources/Prism/DisplacementTopology.compute::ResolveBaseCell@272",
+      "source": "Runtime/Resources/Prism/DisplacementTopology.compute::AllocateMicrotiles@992",
+      "target": "Runtime/Resources/Prism/DisplacementTopology.compute::StoreChild@310",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/DisplacementTopology.compute::SolveDirtyDisplacement@800",
-      "target": "Runtime/Resources/Prism/DisplacementTopology.compute::StoreCell@237",
+      "source": "Runtime/Resources/Prism/DisplacementTopology.compute::AtomicAddScaled@260",
+      "target": "Runtime/Resources/Prism/DisplacementTopology.compute::InterlockedAddAccumulator@224",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/Prism/DisplacementTopology.compute::InitializeBasePages@599",
+      "target": "Runtime/Resources/Prism/DisplacementTopology.compute::BootstrapSupport@278",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/Prism/DisplacementTopology.compute::InitializeBasePages@599",
+      "target": "Runtime/Resources/Prism/DisplacementTopology.compute::EmptyCell@268",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/Prism/DisplacementTopology.compute::InitializeBasePages@599",
+      "target": "Runtime/Resources/Prism/DisplacementTopology.compute::StoreAccumulator@215",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/Prism/DisplacementTopology.compute::InitializeMicroPages@1082",
+      "target": "Runtime/Resources/Prism/DisplacementTopology.compute::EmptyCell@268",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/Prism/DisplacementTopology.compute::InitializeMicroPages@1082",
+      "target": "Runtime/Resources/Prism/DisplacementTopology.compute::StoreAccumulator@215",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/Prism/DisplacementTopology.compute::InterlockedAddAccumulator@224",
+      "target": "Runtime/Resources/Prism/DisplacementTopology.compute::AccumulatorBaseWordCapacity@203",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/Prism/DisplacementTopology.compute::InterlockedMaxAccumulator@233",
+      "target": "Runtime/Resources/Prism/DisplacementTopology.compute::AccumulatorBaseWordCapacity@203",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/Prism/DisplacementTopology.compute::InterlockedMinAccumulator@242",
+      "target": "Runtime/Resources/Prism/DisplacementTopology.compute::AccumulatorBaseWordCapacity@203",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/Prism/DisplacementTopology.compute::InterlockedOrAccumulator@251",
+      "target": "Runtime/Resources/Prism/DisplacementTopology.compute::AccumulatorBaseWordCapacity@203",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/Prism/DisplacementTopology.compute::LoadAccumulator@208",
+      "target": "Runtime/Resources/Prism/DisplacementTopology.compute::AccumulatorBaseWordCapacity@203",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/Prism/DisplacementTopology.compute::ResolveLeaf@349",
+      "target": "Runtime/Resources/Prism/DisplacementTopology.compute::ResolveBaseCell@330",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/Prism/DisplacementTopology.compute::SolveDirtyDisplacement@858",
+      "target": "Runtime/Resources/Prism/DisplacementTopology.compute::LoadAccumulator@208",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/Prism/DisplacementTopology.compute::SolveDirtyDisplacement@858",
+      "target": "Runtime/Resources/Prism/DisplacementTopology.compute::StoreAccumulator@215",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/Prism/DisplacementTopology.compute::SolveDirtyDisplacement@858",
+      "target": "Runtime/Resources/Prism/DisplacementTopology.compute::StoreCell@295",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/Prism/DisplacementTopology.compute::StoreAccumulator@215",
+      "target": "Runtime/Resources/Prism/DisplacementTopology.compute::AccumulatorBaseWordCapacity@203",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/Prism/DisplacementTopology.compute::if@925",
+      "target": "Runtime/Resources/Prism/DisplacementTopology.compute::LoadAccumulator@208",
       "kind": "calls"
     },
     {

@@ -158,3 +158,14 @@ remain recoverable from archive commit `e9f37c1` and are not active on this bran
   snapshot dependency cycle before depth capture. Sensor ingress begins only after
   canonical arenas are resident, while failed/cancelled starts remain stopped
   without publishing or destroying durable state.
+
+## ADR-P016 — Lossless segmented transient displacement information
+
+- Decision: the eleven-word per-cell displacement/pressure accumulator uses separate
+  base-Grid16 and micro-Grid8 storage buffers while preserving one logical global-cell
+  address space in compute helpers. Topology adaptation writes the base segment
+  directly. Default segments are 92,274,688 and 46,137,344 bytes; the former combined
+  138,412,032-byte binding is forbidden by Quest's 134,217,728-byte Vulkan limit.
+- Consequence: scan startup allocates the complete high-detail sparse hierarchy
+  without violating a per-buffer device limit. Segmentation changes neither total app
+  memory nor film/page capacity, posterior fields, microtile depth, or measured detail.

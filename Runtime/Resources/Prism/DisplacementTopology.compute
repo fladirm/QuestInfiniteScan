@@ -120,7 +120,8 @@ RWStructuredBuffer<DisplacementCell> _MicroDisplacementCells;
 RWStructuredBuffer<uint> _BaseChildPages;
 RWStructuredBuffer<uint> _MicroChildPages;
 RWStructuredBuffer<uint> _DisplacementAllocator;
-RWStructuredBuffer<int> _DisplacementCellAccumulator;
+RWStructuredBuffer<int> _BaseDisplacementCellAccumulator;
+RWStructuredBuffer<int> _MicroDisplacementCellAccumulator;
 RWStructuredBuffer<uint> _DisplacementCellDirtyFlags;
 RWStructuredBuffer<uint> _DirtyDisplacementCellIndices;
 RWStructuredBuffer<uint> _DisplacementDirtyState;
@@ -200,12 +201,69 @@ float Height(ContactFilmHeader film, float u, float v)
         film.quadratic45.x * u * v + film.quadratic45.y * v * v;
 }
 
+uint AccumulatorBaseWordCapacity()
+{
+    return _BaseCellCapacity * WORDS_PER_CELL;
+}
+
+int LoadAccumulator(uint address)
+{
+    uint baseWords = AccumulatorBaseWordCapacity();
+    return address < baseWords ? _BaseDisplacementCellAccumulator[address] :
+        _MicroDisplacementCellAccumulator[address - baseWords];
+}
+
+void StoreAccumulator(uint address, int value)
+{
+    uint baseWords = AccumulatorBaseWordCapacity();
+    if (address < baseWords)
+        _BaseDisplacementCellAccumulator[address] = value;
+    else
+        _MicroDisplacementCellAccumulator[address - baseWords] = value;
+}
+
+void InterlockedAddAccumulator(uint address, int value)
+{
+    uint baseWords = AccumulatorBaseWordCapacity();
+    if (address < baseWords)
+        InterlockedAdd(_BaseDisplacementCellAccumulator[address], value);
+    else
+        InterlockedAdd(_MicroDisplacementCellAccumulator[address - baseWords], value);
+}
+
+void InterlockedMaxAccumulator(uint address, int value)
+{
+    uint baseWords = AccumulatorBaseWordCapacity();
+    if (address < baseWords)
+        InterlockedMax(_BaseDisplacementCellAccumulator[address], value);
+    else
+        InterlockedMax(_MicroDisplacementCellAccumulator[address - baseWords], value);
+}
+
+void InterlockedMinAccumulator(uint address, int value)
+{
+    uint baseWords = AccumulatorBaseWordCapacity();
+    if (address < baseWords)
+        InterlockedMin(_BaseDisplacementCellAccumulator[address], value);
+    else
+        InterlockedMin(_MicroDisplacementCellAccumulator[address - baseWords], value);
+}
+
+void InterlockedOrAccumulator(uint address, int value)
+{
+    uint baseWords = AccumulatorBaseWordCapacity();
+    if (address < baseWords)
+        InterlockedOr(_BaseDisplacementCellAccumulator[address], value);
+    else
+        InterlockedOr(_MicroDisplacementCellAccumulator[address - baseWords], value);
+}
+
 void AtomicAddScaled(uint address, float value, float scale)
 {
     int quantized = (int)round(clamp(value * scale,
         -2140000000.0, 2140000000.0));
     if (quantized != 0)
-        InterlockedAdd(_DisplacementCellAccumulator[address], quantized);
+        InterlockedAddAccumulator(address, quantized);
 }
 
 DisplacementCell EmptyCell(float sigma)
@@ -576,8 +634,8 @@ void InitializeBasePages(uint3 id : SV_DispatchThreadID)
     _DisplacementCellDirtyFlags[globalCell] = 0u;
     uint baseWord = globalCell * WORDS_PER_CELL;
     [unroll] for (uint word = 0u; word < WORDS_PER_CELL; ++word)
-        _DisplacementCellAccumulator[baseWord + word] =
-            word == 6u ? 0x7f7fffff : 0;
+        StoreAccumulator(baseWord + word,
+            word == 6u ? 0x7f7fffff : 0);
 }
 
 [numthreads(64, 1, 1)]
@@ -657,9 +715,9 @@ void AccumulateDisplacement(uint3 id : SV_DispatchThreadID)
         uvSpan.x * uvSpan.y / (grid * grid), 1e-10);
     float covered = saturate(eventData.footprintArea / metricCellArea);
     AtomicAddScaled(baseWord + 3u, covered, WEIGHT_SCALE);
-    InterlockedMax(_DisplacementCellAccumulator[baseWord + 5u],
+    InterlockedMaxAccumulator(baseWord + 5u,
         asint(eventData.pressurePrecision));
-    InterlockedMin(_DisplacementCellAccumulator[baseWord + 6u],
+    InterlockedMinAccumulator(baseWord + 6u,
         asint(max(eventData.footprintArea, 1e-12)));
     AtomicAddScaled(baseWord + 7u,
         saturate(eventData.confidence) * max(0.05, ratio), WEIGHT_SCALE);
@@ -717,7 +775,7 @@ void AccumulatePreHitPressure(uint3 id : SV_DispatchThreadID)
     uint2 pixel = uint2(eventData.packedPixel & 0xffffu,
         (eventData.packedPixel >> 16u) & 0x7fffu);
     uint eye = eventData.packedPixel >> 31u;
-    InterlockedOr(_DisplacementCellAccumulator[baseWord + 4u],
+    InterlockedOrAccumulator(baseWord + 4u,
         (int)PreHitPressureViewBit(film, eye));
     float3 rayChunk = normalize(mul((float3x3)_ChunkFromDepth[eye],
         LoadRay(pixel, eye)));
@@ -768,7 +826,7 @@ void AccumulateOccluderPreHitPressure(uint3 id : SV_DispatchThreadID)
     uint baseWord = globalCell * WORDS_PER_CELL;
     AtomicAddScaled(baseWord + 3u, -preHitPressureWeight, WEIGHT_SCALE);
     uint eye = eventData.packedPixel >> 31u;
-    InterlockedOr(_DisplacementCellAccumulator[baseWord + 4u],
+    InterlockedOrAccumulator(baseWord + 4u,
         (int)PreHitPressureViewBit(film, eye));
     uint2 pixel = uint2(eventData.packedPixel & 0xffffu,
         (eventData.packedPixel >> 16u) & 0x7fffu);
@@ -808,20 +866,20 @@ void SolveDirtyDisplacement(uint3 id : SV_DispatchThreadID)
     if (globalCell >= _BaseCellCapacity + _MicroCellCapacity) return;
     uint baseWord = globalCell * WORDS_PER_CELL;
     float weight = max(0.0,
-        (float)_DisplacementCellAccumulator[baseWord + 0u] / WEIGHT_SCALE);
+        (float)LoadAccumulator(baseWord + 0u) / WEIGHT_SCALE);
     float signedCoverage =
-        (float)_DisplacementCellAccumulator[baseWord + 3u] / WEIGHT_SCALE;
+        (float)LoadAccumulator(baseWord + 3u) / WEIGHT_SCALE;
     uint preHitViewMask =
-        (uint)_DisplacementCellAccumulator[baseWord + 4u];
+        (uint)LoadAccumulator(baseWord + 4u);
     float framePressureWeight = max(0.0,
-        (float)_DisplacementCellAccumulator[baseWord + 8u] / WEIGHT_SCALE);
+        (float)LoadAccumulator(baseWord + 8u) / WEIGHT_SCALE);
     DisplacementCell cell = LoadCell(globalCell);
     bool changed = false;
     if (weight > 0.0)
     {
-        float mean = (float)_DisplacementCellAccumulator[baseWord + 1u] /
+        float mean = (float)LoadAccumulator(baseWord + 1u) /
             VALUE_SCALE / weight;
-        float secondMoment = (float)_DisplacementCellAccumulator[baseWord + 2u] /
+        float secondMoment = (float)LoadAccumulator(baseWord + 2u) /
             VALUE_SCALE / weight;
         float frameVariance = max(0.0, secondMoment - mean * mean);
         float previousSupport = max(0.0, cell.support);
@@ -844,9 +902,9 @@ void SolveDirtyDisplacement(uint3 id : SV_DispatchThreadID)
             : candidateSigma;
         cell.support = totalSupport;
         cell.bestPrecision = max(cell.bestPrecision,
-            asfloat(_DisplacementCellAccumulator[baseWord + 5u]));
+            asfloat(LoadAccumulator(baseWord + 5u)));
         cell.bestFootprint = min(cell.bestFootprint,
-            asfloat(_DisplacementCellAccumulator[baseWord + 6u]));
+            asfloat(LoadAccumulator(baseWord + 6u)));
         cell.residualVariance = combinedVariance;
         changed = true;
     }
@@ -883,7 +941,7 @@ void SolveDirtyDisplacement(uint3 id : SV_DispatchThreadID)
             cell.preHitPressure > bakedResistance && framePressureWeight > 0.0)
         {
             float excess = cell.preHitPressure - bakedResistance;
-            float target = (float)_DisplacementCellAccumulator[baseWord + 9u] /
+            float target = (float)LoadAccumulator(baseWord + 9u) /
                 VALUE_SCALE / max(framePressureWeight, 1e-8);
             float response = saturate(excess /
                 max(bakedResistance + framePressureWeight, 1.0));
@@ -928,8 +986,8 @@ void SolveDirtyDisplacement(uint3 id : SV_DispatchThreadID)
     }
 
     [unroll] for (uint word = 0u; word < WORDS_PER_CELL; ++word)
-        _DisplacementCellAccumulator[baseWord + word] =
-            word == 6u ? 0x7f7fffff : 0;
+        StoreAccumulator(baseWord + word,
+            word == 6u ? 0x7f7fffff : 0);
 }
 
 [numthreads(64, 1, 1)]
@@ -1060,8 +1118,8 @@ void InitializeMicroPages(uint3 id : SV_DispatchThreadID)
     _DisplacementCellDirtyFlags[globalCell] = 0u;
     uint baseWord = globalCell * WORDS_PER_CELL;
     [unroll] for (uint word = 0u; word < WORDS_PER_CELL; ++word)
-        _DisplacementCellAccumulator[baseWord + word] =
-            word == 6u ? 0x7f7fffff : 0;
+        StoreAccumulator(baseWord + word,
+            word == 6u ? 0x7f7fffff : 0);
 }
 
 [numthreads(64, 1, 1)]

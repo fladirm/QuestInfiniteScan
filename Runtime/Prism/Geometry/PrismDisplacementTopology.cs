@@ -30,7 +30,8 @@ namespace Genesis.RoomScan.Prism
         private const int FilmHashClearArgumentsOffset = sizeof(uint) * 15;
         private const int MergeInitializeArgumentsOffset = sizeof(uint) * 18;
         private const int MergeFilmArgumentsOffset = sizeof(uint) * 21;
-        private const int AccumulatorWordsPerCell = 11;
+        private const int AccumulatorWordsPerCell =
+            ContactDisplacementPool.TransientAccumulatorWordsPerCell;
         private const int AccumulatorWordsPerFilm = 8;
 
         [SerializeField] private PrismBoundaryGraph boundaryGraph;
@@ -82,7 +83,10 @@ namespace Genesis.RoomScan.Prism
         private static readonly int BaseChildrenId = Shader.PropertyToID("_BaseChildPages");
         private static readonly int MicroChildrenId = Shader.PropertyToID("_MicroChildPages");
         private static readonly int DisplacementAllocatorId = Shader.PropertyToID("_DisplacementAllocator");
-        private static readonly int CellAccumulatorId = Shader.PropertyToID("_DisplacementCellAccumulator");
+        private static readonly int BaseCellAccumulatorId =
+            Shader.PropertyToID("_BaseDisplacementCellAccumulator");
+        private static readonly int MicroCellAccumulatorId =
+            Shader.PropertyToID("_MicroDisplacementCellAccumulator");
         private static readonly int CellDirtyFlagsId = Shader.PropertyToID("_DisplacementCellDirtyFlags");
         private static readonly int DirtyCellIndicesId = Shader.PropertyToID("_DirtyDisplacementCellIndices");
         private static readonly int DirtyStateId = Shader.PropertyToID("_DisplacementDirtyState");
@@ -121,7 +125,8 @@ namespace Genesis.RoomScan.Prism
         private readonly Matrix4x4[] _chunkFromDepth = new Matrix4x4[2];
         private Matrix4x4 _chunkFromWorld = Matrix4x4.identity;
         private ContactDisplacementPool _pool;
-        private GraphicsBuffer _cellAccumulator;
+        private GraphicsBuffer _baseCellAccumulator;
+        private GraphicsBuffer _microCellAccumulator;
         private GraphicsBuffer _cellDirtyFlags;
         private GraphicsBuffer _dirtyCellIndices;
         private GraphicsBuffer _dirtyState;
@@ -375,10 +380,20 @@ namespace Genesis.RoomScan.Prism
 
         private void AllocateTransientBuffers(ContactDisplacementPool pool)
         {
-            if (_cellAccumulator != null) return;
+            if (_baseCellAccumulator != null) return;
             int cells = pool.TotalCellCapacity;
-            _cellAccumulator = new GraphicsBuffer(GraphicsBuffer.Target.Structured,
-                checked(cells * AccumulatorWordsPerCell), sizeof(int));
+            // A combined default arena is 138,412,032 bytes, above Quest's
+            // maxStorageBufferRange (128 MiB). Keep the same number of cells and
+            // all eleven information words, but expose the already distinct base
+            // and micro address spaces as separate bindings.
+            _baseCellAccumulator = new GraphicsBuffer(
+                GraphicsBuffer.Target.Structured,
+                checked(pool.BaseCellCapacity * AccumulatorWordsPerCell),
+                sizeof(int));
+            _microCellAccumulator = new GraphicsBuffer(
+                GraphicsBuffer.Target.Structured,
+                checked(pool.MicroCellCapacity * AccumulatorWordsPerCell),
+                sizeof(int));
             _cellDirtyFlags = new GraphicsBuffer(GraphicsBuffer.Target.Structured,
                 cells, sizeof(uint));
             _dirtyCellIndices = new GraphicsBuffer(GraphicsBuffer.Target.Structured,
@@ -455,8 +470,10 @@ namespace Genesis.RoomScan.Prism
                     _pool.MicroChildPages);
                 displacementCompute.SetBuffer(kernel, DisplacementAllocatorId,
                     _pool.Allocator);
-                displacementCompute.SetBuffer(kernel, CellAccumulatorId,
-                    _cellAccumulator);
+                displacementCompute.SetBuffer(kernel, BaseCellAccumulatorId,
+                    _baseCellAccumulator);
+                displacementCompute.SetBuffer(kernel, MicroCellAccumulatorId,
+                    _microCellAccumulator);
                 displacementCompute.SetBuffer(kernel, CellDirtyFlagsId,
                     _cellDirtyFlags);
                 displacementCompute.SetBuffer(kernel, DirtyCellIndicesId,
@@ -533,8 +550,8 @@ namespace Genesis.RoomScan.Prism
                     _pool.MicroChildPages);
                 topologyCompute.SetBuffer(kernel, DisplacementAllocatorId,
                     _pool.Allocator);
-                topologyCompute.SetBuffer(kernel, CellAccumulatorId,
-                    _cellAccumulator);
+                topologyCompute.SetBuffer(kernel, BaseCellAccumulatorId,
+                    _baseCellAccumulator);
                 topologyCompute.SetBuffer(kernel, CellDirtyFlagsId,
                     _cellDirtyFlags);
                 topologyCompute.SetBuffer(kernel, TopologyEvidenceId,
@@ -600,7 +617,8 @@ namespace Genesis.RoomScan.Prism
 
         private void DisposeTransientBuffers()
         {
-            _cellAccumulator?.Dispose();
+            _baseCellAccumulator?.Dispose();
+            _microCellAccumulator?.Dispose();
             _cellDirtyFlags?.Dispose();
             _dirtyCellIndices?.Dispose();
             _dirtyState?.Dispose();
@@ -617,7 +635,8 @@ namespace Genesis.RoomScan.Prism
             _adaptArguments?.Dispose();
             _mergeRecords?.Dispose();
             _filmMergeHash?.Dispose();
-            _cellAccumulator = null;
+            _baseCellAccumulator = null;
+            _microCellAccumulator = null;
             _cellDirtyFlags = null;
             _dirtyCellIndices = null;
             _dirtyState = null;

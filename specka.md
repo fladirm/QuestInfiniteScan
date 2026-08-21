@@ -906,8 +906,12 @@ eviction. Active reconstruction cost therefore follows visible/dirty area, not t
 building size.
 
 No individual buffer exceeds the device-reported Vulkan storage-buffer range;
-segmented pools can use the actual safe Quest app memory budget. Pressure changes
-residency/scheduling, never canonical detail.
+segmented pools can use the actual safe Quest app memory budget. In particular, the
+per-cell transient solve retains all information words and cells but exposes its
+base-Grid16 and micro-Grid8 arenas as separate bindings under the Quest 128 MiB
+single-buffer limit. A storage-binding limit never authorizes reducing films,
+microtile depth, sensor resolution, posterior precision, or canonical detail.
+Pressure changes residency/scheduling, never canonical detail.
 
 ## 30. Revisit is continuation of one ContactFilm posterior
 

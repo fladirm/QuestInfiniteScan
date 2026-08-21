@@ -95,12 +95,23 @@ Updated: 2026-08-21 (Europe/Prague)
   has one explicitly awaited startup activation rather than an additional fire-and-
   forget `ScanStarted` activation, and its GPU-idle wait fails visibly instead of
   hanging forever.
+- The per-frame displacement accumulator retains all 3,145,728 canonical cells and
+  all eleven information/pressure words, but is now segmented along the existing
+  base/micro address spaces. The two Vulkan storage bindings are 92,274,688 and
+  46,137,344 bytes instead of one illegal 138,412,032-byte binding; no film, cell,
+  microtile, precision, or reconstruction detail was removed.
 
 ## Verification evidence
 
 - Scan-lifecycle repair Real-Vulkan EditMode: 120 total, 117 passed, 0 failed,
   3 intentionally ignored. Results and log remain under
   `/mnt/kingston-unity/Builds/TestResults/`.
+- Segmented-accumulator Real-Vulkan EditMode: 120 total, 117 passed, 0 failed,
+  3 intentionally ignored. The storage contract now proves the former combined
+  binding exceeds 128 MiB and both lossless segments remain below it.
+- Segmented-accumulator Android Vulkan/IL2CPP build completed with BuildReport
+  `errors=0`: `/mnt/kingston-unity/Builds/QuestInfiniteScan/QuestInfiniteScan-dev.apk`,
+  SHA-256 `649356efd17731286c7ba359e7498896270171019f9f0ca9009623941822d9a7`.
 - Scan-lifecycle repair Android Vulkan/IL2CPP build completed with BuildReport
   `errors=0`: `/mnt/kingston-unity/Builds/QuestInfiniteScan/QuestInfiniteScan-dev.apk`,
   SHA-256 `88b16c306b703e45e948c63e2e0c9424539964b3f335e2a8e3758229351d5781`.
@@ -137,15 +148,16 @@ Updated: 2026-08-21 (Europe/Prague)
 
 ## Next exact actions
 
-1. Run one batched physical acceptance on the installed `096cf164893d` APK:
-   continuous film/no square plates, stable
+1. Commit/archive and deploy the segmented-accumulator APK, then verify one physical
+   Start reaches sensor ingress without a Vulkan maximum-buffer exception.
+2. Run one batched physical acceptance: continuous film/no square plates, stable
    stereo presentation, local artifact pressure, close-bake resistance, Stop/Start,
    revisit visibility, and frame cost. Only evidence from that run may close
    Q3-11 through its dependent implemented checkpoints.
-2. Implement the remaining explicit generation-safe `PressureManifoldHeader`,
+3. Implement the remaining explicit generation-safe `PressureManifoldHeader`,
    `ManifoldLink`, and ordered outer `LatentFrontier` canonical pools/ABI; reject
    publication for unpaired active chart edges instead of synthesizing per-film caps.
-3. Continue Q3-12 only after the same physical evidence confirms the current
+4. Continue Q3-12 only after the same physical evidence confirms the current
    cooperative chart/connector materialization is stable and interactive.
 
 ## Safety
