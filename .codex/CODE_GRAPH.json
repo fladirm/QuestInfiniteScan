@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "source_digest": "e5908f1e5f1cc8c37e2088f801ff3ee3f40d41ab6414b296f06db43741617f30",
+  "source_digest": "c02f520d43078b35c2ce649297bd86e6a0351c0a0c0bd23543661d305ce7dc29",
   "scope": [
     "Runtime/**/*.cs",
     "Runtime/Resources/Prism/*.*",
@@ -9794,11 +9794,11 @@
       "line": 2
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::AddMeshletBuildGroupOffsets@1208",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::AddMeshletBuildGroupOffsets@1209",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "AddMeshletBuildGroupOffsets",
       "kind": "gpu_function",
-      "line": 1208
+      "line": 1209
     },
     {
       "id": "Runtime/Resources/Prism/MeshletBuild.compute::BootstrapCoverage@453",
@@ -9843,11 +9843,11 @@
       "line": 599
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::BuildAdaptiveFilmMeshlets@1431",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::BuildAdaptiveFilmMeshlets@1432",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "BuildAdaptiveFilmMeshlets",
       "kind": "gpu_function",
-      "line": 1431
+      "line": 1432
     },
     {
       "id": "Runtime/Resources/Prism/MeshletBuild.compute::BuildFilmCount@288",
@@ -9871,11 +9871,11 @@
       "line": 944
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::BuildSurfaceVertex@1339",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::BuildSurfaceVertex@1340",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "BuildSurfaceVertex",
       "kind": "gpu_function",
-      "line": 1339
+      "line": 1340
     },
     {
       "id": "Runtime/Resources/Prism/MeshletBuild.compute::CellTouchesPersistentBoundary@585",
@@ -9906,11 +9906,11 @@
       "line": 925
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::ClipTriangle@1369",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::ClipTriangle@1370",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "ClipTriangle",
       "kind": "gpu_function",
-      "line": 1369
+      "line": 1370
     },
     {
       "id": "Runtime/Resources/Prism/MeshletBuild.compute::ClosestBoundaryPoint@534",
@@ -9934,11 +9934,11 @@
       "line": 1002
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::CommitFullMeshletRepack@1274",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::CommitFullMeshletRepack@1275",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "CommitFullMeshletRepack",
       "kind": "gpu_function",
-      "line": 1274
+      "line": 1275
     },
     {
       "id": "Runtime/Resources/Prism/MeshletBuild.compute::ContactBoundaryHeader",
@@ -9997,11 +9997,11 @@
       "line": 137
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::EmitClippedPolygon@1396",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::EmitClippedPolygon@1397",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "EmitClippedPolygon",
       "kind": "gpu_function",
-      "line": 1396
+      "line": 1397
     },
     {
       "id": "Runtime/Resources/Prism/MeshletBuild.compute::FilmMembership",
@@ -10025,18 +10025,18 @@
       "line": 197
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::FinalizeDirtyMeshletFilms@1295",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::FinalizeDirtyMeshletFilms@1296",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "FinalizeDirtyMeshletFilms",
       "kind": "gpu_function",
-      "line": 1295
+      "line": 1296
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::FinalizeMeshletDrawArguments@1731",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::FinalizeMeshletDrawArguments@1732",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "FinalizeMeshletDrawArguments",
       "kind": "gpu_function",
-      "line": 1731
+      "line": 1732
     },
     {
       "id": "Runtime/Resources/Prism/MeshletBuild.compute::Height@721",
@@ -10102,11 +10102,11 @@
       "line": 1023
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::RecoverPreviousMeshletGeneration@1704",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::RecoverPreviousMeshletGeneration@1705",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "RecoverPreviousMeshletGeneration",
       "kind": "gpu_function",
-      "line": 1704
+      "line": 1705
     },
     {
       "id": "Runtime/Resources/Prism/MeshletBuild.compute::Reserve@852",
@@ -10151,18 +10151,18 @@
       "line": 415
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::ScanMeshletBuildGroups@1186",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::ScanMeshletBuildGroups@1187",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "ScanMeshletBuildGroups",
       "kind": "gpu_function",
-      "line": 1186
+      "line": 1187
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::ScanMeshletBuildPlans@1150",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::ScanMeshletBuildPlans@1151",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "ScanMeshletBuildPlans",
       "kind": "gpu_function",
-      "line": 1150
+      "line": 1151
     },
     {
       "id": "Runtime/Resources/Prism/MeshletBuild.compute::StableLinkSampleId@763",
@@ -10172,11 +10172,11 @@
       "line": 763
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::StableSurfaceSampleId@1328",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::StableSurfaceSampleId@1329",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "StableSurfaceSampleId",
       "kind": "gpu_function",
-      "line": 1328
+      "line": 1329
     },
     {
       "id": "Runtime/Resources/Prism/MeshletBuild.compute::SurfaceCoverage@469",
@@ -10221,11 +10221,11 @@
       "line": 975
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::ValidateMeshletBuild@1223",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::ValidateMeshletBuild@1224",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "ValidateMeshletBuild",
       "kind": "gpu_function",
-      "line": 1223
+      "line": 1224
     },
     {
       "id": "Runtime/Resources/Prism/MeshletBuild.compute::kernel:AddMeshletBuildGroupOffsets",
@@ -22687,7 +22687,7 @@
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::AddMeshletBuildGroupOffsets@1208",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::AddMeshletBuildGroupOffsets@1209",
       "target": "Runtime/Resources/Prism/MeshletBuild.compute::BuildFilmCount@288",
       "kind": "calls"
     },
@@ -22697,67 +22697,67 @@
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildAdaptiveFilmMeshlets@1431",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildAdaptiveFilmMeshlets@1432",
       "target": "Runtime/Resources/Prism/MeshletBuild.compute::BuildFilmCount@288",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildAdaptiveFilmMeshlets@1431",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::ClipTriangle@1369",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildAdaptiveFilmMeshlets@1432",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::ClipTriangle@1370",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildAdaptiveFilmMeshlets@1431",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildAdaptiveFilmMeshlets@1432",
       "target": "Runtime/Resources/Prism/MeshletBuild.compute::ClosestBoundaryPoint@534",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildAdaptiveFilmMeshlets@1431",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildAdaptiveFilmMeshlets@1432",
       "target": "Runtime/Resources/Prism/MeshletBuild.compute::ClosestManifoldLinkPoint@773",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildAdaptiveFilmMeshlets@1431",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildAdaptiveFilmMeshlets@1432",
       "target": "Runtime/Resources/Prism/MeshletBuild.compute::DisplacementMetrics@363",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildAdaptiveFilmMeshlets@1431",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::EmitClippedPolygon@1396",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildAdaptiveFilmMeshlets@1432",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::EmitClippedPolygon@1397",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildAdaptiveFilmMeshlets@1431",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildAdaptiveFilmMeshlets@1432",
       "target": "Runtime/Resources/Prism/MeshletBuild.compute::NonDegenerateCutScalar@673",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildAdaptiveFilmMeshlets@1431",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildAdaptiveFilmMeshlets@1432",
       "target": "Runtime/Resources/Prism/MeshletBuild.compute::ReservedSubdivision@904",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildAdaptiveFilmMeshlets@1431",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::StableSurfaceSampleId@1328",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildAdaptiveFilmMeshlets@1432",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::StableSurfaceSampleId@1329",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildAdaptiveFilmMeshlets@1431",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildAdaptiveFilmMeshlets@1432",
       "target": "Runtime/Resources/Prism/MeshletBuild.compute::SurfaceCoverage@469",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildAdaptiveFilmMeshlets@1431",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildAdaptiveFilmMeshlets@1432",
       "target": "Runtime/Resources/Prism/MeshletBuild.compute::SurfacePosition@754",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildAdaptiveFilmMeshlets@1431",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildAdaptiveFilmMeshlets@1432",
       "target": "Runtime/Resources/Prism/MeshletBuild.compute::TriangleBoundaryCut@681",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildAdaptiveFilmMeshlets@1431",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildAdaptiveFilmMeshlets@1432",
       "target": "Runtime/Resources/Prism/MeshletBuild.compute::TriangleMask@666",
       "kind": "calls"
     },
@@ -22767,17 +22767,17 @@
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildSurfaceVertex@1339",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildSurfaceVertex@1340",
       "target": "Runtime/Resources/Prism/MeshletBuild.compute::ClosestManifoldLinkPoint@773",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildSurfaceVertex@1339",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::StableSurfaceSampleId@1328",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildSurfaceVertex@1340",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::StableSurfaceSampleId@1329",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildSurfaceVertex@1339",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildSurfaceVertex@1340",
       "target": "Runtime/Resources/Prism/MeshletBuild.compute::SurfacePosition@754",
       "kind": "calls"
     },
@@ -22862,8 +22862,8 @@
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::EmitClippedPolygon@1396",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::BuildSurfaceVertex@1339",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::EmitClippedPolygon@1397",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::BuildSurfaceVertex@1340",
       "kind": "calls"
     },
     {
@@ -22887,12 +22887,12 @@
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::ScanMeshletBuildGroups@1186",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::ScanMeshletBuildGroups@1187",
       "target": "Runtime/Resources/Prism/MeshletBuild.compute::BuildFilmCount@288",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::ScanMeshletBuildPlans@1150",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::ScanMeshletBuildPlans@1151",
       "target": "Runtime/Resources/Prism/MeshletBuild.compute::BuildFilmCount@288",
       "kind": "calls"
     },
@@ -22917,7 +22917,7 @@
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::ValidateMeshletBuild@1223",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::ValidateMeshletBuild@1224",
       "target": "Runtime/Resources/Prism/MeshletBuild.compute::BuildFilmCount@288",
       "kind": "calls"
     },

@@ -1079,9 +1079,10 @@ void CountMeshletBuildPlans(uint3 groupId : SV_GroupID,
     ContactFilmHeader film = _FilmHeaders[filmIndex];
     uint segments = sCountSegments;
     uint baseTriangles = segments * segments * 2u;
-    for (uint triangle = groupIndex; triangle < baseTriangles; triangle += 64u)
+    for (uint triangleOrdinal = groupIndex; triangleOrdinal < baseTriangles;
+        triangleOrdinal += 64u)
     {
-        uint cell = triangle >> 1u;
+        uint cell = triangleOrdinal >> 1u;
         uint cellX = cell % segments;
         uint cellY = cell / segments;
         float2 uv00 = float2((float)cellX, (float)cellY) / (float)segments;
@@ -1091,9 +1092,9 @@ void CountMeshletBuildPlans(uint3 groupId : SV_GroupID,
             (float)segments;
         float2 uv11 = float2((float)(cellX + 1u), (float)(cellY + 1u)) /
             (float)segments;
-        float2 a = triangle & 1u ? uv01 : uv00;
+        float2 a = triangleOrdinal & 1u ? uv01 : uv00;
         float2 b = uv10;
-        float2 c = triangle & 1u ? uv11 : uv01;
+        float2 c = triangleOrdinal & 1u ? uv11 : uv01;
         uint measured, latent, mixed;
         ClassifyMaterialTriangle(film, a, b, c, measured, latent, mixed);
         InterlockedAdd(sCountMeasuredTriangles, measured);
@@ -1403,11 +1404,11 @@ void EmitClippedPolygon(ContactFilmHeader film, MeshletBuildPlan plan,
     uint vertexBase = plan.vertexOffset + 2u * plan.rowVertices *
         plan.rowVertices + extraBase;
     [unroll]
-    for (uint vertex = 0u; vertex < 4u; ++vertex)
+    for (uint polygonVertex = 0u; polygonVertex < 4u; ++polygonVertex)
     {
-        if (vertex >= polygonCount) break;
-        _ContactVertices[vertexBase + vertex] = BuildSurfaceVertex(film,
-            polygon[vertex], measured, true);
+        if (polygonVertex >= polygonCount) break;
+        _ContactVertices[vertexBase + polygonVertex] = BuildSurfaceVertex(film,
+            polygon[polygonVertex], measured, true);
     }
     uint triangleCount = polygonCount - 2u;
     uint relativeIndex;
@@ -1418,14 +1419,14 @@ void EmitClippedPolygon(ContactFilmHeader film, MeshletBuildPlan plan,
     uint indexBase = measured ? plan.indexOffset + relativeIndex :
         plan.indexOffset + plan.measuredIndexCount + relativeIndex;
     [unroll]
-    for (uint triangle = 0u; triangle < 2u; ++triangle)
+    for (uint fanTriangle = 0u; fanTriangle < 2u; ++fanTriangle)
     {
-        if (triangle >= triangleCount) break;
-        _ContactIndices[indexBase + triangle * 3u + 0u] = vertexBase;
-        _ContactIndices[indexBase + triangle * 3u + 1u] =
-            vertexBase + triangle + 1u;
-        _ContactIndices[indexBase + triangle * 3u + 2u] =
-            vertexBase + triangle + 2u;
+        if (fanTriangle >= triangleCount) break;
+        _ContactIndices[indexBase + fanTriangle * 3u + 0u] = vertexBase;
+        _ContactIndices[indexBase + fanTriangle * 3u + 1u] =
+            vertexBase + fanTriangle + 1u;
+        _ContactIndices[indexBase + fanTriangle * 3u + 2u] =
+            vertexBase + fanTriangle + 2u;
     }
 }
 
