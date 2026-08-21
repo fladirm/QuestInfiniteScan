@@ -66,7 +66,9 @@ namespace Genesis.RoomScan.Prism
     public sealed class ContactMeshletGenerationBuffers : IDisposable
     {
         private static readonly uint[] EmptyIndirectArgs = { 0u, 1u, 0u, 0u };
-        private static readonly uint[] EmptyDispatchArgs = { 0u, 1u, 1u };
+        private static readonly uint[] EmptyBuildDispatchArgs =
+            { 0u, 1u, 1u, 0u, 1u, 1u };
+        private static readonly uint[] EmptyCullDispatchArgs = { 0u, 1u, 1u };
         private static readonly uint[] EmptyCounters = new uint[8];
 
         internal ContactMeshletGenerationBuffers(int vertexCapacity,
@@ -88,14 +90,14 @@ namespace Genesis.RoomScan.Prism
                 EmptyCounters.Length, sizeof(uint));
             BuildDispatchArguments = new GraphicsBuffer(
                 GraphicsBuffer.Target.IndirectArguments | GraphicsBuffer.Target.Structured,
-                1, sizeof(uint) * 3);
+                2, sizeof(uint) * 3);
             CullDispatchArguments = new GraphicsBuffer(
                 GraphicsBuffer.Target.IndirectArguments | GraphicsBuffer.Target.Structured,
                 1, sizeof(uint) * 3);
             DrawArguments.SetData(EmptyIndirectArgs);
             BuildCounters.SetData(EmptyCounters);
-            BuildDispatchArguments.SetData(EmptyDispatchArgs);
-            CullDispatchArguments.SetData(EmptyDispatchArgs);
+            BuildDispatchArguments.SetData(EmptyBuildDispatchArgs);
+            CullDispatchArguments.SetData(EmptyCullDispatchArgs);
         }
 
         public GraphicsBuffer Vertices { get; private set; }

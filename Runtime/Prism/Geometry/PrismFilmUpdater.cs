@@ -14,7 +14,7 @@ namespace Genesis.RoomScan.Prism
     [DefaultExecutionOrder(15)]
     public sealed class PrismFilmUpdater : MonoBehaviour
     {
-        // 0..31: information/support envelope; 32: per-frame free-space view
+        // 0..31: information/support envelope; 32: per-frame pre-hit pressure view
         // mask; 33: true contact observation count.  BEHIND evidence must never
         // inflate canonical contact confidence.
         private const int AccumulatorWordsPerFilm = 34;

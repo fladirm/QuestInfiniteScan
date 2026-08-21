@@ -114,6 +114,7 @@ Texture2D<float4> _DepthRayCenterLeft;
 Texture2D<float4> _DepthRayCenterRight;
 
 uint _BoundaryCapacity;
+uint _FilmCapacity;
 uint _HashMask;
 uint _EventCapacity;
 uint _CellsPerAxis;
@@ -139,6 +140,7 @@ static const uint BOUNDARY_DIRTY = 4u;
 static const uint BOUNDARY_PERSISTENT = 8u;
 static const uint BOUNDARY_RETIRED = 16u;
 static const uint BOUNDARY_MULTIVIEW = 32u;
+static const uint BOUNDARY_ELASTIC_MANIFOLD_LINK = 64u;
 static const uint WORDS_PER_BOUNDARY = 16u;
 static const uint INFORMATION_RECORDS = 8u;
 static const float MOMENT_SCALE = 65536.0;
@@ -815,9 +817,22 @@ void SolveDirtyBoundaries(uint3 id : SV_DispatchThreadID)
     if (boundary.filmB == 0u && adjacentId != 0u &&
         adjacentId != boundary.filmA)
     {
-        boundary.filmB = adjacentId;
-        boundary.filmBGeneration = adjacentGeneration;
+        uint adjacentIndex = adjacentId - 1u;
+        if (adjacentIndex < _FilmCapacity)
+        {
+            ContactFilmHeader adjacentFilm = _FilmHeaders[adjacentIndex];
+            if (adjacentFilm.id == adjacentId &&
+                adjacentFilm.generation == adjacentGeneration &&
+                (adjacentFilm.flags & FILM_ACTIVE) != 0u)
+            {
+                boundary.filmB = adjacentId;
+                boundary.filmBGeneration = adjacentGeneration;
+                boundary.flags |= BOUNDARY_ELASTIC_MANIFOLD_LINK;
+            }
+        }
     }
+    else if (boundary.filmB != 0u)
+        boundary.flags |= BOUNDARY_ELASTIC_MANIFOLD_LINK;
 
     float metricSigma = boundary.sigma *
         max(2.0 * film.extentU, 2.0 * film.extentV);

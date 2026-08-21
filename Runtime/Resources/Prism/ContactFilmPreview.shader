@@ -2,7 +2,7 @@ Shader "Hidden/Genesis/ConePrism/ContactFilmPreview"
 {
     Properties
     {
-        _PreviewCoverage ("Preview Coverage", Range(0, 1)) = 0.78
+        _PreviewCoverage ("Preview Opacity", Range(0, 1)) = 0.72
     }
     SubShader
     {
@@ -18,7 +18,10 @@ Shader "Hidden/Genesis/ConePrism/ContactFilmPreview"
             Cull Off
             ZWrite On
             ZTest LEqual
-            Blend Off
+            // Mesh-only transparency. ZWrite keeps the front ContactFilm coherent
+            // and prevents stacks of hidden layers from becoming an alpha soup;
+            // no global/UI/compositor material state is touched.
+            Blend SrcAlpha OneMinusSrcAlpha
 
             HLSLPROGRAM
             #pragma target 4.5
@@ -46,6 +49,7 @@ Shader "Hidden/Genesis/ConePrism/ContactFilmPreview"
                 float3 worldPosition : TEXCOORD0;
                 float3 worldNormal : TEXCOORD1;
                 float confidence : TEXCOORD2;
+                nointerpolation uint flags : TEXCOORD3;
             };
 
             Varyings Vert(uint vertexId : SV_VertexID)
@@ -59,33 +63,23 @@ Shader "Hidden/Genesis/ConePrism/ContactFilmPreview"
                 output.worldNormal = normalize(mul((float3x3)_WorldFromChunk,
                     input.normal));
                 output.confidence = input.confidence;
+                output.flags = input.flags;
                 return output;
             }
 
             float4 Frag(Varyings input) : SV_Target
             {
-                // Coverage transparency keeps surviving samples fully opaque in the
-                // compositor and writes one coherent first-hit depth. Unlike alpha
-                // blending it cannot make the passthrough/UI composition translucent
-                // or reveal a stack of films behind the front contact.
-                uint2 pixel = (uint2)input.positionCS.xy;
-                uint2 p = pixel & 3u;
-                static const uint bayer4x4[16] = {
-                    0u, 8u, 2u, 10u,
-                    12u, 4u, 14u, 6u,
-                    3u, 11u, 1u, 9u,
-                    15u, 7u, 13u, 5u
-                };
-                float threshold = ((float)bayer4x4[p.y * 4u + p.x] + 0.5) /
-                    16.0;
-                clip(saturate(_PreviewCoverage) - threshold);
+                bool latentConnector = (input.flags & (1u << 9u)) != 0u;
+                float opacity = saturate(_PreviewCoverage) *
+                    lerp(0.72, 1.0, saturate(input.confidence));
+                if (latentConnector) opacity *= 0.30;
                 float3 view = normalize(GetCameraPositionWS() -
                     input.worldPosition);
                 if (dot(input.worldNormal, view) <= 0.0) discard;
                 float3 normalColor = 0.25 + 0.55 * abs(input.worldNormal);
                 float confidence = saturate(input.confidence);
                 return float4(lerp(float3(0.18, 0.22, 0.28), normalColor,
-                    0.35 + 0.65 * confidence), 1.0);
+                    0.35 + 0.65 * confidence), opacity);
             }
             ENDHLSL
         }

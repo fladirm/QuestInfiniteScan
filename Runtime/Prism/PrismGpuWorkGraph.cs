@@ -95,10 +95,13 @@ namespace Genesis.RoomScan.Prism
                     return;
                 }
 
-                // The inactive publication can still be fenced by the preceding
-                // render. BuildCurrent keeps its dirty request and retries without
-                // blocking; no CPU wait or readback is introduced.
-                _meshlets.BuildCurrent();
+                // Spawn, solve, boundaries, displacement and topology all mutate
+                // the same manifold during this tick. Publishing here rebuilt the
+                // complete cache on the capture callback and serialized it ahead of
+                // XR presentation. Request one coalesced LateUpdate publication;
+                // the previous immutable generation remains visible/predictable
+                // until the inactive generation is complete.
+                _meshlets.RequestBuild();
                 _completedFrames++;
             }
             finally

@@ -18,11 +18,23 @@ namespace Genesis.RoomScan.Prism
         [SerializeField, Range(3, 10)] private int eventRingSlots = 4;
         [SerializeField, Range(1f, 60f)] private float normalGateDegrees = 25f;
         [SerializeField, Range(0f, 1f)] private float boundaryGate = 0.35f;
+        [Header("Information-positive integration ROI")]
+        [SerializeField, Range(10f, 70f)] private float coreHorizontalFov = 30f;
+        [SerializeField, Range(10f, 70f)] private float coreVerticalFov = 30f;
+        [SerializeField, Range(20f, 100f)] private float revisitHorizontalFov = 50f;
+        [SerializeField, Range(20f, 100f)] private float revisitVerticalFov = 46f;
+        [SerializeField, Range(0f, 1f)] private float peripheralConfidenceFloor = 0.72f;
 
         private static readonly int ResolutionId = Shader.PropertyToID("_Resolution");
         private static readonly int EventCapacityId = Shader.PropertyToID("_EventCapacity");
         private static readonly int NormalCosineGateId = Shader.PropertyToID("_NormalCosineGate");
         private static readonly int BoundaryGateId = Shader.PropertyToID("_BoundaryGate");
+        private static readonly int CoreRoiTanHalfFovId =
+            Shader.PropertyToID("_CoreRoiTanHalfFov");
+        private static readonly int RevisitRoiTanHalfFovId =
+            Shader.PropertyToID("_RevisitRoiTanHalfFov");
+        private static readonly int PeripheralConfidenceFloorId =
+            Shader.PropertyToID("_PeripheralConfidenceFloor");
         private static readonly int MeasuredConsensusId = Shader.PropertyToID("_MeasuredConsensus");
         private static readonly int MeasuredFlagsId = Shader.PropertyToID("_MeasuredFlags");
         private static readonly int MeasuredNormalId = Shader.PropertyToID("_MeasuredNormal");
@@ -140,6 +152,14 @@ namespace Genesis.RoomScan.Prism
                 classifyCompute.SetFloat(NormalCosineGateId,
                     Mathf.Cos(normalGateDegrees * Mathf.Deg2Rad));
                 classifyCompute.SetFloat(BoundaryGateId, boundaryGate);
+                classifyCompute.SetVector(CoreRoiTanHalfFovId, new Vector4(
+                    Mathf.Tan(0.5f * coreHorizontalFov * Mathf.Deg2Rad),
+                    Mathf.Tan(0.5f * coreVerticalFov * Mathf.Deg2Rad), 0f, 0f));
+                classifyCompute.SetVector(RevisitRoiTanHalfFovId, new Vector4(
+                    Mathf.Tan(0.5f * revisitHorizontalFov * Mathf.Deg2Rad),
+                    Mathf.Tan(0.5f * revisitVerticalFov * Mathf.Deg2Rad), 0f, 0f));
+                classifyCompute.SetFloat(PeripheralConfidenceFloorId,
+                    peripheralConfidenceFloor);
 
                 BindTextures(_classifyKernel, measured, prediction, luts);
                 BindCanonicalBoundaries(_classifyKernel);

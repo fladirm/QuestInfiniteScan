@@ -5,7 +5,7 @@ Updated: 2026-08-21 (Europe/Prague)
 ## Source of truth
 
 - `specka.md` is the canonical Cone-PRISM-Q3 implementation specification;
-  reconstruction physics `CPQ3-2026-08-21-v3` is frozen for implementation.
+  reconstruction physics `CPQ3-2026-08-21-v5` is frozen for implementation.
 - `.codex/TASK_DAG.json` contains the only active `Q3-01` through `Q3-22` pursuit.
 - The product remains a pure-Quest finite-cone/contact-film scanner. Do not simplify
   it to TSDF/DTSDF, fixed plates, surfels, triangle soup, Gaussian reconstruction,
@@ -19,8 +19,8 @@ Updated: 2026-08-21 (Europe/Prague)
 
 ## Repository and branch safety
 
-- Active branch: `fix/cone-prism-contact-domain-resume-20260821`.
-- Its base checkpoint is `93ac693`; the repair checkpoint is represented by the
+- Active branch: `fix/cone-prism-closed-pressure-manifold-20260821`.
+- Its parent checkpoint is `a5d8f85`; the current repair checkpoint is represented by the
   branch `HEAD` and its exact hash is recorded in the source-archive filename and
   APK build evidence.
 - Preserved pre-PRISM work remains at
@@ -45,24 +45,42 @@ Updated: 2026-08-21 (Europe/Prague)
 
 ## Implemented repair checkpoint
 
-- Contact support is a continuous interpolated Grid16 manifold domain seeded by
-  finite cone footprints. Rectangular film extents no longer authorize triangles,
-  and boundary-crossing cells retain supported geometry instead of being discarded.
+- Coverage is now observation/confidence only, never occupancy or topology.
+  `MeshletBuild.compute` materializes every logical active-chart cell as two
+  triangles, so NaN/low coverage cannot open rectangular holes or delete matter.
+  Finite footprints still drive confidence, refinement density and appearance.
 - Every base displacement cell now persists displacement, sigma, information,
-  support, coverage, best precision/footprint, `freeSpacePressure`, a ten-bin
+  support, coverage, best precision/footprint, `preHitPressure`, a ten-bin
   eye/angular evidence mask, and revision in a 40-byte GPU ABI.
-- Compatible contact cancels opposing pressure. Local erosion requires at least two
+- Compatible contact cancels opposing pressure. Local displacement work requires at least two
   independent bins, pressure above the stored close-view resistance, consumes its
   work, and cannot be multiplied through microtiles. Nothing behind first hit is
   carved.
-- Split/merge resamples the real support domain and preserves pressure/detail;
-  children do not receive duplicated contradiction evidence.
+- Split/merge resamples the real support domain, preserves pressure/detail and the
+  `PressureManifoldMember` bit; children do not receive duplicated contradiction
+  evidence.
 - `MeshletBuild.compute` now uses one `8x8` workgroup per film. Its 64 lanes cache
-  up to all 289 support samples and cooperatively emit the full supported 17x17 /
+  all 289 chart samples and cooperatively emit the full 17x17 /
   512-triangle base materialization. This removes the serial one-thread-per-film
   bottleneck without lowering canonical or display detail.
+- Generation-safe multi-view FilmA/FilmB boundary links materialize local elastic
+  connector strips. Their vertices carry no measured FilmID, and prediction rejects
+  them, so derived continuity cannot contaminate first-hit association. The explicit
+  canonical `PressureManifoldHeader`/ordered outer `LatentFrontier` pool remains the
+  open part of Q3-11; no per-film optical-seed cap is accepted as a substitute.
+- New topology is deposited only inside the calibrated 30x30 degree high-quality
+  cone aperture. A 50x46 degree band may update an already predicted film only with
+  information-positive confidence; passthrough and tracking remain full-FOV.
 - Display presentation no longer uses a mono `Camera.main` cull for stereo XR. The
-  preview uses depth-correct coverage dithering; UI/compositor alpha is untouched.
+  preview uses mesh-local alpha blending with depth writes and no screen-space
+  dither; UI/compositor alpha is untouched.
+- Capture callbacks now enter bounded timestamp-sorted metadata queues. The
+  synchronizer publishes the earliest eligible depth timestamp with the minimum-
+  cost coherent RGB-L/R pair, accepts bounded callback reordering and remains
+  strictly monotonic without copying pixels or widening pairing gates.
+- Canonical mutations coalesce into one dirty mesh publication request. Derived
+  preview publication is initially capped at 15 Hz while the previous immutable
+  generation remains visible; sensor/fusion resolution and cadence are unchanged.
 - Ordinary Stop/Start now pauses only sensor ingress and retains the canonical GPU
   graph, arenas and last meshlet publication. Full teardown is explicit only.
 - Native PRISM schema v4 persists support and local pressure. Strict v3/v2 readers
@@ -73,6 +91,9 @@ Updated: 2026-08-21 (Europe/Prague)
 - Real-Vulkan Unity EditMode: 119 total, 116 passed, 0 failed, 3 intentionally
   ignored. Results: `/mnt/kingston-unity/Builds/TestResults/editmode-results.xml`;
   log: `/mnt/kingston-unity/Builds/TestResults/editmode.log`.
+- Final Unity/Vulkan import after the semantic ABI rename, topology-preserving
+  mesh build, mesh-local alpha, ROI and publication-cadence changes exited zero:
+  `/mnt/kingston-unity/Builds/TestResults/cone-prism-pressure-manifold-import-4.log`.
 - Android Vulkan/IL2CPP precommit build passed with no C# or shader errors:
   `/mnt/kingston-unity/Builds/QuestInfiniteScan/QuestInfiniteScan-dev.apk`, SHA-256
   `3a2ec28413d9dc6be6f8d1d2a560da2a4b0f0ac35f9c3f082a92920d822ab13e`.

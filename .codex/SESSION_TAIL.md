@@ -6,33 +6,28 @@ and never touch `~/.codex` or session/history data.
 
 ## Exchange 1
 
-User: The first visible Cone-PRISM Quest build showed unusually promising geometric
-precision, but it lagged badly, rendered disconnected square plates/gaps, flickered
-after an attempted transparency change, retained view-axis artifacts, and froze on
-Stop/Start. Requested a forensic systemic repair—not more logging/hotfixes—plus an
-updated code graph. Required a local commit before deploy and replaced GitHub push
-with a workspace source ZIP produced by `git archive`.
+User: Clarified that the injection-moulding model is literal: depth cones do not
+remove/carve matter. Pressure deforms one conserved elastic membrane outwards from
+the optical seed until first contact; neighbouring pressure points remain connected,
+and only the unresolved outside frontier may remain collapsed at the eye. Requested
+the promised exact-source ZIP rather than a GitHub push.
 
-Assistant: Audited the canonical GPU event/prediction/update/materialization and UX
-lifecycle. Replaced rectangular extent emission with continuous finite-cone Grid16
-support, kept BoundaryCurves without dropping whole cells, removed mono display-eye
-culling, separated sensor pause from full graph teardown, and made local first-hit
-contradiction a persisted resistance-gated pressure posterior rather than whole-film
-deletion. Schema v4 stores the new state and strict v3/v2 migration widens legacy
-records fail-closed. Replaced serial one-thread-per-film mesh generation with a full-
-detail cooperative `8x8` workgroup. Real-Vulkan EditMode passed 116/116 runnable
-tests and the precommit Android/Vulkan build passed; no repaired APK has yet been
-deployed.
+Assistant: Rebased terminology and mechanics on pre-hit pressure/displacement,
+removed coverage-driven topology deletion, retained the complete logical chart
+lattice, preserved manifold membership through merge, and materialized measured
+FilmA/FilmB links as prediction-invisible elastic connectors. No per-film optical
+cap was introduced; the canonical ordered outer-frontier pool remains an explicit
+Q3-11 acceptance gate.
 
 ## Exchange 2
 
-User: Rejected any further simplification of the specified SOTA reconstruction.
+User: Asked to sharpen `specka.md` and finish it as a usable production-grade
+specification without repeating completed development.
 
-Assistant: Froze `CPQ3-2026-08-21-v3` without reducing the algorithm: quadratic
-ContactFilms plus hierarchical displacement, information/covariance and soft shell,
-finite-cone first-hit/unknown physics, persistent local pressure versus baked close-
-view resistance, multilayer hypotheses, BoundaryCurves, calibrated L/R and temporal
-normal focusing, surface-space measured appearance, adaptive full-detail meshlets,
-and resumable chunks all remain mandatory. Q3-11 is the single reopened active DAG
-gate; Q3-12 through Q3-15 retain their implementation but await the same consolidated
-physical acceptance after local commit/archive/exact rebuild.
+Assistant: Froze `CPQ3-2026-08-21-v5` with exact stream-reordering semantics,
+PressureManifold/link/frontier records and lifecycle, topology invariants,
+monotonic close-bake resistance, a 30x30-degree spawn aperture plus information-
+positive revisit band, bounded in-flight/coalesced immutable publication, mesh-local
+non-dithered preview alpha, production asset/class names, persistence ABI and DAG
+acceptance. The matching C#/GPU changes import successfully under Vulkan and the
+consolidated EditMode run passed 116 runnable tests with zero failures.

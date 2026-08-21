@@ -17,7 +17,10 @@ namespace Genesis.RoomScan.Prism
         HasDisplacement = 1u << 5,
         SplitParent = 1u << 6,
         Retired = 1u << 7,
-        TopologyLocked = 1u << 8
+        TopologyLocked = 1u << 8,
+        // This chart belongs to a conserved connected pressure manifold. The bit
+        // never means that this film/tile is independently capped or closed.
+        PressureManifoldMember = 1u << 9
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -44,10 +47,13 @@ namespace Genesis.RoomScan.Prism
         public uint AppearancePage;
         public uint BoundaryStart;
         public uint BoundaryCount;
-        // Conservative 8x8 surface-domain support captured at spawn. Once a
-        // displacement page exists its 16x16 coverage becomes authoritative.
+        // Conservative 8x8 observed-contact support captured at spawn.  It controls
+        // posterior confidence/detail deposition only; it must never punch holes in
+        // the closed pressure manifold.
         public uint SupportMaskLow;
         public uint SupportMaskHigh;
+        // TopologyAdapt owns these words for split-parent/child bookkeeping. Closed
+        // manifold/eye-seed state lives in its own generation-tagged GPU pool.
         public uint Reserved0;
         public uint Reserved1;
         public uint Reserved2;

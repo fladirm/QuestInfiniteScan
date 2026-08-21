@@ -40,7 +40,7 @@ struct DisplacementCell
 {
     float displacement; float sigma; float support; float coverage;
     float bestPrecision; float bestFootprint; float residualVariance;
-    float freeSpacePressure; uint freeSpaceViewMask;
+    float preHitPressure; uint preHitPressureViewMask;
     uint revision;
 };
 
@@ -140,6 +140,7 @@ static const uint FILM_HAS_DISPLACEMENT = 32u;
 static const uint FILM_SPLIT_PARENT = 64u;
 static const uint FILM_RETIRED = 128u;
 static const uint FILM_TOPOLOGY_LOCKED = 256u;
+static const uint FILM_PRESSURE_MANIFOLD_MEMBER = 512u;
 static const uint PAGE_ACTIVE = 1u;
 static const uint PAGE_BASE = 2u;
 static const uint PAGE_DIRTY = 8u;
@@ -1176,7 +1177,8 @@ void MergeCompatibleFilms(uint3 id : SV_DispatchThreadID)
     merged.id = mergedIndex + 1u;
     merged.generation = max(1u, _FilmAllocator[3]);
     merged.flags = FILM_ACTIVE | FILM_ONE_SIDED | FILM_DIRTY_GEOMETRY |
-        FILM_DIRTY_MESHLET | FILM_HAS_DISPLACEMENT;
+        FILM_DIRTY_MESHLET | FILM_HAS_DISPLACEMENT |
+        FILM_PRESSURE_MANIFOLD_MEMBER;
     if ((a.flags & FILM_UNCERTAIN) != 0u ||
         (b.flags & FILM_UNCERTAIN) != 0u) merged.flags |= FILM_UNCERTAIN;
     merged.origin = center;
@@ -1224,13 +1226,13 @@ void MergeCompatibleFilms(uint3 id : SV_DispatchThreadID)
         min(qa.z, qb.z), max(qa.w, qb.w));
     StoreInformation(mergedIndex * 9u, totalH, totalG,
         countSupport, quality);
-    float4 freeStateA = _FilmInformation[aIndex * 9u + 5u];
-    float4 freeStateB = _FilmInformation[bIndex * 9u + 5u];
-    float4 mergedFreeState = _FilmInformation[mergedIndex * 9u + 5u];
-    mergedFreeState.y = freeStateA.y + freeStateB.y;
-    mergedFreeState.z = max(freeStateA.z, freeStateB.z);
-    mergedFreeState.w = asfloat(asuint(freeStateA.w) | asuint(freeStateB.w));
-    _FilmInformation[mergedIndex * 9u + 5u] = mergedFreeState;
+    float4 pressureStateA = _FilmInformation[aIndex * 9u + 5u];
+    float4 pressureStateB = _FilmInformation[bIndex * 9u + 5u];
+    float4 mergedPressureState = _FilmInformation[mergedIndex * 9u + 5u];
+    mergedPressureState.y = pressureStateA.y + pressureStateB.y;
+    mergedPressureState.z = max(pressureStateA.z, pressureStateB.z);
+    mergedPressureState.w = asfloat(asuint(pressureStateA.w) | asuint(pressureStateB.w));
+    _FilmInformation[mergedIndex * 9u + 5u] = mergedPressureState;
     ContactTopologyEvidence ea = _TopologyEvidence[aIndex];
     ContactTopologyEvidence eb = _TopologyEvidence[bIndex];
     ContactTopologyEvidence em;
@@ -1368,12 +1370,12 @@ void InitializeMergedDisplacement(uint3 id : SV_DispatchThreadID)
         // Contradiction is a local posterior, not extensive mass. Preserve the
         // strongest pressure and all independent view bins without manufacturing
         // pressure merely because two compatible charts were consolidated.
-        result.freeSpacePressure = max(
-            hasA ? ca.freeSpacePressure : 0.0,
-            hasB ? cb.freeSpacePressure : 0.0);
-        result.freeSpaceViewMask =
-            (hasA ? ca.freeSpaceViewMask : 0u) |
-            (hasB ? cb.freeSpaceViewMask : 0u);
+        result.preHitPressure = max(
+            hasA ? ca.preHitPressure : 0.0,
+            hasB ? cb.preHitPressure : 0.0);
+        result.preHitPressureViewMask =
+            (hasA ? ca.preHitPressureViewMask : 0u) |
+            (hasB ? cb.preHitPressureViewMask : 0u);
         result.revision = 1u;
     }
     uint target = record.mergedBasePage * BASE_CELLS_PER_PAGE + localCell;

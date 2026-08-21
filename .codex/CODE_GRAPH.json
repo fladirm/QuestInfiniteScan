@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "source_digest": "54f5a146e0643ffe77dd7000b3c1b9c430e161f1c279dc65f12f3523c88c50f9",
+  "source_digest": "87957808ee7ef0cf1af97f4aeed5078f366045f42160f49cdfcac3e9cd0a5c17",
   "scope": [
     "Runtime/Prism/**/*.cs",
     "Runtime/Resources/Prism/*.*",
@@ -13,9 +13,9 @@
   ],
   "summary": {
     "files": 95,
-    "symbols": 1483,
-    "methods_and_functions": 1136,
-    "gpu_kernels": 87,
+    "symbols": 1498,
+    "methods_and_functions": 1145,
+    "gpu_kernels": 88,
     "event_links": 22
   },
   "files": [
@@ -2296,39 +2296,39 @@
       "line": 120
     },
     {
-      "id": "Runtime/Prism/Association/PrismConeClassifier.cs::BindCanonicalBoundaries@180",
+      "id": "Runtime/Prism/Association/PrismConeClassifier.cs::BindCanonicalBoundaries@200",
       "file": "Runtime/Prism/Association/PrismConeClassifier.cs",
       "name": "BindCanonicalBoundaries",
       "kind": "method",
-      "line": 180
+      "line": 200
     },
     {
-      "id": "Runtime/Prism/Association/PrismConeClassifier.cs::BindTextures@192",
+      "id": "Runtime/Prism/Association/PrismConeClassifier.cs::BindTextures@212",
       "file": "Runtime/Prism/Association/PrismConeClassifier.cs",
       "name": "BindTextures",
       "kind": "method",
-      "line": 192
+      "line": 212
     },
     {
-      "id": "Runtime/Prism/Association/PrismConeClassifier.cs::CeilDiv@225",
+      "id": "Runtime/Prism/Association/PrismConeClassifier.cs::CeilDiv@245",
       "file": "Runtime/Prism/Association/PrismConeClassifier.cs",
       "name": "CeilDiv",
       "kind": "method",
-      "line": 225
+      "line": 245
     },
     {
-      "id": "Runtime/Prism/Association/PrismConeClassifier.cs::OnDestroy@116",
+      "id": "Runtime/Prism/Association/PrismConeClassifier.cs::OnDestroy@128",
       "file": "Runtime/Prism/Association/PrismConeClassifier.cs",
       "name": "OnDestroy",
       "kind": "method",
-      "line": 116
+      "line": 128
     },
     {
-      "id": "Runtime/Prism/Association/PrismConeClassifier.cs::OnPrediction@118",
+      "id": "Runtime/Prism/Association/PrismConeClassifier.cs::OnPrediction@130",
       "file": "Runtime/Prism/Association/PrismConeClassifier.cs",
       "name": "OnPrediction",
       "kind": "method",
-      "line": 118
+      "line": 130
     },
     {
       "id": "Runtime/Prism/Association/PrismConeClassifier.cs::PrismConeClassifier",
@@ -2338,32 +2338,32 @@
       "line": 13
     },
     {
-      "id": "Runtime/Prism/Association/PrismConeClassifier.cs::StartClassifying@78",
+      "id": "Runtime/Prism/Association/PrismConeClassifier.cs::StartClassifying@90",
       "file": "Runtime/Prism/Association/PrismConeClassifier.cs",
       "name": "StartClassifying",
       "kind": "method",
-      "line": 78
+      "line": 90
     },
     {
-      "id": "Runtime/Prism/Association/PrismConeClassifier.cs::StopClassifying@104",
+      "id": "Runtime/Prism/Association/PrismConeClassifier.cs::StopClassifying@116",
       "file": "Runtime/Prism/Association/PrismConeClassifier.cs",
       "name": "StopClassifying",
       "kind": "method",
-      "line": 104
+      "line": 116
     },
     {
-      "id": "Runtime/Prism/Association/PrismConeClassifier.cs::TryAcquireLatest@67",
+      "id": "Runtime/Prism/Association/PrismConeClassifier.cs::TryAcquireLatest@79",
       "file": "Runtime/Prism/Association/PrismConeClassifier.cs",
       "name": "TryAcquireLatest",
       "kind": "method",
-      "line": 67
+      "line": 79
     },
     {
-      "id": "Runtime/Prism/Association/PrismConeClassifier.cs::TryClassifyFrame@121",
+      "id": "Runtime/Prism/Association/PrismConeClassifier.cs::TryClassifyFrame@133",
       "file": "Runtime/Prism/Association/PrismConeClassifier.cs",
       "name": "TryClassifyFrame",
       "kind": "method",
-      "line": 121
+      "line": 133
     },
     {
       "id": "Runtime/Prism/Calibration/ConeLutResources.cs::Acquire@118",
@@ -3220,32 +3220,74 @@
       "line": 68
     },
     {
-      "id": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::AbsoluteDelta@343",
+      "id": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::AbsoluteDelta@421",
       "file": "Runtime/Prism/Capture/RigFrameSynchronizer.cs",
       "name": "AbsoluteDelta",
       "kind": "method",
-      "line": 343
+      "line": 421
     },
     {
-      "id": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::AddDepth@153",
+      "id": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::AcceptReorderedTimestamp@308",
+      "file": "Runtime/Prism/Capture/RigFrameSynchronizer.cs",
+      "name": "AcceptReorderedTimestamp",
+      "kind": "method",
+      "line": 308
+    },
+    {
+      "id": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::AddDepth@159",
       "file": "Runtime/Prism/Capture/RigFrameSynchronizer.cs",
       "name": "AddDepth",
       "kind": "method",
-      "line": 153
+      "line": 159
     },
     {
-      "id": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::AddRgb@134",
+      "id": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::AddRgb@135",
       "file": "Runtime/Prism/Capture/RigFrameSynchronizer.cs",
       "name": "AddRgb",
       "kind": "method",
-      "line": 134
+      "line": 135
     },
     {
-      "id": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::Dispose@241",
+      "id": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::Compare@371",
+      "file": "Runtime/Prism/Capture/RigFrameSynchronizer.cs",
+      "name": "Compare",
+      "kind": "method",
+      "line": 371
+    },
+    {
+      "id": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::Compare@382",
+      "file": "Runtime/Prism/Capture/RigFrameSynchronizer.cs",
+      "name": "Compare",
+      "kind": "method",
+      "line": 382
+    },
+    {
+      "id": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::ContainsTimestamp@340",
+      "file": "Runtime/Prism/Capture/RigFrameSynchronizer.cs",
+      "name": "ContainsTimestamp",
+      "kind": "method",
+      "line": 340
+    },
+    {
+      "id": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::ContainsTimestamp@344",
+      "file": "Runtime/Prism/Capture/RigFrameSynchronizer.cs",
+      "name": "ContainsTimestamp",
+      "kind": "method",
+      "line": 344
+    },
+    {
+      "id": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::DepthTimestampComparer",
+      "file": "Runtime/Prism/Capture/RigFrameSynchronizer.cs",
+      "name": "DepthTimestampComparer",
+      "kind": "class",
+      "line": 377
+    },
+    {
+      "id": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::Dispose@235",
       "file": "Runtime/Prism/Capture/RigFrameSynchronizer.cs",
       "name": "Dispose",
       "kind": "method",
-      "line": 241
+      "line": 235
     },
     {
       "id": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::Dispose@26",
@@ -3262,53 +3304,60 @@
       "line": 68
     },
     {
-      "id": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::DropOlderCalibration@302",
+      "id": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::DropPastPublishedSamples@324",
       "file": "Runtime/Prism/Capture/RigFrameSynchronizer.cs",
-      "name": "DropOlderCalibration",
+      "name": "DropPastPublishedSamples",
       "kind": "method",
-      "line": 302
+      "line": 324
     },
     {
-      "id": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::DropProvablyStaleRgbOrDepth@286",
+      "id": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::FindEarliestCoherentTriplet@252",
       "file": "Runtime/Prism/Capture/RigFrameSynchronizer.cs",
-      "name": "DropProvablyStaleRgbOrDepth",
+      "name": "FindEarliestCoherentTriplet",
       "kind": "method",
-      "line": 286
+      "line": 252
     },
     {
-      "id": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::FindNearestDepth@263",
-      "file": "Runtime/Prism/Capture/RigFrameSynchronizer.cs",
-      "name": "FindNearestDepth",
-      "kind": "method",
-      "line": 263
-    },
-    {
-      "id": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::Flush@234",
+      "id": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::Flush@228",
       "file": "Runtime/Prism/Capture/RigFrameSynchronizer.cs",
       "name": "Flush",
       "kind": "method",
-      "line": 234
+      "line": 228
     },
     {
-      "id": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::Midpoint@341",
+      "id": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::InsertSorted@348",
+      "file": "Runtime/Prism/Capture/RigFrameSynchronizer.cs",
+      "name": "InsertSorted",
+      "kind": "method",
+      "line": 348
+    },
+    {
+      "id": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::InsertSorted@358",
+      "file": "Runtime/Prism/Capture/RigFrameSynchronizer.cs",
+      "name": "InsertSorted",
+      "kind": "method",
+      "line": 358
+    },
+    {
+      "id": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::Midpoint@419",
       "file": "Runtime/Prism/Capture/RigFrameSynchronizer.cs",
       "name": "Midpoint",
       "kind": "method",
-      "line": 341
+      "line": 419
     },
     {
-      "id": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::MillisecondsToNanoseconds@338",
+      "id": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::MillisecondsToNanoseconds@416",
       "file": "Runtime/Prism/Capture/RigFrameSynchronizer.cs",
       "name": "MillisecondsToNanoseconds",
       "kind": "method",
-      "line": 338
+      "line": 416
     },
     {
-      "id": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::Reject@331",
+      "id": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::Reject@409",
       "file": "Runtime/Prism/Capture/RigFrameSynchronizer.cs",
       "name": "Reject",
       "kind": "method",
-      "line": 331
+      "line": 409
     },
     {
       "id": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::RgbRigSample",
@@ -3316,6 +3365,13 @@
       "name": "RgbRigSample",
       "kind": "class",
       "line": 7
+    },
+    {
+      "id": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::RgbTimestampComparer",
+      "file": "Runtime/Prism/Capture/RigFrameSynchronizer.cs",
+      "name": "RgbTimestampComparer",
+      "kind": "class",
+      "line": 367
     },
     {
       "id": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::RigCaptureDiagnosticSnapshot",
@@ -3353,18 +3409,18 @@
       "line": 61
     },
     {
-      "id": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::TryDequeue@173",
+      "id": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::TryDequeue@184",
       "file": "Runtime/Prism/Capture/RigFrameSynchronizer.cs",
       "name": "TryDequeue",
       "kind": "method",
-      "line": 173
+      "line": 184
     },
     {
-      "id": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::ValidateIncoming@243",
+      "id": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::ValidateIncoming@237",
       "file": "Runtime/Prism/Capture/RigFrameSynchronizer.cs",
       "name": "ValidateIncoming",
       "kind": "method",
-      "line": 243
+      "line": 237
     },
     {
       "id": "Runtime/Prism/Geometry/ContactBoundaryPool.cs::ContactBoundaryFlags",
@@ -3378,42 +3434,42 @@
       "file": "Runtime/Prism/Geometry/ContactBoundaryPool.cs",
       "name": "ContactBoundaryHeaderGpu",
       "kind": "struct",
-      "line": 21
+      "line": 28
     },
     {
       "id": "Runtime/Prism/Geometry/ContactBoundaryPool.cs::ContactBoundaryPool",
       "file": "Runtime/Prism/Geometry/ContactBoundaryPool.cs",
       "name": "ContactBoundaryPool",
       "kind": "class",
-      "line": 50
+      "line": 57
     },
     {
-      "id": "Runtime/Prism/Geometry/ContactBoundaryPool.cs::Dispose@81",
+      "id": "Runtime/Prism/Geometry/ContactBoundaryPool.cs::Dispose@88",
       "file": "Runtime/Prism/Geometry/ContactBoundaryPool.cs",
       "name": "Dispose",
       "kind": "method",
-      "line": 81
+      "line": 88
     },
     {
-      "id": "Runtime/Prism/Geometry/ContactBoundaryPool.cs::NextPowerOfTwo@93",
+      "id": "Runtime/Prism/Geometry/ContactBoundaryPool.cs::NextPowerOfTwo@100",
       "file": "Runtime/Prism/Geometry/ContactBoundaryPool.cs",
       "name": "NextPowerOfTwo",
       "kind": "method",
-      "line": 93
+      "line": 100
     },
     {
       "id": "Runtime/Prism/Geometry/ContactDisplacementPool.cs::ContactDisplacementPool",
       "file": "Runtime/Prism/Geometry/ContactDisplacementPool.cs",
       "name": "ContactDisplacementPool",
       "kind": "class",
-      "line": 117
+      "line": 118
     },
     {
       "id": "Runtime/Prism/Geometry/ContactDisplacementPool.cs::ContactTopologyEvidenceGpu",
       "file": "Runtime/Prism/Geometry/ContactDisplacementPool.cs",
       "name": "ContactTopologyEvidenceGpu",
       "kind": "struct",
-      "line": 59
+      "line": 60
     },
     {
       "id": "Runtime/Prism/Geometry/ContactDisplacementPool.cs::DisplacementCellGpu",
@@ -3437,32 +3493,32 @@
       "line": 19
     },
     {
-      "id": "Runtime/Prism/Geometry/ContactDisplacementPool.cs::Dispose@166",
+      "id": "Runtime/Prism/Geometry/ContactDisplacementPool.cs::Dispose@167",
       "file": "Runtime/Prism/Geometry/ContactDisplacementPool.cs",
       "name": "Dispose",
       "kind": "method",
-      "line": 166
+      "line": 167
     },
     {
       "id": "Runtime/Prism/Geometry/ContactDisplacementPool.cs::FilmMergeHashEntryGpu",
       "file": "Runtime/Prism/Geometry/ContactDisplacementPool.cs",
       "name": "FilmMergeHashEntryGpu",
       "kind": "struct",
-      "line": 100
+      "line": 101
     },
     {
       "id": "Runtime/Prism/Geometry/ContactDisplacementPool.cs::TopologyMergeRecordGpu",
       "file": "Runtime/Prism/Geometry/ContactDisplacementPool.cs",
       "name": "TopologyMergeRecordGpu",
       "kind": "struct",
-      "line": 85
+      "line": 86
     },
     {
       "id": "Runtime/Prism/Geometry/ContactDisplacementPool.cs::TopologySplitRecordGpu",
       "file": "Runtime/Prism/Geometry/ContactDisplacementPool.cs",
       "name": "TopologySplitRecordGpu",
       "kind": "struct",
-      "line": 74
+      "line": 75
     },
     {
       "id": "Runtime/Prism/Geometry/ContactFilmPool.cs::ContactFilmFlags",
@@ -3476,35 +3532,35 @@
       "file": "Runtime/Prism/Geometry/ContactFilmPool.cs",
       "name": "ContactFilmHeaderGpu",
       "kind": "struct",
-      "line": 24
+      "line": 27
     },
     {
       "id": "Runtime/Prism/Geometry/ContactFilmPool.cs::ContactFilmPool",
       "file": "Runtime/Prism/Geometry/ContactFilmPool.cs",
       "name": "ContactFilmPool",
       "kind": "class",
-      "line": 62
+      "line": 68
     },
     {
-      "id": "Runtime/Prism/Geometry/ContactFilmPool.cs::Dispose@86",
+      "id": "Runtime/Prism/Geometry/ContactFilmPool.cs::Dispose@92",
       "file": "Runtime/Prism/Geometry/ContactFilmPool.cs",
       "name": "Dispose",
       "kind": "method",
-      "line": 86
+      "line": 92
     },
     {
-      "id": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::Allocate@278",
+      "id": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::Allocate@280",
       "file": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs",
       "name": "Allocate",
       "kind": "method",
-      "line": 278
+      "line": 280
     },
     {
       "id": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::ContactMeshletBuffers",
       "file": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs",
       "name": "ContactMeshletBuffers",
       "kind": "class",
-      "line": 206
+      "line": 208
     },
     {
       "id": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::ContactMeshletDescriptorGpu",
@@ -3532,7 +3588,7 @@
       "file": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs",
       "name": "ContactMeshletViewBuffers",
       "kind": "class",
-      "line": 160
+      "line": 162
     },
     {
       "id": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::ContactMeshletViewLodGpu",
@@ -3542,81 +3598,81 @@
       "line": 51
     },
     {
-      "id": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::CreateViewBuffers@253",
+      "id": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::CreateViewBuffers@255",
       "file": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs",
       "name": "CreateViewBuffers",
       "kind": "method",
-      "line": 253
+      "line": 255
     },
     {
-      "id": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::Dispose@135",
+      "id": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::Dispose@137",
       "file": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs",
       "name": "Dispose",
       "kind": "method",
-      "line": 135
+      "line": 137
     },
     {
-      "id": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::Dispose@188",
+      "id": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::Dispose@190",
       "file": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs",
       "name": "Dispose",
       "kind": "method",
-      "line": 188
+      "line": 190
     },
     {
-      "id": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::Dispose@272",
+      "id": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::Dispose@274",
       "file": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs",
       "name": "Dispose",
       "kind": "method",
-      "line": 272
+      "line": 274
     },
     {
-      "id": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::DisposeGenerations@292",
+      "id": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::DisposeGenerations@294",
       "file": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs",
       "name": "DisposeGenerations",
       "kind": "method",
-      "line": 292
+      "line": 294
     },
     {
-      "id": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::EnsureCapacity@232",
+      "id": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::EnsureCapacity@234",
       "file": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs",
       "name": "EnsureCapacity",
       "kind": "method",
-      "line": 232
+      "line": 234
     },
     {
-      "id": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::MarkPublishedRead@269",
+      "id": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::MarkPublishedRead@271",
       "file": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs",
       "name": "MarkPublishedRead",
       "kind": "method",
-      "line": 269
+      "line": 271
     },
     {
-      "id": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::MarkRead@129",
+      "id": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::MarkRead@131",
       "file": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs",
       "name": "MarkRead",
       "kind": "method",
-      "line": 129
+      "line": 131
     },
     {
-      "id": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::Publish@259",
+      "id": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::Publish@261",
       "file": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs",
       "name": "Publish",
       "kind": "method",
-      "line": 259
+      "line": 261
     },
     {
-      "id": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::SetChunkTransform@256",
+      "id": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::SetChunkTransform@258",
       "file": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs",
       "name": "SetChunkTransform",
       "kind": "method",
-      "line": 256
+      "line": 258
     },
     {
-      "id": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::TryBeginBuild@247",
+      "id": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::TryBeginBuild@249",
       "file": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs",
       "name": "TryBeginBuild",
       "kind": "method",
-      "line": 247
+      "line": 249
     },
     {
       "id": "Runtime/Prism/Geometry/PredictionFrame.cs::ArrayDescriptor@261",
@@ -3787,81 +3843,81 @@
       "line": 95
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::AllocateFrameBuffers@284",
+      "id": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::AllocateFrameBuffers@285",
       "file": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs",
       "name": "AllocateFrameBuffers",
       "kind": "method",
-      "line": 284
+      "line": 285
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::BindFrame@238",
+      "id": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::BindFrame@239",
       "file": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs",
       "name": "BindFrame",
       "kind": "method",
-      "line": 238
+      "line": 239
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::BindPersistent@300",
+      "id": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::BindPersistent@301",
       "file": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs",
       "name": "BindPersistent",
       "kind": "method",
-      "line": 300
+      "line": 301
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::CeilDiv@352",
+      "id": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::CeilDiv@354",
       "file": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs",
       "name": "CeilDiv",
       "kind": "method",
-      "line": 352
+      "line": 354
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::ConfigureFrame@222",
+      "id": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::ConfigureFrame@223",
       "file": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs",
       "name": "ConfigureFrame",
       "kind": "method",
-      "line": 222
+      "line": 223
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::DispatchBoundaries@189",
+      "id": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::DispatchBoundaries@190",
       "file": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs",
       "name": "DispatchBoundaries",
       "kind": "method",
-      "line": 189
+      "line": 190
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::DisposeFrameBuffers@331",
+      "id": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::DisposeFrameBuffers@333",
       "file": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs",
       "name": "DisposeFrameBuffers",
       "kind": "method",
-      "line": 331
+      "line": 333
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::Intrinsics@345",
+      "id": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::Intrinsics@347",
       "file": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs",
       "name": "Intrinsics",
       "kind": "method",
-      "line": 345
+      "line": 347
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::OnDestroy@177",
+      "id": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::OnDestroy@178",
       "file": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs",
       "name": "OnDestroy",
       "kind": "method",
-      "line": 177
+      "line": 178
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::OnFilmUpdateCompleted@186",
+      "id": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::OnFilmUpdateCompleted@187",
       "file": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs",
       "name": "OnFilmUpdateCompleted",
       "kind": "method",
-      "line": 186
+      "line": 187
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::PoseMatrix@349",
+      "id": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::PoseMatrix@351",
       "file": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs",
       "name": "PoseMatrix",
       "kind": "method",
-      "line": 349
+      "line": 351
     },
     {
       "id": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::PrismBoundaryGraph",
@@ -3871,60 +3927,60 @@
       "line": 15
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::RebuildCanonicalIndex@146",
+      "id": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::RebuildCanonicalIndex@147",
       "file": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs",
       "name": "RebuildCanonicalIndex",
       "kind": "method",
-      "line": 146
+      "line": 147
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::SetChunkFrame@98",
+      "id": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::SetChunkFrame@99",
       "file": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs",
       "name": "SetChunkFrame",
       "kind": "method",
-      "line": 98
+      "line": 99
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::StartTracking@101",
+      "id": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::StartTracking@102",
       "file": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs",
       "name": "StartTracking",
       "kind": "method",
-      "line": 101
+      "line": 102
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::StopTracking@169",
+      "id": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::StopTracking@170",
       "file": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs",
       "name": "StopTracking",
       "kind": "method",
-      "line": 169
+      "line": 170
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::AllocateTransientBuffers@367",
+      "id": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::AllocateTransientBuffers@375",
       "file": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs",
       "name": "AllocateTransientBuffers",
       "kind": "method",
-      "line": 367
+      "line": 375
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::BindPersistent@415",
+      "id": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::BindPersistent@423",
       "file": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs",
       "name": "BindPersistent",
       "kind": "method",
-      "line": 415
+      "line": 423
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::BindTopology@474",
+      "id": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::BindTopology@482",
       "file": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs",
       "name": "BindTopology",
       "kind": "method",
-      "line": 474
+      "line": 482
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::CeilDiv@633",
+      "id": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::CeilDiv@641",
       "file": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs",
       "name": "CeilDiv",
       "kind": "method",
-      "line": 633
+      "line": 641
     },
     {
       "id": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::ConfigureFrame@335",
@@ -3941,18 +3997,18 @@
       "line": 279
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::DisposeTransientBuffers@592",
+      "id": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::DisposeTransientBuffers@600",
       "file": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs",
       "name": "DisposeTransientBuffers",
       "kind": "method",
-      "line": 592
+      "line": 600
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::NextPowerOfTwo@636",
+      "id": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::NextPowerOfTwo@644",
       "file": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs",
       "name": "NextPowerOfTwo",
       "kind": "method",
-      "line": 636
+      "line": 644
     },
     {
       "id": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::OnBoundariesUpdated@276",
@@ -3969,11 +4025,11 @@
       "line": 268
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::PoseMatrix@630",
+      "id": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::PoseMatrix@638",
       "file": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs",
       "name": "PoseMatrix",
       "kind": "method",
-      "line": 630
+      "line": 638
     },
     {
       "id": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::PrismDisplacementTopology",
@@ -3983,11 +4039,11 @@
       "line": 15
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::RunTopologyAdaptation@555",
+      "id": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::RunTopologyAdaptation@563",
       "file": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs",
       "name": "RunTopologyAdaptation",
       "kind": "method",
-      "line": 555
+      "line": 563
     },
     {
       "id": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::SetChunkFrame@177",
@@ -4179,39 +4235,32 @@
       "line": 124
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::Bind@165",
+      "id": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::Bind@188",
       "file": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs",
       "name": "Bind",
       "kind": "method",
-      "line": 165
+      "line": 188
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::BuildCurrent@130",
-      "file": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs",
-      "name": "BuildCurrent",
-      "kind": "method",
-      "line": 130
-    },
-    {
-      "id": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::LateUpdate@118",
+      "id": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::LateUpdate@128",
       "file": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs",
       "name": "LateUpdate",
       "kind": "method",
-      "line": 118
+      "line": 128
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::OnDestroy@113",
+      "id": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::OnDestroy@123",
       "file": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs",
       "name": "OnDestroy",
       "kind": "method",
-      "line": 113
+      "line": 123
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::OnFilmsMutated@124",
+      "id": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::OnFilmsMutated@137",
       "file": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs",
       "name": "OnFilmsMutated",
       "kind": "method",
-      "line": 124
+      "line": 137
     },
     {
       "id": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::PrismMeshletBuilder",
@@ -4221,25 +4270,32 @@
       "line": 15
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::StartBuilding@67",
+      "id": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::RequestBuild@154",
+      "file": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs",
+      "name": "RequestBuild",
+      "kind": "method",
+      "line": 154
+    },
+    {
+      "id": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::StartBuilding@74",
       "file": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs",
       "name": "StartBuilding",
       "kind": "method",
-      "line": 67
+      "line": 74
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::StopBuilding@105",
+      "id": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::StopBuilding@115",
       "file": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs",
       "name": "StopBuilding",
       "kind": "method",
-      "line": 105
+      "line": 115
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::TryBuild@136",
+      "id": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::TryBuild@155",
       "file": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs",
       "name": "TryBuild",
       "kind": "method",
-      "line": 136
+      "line": 155
     },
     {
       "id": "Runtime/Prism/Geometry/PrismPredictionRenderer.cs::BindMeshlets@261",
@@ -5103,18 +5159,18 @@
       "line": 11
     },
     {
-      "id": "Runtime/Resources/Prism/ConeClassify.compute::BoundaryCubic@137",
+      "id": "Runtime/Resources/Prism/ConeClassify.compute::BoundaryCubic@140",
       "file": "Runtime/Resources/Prism/ConeClassify.compute",
       "name": "BoundaryCubic",
       "kind": "gpu_function",
-      "line": 137
+      "line": 140
     },
     {
-      "id": "Runtime/Resources/Prism/ConeClassify.compute::BoundaryDistance@146",
+      "id": "Runtime/Resources/Prism/ConeClassify.compute::BoundaryDistance@149",
       "file": "Runtime/Resources/Prism/ConeClassify.compute",
       "name": "BoundaryDistance",
       "kind": "gpu_function",
-      "line": 146
+      "line": 149
     },
     {
       "id": "Runtime/Resources/Prism/ConeClassify.compute::BoundaryHashEntry",
@@ -5124,32 +5180,32 @@
       "line": 47
     },
     {
-      "id": "Runtime/Resources/Prism/ConeClassify.compute::BoundaryHashKey@126",
+      "id": "Runtime/Resources/Prism/ConeClassify.compute::BoundaryHashKey@129",
       "file": "Runtime/Resources/Prism/ConeClassify.compute",
       "name": "BoundaryHashKey",
       "kind": "gpu_function",
-      "line": 126
+      "line": 129
     },
     {
-      "id": "Runtime/Resources/Prism/ConeClassify.compute::BuildClassDispatchArguments@361",
+      "id": "Runtime/Resources/Prism/ConeClassify.compute::BuildClassDispatchArguments@378",
       "file": "Runtime/Resources/Prism/ConeClassify.compute",
       "name": "BuildClassDispatchArguments",
       "kind": "gpu_function",
-      "line": 361
+      "line": 378
     },
     {
-      "id": "Runtime/Resources/Prism/ConeClassify.compute::ClassifyConeEvents@222",
+      "id": "Runtime/Resources/Prism/ConeClassify.compute::ClassifyConeEvents@225",
       "file": "Runtime/Resources/Prism/ConeClassify.compute",
       "name": "ClassifyConeEvents",
       "kind": "gpu_function",
-      "line": 222
+      "line": 225
     },
     {
-      "id": "Runtime/Resources/Prism/ConeClassify.compute::ClearClassCounters@212",
+      "id": "Runtime/Resources/Prism/ConeClassify.compute::ClearClassCounters@215",
       "file": "Runtime/Resources/Prism/ConeClassify.compute",
       "name": "ClearClassCounters",
       "kind": "gpu_function",
-      "line": 212
+      "line": 215
     },
     {
       "id": "Runtime/Resources/Prism/ConeClassify.compute::ConeEvent",
@@ -5166,39 +5222,39 @@
       "line": 25
     },
     {
-      "id": "Runtime/Resources/Prism/ConeClassify.compute::HasCanonicalBoundary@164",
+      "id": "Runtime/Resources/Prism/ConeClassify.compute::HasCanonicalBoundary@167",
       "file": "Runtime/Resources/Prism/ConeClassify.compute",
       "name": "HasCanonicalBoundary",
       "kind": "gpu_function",
-      "line": 164
+      "line": 167
     },
     {
-      "id": "Runtime/Resources/Prism/ConeClassify.compute::LoadRay@108",
+      "id": "Runtime/Resources/Prism/ConeClassify.compute::LoadRay@111",
       "file": "Runtime/Resources/Prism/ConeClassify.compute",
       "name": "LoadRay",
       "kind": "gpu_function",
-      "line": 108
+      "line": 111
     },
     {
-      "id": "Runtime/Resources/Prism/ConeClassify.compute::LoadRayDx@114",
+      "id": "Runtime/Resources/Prism/ConeClassify.compute::LoadRayDx@117",
       "file": "Runtime/Resources/Prism/ConeClassify.compute",
       "name": "LoadRayDx",
       "kind": "gpu_function",
-      "line": 114
+      "line": 117
     },
     {
-      "id": "Runtime/Resources/Prism/ConeClassify.compute::LoadRayDy@120",
+      "id": "Runtime/Resources/Prism/ConeClassify.compute::LoadRayDy@123",
       "file": "Runtime/Resources/Prism/ConeClassify.compute",
       "name": "LoadRayDy",
       "kind": "gpu_function",
-      "line": 120
+      "line": 123
     },
     {
-      "id": "Runtime/Resources/Prism/ConeClassify.compute::PublishEvent@202",
+      "id": "Runtime/Resources/Prism/ConeClassify.compute::PublishEvent@205",
       "file": "Runtime/Resources/Prism/ConeClassify.compute",
       "name": "PublishEvent",
       "kind": "gpu_function",
-      "line": 202
+      "line": 205
     },
     {
       "id": "Runtime/Resources/Prism/ConeClassify.compute::kernel:BuildClassDispatchArguments",
@@ -5257,25 +5313,25 @@
       "line": 15
     },
     {
-      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::AccumulateBoundaryAbsence@666",
+      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::AccumulateBoundaryAbsence@668",
       "file": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute",
       "name": "AccumulateBoundaryAbsence",
       "kind": "gpu_function",
-      "line": 666
+      "line": 668
     },
     {
-      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::AccumulateBoundaryEvents@563",
+      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::AccumulateBoundaryEvents@565",
       "file": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute",
       "name": "AccumulateBoundaryEvents",
       "kind": "gpu_function",
-      "line": 563
+      "line": 565
     },
     {
-      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::AtomicAddScaled@254",
+      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::AtomicAddScaled@256",
       "file": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute",
       "name": "AtomicAddScaled",
       "kind": "gpu_function",
-      "line": 254
+      "line": 256
     },
     {
       "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::BoundaryHashEntry",
@@ -5285,25 +5341,25 @@
       "line": 84
     },
     {
-      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::BuildBoundarySolveArguments@703",
+      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::BuildBoundarySolveArguments@705",
       "file": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute",
       "name": "BuildBoundarySolveArguments",
       "kind": "gpu_function",
-      "line": 703
+      "line": 705
     },
     {
-      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::ClearBoundaryFrame@555",
+      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::ClearBoundaryFrame@557",
       "file": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute",
       "name": "ClearBoundaryFrame",
       "kind": "gpu_function",
-      "line": 555
+      "line": 557
     },
     {
-      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::ClearLoadedBoundaryHash@516",
+      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::ClearLoadedBoundaryHash@518",
       "file": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute",
       "name": "ClearLoadedBoundaryHash",
       "kind": "gpu_function",
-      "line": 516
+      "line": 518
     },
     {
       "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::ConeEvent",
@@ -5327,144 +5383,144 @@
       "line": 32
     },
     {
-      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::Cubic@229",
+      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::Cubic@231",
       "file": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute",
       "name": "Cubic",
       "kind": "gpu_function",
-      "line": 229
+      "line": 231
     },
     {
-      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::DistanceToCurve@236",
+      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::DistanceToCurve@238",
       "file": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute",
       "name": "DistanceToCurve",
       "kind": "gpu_function",
-      "line": 236
+      "line": 238
     },
     {
-      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::FindAdjacentFilm@470",
+      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::FindAdjacentFilm@472",
       "file": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute",
       "name": "FindAdjacentFilm",
       "kind": "gpu_function",
-      "line": 470
+      "line": 472
     },
     {
-      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::FindBoundary@275",
+      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::FindBoundary@277",
       "file": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute",
       "name": "FindBoundary",
       "kind": "gpu_function",
-      "line": 275
+      "line": 277
     },
     {
-      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::HashKey@146",
+      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::HashKey@148",
       "file": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute",
       "name": "HashKey",
       "kind": "gpu_function",
-      "line": 146
+      "line": 148
     },
     {
-      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::Height@193",
+      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::Height@195",
       "file": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute",
       "name": "Height",
       "kind": "gpu_function",
-      "line": 193
+      "line": 195
     },
     {
-      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::InitializeBoundaryState@494",
+      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::InitializeBoundaryState@496",
       "file": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute",
       "name": "InitializeBoundaryState",
       "kind": "gpu_function",
-      "line": 494
+      "line": 496
     },
     {
-      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::LoadDepthRay@157",
+      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::LoadDepthRay@159",
       "file": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute",
       "name": "LoadDepthRay",
       "kind": "gpu_function",
-      "line": 157
+      "line": 159
     },
     {
-      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::LoadRgb@163",
+      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::LoadRgb@165",
       "file": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute",
       "name": "LoadRgb",
       "kind": "gpu_function",
-      "line": 163
+      "line": 165
     },
     {
-      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::Luminance@170",
+      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::Luminance@172",
       "file": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute",
       "name": "Luminance",
       "kind": "gpu_function",
-      "line": 170
+      "line": 172
     },
     {
-      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::MarkDirty@262",
+      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::MarkDirty@264",
       "file": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute",
       "name": "MarkDirty",
       "kind": "gpu_function",
-      "line": 262
+      "line": 264
     },
     {
-      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::PointToUv@221",
+      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::PointToUv@223",
       "file": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute",
       "name": "PointToUv",
       "kind": "gpu_function",
-      "line": 221
+      "line": 223
     },
     {
-      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::RefineUvWithRgb@395",
+      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::RefineUvWithRgb@397",
       "file": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute",
       "name": "RefineUvWithRgb",
       "kind": "gpu_function",
-      "line": 395
+      "line": 397
     },
     {
-      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::RehashLoadedBoundaries@522",
+      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::RehashLoadedBoundaries@524",
       "file": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute",
       "name": "RehashLoadedBoundaries",
       "kind": "gpu_function",
-      "line": 522
+      "line": 524
     },
     {
-      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::ResolveBoundary@297",
+      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::ResolveBoundary@299",
       "file": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute",
       "name": "ResolveBoundary",
       "kind": "gpu_function",
-      "line": 297
+      "line": 299
     },
     {
-      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::SobelMagnitude@175",
+      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::SobelMagnitude@177",
       "file": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute",
       "name": "SobelMagnitude",
       "kind": "gpu_function",
-      "line": 175
+      "line": 177
     },
     {
-      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::SolveDirtyBoundaries@710",
+      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::SolveDirtyBoundaries@712",
       "file": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute",
       "name": "SolveDirtyBoundaries",
       "kind": "gpu_function",
-      "line": 710
+      "line": 712
     },
     {
-      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::SurfaceNormal@208",
+      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::SurfaceNormal@210",
       "file": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute",
       "name": "SurfaceNormal",
       "kind": "gpu_function",
-      "line": 208
+      "line": 210
     },
     {
-      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::SurfacePoint@200",
+      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::SurfacePoint@202",
       "file": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute",
       "name": "SurfacePoint",
       "kind": "gpu_function",
-      "line": 200
+      "line": 202
     },
     {
-      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::ViewBin@384",
+      "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::ViewBin@386",
       "file": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute",
       "name": "ViewBin",
       "kind": "gpu_function",
-      "line": 384
+      "line": 386
     },
     {
       "id": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::kernel:AccumulateBoundaryAbsence",
@@ -5527,56 +5583,56 @@
       "file": "Runtime/Resources/Prism/ContactFilmPreview.shader",
       "name": "ContactMeshletVertex",
       "kind": "struct",
-      "line": 28
+      "line": 31
     },
     {
-      "id": "Runtime/Resources/Prism/ContactFilmPreview.shader::Frag@64",
+      "id": "Runtime/Resources/Prism/ContactFilmPreview.shader::Frag@69",
       "file": "Runtime/Resources/Prism/ContactFilmPreview.shader",
       "name": "Frag",
       "kind": "gpu_function",
-      "line": 64
+      "line": 69
     },
     {
       "id": "Runtime/Resources/Prism/ContactFilmPreview.shader::Varyings",
       "file": "Runtime/Resources/Prism/ContactFilmPreview.shader",
       "name": "Varyings",
       "kind": "struct",
-      "line": 42
+      "line": 45
     },
     {
-      "id": "Runtime/Resources/Prism/ContactFilmPreview.shader::Vert@50",
+      "id": "Runtime/Resources/Prism/ContactFilmPreview.shader::Vert@54",
       "file": "Runtime/Resources/Prism/ContactFilmPreview.shader",
       "name": "Vert",
       "kind": "gpu_function",
-      "line": 50
+      "line": 54
     },
     {
-      "id": "Runtime/Resources/Prism/ContactFilmSpawn.compute::BuildSpawnTileDispatchArguments@211",
+      "id": "Runtime/Resources/Prism/ContactFilmSpawn.compute::BuildSpawnTileDispatchArguments@212",
       "file": "Runtime/Resources/Prism/ContactFilmSpawn.compute",
       "name": "BuildSpawnTileDispatchArguments",
       "kind": "gpu_function",
-      "line": 211
+      "line": 212
     },
     {
-      "id": "Runtime/Resources/Prism/ContactFilmSpawn.compute::ClearSpawnTileState@163",
+      "id": "Runtime/Resources/Prism/ContactFilmSpawn.compute::ClearSpawnTileState@164",
       "file": "Runtime/Resources/Prism/ContactFilmSpawn.compute",
       "name": "ClearSpawnTileState",
       "kind": "gpu_function",
-      "line": 163
+      "line": 164
     },
     {
-      "id": "Runtime/Resources/Prism/ContactFilmSpawn.compute::CompactSpawnTiles@176",
+      "id": "Runtime/Resources/Prism/ContactFilmSpawn.compute::CompactSpawnTiles@177",
       "file": "Runtime/Resources/Prism/ContactFilmSpawn.compute",
       "name": "CompactSpawnTiles",
       "kind": "gpu_function",
-      "line": 176
+      "line": 177
     },
     {
-      "id": "Runtime/Resources/Prism/ContactFilmSpawn.compute::Compatible@135",
+      "id": "Runtime/Resources/Prism/ContactFilmSpawn.compute::Compatible@136",
       "file": "Runtime/Resources/Prism/ContactFilmSpawn.compute",
       "name": "Compatible",
       "kind": "gpu_function",
-      "line": 135
+      "line": 136
     },
     {
       "id": "Runtime/Resources/Prism/ContactFilmSpawn.compute::ConeEvent",
@@ -5593,39 +5649,39 @@
       "line": 31
     },
     {
-      "id": "Runtime/Resources/Prism/ContactFilmSpawn.compute::IsSpawnCandidate@115",
+      "id": "Runtime/Resources/Prism/ContactFilmSpawn.compute::IsSpawnCandidate@116",
       "file": "Runtime/Resources/Prism/ContactFilmSpawn.compute",
       "name": "IsSpawnCandidate",
       "kind": "gpu_function",
-      "line": 115
+      "line": 116
     },
     {
-      "id": "Runtime/Resources/Prism/ContactFilmSpawn.compute::LoadRay@98",
+      "id": "Runtime/Resources/Prism/ContactFilmSpawn.compute::LoadRay@99",
       "file": "Runtime/Resources/Prism/ContactFilmSpawn.compute",
       "name": "LoadRay",
       "kind": "gpu_function",
-      "line": 98
+      "line": 99
     },
     {
-      "id": "Runtime/Resources/Prism/ContactFilmSpawn.compute::SafeNormalize@104",
+      "id": "Runtime/Resources/Prism/ContactFilmSpawn.compute::SafeNormalize@105",
       "file": "Runtime/Resources/Prism/ContactFilmSpawn.compute",
       "name": "SafeNormalize",
       "kind": "gpu_function",
-      "line": 104
+      "line": 105
     },
     {
-      "id": "Runtime/Resources/Prism/ContactFilmSpawn.compute::SolveSymmetric3x3@146",
+      "id": "Runtime/Resources/Prism/ContactFilmSpawn.compute::SolveSymmetric3x3@147",
       "file": "Runtime/Resources/Prism/ContactFilmSpawn.compute",
       "name": "SolveSymmetric3x3",
       "kind": "gpu_function",
-      "line": 146
+      "line": 147
     },
     {
-      "id": "Runtime/Resources/Prism/ContactFilmSpawn.compute::SpawnContactFilms@218",
+      "id": "Runtime/Resources/Prism/ContactFilmSpawn.compute::SpawnContactFilms@219",
       "file": "Runtime/Resources/Prism/ContactFilmSpawn.compute",
       "name": "SpawnContactFilms",
       "kind": "gpu_function",
-      "line": 218
+      "line": 219
     },
     {
       "id": "Runtime/Resources/Prism/ContactFilmSpawn.compute::kernel:BuildSpawnTileDispatchArguments",
@@ -5719,13 +5775,6 @@
       "line": 34
     },
     {
-      "id": "Runtime/Resources/Prism/ContactFilmUpdate.compute::FreeSpaceViewBit@118",
-      "file": "Runtime/Resources/Prism/ContactFilmUpdate.compute",
-      "name": "FreeSpaceViewBit",
-      "kind": "gpu_function",
-      "line": 118
-    },
-    {
       "id": "Runtime/Resources/Prism/ContactFilmUpdate.compute::InformationG@164",
       "file": "Runtime/Resources/Prism/ContactFilmUpdate.compute",
       "name": "InformationG",
@@ -5761,6 +5810,13 @@
       "line": 64
     },
     {
+      "id": "Runtime/Resources/Prism/ContactFilmUpdate.compute::PreHitPressureViewBit@118",
+      "file": "Runtime/Resources/Prism/ContactFilmUpdate.compute",
+      "name": "PreHitPressureViewBit",
+      "kind": "gpu_function",
+      "line": 118
+    },
+    {
       "id": "Runtime/Resources/Prism/ContactFilmUpdate.compute::SetInformationG@175",
       "file": "Runtime/Resources/Prism/ContactFilmUpdate.compute",
       "name": "SetInformationG",
@@ -5789,11 +5845,11 @@
       "line": 135
     },
     {
-      "id": "Runtime/Resources/Prism/ContactFilmUpdate.compute::if@715",
+      "id": "Runtime/Resources/Prism/ContactFilmUpdate.compute::if@769",
       "file": "Runtime/Resources/Prism/ContactFilmUpdate.compute",
       "name": "if",
       "kind": "gpu_function",
-      "line": 715
+      "line": 769
     },
     {
       "id": "Runtime/Resources/Prism/ContactFilmUpdate.compute::kernel:AccumulateBehindEvidence",
@@ -6006,88 +6062,88 @@
       "line": 1
     },
     {
-      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::AccumulateDisplacement@579",
+      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::AccumulateDisplacement@582",
       "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
       "name": "AccumulateDisplacement",
       "kind": "gpu_function",
-      "line": 579
+      "line": 582
     },
     {
-      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::AccumulateFreeSpaceCoverage@682",
+      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::AccumulateOccluderPreHitPressure@739",
       "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
-      "name": "AccumulateFreeSpaceCoverage",
+      "name": "AccumulateOccluderPreHitPressure",
       "kind": "gpu_function",
-      "line": 682
+      "line": 739
     },
     {
-      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::AccumulateOccluderFreeSpaceCoverage@721",
+      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::AccumulatePreHitPressure@685",
       "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
-      "name": "AccumulateOccluderFreeSpaceCoverage",
+      "name": "AccumulatePreHitPressure",
       "kind": "gpu_function",
-      "line": 721
+      "line": 685
     },
     {
-      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::AllocateBasePages@373",
+      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::AllocateBasePages@376",
       "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
       "name": "AllocateBasePages",
       "kind": "gpu_function",
-      "line": 373
+      "line": 376
     },
     {
-      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::AllocateBasePagesBehind@422",
+      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::AllocateBasePagesBehind@425",
       "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
       "name": "AllocateBasePagesBehind",
       "kind": "gpu_function",
-      "line": 422
+      "line": 425
     },
     {
-      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::AllocateBasePagesOccluder@472",
+      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::AllocateBasePagesOccluder@475",
       "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
       "name": "AllocateBasePagesOccluder",
       "kind": "gpu_function",
-      "line": 472
+      "line": 475
     },
     {
-      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::AllocateMicrotiles@883",
+      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::AllocateMicrotiles@934",
       "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
       "name": "AllocateMicrotiles",
       "kind": "gpu_function",
-      "line": 883
+      "line": 934
     },
     {
-      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::AtomicAddScaled@199",
+      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::AtomicAddScaled@202",
       "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
       "name": "AtomicAddScaled",
       "kind": "gpu_function",
-      "line": 199
+      "line": 202
     },
     {
-      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::BootstrapSupport@217",
+      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::BootstrapSupport@220",
       "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
       "name": "BootstrapSupport",
       "kind": "gpu_function",
-      "line": 217
+      "line": 220
     },
     {
-      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::BuildDisplacementArguments@521",
+      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::BuildDisplacementArguments@524",
       "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
       "name": "BuildDisplacementArguments",
       "kind": "gpu_function",
-      "line": 521
+      "line": 524
     },
     {
-      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::CellForPage@262",
+      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::CellForPage@265",
       "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
       "name": "CellForPage",
       "kind": "gpu_function",
-      "line": 262
+      "line": 265
     },
     {
-      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::ClearDisplacementFrame@360",
+      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::ClearDisplacementFrame@363",
       "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
       "name": "ClearDisplacementFrame",
       "kind": "gpu_function",
-      "line": 360
+      "line": 363
     },
     {
       "id": "Runtime/Resources/Prism/DisplacementTopology.compute::ConeEvent",
@@ -6125,144 +6181,144 @@
       "line": 68
     },
     {
-      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::EmptyCell@207",
+      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::EmptyCell@210",
       "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
       "name": "EmptyCell",
       "kind": "gpu_function",
-      "line": 207
+      "line": 210
     },
     {
-      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::FreeSpaceViewBit@179",
-      "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
-      "name": "FreeSpaceViewBit",
-      "kind": "gpu_function",
-      "line": 179
-    },
-    {
-      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::Height@192",
+      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::Height@195",
       "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
       "name": "Height",
       "kind": "gpu_function",
-      "line": 192
+      "line": 195
     },
     {
-      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::InitializeBasePages@538",
+      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::InitializeBasePages@541",
       "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
       "name": "InitializeBasePages",
       "kind": "gpu_function",
-      "line": 538
+      "line": 541
     },
     {
-      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::InitializeDisplacementState@342",
+      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::InitializeDisplacementState@345",
       "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
       "name": "InitializeDisplacementState",
       "kind": "gpu_function",
-      "line": 342
+      "line": 345
     },
     {
-      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::InitializeMicroPages@973",
+      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::InitializeMicroPages@1024",
       "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
       "name": "InitializeMicroPages",
       "kind": "gpu_function",
-      "line": 973
+      "line": 1024
     },
     {
-      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::IsMicroCell@215",
+      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::IsMicroCell@218",
       "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
       "name": "IsMicroCell",
       "kind": "gpu_function",
-      "line": 215
+      "line": 218
     },
     {
-      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::LoadCell@225",
+      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::LoadCell@228",
       "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
       "name": "LoadCell",
       "kind": "gpu_function",
-      "line": 225
+      "line": 228
     },
     {
-      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::LoadChild@242",
+      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::LoadChild@245",
       "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
       "name": "LoadChild",
       "kind": "gpu_function",
-      "line": 242
+      "line": 245
     },
     {
-      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::LoadRay@173",
+      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::LoadRay@176",
       "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
       "name": "LoadRay",
       "kind": "gpu_function",
-      "line": 173
+      "line": 176
     },
     {
-      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::MarkCellDirty@316",
+      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::MarkCellDirty@319",
       "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
       "name": "MarkCellDirty",
       "kind": "gpu_function",
-      "line": 316
+      "line": 319
     },
     {
-      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::MarkTopologyDirty@331",
+      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::MarkTopologyDirty@334",
       "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
       "name": "MarkTopologyDirty",
       "kind": "gpu_function",
-      "line": 331
+      "line": 334
     },
     {
-      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::PageHeaderIndex@257",
+      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::PageHeaderIndex@260",
       "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
       "name": "PageHeaderIndex",
       "kind": "gpu_function",
-      "line": 257
+      "line": 260
     },
     {
-      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::ResolveBaseCell@269",
+      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::PreHitPressureViewBit@182",
+      "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
+      "name": "PreHitPressureViewBit",
+      "kind": "gpu_function",
+      "line": 182
+    },
+    {
+      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::ResolveBaseCell@272",
       "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
       "name": "ResolveBaseCell",
       "kind": "gpu_function",
-      "line": 269
+      "line": 272
     },
     {
-      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::ResolveLeaf@288",
+      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::ResolveLeaf@291",
       "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
       "name": "ResolveLeaf",
       "kind": "gpu_function",
-      "line": 288
+      "line": 291
     },
     {
-      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::SolveDirtyDisplacement@759",
+      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::SolveDirtyDisplacement@800",
       "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
       "name": "SolveDirtyDisplacement",
       "kind": "gpu_function",
-      "line": 759
+      "line": 800
     },
     {
-      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::SolveTopologyEvidence@1015",
+      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::SolveTopologyEvidence@1066",
       "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
       "name": "SolveTopologyEvidence",
       "kind": "gpu_function",
-      "line": 1015
+      "line": 1066
     },
     {
-      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::StoreCell@234",
+      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::StoreCell@237",
       "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
       "name": "StoreCell",
       "kind": "gpu_function",
-      "line": 234
+      "line": 237
     },
     {
-      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::StoreChild@249",
+      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::StoreChild@252",
       "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
       "name": "StoreChild",
       "kind": "gpu_function",
-      "line": 249
+      "line": 252
     },
     {
-      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::if@824",
+      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::if@867",
       "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
       "name": "if",
       "kind": "gpu_function",
-      "line": 824
+      "line": 867
     },
     {
       "id": "Runtime/Resources/Prism/DisplacementTopology.compute::kernel:AccumulateDisplacement",
@@ -6272,18 +6328,18 @@
       "line": 8
     },
     {
-      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::kernel:AccumulateFreeSpaceCoverage",
+      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::kernel:AccumulateOccluderPreHitPressure",
       "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
-      "name": "AccumulateFreeSpaceCoverage",
-      "kind": "gpu_kernel",
-      "line": 9
-    },
-    {
-      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::kernel:AccumulateOccluderFreeSpaceCoverage",
-      "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
-      "name": "AccumulateOccluderFreeSpaceCoverage",
+      "name": "AccumulateOccluderPreHitPressure",
       "kind": "gpu_kernel",
       "line": 10
+    },
+    {
+      "id": "Runtime/Resources/Prism/DisplacementTopology.compute::kernel:AccumulatePreHitPressure",
+      "file": "Runtime/Resources/Prism/DisplacementTopology.compute",
+      "name": "AccumulatePreHitPressure",
+      "kind": "gpu_kernel",
+      "line": 9
     },
     {
       "id": "Runtime/Resources/Prism/DisplacementTopology.compute::kernel:AllocateBasePages",
@@ -6391,214 +6447,235 @@
       "line": 2
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::BootstrapCoverage@328",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::BootstrapCoverage@335",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "BootstrapCoverage",
       "kind": "gpu_function",
-      "line": 328
+      "line": 335
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::BootstrapCoverageCell@318",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::BootstrapCoverageCell@325",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "BootstrapCoverageCell",
       "kind": "gpu_function",
-      "line": 318
+      "line": 325
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::BoundaryCubic@409",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::BoundaryCubic@407",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "BoundaryCubic",
       "kind": "gpu_function",
-      "line": 409
+      "line": 407
     },
     {
       "id": "Runtime/Resources/Prism/MeshletBuild.compute::BoundaryHashEntry",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "BoundaryHashEntry",
       "kind": "struct",
-      "line": 91
+      "line": 92
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::BoundaryHashKey@398",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::BoundaryHashKey@396",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "BoundaryHashKey",
       "kind": "gpu_function",
-      "line": 398
+      "line": 396
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::BuildAdaptiveFilmMeshlets@605",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::BuildAdaptiveFilmMeshlets@606",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "BuildAdaptiveFilmMeshlets",
       "kind": "gpu_function",
-      "line": 605
+      "line": 606
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::BuildMeshDispatchArguments@584",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::BuildElasticBoundaryMeshlets@839",
+      "file": "Runtime/Resources/Prism/MeshletBuild.compute",
+      "name": "BuildElasticBoundaryMeshlets",
+      "kind": "gpu_function",
+      "line": 839
+    },
+    {
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::BuildMeshDispatchArguments@583",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "BuildMeshDispatchArguments",
       "kind": "gpu_function",
-      "line": 584
+      "line": 583
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::CellTouchesPersistentBoundary@469",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::CellTouchesPersistentBoundary@467",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "CellTouchesPersistentBoundary",
       "kind": "gpu_function",
-      "line": 469
+      "line": 467
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::ChooseSubdivision@536",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::ChooseSubdivision@534",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "ChooseSubdivision",
       "kind": "gpu_function",
-      "line": 536
+      "line": 534
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::ClearMeshletBuild@568",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::ClearMeshletBuild@566",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "ClearMeshletBuild",
       "kind": "gpu_function",
-      "line": 568
+      "line": 566
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::ClosestBoundaryPoint@418",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::ClosestBoundaryPoint@416",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "ClosestBoundaryPoint",
       "kind": "gpu_function",
-      "line": 418
+      "line": 416
+    },
+    {
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::ConnectorNormal@810",
+      "file": "Runtime/Resources/Prism/MeshletBuild.compute",
+      "name": "ConnectorNormal",
+      "kind": "gpu_function",
+      "line": 810
     },
     {
       "id": "Runtime/Resources/Prism/MeshletBuild.compute::ContactBoundaryHeader",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "ContactBoundaryHeader",
       "kind": "struct",
-      "line": 69
+      "line": 70
     },
     {
       "id": "Runtime/Resources/Prism/MeshletBuild.compute::ContactFilmHeader",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "ContactFilmHeader",
       "kind": "struct",
-      "line": 5
+      "line": 6
     },
     {
       "id": "Runtime/Resources/Prism/MeshletBuild.compute::ContactMeshletDescriptor",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "ContactMeshletDescriptor",
       "kind": "struct",
-      "line": 50
+      "line": 51
     },
     {
       "id": "Runtime/Resources/Prism/MeshletBuild.compute::ContactMeshletVertex",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "ContactMeshletVertex",
       "kind": "struct",
-      "line": 35
+      "line": 36
     },
     {
       "id": "Runtime/Resources/Prism/MeshletBuild.compute::DisplacementCell",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "DisplacementCell",
       "kind": "struct",
-      "line": 117
+      "line": 118
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::DisplacementMetrics@238",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::DisplacementMetrics@245",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "DisplacementMetrics",
       "kind": "gpu_function",
-      "line": 238
+      "line": 245
     },
     {
       "id": "Runtime/Resources/Prism/MeshletBuild.compute::DisplacementPageHeader",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "DisplacementPageHeader",
       "kind": "struct",
-      "line": 100
+      "line": 101
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::FinalizeMeshletDrawArguments@809",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::FilmPoint@801",
+      "file": "Runtime/Resources/Prism/MeshletBuild.compute",
+      "name": "FilmPoint",
+      "kind": "gpu_function",
+      "line": 801
+    },
+    {
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::FinalizeMeshletDrawArguments@950",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "FinalizeMeshletDrawArguments",
       "kind": "gpu_function",
-      "line": 809
+      "line": 950
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::Height@483",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::Height@481",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "Height",
       "kind": "gpu_function",
-      "line": 483
+      "line": 481
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::LoadDisplacementCell@175",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::LoadDisplacementCell@182",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "LoadDisplacementCell",
       "kind": "gpu_function",
-      "line": 175
+      "line": 182
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::LoadDisplacementChild@187",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::LoadDisplacementChild@194",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "LoadDisplacementChild",
       "kind": "gpu_function",
-      "line": 187
+      "line": 194
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::Reserve@516",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::ProjectToFilmUv@793",
+      "file": "Runtime/Resources/Prism/MeshletBuild.compute",
+      "name": "ProjectToFilmUv",
+      "kind": "gpu_function",
+      "line": 793
+    },
+    {
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::Reserve@514",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "Reserve",
       "kind": "gpu_function",
-      "line": 516
+      "line": 514
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::ResolveDisplacementPage@197",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::ResolveDisplacementPage@204",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "ResolveDisplacementPage",
       "kind": "gpu_function",
-      "line": 197
+      "line": 204
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::SampleDisplacement@290",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::SampleDisplacement@297",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "SampleDisplacement",
       "kind": "gpu_function",
-      "line": 290
+      "line": 297
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::SurfaceCoverage@344",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::SurfaceCoverage@351",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "SurfaceCoverage",
       "kind": "gpu_function",
-      "line": 344
+      "line": 351
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::SurfaceNormal@491",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::SurfaceNormal@489",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "SurfaceNormal",
       "kind": "gpu_function",
-      "line": 491
+      "line": 489
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::TriangleHasObservedSupport@389",
-      "file": "Runtime/Resources/Prism/MeshletBuild.compute",
-      "name": "TriangleHasObservedSupport",
-      "kind": "gpu_function",
-      "line": 389
-    },
-    {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::if@681",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::if@664",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "if",
       "kind": "gpu_function",
-      "line": 681
+      "line": 664
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::if@686",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::if@669",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "if",
       "kind": "gpu_function",
-      "line": 686
+      "line": 669
     },
     {
       "id": "Runtime/Resources/Prism/MeshletBuild.compute::kernel:BuildAdaptiveFilmMeshlets",
@@ -6606,6 +6683,13 @@
       "name": "BuildAdaptiveFilmMeshlets",
       "kind": "gpu_kernel",
       "line": 3
+    },
+    {
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::kernel:BuildElasticBoundaryMeshlets",
+      "file": "Runtime/Resources/Prism/MeshletBuild.compute",
+      "name": "BuildElasticBoundaryMeshlets",
+      "kind": "gpu_kernel",
+      "line": 4
     },
     {
       "id": "Runtime/Resources/Prism/MeshletBuild.compute::kernel:BuildMeshDispatchArguments",
@@ -6626,7 +6710,7 @@
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "FinalizeMeshletDrawArguments",
       "kind": "gpu_kernel",
-      "line": 4
+      "line": 5
     },
     {
       "id": "Runtime/Resources/Prism/MeshletViewCull.compute::ClearMeshletView@148",
@@ -7035,25 +7119,25 @@
       "line": 1
     },
     {
-      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::AddTransformedInformation@990",
+      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::AddTransformedInformation@991",
       "file": "Runtime/Resources/Prism/TopologyAdapt.compute",
       "name": "AddTransformedInformation",
       "kind": "gpu_function",
-      "line": 990
+      "line": 991
     },
     {
-      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::BootstrapCoverage@205",
+      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::BootstrapCoverage@206",
       "file": "Runtime/Resources/Prism/TopologyAdapt.compute",
       "name": "BootstrapCoverage",
       "kind": "gpu_function",
-      "line": 205
+      "line": 206
     },
     {
-      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::BoundaryDerivative3@637",
+      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::BoundaryDerivative3@638",
       "file": "Runtime/Resources/Prism/TopologyAdapt.compute",
       "name": "BoundaryDerivative3",
       "kind": "gpu_function",
-      "line": 637
+      "line": 638
     },
     {
       "id": "Runtime/Resources/Prism/TopologyAdapt.compute::BoundaryHashEntry",
@@ -7063,88 +7147,88 @@
       "line": 63
     },
     {
-      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::BoundaryHashKey@379",
+      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::BoundaryHashKey@380",
       "file": "Runtime/Resources/Prism/TopologyAdapt.compute",
       "name": "BoundaryHashKey",
       "kind": "gpu_function",
-      "line": 379
+      "line": 380
     },
     {
-      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::BoundaryPoint3@630",
+      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::BoundaryPoint3@631",
       "file": "Runtime/Resources/Prism/TopologyAdapt.compute",
       "name": "BoundaryPoint3",
       "kind": "gpu_function",
-      "line": 630
+      "line": 631
     },
     {
-      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::BoundaryUv@610",
+      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::BoundaryUv@611",
       "file": "Runtime/Resources/Prism/TopologyAdapt.compute",
       "name": "BoundaryUv",
       "kind": "gpu_function",
-      "line": 610
+      "line": 611
     },
     {
-      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::BoundaryUvDerivative@619",
+      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::BoundaryUvDerivative@620",
       "file": "Runtime/Resources/Prism/TopologyAdapt.compute",
       "name": "BoundaryUvDerivative",
       "kind": "gpu_function",
-      "line": 619
+      "line": 620
     },
     {
-      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::BuildFilmMergeHash@860",
+      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::BuildFilmMergeHash@861",
       "file": "Runtime/Resources/Prism/TopologyAdapt.compute",
       "name": "BuildFilmMergeHash",
       "kind": "gpu_function",
-      "line": 860
+      "line": 861
     },
     {
-      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::BuildMergeArguments@1276",
+      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::BuildMergeArguments@1278",
       "file": "Runtime/Resources/Prism/TopologyAdapt.compute",
       "name": "BuildMergeArguments",
       "kind": "gpu_function",
-      "line": 1276
+      "line": 1278
     },
     {
-      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::BuildTopologyAdaptArguments@531",
+      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::BuildTopologyAdaptArguments@532",
       "file": "Runtime/Resources/Prism/TopologyAdapt.compute",
       "name": "BuildTopologyAdaptArguments",
       "kind": "gpu_function",
-      "line": 531
+      "line": 532
     },
     {
-      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::CellForPage@236",
+      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::CellForPage@237",
       "file": "Runtime/Resources/Prism/TopologyAdapt.compute",
       "name": "CellForPage",
       "kind": "gpu_function",
-      "line": 236
+      "line": 237
     },
     {
-      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::ChildBasisTransform@299",
+      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::ChildBasisTransform@300",
       "file": "Runtime/Resources/Prism/TopologyAdapt.compute",
       "name": "ChildBasisTransform",
       "kind": "gpu_function",
-      "line": 299
+      "line": 300
     },
     {
-      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::ClearFilmMergeHash@845",
+      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::ClearFilmMergeHash@846",
       "file": "Runtime/Resources/Prism/TopologyAdapt.compute",
       "name": "ClearFilmMergeHash",
       "kind": "gpu_function",
-      "line": 845
+      "line": 846
     },
     {
-      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::ClearTopologyAdaptFrame@388",
+      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::ClearTopologyAdaptFrame@389",
       "file": "Runtime/Resources/Prism/TopologyAdapt.compute",
       "name": "ClearTopologyAdaptFrame",
       "kind": "gpu_function",
-      "line": 388
+      "line": 389
     },
     {
-      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::ClearTopologyBoundaryHash@792",
+      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::ClearTopologyBoundaryHash@793",
       "file": "Runtime/Resources/Prism/TopologyAdapt.compute",
       "name": "ClearTopologyBoundaryHash",
       "kind": "gpu_function",
-      "line": 792
+      "line": 793
     },
     {
       "id": "Runtime/Resources/Prism/TopologyAdapt.compute::ContactBoundaryHeader",
@@ -7182,18 +7266,18 @@
       "line": 29
     },
     {
-      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::FilmCell@840",
+      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::FilmCell@841",
       "file": "Runtime/Resources/Prism/TopologyAdapt.compute",
       "name": "FilmCell",
       "kind": "gpu_function",
-      "line": 840
+      "line": 841
     },
     {
-      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::FilmCellHash@831",
+      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::FilmCellHash@832",
       "file": "Runtime/Resources/Prism/TopologyAdapt.compute",
       "name": "FilmCellHash",
       "kind": "gpu_function",
-      "line": 831
+      "line": 832
     },
     {
       "id": "Runtime/Resources/Prism/TopologyAdapt.compute::FilmMergeHashEntry",
@@ -7203,158 +7287,158 @@
       "line": 83
     },
     {
-      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::GeneralBasisTransform@961",
+      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::GeneralBasisTransform@962",
       "file": "Runtime/Resources/Prism/TopologyAdapt.compute",
       "name": "GeneralBasisTransform",
       "kind": "gpu_function",
-      "line": 961
+      "line": 962
     },
     {
-      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::Height@198",
+      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::Height@199",
       "file": "Runtime/Resources/Prism/TopologyAdapt.compute",
       "name": "Height",
       "kind": "gpu_function",
-      "line": 198
+      "line": 199
     },
     {
-      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::IncludeFilmBounds@944",
+      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::IncludeFilmBounds@945",
       "file": "Runtime/Resources/Prism/TopologyAdapt.compute",
       "name": "IncludeFilmBounds",
       "kind": "gpu_function",
-      "line": 944
+      "line": 945
     },
     {
-      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::InitializeMergedDisplacement@1324",
+      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::InitializeMergedDisplacement@1326",
       "file": "Runtime/Resources/Prism/TopologyAdapt.compute",
       "name": "InitializeMergedDisplacement",
       "kind": "gpu_function",
-      "line": 1324
+      "line": 1326
     },
     {
-      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::InitializeSplitDisplacement@553",
+      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::InitializeSplitDisplacement@554",
       "file": "Runtime/Resources/Prism/TopologyAdapt.compute",
       "name": "InitializeSplitDisplacement",
       "kind": "gpu_function",
-      "line": 553
+      "line": 554
     },
     {
-      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::IsMicroCell@215",
+      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::IsMicroCell@216",
       "file": "Runtime/Resources/Prism/TopologyAdapt.compute",
       "name": "IsMicroCell",
       "kind": "gpu_function",
-      "line": 215
+      "line": 216
     },
     {
-      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::LoadCell@217",
+      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::LoadCell@218",
       "file": "Runtime/Resources/Prism/TopologyAdapt.compute",
       "name": "LoadCell",
       "kind": "gpu_function",
-      "line": 217
+      "line": 218
     },
     {
-      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::LoadChild@224",
+      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::LoadChild@225",
       "file": "Runtime/Resources/Prism/TopologyAdapt.compute",
       "name": "LoadChild",
       "kind": "gpu_function",
-      "line": 224
+      "line": 225
     },
     {
-      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::LoadG@172",
+      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::LoadG@173",
       "file": "Runtime/Resources/Prism/TopologyAdapt.compute",
       "name": "LoadG",
       "kind": "gpu_function",
-      "line": 172
+      "line": 173
     },
     {
-      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::LoadH@161",
+      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::LoadH@162",
       "file": "Runtime/Resources/Prism/TopologyAdapt.compute",
       "name": "LoadH",
       "kind": "gpu_function",
-      "line": 161
+      "line": 162
     },
     {
-      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::LockFilm@933",
+      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::LockFilm@934",
       "file": "Runtime/Resources/Prism/TopologyAdapt.compute",
       "name": "LockFilm",
       "kind": "gpu_function",
-      "line": 933
+      "line": 934
     },
     {
-      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::MergeCompatible@891",
+      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::MergeCompatible@892",
       "file": "Runtime/Resources/Prism/TopologyAdapt.compute",
       "name": "MergeCompatible",
       "kind": "gpu_function",
-      "line": 891
+      "line": 892
     },
     {
-      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::MergeCompatibleFilms@1082",
+      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::MergeCompatibleFilms@1083",
       "file": "Runtime/Resources/Prism/TopologyAdapt.compute",
       "name": "MergeCompatibleFilms",
       "kind": "gpu_function",
-      "line": 1082
+      "line": 1083
     },
     {
-      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::PageHeaderIndex@231",
+      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::PageHeaderIndex@232",
       "file": "Runtime/Resources/Prism/TopologyAdapt.compute",
       "name": "PageHeaderIndex",
       "kind": "gpu_function",
-      "line": 231
+      "line": 232
     },
     {
-      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::QuadrantSupport@277",
+      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::QuadrantSupport@278",
       "file": "Runtime/Resources/Prism/TopologyAdapt.compute",
       "name": "QuadrantSupport",
       "kind": "gpu_function",
-      "line": 277
+      "line": 278
     },
     {
-      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::RehashTopologyBoundaries@798",
+      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::RehashTopologyBoundaries@799",
       "file": "Runtime/Resources/Prism/TopologyAdapt.compute",
       "name": "RehashTopologyBoundaries",
       "kind": "gpu_function",
-      "line": 798
+      "line": 799
     },
     {
-      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::ResetFilmMergeWave@852",
+      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::ResetFilmMergeWave@853",
       "file": "Runtime/Resources/Prism/TopologyAdapt.compute",
       "name": "ResetFilmMergeWave",
       "kind": "gpu_function",
-      "line": 852
+      "line": 853
     },
     {
-      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::ResolveLeaf@242",
+      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::ResolveLeaf@243",
       "file": "Runtime/Resources/Prism/TopologyAdapt.compute",
       "name": "ResolveLeaf",
       "kind": "gpu_function",
-      "line": 242
+      "line": 243
     },
     {
-      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::SolveSix@1041",
+      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::SolveSix@1042",
       "file": "Runtime/Resources/Prism/TopologyAdapt.compute",
       "name": "SolveSix",
       "kind": "gpu_function",
-      "line": 1041
+      "line": 1042
     },
     {
-      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::SourceDisplacement@1284",
+      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::SourceDisplacement@1286",
       "file": "Runtime/Resources/Prism/TopologyAdapt.compute",
       "name": "SourceDisplacement",
       "kind": "gpu_function",
-      "line": 1284
+      "line": 1286
     },
     {
-      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::SplitContactFilms@396",
+      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::SplitContactFilms@397",
       "file": "Runtime/Resources/Prism/TopologyAdapt.compute",
       "name": "SplitContactFilms",
       "kind": "gpu_function",
-      "line": 396
+      "line": 397
     },
     {
-      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::StoreInformation@183",
+      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::StoreInformation@184",
       "file": "Runtime/Resources/Prism/TopologyAdapt.compute",
       "name": "StoreInformation",
       "kind": "gpu_function",
-      "line": 183
+      "line": 184
     },
     {
       "id": "Runtime/Resources/Prism/TopologyAdapt.compute::TopologyMergeRecord",
@@ -7371,53 +7455,53 @@
       "line": 68
     },
     {
-      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::TransferSplitBoundaries@730",
+      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::TransferSplitBoundaries@731",
       "file": "Runtime/Resources/Prism/TopologyAdapt.compute",
       "name": "TransferSplitBoundaries",
       "kind": "gpu_function",
-      "line": 730
+      "line": 731
     },
     {
-      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::TransformChildInformation@315",
+      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::TransformChildInformation@316",
       "file": "Runtime/Resources/Prism/TopologyAdapt.compute",
       "name": "TransformChildInformation",
       "kind": "gpu_function",
-      "line": 315
+      "line": 316
     },
     {
-      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::TransformUvToChild@603",
+      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::TransformUvToChild@604",
       "file": "Runtime/Resources/Prism/TopologyAdapt.compute",
       "name": "TransformUvToChild",
       "kind": "gpu_function",
-      "line": 603
+      "line": 604
     },
     {
-      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::UpperIndex@156",
+      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::UpperIndex@157",
       "file": "Runtime/Resources/Prism/TopologyAdapt.compute",
       "name": "UpperIndex",
       "kind": "gpu_function",
-      "line": 156
+      "line": 157
     },
     {
-      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::UvQuadrant@645",
+      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::UvQuadrant@646",
       "file": "Runtime/Resources/Prism/TopologyAdapt.compute",
       "name": "UvQuadrant",
       "kind": "gpu_function",
-      "line": 645
+      "line": 646
     },
     {
-      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::WriteSplitBoundary@650",
+      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::WriteSplitBoundary@651",
       "file": "Runtime/Resources/Prism/TopologyAdapt.compute",
       "name": "WriteSplitBoundary",
       "kind": "gpu_function",
-      "line": 650
+      "line": 651
     },
     {
-      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::if@1302",
+      "id": "Runtime/Resources/Prism/TopologyAdapt.compute::if@1304",
       "file": "Runtime/Resources/Prism/TopologyAdapt.compute",
       "name": "if",
       "kind": "gpu_function",
-      "line": 1302
+      "line": 1304
     },
     {
       "id": "Runtime/Resources/Prism/TopologyAdapt.compute::kernel:BuildFilmMergeHash",
@@ -9345,18 +9429,18 @@
       "line": 134
     },
     {
-      "id": "Runtime/World/PrismGpuSnapshotRestore.cs::ConfigureMeshletGeneration@199",
+      "id": "Runtime/World/PrismGpuSnapshotRestore.cs::ConfigureMeshletGeneration@200",
       "file": "Runtime/World/PrismGpuSnapshotRestore.cs",
       "name": "ConfigureMeshletGeneration",
       "kind": "method",
-      "line": 199
+      "line": 200
     },
     {
-      "id": "Runtime/World/PrismGpuSnapshotRestore.cs::DivideRoundUp@196",
+      "id": "Runtime/World/PrismGpuSnapshotRestore.cs::DivideRoundUp@197",
       "file": "Runtime/World/PrismGpuSnapshotRestore.cs",
       "name": "DivideRoundUp",
       "kind": "method",
-      "line": 196
+      "line": 197
     },
     {
       "id": "Runtime/World/PrismGpuSnapshotRestore.cs::PrismGpuSnapshotRestore",
@@ -9380,11 +9464,11 @@
       "line": 54
     },
     {
-      "id": "Runtime/World/PrismGpuSnapshotRestore.cs::Validate@155",
+      "id": "Runtime/World/PrismGpuSnapshotRestore.cs::Validate@156",
       "file": "Runtime/World/PrismGpuSnapshotRestore.cs",
       "name": "Validate",
       "kind": "method",
-      "line": 155
+      "line": 156
     },
     {
       "id": "Runtime/World/SubmapManager.cs::ApplyLargeWorldDefaults@125",
@@ -10563,11 +10647,11 @@
       "line": 27
     },
     {
-      "id": "Tests/Editor/PrismMeshletContractTests.cs::Load@100",
+      "id": "Tests/Editor/PrismMeshletContractTests.cs::Load@102",
       "file": "Tests/Editor/PrismMeshletContractTests.cs",
       "name": "Load",
       "kind": "method",
-      "line": 100
+      "line": 102
     },
     {
       "id": "Tests/Editor/PrismMeshletContractTests.cs::MeshletGpuAbiMatchesDeclaredStrides@16",
@@ -10584,18 +10668,18 @@
       "line": 11
     },
     {
-      "id": "Tests/Editor/PrismMeshletContractTests.cs::ProductionMeshletPathContainsNoCpuReadback@84",
+      "id": "Tests/Editor/PrismMeshletContractTests.cs::ProductionMeshletPathContainsNoCpuReadback@86",
       "file": "Tests/Editor/PrismMeshletContractTests.cs",
       "name": "ProductionMeshletPathContainsNoCpuReadback",
       "kind": "method",
-      "line": 84
+      "line": 86
     },
     {
-      "id": "Tests/Editor/PrismMeshletContractTests.cs::PublicationUsesDistinctFrontAndBackBuffers@65",
+      "id": "Tests/Editor/PrismMeshletContractTests.cs::PublicationUsesDistinctFrontAndBackBuffers@67",
       "file": "Tests/Editor/PrismMeshletContractTests.cs",
       "name": "PublicationUsesDistinctFrontAndBackBuffers",
       "kind": "method",
-      "line": 65
+      "line": 67
     },
     {
       "id": "Tests/Editor/PrismMeshletContractTests.cs::RequiredQ312ComputeKernelsImport@42",
@@ -10875,7 +10959,28 @@
       "file": "specka.md",
       "name": "ContactFilm",
       "kind": "struct",
-      "line": 138
+      "line": 150
+    },
+    {
+      "id": "specka.md::LatentFrontierSegment",
+      "file": "specka.md",
+      "name": "LatentFrontierSegment",
+      "kind": "struct",
+      "line": 277
+    },
+    {
+      "id": "specka.md::ManifoldLink",
+      "file": "specka.md",
+      "name": "ManifoldLink",
+      "kind": "struct",
+      "line": 268
+    },
+    {
+      "id": "specka.md::PressureManifoldHeader",
+      "file": "specka.md",
+      "name": "PressureManifoldHeader",
+      "kind": "struct",
+      "line": 260
     }
   ],
   "event_links": [
@@ -10933,7 +11038,7 @@
       "source_type": "PrismPredictionRenderer",
       "event": "PredictionReady",
       "handler": "OnPrediction",
-      "line": 99
+      "line": 111
     },
     {
       "file": "Runtime/Prism/Capture/PrismRigCapture.cs",
@@ -10949,7 +11054,7 @@
       "source_type": "PrismFilmUpdater",
       "event": "UpdateCompleted",
       "handler": "OnFilmUpdateCompleted",
-      "line": 139
+      "line": 140
     },
     {
       "file": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs",
@@ -10981,7 +11086,7 @@
       "source_type": "PrismFilmSpawner",
       "event": "FilmsMutated",
       "handler": "OnFilmsMutated",
-      "line": 100
+      "line": 109
     },
     {
       "file": "Runtime/Prism/Geometry/PrismPredictionRenderer.cs",
@@ -11200,7 +11305,7 @@
     },
     {
       "id": "Q3-11",
-      "title": "Implement ContactFilm split/merge and hierarchical displacement microtiles",
+      "title": "Implement closed elastic PressureManifolds, chart topology, pressure solve, and hierarchical displacement",
       "status": "in_progress",
       "depends_on": [
         "Q3-10"
@@ -11215,7 +11320,7 @@
     },
     {
       "id": "Q3-12",
-      "title": "Implement adaptive ContactFilm meshlets, culling, dynamic LOD, and indirect rendering",
+      "title": "Implement watertight PressureManifold and connector meshlets, culling, dynamic LOD, and indirect rendering",
       "status": "pending",
       "depends_on": [
         "Q3-11"
@@ -11437,7 +11542,7 @@
     },
     {
       "source": "Editor/RoomScanSetupWizard.cs::EnsureQuestVRManifest@573",
-      "target": "Tests/Editor/PrismMeshletContractTests.cs::Load@100",
+      "target": "Tests/Editor/PrismMeshletContractTests.cs::Load@102",
       "kind": "calls"
     },
     {
@@ -11482,7 +11587,7 @@
     },
     {
       "source": "Editor/RoomScanSetupWizard.cs::FixCleartextTraffic@716",
-      "target": "Tests/Editor/PrismMeshletContractTests.cs::Load@100",
+      "target": "Tests/Editor/PrismMeshletContractTests.cs::Load@102",
       "kind": "calls"
     },
     {
@@ -11512,7 +11617,7 @@
     },
     {
       "source": "Editor/RoomScanSetupWizard.cs::LoadQuestManifestDocuments@457",
-      "target": "Tests/Editor/PrismMeshletContractTests.cs::Load@100",
+      "target": "Tests/Editor/PrismMeshletContractTests.cs::Load@102",
       "kind": "calls"
     },
     {
@@ -11622,7 +11727,7 @@
     },
     {
       "source": "Runtime/Core/RoomScanner.cs::ConfigurePrismChunk@713",
-      "target": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::SetChunkTransform@256",
+      "target": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::SetChunkTransform@258",
       "kind": "calls"
     },
     {
@@ -11712,12 +11817,12 @@
     },
     {
       "source": "Runtime/Core/RoomScanner.cs::PreparePrismPipeline@726",
-      "target": "Runtime/Prism/Association/PrismConeClassifier.cs::StartClassifying@78",
+      "target": "Runtime/Prism/Association/PrismConeClassifier.cs::StartClassifying@90",
       "kind": "calls"
     },
     {
       "source": "Runtime/Core/RoomScanner.cs::PreparePrismPipeline@726",
-      "target": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::StartTracking@101",
+      "target": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::StartTracking@102",
       "kind": "calls"
     },
     {
@@ -11727,7 +11832,7 @@
     },
     {
       "source": "Runtime/Core/RoomScanner.cs::PreparePrismPipeline@726",
-      "target": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::StartBuilding@67",
+      "target": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::StartBuilding@74",
       "kind": "calls"
     },
     {
@@ -11827,12 +11932,12 @@
     },
     {
       "source": "Runtime/Core/RoomScanner.cs::ShutdownPrismPipeline@791",
-      "target": "Runtime/Prism/Association/PrismConeClassifier.cs::StopClassifying@104",
+      "target": "Runtime/Prism/Association/PrismConeClassifier.cs::StopClassifying@116",
       "kind": "calls"
     },
     {
       "source": "Runtime/Core/RoomScanner.cs::ShutdownPrismPipeline@791",
-      "target": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::StopTracking@169",
+      "target": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::StopTracking@170",
       "kind": "calls"
     },
     {
@@ -11842,7 +11947,7 @@
     },
     {
       "source": "Runtime/Core/RoomScanner.cs::ShutdownPrismPipeline@791",
-      "target": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::StopBuilding@105",
+      "target": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::StopBuilding@115",
       "kind": "calls"
     },
     {
@@ -12057,7 +12162,7 @@
     },
     {
       "source": "Runtime/Export/ChunkGlbExporter.cs::Generate@148",
-      "target": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::Flush@234",
+      "target": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::Flush@228",
       "kind": "calls"
     },
     {
@@ -12177,7 +12282,7 @@
     },
     {
       "source": "Runtime/Export/ChunkGlbWriter.cs::TryWrite@83",
-      "target": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::Flush@234",
+      "target": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::Flush@228",
       "kind": "calls"
     },
     {
@@ -12277,7 +12382,7 @@
     },
     {
       "source": "Runtime/Export/GlbExportController.cs::CopyImmutable@211",
-      "target": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::Flush@234",
+      "target": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::Flush@228",
       "kind": "calls"
     },
     {
@@ -12417,7 +12522,7 @@
     },
     {
       "source": "Runtime/Export/WorldGlbExporter.cs::ExportAsync@65",
-      "target": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::Flush@234",
+      "target": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::Flush@228",
       "kind": "calls"
     },
     {
@@ -12437,7 +12542,7 @@
     },
     {
       "source": "Runtime/Export/WorldGlbExporter.cs::WriteDurableUtf8@401",
-      "target": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::Flush@234",
+      "target": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::Flush@228",
       "kind": "calls"
     },
     {
@@ -12487,7 +12592,7 @@
     },
     {
       "source": "Runtime/Export/WorldGlbWriter.cs::TryWrite@63",
-      "target": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::Flush@234",
+      "target": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::Flush@228",
       "kind": "calls"
     },
     {
@@ -12521,22 +12626,22 @@
       "kind": "event:EventsReady"
     },
     {
-      "source": "Runtime/Prism/Association/PrismConeClassifier.cs::StartClassifying@78",
+      "source": "Runtime/Prism/Association/PrismConeClassifier.cs::StartClassifying@90",
       "target": "Runtime/Prism/Association/ConeEventFrame.cs::ConeEventBufferRing",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Association/PrismConeClassifier.cs::TryClassifyFrame@121",
-      "target": "Runtime/Prism/Association/PrismConeClassifier.cs::BindCanonicalBoundaries@180",
+      "source": "Runtime/Prism/Association/PrismConeClassifier.cs::TryClassifyFrame@133",
+      "target": "Runtime/Prism/Association/PrismConeClassifier.cs::BindCanonicalBoundaries@200",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Association/PrismConeClassifier.cs::TryClassifyFrame@121",
-      "target": "Runtime/Prism/Association/PrismConeClassifier.cs::BindTextures@192",
+      "source": "Runtime/Prism/Association/PrismConeClassifier.cs::TryClassifyFrame@133",
+      "target": "Runtime/Prism/Association/PrismConeClassifier.cs::BindTextures@212",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Association/PrismConeClassifier.cs::TryClassifyFrame@121",
+      "source": "Runtime/Prism/Association/PrismConeClassifier.cs::TryClassifyFrame@133",
       "target": "Runtime/World/PrismChunkSnapshotStager.cs::Dispatch@257",
       "kind": "calls"
     },
@@ -12712,7 +12817,7 @@
     },
     {
       "source": "Runtime/Prism/Capture/PrismRigCapture.cs::CaptureRgb@170",
-      "target": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::AddRgb@134",
+      "target": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::AddRgb@135",
       "kind": "calls"
     },
     {
@@ -12742,7 +12847,7 @@
     },
     {
       "source": "Runtime/Prism/Capture/PrismRigCapture.cs::FreezeSessionIntrinsics@294",
-      "target": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::Flush@234",
+      "target": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::Flush@228",
       "kind": "calls"
     },
     {
@@ -12802,7 +12907,7 @@
     },
     {
       "source": "Runtime/Prism/Capture/PrismRigCapture.cs::OnRawStereoDepthFrame@223",
-      "target": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::AddDepth@153",
+      "target": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::AddDepth@159",
       "kind": "calls"
     },
     {
@@ -12812,7 +12917,7 @@
     },
     {
       "source": "Runtime/Prism/Capture/PrismRigCapture.cs::PublishAvailableFrames@284",
-      "target": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::TryDequeue@173",
+      "target": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::TryDequeue@184",
       "kind": "calls"
     },
     {
@@ -12842,7 +12947,7 @@
     },
     {
       "source": "Runtime/Prism/Capture/PrismRigCapture.cs::StopCapture@97",
-      "target": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::Flush@234",
+      "target": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::Flush@228",
       "kind": "calls"
     },
     {
@@ -12921,78 +13026,83 @@
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::AddDepth@153",
-      "target": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::Reject@331",
+      "source": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::AddDepth@159",
+      "target": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::AcceptReorderedTimestamp@308",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::AddDepth@153",
-      "target": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::ValidateIncoming@243",
+      "source": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::AddDepth@159",
+      "target": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::Reject@409",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::AddRgb@134",
-      "target": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::Reject@331",
+      "source": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::AddDepth@159",
+      "target": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::ValidateIncoming@237",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::AddRgb@134",
-      "target": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::ValidateIncoming@243",
+      "source": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::AddRgb@135",
+      "target": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::AcceptReorderedTimestamp@308",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::FindNearestDepth@263",
-      "target": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::AbsoluteDelta@343",
+      "source": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::AddRgb@135",
+      "target": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::Reject@409",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::TryDequeue@173",
+      "source": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::AddRgb@135",
+      "target": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::ValidateIncoming@237",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::FindEarliestCoherentTriplet@252",
       "target": "Runtime/Prism/Capture/RigCaptureContracts.cs::AbsoluteDeltaNanoseconds@91",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::TryDequeue@173",
+      "source": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::FindEarliestCoherentTriplet@252",
+      "target": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::AbsoluteDelta@421",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::FindEarliestCoherentTriplet@252",
+      "target": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::Midpoint@419",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::TryDequeue@184",
       "target": "Runtime/Prism/Capture/RigCaptureContracts.cs::RigPairingHealth",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::TryDequeue@173",
+      "source": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::TryDequeue@184",
       "target": "Runtime/Prism/Capture/RigCaptureContracts.cs::StereoRigFrameLease",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::TryDequeue@173",
-      "target": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::DropOlderCalibration@302",
+      "source": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::TryDequeue@184",
+      "target": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::DropPastPublishedSamples@324",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::TryDequeue@173",
-      "target": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::DropProvablyStaleRgbOrDepth@286",
+      "source": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::TryDequeue@184",
+      "target": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::FindEarliestCoherentTriplet@252",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::TryDequeue@173",
-      "target": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::FindNearestDepth@263",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::TryDequeue@173",
-      "target": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::Midpoint@341",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::Allocate@278",
+      "source": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::Allocate@280",
       "target": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::ContactMeshletGenerationBuffers",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::Dispose@272",
-      "target": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::DisposeGenerations@292",
+      "source": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::Dispose@274",
+      "target": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::DisposeGenerations@294",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::EnsureCapacity@232",
-      "target": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::DisposeGenerations@292",
+      "source": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::EnsureCapacity@234",
+      "target": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::DisposeGenerations@294",
       "kind": "calls"
     },
     {
@@ -13061,33 +13171,33 @@
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::DispatchBoundaries@189",
-      "target": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::BindFrame@238",
+      "source": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::DispatchBoundaries@190",
+      "target": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::BindFrame@239",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::DispatchBoundaries@189",
+      "source": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::DispatchBoundaries@190",
       "target": "Runtime/Prism/Geometry/PrismFilmSpawner.cs::NotifyFilmsMutated@58",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::DispatchBoundaries@189",
+      "source": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::DispatchBoundaries@190",
       "target": "Runtime/World/PrismChunkSnapshotStager.cs::Dispatch@257",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::DispatchBoundaries@189",
+      "source": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::DispatchBoundaries@190",
       "target": "Runtime/World/PrismChunkSnapshotStager.cs::DispatchIndirect@274",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::OnDestroy@177",
-      "target": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::DisposeFrameBuffers@331",
+      "source": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::OnDestroy@178",
+      "target": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::DisposeFrameBuffers@333",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::OnDestroy@177",
-      "target": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::StopTracking@169",
+      "source": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::OnDestroy@178",
+      "target": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::StopTracking@170",
       "kind": "calls"
     },
     {
@@ -13096,33 +13206,33 @@
       "kind": "event:BoundariesUpdated"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::RebuildCanonicalIndex@146",
-      "target": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::AllocateFrameBuffers@284",
+      "source": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::RebuildCanonicalIndex@147",
+      "target": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::AllocateFrameBuffers@285",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::RebuildCanonicalIndex@146",
+      "source": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::RebuildCanonicalIndex@147",
       "target": "Runtime/World/PrismChunkSnapshotStager.cs::Dispatch@257",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::StartTracking@101",
+      "source": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::StartTracking@102",
       "target": "Runtime/Prism/Geometry/ContactBoundaryPool.cs::ContactBoundaryPool",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::StartTracking@101",
-      "target": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::AllocateFrameBuffers@284",
+      "source": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::StartTracking@102",
+      "target": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::AllocateFrameBuffers@285",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::StartTracking@101",
+      "source": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::StartTracking@102",
       "target": "Runtime/World/PrismChunkSnapshotStager.cs::Dispatch@257",
       "kind": "calls"
     },
     {
       "source": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::DispatchDisplacement@279",
-      "target": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::RunTopologyAdaptation@555",
+      "target": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::RunTopologyAdaptation@563",
       "kind": "calls"
     },
     {
@@ -13142,16 +13252,16 @@
     },
     {
       "source": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::OnDestroy@268",
-      "target": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::DisposeTransientBuffers@592",
+      "target": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::DisposeTransientBuffers@600",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::RunTopologyAdaptation@555",
+      "source": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::RunTopologyAdaptation@563",
       "target": "Runtime/World/PrismChunkSnapshotStager.cs::Dispatch@257",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::RunTopologyAdaptation@555",
+      "source": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::RunTopologyAdaptation@563",
       "target": "Runtime/World/PrismChunkSnapshotStager.cs::DispatchIndirect@274",
       "kind": "calls"
     },
@@ -13162,12 +13272,12 @@
     },
     {
       "source": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::StartUpdating@180",
-      "target": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::AllocateTransientBuffers@367",
+      "target": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::AllocateTransientBuffers@375",
       "kind": "calls"
     },
     {
       "source": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::StartUpdating@180",
-      "target": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::BindTopology@474",
+      "target": "Runtime/Prism/Geometry/PrismDisplacementTopology.cs::BindTopology@482",
       "kind": "calls"
     },
     {
@@ -13217,7 +13327,7 @@
     },
     {
       "source": "Runtime/Prism/Geometry/PrismFilmSpawner.cs::PrismFilmSpawner",
-      "target": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::OnFilmsMutated@124",
+      "target": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::OnFilmsMutated@137",
       "kind": "event:FilmsMutated"
     },
     {
@@ -13242,7 +13352,7 @@
     },
     {
       "source": "Runtime/Prism/Geometry/PrismFilmUpdater.cs::PrismFilmUpdater",
-      "target": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::OnFilmUpdateCompleted@186",
+      "target": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::OnFilmUpdateCompleted@187",
       "kind": "event:UpdateCompleted"
     },
     {
@@ -13251,47 +13361,37 @@
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::BuildCurrent@130",
-      "target": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::TryBuild@136",
+      "source": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::LateUpdate@128",
+      "target": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::TryBuild@155",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::LateUpdate@118",
-      "target": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::TryBuild@136",
+      "source": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::OnDestroy@123",
+      "target": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::StopBuilding@115",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::OnDestroy@113",
-      "target": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::StopBuilding@105",
+      "source": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::StartBuilding@74",
+      "target": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::EnsureCapacity@234",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::OnFilmsMutated@124",
-      "target": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::TryBuild@136",
+      "source": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::TryBuild@155",
+      "target": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::Publish@261",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::StartBuilding@67",
-      "target": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::EnsureCapacity@232",
+      "source": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::TryBuild@155",
+      "target": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::TryBeginBuild@249",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::TryBuild@136",
-      "target": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::Publish@259",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::TryBuild@136",
-      "target": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::TryBeginBuild@247",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::TryBuild@136",
+      "source": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::TryBuild@155",
       "target": "Runtime/World/PrismChunkSnapshotStager.cs::Dispatch@257",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::TryBuild@136",
+      "source": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::TryBuild@155",
       "target": "Runtime/World/PrismChunkSnapshotStager.cs::DispatchIndirect@274",
       "kind": "calls"
     },
@@ -13307,7 +13407,7 @@
     },
     {
       "source": "Runtime/Prism/Geometry/PrismPredictionRenderer.cs::EnsureViewBuffers@269",
-      "target": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::CreateViewBuffers@253",
+      "target": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::CreateViewBuffers@255",
       "kind": "calls"
     },
     {
@@ -13317,7 +13417,7 @@
     },
     {
       "source": "Runtime/Prism/Geometry/PrismPredictionRenderer.cs::PrismPredictionRenderer",
-      "target": "Runtime/Prism/Association/PrismConeClassifier.cs::OnPrediction@118",
+      "target": "Runtime/Prism/Association/PrismConeClassifier.cs::OnPrediction@130",
       "kind": "event:PredictionReady"
     },
     {
@@ -13332,7 +13432,7 @@
     },
     {
       "source": "Runtime/Prism/Geometry/PrismPredictionRenderer.cs::TryRenderFrame@159",
-      "target": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::MarkPublishedRead@269",
+      "target": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::MarkPublishedRead@271",
       "kind": "calls"
     },
     {
@@ -13367,7 +13467,7 @@
     },
     {
       "source": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::Draw@106",
-      "target": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::MarkRead@129",
+      "target": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::MarkRead@131",
       "kind": "calls"
     },
     {
@@ -13397,7 +13497,7 @@
     },
     {
       "source": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::SetResidentTransform@78",
-      "target": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::SetChunkTransform@256",
+      "target": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::SetChunkTransform@258",
       "kind": "calls"
     },
     {
@@ -13507,12 +13607,12 @@
     },
     {
       "source": "Runtime/Prism/PrismGpuWorkGraph.cs::ExecuteFrame@71",
-      "target": "Runtime/Prism/Association/PrismConeClassifier.cs::TryClassifyFrame@121",
+      "target": "Runtime/Prism/Association/PrismConeClassifier.cs::TryClassifyFrame@133",
       "kind": "calls"
     },
     {
       "source": "Runtime/Prism/PrismGpuWorkGraph.cs::ExecuteFrame@71",
-      "target": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::DispatchBoundaries@189",
+      "target": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::DispatchBoundaries@190",
       "kind": "calls"
     },
     {
@@ -13532,7 +13632,7 @@
     },
     {
       "source": "Runtime/Prism/PrismGpuWorkGraph.cs::ExecuteFrame@71",
-      "target": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::BuildCurrent@130",
+      "target": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::RequestBuild@154",
       "kind": "calls"
     },
     {
@@ -13606,33 +13706,33 @@
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/ConeClassify.compute::ClassifyConeEvents@222",
-      "target": "Runtime/Resources/Prism/ConeClassify.compute::HasCanonicalBoundary@164",
+      "source": "Runtime/Resources/Prism/ConeClassify.compute::ClassifyConeEvents@225",
+      "target": "Runtime/Resources/Prism/ConeClassify.compute::HasCanonicalBoundary@167",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/ConeClassify.compute::ClassifyConeEvents@222",
-      "target": "Runtime/Resources/Prism/ConeClassify.compute::LoadRayDx@114",
+      "source": "Runtime/Resources/Prism/ConeClassify.compute::ClassifyConeEvents@225",
+      "target": "Runtime/Resources/Prism/ConeClassify.compute::LoadRayDx@117",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/ConeClassify.compute::ClassifyConeEvents@222",
-      "target": "Runtime/Resources/Prism/ConeClassify.compute::LoadRayDy@120",
+      "source": "Runtime/Resources/Prism/ConeClassify.compute::ClassifyConeEvents@225",
+      "target": "Runtime/Resources/Prism/ConeClassify.compute::LoadRayDy@123",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/ConeClassify.compute::ClassifyConeEvents@222",
-      "target": "Runtime/Resources/Prism/ConeClassify.compute::PublishEvent@202",
+      "source": "Runtime/Resources/Prism/ConeClassify.compute::ClassifyConeEvents@225",
+      "target": "Runtime/Resources/Prism/ConeClassify.compute::PublishEvent@205",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/ConeClassify.compute::ClassifyConeEvents@222",
+      "source": "Runtime/Resources/Prism/ConeClassify.compute::ClassifyConeEvents@225",
       "target": "Runtime/Resources/Prism/ConeMath.hlsl::ConeSurfaceFootprint@15",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/ConeClassify.compute::HasCanonicalBoundary@164",
-      "target": "Runtime/Resources/Prism/ConeClassify.compute::BoundaryDistance@146",
+      "source": "Runtime/Resources/Prism/ConeClassify.compute::HasCanonicalBoundary@167",
+      "target": "Runtime/Resources/Prism/ConeClassify.compute::BoundaryDistance@149",
       "kind": "calls"
     },
     {
@@ -13641,113 +13741,113 @@
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::AccumulateBoundaryAbsence@666",
-      "target": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::DistanceToCurve@236",
+      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::AccumulateBoundaryAbsence@668",
+      "target": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::DistanceToCurve@238",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::AccumulateBoundaryAbsence@666",
-      "target": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::FindBoundary@275",
+      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::AccumulateBoundaryAbsence@668",
+      "target": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::FindBoundary@277",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::AccumulateBoundaryEvents@563",
-      "target": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::DistanceToCurve@236",
+      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::AccumulateBoundaryEvents@565",
+      "target": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::DistanceToCurve@238",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::AccumulateBoundaryEvents@563",
-      "target": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::FindAdjacentFilm@470",
+      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::AccumulateBoundaryEvents@565",
+      "target": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::FindAdjacentFilm@472",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::AccumulateBoundaryEvents@563",
-      "target": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::FindBoundary@275",
+      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::AccumulateBoundaryEvents@565",
+      "target": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::FindBoundary@277",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::AccumulateBoundaryEvents@563",
-      "target": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::RefineUvWithRgb@395",
+      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::AccumulateBoundaryEvents@565",
+      "target": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::RefineUvWithRgb@397",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::AccumulateBoundaryEvents@563",
-      "target": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::ResolveBoundary@297",
+      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::AccumulateBoundaryEvents@565",
+      "target": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::ResolveBoundary@299",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::AccumulateBoundaryEvents@563",
-      "target": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::ViewBin@384",
+      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::AccumulateBoundaryEvents@565",
+      "target": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::ViewBin@386",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::DistanceToCurve@236",
-      "target": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::Cubic@229",
+      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::DistanceToCurve@238",
+      "target": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::Cubic@231",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::FindBoundary@275",
-      "target": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::HashKey@146",
+      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::FindBoundary@277",
+      "target": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::HashKey@148",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::LoadRgb@163",
-      "target": "Tests/Editor/PrismMeshletContractTests.cs::Load@100",
+      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::LoadRgb@165",
+      "target": "Tests/Editor/PrismMeshletContractTests.cs::Load@102",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::RefineUvWithRgb@395",
-      "target": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::PointToUv@221",
+      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::RefineUvWithRgb@397",
+      "target": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::PointToUv@223",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::RefineUvWithRgb@395",
-      "target": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::SobelMagnitude@175",
+      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::RefineUvWithRgb@397",
+      "target": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::SobelMagnitude@177",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::RefineUvWithRgb@395",
-      "target": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::SurfacePoint@200",
+      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::RefineUvWithRgb@397",
+      "target": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::SurfacePoint@202",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::RehashLoadedBoundaries@522",
-      "target": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::HashKey@146",
+      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::RehashLoadedBoundaries@524",
+      "target": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::HashKey@148",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::ResolveBoundary@297",
-      "target": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::FindBoundary@275",
+      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::ResolveBoundary@299",
+      "target": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::FindBoundary@277",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::ResolveBoundary@297",
-      "target": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::HashKey@146",
+      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::ResolveBoundary@299",
+      "target": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::HashKey@148",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::SobelMagnitude@175",
-      "target": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::Luminance@170",
+      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::SobelMagnitude@177",
+      "target": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::Luminance@172",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::SolveDirtyBoundaries@710",
-      "target": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::SurfacePoint@200",
+      "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::SolveDirtyBoundaries@712",
+      "target": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::SurfacePoint@202",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/ContactFilmSpawn.compute::CompactSpawnTiles@176",
-      "target": "Runtime/Resources/Prism/ContactFilmSpawn.compute::IsSpawnCandidate@115",
+      "source": "Runtime/Resources/Prism/ContactFilmSpawn.compute::CompactSpawnTiles@177",
+      "target": "Runtime/Resources/Prism/ContactFilmSpawn.compute::IsSpawnCandidate@116",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/ContactFilmSpawn.compute::SpawnContactFilms@218",
-      "target": "Runtime/Resources/Prism/ContactFilmSpawn.compute::IsSpawnCandidate@115",
+      "source": "Runtime/Resources/Prism/ContactFilmSpawn.compute::SpawnContactFilms@219",
+      "target": "Runtime/Resources/Prism/ContactFilmSpawn.compute::IsSpawnCandidate@116",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/ContactFilmSpawn.compute::SpawnContactFilms@218",
-      "target": "Runtime/Resources/Prism/ContactFilmSpawn.compute::SafeNormalize@104",
+      "source": "Runtime/Resources/Prism/ContactFilmSpawn.compute::SpawnContactFilms@219",
+      "target": "Runtime/Resources/Prism/ContactFilmSpawn.compute::SafeNormalize@105",
       "kind": "calls"
     },
     {
@@ -13812,7 +13912,7 @@
     },
     {
       "source": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::LoadRgb@50",
-      "target": "Tests/Editor/PrismMeshletContractTests.cs::Load@100",
+      "target": "Tests/Editor/PrismMeshletContractTests.cs::Load@102",
       "kind": "calls"
     },
     {
@@ -13826,163 +13926,188 @@
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/DisplacementTopology.compute::AccumulateDisplacement@579",
-      "target": "Runtime/Resources/Prism/DisplacementTopology.compute::MarkCellDirty@316",
+      "source": "Runtime/Resources/Prism/DisplacementTopology.compute::AccumulateDisplacement@582",
+      "target": "Runtime/Resources/Prism/DisplacementTopology.compute::MarkCellDirty@319",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/DisplacementTopology.compute::AccumulateDisplacement@579",
-      "target": "Runtime/Resources/Prism/DisplacementTopology.compute::MarkTopologyDirty@331",
+      "source": "Runtime/Resources/Prism/DisplacementTopology.compute::AccumulateDisplacement@582",
+      "target": "Runtime/Resources/Prism/DisplacementTopology.compute::MarkTopologyDirty@334",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/DisplacementTopology.compute::AccumulateDisplacement@579",
-      "target": "Runtime/Resources/Prism/DisplacementTopology.compute::ResolveBaseCell@269",
+      "source": "Runtime/Resources/Prism/DisplacementTopology.compute::AccumulateDisplacement@582",
+      "target": "Runtime/Resources/Prism/DisplacementTopology.compute::ResolveBaseCell@272",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/DisplacementTopology.compute::AccumulateFreeSpaceCoverage@682",
-      "target": "Runtime/Resources/Prism/DisplacementTopology.compute::MarkCellDirty@316",
+      "source": "Runtime/Resources/Prism/DisplacementTopology.compute::AccumulateOccluderPreHitPressure@739",
+      "target": "Runtime/Resources/Prism/DisplacementTopology.compute::MarkCellDirty@319",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/DisplacementTopology.compute::AccumulateFreeSpaceCoverage@682",
-      "target": "Runtime/Resources/Prism/DisplacementTopology.compute::ResolveBaseCell@269",
+      "source": "Runtime/Resources/Prism/DisplacementTopology.compute::AccumulateOccluderPreHitPressure@739",
+      "target": "Runtime/Resources/Prism/DisplacementTopology.compute::ResolveBaseCell@272",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/DisplacementTopology.compute::AccumulateOccluderFreeSpaceCoverage@721",
-      "target": "Runtime/Resources/Prism/DisplacementTopology.compute::MarkCellDirty@316",
+      "source": "Runtime/Resources/Prism/DisplacementTopology.compute::AccumulatePreHitPressure@685",
+      "target": "Runtime/Resources/Prism/DisplacementTopology.compute::MarkCellDirty@319",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/DisplacementTopology.compute::AccumulateOccluderFreeSpaceCoverage@721",
-      "target": "Runtime/Resources/Prism/DisplacementTopology.compute::ResolveBaseCell@269",
+      "source": "Runtime/Resources/Prism/DisplacementTopology.compute::AccumulatePreHitPressure@685",
+      "target": "Runtime/Resources/Prism/DisplacementTopology.compute::ResolveBaseCell@272",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/DisplacementTopology.compute::AllocateMicrotiles@883",
-      "target": "Runtime/Resources/Prism/DisplacementTopology.compute::StoreChild@249",
+      "source": "Runtime/Resources/Prism/DisplacementTopology.compute::AllocateMicrotiles@934",
+      "target": "Runtime/Resources/Prism/DisplacementTopology.compute::StoreChild@252",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/DisplacementTopology.compute::InitializeBasePages@538",
-      "target": "Runtime/Resources/Prism/DisplacementTopology.compute::BootstrapSupport@217",
+      "source": "Runtime/Resources/Prism/DisplacementTopology.compute::InitializeBasePages@541",
+      "target": "Runtime/Resources/Prism/DisplacementTopology.compute::BootstrapSupport@220",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/DisplacementTopology.compute::InitializeBasePages@538",
-      "target": "Runtime/Resources/Prism/DisplacementTopology.compute::EmptyCell@207",
+      "source": "Runtime/Resources/Prism/DisplacementTopology.compute::InitializeBasePages@541",
+      "target": "Runtime/Resources/Prism/DisplacementTopology.compute::EmptyCell@210",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/DisplacementTopology.compute::InitializeMicroPages@973",
-      "target": "Runtime/Resources/Prism/DisplacementTopology.compute::EmptyCell@207",
+      "source": "Runtime/Resources/Prism/DisplacementTopology.compute::InitializeMicroPages@1024",
+      "target": "Runtime/Resources/Prism/DisplacementTopology.compute::EmptyCell@210",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/DisplacementTopology.compute::ResolveLeaf@288",
-      "target": "Runtime/Resources/Prism/DisplacementTopology.compute::ResolveBaseCell@269",
+      "source": "Runtime/Resources/Prism/DisplacementTopology.compute::ResolveLeaf@291",
+      "target": "Runtime/Resources/Prism/DisplacementTopology.compute::ResolveBaseCell@272",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/DisplacementTopology.compute::SolveDirtyDisplacement@759",
-      "target": "Runtime/Resources/Prism/DisplacementTopology.compute::StoreCell@234",
+      "source": "Runtime/Resources/Prism/DisplacementTopology.compute::SolveDirtyDisplacement@800",
+      "target": "Runtime/Resources/Prism/DisplacementTopology.compute::StoreCell@237",
       "kind": "calls"
     },
     {
       "source": "Runtime/Resources/Prism/HiZRangePyramid.compute::CopyHiZLevelZero@9",
-      "target": "Tests/Editor/PrismMeshletContractTests.cs::Load@100",
+      "target": "Tests/Editor/PrismMeshletContractTests.cs::Load@102",
       "kind": "calls"
     },
     {
       "source": "Runtime/Resources/Prism/HiZRangePyramid.compute::ReduceHiZLevel@19",
-      "target": "Tests/Editor/PrismMeshletContractTests.cs::Load@100",
+      "target": "Tests/Editor/PrismMeshletContractTests.cs::Load@102",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BootstrapCoverage@328",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::BootstrapCoverageCell@318",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BootstrapCoverage@335",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::BootstrapCoverageCell@325",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildAdaptiveFilmMeshlets@605",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::CellTouchesPersistentBoundary@469",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildAdaptiveFilmMeshlets@606",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::CellTouchesPersistentBoundary@467",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildAdaptiveFilmMeshlets@605",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::ChooseSubdivision@536",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildAdaptiveFilmMeshlets@606",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::ChooseSubdivision@534",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildAdaptiveFilmMeshlets@605",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::ClosestBoundaryPoint@418",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildAdaptiveFilmMeshlets@606",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::ClosestBoundaryPoint@416",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildAdaptiveFilmMeshlets@605",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::DisplacementMetrics@238",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildAdaptiveFilmMeshlets@606",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::DisplacementMetrics@245",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildAdaptiveFilmMeshlets@605",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::Reserve@516",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildAdaptiveFilmMeshlets@606",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::Reserve@514",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildAdaptiveFilmMeshlets@605",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::SurfaceCoverage@344",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildAdaptiveFilmMeshlets@606",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::SurfaceCoverage@351",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildAdaptiveFilmMeshlets@605",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::TriangleHasObservedSupport@389",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildElasticBoundaryMeshlets@839",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::ConnectorNormal@810",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::CellTouchesPersistentBoundary@469",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::ClosestBoundaryPoint@418",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildElasticBoundaryMeshlets@839",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::FilmPoint@801",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::ChooseSubdivision@536",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::DisplacementMetrics@238",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildElasticBoundaryMeshlets@839",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::ProjectToFilmUv@793",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::DisplacementMetrics@238",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::LoadDisplacementChild@187",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildElasticBoundaryMeshlets@839",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::Reserve@514",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::Height@483",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::SampleDisplacement@290",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::CellTouchesPersistentBoundary@467",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::ClosestBoundaryPoint@416",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::ResolveDisplacementPage@197",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::LoadDisplacementChild@187",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::ChooseSubdivision@534",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::DisplacementMetrics@245",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::SampleDisplacement@290",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::LoadDisplacementCell@175",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::ConnectorNormal@810",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::FilmPoint@801",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::SampleDisplacement@290",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::ResolveDisplacementPage@197",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::ConnectorNormal@810",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::ProjectToFilmUv@793",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::SurfaceCoverage@344",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::LoadDisplacementCell@175",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::DisplacementMetrics@245",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::LoadDisplacementChild@194",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::SurfaceNormal@491",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::SampleDisplacement@290",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::Height@481",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::SampleDisplacement@297",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::ResolveDisplacementPage@204",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::LoadDisplacementChild@194",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::SampleDisplacement@297",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::LoadDisplacementCell@182",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::SampleDisplacement@297",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::ResolveDisplacementPage@204",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::SurfaceCoverage@351",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::LoadDisplacementCell@182",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::SurfaceNormal@489",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::SampleDisplacement@297",
       "kind": "calls"
     },
     {
@@ -14012,7 +14137,7 @@
     },
     {
       "source": "Runtime/Resources/Prism/MeshletViewCull.compute::OccludedByHiZ@97",
-      "target": "Tests/Editor/PrismMeshletContractTests.cs::Load@100",
+      "target": "Tests/Editor/PrismMeshletContractTests.cs::Load@102",
       "kind": "calls"
     },
     {
@@ -14052,7 +14177,7 @@
     },
     {
       "source": "Runtime/Resources/Prism/PhotometricFocus.compute::LoadCurrentRgb@143",
-      "target": "Tests/Editor/PrismMeshletContractTests.cs::Load@100",
+      "target": "Tests/Editor/PrismMeshletContractTests.cs::Load@102",
       "kind": "calls"
     },
     {
@@ -14147,7 +14272,7 @@
     },
     {
       "source": "Runtime/Resources/Prism/PhotometricFocus.compute::TemporalLuma@163",
-      "target": "Tests/Editor/PrismMeshletContractTests.cs::Load@100",
+      "target": "Tests/Editor/PrismMeshletContractTests.cs::Load@102",
       "kind": "calls"
     },
     {
@@ -14157,147 +14282,147 @@
     },
     {
       "source": "Runtime/Resources/Prism/PredictContactFilm.shader::Frag@82",
-      "target": "Tests/Editor/PrismMeshletContractTests.cs::Load@100",
+      "target": "Tests/Editor/PrismMeshletContractTests.cs::Load@102",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/TopologyAdapt.compute::AddTransformedInformation@990",
-      "target": "Runtime/Resources/Prism/TopologyAdapt.compute::GeneralBasisTransform@961",
+      "source": "Runtime/Resources/Prism/TopologyAdapt.compute::AddTransformedInformation@991",
+      "target": "Runtime/Resources/Prism/TopologyAdapt.compute::GeneralBasisTransform@962",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/TopologyAdapt.compute::AddTransformedInformation@990",
-      "target": "Runtime/Resources/Prism/TopologyAdapt.compute::LoadG@172",
+      "source": "Runtime/Resources/Prism/TopologyAdapt.compute::AddTransformedInformation@991",
+      "target": "Runtime/Resources/Prism/TopologyAdapt.compute::LoadG@173",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/TopologyAdapt.compute::AddTransformedInformation@990",
-      "target": "Runtime/Resources/Prism/TopologyAdapt.compute::LoadH@161",
+      "source": "Runtime/Resources/Prism/TopologyAdapt.compute::AddTransformedInformation@991",
+      "target": "Runtime/Resources/Prism/TopologyAdapt.compute::LoadH@162",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/TopologyAdapt.compute::BuildFilmMergeHash@860",
-      "target": "Runtime/Resources/Prism/TopologyAdapt.compute::FilmCell@840",
+      "source": "Runtime/Resources/Prism/TopologyAdapt.compute::BuildFilmMergeHash@861",
+      "target": "Runtime/Resources/Prism/TopologyAdapt.compute::FilmCell@841",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/TopologyAdapt.compute::BuildFilmMergeHash@860",
-      "target": "Runtime/Resources/Prism/TopologyAdapt.compute::FilmCellHash@831",
+      "source": "Runtime/Resources/Prism/TopologyAdapt.compute::BuildFilmMergeHash@861",
+      "target": "Runtime/Resources/Prism/TopologyAdapt.compute::FilmCellHash@832",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/TopologyAdapt.compute::InitializeMergedDisplacement@1324",
-      "target": "Runtime/Resources/Prism/TopologyAdapt.compute::SourceDisplacement@1284",
+      "source": "Runtime/Resources/Prism/TopologyAdapt.compute::InitializeMergedDisplacement@1326",
+      "target": "Runtime/Resources/Prism/TopologyAdapt.compute::SourceDisplacement@1286",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/TopologyAdapt.compute::MergeCompatibleFilms@1082",
-      "target": "Runtime/Resources/Prism/TopologyAdapt.compute::AddTransformedInformation@990",
+      "source": "Runtime/Resources/Prism/TopologyAdapt.compute::MergeCompatibleFilms@1083",
+      "target": "Runtime/Resources/Prism/TopologyAdapt.compute::AddTransformedInformation@991",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/TopologyAdapt.compute::MergeCompatibleFilms@1082",
-      "target": "Runtime/Resources/Prism/TopologyAdapt.compute::FilmCell@840",
+      "source": "Runtime/Resources/Prism/TopologyAdapt.compute::MergeCompatibleFilms@1083",
+      "target": "Runtime/Resources/Prism/TopologyAdapt.compute::FilmCell@841",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/TopologyAdapt.compute::MergeCompatibleFilms@1082",
-      "target": "Runtime/Resources/Prism/TopologyAdapt.compute::FilmCellHash@831",
+      "source": "Runtime/Resources/Prism/TopologyAdapt.compute::MergeCompatibleFilms@1083",
+      "target": "Runtime/Resources/Prism/TopologyAdapt.compute::FilmCellHash@832",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/TopologyAdapt.compute::MergeCompatibleFilms@1082",
-      "target": "Runtime/Resources/Prism/TopologyAdapt.compute::IncludeFilmBounds@944",
+      "source": "Runtime/Resources/Prism/TopologyAdapt.compute::MergeCompatibleFilms@1083",
+      "target": "Runtime/Resources/Prism/TopologyAdapt.compute::IncludeFilmBounds@945",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/TopologyAdapt.compute::MergeCompatibleFilms@1082",
-      "target": "Runtime/Resources/Prism/TopologyAdapt.compute::LockFilm@933",
+      "source": "Runtime/Resources/Prism/TopologyAdapt.compute::MergeCompatibleFilms@1083",
+      "target": "Runtime/Resources/Prism/TopologyAdapt.compute::LockFilm@934",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/TopologyAdapt.compute::MergeCompatibleFilms@1082",
-      "target": "Runtime/Resources/Prism/TopologyAdapt.compute::MergeCompatible@891",
+      "source": "Runtime/Resources/Prism/TopologyAdapt.compute::MergeCompatibleFilms@1083",
+      "target": "Runtime/Resources/Prism/TopologyAdapt.compute::MergeCompatible@892",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/TopologyAdapt.compute::MergeCompatibleFilms@1082",
-      "target": "Runtime/Resources/Prism/TopologyAdapt.compute::SolveSix@1041",
+      "source": "Runtime/Resources/Prism/TopologyAdapt.compute::MergeCompatibleFilms@1083",
+      "target": "Runtime/Resources/Prism/TopologyAdapt.compute::SolveSix@1042",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/TopologyAdapt.compute::MergeCompatibleFilms@1082",
-      "target": "Runtime/Resources/Prism/TopologyAdapt.compute::StoreInformation@183",
+      "source": "Runtime/Resources/Prism/TopologyAdapt.compute::MergeCompatibleFilms@1083",
+      "target": "Runtime/Resources/Prism/TopologyAdapt.compute::StoreInformation@184",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/TopologyAdapt.compute::SplitContactFilms@396",
-      "target": "Runtime/Resources/Prism/TopologyAdapt.compute::QuadrantSupport@277",
+      "source": "Runtime/Resources/Prism/TopologyAdapt.compute::SplitContactFilms@397",
+      "target": "Runtime/Resources/Prism/TopologyAdapt.compute::QuadrantSupport@278",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/TopologyAdapt.compute::SplitContactFilms@396",
-      "target": "Runtime/Resources/Prism/TopologyAdapt.compute::TransformChildInformation@315",
+      "source": "Runtime/Resources/Prism/TopologyAdapt.compute::SplitContactFilms@397",
+      "target": "Runtime/Resources/Prism/TopologyAdapt.compute::TransformChildInformation@316",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/TopologyAdapt.compute::TransferSplitBoundaries@730",
-      "target": "Runtime/Resources/Prism/TopologyAdapt.compute::BoundaryUv@610",
+      "source": "Runtime/Resources/Prism/TopologyAdapt.compute::TransferSplitBoundaries@731",
+      "target": "Runtime/Resources/Prism/TopologyAdapt.compute::BoundaryUv@611",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/TopologyAdapt.compute::TransferSplitBoundaries@730",
-      "target": "Runtime/Resources/Prism/TopologyAdapt.compute::UvQuadrant@645",
+      "source": "Runtime/Resources/Prism/TopologyAdapt.compute::TransferSplitBoundaries@731",
+      "target": "Runtime/Resources/Prism/TopologyAdapt.compute::UvQuadrant@646",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/TopologyAdapt.compute::TransferSplitBoundaries@730",
-      "target": "Runtime/Resources/Prism/TopologyAdapt.compute::WriteSplitBoundary@650",
+      "source": "Runtime/Resources/Prism/TopologyAdapt.compute::TransferSplitBoundaries@731",
+      "target": "Runtime/Resources/Prism/TopologyAdapt.compute::WriteSplitBoundary@651",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/TopologyAdapt.compute::TransformChildInformation@315",
-      "target": "Runtime/Resources/Prism/TopologyAdapt.compute::ChildBasisTransform@299",
+      "source": "Runtime/Resources/Prism/TopologyAdapt.compute::TransformChildInformation@316",
+      "target": "Runtime/Resources/Prism/TopologyAdapt.compute::ChildBasisTransform@300",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/TopologyAdapt.compute::TransformChildInformation@315",
-      "target": "Runtime/Resources/Prism/TopologyAdapt.compute::LoadG@172",
+      "source": "Runtime/Resources/Prism/TopologyAdapt.compute::TransformChildInformation@316",
+      "target": "Runtime/Resources/Prism/TopologyAdapt.compute::LoadG@173",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/TopologyAdapt.compute::TransformChildInformation@315",
-      "target": "Runtime/Resources/Prism/TopologyAdapt.compute::LoadH@161",
+      "source": "Runtime/Resources/Prism/TopologyAdapt.compute::TransformChildInformation@316",
+      "target": "Runtime/Resources/Prism/TopologyAdapt.compute::LoadH@162",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/TopologyAdapt.compute::TransformChildInformation@315",
-      "target": "Runtime/Resources/Prism/TopologyAdapt.compute::StoreInformation@183",
+      "source": "Runtime/Resources/Prism/TopologyAdapt.compute::TransformChildInformation@316",
+      "target": "Runtime/Resources/Prism/TopologyAdapt.compute::StoreInformation@184",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/TopologyAdapt.compute::WriteSplitBoundary@650",
-      "target": "Runtime/Resources/Prism/TopologyAdapt.compute::BoundaryDerivative3@637",
+      "source": "Runtime/Resources/Prism/TopologyAdapt.compute::WriteSplitBoundary@651",
+      "target": "Runtime/Resources/Prism/TopologyAdapt.compute::BoundaryDerivative3@638",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/TopologyAdapt.compute::WriteSplitBoundary@650",
-      "target": "Runtime/Resources/Prism/TopologyAdapt.compute::BoundaryPoint3@630",
+      "source": "Runtime/Resources/Prism/TopologyAdapt.compute::WriteSplitBoundary@651",
+      "target": "Runtime/Resources/Prism/TopologyAdapt.compute::BoundaryPoint3@631",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/TopologyAdapt.compute::WriteSplitBoundary@650",
-      "target": "Runtime/Resources/Prism/TopologyAdapt.compute::BoundaryUv@610",
+      "source": "Runtime/Resources/Prism/TopologyAdapt.compute::WriteSplitBoundary@651",
+      "target": "Runtime/Resources/Prism/TopologyAdapt.compute::BoundaryUv@611",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/TopologyAdapt.compute::WriteSplitBoundary@650",
-      "target": "Runtime/Resources/Prism/TopologyAdapt.compute::BoundaryUvDerivative@619",
+      "source": "Runtime/Resources/Prism/TopologyAdapt.compute::WriteSplitBoundary@651",
+      "target": "Runtime/Resources/Prism/TopologyAdapt.compute::BoundaryUvDerivative@620",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/TopologyAdapt.compute::WriteSplitBoundary@650",
-      "target": "Runtime/Resources/Prism/TopologyAdapt.compute::TransformUvToChild@603",
+      "source": "Runtime/Resources/Prism/TopologyAdapt.compute::WriteSplitBoundary@651",
+      "target": "Runtime/Resources/Prism/TopologyAdapt.compute::TransformUvToChild@604",
       "kind": "calls"
     },
     {
@@ -14342,7 +14467,7 @@
     },
     {
       "source": "Runtime/World/ChunkKeyframeArchive.cs::TryExtract@106",
-      "target": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::Flush@234",
+      "target": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::Flush@228",
       "kind": "calls"
     },
     {
@@ -14367,7 +14492,7 @@
     },
     {
       "source": "Runtime/World/ChunkKeyframeArchive.cs::TryWriteDirectory@20",
-      "target": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::Flush@234",
+      "target": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::Flush@228",
       "kind": "calls"
     },
     {
@@ -14412,7 +14537,7 @@
     },
     {
       "source": "Runtime/World/ChunkRefinedArtifactCodec.cs::TryWriteMesh@23",
-      "target": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::Flush@234",
+      "target": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::Flush@228",
       "kind": "calls"
     },
     {
@@ -14422,7 +14547,7 @@
     },
     {
       "source": "Runtime/World/ChunkRefinedArtifactCodec.cs::TryWriteRgbaTexture@153",
-      "target": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::Flush@234",
+      "target": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::Flush@228",
       "kind": "calls"
     },
     {
@@ -14562,7 +14687,7 @@
     },
     {
       "source": "Runtime/World/ChunkSnapshotCodec.cs::TryWriteLiveMesh@139",
-      "target": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::Flush@234",
+      "target": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::Flush@228",
       "kind": "calls"
     },
     {
@@ -14577,7 +14702,7 @@
     },
     {
       "source": "Runtime/World/ChunkSnapshotCodec.cs::TryWriteVolume@52",
-      "target": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::Flush@234",
+      "target": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::Flush@228",
       "kind": "calls"
     },
     {
@@ -15257,7 +15382,7 @@
     },
     {
       "source": "Runtime/World/PrismCanonicalChunkCodec.cs::TryWrite@84",
-      "target": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::Flush@234",
+      "target": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::Flush@228",
       "kind": "calls"
     },
     {
@@ -15332,7 +15457,7 @@
     },
     {
       "source": "Runtime/World/PrismChunkResidencyManager.cs::ActivateAfterAsync@243",
-      "target": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::RebuildCanonicalIndex@146",
+      "target": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::RebuildCanonicalIndex@147",
       "kind": "calls"
     },
     {
@@ -15622,22 +15747,22 @@
     },
     {
       "source": "Runtime/World/PrismGpuSnapshotRestore.cs::ClearInPlace@134",
-      "target": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::Publish@259",
+      "target": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::Publish@261",
       "kind": "calls"
     },
     {
       "source": "Runtime/World/PrismGpuSnapshotRestore.cs::ClearInPlace@134",
-      "target": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::SetChunkTransform@256",
+      "target": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::SetChunkTransform@258",
       "kind": "calls"
     },
     {
       "source": "Runtime/World/PrismGpuSnapshotRestore.cs::ClearInPlace@134",
-      "target": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::TryBeginBuild@247",
+      "target": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::TryBeginBuild@249",
       "kind": "calls"
     },
     {
-      "source": "Runtime/World/PrismGpuSnapshotRestore.cs::ConfigureMeshletGeneration@199",
-      "target": "Runtime/World/PrismGpuSnapshotRestore.cs::DivideRoundUp@196",
+      "source": "Runtime/World/PrismGpuSnapshotRestore.cs::ConfigureMeshletGeneration@200",
+      "target": "Runtime/World/PrismGpuSnapshotRestore.cs::DivideRoundUp@197",
       "kind": "calls"
     },
     {
@@ -15647,37 +15772,37 @@
     },
     {
       "source": "Runtime/World/PrismGpuSnapshotRestore.cs::TryCreateMeshletCache@17",
-      "target": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::SetChunkTransform@256",
+      "target": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::SetChunkTransform@258",
       "kind": "calls"
     },
     {
       "source": "Runtime/World/PrismGpuSnapshotRestore.cs::TryCreateMeshletCache@17",
-      "target": "Runtime/World/PrismGpuSnapshotRestore.cs::ConfigureMeshletGeneration@199",
+      "target": "Runtime/World/PrismGpuSnapshotRestore.cs::ConfigureMeshletGeneration@200",
       "kind": "calls"
     },
     {
       "source": "Runtime/World/PrismGpuSnapshotRestore.cs::TryRestoreInPlace@54",
-      "target": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::EnsureCapacity@232",
+      "target": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::EnsureCapacity@234",
       "kind": "calls"
     },
     {
       "source": "Runtime/World/PrismGpuSnapshotRestore.cs::TryRestoreInPlace@54",
-      "target": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::Publish@259",
+      "target": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::Publish@261",
       "kind": "calls"
     },
     {
       "source": "Runtime/World/PrismGpuSnapshotRestore.cs::TryRestoreInPlace@54",
-      "target": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::SetChunkTransform@256",
+      "target": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::SetChunkTransform@258",
       "kind": "calls"
     },
     {
       "source": "Runtime/World/PrismGpuSnapshotRestore.cs::TryRestoreInPlace@54",
-      "target": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::TryBeginBuild@247",
+      "target": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::TryBeginBuild@249",
       "kind": "calls"
     },
     {
       "source": "Runtime/World/PrismGpuSnapshotRestore.cs::TryRestoreInPlace@54",
-      "target": "Runtime/World/PrismGpuSnapshotRestore.cs::ConfigureMeshletGeneration@199",
+      "target": "Runtime/World/PrismGpuSnapshotRestore.cs::ConfigureMeshletGeneration@200",
       "kind": "calls"
     },
     {
@@ -16462,7 +16587,7 @@
     },
     {
       "source": "Runtime/World/WorldStore.cs::CopyDurable@1071",
-      "target": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::Flush@234",
+      "target": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::Flush@228",
       "kind": "calls"
     },
     {
@@ -16717,7 +16842,7 @@
     },
     {
       "source": "Runtime/World/WorldStore.cs::TryStage@680",
-      "target": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::Flush@234",
+      "target": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::Flush@228",
       "kind": "calls"
     },
     {
@@ -16777,27 +16902,27 @@
     },
     {
       "source": "Runtime/World/WorldStore.cs::WriteDurable@1063",
-      "target": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::Flush@234",
+      "target": "Runtime/Prism/Capture/RigFrameSynchronizer.cs::Flush@228",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/PrismMeshletContractTests.cs::PublicationUsesDistinctFrontAndBackBuffers@65",
+      "source": "Tests/Editor/PrismMeshletContractTests.cs::PublicationUsesDistinctFrontAndBackBuffers@67",
       "target": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::ContactMeshletBuffers",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/PrismMeshletContractTests.cs::PublicationUsesDistinctFrontAndBackBuffers@65",
-      "target": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::Publish@259",
+      "source": "Tests/Editor/PrismMeshletContractTests.cs::PublicationUsesDistinctFrontAndBackBuffers@67",
+      "target": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::Publish@261",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/PrismMeshletContractTests.cs::PublicationUsesDistinctFrontAndBackBuffers@65",
-      "target": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::TryBeginBuild@247",
+      "source": "Tests/Editor/PrismMeshletContractTests.cs::PublicationUsesDistinctFrontAndBackBuffers@67",
+      "target": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::TryBeginBuild@249",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/PrismMeshletContractTests.cs::RequiredQ312ComputeKernelsImport@42",
-      "target": "Tests/Editor/PrismMeshletContractTests.cs::Load@100",
+      "target": "Tests/Editor/PrismMeshletContractTests.cs::Load@102",
       "kind": "calls"
     },
     {

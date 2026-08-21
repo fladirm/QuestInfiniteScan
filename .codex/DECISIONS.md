@@ -23,7 +23,7 @@ remain recoverable from archive commit `e9f37c1` and are not active on this bran
 ## ADR-P003 — Finite first-hit cones and renderer-based association
 
 - Decision: each calibrated pixel is a finite cone/truncated-pyramid measurement
-  with a projected elliptical footprint. It supplies supported free space only
+  with a projected elliptical footprint. It applies supported outward pressure only
   before its first hit, a contact constraint at the hit, and explicitly UNKNOWN
   state behind it. Render current films from exact eye poses into
   depth/normal/film/UV/sigma MRTs and classify ConeEvents against that prediction.
@@ -94,7 +94,7 @@ remain recoverable from archive commit `e9f37c1` and are not active on this bran
 
 ## ADR-P011 — Freeze Cone-PRISM reconstruction physics
 
-- Decision: `specka.md` baseline `CPQ3-2026-08-21-v3` freezes finite-cone
+- Decision: `specka.md` baseline `CPQ3-2026-08-21-v5` freezes finite-cone
   first-hit/contact/unknown semantics, ContactFilms, pressure-information solve,
   ContactBoundaries, monotonic resistance, and meshlets as derived state. Evidence
   may strengthen it; changing those foundations requires explicit user authority, a
@@ -108,11 +108,39 @@ remain recoverable from archive commit `e9f37c1` and are not active on this bran
 - Decision: local pre-hit contradiction is a persisted per-cell pressure posterior
   with independent calibrated eye/angular evidence. It competes against persisted
   close-view precision/support resistance, is cancelled by compatible contact, and
-  is consumed when it performs bounded erosion. It is never a one-frame whole-film
+  is consumed when it performs bounded displacement work. It is never a one-frame whole-film
   delete and is not multiplied by displacement children. Derived meshlets are built
   cooperatively by one `8x8` GPU workgroup per film with shared continuous-coverage
   samples and full supported chart/microtile detail.
-- Consequence: repeated independent cones can remove unsupported view-axis artifacts,
+- Consequence: repeated independent cones can push unsupported view-axis artifacts
   while distant/grazing evidence cannot punch through a strongly baked nearby film;
   reconstruction remains full quality without the serial per-film mesh-build
   bottleneck or a CPU/readback fallback.
+
+## ADR-P013 — Conserved topology, informational coverage, and outer-only closure
+
+- Decision: coverage is posterior confidence/support, never occupancy or a triangle
+  deletion mask. Every active chart retains its complete logical lattice. Charts are
+  generation-linked members of a conserved `PressureManifold`; compatible borders
+  weld, physical discontinuities form elastic FilmA/FilmB connectors, and only one
+  ordered outer `LatentFrontier` may return the unresolved sheet to its optical
+  injection seed. Latent connector/frontier geometry has no measured FilmID and is
+  excluded from prediction/association.
+- Consequence: sparse observations cannot expose square tile holes or eye rays, and
+  derived closure cannot hallucinate a measured contact. Split/merge must transfer
+  topology; an active edge with neither one compatible link nor exactly one ordered
+  frontier segment is a publication error, not permission to invent an independent
+  cap.
+
+## ADR-P014 — Information-positive aperture and coalesced immutable publication
+
+- Decision: canonical surface spawn is restricted to the calibrated central
+  30x30-degree high-quality cone field. The wider 50x46-degree revisit field may
+  update already predicted geometry only above an information-confidence floor;
+  passthrough/tracking remain full-FOV. Canonical sensor/fusion work stays at native
+  resolution and cadence, while all dirty mutations coalesce into at most one
+  derived mesh publication request and an initial 15 Hz preview-publication ceiling.
+- Consequence: peripheral noise cannot flood topology, and repeated full mesh builds
+  cannot block XR. The last immutable mesh generation remains visible until a fenced
+  replacement is complete; throttling derived publication never drops measurements
+  or lowers canonical detail.

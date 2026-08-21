@@ -19,7 +19,7 @@ stereo RGB + stereo depth + timestamped poses/intrinsics
   -> synchronized StereoRigFrame
   -> depth consensus and discontinuity confidence
   -> narrow stereo/temporal refinement for uncertain tiles
-  -> finite-footprint ConeEvents: pre-hit free space + contact + unknown behind
+  -> finite-footprint ConeEvents: pre-hit pressure path + contact + unknown behind
   -> predicted film depth/normal/ID/UV/uncertainty raster
   -> first-contact classification and ContactFilm association
   -> range/footprint-aware pressure-information solve + soft-to-hard collapse
@@ -48,7 +48,7 @@ visibility-incompatible measurements remain separate hypotheses.
 - Use both Quest RGB cameras and both environment-depth views as timestamped GPU
   streams with their exact intrinsics, extrinsics, and poses.
 - Model each calibrated pixel as a finite cone/truncated-pyramid footprint. Only its
-  segment before the first measured contact is supported free space; everything
+  segment before the first measured contact applies supported outward pressure; everything
   behind that hit remains explicitly unknown and cannot be modified by that event.
 - Fail closed on invalid or temporally incompatible frame data and expose pairing
   health in diagnostics.
@@ -72,7 +72,7 @@ visibility-incompatible measurements remain separate hypotheses.
 - Treat film coverage as one continuous manifold domain rather than rectangular
   chart tiles; rectangular parameter bounds alone never authorize triangles.
 - Persist opposing first-hit pressure and independent eye/angular evidence locally
-  per film cell. Compatible contact cancels it; erosion requires multi-view pressure
+  per film cell. Compatible contact cancels it; displacement requires multi-view pressure
   to exceed and consume the cell's stored close-view information resistance.
 - Adapt topology: large stable planar regions become coarse meshlets; edges,
   curvature, thin objects, and unresolved regions retain finer support.
@@ -192,7 +192,7 @@ or unsupported regions rather than fabricating certainty.
 1. Every node in `.codex/TASK_DAG.json` is `done` with inspectable evidence.
 2. The legacy hybrid checkpoint and old DAG remain recoverable from
    `archive/hybrid-diffsoup-checkpoint-20260820`.
-3. Captured-corpus tests cover sync rejection, cone/free-space/contact/unknown
+3. Captured-corpus tests cover sync rejection, cone/pre-hit-pressure/contact/unknown
    classification, pressure/resistance and near/far ordering, uncertainty collapse,
    film association/update, discontinuities, boundaries,
    thin structures, occlusion, revisit ordering, topology, persistence interruption,

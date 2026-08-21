@@ -147,7 +147,8 @@ namespace Genesis.RoomScan.World
                 return;
             target.BuildCounters.SetData(new uint[8]);
             target.DrawArguments.SetData(new[] { 0u, 1u, 0u, 0u });
-            target.BuildDispatchArguments.SetData(new[] { 0u, 1u, 1u });
+            target.BuildDispatchArguments.SetData(new[]
+                { 0u, 1u, 1u, 0u, 1u, 1u });
             target.CullDispatchArguments.SetData(new[] { 0u, 1u, 1u });
             meshlets.Publish(generation);
             meshlets.SetChunkTransform(worldFromChunk);
@@ -216,7 +217,8 @@ namespace Genesis.RoomScan.World
             });
             target.BuildDispatchArguments.SetData(new[]
             {
-                DivideRoundUp((uint)snapshot.FilmCount, 64u), 1u, 1u
+                DivideRoundUp((uint)snapshot.FilmCount, 64u), 1u, 1u,
+                0u, 1u, 1u
             });
             target.CullDispatchArguments.SetData(new[]
             {

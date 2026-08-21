@@ -30,7 +30,7 @@ namespace Genesis.RoomScan.Prism
         private const int FilmHashClearArgumentsOffset = sizeof(uint) * 15;
         private const int MergeInitializeArgumentsOffset = sizeof(uint) * 18;
         private const int MergeFilmArgumentsOffset = sizeof(uint) * 21;
-        private const int AccumulatorWordsPerCell = 8;
+        private const int AccumulatorWordsPerCell = 11;
         private const int AccumulatorWordsPerFilm = 8;
 
         [SerializeField] private PrismBoundaryGraph boundaryGraph;
@@ -146,8 +146,8 @@ namespace Genesis.RoomScan.Prism
         private int _buildArgumentsKernel = -1;
         private int _initializeBaseKernel = -1;
         private int _accumulateKernel = -1;
-        private int _accumulateFreeKernel = -1;
-        private int _accumulateOccluderFreeKernel = -1;
+        private int _accumulatePressureKernel = -1;
+        private int _accumulateOccluderPressureKernel = -1;
         private int _solveKernel = -1;
         private int _allocateMicroKernel = -1;
         private int _initializeMicroKernel = -1;
@@ -211,10 +211,10 @@ namespace Genesis.RoomScan.Prism
             _buildArgumentsKernel = displacementCompute.FindKernel("BuildDisplacementArguments");
             _initializeBaseKernel = displacementCompute.FindKernel("InitializeBasePages");
             _accumulateKernel = displacementCompute.FindKernel("AccumulateDisplacement");
-            _accumulateFreeKernel =
-                displacementCompute.FindKernel("AccumulateFreeSpaceCoverage");
-            _accumulateOccluderFreeKernel = displacementCompute.FindKernel(
-                "AccumulateOccluderFreeSpaceCoverage");
+            _accumulatePressureKernel =
+                displacementCompute.FindKernel("AccumulatePreHitPressure");
+            _accumulateOccluderPressureKernel = displacementCompute.FindKernel(
+                "AccumulateOccluderPreHitPressure");
             _solveKernel = displacementCompute.FindKernel("SolveDirtyDisplacement");
             _allocateMicroKernel = displacementCompute.FindKernel("AllocateMicrotiles");
             _initializeMicroKernel = displacementCompute.FindKernel("InitializeMicroPages");
@@ -305,9 +305,9 @@ namespace Genesis.RoomScan.Prism
                     _dispatchArguments, BaseInitArgumentsOffset);
                 displacementCompute.DispatchIndirect(_accumulateKernel,
                     frame.ClassDispatchArguments, MatchDispatchOffset);
-                displacementCompute.DispatchIndirect(_accumulateFreeKernel,
+                displacementCompute.DispatchIndirect(_accumulatePressureKernel,
                     frame.ClassDispatchArguments, BehindDispatchOffset);
-                displacementCompute.DispatchIndirect(_accumulateOccluderFreeKernel,
+                displacementCompute.DispatchIndirect(_accumulateOccluderPressureKernel,
                     frame.ClassDispatchArguments, MatchDispatchOffset);
                 displacementCompute.Dispatch(_buildArgumentsKernel, 1, 1, 1);
                 displacementCompute.DispatchIndirect(_solveKernel,
@@ -349,7 +349,7 @@ namespace Genesis.RoomScan.Prism
             {
                 _allocateBaseKernel, _allocateBehindBaseKernel,
                 _allocateOccluderBaseKernel, _accumulateKernel,
-                _accumulateFreeKernel, _accumulateOccluderFreeKernel
+                _accumulatePressureKernel, _accumulateOccluderPressureKernel
             };
             foreach (int kernel in eventKernels)
             {
@@ -359,10 +359,18 @@ namespace Genesis.RoomScan.Prism
                 displacementCompute.SetBuffer(kernel, ClassCountersId,
                     frame.ClassCounters);
             }
-            displacementCompute.SetTexture(_accumulateKernel, RayLeftId,
-                luts.DepthLeft.CenterRaySolidAngle);
-            displacementCompute.SetTexture(_accumulateKernel, RayRightId,
-                luts.DepthRight.CenterRaySolidAngle);
+            int[] rayKernels =
+            {
+                _accumulateKernel, _accumulatePressureKernel,
+                _accumulateOccluderPressureKernel
+            };
+            foreach (int kernel in rayKernels)
+            {
+                displacementCompute.SetTexture(kernel, RayLeftId,
+                    luts.DepthLeft.CenterRaySolidAngle);
+                displacementCompute.SetTexture(kernel, RayRightId,
+                    luts.DepthRight.CenterRaySolidAngle);
+            }
         }
 
         private void AllocateTransientBuffers(ContactDisplacementPool pool)
@@ -427,7 +435,7 @@ namespace Genesis.RoomScan.Prism
                 _allocateBehindBaseKernel, _allocateOccluderBaseKernel,
                 _buildArgumentsKernel,
                 _initializeBaseKernel, _accumulateKernel,
-                _accumulateFreeKernel, _accumulateOccluderFreeKernel,
+                _accumulatePressureKernel, _accumulateOccluderPressureKernel,
                 _solveKernel,
                 _allocateMicroKernel, _initializeMicroKernel,
                 _solveTopologyKernel

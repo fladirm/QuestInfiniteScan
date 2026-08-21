@@ -6,8 +6,8 @@
 #pragma kernel BuildDisplacementArguments
 #pragma kernel InitializeBasePages
 #pragma kernel AccumulateDisplacement
-#pragma kernel AccumulateFreeSpaceCoverage
-#pragma kernel AccumulateOccluderFreeSpaceCoverage
+#pragma kernel AccumulatePreHitPressure
+#pragma kernel AccumulateOccluderPreHitPressure
 #pragma kernel SolveDirtyDisplacement
 #pragma kernel AllocateMicrotiles
 #pragma kernel InitializeMicroPages
@@ -92,8 +92,8 @@ struct DisplacementCell
     float bestPrecision;
     float bestFootprint;
     float residualVariance;
-    float freeSpacePressure;
-    uint freeSpaceViewMask;
+    float preHitPressure;
+    uint preHitPressureViewMask;
     uint revision;
 };
 
@@ -165,7 +165,10 @@ static const uint BASE_GRID = 16u;
 static const uint MICRO_GRID = 8u;
 static const uint BASE_CELLS_PER_PAGE = 256u;
 static const uint MICRO_CELLS_PER_PAGE = 64u;
-static const uint WORDS_PER_CELL = 8u;
+// contact W/sum/sum2, observed coverage, pressure view mask, best precision,
+// best footprint, support, then opposing-pressure W/sum/sum2.  Opposing evidence
+// deforms the elastic manifold; it never subtracts topology/coverage.
+static const uint WORDS_PER_CELL = 11u;
 static const uint WORDS_PER_FILM = 8u;
 static const uint ALLOCATION_CLAIM = 0xffffffffu;
 static const float WEIGHT_SCALE = 4096.0;
@@ -177,7 +180,7 @@ float3 LoadRay(uint2 pixel, uint eye)
         _DepthRayCenterRight[pixel].xyz;
 }
 
-uint FreeSpaceViewBit(ContactFilmHeader film, uint eye)
+uint PreHitPressureViewBit(ContactFilmHeader film, uint eye)
 {
     float3 cameraChunk = mul(_ChunkFromDepth[eye],
         float4(0.0, 0.0, 0.0, 1.0)).xyz;
@@ -681,7 +684,7 @@ void AccumulateDisplacement(uint3 id : SV_DispatchThreadID)
 }
 
 [numthreads(64, 1, 1)]
-void AccumulateFreeSpaceCoverage(uint3 id : SV_DispatchThreadID)
+void AccumulatePreHitPressure(uint3 id : SV_DispatchThreadID)
 {
     uint behindCount = min(_ClassCounters[CLASS_BEHIND], _EventCapacity);
     if (id.x >= behindCount) return;
@@ -702,25 +705,40 @@ void AccumulateFreeSpaceCoverage(uint3 id : SV_DispatchThreadID)
     if (!ResolveBaseCell(film, saturate(eventData.predictedUv), globalCell, page))
         return;
     DisplacementCell cell = LoadCell(globalCell);
-    if (cell.coverage <= 0.0) return;
     float bestPressure = max(cell.bestPrecision,
         max(_FilmInformation[filmIndex * 9u + 8u].w, 1e-8));
     float pressureRatio = saturate(eventData.pressurePrecision / bestPressure);
-    float freePressure = saturate(eventData.confidence) *
+    float preHitPressureWeight = saturate(eventData.confidence) *
         pressureRatio * pressureRatio;
-    if (freePressure <= 0.0) return;
+    if (preHitPressureWeight <= 0.0) return;
     MarkCellDirty(globalCell);
     uint baseWord = globalCell * WORDS_PER_CELL;
-    AtomicAddScaled(baseWord + 3u, -freePressure, WEIGHT_SCALE);
+    AtomicAddScaled(baseWord + 3u, -preHitPressureWeight, WEIGHT_SCALE);
+    uint2 pixel = uint2(eventData.packedPixel & 0xffffu,
+        (eventData.packedPixel >> 16u) & 0x7fffu);
     uint eye = eventData.packedPixel >> 31u;
     InterlockedOr(_DisplacementCellAccumulator[baseWord + 4u],
-        (int)FreeSpaceViewBit(film, eye));
+        (int)PreHitPressureViewBit(film, eye));
+    float3 rayChunk = normalize(mul((float3x3)_ChunkFromDepth[eye],
+        LoadRay(pixel, eye)));
+    float normalProjection = dot(rayChunk, film.normal);
+    if (abs(normalProjection) > 0.12 && eventData.measuredRange >
+        eventData.predictedRange)
+    {
+        float normalMotion = (eventData.measuredRange -
+            eventData.predictedRange) / normalProjection;
+        float target = cell.displacement + normalMotion;
+        AtomicAddScaled(baseWord + 8u, preHitPressureWeight, WEIGHT_SCALE);
+        AtomicAddScaled(baseWord + 9u, preHitPressureWeight * target, VALUE_SCALE);
+        AtomicAddScaled(baseWord + 10u, preHitPressureWeight * target * target,
+            VALUE_SCALE);
+    }
     _FilmHeaders[filmIndex].flags |= FILM_DIRTY_GEOMETRY |
         FILM_DIRTY_MESHLET;
 }
 
 [numthreads(64, 1, 1)]
-void AccumulateOccluderFreeSpaceCoverage(uint3 id : SV_DispatchThreadID)
+void AccumulateOccluderPreHitPressure(uint3 id : SV_DispatchThreadID)
 {
     uint matchCount = min(_ClassCounters[CLASS_MATCH], _EventCapacity);
     if (id.x >= matchCount) return;
@@ -740,19 +758,42 @@ void AccumulateOccluderFreeSpaceCoverage(uint3 id : SV_DispatchThreadID)
     if (!ResolveBaseCell(film, saturate(eventData.occluderUv), globalCell, page))
         return;
     DisplacementCell cell = LoadCell(globalCell);
-    if (cell.coverage <= 0.0) return;
     float bestPressure = max(cell.bestPrecision,
         max(_FilmInformation[filmIndex * 9u + 8u].w, 1e-8));
     float pressureRatio = saturate(eventData.pressurePrecision / bestPressure);
-    float freePressure = saturate(eventData.confidence) *
+    float preHitPressureWeight = saturate(eventData.confidence) *
         pressureRatio * pressureRatio;
-    if (freePressure <= 0.0) return;
+    if (preHitPressureWeight <= 0.0) return;
     MarkCellDirty(globalCell);
     uint baseWord = globalCell * WORDS_PER_CELL;
-    AtomicAddScaled(baseWord + 3u, -freePressure, WEIGHT_SCALE);
+    AtomicAddScaled(baseWord + 3u, -preHitPressureWeight, WEIGHT_SCALE);
     uint eye = eventData.packedPixel >> 31u;
     InterlockedOr(_DisplacementCellAccumulator[baseWord + 4u],
-        (int)FreeSpaceViewBit(film, eye));
+        (int)PreHitPressureViewBit(film, eye));
+    uint2 pixel = uint2(eventData.packedPixel & 0xffffu,
+        (eventData.packedPixel >> 16u) & 0x7fffu);
+    float3 rayChunk = normalize(mul((float3x3)_ChunkFromDepth[eye],
+        LoadRay(pixel, eye)));
+    float normalProjection = dot(rayChunk, film.normal);
+    float u = (saturate(eventData.occluderUv.x) - 0.5) *
+        2.0 * film.extentU;
+    float v = (saturate(eventData.occluderUv.y) - 0.5) *
+        2.0 * film.extentV;
+    float3 surface = film.origin + u * film.tangentU + v * film.tangentV +
+        (Height(film, u, v) + cell.displacement) * film.normal;
+    float3 cameraChunk = mul(_ChunkFromDepth[eye],
+        float4(0.0, 0.0, 0.0, 1.0)).xyz;
+    float occluderRange = length(surface - cameraChunk);
+    if (abs(normalProjection) > 0.12 && eventData.measuredRange > occluderRange)
+    {
+        float normalMotion = (eventData.measuredRange - occluderRange) /
+            normalProjection;
+        float target = cell.displacement + normalMotion;
+        AtomicAddScaled(baseWord + 8u, preHitPressureWeight, WEIGHT_SCALE);
+        AtomicAddScaled(baseWord + 9u, preHitPressureWeight * target, VALUE_SCALE);
+        AtomicAddScaled(baseWord + 10u, preHitPressureWeight * target * target,
+            VALUE_SCALE);
+    }
     _FilmHeaders[filmIndex].flags |= FILM_DIRTY_GEOMETRY |
         FILM_DIRTY_MESHLET;
 }
@@ -770,8 +811,10 @@ void SolveDirtyDisplacement(uint3 id : SV_DispatchThreadID)
         (float)_DisplacementCellAccumulator[baseWord + 0u] / WEIGHT_SCALE);
     float signedCoverage =
         (float)_DisplacementCellAccumulator[baseWord + 3u] / WEIGHT_SCALE;
-    uint freeViewMask =
+    uint preHitViewMask =
         (uint)_DisplacementCellAccumulator[baseWord + 4u];
+    float framePressureWeight = max(0.0,
+        (float)_DisplacementCellAccumulator[baseWord + 8u] / WEIGHT_SCALE);
     DisplacementCell cell = LoadCell(globalCell);
     bool changed = false;
     if (weight > 0.0)
@@ -813,44 +856,52 @@ void SolveDirtyDisplacement(uint3 id : SV_DispatchThreadID)
         float contactCoverage = saturate(signedCoverage);
         cell.coverage = saturate(cell.coverage +
             contactCoverage * (1.0 - cell.coverage));
-        // Confirmed contact pushes back against stale free-space evidence.  Strong
+        // Confirmed contact pushes back against stale pre-hit pressure. Strong
         // close contact clears weak contradiction quickly, while a genuinely moved
         // surface still wins through repeated independent first-hit cones.
-        cell.freeSpacePressure = max(0.0,
-            cell.freeSpacePressure - 2.0 * contactCoverage);
-        if (cell.freeSpacePressure < 0.25) cell.freeSpaceViewMask = 0u;
+        cell.preHitPressure = max(0.0,
+            cell.preHitPressure - 2.0 * contactCoverage);
+        if (cell.preHitPressure < 0.25) cell.preHitPressureViewMask = 0u;
         changed = true;
     }
     else if (signedCoverage < 0.0)
     {
-        float frameFreePressure = -signedCoverage;
-        cell.freeSpacePressure = min(65535.0,
-            cell.freeSpacePressure * 0.995 + frameFreePressure);
-        cell.freeSpaceViewMask |= freeViewMask;
+        float framePreHitPressure = -signedCoverage;
+        cell.preHitPressure = min(65535.0,
+            cell.preHitPressure * 0.995 + framePreHitPressure);
+        cell.preHitPressureViewMask |= preHitViewMask;
 
-        // Local first-hit pressure removes only the contradicted contact cells.
-        // Resistance is the baked information state: accumulated support times the
-        // best (usually closest) precision.  A distant/grazing cone therefore adds
-        // little pressure and cannot cheaply overwrite a close, sharp scan.
+        // Pressure does work by displacing the elastic film through the proven
+        // pre-hit interval toward its first-hit mould. It never reduces coverage or
+        // deletes triangles. Resistance is
+        // the baked information state: accumulated support times the best (usually
+        // closest) precision, so weak distant/grazing cones cannot move a close bake.
         float bakedResistance = 1.0 + 0.06 *
             sqrt(max(cell.bestPrecision, 1.0)) *
             sqrt(max(cell.support, 1.0));
-        if (countbits(cell.freeSpaceViewMask) >= 2u &&
-            cell.freeSpacePressure > bakedResistance)
+        if (countbits(cell.preHitPressureViewMask) >= 2u &&
+            cell.preHitPressure > bakedResistance && framePressureWeight > 0.0)
         {
-            float excess = cell.freeSpacePressure - bakedResistance;
-            float erosion = min(0.35,
-                0.25 * excess / max(bakedResistance, 1.0));
-            cell.coverage = max(0.0, cell.coverage - erosion);
-            // Pressure performs work when it removes supported film; consuming it
-            // prevents one old contradiction burst from eroding forever.
-            cell.freeSpacePressure = max(0.0,
-                cell.freeSpacePressure - erosion * bakedResistance);
-            if (cell.coverage <= 0.0)
-            {
-                cell.freeSpacePressure = 0.0;
-                cell.freeSpaceViewMask = 0u;
-            }
+            float excess = cell.preHitPressure - bakedResistance;
+            float target = (float)_DisplacementCellAccumulator[baseWord + 9u] /
+                VALUE_SCALE / max(framePressureWeight, 1e-8);
+            float response = saturate(excess /
+                max(bakedResistance + framePressureWeight, 1.0));
+            float measuredScale = isfinite(cell.bestFootprint)
+                ? sqrt(max(cell.bestFootprint, 1e-10)) : 0.0;
+            float maximumStep = max(_MinimumSigma,
+                min(0.05, max(2.0 * cell.sigma, measuredScale)));
+            float pressureStep = clamp((target - cell.displacement) * response,
+                -maximumStep, maximumStep);
+            cell.displacement += pressureStep;
+            // Work is consumed by actual elastic motion, so a stale pressure packet
+            // cannot keep moving the sheet after the originating views disappear.
+            float workFraction = saturate(abs(pressureStep) /
+                max(abs(target - cell.displacement) + abs(pressureStep), 1e-8));
+            cell.preHitPressure = max(0.0,
+                cell.preHitPressure - max(framePressureWeight,
+                    workFraction * bakedResistance));
+            changed = changed || abs(pressureStep) > 0.0;
         }
         changed = true;
     }
@@ -1000,8 +1051,8 @@ void InitializeMicroPages(uint3 id : SV_DispatchThreadID)
         // refinement cannot manufacture information merely by allocating a page.
         inherited.support /= (float)MICRO_CELLS_PER_PAGE;
         inherited.coverage = 0.0;
-        inherited.freeSpacePressure = 0.0;
-        inherited.freeSpaceViewMask = 0u;
+        inherited.preHitPressure = 0.0;
+        inherited.preHitPressureViewMask = 0u;
         inherited.revision = 0u;
     }
     _MicroDisplacementCells[microCell] = inherited;

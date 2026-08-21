@@ -38,7 +38,7 @@ it.
 ## Product invariant
 
 The production product is a fully on-device Quest 3/3S spatial scanner named
-Cone-PRISM-Q3. Reconstruction physics `CPQ3-2026-08-21-v3` is frozen in
+Cone-PRISM-Q3. Reconstruction physics `CPQ3-2026-08-21-v5` is frozen in
 `specka.md`. Canonical world state is a chunk-local graph of one-sided probabilistic
 `ContactFilm`s; `SurfaceChartGeometry` is their quadratic plus hierarchical
 displacement parameterization, `ContactBoundary` is their persistent contact
@@ -62,9 +62,11 @@ gates; do not leave two competing product architectures.
 - Static LUTs contain center rays, ray differentials/cone footprint support,
   distortion, and epipolar geometry. Depth-to-RGB
   reprojection remains depth-dependent.
-- Treat each pixel as a finite calibrated cone event: pre-hit space is observed
-  free, first hit is contact, and everything behind it is UNKNOWN. Treat transient
-  depth triangles/patches as observations, never permanent canonical topology.
+- Treat each pixel as a finite calibrated pressure cone: it pushes the conserved
+  elastic manifold outward through the pre-hit interval until the first-hit mould
+  stops it, while everything behind that contact is force-free UNKNOWN. It does not
+  carve, erase, or independently cap an image tile. Treat transient depth
+  triangles/patches as observations, never permanent canonical topology.
 - Associate observations by rasterizing film ID, mean depth, normal, UV,
   sidedness, confidence, and normal uncertainty from the observation pose. A
   spatial hash/page table is an index, not a voxel geometry resolution.
@@ -83,9 +85,10 @@ gates; do not leave two competing product architectures.
   all supported high-frequency detail without forcing a global resolution.
 - Persist local opposing first-hit pressure and independent eye/angular evidence in
   each base film cell. Contact evidence cancels pressure; only accumulated
-  multi-view free-space pressure exceeding the cell's stored information resistance
-  may consume local support. Never turn a frame-local contradiction into whole-film
-  deletion or duplicate it through child microtiles.
+  multi-view pre-hit pressure exceeding the cell's stored information resistance
+  may perform bounded normal-direction displacement work. It never lowers coverage,
+  deletes indices, or retires a film. Never turn a frame-local contradiction into
+  whole-film deletion or duplicate it through child microtiles.
 - Model the capture basin as normal uncertainty `mu +/- k*sigma`. Uncertain films
   procedurally emit adaptive quadrature shell layers for association/photometric
   focusing; as covariance shrinks they collapse continuously to one opaque surface.
@@ -98,6 +101,11 @@ gates; do not leave two competing product architectures.
 - Build adaptive local meshlets from ContactFilms. Publish topology with
   generation IDs and double buffering; the renderer must never consume buffers
   being mutated.
+- ContactFilms are local charts of a connected closed PressureManifold, not
+  independent plates. Compatible charts merge/weld; generation-safe FilmA/FilmB
+  boundaries materialize elastic crease/curtain connectors. Only the manifold's
+  outer LatentFrontier may return to its optical seed; internal chart/tile edges
+  never do. Coverage is information, never occupancy or a triangle-deletion mask.
 - Materialize one dirty film cooperatively with an `8x8` GPU workgroup (or a measured
   stronger equivalent), caching its continuous support domain for parallel vertex
   and triangle work. Performance work may not lower the canonical chart/microtile

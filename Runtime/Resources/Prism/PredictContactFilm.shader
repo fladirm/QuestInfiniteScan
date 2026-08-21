@@ -82,6 +82,12 @@ Shader "Hidden/Genesis/ConePrism/PredictContactFilm"
 
             PredictionOutput Frag(Varyings input)
             {
+                // Elastic connector/frontier triangles close the conserved
+                // membrane for rendering, but they are high-sigma UNKNOWN rather
+                // than measured contacts. Only actual ContactFilm material may
+                // become the hardware first-hit association target.
+                if ((input.flags & (1u << 9u)) != 0u)
+                    discard;
                 float3 normal = normalize(input.normalOptical);
                 float3 surfaceToEye = -normalize(input.positionOptical);
                 // ContactFilms are intrinsically one-sided. A back-side observation

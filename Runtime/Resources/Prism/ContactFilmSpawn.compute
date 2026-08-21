@@ -85,6 +85,7 @@ static const uint FILM_ONE_SIDED = 2u;
 static const uint FILM_UNCERTAIN = 4u;
 static const uint FILM_DIRTY_GEOMETRY = 8u;
 static const uint FILM_DIRTY_MESHLET = 16u;
+static const uint FILM_PRESSURE_MANIFOLD_MEMBER = 1u << 9u;
 
 groupshared uint sActive[64];
 groupshared uint sLabel[64];
@@ -588,7 +589,8 @@ void SpawnContactFilms(uint3 groupId : SV_GroupID,
     film.generation = generation;
     film.chunkId = _ChunkId;
     film.flags = FILM_ACTIVE | FILM_ONE_SIDED | FILM_UNCERTAIN |
-        FILM_DIRTY_GEOMETRY | FILM_DIRTY_MESHLET;
+        FILM_DIRTY_GEOMETRY | FILM_DIRTY_MESHLET |
+        FILM_PRESSURE_MANIFOLD_MEMBER;
     film.origin = weightedCenter;
     film.supportTotal = normalizedSupport;
     film.normal = normal;

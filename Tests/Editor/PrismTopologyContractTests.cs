@@ -71,8 +71,8 @@ namespace Genesis.RoomScan.Tests
                 "InitializeDisplacementState", "AllocateBasePages",
                 "AllocateBasePagesBehind", "AllocateBasePagesOccluder",
                 "AccumulateDisplacement", "SolveDirtyDisplacement",
-                "AccumulateFreeSpaceCoverage",
-                "AccumulateOccluderFreeSpaceCoverage",
+                "AccumulatePreHitPressure",
+                "AccumulateOccluderPreHitPressure",
                 "AllocateMicrotiles", "InitializeMicroPages",
                 "SolveTopologyEvidence"
             };

@@ -89,6 +89,9 @@ uint2 _Resolution;
 uint _EventCapacity;
 float _NormalCosineGate;
 float _BoundaryGate;
+float2 _CoreRoiTanHalfFov;
+float2 _RevisitRoiTanHalfFov;
+float _PeripheralConfidenceFloor;
 uint _HasCanonicalBoundaries;
 uint _CanonicalBoundaryHashMask;
 uint _CanonicalBoundaryCellsPerAxis;
@@ -268,6 +271,9 @@ void ClassifyConeEvents(uint3 id : SV_DispatchThreadID)
     }
 
     float3 ray = LoadRay(id.xy, id.z);
+    float2 angularTangent = abs(ray.xy) / max(abs(ray.z), 1e-5);
+    bool insideCoreRoi = all(angularTangent <= _CoreRoiTanHalfFov);
+    bool insideRevisitRoi = all(angularTangent <= _RevisitRoiTanHalfFov);
     float3 footprintNormal = measuredNormal.w > 0.0 ? measuredNormal.xyz :
         (predictedNormal.w > 0.0 ? predictedNormal.xyz : -ray);
     float3 axisX, axisY;
@@ -287,6 +293,17 @@ void ClassifyConeEvents(uint3 id : SV_DispatchThreadID)
 
     bool hasPrediction = film.x != 0u && film.y != 0u && predicted.x > 0.0 &&
         isfinite(predicted.x);
+    // New canonical matter is deposited only in the sharp central cone field. The
+    // wider band is reserved for already-associated surfaces and only when the
+    // measurement carries strong information. Passthrough/tracking remain full-FOV;
+    // this gate prevents low-quality peripheral cones from flooding topology and XR
+    // frame time without throwing away useful high-parallax revisits.
+    if ((!insideCoreRoi && !hasPrediction) || !insideRevisitRoi ||
+        (!insideCoreRoi && measured.w < _PeripheralConfidenceFloor))
+    {
+        PublishEvent(eventIndex, CLASS_INVALID, eventData);
+        return;
+    }
     bool canonicalBoundary = hasPrediction &&
         HasCanonicalBoundary(film.x, film.y, predictedUvMetadata.xy);
     if (boundary >= _BoundaryGate || canonicalBoundary)

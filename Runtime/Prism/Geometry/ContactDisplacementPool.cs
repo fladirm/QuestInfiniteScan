@@ -45,11 +45,12 @@ namespace Genesis.RoomScan.Prism
         public float BestPrecision;
         public float BestFootprint;
         public float ResidualVariance;
-        // Persistent opposing first-hit pressure.  Unlike a frame accumulator it
-        // survives revisits/persistence and therefore has to overcome the local
-        // contact posterior before supported film can be eroded.
-        public float FreeSpacePressure;
-        public uint FreeSpaceViewMask;
+        // Persistent opposing pre-hit pressure (legacy serialized field name).
+        // Unlike a frame accumulator it survives revisits/persistence and must do
+        // work against the baked contact posterior before it can displace the
+        // conserved film. It never erodes coverage or topology.
+        public float PreHitPressure;
+        public uint PreHitPressureViewMask;
         public uint Revision;
 
         public const int Stride = 40;

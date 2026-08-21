@@ -7,7 +7,7 @@ the active Cone-PRISM implementation branch. If another planning document confli
 this file wins. The specification may be improved when measurements justify it, but
 must not be simplified by removing reconstruction quality mechanisms.
 
-Reconstruction physics baseline: **`CPQ3-2026-08-21-v3` — frozen for
+Reconstruction physics baseline: **`CPQ3-2026-08-21-v5` — frozen for
 implementation.** It may be strengthened by measured evidence, but changing the
 canonical measurement primitive, first-hit/unknown semantics, ContactFilm world
 state, pressure/information solve, or non-degradation invariants requires explicit
@@ -57,13 +57,22 @@ Hard implementation invariants:
 - Dynamic LOD changes only derived resident/render caches. It never deletes or
   decimates canonical measured detail.
 
-The physical axiom is:
+The physical axiom is elastic injection moulding, not carving:
 
-> Calibrated RGB-D pixel cone fields push confirmed free space only up to their
-> first-hit interface. At that contact they deposit a one-sided probabilistic
-> `ContactFilm`. Later compatible cone events squeeze its geometric posterior,
-> extend its topology, and deposit increasingly precise measured appearance. What a
-> cone did not see remains unknown and cannot be modified by that observation.
+> Before injection, the latent manifold is collapsed to the optical seed (the
+> "closed eye"). Calibrated RGB-D cone pressure pushes this conserved elastic sheet
+> outwards through the pre-hit interval until the first-hit mould stops it. Adjacent
+> pressure points remain connected. Later cone fields squeeze, stretch, pinch,
+> split, or merge the same closed orientable manifold, but never delete material to
+> manufacture a hole. Pressure is exactly zero behind the first hit.
+
+This is literal solver/topology behaviour, not naming. The initial sheet is a
+connected elastic injection domain collapsed at one optical seed. An observed
+`ContactFilm` is the part currently pressed against a measured mould. Unobserved
+material stays latent, high-sigma, and force-free; it is not guessed as a physical
+back wall and is not submitted to first-hit prediction. New pressure advances and
+deforms the same sheet. It does not allocate isolated squares and it does not erase
+matter along a depth ray.
 
 ## 1. Project basis
 
@@ -99,12 +108,13 @@ server-side GS / DiffSoup reconstruction
 room-centric assumptions
 ```
 
-## 2. Single canonical geometry: one-sided ContactFilms
+## 2. Single canonical geometry: closed elastic PressureManifolds
 
-The world is a graph of one-sided probabilistic `ContactFilm`s. A film is the
-maximal local region whose observation history supports one continuous first-contact
-surface hypothesis. Its geometric component is a `SurfaceChartGeometry`, not a
-triangle:
+The world is a graph of closed orientable probabilistic `PressureManifold`s. A
+`ContactFilm` is one local one-sided chart on that connected sheet: the maximal
+region whose observation history supports one continuous first-contact surface
+hypothesis. It is not an independent tile, point, ray, or open plate. Its geometric
+component is a `SurfaceChartGeometry`, not a triangle:
 
 \[
 X(u,v)=P+uT_u+vT_v+h(u,v)N
@@ -125,10 +135,12 @@ Terminology is strict:
 
 ```text
 ConeEvent            finite-footprint calibrated measurement constraint
+PressureManifold     conserved closed elastic connected surface/body
 ContactFilm          canonical observed one-sided hypothesis and posterior
 SurfaceChartGeometry film's quadratic + displacement parameterization
 ContactBoundary      canonical shared/terminating contact discontinuity
 BoundaryCurve        ContactBoundary's uncertainty-bearing 3D spline geometry
+LatentFrontier       unpressed sheet returning only the outer manifold to its optical seed
 Meshlet              derived raster/render/export materialization
 ```
 
@@ -138,6 +150,7 @@ Canonical film state is conceptually:
 struct ContactFilm {
     uint64 id;
     uint64 chunkId;
+    uint64 manifoldId;
 
     float3 P;
     float3 N;
@@ -155,8 +168,9 @@ struct ContactFilm {
     Grid16 coverage;
     Grid16 bestPrecision;
     Grid16 bestFootprint;
-    Grid16 freeSpacePressure;
-    Grid16 freeSpaceViewMask;
+    Grid16 preHitPressure;
+    Grid16 preHitPressureViewMask;
+    Grid16 compressionQuality;
     MicrotileRefs displacementChildren;
 
     ContactBoundaryRefs boundaries;
@@ -172,27 +186,119 @@ struct ContactFilm {
 };
 ```
 
+`compressionQuality` is not an arbitrary strength scalar. It is a compact cache of
+the monotonic posterior/quality ordering whose authoritative state is the accumulated
+information, covariance and quality envelope. At minimum it preserves best metric
+footprint, range, incidence, pose/calibration quality, view diversity, residual
+scale and support. It is legal to replace a mean only when the accepted innovation
+adds information in the affected normal/detail band. A weak sample may increase
+support while leaving the mean, covariance floor and best-detail envelope unchanged.
+
 `Grid16` is a logical base surface domain, not a maximum detail resolution. A cell
 may allocate sparse recursive displacement/appearance microtiles when measured
 footprint and residual information support more detail. The analytic base remains
 the stable coarse representation and LOD.
 
-### 2.1 Continuous canonical support domain
+### 2.1 Conserved continuous manifold domain
 
-`coverage` is not a display alpha, rectangular chart extent, or independent square
-primitive. It is the continuous support field of one connected first-contact film.
+`coverage` is not occupancy, a display alpha, rectangular chart extent, or an
+independent square primitive. It is the continuous observation/information field on
+one already-existing elastic manifold.
 At spawn, every finite cone deposits its metric footprint into a conservative
 bootstrap support mask. Once a Grid16 displacement page exists, its interpolated
 coverage is authoritative. Microtiles refine displacement, normal and uncertainty;
 they cannot fragment the film into unrelated display tiles. Persistent
 `ContactBoundary` curves refine and terminate this domain below the base-cell scale.
 
-Derived triangulation evaluates the continuous support field per vertex/triangle
-and materializes only its supported manifold. A supported sample may extend or
-connect an existing film, but the rectangular parameter bounds alone may never emit
-geometry. Split/merge must resample actual support and must not fill the rectangular
-union between two films. This invariant makes storage resolution invisible in the
-rendered result: the user sees a coherent pressed film, not 8x8/16x16 plates.
+Derived triangulation always preserves connected sheet topology. Coverage modulates
+posterior confidence, refinement density, appearance deposition, and latent/observed
+render state; it never removes a triangle. `ContactBoundary` edges weld neighbouring
+charts or create an elastic crease/occlusion curtain. Only the outer unresolved
+frontier of the whole pressure sheet returns to the optical seed. Tile borders are
+never frontier and may not create eye-to-surface rays. Split/merge must preserve or
+repartition these links, so the user sees one moulded surface rather than 8x8/16x16
+plates or disconnected pressure points.
+
+### 2.2 Canonical manifold graph and derived closure
+
+The implementation represents the conserved sheet without storing a dense volume:
+
+```text
+PressureManifoldHeader
+  id + generation + chunk + opticalSeed + firstFilm + outerFrontier
+  FilmMembership[film generation]
+  ManifoldLinks[FilmA/generation <-> FilmB/generation + link class]
+  LatentFrontierLoops[ordered outer contour + seed return]
+
+ContactFilm A -- smooth continuation --> merge/weld
+ContactFilm A -- supported discontinuity --> elastic crease/curtain --> ContactFilm B
+outer unresolved contour -- LatentFrontier --> opticalSeed
+```
+
+`FilmA/FilmB` adjacency is generation tagged and canonical. Smooth compatible
+neighbours may collapse into one larger chart while preserving sufficient
+statistics. A supported depth/normal/visibility discontinuity remains two charts
+joined by an uncertainty-bearing elastic connector. A connector follows both chart
+posteriors as pressure moves them; it is derived render topology with `FilmID=0`, so
+it cannot falsely become a measured first-hit association target.
+
+The outer frontier is one contour set per connected manifold/component, never four
+edges per chart and never one closure per `8x8` spawn tile. Its return to the optical
+seed is canonical latent topology but normally omitted from first-hit prediction and
+opaque export until actual contact supports it. This preserves a mathematically
+closed injected membrane without displaying or baking imaginary eye rays.
+
+Spawn therefore has two obligations in the same GPU work graph: publish robust
+surface charts and publish/refresh ownership adjacency across tile/eye boundaries.
+Topology adaptation must transfer those links on split and remap them on merge.
+Generation mismatch fails closed to latent/unlinked state; it never connects to a
+reused film slot.
+
+The canonical topology records are bounded segmented GPU pools:
+
+```c
+struct PressureManifoldHeader {
+    uint id, generation, chunkId, flags;
+    float3 opticalSeedChunk;
+    uint firstFilm, filmCount;
+    uint firstLink, linkCount;
+    uint firstFrontier, frontierCount;
+    uint revision;
+};
+
+struct ManifoldLink {
+    uint manifoldId, generation;
+    uint filmA, generationA;
+    uint filmB, generationB;
+    uint boundaryId;              // zero for smooth weld candidates
+    uint class;                   // Smooth, Crease, OcclusionFold, Latent
+    float stiffness, sigma, support;
+};
+
+struct LatentFrontierSegment {
+    uint manifoldId, generation;
+    uint filmId, filmGeneration;
+    float2 uv0, uv1;
+    uint next, previous;           // ordered loop, not unordered tile edges
+    float sigma, support;
+};
+```
+
+The initial manifold is one closed latent sheet collapsed to `opticalSeedChunk`.
+Spawning contact does not create another closed tile. It replaces a supported arc
+of the current outer latent frontier with a `ContactFilm` and two ordered frontier
+continuations. Neighbouring spawn components from either eye are unioned by
+generation-safe footprint overlap before publication. Smooth links are candidates
+for information-preserving merge/weld; a supported discontinuity becomes a crease
+or occlusion fold. Only a genuinely disconnected scan session/relocalization may
+create another `PressureManifoldHeader` and optical seed.
+
+Frontier maintenance is a GPU topology pass, not per-frame CPU graph walking. Split
+partitions a film's incident links/frontier segments among its children. Merge
+rewrites both endpoints to the new generation and removes duplicate internal links.
+A publication is rejected if an active film edge is neither paired with a compatible
+link nor represented exactly once by an ordered outer-frontier segment. This is the
+watertightness invariant that prevents squares, gaps and eye spikes.
 
 ## 3. One-sided contact films
 
@@ -224,11 +330,13 @@ R(s)=O+sD.
 \]
 
 The cone carries differential rays or a projection Jacobian describing its footprint.
-Depth `z` means supported free space inside the cone for `0<s<z` and a first-hit
-contact film near `s=z`. It contains no evidence about `s>z`.
+Depth `z` means the cone applies outward pressure through `0<s<z` and the first-hit
+mould constrains the sheet near `s=z`. It contains no force or evidence about
+`s>z`.
 
-Nothing behind the first supported hit is carved. A predicted surface in supported
-free space receives contradiction evidence; one observation never deletes it.
+Nothing behind the first supported hit is modified. A predicted surface intersected
+by the supported pre-hit pressure path receives opposing elastic pressure; one
+observation never deletes it.
 Space behind the hit is explicitly `UNKNOWN`, not `EMPTY`.
 
 The projected cone footprint is generally an ellipse on a film. Its size/orientation
@@ -255,6 +363,35 @@ terms and eliminate inverse-intrinsics work per pixel. Projection
 between sensors still uses the actual candidate depth. Per-frame state is only the
 timestamp-matched world pose and immutable GPU texture leases.
 
+The four sensor callbacks are not assumed to arrive in timestamp order. Each eye
+and the stereo-depth stream enters a small timestamp-sorted metadata queue; bounded
+callback reordering is accepted without copying pixels. The synchronizer chooses
+the earliest depth timestamp for which the minimum-cost coherent `RGB_L/R` pair
+exists inside the exact RGB-eye and RGB-to-depth gates. Published
+`StereoRigFrame`s remain strictly monotonic in metric-depth time. Duplicate,
+outside-horizon, calibration-epoch-mismatched, pose-invalid, or genuinely stale
+samples fail closed and immediately release their GPU lease. Pairing never widens a
+gate merely to keep cadence and never assumes that queue-head arrival order is
+sensor time.
+
+### 5.1 Information-driven reconstruction field of view
+
+Passthrough presentation, tracking and relocalization keep the full available FOV.
+Canonical geometry ingress does not blindly allocate across every peripheral pixel.
+The default high-quality pressure aperture is approximately `30 deg x 30 deg`
+centred on each calibrated depth optical axis. It admits native-resolution samples
+and all justified microdetail. An overlap/revisit aperture may expand to roughly
+`50 deg x 46 deg`, but only for rays that predict an existing film, close a current
+outer frontier, contribute a new baseline/side, or carry measured information gain.
+Peripheral low-confidence `UNSEEN` rays do not spawn topology.
+
+This aperture is a quality scheduler, never a crop of already accepted world
+geometry and never a reduced-resolution capture path. The two eyes retain their
+independent cones and overlap; the scheduler prioritizes high-gradient, thin,
+boundary, disagreement and low-sigma regions within the aperture through GPU
+compaction/indirect arguments. It may postpone low-value work but may not lower the
+resolution of an accepted measurement.
+
 ## 6. Reconstruction tick
 
 ```text
@@ -267,13 +404,31 @@ Acquire coherent StereoRigFrame
   -> update compatible ContactFilms by robust pressure/information solve
   -> spawn independent hypotheses
   -> update persistent boundaries
+  -> update generation-safe manifold adjacency / outer frontier
   -> schedule unresolved film/chart regions
   -> surface-conditioned stereo/temporal focusing
   -> displacement and appearance update
-  -> rebuild dirty meshlets
+  -> request one coalesced dirty meshlet publication
 ```
 
 Only observed/dirty ContactFilms are processed. The entire world is never reprocessed.
+All mutations in one sensor tick share one publication request; the previous immutable
+generation remains visible while the inactive generation is rebuilt. Capture must
+never synchronously launch several complete mesh publications in one tick.
+
+The work graph has one bounded in-flight frame per stage. If a refinement or mesh
+publication generation is still fenced, the newest coherent capture may replace a
+not-yet-consumed older capture metadata lease; canonical dirty work is never
+dropped. Prediction uses the last complete immutable meshlet generation. At most one
+full derived mesh publication is requested per rendered frame, and publication
+coalesces all film/boundary/topology mutations from that frame. No capture callback
+waits for mesh generation or XR rendering.
+
+The initial preview publication ceiling is `15 Hz`, independently tuneable from
+sensor ingress and display refresh. It limits only replacement of the derived
+meshlet cache; every accepted cone still updates canonical state at native input
+resolution. Fences/back-pressure may lower publication cadence, never canonical
+detail, while the last complete generation remains spatially stable on screen.
 
 ## 7. Prediction raster: renderer as measurement associator
 
@@ -489,23 +644,42 @@ or statistically incompatible contact creates a new hypothesis/dynamic state;
 enough stronger compatible information may refine the old posterior through the
 same solver.
 
+For compatible static evidence, the production update obeys these monotonic rules
+per affected chart/cell frequency band:
+
+```text
+H_new              = H_old + positive-semidefinite robust information
+sigma_new           <= max(sigma_old, calibrated model floor)
+bestFootprint_new   = min(bestFootprint_old, acceptedFootprint)
+bestPrecision_new   = max(bestPrecision_old, acceptedPrecision)
+detailLevel_new     >= detailLevel_old
+```
+
+The mean innovation is preconditioned by `H_old` and then clamped by the posterior
+credible interval, the measured cone footprint and an elastic per-tick trust region.
+If the innovation is statistically incompatible, it never enters these equations:
+it targets a layer, split, boundary, dynamic hypothesis, or unresolved queue. Sensor
+noise cannot increase canonical certainty below the learned model/pose/calibration
+floor, so repeated near-identical frames do not manufacture impossible precision.
+
 RGB photometric pressure follows the same rule with additional focus/gradient,
 exposure, occlusion, and angular-diversity terms. Geometry resistance and texture
 quality resistance are stored independently so a sharp color observation cannot
 pretend to be precise metric depth, and a precise depth observation cannot erase a
 better surface-space texture sample.
 
-### 14.2 Local first-hit free-space pressure
+### 14.2 Local pre-hit elastic pressure
 
-A `BEHIND` event means the currently predicted contact lies inside the cone segment
-that the new measurement proved free. It does not retire the whole film and it does
-not modify anything behind the measured first hit. The event maps back through the
-prediction raster's film UV and deposits local negative coverage/contradiction into
-the Grid16 support domain. When a compatible second depth peel is the measured hit,
-the peeled foreground film receives the same local occluder pressure at its own UV.
+A `BEHIND` event means the currently predicted manifold lies inside the cone segment
+through which the new injection pressure travelled before reaching its mould. It
+does not retire a film, subtract coverage, delete triangles, or modify anything
+behind the measured first hit. The event maps through prediction UV and deposits a
+bounded target displacement plus force/information into the Grid16 elastic domain.
+When a second depth peel is the measured hit, its foreground occluder receives the
+same local pressure at its own UV.
 
 This opposing pressure is canonical posterior state, not a frame-local counter. Each
-base cell persists `freeSpacePressure` and an eye/angular `freeSpaceViewMask` across
+base cell persists `preHitPressure` and an eye/angular `preHitPressureViewMask` across
 frames, chunk eviction, restart, and revisit. A view contributes at most one bounded
 vote to its calibrated direction bin; the production base grid currently provides
 ten independent bins. Compatible contact pressure cancels accumulated opposing
@@ -513,29 +687,38 @@ pressure before increasing support, and weak contradiction decays rather than
 remaining an immortal deletion command. A child microtile inherits geometry/detail
 but does not clone one parent cone into many independent contradiction votes.
 
-Destructive support erosion requires at least two independent eye/angular bins and
-pressure exceeding the cell's baked resistance. The implementation baseline is:
+Elastic motion requires at least two independent eye/angular bins and pressure
+exceeding the cell's baked resistance. The implementation baseline is:
 
 ```text
 resistance = 1 + 0.06 * sqrt(bestPrecision) * sqrt(support)
-erosion    = min(0.35, 0.25 * excessPressure / resistance)
+delta      = bounded(targetDisplacement-currentDisplacement) * response(excess/resistance)
 ```
 
-Erosion consumes the corresponding accumulated pressure work. It is therefore
-bounded, local, reversible by later compatible contact, and cannot repeat forever
-from one stale event. Thus a close, sharp, front-facing contact is a strongly
-compressed film and resists a distant/grazing cone; sufficiently strong,
-independent and consistent first-hit evidence can still remove a genuine view-axis
-artifact. This is local pressure equilibrium, not TSDF carving: unknown space
-behind the hit stays unknown, an occluded back surface is untouched, and one weak
-frame cannot punch a hole through a baked film.
+Actual displacement consumes the corresponding accumulated pressure work. It is
+therefore bounded, local, elastically coupled to neighbours, reversible by later
+compatible contact, and cannot repeat forever from one stale event. A close, sharp,
+front-facing contact is a strongly compressed film and resists a distant/grazing
+cone; sufficiently strong independent first-hit pressure pushes a view-axis
+artifact into the mould-supported equilibrium without puncturing the sheet. This is
+not TSDF carving: unknown material behind the hit is force-free, an occluded back
+surface is untouched, and one weak frame cannot move a strong bake.
+
+Neighbour coupling is topology aware. A cell displacement contributes elastic
+continuity terms to linked cells/charts, but a persistent `ContactBoundary` changes
+that coupling into a hinge/crease rather than smoothing through the edge. The solve
+may stretch a latent connector or move a weakly baked region; it may not reduce
+coverage, deactivate a film, or remove indices. When pressure cannot be reconciled
+as a single-valued deformation, topology creates a new layer or split instead of
+puncturing the sheet.
 
 ## 15. Hierarchical local displacement
 
 The quadratic chart captures low-frequency shape. Residual after removing the
 analytic surface updates logical `Grid16` displacement cells, each holding at least
 `D`, information/weight, sigma, support, coverage, best precision/footprint, the
-persistent free-space pressure posterior, its independent view mask, and revision.
+persistent pre-hit pressure posterior, its independent view mask, compression
+quality, and revision.
 
 When actual projected footprint and consistent residuals justify more detail, a
 cell allocates child microtiles recursively. When residual is multimodal,
@@ -739,23 +922,27 @@ into a small robust `6x6` SE(3) correction with Meta pose/covariance as a strong
 prior. Accepted revisit constraints update chunk transforms in the existing pose
 graph; chunk-local canonical geometry is not globally remeshed.
 
-## 32. Derived ContactFilm render mesh
+## 32. Derived closed PressureManifold render mesh
 
-Dirty films materialize their SurfaceChartGeometry into adaptive GPU meshlets. A standard base chart may map
+Dirty charts materialize their SurfaceChartGeometry and manifold adjacency into
+adaptive GPU meshlets. Neighbouring charts share/snap boundary vertices; incompatible
+but adjacent first-contact charts receive an uncertainty-bearing elastic connector
+rather than a hole. Only the outer LatentFrontier closes to its optical injection
+seed, so no internal tile edge can form an eye ray. A standard base chart may map
 to at most `16x16` cells / `17x17` base vertices / `512` base triangles before
 microtile refinement, but flat areas tessellate more coarsely and boundaries,
 curvature, and supported displacement more finely. Vertices along a
-`ContactBoundary` vertices snap to the refined `BoundaryCurve`. Triangles are
-selected from the interpolated canonical coverage field rather than emitted for a
-whole rectangular chart cell; boundary-crossing cells are resolved by support and
-curve-constrained vertices, never dropped wholesale or bridged across unsupported
-space. Coverage is sampled once per materialized vertex and reused by GPU count and
-emit work.
+`ContactBoundary` snap to the refined `BoundaryCurve`. Coverage is sampled once per
+materialized vertex and controls confidence, refinement, appearance and LOD only;
+it never deletes triangles. Canonical FilmA/FilmB boundary links emit exact-index
+connector meshlets, while smooth chart joins weld/merge. Latent connector vertices
+carry no measured FilmID and prediction discards them, preventing derived closure
+from contaminating first-hit association.
 
 Materialization is not a serial one-thread-per-film loop. One `8x8` GPU workgroup is
 assigned to each dirty film: its 64 lanes cooperatively evaluate up to all `17x17`
-base vertices, cache the continuous support field in group-shared memory, count and
-emit up to 512 base triangles, and reserve output only for supported films. Recursive
+base vertices, cache the continuous information field in group-shared memory, count
+and emit up to 512 base triangles, and reserve output only for active films. Recursive
 microtile detail and boundary refinement are materialized by the Q3-16 indirect
 refinement stage rather than serializing or globally over-tessellating every film. This changes
 scheduling, not quality: there is no reduced chart resolution, dropped measurement,
@@ -763,11 +950,23 @@ or CPU fallback. Meshlets use generation IDs and double-buffered atomic publicat
 
 ## 33. Realtime renderer and dynamic LOD
 
-The renderer consumes ordinary opaque indexed meshlets, base/normal/PBR virtual
-pages, and directional residuals using Vulkan hardware rasterization and Z-buffer.
+The renderer consumes ordinary indexed meshlets, base/normal/PBR virtual pages, and
+directional residuals using Vulkan hardware rasterization and Z-buffer.
 GPU frustum/Hi-Z culling, screen-space geometric error, confidence, and page
 residency generate indirect draw lists. Geometry and appearance LOD are independent;
 close inspection uses maximum measured detail while distant views stay efficient.
+
+Scan preview transparency applies only to the PRISM mesh material, never to the VR
+menu, compositor layer, passthrough provider or prediction MRT. During geometry
+bring-up the default is mesh-local alpha blending with depth writes: passthrough
+remains visible, while the first drawn contact prevents hidden layer stacks from
+becoming an alpha soup. It uses no global shader/UI alpha and no screen-space dither,
+so head motion cannot turn the preview into a flickering Bayer pattern. Observed
+contact is more opaque as confidence rises; high-sigma latent connectors/frontier
+are visibly softer.
+Prediction is a separate one-sided pass and discards every vertex/descriptor without
+a valid measured FilmID/generation, including latent connectors and seed closure.
+Stable export tessellation never bakes preview alpha as missing geometry.
 
 ## 34. Native canonical persistence
 
@@ -778,6 +977,7 @@ world/
 ├── manifest + rig calibration epoch
 ├── chunks/<id>/
 │   ├── contact films + chart geometry + information/covariance
+│   ├── pressure manifolds + links + ordered latent-frontier loops
 │   ├── boundaries
 │   ├── displacement/microtiles
 │   ├── derived meshlets
@@ -790,6 +990,14 @@ world/
 Publication is per immutable dirty generation and preserves the previous complete
 revision on interruption. Restart must retain enough posterior state to keep
 refining a week later.
+
+The persisted ABI is explicitly versioned and self-describing: magic, schema,
+endianness, record strides/counts, calibration epoch, chunk transform, pool
+generations, CRC/checksum and feature flags precede payload pages. Unknown required
+features fail closed; older supported records are widened with new fields zeroed or
+latent, never reinterpreted by current struct size. Derived meshlets may be omitted
+or regenerated, but manifold/link/frontier, films, information, displacement,
+boundaries and appearance sufficient statistics are canonical and durable.
 
 Ordinary Scan Stop is a sensor-ingress pause, not reconstruction teardown. It keeps
 canonical film/boundary/displacement arenas, prediction targets, GPU rings and the
@@ -816,55 +1024,56 @@ flattened `building.glb`. Do not route through PLY.
 
 ## 36. GPU reconstruction passes
 
-Implement the main algorithm as these bounded compute/raster passes:
+The production assets/stage ownership are these bounded compute/raster passes. A
+single asset may expose several clear/compact/indirect/solve kernels; the names below
+are the repository contract, not illustrative aliases:
 
 ```text
-01 DepthNormalize.compute
-02 DepthConsensus.compute
-03 DepthNormalBoundary.compute
-
-04 PredictSurface.shader
-
-05 ConeClassify.compute
-06 ContactFilmSpawn.compute
-07 ContactFilmAccumulate.compute
-08 ContactFilmSolve.compute
-
-09 ContactBoundaryAccumulate.compute
-10 TopologyClassify.compute
-
-11 NarrowStereo.compute
-12 TemporalFocus.compute
-13 DisplacementUpdate.compute
-
-14 TextureAccumulate.compute
-15 DirectionalAppearance.compute
-
-16 MeshletBuild.compute
-17 MeshletCullLod.compute / indirect args
+01 RigImageCopy.compute                    borrowed native textures -> leased GPU rings
+02 ConeLut.compute                         immutable ray/differential/solid-angle LUTs
+03 DepthNormalize.compute                  independent metric cone range
+04 DepthConsensusNormalBoundary.compute    L/R evidence, learned sigma, normals, edges
+05 PredictContactFilm.shader               dual-depth-eye measured-film MRT prediction
+06 HiZRangePyramid.compute                 conservative front range hierarchy
+07 ConeClassify.compute                    ROI + exhaustive finite-cone event queues
+08 ContactFilmSpawn.compute                components, robust quadratic charts
+09 ContactFilmUpdate.compute               H/g pressure posterior and hypotheses
+10 ContactBoundaryUpdate.compute           persistent curves and FilmA/FilmB evidence
+11 DisplacementTopology.compute            per-cell pressure/resistance + microtiles
+12 TopologyAdapt.compute                   split/merge/link/frontier transfer
+13 PhotometricFocus.compute                L/R narrow stereo and temporal normal solve
+14 TextureAccumulate.compute               surface EWA/virtual measured pages
+15 DirectionalAppearance.compute           diffuse + adaptive directional/PBR state
+16 MeshletBuild.compute                    charts/connectors/frontier -> inactive cache
+17 MeshletViewCull.compute                 stereo-safe GPU cull/LOD/draw compaction
+18 ChunkStage.compute                      immutable dirty canonical page staging
 ```
 
 Prefix sums/compaction, queues, counts, topology, culling, and draw arguments stay on
-GPU.
+GPU. If an appearance asset is not yet present in the repository it remains a
+required DAG deliverable; it is not silently folded into a CPU bake or removed from
+the product.
 
 ## 37. C# orchestration core
 
 ```text
-PrismScanner
-RigCapture
+RoomScanner / PrismGpuWorkGraph
+PrismRigCapture / RigFrameSynchronizer
 RigCalibration
 
 ContactFilmPool
-ContactBoundaryGraph
+PressureManifoldPool
+PrismBoundaryGraph
+PrismFilmSpawner / PrismFilmUpdater
+PrismDisplacementTopology
 
-ReconstructionScheduler
-TopologyScheduler
-KeyframePool
+PrismPhotometricRefiner
+PrismMeshletBuilder / PrismWorldMeshletRenderer
+KeyframePool / appearance page scheduler
 
-ChunkManager
-ChunkPersistence
+WorldSession / WorldChunkManager
+PrismCanonicalChunkCodec / WorldStore
 
-MeshletRenderer
 GltfExporter
 ```
 
@@ -885,8 +1094,8 @@ workflow. It does not decide per pixel or traverse live geometry.
 | **Q3-08** | Robust pressure-equilibrium 6x6 posterior refinement and uncertainty collapse |
 | **Q3-09** | Multihypothesis/one-sided/opposite-side and bimodal ContactFilms |
 | **Q3-10** | Persistent ContactBoundaries with multi-view 3D BoundaryCurves |
-| **Q3-11** | ContactFilm split/merge, hierarchical displacement, persistent local free-space pressure/resistance |
-| **Q3-12** | Cooperative adaptive GPU meshlet materialization, culling, LOD, indirect renderer |
+| **Q3-11** | Closed PressureManifold graph, elastic chart links/frontier, split/merge, hierarchical displacement, persistent pressure/resistance |
+| **Q3-12** | Cooperative watertight manifold/connector meshlets, culling, LOD, indirect renderer |
 | **Q3-13** | Infinite chunk paging, native PRISM persistence, restart/revisit |
 | **Q3-14** | ContactFilm-conditioned L/R narrow stereo pressure/focusing |
 | **Q3-15** | Temporal cone-bundle focusing and information-gain keyframes |
@@ -922,9 +1131,11 @@ Visibility/contact test:
 scan only the front/side of a pole, plate, recess, and open door
 ```
 
-Only the observed first-contact films and pre-hit free space become known. Hidden
-backs remain `UNKNOWN`, are not filled, carved, or marked empty, and appear only
-after a compatible cone field physically observes them.
+The pre-hit interval becomes a supported pressure path and first contact becomes a
+high-information chart. Hidden backs remain latent, force-free `UNKNOWN` manifold,
+not empty space and not a hole. They stay elastically connected through the outer
+frontier collapsed toward the optical seed until another compatible cone field
+pushes them into a supported mould contact.
 
 Footprint test verifies projected ellipse area/orientation across range and grazing
 angles, prevents detail above measured support, and proves that multiple subpixel
@@ -999,7 +1210,7 @@ persistent boundaries, soft-to-hard capture, surface-conditioned multiview focus
 adaptive topology/displacement, measured superresolution, directional appearance,
 and resumable infinite-world state.
 
-This `CPQ3-2026-08-21-v3` physics is frozen for implementation. Do not substitute
+This `CPQ3-2026-08-21-v5` physics is frozen for implementation. Do not substitute
 an infinitesimal-ray shortcut, constant-vote averaging, scalar volume, fixed
 triangle/surfel soup, Gaussian map, neural reconstruction, or CPU geometry path
 because it is easier to implement.

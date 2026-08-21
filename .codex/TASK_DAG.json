@@ -2,7 +2,7 @@
   "schema_version": 1,
   "goal": "Cone-PRISM-Q3 pure-Quest continuous probabilistic contact-film reconstruction",
   "canonical_spec": "specka.md",
-  "reconstruction_physics": "CPQ3-2026-08-21-v3",
+  "reconstruction_physics": "CPQ3-2026-08-21-v5",
   "spec_status": "frozen_for_implementation",
   "effort_policy": "90_percent_implementation_5_percent_tests_5_percent_controls; batch device tests at vertical milestones",
   "allowed_statuses": ["pending", "in_progress", "done", "blocked"],
@@ -21,7 +21,7 @@
       "evidence": [
         "Unity/Android/Quest baseline report: /mnt/kingston-unity/Builds/Verification/20260820T132533Z/verification-report.json",
         "Hybrid checkpoint e9f37c1 and original DAG are pushed at origin/archive/hybrid-diffsoup-checkpoint-20260820",
-        "Canonical implementation originated from pushed checkpoint 9fee431 on feat/quest-radiance-meshlets; current repair work is isolated on fix/cone-prism-contact-domain-resume-20260821",
+        "Canonical implementation originated from pushed checkpoint 9fee431 on feat/quest-radiance-meshlets; current repair work is isolated on fix/cone-prism-closed-pressure-manifold-20260821 from parent a5d8f85",
         "specka.md defines the single canonical Cone-PRISM-Q3 product, mathematics, GPU passes, persistence, export, and acceptance corpus"
       ]
     },
@@ -33,12 +33,13 @@
       "acceptance": [
         "Immutable StereoRigFrame exposes RGB-L/R, depth-L/R, independent timestamps, per-camera poses, intrinsics, extrinsics, formats, dimensions, calibration epoch, and GPU ownership leases",
         "Both Meta passthrough cameras and stereo environment-depth views are acquired without CPU color/depth copies in the mapper path",
-        "Pairing rejects stale, out-of-order, missing-eye, pose-invalid, or calibration-mismatched data instead of silently fusing it",
+        "Timestamp-sorted metadata queues accept bounded callback reordering, select the closest coherent RGB-L/R pair for the earliest eligible depth timestamp, and publish strictly monotonic metric-depth frames without CPU pixel copies or widened gates",
+        "Pairing rejects duplicate, outside-horizon, genuinely stale, missing-eye, pose-invalid, or calibration-mismatched data instead of silently fusing it",
         "Runtime diagnostics expose eye ordering, timestamp deltas, poses, calibration epoch, rejection causes, and direct GPU handles; device capture is batched into the first capture-to-film milestone",
         "Focused contract/lifetime tests and Unity compilation pass; four-stream device diagnostics are exercised with the first complete capture-to-film vertical milestone rather than as a redundant standalone headset test"
       ],
       "evidence": [
-        "Runtime/Prism/Capture implements immutable four-view metadata, ref-counted GPU rings, fail-closed clock mapping/pairing, exact poses, intrinsics/extrinsics, raw depth encoding and near/far",
+        "Runtime/Prism/Capture implements immutable four-view metadata, ref-counted GPU rings, fail-closed clock mapping, timestamp-sorted bounded-reorder queues, minimum-cost coherent triplet pairing, monotonic publication, exact poses, intrinsics/extrinsics, raw depth encoding and near/far",
         "DepthCapture.RawStereoFrameReceived exposes the borrowed native stereo Texture2DArray and ARFoundation timestamp/FOV/pose/near-far without CPU copies",
         "PassthroughCameraProvider and PrismRigCapture resolve explicit Left/Right Meta PCA instances rather than arbitrary single-camera discovery",
         "7 focused EditMode contracts passed: /mnt/kingston-unity/Unity/Projects/QuestInfiniteScanHost/Logs/cone-prism-q3-03-tests.xml",
@@ -203,13 +204,16 @@
     },
     {
       "id": "Q3-11",
-      "title": "Implement ContactFilm split/merge and hierarchical displacement microtiles",
+      "title": "Implement closed elastic PressureManifolds, chart topology, pressure solve, and hierarchical displacement",
       "status": "in_progress",
       "depends_on": ["Q3-10"],
       "acceptance": [
         "Quadratic residual updates logical Grid16 displacement with information/sigma/support/coverage and monotonic quality",
         "Measured footprint can allocate recursive sparse microtiles so Grid16 is not a detail ceiling",
-        "Grid16 coverage is the interpolated canonical connected support domain; finite-cone contact extends it while persistent per-cell multi-view first-hit pressure can erode only locally contradicted support after exceeding and consuming stored bake resistance",
+        "Grid16 coverage is observation information only and never occupancy or topology; finite-cone contact raises information while persistent pre-hit pressure displaces the conserved elastic manifold after exceeding and consuming baked resistance",
+        "Every ContactFilm is a local one-sided chart of a connected closed PressureManifold, never an independently closed tile; adjacent compatible charts acquire generation-safe elastic links and internal chart borders cannot return to the optical seed",
+        "PressureManifoldHeader, generation-tagged ManifoldLink endpoints, and ordered LatentFrontier loops are canonical GPU state; spawn replaces supported frontier arcs, split transfers incident topology, and merge rewrites endpoints without duplicate internal links",
+        "Only a manifold's outer unresolved LatentFrontier may return through unobserved space to its optical injection seed; hidden/shadow geometry remains high-sigma and force-free until a cone physically presses it",
         "Bimodality, ContactBoundaries, curvature, non-single-valued support, or incompatible first-contact evidence split a film into 2-4 children with statistics preserved",
         "Merge requires compatible sidedness/continuation/normal/appearance and no persistent boundary",
         "Planes simplify while pipes, frames, folds, gaps, relief, and thin detail remain geometrically faithful"
@@ -217,24 +221,30 @@
       "evidence": [
         "ContactDisplacementPool and DisplacementTopology.compute implement bounded segmented Grid16/Grid8 pages with per-cell displacement, sigma, support, coverage, residual variance, best precision/footprint, lazy GPU allocation, and recursive footprint-supported microtiles",
         "The displacement posterior uses the same pressure-quality envelope as the quadratic film solve: weaker distant/grazing observations can add bounded support but cannot inflate sigma or overwrite a more precise close-view displacement",
+        "DisplacementTopology.compute treats BEHIND evidence as a bounded normal-direction preHitPressure target with multi-view support; it performs work against stored bake resistance and never subtracts coverage, retires a film, or carves topology",
         "TopologyAdapt.compute persists signed residual modes and performs GPU-indirect 2-to-4-way adaptation: split transforms each child's 6x6 H/g posterior, quadratic frame, support, topology evidence, displacement, and canonical boundary segments without CPU traversal/readback",
         "Conservative spatial-hash merge requires stable low-variance support, identical sidedness/appearance ownership, <3 degree normal/tangent continuation, metric surface overlap, zero canonical boundaries, and creates a new generation while retaining retired source posteriors until derived detail is materialized",
         "PrismMeshletBuilder samples the deepest resident displacement page with bilinear filtering and displacement derivatives for geometry/normals; Unity 6000.5.9f1 imported every kernel and passed 104/104 runnable EditMode tests (3 intentionally skipped): /mnt/kingston-unity/Unity/Projects/QuestInfiniteScanHost/Logs/cone-prism-q3-11-final-tests.xml",
-        "2026-08-21 physical preview exposed rectangular support and whole-film contradiction regressions; the run is reopened while bootstrap footprint masks, authoritative Grid16 coverage, local pressure/resistance and support-preserving split/merge undergo one batched Quest acceptance",
-        "DisplacementTopology.compute now persists per-cell freeSpacePressure plus ten eye/angular evidence bins, cancels it with compatible contact, requires at least two independent bins, gates erosion against 1 + 0.06*sqrt(bestPrecision)*sqrt(support), consumes the performed work, and never clones parent contradiction into microtiles",
-        "Native schema v4 persists the 40-byte displacement posterior and v3 upgrade widens legacy 32-byte cells fail-closed; real-Vulkan EditMode passed 116/116 runnable tests with zero failures (3 intentionally ignored): /mnt/kingston-unity/Builds/TestResults/editmode-results.xml"
+        "2026-08-21 physical preview exposed disconnected tile plates, eye rays, and whole-film contradiction regressions; the run is reopened while conserved manifold adjacency, outer-only latent frontier closure, local pressure/resistance, and support-preserving split/merge undergo one batched Quest acceptance",
+        "DisplacementTopology.compute persists per-cell pre-hit pressure targets plus independent eye/angular evidence bins, cancels pressure with compatible contact, requires multi-view support, gates motion against baked precision/resistance, consumes only performed displacement work, and never clones parent contradiction into microtiles",
+        "Native schema v4 persists the 40-byte displacement posterior and v3 upgrade widens legacy 32-byte cells fail-closed; real-Vulkan EditMode passed 116/116 runnable tests with zero failures (3 intentionally ignored): /mnt/kingston-unity/Builds/TestResults/editmode-results.xml",
+        "Coverage is no longer topology: MeshletBuild.compute emits the complete active 17x17 chart lattice/512 base triangles, sanitizes non-finite confidence, and never drops a cell because observation coverage is low",
+        "TopologyAdapt.compute preserves PressureManifoldMember through generation-changing merge; multi-view/persistent FilmA/FilmB records emit local elastic connector strips whose zero FilmID keeps them out of prediction",
+        "The explicit PressureManifoldHeader/generation-tagged ManifoldLink/ordered outer LatentFrontier canonical pool remains the open Q3-11 implementation and physical-acceptance gate; no per-film seed cap is claimed"
       ]
     },
     {
       "id": "Q3-12",
-      "title": "Implement adaptive ContactFilm meshlets, culling, dynamic LOD, and indirect rendering",
+      "title": "Implement watertight PressureManifold and connector meshlets, culling, dynamic LOD, and indirect rendering",
       "status": "pending",
       "depends_on": ["Q3-11"],
       "acceptance": [
-        "ContactFilms and ContactBoundaries materialize entirely on GPU into inactive generation-safe meshlet buffers",
+        "ContactFilms, elastic chart links, ContactBoundaries, and LatentFrontiers materialize entirely on GPU into inactive generation-safe meshlet buffers",
         "One cooperative GPU workgroup per dirty film parallelizes full supported vertex/triangle materialization; performance work does not reduce chart/microtile detail or fall back to CPU geometry",
         "Adaptive tessellation follows analytic error, microtile detail, confidence, and exact BoundaryCurves without silhouette bridges",
-        "Rectangular chart bounds never appear as square plates: triangle materialization follows the continuous supported film domain and remains coherent across chart/film joins",
+        "ContactFilms materialize as local charts of a continuous pressure sheet: compatible neighbours weld, discontinuities form bounded elastic crease/curtain connectors, and no internal chart/tile border becomes a hole or ray to the eye",
+        "Only the outer unresolved LatentFrontier closes the conserved pressure sheet to its optical injection seed; no per-tile or per-film cap is generated",
+        "A publication fails closed if an active chart edge is neither paired by one compatible manifold link nor represented exactly once in an ordered outer-frontier loop",
         "Stereo XR presentation draws one spatially stable publication for both display eyes without mono Camera.main culling, flicker, or UI/compositor alpha side effects",
         "GPU frustum/Hi-Z culling and screen-space error generate indirect draw lists with independent geometry/appearance LOD",
         "No synchronous readback, CPU count, CPU mesh, or per-frame geometry traversal exists in the production path",
@@ -242,12 +252,14 @@
       ],
       "evidence": [
         "ContactMeshletBuffers owns distinct immutable published and inactive generations for vertices, indices, descriptors, counters, indirect build/cull arguments, and per-view LOD; a graphics fence prevents reuse while Adreno can still read the old publication and pending mutations coalesce without blocking capture",
-        "MeshletBuild.compute derives tessellation from quadratic error, posterior sigma/confidence, hierarchical displacement variance, best measured footprint, interpolated canonical coverage, and persistent cubic ContactBoundaries; supported triangles follow the film domain and boundary-near vertices snap to canonical curves without dropping whole cells",
+        "MeshletBuild.compute derives tessellation from quadratic error, posterior sigma/confidence, hierarchical displacement variance, best measured footprint, and persistent cubic ContactBoundaries; coverage modulates confidence/detail only and never drops topology",
+        "PressureManifoldLink/connector materialization consumes generation-tagged GPU adjacency: smooth links weld chart borders, physical depth/occlusion discontinuities produce local elastic connectors, and outer frontier records alone connect to the optical seed without CPU traversal",
         "MeshletViewCull.compute performs fully GPU-indirect descriptor dispatch, conservative sphere frustum/previous-frame range Hi-Z rejection, screen-space geometry LOD, independent measured-footprint appearance mip selection, and compact visible-index publication with no CPU-visible count",
         "HiZRangePyramid.compute builds a conservative max-range pyramid in both depth eyes where unknown remains infinity; first-hit prediction uses Hi-Z while the second peeled layer deliberately reculls without occlusion so hidden ContactFilms remain associable",
         "The production path contains no AsyncGPUReadback, buffer GetData, CPU Mesh, or per-frame CPU geometry traversal; Unity 6000.5.9f1 passed all 5 Q3-12 contracts on both OpenGL and forced Vulkan: cone-prism-q3-12-fence-tests.xml and cone-prism-q3-12-vulkan-tests.xml",
-        "2026-08-21 physical XR evidence reopened the run: display-only mono view culling was removed, preview transparency changed to depth-correct coverage dithering, and coverage is cached once per generated vertex for count/emit; one batched device acceptance remains",
+        "2026-08-21 physical XR evidence reopened the run: display-only mono view culling was removed, preview transparency is now mesh-local alpha with Z-write and no screen-space dither, and coverage controls confidence/detail but never topology; one batched device acceptance remains",
         "MeshletBuild.compute now assigns one 8x8 workgroup per film; 64 lanes cooperatively cache all supported 17x17 coverage samples and parallelize full-resolution vertex/count/triangle emission without CPU work or canonical-detail reduction",
+        "PrismGpuWorkGraph coalesces all canonical mutations into RequestBuild and PrismMeshletBuilder publishes at most one fenced derived generation per LateUpdate with an initial 15 Hz preview ceiling while preserving native sensor/fusion cadence",
         "Android Vulkan/IL2CPP precommit build succeeded with no C# or shader errors: /mnt/kingston-unity/Builds/QuestInfiniteScan/logs/build.log"
       ]
     },
@@ -406,7 +418,8 @@
       "depends_on": ["Q3-21"],
       "acceptance": [
         "Physical 5/10/20/50 mm plate sequence preserves independent front/back ContactFilms whenever sensor evidence resolves them and error improves across passes",
-        "Front-only pole/plate/recess/open-door scans prove pre-hit cone space becomes FREE, first contact becomes a film, and every hidden back/shadow region remains UNKNOWN until directly observed",
+        "Front-only pole/plate/recess/open-door scans prove pre-hit cones apply bounded outward pressure until first contact, first contact bakes a resistant film, and every hidden back/shadow region remains latent high-sigma UNKNOWN rather than carved EMPTY until directly pressed",
+        "The canonical surface stays a connected closed elastic manifold: observed contact regions never expose tile holes, internal eye rays, or independently capped film squares, while only the outer latent frontier returns to the optical seed",
         "Projected cone footprint ellipse area/orientation is correct across range/grazing angle and measured subpixel footprints sharpen rather than blur supported detail",
         "Pressure-equilibrium tests are view-order invariant within tolerance, robust to bounded outliers, shrink sigma under compatible baselines, and reject weaker later pull on stable films",
         "Near-good then far/grazing repeated scans preserve the close film geometry, microdetail, sigma, and best texture footprint; far-first then near-good scans demonstrably improve them",

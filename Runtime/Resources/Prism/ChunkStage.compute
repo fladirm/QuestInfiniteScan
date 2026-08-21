@@ -48,7 +48,7 @@ struct DisplacementCell
 {
     float displacement; float sigma; float support; float coverage;
     float bestPrecision; float bestFootprint; float residualVariance;
-    float freeSpacePressure; uint freeSpaceViewMask;
+    float preHitPressure; uint preHitPressureViewMask;
     uint revision;
 };
 

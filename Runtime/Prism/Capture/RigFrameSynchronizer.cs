@@ -106,9 +106,10 @@ namespace Genesis.RoomScan.Prism
         private readonly long _maxRgbDepthDeltaNs;
         private readonly long _maxClockUncertaintyNs;
         private readonly int _maxQueue;
-        private long _lastLeftNs;
-        private long _lastRightNs;
-        private long _lastDepthNs;
+        private long _maximumSeenLeftNs;
+        private long _maximumSeenRightNs;
+        private long _maximumSeenDepthNs;
+        private long _lastPublishedDepthNs;
         private long _sequence;
         private long _accepted;
         private long _rejected;
@@ -137,16 +138,21 @@ namespace Genesis.RoomScan.Prism
             if (sample == null)
                 return false;
             List<RgbRigSample> queue = sample.View.Eye == RigEye.Left ? _left : _right;
-            ref long lastTimestamp = ref sample.View.Eye == RigEye.Left
-                ? ref _lastLeftNs
-                : ref _lastRightNs;
-            if (!ValidateIncoming(sample.View, sample.CalibrationEpoch, ref lastTimestamp,
-                    out RigFrameRejectionReason rejection))
+            ref long maximumSeen = ref sample.View.Eye == RigEye.Left
+                ? ref _maximumSeenLeftNs
+                : ref _maximumSeenRightNs;
+            if (!ValidateIncoming(sample.View, sample.CalibrationEpoch,
+                    out RigFrameRejectionReason rejection) ||
+                !AcceptReorderedTimestamp(sample.View.Timestamp.UnixNanoseconds,
+                    ref maximumSeen, out rejection) ||
+                ContainsTimestamp(queue, sample.View.Timestamp.UnixNanoseconds))
             {
+                if (rejection == RigFrameRejectionReason.None)
+                    rejection = RigFrameRejectionReason.OutOfOrder;
                 Reject(sample, rejection);
                 return false;
             }
-            queue.Add(sample);
+            InsertSorted(queue, sample);
             Trim(queue);
             return true;
         }
@@ -160,13 +166,18 @@ namespace Genesis.RoomScan.Prism
                 Reject(sample, RigFrameRejectionReason.StereoDepthContractMismatch);
                 return false;
             }
-            if (!ValidateIncoming(sample.Left, sample.CalibrationEpoch, ref _lastDepthNs,
-                    out RigFrameRejectionReason rejection))
+            if (!ValidateIncoming(sample.Left, sample.CalibrationEpoch,
+                    out RigFrameRejectionReason rejection) ||
+                !AcceptReorderedTimestamp(sample.Left.Timestamp.UnixNanoseconds,
+                    ref _maximumSeenDepthNs, out rejection) ||
+                ContainsTimestamp(_depth, sample.Left.Timestamp.UnixNanoseconds))
             {
+                if (rejection == RigFrameRejectionReason.None)
+                    rejection = RigFrameRejectionReason.OutOfOrder;
                 Reject(sample, rejection);
                 return false;
             }
-            _depth.Add(sample);
+            InsertSorted(_depth, sample);
             Trim(_depth);
             return true;
         }
@@ -174,40 +185,21 @@ namespace Genesis.RoomScan.Prism
         internal bool TryDequeue(out StereoRigFrameLease frame)
         {
             frame = null;
-            while (_left.Count > 0 && _right.Count > 0)
+            while (_left.Count > 0 && _right.Count > 0 && _depth.Count > 0)
             {
-                RgbRigSample left = _left[0];
-                RgbRigSample right = _right[0];
-                if (left.CalibrationEpoch != right.CalibrationEpoch)
+                if (!FindEarliestCoherentTriplet(out int leftIndex,
+                        out int rightIndex, out int depthIndex,
+                        out long rgbDelta, out long rgbDepthDelta))
                 {
-                    DropOlderCalibration(left, right);
-                    continue;
-                }
-
-                long rgbDelta = left.View.Timestamp.AbsoluteDeltaNanoseconds(
-                    right.View.Timestamp);
-                if (rgbDelta > _maxRgbDeltaNs)
-                {
-                    if (left.View.Timestamp.UnixNanoseconds < right.View.Timestamp.UnixNanoseconds)
-                        RejectAndRemove(_left, 0, RigFrameRejectionReason.RgbPairDeltaExceeded);
-                    else
-                        RejectAndRemove(_right, 0, RigFrameRejectionReason.RgbPairDeltaExceeded);
-                    continue;
-                }
-
-                long rgbMidpoint = Midpoint(left.View.Timestamp.UnixNanoseconds,
-                    right.View.Timestamp.UnixNanoseconds);
-                int depthIndex = FindNearestDepth(rgbMidpoint, left.CalibrationEpoch,
-                    out long rgbDepthDelta);
-                if (depthIndex < 0)
-                {
-                    DropProvablyStaleRgbOrDepth(rgbMidpoint);
+                    DropPastPublishedSamples();
                     return false;
                 }
 
+                RgbRigSample left = _left[leftIndex];
+                RgbRigSample right = _right[rightIndex];
                 StereoDepthRigSample depth = _depth[depthIndex];
-                _left.RemoveAt(0);
-                _right.RemoveAt(0);
+                _left.RemoveAt(leftIndex);
+                _right.RemoveAt(rightIndex);
                 _depth.RemoveAt(depthIndex);
 
                 GpuTextureLease leftLease = left.TakeLease();
@@ -225,8 +217,10 @@ namespace Genesis.RoomScan.Prism
                     leftLease, left.View, rightLease, right.View, depthLease,
                     depth.Left, depth.Right, depth.Resolution, depth.NearFar, health);
                 _accepted++;
+                _lastPublishedDepthNs = depth.Left.Timestamp.UnixNanoseconds;
                 _lastRgbDelta = rgbDelta;
                 _lastRgbDepthDelta = rgbDepthDelta;
+                DropPastPublishedSamples();
                 return true;
             }
             return false;
@@ -242,7 +236,7 @@ namespace Genesis.RoomScan.Prism
         public void Dispose() => Flush(RigFrameRejectionReason.Stale);
 
         private bool ValidateIncoming(GpuImageView view, uint calibrationEpoch,
-            ref long lastTimestamp, out RigFrameRejectionReason rejection)
+            out RigFrameRejectionReason rejection)
         {
             rejection = RigFrameRejectionReason.None;
             if (!view.IsValid)
@@ -253,59 +247,143 @@ namespace Genesis.RoomScan.Prism
                 rejection |= RigFrameRejectionReason.CalibrationMismatch;
             if (view.Timestamp.MappingUncertaintyNanoseconds > _maxClockUncertaintyNs)
                 rejection |= RigFrameRejectionReason.ClockMappingUncertain;
-            if (view.Timestamp.UnixNanoseconds <= lastTimestamp)
-                rejection |= RigFrameRejectionReason.OutOfOrder;
-            if (rejection != RigFrameRejectionReason.None)
+            return rejection == RigFrameRejectionReason.None;
+        }
+
+        private bool FindEarliestCoherentTriplet(out int bestLeft,
+            out int bestRight, out int bestDepth, out long bestRgbDelta,
+            out long bestRgbDepthDelta)
+        {
+            bestLeft = bestRight = bestDepth = -1;
+            bestRgbDelta = bestRgbDepthDelta = long.MaxValue;
+            for (int depthIndex = 0; depthIndex < _depth.Count; depthIndex++)
+            {
+                StereoDepthRigSample depth = _depth[depthIndex];
+                long depthTimestamp = depth.Left.Timestamp.UnixNanoseconds;
+                if (depthTimestamp <= _lastPublishedDepthNs)
+                    continue;
+                long bestScore = long.MaxValue;
+                int candidateLeft = -1;
+                int candidateRight = -1;
+                long candidateRgbDelta = long.MaxValue;
+                long candidateDepthDelta = long.MaxValue;
+                for (int leftIndex = 0; leftIndex < _left.Count; leftIndex++)
+                {
+                    RgbRigSample left = _left[leftIndex];
+                    if (left.CalibrationEpoch != depth.CalibrationEpoch) continue;
+                    for (int rightIndex = 0; rightIndex < _right.Count; rightIndex++)
+                    {
+                        RgbRigSample right = _right[rightIndex];
+                        if (right.CalibrationEpoch != depth.CalibrationEpoch) continue;
+                        long rgbDelta = left.View.Timestamp.AbsoluteDeltaNanoseconds(
+                            right.View.Timestamp);
+                        if (rgbDelta > _maxRgbDeltaNs) continue;
+                        long midpoint = Midpoint(left.View.Timestamp.UnixNanoseconds,
+                            right.View.Timestamp.UnixNanoseconds);
+                        long depthDelta = AbsoluteDelta(midpoint, depthTimestamp);
+                        if (depthDelta > _maxRgbDepthDeltaNs) continue;
+                        long score = depthDelta * 2L + rgbDelta;
+                        if (score >= bestScore) continue;
+                        bestScore = score;
+                        candidateLeft = leftIndex;
+                        candidateRight = rightIndex;
+                        candidateRgbDelta = rgbDelta;
+                        candidateDepthDelta = depthDelta;
+                    }
+                }
+                // Depth is the metric cadence. Select the earliest depth sample
+                // that already has a coherent pair, then the closest RGB pair for
+                // that sample. This preserves time order without assuming callback
+                // arrival order.
+                if (candidateLeft < 0) continue;
+                bestLeft = candidateLeft;
+                bestRight = candidateRight;
+                bestDepth = depthIndex;
+                bestRgbDelta = candidateRgbDelta;
+                bestRgbDepthDelta = candidateDepthDelta;
+                return true;
+            }
+            return false;
+        }
+
+        private bool AcceptReorderedTimestamp(long timestamp,
+            ref long maximumSeen, out RigFrameRejectionReason rejection)
+        {
+            rejection = RigFrameRejectionReason.None;
+            long reorderHorizon = 2L * Math.Max(_maxRgbDepthDeltaNs,
+                _maxRgbDeltaNs);
+            if (maximumSeen > 0L && timestamp < maximumSeen - reorderHorizon)
+            {
+                rejection = RigFrameRejectionReason.OutOfOrder |
+                            RigFrameRejectionReason.Stale;
                 return false;
-            lastTimestamp = view.Timestamp.UnixNanoseconds;
+            }
+            maximumSeen = Math.Max(maximumSeen, timestamp);
             return true;
         }
 
-        private int FindNearestDepth(long rgbMidpoint, uint calibrationEpoch,
-            out long bestDelta)
+        private void DropPastPublishedSamples()
         {
-            int best = -1;
-            bestDelta = long.MaxValue;
-            for (int i = 0; i < _depth.Count; i++)
-            {
-                StereoDepthRigSample candidate = _depth[i];
-                if (candidate.CalibrationEpoch != calibrationEpoch)
-                    continue;
-                long delta = AbsoluteDelta(candidate.Left.Timestamp.UnixNanoseconds,
-                    rgbMidpoint);
-                if (delta < bestDelta)
-                {
-                    bestDelta = delta;
-                    best = i;
-                }
-            }
-            if (bestDelta > _maxRgbDepthDeltaNs)
-                return -1;
-            return best;
-        }
-
-        private void DropProvablyStaleRgbOrDepth(long rgbMidpoint)
-        {
+            if (_lastPublishedDepthNs <= 0L) return;
             while (_depth.Count > 0 &&
-                   _depth[0].Left.Timestamp.UnixNanoseconds < rgbMidpoint - _maxRgbDepthDeltaNs)
-            {
-                RejectAndRemove(_depth, 0, RigFrameRejectionReason.RgbDepthDeltaExceeded);
-            }
-
-            if (_depth.Count > 0 &&
-                _depth[0].Left.Timestamp.UnixNanoseconds > rgbMidpoint + _maxRgbDepthDeltaNs)
-            {
-                RejectAndRemove(_left, 0, RigFrameRejectionReason.RgbDepthDeltaExceeded);
-                RejectAndRemove(_right, 0, RigFrameRejectionReason.RgbDepthDeltaExceeded);
-            }
+                   _depth[0].Left.Timestamp.UnixNanoseconds <= _lastPublishedDepthNs)
+                RejectAndRemove(_depth, 0, RigFrameRejectionReason.Stale);
+            long rgbFloor = _lastPublishedDepthNs - _maxRgbDepthDeltaNs -
+                _maxRgbDeltaNs / 2L;
+            while (_left.Count > 0 &&
+                   _left[0].View.Timestamp.UnixNanoseconds < rgbFloor)
+                RejectAndRemove(_left, 0, RigFrameRejectionReason.Stale);
+            while (_right.Count > 0 &&
+                   _right[0].View.Timestamp.UnixNanoseconds < rgbFloor)
+                RejectAndRemove(_right, 0, RigFrameRejectionReason.Stale);
         }
 
-        private void DropOlderCalibration(RgbRigSample left, RgbRigSample right)
+        private static bool ContainsTimestamp(List<RgbRigSample> queue,
+            long timestamp) => queue.Exists(sample =>
+                sample.View.Timestamp.UnixNanoseconds == timestamp);
+
+        private static bool ContainsTimestamp(List<StereoDepthRigSample> queue,
+            long timestamp) => queue.Exists(sample =>
+                sample.Left.Timestamp.UnixNanoseconds == timestamp);
+
+        private static void InsertSorted(List<RgbRigSample> queue,
+            RgbRigSample sample)
         {
-            if (left.CalibrationEpoch < right.CalibrationEpoch)
-                RejectAndRemove(_left, 0, RigFrameRejectionReason.CalibrationMismatch);
-            else
-                RejectAndRemove(_right, 0, RigFrameRejectionReason.CalibrationMismatch);
+            long timestamp = sample.View.Timestamp.UnixNanoseconds;
+            int index = queue.BinarySearch(sample,
+                RgbTimestampComparer.Instance);
+            if (index < 0) index = ~index;
+            queue.Insert(index, sample);
+        }
+
+        private static void InsertSorted(List<StereoDepthRigSample> queue,
+            StereoDepthRigSample sample)
+        {
+            int index = queue.BinarySearch(sample,
+                DepthTimestampComparer.Instance);
+            if (index < 0) index = ~index;
+            queue.Insert(index, sample);
+        }
+
+        private sealed class RgbTimestampComparer : IComparer<RgbRigSample>
+        {
+            internal static readonly RgbTimestampComparer Instance = new();
+            public int Compare(RgbRigSample x, RgbRigSample y) =>
+                (x == null ? long.MinValue :
+                    x.View.Timestamp.UnixNanoseconds).CompareTo(
+                    y == null ? long.MinValue :
+                    y.View.Timestamp.UnixNanoseconds);
+        }
+
+        private sealed class DepthTimestampComparer :
+            IComparer<StereoDepthRigSample>
+        {
+            internal static readonly DepthTimestampComparer Instance = new();
+            public int Compare(StereoDepthRigSample x, StereoDepthRigSample y) =>
+                (x == null ? long.MinValue :
+                    x.Left.Timestamp.UnixNanoseconds).CompareTo(
+                    y == null ? long.MinValue :
+                    y.Left.Timestamp.UnixNanoseconds);
         }
 
         private void Trim<T>(List<T> queue) where T : IDisposable

@@ -1,6 +1,7 @@
 #pragma kernel ClearMeshletBuild
 #pragma kernel BuildMeshDispatchArguments
 #pragma kernel BuildAdaptiveFilmMeshlets
+#pragma kernel BuildElasticBoundaryMeshlets
 #pragma kernel FinalizeMeshletDrawArguments
 
 struct ContactFilmHeader
@@ -124,14 +125,16 @@ struct DisplacementCell
     float bestPrecision;
     float bestFootprint;
     float residualVariance;
-    float freeSpacePressure;
-    uint freeSpaceViewMask;
+    float preHitPressure;
+    uint preHitPressureViewMask;
     uint revision;
 };
 
 StructuredBuffer<ContactFilmHeader> _FilmHeaders;
 StructuredBuffer<uint> _FilmAllocator;
 StructuredBuffer<ContactBoundaryHeader> _BoundaryHeaders;
+StructuredBuffer<float4> _BoundaryInformation;
+StructuredBuffer<uint> _BoundaryAllocator;
 StructuredBuffer<BoundaryHashEntry> _BoundaryHash;
 StructuredBuffer<DisplacementPageHeader> _DisplacementPages;
 StructuredBuffer<DisplacementCell> _BaseDisplacementCells;
@@ -163,8 +166,12 @@ uint _MaximumMicroLevels;
 static const uint FILM_ACTIVE = 1u;
 static const uint BOUNDARY_ACTIVE = 1u;
 static const uint BOUNDARY_PERSISTENT = 8u;
+static const uint BOUNDARY_MULTIVIEW = 32u;
+static const uint BOUNDARY_ELASTIC_MANIFOLD_LINK = 64u;
 static const uint VERTEX_BOUNDARY = 1u << 8u;
+static const uint VERTEX_LATENT_CONNECTOR = 1u << 9u;
 static const uint MESHLET_HAS_BOUNDARY = 1u << 20u;
+static const uint MESHLET_ELASTIC_CONNECTOR = 1u << 21u;
 static const uint FILM_HAS_DISPLACEMENT = 1u << 5u;
 static const uint PAGE_ACTIVE = 1u;
 static const uint BASE_GRID = 16u;
@@ -387,15 +394,6 @@ float SurfaceCoverage(ContactFilmHeader film, float2 uv)
         lerp(c01, c11, fraction.x), fraction.y));
 }
 
-bool TriangleHasObservedSupport(float coverage0, float coverage1,
-    float coverage2)
-{
-    // Linear interpolation over the triangle equals its vertex mean at the
-    // centroid. This is the same continuous iso-domain decision without another
-    // hierarchical texture/sample query.
-    return coverage0 + coverage1 + coverage2 > 0.06;
-}
-
 uint BoundaryHashKey(uint filmId, uint generation, uint cellKey)
 {
     uint value = filmId * 0x9e3779b9u;
@@ -550,9 +548,9 @@ uint ChooseSubdivision(ContactFilmHeader film)
     float footprintRequired = physicalSpan / max(bestFootprint, targetError);
     float required = max(sqrt(max(1.0,
         (curvatureSag + displacementError) / targetError)), footprintRequired);
-    // Coverage is canonical topology, not a display mask. Preserve at least the
-    // bootstrap 8x8 contact-domain resolution even on an analytically flat film;
-    // unsupported cells must not be collapsed into one rectangular quad.
+    // Observed coverage carries measurement detail even though it no longer cuts
+    // topology. Preserve at least the bootstrap sampling where cone footprints have
+    // deposited information.
     if ((film.supportMaskLow | film.supportMaskHigh) != 0u ||
         (film.flags & FILM_HAS_DISPLACEMENT) != 0u)
         required = max(required, 8.0);
@@ -578,6 +576,7 @@ void ClearMeshletBuild(uint3 id : SV_DispatchThreadID)
     _MeshletAllocator[6] = 0u; // reserved
     _MeshletAllocator[7] = 0u; // publication revision
     _MeshDispatchArguments[0] = uint3(0u, 1u, 1u);
+    _MeshDispatchArguments[1] = uint3(0u, 1u, 1u);
     _CullDispatchArguments[0] = uint3(0u, 1u, 1u);
     _DrawArguments[0] = uint4(0u, 1u, 0u, 0u);
 }
@@ -590,6 +589,8 @@ void BuildMeshDispatchArguments(uint3 id : SV_DispatchThreadID)
     // the old one-thread-per-film kernel serialized up to 289 vertex evaluations
     // and 512 triangle decisions in a single mobile-GPU lane.
     _MeshDispatchArguments[0] = uint3(filmCount, 1u, 1u);
+    uint boundaryCount = _HasBoundaries != 0u ? _BoundaryAllocator[0] : 0u;
+    _MeshDispatchArguments[1] = uint3((boundaryCount + 63u) / 64u, 1u, 1u);
 }
 
 groupshared uint sBuildValid;
@@ -637,9 +638,8 @@ void BuildAdaptiveFilmMeshlets(uint3 groupId : SV_GroupID,
     uint rowVertices = sRowVertices;
     uint vertexBase = 0u;
 
-    // Resolve canonical support first. Fully eroded/unsupported films consume no
-    // mesh arena capacity. Coverage is cached in 1.2 KiB of group shared memory so
-    // later phases do not repeat hierarchy loads.
+    // Resolve observation confidence first. The complete chart remains an elastic
+    // sheet; coverage controls certainty/detail and never removes topology.
     for (uint coverageOrdinal = groupIndex;
         coverageOrdinal < sVertexCount; coverageOrdinal += 64u)
     {
@@ -651,27 +651,10 @@ void BuildAdaptiveFilmMeshlets(uint3 groupId : SV_GroupID,
     GroupMemoryBarrierWithGroupSync();
 
     uint cellCount = segments * segments;
-    uint localTriangleCount = 0u;
-    for (uint countCellOrdinal = groupIndex; countCellOrdinal < cellCount;
-        countCellOrdinal += 64u)
-    {
-        uint cellX = countCellOrdinal % segments;
-        uint cellY = countCellOrdinal / segments;
-        uint v00 = cellY * rowVertices + cellX;
-        uint v10 = v00 + 1u;
-        uint v01 = v00 + rowVertices;
-        uint v11 = v01 + 1u;
-        float coverage00 = sCoverage[v00];
-        float coverage10 = sCoverage[v10];
-        float coverage01 = sCoverage[v01];
-        float coverage11 = sCoverage[v11];
-        if (TriangleHasObservedSupport(coverage00, coverage10, coverage01))
-            localTriangleCount++;
-        if (TriangleHasObservedSupport(coverage01, coverage10, coverage11))
-            localTriangleCount++;
-    }
-    if (localTriangleCount > 0u)
-        InterlockedAdd(sTriangleCount, localTriangleCount);
+    // Every logical chart cell owns two triangles. Coverage is measurement
+    // information only; even a non-finite/corrupt confidence sample must not turn
+    // into a topology deletion. Vertex confidence sanitizes that field separately.
+    if (groupIndex == 0u) sTriangleCount = cellCount * 2u;
     GroupMemoryBarrierWithGroupSync();
 
     if (groupIndex == 0u)
@@ -703,9 +686,8 @@ void BuildAdaptiveFilmMeshlets(uint3 groupId : SV_GroupID,
     if (sBuildValid == 0u) return;
 
     vertexBase = sVertexBase;
-    // Materialize the supported chart lattice in parallel. Unsupported vertices
-    // may still be referenced by a boundary triangle's interpolation, but no
-    // triangle is emitted unless its continuous centroid support is positive.
+    // Materialize the complete connected chart lattice in parallel. Contact support
+    // modulates posterior confidence while latent cells remain deformable material.
     for (uint vertexOrdinal = groupIndex;
         vertexOrdinal < sVertexCount; vertexOrdinal += 64u)
     {
@@ -725,11 +707,14 @@ void BuildAdaptiveFilmMeshlets(uint3 groupId : SV_GroupID,
         vertex.generation = film.generation;
         vertex.uv = surfaceUv;
         vertex.sigma = film.sigmaNormal;
-        vertex.confidence = film.confidence;
+        float observedConfidence = isfinite(sCoverage[vertexOrdinal]) ?
+            saturate(sCoverage[vertexOrdinal]) : 0.0;
+        vertex.confidence = film.confidence * lerp(0.2, 1.0,
+            observedConfidence);
         vertex.sidedness = 1u;
         vertex.flags = film.flags | (onBoundary ? VERTEX_BOUNDARY : 0u);
         vertex.reserved0 = film.appearancePage;
-        vertex.reserved1 = asuint(sCoverage[vertexOrdinal]);
+        vertex.reserved1 = asuint(observedConfidence);
         _ContactVertices[vertexBase + vertexOrdinal] = vertex;
     }
 
@@ -748,26 +733,15 @@ void BuildAdaptiveFilmMeshlets(uint3 groupId : SV_GroupID,
         uint local10 = local00 + 1u;
         uint local01 = local00 + rowVertices;
         uint local11 = local01 + 1u;
-        if (TriangleHasObservedSupport(sCoverage[local00], sCoverage[local10],
-            sCoverage[local01]))
-        {
-            uint triangleSlot;
-            InterlockedAdd(sWriteTriangle, 1u, triangleSlot);
-            uint writeIndex = sIndexBase + triangleSlot * 3u;
-            _ContactIndices[writeIndex + 0u] = vertexBase + local00;
-            _ContactIndices[writeIndex + 1u] = vertexBase + local10;
-            _ContactIndices[writeIndex + 2u] = vertexBase + local01;
-        }
-        if (TriangleHasObservedSupport(sCoverage[local01], sCoverage[local10],
-            sCoverage[local11]))
-        {
-            uint triangleSlot;
-            InterlockedAdd(sWriteTriangle, 1u, triangleSlot);
-            uint writeIndex = sIndexBase + triangleSlot * 3u;
-            _ContactIndices[writeIndex + 0u] = vertexBase + local01;
-            _ContactIndices[writeIndex + 1u] = vertexBase + local10;
-            _ContactIndices[writeIndex + 2u] = vertexBase + local11;
-        }
+        uint triangleSlot;
+        InterlockedAdd(sWriteTriangle, 2u, triangleSlot);
+        uint writeIndex = sIndexBase + triangleSlot * 3u;
+        _ContactIndices[writeIndex + 0u] = vertexBase + local00;
+        _ContactIndices[writeIndex + 1u] = vertexBase + local10;
+        _ContactIndices[writeIndex + 2u] = vertexBase + local01;
+        _ContactIndices[writeIndex + 3u] = vertexBase + local01;
+        _ContactIndices[writeIndex + 4u] = vertexBase + local10;
+        _ContactIndices[writeIndex + 5u] = vertexBase + local11;
     }
     GroupMemoryBarrierWithGroupSync();
     if (groupIndex != 0u) return;
@@ -804,6 +778,173 @@ void BuildAdaptiveFilmMeshlets(uint3 groupId : SV_GroupID,
     descriptor.sourceIndexCount = sTriangleCount * 3u;
     descriptor.reserved = filmIndex;
     _MeshletDescriptors[sDescriptorIndex] = descriptor;
+    InterlockedAdd(_MeshletAllocator[3], 1u);
+}
+
+// ContactFilm rectangles are only local coordinates on one conserved membrane.
+// A multi-view-supported FilmA/FilmB ContactBoundary is the canonical adjacency edge between
+// two such coordinates. Materialize that edge as a narrow elastic curtain/crease so
+// internal chart borders can never become holes or independent plates. This strip is
+// latent (FilmId=0): it is visible as connected membrane but cannot masquerade as a
+// measured first-hit contact in the prediction raster.
+static const uint CONNECTOR_SEGMENTS = 8u;
+static const uint CONNECTOR_VERTICES = (CONNECTOR_SEGMENTS + 1u) * 2u;
+static const uint CONNECTOR_INDICES = CONNECTOR_SEGMENTS * 6u;
+
+float2 ProjectToFilmUv(ContactFilmHeader film, float3 point)
+{
+    float3 delta = point - film.origin;
+    return float2(
+        dot(delta, film.tangentU) / max(2.0 * film.extentU, 0.002) + 0.5,
+        dot(delta, film.tangentV) / max(2.0 * film.extentV, 0.002) + 0.5);
+}
+
+float3 FilmPoint(ContactFilmHeader film, float2 uv)
+{
+    uv = saturate(uv);
+    float u = lerp(-film.extentU, film.extentU, uv.x);
+    float v = lerp(-film.extentV, film.extentV, uv.y);
+    return film.origin + u * film.tangentU + v * film.tangentV +
+        Height(film, u, v, uv) * film.normal;
+}
+
+float3 ConnectorNormal(ContactBoundaryHeader boundary,
+    ContactFilmHeader filmA, ContactFilmHeader filmB, float t)
+{
+    float step = 1.0 / (float)CONNECTOR_SEGMENTS;
+    float t0 = max(0.0, t - step);
+    float t1 = min(1.0, t + step);
+    float2 uvA0 = BoundaryCubic(boundary, t0);
+    float2 uvA1 = BoundaryCubic(boundary, t1);
+    float3 a0 = FilmPoint(filmA, uvA0);
+    float3 a1 = FilmPoint(filmA, uvA1);
+    float3 b0 = FilmPoint(filmB, ProjectToFilmUv(filmB, a0));
+    float3 b1 = FilmPoint(filmB, ProjectToFilmUv(filmB, a1));
+    float3 along = a1 + b1 - a0 - b0;
+    float2 uvA = BoundaryCubic(boundary, t);
+    float3 a = FilmPoint(filmA, uvA);
+    float3 b = FilmPoint(filmB, ProjectToFilmUv(filmB, a));
+    float3 across = b - a;
+    float3 normal = cross(along, across);
+    float normalLength = length(normal);
+    float3 preferred = filmA.normal + filmB.normal;
+    if (normalLength <= 1e-7 || !isfinite(normalLength))
+        normal = length(preferred) > 1e-5 ? normalize(preferred) : filmA.normal;
+    else
+        normal /= normalLength;
+    if (length(preferred) > 1e-5 && dot(normal, preferred) < 0.0)
+        normal = -normal;
+    return normal;
+}
+
+[numthreads(64, 1, 1)]
+void BuildElasticBoundaryMeshlets(uint3 id : SV_DispatchThreadID)
+{
+    uint boundaryCount = _HasBoundaries != 0u ? _BoundaryAllocator[0] : 0u;
+    uint boundaryIndex = id.x;
+    if (boundaryIndex >= boundaryCount) return;
+    ContactBoundaryHeader boundary = _BoundaryHeaders[boundaryIndex];
+    uint required = BOUNDARY_ACTIVE | BOUNDARY_ELASTIC_MANIFOLD_LINK;
+    bool topologySupported = (boundary.flags & (BOUNDARY_PERSISTENT |
+        BOUNDARY_MULTIVIEW)) != 0u;
+    if ((boundary.flags & required) != required || !topologySupported ||
+        boundary.filmA == 0u ||
+        boundary.filmB == 0u || boundary.filmA > _FilmCapacity ||
+        boundary.filmB > _FilmCapacity) return;
+
+    ContactFilmHeader filmA = _FilmHeaders[boundary.filmA - 1u];
+    ContactFilmHeader filmB = _FilmHeaders[boundary.filmB - 1u];
+    if (filmA.id != boundary.filmA ||
+        filmA.generation != boundary.filmAGeneration ||
+        filmB.id != boundary.filmB ||
+        filmB.generation != boundary.filmBGeneration ||
+        (filmA.flags & FILM_ACTIVE) == 0u ||
+        (filmB.flags & FILM_ACTIVE) == 0u) return;
+
+    uint vertexBase, descriptorIndex, indexBase;
+    if (!Reserve(0u, CONNECTOR_VERTICES, _VertexCapacity, vertexBase) ||
+        !Reserve(4u, 1u, _DescriptorCapacity, descriptorIndex) ||
+        !Reserve(1u, CONNECTOR_INDICES, _IndexCapacity, indexBase))
+    {
+        InterlockedAdd(_MeshletAllocator[2], 1u);
+        return;
+    }
+
+    float metricSigma = max(_BoundaryInformation[boundaryIndex * 8u + 3u].w,
+        max(filmA.sigmaNormal, filmB.sigmaNormal));
+    float confidence = 0.08 + 0.27 * saturate(boundary.confidence);
+    float3 boundsCentre = 0.0;
+    [unroll]
+    for (uint sample = 0u; sample <= CONNECTOR_SEGMENTS; ++sample)
+    {
+        float t = (float)sample / (float)CONNECTOR_SEGMENTS;
+        float2 uvA = BoundaryCubic(boundary, t);
+        float3 pointA = FilmPoint(filmA, uvA);
+        float2 uvB = saturate(ProjectToFilmUv(filmB, pointA));
+        float3 pointB = FilmPoint(filmB, uvB);
+        float3 normal = ConnectorNormal(boundary, filmA, filmB, t);
+        float separation = length(pointB - pointA);
+        float sigma = max(0.02, metricSigma + 0.5 * separation);
+
+        ContactMeshletVertex vertexA = (ContactMeshletVertex)0;
+        vertexA.position = pointA;
+        vertexA.normal = normal;
+        vertexA.uv = float2(t, 0.0);
+        vertexA.sigma = sigma;
+        vertexA.confidence = confidence;
+        vertexA.sidedness = 1u;
+        vertexA.flags = VERTEX_LATENT_CONNECTOR;
+        ContactMeshletVertex vertexB = vertexA;
+        vertexB.position = pointB;
+        vertexB.uv.y = 1.0;
+        _ContactVertices[vertexBase + sample * 2u] = vertexA;
+        _ContactVertices[vertexBase + sample * 2u + 1u] = vertexB;
+        boundsCentre += pointA + pointB;
+    }
+    boundsCentre /= (float)CONNECTOR_VERTICES;
+
+    [unroll]
+    for (uint segment = 0u; segment < CONNECTOR_SEGMENTS; ++segment)
+    {
+        uint a0 = vertexBase + segment * 2u;
+        uint b0 = a0 + 1u;
+        uint a1 = a0 + 2u;
+        uint b1 = a0 + 3u;
+        uint write = indexBase + segment * 6u;
+        _ContactIndices[write + 0u] = a0;
+        _ContactIndices[write + 1u] = a1;
+        _ContactIndices[write + 2u] = b0;
+        _ContactIndices[write + 3u] = b0;
+        _ContactIndices[write + 4u] = a1;
+        _ContactIndices[write + 5u] = b1;
+    }
+
+    float radius = metricSigma;
+    [unroll]
+    for (uint endpoint = 0u; endpoint < 4u; ++endpoint)
+    {
+        float t = endpoint < 2u ? 0.0 : 1.0;
+        float3 pointA = FilmPoint(filmA, BoundaryCubic(boundary, t));
+        float3 pointB = FilmPoint(filmB, ProjectToFilmUv(filmB, pointA));
+        radius = max(radius, length(pointA - boundsCentre));
+        radius = max(radius, length(pointB - boundsCentre));
+    }
+    ContactMeshletDescriptor descriptor = (ContactMeshletDescriptor)0;
+    descriptor.filmId = boundary.filmA;
+    descriptor.generation = boundary.filmAGeneration;
+    descriptor.vertexBase = vertexBase;
+    descriptor.maximumSegments = CONNECTOR_SEGMENTS;
+    descriptor.center = boundsCentre;
+    descriptor.radius = max(radius, 0.001);
+    descriptor.uvBounds = float4(0, 0, 1, 1);
+    descriptor.geometricError = metricSigma;
+    descriptor.detailFootprint = max(metricSigma, 0.001);
+    descriptor.confidence = confidence;
+    descriptor.flags = MESHLET_HAS_BOUNDARY | MESHLET_ELASTIC_CONNECTOR;
+    descriptor.sourceIndexBase = indexBase;
+    descriptor.sourceIndexCount = CONNECTOR_INDICES;
+    descriptor.reserved = boundaryIndex;
+    _MeshletDescriptors[descriptorIndex] = descriptor;
     InterlockedAdd(_MeshletAllocator[3], 1u);
 }
 

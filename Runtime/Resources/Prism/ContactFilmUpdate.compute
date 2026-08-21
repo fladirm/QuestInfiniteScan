@@ -116,7 +116,7 @@ float3 LoadRay(uint2 pixel, uint eye)
         _DepthRayCenterRight[pixel].xyz;
 }
 
-uint FreeSpaceViewBit(ContactFilmHeader film, uint eye)
+uint PreHitPressureViewBit(ContactFilmHeader film, uint eye)
 {
     float3 cameraChunk = mul(_ChunkFromDepth[eye],
         float4(0.0, 0.0, 0.0, 1.0)).xyz;
@@ -336,9 +336,9 @@ void AccumulateMatchedFilms(uint3 id : SV_DispatchThreadID)
                     eventData.pressurePrecision);
                 float occluderRatio = saturate(eventData.pressurePrecision /
                     max(occluderBest, 1e-8));
-                // Free-space pressure inherits the precision ratio twice: a
-                // distant/grazing cone may eventually challenge a weak film, but
-                // cannot cheaply erase a surface baked by a close, sharp view.
+                // Pre-hit pressure inherits the precision ratio twice: a
+                // distant/grazing cone may eventually deform a weak film, but
+                // cannot cheaply move a surface baked by a close, sharp view.
                 float occluderSupport = saturate(eventData.confidence) *
                     max(0.002, occluderRatio * occluderRatio);
                 uint occluderBase = occluderIndex * WORDS_PER_FILM;
@@ -361,7 +361,7 @@ void AccumulateMatchedFilms(uint3 id : SV_DispatchThreadID)
                     SUPPORT_FIXED_SCALE);
                 uint eye = eventData.packedPixel >> 31u;
                 InterlockedOr(_FrameAccumulator[occluderBase + 32u],
-                    (int)FreeSpaceViewBit(occluder, eye));
+                    (int)PreHitPressureViewBit(occluder, eye));
             }
         }
     }
@@ -409,12 +409,12 @@ void AccumulateBehindEvidence(uint3 id : SV_DispatchThreadID)
         (eventData.packedPixel >> 16u) & 0x7fffu);
     uint eye = eventData.packedPixel >> 31u;
     InterlockedOr(_FrameAccumulator[baseWord + 32u],
-        (int)FreeSpaceViewBit(film, eye));
+        (int)PreHitPressureViewBit(film, eye));
 
     // If first-hit contact lies just beyond a still-uncertain film and has a
-    // compatible normal, the cone does not merely vote for deletion: it applies a
-    // bounded normal-direction pressure inside the film's uncertainty shell.  A
-    // large gap remains contradiction only and will retire the false occluder.
+    // compatible normal, the cone applies bounded normal-direction pressure inside
+    // the film's uncertainty shell. A large/incompatible gap remains unresolved
+    // topology evidence; it never becomes a whole-film delete command.
     float3 measuredNormalChunk = mul((float3x3)_ChunkFromDepth[eye],
         eventData.measuredNormal);
     float normalLength2 = dot(measuredNormalChunk, measuredNormalChunk);
@@ -651,8 +651,62 @@ void SolveDirtyFilms(uint3 id : SV_DispatchThreadID)
         if (CholeskySolve(totalMatrix, totalRhs, solved))
         {
             float maximumNormalStep = max(_MinimumSigma, film.sigmaNormal * 0.5);
-            solved[0] = alpha[0] + clamp(solved[0] - alpha[0],
-                -maximumNormalStep, maximumNormalStep);
+            // The old implementation bounded q0 only. An underconstrained slope or
+            // curvature mode could therefore rotate/extrapolate the chart by metres
+            // in one revisit and materialize the visible eye-to-surface needles. A
+            // ContactFilm is one coupled manifold: apply one trust-region scale to
+            // the complete quadratic innovation, measured over its normalized domain.
+            float innovation[6];
+            [unroll] for (uint coefficient = 0u; coefficient < 6u; ++coefficient)
+                innovation[coefficient] = solved[coefficient] - alpha[coefficient];
+            float maximumDomainInnovation = 0.0;
+            [unroll]
+            for (int sampleY = -1; sampleY <= 1; ++sampleY)
+            [unroll]
+            for (int sampleX = -1; sampleX <= 1; ++sampleX)
+            {
+                float U = (float)sampleX;
+                float V = (float)sampleY;
+                float basis[6] = { 1.0, U, V, U * U, U * V, V * V };
+                float displacement = 0.0;
+                [unroll] for (uint coefficient = 0u; coefficient < 6u;
+                    ++coefficient)
+                    displacement += innovation[coefficient] * basis[coefficient];
+                maximumDomainInnovation = max(maximumDomainInnovation,
+                    abs(displacement));
+            }
+            float trustScale = maximumDomainInnovation > maximumNormalStep
+                ? maximumNormalStep / max(maximumDomainInnovation, 1e-8)
+                : 1.0;
+            [unroll] for (uint coefficient = 0u; coefficient < 6u; ++coefficient)
+                solved[coefficient] = alpha[coefficient] +
+                    innovation[coefficient] * trustScale;
+
+            // Absolute curvature remains inside a support-derived envelope. This is
+            // a stability domain, not a detail cap: split/microtiles carry geometry
+            // that is not single-valued inside one quadratic chart.
+            float shapeEnvelope = max(0.008,
+                min(extentU, extentV) + 6.0 * film.sigmaNormal);
+            float maximumShape = 0.0;
+            [unroll]
+            for (int shapeY = -1; shapeY <= 1; ++shapeY)
+            [unroll]
+            for (int shapeX = -1; shapeX <= 1; ++shapeX)
+            {
+                float U = (float)shapeX;
+                float V = (float)shapeY;
+                float relativeHeight = solved[1] * U + solved[2] * V +
+                    solved[3] * U * U + solved[4] * U * V +
+                    solved[5] * V * V;
+                maximumShape = max(maximumShape, abs(relativeHeight));
+            }
+            if (maximumShape > shapeEnvelope)
+            {
+                float shapeScale = shapeEnvelope / max(maximumShape, 1e-8);
+                [unroll] for (uint coefficient = 1u; coefficient < 6u;
+                    ++coefficient)
+                    solved[coefficient] *= shapeScale;
+            }
             film.quadratic0123 = float4(solved[0], solved[1] / extentU,
                 solved[2] / extentV, solved[3] / (extentU * extentU));
             film.quadratic45 = float2(solved[4] / (extentU * extentV),
@@ -666,12 +720,12 @@ void SolveDirtyFilms(uint3 id : SV_DispatchThreadID)
         (float)_FrameAccumulator[baseWord + 27u] / SUPPORT_FIXED_SCALE);
     float signedContactEvidence =
         (float)_FrameAccumulator[baseWord + 31u] / SUPPORT_FIXED_SCALE;
-    // MATCH/photometric pressure contributes -w and proven free space +w.
-    // Decomposing the signed statistic prevents a contradicted film from becoming
-    // more confident merely because many rays proved it should not be there.
+    // MATCH/photometric contact contributes -w and the pre-hit pressure path +w.
+    // Decomposing the signed statistic prevents an opposed film from becoming more
+    // confident merely because many cones are trying to displace it.
     float contactEvidence = max(0.0,
         0.5 * (allEvidence - signedContactEvidence));
-    float freeSpaceEvidence = max(0.0,
+    float preHitPressureEvidence = max(0.0,
         0.5 * (allEvidence + signedContactEvidence));
     uint contactObservationCount =
         (uint)max(0, _FrameAccumulator[baseWord + 33u]);
@@ -679,7 +733,7 @@ void SolveDirtyFilms(uint3 id : SV_DispatchThreadID)
     float minFootprint = asfloat((uint)_FrameAccumulator[baseWord + 30u]);
     float4 countAndSupport = _FilmInformation[filmInfo + 7u];
     float4 quality = _FilmInformation[filmInfo + 8u];
-    float4 curvatureAndFreeSpace = _FilmInformation[filmInfo + 5u];
+    float4 curvatureAndPressure = _FilmInformation[filmInfo + 5u];
     countAndSupport.z += (float)contactObservationCount;
     countAndSupport.w += contactEvidence;
     quality.z = isfinite(minFootprint) ? min(quality.z, minFootprint) : quality.z;
@@ -691,71 +745,55 @@ void SolveDirtyFilms(uint3 id : SV_DispatchThreadID)
     film.confidence = saturate(1.0 - exp(-countAndSupport.z / 12.0));
     if (allEvidence > 1e-5)
     {
-        float contradictionTarget = saturate(freeSpaceEvidence /
-            max(contactEvidence + freeSpaceEvidence, 1e-6));
+        float contradictionTarget = saturate(preHitPressureEvidence /
+            max(contactEvidence + preHitPressureEvidence, 1e-6));
         float response = contradictionTarget > film.contradiction ? 0.25 : 0.12;
         film.contradiction = lerp(film.contradiction,
             contradictionTarget, response);
     }
 
-    // Persistent first-hit free-space state lives in the three otherwise unused
-    // lanes beside H[35]. It is canonical and resumable without widening the film
-    // ABI: accumulated pressure, consecutive free-only frames, angular/eye bins.
-    float persistentFreeSpace = max(0.0, curvatureAndFreeSpace.y);
-    float consecutiveFreeFrames = max(0.0, curvatureAndFreeSpace.z);
-    uint freeSpaceViewMask = asuint(curvatureAndFreeSpace.w) |
+    // Persistent pre-hit pressure lives in the three otherwise unused lanes beside
+    // H[35]. It is canonical and resumable without widening the film ABI:
+    // accumulated pressure, consecutive pressure-only frames, angular/eye bins.
+    float persistentPreHitPressure = max(0.0, curvatureAndPressure.y);
+    float consecutivePressureFrames = max(0.0, curvatureAndPressure.z);
+    uint preHitPressureViewMask = asuint(curvatureAndPressure.w) |
         (uint)_FrameAccumulator[baseWord + 32u];
-    if (contactEvidence > freeSpaceEvidence)
+    if (contactEvidence > preHitPressureEvidence)
     {
-        persistentFreeSpace = max(0.0,
-            persistentFreeSpace - 2.0 * contactEvidence);
-        consecutiveFreeFrames = 0.0;
-        if (persistentFreeSpace < 1.0) freeSpaceViewMask = 0u;
+        persistentPreHitPressure = max(0.0,
+            persistentPreHitPressure - 2.0 * contactEvidence);
+        consecutivePressureFrames = 0.0;
+        if (persistentPreHitPressure < 1.0) preHitPressureViewMask = 0u;
     }
-    else if (freeSpaceEvidence > 1e-5)
+    else if (preHitPressureEvidence > 1e-5)
     {
-        persistentFreeSpace = min(65535.0,
-            persistentFreeSpace * 0.985 + freeSpaceEvidence);
-        consecutiveFreeFrames = min(65535.0,
-            consecutiveFreeFrames + 1.0);
+        persistentPreHitPressure = min(65535.0,
+            persistentPreHitPressure * 0.985 + preHitPressureEvidence);
+        consecutivePressureFrames = min(65535.0,
+            consecutivePressureFrames + 1.0);
     }
     else
-        persistentFreeSpace *= 0.995;
-    curvatureAndFreeSpace.y = persistentFreeSpace;
-    curvatureAndFreeSpace.z = consecutiveFreeFrames;
-    curvatureAndFreeSpace.w = asfloat(freeSpaceViewMask);
+        persistentPreHitPressure *= 0.995;
+    curvatureAndPressure.y = persistentPreHitPressure;
+    curvatureAndPressure.z = consecutivePressureFrames;
+    curvatureAndPressure.w = asfloat(preHitPressureViewMask);
 
-    // A close/high-precision bake stores more information and therefore demands
-    // proportionally more contradictory pressure. Retirement also requires both
-    // temporal persistence and at least two independent eye/view bins. This
-    // removes geometry proven to stand in observed free space without ever carving
-    // behind the measured first hit.
-    float retirementEvidence = clamp(8.0 +
-        0.15 * sqrt(max(film.supportTotal, 0.0)), 8.0, 64.0);
-    bool retireFromFreeSpace = countbits(freeSpaceViewMask) >= 2u &&
-        consecutiveFreeFrames >= 3.0 &&
-        persistentFreeSpace >= retirementEvidence &&
-        film.contradiction >= 0.65 && contactEvidence < 0.25;
-    // Once a film owns coverage cells, free-space pressure is applied locally by
-    // DisplacementTopology. Whole-film retirement remains only as the bounded-pool
-    // fallback when no page could be allocated.
-    if (retireFromFreeSpace && film.displacementPage == 0u &&
-        (film.flags & FILM_ACTIVE) != 0u)
-    {
-        film.flags &= ~FILM_ACTIVE;
-        film.flags |= FILM_RETIRED | FILM_DIRTY_GEOMETRY |
+    // Opposing evidence never retires/deletes a manifold. If local displacement
+    // storage is temporarily unavailable, retain the pressure posterior here and
+    // keep the film uncertain until the elastic/topology stage can move or split it.
+    // Pool pressure is therefore fail-closed in geometry, not fail-open as a hole.
+    if (countbits(preHitPressureViewMask) >= 2u && consecutivePressureFrames >= 3.0 &&
+        persistentPreHitPressure > 0.0)
+        film.flags |= FILM_UNCERTAIN | FILM_DIRTY_GEOMETRY |
             FILM_DIRTY_MESHLET;
-        film.revision = film.revision == 0xffffffffu ? 1u :
-            film.revision + 1u;
-        InterlockedAdd(_FilmAllocator[1], 0xffffffffu);
-    }
     if (film.sigmaNormal <= _MinimumSigma * 1.25)
         film.flags &= ~FILM_UNCERTAIN;
     quality.x = film.sigmaNormal;
     quality.y = film.confidence;
     _FilmInformation[filmInfo + 7u] = countAndSupport;
     _FilmInformation[filmInfo + 8u] = quality;
-    _FilmInformation[filmInfo + 5u] = curvatureAndFreeSpace;
+    _FilmInformation[filmInfo + 5u] = curvatureAndPressure;
     _FilmHeaders[filmIndex] = film;
 
     [unroll] for (uint word = 0u; word < WORDS_PER_FILM; ++word)

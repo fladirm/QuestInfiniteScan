@@ -32,6 +32,7 @@ namespace Genesis.RoomScan.Prism
         [SerializeField, Min(2f)] private float retirementEvidence = 16f;
 
         private static readonly int BoundaryCapacityId = Shader.PropertyToID("_BoundaryCapacity");
+        private static readonly int FilmCapacityId = Shader.PropertyToID("_FilmCapacity");
         private static readonly int HashMaskId = Shader.PropertyToID("_HashMask");
         private static readonly int EventCapacityId = Shader.PropertyToID("_EventCapacity");
         private static readonly int CellsPerAxisId = Shader.PropertyToID("_CellsPerAxis");
@@ -301,6 +302,7 @@ namespace Genesis.RoomScan.Prism
         private void BindPersistent()
         {
             boundaryCompute.SetInt(BoundaryCapacityId, _pool.Capacity);
+            boundaryCompute.SetInt(FilmCapacityId, filmSpawner.FilmPool.Capacity);
             boundaryCompute.SetInt(HashMaskId, _pool.HashCapacity - 1);
             int[] kernels =
             {
