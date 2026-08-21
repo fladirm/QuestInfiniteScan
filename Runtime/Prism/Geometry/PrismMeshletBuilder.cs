@@ -5,9 +5,10 @@ using UnityEngine.Rendering;
 namespace Genesis.RoomScan.Prism
 {
     /// <summary>
-    /// Immediate derived meshlet materialization for canonical ContactFilms. This first
-    /// stage emits one analytic quad per film so prediction closes the online loop;
-    /// Q3-12 replaces density with boundary/curvature/screen-error adaptive tessellation.
+    /// Immediate derived meshlet materialization for canonical ContactFilms. One GPU
+    /// workgroup per film tessellates the continuous support domain adaptively from
+    /// curvature, uncertainty, measured footprint, displacement and boundaries. The
+    /// result closes prediction/association without making triangles canonical state.
     /// </summary>
     [DisallowMultipleComponent]
     [DefaultExecutionOrder(20)]

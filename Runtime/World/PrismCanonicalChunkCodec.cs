@@ -47,14 +47,18 @@ namespace Genesis.RoomScan.World
     }
 
     /// <summary>
-    /// Strict versioned binary codec for resumable ContactFilms. Version 3 adds the
-    /// complete hierarchical geometry posterior and derived render cache. Version 2 is
-    /// still readable and upgrades missing sections to explicit empty state.
+    /// Strict versioned binary codec for resumable ContactFilms. Version 4 adds the
+    /// canonical bootstrap contact-domain mask and per-cell persistent free-space
+    /// posterior. Versions 2/3 remain readable; missing state is widened with zeroed,
+    /// fail-closed fields rather than fabricated support or contradiction.
     /// </summary>
     public static class PrismCanonicalChunkCodec
     {
-        public const int FormatVersion = 3;
+        public const int FormatVersion = 4;
+        private const int PreviousFormatVersion = 3;
         private const int LegacyFormatVersion = 2;
+        private const int LegacyFilmHeaderStride = 144;
+        private const int LegacyDisplacementCellStride = 32;
         private const uint Magic = 0x33515043; // "CPQ3"
         private const uint EndianMarker = 0x01020304;
         private const int MaximumFilms = 1_000_000;
@@ -163,7 +167,8 @@ namespace Genesis.RoomScan.World
                 PrismCanonicalChunkSnapshot candidate = version switch
                 {
                     LegacyFormatVersion => ReadVersion2(reader),
-                    FormatVersion => ReadVersion3(reader),
+                    PreviousFormatVersion => ReadVersion3(reader),
+                    FormatVersion => ReadVersion4(reader),
                     _ => throw new InvalidDataException(
                         $"Unsupported PRISM format version {version}.")
                 };
@@ -185,7 +190,7 @@ namespace Genesis.RoomScan.World
             }
         }
 
-        private static PrismCanonicalChunkSnapshot ReadVersion3(BinaryReader reader)
+        private static PrismCanonicalChunkSnapshot ReadVersion4(BinaryReader reader)
         {
             RequireStride(reader, ContactFilmHeaderGpu.Stride, "film header");
             RequireStride(reader, ContactBoundaryHeaderGpu.Stride, "boundary header");
@@ -258,9 +263,81 @@ namespace Genesis.RoomScan.World
             return candidate;
         }
 
+        private static PrismCanonicalChunkSnapshot ReadVersion3(BinaryReader reader)
+        {
+            RequireStride(reader, LegacyFilmHeaderStride, "film header");
+            RequireStride(reader, ContactBoundaryHeaderGpu.Stride, "boundary header");
+            RequireStride(reader, DisplacementPageHeaderGpu.Stride,
+                "displacement page");
+            RequireStride(reader, LegacyDisplacementCellStride,
+                "displacement cell");
+            RequireStride(reader, ContactTopologyEvidenceGpu.Stride,
+                "topology evidence");
+            RequireStride(reader, ContactMeshletVertexGpu.Stride, "meshlet vertex");
+            RequireStride(reader, ContactMeshletDescriptorGpu.Stride,
+                "meshlet descriptor");
+            var candidate = new PrismCanonicalChunkSnapshot
+            {
+                FilmCount = reader.ReadInt32(),
+                BoundaryCount = reader.ReadInt32(),
+                DisplacementBasePageCount = reader.ReadInt32(),
+                DisplacementMicroPageCount = reader.ReadInt32(),
+                MeshletVertexCount = reader.ReadInt32(),
+                MeshletIndexCount = reader.ReadInt32(),
+                MeshletDescriptorCount = reader.ReadInt32(),
+                FilmGeneration = reader.ReadUInt32(),
+                BoundaryGeneration = reader.ReadUInt32(),
+                DisplacementGeneration = reader.ReadUInt32(),
+                MeshletGeneration = reader.ReadUInt32(),
+                CalibrationEpoch = reader.ReadUInt64()
+            };
+            ValidateCounts(candidate);
+            candidate.FilmHeaders = ReadLegacyFilmHeaders(reader,
+                candidate.FilmCount);
+            candidate.FilmInformation = ReadBytes(reader,
+                Bytes(candidate.FilmCount, FilmInformationStride));
+            candidate.BoundaryHeaders = ReadBytes(reader,
+                Bytes(candidate.BoundaryCount, ContactBoundaryHeaderGpu.Stride));
+            candidate.BoundaryInformation = ReadBytes(reader,
+                Bytes(candidate.BoundaryCount, BoundaryInformationStride));
+            candidate.DisplacementPageHeaders = ReadBytes(reader,
+                Bytes(checked(candidate.DisplacementBasePageCount +
+                    candidate.DisplacementMicroPageCount),
+                    DisplacementPageHeaderGpu.Stride));
+            candidate.DisplacementBaseCells = ReadLegacyDisplacementCells(reader,
+                checked(candidate.DisplacementBasePageCount *
+                    ContactDisplacementPool.BaseCellsPerPage));
+            candidate.DisplacementMicroCells = ReadLegacyDisplacementCells(reader,
+                checked(candidate.DisplacementMicroPageCount *
+                    ContactDisplacementPool.MicroCellsPerPage));
+            candidate.DisplacementBaseChildren = ReadBytes(reader,
+                Bytes(checked(candidate.DisplacementBasePageCount *
+                    ContactDisplacementPool.BaseCellsPerPage), sizeof(uint)));
+            candidate.DisplacementMicroChildren = ReadBytes(reader,
+                Bytes(checked(candidate.DisplacementMicroPageCount *
+                    ContactDisplacementPool.MicroCellsPerPage), sizeof(uint)));
+            candidate.TopologyEvidence = ReadBytes(reader,
+                Bytes(candidate.FilmCount, ContactTopologyEvidenceGpu.Stride));
+            candidate.DisplacementAllocator = ReadBytes(reader,
+                DisplacementAllocatorBytes);
+            candidate.MeshletVertices = ReadBytes(reader,
+                Bytes(candidate.MeshletVertexCount, ContactMeshletVertexGpu.Stride));
+            candidate.MeshletIndices = ReadBytes(reader,
+                Bytes(candidate.MeshletIndexCount, sizeof(uint)));
+            candidate.MeshletDescriptors = ReadBytes(reader,
+                Bytes(candidate.MeshletDescriptorCount,
+                    ContactMeshletDescriptorGpu.Stride));
+            candidate.AppearanceState = ReadBoundedBytes(reader,
+                MaximumOpaqueSectionBytes, "appearance");
+            candidate.ObservationState = ReadBoundedBytes(reader,
+                MaximumOpaqueSectionBytes, "observation");
+            candidate.KeyframeReferences = ReadReferences(reader);
+            return candidate;
+        }
+
         private static PrismCanonicalChunkSnapshot ReadVersion2(BinaryReader reader)
         {
-            RequireStride(reader, ContactFilmHeaderGpu.Stride, "film header");
+            RequireStride(reader, LegacyFilmHeaderStride, "film header");
             RequireStride(reader, ContactBoundaryHeaderGpu.Stride, "boundary header");
             var candidate = new PrismCanonicalChunkSnapshot
             {
@@ -271,8 +348,8 @@ namespace Genesis.RoomScan.World
                 CalibrationEpoch = reader.ReadUInt64()
             };
             ValidateCounts(candidate);
-            candidate.FilmHeaders = ReadBytes(reader,
-                Bytes(candidate.FilmCount, ContactFilmHeaderGpu.Stride));
+            candidate.FilmHeaders = ReadLegacyFilmHeaders(reader,
+                candidate.FilmCount);
             candidate.FilmInformation = ReadBytes(reader,
                 Bytes(candidate.FilmCount, FilmInformationStride));
             candidate.BoundaryHeaders = ReadBytes(reader,
@@ -393,6 +470,54 @@ namespace Genesis.RoomScan.World
             if (length != expected)
                 throw new InvalidDataException("PRISM section length is invalid.");
             return ReadExact(reader, length);
+        }
+
+        private static byte[] ReadLegacyFilmHeaders(BinaryReader reader, int count)
+        {
+            byte[] legacy = ReadBytes(reader, Bytes(count,
+                LegacyFilmHeaderStride));
+            byte[] widened = new byte[Bytes(count, ContactFilmHeaderGpu.Stride)];
+            const int prefixBytes = 132; // through boundaryCount
+            const int insertedMaskBytes = sizeof(uint) * 2;
+            const int legacyTailBytes = sizeof(uint) * 3;
+            for (int index = 0; index < count; index++)
+            {
+                int source = index * LegacyFilmHeaderStride;
+                int destination = index * ContactFilmHeaderGpu.Stride;
+                Buffer.BlockCopy(legacy, source, widened, destination,
+                    prefixBytes);
+                // supportMaskLow/high remain zero: an old rectangular primitive has
+                // no trustworthy observed domain and must not invent one on restore.
+                Buffer.BlockCopy(legacy, source + prefixBytes, widened,
+                    destination + prefixBytes + insertedMaskBytes,
+                    legacyTailBytes);
+            }
+            return widened;
+        }
+
+        private static byte[] ReadLegacyDisplacementCells(BinaryReader reader,
+            int count)
+        {
+            byte[] legacy = ReadBytes(reader, Bytes(count,
+                LegacyDisplacementCellStride));
+            byte[] widened = new byte[Bytes(count, DisplacementCellGpu.Stride)];
+            const int prefixBytes = 7 * sizeof(float); // through residual variance
+            const int insertedPosteriorBytes = sizeof(float) + sizeof(uint);
+            const int legacyTailBytes = sizeof(uint); // revision
+            for (int index = 0; index < count; index++)
+            {
+                int source = index * LegacyDisplacementCellStride;
+                int destination = index * DisplacementCellGpu.Stride;
+                Buffer.BlockCopy(legacy, source, widened, destination,
+                    prefixBytes);
+                // A v3 cell had no persistent free-space posterior. New pressure
+                // and view-mask fields remain zero, so restore cannot invent
+                // destructive evidence.
+                Buffer.BlockCopy(legacy, source + prefixBytes, widened,
+                    destination + prefixBytes + insertedPosteriorBytes,
+                    legacyTailBytes);
+            }
+            return widened;
         }
 
         private static byte[] ReadBoundedBytes(BinaryReader reader, int maximum,

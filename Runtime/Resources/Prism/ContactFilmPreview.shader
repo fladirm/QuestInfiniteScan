@@ -1,8 +1,17 @@
 Shader "Hidden/Genesis/ConePrism/ContactFilmPreview"
 {
+    Properties
+    {
+        _PreviewCoverage ("Preview Coverage", Range(0, 1)) = 0.78
+    }
     SubShader
     {
-        Tags { "RenderPipeline"="UniversalPipeline" "Queue"="Geometry" }
+        Tags
+        {
+            "RenderPipeline"="UniversalPipeline"
+            "Queue"="Geometry+10"
+            "RenderType"="Opaque"
+        }
         Pass
         {
             Name "Cone-PRISM Preview"
@@ -29,6 +38,7 @@ Shader "Hidden/Genesis/ConePrism/ContactFilmPreview"
             StructuredBuffer<ContactMeshletVertex> _ContactVertices;
             StructuredBuffer<uint> _ContactIndices;
             float4x4 _WorldFromChunk;
+            float _PreviewCoverage;
 
             struct Varyings
             {
@@ -54,6 +64,21 @@ Shader "Hidden/Genesis/ConePrism/ContactFilmPreview"
 
             float4 Frag(Varyings input) : SV_Target
             {
+                // Coverage transparency keeps surviving samples fully opaque in the
+                // compositor and writes one coherent first-hit depth. Unlike alpha
+                // blending it cannot make the passthrough/UI composition translucent
+                // or reveal a stack of films behind the front contact.
+                uint2 pixel = (uint2)input.positionCS.xy;
+                uint2 p = pixel & 3u;
+                static const uint bayer4x4[16] = {
+                    0u, 8u, 2u, 10u,
+                    12u, 4u, 14u, 6u,
+                    3u, 11u, 1u, 9u,
+                    15u, 7u, 13u, 5u
+                };
+                float threshold = ((float)bayer4x4[p.y * 4u + p.x] + 0.5) /
+                    16.0;
+                clip(saturate(_PreviewCoverage) - threshold);
                 float3 view = normalize(GetCameraPositionWS() -
                     input.worldPosition);
                 if (dot(input.worldNormal, view) <= 0.0) discard;

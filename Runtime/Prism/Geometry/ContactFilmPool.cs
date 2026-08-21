@@ -44,11 +44,15 @@ namespace Genesis.RoomScan.Prism
         public uint AppearancePage;
         public uint BoundaryStart;
         public uint BoundaryCount;
+        // Conservative 8x8 surface-domain support captured at spawn. Once a
+        // displacement page exists its 16x16 coverage becomes authoritative.
+        public uint SupportMaskLow;
+        public uint SupportMaskHigh;
         public uint Reserved0;
         public uint Reserved1;
         public uint Reserved2;
 
-        public const int Stride = 144;
+        public const int Stride = 152;
     }
 
     /// <summary>

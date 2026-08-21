@@ -1,5 +1,6 @@
 #pragma kernel InitializePhotometricState
 #pragma kernel ClearPhotometricFrame
+#pragma kernel ClearRefinementClaims
 #pragma kernel NarrowStereoPressure
 #pragma kernel TemporalFocusPressure
 #pragma kernel BuildPhotometricArguments
@@ -33,6 +34,7 @@ struct ConeEvent
     float pressurePrecision;
     uint occluderFilmId;
     uint occluderGeneration;
+    float2 occluderUv;
 };
 
 struct ContactFilmHeader
@@ -58,6 +60,8 @@ struct ContactFilmHeader
     uint appearancePage;
     uint boundaryStart;
     uint boundaryCount;
+    uint supportMaskLow;
+    uint supportMaskHigh;
     uint reserved0;
     uint reserved1;
     uint reserved2;
@@ -96,6 +100,7 @@ StructuredBuffer<ContactFilmHeader> _FilmHeaders;
 StructuredBuffer<uint> _FilmAllocator;
 RWStructuredBuffer<PhotometricPressure> _PhotometricPressures;
 RWStructuredBuffer<uint> _PhotometricState;
+RWStructuredBuffer<uint> _RefinementClaims;
 RWStructuredBuffer<uint3> _PhotometricDispatchArguments;
 RWStructuredBuffer<TemporalRgbView> _TemporalViews;
 RWStructuredBuffer<uint> _FilmViewRefs;
@@ -127,6 +132,7 @@ static const uint CLASS_MATCH = 1u;
 static const uint FILM_ACTIVE = 1u;
 static const uint FILM_ONE_SIDED = 2u;
 static const uint VIEWS_PER_FILM = 8u;
+static const uint CLAIM_WORDS_PER_FILM = 4u;
 static const uint SOURCE_STEREO = 3u;
 static const uint SOURCE_TEMPORAL = 4u;
 
@@ -498,6 +504,25 @@ void ClearPhotometricFrame(uint3 id : SV_DispatchThreadID)
 }
 
 [numthreads(64, 1, 1)]
+void ClearRefinementClaims(uint3 id : SV_DispatchThreadID)
+{
+    uint capacity = _FilmCapacity * CLAIM_WORDS_PER_FILM;
+    if (id.x < capacity) _RefinementClaims[id.x] = 0u;
+}
+
+bool ClaimSurfaceCell(uint filmIndex, float2 uv, uint passIndex)
+{
+    uint2 cell = min((uint2)(saturate(uv) * 8.0), uint2(7u, 7u));
+    uint linearCell = cell.y * 8u + cell.x;
+    uint word = passIndex * 2u + (linearCell >> 5u);
+    uint bit = 1u << (linearCell & 31u);
+    uint previous;
+    InterlockedOr(_RefinementClaims[
+        filmIndex * CLAIM_WORDS_PER_FILM + word], bit, previous);
+    return (previous & bit) == 0u;
+}
+
+[numthreads(64, 1, 1)]
 void NarrowStereoPressure(uint3 id : SV_DispatchThreadID)
 {
     uint matchCount = min(_ClassCounters[CLASS_MATCH], _EventCapacity);
@@ -520,6 +545,7 @@ void NarrowStereoPressure(uint3 id : SV_DispatchThreadID)
             (FILM_ACTIVE | FILM_ONE_SIDED)) return;
     if (film.sigmaNormal <= _MinimumRefineSigma && film.confidence >= 0.97)
         return;
+    if (!ClaimSurfaceCell(filmIndex, eventData.predictedUv, 0u)) return;
 
     float3 depthContact = LoadDepthRay(depthPixel, depthEye) *
         eventData.predictedRange;
@@ -617,6 +643,7 @@ void TemporalFocusPressure(uint3 id : SV_DispatchThreadID)
             (FILM_ACTIVE | FILM_ONE_SIDED)) return;
     if (film.sigmaNormal <= _MinimumRefineSigma && film.confidence >= 0.985)
         return;
+    if (!ClaimSurfaceCell(filmIndex, eventData.predictedUv, 1u)) return;
 
     float3 depthContact = LoadDepthRay(depthPixel, depthEye) *
         eventData.predictedRange;

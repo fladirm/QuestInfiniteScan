@@ -69,7 +69,10 @@ namespace Genesis.RoomScan.Tests
             string[] displacementKernels =
             {
                 "InitializeDisplacementState", "AllocateBasePages",
+                "AllocateBasePagesBehind", "AllocateBasePagesOccluder",
                 "AccumulateDisplacement", "SolveDirtyDisplacement",
+                "AccumulateFreeSpaceCoverage",
+                "AccumulateOccluderFreeSpaceCoverage",
                 "AllocateMicrotiles", "InitializeMicroPages",
                 "SolveTopologyEvidence"
             };

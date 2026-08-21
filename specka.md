@@ -3,11 +3,11 @@
 ## Pure-Quest contact-film reconstruction — canonical build specification
 
 This file is the canonical product and reconstruction specification for
-`feat/quest-radiance-meshlets`. If another planning document conflicts with it,
+the active Cone-PRISM implementation branch. If another planning document conflicts with it,
 this file wins. The specification may be improved when measurements justify it, but
 must not be simplified by removing reconstruction quality mechanisms.
 
-Reconstruction physics baseline: **`CPQ3-2026-08-20-v1` — frozen for
+Reconstruction physics baseline: **`CPQ3-2026-08-21-v3` — frozen for
 implementation.** It may be strengthened by measured evidence, but changing the
 canonical measurement primitive, first-hit/unknown semantics, ContactFilm world
 state, pressure/information solve, or non-degradation invariants requires explicit
@@ -150,8 +150,13 @@ struct ContactFilm {
 
     Grid16 displacementBase;
     Grid16 sigma;
+    Grid16 information;
     Grid16 support;
     Grid16 coverage;
+    Grid16 bestPrecision;
+    Grid16 bestFootprint;
+    Grid16 freeSpacePressure;
+    Grid16 freeSpaceViewMask;
     MicrotileRefs displacementChildren;
 
     ContactBoundaryRefs boundaries;
@@ -171,6 +176,23 @@ struct ContactFilm {
 may allocate sparse recursive displacement/appearance microtiles when measured
 footprint and residual information support more detail. The analytic base remains
 the stable coarse representation and LOD.
+
+### 2.1 Continuous canonical support domain
+
+`coverage` is not a display alpha, rectangular chart extent, or independent square
+primitive. It is the continuous support field of one connected first-contact film.
+At spawn, every finite cone deposits its metric footprint into a conservative
+bootstrap support mask. Once a Grid16 displacement page exists, its interpolated
+coverage is authoritative. Microtiles refine displacement, normal and uncertainty;
+they cannot fragment the film into unrelated display tiles. Persistent
+`ContactBoundary` curves refine and terminate this domain below the base-cell scale.
+
+Derived triangulation evaluates the continuous support field per vertex/triangle
+and materializes only its supported manifold. A supported sample may extend or
+connect an existing film, but the rectangular parameter bounds alone may never emit
+geometry. Split/merge must resample actual support and must not fill the rectangular
+union between two films. This invariant makes storage resolution invisible in the
+rendered result: the user sees a coherent pressed film, not 8x8/16x16 plates.
 
 ## 3. One-sided contact films
 
@@ -473,11 +495,47 @@ quality resistance are stored independently so a sharp color observation cannot
 pretend to be precise metric depth, and a precise depth observation cannot erase a
 better surface-space texture sample.
 
+### 14.2 Local first-hit free-space pressure
+
+A `BEHIND` event means the currently predicted contact lies inside the cone segment
+that the new measurement proved free. It does not retire the whole film and it does
+not modify anything behind the measured first hit. The event maps back through the
+prediction raster's film UV and deposits local negative coverage/contradiction into
+the Grid16 support domain. When a compatible second depth peel is the measured hit,
+the peeled foreground film receives the same local occluder pressure at its own UV.
+
+This opposing pressure is canonical posterior state, not a frame-local counter. Each
+base cell persists `freeSpacePressure` and an eye/angular `freeSpaceViewMask` across
+frames, chunk eviction, restart, and revisit. A view contributes at most one bounded
+vote to its calibrated direction bin; the production base grid currently provides
+ten independent bins. Compatible contact pressure cancels accumulated opposing
+pressure before increasing support, and weak contradiction decays rather than
+remaining an immortal deletion command. A child microtile inherits geometry/detail
+but does not clone one parent cone into many independent contradiction votes.
+
+Destructive support erosion requires at least two independent eye/angular bins and
+pressure exceeding the cell's baked resistance. The implementation baseline is:
+
+```text
+resistance = 1 + 0.06 * sqrt(bestPrecision) * sqrt(support)
+erosion    = min(0.35, 0.25 * excessPressure / resistance)
+```
+
+Erosion consumes the corresponding accumulated pressure work. It is therefore
+bounded, local, reversible by later compatible contact, and cannot repeat forever
+from one stale event. Thus a close, sharp, front-facing contact is a strongly
+compressed film and resists a distant/grazing cone; sufficiently strong,
+independent and consistent first-hit evidence can still remove a genuine view-axis
+artifact. This is local pressure equilibrium, not TSDF carving: unknown space
+behind the hit stays unknown, an occluded back surface is untouched, and one weak
+frame cannot punch a hole through a baked film.
+
 ## 15. Hierarchical local displacement
 
 The quadratic chart captures low-frequency shape. Residual after removing the
 analytic surface updates logical `Grid16` displacement cells, each holding at least
-`D`, information/weight, sigma, support, coverage, and quality envelope.
+`D`, information/weight, sigma, support, coverage, best precision/footprint, the
+persistent free-space pressure posterior, its independent view mask, and revision.
 
 When actual projected footprint and consistent residuals justify more detail, a
 cell allocates child microtiles recursively. When residual is multimodal,
@@ -687,8 +745,21 @@ Dirty films materialize their SurfaceChartGeometry into adaptive GPU meshlets. A
 to at most `16x16` cells / `17x17` base vertices / `512` base triangles before
 microtile refinement, but flat areas tessellate more coarsely and boundaries,
 curvature, and supported displacement more finely. Vertices along a
-`ContactBoundary` vertices snap to the refined `BoundaryCurve`. Meshlets use generation IDs and
-double-buffered atomic publication.
+`ContactBoundary` vertices snap to the refined `BoundaryCurve`. Triangles are
+selected from the interpolated canonical coverage field rather than emitted for a
+whole rectangular chart cell; boundary-crossing cells are resolved by support and
+curve-constrained vertices, never dropped wholesale or bridged across unsupported
+space. Coverage is sampled once per materialized vertex and reused by GPU count and
+emit work.
+
+Materialization is not a serial one-thread-per-film loop. One `8x8` GPU workgroup is
+assigned to each dirty film: its 64 lanes cooperatively evaluate up to all `17x17`
+base vertices, cache the continuous support field in group-shared memory, count and
+emit up to 512 base triangles, and reserve output only for supported films. Recursive
+microtile detail and boundary refinement are materialized by the Q3-16 indirect
+refinement stage rather than serializing or globally over-tessellating every film. This changes
+scheduling, not quality: there is no reduced chart resolution, dropped measurement,
+or CPU fallback. Meshlets use generation IDs and double-buffered atomic publication.
 
 ## 33. Realtime renderer and dynamic LOD
 
@@ -719,6 +790,14 @@ world/
 Publication is per immutable dirty generation and preserves the previous complete
 revision on interruption. Restart must retain enough posterior state to keep
 refining a week later.
+
+Ordinary Scan Stop is a sensor-ingress pause, not reconstruction teardown. It keeps
+canonical film/boundary/displacement arenas, prediction targets, GPU rings and the
+compiled work graph resident. Durable persistence stages an immutable GPU copy and
+may read only that detached copy asynchronously. Stop -> Start resumes the same
+posterior without disposing/reallocating multi-gigabyte arenas, without losing the
+last published meshlet generation, and without racing the live buffers. Full graph
+teardown is reserved for explicit resource release or application destruction.
 
 ## 35. Direct GLB/PBR export
 
@@ -806,8 +885,8 @@ workflow. It does not decide per pixel or traverse live geometry.
 | **Q3-08** | Robust pressure-equilibrium 6x6 posterior refinement and uncertainty collapse |
 | **Q3-09** | Multihypothesis/one-sided/opposite-side and bimodal ContactFilms |
 | **Q3-10** | Persistent ContactBoundaries with multi-view 3D BoundaryCurves |
-| **Q3-11** | ContactFilm split/merge and hierarchical displacement microtiles |
-| **Q3-12** | Adaptive GPU meshlet materialization, culling, LOD, indirect renderer |
+| **Q3-11** | ContactFilm split/merge, hierarchical displacement, persistent local free-space pressure/resistance |
+| **Q3-12** | Cooperative adaptive GPU meshlet materialization, culling, LOD, indirect renderer |
 | **Q3-13** | Infinite chunk paging, native PRISM persistence, restart/revisit |
 | **Q3-14** | ContactFilm-conditioned L/R narrow stereo pressure/focusing |
 | **Q3-15** | Temporal cone-bundle focusing and information-gain keyframes |
@@ -920,7 +999,7 @@ persistent boundaries, soft-to-hard capture, surface-conditioned multiview focus
 adaptive topology/displacement, measured superresolution, directional appearance,
 and resumable infinite-world state.
 
-This `CPQ3-2026-08-20-v1` physics is frozen for implementation. Do not substitute
+This `CPQ3-2026-08-21-v3` physics is frozen for implementation. Do not substitute
 an infinitesimal-ray shortcut, constant-vote averaging, scalar volume, fixed
 triangle/surfel soup, Gaussian map, neural reconstruction, or CPU geometry path
 because it is easier to implement.

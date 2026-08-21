@@ -18,7 +18,9 @@ namespace Genesis.RoomScan.Prism
         public uint Sidedness;
         public uint Flags;
         public uint AppearancePage;
-        public uint MeshletIndex;
+        // Build-local continuous support sample.  It is persisted with the derived
+        // cache but is not part of canonical ContactFilm state.
+        public uint CoverageBits;
 
         public const int Stride = 64;
     }

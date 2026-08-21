@@ -16,6 +16,8 @@ namespace Genesis.RoomScan.Prism
     {
         private const int MatchDispatchOffset =
             (int)ConeEventClass.Match * sizeof(uint) * 3;
+        private const int BehindDispatchOffset =
+            (int)ConeEventClass.Behind * sizeof(uint) * 3;
         private const int BaseInitArgumentsOffset = 0;
         private const int CellArgumentsOffset = sizeof(uint) * 3;
         private const int MicroInitArgumentsOffset = sizeof(uint) * 6;
@@ -52,6 +54,7 @@ namespace Genesis.RoomScan.Prism
         [SerializeField, Min(0.1f)] private float mergeHashCellSize = 0.5f;
         [SerializeField, Range(0.1f, 5f)] private float mergeNormalDegrees = 3f;
         [SerializeField, Min(0.0005f)] private float mergeSurfaceGap = 0.005f;
+        [SerializeField, Range(1, 8)] private int mergeWavesPerTick = 5;
 
         private static readonly int FilmCapacityId = Shader.PropertyToID("_FilmCapacity");
         private static readonly int EventCapacityId = Shader.PropertyToID("_EventCapacity");
@@ -138,9 +141,13 @@ namespace Genesis.RoomScan.Prism
         private int _clearKernel = -1;
         private int _initializeStateKernel = -1;
         private int _allocateBaseKernel = -1;
+        private int _allocateBehindBaseKernel = -1;
+        private int _allocateOccluderBaseKernel = -1;
         private int _buildArgumentsKernel = -1;
         private int _initializeBaseKernel = -1;
         private int _accumulateKernel = -1;
+        private int _accumulateFreeKernel = -1;
+        private int _accumulateOccluderFreeKernel = -1;
         private int _solveKernel = -1;
         private int _allocateMicroKernel = -1;
         private int _initializeMicroKernel = -1;
@@ -153,6 +160,7 @@ namespace Genesis.RoomScan.Prism
         private int _clearBoundaryHashKernel = -1;
         private int _rehashBoundariesKernel = -1;
         private int _clearFilmMergeHashKernel = -1;
+        private int _resetFilmMergeWaveKernel = -1;
         private int _buildFilmMergeHashKernel = -1;
         private int _mergeFilmsKernel = -1;
         private int _buildMergeArgumentsKernel = -1;
@@ -196,9 +204,17 @@ namespace Genesis.RoomScan.Prism
                 displacementCompute.FindKernel("InitializeDisplacementState");
             _clearKernel = displacementCompute.FindKernel("ClearDisplacementFrame");
             _allocateBaseKernel = displacementCompute.FindKernel("AllocateBasePages");
+            _allocateBehindBaseKernel =
+                displacementCompute.FindKernel("AllocateBasePagesBehind");
+            _allocateOccluderBaseKernel =
+                displacementCompute.FindKernel("AllocateBasePagesOccluder");
             _buildArgumentsKernel = displacementCompute.FindKernel("BuildDisplacementArguments");
             _initializeBaseKernel = displacementCompute.FindKernel("InitializeBasePages");
             _accumulateKernel = displacementCompute.FindKernel("AccumulateDisplacement");
+            _accumulateFreeKernel =
+                displacementCompute.FindKernel("AccumulateFreeSpaceCoverage");
+            _accumulateOccluderFreeKernel = displacementCompute.FindKernel(
+                "AccumulateOccluderFreeSpaceCoverage");
             _solveKernel = displacementCompute.FindKernel("SolveDirtyDisplacement");
             _allocateMicroKernel = displacementCompute.FindKernel("AllocateMicrotiles");
             _initializeMicroKernel = displacementCompute.FindKernel("InitializeMicroPages");
@@ -217,6 +233,8 @@ namespace Genesis.RoomScan.Prism
                 topologyCompute.FindKernel("RehashTopologyBoundaries");
             _clearFilmMergeHashKernel =
                 topologyCompute.FindKernel("ClearFilmMergeHash");
+            _resetFilmMergeWaveKernel =
+                topologyCompute.FindKernel("ResetFilmMergeWave");
             _buildFilmMergeHashKernel =
                 topologyCompute.FindKernel("BuildFilmMergeHash");
             _mergeFilmsKernel = topologyCompute.FindKernel("MergeCompatibleFilms");
@@ -278,10 +296,18 @@ namespace Genesis.RoomScan.Prism
                 displacementCompute.Dispatch(_clearKernel, 1, 1, 1);
                 displacementCompute.DispatchIndirect(_allocateBaseKernel,
                     frame.ClassDispatchArguments, MatchDispatchOffset);
+                displacementCompute.DispatchIndirect(_allocateBehindBaseKernel,
+                    frame.ClassDispatchArguments, BehindDispatchOffset);
+                displacementCompute.DispatchIndirect(_allocateOccluderBaseKernel,
+                    frame.ClassDispatchArguments, MatchDispatchOffset);
                 displacementCompute.Dispatch(_buildArgumentsKernel, 1, 1, 1);
                 displacementCompute.DispatchIndirect(_initializeBaseKernel,
                     _dispatchArguments, BaseInitArgumentsOffset);
                 displacementCompute.DispatchIndirect(_accumulateKernel,
+                    frame.ClassDispatchArguments, MatchDispatchOffset);
+                displacementCompute.DispatchIndirect(_accumulateFreeKernel,
+                    frame.ClassDispatchArguments, BehindDispatchOffset);
+                displacementCompute.DispatchIndirect(_accumulateOccluderFreeKernel,
                     frame.ClassDispatchArguments, MatchDispatchOffset);
                 displacementCompute.Dispatch(_buildArgumentsKernel, 1, 1, 1);
                 displacementCompute.DispatchIndirect(_solveKernel,
@@ -319,7 +345,12 @@ namespace Genesis.RoomScan.Prism
             displacementCompute.SetFloat(RefinementVarianceId,
                 refinementVariance);
             displacementCompute.SetMatrixArray(ChunkFromDepthId, _chunkFromDepth);
-            int[] eventKernels = { _allocateBaseKernel, _accumulateKernel };
+            int[] eventKernels =
+            {
+                _allocateBaseKernel, _allocateBehindBaseKernel,
+                _allocateOccluderBaseKernel, _accumulateKernel,
+                _accumulateFreeKernel, _accumulateOccluderFreeKernel
+            };
             foreach (int kernel in eventKernels)
             {
                 displacementCompute.SetBuffer(kernel, EventsId, frame.Events);
@@ -393,8 +424,11 @@ namespace Genesis.RoomScan.Prism
             int[] kernels =
             {
                 _initializeStateKernel, _clearKernel, _allocateBaseKernel,
+                _allocateBehindBaseKernel, _allocateOccluderBaseKernel,
                 _buildArgumentsKernel,
-                _initializeBaseKernel, _accumulateKernel, _solveKernel,
+                _initializeBaseKernel, _accumulateKernel,
+                _accumulateFreeKernel, _accumulateOccluderFreeKernel,
+                _solveKernel,
                 _allocateMicroKernel, _initializeMicroKernel,
                 _solveTopologyKernel
             };
@@ -469,6 +503,7 @@ namespace Genesis.RoomScan.Prism
                 _clearAdaptKernel, _splitKernel, _buildAdaptArgumentsKernel,
                 _initializeSplitKernel, _transferBoundariesKernel,
                 _clearBoundaryHashKernel, _rehashBoundariesKernel,
+                _resetFilmMergeWaveKernel,
                 _clearFilmMergeHashKernel, _buildFilmMergeHashKernel,
                 _mergeFilmsKernel, _buildMergeArgumentsKernel,
                 _initializeMergeKernel
@@ -535,15 +570,24 @@ namespace Genesis.RoomScan.Prism
                 _adaptArguments, BoundaryHashClearArgumentsOffset);
             topologyCompute.DispatchIndirect(_rehashBoundariesKernel,
                 _adaptArguments, BoundaryRehashArgumentsOffset);
-            topologyCompute.DispatchIndirect(_clearFilmMergeHashKernel,
-                _adaptArguments, FilmHashClearArgumentsOffset);
-            topologyCompute.DispatchIndirect(_buildFilmMergeHashKernel,
-                _adaptArguments, FilmAdaptArgumentsOffset);
-            topologyCompute.DispatchIndirect(_mergeFilmsKernel,
-                _adaptArguments, MergeFilmArgumentsOffset);
-            topologyCompute.Dispatch(_buildMergeArgumentsKernel, 1, 1, 1);
-            topologyCompute.DispatchIndirect(_initializeMergeKernel,
-                _adaptArguments, MergeInitializeArgumentsOffset);
+            // One binary merge wave can only halve the tile/LR film count. Run a
+            // short, fixed GPU-only reduction tree before publishing meshlets so a
+            // planar contact appears as one continuous manifold in the same tick.
+            // There is no CPU count readback or synchronization in this loop.
+            for (int wave = 0; wave < mergeWavesPerTick; wave++)
+            {
+                topologyCompute.Dispatch(_resetFilmMergeWaveKernel, 1, 1, 1);
+                topologyCompute.Dispatch(_buildAdaptArgumentsKernel, 1, 1, 1);
+                topologyCompute.DispatchIndirect(_clearFilmMergeHashKernel,
+                    _adaptArguments, FilmHashClearArgumentsOffset);
+                topologyCompute.DispatchIndirect(_buildFilmMergeHashKernel,
+                    _adaptArguments, FilmAdaptArgumentsOffset);
+                topologyCompute.DispatchIndirect(_mergeFilmsKernel,
+                    _adaptArguments, MergeFilmArgumentsOffset);
+                topologyCompute.Dispatch(_buildMergeArgumentsKernel, 1, 1, 1);
+                topologyCompute.DispatchIndirect(_initializeMergeKernel,
+                    _adaptArguments, MergeInitializeArgumentsOffset);
+            }
         }
 
         private void DisposeTransientBuffers()

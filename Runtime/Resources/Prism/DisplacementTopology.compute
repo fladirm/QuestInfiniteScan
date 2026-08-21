@@ -1,9 +1,13 @@
 #pragma kernel ClearDisplacementFrame
 #pragma kernel InitializeDisplacementState
 #pragma kernel AllocateBasePages
+#pragma kernel AllocateBasePagesBehind
+#pragma kernel AllocateBasePagesOccluder
 #pragma kernel BuildDisplacementArguments
 #pragma kernel InitializeBasePages
 #pragma kernel AccumulateDisplacement
+#pragma kernel AccumulateFreeSpaceCoverage
+#pragma kernel AccumulateOccluderFreeSpaceCoverage
 #pragma kernel SolveDirtyDisplacement
 #pragma kernel AllocateMicrotiles
 #pragma kernel InitializeMicroPages
@@ -29,6 +33,7 @@ struct ConeEvent
     float pressurePrecision;
     uint occluderFilmId;
     uint occluderGeneration;
+    float2 occluderUv;
 };
 
 struct ContactFilmHeader
@@ -54,6 +59,8 @@ struct ContactFilmHeader
     uint appearancePage;
     uint boundaryStart;
     uint boundaryCount;
+    uint supportMaskLow;
+    uint supportMaskHigh;
     uint reserved0;
     uint reserved1;
     uint reserved2;
@@ -85,6 +92,8 @@ struct DisplacementCell
     float bestPrecision;
     float bestFootprint;
     float residualVariance;
+    float freeSpacePressure;
+    uint freeSpaceViewMask;
     uint revision;
 };
 
@@ -143,6 +152,7 @@ float _RefinementVariance;
 float4x4 _ChunkFromDepth[2];
 
 static const uint CLASS_MATCH = 1u;
+static const uint CLASS_BEHIND = 3u;
 static const uint FILM_ACTIVE = 1u;
 static const uint FILM_DIRTY_GEOMETRY = 8u;
 static const uint FILM_DIRTY_MESHLET = 16u;
@@ -165,6 +175,19 @@ float3 LoadRay(uint2 pixel, uint eye)
 {
     return eye == 0u ? _DepthRayCenterLeft[pixel].xyz :
         _DepthRayCenterRight[pixel].xyz;
+}
+
+uint FreeSpaceViewBit(ContactFilmHeader film, uint eye)
+{
+    float3 cameraChunk = mul(_ChunkFromDepth[eye],
+        float4(0.0, 0.0, 0.0, 1.0)).xyz;
+    float3 toCamera = normalize(cameraChunk - film.origin);
+    float2 tangent = float2(dot(toCamera, film.tangentU),
+        dot(toCamera, film.tangentV));
+    uint bin = dot(tangent, tangent) < 0.04 ? 0u :
+        1u + (tangent.x >= 0.0 ? 1u : 0u) +
+        (tangent.y >= 0.0 ? 2u : 0u);
+    return 1u << (bin + min(eye, 1u) * 5u);
 }
 
 float Height(ContactFilmHeader film, float u, float v)
@@ -191,6 +214,14 @@ DisplacementCell EmptyCell(float sigma)
 }
 
 bool IsMicroCell(uint globalCell) { return globalCell >= _BaseCellCapacity; }
+
+bool BootstrapSupport(ContactFilmHeader film, float2 uv)
+{
+    uint2 cell = min((uint2)(saturate(uv) * 8.0), 7u);
+    uint bit = cell.y * 8u + cell.x;
+    return bit < 32u ? ((film.supportMaskLow >> bit) & 1u) != 0u :
+        ((film.supportMaskHigh >> (bit - 32u)) & 1u) != 0u;
+}
 
 DisplacementCell LoadCell(uint globalCell)
 {
@@ -236,7 +267,7 @@ uint CellForPage(bool micro, uint pageIndex, uint localCell)
         : pageIndex * BASE_CELLS_PER_PAGE + localCell;
 }
 
-bool ResolveLeaf(ContactFilmHeader film, float2 uv, out uint globalCell,
+bool ResolveBaseCell(ContactFilmHeader film, float2 uv, out uint globalCell,
     out DisplacementPageHeader page)
 {
     globalCell = 0u;
@@ -252,6 +283,14 @@ bool ResolveLeaf(ContactFilmHeader film, float2 uv, out uint globalCell,
     uint2 baseCell = min((uint2)(normalized * (float)BASE_GRID), BASE_GRID - 1u);
     globalCell = CellForPage(false, basePage,
         baseCell.y * BASE_GRID + baseCell.x);
+    return true;
+}
+
+bool ResolveLeaf(ContactFilmHeader film, float2 uv, out uint globalCell,
+    out DisplacementPageHeader page)
+{
+    if (!ResolveBaseCell(film, uv, globalCell, page)) return false;
+    float2 normalized = saturate(uv);
 
     [loop]
     for (uint level = 0u; level < _MaximumMicroLevels; ++level)
@@ -381,6 +420,105 @@ void AllocateBasePages(uint3 id : SV_DispatchThreadID)
     _FilmHeaders[filmIndex].displacementPage = pageIndex + 1u;
 }
 
+[numthreads(64, 1, 1)]
+void AllocateBasePagesBehind(uint3 id : SV_DispatchThreadID)
+{
+    uint behindCount = min(_ClassCounters[CLASS_BEHIND], _EventCapacity);
+    if (id.x >= behindCount) return;
+    uint eventIndex = _ClassifiedIndices[
+        CLASS_BEHIND * _EventCapacity + id.x];
+    ConeEvent eventData = _ConeEvents[eventIndex];
+    if (eventData.classification != CLASS_BEHIND || eventData.filmId == 0u)
+        return;
+    uint filmIndex = eventData.filmId - 1u;
+    if (filmIndex >= _FilmCapacity) return;
+    ContactFilmHeader film = _FilmHeaders[filmIndex];
+    if (film.id != eventData.filmId ||
+        film.generation != eventData.filmGeneration ||
+        (film.flags & FILM_ACTIVE) == 0u || film.displacementPage != 0u) return;
+
+    uint prior;
+    InterlockedCompareExchange(_FilmHeaders[filmIndex].displacementPage,
+        0u, ALLOCATION_CLAIM, prior);
+    if (prior != 0u) return;
+    uint pageIndex;
+    InterlockedAdd(_DisplacementAllocator[0], 1u, pageIndex);
+    if (pageIndex >= _BasePageCapacity)
+    {
+        InterlockedAdd(_DisplacementAllocator[2], 1u);
+        _FilmHeaders[filmIndex].displacementPage = 0u;
+        return;
+    }
+    DisplacementPageHeader page = (DisplacementPageHeader)0;
+    page.id = pageIndex + 1u;
+    page.generation = max(1u, _DisplacementAllocator[4]);
+    page.filmId = film.id;
+    page.filmGeneration = film.generation;
+    page.level = 0u;
+    page.flags = PAGE_ACTIVE | PAGE_BASE | PAGE_DIRTY;
+    page.uvBounds = float4(0, 0, 1, 1);
+    page.bestFootprintBits = asuint(3.402823466e+38);
+    _DisplacementPages[pageIndex] = page;
+    uint queueSlot;
+    InterlockedAdd(_DisplacementPageState[0], 1u, queueSlot);
+    if (queueSlot < _BasePageCapacity)
+        _NewBasePages[queueSlot] = pageIndex;
+    else InterlockedAdd(_DisplacementPageState[2], 1u);
+    _FilmHeaders[filmIndex].flags |= FILM_HAS_DISPLACEMENT |
+        FILM_DIRTY_GEOMETRY | FILM_DIRTY_MESHLET;
+    DeviceMemoryBarrier();
+    _FilmHeaders[filmIndex].displacementPage = pageIndex + 1u;
+}
+
+[numthreads(64, 1, 1)]
+void AllocateBasePagesOccluder(uint3 id : SV_DispatchThreadID)
+{
+    uint matchCount = min(_ClassCounters[CLASS_MATCH], _EventCapacity);
+    if (id.x >= matchCount) return;
+    uint eventIndex = _ClassifiedIndices[CLASS_MATCH * _EventCapacity + id.x];
+    ConeEvent eventData = _ConeEvents[eventIndex];
+    if (eventData.classification != CLASS_MATCH ||
+        eventData.occluderFilmId == 0u) return;
+    uint filmIndex = eventData.occluderFilmId - 1u;
+    if (filmIndex >= _FilmCapacity) return;
+    ContactFilmHeader film = _FilmHeaders[filmIndex];
+    if (film.id != eventData.occluderFilmId ||
+        film.generation != eventData.occluderGeneration ||
+        (film.flags & FILM_ACTIVE) == 0u || film.displacementPage != 0u) return;
+
+    uint prior;
+    InterlockedCompareExchange(_FilmHeaders[filmIndex].displacementPage,
+        0u, ALLOCATION_CLAIM, prior);
+    if (prior != 0u) return;
+    uint pageIndex;
+    InterlockedAdd(_DisplacementAllocator[0], 1u, pageIndex);
+    if (pageIndex >= _BasePageCapacity)
+    {
+        InterlockedAdd(_DisplacementAllocator[2], 1u);
+        _FilmHeaders[filmIndex].displacementPage = 0u;
+        return;
+    }
+    DisplacementPageHeader page = (DisplacementPageHeader)0;
+    page.id = pageIndex + 1u;
+    page.generation = max(1u, _DisplacementAllocator[4]);
+    page.filmId = film.id;
+    page.filmGeneration = film.generation;
+    page.level = 0u;
+    page.flags = PAGE_ACTIVE | PAGE_BASE | PAGE_DIRTY;
+    page.uvBounds = float4(0, 0, 1, 1);
+    page.bestFootprintBits = asuint(3.402823466e+38);
+    _DisplacementPages[pageIndex] = page;
+    uint queueSlot;
+    InterlockedAdd(_DisplacementPageState[0], 1u, queueSlot);
+    if (queueSlot < _BasePageCapacity)
+        _NewBasePages[queueSlot] = pageIndex;
+    else InterlockedAdd(_DisplacementPageState[2], 1u);
+    _FilmHeaders[filmIndex].flags |= FILM_HAS_DISPLACEMENT |
+        FILM_DIRTY_GEOMETRY | FILM_DIRTY_MESHLET;
+    DeviceMemoryBarrier();
+    _FilmHeaders[filmIndex].displacementPage = pageIndex + 1u;
+}
+
 [numthreads(1, 1, 1)]
 void BuildDisplacementArguments(uint3 id : SV_DispatchThreadID)
 {
@@ -410,7 +548,27 @@ void InitializeBasePages(uint3 id : SV_DispatchThreadID)
     DisplacementPageHeader page = _DisplacementPages[pageIndex];
     ContactFilmHeader film = _FilmHeaders[page.filmId - 1u];
     uint globalCell = CellForPage(false, pageIndex, localCell);
-    _BaseDisplacementCells[globalCell] = EmptyCell(film.sigmaNormal);
+    DisplacementCell initial = EmptyCell(film.sigmaNormal);
+    uint x = localCell & 15u;
+    uint y = localCell >> 4u;
+    float2 uv = (float2(x, y) + 0.5) / 16.0;
+    if (BootstrapSupport(film, uv))
+    {
+        uint supportCells = max(1u,
+            countbits(film.supportMaskLow) + countbits(film.supportMaskHigh));
+        float4 quality = _FilmInformation[(page.filmId - 1u) * 9u + 8u];
+        initial.coverage = 1.0;
+        initial.support = max(0.25,
+            film.supportTotal / max(1.0, (float)supportCells * 4.0));
+        initial.bestPrecision = max(quality.w, 0.0);
+        initial.bestFootprint = max(quality.z, 1e-12);
+        initial.revision = 1u;
+        InterlockedAdd(_DisplacementPages[pageIndex].supportFixed,
+            (uint)round(initial.support * WEIGHT_SCALE));
+        InterlockedMin(_DisplacementPages[pageIndex].bestFootprintBits,
+            asuint(initial.bestFootprint));
+    }
+    _BaseDisplacementCells[globalCell] = initial;
     _BaseChildPages[globalCell] = 0u;
     _DisplacementCellDirtyFlags[globalCell] = 0u;
     uint baseWord = globalCell * WORDS_PER_CELL;
@@ -496,13 +654,105 @@ void AccumulateDisplacement(uint3 id : SV_DispatchThreadID)
         uvSpan.x * uvSpan.y / (grid * grid), 1e-10);
     float covered = saturate(eventData.footprintArea / metricCellArea);
     AtomicAddScaled(baseWord + 3u, covered, WEIGHT_SCALE);
-    InterlockedAdd(_DisplacementCellAccumulator[baseWord + 4u], 1);
     InterlockedMax(_DisplacementCellAccumulator[baseWord + 5u],
         asint(eventData.pressurePrecision));
     InterlockedMin(_DisplacementCellAccumulator[baseWord + 6u],
         asint(max(eventData.footprintArea, 1e-12)));
     AtomicAddScaled(baseWord + 7u,
         saturate(eventData.confidence) * max(0.05, ratio), WEIGHT_SCALE);
+
+    // The Grid16 base page owns the film's canonical connected support domain.
+    // Microtiles refine geometry but never become disconnected display patches.
+    // Deposit contact coverage at the base scale as well as at the resolved leaf.
+    uint supportCell;
+    DisplacementPageHeader supportPage;
+    if (ResolveBaseCell(film, uv, supportCell, supportPage) &&
+        supportCell != globalCell)
+    {
+        float baseMetricCellArea = max(4.0 * film.extentU * film.extentV /
+            ((float)BASE_GRID * (float)BASE_GRID), 1e-10);
+        float baseCovered = saturate(eventData.footprintArea / baseMetricCellArea);
+        MarkCellDirty(supportCell);
+        AtomicAddScaled(supportCell * WORDS_PER_CELL + 3u, baseCovered,
+            WEIGHT_SCALE);
+    }
+    _FilmHeaders[filmIndex].flags |= FILM_DIRTY_GEOMETRY |
+        FILM_DIRTY_MESHLET;
+}
+
+[numthreads(64, 1, 1)]
+void AccumulateFreeSpaceCoverage(uint3 id : SV_DispatchThreadID)
+{
+    uint behindCount = min(_ClassCounters[CLASS_BEHIND], _EventCapacity);
+    if (id.x >= behindCount) return;
+    uint eventIndex = _ClassifiedIndices[
+        CLASS_BEHIND * _EventCapacity + id.x];
+    ConeEvent eventData = _ConeEvents[eventIndex];
+    if (eventData.classification != CLASS_BEHIND || eventData.filmId == 0u ||
+        eventData.pressurePrecision <= 0.0 || eventData.confidence <= 0.0)
+        return;
+    uint filmIndex = eventData.filmId - 1u;
+    if (filmIndex >= _FilmCapacity) return;
+    ContactFilmHeader film = _FilmHeaders[filmIndex];
+    if (film.id != eventData.filmId ||
+        film.generation != eventData.filmGeneration ||
+        (film.flags & FILM_ACTIVE) == 0u) return;
+    uint globalCell;
+    DisplacementPageHeader page;
+    if (!ResolveBaseCell(film, saturate(eventData.predictedUv), globalCell, page))
+        return;
+    DisplacementCell cell = LoadCell(globalCell);
+    if (cell.coverage <= 0.0) return;
+    float bestPressure = max(cell.bestPrecision,
+        max(_FilmInformation[filmIndex * 9u + 8u].w, 1e-8));
+    float pressureRatio = saturate(eventData.pressurePrecision / bestPressure);
+    float freePressure = saturate(eventData.confidence) *
+        pressureRatio * pressureRatio;
+    if (freePressure <= 0.0) return;
+    MarkCellDirty(globalCell);
+    uint baseWord = globalCell * WORDS_PER_CELL;
+    AtomicAddScaled(baseWord + 3u, -freePressure, WEIGHT_SCALE);
+    uint eye = eventData.packedPixel >> 31u;
+    InterlockedOr(_DisplacementCellAccumulator[baseWord + 4u],
+        (int)FreeSpaceViewBit(film, eye));
+    _FilmHeaders[filmIndex].flags |= FILM_DIRTY_GEOMETRY |
+        FILM_DIRTY_MESHLET;
+}
+
+[numthreads(64, 1, 1)]
+void AccumulateOccluderFreeSpaceCoverage(uint3 id : SV_DispatchThreadID)
+{
+    uint matchCount = min(_ClassCounters[CLASS_MATCH], _EventCapacity);
+    if (id.x >= matchCount) return;
+    uint eventIndex = _ClassifiedIndices[CLASS_MATCH * _EventCapacity + id.x];
+    ConeEvent eventData = _ConeEvents[eventIndex];
+    if (eventData.classification != CLASS_MATCH ||
+        eventData.occluderFilmId == 0u || eventData.pressurePrecision <= 0.0 ||
+        eventData.confidence <= 0.0) return;
+    uint filmIndex = eventData.occluderFilmId - 1u;
+    if (filmIndex >= _FilmCapacity) return;
+    ContactFilmHeader film = _FilmHeaders[filmIndex];
+    if (film.id != eventData.occluderFilmId ||
+        film.generation != eventData.occluderGeneration ||
+        (film.flags & FILM_ACTIVE) == 0u) return;
+    uint globalCell;
+    DisplacementPageHeader page;
+    if (!ResolveBaseCell(film, saturate(eventData.occluderUv), globalCell, page))
+        return;
+    DisplacementCell cell = LoadCell(globalCell);
+    if (cell.coverage <= 0.0) return;
+    float bestPressure = max(cell.bestPrecision,
+        max(_FilmInformation[filmIndex * 9u + 8u].w, 1e-8));
+    float pressureRatio = saturate(eventData.pressurePrecision / bestPressure);
+    float freePressure = saturate(eventData.confidence) *
+        pressureRatio * pressureRatio;
+    if (freePressure <= 0.0) return;
+    MarkCellDirty(globalCell);
+    uint baseWord = globalCell * WORDS_PER_CELL;
+    AtomicAddScaled(baseWord + 3u, -freePressure, WEIGHT_SCALE);
+    uint eye = eventData.packedPixel >> 31u;
+    InterlockedOr(_DisplacementCellAccumulator[baseWord + 4u],
+        (int)FreeSpaceViewBit(film, eye));
     _FilmHeaders[filmIndex].flags |= FILM_DIRTY_GEOMETRY |
         FILM_DIRTY_MESHLET;
 }
@@ -518,7 +768,12 @@ void SolveDirtyDisplacement(uint3 id : SV_DispatchThreadID)
     uint baseWord = globalCell * WORDS_PER_CELL;
     float weight = max(0.0,
         (float)_DisplacementCellAccumulator[baseWord + 0u] / WEIGHT_SCALE);
+    float signedCoverage =
+        (float)_DisplacementCellAccumulator[baseWord + 3u] / WEIGHT_SCALE;
+    uint freeViewMask =
+        (uint)_DisplacementCellAccumulator[baseWord + 4u];
     DisplacementCell cell = LoadCell(globalCell);
+    bool changed = false;
     if (weight > 0.0)
     {
         float mean = (float)_DisplacementCellAccumulator[baseWord + 1u] /
@@ -545,18 +800,66 @@ void SolveDirtyDisplacement(uint3 id : SV_DispatchThreadID)
             ? min(cell.sigma, candidateSigma)
             : candidateSigma;
         cell.support = totalSupport;
-        float frameCoverage = saturate(
-            (float)_DisplacementCellAccumulator[baseWord + 3u] / WEIGHT_SCALE);
-        cell.coverage = saturate(cell.coverage +
-            frameCoverage * (1.0 - cell.coverage));
         cell.bestPrecision = max(cell.bestPrecision,
             asfloat(_DisplacementCellAccumulator[baseWord + 5u]));
         cell.bestFootprint = min(cell.bestFootprint,
             asfloat(_DisplacementCellAccumulator[baseWord + 6u]));
         cell.residualVariance = combinedVariance;
-        cell.revision = cell.revision == 0xffffffffu ? 1u : cell.revision + 1u;
-        StoreCell(globalCell, cell);
+        changed = true;
+    }
 
+    if (signedCoverage > 0.0)
+    {
+        float contactCoverage = saturate(signedCoverage);
+        cell.coverage = saturate(cell.coverage +
+            contactCoverage * (1.0 - cell.coverage));
+        // Confirmed contact pushes back against stale free-space evidence.  Strong
+        // close contact clears weak contradiction quickly, while a genuinely moved
+        // surface still wins through repeated independent first-hit cones.
+        cell.freeSpacePressure = max(0.0,
+            cell.freeSpacePressure - 2.0 * contactCoverage);
+        if (cell.freeSpacePressure < 0.25) cell.freeSpaceViewMask = 0u;
+        changed = true;
+    }
+    else if (signedCoverage < 0.0)
+    {
+        float frameFreePressure = -signedCoverage;
+        cell.freeSpacePressure = min(65535.0,
+            cell.freeSpacePressure * 0.995 + frameFreePressure);
+        cell.freeSpaceViewMask |= freeViewMask;
+
+        // Local first-hit pressure removes only the contradicted contact cells.
+        // Resistance is the baked information state: accumulated support times the
+        // best (usually closest) precision.  A distant/grazing cone therefore adds
+        // little pressure and cannot cheaply overwrite a close, sharp scan.
+        float bakedResistance = 1.0 + 0.06 *
+            sqrt(max(cell.bestPrecision, 1.0)) *
+            sqrt(max(cell.support, 1.0));
+        if (countbits(cell.freeSpaceViewMask) >= 2u &&
+            cell.freeSpacePressure > bakedResistance)
+        {
+            float excess = cell.freeSpacePressure - bakedResistance;
+            float erosion = min(0.35,
+                0.25 * excess / max(bakedResistance, 1.0));
+            cell.coverage = max(0.0, cell.coverage - erosion);
+            // Pressure performs work when it removes supported film; consuming it
+            // prevents one old contradiction burst from eroding forever.
+            cell.freeSpacePressure = max(0.0,
+                cell.freeSpacePressure - erosion * bakedResistance);
+            if (cell.coverage <= 0.0)
+            {
+                cell.freeSpacePressure = 0.0;
+                cell.freeSpaceViewMask = 0u;
+            }
+        }
+        changed = true;
+    }
+
+    if (changed)
+    {
+        cell.revision = cell.revision == 0xffffffffu ? 1u :
+            cell.revision + 1u;
+        StoreCell(globalCell, cell);
         bool micro = IsMicroCell(globalCell);
         uint localIndex = micro ? globalCell - _BaseCellCapacity : globalCell;
         uint pageIndex = micro ? localIndex / MICRO_CELLS_PER_PAGE :
@@ -566,8 +869,9 @@ void SolveDirtyDisplacement(uint3 id : SV_DispatchThreadID)
             asuint(max(cell.bestFootprint, 1e-12)));
         InterlockedMax(_DisplacementPages[headerIndex].maximumVarianceBits,
             asuint(max(cell.residualVariance, 0.0)));
-        InterlockedAdd(_DisplacementPages[headerIndex].supportFixed,
-            (uint)max(0.0, round(weight * WEIGHT_SCALE)));
+        if (weight > 0.0)
+            InterlockedAdd(_DisplacementPages[headerIndex].supportFixed,
+                (uint)max(0.0, round(weight * WEIGHT_SCALE)));
         InterlockedAdd(_DisplacementPages[headerIndex].revision, 1u);
         _DisplacementPages[headerIndex].flags |= PAGE_DIRTY;
     }
@@ -696,6 +1000,8 @@ void InitializeMicroPages(uint3 id : SV_DispatchThreadID)
         // refinement cannot manufacture information merely by allocating a page.
         inherited.support /= (float)MICRO_CELLS_PER_PAGE;
         inherited.coverage = 0.0;
+        inherited.freeSpacePressure = 0.0;
+        inherited.freeSpaceViewMask = 0u;
         inherited.revision = 0u;
     }
     _MicroDisplacementCells[microCell] = inherited;

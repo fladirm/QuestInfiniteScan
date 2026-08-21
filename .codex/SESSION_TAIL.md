@@ -1,74 +1,38 @@
 # Latest exchange snapshots
 
 After compaction read `specka.md`, goal, state, DAG, this file, and relevant ADRs in
-the order in `AGENTS.md`. Do not repeat accepted work. Never touch `~/.codex` or
-session/history data.
+the order in `AGENTS.md`. Trust code/evidence over prose, never repeat accepted work,
+and never touch `~/.codex` or session/history data.
 
 ## Exchange 1
 
-User: Required a generated graph of files/functions that stays current after every
-DAG task so the codebase always has a reliable map.
+User: The first visible Cone-PRISM Quest build showed unusually promising geometric
+precision, but it lagged badly, rendered disconnected square plates/gaps, flickered
+after an attempted transparency change, retained view-axis artifacts, and froze on
+Stop/Start. Requested a forensic systemic repair—not more logging/hotfixes—plus an
+updated code graph. Required a local commit before deploy and replaced GitHub push
+with a workspace source ZIP produced by `git archive`.
 
-Assistant: Added deterministic machine-readable and Markdown graphs with file,
-symbol, call, event, GPU-kernel, runtime-flow, and DAG ownership relationships. The
-control validator now fails stale graphs; checkpoint `3a36f71` was pushed.
+Assistant: Audited the canonical GPU event/prediction/update/materialization and UX
+lifecycle. Replaced rectangular extent emission with continuous finite-cone Grid16
+support, kept BoundaryCurves without dropping whole cells, removed mono display-eye
+culling, separated sensor pause from full graph teardown, and made local first-hit
+contradiction a persisted resistance-gated pressure posterior rather than whole-film
+deletion. Schema v4 stores the new state and strict v3/v2 migration widens legacy
+records fail-closed. Replaced serial one-thread-per-film mesh generation with a full-
+detail cooperative `8x8` workgroup. Real-Vulkan EditMode passed 116/116 runnable
+tests and the precommit Android/Vulkan build passed; no repaired APK has yet been
+deployed.
 
 ## Exchange 2
 
-User: Asked for concrete progress and the percentage remaining while implementation
-continued.
+User: Rejected any further simplification of the specified SOTA reconstruction.
 
-Assistant: Reported 9/22 formally accepted runs and roughly 55-60% weighted work
-remaining. Then completed Q3-10's GPU multi-view RGB/depth boundary posterior, 3D
-cubic controls, conservative promotion/retirement, association protection, and
-boundary-aware meshlet snapping; Unity compilation and 10/10 focused tests passed.
-
-## Exchange 3
-
-User: Repeatedly requested concrete implementation progress and a percentage, while
-requiring the permanent code file/function graph to remain current after every task.
-
-Assistant: Completed Q3-11 rather than only reporting it. Added segmented hierarchical
-Grid16/Grid8 displacement with close-view quality resistance, persistent bimodal
-evidence, GPU-indirect posterior-preserving film split, multi-segment boundary transfer,
-conservative stable-plane merge, and displacement-aware meshlet positions/normals.
-Unity 6000.5.9f1 passed 104/104 runnable EditMode tests; Q3-12 is now active and the
-code graph was regenerated at task close.
-
-## Exchange 4
-
-User: Repeatedly requested implementation progress and the exact remaining percentage,
-with implementation strongly preferred over repeated explanations or trivial device tests.
-
-Assistant: Completed Q3-12. Replaced mutable whole-generation rendering with fenced
-front/back GPU publications, descriptor-driven adaptive tessellation, conservative exact
-boundary clipping, dual-eye range Hi-Z, GPU frustum/occlusion culling, compact indirect
-view indices, and independent geometry/appearance LOD. Five focused contracts passed on
-both OpenGL and forced Vulkan; Q3-13 native persistence/paging is now active.
-
-## Exchange 5
-
-User: Repeatedly requested exact implementation progress, remaining DAG work, and the
-first meaningful visible result without interrupting development for trivial device tests.
-
-Assistant: Completed Q3-13 native Cone-PRISM residency. Added exact schema-v3 canonical
-persistence, immutable GPU compaction and fenced background capture, bulk GPU rehydration,
-bounded recent snapshot and GPU-indirect meshlet residency, active/revisit sequencing,
-pose-graph display transforms, atomic monotonic revisions, and prior-revision survival on
-interrupted writes. Twenty alternating returns remained recoverable and the full forced-
-Vulkan EditMode suite passed 115 runnable tests with zero failures. Q3-14 stereo pressure
-is now active; physical Quest validation remains batched after Q3-15.
-
-## Exchange 6
-
-User: Rejected further blind hotfixes after the prior deployed build produced no visible
-mesh and required the implementation to follow the frozen Cone-PRISM DAG rather than
-repeat capture analysis or deploy logging-only variants.
-
-Assistant: Preserved the failed event-chain branch, completed the single canonical GPU
-work graph through Q3-15, directly bound the published PRISM meshlets to the world renderer,
-and added calibrated L/R plus temporal normal-axis photometric pressure. The new pressure
-is ambiguity/texture/first-hit gated, enters the same film H/g posterior, retains eight
-generation-safe views per film, and invalidates temporal coordinates across chunk/calibration
-epochs. Android IL2CPP and all Vulkan compute variants built successfully; the checkpoint
-now awaits one batched Quest acceptance rather than another diagnostic-only deployment.
+Assistant: Froze `CPQ3-2026-08-21-v3` without reducing the algorithm: quadratic
+ContactFilms plus hierarchical displacement, information/covariance and soft shell,
+finite-cone first-hit/unknown physics, persistent local pressure versus baked close-
+view resistance, multilayer hypotheses, BoundaryCurves, calibrated L/R and temporal
+normal focusing, surface-space measured appearance, adaptive full-detail meshlets,
+and resumable chunks all remain mandatory. Q3-11 is the single reopened active DAG
+gate; Q3-12 through Q3-15 retain their implementation but await the same consolidated
+physical acceptance after local commit/archive/exact rebuild.

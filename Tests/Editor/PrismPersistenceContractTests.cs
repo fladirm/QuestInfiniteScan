@@ -10,6 +10,9 @@ namespace Genesis.RoomScan.Tests
 {
     public sealed class PrismPersistenceContractTests
     {
+        private const int LegacyFilmHeaderStride = 144;
+        private const int LegacyDisplacementCellStride = 32;
+
         [Test]
         public void RequiredQ313ChunkStageKernelsImport()
         {
@@ -216,14 +219,14 @@ namespace Genesis.RoomScan.Tests
                 writer.Write(0x33515043u);
                 writer.Write(2);
                 writer.Write(0x01020304u);
-                writer.Write(ContactFilmHeaderGpu.Stride);
+                writer.Write(LegacyFilmHeaderStride);
                 writer.Write(ContactBoundaryHeaderGpu.Stride);
                 writer.Write(1);
                 writer.Write(0);
                 writer.Write(3u);
                 writer.Write(1u);
                 writer.Write(99ul);
-                WriteSection(writer, Pattern(ContactFilmHeaderGpu.Stride, 5));
+                WriteSection(writer, Pattern(LegacyFilmHeaderStride, 5));
                 WriteSection(writer, Pattern(9 * 16, 7));
                 WriteSection(writer, System.Array.Empty<byte>());
                 WriteSection(writer, System.Array.Empty<byte>());
@@ -236,6 +239,74 @@ namespace Genesis.RoomScan.Tests
             Assert.That(restored.DisplacementBasePageCount, Is.Zero);
             Assert.That(restored.MeshletDescriptorCount, Is.Zero);
             Assert.That(restored.AppearanceState, Is.Empty);
+        }
+
+        [Test]
+        public void VersionThreeArtifactWidensContactDomainAndPressurePosterior()
+        {
+            const int baseCells = ContactDisplacementPool.BaseCellsPerPage;
+            byte[] legacyFilms = Pattern(LegacyFilmHeaderStride, 5);
+            byte[] legacyCells = Pattern(baseCells * LegacyDisplacementCellStride, 17);
+            using var stream = new MemoryStream();
+            using (var writer = new BinaryWriter(stream, System.Text.Encoding.UTF8,
+                       true))
+            {
+                writer.Write(0x33515043u);
+                writer.Write(3);
+                writer.Write(0x01020304u);
+                writer.Write(LegacyFilmHeaderStride);
+                writer.Write(ContactBoundaryHeaderGpu.Stride);
+                writer.Write(DisplacementPageHeaderGpu.Stride);
+                writer.Write(LegacyDisplacementCellStride);
+                writer.Write(ContactTopologyEvidenceGpu.Stride);
+                writer.Write(ContactMeshletVertexGpu.Stride);
+                writer.Write(ContactMeshletDescriptorGpu.Stride);
+                writer.Write(1); // films
+                writer.Write(0); // boundaries
+                writer.Write(1); // base pages
+                writer.Write(0); // micro pages
+                writer.Write(0); // vertices
+                writer.Write(0); // indices
+                writer.Write(0); // descriptors
+                writer.Write(3u);
+                writer.Write(1u);
+                writer.Write(5u);
+                writer.Write(1u);
+                writer.Write(99ul);
+                WriteSection(writer, legacyFilms);
+                WriteSection(writer, Pattern(9 * 16, 7));
+                WriteSection(writer, System.Array.Empty<byte>());
+                WriteSection(writer, System.Array.Empty<byte>());
+                WriteSection(writer, Pattern(DisplacementPageHeaderGpu.Stride, 11));
+                WriteSection(writer, legacyCells);
+                WriteSection(writer, System.Array.Empty<byte>());
+                WriteSection(writer, Pattern(baseCells * sizeof(uint), 13));
+                WriteSection(writer, System.Array.Empty<byte>());
+                WriteSection(writer, Pattern(ContactTopologyEvidenceGpu.Stride, 19));
+                WriteSection(writer, Pattern(8 * sizeof(uint), 23));
+                WriteSection(writer, System.Array.Empty<byte>());
+                WriteSection(writer, System.Array.Empty<byte>());
+                WriteSection(writer, System.Array.Empty<byte>());
+                WriteSection(writer, System.Array.Empty<byte>());
+                WriteSection(writer, System.Array.Empty<byte>());
+                writer.Write(0); // keyframe references
+            }
+            stream.Position = 0;
+
+            Assert.That(PrismCanonicalChunkCodec.TryRead(stream, out var restored,
+                out string error), Is.True, error);
+            Assert.That(restored.FilmHeaders.Length,
+                Is.EqualTo(ContactFilmHeaderGpu.Stride));
+            Assert.That(restored.FilmHeaders[132], Is.Zero);
+            Assert.That(restored.FilmHeaders[139], Is.Zero);
+            Assert.That(restored.DisplacementBaseCells.Length,
+                Is.EqualTo(baseCells * DisplacementCellGpu.Stride));
+            // The v4 free-space pressure/mask insertion is fail-closed.
+            Assert.That(restored.DisplacementBaseCells[28], Is.Zero);
+            Assert.That(restored.DisplacementBaseCells[35], Is.Zero);
+            // Legacy revision bytes move intact behind the inserted posterior.
+            Assert.That(restored.DisplacementBaseCells[36],
+                Is.EqualTo(legacyCells[28]));
         }
 
         [Test]

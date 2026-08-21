@@ -5,6 +5,7 @@
 #pragma kernel TransferSplitBoundaries
 #pragma kernel ClearTopologyBoundaryHash
 #pragma kernel RehashTopologyBoundaries
+#pragma kernel ResetFilmMergeWave
 #pragma kernel ClearFilmMergeHash
 #pragma kernel BuildFilmMergeHash
 #pragma kernel MergeCompatibleFilms
@@ -22,6 +23,7 @@ struct ContactFilmHeader
     float confidence; float contradiction;
     uint revision; uint displacementPage; uint appearancePage;
     uint boundaryStart; uint boundaryCount;
+    uint supportMaskLow; uint supportMaskHigh;
     uint reserved0; uint reserved1; uint reserved2;
 };
 
@@ -38,6 +40,7 @@ struct DisplacementCell
 {
     float displacement; float sigma; float support; float coverage;
     float bestPrecision; float bestFootprint; float residualVariance;
+    float freeSpacePressure; uint freeSpaceViewMask;
     uint revision;
 };
 
@@ -200,6 +203,16 @@ float Height(ContactFilmHeader film, float u, float v)
         film.quadratic45.x * u * v + film.quadratic45.y * v * v;
 }
 
+float BootstrapCoverage(ContactFilmHeader film, float2 uv)
+{
+    uint2 cell = min((uint2)(saturate(uv) * 8.0), 7u);
+    uint bit = cell.y * 8u + cell.x;
+    bool covered = bit < 32u ?
+        ((film.supportMaskLow >> bit) & 1u) != 0u :
+        ((film.supportMaskHigh >> (bit - 32u)) & 1u) != 0u;
+    return covered ? 1.0 : 0.0;
+}
+
 bool IsMicroCell(uint globalCell) { return globalCell >= _BaseCellCapacity; }
 
 DisplacementCell LoadCell(uint globalCell)
@@ -356,6 +369,12 @@ void TransformChildInformation(uint parentInfo, uint childInfo, uint quadrant,
     countSupport.zw *= fraction;
     float4 quality = _FilmInformation[parentInfo + 8u];
     StoreInformation(childInfo, childH, childG, countSupport, quality);
+    float4 parentFreeState = _FilmInformation[parentInfo + 5u];
+    float4 childFreeState = _FilmInformation[childInfo + 5u];
+    childFreeState.y = parentFreeState.y * fraction;
+    childFreeState.z = parentFreeState.z;
+    childFreeState.w = parentFreeState.w;
+    _FilmInformation[childInfo + 5u] = childFreeState;
 }
 
 uint BoundaryHashKey(uint filmId, uint generation, uint cellKey)
@@ -460,6 +479,8 @@ void SplitContactFilms(uint3 id : SV_DispatchThreadID)
         child.displacementPage = firstPage + quadrant + 1u;
         child.boundaryStart = 0u;
         child.boundaryCount = 0u;
+        child.supportMaskLow = 0u;
+        child.supportMaskHigh = 0u;
         child.reserved0 = parent.id;
         child.reserved1 = quadrant;
         child.reserved2 = parent.reserved2 + 1u;
@@ -557,7 +578,9 @@ void InitializeSplitDisplacement(uint3 id : SV_DispatchThreadID)
     {
         inherited = LoadCell(sourceCell);
         inherited.support *= 0.25;
-        inherited.coverage *= 0.25;
+        // Coverage is an occupied fraction/probability in the resampled child
+        // domain, not extensive mass. Scaling it on every split eventually makes a
+        // repeatedly refined but well-observed surface disappear.
         inherited.revision = 1u;
     }
     uint page = record.firstChildBasePage + quadrant;
@@ -827,6 +850,14 @@ void ClearFilmMergeHash(uint3 id : SV_DispatchThreadID)
         _FilmMergeHash[id.x] = (FilmMergeHashEntry)0;
 }
 
+[numthreads(1, 1, 1)]
+void ResetFilmMergeWave(uint3 id : SV_DispatchThreadID)
+{
+    _AdaptState[4] = 0u; // successful merges in this wave
+    _AdaptState[5] = 0u; // merge-record overflow in this wave
+    _AdaptDispatchArguments[6] = uint3(0u, 1u, 1u);
+}
+
 [numthreads(64, 1, 1)]
 void BuildFilmMergeHash(uint3 id : SV_DispatchThreadID)
 {
@@ -861,14 +892,19 @@ void BuildFilmMergeHash(uint3 id : SV_DispatchThreadID)
 bool MergeCompatible(ContactFilmHeader a, ContactFilmHeader b,
     uint aIndex, uint bIndex)
 {
+    float uncertainty = saturate(max(a.sigmaNormal, b.sigmaNormal) / 0.02);
+    // Fresh contact films still carry a broad normal shell.  Let that measured
+    // uncertainty open the manifold-growth gate up to ~20 degrees; as the films
+    // harden it automatically contracts to the configured final normal gate.
+    float normalCosineGate = lerp(_MergeNormalCosine, 0.9396926, uncertainty);
     if (a.id >= b.id || a.chunkId != b.chunkId ||
         (a.flags & FILM_ACTIVE) == 0u || (b.flags & FILM_ACTIVE) == 0u ||
         a.boundaryCount != 0u || b.boundaryCount != 0u ||
         a.reserved0 != 0u || b.reserved0 != 0u ||
         a.appearancePage != b.appearancePage ||
-        dot(a.normal, b.normal) < _MergeNormalCosine ||
-        dot(a.tangentU, b.tangentU) < _MergeNormalCosine ||
-        dot(a.tangentV, b.tangentV) < _MergeNormalCosine)
+        dot(a.normal, b.normal) < normalCosineGate ||
+        dot(a.tangentU, b.tangentU) < normalCosineGate ||
+        dot(a.tangentV, b.tangentV) < normalCosineGate)
         return false;
     float3 delta = b.origin - a.origin;
     float normalGap = abs(dot(delta, normalize(a.normal + b.normal)));
@@ -879,7 +915,15 @@ bool MergeCompatible(ContactFilmHeader a, ContactFilmHeader b,
         a.extentV + b.extentV + _MergeSurfaceGap) return false;
     ContactTopologyEvidence ea = _TopologyEvidence[aIndex];
     ContactTopologyEvidence eb = _TopologyEvidence[bIndex];
-    if (ea.totalSupport < 8.0 || eb.totalSupport < 8.0 ||
+    // Spawn already carries reliable tile support in the film header.  Waiting
+    // for a later MATCH pass to duplicate it into topology evidence leaves the
+    // initial L/R and 8x8 films disconnected for at least one full generation
+    // (and often forever at tile seams).  Either source is sufficient evidence
+    // for a same-manifold merge; contradiction/boundary gates still protect
+    // genuinely distinct layers.
+    float effectiveSupportA = max(ea.totalSupport, a.supportTotal);
+    float effectiveSupportB = max(eb.totalSupport, b.supportTotal);
+    if (effectiveSupportA < 4.0 || effectiveSupportB < 4.0 ||
         ea.residualVariance > _SplitVariance * 0.25 ||
         eb.residualVariance > _SplitVariance * 0.25 ||
         a.contradiction > 0.2 || b.contradiction > 0.2)
@@ -1147,11 +1191,14 @@ void MergeCompatibleFilms(uint3 id : SV_DispatchThreadID)
     merged.revision = max(a.revision, b.revision) + 1u;
     merged.displacementPage = mergedPage + 1u;
     merged.boundaryStart = 0u; merged.boundaryCount = 0u;
+    merged.supportMaskLow = 0u; merged.supportMaskHigh = 0u;
     merged.reserved0 = merged.reserved1 = merged.reserved2 = 0u;
 
     float totalH[36]; float totalG[6];
-    [unroll] for (uint i = 0u; i < 36u; ++i) totalH[i] = 0.0;
-    [unroll] for (uint i = 0u; i < 6u; ++i) totalG[i] = 0.0;
+    [unroll] for (uint hIndex = 0u; hIndex < 36u; ++hIndex)
+        totalH[hIndex] = 0.0;
+    [unroll] for (uint gIndex = 0u; gIndex < 6u; ++gIndex)
+        totalG[gIndex] = 0.0;
     AddTransformedInformation(a, merged, aIndex * 9u, totalH, totalG);
     AddTransformedInformation(b, merged, bIndex * 9u, totalH, totalG);
     float solved[6] = { 0, 0, 0, 0, 0, 0 };
@@ -1177,6 +1224,13 @@ void MergeCompatibleFilms(uint3 id : SV_DispatchThreadID)
         min(qa.z, qb.z), max(qa.w, qb.w));
     StoreInformation(mergedIndex * 9u, totalH, totalG,
         countSupport, quality);
+    float4 freeStateA = _FilmInformation[aIndex * 9u + 5u];
+    float4 freeStateB = _FilmInformation[bIndex * 9u + 5u];
+    float4 mergedFreeState = _FilmInformation[mergedIndex * 9u + 5u];
+    mergedFreeState.y = freeStateA.y + freeStateB.y;
+    mergedFreeState.z = max(freeStateA.z, freeStateB.z);
+    mergedFreeState.w = asfloat(asuint(freeStateA.w) | asuint(freeStateB.w));
+    _FilmInformation[mergedIndex * 9u + 5u] = mergedFreeState;
     ContactTopologyEvidence ea = _TopologyEvidence[aIndex];
     ContactTopologyEvidence eb = _TopologyEvidence[bIndex];
     ContactTopologyEvidence em;
@@ -1238,8 +1292,29 @@ bool SourceDisplacement(ContactFilmHeader source, float3 surfacePosition,
         v / max(2.0 * source.extentV, 0.002) + 0.5);
     displacement = 0.0; cell = (DisplacementCell)0;
     if (any(uv < 0.0) || any(uv > 1.0)) return false;
+    bool supported = false;
     uint sourceCell;
-    if (ResolveLeaf(source, uv, sourceCell)) cell = LoadCell(sourceCell);
+    if (ResolveLeaf(source, uv, sourceCell))
+    {
+        cell = LoadCell(sourceCell);
+        supported = cell.coverage > 0.02;
+    }
+    else if (BootstrapCoverage(source, uv) > 0.0)
+    {
+        uint supportCells = max(1u,
+            countbits(source.supportMaskLow) +
+            countbits(source.supportMaskHigh));
+        cell.sigma = source.sigmaNormal;
+        cell.support = max(0.25,
+            source.supportTotal / max(1.0, (float)supportCells));
+        cell.coverage = 1.0;
+        float4 quality = _FilmInformation[(source.id - 1u) * 9u + 8u];
+        cell.bestPrecision = max(quality.w, 0.0);
+        cell.bestFootprint = max(quality.z, 1e-12);
+        cell.revision = 1u;
+        supported = true;
+    }
+    if (!supported) return false;
     float3 sourceSurface = source.origin + u * source.tangentU +
         v * source.tangentV + (Height(source, u, v) + cell.displacement) *
         source.normal;
@@ -1265,7 +1340,10 @@ void InitializeMergedDisplacement(uint3 id : SV_DispatchThreadID)
     float baseHeight = Height(merged, u, v);
     float3 basePoint = merged.origin + u * merged.tangentU +
         v * merged.tangentV + baseHeight * merged.normal;
-    float da, db; DisplacementCell ca, cb;
+    float da = 0.0;
+    float db = 0.0;
+    DisplacementCell ca = (DisplacementCell)0;
+    DisplacementCell cb = (DisplacementCell)0;
     bool hasA = SourceDisplacement(a, basePoint, da, ca);
     bool hasB = SourceDisplacement(b, basePoint, db, cb);
     float wa = hasA ? max(ca.support, a.confidence) : 0.0;
@@ -1287,6 +1365,15 @@ void InitializeMergedDisplacement(uint3 id : SV_DispatchThreadID)
             hasB ? cb.bestFootprint : 3.402823466e+38);
         result.residualVariance = (hasA ? ca.residualVariance : 0.0) +
             (hasB ? cb.residualVariance : 0.0);
+        // Contradiction is a local posterior, not extensive mass. Preserve the
+        // strongest pressure and all independent view bins without manufacturing
+        // pressure merely because two compatible charts were consolidated.
+        result.freeSpacePressure = max(
+            hasA ? ca.freeSpacePressure : 0.0,
+            hasB ? cb.freeSpacePressure : 0.0);
+        result.freeSpaceViewMask =
+            (hasA ? ca.freeSpaceViewMask : 0u) |
+            (hasB ? cb.freeSpaceViewMask : 0u);
         result.revision = 1u;
     }
     uint target = record.mergedBasePage * BASE_CELLS_PER_PAGE + localCell;

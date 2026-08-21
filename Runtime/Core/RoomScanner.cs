@@ -652,7 +652,7 @@ namespace Genesis.RoomScan
                 // this, a throw mid-warmup would leave IsScanning=true
                 // forever and every subsequent A-press would no-op.
                 IsScanning = false;
-                StopPrismPipeline();
+                PausePrismPipeline();
                 _depthCapture?.StopDepthCapture();
                 throw;
             }
@@ -687,7 +687,7 @@ namespace Genesis.RoomScan
             if (!IsScanning) return;
             IsScanning = false;
 
-            StopPrismPipeline();
+            PausePrismPipeline();
             _depthCapture.StopDepthCapture();
 
             ScanStopped?.Invoke();
@@ -773,10 +773,24 @@ namespace Genesis.RoomScan
                                    _prismRigCapture.IsCapturing;
         }
 
-        private void StopPrismPipeline()
+        /// <summary>
+        /// Pauses sensor ingress only. Canonical arenas, prediction targets, GPU
+        /// rings and the compiled work graph remain resident, so Stop -> Start is a
+        /// true continuation without a render-thread destroy/reallocate storm.
+        /// </summary>
+        private void PausePrismPipeline()
         {
             _prismRigCapture?.StopCapture();
             _prismCaptureRunning = false;
+        }
+
+        /// <summary>
+        /// Full graph teardown is reserved for explicit resource release. Ordinary
+        /// scan Stop must never call it.
+        /// </summary>
+        private void ShutdownPrismPipeline()
+        {
+            PausePrismPipeline();
             if (!_prismPipelinePrepared) return;
             _prismWorkGraph?.StopGraph();
             _prismMeshletBuilder?.StopBuilding();
@@ -818,6 +832,7 @@ namespace Genesis.RoomScan
         {
             if (_scanResourcesReleased) return;
             StopScanning();
+            ShutdownPrismPipeline();
 
             _volumeIntegrator.ReleaseVolumes();
             _meshExtractor.DisposeOnly();

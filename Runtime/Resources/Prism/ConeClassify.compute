@@ -77,6 +77,7 @@ struct ConeEvent
     float pressurePrecision;
     uint occluderFilmId;
     uint occluderGeneration;
+    float2 occluderUv;
 };
 
 RWStructuredBuffer<ConeEvent> _ConeEvents;
@@ -257,6 +258,7 @@ void ClassifyConeEvents(uint3 id : SV_DispatchThreadID)
     eventData.pressurePrecision = 0.0;
     eventData.occluderFilmId = 0u;
     eventData.occluderGeneration = 0u;
+    eventData.occluderUv = 0.0;
 
     if ((measuredFlags & FLAG_VALID) == 0u || measured.x <= 0.0 ||
         !isfinite(measured.x))
@@ -336,6 +338,7 @@ void ClassifyConeEvents(uint3 id : SV_DispatchThreadID)
         {
             eventData.predictedRange = layer1.x;
             eventData.combinedSigma = layerCombinedSigma;
+            eventData.occluderUv = eventData.predictedUv;
             eventData.filmId = layer1Film.x;
             eventData.filmGeneration = layer1Film.y;
             eventData.predictedUv = layer1UvMetadata.xy;

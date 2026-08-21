@@ -29,6 +29,7 @@ struct ConeEvent
     float pressurePrecision;
     uint occluderFilmId;
     uint occluderGeneration;
+    float2 occluderUv;
 };
 
 struct ContactFilmHeader
@@ -54,6 +55,8 @@ struct ContactFilmHeader
     uint appearancePage;
     uint boundaryStart;
     uint boundaryCount;
+    uint supportMaskLow;
+    uint supportMaskHigh;
     uint reserved0;
     uint reserved1;
     uint reserved2;
@@ -79,6 +82,7 @@ StructuredBuffer<uint> _ClassifiedIndices;
 StructuredBuffer<uint> _ClassCounters;
 RWStructuredBuffer<ContactFilmHeader> _FilmHeaders;
 RWStructuredBuffer<float4> _FilmInformation;
+RWStructuredBuffer<uint> _FilmAllocator;
 RWStructuredBuffer<int> _FrameAccumulator;
 RWStructuredBuffer<uint> _FilmDirtyFlags;
 RWStructuredBuffer<uint> _DirtyFilmIndices;
@@ -100,7 +104,8 @@ static const uint FILM_ACTIVE = 1u;
 static const uint FILM_UNCERTAIN = 4u;
 static const uint FILM_DIRTY_GEOMETRY = 8u;
 static const uint FILM_DIRTY_MESHLET = 16u;
-static const uint WORDS_PER_FILM = 32u;
+static const uint FILM_RETIRED = 128u;
+static const uint WORDS_PER_FILM = 34u;
 static const float H_FIXED_SCALE = 4096.0;
 static const float B_FIXED_SCALE = 262144.0;
 static const float SUPPORT_FIXED_SCALE = 4096.0;
@@ -109,6 +114,23 @@ float3 LoadRay(uint2 pixel, uint eye)
 {
     return eye == 0u ? _DepthRayCenterLeft[pixel].xyz :
         _DepthRayCenterRight[pixel].xyz;
+}
+
+uint FreeSpaceViewBit(ContactFilmHeader film, uint eye)
+{
+    float3 cameraChunk = mul(_ChunkFromDepth[eye],
+        float4(0.0, 0.0, 0.0, 1.0)).xyz;
+    float3 toCamera = normalize(cameraChunk - film.origin);
+    float2 tangent = float2(dot(toCamera, film.tangentU),
+        dot(toCamera, film.tangentV));
+    // Central views form their own stable bin; oblique views use four tangent
+    // quadrants.  Each physical depth eye owns a separate five-bit bank, so
+    // agreement of both sensors is already independent evidence while temporal
+    // motion naturally adds further bins without an expensive atan2.
+    uint bin = dot(tangent, tangent) < 0.04 ? 0u :
+        1u + (tangent.x >= 0.0 ? 1u : 0u) +
+        (tangent.y >= 0.0 ? 2u : 0u);
+    return 1u << (bin + eye * 5u);
 }
 
 uint UpperIndex(uint row, uint column)
@@ -291,6 +313,7 @@ void AccumulateMatchedFilms(uint3 id : SV_DispatchThreadID)
 
     AtomicAddScaled(baseWord + 27u, supportWeight, SUPPORT_FIXED_SCALE);
     InterlockedAdd(_FrameAccumulator[baseWord + 28u], 1);
+    InterlockedAdd(_FrameAccumulator[baseWord + 33u], 1);
     AtomicAddScaled(baseWord + 31u, -supportWeight, SUPPORT_FIXED_SCALE);
     InterlockedMax(_FrameAccumulator[baseWord + 29u],
         asint(max(eventData.pressurePrecision, 0.0)));
@@ -313,8 +336,11 @@ void AccumulateMatchedFilms(uint3 id : SV_DispatchThreadID)
                     eventData.pressurePrecision);
                 float occluderRatio = saturate(eventData.pressurePrecision /
                     max(occluderBest, 1e-8));
+                // Free-space pressure inherits the precision ratio twice: a
+                // distant/grazing cone may eventually challenge a weak film, but
+                // cannot cheaply erase a surface baked by a close, sharp view.
                 float occluderSupport = saturate(eventData.confidence) *
-                    max(0.05, occluderRatio);
+                    max(0.002, occluderRatio * occluderRatio);
                 uint occluderBase = occluderIndex * WORDS_PER_FILM;
                 uint priorOccluderDirty;
                 InterlockedCompareExchange(_FilmDirtyFlags[occluderIndex], 0u, 1u,
@@ -333,6 +359,9 @@ void AccumulateMatchedFilms(uint3 id : SV_DispatchThreadID)
                 InterlockedAdd(_FrameAccumulator[occluderBase + 28u], 1);
                 AtomicAddScaled(occluderBase + 31u, occluderSupport,
                     SUPPORT_FIXED_SCALE);
+                uint eye = eventData.packedPixel >> 31u;
+                InterlockedOr(_FrameAccumulator[occluderBase + 32u],
+                    (int)FreeSpaceViewBit(occluder, eye));
             }
         }
     }
@@ -359,7 +388,8 @@ void AccumulateBehindEvidence(uint3 id : SV_DispatchThreadID)
         eventData.pressurePrecision);
     float qualityRatio = saturate(eventData.pressurePrecision /
         max(bestPressure, 1e-8));
-    float supportWeight = saturate(eventData.confidence) * max(0.05, qualityRatio);
+    float supportWeight = saturate(eventData.confidence) *
+        max(0.002, qualityRatio * qualityRatio);
     uint baseWord = filmIndex * WORDS_PER_FILM;
     uint priorDirty;
     InterlockedCompareExchange(_FilmDirtyFlags[filmIndex], 0u, 1u, priorDirty);
@@ -375,10 +405,46 @@ void AccumulateBehindEvidence(uint3 id : SV_DispatchThreadID)
     AtomicAddScaled(baseWord + 27u, supportWeight, SUPPORT_FIXED_SCALE);
     InterlockedAdd(_FrameAccumulator[baseWord + 28u], 1);
     AtomicAddScaled(baseWord + 31u, supportWeight, SUPPORT_FIXED_SCALE);
-    InterlockedMax(_FrameAccumulator[baseWord + 29u],
-        asint(max(eventData.pressurePrecision, 0.0)));
-    InterlockedMin(_FrameAccumulator[baseWord + 30u],
-        asint(max(eventData.footprintArea, 1e-12)));
+    uint2 pixel = uint2(eventData.packedPixel & 0xffffu,
+        (eventData.packedPixel >> 16u) & 0x7fffu);
+    uint eye = eventData.packedPixel >> 31u;
+    InterlockedOr(_FrameAccumulator[baseWord + 32u],
+        (int)FreeSpaceViewBit(film, eye));
+
+    // If first-hit contact lies just beyond a still-uncertain film and has a
+    // compatible normal, the cone does not merely vote for deletion: it applies a
+    // bounded normal-direction pressure inside the film's uncertainty shell.  A
+    // large gap remains contradiction only and will retire the false occluder.
+    float3 measuredNormalChunk = mul((float3x3)_ChunkFromDepth[eye],
+        eventData.measuredNormal);
+    float normalLength2 = dot(measuredNormalChunk, measuredNormalChunk);
+    float gap = eventData.measuredRange - eventData.predictedRange;
+    float captureRange = max(0.012,
+        6.0 * max(eventData.combinedSigma, film.sigmaNormal));
+    if ((film.flags & FILM_UNCERTAIN) != 0u && gap > 0.0 &&
+        gap <= captureRange && normalLength2 > 0.25 &&
+        dot(normalize(measuredNormalChunk), film.normal) > 0.9063078)
+    {
+        float3 rayChunk = normalize(mul((float3x3)_ChunkFromDepth[eye],
+            LoadRay(pixel, eye)));
+        float normalResidual = gap * dot(rayChunk, film.normal);
+        float qualityGate = saturate((qualityRatio - _QualityFloor) /
+            max(1.0 - _QualityFloor, 1e-4));
+        qualityGate = qualityGate * qualityGate *
+            (3.0 - 2.0 * qualityGate);
+        float shell = max(_MinimumHuber,
+            2.0 * max(eventData.combinedSigma, film.sigmaNormal));
+        float robust = abs(normalResidual) <= shell ? 1.0 :
+            shell / max(abs(normalResidual), 1e-8);
+        float pressureWeight = 0.35 * saturate(eventData.confidence) *
+            qualityGate * robust;
+        if (pressureWeight > 0.0)
+        {
+            AtomicAddScaled(baseWord + 0u, pressureWeight, H_FIXED_SCALE);
+            AtomicAddScaled(baseWord + 21u,
+                pressureWeight * normalResidual, B_FIXED_SCALE);
+        }
+    }
 }
 
 [numthreads(64, 1, 1)]
@@ -447,6 +513,7 @@ void AccumulatePhotometricPressure(uint3 id : SV_DispatchThreadID)
         max(0.05, qualityRatio);
     AtomicAddScaled(baseWord + 27u, supportWeight, SUPPORT_FIXED_SCALE);
     InterlockedAdd(_FrameAccumulator[baseWord + 28u], 1);
+    InterlockedAdd(_FrameAccumulator[baseWord + 33u], 1);
     AtomicAddScaled(baseWord + 31u, -supportWeight, SUPPORT_FIXED_SCALE);
     InterlockedMax(_FrameAccumulator[baseWord + 29u],
         asint(max(pressure.precision, 0.0)));
@@ -595,31 +662,92 @@ void SolveDirtyFilms(uint3 id : SV_DispatchThreadID)
         }
     }
 
-    float support = max(0.0,
+    float allEvidence = max(0.0,
         (float)_FrameAccumulator[baseWord + 27u] / SUPPORT_FIXED_SCALE);
     float signedContactEvidence =
         (float)_FrameAccumulator[baseWord + 31u] / SUPPORT_FIXED_SCALE;
-    uint observationCount = (uint)max(0, _FrameAccumulator[baseWord + 28u]);
+    // MATCH/photometric pressure contributes -w and proven free space +w.
+    // Decomposing the signed statistic prevents a contradicted film from becoming
+    // more confident merely because many rays proved it should not be there.
+    float contactEvidence = max(0.0,
+        0.5 * (allEvidence - signedContactEvidence));
+    float freeSpaceEvidence = max(0.0,
+        0.5 * (allEvidence + signedContactEvidence));
+    uint contactObservationCount =
+        (uint)max(0, _FrameAccumulator[baseWord + 33u]);
     float maxPressure = asfloat((uint)max(0, _FrameAccumulator[baseWord + 29u]));
     float minFootprint = asfloat((uint)_FrameAccumulator[baseWord + 30u]);
     float4 countAndSupport = _FilmInformation[filmInfo + 7u];
     float4 quality = _FilmInformation[filmInfo + 8u];
-    countAndSupport.z += (float)observationCount;
-    countAndSupport.w += support;
+    float4 curvatureAndFreeSpace = _FilmInformation[filmInfo + 5u];
+    countAndSupport.z += (float)contactObservationCount;
+    countAndSupport.w += contactEvidence;
     quality.z = isfinite(minFootprint) ? min(quality.z, minFootprint) : quality.z;
     quality.w = max(quality.w, maxPressure);
     float pressureSigma = rsqrt(max(quality.w, 1.0));
     film.sigmaNormal = max(_MinimumSigma,
         min(film.sigmaNormal, pressureSigma));
-    film.supportTotal += support;
+    film.supportTotal += contactEvidence;
     film.confidence = saturate(1.0 - exp(-countAndSupport.z / 12.0));
-    if (support > 1e-5)
+    if (allEvidence > 1e-5)
     {
-        float contradictionTarget = saturate(0.5 +
-            0.5 * signedContactEvidence / support);
+        float contradictionTarget = saturate(freeSpaceEvidence /
+            max(contactEvidence + freeSpaceEvidence, 1e-6));
         float response = contradictionTarget > film.contradiction ? 0.25 : 0.12;
         film.contradiction = lerp(film.contradiction,
             contradictionTarget, response);
+    }
+
+    // Persistent first-hit free-space state lives in the three otherwise unused
+    // lanes beside H[35]. It is canonical and resumable without widening the film
+    // ABI: accumulated pressure, consecutive free-only frames, angular/eye bins.
+    float persistentFreeSpace = max(0.0, curvatureAndFreeSpace.y);
+    float consecutiveFreeFrames = max(0.0, curvatureAndFreeSpace.z);
+    uint freeSpaceViewMask = asuint(curvatureAndFreeSpace.w) |
+        (uint)_FrameAccumulator[baseWord + 32u];
+    if (contactEvidence > freeSpaceEvidence)
+    {
+        persistentFreeSpace = max(0.0,
+            persistentFreeSpace - 2.0 * contactEvidence);
+        consecutiveFreeFrames = 0.0;
+        if (persistentFreeSpace < 1.0) freeSpaceViewMask = 0u;
+    }
+    else if (freeSpaceEvidence > 1e-5)
+    {
+        persistentFreeSpace = min(65535.0,
+            persistentFreeSpace * 0.985 + freeSpaceEvidence);
+        consecutiveFreeFrames = min(65535.0,
+            consecutiveFreeFrames + 1.0);
+    }
+    else
+        persistentFreeSpace *= 0.995;
+    curvatureAndFreeSpace.y = persistentFreeSpace;
+    curvatureAndFreeSpace.z = consecutiveFreeFrames;
+    curvatureAndFreeSpace.w = asfloat(freeSpaceViewMask);
+
+    // A close/high-precision bake stores more information and therefore demands
+    // proportionally more contradictory pressure. Retirement also requires both
+    // temporal persistence and at least two independent eye/view bins. This
+    // removes geometry proven to stand in observed free space without ever carving
+    // behind the measured first hit.
+    float retirementEvidence = clamp(8.0 +
+        0.15 * sqrt(max(film.supportTotal, 0.0)), 8.0, 64.0);
+    bool retireFromFreeSpace = countbits(freeSpaceViewMask) >= 2u &&
+        consecutiveFreeFrames >= 3.0 &&
+        persistentFreeSpace >= retirementEvidence &&
+        film.contradiction >= 0.65 && contactEvidence < 0.25;
+    // Once a film owns coverage cells, free-space pressure is applied locally by
+    // DisplacementTopology. Whole-film retirement remains only as the bounded-pool
+    // fallback when no page could be allocated.
+    if (retireFromFreeSpace && film.displacementPage == 0u &&
+        (film.flags & FILM_ACTIVE) != 0u)
+    {
+        film.flags &= ~FILM_ACTIVE;
+        film.flags |= FILM_RETIRED | FILM_DIRTY_GEOMETRY |
+            FILM_DIRTY_MESHLET;
+        film.revision = film.revision == 0xffffffffu ? 1u :
+            film.revision + 1u;
+        InterlockedAdd(_FilmAllocator[1], 0xffffffffu);
     }
     if (film.sigmaNormal <= _MinimumSigma * 1.25)
         film.flags &= ~FILM_UNCERTAIN;
@@ -627,6 +755,7 @@ void SolveDirtyFilms(uint3 id : SV_DispatchThreadID)
     quality.y = film.confidence;
     _FilmInformation[filmInfo + 7u] = countAndSupport;
     _FilmInformation[filmInfo + 8u] = quality;
+    _FilmInformation[filmInfo + 5u] = curvatureAndFreeSpace;
     _FilmHeaders[filmIndex] = film;
 
     [unroll] for (uint word = 0u; word < WORDS_PER_FILM; ++word)

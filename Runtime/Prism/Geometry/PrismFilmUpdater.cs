@@ -14,7 +14,10 @@ namespace Genesis.RoomScan.Prism
     [DefaultExecutionOrder(15)]
     public sealed class PrismFilmUpdater : MonoBehaviour
     {
-        private const int AccumulatorWordsPerFilm = 32;
+        // 0..31: information/support envelope; 32: per-frame free-space view
+        // mask; 33: true contact observation count.  BEHIND evidence must never
+        // inflate canonical contact confidence.
+        private const int AccumulatorWordsPerFilm = 34;
         private const int MatchClassDispatchOffset =
             (int)ConeEventClass.Match * sizeof(uint) * 3;
         private const int BehindClassDispatchOffset =
@@ -43,6 +46,7 @@ namespace Genesis.RoomScan.Prism
         private static readonly int RayRightId = Shader.PropertyToID("_DepthRayCenterRight");
         private static readonly int FilmHeadersId = Shader.PropertyToID("_FilmHeaders");
         private static readonly int FilmInformationId = Shader.PropertyToID("_FilmInformation");
+        private static readonly int FilmAllocatorId = Shader.PropertyToID("_FilmAllocator");
         private static readonly int FrameAccumulatorId = Shader.PropertyToID("_FrameAccumulator");
         private static readonly int FilmDirtyFlagsId = Shader.PropertyToID("_FilmDirtyFlags");
         private static readonly int DirtyFilmIndicesId = Shader.PropertyToID("_DirtyFilmIndices");
@@ -172,6 +176,10 @@ namespace Genesis.RoomScan.Prism
                     luts.DepthLeft.CenterRaySolidAngle);
                 updateCompute.SetTexture(_accumulateKernel, RayRightId,
                     luts.DepthRight.CenterRaySolidAngle);
+                updateCompute.SetTexture(_contradictionKernel, RayLeftId,
+                    luts.DepthLeft.CenterRaySolidAngle);
+                updateCompute.SetTexture(_contradictionKernel, RayRightId,
+                    luts.DepthRight.CenterRaySolidAngle);
 
                 updateCompute.Dispatch(_clearFrameKernel, 1, 1, 1);
                 updateCompute.DispatchIndirect(_accumulateKernel,
@@ -256,6 +264,8 @@ namespace Genesis.RoomScan.Prism
             updateCompute.SetBuffer(_solveKernel, FilmHeadersId, pool.Headers);
             updateCompute.SetBuffer(_solveKernel, FilmInformationId,
                 pool.Information);
+            updateCompute.SetBuffer(_solveKernel, FilmAllocatorId,
+                pool.Allocator);
         }
 
         private void DisposeBuffers()

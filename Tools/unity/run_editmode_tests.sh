@@ -19,7 +19,11 @@ fi
 install -d -- "$(dirname -- "$qis_results")"
 # The Test Framework owns shutdown. Passing -quit here makes Unity 6.5 exit after
 # import/compilation before it writes testResults (while still returning zero).
-"$qis_editor" -batchmode -nographics \
+# Cone-PRISM is Vulkan-only on Quest. `-nographics` forces Unity's NullGfxDevice,
+# which imports ComputeShader assets without executable kernels and makes FindKernel
+# contracts meaningless. Batch mode still stays non-interactive on the existing X
+# display while `-force-vulkan` exercises the product shader backend.
+"$qis_editor" -batchmode -force-vulkan \
     -projectPath "$qis_project" \
     -runTests -testPlatform EditMode \
     -testResults "$qis_results" \

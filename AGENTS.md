@@ -38,7 +38,7 @@ it.
 ## Product invariant
 
 The production product is a fully on-device Quest 3/3S spatial scanner named
-Cone-PRISM-Q3. Reconstruction physics `CPQ3-2026-08-20-v1` is frozen in
+Cone-PRISM-Q3. Reconstruction physics `CPQ3-2026-08-21-v3` is frozen in
 `specka.md`. Canonical world state is a chunk-local graph of one-sided probabilistic
 `ContactFilm`s; `SurfaceChartGeometry` is their quadratic plus hierarchical
 displacement parameterization, `ContactBoundary` is their persistent contact
@@ -81,6 +81,11 @@ gates; do not leave two competing product architectures.
   hierarchical: a tangent/quadratic base plus sparse multiresolution displacement
   microtiles. The base supplies stable low-frequency structure; microtiles preserve
   all supported high-frequency detail without forcing a global resolution.
+- Persist local opposing first-hit pressure and independent eye/angular evidence in
+  each base film cell. Contact evidence cancels pressure; only accumulated
+  multi-view free-space pressure exceeding the cell's stored information resistance
+  may consume local support. Never turn a frame-local contradiction into whole-film
+  deletion or duplicate it through child microtiles.
 - Model the capture basin as normal uncertainty `mu +/- k*sigma`. Uncertain films
   procedurally emit adaptive quadrature shell layers for association/photometric
   focusing; as covariance shrinks they collapse continuously to one opaque surface.
@@ -93,6 +98,10 @@ gates; do not leave two competing product architectures.
 - Build adaptive local meshlets from ContactFilms. Publish topology with
   generation IDs and double buffering; the renderer must never consume buffers
   being mutated.
+- Materialize one dirty film cooperatively with an `8x8` GPU workgroup (or a measured
+  stronger equivalent), caching its continuous support domain for parallel vertex
+  and triangle work. Performance work may not lower the canonical chart/microtile
+  detail or reintroduce a serial single-lane film builder.
 - Keep association, fusion, regularization, topology construction, visibility
   culling, screen-space LOD selection, draw-list compaction, and rendering on GPU.
   Use indirect dispatch/draw arguments; never rebuild live geometry through Unity

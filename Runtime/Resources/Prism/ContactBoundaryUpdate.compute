@@ -27,6 +27,7 @@ struct ConeEvent
     float pressurePrecision;
     uint occluderFilmId;
     uint occluderGeneration;
+    float2 occluderUv;
 };
 
 struct ContactFilmHeader
@@ -52,6 +53,8 @@ struct ContactFilmHeader
     uint appearancePage;
     uint boundaryStart;
     uint boundaryCount;
+    uint supportMaskLow;
+    uint supportMaskHigh;
     uint reserved0;
     uint reserved1;
     uint reserved2;
@@ -338,10 +341,11 @@ bool ResolveBoundary(uint filmId, uint generation, uint cellKey,
             _BoundaryHash[slot].filmGeneration = generation;
             _BoundaryHash[slot].cellKey = cellKey;
             _BoundaryHash[slot].boundaryId = allocated + 1u;
-            uint ignored;
-            InterlockedCompareExchange(_FilmHeaders[filmId - 1u].boundaryStart,
-                0u, allocated + 1u, ignored);
-            InterlockedAdd(_FilmHeaders[filmId - 1u].boundaryCount, 1u);
+            // A single-view gradient is provisional evidence, not canonical
+            // topology.  Counting it here permanently locks an otherwise smooth
+            // film against cross-tile/cross-eye merging.  The owning film is only
+            // linked when this boundary survives the multi-view persistence gate
+            // in SolveDirtyBoundaries.
             DeviceMemoryBarrier();
             _BoundaryHash[slot].hash = hash;
             boundaryIndex = allocated;
@@ -727,6 +731,7 @@ void SolveDirtyBoundaries(uint3 id : SV_DispatchThreadID)
     float frameContradiction = max(0.0,
         (float)_BoundaryFrameAccumulator[baseWord + 11u] / SUPPORT_SCALE);
     bool wasRetired = (boundary.flags & BOUNDARY_RETIRED) != 0u;
+    bool wasPersistent = (boundary.flags & BOUNDARY_PERSISTENT) != 0u;
     moments0 += float4(
         (float)_BoundaryFrameAccumulator[baseWord + 0u] / MOMENT_SCALE,
         (float)_BoundaryFrameAccumulator[baseWord + 1u] / MOMENT_SCALE,
@@ -747,7 +752,6 @@ void SolveDirtyBoundaries(uint3 id : SV_DispatchThreadID)
     {
         if (wasRetired)
         {
-            InterlockedAdd(_FilmHeaders[boundary.filmA - 1u].boundaryCount, 1u);
             boundary.flags &= ~BOUNDARY_RETIRED;
         }
         boundary.flags |= BOUNDARY_ACTIVE | BOUNDARY_DIRTY;
@@ -793,6 +797,16 @@ void SolveDirtyBoundaries(uint3 id : SV_DispatchThreadID)
     {
         boundary.flags |= BOUNDARY_PERSISTENT;
         boundary.flags &= ~BOUNDARY_UNCERTAIN;
+        if (!wasPersistent)
+        {
+            uint ignored;
+            InterlockedCompareExchange(
+                _FilmHeaders[boundary.filmA - 1u].boundaryStart,
+                0u, boundaryIndex + 1u, ignored);
+            InterlockedAdd(
+                _FilmHeaders[boundary.filmA - 1u].boundaryCount, 1u);
+            wasPersistent = true;
+        }
     }
 
     uint adjacentId = (uint)max(0, _BoundaryFrameAccumulator[baseWord + 12u]);
@@ -823,7 +837,7 @@ void SolveDirtyBoundaries(uint3 id : SV_DispatchThreadID)
     {
         boundary.flags &= ~(BOUNDARY_ACTIVE | BOUNDARY_PERSISTENT);
         boundary.flags |= BOUNDARY_RETIRED;
-        if (!wasRetired)
+        if (wasPersistent)
             InterlockedAdd(_FilmHeaders[boundary.filmA - 1u].boundaryCount,
                 0xffffffffu);
     }

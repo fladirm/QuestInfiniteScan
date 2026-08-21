@@ -5,8 +5,9 @@ remain recoverable from archive commit `e9f37c1` and are not active on this bran
 
 ## ADR-P001 — One canonical spec and isolated branch
 
-- Decision: develop PRISM-Q3 on `feat/quest-radiance-meshlets`; preserve all earlier
-  work and its DAG on `archive/hybrid-diffsoup-checkpoint-20260820`.
+- Decision: develop PRISM-Q3 on the active isolated implementation/fix branch;
+  preserve all earlier work and its DAG on
+  `archive/hybrid-diffsoup-checkpoint-20260820`.
 - Consequence: `specka.md` wins over summaries and may be improved but not weakened.
 
 ## ADR-P002 — Probabilistic one-sided ContactFilms are canonical
@@ -93,7 +94,7 @@ remain recoverable from archive commit `e9f37c1` and are not active on this bran
 
 ## ADR-P011 — Freeze Cone-PRISM reconstruction physics
 
-- Decision: `specka.md` baseline `CPQ3-2026-08-20-v1` freezes finite-cone
+- Decision: `specka.md` baseline `CPQ3-2026-08-21-v3` freezes finite-cone
   first-hit/contact/unknown semantics, ContactFilms, pressure-information solve,
   ContactBoundaries, monotonic resistance, and meshlets as derived state. Evidence
   may strengthen it; changing those foundations requires explicit user authority, a
@@ -101,3 +102,17 @@ remain recoverable from archive commit `e9f37c1` and are not active on this bran
 - Consequence: implementation work now proceeds from Q3-02 and cannot silently
   collapse the design back to infinitesimal rays, constant averaging, voxels,
   surfels, or fixed triangle soup for convenience.
+
+## ADR-P012 — Persistent local pressure and cooperative full-detail materialization
+
+- Decision: local pre-hit contradiction is a persisted per-cell pressure posterior
+  with independent calibrated eye/angular evidence. It competes against persisted
+  close-view precision/support resistance, is cancelled by compatible contact, and
+  is consumed when it performs bounded erosion. It is never a one-frame whole-film
+  delete and is not multiplied by displacement children. Derived meshlets are built
+  cooperatively by one `8x8` GPU workgroup per film with shared continuous-coverage
+  samples and full supported chart/microtile detail.
+- Consequence: repeated independent cones can remove unsupported view-axis artifacts,
+  while distant/grazing evidence cannot punch through a strongly baked nearby film;
+  reconstruction remains full quality without the serial per-film mesh-build
+  bottleneck or a CPU/readback fallback.

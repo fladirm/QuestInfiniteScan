@@ -4,7 +4,8 @@ Canonical algorithm and acceptance requirements live in
 [`specka.md`](../../specka.md). This document is supporting architecture rationale;
 it cannot weaken or replace the canonical specification.
 
-Status: production target on `feat/quest-radiance-meshlets`
+Status: production target governed by `specka.md`; active repair branch is
+`fix/cone-prism-contact-domain-resume-20260821`
 Supersedes: scalar TSDF, proposed DTSDF replacement, fixed surfel/triangle-soup
 canonical maps, and hybrid DiffSoup production paths
 Hardware: Meta Quest 3 and Quest 3S, Unity 6000.5, Android ARM64, Vulkan

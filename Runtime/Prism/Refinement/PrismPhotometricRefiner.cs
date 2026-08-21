@@ -102,6 +102,8 @@ namespace Genesis.RoomScan.Prism
         private static readonly int FilmViewOwnerGenerationId =
             Shader.PropertyToID("_FilmViewOwnerGeneration");
         private static readonly int ViewSelectArgsId = Shader.PropertyToID("_ViewSelectDispatchArguments");
+        private static readonly int RefinementClaimsId =
+            Shader.PropertyToID("_RefinementClaims");
 
         private readonly Matrix4x4[] _chunkFromDepth = new Matrix4x4[2];
         private readonly Matrix4x4[] _rgbFromChunk = new Matrix4x4[2];
@@ -120,12 +122,14 @@ namespace Genesis.RoomScan.Prism
         private GraphicsBuffer _filmViewScores;
         private GraphicsBuffer _filmViewOwnerGeneration;
         private GraphicsBuffer _viewSelectArguments;
+        private GraphicsBuffer _refinementClaims;
         private RenderTexture _temporalRgb;
         private int _pressureCapacity;
         private int _filmCapacity;
         private int _temporalViewCapacity;
         private int _nextTemporalSlot;
         private int _clearKernel = -1;
+        private int _clearClaimsKernel = -1;
         private int _initializeKernel = -1;
         private int _stereoKernel = -1;
         private int _temporalKernel = -1;
@@ -172,6 +176,7 @@ namespace Genesis.RoomScan.Prism
             }
             _initializeKernel = focusCompute.FindKernel("InitializePhotometricState");
             _clearKernel = focusCompute.FindKernel("ClearPhotometricFrame");
+            _clearClaimsKernel = focusCompute.FindKernel("ClearRefinementClaims");
             _stereoKernel = focusCompute.FindKernel("NarrowStereoPressure");
             _temporalKernel = focusCompute.FindKernel("TemporalFocusPressure");
             _buildPressureArgsKernel = focusCompute.FindKernel("BuildPhotometricArguments");
@@ -212,6 +217,8 @@ namespace Genesis.RoomScan.Prism
                 ConfigureFrame(eventFrame, pool, normalized, rig);
 
                 focusCompute.Dispatch(_clearKernel, 1, 1, 1);
+                focusCompute.Dispatch(_clearClaimsKernel,
+                    CeilDiv(_filmCapacity * 4, 64), 1, 1);
                 focusCompute.DispatchIndirect(_stereoKernel,
                     eventFrame.ClassDispatchArguments, MatchClassDispatchOffset);
                 _stereoFrames++;
@@ -241,6 +248,7 @@ namespace Genesis.RoomScan.Prism
                 _slotGenerations.Length);
             int viewCapacity = stereoFrames * 2;
             bool buffersCompatible = _pressures != null &&
+                _refinementClaims != null &&
                 _pressureCapacity == eventCapacity && _filmCapacity == filmCapacity &&
                 _temporalViewCapacity == viewCapacity;
             bool textureCompatible = _temporalRgb != null &&
@@ -271,6 +279,11 @@ namespace Genesis.RoomScan.Prism
             _viewSelectArguments = new GraphicsBuffer(
                 GraphicsBuffer.Target.Structured | GraphicsBuffer.Target.IndirectArguments,
                 1, sizeof(uint) * 3);
+            // Two 64-cell bitsets (stereo + temporal) per film. They prevent
+            // thousands of image pixels on the same surface region from repeating
+            // an identical 1D normal search in one tick.
+            _refinementClaims = new GraphicsBuffer(GraphicsBuffer.Target.Structured,
+                checked(_filmCapacity * 4), sizeof(uint));
 
             var descriptor = new RenderTextureDescriptor(rgbResolution.x,
                 rgbResolution.y)
@@ -376,13 +389,16 @@ namespace Genesis.RoomScan.Prism
             int[] allKernels =
             {
                 _initializeKernel, _clearKernel, _stereoKernel, _temporalKernel,
-                _buildPressureArgsKernel, _buildViewArgsKernel, _selectViewsKernel
+                _clearClaimsKernel, _buildPressureArgsKernel,
+                _buildViewArgsKernel, _selectViewsKernel
             };
             foreach (int kernel in allKernels)
             {
                 if (kernel < 0) continue;
                 focusCompute.SetBuffer(kernel, PressuresId, _pressures);
                 focusCompute.SetBuffer(kernel, PressureStateId, _pressureState);
+                focusCompute.SetBuffer(kernel, RefinementClaimsId,
+                    _refinementClaims);
                 focusCompute.SetBuffer(kernel, PressureArgsId, _pressureArguments);
                 focusCompute.SetBuffer(kernel, TemporalViewsId, _temporalViews);
                 focusCompute.SetBuffer(kernel, FilmViewRefsId, _filmViewRefs);
@@ -475,6 +491,7 @@ namespace Genesis.RoomScan.Prism
             _filmViewScores?.Dispose();
             _filmViewOwnerGeneration?.Dispose();
             _viewSelectArguments?.Dispose();
+            _refinementClaims?.Dispose();
             _pressures = null;
             _pressureState = null;
             _pressureArguments = null;
@@ -483,6 +500,7 @@ namespace Genesis.RoomScan.Prism
             _filmViewScores = null;
             _filmViewOwnerGeneration = null;
             _viewSelectArguments = null;
+            _refinementClaims = null;
             if (_temporalRgb != null)
             {
                 _temporalRgb.Release();

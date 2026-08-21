@@ -23,6 +23,8 @@ stereo RGB + stereo depth + timestamped poses/intrinsics
   -> predicted film depth/normal/ID/UV/uncertainty raster
   -> first-contact classification and ContactFilm association
   -> range/footprint-aware pressure-information solve + soft-to-hard collapse
+  -> continuous Grid16 contact-domain support
+  -> persistent local first-hit pressure posterior vs baked close-view resistance
   -> persistent ContactBoundary evidence + film split/merge/retire
   -> GPU tessellation, adaptive meshlets, dynamic LOD
   -> surface-space superresolution + directional appearance/PBR
@@ -58,6 +60,8 @@ visibility-incompatible measurements remain separate hypotheses.
   GPU-generated draw lists, GPU culling, and GPU-selected dynamic LOD. There is no
   synchronous geometry/texture readback or CPU `Mesh` rebuild in the scan/render
   critical path.
+- Materialize each dirty film cooperatively across a GPU workgroup; never serialize
+  all chart vertices/triangles through one lane or trade canonical detail for speed.
 - Use an uncertainty-driven soft capture interval around immature ContactFilms and shrink
   it through adaptive GPU quadrature shell layers to a hard opaque surface as
   multi-view information increases.
@@ -65,6 +69,11 @@ visibility-incompatible measurements remain separate hypotheses.
   chart domain, topology, and tessellation.
 - Preserve thin walls, panels, poles, pipes, rails, door edges, and separately
   visible opposing surfaces without carving through occluders.
+- Treat film coverage as one continuous manifold domain rather than rectangular
+  chart tiles; rectangular parameter bounds alone never authorize triangles.
+- Persist opposing first-hit pressure and independent eye/angular evidence locally
+  per film cell. Compatible contact cancels it; erosion requires multi-view pressure
+  to exceed and consume the cell's stored close-view information resistance.
 - Adapt topology: large stable planar regions become coarse meshlets; edges,
   curvature, thin objects, and unresolved regions retain finer support.
 - Preserve supported sub-chart detail in sparse multiresolution displacement
@@ -76,6 +85,9 @@ visibility-incompatible measurements remain separate hypotheses.
 - Keep live geometry visible and spatially stable throughout chunk rollover,
   persistence, eviction, reload, revisit, pose-graph correction, and application
   restart.
+- Ordinary Stop/Start pauses sensor ingress while retaining the canonical GPU graph,
+  arenas and last meshlet publication; only explicit resource release may tear them
+  down.
 - Give every chart a UV domain at birth and incrementally refine multiframe
   footprint-weighted surface superresolution, compact directional appearance, and
   confidence on device. Material estimates must be honest about uncertainty.

@@ -38,8 +38,9 @@ namespace Genesis.RoomScan.Prism
         public float PressurePrecision;
         public uint OccluderFilmId;
         public uint OccluderGeneration;
+        public Vector2 OccluderUv;
 
-        public const int Stride = 84;
+        public const int Stride = 92;
     }
 
     public sealed class ConeEventFrameLease : IDisposable

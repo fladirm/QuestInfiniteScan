@@ -2,7 +2,7 @@
   "schema_version": 1,
   "goal": "Cone-PRISM-Q3 pure-Quest continuous probabilistic contact-film reconstruction",
   "canonical_spec": "specka.md",
-  "reconstruction_physics": "CPQ3-2026-08-20-v1",
+  "reconstruction_physics": "CPQ3-2026-08-21-v3",
   "spec_status": "frozen_for_implementation",
   "effort_policy": "90_percent_implementation_5_percent_tests_5_percent_controls; batch device tests at vertical milestones",
   "allowed_statuses": ["pending", "in_progress", "done", "blocked"],
@@ -21,7 +21,7 @@
       "evidence": [
         "Unity/Android/Quest baseline report: /mnt/kingston-unity/Builds/Verification/20260820T132533Z/verification-report.json",
         "Hybrid checkpoint e9f37c1 and original DAG are pushed at origin/archive/hybrid-diffsoup-checkpoint-20260820",
-        "Active pushed branch feat/quest-radiance-meshlets contains control checkpoint 9fee431",
+        "Canonical implementation originated from pushed checkpoint 9fee431 on feat/quest-radiance-meshlets; current repair work is isolated on fix/cone-prism-contact-domain-resume-20260821",
         "specka.md defines the single canonical Cone-PRISM-Q3 product, mathematics, GPU passes, persistence, export, and acceptance corpus"
       ]
     },
@@ -204,11 +204,12 @@
     {
       "id": "Q3-11",
       "title": "Implement ContactFilm split/merge and hierarchical displacement microtiles",
-      "status": "done",
+      "status": "in_progress",
       "depends_on": ["Q3-10"],
       "acceptance": [
         "Quadratic residual updates logical Grid16 displacement with information/sigma/support/coverage and monotonic quality",
         "Measured footprint can allocate recursive sparse microtiles so Grid16 is not a detail ceiling",
+        "Grid16 coverage is the interpolated canonical connected support domain; finite-cone contact extends it while persistent per-cell multi-view first-hit pressure can erode only locally contradicted support after exceeding and consuming stored bake resistance",
         "Bimodality, ContactBoundaries, curvature, non-single-valued support, or incompatible first-contact evidence split a film into 2-4 children with statistics preserved",
         "Merge requires compatible sidedness/continuation/normal/appearance and no persistent boundary",
         "Planes simplify while pipes, frames, folds, gaps, relief, and thin detail remain geometrically faithful"
@@ -218,54 +219,66 @@
         "The displacement posterior uses the same pressure-quality envelope as the quadratic film solve: weaker distant/grazing observations can add bounded support but cannot inflate sigma or overwrite a more precise close-view displacement",
         "TopologyAdapt.compute persists signed residual modes and performs GPU-indirect 2-to-4-way adaptation: split transforms each child's 6x6 H/g posterior, quadratic frame, support, topology evidence, displacement, and canonical boundary segments without CPU traversal/readback",
         "Conservative spatial-hash merge requires stable low-variance support, identical sidedness/appearance ownership, <3 degree normal/tangent continuation, metric surface overlap, zero canonical boundaries, and creates a new generation while retaining retired source posteriors until derived detail is materialized",
-        "PrismMeshletBuilder samples the deepest resident displacement page with bilinear filtering and displacement derivatives for geometry/normals; Unity 6000.5.9f1 imported every kernel and passed 104/104 runnable EditMode tests (3 intentionally skipped): /mnt/kingston-unity/Unity/Projects/QuestInfiniteScanHost/Logs/cone-prism-q3-11-final-tests.xml"
+        "PrismMeshletBuilder samples the deepest resident displacement page with bilinear filtering and displacement derivatives for geometry/normals; Unity 6000.5.9f1 imported every kernel and passed 104/104 runnable EditMode tests (3 intentionally skipped): /mnt/kingston-unity/Unity/Projects/QuestInfiniteScanHost/Logs/cone-prism-q3-11-final-tests.xml",
+        "2026-08-21 physical preview exposed rectangular support and whole-film contradiction regressions; the run is reopened while bootstrap footprint masks, authoritative Grid16 coverage, local pressure/resistance and support-preserving split/merge undergo one batched Quest acceptance",
+        "DisplacementTopology.compute now persists per-cell freeSpacePressure plus ten eye/angular evidence bins, cancels it with compatible contact, requires at least two independent bins, gates erosion against 1 + 0.06*sqrt(bestPrecision)*sqrt(support), consumes the performed work, and never clones parent contradiction into microtiles",
+        "Native schema v4 persists the 40-byte displacement posterior and v3 upgrade widens legacy 32-byte cells fail-closed; real-Vulkan EditMode passed 116/116 runnable tests with zero failures (3 intentionally ignored): /mnt/kingston-unity/Builds/TestResults/editmode-results.xml"
       ]
     },
     {
       "id": "Q3-12",
       "title": "Implement adaptive ContactFilm meshlets, culling, dynamic LOD, and indirect rendering",
-      "status": "done",
+      "status": "pending",
       "depends_on": ["Q3-11"],
       "acceptance": [
         "ContactFilms and ContactBoundaries materialize entirely on GPU into inactive generation-safe meshlet buffers",
+        "One cooperative GPU workgroup per dirty film parallelizes full supported vertex/triangle materialization; performance work does not reduce chart/microtile detail or fall back to CPU geometry",
         "Adaptive tessellation follows analytic error, microtile detail, confidence, and exact BoundaryCurves without silhouette bridges",
+        "Rectangular chart bounds never appear as square plates: triangle materialization follows the continuous supported film domain and remains coherent across chart/film joins",
+        "Stereo XR presentation draws one spatially stable publication for both display eyes without mono Camera.main culling, flicker, or UI/compositor alpha side effects",
         "GPU frustum/Hi-Z culling and screen-space error generate indirect draw lists with independent geometry/appearance LOD",
         "No synchronous readback, CPU count, CPU mesh, or per-frame geometry traversal exists in the production path",
         "Published geometry remains stable during rebuild and close viewing reveals maximum measured detail"
       ],
       "evidence": [
         "ContactMeshletBuffers owns distinct immutable published and inactive generations for vertices, indices, descriptors, counters, indirect build/cull arguments, and per-view LOD; a graphics fence prevents reuse while Adreno can still read the old publication and pending mutations coalesce without blocking capture",
-        "MeshletBuild.compute derives tessellation from quadratic error, posterior sigma/confidence, hierarchical displacement variance, best measured footprint, and persistent cubic ContactBoundaries; crossed boundary cells are omitted rather than bridging foreground/background and adjacent vertices snap to canonical curves",
+        "MeshletBuild.compute derives tessellation from quadratic error, posterior sigma/confidence, hierarchical displacement variance, best measured footprint, interpolated canonical coverage, and persistent cubic ContactBoundaries; supported triangles follow the film domain and boundary-near vertices snap to canonical curves without dropping whole cells",
         "MeshletViewCull.compute performs fully GPU-indirect descriptor dispatch, conservative sphere frustum/previous-frame range Hi-Z rejection, screen-space geometry LOD, independent measured-footprint appearance mip selection, and compact visible-index publication with no CPU-visible count",
         "HiZRangePyramid.compute builds a conservative max-range pyramid in both depth eyes where unknown remains infinity; first-hit prediction uses Hi-Z while the second peeled layer deliberately reculls without occlusion so hidden ContactFilms remain associable",
-        "The production path contains no AsyncGPUReadback, buffer GetData, CPU Mesh, or per-frame CPU geometry traversal; Unity 6000.5.9f1 passed all 5 Q3-12 contracts on both OpenGL and forced Vulkan: cone-prism-q3-12-fence-tests.xml and cone-prism-q3-12-vulkan-tests.xml"
+        "The production path contains no AsyncGPUReadback, buffer GetData, CPU Mesh, or per-frame CPU geometry traversal; Unity 6000.5.9f1 passed all 5 Q3-12 contracts on both OpenGL and forced Vulkan: cone-prism-q3-12-fence-tests.xml and cone-prism-q3-12-vulkan-tests.xml",
+        "2026-08-21 physical XR evidence reopened the run: display-only mono view culling was removed, preview transparency changed to depth-correct coverage dithering, and coverage is cached once per generated vertex for count/emit; one batched device acceptance remains",
+        "MeshletBuild.compute now assigns one 8x8 workgroup per film; 64 lanes cooperatively cache all supported 17x17 coverage samples and parallelize full-resolution vertex/count/triangle emission without CPU work or canonical-detail reduction",
+        "Android Vulkan/IL2CPP precommit build succeeded with no C# or shader errors: /mnt/kingston-unity/Builds/QuestInfiniteScan/logs/build.log"
       ]
     },
     {
       "id": "Q3-13",
       "title": "Implement infinite chunk paging, native PRISM persistence, restart, and revisit",
-      "status": "done",
+      "status": "pending",
       "depends_on": ["Q3-12"],
       "acceptance": [
         "Chunks store local ContactFilms, SurfaceChartGeometry, posterior statistics, sigma, ContactBoundaries, displacement/microtiles, deposited appearance, meshlet cache, transforms, and keyframe references under a versioned Cone-PRISM schema",
         "Current/overlap/visible/dirty chunks are GPU-resident while durable distant pages evict and rehydrate on demand",
         "Fenced async immutable dirty-page staging never blocks capture/render and previous complete revision survives interruption",
         "Revisit resumes the same posterior and publishes a monotonic revision",
+        "Ordinary Stop -> Start pauses only sensor ingress, retains canonical GPU arenas/work graph/publication, and resumes without teardown/reallocation or an empty/frozen preview",
         "At least 20 transitions and returns reproduce none of the archived Finalizing/disappearance failure"
       ],
       "evidence": [
-        "Cone-PRISM schema v3 round-trips films, quadratic information posterior, sigma/support, hierarchical displacement and topology evidence, multi-segment ContactBoundaries, appearance/observation payloads, meshlet generations, chunk transforms, and keyframe references while retaining a strict v2 upgrade reader",
+        "Cone-PRISM schema v4 round-trips films including their support domain, quadratic information posterior, sigma/support, hierarchical displacement and topology evidence, multi-segment ContactBoundaries, appearance/observation payloads, meshlet generations, chunk transforms, and keyframe references while retaining strict v3/v2 upgrade readers",
         "ChunkStage.compute compacts a target chunk and remaps films, page hierarchies, boundaries, and meshlets into an immutable fenced GPU staging arena; only the detached background persistence path uses AsyncGPUReadback and the capture/render hot path remains readback-free",
         "PrismGpuSnapshotRestore bulk-rehydrates canonical buffers and allocators, rebuilds the GPU boundary index, publishes meshlets through the inactive generation, and can materialize bounded display-only resident meshlet caches without CPU Mesh construction",
         "PrismChunkResidencyManager serializes rollovers, atomically preserves the previous complete revision on interruption, keeps a bounded recent snapshot/cache set, restores exact posterior state on revisit, and publishes monotonic revisions through WorldStore",
         "PrismWorldMeshletRenderer draws the active and recent visible chunks with GPU indirect buffers and pose-graph transforms while association IDs remain local to the active canonical chunk",
-        "Twenty alternating transitions retained two recoverable chunks with one active resident and no stuck Finalizing state; Unity 6000.5.9f1 forced-Vulkan EditMode completed 115 passed, 0 failed, 3 intentionally skipped in cone-prism-q3-13-full-vulkan-tests.xml"
+        "Twenty alternating transitions retained two recoverable chunks with one active resident and no stuck Finalizing state; Unity 6000.5.9f1 forced-Vulkan EditMode completed 115 passed, 0 failed, 3 intentionally skipped in cone-prism-q3-13-full-vulkan-tests.xml",
+        "2026-08-21 Stop/resume evidence reopened the run; RoomScanner now separates sensor-only PausePrismPipeline from explicit ShutdownPrismPipeline so ordinary UX stop retains the complete canonical graph. One Stop -> Start physical acceptance remains",
+        "Schema-v4 migration tests prove current support/pressure cells round-trip and schema-v3 144-byte headers plus 32-byte cells widen deterministically with new state zeroed rather than misaligned"
       ]
     },
     {
       "id": "Q3-14",
       "title": "Implement ContactFilm-conditioned L/R narrow stereo pressure/focusing",
-      "status": "in_progress",
+      "status": "pending",
       "depends_on": ["Q3-08", "Q3-13"],
       "acceptance": [
         "Only unresolved/information-positive ContactFilm regions evaluate a posterior-centered normal interval",

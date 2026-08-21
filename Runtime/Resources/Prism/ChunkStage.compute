@@ -22,6 +22,7 @@ struct ContactFilmHeader
     float confidence; float contradiction;
     uint revision; uint displacementPage; uint appearancePage;
     uint boundaryStart; uint boundaryCount;
+    uint supportMaskLow; uint supportMaskHigh;
     uint reserved0; uint reserved1; uint reserved2;
 };
 
@@ -47,6 +48,7 @@ struct DisplacementCell
 {
     float displacement; float sigma; float support; float coverage;
     float bestPrecision; float bestFootprint; float residualVariance;
+    float freeSpacePressure; uint freeSpaceViewMask;
     uint revision;
 };
 

@@ -26,6 +26,7 @@ struct ConeEvent
     float pressurePrecision;
     uint occluderFilmId;
     uint occluderGeneration;
+    float2 occluderUv;
 };
 
 struct ContactFilmHeader
@@ -51,6 +52,8 @@ struct ContactFilmHeader
     uint appearancePage;
     uint boundaryStart;
     uint boundaryCount;
+    uint supportMaskLow;
+    uint supportMaskHigh;
     uint reserved0;
     uint reserved1;
     uint reserved2;
@@ -335,6 +338,51 @@ void SpawnContactFilms(uint3 groupId : SV_GroupID,
     float3 reference = abs(normal.y) < 0.9 ? float3(0, 1, 0) : float3(1, 0, 0);
     float3 tangentU = normalize(cross(reference, normal));
     float3 tangentV = normalize(cross(normal, tangentU));
+
+    // Establish the observed chart domain before fitting curvature.  Solving the
+    // quadratic directly in centimetre-scale metric u/v makes u^2/uv/v^2 nearly
+    // singular on an 8x8 depth tile and can turn harmless depth noise into metre-
+    // scale spikes.  All inference is therefore performed in the normalized
+    // [-1,1] chart domain, exactly like the persistent information filter.
+    float extentU = 0.005;
+    float extentV = 0.005;
+    float maximumStepU = 0.0;
+    float maximumStepV = 0.0;
+    float observedHeightEnvelope = 0.0;
+    for (uint extentIndex = 0u; extentIndex < 64u; ++extentIndex)
+    {
+        if (sActive[extentIndex] == 0u || sLabel[extentIndex] != localIndex) continue;
+        float3 delta = sPosition[extentIndex] - weightedCenter;
+        extentU = max(extentU, abs(dot(delta, tangentU)));
+        extentV = max(extentV, abs(dot(delta, tangentV)));
+        observedHeightEnvelope = max(observedHeightEnvelope,
+            abs(dot(delta, normal)));
+
+        uint x = extentIndex & 7u;
+        uint y = extentIndex >> 3u;
+        if (x < 7u && sActive[extentIndex + 1u] != 0u &&
+            sLabel[extentIndex + 1u] == localIndex)
+        {
+            float3 step = sPosition[extentIndex + 1u] - sPosition[extentIndex];
+            maximumStepU = max(maximumStepU, abs(dot(step, tangentU)));
+            maximumStepV = max(maximumStepV, abs(dot(step, tangentV)));
+        }
+        if (y < 7u && sActive[extentIndex + 8u] != 0u &&
+            sLabel[extentIndex + 8u] == localIndex)
+        {
+            float3 step = sPosition[extentIndex + 8u] - sPosition[extentIndex];
+            maximumStepU = max(maximumStepU, abs(dot(step, tangentU)));
+            maximumStepV = max(maximumStepV, abs(dot(step, tangentV)));
+        }
+    }
+
+    // Pixel centres describe finite cone footprints, not zero-area samples.  The
+    // half-step extension makes adjacent compatible components meet at their
+    // measured support boundary instead of leaving the characteristic tile grid.
+    float footprintDiameter = sqrt(max(minimumFootprint, 1e-12));
+    extentU += max(0.5 * maximumStepU, 0.5 * footprintDiameter);
+    extentV += max(0.5 * maximumStepV, 0.5 * footprintDiameter);
+
     float quadratic[6] = { 0, 0, 0, 0, 0, 0 };
     float finalH[36];
     float finalG[6];
@@ -352,8 +400,10 @@ void SpawnContactFilms(uint3 groupId : SV_GroupID,
             float3 delta = sPosition[sampleIndex] - weightedCenter;
             float u = dot(delta, tangentU);
             float v = dot(delta, tangentV);
+            float U = clamp(u / max(extentU, 0.001), -1.0, 1.0);
+            float V = clamp(v / max(extentV, 0.001), -1.0, 1.0);
             float z = dot(delta, normal);
-            float basis[6] = { 1.0, u, v, u * u, u * v, v * v };
+            float basis[6] = { 1.0, U, V, U * U, U * V, V * V };
             float predicted = 0.0;
             [unroll] for (uint qi = 0u; qi < 6u; ++qi)
                 predicted += quadratic[qi] * basis[qi];
@@ -372,9 +422,10 @@ void SpawnContactFilms(uint3 groupId : SV_GroupID,
             }
         }
 
-        float diagonalRegularizer = max(1e-7, totalWeight * 1e-7);
+        float diagonalRegularizer = max(1e-6, totalWeight * 1e-5);
         [unroll] for (uint diagonal = 0u; diagonal < 6u; ++diagonal)
-            finalH[diagonal * 6u + diagonal] += diagonalRegularizer;
+            finalH[diagonal * 6u + diagonal] += diagonalRegularizer *
+                (diagonal >= 3u ? 4.0 : 1.0);
         float lower[36];
         [unroll] for (uint li = 0u; li < 36u; ++li) lower[li] = 0.0;
         bool solvable = true;
@@ -419,15 +470,31 @@ void SpawnContactFilms(uint3 groupId : SV_GroupID,
         }
     }
 
-    float extentU = 0.005;
-    float extentV = 0.005;
-    for (uint extentIndex = 0u; extentIndex < 64u; ++extentIndex)
+    // A chart may only curve inside the contact envelope that actually generated
+    // it.  This data-derived trust region is a fail-closed guard against an
+    // underconstrained four/six-sample component while retaining supported local
+    // curvature.  It is not a geometry-resolution cap.
+    float fittedHeightEnvelope = 0.0;
+    [unroll]
+    for (int envelopeY = -1; envelopeY <= 1; ++envelopeY)
+    [unroll]
+    for (int envelopeX = -1; envelopeX <= 1; ++envelopeX)
     {
-        if (sActive[extentIndex] == 0u || sLabel[extentIndex] != localIndex) continue;
-        float3 delta = sPosition[extentIndex] - weightedCenter;
-        extentU = max(extentU, abs(dot(delta, tangentU)));
-        extentV = max(extentV, abs(dot(delta, tangentV)));
+        float U = (float)envelopeX;
+        float V = (float)envelopeY;
+        float height = quadratic[0] + quadratic[1] * U + quadratic[2] * V +
+            quadratic[3] * U * U + quadratic[4] * U * V +
+            quadratic[5] * V * V;
+        fittedHeightEnvelope = max(fittedHeightEnvelope, abs(height));
     }
+    float allowedHeightEnvelope = max(0.004,
+        observedHeightEnvelope + 3.0 * sigmaSum / max(totalWeight, 1e-6) +
+        footprintDiameter);
+    float envelopeScale = fittedHeightEnvelope > allowedHeightEnvelope
+        ? allowedHeightEnvelope / max(fittedHeightEnvelope, 1e-8)
+        : 1.0;
+    [unroll] for (uint coefficient = 0u; coefficient < 6u; ++coefficient)
+        quadratic[coefficient] *= envelopeScale;
 
     // Persist information in the normalized chart domain.  U,V stay near [-1,1],
     // which keeps the 6x6 solve well-conditioned and lets Q3-08 accumulate future
@@ -445,8 +512,9 @@ void SpawnContactFilms(uint3 groupId : SV_GroupID,
         float V = v / max(extentV, 0.001);
         float z = dot(delta, normal);
         float basis[6] = { 1.0, U, V, U * U, U * V, V * V };
-        float predicted = quadratic[0] + quadratic[1] * u + quadratic[2] * v +
-            quadratic[3] * u * u + quadratic[4] * u * v + quadratic[5] * v * v;
+        float predicted = quadratic[0] + quadratic[1] * U + quadratic[2] * V +
+            quadratic[3] * U * U + quadratic[4] * U * V +
+            quadratic[5] * V * V;
         float residual = z - predicted;
         float huberDelta = max(0.003, 2.0 * sSigma[infoSample]);
         float robust = abs(residual) <= huberDelta ? 1.0 :
@@ -468,6 +536,43 @@ void SpawnContactFilms(uint3 groupId : SV_GroupID,
     float normalizedRegularizer = max(1e-7, (float)supportCount * 1e-7);
     [unroll] for (uint diagonal = 0u; diagonal < 6u; ++diagonal)
         finalH[diagonal * 6u + diagonal] += normalizedRegularizer;
+
+    // Persist the actually contacted surface domain, not the rectangular chart
+    // parameter bounds. Each depth pixel is a finite cone footprint, so stamp the
+    // conservative footprint rectangle into an 8x8 bootstrap mask. The 16x16
+    // displacement coverage supersedes this mask after the first matched update.
+    uint supportMaskLow = 0u;
+    uint supportMaskHigh = 0u;
+    for (uint maskSample = 0u; maskSample < 64u; ++maskSample)
+    {
+        if (sActive[maskSample] == 0u ||
+            sLabel[maskSample] != localIndex) continue;
+        float3 delta = sPosition[maskSample] - weightedCenter;
+        float u = dot(delta, tangentU);
+        float v = dot(delta, tangentV);
+        float radius = 0.5 * sqrt(max(sFootprint[maskSample], 1e-12));
+        float2 uvMinimum = saturate(float2(
+            (u - radius) / max(2.0 * extentU, 0.002) + 0.5,
+            (v - radius) / max(2.0 * extentV, 0.002) + 0.5));
+        float2 uvMaximum = saturate(float2(
+            (u + radius) / max(2.0 * extentU, 0.002) + 0.5,
+            (v + radius) / max(2.0 * extentV, 0.002) + 0.5));
+        uint2 firstCell = min((uint2)floor(uvMinimum * 8.0), 7u);
+        uint2 lastCell = min((uint2)floor(uvMaximum * 8.0), 7u);
+        [loop]
+        for (uint maskY = firstCell.y; maskY <= lastCell.y; ++maskY)
+        [loop]
+        for (uint maskX = firstCell.x; maskX <= lastCell.x; ++maskX)
+        {
+            uint bit = maskY * 8u + maskX;
+            if (bit < 32u) supportMaskLow |= 1u << bit;
+            else supportMaskHigh |= 1u << (bit - 32u);
+        }
+    }
+    // A valid component can only produce an empty mask through non-finite input;
+    // fail closed to one contact cell rather than publishing a full rectangle.
+    if ((supportMaskLow | supportMaskHigh) == 0u)
+        supportMaskLow = 1u << (localIndex & 31u);
 
     uint slot;
     InterlockedAdd(_FilmAllocator[0], 1u, slot);
@@ -492,8 +597,13 @@ void SpawnContactFilms(uint3 groupId : SV_GroupID,
     film.extentU = extentU;
     film.tangentV = tangentV;
     film.extentV = extentV;
-    film.quadratic0123 = float4(quadratic[0], quadratic[1], quadratic[2], quadratic[3]);
-    film.quadratic45 = float2(quadratic[4], quadratic[5]);
+    film.quadratic0123 = float4(quadratic[0],
+        quadratic[1] / max(extentU, 0.001),
+        quadratic[2] / max(extentV, 0.001),
+        quadratic[3] / max(extentU * extentU, 1e-6));
+    film.quadratic45 = float2(
+        quadratic[4] / max(extentU * extentV, 1e-6),
+        quadratic[5] / max(extentV * extentV, 1e-6));
     film.confidence = saturate(confidenceSum / max(1.0, (float)supportCount));
     film.contradiction = 0.0;
     film.revision = 1u;
@@ -501,8 +611,10 @@ void SpawnContactFilms(uint3 groupId : SV_GroupID,
     // a short-lived GPU CAS claim and must never escape film publication.
     film.displacementPage = 0u;
     film.appearancePage = 0u;
-    film.boundaryStart = 0xffffffffu;
+    film.boundaryStart = 0u;
     film.boundaryCount = 0u;
+    film.supportMaskLow = supportMaskLow;
+    film.supportMaskHigh = supportMaskHigh;
     film.reserved0 = film.reserved1 = film.reserved2 = 0u;
     _FilmHeaders[slot] = film;
 
