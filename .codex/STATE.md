@@ -97,9 +97,16 @@ Updated: 2026-08-21 (Europe/Prague)
 - Android Vulkan/IL2CPP precommit build passed with no C# or shader errors:
   `/mnt/kingston-unity/Builds/QuestInfiniteScan/QuestInfiniteScan-dev.apk`, SHA-256
   `3a2ec28413d9dc6be6f8d1d2a560da2a4b0f0ac35f9c3f082a92920d822ab13e`.
-- The final exact-commit build/deploy has not yet run. The last small shader warning
-  cleanup occurred after the precommit APK, so that APK must not be presented as the
-  final repair artifact.
+- Runtime checkpoint `096cf164893d443fcd158fc29bff8493355aba76` passed the
+  strict Android/Vulkan build gate with `errors=0`; APK SHA-256 is
+  `c4817dc72143734a3757694bd4e430c640d93176c6f0d87387267a84b9b9a6df`.
+  Package `com.questinfinitescan.smoke` version `0.1.0-dev` was installed on the
+  connected Quest at 2026-08-21 14:12 Europe/Prague. Process launch reached the
+  Vulkan/OpenXR runtime without a fatal exception; physical scan acceptance still
+  requires the user to wear/unlock the headset and press Scan.
+- Exact runtime source archive:
+  `.source-archives/QuestInfiniteScan-096cf164893d.zip`, SHA-256
+  `e777c6ee152fc7a8696151ec5175bb1141bcef4e00bb0f9a71ccc40af47c0dcb`.
 
 ## Changed implementation surface
 
@@ -114,16 +121,16 @@ Updated: 2026-08-21 (Europe/Prague)
 
 ## Next exact actions
 
-1. Regenerate the code graph and validate the DAG/control plane; run static hygiene.
-2. Commit this exact checkpoint locally on the active fix branch.
-3. Produce and verify `QuestInfiniteScan-<commit>.zip` in the workspace using
-   `git archive`; do not push.
-4. Rebuild Android/Vulkan from that commit, verify the APK hash and zero mapper/
-   shader errors, then deploy that exact artifact.
-5. Run one batched physical acceptance: continuous film/no square plates, stable
+1. Run one batched physical acceptance on the installed `096cf164893d` APK:
+   continuous film/no square plates, stable
    stereo presentation, local artifact pressure, close-bake resistance, Stop/Start,
    revisit visibility, and frame cost. Only evidence from that run may close
    Q3-11 through its dependent implemented checkpoints.
+2. Implement the remaining explicit generation-safe `PressureManifoldHeader`,
+   `ManifoldLink`, and ordered outer `LatentFrontier` canonical pools/ABI; reject
+   publication for unpaired active chart edges instead of synthesizing per-film caps.
+3. Continue Q3-12 only after the same physical evidence confirms the current
+   cooperative chart/connector materialization is stable and interactive.
 
 ## Safety
 

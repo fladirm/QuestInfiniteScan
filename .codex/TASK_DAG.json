@@ -260,7 +260,7 @@
         "2026-08-21 physical XR evidence reopened the run: display-only mono view culling was removed, preview transparency is now mesh-local alpha with Z-write and no screen-space dither, and coverage controls confidence/detail but never topology; one batched device acceptance remains",
         "MeshletBuild.compute now assigns one 8x8 workgroup per film; 64 lanes cooperatively cache all supported 17x17 coverage samples and parallelize full-resolution vertex/count/triangle emission without CPU work or canonical-detail reduction",
         "PrismGpuWorkGraph coalesces all canonical mutations into RequestBuild and PrismMeshletBuilder publishes at most one fenced derived generation per LateUpdate with an initial 15 Hz preview ceiling while preserving native sensor/fusion cadence",
-        "Android Vulkan/IL2CPP precommit build succeeded with no C# or shader errors: /mnt/kingston-unity/Builds/QuestInfiniteScan/logs/build.log"
+        "Runtime checkpoint 096cf164893d passed strict Android Vulkan/IL2CPP build with BuildReport errors=0; APK SHA-256 c4817dc72143734a3757694bd4e430c640d93176c6f0d87387267a84b9b9a6df was installed as com.questinfinitescan.smoke 0.1.0-dev on the connected Quest; physical scan acceptance remains"
       ]
     },
     {
