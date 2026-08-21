@@ -287,10 +287,10 @@ namespace Genesis.RoomScan.Editor
             // this, PCA's permission dialog only appears once the user
             // triggers a scan — by which point the scanner has already kicked
             // off in degraded depth-only mode. Game code that wants a
-            // deterministic "asking for permission" UI state should still
-            // call RoomScanSession.RequestCameraPermissionAsync() before
-            // StartScan() as defense-in-depth (covers the user dismissing
-            // the startup dialog). Mirrors Meta's
+            // deterministic "asking for permission" UI state may still call
+            // PassthroughCameraProvider.RequestCameraPermissionAsync() before
+            // starting reconstruction (covers the user dismissing the startup
+            // dialog). Mirrors Meta's
             // PassthroughCameraAccessProjectSetup Optional task.
             bool pcaBlockPresent = _bbPresent.TryGetValue(BB_PASSTHROUGH_CAMERA_ACCESS, out var pp) && pp;
 

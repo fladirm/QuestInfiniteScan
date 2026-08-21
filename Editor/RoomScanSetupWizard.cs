@@ -3,7 +3,6 @@ using System.IO;
 using System.Linq;
 using System.Xml.Linq;
 using Genesis.RoomScan.Exporting;
-using Genesis.RoomScan.HeavyCompute;
 using Genesis.RoomScan.Prism;
 using Genesis.RoomScan.UI;
 using Genesis.RoomScan.World;
@@ -31,8 +30,6 @@ namespace Genesis.RoomScan.Editor
         GameObject _cameraRig;
 
         DepthCapture _depthCapture;
-        VolumeIntegrator _volumeIntegrator;
-        MeshExtractor _meshExtractor;
         RoomScanner _roomScanner;
         PassthroughCameraProvider _cameraProvider;
         PrismRigCapture _prismRigCapture;
@@ -47,9 +44,6 @@ namespace Genesis.RoomScan.Editor
         PassthroughCameraAccess _pcaComponent;
         CameraDebugOverlay _cameraDebug;
         DepthDebugOverlay _depthDebug;
-        TriplanarCache _triplanarCache;
-        RoomScanPersistence _persistence;
-        RoomScanSession _session;
         KeyframeCollector _keyframeCollector;
         DebugMenuController _debugMenu;
         RoomScanInputHandler _inputHandler;
@@ -62,10 +56,7 @@ namespace Genesis.RoomScan.Editor
         ControllerRayDriver _rayDriver;
         PanelInputConfiguration _panelInputConfig;
 
-        TextureRefinement _textureRefinement;
-
-        bool _depthCaptureWired, _volumeWired, _meshMatWired, _triplanarWired, _computeShaderWired;
-        bool _refinedShaderWired, _occlusionShaderWired, _atlasBakeComputeWired;
+        bool _depthCaptureWired;
         bool _debugOverlayWired;
         bool _boundarylessManifest;
         bool _cleartextAllowed;
@@ -122,8 +113,6 @@ namespace Genesis.RoomScan.Editor
             }
 
             _depthCapture = FindAny<DepthCapture>();
-            _volumeIntegrator = FindAny<VolumeIntegrator>();
-            _meshExtractor = FindAny<MeshExtractor>();
             _roomScanner = FindAny<RoomScanner>();
             _cameraProvider = FindAny<PassthroughCameraProvider>();
             _prismRigCapture = FindAny<PrismRigCapture>();
@@ -138,9 +127,6 @@ namespace Genesis.RoomScan.Editor
             _pcaComponent = FindAny<PassthroughCameraAccess>();
             _cameraDebug = FindAny<CameraDebugOverlay>();
             _depthDebug = FindAny<DepthDebugOverlay>();
-            _triplanarCache = FindAny<TriplanarCache>();
-            _persistence = FindAny<RoomScanPersistence>();
-            _session = FindAny<RoomScanSession>();
             _keyframeCollector = FindAny<KeyframeCollector>();
             _debugMenu = FindAny<DebugMenuController>();
             _inputHandler = FindAny<RoomScanInputHandler>();
@@ -153,27 +139,10 @@ namespace Genesis.RoomScan.Editor
             _rayDriver = FindAny<ControllerRayDriver>();
             _panelInputConfig = FindAny<PanelInputConfiguration>();
 
-            _textureRefinement = _roomScanner != null ? _roomScanner.GetComponent<TextureRefinement>() : null;
-
             _depthCaptureWired = _depthCapture != null && AreFieldsAssigned(_depthCapture,
                 "depthNormalCompute", "depthDilationCompute", "bilateralFilterCompute");
-            _volumeWired = _volumeIntegrator != null && AreFieldsAssigned(_volumeIntegrator,
-                "compute");
-            _meshMatWired = _meshExtractor != null && AreFieldsAssigned(_meshExtractor,
-                "scanMeshMaterial");
-            _triplanarWired = _triplanarCache != null && AreFieldsAssigned(_triplanarCache,
-                "bakeCompute");
-            _computeShaderWired = _meshExtractor != null && AreFieldsAssigned(_meshExtractor,
-                "surfaceNetsCompute");
-            _refinedShaderWired = _textureRefinement != null && AreFieldsAssigned(_textureRefinement,
-                "refinedMeshShader");
-            _occlusionShaderWired = _textureRefinement != null && AreFieldsAssigned(_textureRefinement,
-                "occlusionMeshShader");
-            _atlasBakeComputeWired = _textureRefinement != null && AreFieldsAssigned(_textureRefinement,
-                "atlasBakeCompute");
             _debugOverlayWired = _roomScanner != null && AreFieldsAssigned(_roomScanner,
                 "debugOverlayShader");
-            RefreshGSplat();
             RefreshAIDetection();
             RefreshVRProject();
 
@@ -184,15 +153,6 @@ namespace Genesis.RoomScan.Editor
             _cleartextAllowed = ManifestHasCleartextTraffic();
             _insecureHttpAllowed = PlayerSettings.insecureHttpOption != InsecureHttpOption.NotAllowed;
         }
-
-        // Partial methods implemented in RoomScanSetupWizard.GSplat.cs when
-        // HAS_GAUSSIAN_SPLATTING is defined; silent no-ops otherwise.
-        partial void RefreshGSplat();
-        partial void DrawGSplatOptionalStatus();
-        partial void CheckGSplatAnyMissing(ref bool anyMissing);
-        partial void DrawGSplatShaderStatus(ref bool needsFix);
-        partial void WireGSplatComponents();
-        partial void SetupGSplatIfAvailable(GameObject root);
 
         // Partial methods implemented in RoomScanSetupWizard.AIDetection.cs when
         // HAS_AI_INFERENCE is defined; silent no-ops otherwise.
@@ -229,7 +189,6 @@ namespace Genesis.RoomScan.Editor
             DrawComponents();
             DrawVRProjectSection();
             DrawShaderWiring();
-            DrawNativePlugins();
 
             GUILayout.Space(12);
             DrawMasterButton();
@@ -808,9 +767,6 @@ namespace Genesis.RoomScan.Editor
             StatusRow("Cone-PRISM ConeEvent Classifier", _prismConeClassifier != null);
             StatusRow("Cone-PRISM ContactFilm Pool", _prismFilmSpawner != null);
             StatusRow("Cone-PRISM Meshlet Builder", _prismMeshletBuilder != null);
-            StatusRow("VolumeIntegrator", _volumeIntegrator != null);
-            StatusRow("MeshExtractor", _meshExtractor != null);
-            StatusRow("RoomScanPersistence", _persistence != null);
             StatusRow("RoomAnchorManager (MRUK + SpatialAnchor)", _roomAnchor != null);
 
             var ovrConfig = OVRProjectConfig.CachedProjectConfig;
@@ -832,9 +788,7 @@ namespace Genesis.RoomScan.Editor
                                _prismPredictionRenderer == null ||
                                _prismConeClassifier == null ||
                                _prismFilmSpawner == null ||
-                               _prismMeshletBuilder == null ||
-                               _volumeIntegrator == null || _meshExtractor == null ||
-                               _persistence == null || _roomAnchor == null;
+                               _prismMeshletBuilder == null || _roomAnchor == null;
             if (coreMissing)
             {
                 GUILayout.Space(2);
@@ -855,21 +809,16 @@ namespace Genesis.RoomScan.Editor
 
             StatusRowOptional("PassthroughCameraProvider", _cameraProvider != null);
             StatusRowOptional("PassthroughCameraAccess", _pcaComponent != null);
-            StatusRowOptional("TriplanarCache", _triplanarCache != null);
             StatusRowOptional("KeyframeCollector", _keyframeCollector != null);
-            DrawGSplatOptionalStatus();
             DrawAIDetectionOptionalStatus();
-            StatusRowOptional("TextureRefinement", _roomScanner != null && _roomScanner.GetComponent<TextureRefinement>() != null);
             StatusRowOptional("RoomUnderstanding (MRUK bridge)", _roomScanner != null && _roomScanner.GetComponent<RoomUnderstanding>() != null);
             StatusRowOptional("CameraDebugOverlay", _cameraDebug != null);
             StatusRowOptional("DepthDebugOverlay", _depthDebug != null);
             StatusRowOptional("RoomScanInputHandler", _inputHandler != null);
             StatusRowOptional("DebugMenuController (HUD)", _debugMenu != null);
 
-            bool anyOptionalMissing = _cameraProvider == null || _triplanarCache == null ||
-                                      _debugMenu == null ||
+            bool anyOptionalMissing = _cameraProvider == null || _debugMenu == null ||
                                       _inputHandler == null;
-            CheckGSplatAnyMissing(ref anyOptionalMissing);
             CheckAIDetectionAnyMissing(ref anyOptionalMissing);
             if (anyOptionalMissing)
             {
@@ -912,16 +861,8 @@ namespace Genesis.RoomScan.Editor
             return root;
         }
 
-        // The RoomScan GameObject MUST have an identity local transform.
-        // RoomScanner spawns a child "RefinedMeshRenderer" whose mesh
-        // vertices are pre-baked into world-space coordinates by
-        // RoomScanPersistence.RelocateVertices, and RefinedMesh.shader
-        // bypasses the object-to-world matrix (uses posWS directly). Unity
-        // still uses localToWorldMatrix for frustum-cull bounds, so any
-        // non-identity scale on this GameObject silently shrinks (or moves)
-        // the culling box away from the actual geometry — the rendered mesh
-        // then "disappears" from most viewing angles unless the camera
-        // frustum happens to clip the displaced bounds. Reset defensively.
+        // Canonical chunk transforms are explicit; the owner object stays identity
+        // so capture, prediction and meshlet materialization share one frame.
         static void EnsureRoomScanIdentityTransform(GameObject root)
         {
             if (root == null) return;
@@ -941,20 +882,15 @@ namespace Genesis.RoomScan.Editor
             Debug.LogWarning(
                 $"[RoomScanSetupWizard] Reset '{root.name}' transform to identity " +
                 $"(wrongScale={wrongScale}, wrongPos={wrongPos}, wrongRot={wrongRot}). " +
-                "RoomScanner's refined-mesh renderer hosts pre-baked world-space " +
-                "vertices and bypasses object-to-world in its shader; any non-identity " +
-                "parent transform breaks frustum-cull bounds and the mesh disappears " +
-                "from most viewing angles. Don't put world-space UI panels (UIDocument) " +
-                "directly on RoomScan — keep them on their own child GameObject.");
+                "Canonical chunk transforms require an identity scanner root.");
         }
 
         void FixCoreComponents()
         {
             var root = FindOrCreateRoot();
 
-            // Adding RoomScanner auto-adds [RequireComponent] core siblings:
-            // DepthCapture, VolumeIntegrator, MeshExtractor,
-            // RoomScanPersistence, RoomAnchorManager
+            // RoomScanner auto-adds DepthCapture, RoomAnchorManager and the
+            // canonical world/residency owners through RequireComponent.
             if (root.GetComponent<RoomScanner>() == null)
                 Undo.AddComponent<RoomScanner>(root);
             if (root.GetComponent<PrismRigCapture>() == null)
@@ -967,6 +903,8 @@ namespace Genesis.RoomScan.Editor
                 Undo.AddComponent<PrismConeClassifier>(root);
             if (root.GetComponent<PrismFilmSpawner>() == null)
                 Undo.AddComponent<PrismFilmSpawner>(root);
+            if (root.GetComponent<PrismPhotometricRefiner>() == null)
+                Undo.AddComponent<PrismPhotometricRefiner>(root);
             if (root.GetComponent<PrismFilmUpdater>() == null)
                 Undo.AddComponent<PrismFilmUpdater>(root);
             if (root.GetComponent<PrismBoundaryGraph>() == null)
@@ -975,6 +913,10 @@ namespace Genesis.RoomScan.Editor
                 Undo.AddComponent<PrismDisplacementTopology>(root);
             if (root.GetComponent<PrismMeshletBuilder>() == null)
                 Undo.AddComponent<PrismMeshletBuilder>(root);
+            if (root.GetComponent<PrismWorldMeshletRenderer>() == null)
+                Undo.AddComponent<PrismWorldMeshletRenderer>(root);
+            if (root.GetComponent<PrismGpuWorkGraph>() == null)
+                Undo.AddComponent<PrismGpuWorkGraph>(root);
 
             // Wire shader/compute on newly added core components
             foreach (var c in root.GetComponents<Component>())
@@ -1001,6 +943,8 @@ namespace Genesis.RoomScan.Editor
                 Undo.AddComponent<PrismConeClassifier>(root);
             if (root.GetComponent<PrismFilmSpawner>() == null)
                 Undo.AddComponent<PrismFilmSpawner>(root);
+            if (root.GetComponent<PrismPhotometricRefiner>() == null)
+                Undo.AddComponent<PrismPhotometricRefiner>(root);
             if (root.GetComponent<PrismFilmUpdater>() == null)
                 Undo.AddComponent<PrismFilmUpdater>(root);
             if (root.GetComponent<PrismBoundaryGraph>() == null)
@@ -1009,6 +953,10 @@ namespace Genesis.RoomScan.Editor
                 Undo.AddComponent<PrismDisplacementTopology>(root);
             if (root.GetComponent<PrismMeshletBuilder>() == null)
                 Undo.AddComponent<PrismMeshletBuilder>(root);
+            if (root.GetComponent<PrismWorldMeshletRenderer>() == null)
+                Undo.AddComponent<PrismWorldMeshletRenderer>(root);
+            if (root.GetComponent<PrismGpuWorkGraph>() == null)
+                Undo.AddComponent<PrismGpuWorkGraph>(root);
 
             // PassthroughCameraAccess isn't pulled in by RequireComponent.
             // It will spam "No active XRSubsystem" / NRE errors in Editor
@@ -1019,20 +967,9 @@ namespace Genesis.RoomScan.Editor
             if (root.GetComponent<PassthroughCameraProvider>() == null)
                 Undo.AddComponent<PassthroughCameraProvider>(root);
 
-            if (root.GetComponent<TriplanarCache>() == null)
-                Undo.AddComponent<TriplanarCache>(root);
-            if (root.GetComponent<TextureRefinement>() == null)
-                Undo.AddComponent<TextureRefinement>(root);
             if (root.GetComponent<RoomUnderstanding>() == null)
                 Undo.AddComponent<RoomUnderstanding>(root);
-            if (root.GetComponent<ChunkRefinementScheduler>() == null)
-                Undo.AddComponent<ChunkRefinementScheduler>(root);
 
-            // Public game-dev facade — see comment in AddGameReadyComponentsToRoot.
-            if (root.GetComponent<RoomScanSession>() == null)
-                Undo.AddComponent<RoomScanSession>(root);
-
-            SetupGSplatIfAvailable(root);
             SetupAIDetectionIfAvailable(root);
 
             // Optional components not covered by RequireComponent
@@ -1095,45 +1032,26 @@ namespace Genesis.RoomScan.Editor
                 "  \u2022 AndroidManifest: full Quest VR feature/permission set (HEADSET_CAMERA, USE_SCENE, USE_ANCHOR_API, BOUNDARYLESS, etc.) + cleartext HTTP + insecureHttpOption\n" +
                 "  \u2022 Meta XR Building Blocks: OVRCameraRig, Passthrough Underlay, PassthroughCameraAccess\n" +
                 "  \u2022 AR Session + AROcclusionManager on the camera rig\n" +
-                "  \u2022 Game-ready scene modules (scan \u2192 refine \u2192 release GPU \u2192 play)\n" +
-                "  \u2022 Shader wiring + xatlas native plugin build (background)\n" +
-                "Skips TriplanarCache, Gaussian Splat, and debug tools to keep the build lean.",
+                "  \u2022 Pure Quest Cone-PRISM world, UI, persistence and GLB export\n" +
+                "  \u2022 Shader wiring for capture and diagnostics\n" +
+                "No TSDF, Surface Nets, triplanar, Gaussian Splat, DiffSoup or server path.",
                 MessageType.Info);
 
             // ── Scene-level state ──
             bool hasPCA = _pcaComponent != null;
             bool hasPCAProvider = _cameraProvider != null;
-            bool hasRefinement = _textureRefinement != null;
             bool hasRoomUnderstanding = _roomScanner != null && _roomScanner.GetComponent<RoomUnderstanding>() != null;
 
             StatusRowOptional("PassthroughCameraAccess (camera RGB)", hasPCA);
             StatusRowOptional("PassthroughCameraProvider", hasPCAProvider);
-            StatusRowOptional("TextureRefinement (atlas baking)", hasRefinement);
             StatusRowOptional("RoomUnderstanding (MRUK bridge)", hasRoomUnderstanding);
-            StatusRowOptional("RoomScanSession (game-dev async API: StartScanAsync / FinalizeScanAsync / LoadLatestAsync)",
-                              _session != null);
-            StatusRowOptional("Infinite submaps (bounded TSDF + chunk persistence)",
+            StatusRowOptional("Infinite Cone-PRISM chunks + canonical persistence",
                               _submapManager != null && _submapManager.LargeWorldMode);
             StatusRowOptional("GLB/PBR chunk + world export", _glbExportController != null);
             if (_submapManager != null && _submapManager.LargeWorldMode)
             {
-                StatusRowOptional(
-                    $"Large-world memory defaults (1 TSDF, " +
-                    $"{_submapManager.MaximumResidentChunkMeshCount} visible representations, " +
-                    $"triplanar off)",
-                    _submapManager.UsesLargeWorldDefaults && _triplanarCache == null);
-            }
-
-            if (hasRefinement)
-            {
-                var so = new SerializedObject(_textureRefinement);
-                var simplifyProp = so.FindProperty("postBakeSimplificationRatio");
-                if (simplifyProp != null)
-                {
-                    float val = simplifyProp.floatValue;
-                    bool configured = val < 1f;
-                    StatusRowOptional($"Post-bake simplification ({val:P0})", configured);
-                }
+                StatusRowOptional("Local active-set memory defaults",
+                    _submapManager.UsesLargeWorldDefaults);
             }
 
             // ── Project-level state (also fixed by this preset) ──
@@ -1154,27 +1072,9 @@ namespace Genesis.RoomScan.Editor
                               _boundarylessManifest && _cleartextAllowed);
             StatusRowOptional("Player Settings: Allow HTTP", _insecureHttpAllowed);
             StatusRowOptional($"VR Project Bootstrap ({_vrOutstanding.Count} outstanding)", _vrOutstanding.Count == 0);
-            StatusRowOptional("xatlas native plugins (Android + Editor)", _xatlasAndroid && _xatlasEditor);
 
-            bool triplanarAttached = _triplanarCache != null;
-            if (triplanarAttached)
-            {
-                var prev = GUI.color;
-                GUI.color = COL_WARN;
-                EditorGUILayout.BeginHorizontal();
-                GUILayout.Space(12);
-                GUILayout.Label("\u26A0", EditorStyles.boldLabel, GUILayout.Width(18));
-                GUI.color = prev;
-                GUILayout.Label("TriplanarCache is attached (\u2212240 MB GPU if removed)", GUILayout.ExpandWidth(true));
-                prev = GUI.color;
-                GUI.color = COL_WARN;
-                GUILayout.Label("Optional", EditorStyles.miniLabel, GUILayout.Width(60));
-                GUI.color = prev;
-                EditorGUILayout.EndHorizontal();
-            }
-
-            bool sceneMissing   = !hasPCA || !hasPCAProvider || !hasRefinement || !hasRoomUnderstanding
-                                  || _session == null || _submapManager == null ||
+            bool sceneMissing   = !hasPCA || !hasPCAProvider || !hasRoomUnderstanding
+                                  || _submapManager == null ||
                                   !_submapManager.LargeWorldMode ||
                                   _glbExportController == null;
             bool projectMissing = !buildTargetIsAndroid
@@ -1184,8 +1084,7 @@ namespace Genesis.RoomScan.Editor
                                   || !_ovrPassthroughReady
                                   || _arSession == null || _arOcclusion == null
                                   || !_boundarylessManifest || !_cleartextAllowed || !_insecureHttpAllowed
-                                  || _vrOutstanding.Count > 0
-                                  || !_xatlasAndroid || !_xatlasEditor;
+                                  || _vrOutstanding.Count > 0;
 
             if (sceneMissing || projectMissing)
             {
@@ -1324,17 +1223,7 @@ namespace Genesis.RoomScan.Editor
                     "Wiring shaders\u2026", 0.90f);
                 FixShaderWiring();
 
-                RefreshNativePlugins();
-                bool xatlasMissing = !_xatlasAndroid || !_xatlasEditor;
-                if (xatlasMissing)
-                {
-                    EditorUtility.DisplayProgressBar("Game-Ready Setup",
-                        "Starting xatlas plugin build (background)\u2026", 0.97f);
-                    BuildXAtlasPlugin();
-                }
-
-                Debug.Log("[RoomScan Setup] Game-Ready setup complete." +
-                    (xatlasMissing ? " (xatlas build running in background)" : ""));
+                Debug.Log("[RoomScan Setup] Pure Cone-PRISM setup complete.");
             }
             catch (System.Exception ex)
             {
@@ -1368,6 +1257,8 @@ namespace Genesis.RoomScan.Editor
                 Undo.AddComponent<PrismConeClassifier>(root);
             if (root.GetComponent<PrismFilmSpawner>() == null)
                 Undo.AddComponent<PrismFilmSpawner>(root);
+            if (root.GetComponent<PrismPhotometricRefiner>() == null)
+                Undo.AddComponent<PrismPhotometricRefiner>(root);
             if (root.GetComponent<PrismFilmUpdater>() == null)
                 Undo.AddComponent<PrismFilmUpdater>(root);
             if (root.GetComponent<PrismBoundaryGraph>() == null)
@@ -1376,6 +1267,10 @@ namespace Genesis.RoomScan.Editor
                 Undo.AddComponent<PrismDisplacementTopology>(root);
             if (root.GetComponent<PrismMeshletBuilder>() == null)
                 Undo.AddComponent<PrismMeshletBuilder>(root);
+            if (root.GetComponent<PrismWorldMeshletRenderer>() == null)
+                Undo.AddComponent<PrismWorldMeshletRenderer>(root);
+            if (root.GetComponent<PrismGpuWorkGraph>() == null)
+                Undo.AddComponent<PrismGpuWorkGraph>(root);
 
             // PassthroughCameraAccess is normally added by the Meta XR
             // Building Block (see EnsureRequiredBuildingBlocksAsync), but
@@ -1389,8 +1284,6 @@ namespace Genesis.RoomScan.Editor
             if (root.GetComponent<PassthroughCameraProvider>() == null)
                 Undo.AddComponent<PassthroughCameraProvider>(root);
 
-            if (root.GetComponent<TextureRefinement>() == null)
-                Undo.AddComponent<TextureRefinement>(root);
             if (root.GetComponent<RoomUnderstanding>() == null)
                 Undo.AddComponent<RoomUnderstanding>(root);
             var submaps = root.GetComponent<SubmapManager>();
@@ -1411,31 +1304,10 @@ namespace Genesis.RoomScan.Editor
                 submaps.LargeWorldMode = true;
                 EditorUtility.SetDirty(submaps);
             }
-            if (root.GetComponent<ChunkRefinementScheduler>() == null)
-                Undo.AddComponent<ChunkRefinementScheduler>(root);
+            if (root.GetComponent<PrismChunkResidencyManager>() == null)
+                Undo.AddComponent<PrismChunkResidencyManager>(root);
             if (root.GetComponent<GlbExportController>() == null)
                 Undo.AddComponent<GlbExportController>(root);
-
-            // RoomScanSession: public game-dev facade (StartScanAsync / FinalizeScanAsync /
-            // LoadLatestAsync / HasSavedScan / ProgressUpdated). Without it,
-            // game code that follows the documented public-API path cannot
-            // find RoomScanSession.Instance and bails.
-            if (root.GetComponent<RoomScanSession>() == null)
-                Undo.AddComponent<RoomScanSession>(root);
-
-            var tr = root.GetComponent<TextureRefinement>();
-            if (tr != null)
-            {
-                var so = new SerializedObject(tr);
-                var simplifyProp = so.FindProperty("postBakeSimplificationRatio");
-                if (simplifyProp != null && simplifyProp.floatValue >= 1f)
-                {
-                    simplifyProp.floatValue = 0.5f;
-                    so.ApplyModifiedProperties();
-                    EditorUtility.SetDirty(tr);
-                    Debug.Log("[RoomScan Setup] Set postBakeSimplificationRatio to 0.5 for game-ready mesh");
-                }
-            }
 
             foreach (var c in root.GetComponents<Component>())
                 WireComponent(c);
@@ -1587,18 +1459,7 @@ namespace Genesis.RoomScan.Editor
 
             // Core — always present
             if (_depthCapture != null)   { StatusRow("DepthCapture compute shaders", _depthCaptureWired); needsFix |= !_depthCaptureWired; }
-            if (_volumeIntegrator != null){ StatusRow("VolumeIntegrator compute shader", _volumeWired);    needsFix |= !_volumeWired; }
-            if (_meshExtractor != null)  { StatusRow("MeshExtractor scan material", _meshMatWired);        needsFix |= !_meshMatWired; }
-            if (_meshExtractor != null)  { StatusRow("SurfaceNetsExtract compute shader", _computeShaderWired); needsFix |= !_computeShaderWired; }
-
-            // Optional — only show if the module is attached
-            if (_triplanarCache != null) { StatusRow("TriplanarCache bake compute", _triplanarWired);      needsFix |= !_triplanarWired; }
-
-            if (_textureRefinement != null)   { StatusRow("RefinedMesh shader (texture refine)", _refinedShaderWired); needsFix |= !_refinedShaderWired; }
-            if (_textureRefinement != null)   { StatusRow("OcclusionMesh shader (MR occluder)", _occlusionShaderWired); needsFix |= !_occlusionShaderWired; }
-            if (_textureRefinement != null)   { StatusRow("AtlasBakeCompute (GPU bake)", _atlasBakeComputeWired);      needsFix |= !_atlasBakeComputeWired; }
             if (_roomScanner != null)        { StatusRow("DebugOverlay shader (scene viz)", _debugOverlayWired);     needsFix |= !_debugOverlayWired; }
-            DrawGSplatShaderStatus(ref needsFix);
             DrawAIDetectionShaderStatus(ref needsFix);
 
             if (needsFix)
@@ -1617,15 +1478,9 @@ namespace Genesis.RoomScan.Editor
         void FixShaderWiring()
         {
             WireComponent(_depthCapture);
-            WireComponent(_volumeIntegrator);
-            WireComponent(_meshExtractor);
-            WireComponent(_triplanarCache);
             WireComponent(_depthDebug);
             WireComponent(_roomScanner);
 
-            var tr = _roomScanner != null ? _roomScanner.GetComponent<TextureRefinement>() : null;
-            WireComponent(tr);
-            WireGSplatComponents();
             WireAIDetectionComponents();
 
             var rayDriver = FindAny<UI.ControllerRayDriver>();
@@ -1680,52 +1535,6 @@ namespace Genesis.RoomScan.Editor
             return mat;
         }
 
-        // -- Native Plugins -----------------------------------------------
-
-        bool _xatlasAndroid, _xatlasEditor;
-
-        void RefreshNativePlugins()
-        {
-            string pkgRoot = "Packages/com.genesis.roomscan/Runtime";
-            _xatlasAndroid = System.IO.File.Exists(
-                Path.GetFullPath(Path.Combine(pkgRoot, "Plugins/Android/libxatlas.so")));
-#if UNITY_EDITOR_WIN
-            _xatlasEditor = System.IO.File.Exists(
-                Path.GetFullPath(Path.Combine(pkgRoot, "Plugins/Windows/xatlas.dll")));
-#elif UNITY_EDITOR_LINUX
-            _xatlasEditor = System.IO.File.Exists(
-                Path.GetFullPath(Path.Combine(pkgRoot, "Plugins/Linux/libxatlas.so")));
-#else
-            _xatlasEditor = System.IO.File.Exists(
-                Path.GetFullPath(Path.Combine(pkgRoot, "Plugins/macOS/libxatlas.bundle")));
-#endif
-        }
-
-        void DrawNativePlugins()
-        {
-            RefreshNativePlugins();
-            BeginSection("NATIVE PLUGINS");
-            StatusRow("xatlas (Android ARM64)", _xatlasAndroid);
-#if UNITY_EDITOR_WIN
-            StatusRow("xatlas (Windows Editor)", _xatlasEditor);
-#elif UNITY_EDITOR_LINUX
-            StatusRow("xatlas (Linux Editor)", _xatlasEditor);
-#else
-            StatusRow("xatlas (macOS Editor)", _xatlasEditor);
-#endif
-
-            if (!_xatlasAndroid || !_xatlasEditor)
-            {
-                GUILayout.Space(2);
-                EditorGUILayout.BeginHorizontal();
-                GUILayout.FlexibleSpace();
-                if (GUILayout.Button("Build xatlas Plugin", GUILayout.Width(200)))
-                    BuildXAtlasPlugin();
-                EditorGUILayout.EndHorizontal();
-            }
-            EndSection();
-        }
-
         /// <summary>
         /// Wires shader/compute/material references on a freshly added component.
         /// Called by both the setup wizard and the RoomScannerEditor "Add Module" dropdown.
@@ -1746,46 +1555,6 @@ namespace Genesis.RoomScan.Editor
                     AssignCompute(so, "bilateralFilterCompute", PKG_SHADERS + "BilateralDepthFilter.compute");
                     so.ApplyModifiedProperties();
                     EditorUtility.SetDirty(dc);
-                    break;
-                }
-                case VolumeIntegrator vi:
-                {
-                    var so = new SerializedObject(vi);
-                    AssignCompute(so, "compute", PKG_SHADERS + "VolumeIntegration.compute");
-                    so.ApplyModifiedProperties();
-                    EditorUtility.SetDirty(vi);
-                    break;
-                }
-                case MeshExtractor me:
-                {
-                    var so = new SerializedObject(me);
-                    var prop = so.FindProperty("scanMeshMaterial");
-                    if (prop != null && prop.objectReferenceValue == null)
-                    {
-                        Material mat = GetOrCreateScanMaterial();
-                        if (mat != null) prop.objectReferenceValue = mat;
-                    }
-                    AssignCompute(so, "surfaceNetsCompute", PKG_SHADERS + "SurfaceNetsExtract.compute");
-                    so.ApplyModifiedProperties();
-                    EditorUtility.SetDirty(me);
-                    break;
-                }
-                case TriplanarCache tc:
-                {
-                    var so = new SerializedObject(tc);
-                    AssignCompute(so, "bakeCompute", PKG_SHADERS + "TriplanarBake.compute");
-                    so.ApplyModifiedProperties();
-                    EditorUtility.SetDirty(tc);
-                    break;
-                }
-                case TextureRefinement tr:
-                {
-                    var so = new SerializedObject(tr);
-                    AssignAsset<Shader>(so, "refinedMeshShader", PKG_SHADERS + "RefinedMesh.shader");
-                    AssignAsset<Shader>(so, "occlusionMeshShader", PKG_SHADERS + "OcclusionMesh.shader");
-                    AssignAsset<ComputeShader>(so, "atlasBakeCompute", PKG_SHADERS + "AtlasBakeCompute.compute");
-                    so.ApplyModifiedProperties();
-                    EditorUtility.SetDirty(tr);
                     break;
                 }
                 case DepthDebugOverlay dd:
@@ -1814,395 +1583,9 @@ namespace Genesis.RoomScan.Editor
                 }
             }
 
-#if HAS_GAUSSIAN_SPLATTING
-            WireGSplatComponent(component);
-#endif
 #if HAS_AI_INFERENCE
             WireAIDetectionComponent(component);
 #endif
-        }
-
-        internal static void BuildXAtlasPlugin()
-        {
-            string pkgRoot = Path.GetFullPath("Packages/com.genesis.roomscan/Runtime");
-            string srcDir = Path.Combine(pkgRoot, "Native/xatlas");
-            string srcApi = Path.Combine(srcDir, "xatlas_c_api.cpp");
-            string srcImpl = Path.Combine(srcDir, "xatlas.cpp");
-            string meshoptDir = Path.Combine(pkgRoot, "Native/meshoptimizer");
-            string srcSimplifier = Path.Combine(meshoptDir, "simplifier.cpp");
-
-            if (!System.IO.File.Exists(srcApi) || !System.IO.File.Exists(srcImpl))
-            {
-                EditorUtility.DisplayDialog("Build xatlas",
-                    $"Source files not found in:\n{srcDir}\n\nExpected xatlas.cpp and xatlas_c_api.cpp",
-                    "OK");
-                return;
-            }
-
-            bool hasMeshopt = System.IO.File.Exists(srcSimplifier);
-            if (!hasMeshopt)
-                Debug.LogWarning("[RoomScan Setup] meshoptimizer sources not found — building without mesh simplification");
-
-            string meshoptSrc = hasMeshopt ? $" \"{srcSimplifier}\"" : "";
-            string meshoptInc = hasMeshopt ? $" -I\"{meshoptDir}\"" : "";
-
-            var builds = new System.Collections.Generic.List<(string label, string exe, string args, string outAssetPath)>();
-
-            // Host editor plugin (platform-specific)
-#if UNITY_EDITOR_WIN
-            {
-                string clExe = FindMsvcCompiler();
-                if (clExe != null)
-                {
-                    string outDir = Path.Combine(pkgRoot, "Plugins/Windows");
-                    Directory.CreateDirectory(outDir);
-                    string outPath = Path.Combine(outDir, "xatlas.dll");
-                    string incFlags = hasMeshopt ? $" /I\"{meshoptDir}\"" : "";
-                    string allSrc = $"\"{srcApi}\" \"{srcImpl}\"" + (hasMeshopt ? $" \"{srcSimplifier}\"" : "");
-                    string bArgs = $"/nologo /O2 /std:c++14 /EHsc /LD{incFlags} {allSrc} /Fe:\"{outPath}\" /link /DLL";
-                    builds.Add(("Windows xatlas", clExe, bArgs,
-                        "Packages/com.genesis.roomscan/Runtime/Plugins/Windows/xatlas.dll"));
-                }
-                else
-                {
-                    string clangExe = FindHostClang();
-                    if (clangExe != null)
-                    {
-                        string outDir = Path.Combine(pkgRoot, "Plugins/Windows");
-                        Directory.CreateDirectory(outDir);
-                        string outPath = Path.Combine(outDir, "xatlas.dll");
-                        string bArgs = $"-shared -O2 -std=c++11{meshoptInc} " +
-                                       $"-o \"{outPath}\" \"{srcApi}\" \"{srcImpl}\"{meshoptSrc}";
-                        builds.Add(("Windows xatlas", clangExe, bArgs,
-                            "Packages/com.genesis.roomscan/Runtime/Plugins/Windows/xatlas.dll"));
-                    }
-                    else
-                    {
-                        Debug.LogError("[RoomScan Setup] No C++ compiler found. Install Visual Studio " +
-                            "with C++ Desktop workload, or add clang++/g++ to your PATH.");
-                    }
-                }
-            }
-#elif UNITY_EDITOR_LINUX
-            {
-                string outDir = Path.Combine(pkgRoot, "Plugins/Linux");
-                Directory.CreateDirectory(outDir);
-                string outPath = Path.Combine(outDir, "libxatlas.so");
-                string bArgs = $"-shared -O2 -fPIC -std=c++11 -fvisibility=hidden{meshoptInc} " +
-                               $"-o \"{outPath}\" \"{srcApi}\" \"{srcImpl}\"{meshoptSrc}";
-                string compiler = FindHostClang() ?? "g++";
-                builds.Add(("Linux xatlas", compiler, bArgs,
-                    "Packages/com.genesis.roomscan/Runtime/Plugins/Linux/libxatlas.so"));
-            }
-#else // macOS
-            {
-                string outDir = Path.Combine(pkgRoot, "Plugins/macOS");
-                Directory.CreateDirectory(outDir);
-                string outPath = Path.Combine(outDir, "libxatlas.bundle");
-                string bArgs = $"-shared -O2 -fPIC -std=c++11 -fvisibility=hidden{meshoptInc} " +
-                               $"-o \"{outPath}\" \"{srcApi}\" \"{srcImpl}\"{meshoptSrc}";
-                builds.Add(("macOS xatlas", "clang++", bArgs,
-                    "Packages/com.genesis.roomscan/Runtime/Plugins/macOS/libxatlas.bundle"));
-            }
-#endif
-
-            // Android ARM64 (cross-compile from any host)
-            {
-                string ndkClang = FindNdkClang();
-                if (ndkClang != null)
-                {
-                    string outDir = Path.Combine(pkgRoot, "Plugins/Android");
-                    Directory.CreateDirectory(outDir);
-                    string outPath = Path.Combine(outDir, "libxatlas.so");
-                    string bArgs = $"-shared -O2 -fPIC -std=c++11 -fvisibility=hidden{meshoptInc} " +
-                                   $"-o \"{outPath}\" \"{srcApi}\" \"{srcImpl}\"{meshoptSrc}";
-                    builds.Add(("Android xatlas", ndkClang, bArgs,
-                        "Packages/com.genesis.roomscan/Runtime/Plugins/Android/libxatlas.so"));
-                }
-            }
-
-            if (builds.Count == 0)
-            {
-                Debug.LogError("[RoomScan Setup] No build targets available");
-                return;
-            }
-
-            StartAsyncBuilds(builds);
-        }
-
-        static string FindNdkClang()
-        {
-            string ndkPath = null;
-            try
-            {
-                ndkPath = UnityEditor.Android.AndroidExternalToolsSettings.ndkRootPath;
-            }
-            catch
-            {
-                Debug.LogWarning("[RoomScan Setup] Android NDK path not configured. Skipping Android build.");
-                return null;
-            }
-
-            if (string.IsNullOrEmpty(ndkPath) || !Directory.Exists(ndkPath))
-            {
-                Debug.LogWarning($"[RoomScan Setup] NDK not found at: {ndkPath}");
-                return null;
-            }
-
-            string prebuilt = Path.Combine(ndkPath, "toolchains/llvm/prebuilt");
-            if (!Directory.Exists(prebuilt)) return null;
-
-            string[] hosts = Directory.GetDirectories(prebuilt);
-            if (hosts.Length == 0) return null;
-
-            string binDir = Path.Combine(hosts[0], "bin");
-            // Windows NDK ships .cmd wrappers; Unix has bare executables
-            string[] candidates = {
-                Path.Combine(binDir, "aarch64-linux-android31-clang++.cmd"),
-                Path.Combine(binDir, "aarch64-linux-android31-clang++.exe"),
-                Path.Combine(binDir, "aarch64-linux-android31-clang++"),
-            };
-            foreach (string c in candidates)
-                if (System.IO.File.Exists(c)) return c;
-
-            Debug.LogWarning($"[RoomScan Setup] NDK clang++ not found in {binDir}");
-            return null;
-        }
-
-        static string FindHostClang()
-        {
-            // Check common locations for clang++ on the host
-            string[] candidates;
-#if UNITY_EDITOR_WIN
-            candidates = new[] { "clang++.exe", "clang++", "g++.exe" };
-#else
-            candidates = new[] { "clang++", "g++" };
-#endif
-            foreach (string name in candidates)
-            {
-                try
-                {
-                    var psi = new System.Diagnostics.ProcessStartInfo
-                    {
-                        FileName = name, Arguments = "--version",
-                        UseShellExecute = false, RedirectStandardOutput = true,
-                        RedirectStandardError = true, CreateNoWindow = true
-                    };
-                    using (var p = System.Diagnostics.Process.Start(psi))
-                    {
-                        p.WaitForExit(3000);
-                        if (p.ExitCode == 0) return name;
-                    }
-                }
-                catch { /* not found, try next */ }
-            }
-            return null;
-        }
-
-#if UNITY_EDITOR_WIN
-        static string FindMsvcCompiler()
-        {
-            // Use vswhere to locate MSVC cl.exe
-            string vswhere = Path.Combine(
-                System.Environment.GetFolderPath(System.Environment.SpecialFolder.ProgramFilesX86),
-                "Microsoft Visual Studio/Installer/vswhere.exe");
-            if (!System.IO.File.Exists(vswhere)) return null;
-
-            try
-            {
-                var psi = new System.Diagnostics.ProcessStartInfo
-                {
-                    FileName = vswhere,
-                    Arguments = "-latest -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 " +
-                                "-property installationPath",
-                    UseShellExecute = false, RedirectStandardOutput = true,
-                    CreateNoWindow = true
-                };
-                using (var p = System.Diagnostics.Process.Start(psi))
-                {
-                    string vsPath = p.StandardOutput.ReadToEnd().Trim();
-                    p.WaitForExit(5000);
-                    if (string.IsNullOrEmpty(vsPath)) return null;
-
-                    string vcToolsDir = Path.Combine(vsPath, "VC/Tools/MSVC");
-                    if (!Directory.Exists(vcToolsDir)) return null;
-
-                    var versions = Directory.GetDirectories(vcToolsDir);
-                    if (versions.Length == 0) return null;
-
-                    System.Array.Sort(versions);
-                    string latest = versions[versions.Length - 1];
-                    string cl = Path.Combine(latest, "bin/Hostx64/x64/cl.exe");
-                    return System.IO.File.Exists(cl) ? cl : null;
-                }
-            }
-            catch { return null; }
-        }
-#endif
-
-        // Async build state
-        static System.Collections.Generic.List<(string label, System.Diagnostics.Process proc, string outAssetPath,
-            System.Text.StringBuilder stdout, System.Text.StringBuilder stderr)> _activeBuilds;
-        static int _totalBuilds;
-
-        static void StartAsyncBuilds(
-            System.Collections.Generic.List<(string label, string exe, string args, string outAssetPath)> builds)
-        {
-            _activeBuilds = new();
-            _totalBuilds = builds.Count;
-
-            foreach (var (label, exe, args, outAssetPath) in builds)
-            {
-                try
-                {
-                    string fileName = exe;
-                    string arguments = args;
-
-                    // .cmd/.bat files on Windows cannot be started directly with
-                    // UseShellExecute=false; route through cmd.exe instead.
-                    if (exe.EndsWith(".cmd", System.StringComparison.OrdinalIgnoreCase) ||
-                        exe.EndsWith(".bat", System.StringComparison.OrdinalIgnoreCase))
-                    {
-                        fileName = "cmd.exe";
-                        arguments = $"/c \"\"{exe}\" {args}\"";
-                    }
-
-                    var psi = new System.Diagnostics.ProcessStartInfo
-                    {
-                        FileName = fileName,
-                        Arguments = arguments,
-                        UseShellExecute = false,
-                        RedirectStandardOutput = true,
-                        RedirectStandardError = true,
-                        CreateNoWindow = true
-                    };
-
-                    var proc = System.Diagnostics.Process.Start(psi);
-                    var stdoutBuf = new System.Text.StringBuilder();
-                    var stderrBuf = new System.Text.StringBuilder();
-                    proc.OutputDataReceived += (_, e) => { if (e.Data != null) stdoutBuf.AppendLine(e.Data); };
-                    proc.ErrorDataReceived += (_, e) => { if (e.Data != null) stderrBuf.AppendLine(e.Data); };
-                    proc.BeginOutputReadLine();
-                    proc.BeginErrorReadLine();
-                    _activeBuilds.Add((label, proc, outAssetPath, stdoutBuf, stderrBuf));
-                }
-                catch (System.Exception e)
-                {
-                    Debug.LogError($"[RoomScan Setup] Failed to start {label}: {e.Message}");
-                }
-            }
-
-            if (_activeBuilds.Count == 0)
-            {
-                Debug.LogError("[RoomScan Setup] No builds started");
-                return;
-            }
-
-            EditorApplication.update += PollXAtlasBuilds;
-            EditorUtility.DisplayProgressBar("Building xatlas", "Compiling native plugins...", 0f);
-        }
-
-        static void PollXAtlasBuilds()
-        {
-            if (_activeBuilds == null) return;
-
-            int done = 0;
-            foreach (var (label, proc, _, _, _) in _activeBuilds)
-                if (proc.HasExited) done++;
-
-            float progress = (float)done / _totalBuilds;
-            string building = done < _totalBuilds
-                ? $"Compiling... ({done}/{_totalBuilds} done)"
-                : "Finishing...";
-            EditorUtility.DisplayProgressBar("Building xatlas", building, progress);
-
-            if (done < _totalBuilds) return;
-
-            // All done
-            EditorApplication.update -= PollXAtlasBuilds;
-            EditorUtility.ClearProgressBar();
-
-            bool allOk = true;
-            var results = new System.Text.StringBuilder();
-
-            foreach (var (label, proc, outAssetPath, _, stderrBuf) in _activeBuilds)
-            {
-                string stderr = stderrBuf.ToString();
-                bool ok = proc.ExitCode == 0;
-                allOk &= ok;
-                results.AppendLine($"  {label}: {(ok ? "OK" : $"FAILED (exit {proc.ExitCode})")}");
-
-                if (!ok)
-                    Debug.LogError($"[RoomScan Setup] {label} build failed (exit {proc.ExitCode}):\n{stderr}");
-                else if (!string.IsNullOrWhiteSpace(stderr))
-                    Debug.LogWarning($"[RoomScan Setup] {label} warnings:\n{stderr}");
-                else
-                    Debug.Log($"[RoomScan Setup] {label} build succeeded");
-
-                proc.Dispose();
-            }
-
-            AssetDatabase.Refresh();
-
-            // Configure plugin importers after AssetDatabase sees the new files
-            EditorApplication.delayCall += () =>
-            {
-                foreach (var (label, _, outAssetPath, _, _) in _activeBuilds)
-                    ConfigurePluginImporter(outAssetPath);
-                _activeBuilds = null;
-            };
-
-            if (allOk)
-                Debug.Log($"[RoomScan Setup] xatlas build complete:\n{results}");
-        }
-
-        static void ConfigurePluginImporter(string assetPath)
-        {
-            var importer = AssetImporter.GetAtPath(assetPath) as PluginImporter;
-            if (importer == null)
-            {
-                Debug.LogWarning($"[RoomScan Setup] PluginImporter not found for {assetPath}");
-                return;
-            }
-
-            bool isAndroid = assetPath.Contains("/Android/");
-            bool isWindows = assetPath.Contains("/Windows/");
-            bool isLinux = assetPath.Contains("/Linux/");
-
-            importer.SetCompatibleWithAnyPlatform(false);
-            importer.SetCompatibleWithEditor(!isAndroid);
-            importer.SetCompatibleWithPlatform(BuildTarget.Android, isAndroid);
-
-            string platformLabel;
-            if (isAndroid)
-            {
-                importer.SetPlatformData(BuildTarget.Android, "CPU", "ARM64");
-                platformLabel = "Android ARM64";
-            }
-            else if (isWindows)
-            {
-                importer.SetCompatibleWithPlatform(BuildTarget.StandaloneWindows64, true);
-                importer.SetEditorData("CPU", "AnyCPU");
-                importer.SetEditorData("OS", "Windows");
-                platformLabel = "Windows Editor";
-            }
-            else if (isLinux)
-            {
-                importer.SetCompatibleWithPlatform(BuildTarget.StandaloneLinux64, true);
-                importer.SetEditorData("CPU", "AnyCPU");
-                importer.SetEditorData("OS", "Linux");
-                platformLabel = "Linux Editor";
-            }
-            else
-            {
-                importer.SetCompatibleWithPlatform(BuildTarget.StandaloneOSX, true);
-                importer.SetEditorData("CPU", "AnyCPU");
-                importer.SetEditorData("OS", "OSX");
-                platformLabel = "macOS Editor";
-            }
-
-            importer.SaveAndReimport();
-            Debug.Log($"[RoomScan Setup] Configured plugin importer: {assetPath} ({platformLabel})");
         }
 
         // -- Master Button ------------------------------------------------
@@ -2276,17 +1659,7 @@ namespace Genesis.RoomScan.Editor
                 EnsurePassthroughSceneConfig();
                 FixShaderWiring();
 
-                RefreshNativePlugins();
-                bool xatlasMissing = !_xatlasAndroid || !_xatlasEditor;
-                if (xatlasMissing)
-                {
-                    EditorUtility.DisplayProgressBar("Setup Everything",
-                        "Starting xatlas plugin build (background)\u2026", 0.95f);
-                    BuildXAtlasPlugin();
-                }
-
-                Debug.Log("[RoomScan Setup] Scene setup complete." +
-                    (xatlasMissing ? " (xatlas build running in background)" : ""));
+                Debug.Log("[RoomScan Setup] Pure Cone-PRISM scene setup complete.");
             }
             catch (System.Exception ex)
             {

@@ -84,6 +84,7 @@ RWStructuredBuffer<ConeEvent> _ConeEvents;
 RWStructuredBuffer<uint> _ClassifiedIndices;
 RWStructuredBuffer<uint> _ClassCounters;
 RWStructuredBuffer<uint3> _ClassDispatchArguments;
+RWStructuredBuffer<uint> _ManifoldDiagnostics;
 
 uint2 _Resolution;
 uint _EventCapacity;
@@ -293,6 +294,10 @@ void ClassifyConeEvents(uint3 id : SV_DispatchThreadID)
 
     bool hasPrediction = film.x != 0u && film.y != 0u && predicted.x > 0.0 &&
         isfinite(predicted.x);
+    if (hasPrediction)
+        InterlockedAdd(_ManifoldDiagnostics[3], 1u);
+    else if (predicted.x > 0.0 && isfinite(predicted.x))
+        InterlockedAdd(_ManifoldDiagnostics[4], 1u);
     // New canonical matter is deposited only in the sharp central cone field. The
     // wider band is reserved for already-associated surfaces and only when the
     // measurement carries strong information. Passthrough/tracking remain full-FOV;

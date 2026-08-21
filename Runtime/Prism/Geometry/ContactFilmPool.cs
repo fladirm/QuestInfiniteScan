@@ -61,33 +61,82 @@ namespace Genesis.RoomScan.Prism
         public const int Stride = 152;
     }
 
+    [Flags]
+    public enum ContactFilmSlotFlags : uint
+    {
+        None = 0,
+        Allocated = 1u << 0,
+        Active = 1u << 1,
+        Dirty = 1u << 2,
+        Free = 1u << 3
+    }
+
+    /// <summary>
+    /// Generation-safe storage ownership for one canonical film slot. ActiveOrdinal
+    /// points into the compact live list; NextFree is a one-based handle so zero is
+    /// the lock-free free-list terminator.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct ContactFilmSlotStateGpu
+    {
+        public uint Generation;
+        public uint ActiveOrdinal;
+        public uint NextFree;
+        public uint Flags;
+
+        public const int Stride = 16;
+    }
+
     /// <summary>
     /// Bounded canonical ContactFilm pool. Header and 6x6 information sufficient
     /// statistics remain GPU resident; allocator overflow fails closed.
     /// </summary>
     public sealed class ContactFilmPool : IDisposable
     {
-        private static readonly uint[] InitialAllocator = { 0u, 0u, 0u, 1u };
+        // 0..5 packed analytic-surface H and pre-hit state, 6..7 g/support,
+        // 8 quality envelope, 9 independent-contact view state/posterior variance.
+        public const int InformationRecords = 10;
+        // high-water, live, overflow, publication generation, free head, free
+        // count, compact active count, compact dirty count.
+        private static readonly uint[] InitialAllocator =
+            { 0u, 0u, 0u, 1u, 0u, 0u, 0u, 0u };
 
         public ContactFilmPool(int capacity)
         {
             Capacity = Math.Max(1024, capacity);
             Headers = new GraphicsBuffer(GraphicsBuffer.Target.Structured, Capacity,
                 ContactFilmHeaderGpu.Stride);
-            // Nine float4 records per film: 21 upper-triangle H values, 6 g values,
-            // and quality/support state. Q3-08 updates the same resumable statistics.
+            // Resumable information posterior.  Its physical precision and
+            // independent-view state are canonical reconstruction data.
             Information = new GraphicsBuffer(GraphicsBuffer.Target.Structured,
-                checked(Capacity * 9), sizeof(float) * 4);
-            Allocator = new GraphicsBuffer(GraphicsBuffer.Target.Structured, 4,
+                checked(Capacity * InformationRecords), sizeof(float) * 4);
+            Allocator = new GraphicsBuffer(GraphicsBuffer.Target.Structured, 8,
                 sizeof(uint));
+            SlotStates = new GraphicsBuffer(GraphicsBuffer.Target.Structured,
+                Capacity, ContactFilmSlotStateGpu.Stride);
+            ActiveIndices = new GraphicsBuffer(GraphicsBuffer.Target.Structured,
+                Capacity, sizeof(uint));
+            DirtyIndices = new GraphicsBuffer(GraphicsBuffer.Target.Structured,
+                Capacity, sizeof(uint));
             Allocator.SetData(InitialAllocator);
+            SlotStates.SetData(new ContactFilmSlotStateGpu[Capacity]);
+            ActiveIndices.SetData(new uint[Capacity]);
+            DirtyIndices.SetData(new uint[Capacity]);
+            Manifolds = new PressureManifoldPool(Capacity);
         }
 
         public int Capacity { get; }
         public GraphicsBuffer Headers { get; private set; }
         public GraphicsBuffer Information { get; private set; }
-        /// <summary>next slot, live count, overflow count, publication generation.</summary>
+        /// <summary>
+        /// High-water/live/overflow/generation followed by free-head/free-count and
+        /// compact active/dirty counts. No production dispatch uses high-water.
+        /// </summary>
         public GraphicsBuffer Allocator { get; private set; }
+        public GraphicsBuffer SlotStates { get; private set; }
+        public GraphicsBuffer ActiveIndices { get; private set; }
+        public GraphicsBuffer DirtyIndices { get; private set; }
+        public PressureManifoldPool Manifolds { get; private set; }
         public bool IsDisposed => Headers == null;
 
         public void Dispose()
@@ -95,9 +144,17 @@ namespace Genesis.RoomScan.Prism
             Headers?.Dispose();
             Information?.Dispose();
             Allocator?.Dispose();
+            SlotStates?.Dispose();
+            ActiveIndices?.Dispose();
+            DirtyIndices?.Dispose();
+            Manifolds?.Dispose();
             Headers = null;
             Information = null;
             Allocator = null;
+            SlotStates = null;
+            ActiveIndices = null;
+            DirtyIndices = null;
+            Manifolds = null;
         }
     }
 }

@@ -62,6 +62,8 @@ namespace Genesis.RoomScan.Prism
         private static readonly int BoundaryCellsPerAxisId = Shader.PropertyToID("_CanonicalBoundaryCellsPerAxis");
         private static readonly int CanonicalBoundaryHeadersId = Shader.PropertyToID("_CanonicalBoundaryHeaders");
         private static readonly int CanonicalBoundaryHashId = Shader.PropertyToID("_CanonicalBoundaryHash");
+        private static readonly int ManifoldDiagnosticsId =
+            Shader.PropertyToID("_ManifoldDiagnostics");
 
         private ConeEventBufferRing _ring;
         private ConeEventFrameLease _latest;
@@ -72,6 +74,7 @@ namespace Genesis.RoomScan.Prism
         private bool _subscribedToSource;
         private long _classifiedFrames;
         private long _backpressureFrames;
+        private PressureManifoldPool _manifolds;
 
         public event Action<ConeEventFrameLease> EventsReady;
         public long ClassifiedFrames => _classifiedFrames;
@@ -89,15 +92,19 @@ namespace Genesis.RoomScan.Prism
         }
 
         public void StartClassifying(PrismPredictionRenderer source = null,
-            PrismBoundaryGraph boundaries = null, bool subscribeToSource = true)
+            PrismBoundaryGraph boundaries = null,
+            PressureManifoldPool manifolds = null, bool subscribeToSource = true)
         {
             if (_running) return;
             predictionRenderer = source != null ? source : predictionRenderer;
             boundaryGraph = boundaries != null ? boundaries : boundaryGraph;
             predictionRenderer ??= GetComponent<PrismPredictionRenderer>();
             boundaryGraph ??= GetComponent<PrismBoundaryGraph>();
+            _manifolds = manifolds ?? _manifolds ??
+                GetComponent<PrismFilmSpawner>()?.PressureManifolds;
             classifyCompute ??= Resources.Load<ComputeShader>("Prism/ConeClassify");
-            if (predictionRenderer == null || classifyCompute == null)
+            if (predictionRenderer == null || classifyCompute == null ||
+                _manifolds == null || _manifolds.IsDisposed)
             {
                 Logger.Error("Cone-PRISM classifier dependencies are missing.");
                 return;
@@ -172,6 +179,8 @@ namespace Genesis.RoomScan.Prism
                     eventsFrame.ClassifiedIndices);
                 classifyCompute.SetBuffer(_classifyKernel, ClassCountersId,
                     eventsFrame.ClassCounters);
+                classifyCompute.SetBuffer(_classifyKernel, ManifoldDiagnosticsId,
+                    _manifolds.Diagnostics);
                 classifyCompute.SetBuffer(_buildArgsKernel, ClassCountersId,
                     eventsFrame.ClassCounters);
                 classifyCompute.SetBuffer(_buildArgsKernel, DispatchArgumentsId,

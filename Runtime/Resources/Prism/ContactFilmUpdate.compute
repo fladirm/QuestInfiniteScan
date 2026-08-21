@@ -62,6 +62,14 @@ struct ContactFilmHeader
     uint reserved2;
 };
 
+struct FilmSlotState
+{
+    uint generation;
+    uint activeOrdinal;
+    uint nextFree;
+    uint flags;
+};
+
 struct PhotometricPressure
 {
     uint filmId;
@@ -87,7 +95,11 @@ RWStructuredBuffer<int> _FrameAccumulator;
 RWStructuredBuffer<uint> _FilmDirtyFlags;
 RWStructuredBuffer<uint> _DirtyFilmIndices;
 RWStructuredBuffer<uint> _DirtyState;
+StructuredBuffer<uint> _DirtyFilmIndicesRead;
+StructuredBuffer<uint> _DirtyStateRead;
 RWStructuredBuffer<uint3> _SolveDispatchArguments;
+RWStructuredBuffer<FilmSlotState> _FilmSlotStates;
+RWStructuredBuffer<uint> _CanonicalDirtyFilmIndices;
 StructuredBuffer<PhotometricPressure> _PhotometricPressures;
 StructuredBuffer<uint> _PhotometricState;
 
@@ -97,6 +109,8 @@ uint _PhotometricCapacity;
 float _QualityFloor;
 float _MinimumSigma;
 float _MinimumHuber;
+float _PrecisionUnit;
+float _ModelSigmaFloor;
 float4x4 _ChunkFromDepth[2];
 
 static const uint CLASS_MATCH = 1u;
@@ -105,10 +119,11 @@ static const uint FILM_UNCERTAIN = 4u;
 static const uint FILM_DIRTY_GEOMETRY = 8u;
 static const uint FILM_DIRTY_MESHLET = 16u;
 static const uint FILM_RETIRED = 128u;
-static const uint WORDS_PER_FILM = 34u;
+static const uint WORDS_PER_FILM = 35u;
 static const float H_FIXED_SCALE = 4096.0;
 static const float B_FIXED_SCALE = 262144.0;
 static const float SUPPORT_FIXED_SCALE = 4096.0;
+static const uint SLOT_DIRTY = 1u << 2u;
 
 float3 LoadRay(uint2 pixel, uint eye)
 {
@@ -131,6 +146,49 @@ uint PreHitPressureViewBit(ContactFilmHeader film, uint eye)
         1u + (tangent.x >= 0.0 ? 1u : 0u) +
         (tangent.y >= 0.0 ? 2u : 0u);
     return 1u << (bin + eye * 5u);
+}
+
+uint PositiveContactViewBit(ContactFilmHeader film, uint eye)
+{
+    float3 cameraChunk = mul(_ChunkFromDepth[eye],
+        float4(0.0, 0.0, 0.0, 1.0)).xyz;
+    float3 relative = cameraChunk - film.origin;
+    int3 baselineCell = (int3)floor(relative / 0.04);
+    float3 direction = normalize(relative);
+    uint angular = (direction.x >= 0.0 ? 1u : 0u) |
+        (direction.y >= 0.0 ? 2u : 0u) |
+        (direction.z >= 0.0 ? 4u : 0u);
+    uint value = asuint(baselineCell.x) * 0x8da6b343u;
+    value ^= asuint(baselineCell.y) * 0xd8163841u;
+    value ^= asuint(baselineCell.z) * 0xcb1ab31fu;
+    value ^= angular * 0x9e3779b9u ^ eye * 0x85ebca6bu;
+    value ^= value >> 16u;
+    value *= 0x7feb352du;
+    value ^= value >> 15u;
+    return 1u << (value & 31u);
+}
+
+float PhysicalInformationWeight(float precision)
+{
+    // Fixed global unit: unlike a relative-best gate, this preserves covariance
+    // meaning between films and makes close/small-footprint cones physically stiffer.
+    return clamp(precision / max(_PrecisionUnit, 1.0), 0.0, 4.0);
+}
+
+void MarkCanonicalMeshletDirty(uint filmIndex, uint generation)
+{
+    if (filmIndex >= _FilmCapacity) return;
+    FilmSlotState state = _FilmSlotStates[filmIndex];
+    if (state.generation != generation) return;
+    uint previous;
+    InterlockedOr(_FilmSlotStates[filmIndex].flags, SLOT_DIRTY, previous);
+    if ((previous & SLOT_DIRTY) != 0u) return;
+    uint ordinal;
+    InterlockedAdd(_FilmAllocator[7], 1u, ordinal);
+    if (ordinal < _FilmCapacity)
+        _CanonicalDirtyFilmIndices[ordinal] = filmIndex;
+    else
+        InterlockedAdd(_FilmAllocator[2], 1u);
 }
 
 uint UpperIndex(uint row, uint column)
@@ -267,18 +325,22 @@ void AccumulateMatchedFilms(uint3 id : SV_DispatchThreadID)
         predictedHeight += basis[i] * alpha[i];
     float residual = z - predictedHeight;
 
-    uint filmInfo = filmIndex * 9u;
+    uint filmInfo = filmIndex * 10u;
     float4 quality = _FilmInformation[filmInfo + 8u];
     float bestPressure = max(quality.w, eventData.pressurePrecision);
     float qualityRatio = saturate(eventData.pressurePrecision /
         max(bestPressure, 1e-8));
-    float geometryGate = saturate((qualityRatio - _QualityFloor) /
-        max(1.0 - _QualityFloor, 1e-4));
-    geometryGate = geometryGate * geometryGate * (3.0 - 2.0 * geometryGate);
     float huberDelta = max(_MinimumHuber, 2.0 * eventData.combinedSigma);
     float robust = abs(residual) <= huberDelta ? 1.0 :
         huberDelta / max(abs(residual), 1e-8);
-    float geometryWeight = saturate(eventData.confidence) * geometryGate * robust;
+    uint contactViewBit = PositiveContactViewBit(film, eye);
+    uint persistentContactViewMask = asuint(
+        _FilmInformation[filmInfo + 9u].x);
+    bool independentView =
+        (persistentContactViewMask & contactViewBit) == 0u;
+    float geometryWeight = independentView ?
+        saturate(eventData.confidence) * robust *
+            PhysicalInformationWeight(eventData.pressurePrecision) : 0.0;
     float supportWeight = saturate(eventData.confidence) * max(0.05, qualityRatio);
 
     uint baseWord = filmIndex * WORDS_PER_FILM;
@@ -307,6 +369,8 @@ void AccumulateMatchedFilms(uint3 id : SV_DispatchThreadID)
                 geometryWeight * basis[row] * residual, B_FIXED_SCALE);
         }
         InterlockedAdd(_DirtyState[2], 1u);
+        InterlockedOr(_FrameAccumulator[baseWord + 34u],
+            (int)contactViewBit);
     }
     else
         InterlockedAdd(_DirtyState[3], 1u); // resisted weak geometry evidence
@@ -331,7 +395,7 @@ void AccumulateMatchedFilms(uint3 id : SV_DispatchThreadID)
                 occluder.generation == eventData.occluderGeneration &&
                 (occluder.flags & FILM_ACTIVE) != 0u)
             {
-                uint occluderInfo = occluderIndex * 9u;
+                uint occluderInfo = occluderIndex * 10u;
                 float occluderBest = max(_FilmInformation[occluderInfo + 8u].w,
                     eventData.pressurePrecision);
                 float occluderRatio = saturate(eventData.pressurePrecision /
@@ -383,7 +447,7 @@ void AccumulateBehindEvidence(uint3 id : SV_DispatchThreadID)
     if (film.id != eventData.filmId || film.generation != eventData.filmGeneration ||
         (film.flags & FILM_ACTIVE) == 0u) return;
 
-    uint filmInfo = filmIndex * 9u;
+    uint filmInfo = filmIndex * 10u;
     float bestPressure = max(_FilmInformation[filmInfo + 8u].w,
         eventData.pressurePrecision);
     float qualityRatio = saturate(eventData.pressurePrecision /
@@ -428,16 +492,17 @@ void AccumulateBehindEvidence(uint3 id : SV_DispatchThreadID)
         float3 rayChunk = normalize(mul((float3x3)_ChunkFromDepth[eye],
             LoadRay(pixel, eye)));
         float normalResidual = gap * dot(rayChunk, film.normal);
-        float qualityGate = saturate((qualityRatio - _QualityFloor) /
-            max(1.0 - _QualityFloor, 1e-4));
-        qualityGate = qualityGate * qualityGate *
-            (3.0 - 2.0 * qualityGate);
         float shell = max(_MinimumHuber,
             2.0 * max(eventData.combinedSigma, film.sigmaNormal));
         float robust = abs(normalResidual) <= shell ? 1.0 :
             shell / max(abs(normalResidual), 1e-8);
+        uint viewBit = PreHitPressureViewBit(film, eye);
+        uint persistentViewMask = asuint(
+            _FilmInformation[filmInfo + 5u].w);
+        float independentGate = (persistentViewMask & viewBit) == 0u ? 1.0 : 0.0;
         float pressureWeight = 0.35 * saturate(eventData.confidence) *
-            qualityGate * robust;
+            robust * PhysicalInformationWeight(eventData.pressurePrecision) *
+            independentGate;
         if (pressureWeight > 0.0)
         {
             AtomicAddScaled(baseWord + 0u, pressureWeight, H_FIXED_SCALE);
@@ -466,19 +531,26 @@ void AccumulatePhotometricPressure(uint3 id : SV_DispatchThreadID)
     float U = clamp(pressure.uv.x * 2.0 - 1.0, -1.25, 1.25);
     float V = clamp(pressure.uv.y * 2.0 - 1.0, -1.25, 1.25);
     float basis[6] = { 1.0, U, V, U * U, U * V, V * V };
-    uint filmInfo = filmIndex * 9u;
+    uint filmInfo = filmIndex * 10u;
     float4 quality = _FilmInformation[filmInfo + 8u];
     float bestPressure = max(quality.w, pressure.precision);
     float qualityRatio = saturate(pressure.precision /
         max(bestPressure, 1e-8));
-    float geometryGate = saturate((qualityRatio - _QualityFloor) /
-        max(1.0 - _QualityFloor, 1e-4));
-    geometryGate = geometryGate * geometryGate * (3.0 - 2.0 * geometryGate);
     float huberDelta = max(_MinimumHuber,
         2.0 * max(film.sigmaNormal, _MinimumSigma));
     float robust = abs(pressure.normalResidual) <= huberDelta ? 1.0 :
         huberDelta / max(abs(pressure.normalResidual), 1e-8);
-    float geometryWeight = saturate(pressure.confidence) * geometryGate * robust;
+    uint viewHash = pressure.sourceMask * 0x9e3779b9u ^
+        film.id * 0x85ebca6bu;
+    viewHash ^= viewHash >> 16u;
+    uint contactViewBit = 1u << (viewHash & 31u);
+    uint persistentContactViewMask = asuint(
+        _FilmInformation[filmInfo + 9u].x);
+    bool independentView =
+        (persistentContactViewMask & contactViewBit) == 0u;
+    float geometryWeight = independentView ?
+        saturate(pressure.confidence) * robust *
+            PhysicalInformationWeight(pressure.precision) : 0.0;
     if (geometryWeight <= 0.0)
     {
         InterlockedAdd(_DirtyState[3], 1u);
@@ -514,6 +586,7 @@ void AccumulatePhotometricPressure(uint3 id : SV_DispatchThreadID)
     AtomicAddScaled(baseWord + 27u, supportWeight, SUPPORT_FIXED_SCALE);
     InterlockedAdd(_FrameAccumulator[baseWord + 28u], 1);
     InterlockedAdd(_FrameAccumulator[baseWord + 33u], 1);
+    InterlockedOr(_FrameAccumulator[baseWord + 34u], (int)contactViewBit);
     AtomicAddScaled(baseWord + 31u, -supportWeight, SUPPORT_FIXED_SCALE);
     InterlockedMax(_FrameAccumulator[baseWord + 29u],
         asint(max(pressure.precision, 0.0)));
@@ -575,13 +648,13 @@ bool CholeskySolve(float coefficientMatrix[36], float rhs[6],
 [numthreads(64, 1, 1)]
 void SolveDirtyFilms(uint3 id : SV_DispatchThreadID)
 {
-    uint dirtyCount = min(_DirtyState[0], _FilmCapacity);
+    uint dirtyCount = min(_DirtyStateRead[0], _FilmCapacity);
     if (id.x >= dirtyCount) return;
-    uint filmIndex = _DirtyFilmIndices[id.x];
+    uint filmIndex = _DirtyFilmIndicesRead[id.x];
     if (filmIndex >= _FilmCapacity) return;
     uint baseWord = filmIndex * WORDS_PER_FILM;
     ContactFilmHeader film = _FilmHeaders[filmIndex];
-    uint filmInfo = filmIndex * 9u;
+    uint filmInfo = filmIndex * 10u;
 
     float frameH[21];
     float frameResidualB[6];
@@ -625,6 +698,13 @@ void SolveDirtyFilms(uint3 id : SV_DispatchThreadID)
         }
     }
 
+    float trace = 0.0;
+    [unroll] for (uint diagonal = 0u; diagonal < 6u; ++diagonal)
+        trace += totalMatrix[diagonal * 6u + diagonal];
+    float regularizer = max(1e-7, trace * 1e-7);
+    [unroll] for (uint diagonal = 0u; diagonal < 6u; ++diagonal)
+        totalMatrix[diagonal * 6u + diagonal] += regularizer;
+
     if (frameInformation > 0.0)
     {
         // Convert per-frame residual equations into absolute information RHS.
@@ -641,12 +721,6 @@ void SolveDirtyFilms(uint3 id : SV_DispatchThreadID)
             SetInformationG(filmInfo, row, totalRhs[row]);
         }
 
-        float trace = 0.0;
-        [unroll] for (uint diagonal = 0u; diagonal < 6u; ++diagonal)
-            trace += totalMatrix[diagonal * 6u + diagonal];
-        float regularizer = max(1e-7, trace * 1e-7);
-        [unroll] for (uint diagonal = 0u; diagonal < 6u; ++diagonal)
-            totalMatrix[diagonal * 6u + diagonal] += regularizer;
         float solved[6] = { alpha[0], alpha[1], alpha[2], alpha[3], alpha[4], alpha[5] };
         if (CholeskySolve(totalMatrix, totalRhs, solved))
         {
@@ -734,13 +808,21 @@ void SolveDirtyFilms(uint3 id : SV_DispatchThreadID)
     float4 countAndSupport = _FilmInformation[filmInfo + 7u];
     float4 quality = _FilmInformation[filmInfo + 8u];
     float4 curvatureAndPressure = _FilmInformation[filmInfo + 5u];
+    float4 contactViewState = _FilmInformation[filmInfo + 9u];
     countAndSupport.z += (float)contactObservationCount;
     countAndSupport.w += contactEvidence;
     quality.z = isfinite(minFootprint) ? min(quality.z, minFootprint) : quality.z;
     quality.w = max(quality.w, maxPressure);
-    float pressureSigma = rsqrt(max(quality.w, 1.0));
+    float covarianceRhs[6] = { 1.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
+    float covarianceColumn[6] = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
+    float posteriorVariance = max(contactViewState.y, 0.0);
+    if (CholeskySolve(totalMatrix, covarianceRhs, covarianceColumn))
+        posteriorVariance = max(0.0, covarianceColumn[0]) /
+            max(_PrecisionUnit, 1.0) + _ModelSigmaFloor * _ModelSigmaFloor;
+    float posteriorSigma = sqrt(max(posteriorVariance,
+        _MinimumSigma * _MinimumSigma));
     film.sigmaNormal = max(_MinimumSigma,
-        min(film.sigmaNormal, pressureSigma));
+        min(film.sigmaNormal, posteriorSigma));
     film.supportTotal += contactEvidence;
     film.confidence = saturate(1.0 - exp(-countAndSupport.z / 12.0));
     if (allEvidence > 1e-5)
@@ -791,10 +873,19 @@ void SolveDirtyFilms(uint3 id : SV_DispatchThreadID)
         film.flags &= ~FILM_UNCERTAIN;
     quality.x = film.sigmaNormal;
     quality.y = film.confidence;
+    uint oldContactViewMask = asuint(contactViewState.x);
+    uint frameContactViewMask =
+        (uint)_FrameAccumulator[baseWord + 34u];
+    uint newlyIndependent = frameContactViewMask & ~oldContactViewMask;
+    contactViewState.x = asfloat(oldContactViewMask | frameContactViewMask);
+    contactViewState.y = posteriorVariance;
+    contactViewState.z += (float)countbits(newlyIndependent);
     _FilmInformation[filmInfo + 7u] = countAndSupport;
     _FilmInformation[filmInfo + 8u] = quality;
     _FilmInformation[filmInfo + 5u] = curvatureAndPressure;
+    _FilmInformation[filmInfo + 9u] = contactViewState;
     _FilmHeaders[filmIndex] = film;
+    MarkCanonicalMeshletDirty(filmIndex, film.generation);
 
     [unroll] for (uint word = 0u; word < WORDS_PER_FILM; ++word)
         _FrameAccumulator[baseWord + word] = word == 30u ? 0x7f7fffff : 0;

@@ -12,6 +12,7 @@ namespace Genesis.RoomScan.Tests
     {
         private const int LegacyFilmHeaderStride = 144;
         private const int LegacyDisplacementCellStride = 32;
+        private const int LegacyMeshletVertexStride = 64;
 
         [Test]
         public void RequiredQ313ChunkStageKernelsImport()
@@ -22,6 +23,10 @@ namespace Genesis.RoomScan.Tests
             foreach (string kernel in new[]
                      {
                          "PrepareChunkStage", "ClearFilmRemap", "StageFilms",
+                         "InitializeStageManifold", "StageFilmMemberships",
+                         "OrderStageFilmFrontiers", "StageManifoldLinks",
+                         "CloseMissingFilmFrontiers",
+                         "FinalizeStageManifold",
                          "StageBoundaries", "ClearPageRemap", "IndexBasePages",
                          "IndexMicroPages", "CopyBasePages", "CopyMicroPages",
                          "PatchFilmDisplacement", "StageMeshlets",
@@ -54,7 +59,28 @@ namespace Genesis.RoomScan.Tests
                 BoundaryGeneration = 9,
                 CalibrationEpoch = 123456789,
                 FilmHeaders = Pattern(2 * ContactFilmHeaderGpu.Stride, 3),
-                FilmInformation = Pattern(2 * 9 * 16, 5),
+                FilmInformation = Pattern(2 * ContactFilmPool.InformationRecords *
+                    16, 5),
+                FilmSlotStates = Pattern(2 * ContactFilmSlotStateGpu.Stride, 61),
+                ActiveFilmIndices = Pattern(2 * sizeof(uint), 67),
+                DirtyFilmIndices = Pattern(2 * sizeof(uint), 71),
+                FilmAllocatorState = Pattern(8 * sizeof(uint), 73),
+                ManifoldCount = 1,
+                ManifoldLinkCount = 1,
+                ManifoldFrontierCount = 2,
+                PressureManifoldHeaders = Pattern(
+                    PressureManifoldHeaderGpu.Stride, 79),
+                FilmMemberships = Pattern(2 * FilmMembershipGpu.Stride, 83),
+                ManifoldLinks = Pattern(ManifoldLinkGpu.Stride, 89),
+                ManifoldLinkIncidences = Pattern(
+                    2 * ManifoldLinkIncidenceGpu.Stride, 97),
+                ManifoldFrontierIncidences = Pattern(
+                    2 * ManifoldFrontierIncidenceGpu.Stride, 99),
+                LatentFrontiers = Pattern(
+                    2 * LatentFrontierSegmentGpu.Stride, 101),
+                ManifoldAllocatorState = Pattern(
+                    PressureManifoldPool.AllocatorWords * sizeof(uint), 103),
+                CurrentManifoldState = Pattern(4 * sizeof(uint), 107),
                 BoundaryHeaders = Pattern(ContactBoundaryHeaderGpu.Stride, 7),
                 BoundaryInformation = Pattern(
                     ContactBoundaryPool.InformationRecordsPerBoundary * 16, 11),
@@ -103,6 +129,30 @@ namespace Genesis.RoomScan.Tests
             Assert.That(restored.CalibrationEpoch, Is.EqualTo(source.CalibrationEpoch));
             Assert.That(restored.FilmHeaders, Is.EqualTo(source.FilmHeaders));
             Assert.That(restored.FilmInformation, Is.EqualTo(source.FilmInformation));
+            Assert.That(restored.FilmSlotStates,
+                Is.EqualTo(source.FilmSlotStates));
+            Assert.That(restored.ActiveFilmIndices,
+                Is.EqualTo(source.ActiveFilmIndices));
+            Assert.That(restored.DirtyFilmIndices,
+                Is.EqualTo(source.DirtyFilmIndices));
+            Assert.That(restored.FilmAllocatorState,
+                Is.EqualTo(source.FilmAllocatorState));
+            Assert.That(restored.PressureManifoldHeaders,
+                Is.EqualTo(source.PressureManifoldHeaders));
+            Assert.That(restored.FilmMemberships,
+                Is.EqualTo(source.FilmMemberships));
+            Assert.That(restored.ManifoldLinks,
+                Is.EqualTo(source.ManifoldLinks));
+            Assert.That(restored.ManifoldLinkIncidences,
+                Is.EqualTo(source.ManifoldLinkIncidences));
+            Assert.That(restored.ManifoldFrontierIncidences,
+                Is.EqualTo(source.ManifoldFrontierIncidences));
+            Assert.That(restored.LatentFrontiers,
+                Is.EqualTo(source.LatentFrontiers));
+            Assert.That(restored.ManifoldAllocatorState,
+                Is.EqualTo(source.ManifoldAllocatorState));
+            Assert.That(restored.CurrentManifoldState,
+                Is.EqualTo(source.CurrentManifoldState));
             Assert.That(restored.BoundaryHeaders, Is.EqualTo(source.BoundaryHeaders));
             Assert.That(restored.BoundaryInformation,
                 Is.EqualTo(source.BoundaryInformation));
@@ -188,17 +238,7 @@ namespace Genesis.RoomScan.Tests
         [Test]
         public void CanonicalSnapshotRejectsTrailingOrMismatchedPayload()
         {
-            var source = new PrismCanonicalChunkSnapshot
-            {
-                FilmCount = 1,
-                BoundaryCount = 0,
-                FilmGeneration = 1,
-                BoundaryGeneration = 1,
-                FilmHeaders = new byte[ContactFilmHeaderGpu.Stride],
-                FilmInformation = new byte[9 * 16],
-                TopologyEvidence = new byte[ContactTopologyEvidenceGpu.Stride],
-                DisplacementAllocator = new byte[8 * sizeof(uint)]
-            };
+            PrismCanonicalChunkSnapshot source = MinimalValidSnapshot(1);
             using var stream = new MemoryStream();
             Assert.That(PrismCanonicalChunkCodec.TryWrite(stream, source, out _), Is.True);
             stream.WriteByte(0x5a);
@@ -259,7 +299,7 @@ namespace Genesis.RoomScan.Tests
                 writer.Write(DisplacementPageHeaderGpu.Stride);
                 writer.Write(LegacyDisplacementCellStride);
                 writer.Write(ContactTopologyEvidenceGpu.Stride);
-                writer.Write(ContactMeshletVertexGpu.Stride);
+                writer.Write(LegacyMeshletVertexStride);
                 writer.Write(ContactMeshletDescriptorGpu.Stride);
                 writer.Write(1); // films
                 writer.Write(0); // boundaries
@@ -327,8 +367,29 @@ namespace Genesis.RoomScan.Tests
             BoundaryGeneration = 1,
             DisplacementGeneration = 1,
             MeshletGeneration = 1,
+            FilmAllocatorState = new byte[8 * sizeof(uint)],
+            ManifoldAllocatorState = new byte[
+                PressureManifoldPool.AllocatorWords * sizeof(uint)],
+            CurrentManifoldState = new byte[4 * sizeof(uint)],
             DisplacementAllocator = new byte[8 * sizeof(uint)]
         };
+
+        private static PrismCanonicalChunkSnapshot MinimalValidSnapshot(int films)
+        {
+            PrismCanonicalChunkSnapshot snapshot = EmptyValidSnapshot();
+            snapshot.FilmCount = films;
+            snapshot.FilmHeaders = new byte[films * ContactFilmHeaderGpu.Stride];
+            snapshot.FilmInformation = new byte[films *
+                ContactFilmPool.InformationRecords * 16];
+            snapshot.FilmSlotStates = new byte[films *
+                ContactFilmSlotStateGpu.Stride];
+            snapshot.ActiveFilmIndices = new byte[films * sizeof(uint)];
+            snapshot.DirtyFilmIndices = new byte[films * sizeof(uint)];
+            snapshot.FilmMemberships = new byte[films * FilmMembershipGpu.Stride];
+            snapshot.TopologyEvidence = new byte[films *
+                ContactTopologyEvidenceGpu.Stride];
+            return snapshot;
+        }
 
         private static void WriteSection(BinaryWriter writer, byte[] bytes)
         {

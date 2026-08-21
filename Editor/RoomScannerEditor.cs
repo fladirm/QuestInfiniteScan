@@ -1,5 +1,4 @@
 using System;
-using System.IO;
 using System.Linq;
 using Genesis.RoomScan.UI;
 using Meta.XR;
@@ -16,13 +15,13 @@ namespace Genesis.RoomScan.Editor
     [CustomEditor(typeof(RoomScanner))]
     public class RoomScannerEditor : UnityEditor.Editor
     {
-        static readonly (string label, Type type, Type[] extraDeps, bool triggerXAtlasBuild)[] ModuleOptions =
+        static readonly (string label, Type type, Type[] extraDeps)[] ModuleOptions =
         {
-            ("Passthrough Camera", typeof(PassthroughCameraProvider), new[] { typeof(PassthroughCameraAccess) }, false),
-            ("Triplanar Cache", typeof(TriplanarCache), null, false),
-            ("Texture Refinement", typeof(TextureRefinement), null, true),
-            ("Input Handler", typeof(RoomScanInputHandler), null, false),
-            ("Debug Overlays", typeof(CameraDebugOverlay), new[] { typeof(DepthDebugOverlay) }, false),
+            ("Passthrough Camera", typeof(PassthroughCameraProvider),
+                new[] { typeof(PassthroughCameraAccess) }),
+            ("Input Handler", typeof(RoomScanInputHandler), null),
+            ("Debug Overlays", typeof(CameraDebugOverlay),
+                new[] { typeof(DepthDebugOverlay) }),
         };
 
         public override void OnInspectorGUI()
@@ -43,7 +42,7 @@ namespace Genesis.RoomScan.Editor
             {
                 foreach (var m in modules)
                 {
-                    if (m is RoomScanPersistence || m is RoomAnchorManager)
+                    if (m is RoomAnchorManager)
                         continue;
                     EditorGUILayout.LabelField($"  \u2022 {m.ModuleName}", EditorStyles.miniLabel);
                 }
@@ -58,7 +57,7 @@ namespace Genesis.RoomScan.Editor
         {
             var menu = new GenericMenu();
 
-            foreach (var (label, type, extraDeps, triggerBuild) in ModuleOptions)
+            foreach (var (label, type, extraDeps) in ModuleOptions)
             {
                 bool alreadyAttached = scanner.GetComponent(type) != null;
                 if (alreadyAttached)
@@ -85,33 +84,10 @@ namespace Genesis.RoomScan.Editor
 
                         RoomScanSetupWizard.WireComponent(added);
 
-                        if (triggerBuild)
-                            EnsureXAtlasPlugins();
-
                         EditorUtility.SetDirty(scanner.gameObject);
                     });
                 }
             }
-
-#if HAS_GAUSSIAN_SPLATTING
-            bool hasGSplat = scanner.GetComponent<IGSplatProvider>() != null;
-            var gsplatType = AppDomain.CurrentDomain.GetAssemblies()
-                .SelectMany(a => { try { return a.GetTypes(); } catch { return Type.EmptyTypes; } })
-                .FirstOrDefault(t => t.Name == "GSplatManager" && typeof(IRoomScanModule).IsAssignableFrom(t));
-
-            if (gsplatType != null)
-            {
-                if (hasGSplat)
-                    menu.AddDisabledItem(new GUIContent("Gaussian Splat (attached)"));
-                else
-                    menu.AddItem(new GUIContent("Gaussian Splat"), false, () =>
-                    {
-                        Undo.RegisterCompleteObjectUndo(scanner.gameObject, "Add Gaussian Splat");
-                        RoomScanSetupWizard.SetupGSplatModule(scanner.gameObject);
-                        EditorUtility.SetDirty(scanner.gameObject);
-                    });
-            }
-#endif
 
 #if HAS_AI_INFERENCE
             var aiDetType = AppDomain.CurrentDomain.GetAssemblies()
@@ -158,23 +134,5 @@ namespace Genesis.RoomScan.Editor
             menu.ShowAsContext();
         }
 
-        static void EnsureXAtlasPlugins()
-        {
-            string pkgRoot = Path.GetFullPath("Packages/com.genesis.roomscan/Runtime");
-            string androidPlugin = Path.Combine(pkgRoot, "Plugins/Android/libxatlas.so");
-            bool hasAndroid = File.Exists(androidPlugin);
-
-#if UNITY_EDITOR_WIN
-            string editorPlugin = Path.Combine(pkgRoot, "Plugins/Windows/xatlas.dll");
-#elif UNITY_EDITOR_LINUX
-            string editorPlugin = Path.Combine(pkgRoot, "Plugins/Linux/libxatlas.so");
-#else
-            string editorPlugin = Path.Combine(pkgRoot, "Plugins/macOS/libxatlas.bundle");
-#endif
-            if (hasAndroid && File.Exists(editorPlugin))
-                return;
-
-            RoomScanSetupWizard.BuildXAtlasPlugin();
-        }
     }
 }

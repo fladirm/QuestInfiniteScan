@@ -69,6 +69,8 @@ namespace Genesis.RoomScan.Prism
         private static readonly int DirtyIndicesId = Shader.PropertyToID("_DirtyBoundaryIndices");
         private static readonly int DirtyStateId = Shader.PropertyToID("_BoundaryDirtyState");
         private static readonly int SolveArgumentsId = Shader.PropertyToID("_BoundarySolveArguments");
+        private static readonly int ManifoldDiagnosticsId =
+            Shader.PropertyToID("_ManifoldDiagnostics");
 
         private readonly Matrix4x4[] _chunkFromDepth = new Matrix4x4[2];
         private readonly Matrix4x4[] _chunkFromRgb = new Matrix4x4[2];
@@ -329,6 +331,8 @@ namespace Genesis.RoomScan.Prism
                 filmSpawner.FilmPool.Headers);
             boundaryCompute.SetBuffer(_solveKernel, FilmHeadersId,
                 filmSpawner.FilmPool.Headers);
+            boundaryCompute.SetBuffer(_solveKernel, ManifoldDiagnosticsId,
+                filmSpawner.PressureManifolds.Diagnostics);
         }
 
         private void DisposeFrameBuffers()

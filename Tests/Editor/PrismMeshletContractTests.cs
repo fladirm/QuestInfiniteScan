@@ -50,8 +50,8 @@ namespace Genesis.RoomScan.Tests
             foreach (string kernel in new[]
                      {
                          "ClearMeshletBuild", "BuildMeshDispatchArguments",
+                         "PrepareFullMeshletRepack", "CommitFullMeshletRepack",
                          "BuildAdaptiveFilmMeshlets",
-                         "BuildElasticBoundaryMeshlets",
                          "FinalizeMeshletDrawArguments"
                      })
                 Assert.DoesNotThrow(() => build.FindKernel(kernel), kernel);

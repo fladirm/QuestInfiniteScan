@@ -4,185 +4,115 @@ Updated: 2026-08-21 (Europe/Prague)
 
 ## Source of truth
 
-- `specka.md` is the canonical Cone-PRISM-Q3 implementation specification;
-  reconstruction physics `CPQ3-2026-08-21-v5` is frozen for implementation.
-- `.codex/TASK_DAG.json` contains the only active `Q3-01` through `Q3-22` pursuit.
-- The product remains a pure-Quest finite-cone/contact-film scanner. Do not simplify
-  it to TSDF/DTSDF, fixed plates, surfels, triangle soup, Gaussian reconstruction,
-  constant averaging, or a server path.
-- Mandatory quality mechanisms remain: four calibrated GPU streams, first-hit/free/
-  unknown semantics, one-sided quadratic ContactFilms, information/covariance,
-  persistent local pressure versus stored resistance, continuous support,
-  multihypothesis layers, BoundaryCurves, hierarchical displacement, soft-to-hard
-  uncertainty, stereo/temporal focusing, measured surface-space superresolution,
-  directional appearance, adaptive meshlets, and resumable chunks.
+- `specka.md` is the frozen canonical Cone-PRISM-Q3 product and reconstruction
+  physics specification (`CPQ3-2026-08-21-v5`).
+- `.codex/TASK_DAG.json` is the only active pursuit DAG.
+- `.codex/runbooks/Q3-15.5_PRESSURE_MANIFOLD_REPAIR.md` is the mandatory repair
+  run before geometry work may advance to Q3-16.
+- The product remains pure Quest: finite first-hit cone fields, conserved one-sided
+  pressure manifolds, persistent boundaries, covariance/information resistance,
+  stereo/temporal focusing, adaptive displacement, surface-space appearance,
+  out-of-core chunks, realtime meshlets and direct GLB/PBR. Do not replace this
+  with TSDF/DTSDF, surfels, patch soup, triangle soup, Gaussian training, CPU
+  meshing/readback or a server reconstruction path.
 
 ## Repository and branch safety
 
 - Active branch: `fix/cone-prism-closed-pressure-manifold-20260821`.
-- Its parent checkpoint is `a5d8f85`; the current repair checkpoint is represented by the
-  branch `HEAD` and its exact hash is recorded in the source-archive filename and
-  APK build evidence.
-- Preserved pre-PRISM work remains at
-  `archive/hybrid-diffsoup-checkpoint-20260820` (`e9f37c1`).
-- Preserved failed event-chain prototype remains at
-  `archive/prism-event-chain-20260821` (`125a7aa`).
-- Do not push this repair. Before deployment, make one local commit and create a
-  workspace source ZIP from that exact commit with `git archive`.
+- Forensic baseline: `8f2b31b1bc72`.
+- Pre-PRISM recovery branch: `archive/hybrid-diffsoup-checkpoint-20260820`.
+- Failed event-chain recovery branch: `archive/prism-event-chain-20260821`.
+- Do not push this repair. Make one local commit, then create a new workspace ZIP
+  from that exact commit with `git archive` before APK deployment.
+- Never touch `.source-archives/`, existing archives, `~/.codex`, Codex sessions or
+  conversation history.
 
 ## Current DAG gate
 
-- `Q3-01` through `Q3-10` remain accepted.
-- `Q3-11` is the only `in_progress` node. It was reopened from physical evidence:
-  the first visible PRISM scan was metrically promising but exposed rectangular
-  patch support, view-axis artifacts, severe mesh-build cost, and destructive
-  revisit/Stop behavior.
-- `Q3-12` through `Q3-15` contain substantial implemented code but remain `pending`
-  behind Q3-11 and one consolidated physical acceptance. They are not claimed done
-  merely because they build.
-- `Q3-16` through `Q3-22` remain pending. No later quality mechanism was removed or
-  replaced by the current repair.
+- Q3-15.5 is the only `in_progress` node.
+- Static implementation phases A-K are complete in the working tree and have passed
+  the current Unity/GPU contract suite. Phase L (commit/archive/build/install and one
+  physical Quest geometry batch) remains open.
+- Q3-07 through Q3-15 remain `pending`: the forensic audit invalidated their former
+  physical acceptance. Their implementation is substantially present, but they are
+  not accepted until the repaired vertical slice works on-device.
+- Q3-16 through Q3-22 remain pending behind this gate.
 
-## Implemented repair checkpoint
+## Q3-15.5 implemented checkpoint
 
-- Coverage is now observation/confidence only, never occupancy or topology.
-  `MeshletBuild.compute` materializes every logical active-chart cell as two
-  triangles, so NaN/low coverage cannot open rectangular holes or delete matter.
-  Finite footprints still drive confidence, refinement density and appearance.
-- Every base displacement cell now persists displacement, sigma, information,
-  support, coverage, best precision/footprint, `preHitPressure`, a ten-bin
-  eye/angular evidence mask, and revision in a 40-byte GPU ABI.
-- Compatible contact cancels opposing pressure. Local displacement work requires at least two
-  independent bins, pressure above the stored close-view resistance, consumes its
-  work, and cannot be multiplied through microtiles. Nothing behind first hit is
-  carved.
-- Split/merge resamples the real support domain, preserves pressure/detail and the
-  `PressureManifoldMember` bit; children do not receive duplicated contradiction
-  evidence.
-- `MeshletBuild.compute` now uses one `8x8` workgroup per film. Its 64 lanes cache
-  all 289 chart samples and cooperatively emit the full 17x17 /
-  512-triangle base materialization. This removes the serial one-thread-per-film
-  bottleneck without lowering canonical or display detail.
-- Generation-safe multi-view FilmA/FilmB boundary links materialize local elastic
-  connector strips. Their vertices carry no measured FilmID, and prediction rejects
-  them, so derived continuity cannot contaminate first-hit association. The explicit
-  canonical `PressureManifoldHeader`/ordered outer `LatentFrontier` pool remains the
-  open part of Q3-11; no per-film optical-seed cap is accepted as a substitute.
-- New topology is deposited only inside the calibrated 30x30 degree high-quality
-  cone aperture. A 50x46 degree band may update an already predicted film only with
-  information-positive confidence; passthrough and tracking remain full-FOV.
-- Display presentation no longer uses a mono `Camera.main` cull for stereo XR. The
-  preview uses mesh-local alpha blending with depth writes and no screen-space
-  dither; UI/compositor alpha is untouched.
-- Capture callbacks now enter bounded timestamp-sorted metadata queues. The
-  synchronizer publishes the earliest eligible depth timestamp with the minimum-
-  cost coherent RGB-L/R pair, accepts bounded callback reordering and remains
-  strictly monotonic without copying pixels or widening pairing gates.
-- Canonical mutations coalesce into one dirty mesh publication request. Derived
-  preview publication is initially capped at 15 Hz while the previous immutable
-  generation remains visible; sensor/fusion resolution and cadence are unchanged.
-- Ordinary Stop/Start now pauses only sensor ingress and retains the canonical GPU
-  graph, arenas and last meshlet publication. Full teardown is explicit only.
-- Native PRISM schema v4 persists support and local pressure. Strict v3/v2 readers
-  widen legacy 144-byte film headers and 32-byte cells with new state zeroed.
-- Scan start is now a serialized `Stopped/Starting/Running/Stopping` transaction.
-  Repeated Start calls share one task; toggle input during Starting cannot become
-  Stop or trigger canonical staging, stale continuations cannot reopen sensors, and
-  activation failure is retained/logged as a retryable stopped state.
-- `DebugMenuController` binds callbacks once per concrete UI Toolkit visual-tree
-  generation. This removes the measured one-click Start/Stop callback multiplication
-  that launched a roughly 300 MiB snapshot before depth ingress. Chunk residency now
-  has one explicitly awaited startup activation rather than an additional fire-and-
-  forget `ScanStarted` activation, and its GPU-idle wait fails visibly instead of
-  hanging forever.
-- The per-frame displacement accumulator retains all 3,145,728 canonical cells and
-  all eleven information/pressure words, but is now segmented along the existing
-  base/micro address spaces. The two Vulkan storage bindings are 92,274,688 and
-  46,137,344 bytes instead of one illegal 138,412,032-byte binding; no film, cell,
-  microtile, precision, or reconstruction detail was removed.
-- Runtime shader forensics found and removed the next systemic failure rather than
-  replacing indirect execution: displacement and topology equations now run as two
-  GPU-indirect passes over the same compact MATCH list and write their own address
-  spaces. Contact-boundary/topology kernels use per-pass read aliases so every
-  reachable Prism kernel stays at or below Adreno's eight-UAV limit.
-- Split/merge initialization now clears all eleven displacement/pressure words
-  instead of the stale pre-pressure eight-word ABI. Elastic connector meshlets bind
-  the complete base/micro displacement hierarchy, eliminating their missing-buffer
-  path without changing geometry resolution.
-- `Tools/unity/validate_prism_compute_uav.py` derives each kernel's reachable shader
-  call graph and rejects more than eight RW resources before a build. The APK build
-  wrapper also rejects a stale artifact or missing Unity success marker.
+- Film, meshlet-vertex, meshlet-descriptor and view flags are separate typed ABIs.
+  Ordinary measured vertices receive explicit `MeasuredContact`; latent material
+  has zero FilmID/generation and cannot enter first-hit prediction.
+- `PressureManifoldPool` now owns generation-tagged manifold headers, film
+  memberships, typed links, link/frontier incidences, ordered latent-frontier loops,
+  optical seeds, allocators, diagnostics and reusable film-slot state.
+- Spawn is a bounded GPU pipeline: provisional 8x8 candidates, spatial hash,
+  cross-tile/cross-eye compatibility union, representative compaction, aggregate
+  fit/support stamping, transactional capacity reservation, then canonical film,
+  membership and frontier publication. A tile or eye cannot publish directly.
+- Meshlet materialization keeps one continuous chart sheet but explicitly partitions
+  measured and latent fragments at continuous support. Measured fragments carry the
+  film identity; latent continuation carries zero identity. Persistent boundaries
+  cut cells and both linked sides use stable shared boundary samples.
+- Screen-space FilmID adjacency no longer creates a physical connector. Canonical
+  links require world-space finite-footprint continuation, sidedness, first-hit order
+  and multi-view support. Proximity rectangle merge and five-wave merge repair are
+  removed.
+- Split topology is preflighted transactionally and remaps both FilmA and FilmB
+  boundary/link endpoints plus ordered frontier incidences; capacity failure publishes
+  nothing. The manifold validator checks stale endpoints, ordered loops and complete
+  edge classification before derived publication.
+- Contact H/g now consumes bounded absolute physical precision, saturates correlated
+  eye/angular/baseline bins, and derives normal sigma from posterior covariance plus
+  a model floor. Stored close-view pressure remains monotonic resistance against a
+  weaker distant/grazing observation.
+- Canonical mutation uses compact active/dirty lists and reusable generation-tagged
+  slots. Derived meshlets use capacity-count/validate/commit passes; overflow cannot
+  publish a partial generation. Incremental dirty updates can request an entirely
+  GPU-side validated repack without CPU count/readback.
+- Prediction and the visible world both consume GPU-generated indirect view lists.
+  The visible pass uses front-depth then colour, rather than order-dependent
+  transparent Z-writing of the entire resident index buffer.
+- Native canonical persistence is schema v5 and includes active/dirty indices,
+  manifold headers, membership, typed links/incidences, ordered frontier state and
+  allocator state. Legacy schemas widen conservatively into explicit unlinked/latent
+  state rather than reinterpreting padding.
+- Production setup/UI/runtime ownership no longer wires TSDF/Surface Nets,
+  triplanar, GSplat, DiffSoup/server, RoomScanPersistence, XAtlas build UI or their
+  renderer/cache allocations. Historical implementations remain recoverable in git.
 
-## Verification evidence
+## Verified evidence for the current working tree
 
-- Scan-lifecycle repair Real-Vulkan EditMode: 120 total, 117 passed, 0 failed,
-  3 intentionally ignored. Results and log remain under
-  `/mnt/kingston-unity/Builds/TestResults/`.
-- Segmented-accumulator Real-Vulkan EditMode: 120 total, 117 passed, 0 failed,
-  3 intentionally ignored. The storage contract now proves the former combined
-  binding exceeds 128 MiB and both lossless segments remain below it.
-- Segmented-accumulator Android Vulkan/IL2CPP build completed with BuildReport
-  `errors=0`: `/mnt/kingston-unity/Builds/QuestInfiniteScan/QuestInfiniteScan-dev.apk`,
-  SHA-256 `649356efd17731286c7ba359e7498896270171019f9f0ca9009623941822d9a7`.
-- Corrected indirect topology/binding Android Vulkan/IL2CPP build completed with
-  BuildReport `Result: Success`, `errors=0`; fresh APK SHA-256
-  `62b3cd4ef3cd017efb49499588e2be79a879daa5c823f5df8af2fa175fc7b32e`.
-  Static reachable-call validation reports no Prism compute kernel above eight UAVs.
-- A repeat EditMode launch was stopped after Meta's editor-only remote-content hook
-  made no log/results progress for more than three minutes. The immediately prior
-  forced-Vulkan run remains 120 total, 117 passed, 0 failed, 3 ignored; the corrected
-  shader set itself imported and built for Android/Vulkan with zero errors.
-- Scan-lifecycle repair Android Vulkan/IL2CPP build completed with BuildReport
-  `errors=0`: `/mnt/kingston-unity/Builds/QuestInfiniteScan/QuestInfiniteScan-dev.apk`,
-  SHA-256 `88b16c306b703e45e948c63e2e0c9424539964b3f335e2a8e3758229351d5781`.
-- Real-Vulkan Unity EditMode: 119 total, 116 passed, 0 failed, 3 intentionally
-  ignored. Results: `/mnt/kingston-unity/Builds/TestResults/editmode-results.xml`;
-  log: `/mnt/kingston-unity/Builds/TestResults/editmode.log`.
-- Final Unity/Vulkan import after the semantic ABI rename, topology-preserving
-  mesh build, mesh-local alpha, ROI and publication-cadence changes exited zero:
-  `/mnt/kingston-unity/Builds/TestResults/cone-prism-pressure-manifold-import-4.log`.
-- Android Vulkan/IL2CPP precommit build passed with no C# or shader errors:
-  `/mnt/kingston-unity/Builds/QuestInfiniteScan/QuestInfiniteScan-dev.apk`, SHA-256
-  `3a2ec28413d9dc6be6f8d1d2a560da2a4b0f0ac35f9c3f082a92920d822ab13e`.
-- Runtime checkpoint `096cf164893d443fcd158fc29bff8493355aba76` passed the
-  strict Android/Vulkan build gate with `errors=0`; APK SHA-256 is
-  `c4817dc72143734a3757694bd4e430c640d93176c6f0d87387267a84b9b9a6df`.
-  Package `com.questinfinitescan.smoke` version `0.1.0-dev` was installed on the
-  connected Quest at 2026-08-21 14:12 Europe/Prague. Process launch reached the
-  Vulkan/OpenXR runtime without a fatal exception; physical scan acceptance still
-  requires the user to wear/unlock the headset and press Scan.
-- Exact runtime source archive:
-  `.source-archives/QuestInfiniteScan-096cf164893d.zip`, SHA-256
-  `e777c6ee152fc7a8696151ec5175bb1141bcef4e00bb0f9a71ccc40af47c0dcb`.
-
-## Changed implementation surface
-
-- Scan lifecycle: `Runtime/Core/RoomScanner.cs`.
-- Cone/contact/topology/refinement: `Runtime/Prism/**` and
-  `Runtime/Resources/Prism/**`.
-- Native persistence migration: `Runtime/World/PrismCanonicalChunkCodec.cs`.
-- Contracts: `Tests/Editor/PrismPersistenceContractTests.cs` and
-  `Tests/Editor/PrismTopologyContractTests.cs`.
-- Build/test control: `Tools/unity/run_editmode_tests.sh`, `specka.md`, `AGENTS.md`,
-  and `.codex/**`.
+- Full Unity EditMode suite: 102 total, 102 passed, 0 failed, 0 skipped.
+  Results: `/mnt/kingston-unity/Builds/TestResults/editmode-results.xml`.
+  Log: `/mnt/kingston-unity/Builds/TestResults/editmode.log`.
+- `Tools/unity/validate_prism_compute_uav.py`: passed; every reachable PRISM compute
+  kernel remains at or below the Quest/Adreno eight-UAV limit.
+- `git diff --check`: passed.
+- `Tools/generate_code_graph.py`: current graph generated for 174 source files in
+  `.codex/CODE_GRAPH.json` and `docs/architecture/CODE_GRAPH.md`.
+- `Tools/validate_goal_state.py`: control plane valid; 23 DAG nodes, Q3-15.5 is the
+  sole active node.
+- Android build, commit hash, archive hash, APK hash and install evidence are not yet
+  recorded for this repair tree; do not reuse hashes from earlier broken APKs.
 
 ## Next exact actions
 
-1. Commit/archive, rebuild from that exact commit, and deploy the corrected indirect
-   topology/binding APK; verify no UAV/missing-buffer/maximum-buffer exception.
-2. Run one batched physical acceptance: continuous film/no square plates, stable
-   stereo presentation, local artifact pressure, close-bake resistance, Stop/Start,
-   revisit visibility, and frame cost. Only evidence from that run may close
-   Q3-11 through its dependent implemented checkpoints.
-3. Implement the remaining explicit generation-safe `PressureManifoldHeader`,
-   `ManifoldLink`, and ordered outer `LatentFrontier` canonical pools/ABI; reject
-   publication for unpaired active chart edges instead of synthesizing per-film caps.
-4. Continue Q3-12 only after the same physical evidence confirms the current
-   cooperative chart/connector materialization is stable and interactive.
+1. Re-run control/static checks after this state update.
+2. Commit the exact repair tree while excluding `.source-archives/`.
+3. Create a uniquely named workspace ZIP with `git archive` from that commit.
+4. Build a fresh Android ARM64/Vulkan APK from the committed tree and require Unity
+   `BuildReport` success with zero errors.
+5. Install the exact APK on the connected Quest and record package/version/hash.
+6. Run one physical batch: plane continuity, no pole/background curtain, thin plate
+   front/back/front, continued scan growth, Stop/Start and revisit.
+7. Close Q3-15.5 only if physical geometry and diagnostic counters agree; otherwise
+   keep the gate open and repair the demonstrated systemic cause.
 
 ## Safety
 
-- Never delete, move, compress, prune, or modify `~/.codex` or any Codex session.
-- Keep Unity builds, caches and device captures on Kingston.
-- Do not commit or archive generated builds, device IDs, credentials, addresses, or
-  captured room imagery.
+- Keep Unity builds/caches and device captures on Kingston where possible.
+- Do not commit generated builds, device identifiers, credentials, network addresses
+  or captured room imagery.
+- Do not lower sensor resolution, chart/microtile detail, topology guarantees or the
+  GPU-only/indirect hot path to make acceptance easier.

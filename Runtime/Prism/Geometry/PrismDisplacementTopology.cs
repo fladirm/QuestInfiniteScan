@@ -26,10 +26,14 @@ namespace Genesis.RoomScan.Prism
         private const int BoundaryTransferArgumentsOffset = sizeof(uint) * 3;
         private const int BoundaryHashClearArgumentsOffset = sizeof(uint) * 6;
         private const int BoundaryRehashArgumentsOffset = sizeof(uint) * 9;
-        private const int FilmAdaptArgumentsOffset = sizeof(uint) * 12;
-        private const int FilmHashClearArgumentsOffset = sizeof(uint) * 15;
-        private const int MergeInitializeArgumentsOffset = sizeof(uint) * 18;
-        private const int MergeFilmArgumentsOffset = sizeof(uint) * 21;
+        private const int SplitActivityArgumentsOffset = sizeof(uint) * 12;
+        private const int SplitEvidenceArgumentsOffset = sizeof(uint) * 15;
+        private const int SplitCommitArgumentsOffset = sizeof(uint) * 18;
+        private const int ManifoldFilmArgumentsOffset = 0;
+        private const int ManifoldLinkArgumentsOffset = sizeof(uint) * 3;
+        private const int ManifoldSplitArgumentsOffset = sizeof(uint) * 6;
+        private const int ManifoldHashArgumentsOffset = sizeof(uint) * 9;
+        private const int ManifoldLinkHashArgumentsOffset = sizeof(uint) * 12;
         private const int AccumulatorWordsPerCell =
             ContactDisplacementPool.TransientAccumulatorWordsPerCell;
         private const int AccumulatorWordsPerFilm = 8;
@@ -38,6 +42,7 @@ namespace Genesis.RoomScan.Prism
         [SerializeField] private PrismFilmSpawner filmSpawner;
         [SerializeField] private ComputeShader displacementCompute;
         [SerializeField] private ComputeShader topologyCompute;
+        [SerializeField] private ComputeShader manifoldTopologyCompute;
         [SerializeField, Min(256)] private int basePageCapacity = 8192;
         [SerializeField, Min(1024)] private int microPageCapacity = 16384;
         [SerializeField, Range(1, 4)] private int maximumMicroLevels = 3;
@@ -52,10 +57,6 @@ namespace Genesis.RoomScan.Prism
         [SerializeField, Min(0.0005f)] private float bimodalSeparation = 0.003f;
         [SerializeField, Min(0.000001f)] private float splitVariance = 0.000009f;
         [SerializeField, Min(1f)] private float splitBoundarySupport = 8f;
-        [SerializeField, Min(0.1f)] private float mergeHashCellSize = 0.5f;
-        [SerializeField, Range(0.1f, 5f)] private float mergeNormalDegrees = 3f;
-        [SerializeField, Min(0.0005f)] private float mergeSurfaceGap = 0.005f;
-        [SerializeField, Range(1, 8)] private int mergeWavesPerTick = 5;
 
         private static readonly int FilmCapacityId = Shader.PropertyToID("_FilmCapacity");
         private static readonly int EventCapacityId = Shader.PropertyToID("_EventCapacity");
@@ -77,6 +78,12 @@ namespace Genesis.RoomScan.Prism
         private static readonly int RayRightId = Shader.PropertyToID("_DepthRayCenterRight");
         private static readonly int FilmHeadersId = Shader.PropertyToID("_FilmHeaders");
         private static readonly int FilmInformationId = Shader.PropertyToID("_FilmInformation");
+        private static readonly int FilmSlotStatesId =
+            Shader.PropertyToID("_FilmSlotStates");
+        private static readonly int ActiveFilmIndicesId =
+            Shader.PropertyToID("_ActiveFilmIndices");
+        private static readonly int DirtyFilmIndicesId =
+            Shader.PropertyToID("_DirtyFilmIndices");
         private static readonly int FilmHeadersReadId =
             Shader.PropertyToID("_FilmHeadersRead");
         private static readonly int FilmInformationReadId =
@@ -97,6 +104,8 @@ namespace Genesis.RoomScan.Prism
         private static readonly int MicroChildrenReadId =
             Shader.PropertyToID("_MicroChildPagesRead");
         private static readonly int DisplacementAllocatorId = Shader.PropertyToID("_DisplacementAllocator");
+        private static readonly int DisplacementAllocatorWriteId =
+            Shader.PropertyToID("_DisplacementAllocatorWrite");
         private static readonly int BaseCellAccumulatorId =
             Shader.PropertyToID("_BaseDisplacementCellAccumulator");
         private static readonly int MicroCellAccumulatorId =
@@ -119,40 +128,85 @@ namespace Genesis.RoomScan.Prism
             Shader.PropertyToID("_DisplacementDirtyStateRead");
         private static readonly int DispatchArgumentsId = Shader.PropertyToID("_DisplacementDispatchArguments");
         private static readonly int TopologyEvidenceId = Shader.PropertyToID("_TopologyEvidence");
+        private static readonly int TopologyEvidenceReadId =
+            Shader.PropertyToID("_TopologyEvidenceRead");
         private static readonly int TopologyAccumulatorId = Shader.PropertyToID("_TopologyAccumulator");
         private static readonly int TopologyDirtyFlagsId = Shader.PropertyToID("_TopologyDirtyFlags");
         private static readonly int DirtyTopologyIndicesId = Shader.PropertyToID("_DirtyTopologyIndices");
         private static readonly int TopologyStateId = Shader.PropertyToID("_TopologyState");
         private static readonly int FilmAllocatorId = Shader.PropertyToID("_FilmAllocator");
+        private static readonly int FilmAllocatorWriteId =
+            Shader.PropertyToID("_FilmAllocatorWrite");
         private static readonly int BoundaryCapacityId = Shader.PropertyToID("_BoundaryCapacity");
         private static readonly int BoundaryHashMaskId = Shader.PropertyToID("_BoundaryHashMask");
         private static readonly int BoundaryCellsPerAxisId = Shader.PropertyToID("_BoundaryCellsPerAxis");
         private static readonly int BoundaryHeadersId = Shader.PropertyToID("_BoundaryHeaders");
+        private static readonly int BoundaryHeadersReadId =
+            Shader.PropertyToID("_BoundaryHeadersRead");
         private static readonly int BoundaryInformationId = Shader.PropertyToID("_BoundaryInformation");
+        private static readonly int BoundaryInformationReadId =
+            Shader.PropertyToID("_BoundaryInformationRead");
         private static readonly int BoundaryHashId = Shader.PropertyToID("_BoundaryHash");
         private static readonly int BoundaryAllocatorId = Shader.PropertyToID("_BoundaryAllocator");
+        private static readonly int BoundaryAllocatorWriteId =
+            Shader.PropertyToID("_BoundaryAllocatorWrite");
+        private static readonly int BoundarySplitPlansReadId =
+            Shader.PropertyToID("_BoundarySplitPlansRead");
+        private static readonly int BoundarySplitPlansWriteId =
+            Shader.PropertyToID("_BoundarySplitPlansWrite");
         private static readonly int SplitRecordsId = Shader.PropertyToID("_SplitRecords");
         private static readonly int SplitRecordsReadId =
             Shader.PropertyToID("_SplitRecordsRead");
+        private static readonly int SplitRecordsWriteId =
+            Shader.PropertyToID("_SplitRecordsWrite");
         private static readonly int AdaptStateId = Shader.PropertyToID("_AdaptState");
         private static readonly int AdaptStateReadId =
             Shader.PropertyToID("_AdaptStateRead");
+        private static readonly int AdaptStateWriteId =
+            Shader.PropertyToID("_AdaptStateWrite");
         private static readonly int AdaptArgumentsId = Shader.PropertyToID("_AdaptDispatchArguments");
         private static readonly int MaximumSplitDepthId = Shader.PropertyToID("_MaximumSplitDepth");
         private static readonly int MinimumSplitExtentId = Shader.PropertyToID("_MinimumSplitExtent");
         private static readonly int BimodalSeparationId = Shader.PropertyToID("_BimodalSeparation");
         private static readonly int SplitVarianceId = Shader.PropertyToID("_SplitVariance");
         private static readonly int SplitBoundarySupportId = Shader.PropertyToID("_SplitBoundarySupport");
-        private static readonly int MergeRecordsId = Shader.PropertyToID("_MergeRecords");
-        private static readonly int MergeRecordsReadId =
-            Shader.PropertyToID("_MergeRecordsRead");
-        private static readonly int FilmMergeHashId = Shader.PropertyToID("_FilmMergeHash");
-        private static readonly int FilmMergeHashReadId =
-            Shader.PropertyToID("_FilmMergeHashRead");
-        private static readonly int FilmMergeHashMaskId = Shader.PropertyToID("_FilmMergeHashMask");
-        private static readonly int MergeHashCellSizeId = Shader.PropertyToID("_MergeHashCellSize");
-        private static readonly int MergeNormalCosineId = Shader.PropertyToID("_MergeNormalCosine");
-        private static readonly int MergeSurfaceGapId = Shader.PropertyToID("_MergeSurfaceGap");
+        private static readonly int ManifoldCapacityId = Shader.PropertyToID("_ManifoldCapacity");
+        private static readonly int LinkCapacityId = Shader.PropertyToID("_LinkCapacity");
+        private static readonly int FrontierCapacityId = Shader.PropertyToID("_FrontierCapacity");
+        private static readonly int LinkHashMaskId = Shader.PropertyToID("_LinkHashMask");
+        private static readonly int FilmHashMaskId = Shader.PropertyToID("_FilmHashMask");
+        private static readonly int ManifoldHeadersId = Shader.PropertyToID("_ManifoldHeaders");
+        private static readonly int ManifoldHeadersReadId =
+            Shader.PropertyToID("_ManifoldHeadersRead");
+        private static readonly int FilmMembershipsId = Shader.PropertyToID("_FilmMemberships");
+        private static readonly int FilmMembershipsReadId =
+            Shader.PropertyToID("_FilmMembershipsRead");
+        private static readonly int ManifoldLinksId = Shader.PropertyToID("_ManifoldLinks");
+        private static readonly int ManifoldLinksReadId =
+            Shader.PropertyToID("_ManifoldLinksRead");
+        private static readonly int ManifoldLinkIncidencesId =
+            Shader.PropertyToID("_ManifoldLinkIncidences");
+        private static readonly int ManifoldLinkIncidencesReadId =
+            Shader.PropertyToID("_ManifoldLinkIncidencesRead");
+        private static readonly int ManifoldFrontierIncidencesId =
+            Shader.PropertyToID("_ManifoldFrontierIncidences");
+        private static readonly int ManifoldFrontierIncidencesReadId =
+            Shader.PropertyToID("_ManifoldFrontierIncidencesRead");
+        private static readonly int LatentFrontiersId = Shader.PropertyToID("_LatentFrontiers");
+        private static readonly int LatentFrontiersReadId =
+            Shader.PropertyToID("_LatentFrontiersRead");
+        private static readonly int ManifoldAllocatorId = Shader.PropertyToID("_ManifoldAllocator");
+        private static readonly int CurrentManifoldId = Shader.PropertyToID("_CurrentManifold");
+        private static readonly int ManifoldDiagnosticsId = Shader.PropertyToID("_ManifoldDiagnostics");
+        private static readonly int LinkHashId = Shader.PropertyToID("_LinkHash");
+        private static readonly int FilmHashHeadsId = Shader.PropertyToID("_FilmHashHeads");
+        private static readonly int FilmHashEntriesId = Shader.PropertyToID("_FilmHashEntries");
+        private static readonly int FilmHashHeadsReadId =
+            Shader.PropertyToID("_FilmHashHeadsRead");
+        private static readonly int FilmHashEntriesReadId =
+            Shader.PropertyToID("_FilmHashEntriesRead");
+        private static readonly int ManifoldDispatchArgumentsId =
+            Shader.PropertyToID("_ManifoldDispatchArguments");
 
         private readonly Matrix4x4[] _chunkFromDepth = new Matrix4x4[2];
         private Matrix4x4 _chunkFromWorld = Matrix4x4.identity;
@@ -164,6 +218,7 @@ namespace Genesis.RoomScan.Prism
         private GraphicsBuffer _dirtyState;
         private GraphicsBuffer _newBasePages;
         private GraphicsBuffer _newMicroPages;
+        private GraphicsBuffer _boundarySplitPlans;
         private GraphicsBuffer _pageState;
         private GraphicsBuffer _dispatchArguments;
         private GraphicsBuffer _topologyAccumulator;
@@ -173,8 +228,9 @@ namespace Genesis.RoomScan.Prism
         private GraphicsBuffer _splitRecords;
         private GraphicsBuffer _adaptState;
         private GraphicsBuffer _adaptArguments;
-        private GraphicsBuffer _mergeRecords;
-        private GraphicsBuffer _filmMergeHash;
+        private GraphicsBuffer _manifoldFilmHashHeads;
+        private GraphicsBuffer _manifoldFilmHashEntries;
+        private GraphicsBuffer _manifoldDispatchArguments;
         private int _clearKernel = -1;
         private int _initializeStateKernel = -1;
         private int _allocateBaseKernel = -1;
@@ -192,20 +248,32 @@ namespace Genesis.RoomScan.Prism
         private int _solveTopologyKernel = -1;
         private int _clearAdaptKernel = -1;
         private int _splitKernel = -1;
+        private int _publishSplitActivityKernel = -1;
+        private int _initializeSplitEvidenceKernel = -1;
         private int _buildAdaptArgumentsKernel = -1;
         private int _initializeSplitKernel = -1;
         private int _transferBoundariesKernel = -1;
         private int _clearBoundaryHashKernel = -1;
         private int _rehashBoundariesKernel = -1;
-        private int _clearFilmMergeHashKernel = -1;
-        private int _resetFilmMergeWaveKernel = -1;
-        private int _buildFilmMergeHashKernel = -1;
-        private int _mergeFilmsKernel = -1;
-        private int _buildMergeArgumentsKernel = -1;
-        private int _initializeMergeKernel = -1;
+        private int _initializeManifoldKernel = -1;
+        private int _planSplitTransactionsKernel = -1;
+        private int _buildManifoldArgumentsKernel = -1;
+        private int _remapSplitMembershipsKernel = -1;
+        private int _clearCanonicalLinkHashKernel = -1;
+        private int _buildCanonicalLinkHashKernel = -1;
+        private int _linkSplitChildrenKernel = -1;
+        private int _releaseSplitParentsKernel = -1;
+        private int _clearManifoldFilmHashKernel = -1;
+        private int _buildManifoldFilmHashKernel = -1;
+        private int _proveContinuationLinksKernel = -1;
+        private int _clearManifoldValidationKernel = -1;
+        private int _validateMembershipsKernel = -1;
+        private int _validateLinksKernel = -1;
+        private int _finalizeManifoldValidationKernel = -1;
         private bool _running;
         private bool _subscribedToSource;
         private bool _initialized;
+        private bool _manifoldInitialized;
         private long _processedFrames;
 
         public event Action<ConeEventFrameLease> DisplacementUpdated;
@@ -227,9 +295,12 @@ namespace Genesis.RoomScan.Prism
             displacementCompute ??=
                 Resources.Load<ComputeShader>("Prism/DisplacementTopology");
             topologyCompute ??= Resources.Load<ComputeShader>("Prism/TopologyAdapt");
+            manifoldTopologyCompute ??=
+                Resources.Load<ComputeShader>("Prism/PressureManifoldTopology");
             if (boundaryGraph?.BoundaryPool == null ||
                 filmSpawner?.FilmPool == null ||
-                displacementCompute == null || topologyCompute == null)
+                displacementCompute == null || topologyCompute == null ||
+                manifoldTopologyCompute == null)
             {
                 Logger.Error("Cone-PRISM displacement dependencies are missing.");
                 return;
@@ -261,6 +332,10 @@ namespace Genesis.RoomScan.Prism
             _solveTopologyKernel = displacementCompute.FindKernel("SolveTopologyEvidence");
             _clearAdaptKernel = topologyCompute.FindKernel("ClearTopologyAdaptFrame");
             _splitKernel = topologyCompute.FindKernel("SplitContactFilms");
+            _publishSplitActivityKernel =
+                topologyCompute.FindKernel("PublishSplitActivity");
+            _initializeSplitEvidenceKernel =
+                topologyCompute.FindKernel("InitializeSplitEvidence");
             _buildAdaptArgumentsKernel =
                 topologyCompute.FindKernel("BuildTopologyAdaptArguments");
             _initializeSplitKernel =
@@ -271,24 +346,53 @@ namespace Genesis.RoomScan.Prism
                 topologyCompute.FindKernel("ClearTopologyBoundaryHash");
             _rehashBoundariesKernel =
                 topologyCompute.FindKernel("RehashTopologyBoundaries");
-            _clearFilmMergeHashKernel =
-                topologyCompute.FindKernel("ClearFilmMergeHash");
-            _resetFilmMergeWaveKernel =
-                topologyCompute.FindKernel("ResetFilmMergeWave");
-            _buildFilmMergeHashKernel =
-                topologyCompute.FindKernel("BuildFilmMergeHash");
-            _mergeFilmsKernel = topologyCompute.FindKernel("MergeCompatibleFilms");
-            _buildMergeArgumentsKernel =
-                topologyCompute.FindKernel("BuildMergeArguments");
-            _initializeMergeKernel =
-                topologyCompute.FindKernel("InitializeMergedDisplacement");
+            _initializeManifoldKernel =
+                manifoldTopologyCompute.FindKernel("InitializeManifoldTopology");
+            _planSplitTransactionsKernel =
+                manifoldTopologyCompute.FindKernel("PlanSplitTransactions");
+            _buildManifoldArgumentsKernel = manifoldTopologyCompute.FindKernel(
+                "BuildManifoldDispatchArguments");
+            _remapSplitMembershipsKernel =
+                manifoldTopologyCompute.FindKernel("RemapSplitMemberships");
+            _clearCanonicalLinkHashKernel =
+                manifoldTopologyCompute.FindKernel("ClearCanonicalLinkHash");
+            _buildCanonicalLinkHashKernel =
+                manifoldTopologyCompute.FindKernel("BuildCanonicalLinkHash");
+            _linkSplitChildrenKernel =
+                manifoldTopologyCompute.FindKernel("LinkSplitChildren");
+            _releaseSplitParentsKernel =
+                manifoldTopologyCompute.FindKernel("ReleaseSplitParents");
+            _clearManifoldFilmHashKernel =
+                manifoldTopologyCompute.FindKernel("ClearFilmContinuationHash");
+            _buildManifoldFilmHashKernel =
+                manifoldTopologyCompute.FindKernel("BuildFilmContinuationHash");
+            _proveContinuationLinksKernel = manifoldTopologyCompute.FindKernel(
+                "ProveMeasuredContinuationLinks");
+            _clearManifoldValidationKernel =
+                manifoldTopologyCompute.FindKernel("ClearManifoldValidation");
+            _validateMembershipsKernel =
+                manifoldTopologyCompute.FindKernel("ValidateFilmMemberships");
+            _validateLinksKernel =
+                manifoldTopologyCompute.FindKernel("ValidateManifoldLinks");
+            _finalizeManifoldValidationKernel = manifoldTopologyCompute.FindKernel(
+                "FinalizeManifoldValidation");
             BindPersistent();
             BindTopology();
+            BindManifoldTopology();
             if (!_initialized)
             {
                 displacementCompute.Dispatch(_initializeStateKernel,
                     CeilDiv(_pool.FilmCapacity, 64), 1, 1);
                 _initialized = true;
+            }
+            if (!_manifoldInitialized)
+            {
+                int clearCount = Math.Max(filmSpawner.FilmPool.Manifolds.LinkHashCapacity,
+                    Math.Max(_manifoldFilmHashHeads.count,
+                        _manifoldFilmHashEntries.count));
+                manifoldTopologyCompute.Dispatch(_initializeManifoldKernel,
+                    CeilDiv(clearCount, 64), 1, 1);
+                _manifoldInitialized = true;
             }
             if (subscribeToSource)
             {
@@ -458,16 +562,25 @@ namespace Genesis.RoomScan.Prism
                 4, sizeof(uint));
             _splitRecords = new GraphicsBuffer(GraphicsBuffer.Target.Structured,
                 pool.FilmCapacity, TopologySplitRecordGpu.Stride);
+            _boundarySplitPlans = new GraphicsBuffer(
+                GraphicsBuffer.Target.Structured,
+                boundaryGraph.BoundaryPool.Capacity,
+                TopologyBoundarySplitPlanGpu.Stride);
             _adaptState = new GraphicsBuffer(GraphicsBuffer.Target.Structured,
                 8, sizeof(uint));
             _adaptArguments = new GraphicsBuffer(
                 GraphicsBuffer.Target.Structured |
                 GraphicsBuffer.Target.IndirectArguments, 8, sizeof(uint) * 3);
-            _mergeRecords = new GraphicsBuffer(GraphicsBuffer.Target.Structured,
-                pool.FilmCapacity, TopologyMergeRecordGpu.Stride);
-            int mergeHashCapacity = NextPowerOfTwo(pool.FilmCapacity * 2);
-            _filmMergeHash = new GraphicsBuffer(GraphicsBuffer.Target.Structured,
-                mergeHashCapacity, FilmMergeHashEntryGpu.Stride);
+            int continuationHashCapacity = NextPowerOfTwo(pool.FilmCapacity * 2);
+            _manifoldFilmHashHeads = new GraphicsBuffer(
+                GraphicsBuffer.Target.Structured, continuationHashCapacity,
+                sizeof(uint));
+            _manifoldFilmHashEntries = new GraphicsBuffer(
+                GraphicsBuffer.Target.Structured, pool.FilmCapacity,
+                sizeof(uint) * 4);
+            _manifoldDispatchArguments = new GraphicsBuffer(
+                GraphicsBuffer.Target.Structured |
+                GraphicsBuffer.Target.IndirectArguments, 5, sizeof(uint) * 3);
             uint[] zeros = { 0u, 0u, 0u, 0u };
             _dirtyState.SetData(zeros);
             _pageState.SetData(zeros);
@@ -620,21 +733,12 @@ namespace Genesis.RoomScan.Prism
             topologyCompute.SetFloat(SplitVarianceId, splitVariance);
             topologyCompute.SetFloat(SplitBoundarySupportId,
                 splitBoundarySupport);
-            topologyCompute.SetInt(FilmMergeHashMaskId,
-                _filmMergeHash.count - 1);
-            topologyCompute.SetFloat(MergeHashCellSizeId, mergeHashCellSize);
-            topologyCompute.SetFloat(MergeNormalCosineId,
-                Mathf.Cos(mergeNormalDegrees * Mathf.Deg2Rad));
-            topologyCompute.SetFloat(MergeSurfaceGapId, mergeSurfaceGap);
             int[] kernels =
             {
-                _clearAdaptKernel, _splitKernel, _buildAdaptArgumentsKernel,
+                _clearAdaptKernel, _splitKernel, _publishSplitActivityKernel,
+                _initializeSplitEvidenceKernel, _buildAdaptArgumentsKernel,
                 _initializeSplitKernel, _transferBoundariesKernel,
-                _clearBoundaryHashKernel, _rehashBoundariesKernel,
-                _resetFilmMergeWaveKernel,
-                _clearFilmMergeHashKernel, _buildFilmMergeHashKernel,
-                _mergeFilmsKernel, _buildMergeArgumentsKernel,
-                _initializeMergeKernel
+                _clearBoundaryHashKernel, _rehashBoundariesKernel
             };
             foreach (int kernel in kernels)
             {
@@ -643,6 +747,12 @@ namespace Genesis.RoomScan.Prism
                     films.Information);
                 topologyCompute.SetBuffer(kernel, FilmAllocatorId,
                     films.Allocator);
+                topologyCompute.SetBuffer(kernel, FilmSlotStatesId,
+                    films.SlotStates);
+                topologyCompute.SetBuffer(kernel, ActiveFilmIndicesId,
+                    films.ActiveIndices);
+                topologyCompute.SetBuffer(kernel, DirtyFilmIndicesId,
+                    films.DirtyIndices);
                 topologyCompute.SetBuffer(kernel, DisplacementPagesId,
                     _pool.PageHeaders);
                 topologyCompute.SetBuffer(kernel, BaseCellsId, _pool.BaseCells);
@@ -659,6 +769,8 @@ namespace Genesis.RoomScan.Prism
                     _cellDirtyFlags);
                 topologyCompute.SetBuffer(kernel, TopologyEvidenceId,
                     _pool.TopologyEvidence);
+                topologyCompute.SetBuffer(kernel, TopologyEvidenceReadId,
+                    _pool.TopologyEvidence);
                 topologyCompute.SetBuffer(kernel, DirtyTopologyIndicesId,
                     _dirtyTopologyIndices);
                 topologyCompute.SetBuffer(kernel, TopologyStateId,
@@ -672,9 +784,6 @@ namespace Genesis.RoomScan.Prism
                 topologyCompute.SetBuffer(kernel, BoundaryAllocatorId,
                     boundaries.Allocator);
                 topologyCompute.SetBuffer(kernel, SplitRecordsId, _splitRecords);
-                topologyCompute.SetBuffer(kernel, MergeRecordsId, _mergeRecords);
-                topologyCompute.SetBuffer(kernel, FilmMergeHashId,
-                    _filmMergeHash);
                 topologyCompute.SetBuffer(kernel, AdaptStateId, _adaptState);
                 topologyCompute.SetBuffer(kernel, AdaptArgumentsId,
                     _adaptArguments);
@@ -682,44 +791,171 @@ namespace Genesis.RoomScan.Prism
 
             topologyCompute.SetBuffer(_splitKernel, BaseCellsReadId,
                 _pool.BaseCells);
-            topologyCompute.SetBuffer(_mergeFilmsKernel, FilmMergeHashReadId,
-                _filmMergeHash);
 
             int[] adaptStateReaders =
             {
                 _buildAdaptArgumentsKernel, _initializeSplitKernel,
-                _buildMergeArgumentsKernel, _initializeMergeKernel
+                _publishSplitActivityKernel, _initializeSplitEvidenceKernel
             };
             foreach (int kernel in adaptStateReaders)
                 topologyCompute.SetBuffer(kernel, AdaptStateReadId, _adaptState);
 
             topologyCompute.SetBuffer(_initializeSplitKernel, FilmHeadersReadId,
                 films.Headers);
+            topologyCompute.SetBuffer(_publishSplitActivityKernel,
+                FilmHeadersReadId, films.Headers);
+            topologyCompute.SetBuffer(_initializeSplitEvidenceKernel,
+                FilmHeadersReadId, films.Headers);
             topologyCompute.SetBuffer(_initializeSplitKernel, MicroCellsReadId,
                 _pool.MicroCells);
             topologyCompute.SetBuffer(_initializeSplitKernel,
                 MicroChildrenReadId, _pool.MicroChildPages);
             topologyCompute.SetBuffer(_initializeSplitKernel, SplitRecordsReadId,
                 _splitRecords);
+            topologyCompute.SetBuffer(_transferBoundariesKernel,
+                SplitRecordsReadId, _splitRecords);
+            topologyCompute.SetBuffer(_transferBoundariesKernel,
+                BoundarySplitPlansReadId, _boundarySplitPlans);
+        }
 
-            topologyCompute.SetBuffer(_initializeMergeKernel, FilmHeadersReadId,
-                films.Headers);
-            topologyCompute.SetBuffer(_initializeMergeKernel,
-                FilmInformationReadId, films.Information);
-            topologyCompute.SetBuffer(_initializeMergeKernel, MicroCellsReadId,
-                _pool.MicroCells);
-            topologyCompute.SetBuffer(_initializeMergeKernel,
-                MicroChildrenReadId, _pool.MicroChildPages);
-            topologyCompute.SetBuffer(_initializeMergeKernel, MergeRecordsReadId,
-                _mergeRecords);
+        private void BindManifoldTopology()
+        {
+            ContactFilmPool films = filmSpawner.FilmPool;
+            PressureManifoldPool manifolds = films.Manifolds;
+            manifoldTopologyCompute.SetInt(FilmCapacityId, films.Capacity);
+            manifoldTopologyCompute.SetInt(ManifoldCapacityId,
+                manifolds.ManifoldCapacity);
+            manifoldTopologyCompute.SetInt(LinkCapacityId, manifolds.LinkCapacity);
+            manifoldTopologyCompute.SetInt(FrontierCapacityId,
+                manifolds.FrontierCapacity);
+            manifoldTopologyCompute.SetInt(BoundaryCapacityId,
+                boundaryGraph.BoundaryPool.Capacity);
+            manifoldTopologyCompute.SetInt(LinkHashMaskId,
+                manifolds.LinkHashCapacity - 1);
+            manifoldTopologyCompute.SetInt(FilmHashMaskId,
+                _manifoldFilmHashHeads.count - 1);
+            manifoldTopologyCompute.SetInt(BasePageCapacityId,
+                _pool.BasePageCapacity);
+            manifoldTopologyCompute.SetInt(MaximumSplitDepthId,
+                maximumSplitDepth);
+            manifoldTopologyCompute.SetFloat(MinimumSplitExtentId,
+                minimumSplitExtent);
+            manifoldTopologyCompute.SetFloat(BimodalSeparationId,
+                bimodalSeparation);
+            manifoldTopologyCompute.SetFloat(SplitVarianceId, splitVariance);
+            manifoldTopologyCompute.SetFloat(SplitBoundarySupportId,
+                splitBoundarySupport);
+            int[] kernels =
+            {
+                _initializeManifoldKernel, _planSplitTransactionsKernel,
+                _buildManifoldArgumentsKernel,
+                _remapSplitMembershipsKernel, _clearCanonicalLinkHashKernel,
+                _buildCanonicalLinkHashKernel, _linkSplitChildrenKernel,
+                _releaseSplitParentsKernel,
+                _clearManifoldFilmHashKernel,
+                _buildManifoldFilmHashKernel, _proveContinuationLinksKernel,
+                _clearManifoldValidationKernel, _validateMembershipsKernel,
+                _validateLinksKernel, _finalizeManifoldValidationKernel
+            };
+            foreach (int kernel in kernels)
+            {
+                manifoldTopologyCompute.SetBuffer(kernel, FilmHeadersId,
+                    films.Headers);
+                manifoldTopologyCompute.SetBuffer(kernel, FilmHeadersReadId,
+                    films.Headers);
+                manifoldTopologyCompute.SetBuffer(kernel, FilmAllocatorId,
+                    films.Allocator);
+                manifoldTopologyCompute.SetBuffer(kernel, ActiveFilmIndicesId,
+                    films.ActiveIndices);
+                manifoldTopologyCompute.SetBuffer(kernel, FilmAllocatorWriteId,
+                    films.Allocator);
+                manifoldTopologyCompute.SetBuffer(kernel, FilmSlotStatesId,
+                    films.SlotStates);
+                manifoldTopologyCompute.SetBuffer(kernel, ManifoldHeadersId,
+                    manifolds.Headers);
+                manifoldTopologyCompute.SetBuffer(kernel, ManifoldHeadersReadId,
+                    manifolds.Headers);
+                manifoldTopologyCompute.SetBuffer(kernel, FilmMembershipsId,
+                    manifolds.Memberships);
+                manifoldTopologyCompute.SetBuffer(kernel, ManifoldLinksId,
+                    manifolds.Links);
+                manifoldTopologyCompute.SetBuffer(kernel,
+                    ManifoldLinkIncidencesId, manifolds.LinkIncidences);
+                manifoldTopologyCompute.SetBuffer(kernel,
+                    ManifoldFrontierIncidencesId,
+                    manifolds.FrontierIncidences);
+                manifoldTopologyCompute.SetBuffer(kernel, LatentFrontiersId,
+                    manifolds.Frontiers);
+                manifoldTopologyCompute.SetBuffer(kernel, ManifoldAllocatorId,
+                    manifolds.Allocator);
+                manifoldTopologyCompute.SetBuffer(kernel, CurrentManifoldId,
+                    manifolds.Current);
+                manifoldTopologyCompute.SetBuffer(kernel, ManifoldDiagnosticsId,
+                    manifolds.Diagnostics);
+                manifoldTopologyCompute.SetBuffer(kernel, LinkHashId,
+                    manifolds.LinkHash);
+                manifoldTopologyCompute.SetBuffer(kernel, FilmHashHeadsId,
+                    _manifoldFilmHashHeads);
+                manifoldTopologyCompute.SetBuffer(kernel, FilmHashEntriesId,
+                    _manifoldFilmHashEntries);
+                manifoldTopologyCompute.SetBuffer(kernel, FilmHashHeadsReadId,
+                    _manifoldFilmHashHeads);
+                manifoldTopologyCompute.SetBuffer(kernel, FilmHashEntriesReadId,
+                    _manifoldFilmHashEntries);
+                manifoldTopologyCompute.SetBuffer(kernel, SplitRecordsId,
+                    _splitRecords);
+                manifoldTopologyCompute.SetBuffer(kernel, AdaptStateId,
+                    _adaptState);
+                manifoldTopologyCompute.SetBuffer(kernel,
+                    ManifoldDispatchArgumentsId, _manifoldDispatchArguments);
+            }
+
+            manifoldTopologyCompute.SetBuffer(_planSplitTransactionsKernel,
+                FilmMembershipsReadId, manifolds.Memberships);
+            manifoldTopologyCompute.SetBuffer(_planSplitTransactionsKernel,
+                ManifoldLinksReadId, manifolds.Links);
+            manifoldTopologyCompute.SetBuffer(_planSplitTransactionsKernel,
+                ManifoldLinkIncidencesReadId, manifolds.LinkIncidences);
+            manifoldTopologyCompute.SetBuffer(_planSplitTransactionsKernel,
+                ManifoldFrontierIncidencesReadId,
+                manifolds.FrontierIncidences);
+            manifoldTopologyCompute.SetBuffer(_planSplitTransactionsKernel,
+                LatentFrontiersReadId, manifolds.Frontiers);
+            manifoldTopologyCompute.SetBuffer(_planSplitTransactionsKernel,
+                SplitRecordsWriteId, _splitRecords);
+            manifoldTopologyCompute.SetBuffer(_planSplitTransactionsKernel,
+                AdaptStateWriteId, _adaptState);
+            manifoldTopologyCompute.SetBuffer(_planSplitTransactionsKernel,
+                TopologyEvidenceReadId, _pool.TopologyEvidence);
+            manifoldTopologyCompute.SetBuffer(_planSplitTransactionsKernel,
+                DirtyTopologyIndicesId, _dirtyTopologyIndices);
+            manifoldTopologyCompute.SetBuffer(_planSplitTransactionsKernel,
+                TopologyStateId, _topologyState);
+            manifoldTopologyCompute.SetBuffer(_planSplitTransactionsKernel,
+                DisplacementAllocatorWriteId, _pool.Allocator);
+            manifoldTopologyCompute.SetBuffer(_planSplitTransactionsKernel,
+                BoundaryHeadersReadId, boundaryGraph.BoundaryPool.Headers);
+            manifoldTopologyCompute.SetBuffer(_planSplitTransactionsKernel,
+                BoundaryInformationReadId,
+                boundaryGraph.BoundaryPool.Information);
+            manifoldTopologyCompute.SetBuffer(_planSplitTransactionsKernel,
+                BoundaryAllocatorWriteId,
+                boundaryGraph.BoundaryPool.Allocator);
+            manifoldTopologyCompute.SetBuffer(_planSplitTransactionsKernel,
+                BoundarySplitPlansWriteId, _boundarySplitPlans);
         }
 
         private void RunTopologyAdaptation()
         {
             topologyCompute.Dispatch(_clearAdaptKernel, 1, 1, 1);
-            topologyCompute.DispatchIndirect(_splitKernel, _dispatchArguments,
-                TopologyArgumentsOffset);
+            manifoldTopologyCompute.Dispatch(_planSplitTransactionsKernel, 1, 1, 1);
             topologyCompute.Dispatch(_buildAdaptArgumentsKernel, 1, 1, 1);
+            topologyCompute.DispatchIndirect(_splitKernel, _adaptArguments,
+                SplitCommitArgumentsOffset);
+            topologyCompute.DispatchIndirect(_publishSplitActivityKernel,
+                _adaptArguments, SplitActivityArgumentsOffset);
+            topologyCompute.DispatchIndirect(_initializeSplitEvidenceKernel,
+                _adaptArguments, SplitEvidenceArgumentsOffset);
             topologyCompute.DispatchIndirect(_initializeSplitKernel,
                 _adaptArguments, SplitInitializeArgumentsOffset);
             topologyCompute.DispatchIndirect(_transferBoundariesKernel,
@@ -731,24 +967,40 @@ namespace Genesis.RoomScan.Prism
                 _adaptArguments, BoundaryHashClearArgumentsOffset);
             topologyCompute.DispatchIndirect(_rehashBoundariesKernel,
                 _adaptArguments, BoundaryRehashArgumentsOffset);
-            // One binary merge wave can only halve the tile/LR film count. Run a
-            // short, fixed GPU-only reduction tree before publishing meshlets so a
-            // planar contact appears as one continuous manifold in the same tick.
-            // There is no CPU count readback or synchronization in this loop.
-            for (int wave = 0; wave < mergeWavesPerTick; wave++)
-            {
-                topologyCompute.Dispatch(_resetFilmMergeWaveKernel, 1, 1, 1);
-                topologyCompute.Dispatch(_buildAdaptArgumentsKernel, 1, 1, 1);
-                topologyCompute.DispatchIndirect(_clearFilmMergeHashKernel,
-                    _adaptArguments, FilmHashClearArgumentsOffset);
-                topologyCompute.DispatchIndirect(_buildFilmMergeHashKernel,
-                    _adaptArguments, FilmAdaptArgumentsOffset);
-                topologyCompute.DispatchIndirect(_mergeFilmsKernel,
-                    _adaptArguments, MergeFilmArgumentsOffset);
-                topologyCompute.Dispatch(_buildMergeArgumentsKernel, 1, 1, 1);
-                topologyCompute.DispatchIndirect(_initializeMergeKernel,
-                    _adaptArguments, MergeInitializeArgumentsOffset);
-            }
+            RunPressureManifoldTopology();
+        }
+
+        private void RunPressureManifoldTopology()
+        {
+            manifoldTopologyCompute.Dispatch(_buildManifoldArgumentsKernel, 1, 1, 1);
+            manifoldTopologyCompute.DispatchIndirect(_remapSplitMembershipsKernel,
+                _manifoldDispatchArguments, ManifoldSplitArgumentsOffset);
+            manifoldTopologyCompute.DispatchIndirect(_linkSplitChildrenKernel,
+                _manifoldDispatchArguments, ManifoldSplitArgumentsOffset);
+            manifoldTopologyCompute.DispatchIndirect(_releaseSplitParentsKernel,
+                _manifoldDispatchArguments, ManifoldSplitArgumentsOffset);
+            manifoldTopologyCompute.Dispatch(_buildManifoldArgumentsKernel, 1, 1, 1);
+            manifoldTopologyCompute.DispatchIndirect(_clearCanonicalLinkHashKernel,
+                _manifoldDispatchArguments, ManifoldLinkHashArgumentsOffset);
+            manifoldTopologyCompute.DispatchIndirect(_buildCanonicalLinkHashKernel,
+                _manifoldDispatchArguments, ManifoldLinkArgumentsOffset);
+            manifoldTopologyCompute.DispatchIndirect(_clearManifoldFilmHashKernel,
+                _manifoldDispatchArguments, ManifoldHashArgumentsOffset);
+            manifoldTopologyCompute.DispatchIndirect(_buildManifoldFilmHashKernel,
+                _manifoldDispatchArguments, ManifoldFilmArgumentsOffset);
+            manifoldTopologyCompute.DispatchIndirect(_proveContinuationLinksKernel,
+                _manifoldDispatchArguments, ManifoldFilmArgumentsOffset);
+            // Continuation proof can append links. Rebuild indirect domains before
+            // validating so a just-created endpoint cannot escape this generation's
+            // publication gate.
+            manifoldTopologyCompute.Dispatch(_buildManifoldArgumentsKernel, 1, 1, 1);
+            manifoldTopologyCompute.Dispatch(_clearManifoldValidationKernel, 1, 1, 1);
+            manifoldTopologyCompute.DispatchIndirect(_validateMembershipsKernel,
+                _manifoldDispatchArguments, ManifoldFilmArgumentsOffset);
+            manifoldTopologyCompute.DispatchIndirect(_validateLinksKernel,
+                _manifoldDispatchArguments, ManifoldLinkArgumentsOffset);
+            manifoldTopologyCompute.Dispatch(_finalizeManifoldValidationKernel,
+                1, 1, 1);
         }
 
         private void DisposeTransientBuffers()
@@ -767,10 +1019,12 @@ namespace Genesis.RoomScan.Prism
             _dirtyTopologyIndices?.Dispose();
             _topologyState?.Dispose();
             _splitRecords?.Dispose();
+            _boundarySplitPlans?.Dispose();
             _adaptState?.Dispose();
             _adaptArguments?.Dispose();
-            _mergeRecords?.Dispose();
-            _filmMergeHash?.Dispose();
+            _manifoldFilmHashHeads?.Dispose();
+            _manifoldFilmHashEntries?.Dispose();
+            _manifoldDispatchArguments?.Dispose();
             _baseCellAccumulator = null;
             _microCellAccumulator = null;
             _cellDirtyFlags = null;
@@ -785,10 +1039,12 @@ namespace Genesis.RoomScan.Prism
             _dirtyTopologyIndices = null;
             _topologyState = null;
             _splitRecords = null;
+            _boundarySplitPlans = null;
             _adaptState = null;
             _adaptArguments = null;
-            _mergeRecords = null;
-            _filmMergeHash = null;
+            _manifoldFilmHashHeads = null;
+            _manifoldFilmHashEntries = null;
+            _manifoldDispatchArguments = null;
         }
 
         private static Matrix4x4 PoseMatrix(Pose pose) =>
@@ -803,5 +1059,6 @@ namespace Genesis.RoomScan.Prism
             while (result < value && result < 1 << 30) result <<= 1;
             return result;
         }
+
     }
 }

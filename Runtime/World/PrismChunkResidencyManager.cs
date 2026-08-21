@@ -57,7 +57,6 @@ namespace Genesis.RoomScan.World
             _lifetime = new CancellationTokenSource();
             _submaps.RolloverRequested += OnRolloverRequested;
             _submaps.ActiveChunkChanged += OnActiveChunkChanged;
-            _submaps.PoseGraphRefined += OnPoseGraphRefined;
             _scanner.ScanStopped += OnScanStopped;
             _subscribed = true;
             if (_submaps.ActiveChunk != null)
@@ -70,7 +69,6 @@ namespace Genesis.RoomScan.World
             {
                 _submaps.RolloverRequested -= OnRolloverRequested;
                 _submaps.ActiveChunkChanged -= OnActiveChunkChanged;
-                _submaps.PoseGraphRefined -= OnPoseGraphRefined;
                 _scanner.ScanStopped -= OnScanStopped;
             }
             _lifetime?.Cancel();
@@ -83,19 +81,6 @@ namespace Genesis.RoomScan.World
         {
             if (request == null || string.IsNullOrEmpty(request.SourceChunkId)) return;
             BeginStage(request.SourceChunkId);
-        }
-
-        private void OnPoseGraphRefined(PoseGraphRefinementResult _)
-        {
-            WorldManifest manifest = _submaps?.Manifest;
-            if (manifest?.chunks == null) return;
-            foreach (ChunkRecord chunk in manifest.chunks)
-            {
-                if (chunk == null) continue;
-                _worldRenderer?.SetResidentTransform(chunk.chunkId,
-                    chunk.worldFromChunk.ToMatrix());
-            }
-            _scanner.ConfigurePrismChunk(_submaps.ActiveChunk);
         }
 
         private void OnScanStopped()

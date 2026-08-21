@@ -699,7 +699,7 @@ void InitializeBasePages(uint3 id : SV_DispatchThreadID)
     {
         uint supportCells = max(1u,
             countbits(film.supportMaskLow) + countbits(film.supportMaskHigh));
-        float4 quality = _FilmInformationRead[(page.filmId - 1u) * 9u + 8u];
+        float4 quality = _FilmInformationRead[(page.filmId - 1u) * 10u + 8u];
         initial.coverage = 1.0;
         initial.support = max(0.25,
             film.supportTotal / max(1.0, (float)supportCells * 4.0));
@@ -901,7 +901,7 @@ void AccumulatePreHitPressure(uint3 id : SV_DispatchThreadID)
         return;
     DisplacementCell cell = LoadCellRead(globalCell);
     float bestPressure = max(cell.bestPrecision,
-        max(_FilmInformationRead[filmIndex * 9u + 8u].w, 1e-8));
+        max(_FilmInformationRead[filmIndex * 10u + 8u].w, 1e-8));
     float pressureRatio = saturate(eventData.pressurePrecision / bestPressure);
     float preHitPressureWeight = saturate(eventData.confidence) *
         pressureRatio * pressureRatio;
@@ -955,7 +955,7 @@ void AccumulateOccluderPreHitPressure(uint3 id : SV_DispatchThreadID)
         return;
     DisplacementCell cell = LoadCellRead(globalCell);
     float bestPressure = max(cell.bestPrecision,
-        max(_FilmInformationRead[filmIndex * 9u + 8u].w, 1e-8));
+        max(_FilmInformationRead[filmIndex * 10u + 8u].w, 1e-8));
     float pressureRatio = saturate(eventData.pressurePrecision / bestPressure);
     float preHitPressureWeight = saturate(eventData.confidence) *
         pressureRatio * pressureRatio;

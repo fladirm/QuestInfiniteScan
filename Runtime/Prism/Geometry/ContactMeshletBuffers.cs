@@ -5,6 +5,45 @@ using UnityEngine.Rendering;
 
 namespace Genesis.RoomScan.Prism
 {
+    /// <summary>
+    /// Derived vertex semantics. These bits are deliberately unrelated to
+    /// <see cref="ContactFilmFlags"/>; copying canonical flags into a mesh vertex is
+    /// an ABI violation because derived material and canonical lifecycle are
+    /// different state machines.
+    /// </summary>
+    [Flags]
+    public enum ContactMeshletVertexFlags : uint
+    {
+        None = 0,
+        MeasuredContact = 1u << 0,
+        Boundary = 1u << 1,
+        LatentConnector = 1u << 2,
+        LatentFrontier = 1u << 3
+    }
+
+    /// <summary>Typed flags for one derived meshlet descriptor.</summary>
+    [Flags]
+    public enum ContactMeshletDescriptorFlags : uint
+    {
+        None = 0,
+        MeasuredSurface = 1u << 0,
+        HasBoundary = 1u << 1,
+        ExactTopology = 1u << 2,
+        ElasticConnector = 1u << 3,
+        LatentFrontier = 1u << 4
+    }
+
+    /// <summary>Per-view culling result; never persisted as canonical state.</summary>
+    [Flags]
+    public enum ContactMeshletViewFlags : uint
+    {
+        None = 0,
+        Visible = 1u << 0,
+        Occluded = 1u << 1,
+        FrustumRejected = 1u << 2,
+        Overflow = 1u << 3
+    }
+
     [StructLayout(LayoutKind.Sequential)]
     public struct ContactMeshletVertexGpu
     {
@@ -21,8 +60,12 @@ namespace Genesis.RoomScan.Prism
         // Build-local continuous support sample.  It is persisted with the derived
         // cache but is not part of canonical ContactFilm state.
         public uint CoverageBits;
+        // Stable identity shared by the measured and latent duplicate at a clipped
+        // contact/boundary sample. Zero means an ordinary interior lattice vertex.
+        public uint BoundarySampleId;
+        public uint Reserved;
 
-        public const int Stride = 64;
+        public const int Stride = 72;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -59,6 +102,29 @@ namespace Genesis.RoomScan.Prism
     }
 
     /// <summary>
+    /// Stable derived arena ownership for one generation-tagged ContactFilm. Counts
+    /// may change inside the reserved ranges without repacking unrelated films.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct ContactFilmMeshletRangeGpu
+    {
+        public uint FilmId;
+        public uint FilmGeneration;
+        public uint FilmRevision;
+        public uint Flags;
+        public uint VertexOffset;
+        public uint VertexCapacity;
+        public uint IndexOffset;
+        public uint IndexCapacity;
+        public uint DescriptorOffset;
+        public uint DescriptorCapacity;
+        public uint MaximumSegments;
+        public uint Reserved;
+
+        public const int Stride = 48;
+    }
+
+    /// <summary>
     /// One immutable, generation-tagged meshlet publication. The builder only writes
     /// the inactive generation. A published generation is never mutated while a
     /// prediction or preview draw can still reference it.
@@ -67,22 +133,31 @@ namespace Genesis.RoomScan.Prism
     {
         private static readonly uint[] EmptyIndirectArgs = { 0u, 1u, 0u, 0u };
         private static readonly uint[] EmptyBuildDispatchArgs =
-            { 0u, 1u, 1u, 0u, 1u, 1u };
+        {
+            0u, 1u, 1u,
+            0u, 1u, 1u,
+            0u, 1u, 1u,
+            0u, 1u, 1u,
+            0u, 1u, 1u
+        };
         private static readonly uint[] EmptyCullDispatchArgs = { 0u, 1u, 1u };
         private static readonly uint[] EmptyCounters = new uint[8];
 
         internal ContactMeshletGenerationBuffers(int vertexCapacity,
-            int indexCapacity, int descriptorCapacity)
+            int indexCapacity, int descriptorCapacity, int filmCapacity = 1)
         {
             VertexCapacity = Math.Max(1, vertexCapacity);
             IndexCapacity = Math.Max(1, indexCapacity);
             DescriptorCapacity = Math.Max(1, descriptorCapacity);
+            FilmCapacity = Math.Max(1, filmCapacity);
             Vertices = new GraphicsBuffer(GraphicsBuffer.Target.Structured,
                 VertexCapacity, ContactMeshletVertexGpu.Stride);
             Indices = new GraphicsBuffer(GraphicsBuffer.Target.Structured,
                 IndexCapacity, sizeof(uint));
             Descriptors = new GraphicsBuffer(GraphicsBuffer.Target.Structured,
                 DescriptorCapacity, ContactMeshletDescriptorGpu.Stride);
+            FilmRanges = new GraphicsBuffer(GraphicsBuffer.Target.Structured,
+                FilmCapacity, ContactFilmMeshletRangeGpu.Stride);
             DrawArguments = new GraphicsBuffer(
                 GraphicsBuffer.Target.IndirectArguments | GraphicsBuffer.Target.Structured,
                 1, sizeof(uint) * 4);
@@ -90,7 +165,7 @@ namespace Genesis.RoomScan.Prism
                 EmptyCounters.Length, sizeof(uint));
             BuildDispatchArguments = new GraphicsBuffer(
                 GraphicsBuffer.Target.IndirectArguments | GraphicsBuffer.Target.Structured,
-                2, sizeof(uint) * 3);
+                5, sizeof(uint) * 3);
             CullDispatchArguments = new GraphicsBuffer(
                 GraphicsBuffer.Target.IndirectArguments | GraphicsBuffer.Target.Structured,
                 1, sizeof(uint) * 3);
@@ -103,6 +178,7 @@ namespace Genesis.RoomScan.Prism
         public GraphicsBuffer Vertices { get; private set; }
         public GraphicsBuffer Indices { get; private set; }
         public GraphicsBuffer Descriptors { get; private set; }
+        public GraphicsBuffer FilmRanges { get; private set; }
         public GraphicsBuffer DrawArguments { get; private set; }
         public GraphicsBuffer BuildCounters { get; private set; }
         public GraphicsBuffer BuildDispatchArguments { get; private set; }
@@ -110,6 +186,7 @@ namespace Genesis.RoomScan.Prism
         public int VertexCapacity { get; }
         public int IndexCapacity { get; }
         public int DescriptorCapacity { get; }
+        public int FilmCapacity { get; }
         public uint Generation { get; internal set; }
         public bool IsDisposed => Vertices == null;
         private GraphicsFence _lastReadFence;
@@ -140,6 +217,7 @@ namespace Genesis.RoomScan.Prism
             Vertices?.Dispose();
             Indices?.Dispose();
             Descriptors?.Dispose();
+            FilmRanges?.Dispose();
             DrawArguments?.Dispose();
             BuildCounters?.Dispose();
             BuildDispatchArguments?.Dispose();
@@ -147,6 +225,7 @@ namespace Genesis.RoomScan.Prism
             Vertices = null;
             Indices = null;
             Descriptors = null;
+            FilmRanges = null;
             DrawArguments = null;
             BuildCounters = null;
             BuildDispatchArguments = null;
@@ -212,9 +291,10 @@ namespace Genesis.RoomScan.Prism
         private int _buildSlot = 1;
 
         public ContactMeshletBuffers(int vertexCapacity = 1, int indexCapacity = 1,
-            int descriptorCapacity = 1)
+            int descriptorCapacity = 1, int filmCapacity = 1)
         {
-            Allocate(vertexCapacity, indexCapacity, descriptorCapacity);
+            Allocate(vertexCapacity, indexCapacity, descriptorCapacity,
+                filmCapacity);
             WorldFromChunk = Matrix4x4.identity;
         }
 
@@ -228,28 +308,39 @@ namespace Genesis.RoomScan.Prism
         public int VertexCapacity => Published.VertexCapacity;
         public int IndexCapacity => Published.IndexCapacity;
         public int DescriptorCapacity => Published.DescriptorCapacity;
+        public int FilmCapacity => Published.FilmCapacity;
         public uint PublicationGeneration => Published.Generation;
         public Matrix4x4 WorldFromChunk { get; private set; }
         public bool IsDisposed => _generations == null;
 
         internal void EnsureCapacity(int vertexCapacity, int indexCapacity,
-            int descriptorCapacity)
+            int descriptorCapacity, int filmCapacity = 1)
         {
             vertexCapacity = Math.Max(1, vertexCapacity);
             indexCapacity = Math.Max(1, indexCapacity);
             descriptorCapacity = Math.Max(1, descriptorCapacity);
+            filmCapacity = Math.Max(1, filmCapacity);
             if (vertexCapacity <= VertexCapacity && indexCapacity <= IndexCapacity &&
-                descriptorCapacity <= DescriptorCapacity) return;
+                descriptorCapacity <= DescriptorCapacity &&
+                filmCapacity <= FilmCapacity) return;
             int vertices = Math.Max(vertexCapacity, VertexCapacity);
             int indices = Math.Max(indexCapacity, IndexCapacity);
             int descriptors = Math.Max(descriptorCapacity, DescriptorCapacity);
+            int films = Math.Max(filmCapacity, FilmCapacity);
             DisposeGenerations();
-            Allocate(vertices, indices, descriptors);
+            Allocate(vertices, indices, descriptors, films);
         }
 
         internal bool TryBeginBuild(out ContactMeshletGenerationBuffers generation)
         {
             generation = Inactive;
+            return generation.CanWrite;
+        }
+
+        internal bool TryBeginPublishedWrite(
+            out ContactMeshletGenerationBuffers generation)
+        {
+            generation = Published;
             return generation.CanWrite;
         }
 
@@ -269,6 +360,13 @@ namespace Genesis.RoomScan.Prism
             _buildSlot = previousPublished;
         }
 
+        internal void MarkPublishedMutation(uint generation)
+        {
+            if (generation == 0u)
+                throw new ArgumentOutOfRangeException(nameof(generation));
+            Published.Generation = generation;
+        }
+
         internal void MarkPublishedRead(GraphicsFence fence) =>
             Published.MarkRead(fence);
 
@@ -279,14 +377,14 @@ namespace Genesis.RoomScan.Prism
         }
 
         private void Allocate(int vertexCapacity, int indexCapacity,
-            int descriptorCapacity)
+            int descriptorCapacity, int filmCapacity)
         {
             _generations = new[]
             {
                 new ContactMeshletGenerationBuffers(vertexCapacity, indexCapacity,
-                    descriptorCapacity),
+                    descriptorCapacity, filmCapacity),
                 new ContactMeshletGenerationBuffers(vertexCapacity, indexCapacity,
-                    descriptorCapacity)
+                    descriptorCapacity, filmCapacity)
             };
             _publishedSlot = 0;
             _buildSlot = 1;

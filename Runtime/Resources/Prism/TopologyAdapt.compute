@@ -1,16 +1,12 @@
 #pragma kernel ClearTopologyAdaptFrame
 #pragma kernel SplitContactFilms
+#pragma kernel PublishSplitActivity
+#pragma kernel InitializeSplitEvidence
 #pragma kernel BuildTopologyAdaptArguments
 #pragma kernel InitializeSplitDisplacement
 #pragma kernel TransferSplitBoundaries
 #pragma kernel ClearTopologyBoundaryHash
 #pragma kernel RehashTopologyBoundaries
-#pragma kernel ResetFilmMergeWave
-#pragma kernel ClearFilmMergeHash
-#pragma kernel BuildFilmMergeHash
-#pragma kernel MergeCompatibleFilms
-#pragma kernel BuildMergeArguments
-#pragma kernel InitializeMergedDisplacement
 
 struct ContactFilmHeader
 {
@@ -69,24 +65,44 @@ struct BoundaryHashEntry
 struct TopologySplitRecord
 {
     uint parentFilmIndex;
-    uint firstChildFilmIndex;
+    uint parentFilmGeneration;
+    uint childFilmIndex0;
+    uint childFilmIndex1;
+    uint childFilmIndex2;
+    uint childFilmIndex3;
     uint firstChildBasePage;
     uint childCount;
+    uint parentActiveOrdinal;
+    uint firstNewActiveOrdinal;
+    uint firstDirtyOrdinal;
+    uint reservedLinkStart;
+    uint reservedExternalLinkCount;
+    uint reservedLinkCount;
+    uint reservedFrontierStart;
+    uint reservedFrontierCount;
+    uint reservedBoundaryStart;
+    uint reservedBoundaryCount;
+    uint transactionState;
 };
 
-struct TopologyMergeRecord
+struct TopologyBoundarySplitPlan
 {
-    uint filmAIndex; uint filmBIndex;
-    uint mergedFilmIndex; uint mergedBasePage;
-    uint reserved0; uint reserved1; uint reserved2; uint reserved3;
+    uint boundaryIndex;
+    uint boundaryGeneration;
+    uint splitRecordIndex;
+    uint parentFilmIndex;
+    uint parentFilmGeneration;
+    uint parentEndpoint;
+    uint reservedStart;
+    uint segmentCount;
 };
 
-struct FilmMergeHashEntry
+struct FilmSlotState
 {
-    int3 cell;
-    uint filmId;
     uint generation;
-    uint hash;
+    uint activeOrdinal;
+    uint nextFree;
+    uint flags;
 };
 
 RWStructuredBuffer<ContactFilmHeader> _FilmHeaders;
@@ -94,6 +110,9 @@ RWStructuredBuffer<float4> _FilmInformation;
 StructuredBuffer<ContactFilmHeader> _FilmHeadersRead;
 StructuredBuffer<float4> _FilmInformationRead;
 RWStructuredBuffer<uint> _FilmAllocator;
+RWStructuredBuffer<FilmSlotState> _FilmSlotStates;
+RWStructuredBuffer<uint> _ActiveFilmIndices;
+RWStructuredBuffer<uint> _DirtyFilmIndices;
 RWStructuredBuffer<DisplacementPageHeader> _DisplacementPages;
 RWStructuredBuffer<DisplacementCell> _BaseDisplacementCells;
 RWStructuredBuffer<DisplacementCell> _MicroDisplacementCells;
@@ -106,6 +125,7 @@ RWStructuredBuffer<uint> _DisplacementAllocator;
 RWStructuredBuffer<int> _BaseDisplacementCellAccumulator;
 RWStructuredBuffer<uint> _DisplacementCellDirtyFlags;
 RWStructuredBuffer<ContactTopologyEvidence> _TopologyEvidence;
+StructuredBuffer<ContactTopologyEvidence> _TopologyEvidenceRead;
 StructuredBuffer<uint> _DirtyTopologyIndices;
 StructuredBuffer<uint> _TopologyState;
 RWStructuredBuffer<ContactBoundaryHeader> _BoundaryHeaders;
@@ -113,13 +133,10 @@ RWStructuredBuffer<float4> _BoundaryInformation;
 RWStructuredBuffer<BoundaryHashEntry> _BoundaryHash;
 RWStructuredBuffer<uint> _BoundaryAllocator;
 RWStructuredBuffer<TopologySplitRecord> _SplitRecords;
-RWStructuredBuffer<TopologyMergeRecord> _MergeRecords;
-RWStructuredBuffer<FilmMergeHashEntry> _FilmMergeHash;
 StructuredBuffer<TopologySplitRecord> _SplitRecordsRead;
-StructuredBuffer<TopologyMergeRecord> _MergeRecordsRead;
-StructuredBuffer<FilmMergeHashEntry> _FilmMergeHashRead;
 RWStructuredBuffer<uint> _AdaptState;
 StructuredBuffer<uint> _AdaptStateRead;
+StructuredBuffer<TopologyBoundarySplitPlan> _BoundarySplitPlansRead;
 RWStructuredBuffer<uint3> _AdaptDispatchArguments;
 
 uint _FilmCapacity;
@@ -135,10 +152,6 @@ float _MinimumSplitExtent;
 float _BimodalSeparation;
 float _SplitVariance;
 float _SplitBoundarySupport;
-uint _FilmMergeHashMask;
-float _MergeHashCellSize;
-float _MergeNormalCosine;
-float _MergeSurfaceGap;
 
 static const uint FILM_ACTIVE = 1u;
 static const uint FILM_ONE_SIDED = 2u;
@@ -163,9 +176,40 @@ static const uint MICRO_CELLS_PER_PAGE = 64u;
 static const uint INFORMATION_RECORDS = 8u;
 // Must match ContactDisplacementPool.TransientAccumulatorWordsPerCell.  The
 // final three words hold opposing pre-hit pressure moments and cannot survive
-// split/merge as stale data from a previous page owner.
+// a split as stale data from a previous page owner.
 static const uint WORDS_PER_CELL = 11u;
 static const uint ALLOCATION_CLAIM = 0xffffffffu;
+static const uint INVALID_INDEX = 0xffffffffu;
+static const uint SLOT_ALLOCATED = 1u;
+static const uint SLOT_ACTIVE = 2u;
+static const uint SLOT_DIRTY = 4u;
+static const uint SLOT_FREE = 8u;
+static const uint SPLIT_TRANSACTION_RESERVED = 1u;
+static const uint SPLIT_TRANSACTION_COMMITTED = 2u;
+
+uint SplitChildIndex(TopologySplitRecord record, uint quadrant)
+{
+    if (quadrant == 0u) return record.childFilmIndex0;
+    if (quadrant == 1u) return record.childFilmIndex1;
+    if (quadrant == 2u) return record.childFilmIndex2;
+    return record.childFilmIndex3;
+}
+
+bool PublishSplitChild(uint slot, uint generation, uint ordinal,
+    uint dirtyOrdinal)
+{
+    if (slot >= _FilmCapacity || ordinal >= _FilmCapacity ||
+        dirtyOrdinal >= _FilmCapacity) return false;
+    FilmSlotState state;
+    state.generation = generation;
+    state.activeOrdinal = ordinal;
+    state.nextFree = 0u;
+    state.flags = SLOT_ALLOCATED | SLOT_ACTIVE | SLOT_DIRTY;
+    _FilmSlotStates[slot] = state;
+    _ActiveFilmIndices[ordinal] = slot;
+    _DirtyFilmIndices[dirtyOrdinal] = slot;
+    return true;
+}
 
 uint UpperIndex(uint row, uint column)
 {
@@ -224,6 +268,30 @@ float BootstrapCoverage(ContactFilmHeader film, float2 uv)
         ((film.supportMaskLow >> bit) & 1u) != 0u :
         ((film.supportMaskHigh >> (bit - 32u)) & 1u) != 0u;
     return covered ? 1.0 : 0.0;
+}
+
+void TransformChildSupportMask(ContactFilmHeader parent, uint quadrant,
+    out uint low, out uint high)
+{
+    low = 0u;
+    high = 0u;
+    uint2 parentOffset = uint2((quadrant & 1u) != 0u ? 4u : 0u,
+        (quadrant & 2u) != 0u ? 4u : 0u);
+    [unroll]
+    for (uint y = 0u; y < 8u; ++y)
+    [unroll]
+    for (uint x = 0u; x < 8u; ++x)
+    {
+        uint2 parentCell = parentOffset + uint2(x >> 1u, y >> 1u);
+        uint parentBit = parentCell.y * 8u + parentCell.x;
+        uint observed = parentBit < 32u ?
+            ((parent.supportMaskLow >> parentBit) & 1u) :
+            ((parent.supportMaskHigh >> (parentBit - 32u)) & 1u);
+        if (observed == 0u) continue;
+        uint childBit = y * 8u + x;
+        if (childBit < 32u) low |= 1u << childBit;
+        else high |= 1u << (childBit - 32u);
+    }
 }
 
 bool IsMicroCell(uint globalCell) { return globalCell >= _BaseCellCapacity; }
@@ -389,6 +457,10 @@ void TransformChildInformation(uint parentInfo, uint childInfo, uint quadrant,
     childFreeState.z = parentFreeState.z;
     childFreeState.w = parentFreeState.w;
     _FilmInformation[childInfo + 5u] = childFreeState;
+    // Children inherit the parent's already-accounted independent view bins and
+    // posterior metadata. Splitting geometry must not make duplicate old frames
+    // appear statistically independent again.
+    _FilmInformation[childInfo + 9u] = _FilmInformation[parentInfo + 9u];
 }
 
 uint BoundaryHashKey(uint filmId, uint generation, uint cellKey)
@@ -411,52 +483,28 @@ void ClearTopologyAdaptFrame(uint3 id : SV_DispatchThreadID)
 [numthreads(64, 1, 1)]
 void SplitContactFilms(uint3 id : SV_DispatchThreadID)
 {
-    uint dirtyCount = min(_TopologyState[0], _FilmCapacity);
-    if (id.x >= dirtyCount) return;
-    uint parentIndex = _DirtyTopologyIndices[id.x];
-    if (parentIndex >= _FilmCapacity) return;
+    uint splitCount = min(_AdaptStateRead[0], _FilmCapacity);
+    if (id.x >= splitCount) return;
+    TopologySplitRecord record = _SplitRecordsRead[id.x];
+    if (record.transactionState != SPLIT_TRANSACTION_RESERVED ||
+        record.childCount != 4u || record.parentFilmIndex >= _FilmCapacity ||
+        record.firstChildBasePage > _BasePageCapacity - 4u)
+        return;
+    uint parentIndex = record.parentFilmIndex;
     ContactFilmHeader parent = _FilmHeaders[parentIndex];
     if ((parent.flags & FILM_ACTIVE) == 0u ||
-        (parent.flags & (FILM_SPLIT_PARENT | FILM_RETIRED |
-            FILM_TOPOLOGY_LOCKED)) != 0u ||
-        parent.reserved2 >= _MaximumSplitDepth ||
-        min(parent.extentU, parent.extentV) < _MinimumSplitExtent)
-        return;
-    ContactTopologyEvidence evidence = _TopologyEvidence[parentIndex];
-    float positiveMean = evidence.positiveSupport > 0.0 ?
-        evidence.positiveMoment / evidence.positiveSupport : 0.0;
-    float negativeMean = evidence.negativeSupport > 0.0 ?
-        evidence.negativeMoment / evidence.negativeSupport : 0.0;
-    float separation = positiveMean - negativeMean;
-    bool bimodal = evidence.positiveSupport >= 4.0 &&
-        evidence.negativeSupport >= 4.0 &&
-        separation >= max(_BimodalSeparation, 4.0 * parent.sigmaNormal);
-    bool boundarySplit = parent.boundaryCount > 0u &&
-        evidence.boundarySupport >= _SplitBoundarySupport;
-    bool nonSingle = evidence.totalSupport >= 8.0 &&
-        evidence.residualVariance >= _SplitVariance &&
-        parent.contradiction >= 0.35;
-    if (!bimodal && !boundarySplit && !nonSingle) return;
-
-    uint firstChild;
-    InterlockedAdd(_FilmAllocator[0], 4u, firstChild);
-    if (firstChild > _FilmCapacity - 4u)
+        parent.generation != record.parentFilmGeneration)
     {
-        InterlockedAdd(_FilmAllocator[2], 4u);
+        InterlockedAdd(_AdaptState[1], 1u);
         return;
     }
-    uint firstPage;
-    InterlockedAdd(_DisplacementAllocator[0], 4u, firstPage);
-    if (firstPage > _BasePageCapacity - 4u)
-    {
-        InterlockedAdd(_DisplacementAllocator[2], 4u);
-        return;
-    }
-    uint generation = max(1u, _FilmAllocator[3]);
+    uint childIndices[4] = { record.childFilmIndex0, record.childFilmIndex1,
+        record.childFilmIndex2, record.childFilmIndex3 };
+    uint firstPage = record.firstChildBasePage;
     uint pageGeneration = max(1u, _DisplacementAllocator[4]);
     float totalPageSupport;
     QuadrantSupport(parent, 0u, totalPageSupport);
-    uint parentInfo = parentIndex * 9u;
+    uint parentInfo = parentIndex * 10u;
     [loop]
     for (uint quadrant = 0u; quadrant < 4u; ++quadrant)
     {
@@ -470,12 +518,14 @@ void SplitContactFilms(uint3 id : SV_DispatchThreadID)
         float centerU = uc * parent.extentU;
         float centerV = vc * parent.extentV;
         float centerHeight = Height(parent, centerU, centerV);
-        uint childIndex = firstChild + quadrant;
+        uint childIndex = childIndices[quadrant];
+        FilmSlotState reservedState = _FilmSlotStates[childIndex];
         ContactFilmHeader child = parent;
         child.id = childIndex + 1u;
-        child.generation = generation;
+        child.generation = reservedState.generation;
         child.flags = FILM_ACTIVE | FILM_ONE_SIDED | FILM_UNCERTAIN |
-            FILM_DIRTY_GEOMETRY | FILM_DIRTY_MESHLET | FILM_HAS_DISPLACEMENT;
+            FILM_DIRTY_GEOMETRY | FILM_DIRTY_MESHLET | FILM_HAS_DISPLACEMENT |
+            FILM_PRESSURE_MANIFOLD_MEMBER;
         child.origin = parent.origin + centerU * parent.tangentU +
             centerV * parent.tangentV + centerHeight * parent.normal;
         child.supportTotal = parent.supportTotal * fraction;
@@ -493,24 +543,18 @@ void SplitContactFilms(uint3 id : SV_DispatchThreadID)
         child.displacementPage = firstPage + quadrant + 1u;
         child.boundaryStart = 0u;
         child.boundaryCount = 0u;
-        child.supportMaskLow = 0u;
-        child.supportMaskHigh = 0u;
+        uint childSupportLow;
+        uint childSupportHigh;
+        TransformChildSupportMask(parent, quadrant, childSupportLow,
+            childSupportHigh);
+        child.supportMaskLow = childSupportLow;
+        child.supportMaskHigh = childSupportHigh;
         child.reserved0 = parent.id;
         child.reserved1 = quadrant;
         child.reserved2 = parent.reserved2 + 1u;
         _FilmHeaders[childIndex] = child;
-        TransformChildInformation(parentInfo, childIndex * 9u, quadrant,
+        TransformChildInformation(parentInfo, childIndex * 10u, quadrant,
             fraction, centerHeight);
-        ContactTopologyEvidence childEvidence = evidence;
-        childEvidence.positiveMoment *= fraction;
-        childEvidence.positiveSupport *= fraction;
-        childEvidence.negativeMoment *= fraction;
-        childEvidence.negativeSupport *= fraction;
-        childEvidence.boundarySupport *= fraction;
-        childEvidence.totalSupport *= fraction;
-        childEvidence.revision = 1u;
-        _TopologyEvidence[childIndex] = childEvidence;
-
         DisplacementPageHeader page = (DisplacementPageHeader)0;
         page.id = firstPage + quadrant + 1u;
         page.generation = pageGeneration;
@@ -521,48 +565,92 @@ void SplitContactFilms(uint3 id : SV_DispatchThreadID)
         page.bestFootprintBits = asuint(3.402823466e+38);
         _DisplacementPages[firstPage + quadrant] = page;
     }
-    InterlockedAdd(_FilmAllocator[1], 3u);
     parent.flags &= ~FILM_ACTIVE;
     parent.flags |= FILM_SPLIT_PARENT | FILM_RETIRED | FILM_DIRTY_MESHLET;
     parent.boundaryCount = 0u;
-    parent.reserved0 = firstChild + 1u;
+    parent.reserved0 = childIndices[0] + 1u;
     parent.reserved1 = 4u;
     parent.revision = parent.revision + 1u;
     _FilmHeaders[parentIndex] = parent;
-    uint splitSlot;
-    InterlockedAdd(_AdaptState[0], 1u, splitSlot);
-    if (splitSlot < _FilmCapacity)
+    record.transactionState = SPLIT_TRANSACTION_COMMITTED;
+    _SplitRecords[id.x] = record;
+}
+
+[numthreads(1, 1, 1)]
+void PublishSplitActivity(uint3 id : SV_DispatchThreadID)
+{
+    uint splitCount = min(_AdaptStateRead[0], _FilmCapacity);
+    if (id.x >= splitCount) return;
+    TopologySplitRecord record = _SplitRecordsRead[id.x];
+    if (record.transactionState != SPLIT_TRANSACTION_COMMITTED ||
+        record.childCount != 4u ||
+        record.parentFilmIndex >= _FilmCapacity ||
+        record.parentActiveOrdinal >= _FilmCapacity) return;
+    bool published = true;
+    [unroll]
+    for (uint child = 0u; child < 4u; ++child)
     {
-        TopologySplitRecord record;
-        record.parentFilmIndex = parentIndex;
-        record.firstChildFilmIndex = firstChild;
-        record.firstChildBasePage = firstPage;
-        record.childCount = 4u;
-        _SplitRecords[splitSlot] = record;
+        uint childIndex = SplitChildIndex(record, child);
+        ContactFilmHeader childFilm = _FilmHeadersRead[childIndex];
+        uint activeOrdinal = child == 0u ? record.parentActiveOrdinal :
+            record.firstNewActiveOrdinal + child - 1u;
+        published = PublishSplitChild(childIndex, childFilm.generation,
+            activeOrdinal, record.firstDirtyOrdinal + child) && published;
     }
-    else InterlockedAdd(_AdaptState[1], 1u);
+    FilmSlotState parentState = _FilmSlotStates[record.parentFilmIndex];
+    parentState.flags = SLOT_ALLOCATED;
+    _FilmSlotStates[record.parentFilmIndex] = parentState;
+    if (!published) InterlockedAdd(_FilmAllocator[2], 1u);
+}
+
+[numthreads(1, 1, 1)]
+void InitializeSplitEvidence(uint3 id : SV_DispatchThreadID)
+{
+    uint splitCount = min(_AdaptStateRead[0], _FilmCapacity);
+    if (id.x >= splitCount) return;
+    TopologySplitRecord record = _SplitRecordsRead[id.x];
+    if (record.transactionState != SPLIT_TRANSACTION_COMMITTED ||
+        record.childCount != 4u || record.parentFilmIndex >= _FilmCapacity)
+        return;
+    ContactTopologyEvidence parent = _TopologyEvidenceRead[record.parentFilmIndex];
+    float total = max(parent.totalSupport, 1e-6);
+    [unroll]
+    for (uint child = 0u; child < 4u; ++child)
+    {
+        uint childIndex = SplitChildIndex(record, child);
+        if (childIndex >= _FilmCapacity) continue;
+        ContactFilmHeader childFilm = _FilmHeadersRead[childIndex];
+        float fraction = clamp(childFilm.supportTotal / total, 0.01, 0.97);
+        ContactTopologyEvidence evidence = parent;
+        evidence.positiveMoment *= fraction;
+        evidence.positiveSupport *= fraction;
+        evidence.negativeMoment *= fraction;
+        evidence.negativeSupport *= fraction;
+        evidence.boundarySupport *= fraction;
+        evidence.totalSupport *= fraction;
+        evidence.revision = 1u;
+        _TopologyEvidence[childIndex] = evidence;
+    }
 }
 
 [numthreads(1, 1, 1)]
 void BuildTopologyAdaptArguments(uint3 id : SV_DispatchThreadID)
 {
-    uint splitCount = min(_AdaptStateRead[0], _FilmCapacity);
+    uint splitCount = min(_AdaptState[0], _FilmCapacity);
     uint boundaryCount = min(_BoundaryAllocator[0], _BoundaryCapacity);
+    uint sourceBoundaryCount = min(_AdaptState[3], boundaryCount);
     _AdaptDispatchArguments[0] = uint3(
         (splitCount * 4u * BASE_CELLS_PER_PAGE + 63u) / 64u, 1u, 1u);
     _AdaptDispatchArguments[1] = uint3(splitCount > 0u ?
-        (boundaryCount + 63u) / 64u : 0u, 1u, 1u);
+        (sourceBoundaryCount + 63u) / 64u : 0u, 1u, 1u);
     _AdaptDispatchArguments[2] = uint3(splitCount > 0u ?
         ((_BoundaryHashMask + 1u) + 63u) / 64u : 0u, 1u, 1u);
-    _AdaptDispatchArguments[3] = _AdaptDispatchArguments[1];
-    uint filmCount = min(_FilmAllocator[0], _FilmCapacity);
-    _AdaptDispatchArguments[4] = uint3((filmCount + 63u) / 64u, 1u, 1u);
-    _AdaptDispatchArguments[5] = uint3(
-        ((_FilmMergeHashMask + 1u) + 63u) / 64u, 1u, 1u);
-    // Merge carries two 6x6 information transforms per invocation. A 16-wide
-    // group keeps the complete warp useful without spilling the large private
-    // matrix state that a 64-wide mobile group would force on Adreno.
-    _AdaptDispatchArguments[7] = uint3((filmCount + 15u) / 16u, 1u, 1u);
+    _AdaptDispatchArguments[3] = uint3(splitCount > 0u ?
+        (boundaryCount + 63u) / 64u : 0u, 1u, 1u);
+    _AdaptDispatchArguments[4] = uint3(splitCount, 1u, 1u);
+    _AdaptDispatchArguments[5] = uint3(splitCount, 1u, 1u);
+    _AdaptDispatchArguments[6] = uint3((splitCount + 63u) / 64u, 1u, 1u);
+    _AdaptDispatchArguments[7] = uint3(0u, 1u, 1u);
 }
 
 [numthreads(64, 1, 1)]
@@ -575,8 +663,9 @@ void InitializeSplitDisplacement(uint3 id : SV_DispatchThreadID)
     uint splitIndex = ordinal / 4u;
     uint quadrant = ordinal & 3u;
     TopologySplitRecord record = _SplitRecordsRead[splitIndex];
+    if (record.transactionState != SPLIT_TRANSACTION_COMMITTED) return;
     ContactFilmHeader parent = _FilmHeadersRead[record.parentFilmIndex];
-    uint childIndex = record.firstChildFilmIndex + quadrant;
+    uint childIndex = SplitChildIndex(record, quadrant);
     ContactFilmHeader child = _FilmHeadersRead[childIndex];
     uint x = localCell & 15u;
     uint y = localCell >> 4u;
@@ -662,8 +751,41 @@ uint UvQuadrant(float2 uv)
     return (uv.x >= 0.5 ? 1u : 0u) | (uv.y >= 0.5 ? 2u : 0u);
 }
 
-void WriteSplitBoundary(uint targetIndex, ContactBoundaryHeader source,
-    uint quadrant, float t0, float t1, ContactFilmHeader child,
+float2 ProjectFilmUv(ContactFilmHeader film, float3 surfacePoint)
+{
+    float3 delta = surfacePoint - film.origin;
+    return float2(dot(delta, film.tangentU) /
+            max(2.0 * film.extentU, 0.002) + 0.5,
+        dot(delta, film.tangentV) /
+            max(2.0 * film.extentV, 0.002) + 0.5);
+}
+
+float2 BoundaryEndpointUv(ContactBoundaryHeader boundary,
+    ContactFilmHeader parent, uint parentEndpoint, float t,
+    float4 originalInfo[INFORMATION_RECORDS])
+{
+    if (parentEndpoint == 0u) return BoundaryUv(boundary, t);
+    float3 worldPoint = BoundaryPoint3(originalInfo[3u].xyz,
+        originalInfo[4u].xyz, originalInfo[5u].xyz,
+        originalInfo[6u].xyz, t);
+    return ProjectFilmUv(parent, worldPoint);
+}
+
+void AddBoundaryReference(uint filmId, uint filmGeneration, uint boundaryId)
+{
+    if (filmId == 0u || filmId > _FilmCapacity) return;
+    ContactFilmHeader film = _FilmHeaders[filmId - 1u];
+    if (film.id != filmId || film.generation != filmGeneration ||
+        (film.flags & FILM_ACTIVE) == 0u) return;
+    uint ignored;
+    InterlockedCompareExchange(_FilmHeaders[filmId - 1u].boundaryStart,
+        0u, boundaryId, ignored);
+    InterlockedAdd(_FilmHeaders[filmId - 1u].boundaryCount, 1u);
+}
+
+void WriteSplitBoundary(uint targetIndex, uint sourceIndex,
+    ContactBoundaryHeader source, uint parentEndpoint, uint quadrant,
+    float t0, float t1, ContactFilmHeader child,
     float4 originalInfo[INFORMATION_RECORDS])
 {
     float dt = max(t1 - t0, 1.0 / 32.0);
@@ -675,17 +797,24 @@ void WriteSplitBoundary(uint targetIndex, ContactBoundaryHeader source,
     segment.id = targetIndex + 1u;
     if (targetIndex != source.id - 1u)
         segment.generation = max(1u, _BoundaryAllocator[3]);
-    segment.filmA = child.id;
-    segment.filmAGeneration = child.generation;
-    if (segment.filmB == source.filmA)
+    if (parentEndpoint == 0u)
     {
-        segment.filmB = 0u;
-        segment.filmBGeneration = 0u;
+        segment.filmA = child.id;
+        segment.filmAGeneration = child.generation;
+        segment.controlUv01 = float4(TransformUvToChild(q0, quadrant),
+            TransformUvToChild(q1, quadrant));
+        segment.controlUv23 = float4(TransformUvToChild(q2, quadrant),
+            TransformUvToChild(q3, quadrant));
     }
-    segment.controlUv01 = float4(TransformUvToChild(q0, quadrant),
-        TransformUvToChild(q1, quadrant));
-    segment.controlUv23 = float4(TransformUvToChild(q2, quadrant),
-        TransformUvToChild(q3, quadrant));
+    else
+    {
+        segment.filmB = child.id;
+        segment.filmBGeneration = child.generation;
+        // ContactBoundary controls are canonical in FilmA coordinates. Splitting
+        // FilmB partitions the same shared 3D curve without changing FilmA's UV.
+        segment.controlUv01 = float4(q0, q1);
+        segment.controlUv23 = float4(q2, q3);
+    }
     segment.support = source.support * dt;
     segment.flags |= BOUNDARY_ACTIVE | BOUNDARY_DIRTY;
     segment.flags &= ~BOUNDARY_RETIRED;
@@ -736,72 +865,119 @@ void WriteSplitBoundary(uint targetIndex, ContactBoundaryHeader source,
     float4 state = originalInfo[7u];
     state.xyz *= dt;
     _BoundaryInformation[targetInfo + 7u] = state;
-    uint ignored;
-    InterlockedCompareExchange(_FilmHeaders[child.id - 1u].boundaryStart,
-        0u, targetIndex + 1u, ignored);
-    InterlockedAdd(_FilmHeaders[child.id - 1u].boundaryCount, 1u);
+    AddBoundaryReference(child.id, child.generation, targetIndex + 1u);
+    if (targetIndex != sourceIndex)
+    {
+        uint otherFilm = parentEndpoint == 0u ? source.filmB : source.filmA;
+        uint otherGeneration = parentEndpoint == 0u ?
+            source.filmBGeneration : source.filmAGeneration;
+        AddBoundaryReference(otherFilm, otherGeneration, targetIndex + 1u);
+    }
 }
 
 [numthreads(64, 1, 1)]
 void TransferSplitBoundaries(uint3 id : SV_DispatchThreadID)
 {
-    uint boundaryCount = min(_BoundaryAllocator[0], _BoundaryCapacity);
+    uint boundaryCount = min(_AdaptState[3], _BoundaryCapacity);
     uint boundaryIndex = id.x;
     if (boundaryIndex >= boundaryCount) return;
     ContactBoundaryHeader boundary = _BoundaryHeaders[boundaryIndex];
-    if ((boundary.flags & BOUNDARY_ACTIVE) == 0u || boundary.filmA == 0u)
+    if ((boundary.flags & (BOUNDARY_ACTIVE | BOUNDARY_RETIRED)) !=
+            BOUNDARY_ACTIVE || boundary.id != boundaryIndex + 1u)
         return;
-    uint parentIndex = boundary.filmA - 1u;
-    if (parentIndex >= _FilmCapacity) return;
+    TopologyBoundarySplitPlan plan = _BoundarySplitPlansRead[boundaryIndex];
+    if (plan.boundaryIndex != boundaryIndex ||
+        plan.boundaryGeneration != boundary.generation ||
+        plan.splitRecordIndex >= min(_AdaptState[0], _FilmCapacity) ||
+        plan.parentFilmIndex >= _FilmCapacity || plan.segmentCount == 0u)
+        return;
+    uint parentIndex = plan.parentFilmIndex;
     ContactFilmHeader parent = _FilmHeaders[parentIndex];
     if ((parent.flags & FILM_SPLIT_PARENT) == 0u || parent.reserved1 != 4u)
         return;
+    TopologySplitRecord splitRecord =
+        _SplitRecordsRead[plan.splitRecordIndex];
+    if (splitRecord.parentFilmIndex != parentIndex ||
+        splitRecord.transactionState != SPLIT_TRANSACTION_COMMITTED ||
+        splitRecord.parentFilmGeneration != plan.parentFilmGeneration ||
+        plan.parentFilmGeneration != parent.generation ||
+        plan.reservedStart < splitRecord.reservedBoundaryStart ||
+        plan.segmentCount - 1u > splitRecord.reservedBoundaryCount ||
+        plan.reservedStart - splitRecord.reservedBoundaryStart >
+            splitRecord.reservedBoundaryCount - (plan.segmentCount - 1u))
+        return;
+    bool endpointMatches = plan.parentEndpoint == 0u ?
+        boundary.filmA == parent.id &&
+            boundary.filmAGeneration == plan.parentFilmGeneration :
+        boundary.filmB == parent.id &&
+            boundary.filmBGeneration == plan.parentFilmGeneration;
+    if (!endpointMatches) return;
     uint info = boundaryIndex * INFORMATION_RECORDS;
     float4 originalInfo[INFORMATION_RECORDS];
     [unroll] for (uint record = 0u; record < INFORMATION_RECORDS; ++record)
         originalInfo[record] = _BoundaryInformation[info + record];
-    bool wroteOriginal = false;
-    [unroll]
-    for (uint quadrant = 0u; quadrant < 4u; ++quadrant)
+    uint written = 0u;
+    float runStart = 0.0;
+    uint runQuadrant = UvQuadrant(BoundaryEndpointUv(boundary, parent,
+        plan.parentEndpoint, 0.0, originalInfo));
+    [loop]
+    for (uint sampleIndex = 1u; sampleIndex <= 32u; ++sampleIndex)
     {
-        uint firstSample = 33u;
-        uint lastSample = 0u;
-        [unroll]
-        for (uint sampleIndex = 0u; sampleIndex <= 32u; ++sampleIndex)
+        float sampleT = (float)sampleIndex / 32.0;
+        uint quadrant = UvQuadrant(BoundaryEndpointUv(boundary, parent,
+            plan.parentEndpoint, sampleT, originalInfo));
+        if (quadrant != runQuadrant)
         {
-            float t = (float)sampleIndex / 32.0;
-            if (UvQuadrant(BoundaryUv(boundary, t)) != quadrant) continue;
-            firstSample = min(firstSample, sampleIndex);
-            lastSample = max(lastSample, sampleIndex);
-        }
-        if (firstSample > 32u) continue;
-        float t0 = (float)(firstSample > 0u ? firstSample - 1u : 0u) / 32.0;
-        float t1 = (float)min(32u, lastSample + 1u) / 32.0;
-        uint target = boundaryIndex;
-        if (wroteOriginal)
-        {
-            InterlockedAdd(_BoundaryAllocator[0], 1u, target);
-            if (target >= _BoundaryCapacity)
+            float lower = (float)(sampleIndex - 1u) / 32.0;
+            float upper = sampleT;
+            [unroll]
+            for (uint refine = 0u; refine < 8u; ++refine)
+            {
+                float middle = 0.5 * (lower + upper);
+                uint middleQuadrant = UvQuadrant(BoundaryEndpointUv(boundary,
+                    parent, plan.parentEndpoint, middle, originalInfo));
+                if (middleQuadrant == runQuadrant) lower = middle;
+                else upper = middle;
+            }
+            float runEnd = 0.5 * (lower + upper);
+            if (written >= plan.segmentCount)
             {
                 InterlockedAdd(_BoundaryAllocator[2], 1u);
-                continue;
+                return;
             }
-            InterlockedAdd(_BoundaryAllocator[1], 1u);
+            uint target = written == 0u ? boundaryIndex :
+                plan.reservedStart + written - 1u;
+            if (target >= _BoundaryCapacity) return;
+            uint childIndex = SplitChildIndex(splitRecord, runQuadrant);
+            if (childIndex >= _FilmCapacity) return;
+            WriteSplitBoundary(target, boundaryIndex, boundary,
+                plan.parentEndpoint, runQuadrant, runStart, runEnd,
+                _FilmHeaders[childIndex], originalInfo);
+            written++;
+            runStart = runEnd;
+            runQuadrant = quadrant;
         }
-        uint childIndex = parent.reserved0 - 1u + quadrant;
-        if (childIndex >= _FilmCapacity) continue;
-        WriteSplitBoundary(target, boundary, quadrant, t0, t1,
-            _FilmHeaders[childIndex], originalInfo);
-        wroteOriginal = true;
-        InterlockedAdd(_AdaptState[2], 1u);
     }
-    if (!wroteOriginal)
+    if (written >= plan.segmentCount)
     {
-        boundary.flags &= ~BOUNDARY_ACTIVE;
-        boundary.flags |= BOUNDARY_RETIRED;
-        _BoundaryHeaders[boundaryIndex] = boundary;
-        InterlockedAdd(_BoundaryAllocator[1], 0xffffffffu);
+        InterlockedAdd(_BoundaryAllocator[2], 1u);
+        return;
     }
+    uint finalTarget = written == 0u ? boundaryIndex :
+        plan.reservedStart + written - 1u;
+    if (finalTarget >= _BoundaryCapacity) return;
+    uint finalChildIndex = SplitChildIndex(splitRecord, runQuadrant);
+    if (finalChildIndex >= _FilmCapacity) return;
+    WriteSplitBoundary(finalTarget, boundaryIndex, boundary,
+        plan.parentEndpoint, runQuadrant, runStart, 1.0,
+        _FilmHeaders[finalChildIndex], originalInfo);
+    written++;
+    if (written != plan.segmentCount)
+    {
+        InterlockedAdd(_BoundaryAllocator[2], 1u);
+        return;
+    }
+    InterlockedAdd(_AdaptState[2], written);
 }
 
 [numthreads(64, 1, 1)]
@@ -841,570 +1017,4 @@ void RehashTopologyBoundaries(uint3 id : SV_DispatchThreadID)
         }
     }
     InterlockedAdd(_AdaptState[3], 1u);
-}
-
-uint FilmCellHash(int3 cell)
-{
-    uint value = asuint(cell.x) * 0x8da6b343u;
-    value ^= asuint(cell.y) * 0xd8163841u;
-    value ^= asuint(cell.z) * 0xcb1ab31fu;
-    value ^= value >> 16u; value *= 0x7feb352du; value ^= value >> 15u;
-    return max(1u, value & 0x7fffffffu);
-}
-
-int3 FilmCell(float3 position)
-{
-    return (int3)floor(position / max(_MergeHashCellSize, 0.05));
-}
-
-[numthreads(64, 1, 1)]
-void ClearFilmMergeHash(uint3 id : SV_DispatchThreadID)
-{
-    if (id.x <= _FilmMergeHashMask)
-        _FilmMergeHash[id.x] = (FilmMergeHashEntry)0;
-}
-
-[numthreads(1, 1, 1)]
-void ResetFilmMergeWave(uint3 id : SV_DispatchThreadID)
-{
-    _AdaptState[4] = 0u; // successful merges in this wave
-    _AdaptState[5] = 0u; // merge-record overflow in this wave
-    _AdaptDispatchArguments[6] = uint3(0u, 1u, 1u);
-}
-
-[numthreads(64, 1, 1)]
-void BuildFilmMergeHash(uint3 id : SV_DispatchThreadID)
-{
-    uint filmCount = min(_FilmAllocator[0], _FilmCapacity);
-    uint index = id.x;
-    if (index >= filmCount) return;
-    ContactFilmHeader film = _FilmHeaders[index];
-    if ((film.flags & FILM_ACTIVE) == 0u || film.boundaryCount != 0u ||
-        film.reserved0 != 0u) return;
-    int3 cell = FilmCell(film.origin);
-    uint hash = FilmCellHash(cell);
-    [loop]
-    for (uint probe = 0u; probe < 32u; ++probe)
-    {
-        uint slot = (hash + probe * 0x9e3779b9u) & _FilmMergeHashMask;
-        uint observed;
-        InterlockedCompareExchange(_FilmMergeHash[slot].hash, 0u, hash, observed);
-        if (observed == 0u)
-        {
-            FilmMergeHashEntry entry;
-            entry.cell = cell;
-            entry.filmId = film.id;
-            entry.generation = film.generation;
-            entry.hash = hash;
-            _FilmMergeHash[slot] = entry;
-            return;
-        }
-    }
-    InterlockedAdd(_AdaptState[7], 1u);
-}
-
-bool MergeCompatible(ContactFilmHeader a, ContactFilmHeader b,
-    uint aIndex, uint bIndex)
-{
-    float uncertainty = saturate(max(a.sigmaNormal, b.sigmaNormal) / 0.02);
-    // Fresh contact films still carry a broad normal shell.  Let that measured
-    // uncertainty open the manifold-growth gate up to ~20 degrees; as the films
-    // harden it automatically contracts to the configured final normal gate.
-    float normalCosineGate = lerp(_MergeNormalCosine, 0.9396926, uncertainty);
-    if (a.id >= b.id || a.chunkId != b.chunkId ||
-        (a.flags & FILM_ACTIVE) == 0u || (b.flags & FILM_ACTIVE) == 0u ||
-        a.boundaryCount != 0u || b.boundaryCount != 0u ||
-        a.reserved0 != 0u || b.reserved0 != 0u ||
-        a.appearancePage != b.appearancePage ||
-        dot(a.normal, b.normal) < normalCosineGate ||
-        dot(a.tangentU, b.tangentU) < normalCosineGate ||
-        dot(a.tangentV, b.tangentV) < normalCosineGate)
-        return false;
-    float3 delta = b.origin - a.origin;
-    float normalGap = abs(dot(delta, normalize(a.normal + b.normal)));
-    if (normalGap > max(_MergeSurfaceGap,
-        3.0 * max(a.sigmaNormal, b.sigmaNormal))) return false;
-    if (abs(dot(delta, a.tangentU)) > a.extentU + b.extentU +
-        _MergeSurfaceGap || abs(dot(delta, a.tangentV)) >
-        a.extentV + b.extentV + _MergeSurfaceGap) return false;
-    ContactTopologyEvidence ea = _TopologyEvidence[aIndex];
-    ContactTopologyEvidence eb = _TopologyEvidence[bIndex];
-    // Spawn already carries reliable tile support in the film header.  Waiting
-    // for a later MATCH pass to duplicate it into topology evidence leaves the
-    // initial L/R and 8x8 films disconnected for at least one full generation
-    // (and often forever at tile seams).  Either source is sufficient evidence
-    // for a same-manifold merge; contradiction/boundary gates still protect
-    // genuinely distinct layers.
-    float effectiveSupportA = max(ea.totalSupport, a.supportTotal);
-    float effectiveSupportB = max(eb.totalSupport, b.supportTotal);
-    if (effectiveSupportA < 4.0 || effectiveSupportB < 4.0 ||
-        ea.residualVariance > _SplitVariance * 0.25 ||
-        eb.residualVariance > _SplitVariance * 0.25 ||
-        a.contradiction > 0.2 || b.contradiction > 0.2)
-        return false;
-    return true;
-}
-
-bool LockFilm(uint index, out uint originalFlags)
-{
-    originalFlags = _FilmHeaders[index].flags;
-    if ((originalFlags & (FILM_ACTIVE | FILM_TOPOLOGY_LOCKED)) != FILM_ACTIVE)
-        return false;
-    uint observed;
-    InterlockedCompareExchange(_FilmHeaders[index].flags, originalFlags,
-        originalFlags | FILM_TOPOLOGY_LOCKED, observed);
-    return observed == originalFlags;
-}
-
-void IncludeFilmBounds(ContactFilmHeader film, float3 center, float3 tangentU,
-    float3 tangentV, inout float2 minimum, inout float2 maximum)
-{
-    [unroll]
-    for (uint corner = 0u; corner < 4u; ++corner)
-    {
-        float su = (corner & 1u) != 0u ? 1.0 : -1.0;
-        float sv = (corner & 2u) != 0u ? 1.0 : -1.0;
-        float3 surfacePosition = film.origin + su * film.extentU * film.tangentU +
-            sv * film.extentV * film.tangentV;
-        float3 delta = surfacePosition - center;
-        float2 projected = float2(dot(delta, tangentU), dot(delta, tangentV));
-        minimum = min(minimum, projected);
-        maximum = max(maximum, projected);
-    }
-}
-
-void GeneralBasisTransform(ContactFilmHeader source,
-    ContactFilmHeader merged, out float A[36])
-{
-    [loop] for (uint element = 0u; element < 36u; ++element) A[element] = 0.0;
-    float3 offset = merged.origin - source.origin;
-    float bu = dot(offset, source.tangentU) / max(source.extentU, 0.001);
-    float bv = dot(offset, source.tangentV) / max(source.extentV, 0.001);
-    float au = merged.extentU * dot(merged.tangentU, source.tangentU) /
-        max(source.extentU, 0.001);
-    float av = merged.extentV * dot(merged.tangentV, source.tangentU) /
-        max(source.extentU, 0.001);
-    float cu = merged.extentU * dot(merged.tangentU, source.tangentV) /
-        max(source.extentV, 0.001);
-    float cv = merged.extentV * dot(merged.tangentV, source.tangentV) /
-        max(source.extentV, 0.001);
-    A[0] = 1.0;
-    A[6] = bu; A[7] = au; A[8] = av;
-    A[12] = bv; A[13] = cu; A[14] = cv;
-    A[18] = bu * bu; A[19] = 2.0 * bu * au;
-    A[20] = 2.0 * bu * av; A[21] = au * au;
-    A[22] = 2.0 * au * av; A[23] = av * av;
-    A[24] = bu * bv; A[25] = au * bv + bu * cu;
-    A[26] = av * bv + bu * cv; A[27] = au * cu;
-    A[28] = au * cv + av * cu; A[29] = av * cv;
-    A[30] = bv * bv; A[31] = 2.0 * bv * cu;
-    A[32] = 2.0 * bv * cv; A[33] = cu * cu;
-    A[34] = 2.0 * cu * cv; A[35] = cv * cv;
-}
-
-void AddTransformedInformation(ContactFilmHeader source,
-    ContactFilmHeader merged, uint sourceInfo, inout float totalH[36],
-    inout float totalG[6])
-{
-    float sourceH[36];
-    float sourceG[6];
-    [loop]
-    for (uint row = 0u; row < 6u; ++row)
-    {
-        sourceG[row] = LoadG(sourceInfo, row);
-        [loop] for (uint column = 0u; column < 6u; ++column)
-            sourceH[row * 6u + column] = LoadH(sourceInfo, row, column);
-    }
-    float A[36];
-    GeneralBasisTransform(source, merged, A);
-    float hTimesA[36];
-    [loop]
-    for (uint sourceRow = 0u; sourceRow < 6u; ++sourceRow)
-    [loop]
-    for (uint mergedColumn = 0u; mergedColumn < 6u; ++mergedColumn)
-    {
-        float value = 0.0;
-        [loop]
-        for (uint sourceColumn = 0u; sourceColumn < 6u; ++sourceColumn)
-            value += sourceH[sourceRow * 6u + sourceColumn] *
-                A[sourceColumn * 6u + mergedColumn];
-        hTimesA[sourceRow * 6u + mergedColumn] = value;
-    }
-    float transformedH[36];
-    float heightOffset = dot(source.origin - merged.origin, merged.normal);
-    [loop]
-    for (uint row = 0u; row < 6u; ++row)
-    {
-        float g = 0.0;
-        [loop] for (uint sourceRow = 0u; sourceRow < 6u; ++sourceRow)
-            g += A[sourceRow * 6u + row] * sourceG[sourceRow];
-        [loop]
-        for (uint column = 0u; column < 6u; ++column)
-        {
-            float value = 0.0;
-            [loop]
-            for (uint sourceRow = 0u; sourceRow < 6u; ++sourceRow)
-                value += A[sourceRow * 6u + row] *
-                    hTimesA[sourceRow * 6u + column];
-            transformedH[row * 6u + column] = value;
-            totalH[row * 6u + column] += value;
-        }
-        totalG[row] += g + heightOffset * transformedH[row * 6u];
-    }
-}
-
-bool SolveSix(float coefficientMatrix[36], float rhs[6], out float solution[6])
-{
-    float lower[36];
-    [unroll] for (uint i = 0u; i < 36u; ++i) lower[i] = 0.0;
-    [unroll]
-    for (uint row = 0u; row < 6u; ++row)
-    {
-        [unroll]
-        for (uint column = 0u; column <= row; ++column)
-        {
-            float sum = coefficientMatrix[row * 6u + column];
-            [unroll] for (uint k = 0u; k < column; ++k)
-                sum -= lower[row * 6u + k] * lower[column * 6u + k];
-            if (row == column)
-            {
-                if (sum <= 1e-10 || !isfinite(sum)) return false;
-                lower[row * 6u + column] = sqrt(sum);
-            }
-            else lower[row * 6u + column] = sum /
-                max(lower[column * 6u + column], 1e-8);
-        }
-    }
-    float y[6];
-    [unroll]
-    for (uint row = 0u; row < 6u; ++row)
-    {
-        float sum = rhs[row];
-        [unroll] for (uint k = 0u; k < row; ++k)
-            sum -= lower[row * 6u + k] * y[k];
-        y[row] = sum / max(lower[row * 6u + row], 1e-8);
-    }
-    for (int row = 5; row >= 0; --row)
-    {
-        float sum = y[row];
-        for (int k = row + 1; k < 6; ++k)
-            sum -= lower[k * 6 + row] * solution[k];
-        solution[row] = sum / max(lower[row * 6 + row], 1e-8);
-    }
-    return true;
-}
-
-[numthreads(16, 1, 1)]
-void MergeCompatibleFilms(uint3 id : SV_DispatchThreadID)
-{
-    uint filmCount = min(_FilmAllocator[0], _FilmCapacity);
-    uint aIndex = id.x;
-    if (aIndex >= filmCount) return;
-    ContactFilmHeader a = _FilmHeaders[aIndex];
-    if ((a.flags & FILM_ACTIVE) == 0u || a.boundaryCount != 0u ||
-        a.reserved0 != 0u) return;
-    int3 centerCell = FilmCell(a.origin);
-    uint bIndex = 0xffffffffu;
-    ContactFilmHeader b = (ContactFilmHeader)0;
-    [loop]
-    for (int dz = -1; dz <= 1 && bIndex == 0xffffffffu; ++dz)
-    [loop]
-    for (int dy = -1; dy <= 1 && bIndex == 0xffffffffu; ++dy)
-    [loop]
-    for (int dx = -1; dx <= 1 && bIndex == 0xffffffffu; ++dx)
-    {
-        int3 cell = centerCell + int3(dx, dy, dz);
-        uint hash = FilmCellHash(cell);
-        [loop]
-        for (uint probe = 0u; probe < 32u; ++probe)
-        {
-            uint slot = (hash + probe * 0x9e3779b9u) & _FilmMergeHashMask;
-            FilmMergeHashEntry entry = _FilmMergeHashRead[slot];
-            if (entry.hash == 0u) break;
-            if (entry.hash != hash || any(entry.cell != cell) ||
-                entry.filmId == 0u || entry.filmId <= a.id) continue;
-            uint candidateIndex = entry.filmId - 1u;
-            if (candidateIndex >= filmCount) continue;
-            ContactFilmHeader candidate = _FilmHeaders[candidateIndex];
-            if (candidate.generation != entry.generation ||
-                !MergeCompatible(a, candidate, aIndex, candidateIndex)) continue;
-            bIndex = candidateIndex;
-            b = candidate;
-            break;
-        }
-    }
-    if (bIndex == 0xffffffffu) return;
-    uint flagsA, flagsB;
-    if (!LockFilm(aIndex, flagsA)) return;
-    if (!LockFilm(bIndex, flagsB))
-    {
-        _FilmHeaders[aIndex].flags = flagsA;
-        return;
-    }
-    // Revalidate after both ordered locks were acquired.
-    a = _FilmHeaders[aIndex]; b = _FilmHeaders[bIndex];
-    a.flags &= ~FILM_TOPOLOGY_LOCKED;
-    b.flags &= ~FILM_TOPOLOGY_LOCKED;
-    if (!MergeCompatible(a, b, aIndex, bIndex))
-    {
-        _FilmHeaders[aIndex].flags = flagsA;
-        _FilmHeaders[bIndex].flags = flagsB;
-        return;
-    }
-    uint mergedIndex;
-    InterlockedAdd(_FilmAllocator[0], 1u, mergedIndex);
-    if (mergedIndex >= _FilmCapacity)
-    {
-        InterlockedAdd(_FilmAllocator[2], 1u);
-        _FilmHeaders[aIndex].flags = flagsA;
-        _FilmHeaders[bIndex].flags = flagsB;
-        return;
-    }
-    uint mergedPage;
-    InterlockedAdd(_DisplacementAllocator[0], 1u, mergedPage);
-    if (mergedPage >= _BasePageCapacity)
-    {
-        InterlockedAdd(_DisplacementAllocator[2], 1u);
-        _FilmHeaders[aIndex].flags = flagsA;
-        _FilmHeaders[bIndex].flags = flagsB;
-        return;
-    }
-
-    float supportA = max(a.supportTotal, 1e-3);
-    float supportB = max(b.supportTotal, 1e-3);
-    float3 normal = normalize(a.normal * supportA + b.normal * supportB);
-    float3 tangentU = normalize(a.tangentU - normal * dot(a.tangentU, normal));
-    float3 tangentV = normalize(cross(normal, tangentU));
-    if (dot(tangentV, a.tangentV) < 0.0) tangentV = -tangentV;
-    float3 center = (a.origin * supportA + b.origin * supportB) /
-        (supportA + supportB);
-    float2 minimum = float2(3.402823466e+38, 3.402823466e+38);
-    float2 maximum = -minimum;
-    IncludeFilmBounds(a, center, tangentU, tangentV, minimum, maximum);
-    IncludeFilmBounds(b, center, tangentU, tangentV, minimum, maximum);
-    float2 tangentShift = 0.5 * (minimum + maximum);
-    center += tangentShift.x * tangentU + tangentShift.y * tangentV;
-    float2 extents = max(0.5 * (maximum - minimum), 0.005);
-
-    ContactFilmHeader merged = a;
-    merged.id = mergedIndex + 1u;
-    merged.generation = max(1u, _FilmAllocator[3]);
-    merged.flags = FILM_ACTIVE | FILM_ONE_SIDED | FILM_DIRTY_GEOMETRY |
-        FILM_DIRTY_MESHLET | FILM_HAS_DISPLACEMENT |
-        FILM_PRESSURE_MANIFOLD_MEMBER;
-    if ((a.flags & FILM_UNCERTAIN) != 0u ||
-        (b.flags & FILM_UNCERTAIN) != 0u) merged.flags |= FILM_UNCERTAIN;
-    merged.origin = center;
-    merged.normal = normal;
-    merged.tangentU = tangentU; merged.tangentV = tangentV;
-    merged.extentU = extents.x; merged.extentV = extents.y;
-    merged.supportTotal = a.supportTotal + b.supportTotal;
-    merged.sigmaNormal = min(a.sigmaNormal, b.sigmaNormal);
-    merged.confidence = saturate((a.confidence * supportA +
-        b.confidence * supportB) / (supportA + supportB));
-    merged.contradiction = min(a.contradiction, b.contradiction);
-    merged.revision = max(a.revision, b.revision) + 1u;
-    merged.displacementPage = mergedPage + 1u;
-    merged.boundaryStart = 0u; merged.boundaryCount = 0u;
-    merged.supportMaskLow = 0u; merged.supportMaskHigh = 0u;
-    merged.reserved0 = merged.reserved1 = merged.reserved2 = 0u;
-
-    float totalH[36]; float totalG[6];
-    [unroll] for (uint hIndex = 0u; hIndex < 36u; ++hIndex)
-        totalH[hIndex] = 0.0;
-    [unroll] for (uint gIndex = 0u; gIndex < 6u; ++gIndex)
-        totalG[gIndex] = 0.0;
-    AddTransformedInformation(a, merged, aIndex * 9u, totalH, totalG);
-    AddTransformedInformation(b, merged, bIndex * 9u, totalH, totalG);
-    float solved[6] = { 0, 0, 0, 0, 0, 0 };
-    if (SolveSix(totalH, totalG, solved))
-    {
-        merged.quadratic0123 = float4(solved[0], solved[1] / merged.extentU,
-            solved[2] / merged.extentV,
-            solved[3] / (merged.extentU * merged.extentU));
-        merged.quadratic45 = float2(
-            solved[4] / (merged.extentU * merged.extentV),
-            solved[5] / (merged.extentV * merged.extentV));
-    }
-    else
-    {
-        merged.quadratic0123 = 0.0;
-        merged.quadratic45 = 0.0;
-    }
-    float4 countSupport = _FilmInformation[aIndex * 9u + 7u] +
-        _FilmInformation[bIndex * 9u + 7u];
-    float4 qa = _FilmInformation[aIndex * 9u + 8u];
-    float4 qb = _FilmInformation[bIndex * 9u + 8u];
-    float4 quality = float4(min(qa.x, qb.x), merged.confidence,
-        min(qa.z, qb.z), max(qa.w, qb.w));
-    StoreInformation(mergedIndex * 9u, totalH, totalG,
-        countSupport, quality);
-    float4 pressureStateA = _FilmInformation[aIndex * 9u + 5u];
-    float4 pressureStateB = _FilmInformation[bIndex * 9u + 5u];
-    float4 mergedPressureState = _FilmInformation[mergedIndex * 9u + 5u];
-    mergedPressureState.y = pressureStateA.y + pressureStateB.y;
-    mergedPressureState.z = max(pressureStateA.z, pressureStateB.z);
-    mergedPressureState.w = asfloat(asuint(pressureStateA.w) | asuint(pressureStateB.w));
-    _FilmInformation[mergedIndex * 9u + 5u] = mergedPressureState;
-    ContactTopologyEvidence ea = _TopologyEvidence[aIndex];
-    ContactTopologyEvidence eb = _TopologyEvidence[bIndex];
-    ContactTopologyEvidence em;
-    em.positiveMoment = ea.positiveMoment + eb.positiveMoment;
-    em.positiveSupport = ea.positiveSupport + eb.positiveSupport;
-    em.negativeMoment = ea.negativeMoment + eb.negativeMoment;
-    em.negativeSupport = ea.negativeSupport + eb.negativeSupport;
-    em.totalSupport = ea.totalSupport + eb.totalSupport;
-    em.residualVariance = em.totalSupport > 0.0 ?
-        (ea.residualVariance * ea.totalSupport +
-         eb.residualVariance * eb.totalSupport) / em.totalSupport : 0.0;
-    em.boundarySupport = ea.boundarySupport + eb.boundarySupport;
-    em.revision = max(ea.revision, eb.revision) + 1u;
-    _TopologyEvidence[mergedIndex] = em;
-
-    DisplacementPageHeader page = (DisplacementPageHeader)0;
-    page.id = mergedPage + 1u;
-    page.generation = max(1u, _DisplacementAllocator[4]);
-    page.filmId = merged.id; page.filmGeneration = merged.generation;
-    page.flags = PAGE_ACTIVE | PAGE_BASE | PAGE_DIRTY;
-    page.uvBounds = float4(0, 0, 1, 1);
-    page.bestFootprintBits = asuint(min(qa.z, qb.z));
-    _DisplacementPages[mergedPage] = page;
-    _FilmHeaders[mergedIndex] = merged;
-    a.flags = (flagsA & ~FILM_ACTIVE) | FILM_RETIRED | FILM_DIRTY_MESHLET;
-    b.flags = (flagsB & ~FILM_ACTIVE) | FILM_RETIRED | FILM_DIRTY_MESHLET;
-    a.reserved0 = merged.id; b.reserved0 = merged.id;
-    a.revision++; b.revision++;
-    _FilmHeaders[aIndex] = a; _FilmHeaders[bIndex] = b;
-    InterlockedAdd(_FilmAllocator[1], 0xffffffffu);
-    uint mergeSlot;
-    InterlockedAdd(_AdaptState[4], 1u, mergeSlot);
-    if (mergeSlot < _FilmCapacity)
-    {
-        TopologyMergeRecord record = (TopologyMergeRecord)0;
-        record.filmAIndex = aIndex; record.filmBIndex = bIndex;
-        record.mergedFilmIndex = mergedIndex;
-        record.mergedBasePage = mergedPage;
-        _MergeRecords[mergeSlot] = record;
-    }
-    else InterlockedAdd(_AdaptState[5], 1u);
-}
-
-[numthreads(1, 1, 1)]
-void BuildMergeArguments(uint3 id : SV_DispatchThreadID)
-{
-    uint mergeCount = min(_AdaptStateRead[4], _FilmCapacity);
-    _AdaptDispatchArguments[6] = uint3(
-        (mergeCount * BASE_CELLS_PER_PAGE + 63u) / 64u, 1u, 1u);
-}
-
-bool SourceDisplacement(ContactFilmHeader source, float3 surfacePosition,
-    out float displacement, out DisplacementCell cell)
-{
-    float3 delta = surfacePosition - source.origin;
-    float u = dot(delta, source.tangentU);
-    float v = dot(delta, source.tangentV);
-    float2 uv = float2(u / max(2.0 * source.extentU, 0.002) + 0.5,
-        v / max(2.0 * source.extentV, 0.002) + 0.5);
-    displacement = 0.0; cell = (DisplacementCell)0;
-    if (any(uv < 0.0) || any(uv > 1.0)) return false;
-    bool supported = false;
-    uint sourceCell;
-    if (ResolveLeaf(source, uv, sourceCell))
-    {
-        cell = LoadCell(sourceCell);
-        supported = cell.coverage > 0.02;
-    }
-    else if (BootstrapCoverage(source, uv) > 0.0)
-    {
-        uint supportCells = max(1u,
-            countbits(source.supportMaskLow) +
-            countbits(source.supportMaskHigh));
-        cell.sigma = source.sigmaNormal;
-        cell.support = max(0.25,
-            source.supportTotal / max(1.0, (float)supportCells));
-        cell.coverage = 1.0;
-        float4 quality = _FilmInformationRead[(source.id - 1u) * 9u + 8u];
-        cell.bestPrecision = max(quality.w, 0.0);
-        cell.bestFootprint = max(quality.z, 1e-12);
-        cell.revision = 1u;
-        supported = true;
-    }
-    if (!supported) return false;
-    float3 sourceSurface = source.origin + u * source.tangentU +
-        v * source.tangentV + (Height(source, u, v) + cell.displacement) *
-        source.normal;
-    displacement = dot(sourceSurface - surfacePosition, source.normal);
-    return true;
-}
-
-[numthreads(64, 1, 1)]
-void InitializeMergedDisplacement(uint3 id : SV_DispatchThreadID)
-{
-    uint mergeCount = min(_AdaptStateRead[4], _FilmCapacity);
-    uint recordIndex = id.x / BASE_CELLS_PER_PAGE;
-    uint localCell = id.x % BASE_CELLS_PER_PAGE;
-    if (recordIndex >= mergeCount) return;
-    TopologyMergeRecord record = _MergeRecordsRead[recordIndex];
-    ContactFilmHeader a = _FilmHeadersRead[record.filmAIndex];
-    ContactFilmHeader b = _FilmHeadersRead[record.filmBIndex];
-    ContactFilmHeader merged = _FilmHeadersRead[record.mergedFilmIndex];
-    uint x = localCell & 15u; uint y = localCell >> 4u;
-    float2 uv = (float2(x, y) + 0.5) / 16.0;
-    float u = lerp(-merged.extentU, merged.extentU, uv.x);
-    float v = lerp(-merged.extentV, merged.extentV, uv.y);
-    float baseHeight = Height(merged, u, v);
-    float3 basePoint = merged.origin + u * merged.tangentU +
-        v * merged.tangentV + baseHeight * merged.normal;
-    float da = 0.0;
-    float db = 0.0;
-    DisplacementCell ca = (DisplacementCell)0;
-    DisplacementCell cb = (DisplacementCell)0;
-    bool hasA = SourceDisplacement(a, basePoint, da, ca);
-    bool hasB = SourceDisplacement(b, basePoint, db, cb);
-    float wa = hasA ? max(ca.support, a.confidence) : 0.0;
-    float wb = hasB ? max(cb.support, b.confidence) : 0.0;
-    DisplacementCell result = (DisplacementCell)0;
-    result.sigma = merged.sigmaNormal;
-    result.bestFootprint = 3.402823466e+38;
-    if (wa + wb > 0.0)
-    {
-        result.displacement = (da * wa + db * wb) / (wa + wb);
-        result.sigma = min(hasA ? ca.sigma : merged.sigmaNormal,
-            hasB ? cb.sigma : merged.sigmaNormal);
-        result.support = 0.5 * (wa + wb);
-        result.coverage = max(hasA ? ca.coverage : 0.0,
-            hasB ? cb.coverage : 0.0);
-        result.bestPrecision = max(hasA ? ca.bestPrecision : 0.0,
-            hasB ? cb.bestPrecision : 0.0);
-        result.bestFootprint = min(hasA ? ca.bestFootprint : 3.402823466e+38,
-            hasB ? cb.bestFootprint : 3.402823466e+38);
-        result.residualVariance = (hasA ? ca.residualVariance : 0.0) +
-            (hasB ? cb.residualVariance : 0.0);
-        // Contradiction is a local posterior, not extensive mass. Preserve the
-        // strongest pressure and all independent view bins without manufacturing
-        // pressure merely because two compatible charts were consolidated.
-        result.preHitPressure = max(
-            hasA ? ca.preHitPressure : 0.0,
-            hasB ? cb.preHitPressure : 0.0);
-        result.preHitPressureViewMask =
-            (hasA ? ca.preHitPressureViewMask : 0u) |
-            (hasB ? cb.preHitPressureViewMask : 0u);
-        result.revision = 1u;
-    }
-    uint target = record.mergedBasePage * BASE_CELLS_PER_PAGE + localCell;
-    _BaseDisplacementCells[target] = result;
-    _BaseChildPages[target] = 0u;
-    _DisplacementCellDirtyFlags[target] = 0u;
-    uint accumulator = target * WORDS_PER_CELL;
-    [unroll] for (uint word = 0u; word < WORDS_PER_CELL; ++word)
-        _BaseDisplacementCellAccumulator[accumulator + word] =
-            word == 6u ? 0x7f7fffff : 0;
-    InterlockedMin(_DisplacementPages[record.mergedBasePage].bestFootprintBits,
-        asuint(max(result.bestFootprint, 1e-12)));
-    InterlockedMax(_DisplacementPages[record.mergedBasePage].maximumVarianceBits,
-        asuint(max(result.residualVariance, 0.0)));
-    InterlockedAdd(_DisplacementPages[record.mergedBasePage].supportFixed,
-        (uint)max(0.0, round(result.support * 4096.0)));
-    if (localCell == 0u)
-        _DisplacementPages[record.mergedBasePage].revision = 1u;
 }

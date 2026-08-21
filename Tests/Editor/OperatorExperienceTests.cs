@@ -1,6 +1,5 @@
 using System.IO;
 using Genesis.RoomScan.Exporting;
-using Genesis.RoomScan.HeavyCompute;
 using Genesis.RoomScan.World;
 using NUnit.Framework;
 using UnityEngine;
@@ -20,8 +19,7 @@ namespace Genesis.RoomScan.Tests
                 submaps.ApplyLargeWorldDefaults();
                 Assert.That(submaps.LargeWorldMode, Is.True);
                 Assert.That(submaps.UsesLargeWorldDefaults, Is.True);
-                Assert.That(submaps.MaximumResidentVolumeCount, Is.EqualTo(1));
-                Assert.That(submaps.MaximumResidentChunkMeshCount, Is.EqualTo(3));
+                Assert.That(submaps.ResidentChunkCount, Is.EqualTo(0));
                 Assert.That(submaps.BoundaryMarginMeters, Is.EqualTo(1f));
                 Assert.That(submaps.OverlapMeters, Is.EqualTo(2f));
                 Assert.That(submaps.RearmHysteresisMeters, Is.EqualTo(0.75f));
@@ -35,9 +33,9 @@ namespace Genesis.RoomScan.Tests
         [Test]
         public void DiagnosticsAndOperatorUiExposeRequiredWorldSurfaces()
         {
-            InfiniteScanStatus empty = InfiniteScanDiagnostics.Capture(null, null, null);
-            Assert.That(empty.Mode, Is.EqualTo("Single room"));
-            Assert.That(empty.Network, Is.EqualTo("Not attached"));
+            InfiniteScanStatus empty = InfiniteScanDiagnostics.Capture(null, null);
+            Assert.That(empty.Mode, Is.EqualTo("Not attached"));
+            Assert.That(empty.Network, Is.EqualTo("Pure Quest / offline"));
             Assert.That(InfiniteScanDiagnostics.FormatBytes(3L * 1024L * 1024L),
                 Is.EqualTo("3.0 MiB"));
 
@@ -48,13 +46,14 @@ namespace Genesis.RoomScan.Tests
             {
                 "nav-world", "view-world", "val-world-id", "val-active-chunk",
                 "val-chunk-lifecycle", "val-residency", "val-graph",
-                "val-heavy-queue", "val-heavy-network", "val-world-artifacts",
                 "val-world-storage", "val-glb-export", "btn-export-chunk-glb",
                 "btn-export-world-glb"
             };
             foreach (string required in requiredNames)
                 Assert.That(uxml, Does.Contain($"name=\"{required}\""), required);
-            Assert.That(uxml, Does.Contain("Freeze Tint only shows"));
+            Assert.That(uxml, Does.Contain("canonical PressureManifold"));
+            Assert.That(uxml, Does.Not.Contain("DiffSoup"));
+            Assert.That(uxml, Does.Not.Contain("Gaussian"));
         }
 
         [Test]

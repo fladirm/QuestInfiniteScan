@@ -105,6 +105,7 @@ RWStructuredBuffer<uint> _BoundaryDirtyFlags;
 RWStructuredBuffer<uint> _DirtyBoundaryIndices;
 RWStructuredBuffer<uint> _BoundaryDirtyState;
 RWStructuredBuffer<uint3> _BoundarySolveArguments;
+RWStructuredBuffer<uint> _ManifoldDiagnostics;
 
 Texture2DArray<float4> _MeasuredConsensus;
 Texture2DArray<float4> _BoundaryEvidenceTexture;
@@ -141,7 +142,6 @@ static const uint BOUNDARY_DIRTY = 4u;
 static const uint BOUNDARY_PERSISTENT = 8u;
 static const uint BOUNDARY_RETIRED = 16u;
 static const uint BOUNDARY_MULTIVIEW = 32u;
-static const uint BOUNDARY_ELASTIC_MANIFOLD_LINK = 64u;
 static const uint WORDS_PER_BOUNDARY = 16u;
 static const uint INFORMATION_RECORDS = 8u;
 static const float MOMENT_SCALE = 65536.0;
@@ -471,30 +471,6 @@ bool RefineUvWithRgb(ConeEvent eventData, ContactFilmHeader film,
     return true;
 }
 
-void FindAdjacentFilm(uint2 pixel, uint eye, uint filmId,
-    out uint adjacentId, out uint adjacentGeneration)
-{
-    adjacentId = 0u;
-    adjacentGeneration = 0u;
-    static const int2 offsets[8] = {
-        int2(-1, 0), int2(1, 0), int2(0, -1), int2(0, 1),
-        int2(-1, -1), int2(1, -1), int2(-1, 1), int2(1, 1)
-    };
-    [unroll]
-    for (uint index = 0u; index < 8u; ++index)
-    {
-        int2 candidate = (int2)pixel + offsets[index];
-        if (any(candidate < 0) || any(candidate >= (int2)_DepthResolution)) continue;
-        uint2 neighbour = _PredictedFilmIdGeneration[uint3((uint2)candidate, eye)];
-        if (neighbour.x != 0u && neighbour.y != 0u && neighbour.x != filmId)
-        {
-            adjacentId = neighbour.x;
-            adjacentGeneration = neighbour.y;
-            return;
-        }
-    }
-}
-
 [numthreads(64, 1, 1)]
 void InitializeBoundaryState(uint3 id : SV_DispatchThreadID)
 {
@@ -654,17 +630,6 @@ void AccumulateBoundaryEvents(uint3 id : SV_DispatchThreadID)
     AtomicAddScaled(baseWord + 10u, rgbScore, SUPPORT_SCALE);
     AtomicAddScaled(baseWord + 14u,
         max(evidence.x, evidence.y) + evidence.z, SUPPORT_SCALE);
-    uint adjacentId, adjacentGeneration;
-    FindAdjacentFilm(pixel, eye, eventData.filmId,
-        adjacentId, adjacentGeneration);
-    if (adjacentId != 0u)
-    {
-        int previous;
-        InterlockedCompareExchange(_BoundaryFrameAccumulator[baseWord + 12u],
-            0, (int)adjacentId, previous);
-        if (previous == 0 || previous == (int)adjacentId)
-            _BoundaryFrameAccumulator[baseWord + 13u] = (int)adjacentGeneration;
-    }
 }
 
 [numthreads(64, 1, 1)]
@@ -812,28 +777,14 @@ void SolveDirtyBoundaries(uint3 id : SV_DispatchThreadID)
         }
     }
 
-    uint adjacentId = (uint)max(0, _BoundaryFrameAccumulator[baseWord + 12u]);
-    uint adjacentGeneration = (uint)max(0,
-        _BoundaryFrameAccumulator[baseWord + 13u]);
-    if (boundary.filmB == 0u && adjacentId != 0u &&
-        adjacentId != boundary.filmA)
+    // ContactBoundary is evidence on FilmA only. Canonical physical adjacency is
+    // exclusively a generation-safe PressureManifold link proven in world space.
+    if (boundary.filmB != 0u)
     {
-        uint adjacentIndex = adjacentId - 1u;
-        if (adjacentIndex < _FilmCapacity)
-        {
-            ContactFilmHeader adjacentFilm = _FilmHeaders[adjacentIndex];
-            if (adjacentFilm.id == adjacentId &&
-                adjacentFilm.generation == adjacentGeneration &&
-                (adjacentFilm.flags & FILM_ACTIVE) != 0u)
-            {
-                boundary.filmB = adjacentId;
-                boundary.filmBGeneration = adjacentGeneration;
-                boundary.flags |= BOUNDARY_ELASTIC_MANIFOLD_LINK;
-            }
-        }
+        InterlockedAdd(_ManifoldDiagnostics[13], 1u);
+        boundary.filmB = 0u;
+        boundary.filmBGeneration = 0u;
     }
-    else if (boundary.filmB != 0u)
-        boundary.flags |= BOUNDARY_ELASTIC_MANIFOLD_LINK;
 
     float metricSigma = boundary.sigma *
         max(2.0 * film.extentU, 2.0 * film.extentV);

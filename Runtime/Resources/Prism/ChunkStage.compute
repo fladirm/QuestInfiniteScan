@@ -9,6 +9,12 @@
 #pragma kernel CopyMicroPages
 #pragma kernel PatchFilmDisplacement
 #pragma kernel StageMeshlets
+#pragma kernel InitializeStageManifold
+#pragma kernel StageFilmMemberships
+#pragma kernel OrderStageFilmFrontiers
+#pragma kernel StageManifoldLinks
+#pragma kernel CloseMissingFilmFrontiers
+#pragma kernel FinalizeStageManifold
 #pragma kernel FinalizeChunkStage
 
 struct ContactFilmHeader
@@ -65,7 +71,8 @@ struct ContactMeshletVertex
     float3 position; uint filmId;
     float3 normal; uint generation;
     float2 uv; float sigma; float confidence;
-    uint sidedness; uint flags; uint appearancePage; uint meshletIndex;
+    uint sidedness; uint flags; uint appearancePage; uint coverageBits;
+    uint boundarySampleId; uint reserved;
 };
 
 struct ContactMeshletDescriptor
@@ -76,6 +83,59 @@ struct ContactMeshletDescriptor
     float geometricError; float detailFootprint; float confidence;
     uint appearancePage;
     uint flags; uint sourceIndexBase; uint sourceIndexCount; uint reserved;
+};
+
+struct FilmSlotState
+{
+    uint generation; uint activeOrdinal; uint nextFree; uint flags;
+};
+
+struct PressureManifoldHeader
+{
+    uint id; uint generation; uint chunkId; uint flags;
+    float3 opticalSeed; float seedSigma;
+    uint membershipStart; uint membershipCount; uint linkStart; uint linkCount;
+    uint frontierStart; uint frontierCount; uint revision; uint calibrationEpochLow;
+    uint calibrationEpochHigh; uint reserved0; uint reserved1; uint reserved2;
+};
+
+struct FilmMembership
+{
+    uint filmId; uint filmGeneration; uint manifoldId; uint manifoldGeneration;
+    uint firstLink; uint linkCount; uint firstFrontier; uint frontierCount;
+    uint flags; uint revision;
+};
+
+struct ManifoldLink
+{
+    uint id; uint generation; uint manifoldId; uint manifoldGeneration;
+    uint filmA; uint filmAGeneration; uint filmB; uint filmBGeneration;
+    uint type; uint flags; uint boundaryId; uint revision;
+    float4 uvA01; float4 uvB01;
+    float sigma; float support; float confidence; float reserved;
+};
+
+struct ManifoldLinkIncidence
+{
+    uint id; uint generation; uint linkId; uint linkGeneration;
+    uint filmId; uint filmGeneration; uint nextId; uint nextGeneration;
+    uint endpoint; uint flags;
+};
+
+struct ManifoldFrontierIncidence
+{
+    uint id; uint generation; uint frontierId; uint frontierGeneration;
+    uint filmId; uint filmGeneration; uint nextId; uint nextGeneration;
+    uint flags; uint reserved;
+};
+
+struct LatentFrontierSegment
+{
+    uint id; uint generation; uint manifoldId; uint manifoldGeneration;
+    uint filmId; uint filmGeneration; uint nextId; uint nextGeneration;
+    uint previousId; uint previousGeneration; uint flags; uint revision;
+    float4 uv01;
+    float sigma; float support; float confidence; float reserved;
 };
 
 StructuredBuffer<ContactFilmHeader> _SourceFilmHeaders;
@@ -95,6 +155,14 @@ StructuredBuffer<ContactMeshletVertex> _SourceMeshletVertices;
 StructuredBuffer<uint> _SourceMeshletIndices;
 StructuredBuffer<ContactMeshletDescriptor> _SourceMeshletDescriptors;
 StructuredBuffer<uint> _SourceMeshletCounters;
+StructuredBuffer<FilmMembership> _SourceFilmMemberships;
+StructuredBuffer<PressureManifoldHeader> _SourceManifoldHeaders;
+StructuredBuffer<ManifoldLink> _SourceManifoldLinks;
+StructuredBuffer<ManifoldLinkIncidence> _SourceManifoldLinkIncidences;
+StructuredBuffer<ManifoldFrontierIncidence> _SourceManifoldFrontierIncidences;
+StructuredBuffer<LatentFrontierSegment> _SourceLatentFrontiers;
+StructuredBuffer<uint> _SourceManifoldAllocator;
+StructuredBuffer<uint> _SourceCurrentManifold;
 
 RWStructuredBuffer<ContactFilmHeader> _StageFilmHeaders;
 RWStructuredBuffer<float4> _StageFilmInformation;
@@ -120,6 +188,17 @@ RWStructuredBuffer<uint> _FilmRemap;
 RWStructuredBuffer<uint> _BasePageRemap;
 RWStructuredBuffer<uint> _MicroPageRemap;
 RWStructuredBuffer<uint3> _StageDispatchArguments;
+RWStructuredBuffer<FilmSlotState> _StageFilmSlotStates;
+RWStructuredBuffer<uint> _StageActiveFilmIndices;
+RWStructuredBuffer<uint> _StageDirtyFilmIndices;
+RWStructuredBuffer<PressureManifoldHeader> _StageManifoldHeaders;
+RWStructuredBuffer<FilmMembership> _StageFilmMemberships;
+RWStructuredBuffer<ManifoldLink> _StageManifoldLinks;
+RWStructuredBuffer<ManifoldLinkIncidence> _StageManifoldLinkIncidences;
+RWStructuredBuffer<ManifoldFrontierIncidence> _StageManifoldFrontierIncidences;
+RWStructuredBuffer<LatentFrontierSegment> _StageLatentFrontiers;
+RWStructuredBuffer<uint> _StageManifoldAllocator;
+RWStructuredBuffer<uint> _StageCurrentManifold;
 
 uint _TargetChunkId;
 uint _SourceFilmCapacity;
@@ -127,6 +206,9 @@ uint _SourceBoundaryCapacity;
 uint _SourceBasePageCapacity;
 uint _SourceMicroPageCapacity;
 uint _SourceDescriptorCapacity;
+uint _SourceLinkCapacity;
+uint _SourceFrontierCapacity;
+uint _SourceManifoldCapacity;
 uint _StageFilmCapacity;
 uint _StageBoundaryCapacity;
 uint _StageBasePageCapacity;
@@ -134,8 +216,25 @@ uint _StageMicroPageCapacity;
 uint _StageVertexCapacity;
 uint _StageIndexCapacity;
 uint _StageDescriptorCapacity;
+uint _StageManifoldCapacity;
+uint _StageLinkCapacity;
+uint _StageFrontierCapacity;
 
 static const uint FILM_ACTIVE = 1u;
+static const uint FILM_DIRTY_GEOMETRY = 1u << 3u;
+static const uint FILM_DIRTY_MESHLET = 1u << 4u;
+static const uint SLOT_ALLOCATED = 1u;
+static const uint SLOT_ACTIVE = 2u;
+static const uint SLOT_DIRTY = 4u;
+static const uint MEMBERSHIP_ACTIVE = 1u;
+static const uint MEMBERSHIP_MEASURED = 2u;
+static const uint LINK_ACTIVE = 1u;
+static const uint LINK_RETIRED = 8u;
+static const uint INCIDENCE_ACTIVE = 1u;
+static const uint FRONTIER_ACTIVE = 1u;
+static const uint FRONTIER_OUTER = 2u;
+static const uint FRONTIER_ORDERED = 4u;
+static const uint FRONTIER_RETIRED = 8u;
 static const uint PAGE_ACTIVE = 1u;
 static const uint BASE_CELLS = 256u;
 static const uint MICRO_CELLS = 64u;
@@ -151,14 +250,14 @@ void PrepareChunkStage(uint3 id : SV_DispatchThreadID)
         _SourceMicroPageCapacity);
     uint descriptors = min(_SourceMeshletCounters[4],
         _SourceDescriptorCapacity);
+    uint links = min(_SourceManifoldAllocator[4], _SourceLinkCapacity);
     _StageDispatchArguments[0] = uint3((films + 63u) / 64u, 1u, 1u);
     _StageDispatchArguments[1] = uint3((boundaries + 63u) / 64u, 1u, 1u);
     _StageDispatchArguments[2] = uint3((basePages + 63u) / 64u, 1u, 1u);
     _StageDispatchArguments[3] = uint3((microPages + 63u) / 64u, 1u, 1u);
     _StageDispatchArguments[4] = uint3((descriptors + 63u) / 64u, 1u, 1u);
-    _StageFilmAllocator[0] = 0u;
-    _StageFilmAllocator[1] = 0u;
-    _StageFilmAllocator[2] = 0u;
+    _StageDispatchArguments[5] = uint3((links + 63u) / 64u, 1u, 1u);
+    [unroll] for (uint i = 0u; i < 8u; ++i) _StageFilmAllocator[i] = 0u;
     _StageFilmAllocator[3] = max(1u, _SourceFilmAllocator[3]);
     _StageBoundaryAllocator[0] = 0u;
     _StageBoundaryAllocator[1] = 0u;
@@ -169,6 +268,8 @@ void PrepareChunkStage(uint3 id : SV_DispatchThreadID)
     _StageDisplacementAllocator[4] = max(1u, _SourceDisplacementAllocator[4]);
     [unroll] for (uint i = 0u; i < 8u; ++i)
         _StageMeshletCounters[i] = 0u;
+    [unroll] for (uint i = 0u; i < 16u; ++i)
+        _StageManifoldAllocator[i] = 0u;
     _StageMeshletDrawArguments[0] = uint4(0u, 1u, 0u, 0u);
     _StageMeshletCullArguments[0] = uint3(0u, 1u, 1u);
 }
@@ -187,7 +288,8 @@ void StageFilms(uint3 id : SV_DispatchThreadID)
     uint sourceIndex = id.x;
     if (sourceIndex >= count) return;
     ContactFilmHeader film = _SourceFilmHeaders[sourceIndex];
-    if (film.id == 0u || film.chunkId != _TargetChunkId) return;
+    if (film.id == 0u || film.chunkId != _TargetChunkId ||
+        (film.flags & FILM_ACTIVE) == 0u) return;
     uint destination;
     InterlockedAdd(_StageFilmAllocator[0], 1u, destination);
     if (destination >= _StageFilmCapacity)
@@ -197,16 +299,31 @@ void StageFilms(uint3 id : SV_DispatchThreadID)
     }
     uint localId = destination + 1u;
     _FilmRemap[sourceIndex] = localId;
-    if ((film.flags & FILM_ACTIVE) != 0u)
-        InterlockedAdd(_StageFilmAllocator[1], 1u);
+    InterlockedAdd(_StageFilmAllocator[1], 1u);
+    uint activeOrdinal;
+    InterlockedAdd(_StageFilmAllocator[6], 1u, activeOrdinal);
+    _StageActiveFilmIndices[activeOrdinal] = destination;
+    bool dirty = (film.flags &
+        (FILM_DIRTY_GEOMETRY | FILM_DIRTY_MESHLET)) != 0u;
+    FilmSlotState slot = (FilmSlotState)0;
+    slot.generation = film.generation;
+    slot.activeOrdinal = activeOrdinal;
+    slot.flags = SLOT_ALLOCATED | SLOT_ACTIVE | (dirty ? SLOT_DIRTY : 0u);
+    _StageFilmSlotStates[destination] = slot;
+    if (dirty)
+    {
+        uint dirtyOrdinal;
+        InterlockedAdd(_StageFilmAllocator[7], 1u, dirtyOrdinal);
+        _StageDirtyFilmIndices[dirtyOrdinal] = destination;
+    }
     film.id = localId;
     film.displacementPage = 0u;
     film.boundaryStart = 0u;
     film.boundaryCount = 0u;
     _StageFilmHeaders[destination] = film;
-    [unroll] for (uint record = 0u; record < 9u; ++record)
-        _StageFilmInformation[destination * 9u + record] =
-            _SourceFilmInformation[sourceIndex * 9u + record];
+    [unroll] for (uint record = 0u; record < 10u; ++record)
+        _StageFilmInformation[destination * 10u + record] =
+            _SourceFilmInformation[sourceIndex * 10u + record];
     _StageTopologyEvidence[destination] = _SourceTopologyEvidence[sourceIndex];
 }
 
@@ -400,8 +517,10 @@ void StageMeshlets(uint3 id : SV_DispatchThreadID)
         return;
     uint localFilm = _FilmRemap[descriptor.filmId - 1u];
     if (localFilm == 0u || descriptor.maximumSegments == 0u) return;
-    uint row = descriptor.maximumSegments + 1u;
-    uint vertexCount = row * row;
+    // Boundary/support clipping adds vertices outside the analytic base lattice.
+    // Compact the descriptor's referenced stream directly; assuming row*row here
+    // used to leave staged indices pointing at vertices that were never copied.
+    uint vertexCount = descriptor.sourceIndexCount;
     uint vertexBase;
     uint indexBase;
     uint destinationDescriptor;
@@ -417,18 +536,13 @@ void StageMeshlets(uint3 id : SV_DispatchThreadID)
     }
     [loop] for (uint vertex = 0u; vertex < vertexCount; ++vertex)
     {
-        ContactMeshletVertex value =
-            _SourceMeshletVertices[descriptor.vertexBase + vertex];
+        uint sourceVertex = _SourceMeshletIndices[
+            descriptor.sourceIndexBase + vertex];
+        ContactMeshletVertex value = _SourceMeshletVertices[sourceVertex];
         value.filmId = localFilm;
-        value.meshletIndex = destinationDescriptor;
+        value.reserved = destinationDescriptor;
         _StageMeshletVertices[vertexBase + vertex] = value;
-    }
-    [loop] for (uint index = 0u; index < descriptor.sourceIndexCount; ++index)
-    {
-        uint sourceVertex =
-            _SourceMeshletIndices[descriptor.sourceIndexBase + index];
-        _StageMeshletIndices[indexBase + index] = vertexBase +
-            (sourceVertex - descriptor.vertexBase);
+        _StageMeshletIndices[indexBase + vertex] = vertexBase + vertex;
     }
     descriptor.filmId = localFilm;
     descriptor.vertexBase = vertexBase;
@@ -436,6 +550,605 @@ void StageMeshlets(uint3 id : SV_DispatchThreadID)
     descriptor.reserved = localFilm - 1u;
     _StageMeshletDescriptors[destinationDescriptor] = descriptor;
     InterlockedAdd(_StageMeshletCounters[3], 1u);
+}
+
+float4 UnitEdge(uint edge)
+{
+    if (edge == 0u) return float4(0, 0, 1, 0);
+    if (edge == 1u) return float4(1, 0, 1, 1);
+    if (edge == 2u) return float4(1, 1, 0, 1);
+    return float4(0, 1, 0, 0);
+}
+
+uint CompleteOuterEdge(float4 uv01)
+{
+    const float epsilon = 0.025;
+    const float span = 0.95;
+    float2 a = saturate(uv01.xy);
+    float2 b = saturate(uv01.zw);
+    if (abs(a.y) <= epsilon && abs(b.y) <= epsilon &&
+        abs(a.x - b.x) >= span) return 1u;
+    if (abs(a.x - 1.0) <= epsilon && abs(b.x - 1.0) <= epsilon &&
+        abs(a.y - b.y) >= span) return 2u;
+    if (abs(a.y - 1.0) <= epsilon && abs(b.y - 1.0) <= epsilon &&
+        abs(a.x - b.x) >= span) return 4u;
+    if (abs(a.x) <= epsilon && abs(b.x) <= epsilon &&
+        abs(a.y - b.y) >= span) return 8u;
+    return 0u;
+}
+
+void PushStageIncidence(uint filmIndex, ManifoldLink link, uint endpoint)
+{
+    uint incidenceIndex = (link.id - 1u) * 2u + endpoint;
+    ManifoldLinkIncidence incidence = (ManifoldLinkIncidence)0;
+    incidence.id = incidenceIndex + 1u;
+    incidence.generation = link.generation;
+    incidence.linkId = link.id;
+    incidence.linkGeneration = link.generation;
+    incidence.filmId = endpoint == 0u ? link.filmA : link.filmB;
+    incidence.filmGeneration = endpoint == 0u ? link.filmAGeneration :
+        link.filmBGeneration;
+    incidence.endpoint = endpoint;
+    incidence.flags = INCIDENCE_ACTIVE;
+    _StageManifoldLinkIncidences[incidenceIndex] = incidence;
+    DeviceMemoryBarrier();
+    uint previous;
+    InterlockedExchange(_StageFilmMemberships[filmIndex].firstLink,
+        incidence.id, previous);
+    incidence.nextId = previous;
+    incidence.nextGeneration = previous != 0u ?
+        _StageManifoldLinkIncidences[previous - 1u].generation : 0u;
+    _StageManifoldLinkIncidences[incidenceIndex] = incidence;
+    InterlockedAdd(_StageFilmMemberships[filmIndex].linkCount, 1u);
+    InterlockedAdd(_StageFilmMemberships[filmIndex].revision, 1u);
+}
+
+void WriteStageFrontierIncidence(uint index, uint total, uint ordinal,
+    uint filmId, uint filmGeneration)
+{
+    ManifoldFrontierIncidence incidence = (ManifoldFrontierIncidence)0;
+    incidence.id = index + 1u;
+    incidence.generation = 1u;
+    incidence.frontierId = index + 1u;
+    incidence.frontierGeneration = 1u;
+    incidence.filmId = filmId;
+    incidence.filmGeneration = filmGeneration;
+    incidence.nextId = ordinal + 1u < total ? index + 2u : 0u;
+    incidence.nextGeneration = ordinal + 1u < total ? 1u : 0u;
+    incidence.flags = FRONTIER_ACTIVE;
+    _StageManifoldFrontierIncidences[index] = incidence;
+}
+
+[numthreads(1, 1, 1)]
+void InitializeStageManifold(uint3 id : SV_DispatchThreadID)
+{
+    [unroll] for (uint word = 0u; word < 4u; ++word)
+        _StageCurrentManifold[word] = 0u;
+    PressureManifoldHeader manifold = (PressureManifoldHeader)0;
+    manifold.id = 1u;
+    manifold.generation = 1u;
+    manifold.chunkId = _TargetChunkId;
+    manifold.flags = 1u | 4u | 8u; // active, dirty, restored-unlinked
+    manifold.seedSigma = 0.05;
+    uint sourceId = _SourceCurrentManifold[0];
+    uint sourceGeneration = _SourceCurrentManifold[1];
+    if (sourceId > 0u && sourceId <= _SourceManifoldCapacity)
+    {
+        PressureManifoldHeader source = _SourceManifoldHeaders[sourceId - 1u];
+        if (source.id == sourceId && source.generation == sourceGeneration)
+        {
+            manifold.opticalSeed = source.opticalSeed;
+            manifold.seedSigma = source.seedSigma;
+            manifold.calibrationEpochLow = source.calibrationEpochLow;
+            manifold.calibrationEpochHigh = source.calibrationEpochHigh;
+        }
+    }
+    manifold.membershipStart = 1u;
+    manifold.revision = 1u;
+    _StageManifoldHeaders[0] = manifold;
+    _StageManifoldAllocator[0] = 1u;
+    _StageManifoldAllocator[1] = 1u;
+    _StageManifoldAllocator[3] = 1u;
+    _StageManifoldAllocator[7] = 1u;
+    _StageManifoldAllocator[11] = 1u;
+    _StageManifoldAllocator[15] = 1u;
+    _StageCurrentManifold[0] = 1u;
+    _StageCurrentManifold[1] = 1u;
+}
+
+[numthreads(64, 1, 1)]
+void StageFilmMemberships(uint3 id : SV_DispatchThreadID)
+{
+    uint sourceCount = min(_SourceFilmAllocator[0], _SourceFilmCapacity);
+    uint sourceIndex = id.x;
+    if (sourceIndex >= sourceCount) return;
+    uint localId = _FilmRemap[sourceIndex];
+    if (localId == 0u || localId > _StageFilmCapacity) return;
+    ContactFilmHeader film = _StageFilmHeaders[localId - 1u];
+    FilmMembership membership = (FilmMembership)0;
+    membership.filmId = localId;
+    membership.filmGeneration = film.generation;
+    membership.manifoldId = 1u;
+    membership.manifoldGeneration = 1u;
+    membership.flags = MEMBERSHIP_ACTIVE | MEMBERSHIP_MEASURED;
+    membership.revision = 1u;
+    FilmMembership source = _SourceFilmMemberships[sourceIndex];
+    uint sourceFrontierIncidenceId = source.firstFrontier;
+    ContactFilmHeader sourceFilm = _SourceFilmHeaders[sourceIndex];
+    uint activeFrontiers = 0u;
+    [loop]
+    for (uint ordinal = 0u; ordinal < min(source.frontierCount,
+            _SourceFrontierCapacity);
+        ++ordinal)
+    {
+        if (sourceFrontierIncidenceId == 0u ||
+            sourceFrontierIncidenceId > _SourceFrontierCapacity) break;
+        ManifoldFrontierIncidence sourceIncidence =
+            _SourceManifoldFrontierIncidences[
+                sourceFrontierIncidenceId - 1u];
+        sourceFrontierIncidenceId = sourceIncidence.nextId;
+        if ((sourceIncidence.flags & FRONTIER_ACTIVE) == 0u ||
+            sourceIncidence.frontierId == 0u ||
+            sourceIncidence.frontierId > _SourceFrontierCapacity) continue;
+        LatentFrontierSegment frontier =
+            _SourceLatentFrontiers[sourceIncidence.frontierId - 1u];
+        if ((frontier.flags & (FRONTIER_ACTIVE | FRONTIER_RETIRED)) ==
+                FRONTIER_ACTIVE && frontier.filmId == sourceFilm.id &&
+            frontier.filmGeneration == sourceFilm.generation &&
+            frontier.generation == sourceIncidence.frontierGeneration &&
+            CompleteOuterEdge(frontier.uv01) != 0u)
+            activeFrontiers++;
+    }
+    // A link whose opposite endpoint is outside this staged chunk becomes a
+    // latent cut in the local artifact. Dropping it would turn a conserved sheet
+    // into an open chart after restore; retaining the measured neighbour would
+    // incorrectly import geometry owned by another chunk.
+    uint externalCuts = 0u;
+    uint sourceIncidenceId = source.firstLink;
+    [loop]
+    for (uint ordinal = 0u; ordinal < min(source.linkCount,
+            _SourceLinkCapacity * 2u); ++ordinal)
+    {
+        if (sourceIncidenceId == 0u ||
+            sourceIncidenceId > _SourceLinkCapacity * 2u) break;
+        ManifoldLinkIncidence incidence =
+            _SourceManifoldLinkIncidences[sourceIncidenceId - 1u];
+        sourceIncidenceId = incidence.nextId;
+        if ((incidence.flags & INCIDENCE_ACTIVE) == 0u ||
+            incidence.filmId != sourceFilm.id ||
+            incidence.filmGeneration != sourceFilm.generation ||
+            incidence.linkId == 0u || incidence.linkId > _SourceLinkCapacity)
+            continue;
+        ManifoldLink link = _SourceManifoldLinks[incidence.linkId - 1u];
+        if ((link.flags & (LINK_ACTIVE | LINK_RETIRED)) != LINK_ACTIVE ||
+            link.id != incidence.linkId ||
+            link.generation != incidence.linkGeneration) continue;
+        uint otherId = incidence.endpoint == 0u ? link.filmB : link.filmA;
+        uint otherGeneration = incidence.endpoint == 0u ?
+            link.filmBGeneration : link.filmAGeneration;
+        bool otherIsLocal = false;
+        if (otherId > 0u && otherId <= _SourceFilmCapacity)
+        {
+            ContactFilmHeader other = _SourceFilmHeaders[otherId - 1u];
+            otherIsLocal = other.id == otherId &&
+                other.generation == otherGeneration &&
+                _FilmRemap[otherId - 1u] != 0u;
+        }
+        float4 endpointUv = incidence.endpoint == 0u ? link.uvA01 : link.uvB01;
+        if (!otherIsLocal && CompleteOuterEdge(endpointUv) != 0u)
+            externalCuts++;
+    }
+    uint totalFrontiers = activeFrontiers + externalCuts;
+    uint frontierBase = 0u;
+    if (totalFrontiers > 0u)
+    {
+        InterlockedAdd(_StageManifoldAllocator[8], totalFrontiers, frontierBase);
+        if (totalFrontiers > _StageFrontierCapacity ||
+            frontierBase > _StageFrontierCapacity - totalFrontiers)
+        {
+            InterlockedAdd(_StageManifoldAllocator[10], totalFrontiers);
+            activeFrontiers = 0u;
+            externalCuts = 0u;
+            totalFrontiers = 0u;
+        }
+    }
+    membership.firstFrontier = totalFrontiers > 0u ? frontierBase + 1u : 0u;
+    membership.frontierCount = totalFrontiers;
+    _StageFilmMemberships[localId - 1u] = membership;
+    if (totalFrontiers == 0u) return;
+    sourceFrontierIncidenceId = source.firstFrontier;
+    uint written = 0u;
+    [loop]
+    for (uint ordinal = 0u; ordinal < min(source.frontierCount,
+            _SourceFrontierCapacity) &&
+        written < activeFrontiers; ++ordinal)
+    {
+        if (sourceFrontierIncidenceId == 0u ||
+            sourceFrontierIncidenceId > _SourceFrontierCapacity) break;
+        ManifoldFrontierIncidence sourceIncidence =
+            _SourceManifoldFrontierIncidences[
+                sourceFrontierIncidenceId - 1u];
+        sourceFrontierIncidenceId = sourceIncidence.nextId;
+        if ((sourceIncidence.flags & FRONTIER_ACTIVE) == 0u ||
+            sourceIncidence.frontierId == 0u ||
+            sourceIncidence.frontierId > _SourceFrontierCapacity) continue;
+        LatentFrontierSegment sourceFrontier =
+            _SourceLatentFrontiers[sourceIncidence.frontierId - 1u];
+        if ((sourceFrontier.flags & (FRONTIER_ACTIVE | FRONTIER_RETIRED)) !=
+                FRONTIER_ACTIVE || sourceFrontier.filmId != sourceFilm.id ||
+            sourceFrontier.filmGeneration != sourceFilm.generation ||
+            sourceFrontier.generation != sourceIncidence.frontierGeneration ||
+            CompleteOuterEdge(sourceFrontier.uv01) == 0u)
+            continue;
+        LatentFrontierSegment frontier = sourceFrontier;
+        frontier.id = frontierBase + written + 1u;
+        frontier.generation = 1u;
+        frontier.manifoldId = 1u;
+        frontier.manifoldGeneration = 1u;
+        frontier.filmId = localId;
+        frontier.filmGeneration = film.generation;
+        frontier.previousId = 0u;
+        frontier.previousGeneration = 0u;
+        frontier.nextId = 0u;
+        frontier.nextGeneration = 0u;
+        frontier.flags = FRONTIER_ACTIVE | FRONTIER_OUTER | FRONTIER_ORDERED;
+        _StageLatentFrontiers[frontierBase + written] = frontier;
+        WriteStageFrontierIncidence(frontierBase + written, totalFrontiers,
+            written, localId, film.generation);
+        written++;
+    }
+    sourceIncidenceId = source.firstLink;
+    [loop]
+    for (uint ordinal = 0u; ordinal < min(source.linkCount,
+            _SourceLinkCapacity * 2u) && written < totalFrontiers; ++ordinal)
+    {
+        if (sourceIncidenceId == 0u ||
+            sourceIncidenceId > _SourceLinkCapacity * 2u) break;
+        ManifoldLinkIncidence incidence =
+            _SourceManifoldLinkIncidences[sourceIncidenceId - 1u];
+        sourceIncidenceId = incidence.nextId;
+        if ((incidence.flags & INCIDENCE_ACTIVE) == 0u ||
+            incidence.filmId != sourceFilm.id ||
+            incidence.filmGeneration != sourceFilm.generation ||
+            incidence.linkId == 0u || incidence.linkId > _SourceLinkCapacity)
+            continue;
+        ManifoldLink link = _SourceManifoldLinks[incidence.linkId - 1u];
+        if ((link.flags & (LINK_ACTIVE | LINK_RETIRED)) != LINK_ACTIVE ||
+            link.id != incidence.linkId ||
+            link.generation != incidence.linkGeneration) continue;
+        uint otherId = incidence.endpoint == 0u ? link.filmB : link.filmA;
+        uint otherGeneration = incidence.endpoint == 0u ?
+            link.filmBGeneration : link.filmAGeneration;
+        bool otherIsLocal = false;
+        if (otherId > 0u && otherId <= _SourceFilmCapacity)
+        {
+            ContactFilmHeader other = _SourceFilmHeaders[otherId - 1u];
+            otherIsLocal = other.id == otherId &&
+                other.generation == otherGeneration &&
+                _FilmRemap[otherId - 1u] != 0u;
+        }
+        float4 endpointUv = incidence.endpoint == 0u ? link.uvA01 : link.uvB01;
+        if (otherIsLocal || CompleteOuterEdge(endpointUv) == 0u) continue;
+        LatentFrontierSegment frontier = (LatentFrontierSegment)0;
+        frontier.id = frontierBase + written + 1u;
+        frontier.generation = 1u;
+        frontier.manifoldId = 1u;
+        frontier.manifoldGeneration = 1u;
+        frontier.filmId = localId;
+        frontier.filmGeneration = film.generation;
+        frontier.flags = FRONTIER_ACTIVE | FRONTIER_OUTER | FRONTIER_ORDERED;
+        frontier.revision = 1u;
+        frontier.uv01 = endpointUv;
+        frontier.sigma = link.sigma;
+        frontier.support = link.support;
+        frontier.confidence = link.confidence;
+        _StageLatentFrontiers[frontierBase + written] = frontier;
+        WriteStageFrontierIncidence(frontierBase + written, totalFrontiers,
+            written, localId, film.generation);
+        written++;
+    }
+    // Count only fully written records. A source graph that changed underneath the
+    // immutable stage barrier cannot be published as a falsely closed artifact.
+    if (written != totalFrontiers)
+        InterlockedAdd(_StageManifoldAllocator[10], totalFrontiers - written);
+    InterlockedAdd(_StageManifoldAllocator[9], written);
+}
+
+float FrontierOrderKey(float4 uv01)
+{
+    float2 uv = saturate((uv01.xy + uv01.zw) * 0.5);
+    float4 distance = float4(uv.y, 1.0 - uv.x, 1.0 - uv.y, uv.x);
+    uint edge = 0u;
+    float closest = distance.x;
+    if (distance.y < closest) { closest = distance.y; edge = 1u; }
+    if (distance.z < closest) { closest = distance.z; edge = 2u; }
+    if (distance.w < closest) { edge = 3u; }
+    if (edge == 0u) return uv.x;
+    if (edge == 1u) return 1.0 + uv.y;
+    if (edge == 2u) return 3.0 - uv.x;
+    return 4.0 - uv.y;
+}
+
+bool FrontierTupleLess(float keyA, uint idA, float keyB, uint idB)
+{
+    return keyA < keyB || (abs(keyA - keyB) <= 1e-6 && idA < idB);
+}
+
+[numthreads(64, 1, 1)]
+void OrderStageFilmFrontiers(uint3 id : SV_DispatchThreadID)
+{
+    uint sourceCount = min(_SourceFilmAllocator[0], _SourceFilmCapacity);
+    if (id.x >= sourceCount) return;
+    uint localId = _FilmRemap[id.x];
+    if (localId == 0u) return;
+    FilmMembership membership = _StageFilmMemberships[localId - 1u];
+    if (membership.firstFrontier == 0u || membership.frontierCount == 0u) return;
+    uint count = membership.frontierCount;
+    uint currentIncidenceId = membership.firstFrontier;
+    [loop]
+    for (uint ordinal = 0u; ordinal < count; ++ordinal)
+    {
+        if (currentIncidenceId == 0u ||
+            currentIncidenceId > _StageFrontierCapacity) break;
+        ManifoldFrontierIncidence currentIncidence =
+            _StageManifoldFrontierIncidences[currentIncidenceId - 1u];
+        currentIncidenceId = currentIncidence.nextId;
+        if ((currentIncidence.flags & FRONTIER_ACTIVE) == 0u ||
+            currentIncidence.frontierId == 0u ||
+            currentIncidence.frontierId > _StageFrontierCapacity) continue;
+        uint index = currentIncidence.frontierId - 1u;
+        LatentFrontierSegment current = _StageLatentFrontiers[index];
+        float currentKey = FrontierOrderKey(current.uv01);
+        uint nextId = 0u;
+        uint previousId = 0u;
+        uint wrapNextId = 0u;
+        uint wrapPreviousId = 0u;
+        float nextKey = 1e30;
+        float previousKey = -1e30;
+        float wrapNextKey = 1e30;
+        float wrapPreviousKey = -1e30;
+        uint candidateIncidenceId = membership.firstFrontier;
+        [loop]
+        for (uint candidateOrdinal = 0u; candidateOrdinal < count;
+            ++candidateOrdinal)
+        {
+            if (candidateIncidenceId == 0u ||
+                candidateIncidenceId > _StageFrontierCapacity) break;
+            ManifoldFrontierIncidence candidateIncidence =
+                _StageManifoldFrontierIncidences[candidateIncidenceId - 1u];
+            candidateIncidenceId = candidateIncidence.nextId;
+            if ((candidateIncidence.flags & FRONTIER_ACTIVE) == 0u ||
+                candidateIncidence.frontierId == 0u ||
+                candidateIncidence.frontierId > _StageFrontierCapacity) continue;
+            uint candidateIndex = candidateIncidence.frontierId - 1u;
+            LatentFrontierSegment candidate =
+                _StageLatentFrontiers[candidateIndex];
+            float key = FrontierOrderKey(candidate.uv01);
+            if (FrontierTupleLess(key, candidate.id, wrapNextKey,
+                    wrapNextId == 0u ? 0xffffffffu : wrapNextId))
+            {
+                wrapNextKey = key;
+                wrapNextId = candidate.id;
+            }
+            if (wrapPreviousId == 0u || FrontierTupleLess(wrapPreviousKey,
+                    wrapPreviousId, key, candidate.id))
+            {
+                wrapPreviousKey = key;
+                wrapPreviousId = candidate.id;
+            }
+            if (FrontierTupleLess(currentKey, current.id, key, candidate.id) &&
+                FrontierTupleLess(key, candidate.id, nextKey,
+                    nextId == 0u ? 0xffffffffu : nextId))
+            {
+                nextKey = key;
+                nextId = candidate.id;
+            }
+            if (FrontierTupleLess(key, candidate.id, currentKey, current.id) &&
+                (previousId == 0u || FrontierTupleLess(previousKey,
+                    previousId, key, candidate.id)))
+            {
+                previousKey = key;
+                previousId = candidate.id;
+            }
+        }
+        current.nextId = nextId != 0u ? nextId : wrapNextId;
+        current.nextGeneration = 1u;
+        current.previousId = previousId != 0u ? previousId : wrapPreviousId;
+        current.previousGeneration = 1u;
+        _StageLatentFrontiers[index] = current;
+    }
+}
+
+[numthreads(64, 1, 1)]
+void StageManifoldLinks(uint3 id : SV_DispatchThreadID)
+{
+    uint sourceCount = min(_SourceManifoldAllocator[4], _SourceLinkCapacity);
+    if (id.x >= sourceCount) return;
+    ManifoldLink source = _SourceManifoldLinks[id.x];
+    if ((source.flags & (LINK_ACTIVE | LINK_RETIRED)) != LINK_ACTIVE ||
+        source.filmA == 0u || source.filmA > _SourceFilmCapacity ||
+        source.filmB == 0u || source.filmB > _SourceFilmCapacity) return;
+    uint localA = _FilmRemap[source.filmA - 1u];
+    uint localB = _FilmRemap[source.filmB - 1u];
+    if (localA == 0u || localB == 0u ||
+        CompleteOuterEdge(source.uvA01) == 0u ||
+        CompleteOuterEdge(source.uvB01) == 0u) return;
+    uint destination;
+    InterlockedAdd(_StageManifoldAllocator[4], 1u, destination);
+    if (destination >= _StageLinkCapacity)
+    {
+        InterlockedAdd(_StageManifoldAllocator[6], 1u);
+        return;
+    }
+    ManifoldLink link = source;
+    link.id = destination + 1u;
+    link.generation = 1u;
+    link.manifoldId = 1u;
+    link.manifoldGeneration = 1u;
+    link.filmA = localA;
+    link.filmB = localB;
+    link.boundaryId = 0u;
+    _StageManifoldLinks[destination] = link;
+    PushStageIncidence(localA - 1u, link, 0u);
+    PushStageIncidence(localB - 1u, link, 1u);
+    InterlockedAdd(_StageManifoldAllocator[5], 1u);
+}
+
+[numthreads(64, 1, 1)]
+void CloseMissingFilmFrontiers(uint3 id : SV_DispatchThreadID)
+{
+    uint sourceCount = min(_SourceFilmAllocator[0], _SourceFilmCapacity);
+    uint sourceIndex = id.x;
+    if (sourceIndex >= sourceCount) return;
+    uint localId = _FilmRemap[sourceIndex];
+    if (localId == 0u) return;
+    FilmMembership membership = _StageFilmMemberships[localId - 1u];
+    uint classifiedEdges = 0u;
+    bool invalidClassification = false;
+    uint frontierIncidenceId = membership.firstFrontier;
+    [loop]
+    for (uint ordinal = 0u; ordinal < min(membership.frontierCount,
+            _StageFrontierCapacity); ++ordinal)
+    {
+        if (frontierIncidenceId == 0u ||
+            frontierIncidenceId > _StageFrontierCapacity) break;
+        ManifoldFrontierIncidence incidence =
+            _StageManifoldFrontierIncidences[frontierIncidenceId - 1u];
+        frontierIncidenceId = incidence.nextId;
+        if ((incidence.flags & FRONTIER_ACTIVE) == 0u ||
+            incidence.filmId != localId ||
+            incidence.filmGeneration != membership.filmGeneration ||
+            incidence.frontierId == 0u ||
+            incidence.frontierId > _StageFrontierCapacity) continue;
+        LatentFrontierSegment frontier =
+            _StageLatentFrontiers[incidence.frontierId - 1u];
+        uint edge = CompleteOuterEdge(frontier.uv01);
+        bool validFrontier = frontier.id == incidence.frontierId &&
+            frontier.generation == incidence.frontierGeneration &&
+            frontier.filmId == localId &&
+            frontier.filmGeneration == membership.filmGeneration &&
+            (frontier.flags & (FRONTIER_ACTIVE | FRONTIER_RETIRED)) ==
+                FRONTIER_ACTIVE;
+        invalidClassification |= !validFrontier || edge == 0u ||
+            (classifiedEdges & edge) != 0u;
+        if (validFrontier && edge != 0u) classifiedEdges |= edge;
+    }
+    uint linkIncidenceId = membership.firstLink;
+    [loop]
+    for (uint ordinal = 0u; ordinal < min(membership.linkCount,
+            _StageLinkCapacity * 2u); ++ordinal)
+    {
+        if (linkIncidenceId == 0u ||
+            linkIncidenceId > _StageLinkCapacity * 2u) break;
+        ManifoldLinkIncidence incidence =
+            _StageManifoldLinkIncidences[linkIncidenceId - 1u];
+        linkIncidenceId = incidence.nextId;
+        if ((incidence.flags & INCIDENCE_ACTIVE) == 0u ||
+            incidence.filmId != localId ||
+            incidence.filmGeneration != membership.filmGeneration ||
+            incidence.linkId == 0u || incidence.linkId > _StageLinkCapacity)
+            continue;
+        ManifoldLink link = _StageManifoldLinks[incidence.linkId - 1u];
+        uint endpointFilm = incidence.endpoint == 0u ? link.filmA : link.filmB;
+        uint endpointGeneration = incidence.endpoint == 0u ?
+            link.filmAGeneration : link.filmBGeneration;
+        uint edge = CompleteOuterEdge(incidence.endpoint == 0u ?
+            link.uvA01 : link.uvB01);
+        bool validLink = link.id == incidence.linkId &&
+            link.generation == incidence.linkGeneration &&
+            endpointFilm == localId &&
+            endpointGeneration == membership.filmGeneration &&
+            (link.flags & (LINK_ACTIVE | LINK_RETIRED)) == LINK_ACTIVE;
+        invalidClassification |= !validLink || edge == 0u ||
+            (classifiedEdges & edge) != 0u;
+        if (validLink && edge != 0u) classifiedEdges |= edge;
+    }
+    if (invalidClassification)
+        InterlockedAdd(_StageManifoldAllocator[14], 1u);
+    uint missingEdges = (~classifiedEdges) & 0x0fu;
+    uint missingCount = countbits(missingEdges);
+    if (missingCount == 0u) return;
+    uint base;
+    InterlockedAdd(_StageManifoldAllocator[8], missingCount, base);
+    if (missingCount > _StageFrontierCapacity ||
+        base > _StageFrontierCapacity - missingCount)
+    {
+        InterlockedAdd(_StageManifoldAllocator[10], missingCount);
+        return;
+    }
+    ContactFilmHeader film = _StageFilmHeaders[localId - 1u];
+    uint written = 0u;
+    [unroll]
+    for (uint edge = 0u; edge < 4u; ++edge)
+    {
+        uint edgeBit = 1u << edge;
+        if ((missingEdges & edgeBit) == 0u) continue;
+        LatentFrontierSegment frontier = (LatentFrontierSegment)0;
+        frontier.id = base + written + 1u;
+        frontier.generation = 1u;
+        frontier.manifoldId = 1u;
+        frontier.manifoldGeneration = 1u;
+        frontier.filmId = localId;
+        frontier.filmGeneration = film.generation;
+        frontier.flags = FRONTIER_ACTIVE | FRONTIER_OUTER | FRONTIER_ORDERED;
+        frontier.revision = 1u;
+        frontier.uv01 = UnitEdge(edge);
+        frontier.sigma = film.sigmaNormal;
+        frontier.support = film.supportTotal;
+        frontier.confidence = film.confidence;
+        _StageLatentFrontiers[base + written] = frontier;
+        ManifoldFrontierIncidence incidence =
+            (ManifoldFrontierIncidence)0;
+        incidence.id = frontier.id;
+        incidence.generation = 1u;
+        incidence.frontierId = frontier.id;
+        incidence.frontierGeneration = 1u;
+        incidence.filmId = localId;
+        incidence.filmGeneration = film.generation;
+        incidence.nextId = membership.firstFrontier;
+        incidence.nextGeneration = membership.firstFrontier != 0u ? 1u : 0u;
+        incidence.flags = FRONTIER_ACTIVE;
+        _StageManifoldFrontierIncidences[base + written] = incidence;
+        membership.firstFrontier = incidence.id;
+        membership.frontierCount++;
+        written++;
+    }
+    membership.revision++;
+    _StageFilmMemberships[localId - 1u] = membership;
+    InterlockedAdd(_StageManifoldAllocator[9], written);
+}
+
+[numthreads(1, 1, 1)]
+void FinalizeStageManifold(uint3 id : SV_DispatchThreadID)
+{
+    uint filmCount = min(_StageFilmAllocator[0], _StageFilmCapacity);
+    if (filmCount == 0u)
+    {
+        _StageManifoldHeaders[0] = (PressureManifoldHeader)0;
+        _StageManifoldAllocator[0] = 0u;
+        _StageManifoldAllocator[1] = 0u;
+        _StageManifoldAllocator[12] = 0u;
+        _StageCurrentManifold[0] = 0u;
+        _StageCurrentManifold[1] = 0u;
+        return;
+    }
+    PressureManifoldHeader manifold = _StageManifoldHeaders[0];
+    manifold.membershipCount = filmCount;
+    manifold.linkStart = _StageManifoldAllocator[5] > 0u ? 1u : 0u;
+    manifold.linkCount = _StageManifoldAllocator[5];
+    manifold.frontierStart = _StageManifoldAllocator[9] > 0u ? 1u : 0u;
+    manifold.frontierCount = _StageManifoldAllocator[9];
+    bool valid = _StageFilmAllocator[2] == 0u &&
+        _StageManifoldAllocator[2] == 0u &&
+        _StageManifoldAllocator[6] == 0u &&
+        _StageManifoldAllocator[10] == 0u &&
+        _StageManifoldAllocator[14] == 0u;
+    manifold.flags = 1u | 8u | (valid ? 2u : 4u);
+    if (!valid && _StageManifoldAllocator[14] == 0u)
+        _StageManifoldAllocator[14] = 1u;
+    manifold.revision++;
+    _StageManifoldHeaders[0] = manifold;
+    _StageManifoldAllocator[12] = filmCount;
 }
 
 [numthreads(1, 1, 1)]

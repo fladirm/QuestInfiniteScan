@@ -14,10 +14,9 @@ namespace Genesis.RoomScan.Prism
     [DefaultExecutionOrder(15)]
     public sealed class PrismFilmUpdater : MonoBehaviour
     {
-        // 0..31: information/support envelope; 32: per-frame pre-hit pressure view
-        // mask; 33: true contact observation count.  BEHIND evidence must never
-        // inflate canonical contact confidence.
-        private const int AccumulatorWordsPerFilm = 34;
+        // 0..31: information/support envelope; 32: pre-hit view mask; 33: true
+        // contact count; 34: independent positive-contact eye/baseline/view mask.
+        private const int AccumulatorWordsPerFilm = 35;
         private const int MatchClassDispatchOffset =
             (int)ConeEventClass.Match * sizeof(uint) * 3;
         private const int BehindClassDispatchOffset =
@@ -30,6 +29,9 @@ namespace Genesis.RoomScan.Prism
         private float geometryQualityFloor = 0.25f;
         [SerializeField, Min(0.00025f)] private float minimumSurfaceSigma = 0.0005f;
         [SerializeField, Min(0.00025f)] private float minimumHuberDelta = 0.0015f;
+        [SerializeField, Min(1f)] private float physicalPrecisionUnit = 4096f;
+        [SerializeField, Min(0.0001f)] private float modelSigmaFloor = 0.0005f;
+        [SerializeField] private bool enablePhotometricGeometryPressure;
 
         private static readonly int FilmCapacityId = Shader.PropertyToID("_FilmCapacity");
         private static readonly int EventCapacityId = Shader.PropertyToID("_EventCapacity");
@@ -38,6 +40,9 @@ namespace Genesis.RoomScan.Prism
         private static readonly int QualityFloorId = Shader.PropertyToID("_QualityFloor");
         private static readonly int MinimumSigmaId = Shader.PropertyToID("_MinimumSigma");
         private static readonly int MinimumHuberId = Shader.PropertyToID("_MinimumHuber");
+        private static readonly int PrecisionUnitId = Shader.PropertyToID("_PrecisionUnit");
+        private static readonly int ModelSigmaFloorId =
+            Shader.PropertyToID("_ModelSigmaFloor");
         private static readonly int ChunkFromDepthId = Shader.PropertyToID("_ChunkFromDepth");
         private static readonly int EventsId = Shader.PropertyToID("_ConeEvents");
         private static readonly int ClassifiedIndicesId = Shader.PropertyToID("_ClassifiedIndices");
@@ -51,6 +56,14 @@ namespace Genesis.RoomScan.Prism
         private static readonly int FilmDirtyFlagsId = Shader.PropertyToID("_FilmDirtyFlags");
         private static readonly int DirtyFilmIndicesId = Shader.PropertyToID("_DirtyFilmIndices");
         private static readonly int DirtyStateId = Shader.PropertyToID("_DirtyState");
+        private static readonly int DirtyFilmIndicesReadId =
+            Shader.PropertyToID("_DirtyFilmIndicesRead");
+        private static readonly int DirtyStateReadId =
+            Shader.PropertyToID("_DirtyStateRead");
+        private static readonly int FilmSlotStatesId =
+            Shader.PropertyToID("_FilmSlotStates");
+        private static readonly int CanonicalDirtyFilmIndicesId =
+            Shader.PropertyToID("_CanonicalDirtyFilmIndices");
         private static readonly int SolveDispatchArgumentsId = Shader.PropertyToID("_SolveDispatchArguments");
         private static readonly int PhotometricPressuresId =
             Shader.PropertyToID("_PhotometricPressures");
@@ -160,6 +173,8 @@ namespace Genesis.RoomScan.Prism
                 updateCompute.SetFloat(QualityFloorId, geometryQualityFloor);
                 updateCompute.SetFloat(MinimumSigmaId, minimumSurfaceSigma);
                 updateCompute.SetFloat(MinimumHuberId, minimumHuberDelta);
+                updateCompute.SetFloat(PrecisionUnitId, physicalPrecisionUnit);
+                updateCompute.SetFloat(ModelSigmaFloorId, modelSigmaFloor);
                 updateCompute.SetMatrixArray(ChunkFromDepthId, _chunkFromDepth);
                 updateCompute.SetBuffer(_accumulateKernel, EventsId, eventFrame.Events);
                 updateCompute.SetBuffer(_accumulateKernel, ClassifiedIndicesId,
@@ -186,7 +201,8 @@ namespace Genesis.RoomScan.Prism
                     eventFrame.ClassDispatchArguments, MatchClassDispatchOffset);
                 updateCompute.DispatchIndirect(_contradictionKernel,
                     eventFrame.ClassDispatchArguments, BehindClassDispatchOffset);
-                if (photometric?.Pressures != null &&
+                if (enablePhotometricGeometryPressure &&
+                    photometric?.Pressures != null &&
                     photometric.PressureState != null &&
                     photometric.PressureArguments != null)
                 {
@@ -266,6 +282,13 @@ namespace Genesis.RoomScan.Prism
                 pool.Information);
             updateCompute.SetBuffer(_solveKernel, FilmAllocatorId,
                 pool.Allocator);
+            updateCompute.SetBuffer(_solveKernel, DirtyFilmIndicesReadId,
+                _dirtyFilmIndices);
+            updateCompute.SetBuffer(_solveKernel, DirtyStateReadId, _dirtyState);
+            updateCompute.SetBuffer(_solveKernel, FilmSlotStatesId,
+                pool.SlotStates);
+            updateCompute.SetBuffer(_solveKernel, CanonicalDirtyFilmIndicesId,
+                pool.DirtyIndices);
         }
 
         private void DisposeBuffers()

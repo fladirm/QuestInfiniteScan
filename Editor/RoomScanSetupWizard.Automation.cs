@@ -1,7 +1,6 @@
 using System;
 using System.IO;
 using System.Threading.Tasks;
-using Genesis.RoomScan.HeavyCompute;
 using Genesis.RoomScan.World;
 using UnityEditor;
 using UnityEditor.Build;
@@ -83,14 +82,6 @@ namespace Genesis.RoomScan.Editor
                     new[] { GraphicsDeviceType.Vulkan });
 
                 AssetDatabase.Refresh(ImportAssetOptions.ForceSynchronousImport);
-                ConfigurePluginImporter(
-                    "Packages/com.genesis.roomscan/Runtime/Plugins/Android/libxatlas.so");
-                ConfigurePluginImporter(
-                    "Packages/com.genesis.roomscan/Runtime/Plugins/Linux/libxatlas.so");
-                wizard.RefreshNativePlugins();
-                if (!wizard._xatlasAndroid || !wizard._xatlasEditor)
-                    throw new InvalidOperationException(
-                        "xatlas Android and Linux plugins must be built before scene preparation.");
 
                 GameObject roomScan = GameObject.Find("RoomScan");
                 SubmapManager submaps = roomScan != null
@@ -99,32 +90,11 @@ namespace Genesis.RoomScan.Editor
                 if (submaps == null || !submaps.LargeWorldMode)
                     throw new InvalidOperationException("Infinite Submaps was not enabled.");
 
-                ChunkRefinementScheduler scheduler = roomScan != null
-                    ? roomScan.GetComponent<ChunkRefinementScheduler>()
-                    : null;
-                if (scheduler == null)
+                if (roomScan.GetComponent<PrismChunkResidencyManager>() == null)
                     throw new InvalidOperationException(
-                        "Chunk refinement scheduler was not added to the smoke scene.");
-                string lanServerUrl = Environment.GetEnvironmentVariable(
-                    "QIS_LAN_SERVER_URL");
-                HeavyComputeBackendMode backendMode =
-                    string.IsNullOrWhiteSpace(lanServerUrl)
-                        ? HeavyComputeBackendMode.None
-                        : HeavyComputeBackendMode.Lan;
-                string diffSoupProfile = Environment.GetEnvironmentVariable(
-                    "QIS_DIFFSOUP_PROFILE");
-                if (string.IsNullOrWhiteSpace(diffSoupProfile))
-                    diffSoupProfile = "preview";
-                if (!scheduler.TryConfigureBeforeInitialization(backendMode,
-                        lanServerUrl, diffSoupProfile, out string backendError))
-                    throw new InvalidOperationException(
-                        "Invalid heavy-compute build configuration: " + backendError);
-                EditorUtility.SetDirty(scheduler);
-                Debug.Log($"[QuestInfiniteScan] Heavy compute backend: {backendMode}" +
-                          (backendMode == HeavyComputeBackendMode.Lan
-                              ? " at " + lanServerUrl.Trim().TrimEnd('/')
-                              : " (offline-safe)") +
-                          ", profile=" + scheduler.Profile);
+                        "Cone-PRISM chunk residency was not added to the smoke scene.");
+                Debug.Log("[QuestInfiniteScan] Pure-Quest Cone-PRISM production path; " +
+                          "no TSDF, Surface Nets, triplanar, GSplat or DiffSoup backend.");
 
                 Directory.CreateDirectory(Path.GetDirectoryName(SmokeScenePath));
                 Scene scene = SceneManager.GetActiveScene();

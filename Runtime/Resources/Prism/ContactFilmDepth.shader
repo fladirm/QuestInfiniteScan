@@ -1,25 +1,16 @@
-Shader "Hidden/Genesis/ConePrism/ContactFilmPreview"
+Shader "Hidden/Genesis/ConePrism/ContactFilmDepth"
 {
-    Properties
-    {
-        _PreviewCoverage ("Preview Opacity", Range(0, 1)) = 0.72
-        _ShowLatentDiagnostic ("Show Latent Diagnostic", Float) = 0
-    }
     SubShader
     {
-        Tags
-        {
-            "RenderPipeline"="UniversalPipeline"
-            "Queue"="Transparent"
-            "RenderType"="Transparent"
-        }
+        Tags { "RenderPipeline"="UniversalPipeline" "Queue"="Geometry+9" }
         Pass
         {
-            Name "Cone-PRISM Preview"
+            Name "Cone-PRISM Front Depth"
             Cull Off
-            ZWrite Off
-            ZTest Equal
-            Blend SrcAlpha OneMinusSrcAlpha
+            ZWrite On
+            ZTest LEqual
+            ColorMask 0
+            Blend Off
 
             HLSLPROGRAM
             #pragma target 4.5
@@ -39,17 +30,16 @@ Shader "Hidden/Genesis/ConePrism/ContactFilmPreview"
             StructuredBuffer<ContactMeshletVertex> _ContactVertices;
             StructuredBuffer<uint> _ContactIndices;
             float4x4 _WorldFromChunk;
-            float _PreviewCoverage;
-            float _ShowLatentDiagnostic;
 
             struct Varyings
             {
                 float4 positionCS : SV_POSITION;
                 float3 worldPosition : TEXCOORD0;
                 float3 worldNormal : TEXCOORD1;
-                float confidence : TEXCOORD2;
-                nointerpolation uint flags : TEXCOORD3;
-                float coverage : TEXCOORD4;
+                nointerpolation uint filmId : TEXCOORD2;
+                nointerpolation uint generation : TEXCOORD3;
+                nointerpolation uint flags : TEXCOORD4;
+                float coverage : TEXCOORD5;
             };
 
             Varyings Vert(uint vertexId : SV_VertexID)
@@ -62,30 +52,19 @@ Shader "Hidden/Genesis/ConePrism/ContactFilmPreview"
                 output.worldPosition = world.xyz;
                 output.worldNormal = normalize(mul((float3x3)_WorldFromChunk,
                     input.normal));
-                output.confidence = input.confidence;
+                output.filmId = input.filmId;
+                output.generation = input.generation;
                 output.flags = input.flags;
                 output.coverage = asfloat(input.coverageBits);
                 return output;
             }
 
-            float4 Frag(Varyings input) : SV_Target
+            void Frag(Varyings input)
             {
-                bool measured = (input.flags & (1u << 0u)) != 0u;
-                bool latent = (input.flags & ((1u << 2u) | (1u << 3u))) != 0u;
-                if (latent && _ShowLatentDiagnostic < 0.5) discard;
-                if (measured && input.coverage < 0.5) discard;
-                if (latent && input.coverage >= 0.5 &&
-                    (input.flags & (1u << 2u)) == 0u) discard;
-                float opacity = saturate(_PreviewCoverage) *
-                    lerp(0.72, 1.0, saturate(input.confidence));
-                if (latent) opacity *= 0.30;
-                float3 view = normalize(GetCameraPositionWS() -
-                    input.worldPosition);
+                if ((input.flags & 1u) == 0u || input.filmId == 0u ||
+                    input.generation == 0u || input.coverage < 0.5) discard;
+                float3 view = normalize(GetCameraPositionWS() - input.worldPosition);
                 if (dot(input.worldNormal, view) <= 0.0) discard;
-                float3 normalColor = 0.25 + 0.55 * abs(input.worldNormal);
-                float confidence = saturate(input.confidence);
-                return float4(lerp(float3(0.18, 0.22, 0.28), normalColor,
-                    0.35 + 0.65 * confidence), opacity);
             }
             ENDHLSL
         }

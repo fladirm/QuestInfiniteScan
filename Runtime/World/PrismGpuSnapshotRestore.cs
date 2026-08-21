@@ -13,7 +13,7 @@ namespace Genesis.RoomScan.World
     /// </summary>
     public static class PrismGpuSnapshotRestore
     {
-        private const int FilmInformationRecords = 9;
+        private const int FilmInformationRecords = ContactFilmPool.InformationRecords;
 
         public static bool TryCreateMeshletCache(
             PrismCanonicalChunkSnapshot snapshot, Matrix4x4 worldFromChunk,
@@ -63,6 +63,29 @@ namespace Genesis.RoomScan.World
             {
                 Upload<ContactFilmHeaderGpu>(films.Headers, snapshot.FilmHeaders);
                 Upload<Vector4>(films.Information, snapshot.FilmInformation);
+                Upload<ContactFilmSlotStateGpu>(films.SlotStates,
+                    snapshot.FilmSlotStates);
+                Upload<uint>(films.ActiveIndices, snapshot.ActiveFilmIndices);
+                Upload<uint>(films.DirtyIndices, snapshot.DirtyFilmIndices);
+                Upload<uint>(films.Allocator, snapshot.FilmAllocatorState);
+                PressureManifoldPool manifolds = films.Manifolds;
+                Upload<PressureManifoldHeaderGpu>(manifolds.Headers,
+                    snapshot.PressureManifoldHeaders);
+                Upload<FilmMembershipGpu>(manifolds.Memberships,
+                    snapshot.FilmMemberships);
+                Upload<ManifoldLinkGpu>(manifolds.Links,
+                    snapshot.ManifoldLinks);
+                Upload<ManifoldLinkIncidenceGpu>(manifolds.LinkIncidences,
+                    snapshot.ManifoldLinkIncidences);
+                Upload<ManifoldFrontierIncidenceGpu>(
+                    manifolds.FrontierIncidences,
+                    snapshot.ManifoldFrontierIncidences);
+                Upload<LatentFrontierSegmentGpu>(manifolds.Frontiers,
+                    snapshot.LatentFrontiers);
+                Upload<uint>(manifolds.Allocator,
+                    snapshot.ManifoldAllocatorState);
+                Upload<uint>(manifolds.Current,
+                    snapshot.CurrentManifoldState);
                 Upload<ContactBoundaryHeaderGpu>(boundaries.Headers,
                     snapshot.BoundaryHeaders);
                 Upload<Vector4>(boundaries.Information,
@@ -87,11 +110,6 @@ namespace Genesis.RoomScan.World
                 Upload<ContactTopologyEvidenceGpu>(displacement.TopologyEvidence,
                     snapshot.TopologyEvidence);
 
-                films.Allocator.SetData(new[]
-                {
-                    (uint)snapshot.FilmCount, (uint)snapshot.FilmCount, 0u,
-                    Math.Max(1u, snapshot.FilmGeneration)
-                });
                 boundaries.Allocator.SetData(new[]
                 {
                     (uint)snapshot.BoundaryCount, (uint)snapshot.BoundaryCount, 0u,
@@ -107,7 +125,8 @@ namespace Genesis.RoomScan.World
 
                 meshlets.EnsureCapacity(Math.Max(1, snapshot.MeshletVertexCount),
                     Math.Max(1, snapshot.MeshletIndexCount),
-                    Math.Max(1, snapshot.MeshletDescriptorCount));
+                    Math.Max(1, snapshot.MeshletDescriptorCount),
+                    Math.Max(1, snapshot.FilmCount));
                 if (!meshlets.TryBeginBuild(out ContactMeshletGenerationBuffers target))
                 {
                     error = "PRISM inactive meshlet generation is still fenced.";
@@ -138,7 +157,16 @@ namespace Genesis.RoomScan.World
             Matrix4x4 worldFromChunk)
         {
             generation = Math.Max(1u, generation);
-            films?.Allocator?.SetData(new[] { 0u, 0u, 0u, generation });
+            films?.Allocator?.SetData(new[]
+                { 0u, 0u, 0u, generation, 0u, 0u, 0u, 0u });
+            if (films?.Manifolds != null)
+            {
+                films.Manifolds.Allocator.SetData(new uint[
+                    PressureManifoldPool.AllocatorWords]);
+                films.Manifolds.Current.SetData(new uint[4]);
+                films.Manifolds.Diagnostics.SetData(new uint[
+                    PressureManifoldPool.DiagnosticWords]);
+            }
             boundaries?.Allocator?.SetData(new[] { 0u, 0u, 0u, generation });
             displacement?.Allocator?.SetData(new[]
                 { 0u, 0u, 0u, 0u, generation, 0u, 0u, 0u });
@@ -169,7 +197,10 @@ namespace Genesis.RoomScan.World
                 snapshot.DisplacementBasePageCount >
                     displacement.BasePageCapacity ||
                 snapshot.DisplacementMicroPageCount >
-                    displacement.MicroPageCapacity)
+                    displacement.MicroPageCapacity ||
+                snapshot.ManifoldCount > films.Manifolds.ManifoldCapacity ||
+                snapshot.ManifoldLinkCount > films.Manifolds.LinkCapacity ||
+                snapshot.ManifoldFrontierCount > films.Manifolds.FrontierCapacity)
                 return "PRISM chunk exceeds the configured resident GPU arena.";
             return null;
         }

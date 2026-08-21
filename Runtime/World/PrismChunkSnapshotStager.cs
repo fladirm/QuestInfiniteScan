@@ -23,6 +23,9 @@ namespace Genesis.RoomScan.World
         private static readonly int SourceBasePageCapacity = Shader.PropertyToID("_SourceBasePageCapacity");
         private static readonly int SourceMicroPageCapacity = Shader.PropertyToID("_SourceMicroPageCapacity");
         private static readonly int SourceDescriptorCapacity = Shader.PropertyToID("_SourceDescriptorCapacity");
+        private static readonly int SourceLinkCapacity = Shader.PropertyToID("_SourceLinkCapacity");
+        private static readonly int SourceFrontierCapacity = Shader.PropertyToID("_SourceFrontierCapacity");
+        private static readonly int SourceManifoldCapacity = Shader.PropertyToID("_SourceManifoldCapacity");
         private static readonly int StageFilmCapacity = Shader.PropertyToID("_StageFilmCapacity");
         private static readonly int StageBoundaryCapacity = Shader.PropertyToID("_StageBoundaryCapacity");
         private static readonly int StageBasePageCapacity = Shader.PropertyToID("_StageBasePageCapacity");
@@ -30,6 +33,9 @@ namespace Genesis.RoomScan.World
         private static readonly int StageVertexCapacity = Shader.PropertyToID("_StageVertexCapacity");
         private static readonly int StageIndexCapacity = Shader.PropertyToID("_StageIndexCapacity");
         private static readonly int StageDescriptorCapacity = Shader.PropertyToID("_StageDescriptorCapacity");
+        private static readonly int StageManifoldCapacity = Shader.PropertyToID("_StageManifoldCapacity");
+        private static readonly int StageLinkCapacity = Shader.PropertyToID("_StageLinkCapacity");
+        private static readonly int StageFrontierCapacity = Shader.PropertyToID("_StageFrontierCapacity");
 
         private static readonly int SourceFilmHeaders = Shader.PropertyToID("_SourceFilmHeaders");
         private static readonly int SourceFilmInformation = Shader.PropertyToID("_SourceFilmInformation");
@@ -48,6 +54,15 @@ namespace Genesis.RoomScan.World
         private static readonly int SourceMeshletIndices = Shader.PropertyToID("_SourceMeshletIndices");
         private static readonly int SourceMeshletDescriptors = Shader.PropertyToID("_SourceMeshletDescriptors");
         private static readonly int SourceMeshletCounters = Shader.PropertyToID("_SourceMeshletCounters");
+        private static readonly int SourceFilmMemberships = Shader.PropertyToID("_SourceFilmMemberships");
+        private static readonly int SourceManifoldHeaders = Shader.PropertyToID("_SourceManifoldHeaders");
+        private static readonly int SourceManifoldLinks = Shader.PropertyToID("_SourceManifoldLinks");
+        private static readonly int SourceManifoldLinkIncidences = Shader.PropertyToID("_SourceManifoldLinkIncidences");
+        private static readonly int SourceManifoldFrontierIncidences =
+            Shader.PropertyToID("_SourceManifoldFrontierIncidences");
+        private static readonly int SourceLatentFrontiers = Shader.PropertyToID("_SourceLatentFrontiers");
+        private static readonly int SourceManifoldAllocator = Shader.PropertyToID("_SourceManifoldAllocator");
+        private static readonly int SourceCurrentManifold = Shader.PropertyToID("_SourceCurrentManifold");
 
         private static readonly int StageFilmHeaders = Shader.PropertyToID("_StageFilmHeaders");
         private static readonly int StageFilmInformation = Shader.PropertyToID("_StageFilmInformation");
@@ -68,6 +83,18 @@ namespace Genesis.RoomScan.World
         private static readonly int StageMeshletCounters = Shader.PropertyToID("_StageMeshletCounters");
         private static readonly int StageMeshletDrawArguments = Shader.PropertyToID("_StageMeshletDrawArguments");
         private static readonly int StageMeshletCullArguments = Shader.PropertyToID("_StageMeshletCullArguments");
+        private static readonly int StageFilmSlotStates = Shader.PropertyToID("_StageFilmSlotStates");
+        private static readonly int StageActiveFilmIndices = Shader.PropertyToID("_StageActiveFilmIndices");
+        private static readonly int StageDirtyFilmIndices = Shader.PropertyToID("_StageDirtyFilmIndices");
+        private static readonly int StageManifoldHeaders = Shader.PropertyToID("_StageManifoldHeaders");
+        private static readonly int StageFilmMemberships = Shader.PropertyToID("_StageFilmMemberships");
+        private static readonly int StageManifoldLinks = Shader.PropertyToID("_StageManifoldLinks");
+        private static readonly int StageManifoldLinkIncidences = Shader.PropertyToID("_StageManifoldLinkIncidences");
+        private static readonly int StageManifoldFrontierIncidences =
+            Shader.PropertyToID("_StageManifoldFrontierIncidences");
+        private static readonly int StageLatentFrontiers = Shader.PropertyToID("_StageLatentFrontiers");
+        private static readonly int StageManifoldAllocator = Shader.PropertyToID("_StageManifoldAllocator");
+        private static readonly int StageCurrentManifold = Shader.PropertyToID("_StageCurrentManifold");
         private static readonly int FilmRemap = Shader.PropertyToID("_FilmRemap");
         private static readonly int BasePageRemap = Shader.PropertyToID("_BasePageRemap");
         private static readonly int MicroPageRemap = Shader.PropertyToID("_MicroPageRemap");
@@ -159,7 +186,7 @@ namespace Genesis.RoomScan.World
                 displacement.MicroPageCapacity, sizeof(uint));
             _dispatchArguments = new GraphicsBuffer(
                 GraphicsBuffer.Target.Structured |
-                GraphicsBuffer.Target.IndirectArguments, 5, sizeof(uint) * 3);
+                GraphicsBuffer.Target.IndirectArguments, 6, sizeof(uint) * 3);
             CacheKernels();
         }
 
@@ -170,7 +197,11 @@ namespace Genesis.RoomScan.World
                 "PrepareChunkStage", "ClearFilmRemap", "StageFilms",
                 "StageBoundaries", "ClearPageRemap", "IndexBasePages",
                 "IndexMicroPages", "CopyBasePages", "CopyMicroPages",
-                "PatchFilmDisplacement", "StageMeshlets", "FinalizeChunkStage"
+                "PatchFilmDisplacement", "StageMeshlets",
+                "InitializeStageManifold", "StageFilmMemberships",
+                "OrderStageFilmFrontiers", "StageManifoldLinks",
+                "CloseMissingFilmFrontiers",
+                "FinalizeStageManifold", "FinalizeChunkStage"
             };
             _kernels = new int[names.Length];
             for (int i = 0; i < names.Length; i++)
@@ -190,6 +221,12 @@ namespace Genesis.RoomScan.World
                 displacement.MicroPageCapacity);
             chunkStageCompute.SetInt(SourceDescriptorCapacity,
                 meshlets.DescriptorCapacity);
+            chunkStageCompute.SetInt(SourceLinkCapacity,
+                films.Manifolds.LinkCapacity);
+            chunkStageCompute.SetInt(SourceFrontierCapacity,
+                films.Manifolds.FrontierCapacity);
+            chunkStageCompute.SetInt(SourceManifoldCapacity,
+                films.Manifolds.ManifoldCapacity);
             chunkStageCompute.SetInt(StageFilmCapacity, _stageFilms.Capacity);
             chunkStageCompute.SetInt(StageBoundaryCapacity,
                 _stageBoundaries.Capacity);
@@ -203,6 +240,12 @@ namespace Genesis.RoomScan.World
                 _stageMeshlets.IndexCapacity);
             chunkStageCompute.SetInt(StageDescriptorCapacity,
                 _stageMeshlets.DescriptorCapacity);
+            chunkStageCompute.SetInt(StageManifoldCapacity,
+                _stageFilms.Manifolds.ManifoldCapacity);
+            chunkStageCompute.SetInt(StageLinkCapacity,
+                _stageFilms.Manifolds.LinkCapacity);
+            chunkStageCompute.SetInt(StageFrontierCapacity,
+                _stageFilms.Manifolds.FrontierCapacity);
             foreach (int kernel in _kernels)
             {
                 Set(kernel, SourceFilmHeaders, films.Headers);
@@ -222,6 +265,17 @@ namespace Genesis.RoomScan.World
                 Set(kernel, SourceMeshletIndices, meshlets.Indices);
                 Set(kernel, SourceMeshletDescriptors, meshlets.Descriptors);
                 Set(kernel, SourceMeshletCounters, meshlets.BuildCounters);
+                Set(kernel, SourceFilmMemberships,
+                    films.Manifolds.Memberships);
+                Set(kernel, SourceManifoldHeaders, films.Manifolds.Headers);
+                Set(kernel, SourceManifoldLinks, films.Manifolds.Links);
+                Set(kernel, SourceManifoldLinkIncidences,
+                    films.Manifolds.LinkIncidences);
+                Set(kernel, SourceManifoldFrontierIncidences,
+                    films.Manifolds.FrontierIncidences);
+                Set(kernel, SourceLatentFrontiers, films.Manifolds.Frontiers);
+                Set(kernel, SourceManifoldAllocator, films.Manifolds.Allocator);
+                Set(kernel, SourceCurrentManifold, films.Manifolds.Current);
                 Set(kernel, StageFilmHeaders, _stageFilms.Headers);
                 Set(kernel, StageFilmInformation, _stageFilms.Information);
                 Set(kernel, StageFilmAllocator, _stageFilms.Allocator);
@@ -248,6 +302,24 @@ namespace Genesis.RoomScan.World
                     _stageMeshlets.DrawArguments);
                 Set(kernel, StageMeshletCullArguments,
                     _stageMeshlets.CullDispatchArguments);
+                Set(kernel, StageFilmSlotStates, _stageFilms.SlotStates);
+                Set(kernel, StageActiveFilmIndices, _stageFilms.ActiveIndices);
+                Set(kernel, StageDirtyFilmIndices, _stageFilms.DirtyIndices);
+                Set(kernel, StageManifoldHeaders,
+                    _stageFilms.Manifolds.Headers);
+                Set(kernel, StageFilmMemberships,
+                    _stageFilms.Manifolds.Memberships);
+                Set(kernel, StageManifoldLinks, _stageFilms.Manifolds.Links);
+                Set(kernel, StageManifoldLinkIncidences,
+                    _stageFilms.Manifolds.LinkIncidences);
+                Set(kernel, StageManifoldFrontierIncidences,
+                    _stageFilms.Manifolds.FrontierIncidences);
+                Set(kernel, StageLatentFrontiers,
+                    _stageFilms.Manifolds.Frontiers);
+                Set(kernel, StageManifoldAllocator,
+                    _stageFilms.Manifolds.Allocator);
+                Set(kernel, StageCurrentManifold,
+                    _stageFilms.Manifolds.Current);
                 Set(kernel, FilmRemap, _filmRemap);
                 Set(kernel, BasePageRemap, _basePageRemap);
                 Set(kernel, MicroPageRemap, _microPageRemap);
@@ -260,6 +332,12 @@ namespace Genesis.RoomScan.World
             chunkStageCompute.Dispatch(_kernels[0], 1, 1, 1);
             DispatchIndirect(1, 0);
             DispatchIndirect(2, 0);
+            chunkStageCompute.Dispatch(_kernels[11], 1, 1, 1);
+            DispatchIndirect(12, 0);
+            DispatchIndirect(14, 5);
+            DispatchIndirect(15, 0);
+            DispatchIndirect(13, 0);
+            chunkStageCompute.Dispatch(_kernels[16], 1, 1, 1);
             DispatchIndirect(3, 1);
             DispatchIndirect(4, 2);
             DispatchIndirect(4, 3);
@@ -269,7 +347,7 @@ namespace Genesis.RoomScan.World
             DispatchIndirect(8, 3);
             DispatchIndirect(9, 0);
             DispatchIndirect(10, 4);
-            chunkStageCompute.Dispatch(_kernels[11], 1, 1, 1);
+            chunkStageCompute.Dispatch(_kernels[17], 1, 1, 1);
         }
 
         private void DispatchIndirect(int kernelIndex, int argumentIndex) =>

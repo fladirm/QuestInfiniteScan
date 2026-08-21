@@ -180,3 +180,35 @@ remain recoverable from archive commit `e9f37c1` and are not active on this bran
 - Consequence: topology moments cannot alias or corrupt displacement cells, Vulkan
   binding limits are enforced before Unity builds, and no CPU readback, lower
   capacity, lower resolution, or direct-dispatch fallback is introduced.
+
+## ADR-P018 — Q3-15.5 semantic ABI and canonical-manifold repair gate
+
+- Decision: physical/source forensics at commit `8f2b31b1bc72` supersede the current
+  patch-soup implementation claims. Film lifecycle flags, meshlet vertex flags,
+  descriptor flags and view flags are distinct typed ABIs and are never copied raw
+  between representations. Measured-contact eligibility is explicit and positive;
+  latent connector/frontier material always has zero FilmID and cannot predict or
+  export. A canonical generation-safe PressureManifold/member/link/ordered-frontier
+  GPU pool, cross-tile/cross-eye candidate union, measured/latent material split,
+  link-gated topology, symmetric endpoint remap, and covariance-consistent
+  view-decorrelated pressure posterior are mandatory before Q3-16.
+- Consequence: Q3-15.5 preempts Q3-11 continuation as the only active task. Threshold,
+  opacity, merge-angle or cadence tuning cannot close it. Photometric geometry
+  pressure remains implemented but is gated until depth-only manifold fixtures pass;
+  one batched Quest deployment follows source/fixture acceptance. Exact execution is
+  frozen in `.codex/runbooks/Q3-15.5_PRESSURE_MANIFOLD_REPAIR.md`.
+
+## ADR-P019 — Transactional manifold publication and measured/latent material
+
+- Decision: one continuous pressure sheet is materialized as explicitly separated
+  measured and latent fragments. Only measured fragments carry FilmID/generation and
+  enter prediction/export; latent continuation remains connected but identity-free.
+  Canonical films publish only after cross-eye/tile candidate union and capacity
+  reservation. Derived dirty updates publish only after topology/capacity validation;
+  overflow or an unpaired/stale edge fails closed. Physical links are canonical
+  world-space relations, never a consequence of screen-neighbour FilmIDs.
+- Consequence: continuous manifold topology no longer implies a false measured
+  rectangle, tile/eye boundaries cannot publish duplicate plates, background surfaces
+  cannot be joined to foreground silhouettes by a connector curtain, and a failed
+  allocation cannot expose a torn prediction generation. Active/dirty indirect lists
+  and reusable generation-tagged slots keep work local without lowering detail.

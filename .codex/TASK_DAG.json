@@ -125,7 +125,7 @@
     {
       "id": "Q3-07",
       "title": "Implement robust GPU ContactFilm and SurfaceChartGeometry spawn",
-      "status": "done",
+      "status": "pending",
       "depends_on": ["Q3-06"],
       "acceptance": [
         "UNSEEN/NEW_FRONT samples are tile-component clustered by depth/normal continuity entirely on GPU",
@@ -144,7 +144,7 @@
     {
       "id": "Q3-08",
       "title": "Implement robust pressure-equilibrium 6x6 ContactFilm posterior refinement",
-      "status": "done",
+      "status": "pending",
       "depends_on": ["Q3-07"],
       "acceptance": [
         "Compatible cone contacts robustly accumulate footprint-aware quadratic-basis H/g sufficient statistics on GPU",
@@ -165,7 +165,7 @@
     {
       "id": "Q3-09",
       "title": "Implement multihypothesis one-sided and bimodal ContactFilms",
-      "status": "done",
+      "status": "pending",
       "depends_on": ["Q3-08"],
       "acceptance": [
         "Orientation-, sidedness-, first-contact visibility-, or residual-mode-incompatible evidence creates an independent ContactFilm hypothesis",
@@ -184,7 +184,7 @@
     {
       "id": "Q3-10",
       "title": "Implement persistent ContactBoundaries with multi-view 3D BoundaryCurves",
-      "status": "done",
+      "status": "pending",
       "depends_on": ["Q3-09"],
       "acceptance": [
         "Depth/normal/RGB/first-hit visibility/coverage discontinuities accumulate into stable uncertainty-bearing ContactBoundaries with spline controls and film-side relations",
@@ -205,8 +205,8 @@
     {
       "id": "Q3-11",
       "title": "Implement closed elastic PressureManifolds, chart topology, pressure solve, and hierarchical displacement",
-      "status": "in_progress",
-      "depends_on": ["Q3-10"],
+      "status": "pending",
+      "depends_on": ["Q3-10", "Q3-15.5"],
       "acceptance": [
         "Quadratic residual updates logical Grid16 displacement with information/sigma/support/coverage and monotonic quality",
         "Measured footprint can allocate recursive sparse microtiles so Grid16 is not a detail ceiling",
@@ -330,10 +330,43 @@
       ]
     },
     {
+      "id": "Q3-15.5",
+      "title": "Repair canonical PressureManifold integrity before displacement refinement",
+      "status": "in_progress",
+      "depends_on": ["Q3-06"],
+      "acceptance": [
+        "ContactFilm, ContactMeshletVertex, ContactMeshletDescriptor, boundary/link, and view-LOD flags use distinct typed namespaces; no film flags are copied raw into derived vertex or descriptor flags",
+        "Every spawned, split, merged, restored, and revisited measured ContactFilm emits explicit MeasuredContact vertices with a valid FilmID/generation and contributes prediction pixels in the next complete publication; latent connector/frontier geometry has FilmID zero and contributes exactly zero prediction pixels",
+        "A generation-safe GPU PressureManifoldPool owns PressureManifoldHeader, film membership, typed ManifoldLinks, ordered LatentFrontier loops, optical seeds, allocators, counters, persistence ABI, staging, and restore",
+        "Spawn is candidate -> cross-tile and cross-eye finite-footprint union -> canonical publication; an 8x8 workgroup or eye boundary cannot independently publish duplicate films for one compatible first-contact component",
+        "Measured contact material and latent conserved-sheet material are distinct inside derived meshlets: unsupported chart regions may preserve canonical continuity but cannot carry measured FilmID, enter first-hit prediction, or enter normal GLB export",
+        "Smooth merge requires an explicit same-manifold link or measured-support overlap/continuation; it cannot use proximity alone, fill a bounding rectangle over an unsupported gap, or create new physical support",
+        "Screen-space FilmID adjacency is retained only as boundary/occlusion/link-candidate evidence; a canonical ManifoldLink requires world-space boundary coincidence, compatible sidedness, first-hit ordering, and multi-view continuation",
+        "Split and merge remap both endpoints of every ManifoldLink and ContactBoundary symmetrically with generations and boundary counts; before publication every active chart edge is exactly one SmoothLink, CreaseLink, OcclusionFold, or ordered OuterLatentFrontier segment",
+        "Depth-only manifold construction passes before photometric geometry pressure is re-enabled; the feature remains implemented but cannot perturb topology during this repair gate",
+        "Canonical H/g uses bounded absolute covariance precision with independent eye/angular/baseline saturation; sigma comes from posterior covariance plus the calibrated model floor, not only the strongest individual pressure sample",
+        "GPU fixtures prove plane union, unsupported-gap preservation, foreground/background non-linking, wall-floor crease, front-only latent back, two-sided thin plate, symmetric link remap, latent prediction exclusion, measured prediction inclusion, and view-order posterior invariance",
+        "GPU-resident diagnostics expose candidate/union/film, prediction eligibility, manifold/link/frontier, split/merge/rejection, unpaired-edge, and unsupported-measured-triangle counters without synchronous live-path readback",
+        "One batched Quest deployment after static/fixture acceptance shows a continuous non-card surface, no room-spanning connector curtains, stable prediction feedback, continued scan growth, and interactive rendering; no per-substep headset test is required"
+      ],
+      "evidence": [
+        "Verified source audit and deterministic repair runbook: .codex/runbooks/Q3-15.5_PRESSURE_MANIFOLD_REPAIR.md",
+        "Audit baseline commit 8f2b31b1bc72 proves PressureManifoldMember and VERTEX_LATENT_CONNECTOR both use bit 9 while normal meshlet vertices copy film.flags raw; prediction therefore discards ordinary spawned/merged films",
+        "The same baseline proves split children omit PressureManifoldMember, canonical manifold/link/frontier pools are absent, spawn publishes per 8x8 tile/eye, full rectangular chart lattices carry real FilmIDs, proximity merge expands bounding rectangles, and screen adjacency creates connector links",
+        "The same baseline proves FilmB link bookkeeping is not symmetric, persisted H/g is relative-quality weighted rather than covariance weighted, sigma is derived from best pressure, and positive MATCH accumulation lacks independent-view saturation",
+        "The expanded audit invalidated the previous physical acceptance of Q3-07 through Q3-10: direct per-tile publication, high-water rebuilds, non-transactional reservations, missing boundary cuts, asymmetric snapping, preview culling bypass, and alpha-soup remain part of this single repair slice",
+        "Static repair A-D: typed film/vertex/descriptor/view ABIs, explicit MeasuredContact prediction eligibility, zero-ID latent material, generation-safe PressureManifold/member/link/incidence/ordered-frontier pools, and candidate/hash/cross-tile-cross-eye union before transactional canonical publication are implemented",
+        "Static repair E-G: physical links require world-space measured continuation rather than screen adjacency; split preflight remaps both link/boundary endpoints and ordered frontiers; absolute bounded covariance precision, independent-view saturation and posterior sigma replace relative-best averaging",
+        "Static repair H-J: GPU diagnostic ABI and Vulkan fixtures cover candidate publication overflow, measured/latent prediction eligibility, ordered frontier validation, FilmB split remap and shared-boundary remap; dirty indirect transactional mesh publication and world-preview culling/front-depth rendering replace high-water full redraw and alpha soup",
+        "Static repair K: canonical persistence schema v5 round-trips manifold headers, memberships, links/incidences, ordered frontiers and allocator state; production setup/UI ownership for TSDF/SurfaceNets/triplanar/GSplat/DiffSoup/server/RoomScanPersistence/XAtlas was deleted",
+        "Final pre-deployment validation on 2026-08-21: Unity EditMode 102/102 passed, zero failed/skipped; PRISM reachable-kernel UAV validator passed at limit 8; code graph regenerated for 174 files; physical phase L remains open"
+      ]
+    },
+    {
       "id": "Q3-16",
       "title": "Implement measured hierarchical displacement and normal refinement",
       "status": "pending",
-      "depends_on": ["Q3-11", "Q3-15"],
+      "depends_on": ["Q3-11", "Q3-15", "Q3-15.5"],
       "acceptance": [
         "Depth/stereo/temporal residuals update analytic base versus displacement at the correct scale with posterior uncertainty",
         "Recursive microtiles allocate only from supported projected footprint and consistent information",

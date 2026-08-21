@@ -15,13 +15,10 @@ namespace Genesis.RoomScan.Prism
         Persistent = 1u << 3,
         Retired = 1u << 4,
         MultiView = 1u << 5,
-        // A canonical adjacency edge between two observed ContactFilm charts.
-        // Its derived strip is an elastic manifold continuation, not measured
-        // contact and therefore never participates as a first-hit predictor.
-        ElasticManifoldLink = 1u << 6,
-        // Reserved for the single outer unresolved contour of a pressure manifold.
-        // Internal film/tile boundaries must never carry this bit.
-        LatentFrontier = 1u << 7
+        // Boundary observations never own physical adjacency. Canonical adjacency
+        // and outer latent closure live exclusively in PressureManifoldPool.
+        ReservedObservationClass0 = 1u << 6,
+        ReservedObservationClass1 = 1u << 7
     }
 
     [StructLayout(LayoutKind.Sequential)]

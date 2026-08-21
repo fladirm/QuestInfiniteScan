@@ -1,7 +1,21 @@
 #pragma kernel ClearSpawnTileState
 #pragma kernel CompactSpawnTiles
 #pragma kernel BuildSpawnTileDispatchArguments
-#pragma kernel SpawnContactFilms
+#pragma kernel ClearSpawnCandidates
+#pragma kernel EmitSpawnCandidates
+#pragma kernel BuildCandidateDispatchArguments
+#pragma kernel BuildCandidateHash
+#pragma kernel UnionCompatibleCandidates
+#pragma kernel CompressCandidateParents
+#pragma kernel CompactCandidateRepresentatives
+#pragma kernel BuildRepresentativeDispatchArguments
+#pragma kernel AccumulateCandidateRepresentatives
+#pragma kernel StampCandidateSupport
+#pragma kernel EnsurePressureManifold
+#pragma kernel ReserveCandidatePublication
+#pragma kernel WriteCanonicalFilms
+#pragma kernel WriteCanonicalMembershipAndFrontier
+#pragma kernel FinalizePressureManifoldCounts
 
 Texture2D<float4> _DepthRayCenterLeft;
 Texture2D<float4> _DepthRayCenterRight;
@@ -59,21 +73,106 @@ struct ContactFilmHeader
     uint reserved2;
 };
 
+struct PressureManifoldHeader
+{
+    uint id; uint generation; uint chunkId; uint flags;
+    float3 opticalSeed; float seedSigma;
+    uint membershipStart; uint membershipCount; uint linkStart; uint linkCount;
+    uint frontierStart; uint frontierCount; uint revision; uint calibrationEpochLow;
+    uint calibrationEpochHigh; uint reserved0; uint reserved1; uint reserved2;
+};
+
+struct FilmMembership
+{
+    uint filmId; uint filmGeneration; uint manifoldId; uint manifoldGeneration;
+    uint firstLink; uint linkCount; uint firstFrontier; uint frontierCount;
+    uint flags; uint revision;
+};
+
+struct LatentFrontierSegment
+{
+    uint id; uint generation; uint manifoldId; uint manifoldGeneration;
+    uint filmId; uint filmGeneration; uint nextId; uint nextGeneration;
+    uint previousId; uint previousGeneration; uint flags; uint revision;
+    float4 uv01;
+    float sigma; float support; float confidence; float reserved;
+};
+
+struct ManifoldFrontierIncidence
+{
+    uint id; uint generation; uint frontierId; uint frontierGeneration;
+    uint filmId; uint filmGeneration; uint nextId; uint nextGeneration;
+    uint flags; uint reserved;
+};
+
+struct CandidatePublication
+{
+    uint root;
+    uint filmSlot;
+    uint filmGeneration;
+    uint frontierBase;
+    uint valid;
+};
+
+struct FilmSlotState
+{
+    uint generation;
+    uint activeOrdinal;
+    uint nextFree;
+    uint flags;
+};
+
 StructuredBuffer<ConeEvent> _ConeEvents;
 RWStructuredBuffer<ContactFilmHeader> _FilmHeaders;
 RWStructuredBuffer<float4> _FilmInformation;
 RWStructuredBuffer<uint> _FilmAllocator;
+RWStructuredBuffer<FilmSlotState> _FilmSlotStates;
+RWStructuredBuffer<uint> _ActiveFilmIndices;
+RWStructuredBuffer<uint> _DirtyFilmIndices;
 RWStructuredBuffer<uint> _SpawnTileIndices;
 RWStructuredBuffer<uint> _SpawnTileState;
 RWStructuredBuffer<uint3> _SpawnTileDispatchArguments;
+RWStructuredBuffer<ContactFilmHeader> _CandidateHeaders;
+RWStructuredBuffer<float4> _CandidateInformation;
+RWStructuredBuffer<uint> _CandidateParents;
+RWStructuredBuffer<uint> _CandidateHashHeads;
+RWStructuredBuffer<uint> _CandidateHashNext;
+RWStructuredBuffer<uint> _CandidateHashKeys;
+RWStructuredBuffer<uint> _CandidateRepresentatives;
+RWStructuredBuffer<int4> _CandidateAggregates;
+RWStructuredBuffer<uint> _CandidateState;
+RWStructuredBuffer<uint3> _CandidateDispatchArguments;
+RWStructuredBuffer<PressureManifoldHeader> _ManifoldHeaders;
+RWStructuredBuffer<FilmMembership> _FilmMemberships;
+RWStructuredBuffer<LatentFrontierSegment> _LatentFrontiers;
+RWStructuredBuffer<ManifoldFrontierIncidence> _ManifoldFrontierIncidences;
+RWStructuredBuffer<uint> _ManifoldAllocator;
+RWStructuredBuffer<uint> _CurrentManifold;
+RWStructuredBuffer<uint> _ManifoldDiagnostics;
+RWStructuredBuffer<CandidatePublication> _CandidatePublications;
+StructuredBuffer<ContactFilmHeader> _CandidateHeadersRead;
+StructuredBuffer<float4> _CandidateInformationRead;
+StructuredBuffer<uint> _CandidateRepresentativesRead;
+StructuredBuffer<int4> _CandidateAggregatesRead;
+StructuredBuffer<CandidatePublication> _CandidatePublicationsRead;
+StructuredBuffer<ContactFilmHeader> _FilmHeadersRead;
+StructuredBuffer<PressureManifoldHeader> _ManifoldHeadersRead;
+StructuredBuffer<uint> _CurrentManifoldRead;
 
 uint2 _Resolution;
 uint2 _TileResolution;
 uint _FilmCapacity;
 uint _SpawnTileCapacity;
+uint _CandidateCapacity;
+uint _CandidateHashCapacity;
+uint _ManifoldCapacity;
+uint _FrontierCapacity;
 uint _ChunkId;
+uint _CalibrationEpoch;
 float4x4 _ChunkFromDepth[2];
 float _BehindLayerThreshold;
+float _PrecisionUnit;
+float3 _OpticalSeed;
 
 static const uint CLASS_NEW_FRONT = 2u;
 static const uint CLASS_BEHIND = 3u;
@@ -86,6 +185,20 @@ static const uint FILM_UNCERTAIN = 4u;
 static const uint FILM_DIRTY_GEOMETRY = 8u;
 static const uint FILM_DIRTY_MESHLET = 16u;
 static const uint FILM_PRESSURE_MANIFOLD_MEMBER = 1u << 9u;
+static const uint MANIFOLD_ACTIVE = 1u;
+static const uint MANIFOLD_CLOSED = 2u;
+static const uint MANIFOLD_DIRTY_TOPOLOGY = 4u;
+static const uint MEMBERSHIP_ACTIVE = 1u;
+static const uint MEMBERSHIP_MEASURED = 2u;
+static const uint FRONTIER_ACTIVE = 1u;
+static const uint FRONTIER_OUTER = 2u;
+static const uint FRONTIER_ORDERED = 4u;
+static const uint INVALID_INDEX = 0xffffffffu;
+static const uint AGGREGATE_RECORDS = 4u;
+static const uint SLOT_ALLOCATED = 1u;
+static const uint SLOT_ACTIVE = 2u;
+static const uint SLOT_DIRTY = 4u;
+static const uint SLOT_FREE = 8u;
 
 groupshared uint sActive[64];
 groupshared uint sLabel[64];
@@ -217,8 +330,30 @@ void BuildSpawnTileDispatchArguments(uint3 id : SV_DispatchThreadID)
     _SpawnTileDispatchArguments[0] = uint3(count, 1u, 1u);
 }
 
+[numthreads(64, 1, 1)]
+void ClearSpawnCandidates(uint3 id : SV_DispatchThreadID)
+{
+    uint index = id.x;
+    if (index < _CandidateCapacity)
+    {
+        _CandidateParents[index] = index;
+        _CandidateHashNext[index] = INVALID_INDEX;
+        _CandidateHashKeys[index] = 0u;
+        _CandidateRepresentatives[index] = 0u;
+        uint aggregate = index * AGGREGATE_RECORDS;
+        _CandidateAggregates[aggregate + 0u] = 0;
+        _CandidateAggregates[aggregate + 1u] = 0;
+        _CandidateAggregates[aggregate + 2u] = int4(0, 0, 0, 0);
+        _CandidateAggregates[aggregate + 3u] = 0;
+    }
+    if (index < _CandidateHashCapacity)
+        _CandidateHashHeads[index] = INVALID_INDEX;
+    if (index < 8u) _CandidateState[index] = 0u;
+    if (index < 4u) _CandidateDispatchArguments[index] = uint3(0u, 1u, 1u);
+}
+
 [numthreads(8, 8, 1)]
-void SpawnContactFilms(uint3 groupId : SV_GroupID,
+void EmitSpawnCandidates(uint3 groupId : SV_GroupID,
     uint3 threadId : SV_GroupThreadID)
 {
     uint localIndex = threadId.y * 8u + threadId.x;
@@ -520,9 +655,9 @@ void SpawnContactFilms(uint3 groupId : SV_GroupID,
         float huberDelta = max(0.003, 2.0 * sSigma[infoSample]);
         float robust = abs(residual) <= huberDelta ? 1.0 :
             huberDelta / max(abs(residual), 1e-8);
-        float relativeQuality = saturate(sWeight[infoSample] /
-            max(bestPressure, 1e-8));
-        float weight = robust * relativeQuality;
+        float physicalInformation = clamp(sWeight[infoSample] /
+            max(_PrecisionUnit, 1.0), 0.0, 4.0);
+        float weight = robust * physicalInformation;
         normalizedSupport += weight;
         [unroll]
         for (uint row = 0u; row < 6u; ++row)
@@ -576,21 +711,19 @@ void SpawnContactFilms(uint3 groupId : SV_GroupID,
         supportMaskLow = 1u << (localIndex & 31u);
 
     uint slot;
-    InterlockedAdd(_FilmAllocator[0], 1u, slot);
-    if (slot >= _FilmCapacity)
+    InterlockedAdd(_CandidateState[0], 1u, slot);
+    if (slot >= _CandidateCapacity)
     {
-        InterlockedAdd(_FilmAllocator[2], 1u);
+        InterlockedAdd(_CandidateState[1], 1u);
         return;
     }
-    InterlockedAdd(_FilmAllocator[1], 1u);
-    uint generation = max(1u, _FilmAllocator[3]);
+    InterlockedAdd(_ManifoldDiagnostics[0], 1u);
     ContactFilmHeader film;
     film.id = slot + 1u;
-    film.generation = generation;
+    film.generation = 1u;
     film.chunkId = _ChunkId;
     film.flags = FILM_ACTIVE | FILM_ONE_SIDED | FILM_UNCERTAIN |
-        FILM_DIRTY_GEOMETRY | FILM_DIRTY_MESHLET |
-        FILM_PRESSURE_MANIFOLD_MEMBER;
+        FILM_DIRTY_GEOMETRY | FILM_DIRTY_MESHLET;
     film.origin = weightedCenter;
     film.supportTotal = normalizedSupport;
     film.normal = normal;
@@ -617,19 +750,551 @@ void SpawnContactFilms(uint3 groupId : SV_GroupID,
     film.boundaryCount = 0u;
     film.supportMaskLow = supportMaskLow;
     film.supportMaskHigh = supportMaskHigh;
-    film.reserved0 = film.reserved1 = film.reserved2 = 0u;
-    _FilmHeaders[slot] = film;
+    // Candidate-only provenance. Publication clears these words because canonical
+    // split lineage owns them after this pass.
+    film.reserved0 = eye;
+    film.reserved1 = encodedTile;
+    film.reserved2 = supportCount;
+    _CandidateHeaders[slot] = film;
 
-    uint info = slot * 9u;
-    _FilmInformation[info + 0u] = float4(finalH[0], finalH[1], finalH[2], finalH[3]);
-    _FilmInformation[info + 1u] = float4(finalH[4], finalH[5], finalH[7], finalH[8]);
-    _FilmInformation[info + 2u] = float4(finalH[9], finalH[10], finalH[11], finalH[14]);
-    _FilmInformation[info + 3u] = float4(finalH[15], finalH[16], finalH[17], finalH[21]);
-    _FilmInformation[info + 4u] = float4(finalH[22], finalH[23], finalH[28], finalH[29]);
-    _FilmInformation[info + 5u] = float4(finalH[35], 0.0, 0.0, 0.0);
-    _FilmInformation[info + 6u] = float4(finalG[0], finalG[1], finalG[2], finalG[3]);
-    _FilmInformation[info + 7u] = float4(finalG[4], finalG[5],
+    uint info = slot * 10u;
+    _CandidateInformation[info + 0u] = float4(finalH[0], finalH[1], finalH[2], finalH[3]);
+    _CandidateInformation[info + 1u] = float4(finalH[4], finalH[5], finalH[7], finalH[8]);
+    _CandidateInformation[info + 2u] = float4(finalH[9], finalH[10], finalH[11], finalH[14]);
+    _CandidateInformation[info + 3u] = float4(finalH[15], finalH[16], finalH[17], finalH[21]);
+    _CandidateInformation[info + 4u] = float4(finalH[22], finalH[23], finalH[28], finalH[29]);
+    _CandidateInformation[info + 5u] = float4(finalH[35], 0.0, 0.0, 0.0);
+    _CandidateInformation[info + 6u] = float4(finalG[0], finalG[1], finalG[2], finalG[3]);
+    _CandidateInformation[info + 7u] = float4(finalG[4], finalG[5],
         (float)supportCount, normalizedSupport);
-    _FilmInformation[info + 8u] = float4(film.sigmaNormal, film.confidence,
+    _CandidateInformation[info + 8u] = float4(film.sigmaNormal, film.confidence,
         minimumFootprint, bestPressure);
+    _CandidateInformation[info + 9u] = 0.0;
+}
+
+uint HashCandidateCell(int3 cell)
+{
+    uint value = asuint(cell.x) * 0x8da6b343u;
+    value ^= asuint(cell.y) * 0xd8163841u;
+    value ^= asuint(cell.z) * 0xcb1ab31fu;
+    value ^= value >> 16u;
+    value *= 0x7feb352du;
+    value ^= value >> 15u;
+    return max(1u, value);
+}
+
+int3 CandidateCell(float3 position)
+{
+    // The hash is only a broad phase. Finite-footprint overlap below is the
+    // authoritative continuation test.
+    return (int3)floor(position / 0.20);
+}
+
+uint FindCandidateRoot(uint index)
+{
+    uint root = index;
+    [loop]
+    for (uint step = 0u; step < 32u; ++step)
+    {
+        uint parent = _CandidateParents[root];
+        if (parent == root || parent >= _CandidateCapacity) break;
+        root = parent;
+    }
+    return root;
+}
+
+bool CandidateContinuation(ContactFilmHeader a, ContactFilmHeader b)
+{
+    if (a.chunkId != b.chunkId) return false;
+    float normalAgreement = dot(a.normal, b.normal);
+    if (normalAgreement < 0.94) return false;
+    float3 delta = b.origin - a.origin;
+    float footprintA = sqrt(max(_CandidateInformation[(a.id - 1u) * 10u + 8u].z,
+        1e-12));
+    float footprintB = sqrt(max(_CandidateInformation[(b.id - 1u) * 10u + 8u].z,
+        1e-12));
+    float planeGap = abs(dot(delta, normalize(a.normal + b.normal)));
+    float gapGate = max(0.004,
+        2.5 * max(a.sigmaNormal, b.sigmaNormal) + footprintA + footprintB);
+    if (planeGap > min(gapGate, 0.025)) return false;
+    float tangentU = abs(dot(delta, a.tangentU));
+    float tangentV = abs(dot(delta, a.tangentV));
+    float finiteMargin = 1.5 * (footprintA + footprintB) + 0.004;
+    if (tangentU > a.extentU + b.extentU + finiteMargin ||
+        tangentV > a.extentV + b.extentV + finiteMargin) return false;
+    // A depth/normal discontinuity cannot be crossed merely because two image tiles
+    // share a broad-phase bucket.
+    return distance(a.origin, b.origin) <=
+        length(float2(a.extentU + b.extentU,
+            a.extentV + b.extentV)) + finiteMargin;
+}
+
+void UnionCandidateRoots(uint a, uint b)
+{
+    [loop]
+    for (uint attempt = 0u; attempt < 32u; ++attempt)
+    {
+        uint rootA = FindCandidateRoot(a);
+        uint rootB = FindCandidateRoot(b);
+        if (rootA == rootB) return;
+        uint high = max(rootA, rootB);
+        uint low = min(rootA, rootB);
+        uint observed;
+        InterlockedCompareExchange(_CandidateParents[high], high, low, observed);
+        if (observed == high)
+        {
+            InterlockedAdd(_CandidateState[2], 1u);
+            InterlockedAdd(_ManifoldDiagnostics[1], 1u);
+            return;
+        }
+    }
+}
+
+[numthreads(1, 1, 1)]
+void BuildCandidateDispatchArguments(uint3 id : SV_DispatchThreadID)
+{
+    uint count = min(_CandidateState[0], _CandidateCapacity);
+    _CandidateDispatchArguments[0] = uint3((count + 63u) / 64u, 1u, 1u);
+    _CandidateDispatchArguments[1] = uint3(0u, 1u, 1u);
+    _CandidateDispatchArguments[2] = uint3((count + 63u) / 64u, 1u, 1u);
+}
+
+[numthreads(64, 1, 1)]
+void BuildCandidateHash(uint3 id : SV_DispatchThreadID)
+{
+    uint count = min(_CandidateState[0], _CandidateCapacity);
+    uint candidate = id.x;
+    if (candidate >= count) return;
+    ContactFilmHeader film = _CandidateHeaders[candidate];
+    uint key = HashCandidateCell(CandidateCell(film.origin));
+    uint bucket = key & (_CandidateHashCapacity - 1u);
+    uint previous;
+    InterlockedExchange(_CandidateHashHeads[bucket], candidate, previous);
+    _CandidateHashNext[candidate] = previous;
+    _CandidateHashKeys[candidate] = key;
+}
+
+[numthreads(64, 1, 1)]
+void UnionCompatibleCandidates(uint3 id : SV_DispatchThreadID)
+{
+    uint count = min(_CandidateState[0], _CandidateCapacity);
+    uint candidate = id.x;
+    if (candidate >= count) return;
+    ContactFilmHeader film = _CandidateHeaders[candidate];
+    int3 centre = CandidateCell(film.origin);
+    [unroll]
+    for (int z = -1; z <= 1; ++z)
+    [unroll]
+    for (int y = -1; y <= 1; ++y)
+    [unroll]
+    for (int x = -1; x <= 1; ++x)
+    {
+        uint key = HashCandidateCell(centre + int3(x, y, z));
+        uint other = _CandidateHashHeads[key & (_CandidateHashCapacity - 1u)];
+        [loop]
+        for (uint chain = 0u; chain < 128u && other != INVALID_INDEX; ++chain)
+        {
+            if (other < count && other != candidate &&
+                _CandidateHashKeys[other] == key &&
+                CandidateContinuation(film, _CandidateHeaders[other]))
+                UnionCandidateRoots(candidate, other);
+            other = other < count ? _CandidateHashNext[other] : INVALID_INDEX;
+        }
+    }
+}
+
+[numthreads(64, 1, 1)]
+void CompressCandidateParents(uint3 id : SV_DispatchThreadID)
+{
+    uint count = min(_CandidateState[0], _CandidateCapacity);
+    if (id.x >= count) return;
+    _CandidateParents[id.x] = FindCandidateRoot(id.x);
+}
+
+[numthreads(64, 1, 1)]
+void CompactCandidateRepresentatives(uint3 id : SV_DispatchThreadID)
+{
+    uint count = min(_CandidateState[0], _CandidateCapacity);
+    uint candidate = id.x;
+    if (candidate >= count || _CandidateParents[candidate] != candidate) return;
+    uint slot;
+    InterlockedAdd(_CandidateState[3], 1u, slot);
+    if (slot < _CandidateCapacity) _CandidateRepresentatives[slot] = candidate;
+    else InterlockedAdd(_CandidateState[1], 1u);
+}
+
+[numthreads(1, 1, 1)]
+void BuildRepresentativeDispatchArguments(uint3 id : SV_DispatchThreadID)
+{
+    uint representatives = min(_CandidateState[3], _CandidateCapacity);
+    _CandidateDispatchArguments[1] = uint3(representatives, 1u, 1u);
+}
+
+[numthreads(64, 1, 1)]
+void AccumulateCandidateRepresentatives(uint3 id : SV_DispatchThreadID)
+{
+    uint count = min(_CandidateState[0], _CandidateCapacity);
+    uint candidate = id.x;
+    if (candidate >= count) return;
+    uint root = FindCandidateRoot(candidate);
+    ContactFilmHeader film = _CandidateHeaders[candidate];
+    ContactFilmHeader rootFilm = _CandidateHeaders[root];
+    uint aggregate = root * AGGREGATE_RECORDS;
+    InterlockedAdd(_CandidateAggregates[aggregate + 0u].x, 1);
+    InterlockedAdd(_CandidateAggregates[aggregate + 0u].y,
+        (int)round(film.origin.x * 1000.0));
+    InterlockedAdd(_CandidateAggregates[aggregate + 0u].z,
+        (int)round(film.origin.y * 1000.0));
+    InterlockedAdd(_CandidateAggregates[aggregate + 0u].w,
+        (int)round(film.origin.z * 1000.0));
+    InterlockedAdd(_CandidateAggregates[aggregate + 1u].x,
+        (int)round(film.normal.x * 10000.0));
+    InterlockedAdd(_CandidateAggregates[aggregate + 1u].y,
+        (int)round(film.normal.y * 10000.0));
+    InterlockedAdd(_CandidateAggregates[aggregate + 1u].z,
+        (int)round(film.normal.z * 10000.0));
+    InterlockedAdd(_CandidateAggregates[aggregate + 1u].w,
+        (int)round(film.sigmaNormal * 1000000.0));
+
+    float3 delta = film.origin - rootFilm.origin;
+    float centreU = dot(delta, rootFilm.tangentU);
+    float centreV = dot(delta, rootFilm.tangentV);
+    float projectedU = film.extentU * abs(dot(film.tangentU, rootFilm.tangentU)) +
+        film.extentV * abs(dot(film.tangentV, rootFilm.tangentU));
+    float projectedV = film.extentU * abs(dot(film.tangentU, rootFilm.tangentV)) +
+        film.extentV * abs(dot(film.tangentV, rootFilm.tangentV));
+    InterlockedMax(_CandidateAggregates[aggregate + 2u].x,
+        (int)round((abs(centreU) + projectedU) * 100000.0));
+    InterlockedMax(_CandidateAggregates[aggregate + 2u].y,
+        (int)round((abs(centreV) + projectedV) * 100000.0));
+    InterlockedAdd(_CandidateAggregates[aggregate + 3u].z,
+        (int)round(saturate(film.confidence) * 10000.0));
+    InterlockedAdd(_CandidateAggregates[aggregate + 3u].w,
+        (int)round(min(film.supportTotal, 1000.0) * 1000.0));
+}
+
+[numthreads(64, 1, 1)]
+void StampCandidateSupport(uint3 id : SV_DispatchThreadID)
+{
+    uint count = min(_CandidateState[0], _CandidateCapacity);
+    uint candidate = id.x;
+    if (candidate >= count) return;
+    uint root = FindCandidateRoot(candidate);
+    ContactFilmHeader film = _CandidateHeaders[candidate];
+    ContactFilmHeader rootFilm = _CandidateHeaders[root];
+    uint aggregate = root * AGGREGATE_RECORDS;
+    float extentU = max(0.001,
+        (float)_CandidateAggregates[aggregate + 2u].x / 100000.0);
+    float extentV = max(0.001,
+        (float)_CandidateAggregates[aggregate + 2u].y / 100000.0);
+    float3 delta = film.origin - rootFilm.origin;
+    float centreU = dot(delta, rootFilm.tangentU);
+    float centreV = dot(delta, rootFilm.tangentV);
+    float projectedU = film.extentU * abs(dot(film.tangentU, rootFilm.tangentU)) +
+        film.extentV * abs(dot(film.tangentV, rootFilm.tangentU));
+    float projectedV = film.extentU * abs(dot(film.tangentU, rootFilm.tangentV)) +
+        film.extentV * abs(dot(film.tangentV, rootFilm.tangentV));
+    float2 uvMinimum = saturate(float2(
+        (centreU - projectedU) / (2.0 * extentU) + 0.5,
+        (centreV - projectedV) / (2.0 * extentV) + 0.5));
+    float2 uvMaximum = saturate(float2(
+        (centreU + projectedU) / (2.0 * extentU) + 0.5,
+        (centreV + projectedV) / (2.0 * extentV) + 0.5));
+    uint2 firstCell = min((uint2)floor(uvMinimum * 8.0), 7u);
+    uint2 lastCell = min((uint2)floor(uvMaximum * 8.0), 7u);
+    uint low = 0u;
+    uint high = 0u;
+    for (uint y = firstCell.y; y <= lastCell.y; ++y)
+    for (uint x = firstCell.x; x <= lastCell.x; ++x)
+    {
+        uint bit = y * 8u + x;
+        if (bit < 32u) low |= 1u << bit;
+        else high |= 1u << (bit - 32u);
+    }
+    InterlockedOr(_CandidateAggregates[aggregate + 3u].x, (int)low);
+    InterlockedOr(_CandidateAggregates[aggregate + 3u].y, (int)high);
+}
+
+[numthreads(1, 1, 1)]
+void EnsurePressureManifold(uint3 id : SV_DispatchThreadID)
+{
+    if (_CandidateState[3] == 0u) return;
+    uint existing = _CurrentManifold[0];
+    uint existingGeneration = _CurrentManifold[1];
+    if (existing > 0u && existing <= _ManifoldCapacity)
+    {
+        PressureManifoldHeader live = _ManifoldHeaders[existing - 1u];
+        if (live.id == existing && live.generation == existingGeneration &&
+            (live.flags & MANIFOLD_ACTIVE) != 0u && live.chunkId == _ChunkId)
+            return;
+    }
+    uint slot;
+    InterlockedAdd(_ManifoldAllocator[0], 1u, slot);
+    if (slot >= _ManifoldCapacity)
+    {
+        InterlockedAdd(_ManifoldAllocator[2], 1u);
+        return;
+    }
+    uint generation = max(1u, _ManifoldAllocator[3]);
+    PressureManifoldHeader manifold = (PressureManifoldHeader)0;
+    manifold.id = slot + 1u;
+    manifold.generation = generation;
+    manifold.chunkId = _ChunkId;
+    manifold.flags = MANIFOLD_ACTIVE | MANIFOLD_CLOSED |
+        MANIFOLD_DIRTY_TOPOLOGY;
+    manifold.opticalSeed = _OpticalSeed;
+    manifold.seedSigma = 0.0015;
+    manifold.membershipStart = 1u;
+    manifold.linkStart = 1u;
+    manifold.frontierStart = _ManifoldAllocator[8] + 1u;
+    manifold.revision = 1u;
+    manifold.calibrationEpochLow = _CalibrationEpoch;
+    _ManifoldHeaders[slot] = manifold;
+    _CurrentManifold[0] = manifold.id;
+    _CurrentManifold[1] = manifold.generation;
+    _CurrentManifold[2] = _CalibrationEpoch;
+    _CurrentManifold[3] = _ChunkId;
+    InterlockedAdd(_ManifoldAllocator[1], 1u);
+    InterlockedAdd(_ManifoldDiagnostics[5], 1u);
+}
+
+float4 FrontierUv(uint edge)
+{
+    if (edge == 0u) return float4(0, 0, 1, 0);
+    if (edge == 1u) return float4(1, 0, 1, 1);
+    if (edge == 2u) return float4(1, 1, 0, 1);
+    return float4(0, 1, 0, 0);
+}
+
+[numthreads(1, 1, 1)]
+void ReserveCandidatePublication(uint3 id : SV_DispatchThreadID)
+{
+    uint count = min(_CandidateState[3], _CandidateCapacity);
+    uint manifoldId = _CurrentManifoldRead[0];
+    uint manifoldGeneration = _CurrentManifoldRead[1];
+    if (count == 0u || manifoldId == 0u || manifoldId > _ManifoldCapacity)
+    {
+        _CandidateDispatchArguments[1] = uint3(0u, 1u, 1u);
+        return;
+    }
+    PressureManifoldHeader manifold = _ManifoldHeadersRead[manifoldId - 1u];
+    uint filmHighWater = min(_FilmAllocator[0], _FilmCapacity);
+    uint freeCount = min(_FilmAllocator[5], _FilmCapacity);
+    uint liveCount = min(_FilmAllocator[1], _FilmCapacity);
+    uint activeBase = min(_FilmAllocator[6], _FilmCapacity);
+    uint dirtyBase = min(_FilmAllocator[7], _FilmCapacity);
+    uint frontierBase = _ManifoldAllocator[8];
+    bool valid = manifold.id == manifoldId &&
+        manifold.generation == manifoldGeneration &&
+        (manifold.flags & MANIFOLD_ACTIVE) != 0u &&
+        count <= _FilmCapacity - liveCount &&
+        count <= _FilmCapacity - activeBase &&
+        count <= _FilmCapacity - dirtyBase &&
+        count <= freeCount + (_FilmCapacity - filmHighWater) &&
+        count <= (_FrontierCapacity - min(frontierBase, _FrontierCapacity)) / 4u;
+
+    // Plan the complete batch in scratch storage first. Canonical allocators and
+    // lists remain untouched until every representative owns a valid slot.
+    uint plannedHighWater = filmHighWater;
+    uint plannedFreeHead = _FilmAllocator[4];
+    uint freeUsed = 0u;
+    [loop]
+    for (uint ordinal = 0u; valid && ordinal < count; ++ordinal)
+    {
+        CandidatePublication publication = (CandidatePublication)0;
+        publication.root = _CandidateRepresentativesRead[ordinal];
+        publication.filmSlot = INVALID_INDEX;
+        publication.frontierBase = frontierBase + ordinal * 4u;
+        if (publication.root >= _CandidateCapacity ||
+            publication.frontierBase > _FrontierCapacity - 4u)
+        {
+            valid = false;
+            break;
+        }
+        if (plannedFreeHead != 0u)
+        {
+            uint slot = plannedFreeHead - 1u;
+            if (slot >= _FilmCapacity)
+            {
+                valid = false;
+                break;
+            }
+            FilmSlotState state = _FilmSlotStates[slot];
+            if ((state.flags & SLOT_FREE) == 0u)
+            {
+                valid = false;
+                break;
+            }
+            publication.filmSlot = slot;
+            publication.filmGeneration = state.generation + 1u;
+            if (publication.filmGeneration == 0u)
+                publication.filmGeneration = 1u;
+            plannedFreeHead = state.nextFree;
+            freeUsed++;
+        }
+        else
+        {
+            if (plannedHighWater >= _FilmCapacity)
+            {
+                valid = false;
+                break;
+            }
+            publication.filmSlot = plannedHighWater++;
+            publication.filmGeneration = 1u;
+        }
+        publication.valid = 1u;
+        _CandidatePublications[ordinal] = publication;
+    }
+    if (!valid)
+    {
+        InterlockedAdd(_FilmAllocator[2], count);
+        InterlockedAdd(_ManifoldAllocator[10], count * 4u);
+        _CandidateState[5] = 1u;
+        _CandidateDispatchArguments[1] = uint3(0u, 1u, 1u);
+        return;
+    }
+
+    // One deterministic commit makes the batch visible to all later passes. An
+    // overflow can therefore never publish a partially linked PressureManifold.
+    _FilmAllocator[0] = plannedHighWater;
+    _FilmAllocator[1] = liveCount + count;
+    _FilmAllocator[4] = plannedFreeHead;
+    _FilmAllocator[5] = freeCount - freeUsed;
+    _FilmAllocator[6] = activeBase + count;
+    _FilmAllocator[7] = dirtyBase + count;
+    _ManifoldAllocator[8] = frontierBase + count * 4u;
+    [loop]
+    for (uint ordinal = 0u; ordinal < count; ++ordinal)
+    {
+        CandidatePublication publication = _CandidatePublications[ordinal];
+        FilmSlotState state;
+        state.generation = publication.filmGeneration;
+        state.activeOrdinal = activeBase + ordinal;
+        state.nextFree = 0u;
+        state.flags = SLOT_ALLOCATED | SLOT_ACTIVE | SLOT_DIRTY;
+        _FilmSlotStates[publication.filmSlot] = state;
+        _ActiveFilmIndices[activeBase + ordinal] = publication.filmSlot;
+        _DirtyFilmIndices[dirtyBase + ordinal] = publication.filmSlot;
+    }
+    _CandidateDispatchArguments[1] = uint3(count, 1u, 1u);
+}
+
+[numthreads(1, 1, 1)]
+void WriteCanonicalFilms(uint3 id : SV_DispatchThreadID)
+{
+    CandidatePublication publication = _CandidatePublicationsRead[id.x];
+    if (publication.valid == 0u) return;
+    uint root = publication.root;
+    uint filmSlot = publication.filmSlot;
+    ContactFilmHeader candidate = _CandidateHeadersRead[root];
+    uint aggregate = root * AGGREGATE_RECORDS;
+    int count = max(1, _CandidateAggregatesRead[aggregate + 0u].x);
+    float3 averagedNormal = float3(
+        _CandidateAggregatesRead[aggregate + 1u].xyz) /
+        (10000.0 * (float)count);
+    if (dot(averagedNormal, averagedNormal) > 1e-8)
+        candidate.normal = normalize(averagedNormal);
+    candidate.id = filmSlot + 1u;
+    candidate.generation = publication.filmGeneration;
+    candidate.flags = FILM_ACTIVE | FILM_ONE_SIDED | FILM_UNCERTAIN |
+        FILM_DIRTY_GEOMETRY | FILM_DIRTY_MESHLET |
+        FILM_PRESSURE_MANIFOLD_MEMBER;
+    candidate.extentU = max(candidate.extentU,
+        (float)_CandidateAggregatesRead[aggregate + 2u].x / 100000.0);
+    candidate.extentV = max(candidate.extentV,
+        (float)_CandidateAggregatesRead[aggregate + 2u].y / 100000.0);
+    candidate.sigmaNormal = clamp(
+        (float)_CandidateAggregatesRead[aggregate + 1u].w /
+            (1000000.0 * (float)count), 0.0015, 0.1);
+    candidate.confidence = saturate(
+        (float)_CandidateAggregatesRead[aggregate + 3u].z /
+            (10000.0 * (float)count));
+    candidate.supportTotal = max(candidate.supportTotal,
+        (float)_CandidateAggregatesRead[aggregate + 3u].w / 1000.0);
+    candidate.supportMaskLow =
+        asuint(_CandidateAggregatesRead[aggregate + 3u].x);
+    candidate.supportMaskHigh =
+        asuint(_CandidateAggregatesRead[aggregate + 3u].y);
+    candidate.reserved0 = candidate.reserved1 = candidate.reserved2 = 0u;
+    _FilmHeaders[filmSlot] = candidate;
+    [unroll]
+    for (uint record = 0u; record < 10u; ++record)
+        _FilmInformation[filmSlot * 10u + record] =
+            _CandidateInformationRead[root * 10u + record];
+}
+
+[numthreads(1, 1, 1)]
+void WriteCanonicalMembershipAndFrontier(uint3 id : SV_DispatchThreadID)
+{
+    CandidatePublication publication = _CandidatePublicationsRead[id.x];
+    if (publication.valid == 0u) return;
+    uint manifoldId = _CurrentManifoldRead[0];
+    uint manifoldGeneration = _CurrentManifoldRead[1];
+    ContactFilmHeader candidate = _FilmHeadersRead[publication.filmSlot];
+    FilmMembership membership = (FilmMembership)0;
+    membership.filmId = candidate.id;
+    membership.filmGeneration = candidate.generation;
+    membership.manifoldId = manifoldId;
+    membership.manifoldGeneration = manifoldGeneration;
+    membership.firstFrontier = publication.frontierBase + 1u;
+    membership.frontierCount = 4u;
+    membership.flags = MEMBERSHIP_ACTIVE | MEMBERSHIP_MEASURED;
+    membership.revision = 1u;
+    _FilmMemberships[publication.filmSlot] = membership;
+    uint frontierGeneration = max(1u, _ManifoldAllocator[11]);
+    [unroll]
+    for (uint edge = 0u; edge < 4u; ++edge)
+    {
+        LatentFrontierSegment segment = (LatentFrontierSegment)0;
+        segment.id = publication.frontierBase + edge + 1u;
+        segment.generation = frontierGeneration;
+        segment.manifoldId = manifoldId;
+        segment.manifoldGeneration = manifoldGeneration;
+        segment.filmId = candidate.id;
+        segment.filmGeneration = candidate.generation;
+        segment.nextId = publication.frontierBase + ((edge + 1u) & 3u) + 1u;
+        segment.nextGeneration = frontierGeneration;
+        segment.previousId = publication.frontierBase +
+            ((edge + 3u) & 3u) + 1u;
+        segment.previousGeneration = frontierGeneration;
+        segment.flags = FRONTIER_ACTIVE | FRONTIER_OUTER | FRONTIER_ORDERED;
+        segment.revision = 1u;
+        segment.uv01 = FrontierUv(edge);
+        segment.sigma = candidate.sigmaNormal;
+        segment.support = candidate.supportTotal;
+        segment.confidence = candidate.confidence;
+        _LatentFrontiers[publication.frontierBase + edge] = segment;
+        ManifoldFrontierIncidence incidence =
+            (ManifoldFrontierIncidence)0;
+        incidence.id = segment.id;
+        incidence.generation = segment.generation;
+        incidence.frontierId = segment.id;
+        incidence.frontierGeneration = segment.generation;
+        incidence.filmId = candidate.id;
+        incidence.filmGeneration = candidate.generation;
+        incidence.nextId = edge < 3u ? segment.id + 1u : 0u;
+        incidence.nextGeneration = edge < 3u ? frontierGeneration : 0u;
+        incidence.flags = FRONTIER_ACTIVE;
+        _ManifoldFrontierIncidences[publication.frontierBase + edge] = incidence;
+    }
+    InterlockedAdd(_ManifoldAllocator[9], 4u);
+    InterlockedAdd(_ManifoldAllocator[12], 1u);
+    InterlockedAdd(_CandidateState[4], 1u);
+    InterlockedAdd(_ManifoldDiagnostics[2], 1u);
+    InterlockedAdd(_ManifoldDiagnostics[7], 4u);
+}
+
+[numthreads(1, 1, 1)]
+void FinalizePressureManifoldCounts(uint3 id : SV_DispatchThreadID)
+{
+    uint manifoldId = _CurrentManifold[0];
+    uint generation = _CurrentManifold[1];
+    if (manifoldId == 0u || manifoldId > _ManifoldCapacity) return;
+    PressureManifoldHeader manifold = _ManifoldHeaders[manifoldId - 1u];
+    if (manifold.id != manifoldId || manifold.generation != generation) return;
+    manifold.membershipCount = _ManifoldAllocator[12];
+    manifold.linkCount = _ManifoldAllocator[5];
+    manifold.frontierCount = _ManifoldAllocator[9];
+    manifold.revision++;
+    _ManifoldHeaders[manifoldId - 1u] = manifold;
 }

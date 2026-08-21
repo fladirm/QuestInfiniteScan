@@ -11,16 +11,9 @@ namespace Genesis.RoomScan
     {
         None,
         ToggleScanning,
-        FreezeInView,
-        UnfreezeInView,
         CycleRenderMode,
         ClearAllData,
-        ExportPointCloud,
-        StartServerTraining,
         ToggleDebugMenu,
-        SaveScan,
-        LoadScan,
-        ToggleFreezeTint,
     }
 
     /// <summary>
@@ -57,11 +50,7 @@ namespace Genesis.RoomScan
             // remain free to wire Button.Start to their own pause menu, which
             // is the standard convention on Quest titles.
             new() { action = ScanAction.ToggleDebugMenu,     button = OVRInput.Button.PrimaryThumbstick, enabled = true },
-            new() { action = ScanAction.FreezeInView,        button = OVRInput.Button.One,   enabled = true },
-            new() { action = ScanAction.UnfreezeInView,      button = OVRInput.Button.Two,   enabled = true },
             new() { action = ScanAction.CycleRenderMode,     button = OVRInput.Button.Three, enabled = true },
-            new() { action = ScanAction.StartServerTraining,  button = OVRInput.Button.Four,  enabled = false },
-            new() { action = ScanAction.ToggleFreezeTint,      button = OVRInput.Button.None,  enabled = false },
         };
 
         /// <summary>
@@ -127,39 +116,14 @@ namespace Genesis.RoomScan
                 case ScanAction.ToggleScanning:
                     scanner.ToggleScanning();
                     break;
-                case ScanAction.FreezeInView:
-                    scanner.FreezeInView();
-                    break;
-                case ScanAction.UnfreezeInView:
-                    scanner.UnfreezeInView();
-                    break;
                 case ScanAction.CycleRenderMode:
                     scanner.CycleRenderMode();
                     break;
                 case ScanAction.ClearAllData:
                     scanner.ClearAllDataAsync();
                     break;
-                case ScanAction.ExportPointCloud:
-                    _ = scanner.ExportPointCloudAsync();
-                    break;
-                case ScanAction.StartServerTraining:
-                    scanner.StartServerTraining();
-                    break;
                 case ScanAction.ToggleDebugMenu:
                     scanner.ToggleDebugMenu();
-                    break;
-                case ScanAction.SaveScan:
-                    _ = scanner.SaveScanAsync();
-                    break;
-                case ScanAction.LoadScan:
-                    if (scanner.DebugMenu != null)
-                    {
-                        scanner.DebugMenu.Show();
-                        scanner.DebugMenu.ShowSavedScans();
-                    }
-                    break;
-                case ScanAction.ToggleFreezeTint:
-                    scanner.ShowFreezeTint = !scanner.ShowFreezeTint;
                     break;
             }
         }

@@ -59,7 +59,7 @@ namespace Genesis.RoomScan.Exporting
                 return failed;
             try
             {
-                await _submaps.WaitForRefinementReadyAsync();
+                await _submaps.WaitForStablePublicationAsync();
                 WorldManifest manifest = _submaps.Manifest;
                 ChunkRecord chunk = _submaps.ActiveChunk;
                 if (manifest == null || chunk == null || _submaps.Store == null)
@@ -106,7 +106,7 @@ namespace Genesis.RoomScan.Exporting
                 return failed;
             try
             {
-                await _submaps.WaitForRefinementReadyAsync();
+                await _submaps.WaitForStablePublicationAsync();
                 WorldManifest manifest = _submaps.Manifest;
                 if (manifest == null || _submaps.Store == null)
                     return Fail("No infinite world is available.");

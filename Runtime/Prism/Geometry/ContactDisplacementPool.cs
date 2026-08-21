@@ -75,39 +75,46 @@ namespace Genesis.RoomScan.Prism
     public struct TopologySplitRecordGpu
     {
         public uint ParentFilmIndex;
-        public uint FirstChildFilmIndex;
+        public uint ParentFilmGeneration;
+        public uint ChildFilmIndex0;
+        public uint ChildFilmIndex1;
+        public uint ChildFilmIndex2;
+        public uint ChildFilmIndex3;
         public uint FirstChildBasePage;
         public uint ChildCount;
+        public uint ParentActiveOrdinal;
+        public uint FirstNewActiveOrdinal;
+        public uint FirstDirtyOrdinal;
+        public uint ReservedLinkStart;
+        public uint ReservedExternalLinkCount;
+        public uint ReservedLinkCount;
+        public uint ReservedFrontierStart;
+        public uint ReservedFrontierCount;
+        public uint ReservedBoundaryStart;
+        public uint ReservedBoundaryCount;
+        public uint TransactionState;
 
-        public const int Stride = 16;
+        public const int Stride = 76;
     }
 
+    /// <summary>
+    /// Exact per-boundary write plan produced by the single split transaction
+    /// planner. TransferSplitBoundaries never allocates; it only consumes this
+    /// generation-tagged plan after the owning split record commits.
+    /// </summary>
     [StructLayout(LayoutKind.Sequential)]
-    public struct TopologyMergeRecordGpu
+    public struct TopologyBoundarySplitPlanGpu
     {
-        public uint FilmAIndex;
-        public uint FilmBIndex;
-        public uint MergedFilmIndex;
-        public uint MergedBasePage;
-        public uint Reserved0;
-        public uint Reserved1;
-        public uint Reserved2;
-        public uint Reserved3;
+        public uint BoundaryIndex;
+        public uint BoundaryGeneration;
+        public uint SplitRecordIndex;
+        public uint ParentFilmIndex;
+        public uint ParentFilmGeneration;
+        public uint ParentEndpoint;
+        public uint ReservedStart;
+        public uint SegmentCount;
 
         public const int Stride = 32;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    public struct FilmMergeHashEntryGpu
-    {
-        public int CellX;
-        public int CellY;
-        public int CellZ;
-        public uint FilmId;
-        public uint Generation;
-        public uint Hash;
-
-        public const int Stride = 24;
     }
 
     /// <summary>

@@ -1,5 +1,4 @@
 using Genesis.RoomScan.Exporting;
-using Genesis.RoomScan.HeavyCompute;
 using Genesis.RoomScan.World;
 using UnityEngine;
 using UnityEngine.UIElements;
@@ -7,98 +6,64 @@ using UnityEngine.UIElements;
 namespace Genesis.RoomScan.UI
 {
     /// <summary>
-    /// Two-panel debug menu controller. Left nav switches right-panel views.
-    /// Manages scan browser list, disabled states, and status refresh.
+    /// Pure Cone-PRISM operator panel. The production UI intentionally exposes no
+    /// TSDF, Surface Nets, triplanar, GSplat, DiffSoup, or legacy atlas path.
     /// </summary>
     [RequireComponent(typeof(UIDocument), typeof(DebugMenuFollower))]
-    public class DebugMenuController : MonoBehaviour
+    public sealed class DebugMenuController : MonoBehaviour
     {
-        private UIDocument _doc;
+        private UIDocument _document;
         private DebugMenuFollower _follower;
         private VisualElement _root;
         private VisualElement _boundRoot;
         private bool _visible;
 
-        // Nav buttons
-        private Button _navScan, _navSaved, _navWorld, _navRefine, _navTraining, _navTools;
-        private Button[] _navButtons;
-
-        // Views
-        private VisualElement _viewScan, _viewSaved, _viewWorld, _viewRefine,
-            _viewTraining, _viewTools;
-        private VisualElement[] _views;
-
-        // Scan view elements
-        private Label _valScanning, _valIntegrations, _valKeyframes, _valRender, _valPackage;
-        private Label _valProgress, _valPhase, _valColorCoverage, _valFrozen, _valMeshStats;
-        private Button _btnToggleScan, _btnRenderMode, _btnFreezeTint, _btnSceneObjects, _btnSaveScan, _btnDeleteArtifact;
-
-        // Saved scans view
-        private ScrollView _scanList;
-        private Label _lblNoScans;
-
-        // Refine view
-        private Label _valRefineStatus, _valHqStatus, _valMeshEnhanceStatus;
-        private Label _valRefinedMeshStats, _valSimplifiedMeshStats;
-        private Button _btnRefineTex, _btnHqRefine, _btnMeshEnhance;
-
-        // Training view
-        private TextField _fieldServerUrl;
-        private Label _valTrainState, _valTrainProgress, _valTrainIter;
-        private Label _valTrainElapsed, _valTrainBackend, _valTrainMessage;
-        private VisualElement _progressFill;
-        private Button _btnGsTrain, _btnCancelTrain;
-
-        // Tools view
-        private Button _btnExportPc, _btnClearAll;
-
-        // Infinite-world view
-        private Label _valWorldMode, _valWorldId, _valActiveChunk, _valChunkLifecycle;
-        private Label _valResidency, _valGraph, _valHeavyQueue, _valHeavyNetwork;
-        private Label _valWorldArtifacts, _valWorldStorage, _valGlbExport;
-        private Button _btnExportChunkGlb, _btnExportWorldGlb;
-        private GlbExportController _glbExporter;
-
-        // Footer
-        private Label _valFps;
-
-        // Cached state
-        private IGSplatProvider _cachedGSplat;
-        private float _fpsTimer;
+        private Button _navScan;
+        private Button _navWorld;
+        private VisualElement _viewScan;
+        private VisualElement _viewWorld;
+        private Button _toggleScan;
+        private Button _renderMode;
+        private Button _clearAll;
+        private Button _exportChunk;
+        private Button _exportWorld;
+        private Label _scanState;
+        private Label _renderState;
+        private Label _focusFrames;
+        private Label _worldMode;
+        private Label _worldId;
+        private Label _activeChunk;
+        private Label _chunkLifecycle;
+        private Label _residency;
+        private Label _graph;
+        private Label _worldStorage;
+        private Label _glbStatus;
+        private Label _fps;
+        private GlbExportController _glb;
+        private float _fpsWindow;
         private int _fpsFrames;
         private float _currentFps;
-        private float _scanListRefreshTimer;
-        private float _worldStatusRefreshTimer;
 
         public bool IsVisible => _visible;
 
         private void Awake()
         {
-            _doc = GetComponent<UIDocument>();
+            _document = GetComponent<UIDocument>();
             _follower = GetComponent<DebugMenuFollower>();
         }
 
-        private bool _refineAvailable;
-        private bool _gsplatAvailable;
-        private bool _worldAvailable;
-
         private void OnEnable()
         {
-            _root = _doc.rootVisualElement;
+            _root = _document.rootVisualElement;
             _root.style.display = DisplayStyle.None;
             _visible = false;
-
             QueryElements();
-            // UIDocument can disable/enable around XR focus changes while preserving the
-            // same visual tree. Registering lambdas again made one physical click invoke
-            // Start/Stop repeatedly. Bind exactly once per concrete root generation.
             if (_boundRoot != _root)
             {
-                BindButtons();
+                BindOnce();
                 _boundRoot = _root;
             }
-            UpdateModuleAvailability();
-            SelectNav(_navScan);
+            SelectView(_viewScan);
         }
 
         private void Update()
@@ -107,816 +72,178 @@ namespace Genesis.RoomScan.UI
             if (_visible) RefreshStatus();
         }
 
-        // ─────────────────────────────────────────────────────────────
-        //  Public API
-        // ─────────────────────────────────────────────────────────────
-
         public void Toggle()
         {
-            if (_visible) Hide(); else Show();
+            if (_visible) Hide();
+            else Show();
         }
 
         public void Show()
         {
             _visible = true;
             _root.style.display = DisplayStyle.Flex;
-            if (_follower != null) _follower.SnapToView();
-            UpdateModuleAvailability();
-            PopulateScanList();
+            _follower?.SnapToView();
             RefreshStatus();
-        }
-
-        /// <summary>
-        /// Switches the right panel to the Saved Scans view and refreshes the list.
-        /// </summary>
-        public void ShowSavedScans()
-        {
-            if (!_visible) Show();
-            SelectNav(_navSaved);
-            PopulateScanList();
         }
 
         public void Hide()
         {
             _visible = false;
             _root.style.display = DisplayStyle.None;
-            if (_follower != null) _follower.StopTracking();
+            _follower?.StopTracking();
         }
-
-        // ─────────────────────────────────────────────────────────────
-        //  Query & Bind
-        // ─────────────────────────────────────────────────────────────
 
         private void QueryElements()
         {
-            // Nav
             _navScan = _root.Q<Button>("nav-scan");
-            _navSaved = _root.Q<Button>("nav-saved");
             _navWorld = _root.Q<Button>("nav-world");
-            _navRefine = _root.Q<Button>("nav-refine");
-            _navTraining = _root.Q<Button>("nav-training");
-            _navTools = _root.Q<Button>("nav-tools");
-            _navButtons = new[]
-            {
-                _navScan, _navSaved, _navWorld, _navRefine, _navTraining, _navTools
-            };
-
-            // Views
             _viewScan = _root.Q<VisualElement>("view-scan");
-            _viewSaved = _root.Q<VisualElement>("view-saved");
             _viewWorld = _root.Q<VisualElement>("view-world");
-            _viewRefine = _root.Q<VisualElement>("view-refine");
-            _viewTraining = _root.Q<VisualElement>("view-training");
-            _viewTools = _root.Q<VisualElement>("view-tools");
-            _views = new[]
-            {
-                _viewScan, _viewSaved, _viewWorld, _viewRefine, _viewTraining, _viewTools
-            };
+            _toggleScan = _root.Q<Button>("btn-toggle-scan");
+            _renderMode = _root.Q<Button>("btn-render-mode");
+            _clearAll = _root.Q<Button>("btn-clear-all");
+            _exportChunk = _root.Q<Button>("btn-export-chunk-glb");
+            _exportWorld = _root.Q<Button>("btn-export-world-glb");
+            _scanState = _root.Q<Label>("val-scanning");
+            _renderState = _root.Q<Label>("val-render");
+            _focusFrames = _root.Q<Label>("val-focus-frames");
+            _worldMode = _root.Q<Label>("val-world-mode");
+            _worldId = _root.Q<Label>("val-world-id");
+            _activeChunk = _root.Q<Label>("val-active-chunk");
+            _chunkLifecycle = _root.Q<Label>("val-chunk-lifecycle");
+            _residency = _root.Q<Label>("val-residency");
+            _graph = _root.Q<Label>("val-graph");
+            _worldStorage = _root.Q<Label>("val-world-storage");
+            _glbStatus = _root.Q<Label>("val-glb-export");
+            _fps = _root.Q<Label>("val-fps");
 
-            // Scan view
-            _valScanning = _root.Q<Label>("val-scanning");
-
-            _valIntegrations = _root.Q<Label>("val-integrations");
-            _valKeyframes = _root.Q<Label>("val-keyframes");
-            _valRender = _root.Q<Label>("val-render");
-            _valPackage = _root.Q<Label>("val-package");
-            _valProgress = _root.Q<Label>("val-progress");
-            _valPhase = _root.Q<Label>("val-phase");
-            _valColorCoverage = _root.Q<Label>("val-color-coverage");
-            _valFrozen = _root.Q<Label>("val-frozen");
-            _valMeshStats = _root.Q<Label>("val-mesh-stats");
-            _btnToggleScan = _root.Q<Button>("btn-toggle-scan");
-            _btnRenderMode = _root.Q<Button>("btn-render-mode");
-            _btnFreezeTint = _root.Q<Button>("btn-freeze-tint");
-            _btnSceneObjects = _root.Q<Button>("btn-scene-objects");
-            _btnSaveScan = _root.Q<Button>("btn-save-scan");
-            _btnDeleteArtifact = _root.Q<Button>("btn-delete-artifact");
-
-            // Saved scans
-            _scanList = _root.Q<ScrollView>("scan-list");
-            _lblNoScans = _root.Q<Label>("lbl-no-scans");
-
-            // Infinite world
-            _valWorldMode = _root.Q<Label>("val-world-mode");
-            _valWorldId = _root.Q<Label>("val-world-id");
-            _valActiveChunk = _root.Q<Label>("val-active-chunk");
-            _valChunkLifecycle = _root.Q<Label>("val-chunk-lifecycle");
-            _valResidency = _root.Q<Label>("val-residency");
-            _valGraph = _root.Q<Label>("val-graph");
-            _valHeavyQueue = _root.Q<Label>("val-heavy-queue");
-            _valHeavyNetwork = _root.Q<Label>("val-heavy-network");
-            _valWorldArtifacts = _root.Q<Label>("val-world-artifacts");
-            _valWorldStorage = _root.Q<Label>("val-world-storage");
-            _valGlbExport = _root.Q<Label>("val-glb-export");
-            _btnExportChunkGlb = _root.Q<Button>("btn-export-chunk-glb");
-            _btnExportWorldGlb = _root.Q<Button>("btn-export-world-glb");
-
-            // Refine
-            _valRefineStatus = _root.Q<Label>("val-refine-status");
-            _valHqStatus = _root.Q<Label>("val-hq-status");
-            _valMeshEnhanceStatus = _root.Q<Label>("val-mesh-enhance-status");
-            _valRefinedMeshStats = _root.Q<Label>("val-refined-mesh-stats");
-            _valSimplifiedMeshStats = _root.Q<Label>("val-simplified-mesh-stats");
-            _btnRefineTex = _root.Q<Button>("btn-refine-tex");
-            _btnHqRefine = _root.Q<Button>("btn-hq-refine");
-            _btnMeshEnhance = _root.Q<Button>("btn-mesh-enhance");
-
-            // Training
-            _fieldServerUrl = _root.Q<TextField>("field-server-url");
-            _valTrainState = _root.Q<Label>("val-train-state");
-            _progressFill = _root.Q<VisualElement>("progress-fill");
-            _valTrainProgress = _root.Q<Label>("val-train-progress");
-            _valTrainIter = _root.Q<Label>("val-train-iter");
-            _valTrainElapsed = _root.Q<Label>("val-train-elapsed");
-            _valTrainBackend = _root.Q<Label>("val-train-backend");
-            _valTrainMessage = _root.Q<Label>("val-train-message");
-            _btnGsTrain = _root.Q<Button>("btn-gs-train");
-            _btnCancelTrain = _root.Q<Button>("btn-cancel-train");
-
-            // Tools
-            _btnExportPc = _root.Q<Button>("btn-export-pc");
-            _btnClearAll = _root.Q<Button>("btn-clear-all");
-
-            // Footer
-            _valFps = _root.Q<Label>("val-fps");
         }
 
-        private void BindButtons()
+        private void BindOnce()
         {
-            // Nav switching
-            _navScan?.RegisterCallback<ClickEvent>(_ => SelectNav(_navScan));
-            _navSaved?.RegisterCallback<ClickEvent>(_ => { SelectNav(_navSaved); PopulateScanList(); });
-            _navWorld?.RegisterCallback<ClickEvent>(_ => SelectNav(_navWorld));
-            _navRefine?.RegisterCallback<ClickEvent>(_ => SelectNav(_navRefine));
-            _navTraining?.RegisterCallback<ClickEvent>(_ => SelectNav(_navTraining));
-            _navTools?.RegisterCallback<ClickEvent>(_ => SelectNav(_navTools));
-
-            // Scan view buttons
-            _btnToggleScan?.RegisterCallback<ClickEvent>(_ =>
+            _navScan?.RegisterCallback<ClickEvent>(_ => SelectView(_viewScan));
+            _navWorld?.RegisterCallback<ClickEvent>(_ => SelectView(_viewWorld));
+            _toggleScan?.RegisterCallback<ClickEvent>(_ =>
                 RoomScanner.Instance?.ToggleScanning());
-
-            _btnRenderMode?.RegisterCallback<ClickEvent>(_ =>
+            _renderMode?.RegisterCallback<ClickEvent>(_ =>
                 RoomScanner.Instance?.CycleRenderMode());
-
-            _btnFreezeTint?.RegisterCallback<ClickEvent>(_ =>
+            _clearAll?.RegisterCallback<ClickEvent>(_ =>
             {
-                var s = RoomScanner.Instance;
-                if (s != null) s.ShowFreezeTint = !s.ShowFreezeTint;
-            });
-
-            _btnSceneObjects?.RegisterCallback<ClickEvent>(_ =>
-            {
-                var s = RoomScanner.Instance;
-                if (s != null) s.ShowSceneObjects = !s.ShowSceneObjects;
-            });
-
-            _btnSaveScan?.RegisterCallback<ClickEvent>(async _ =>
-            {
-                if (RoomScanner.Instance == null) return;
-                SetButtonBusy(_btnSaveScan, "Saving...");
-                bool ok = await RoomScanner.Instance.SaveScanAsync();
-                SetButtonReady(_btnSaveScan, "Save Scan");
-                FlashStatus(_btnSaveScan, ok);
-            });
-
-            _btnDeleteArtifact?.RegisterCallback<ClickEvent>(_ =>
-                RoomScanner.Instance?.DeleteActiveArtifact());
-
-            // Refine
-            _btnRefineTex?.RegisterCallback<ClickEvent>(_ =>
-                RoomScanner.Instance?.StartTextureRefinement());
-
-            _btnHqRefine?.RegisterCallback<ClickEvent>(_ =>
-                RoomScanner.Instance?.StartHQRefinement());
-
-            _btnMeshEnhance?.RegisterCallback<ClickEvent>(_ =>
-                RoomScanner.Instance?.StartMeshEnhancement());
-
-            // Training
-            _fieldServerUrl?.RegisterValueChangedCallback(evt =>
-            {
-                EnsureGSplat();
-                if (_cachedGSplat != null) _cachedGSplat.ServerUrl = evt.newValue;
-            });
-
-            _btnGsTrain?.RegisterCallback<ClickEvent>(_ =>
-                RoomScanner.Instance?.StartServerTraining());
-
-            _btnCancelTrain?.RegisterCallback<ClickEvent>(_ =>
-            {
-                EnsureGSplat();
-                if (_cachedGSplat == null) return;
-                SetButtonBusy(_btnCancelTrain, "Cancelling...");
-                CancelAndResetButton();
-            });
-
-            // Tools
-            _btnExportPc?.RegisterCallback<ClickEvent>(async _ =>
-            {
-                if (RoomScanner.Instance == null) return;
-                SetButtonBusy(_btnExportPc, "Exporting...");
-                await RoomScanner.Instance.ExportPointCloudAsync();
-                SetButtonReady(_btnExportPc, "Export Point Cloud");
-            });
-
-            _btnClearAll?.RegisterCallback<ClickEvent>(_ =>
-            {
-                if (RoomScanner.Instance == null) return;
-                SetButtonBusy(_btnClearAll, "Clearing...");
-                RoomScanner.Instance.ClearAllDataAsync(() =>
-                    SetButtonReady(_btnClearAll, "Clear All Data"));
-            });
-
-            _btnExportChunkGlb?.RegisterCallback<ClickEvent>(async _ =>
-            {
-                EnsureGlbExporter();
-                if (_glbExporter == null) return;
-                SetButtonBusy(_btnExportChunkGlb, "Exporting chunk...");
-                GlbUserExportResult result = await _glbExporter.ExportActiveChunkAsync();
-                SetButtonReady(_btnExportChunkGlb, "Export Active Chunk GLB");
-                SetLabel(_valGlbExport, result.Success ? result.Path : result.Error);
-                FlashStatus(_btnExportChunkGlb, result.Success);
-            });
-
-            _btnExportWorldGlb?.RegisterCallback<ClickEvent>(async _ =>
-            {
-                EnsureGlbExporter();
-                if (_glbExporter == null) return;
-                SetButtonBusy(_btnExportWorldGlb, "Exporting world...");
-                GlbUserExportResult result = await _glbExporter.ExportWorldAsync();
-                SetButtonReady(_btnExportWorldGlb, "Export World GLB/PBR");
-                SetLabel(_valGlbExport, result.Success ? result.Path : result.Error);
-                FlashStatus(_btnExportWorldGlb, result.Success);
-            });
-        }
-
-        // ─────────────────────────────────────────────────────────────
-        //  Module Availability
-        // ─────────────────────────────────────────────────────────────
-
-        private void UpdateModuleAvailability()
-        {
-            var scanner = RoomScanner.Instance;
-            _refineAvailable = scanner != null && scanner.HasTextureRefinementModule;
-            _gsplatAvailable = scanner != null && scanner.GSplatProvider != null;
-            SubmapManager submaps = scanner != null
-                ? scanner.GetComponent<SubmapManager>()
-                : null;
-            _worldAvailable = submaps != null && submaps.LargeWorldMode;
-
-            SetNavAvailable(_navWorld, _worldAvailable);
-            SetNavAvailable(_navRefine, _refineAvailable);
-            SetNavAvailable(_navTraining, _gsplatAvailable);
-        }
-
-        private static void SetNavAvailable(Button btn, bool available)
-        {
-            if (btn == null) return;
-            btn.SetEnabled(available);
-            btn.EnableInClassList("nav-btn--unavailable", !available);
-        }
-
-        // ─────────────────────────────────────────────────────────────
-        //  Navigation
-        // ─────────────────────────────────────────────────────────────
-
-        private void SelectNav(Button selected)
-        {
-            if (selected != null && !selected.enabledSelf) return;
-
-            for (int i = 0; i < _navButtons.Length; i++)
-            {
-                if (_navButtons[i] == null) continue;
-
-                bool isActive = _navButtons[i] == selected;
-                _navButtons[i].EnableInClassList("nav-btn--active", isActive);
-                if (_views[i] != null)
-                    _views[i].style.display = isActive ? DisplayStyle.Flex : DisplayStyle.None;
-            }
-        }
-
-        // ─────────────────────────────────────────────────────────────
-        //  Scan List
-        // ─────────────────────────────────────────────────────────────
-
-        private void PopulateScanList()
-        {
-            if (_scanList == null) return;
-            _scanList.Clear();
-
-            var persistence = RoomScanPersistence.Instance;
-            if (persistence == null) return;
-
-            var packages = persistence.ListPackages();
-            bool empty = packages.Count == 0;
-            if (_lblNoScans != null)
-                _lblNoScans.style.display = empty ? DisplayStyle.Flex : DisplayStyle.None;
-            if (_scanList != null)
-                _scanList.style.display = empty ? DisplayStyle.None : DisplayStyle.Flex;
-
-            foreach (var pkg in packages)
-            {
-                var entry = CreateScanEntry(pkg);
-                _scanList.Add(entry);
-            }
-
-            // Update nav badge count
-            if (_navSaved != null)
-                _navSaved.text = packages.Count > 0
-                    ? $"Saved Scans ({packages.Count})"
-                    : "Saved Scans";
-        }
-
-        private VisualElement CreateScanEntry(ScanPackageEntry pkg)
-        {
-            var row = new VisualElement();
-            row.AddToClassList("scan-entry");
-
-            var info = new VisualElement();
-            info.AddToClassList("scan-entry-info");
-
-            var nameLabel = new Label(pkg.displayName ?? pkg.id);
-            nameLabel.AddToClassList("scan-entry-name");
-            info.Add(nameLabel);
-
-            var ts = System.DateTimeOffset.FromUnixTimeSeconds(pkg.timestamp).LocalDateTime;
-            var meta = new Label(ts.ToString("yyyy-MM-dd HH:mm"));
-            meta.AddToClassList("scan-entry-meta");
-            info.Add(meta);
-
-            var badges = new VisualElement();
-            badges.AddToClassList("scan-entry-badges");
-            if (pkg.hasKeyframes) AddBadge(badges, "KF");
-            if (pkg.hasTriplanar) AddBadge(badges, "Tri");
-            if (pkg.hasSplat) AddBadge(badges, "Splat");
-            if (pkg.hasRefined) AddBadge(badges, "Refined");
-            if (pkg.hasEnhancedMesh) AddBadge(badges, "Enh");
-            if (pkg.hasHQRefined) AddBadge(badges, "HQ");
-            info.Add(badges);
-
-            row.Add(info);
-
-            var btns = new VisualElement();
-            btns.AddToClassList("scan-entry-btns");
-
-            string pkgId = pkg.id;
-
-            var loadBtn = new Button { text = "Load" };
-            loadBtn.AddToClassList("scan-entry-btn");
-            loadBtn.AddToClassList("scan-entry-btn--load");
-            loadBtn.RegisterCallback<ClickEvent>(async _ =>
-            {
-                var scanner = RoomScanner.Instance;
+                RoomScanner scanner = RoomScanner.Instance;
                 if (scanner == null) return;
-                loadBtn.text = "...";
-                loadBtn.SetEnabled(false);
-                bool ok = await scanner.LoadPackageAsync(pkgId);
-                loadBtn.text = "Load";
-                loadBtn.SetEnabled(true);
-                if (ok) SelectNav(_navScan);
-            });
-            btns.Add(loadBtn);
-
-            if (pkg.hasRefined)
-            {
-                var refBtn = new Button { text = "Ref" };
-                refBtn.AddToClassList("scan-entry-btn");
-                refBtn.AddToClassList("scan-entry-btn--load");
-                refBtn.tooltip = "Load refined mesh only (fast, no TSDF)";
-                refBtn.RegisterCallback<ClickEvent>(async _ =>
+                _clearAll.SetEnabled(false);
+                _clearAll.text = "Clearing...";
+                scanner.ClearAllDataAsync(() =>
                 {
-                    var scanner = RoomScanner.Instance;
-                    if (scanner == null) return;
-                    refBtn.text = "...";
-                    refBtn.SetEnabled(false);
-                    bool ok = await scanner.LoadRefinedOnlyAsync(pkgId);
-                    refBtn.text = "Ref";
-                    refBtn.SetEnabled(true);
-                    if (ok) SelectNav(_navScan);
+                    _clearAll.text = "Clear All Data";
+                    _clearAll.SetEnabled(true);
                 });
-                btns.Add(refBtn);
-            }
-
-            var delBtn = new Button { text = "Del" };
-            delBtn.AddToClassList("scan-entry-btn");
-            delBtn.AddToClassList("scan-entry-btn--delete");
-            bool confirmPending = false;
-            delBtn.RegisterCallback<ClickEvent>(async _ =>
-            {
-                if (!confirmPending)
-                {
-                    confirmPending = true;
-                    delBtn.text = "Sure?";
-                    ResetDeleteConfirmAfterDelay(delBtn, () => confirmPending = false);
-                    return;
-                }
-                var p = RoomScanPersistence.Instance;
-                if (p == null) return;
-                delBtn.text = "...";
-                delBtn.SetEnabled(false);
-                await p.DeletePackageAsync(pkgId);
-                PopulateScanList();
             });
-            btns.Add(delBtn);
-
-            row.Add(btns);
-            return row;
+            _exportChunk?.RegisterCallback<ClickEvent>(async _ =>
+            {
+                EnsureExporter();
+                if (_glb == null) return;
+                _exportChunk.SetEnabled(false);
+                GlbUserExportResult result = await _glb.ExportActiveChunkAsync();
+                Set(_glbStatus, result.Success ? result.Path : result.Error);
+                _exportChunk.SetEnabled(true);
+            });
+            _exportWorld?.RegisterCallback<ClickEvent>(async _ =>
+            {
+                EnsureExporter();
+                if (_glb == null) return;
+                _exportWorld.SetEnabled(false);
+                GlbUserExportResult result = await _glb.ExportWorldAsync();
+                Set(_glbStatus, result.Success ? result.Path : result.Error);
+                _exportWorld.SetEnabled(true);
+            });
         }
 
-        private static void AddBadge(VisualElement parent, string text)
+        private void SelectView(VisualElement selected)
         {
-            var badge = new Label(text);
-            badge.AddToClassList("badge");
-            parent.Add(badge);
+            if (_viewScan != null)
+                _viewScan.style.display = selected == _viewScan
+                    ? DisplayStyle.Flex : DisplayStyle.None;
+            if (_viewWorld != null)
+                _viewWorld.style.display = selected == _viewWorld
+                    ? DisplayStyle.Flex : DisplayStyle.None;
+            _navScan?.EnableInClassList("nav-btn--active", selected == _viewScan);
+            _navWorld?.EnableInClassList("nav-btn--active", selected == _viewWorld);
         }
-
-        // ─────────────────────────────────────────────────────────────
-        //  Status Refresh (per-frame when visible)
-        // ─────────────────────────────────────────────────────────────
 
         private void RefreshStatus()
         {
-            var scanner = RoomScanner.Instance;
+            RoomScanner scanner = RoomScanner.Instance;
             if (scanner == null) return;
-
-            RefreshScanView(scanner);
-            RefreshWorldView(scanner);
-            RefreshRefineView(scanner);
-            RefreshTrainingStatus();
-            RefreshDisabledStates(scanner);
-
-            SetLabel(_valFps, $"{_currentFps:F0} FPS");
-
-            // Periodically refresh scan list when on saved view
-            _scanListRefreshTimer -= Time.deltaTime;
-            if (_scanListRefreshTimer <= 0f)
-            {
-                _scanListRefreshTimer = 3f;
-                if (_navSaved != null)
-                {
-                    var p = RoomScanPersistence.Instance;
-                    int count = p != null ? p.ListPackages().Count : 0;
-                    _navSaved.text = count > 0 ? $"Saved Scans ({count})" : "Saved Scans";
-                }
-            }
-        }
-
-        private void RefreshWorldView(RoomScanner scanner)
-        {
-            _worldStatusRefreshTimer -= Time.unscaledDeltaTime;
-            if (_worldStatusRefreshTimer > 0f) return;
-            _worldStatusRefreshTimer = 0.5f;
-            SubmapManager submaps = scanner.GetComponent<SubmapManager>();
-            ChunkRefinementScheduler scheduler = scanner.GetComponent<ChunkRefinementScheduler>();
-            EnsureGlbExporter();
-            InfiniteScanStatus status = InfiniteScanDiagnostics.Capture(submaps, scheduler,
-                _glbExporter);
-            SetLabel(_valWorldMode, status.Mode);
-            SetLabel(_valWorldId, status.World);
-            SetLabel(_valActiveChunk, status.ActiveChunk);
-            SetLabel(_valChunkLifecycle, status.Lifecycle);
-            SetLabel(_valResidency, status.Residency);
-            SetLabel(_valGraph, status.Graph);
-            SetLabel(_valHeavyQueue, status.Queue);
-            SetLabel(_valHeavyNetwork, status.Network);
-            SetLabel(_valWorldArtifacts, status.Artifacts);
-            SetLabel(_valWorldStorage, status.Storage);
-            SetLabel(_valGlbExport, status.Export);
-        }
-
-        private void RefreshScanView(RoomScanner scanner)
-        {
             string lifecycle = scanner.ScanLifecycle switch
             {
                 ScanLifecycleState.Starting => "Starting...",
                 ScanLifecycleState.Running => "Active",
                 ScanLifecycleState.Stopping => "Stopping...",
                 _ when !string.IsNullOrEmpty(scanner.LastScanStartError) =>
-                    "Start failed",
+                    "Start failed: " + scanner.LastScanStartError,
                 _ => "Stopped"
             };
-            SetLabel(_valScanning, lifecycle);
-            SetLabel(_valRender, scanner.CurrentRenderMode.ToString());
-
-            var persistence = RoomScanPersistence.Instance;
-            SetLabel(_valPackage, persistence != null && persistence.HasActivePackage
-                ? persistence.ActivePackageId : "None");
-
-            if (_btnToggleScan != null)
-                _btnToggleScan.text = scanner.IsScanStarting
-                    ? "Starting..."
-                    : scanner.IsScanning ? "Stop Scanning" : "Start Scanning";
-
-            if (_btnRenderMode != null)
-                _btnRenderMode.text = $"Render: {scanner.CurrentRenderMode}";
-
-            if (_btnFreezeTint != null)
-                _btnFreezeTint.text = scanner.ShowFreezeTint ? "Freeze Tint: ON" : "Freeze Tint: OFF";
-
-            if (_btnSceneObjects != null)
+            Set(_scanState, lifecycle);
+            Set(_renderState, scanner.CurrentRenderMode.ToString());
+            var focus = scanner.PrismPhotometricRefiner;
+            Set(_focusFrames, focus != null
+                ? $"{focus.StereoFrames}/{focus.TemporalFrames}"
+                : "0/0");
+            if (_toggleScan != null)
             {
-                var reg = scanner.SceneObjectRegistry;
-                _btnSceneObjects.text = scanner.ShowSceneObjects
-                    ? $"Objects: ON ({reg?.MrukCount ?? 0}M + {reg?.AiCount ?? 0}AI)"
-                    : "Objects: OFF";
+                _toggleScan.text = scanner.IsScanStarting ? "Starting..." :
+                    scanner.IsScanning ? "Stop Scanning" : "Start Scanning";
+                _toggleScan.SetEnabled(!scanner.IsScanStarting);
             }
+            if (_renderMode != null)
+                _renderMode.text = "Render: " + scanner.CurrentRenderMode;
 
-            var vi = VolumeIntegrator.Instance;
-            if (vi != null) SetLabel(_valIntegrations, vi.IntegrationCount.ToString());
-
-            var kf = FindAnyObjectByType<KeyframeCollector>();
-            if (kf != null) SetLabel(_valKeyframes, kf.SavedCount.ToString());
-
-            var progress = scanner.CurrentProgress;
-            var cov = progress.Coverage;
-            SetLabel(_valProgress, $"{progress.OverallProgress:P0}");
-            SetLabel(_valPhase, progress.Phase.ToString());
-            SetLabel(_valColorCoverage, $"{cov.ColorCoverage:P0}");
-            SetLabel(_valFrozen, $"{cov.FrozenFraction:P0}");
-            SetLabel(_valMeshStats, cov.MeshVertexCount > 0
-                ? $"{cov.MeshVertexCount / 1000f:F1}K verts, {cov.MeshTriangleCount / 1000f:F1}K tris"
+            SubmapManager world = scanner.GetComponent<SubmapManager>();
+            WorldManifest manifest = world?.Manifest;
+            ChunkRecord chunk = world?.ActiveChunk;
+            Set(_worldMode, world != null && world.LargeWorldMode
+                ? "Cone-PRISM infinite" : "Unavailable");
+            Set(_worldId, manifest?.worldId ?? "--");
+            Set(_activeChunk, chunk?.chunkId ?? "--");
+            Set(_chunkLifecycle, chunk?.state.ToString() ?? "--");
+            PrismChunkResidencyManager residency = scanner.PrismChunkResidency;
+            Set(_residency, residency == null ? "--" :
+                $"{(residency.IsTransitioning ? "transitioning" : "resident")}, " +
+                $"recent={residency.RecentCanonicalCount}");
+            Set(_graph, manifest != null
+                ? $"{manifest.chunks.Count} chunks / {manifest.edges.Count} edges"
                 : "--");
+            Set(_worldStorage, Application.persistentDataPath);
 
-            // Delete artifact button visibility
-            if (_btnDeleteArtifact != null)
-            {
-                var mode = scanner.CurrentRenderMode;
-                bool canDelete = mode == ScanRenderMode.Splat ||
-                                 mode == ScanRenderMode.Refined ||
-                                 mode == ScanRenderMode.HQRefined;
-                _btnDeleteArtifact.style.display = canDelete ? DisplayStyle.Flex : DisplayStyle.None;
-
-                if (canDelete)
-                {
-                    _btnDeleteArtifact.text = mode switch
-                    {
-                        ScanRenderMode.Splat => "Delete Splat",
-                        ScanRenderMode.Refined => scanner.HasEnhancedMesh ? "Delete Enhanced Mesh" : "Delete Refined",
-                        ScanRenderMode.HQRefined => "Delete HQ Atlas",
-                        _ => "Delete Artifact"
-                    };
-                    _btnDeleteArtifact.SetEnabled(persistence != null && persistence.HasActivePackage);
-                }
-            }
+            EnsureExporter();
+            bool canExport = world?.HasWorld == true && !scanner.IsScanning &&
+                             _glb != null && !_glb.IsBusy;
+            _exportChunk?.SetEnabled(canExport);
+            _exportWorld?.SetEnabled(canExport);
+            Set(_fps, $"{_currentFps:F0} FPS");
         }
 
-        private void RefreshRefineView(RoomScanner scanner)
+        private void EnsureExporter()
         {
-            if (_btnRefineTex != null)
-            {
-                if (scanner.IsRefining)
-                {
-                    _btnRefineTex.text = scanner.RefineStatus ?? "Refining...";
-                    _btnRefineTex.SetEnabled(false);
-                }
-                else
-                {
-                    _btnRefineTex.text = scanner.HasRefinedTexture ? "Refine (Done)" : "Refine Textures";
-                    _btnRefineTex.SetEnabled(true);
-                }
-            }
-
-            if (_btnHqRefine != null)
-            {
-                if (scanner.IsHQRefining)
-                {
-                    _btnHqRefine.text = scanner.HQRefineStatus ?? "HQ Refining...";
-                    _btnHqRefine.SetEnabled(false);
-                }
-                else
-                {
-                    _btnHqRefine.text = scanner.HasHQRefinedTexture ? "HQ Refine (Done)" : "HQ Refine (Server)";
-                    _btnHqRefine.SetEnabled(true);
-                }
-            }
-
-            SetLabel(_valRefineStatus, scanner.IsRefining
-                ? (scanner.RefineStatus ?? "Refining...") : (scanner.HasRefinedTexture ? "Done" : "Idle"));
-            SetLabel(_valHqStatus, scanner.IsHQRefining
-                ? (scanner.HQRefineStatus ?? "Processing...") : (scanner.HasHQRefinedTexture ? "Done" : "Idle"));
-
-            if (_btnMeshEnhance != null)
-            {
-                if (scanner.IsMeshEnhancing)
-                {
-                    _btnMeshEnhance.text = scanner.MeshEnhanceStatus ?? "Enhancing...";
-                    _btnMeshEnhance.SetEnabled(false);
-                }
-                else
-                {
-                    _btnMeshEnhance.text = "Enhance Mesh (Server)";
-                    _btnMeshEnhance.SetEnabled(true);
-                }
-            }
-            SetLabel(_valMeshEnhanceStatus, scanner.IsMeshEnhancing
-                ? (scanner.MeshEnhanceStatus ?? "Processing...") : "Idle");
-
-            if (scanner.LastRefinedResult.HasValue)
-            {
-                var r = scanner.LastRefinedResult.Value;
-                SetLabel(_valRefinedMeshStats,
-                    $"{r.Positions.Length / 1000f:F1}K verts, {r.Indices.Length / 3 / 1000f:F1}K tris");
-            }
-            else
-            {
-                SetLabel(_valRefinedMeshStats, "--");
-            }
-
-            if (scanner.LastSimplifiedResult.HasValue)
-            {
-                var s = scanner.LastSimplifiedResult.Value;
-                SetLabel(_valSimplifiedMeshStats,
-                    $"{s.Positions.Length / 1000f:F1}K verts, {s.Indices.Length / 3 / 1000f:F1}K tris");
-            }
-            else
-            {
-                SetLabel(_valSimplifiedMeshStats, "--");
-            }
-        }
-
-        private void RefreshTrainingStatus()
-        {
-            EnsureGSplat();
-            if (_cachedGSplat == null) return;
-
-            if (_fieldServerUrl != null && _fieldServerUrl.value != _cachedGSplat.ServerUrl)
-                _fieldServerUrl.SetValueWithoutNotify(_cachedGSplat.ServerUrl);
-
-            string state = _cachedGSplat.TrainingState;
-            if (string.IsNullOrEmpty(state))
-            {
-                SetLabel(_valTrainState, "No data");
-                return;
-            }
-
-            string stateDisplay = state;
-            if (_cachedGSplat.IsUploading) stateDisplay = "Uploading...";
-            else if (_cachedGSplat.IsDownloading) stateDisplay = "Downloading...";
-            else if (_cachedGSplat.IsPolling && state == "training") stateDisplay = "Training (polling)";
-            SetLabel(_valTrainState, stateDisplay);
-
-            float pct = _cachedGSplat.TrainingProgress * 100f;
-            if (_progressFill != null)
-                _progressFill.style.width = new Length(pct, LengthUnit.Percent);
-            SetLabel(_valTrainProgress, $"{pct:F0}%");
-
-            SetLabel(_valTrainIter, _cachedGSplat.TotalIterations > 0
-                ? $"{_cachedGSplat.CurrentIteration} / {_cachedGSplat.TotalIterations}" : "--");
-            SetLabel(_valTrainElapsed, _cachedGSplat.ElapsedSeconds > 0 ? FormatElapsed(_cachedGSplat.ElapsedSeconds) : "--");
-            SetLabel(_valTrainBackend, string.IsNullOrEmpty(_cachedGSplat.TrainingBackend) ? "--" : _cachedGSplat.TrainingBackend);
-            SetLabel(_valTrainMessage, string.IsNullOrEmpty(_cachedGSplat.TrainingMessage) ? "--" : _cachedGSplat.TrainingMessage);
-        }
-
-        private void RefreshDisabledStates(RoomScanner scanner)
-        {
-            var vi = VolumeIntegrator.Instance;
-            var persistence = RoomScanPersistence.Instance;
-            bool hasVolume = vi != null && vi.IntegrationCount > 0;
-            bool hasActivePackage = persistence != null && persistence.HasActivePackage;
-
-            if (_btnToggleScan != null)
-                _btnToggleScan.SetEnabled(!scanner.IsScanStarting);
-
-            // Save Scan: disabled if no volume data or while scanning
-            if (_btnSaveScan != null && !_btnSaveScan.text.Contains("..."))
-                _btnSaveScan.SetEnabled(hasVolume && !scanner.IsScanning);
-
-            // GS Training: entirely disabled if module absent
-            if (_btnGsTrain != null)
-            {
-                bool canTrain = _gsplatAvailable && !scanner.IsGsTrainingInProgress && (hasVolume || hasActivePackage);
-                _btnGsTrain.SetEnabled(canTrain);
-            }
-
-            bool isTraining = _cachedGSplat?.TrainingState == "training";
-            if (_btnCancelTrain != null && !_btnCancelTrain.text.Contains("..."))
-                _btnCancelTrain.SetEnabled(isTraining);
-
-            // Refine: entirely disabled if module absent
-            if (_btnRefineTex != null && !scanner.IsRefining)
-                _btnRefineTex.SetEnabled(_refineAvailable && (hasVolume || hasActivePackage));
-
-            if (_btnHqRefine != null && !scanner.IsHQRefining)
-            {
-                bool hasServer = _cachedGSplat != null &&
-                    !string.IsNullOrEmpty(_cachedGSplat.ServerUrl);
-                _btnHqRefine.SetEnabled(_refineAvailable && (hasVolume || hasActivePackage) && hasServer);
-            }
-
-            if (_btnMeshEnhance != null && !scanner.IsMeshEnhancing)
-            {
-                bool hasServer = _cachedGSplat != null &&
-                    !string.IsNullOrEmpty(_cachedGSplat.ServerUrl);
-                bool hasRefined = scanner.HasRefinedTexture || scanner.LastRefinedResult.HasValue;
-                _btnMeshEnhance.SetEnabled(_refineAvailable && hasRefined && hasServer);
-            }
-
-            // Export Point Cloud: disabled if no volume
-            if (_btnExportPc != null && !_btnExportPc.text.Contains("..."))
-                _btnExportPc.SetEnabled(hasVolume);
-
-            bool canExportGlb = _worldAvailable && !scanner.IsScanning &&
-                                _glbExporter != null && !_glbExporter.IsBusy;
-            if (_btnExportChunkGlb != null &&
-                !_btnExportChunkGlb.text.Contains("..."))
-                _btnExportChunkGlb.SetEnabled(canExportGlb &&
-                                              _glbExporter != null);
-            if (_btnExportWorldGlb != null &&
-                !_btnExportWorldGlb.text.Contains("..."))
-                _btnExportWorldGlb.SetEnabled(canExportGlb &&
-                                              _glbExporter != null);
-        }
-
-        // ─────────────────────────────────────────────────────────────
-        //  Helpers
-        // ─────────────────────────────────────────────────────────────
-
-        private static string FormatElapsed(float seconds)
-        {
-            if (seconds < 60f) return $"{seconds:F0}s";
-            int m = (int)(seconds / 60f);
-            int s = (int)(seconds % 60f);
-            if (m < 60) return $"{m}m {s}s";
-            int h = m / 60;
-            return $"{h}h {m % 60}m";
+            if (_glb != null) return;
+            RoomScanner scanner = RoomScanner.Instance;
+            if (scanner != null) _glb = scanner.GetComponent<GlbExportController>();
         }
 
         private void UpdateFps()
         {
             _fpsFrames++;
-            _fpsTimer += Time.unscaledDeltaTime;
-            if (_fpsTimer >= 0.5f)
-            {
-                _currentFps = _fpsFrames / _fpsTimer;
-                _fpsFrames = 0;
-                _fpsTimer = 0f;
-            }
+            _fpsWindow += Time.unscaledDeltaTime;
+            if (_fpsWindow < 0.5f) return;
+            _currentFps = _fpsFrames / Mathf.Max(0.001f, _fpsWindow);
+            _fpsFrames = 0;
+            _fpsWindow = 0f;
         }
 
-        private static void SetLabel(Label label, string text)
+        private static void Set(Label label, string value)
         {
-            if (label != null) label.text = text;
-        }
-
-        private async void CancelAndResetButton()
-        {
-            if (_cachedGSplat != null)
-                await _cachedGSplat.CancelTraining();
-            SetButtonReady(_btnCancelTrain, "Cancel Training");
-        }
-
-        private void EnsureGSplat()
-        {
-            if (_cachedGSplat != null) return;
-            var scanner = RoomScanner.Instance;
-            if (scanner == null) return;
-            foreach (var c in scanner.GetComponents<MonoBehaviour>())
-            {
-                if (c is IGSplatProvider provider)
-                {
-                    _cachedGSplat = provider;
-                    return;
-                }
-            }
-        }
-
-        private void EnsureGlbExporter()
-        {
-            if (_glbExporter != null) return;
-            RoomScanner scanner = RoomScanner.Instance;
-            if (scanner != null)
-                _glbExporter = scanner.GetComponent<GlbExportController>();
-        }
-
-        private static void SetButtonBusy(Button btn, string text)
-        {
-            if (btn == null) return;
-            btn.text = text;
-            btn.SetEnabled(false);
-        }
-
-        private static void SetButtonReady(Button btn, string text)
-        {
-            if (btn == null) return;
-            btn.text = text;
-            btn.SetEnabled(true);
-        }
-
-        private static async void ResetDeleteConfirmAfterDelay(Button btn, System.Action onReset)
-        {
-            await System.Threading.Tasks.Task.Delay(3000);
-            if (btn == null) return;
-            onReset?.Invoke();
-            btn.text = "Del";
-        }
-
-        private static async void FlashStatus(Button btn, bool success)
-        {
-            if (btn == null) return;
-            string original = btn.text;
-            btn.text = success ? "Done!" : "Failed";
-            await System.Threading.Tasks.Task.Delay(1500);
-            if (btn != null) btn.text = original;
+            if (label != null) label.text = value ?? string.Empty;
         }
     }
 }

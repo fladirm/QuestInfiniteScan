@@ -1110,6 +1110,7 @@ workflow. It does not decide per pixel or traverse live geometry.
 | **Q3-13** | Infinite chunk paging, native PRISM persistence, restart/revisit |
 | **Q3-14** | ContactFilm-conditioned L/R narrow stereo pressure/focusing |
 | **Q3-15** | Temporal cone-bundle focusing and information-gain keyframes |
+| **Q3-15.5** | Mandatory forensic PressureManifold integrity repair: typed flag ABI, canonical manifold/link/frontier pools, cross-tile/cross-eye spawn union, measured/latent separation, link-safe topology, covariance-consistent pressure, and batched geometry acceptance |
 | **Q3-16** | Measured hierarchical displacement/normal refinement |
 | **Q3-17** | Immediate surface-space RGB/EWA accumulation |
 | **Q3-18** | Multi-view measured texture superresolution/virtual pages |

@@ -72,7 +72,7 @@ namespace Genesis.RoomScan.World
             cancellationToken.ThrowIfCancellationRequested();
 
             Task<byte[]> filmAllocatorTask = RequestBytes(films.Allocator,
-                sizeof(uint) * 4, cancellationToken);
+                sizeof(uint) * 8, cancellationToken);
             Task<byte[]> boundaryAllocatorTask = RequestBytes(boundaries.Allocator,
                 sizeof(uint) * 4, cancellationToken);
             Task<byte[]> displacementAllocatorTask = displacement == null
@@ -83,31 +83,90 @@ namespace Genesis.RoomScan.World
                 ? Task.FromResult(new byte[sizeof(uint) * 8])
                 : RequestBytes(published.BuildCounters, sizeof(uint) * 8,
                     cancellationToken);
+            PressureManifoldPool manifolds = films.Manifolds;
+            Task<byte[]> manifoldAllocatorTask = RequestBytes(manifolds.Allocator,
+                sizeof(uint) * PressureManifoldPool.AllocatorWords,
+                cancellationToken);
+            Task<byte[]> currentManifoldTask = RequestBytes(manifolds.Current,
+                sizeof(uint) * 4, cancellationToken);
             await Task.WhenAll(filmAllocatorTask, boundaryAllocatorTask,
-                displacementAllocatorTask, meshletCountersTask);
+                displacementAllocatorTask, meshletCountersTask,
+                manifoldAllocatorTask, currentManifoldTask);
             cancellationToken.ThrowIfCancellationRequested();
 
             byte[] filmAllocator = filmAllocatorTask.Result;
             byte[] boundaryAllocator = boundaryAllocatorTask.Result;
             byte[] displacementAllocator = displacementAllocatorTask.Result;
             byte[] meshletCounters = meshletCountersTask.Result;
+            byte[] manifoldAllocator = manifoldAllocatorTask.Result;
+            if (BitConverter.ToUInt32(filmAllocator, 2 * sizeof(uint)) != 0u ||
+                BitConverter.ToUInt32(boundaryAllocator, 2 * sizeof(uint)) != 0u ||
+                BitConverter.ToUInt32(displacementAllocator,
+                    2 * sizeof(uint)) != 0u ||
+                BitConverter.ToUInt32(displacementAllocator,
+                    3 * sizeof(uint)) != 0u ||
+                BitConverter.ToUInt32(manifoldAllocator,
+                    2 * sizeof(uint)) != 0u ||
+                BitConverter.ToUInt32(manifoldAllocator,
+                    6 * sizeof(uint)) != 0u ||
+                BitConverter.ToUInt32(manifoldAllocator,
+                    10 * sizeof(uint)) != 0u ||
+                BitConverter.ToUInt32(manifoldAllocator,
+                    14 * sizeof(uint)) != 0u)
+                throw new InvalidOperationException(
+                    "PRISM snapshot refused an overflowed or unpaired canonical generation.");
+            bool meshletOverflow = BitConverter.ToUInt32(meshletCounters,
+                2 * sizeof(uint)) != 0u;
             int filmCount = Count(filmAllocator, 0, films.Capacity);
             int boundaryCount = Count(boundaryAllocator, 0, boundaries.Capacity);
             int basePageCount = displacement == null ? 0 :
                 Count(displacementAllocator, 0, displacement.BasePageCapacity);
             int microPageCount = displacement == null ? 0 :
                 Count(displacementAllocator, 4, displacement.MicroPageCapacity);
-            int meshletVertexCount = published == null ? 0 :
+            int meshletVertexCount = published == null || meshletOverflow ? 0 :
                 Count(meshletCounters, 0, published.VertexCapacity);
-            int meshletIndexCount = published == null ? 0 :
+            int meshletIndexCount = published == null || meshletOverflow ? 0 :
                 Count(meshletCounters, 4, published.IndexCapacity);
-            int meshletDescriptorCount = published == null ? 0 :
+            int meshletDescriptorCount = published == null || meshletOverflow ? 0 :
                 Count(meshletCounters, 16, published.DescriptorCapacity);
+            int manifoldCount = Count(manifoldAllocator, 0,
+                manifolds.ManifoldCapacity);
+            int manifoldLinkCount = Count(manifoldAllocator, 16,
+                manifolds.LinkCapacity);
+            int manifoldFrontierCount = Count(manifoldAllocator, 32,
+                manifolds.FrontierCapacity);
 
             Task<byte[]> filmHeaders = RequestBytes(films.Headers,
                 checked(filmCount * ContactFilmHeaderGpu.Stride), cancellationToken);
             Task<byte[]> filmInformation = RequestBytes(films.Information,
-                checked(filmCount * 9 * sizeof(float) * 4), cancellationToken);
+                checked(filmCount * ContactFilmPool.InformationRecords *
+                    sizeof(float) * 4), cancellationToken);
+            Task<byte[]> filmSlotStates = RequestBytes(films.SlotStates,
+                checked(filmCount * ContactFilmSlotStateGpu.Stride),
+                cancellationToken);
+            Task<byte[]> activeFilmIndices = RequestBytes(films.ActiveIndices,
+                checked(filmCount * sizeof(uint)), cancellationToken);
+            Task<byte[]> dirtyFilmIndices = RequestBytes(films.DirtyIndices,
+                checked(filmCount * sizeof(uint)), cancellationToken);
+            Task<byte[]> manifoldHeaders = RequestBytes(manifolds.Headers,
+                checked(manifoldCount * PressureManifoldHeaderGpu.Stride),
+                cancellationToken);
+            Task<byte[]> filmMemberships = RequestBytes(manifolds.Memberships,
+                checked(filmCount * FilmMembershipGpu.Stride), cancellationToken);
+            Task<byte[]> manifoldLinks = RequestBytes(manifolds.Links,
+                checked(manifoldLinkCount * ManifoldLinkGpu.Stride),
+                cancellationToken);
+            Task<byte[]> manifoldLinkIncidences = RequestBytes(
+                manifolds.LinkIncidences,
+                checked(manifoldLinkCount * 2 * ManifoldLinkIncidenceGpu.Stride),
+                cancellationToken);
+            Task<byte[]> manifoldFrontierIncidences = RequestBytes(
+                manifolds.FrontierIncidences,
+                checked(manifoldFrontierCount *
+                    ManifoldFrontierIncidenceGpu.Stride), cancellationToken);
+            Task<byte[]> latentFrontiers = RequestBytes(manifolds.Frontiers,
+                checked(manifoldFrontierCount * LatentFrontierSegmentGpu.Stride),
+                cancellationToken);
             Task<byte[]> boundaryHeaders = RequestBytes(boundaries.Headers,
                 checked(boundaryCount * ContactBoundaryHeaderGpu.Stride),
                 cancellationToken);
@@ -172,7 +231,11 @@ namespace Genesis.RoomScan.World
             await Task.WhenAll(filmHeaders, filmInformation, boundaryHeaders,
                 boundaryInformation, basePageHeaders, microPageHeaders, baseCells,
                 microCells, baseChildren, microChildren, topologyEvidence,
-                meshletVertices, meshletIndices, meshletDescriptors);
+                meshletVertices, meshletIndices, meshletDescriptors,
+                filmSlotStates, activeFilmIndices, dirtyFilmIndices,
+                manifoldHeaders, filmMemberships, manifoldLinks,
+                manifoldLinkIncidences, manifoldFrontierIncidences,
+                latentFrontiers);
             cancellationToken.ThrowIfCancellationRequested();
 
             return new PrismCanonicalChunkSnapshot
@@ -184,6 +247,9 @@ namespace Genesis.RoomScan.World
                 MeshletVertexCount = meshletVertexCount,
                 MeshletIndexCount = meshletIndexCount,
                 MeshletDescriptorCount = meshletDescriptorCount,
+                ManifoldCount = manifoldCount,
+                ManifoldLinkCount = manifoldLinkCount,
+                ManifoldFrontierCount = manifoldFrontierCount,
                 FilmGeneration = BitConverter.ToUInt32(filmAllocator, 12),
                 BoundaryGeneration = BitConverter.ToUInt32(boundaryAllocator, 12),
                 DisplacementGeneration = displacement == null ? 1u :
@@ -192,6 +258,19 @@ namespace Genesis.RoomScan.World
                 CalibrationEpoch = calibrationEpoch,
                 FilmHeaders = filmHeaders.Result,
                 FilmInformation = filmInformation.Result,
+                FilmSlotStates = filmSlotStates.Result,
+                ActiveFilmIndices = activeFilmIndices.Result,
+                DirtyFilmIndices = dirtyFilmIndices.Result,
+                FilmAllocatorState = filmAllocator,
+                PressureManifoldHeaders = manifoldHeaders.Result,
+                FilmMemberships = filmMemberships.Result,
+                ManifoldLinks = manifoldLinks.Result,
+                ManifoldLinkIncidences = manifoldLinkIncidences.Result,
+                ManifoldFrontierIncidences =
+                    manifoldFrontierIncidences.Result,
+                LatentFrontiers = latentFrontiers.Result,
+                ManifoldAllocatorState = manifoldAllocator,
+                CurrentManifoldState = currentManifoldTask.Result,
                 BoundaryHeaders = boundaryHeaders.Result,
                 BoundaryInformation = boundaryInformation.Result,
                 DisplacementPageHeaders = Concatenate(basePageHeaders.Result,

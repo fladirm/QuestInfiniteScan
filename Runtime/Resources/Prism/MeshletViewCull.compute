@@ -49,7 +49,8 @@ uint _Eye;
 float _GeometryPixelError;
 float _AppearanceMipBias;
 
-static const uint MESHLET_HAS_BOUNDARY = 1u << 20u;
+static const uint MESHLET_HAS_BOUNDARY = 1u << 1u;
+static const uint MESHLET_EXACT_TOPOLOGY = 1u << 2u;
 static const uint VIEW_VISIBLE = 1u;
 static const uint VIEW_OCCLUDED = 1u << 1u;
 static const uint VIEW_FRUSTUM_REJECTED = 1u << 2u;
@@ -188,8 +189,9 @@ void CullMeshletView(uint3 id : SV_DispatchThreadID)
     }
 
     uint segments = SelectGeometrySegments(descriptor, projectedRadiusPixels);
-    bool exactBoundary = (descriptor.flags & MESHLET_HAS_BOUNDARY) != 0u;
-    uint indexCount = exactBoundary
+    bool exactTopology = (descriptor.flags &
+        (MESHLET_HAS_BOUNDARY | MESHLET_EXACT_TOPOLOGY)) != 0u;
+    uint indexCount = exactTopology
         ? descriptor.sourceIndexCount
         : segments * segments * 6u;
     uint outputBase;
@@ -201,7 +203,7 @@ void CullMeshletView(uint3 id : SV_DispatchThreadID)
         return;
     }
 
-    if (exactBoundary)
+    if (exactTopology)
     {
         for (uint i = 0u; i < indexCount; ++i)
             _VisibleIndices[outputBase + i] =

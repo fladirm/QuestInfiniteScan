@@ -27,8 +27,10 @@ Shader "Hidden/Genesis/ConePrism/PredictContactFilm"
                 float confidence;
                 uint sidedness;
                 uint flags;
-                uint reserved0;
-                uint reserved1;
+                uint appearancePage;
+                uint coverageBits;
+                uint boundarySampleId;
+                uint reserved;
             };
 
             StructuredBuffer<ContactMeshletVertex> _ContactVertices;
@@ -51,6 +53,7 @@ Shader "Hidden/Genesis/ConePrism/PredictContactFilm"
                 nointerpolation uint generation : TEXCOORD6;
                 nointerpolation uint sidedness : TEXCOORD7;
                 nointerpolation uint flags : TEXCOORD8;
+                float coverage : TEXCOORD9;
             };
 
             Varyings Vert(uint vertexId : SV_VertexID)
@@ -69,6 +72,7 @@ Shader "Hidden/Genesis/ConePrism/PredictContactFilm"
                 output.generation = input.generation;
                 output.sidedness = input.sidedness;
                 output.flags = input.flags;
+                output.coverage = asfloat(input.coverageBits);
                 return output;
             }
 
@@ -82,11 +86,12 @@ Shader "Hidden/Genesis/ConePrism/PredictContactFilm"
 
             PredictionOutput Frag(Varyings input)
             {
-                // Elastic connector/frontier triangles close the conserved
-                // membrane for rendering, but they are high-sigma UNKNOWN rather
-                // than measured contacts. Only actual ContactFilm material may
-                // become the hardware first-hit association target.
-                if ((input.flags & (1u << 9u)) != 0u)
+                // Positive eligibility: only explicitly measured fragments with a
+                // generation-tagged ContactFilm may become a first-hit predictor.
+                // The continuous support contour partitions measured and latent
+                // copies without relying on provoking-vertex ID semantics.
+                if ((input.flags & (1u << 0u)) == 0u || input.filmId == 0u ||
+                    input.generation == 0u || input.coverage < 0.5)
                     discard;
                 float3 normal = normalize(input.normalOptical);
                 float3 surfaceToEye = -normalize(input.positionOptical);
