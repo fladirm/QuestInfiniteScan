@@ -91,12 +91,17 @@ struct FilmMergeHashEntry
 
 RWStructuredBuffer<ContactFilmHeader> _FilmHeaders;
 RWStructuredBuffer<float4> _FilmInformation;
+StructuredBuffer<ContactFilmHeader> _FilmHeadersRead;
+StructuredBuffer<float4> _FilmInformationRead;
 RWStructuredBuffer<uint> _FilmAllocator;
 RWStructuredBuffer<DisplacementPageHeader> _DisplacementPages;
 RWStructuredBuffer<DisplacementCell> _BaseDisplacementCells;
 RWStructuredBuffer<DisplacementCell> _MicroDisplacementCells;
+StructuredBuffer<DisplacementCell> _BaseDisplacementCellsRead;
+StructuredBuffer<DisplacementCell> _MicroDisplacementCellsRead;
 RWStructuredBuffer<uint> _BaseChildPages;
 RWStructuredBuffer<uint> _MicroChildPages;
+StructuredBuffer<uint> _MicroChildPagesRead;
 RWStructuredBuffer<uint> _DisplacementAllocator;
 RWStructuredBuffer<int> _BaseDisplacementCellAccumulator;
 RWStructuredBuffer<uint> _DisplacementCellDirtyFlags;
@@ -110,7 +115,11 @@ RWStructuredBuffer<uint> _BoundaryAllocator;
 RWStructuredBuffer<TopologySplitRecord> _SplitRecords;
 RWStructuredBuffer<TopologyMergeRecord> _MergeRecords;
 RWStructuredBuffer<FilmMergeHashEntry> _FilmMergeHash;
+StructuredBuffer<TopologySplitRecord> _SplitRecordsRead;
+StructuredBuffer<TopologyMergeRecord> _MergeRecordsRead;
+StructuredBuffer<FilmMergeHashEntry> _FilmMergeHashRead;
 RWStructuredBuffer<uint> _AdaptState;
+StructuredBuffer<uint> _AdaptStateRead;
 RWStructuredBuffer<uint3> _AdaptDispatchArguments;
 
 uint _FilmCapacity;
@@ -152,7 +161,10 @@ static const uint MICRO_GRID = 8u;
 static const uint BASE_CELLS_PER_PAGE = 256u;
 static const uint MICRO_CELLS_PER_PAGE = 64u;
 static const uint INFORMATION_RECORDS = 8u;
-static const uint WORDS_PER_CELL = 8u;
+// Must match ContactDisplacementPool.TransientAccumulatorWordsPerCell.  The
+// final three words hold opposing pre-hit pressure moments and cannot survive
+// split/merge as stale data from a previous page owner.
+static const uint WORDS_PER_CELL = 11u;
 static const uint ALLOCATION_CLAIM = 0xffffffffu;
 
 uint UpperIndex(uint row, uint column)
@@ -219,14 +231,14 @@ bool IsMicroCell(uint globalCell) { return globalCell >= _BaseCellCapacity; }
 DisplacementCell LoadCell(uint globalCell)
 {
     if (IsMicroCell(globalCell))
-        return _MicroDisplacementCells[globalCell - _BaseCellCapacity];
+        return _MicroDisplacementCellsRead[globalCell - _BaseCellCapacity];
     return _BaseDisplacementCells[globalCell];
 }
 
 uint LoadChild(uint globalCell)
 {
     if (IsMicroCell(globalCell))
-        return _MicroChildPages[globalCell - _BaseCellCapacity];
+        return _MicroChildPagesRead[globalCell - _BaseCellCapacity];
     return _BaseChildPages[globalCell];
 }
 
@@ -288,7 +300,8 @@ float QuadrantSupport(ContactFilmHeader film, uint quadrant, out float total)
     for (uint cell = 0u; cell < BASE_CELLS_PER_PAGE; ++cell)
     {
         float support = max(0.0,
-            _BaseDisplacementCells[page * BASE_CELLS_PER_PAGE + cell].support);
+            _BaseDisplacementCellsRead[
+                page * BASE_CELLS_PER_PAGE + cell].support);
         total += support;
         uint x = cell & 15u;
         uint y = cell >> 4u;
@@ -533,7 +546,7 @@ void SplitContactFilms(uint3 id : SV_DispatchThreadID)
 [numthreads(1, 1, 1)]
 void BuildTopologyAdaptArguments(uint3 id : SV_DispatchThreadID)
 {
-    uint splitCount = min(_AdaptState[0], _FilmCapacity);
+    uint splitCount = min(_AdaptStateRead[0], _FilmCapacity);
     uint boundaryCount = min(_BoundaryAllocator[0], _BoundaryCapacity);
     _AdaptDispatchArguments[0] = uint3(
         (splitCount * 4u * BASE_CELLS_PER_PAGE + 63u) / 64u, 1u, 1u);
@@ -555,16 +568,16 @@ void BuildTopologyAdaptArguments(uint3 id : SV_DispatchThreadID)
 [numthreads(64, 1, 1)]
 void InitializeSplitDisplacement(uint3 id : SV_DispatchThreadID)
 {
-    uint splitCount = min(_AdaptState[0], _FilmCapacity);
+    uint splitCount = min(_AdaptStateRead[0], _FilmCapacity);
     uint ordinal = id.x / BASE_CELLS_PER_PAGE;
     uint localCell = id.x % BASE_CELLS_PER_PAGE;
     if (ordinal >= splitCount * 4u) return;
     uint splitIndex = ordinal / 4u;
     uint quadrant = ordinal & 3u;
-    TopologySplitRecord record = _SplitRecords[splitIndex];
-    ContactFilmHeader parent = _FilmHeaders[record.parentFilmIndex];
+    TopologySplitRecord record = _SplitRecordsRead[splitIndex];
+    ContactFilmHeader parent = _FilmHeadersRead[record.parentFilmIndex];
     uint childIndex = record.firstChildFilmIndex + quadrant;
-    ContactFilmHeader child = _FilmHeaders[childIndex];
+    ContactFilmHeader child = _FilmHeadersRead[childIndex];
     uint x = localCell & 15u;
     uint y = localCell >> 4u;
     float2 childUv = (float2(x, y) + 0.5) / 16.0;
@@ -1106,7 +1119,7 @@ void MergeCompatibleFilms(uint3 id : SV_DispatchThreadID)
         for (uint probe = 0u; probe < 32u; ++probe)
         {
             uint slot = (hash + probe * 0x9e3779b9u) & _FilmMergeHashMask;
-            FilmMergeHashEntry entry = _FilmMergeHash[slot];
+            FilmMergeHashEntry entry = _FilmMergeHashRead[slot];
             if (entry.hash == 0u) break;
             if (entry.hash != hash || any(entry.cell != cell) ||
                 entry.filmId == 0u || entry.filmId <= a.id) continue;
@@ -1279,7 +1292,7 @@ void MergeCompatibleFilms(uint3 id : SV_DispatchThreadID)
 [numthreads(1, 1, 1)]
 void BuildMergeArguments(uint3 id : SV_DispatchThreadID)
 {
-    uint mergeCount = min(_AdaptState[4], _FilmCapacity);
+    uint mergeCount = min(_AdaptStateRead[4], _FilmCapacity);
     _AdaptDispatchArguments[6] = uint3(
         (mergeCount * BASE_CELLS_PER_PAGE + 63u) / 64u, 1u, 1u);
 }
@@ -1310,7 +1323,7 @@ bool SourceDisplacement(ContactFilmHeader source, float3 surfacePosition,
         cell.support = max(0.25,
             source.supportTotal / max(1.0, (float)supportCells));
         cell.coverage = 1.0;
-        float4 quality = _FilmInformation[(source.id - 1u) * 9u + 8u];
+        float4 quality = _FilmInformationRead[(source.id - 1u) * 9u + 8u];
         cell.bestPrecision = max(quality.w, 0.0);
         cell.bestFootprint = max(quality.z, 1e-12);
         cell.revision = 1u;
@@ -1327,14 +1340,14 @@ bool SourceDisplacement(ContactFilmHeader source, float3 surfacePosition,
 [numthreads(64, 1, 1)]
 void InitializeMergedDisplacement(uint3 id : SV_DispatchThreadID)
 {
-    uint mergeCount = min(_AdaptState[4], _FilmCapacity);
+    uint mergeCount = min(_AdaptStateRead[4], _FilmCapacity);
     uint recordIndex = id.x / BASE_CELLS_PER_PAGE;
     uint localCell = id.x % BASE_CELLS_PER_PAGE;
     if (recordIndex >= mergeCount) return;
-    TopologyMergeRecord record = _MergeRecords[recordIndex];
-    ContactFilmHeader a = _FilmHeaders[record.filmAIndex];
-    ContactFilmHeader b = _FilmHeaders[record.filmBIndex];
-    ContactFilmHeader merged = _FilmHeaders[record.mergedFilmIndex];
+    TopologyMergeRecord record = _MergeRecordsRead[recordIndex];
+    ContactFilmHeader a = _FilmHeadersRead[record.filmAIndex];
+    ContactFilmHeader b = _FilmHeadersRead[record.filmBIndex];
+    ContactFilmHeader merged = _FilmHeadersRead[record.mergedFilmIndex];
     uint x = localCell & 15u; uint y = localCell >> 4u;
     float2 uv = (float2(x, y) + 0.5) / 16.0;
     float u = lerp(-merged.extentU, merged.extentU, uv.x);

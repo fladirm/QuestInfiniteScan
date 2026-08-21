@@ -25,3 +25,17 @@ spaces (88 MiB and 44 MiB). Both compute shaders and bindings use the segmented 
 a regression test proves the old combined buffer is illegal and both replacements
 are legal. Forced-Vulkan tests and Android/Vulkan IL2CPP build passed; commit/archive
 and deployment are next.
+
+## Exchange 3
+
+User: Reported that the visible scan still corrupted geometry, slowed badly, and
+stopped; required an exact source archive and comparison with working upstream GPU
+execution rather than another speculative hotfix.
+
+Assistant: Created the requested analysis archive for commit `349af41`, inspected
+upstream QuestRoomScan and retained its proven `DispatchIndirect` approach. Device
+errors and manual shader-call audit identified the shared cause: topology moments
+were written through displacement addresses, several entry points exceeded the
+eight-UAV Quest limit, split/merge retained three stale pressure words, and the
+connector kernel lacked hierarchy bindings. These are now corrected as one GPU work-
+graph change; build/commit/archive/deploy of the corrected tree is in progress.

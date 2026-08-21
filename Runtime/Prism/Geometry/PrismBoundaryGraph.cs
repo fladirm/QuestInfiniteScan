@@ -48,6 +48,8 @@ namespace Genesis.RoomScan.Prism
         private static readonly int ChunkFromRgbId = Shader.PropertyToID("_ChunkFromRgb");
         private static readonly int RgbFromDepthId = Shader.PropertyToID("_RgbFromDepth");
         private static readonly int EventsId = Shader.PropertyToID("_ConeEvents");
+        private static readonly int FilmHeadersReadId =
+            Shader.PropertyToID("_FilmHeadersRead");
         private static readonly int FilmHeadersId = Shader.PropertyToID("_FilmHeaders");
         private static readonly int ClassifiedIndicesId = Shader.PropertyToID("_ClassifiedIndices");
         private static readonly int ClassCountersId = Shader.PropertyToID("_ClassCounters");
@@ -323,9 +325,7 @@ namespace Genesis.RoomScan.Prism
                 boundaryCompute.SetBuffer(kernel, DirtyStateId, _dirtyState);
                 boundaryCompute.SetBuffer(kernel, SolveArgumentsId, _solveArguments);
             }
-            boundaryCompute.SetBuffer(_accumulateKernel, FilmHeadersId,
-                filmSpawner.FilmPool.Headers);
-            boundaryCompute.SetBuffer(_absenceKernel, FilmHeadersId,
+            boundaryCompute.SetBuffer(_accumulateKernel, FilmHeadersReadId,
                 filmSpawner.FilmPool.Headers);
             boundaryCompute.SetBuffer(_solveKernel, FilmHeadersId,
                 filmSpawner.FilmPool.Headers);

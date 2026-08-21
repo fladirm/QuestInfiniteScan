@@ -81,7 +81,8 @@ namespace Genesis.RoomScan.Tests
             {
                 "InitializeDisplacementState", "AllocateBasePages",
                 "AllocateBasePagesBehind", "AllocateBasePagesOccluder",
-                "AccumulateDisplacement", "SolveDirtyDisplacement",
+                "AccumulateDisplacement", "AccumulateTopologyEvidence",
+                "SolveDirtyDisplacement",
                 "AccumulatePreHitPressure",
                 "AccumulateOccluderPreHitPressure",
                 "AllocateMicrotiles", "InitializeMicroPages",
@@ -97,6 +98,15 @@ namespace Genesis.RoomScan.Tests
                 Assert.DoesNotThrow(() => displacement.FindKernel(kernel), kernel);
             foreach (string kernel in topologyKernels)
                 Assert.DoesNotThrow(() => topology.FindKernel(kernel), kernel);
+        }
+
+        [Test]
+        public void PressureAccumulatorAbiKeepsAllElevenMoments()
+        {
+            // displacement W/WD, coverage W/WD, opposing pressure W/WD,
+            // nearest pre-hit, footprint W/WD, depth confidence and evidence.
+            Assert.That(ContactDisplacementPool.TransientAccumulatorWordsPerCell,
+                Is.EqualTo(11));
         }
 
         [Test]

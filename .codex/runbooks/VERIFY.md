@@ -5,6 +5,8 @@ Use the applicable layers in this order; later layers do not replace earlier one
 1. Code map: `python3 Tools/generate_code_graph.py` after each completed DAG task
 2. Control plane and graph freshness: `python3 Tools/validate_goal_state.py`
 3. Formatting/static hygiene: `git diff --check`, targeted source analyzers
+   - Run `python3 Tools/unity/validate_prism_compute_uav.py`; all reachable Prism
+     compute entry points must stay at or below eight RW/UAV resources.
 4. Pure C# domain/format tests in Unity EditMode
 5. CPU reference versus real-GPU compute/raster parity on synthetic/captured PRISM fixtures
 6. Unity package compilation in the pinned Unity 6000.5 project

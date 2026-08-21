@@ -100,6 +100,18 @@ Updated: 2026-08-21 (Europe/Prague)
   base/micro address spaces. The two Vulkan storage bindings are 92,274,688 and
   46,137,344 bytes instead of one illegal 138,412,032-byte binding; no film, cell,
   microtile, precision, or reconstruction detail was removed.
+- Runtime shader forensics found and removed the next systemic failure rather than
+  replacing indirect execution: displacement and topology equations now run as two
+  GPU-indirect passes over the same compact MATCH list and write their own address
+  spaces. Contact-boundary/topology kernels use per-pass read aliases so every
+  reachable Prism kernel stays at or below Adreno's eight-UAV limit.
+- Split/merge initialization now clears all eleven displacement/pressure words
+  instead of the stale pre-pressure eight-word ABI. Elastic connector meshlets bind
+  the complete base/micro displacement hierarchy, eliminating their missing-buffer
+  path without changing geometry resolution.
+- `Tools/unity/validate_prism_compute_uav.py` derives each kernel's reachable shader
+  call graph and rejects more than eight RW resources before a build. The APK build
+  wrapper also rejects a stale artifact or missing Unity success marker.
 
 ## Verification evidence
 
@@ -112,6 +124,14 @@ Updated: 2026-08-21 (Europe/Prague)
 - Segmented-accumulator Android Vulkan/IL2CPP build completed with BuildReport
   `errors=0`: `/mnt/kingston-unity/Builds/QuestInfiniteScan/QuestInfiniteScan-dev.apk`,
   SHA-256 `649356efd17731286c7ba359e7498896270171019f9f0ca9009623941822d9a7`.
+- Corrected indirect topology/binding Android Vulkan/IL2CPP build completed with
+  BuildReport `Result: Success`, `errors=0`; fresh APK SHA-256
+  `62b3cd4ef3cd017efb49499588e2be79a879daa5c823f5df8af2fa175fc7b32e`.
+  Static reachable-call validation reports no Prism compute kernel above eight UAVs.
+- A repeat EditMode launch was stopped after Meta's editor-only remote-content hook
+  made no log/results progress for more than three minutes. The immediately prior
+  forced-Vulkan run remains 120 total, 117 passed, 0 failed, 3 ignored; the corrected
+  shader set itself imported and built for Android/Vulkan with zero errors.
 - Scan-lifecycle repair Android Vulkan/IL2CPP build completed with BuildReport
   `errors=0`: `/mnt/kingston-unity/Builds/QuestInfiniteScan/QuestInfiniteScan-dev.apk`,
   SHA-256 `88b16c306b703e45e948c63e2e0c9424539964b3f335e2a8e3758229351d5781`.
@@ -148,8 +168,8 @@ Updated: 2026-08-21 (Europe/Prague)
 
 ## Next exact actions
 
-1. Commit/archive and deploy the segmented-accumulator APK, then verify one physical
-   Start reaches sensor ingress without a Vulkan maximum-buffer exception.
+1. Commit/archive, rebuild from that exact commit, and deploy the corrected indirect
+   topology/binding APK; verify no UAV/missing-buffer/maximum-buffer exception.
 2. Run one batched physical acceptance: continuous film/no square plates, stable
    stereo presentation, local artifact pressure, close-bake resistance, Stop/Start,
    revisit visibility, and frame cost. Only evidence from that run may close

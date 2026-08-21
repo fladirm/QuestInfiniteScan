@@ -77,11 +77,25 @@ namespace Genesis.RoomScan.Prism
         private static readonly int RayRightId = Shader.PropertyToID("_DepthRayCenterRight");
         private static readonly int FilmHeadersId = Shader.PropertyToID("_FilmHeaders");
         private static readonly int FilmInformationId = Shader.PropertyToID("_FilmInformation");
+        private static readonly int FilmHeadersReadId =
+            Shader.PropertyToID("_FilmHeadersRead");
+        private static readonly int FilmInformationReadId =
+            Shader.PropertyToID("_FilmInformationRead");
         private static readonly int DisplacementPagesId = Shader.PropertyToID("_DisplacementPages");
+        private static readonly int DisplacementPagesReadId =
+            Shader.PropertyToID("_DisplacementPagesRead");
         private static readonly int BaseCellsId = Shader.PropertyToID("_BaseDisplacementCells");
         private static readonly int MicroCellsId = Shader.PropertyToID("_MicroDisplacementCells");
+        private static readonly int BaseCellsReadId =
+            Shader.PropertyToID("_BaseDisplacementCellsRead");
+        private static readonly int MicroCellsReadId =
+            Shader.PropertyToID("_MicroDisplacementCellsRead");
         private static readonly int BaseChildrenId = Shader.PropertyToID("_BaseChildPages");
         private static readonly int MicroChildrenId = Shader.PropertyToID("_MicroChildPages");
+        private static readonly int BaseChildrenReadId =
+            Shader.PropertyToID("_BaseChildPagesRead");
+        private static readonly int MicroChildrenReadId =
+            Shader.PropertyToID("_MicroChildPagesRead");
         private static readonly int DisplacementAllocatorId = Shader.PropertyToID("_DisplacementAllocator");
         private static readonly int BaseCellAccumulatorId =
             Shader.PropertyToID("_BaseDisplacementCellAccumulator");
@@ -92,7 +106,17 @@ namespace Genesis.RoomScan.Prism
         private static readonly int DirtyStateId = Shader.PropertyToID("_DisplacementDirtyState");
         private static readonly int NewBasePagesId = Shader.PropertyToID("_NewBasePages");
         private static readonly int NewMicroPagesId = Shader.PropertyToID("_NewMicroPages");
+        private static readonly int NewBasePagesReadId =
+            Shader.PropertyToID("_NewBasePagesRead");
+        private static readonly int NewMicroPagesReadId =
+            Shader.PropertyToID("_NewMicroPagesRead");
         private static readonly int PageStateId = Shader.PropertyToID("_DisplacementPageState");
+        private static readonly int PageStateReadId =
+            Shader.PropertyToID("_DisplacementPageStateRead");
+        private static readonly int DirtyCellIndicesReadId =
+            Shader.PropertyToID("_DirtyDisplacementCellIndicesRead");
+        private static readonly int DirtyStateReadId =
+            Shader.PropertyToID("_DisplacementDirtyStateRead");
         private static readonly int DispatchArgumentsId = Shader.PropertyToID("_DisplacementDispatchArguments");
         private static readonly int TopologyEvidenceId = Shader.PropertyToID("_TopologyEvidence");
         private static readonly int TopologyAccumulatorId = Shader.PropertyToID("_TopologyAccumulator");
@@ -108,7 +132,11 @@ namespace Genesis.RoomScan.Prism
         private static readonly int BoundaryHashId = Shader.PropertyToID("_BoundaryHash");
         private static readonly int BoundaryAllocatorId = Shader.PropertyToID("_BoundaryAllocator");
         private static readonly int SplitRecordsId = Shader.PropertyToID("_SplitRecords");
+        private static readonly int SplitRecordsReadId =
+            Shader.PropertyToID("_SplitRecordsRead");
         private static readonly int AdaptStateId = Shader.PropertyToID("_AdaptState");
+        private static readonly int AdaptStateReadId =
+            Shader.PropertyToID("_AdaptStateRead");
         private static readonly int AdaptArgumentsId = Shader.PropertyToID("_AdaptDispatchArguments");
         private static readonly int MaximumSplitDepthId = Shader.PropertyToID("_MaximumSplitDepth");
         private static readonly int MinimumSplitExtentId = Shader.PropertyToID("_MinimumSplitExtent");
@@ -116,7 +144,11 @@ namespace Genesis.RoomScan.Prism
         private static readonly int SplitVarianceId = Shader.PropertyToID("_SplitVariance");
         private static readonly int SplitBoundarySupportId = Shader.PropertyToID("_SplitBoundarySupport");
         private static readonly int MergeRecordsId = Shader.PropertyToID("_MergeRecords");
+        private static readonly int MergeRecordsReadId =
+            Shader.PropertyToID("_MergeRecordsRead");
         private static readonly int FilmMergeHashId = Shader.PropertyToID("_FilmMergeHash");
+        private static readonly int FilmMergeHashReadId =
+            Shader.PropertyToID("_FilmMergeHashRead");
         private static readonly int FilmMergeHashMaskId = Shader.PropertyToID("_FilmMergeHashMask");
         private static readonly int MergeHashCellSizeId = Shader.PropertyToID("_MergeHashCellSize");
         private static readonly int MergeNormalCosineId = Shader.PropertyToID("_MergeNormalCosine");
@@ -151,6 +183,7 @@ namespace Genesis.RoomScan.Prism
         private int _buildArgumentsKernel = -1;
         private int _initializeBaseKernel = -1;
         private int _accumulateKernel = -1;
+        private int _accumulateTopologyKernel = -1;
         private int _accumulatePressureKernel = -1;
         private int _accumulateOccluderPressureKernel = -1;
         private int _solveKernel = -1;
@@ -216,6 +249,8 @@ namespace Genesis.RoomScan.Prism
             _buildArgumentsKernel = displacementCompute.FindKernel("BuildDisplacementArguments");
             _initializeBaseKernel = displacementCompute.FindKernel("InitializeBasePages");
             _accumulateKernel = displacementCompute.FindKernel("AccumulateDisplacement");
+            _accumulateTopologyKernel =
+                displacementCompute.FindKernel("AccumulateTopologyEvidence");
             _accumulatePressureKernel =
                 displacementCompute.FindKernel("AccumulatePreHitPressure");
             _accumulateOccluderPressureKernel = displacementCompute.FindKernel(
@@ -310,6 +345,8 @@ namespace Genesis.RoomScan.Prism
                     _dispatchArguments, BaseInitArgumentsOffset);
                 displacementCompute.DispatchIndirect(_accumulateKernel,
                     frame.ClassDispatchArguments, MatchDispatchOffset);
+                displacementCompute.DispatchIndirect(_accumulateTopologyKernel,
+                    frame.ClassDispatchArguments, MatchDispatchOffset);
                 displacementCompute.DispatchIndirect(_accumulatePressureKernel,
                     frame.ClassDispatchArguments, BehindDispatchOffset);
                 displacementCompute.DispatchIndirect(_accumulateOccluderPressureKernel,
@@ -354,6 +391,7 @@ namespace Genesis.RoomScan.Prism
             {
                 _allocateBaseKernel, _allocateBehindBaseKernel,
                 _allocateOccluderBaseKernel, _accumulateKernel,
+                _accumulateTopologyKernel,
                 _accumulatePressureKernel, _accumulateOccluderPressureKernel
             };
             foreach (int kernel in eventKernels)
@@ -366,7 +404,8 @@ namespace Genesis.RoomScan.Prism
             }
             int[] rayKernels =
             {
-                _accumulateKernel, _accumulatePressureKernel,
+                _accumulateKernel, _accumulateTopologyKernel,
+                _accumulatePressureKernel,
                 _accumulateOccluderPressureKernel
             };
             foreach (int kernel in rayKernels)
@@ -450,6 +489,7 @@ namespace Genesis.RoomScan.Prism
                 _allocateBehindBaseKernel, _allocateOccluderBaseKernel,
                 _buildArgumentsKernel,
                 _initializeBaseKernel, _accumulateKernel,
+                _accumulateTopologyKernel,
                 _accumulatePressureKernel, _accumulateOccluderPressureKernel,
                 _solveKernel,
                 _allocateMicroKernel, _initializeMicroKernel,
@@ -495,6 +535,69 @@ namespace Genesis.RoomScan.Prism
                 displacementCompute.SetBuffer(kernel, TopologyStateId,
                     _topologyState);
             }
+
+            int[] readHierarchyKernels =
+            {
+                _accumulateKernel, _accumulateTopologyKernel,
+                _accumulatePressureKernel, _accumulateOccluderPressureKernel,
+                _allocateMicroKernel
+            };
+            foreach (int kernel in readHierarchyKernels)
+            {
+                displacementCompute.SetBuffer(kernel, DisplacementPagesReadId,
+                    _pool.PageHeaders);
+                displacementCompute.SetBuffer(kernel, BaseCellsReadId,
+                    _pool.BaseCells);
+                displacementCompute.SetBuffer(kernel, MicroCellsReadId,
+                    _pool.MicroCells);
+            }
+            int[] readLeafKernels =
+            {
+                _accumulateKernel, _accumulateTopologyKernel
+            };
+            foreach (int kernel in readLeafKernels)
+            {
+                displacementCompute.SetBuffer(kernel, BaseChildrenReadId,
+                    _pool.BaseChildPages);
+                displacementCompute.SetBuffer(kernel, MicroChildrenReadId,
+                    _pool.MicroChildPages);
+            }
+            displacementCompute.SetBuffer(_initializeBaseKernel,
+                FilmHeadersReadId, films.Headers);
+            displacementCompute.SetBuffer(_initializeBaseKernel,
+                FilmInformationReadId, films.Information);
+            displacementCompute.SetBuffer(_initializeBaseKernel,
+                NewBasePagesReadId, _newBasePages);
+            displacementCompute.SetBuffer(_initializeBaseKernel,
+                PageStateReadId, _pageState);
+
+            displacementCompute.SetBuffer(_accumulateTopologyKernel,
+                FilmHeadersReadId, films.Headers);
+            displacementCompute.SetBuffer(_allocateMicroKernel,
+                FilmHeadersReadId, films.Headers);
+            displacementCompute.SetBuffer(_allocateMicroKernel,
+                DirtyCellIndicesReadId, _dirtyCellIndices);
+            displacementCompute.SetBuffer(_allocateMicroKernel,
+                DirtyStateReadId, _dirtyState);
+
+            int[] pressureKernels =
+            {
+                _accumulatePressureKernel, _accumulateOccluderPressureKernel
+            };
+            foreach (int kernel in pressureKernels)
+                displacementCompute.SetBuffer(kernel, FilmInformationReadId,
+                    films.Information);
+
+            displacementCompute.SetBuffer(_initializeMicroKernel,
+                FilmHeadersReadId, films.Headers);
+            displacementCompute.SetBuffer(_initializeMicroKernel,
+                DisplacementPagesReadId, _pool.PageHeaders);
+            displacementCompute.SetBuffer(_initializeMicroKernel,
+                BaseCellsReadId, _pool.BaseCells);
+            displacementCompute.SetBuffer(_initializeMicroKernel,
+                NewMicroPagesReadId, _newMicroPages);
+            displacementCompute.SetBuffer(_initializeMicroKernel,
+                PageStateReadId, _pageState);
         }
 
         private void BindTopology()
@@ -576,6 +679,39 @@ namespace Genesis.RoomScan.Prism
                 topologyCompute.SetBuffer(kernel, AdaptArgumentsId,
                     _adaptArguments);
             }
+
+            topologyCompute.SetBuffer(_splitKernel, BaseCellsReadId,
+                _pool.BaseCells);
+            topologyCompute.SetBuffer(_mergeFilmsKernel, FilmMergeHashReadId,
+                _filmMergeHash);
+
+            int[] adaptStateReaders =
+            {
+                _buildAdaptArgumentsKernel, _initializeSplitKernel,
+                _buildMergeArgumentsKernel, _initializeMergeKernel
+            };
+            foreach (int kernel in adaptStateReaders)
+                topologyCompute.SetBuffer(kernel, AdaptStateReadId, _adaptState);
+
+            topologyCompute.SetBuffer(_initializeSplitKernel, FilmHeadersReadId,
+                films.Headers);
+            topologyCompute.SetBuffer(_initializeSplitKernel, MicroCellsReadId,
+                _pool.MicroCells);
+            topologyCompute.SetBuffer(_initializeSplitKernel,
+                MicroChildrenReadId, _pool.MicroChildPages);
+            topologyCompute.SetBuffer(_initializeSplitKernel, SplitRecordsReadId,
+                _splitRecords);
+
+            topologyCompute.SetBuffer(_initializeMergeKernel, FilmHeadersReadId,
+                films.Headers);
+            topologyCompute.SetBuffer(_initializeMergeKernel,
+                FilmInformationReadId, films.Information);
+            topologyCompute.SetBuffer(_initializeMergeKernel, MicroCellsReadId,
+                _pool.MicroCells);
+            topologyCompute.SetBuffer(_initializeMergeKernel,
+                MicroChildrenReadId, _pool.MicroChildPages);
+            topologyCompute.SetBuffer(_initializeMergeKernel, MergeRecordsReadId,
+                _mergeRecords);
         }
 
         private void RunTopologyAdaptation()

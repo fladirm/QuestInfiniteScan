@@ -230,7 +230,8 @@
         "Native schema v4 persists the 40-byte displacement posterior and v3 upgrade widens legacy 32-byte cells fail-closed; real-Vulkan EditMode passed 116/116 runnable tests with zero failures (3 intentionally ignored): /mnt/kingston-unity/Builds/TestResults/editmode-results.xml",
         "Coverage is no longer topology: MeshletBuild.compute emits the complete active 17x17 chart lattice/512 base triangles, sanitizes non-finite confidence, and never drops a cell because observation coverage is low",
         "TopologyAdapt.compute preserves PressureManifoldMember through generation-changing merge; multi-view/persistent FilmA/FilmB records emit local elastic connector strips whose zero FilmID keeps them out of prediction",
-        "The explicit PressureManifoldHeader/generation-tagged ManifoldLink/ordered outer LatentFrontier canonical pool remains the open Q3-11 implementation and physical-acceptance gate; no per-film seed cap is claimed"
+        "The explicit PressureManifoldHeader/generation-tagged ManifoldLink/ordered outer LatentFrontier canonical pool remains the open Q3-11 implementation and physical-acceptance gate; no per-film seed cap is claimed",
+        "Quest runtime forensics found three kernels above Adreno's eight-UAV execution limit, one missing connector hierarchy binding, and topology residual moments being written through the displacement-cell address space. The GPU work graph now keeps DispatchIndirect, separates displacement and topology accumulation over the same compact MATCH list, binds read-only aliases per pass, clears all eleven pressure words during split/merge ownership changes, binds connector displacement hierarchy, and statically rejects every reachable Prism kernel above eight UAVs. Android Vulkan/IL2CPP build completed with errors=0 and APK SHA-256 62b3cd4ef3cd017efb49499588e2be79a879daa5c823f5df8af2fa175fc7b32e; physical continuity/performance acceptance remains open."
       ]
     },
     {

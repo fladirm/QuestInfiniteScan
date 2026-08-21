@@ -6,6 +6,7 @@
 #pragma kernel BuildDisplacementArguments
 #pragma kernel InitializeBasePages
 #pragma kernel AccumulateDisplacement
+#pragma kernel AccumulateTopologyEvidence
 #pragma kernel AccumulatePreHitPressure
 #pragma kernel AccumulateOccluderPreHitPressure
 #pragma kernel SolveDirtyDisplacement
@@ -112,6 +113,18 @@ struct ContactTopologyEvidence
 StructuredBuffer<ConeEvent> _ConeEvents;
 StructuredBuffer<uint> _ClassifiedIndices;
 StructuredBuffer<uint> _ClassCounters;
+StructuredBuffer<ContactFilmHeader> _FilmHeadersRead;
+StructuredBuffer<float4> _FilmInformationRead;
+StructuredBuffer<DisplacementPageHeader> _DisplacementPagesRead;
+StructuredBuffer<DisplacementCell> _BaseDisplacementCellsRead;
+StructuredBuffer<DisplacementCell> _MicroDisplacementCellsRead;
+StructuredBuffer<uint> _BaseChildPagesRead;
+StructuredBuffer<uint> _MicroChildPagesRead;
+StructuredBuffer<uint> _NewBasePagesRead;
+StructuredBuffer<uint> _NewMicroPagesRead;
+StructuredBuffer<uint> _DisplacementPageStateRead;
+StructuredBuffer<uint> _DirtyDisplacementCellIndicesRead;
+StructuredBuffer<uint> _DisplacementDirtyStateRead;
 RWStructuredBuffer<ContactFilmHeader> _FilmHeaders;
 RWStructuredBuffer<float4> _FilmInformation;
 RWStructuredBuffer<DisplacementPageHeader> _DisplacementPages;
@@ -266,6 +279,14 @@ void AtomicAddScaled(uint address, float value, float scale)
         InterlockedAddAccumulator(address, quantized);
 }
 
+void AtomicAddTopologyScaled(uint address, float value, float scale)
+{
+    int quantized = (int)round(clamp(value * scale,
+        -2140000000.0, 2140000000.0));
+    if (quantized != 0)
+        InterlockedAdd(_TopologyAccumulator[address], quantized);
+}
+
 DisplacementCell EmptyCell(float sigma)
 {
     DisplacementCell cell = (DisplacementCell)0;
@@ -293,6 +314,13 @@ DisplacementCell LoadCell(uint globalCell)
     return _BaseDisplacementCells[globalCell];
 }
 
+DisplacementCell LoadCellRead(uint globalCell)
+{
+    if (IsMicroCell(globalCell))
+        return _MicroDisplacementCellsRead[globalCell - _BaseCellCapacity];
+    return _BaseDisplacementCellsRead[globalCell];
+}
+
 void StoreCell(uint globalCell, DisplacementCell cell)
 {
     if (IsMicroCell(globalCell))
@@ -306,6 +334,13 @@ uint LoadChild(uint globalCell)
     if (IsMicroCell(globalCell))
         return _MicroChildPages[globalCell - _BaseCellCapacity];
     return _BaseChildPages[globalCell];
+}
+
+uint LoadChildRead(uint globalCell)
+{
+    if (IsMicroCell(globalCell))
+        return _MicroChildPagesRead[globalCell - _BaseCellCapacity];
+    return _BaseChildPagesRead[globalCell];
 }
 
 void StoreChild(uint globalCell, uint child)
@@ -347,6 +382,25 @@ bool ResolveBaseCell(ContactFilmHeader film, float2 uv, out uint globalCell,
     return true;
 }
 
+bool ResolveBaseCellRead(ContactFilmHeader film, float2 uv,
+    out uint globalCell, out DisplacementPageHeader page)
+{
+    globalCell = 0u;
+    page = (DisplacementPageHeader)0;
+    if (film.displacementPage == 0u || film.displacementPage == ALLOCATION_CLAIM)
+        return false;
+    uint basePage = film.displacementPage - 1u;
+    if (basePage >= _BasePageCapacity) return false;
+    page = _DisplacementPagesRead[basePage];
+    if (page.filmId != film.id || page.filmGeneration != film.generation ||
+        (page.flags & PAGE_ACTIVE) == 0u) return false;
+    float2 normalized = saturate(uv);
+    uint2 baseCell = min((uint2)(normalized * (float)BASE_GRID), BASE_GRID - 1u);
+    globalCell = CellForPage(false, basePage,
+        baseCell.y * BASE_GRID + baseCell.x);
+    return true;
+}
+
 bool ResolveLeaf(ContactFilmHeader film, float2 uv, out uint globalCell,
     out DisplacementPageHeader page)
 {
@@ -362,6 +416,34 @@ bool ResolveLeaf(ContactFilmHeader film, float2 uv, out uint globalCell,
         if (microPage >= _MicroPageCapacity) break;
         DisplacementPageHeader child =
             _DisplacementPages[PageHeaderIndex(true, microPage)];
+        if ((child.flags & PAGE_ACTIVE) == 0u || child.filmId != film.id ||
+            child.filmGeneration != film.generation) break;
+        float2 span = max(child.uvBounds.zw - child.uvBounds.xy, 1e-8);
+        float2 localUv = saturate((normalized - child.uvBounds.xy) / span);
+        uint2 microCell = min((uint2)(localUv * (float)MICRO_GRID),
+            MICRO_GRID - 1u);
+        globalCell = CellForPage(true, microPage,
+            microCell.y * MICRO_GRID + microCell.x);
+        page = child;
+    }
+    return true;
+}
+
+bool ResolveLeafRead(ContactFilmHeader film, float2 uv, out uint globalCell,
+    out DisplacementPageHeader page)
+{
+    if (!ResolveBaseCellRead(film, uv, globalCell, page)) return false;
+    float2 normalized = saturate(uv);
+
+    [loop]
+    for (uint level = 0u; level < _MaximumMicroLevels; ++level)
+    {
+        uint childHandle = LoadChildRead(globalCell);
+        if (childHandle == 0u || childHandle == ALLOCATION_CLAIM) break;
+        uint microPage = childHandle - 1u;
+        if (microPage >= _MicroPageCapacity) break;
+        DisplacementPageHeader child =
+            _DisplacementPagesRead[PageHeaderIndex(true, microPage)];
         if ((child.flags & PAGE_ACTIVE) == 0u || child.filmId != film.id ||
             child.filmGeneration != film.generation) break;
         float2 span = max(child.uvBounds.zw - child.uvBounds.xy, 1e-8);
@@ -602,12 +684,12 @@ void InitializeBasePages(uint3 id : SV_DispatchThreadID)
 {
     uint pageListIndex = id.x / BASE_CELLS_PER_PAGE;
     uint localCell = id.x % BASE_CELLS_PER_PAGE;
-    uint pageCount = min(_DisplacementPageState[0], _BasePageCapacity);
+    uint pageCount = min(_DisplacementPageStateRead[0], _BasePageCapacity);
     if (pageListIndex >= pageCount) return;
-    uint pageIndex = _NewBasePages[pageListIndex];
+    uint pageIndex = _NewBasePagesRead[pageListIndex];
     if (pageIndex >= _BasePageCapacity) return;
     DisplacementPageHeader page = _DisplacementPages[pageIndex];
-    ContactFilmHeader film = _FilmHeaders[page.filmId - 1u];
+    ContactFilmHeader film = _FilmHeadersRead[page.filmId - 1u];
     uint globalCell = CellForPage(false, pageIndex, localCell);
     DisplacementCell initial = EmptyCell(film.sigmaNormal);
     uint x = localCell & 15u;
@@ -617,7 +699,7 @@ void InitializeBasePages(uint3 id : SV_DispatchThreadID)
     {
         uint supportCells = max(1u,
             countbits(film.supportMaskLow) + countbits(film.supportMaskHigh));
-        float4 quality = _FilmInformation[(page.filmId - 1u) * 9u + 8u];
+        float4 quality = _FilmInformationRead[(page.filmId - 1u) * 9u + 8u];
         initial.coverage = 1.0;
         initial.support = max(0.25,
             film.supportTotal / max(1.0, (float)supportCells * 4.0));
@@ -634,8 +716,8 @@ void InitializeBasePages(uint3 id : SV_DispatchThreadID)
     _DisplacementCellDirtyFlags[globalCell] = 0u;
     uint baseWord = globalCell * WORDS_PER_CELL;
     [unroll] for (uint word = 0u; word < WORDS_PER_CELL; ++word)
-        StoreAccumulator(baseWord + word,
-            word == 6u ? 0x7f7fffff : 0);
+        _BaseDisplacementCellAccumulator[baseWord + word] =
+            word == 6u ? 0x7f7fffff : 0;
 }
 
 [numthreads(64, 1, 1)]
@@ -669,8 +751,8 @@ void AccumulateDisplacement(uint3 id : SV_DispatchThreadID)
     if (any(uv < 0.0) || any(uv > 1.0)) return;
     uint globalCell;
     DisplacementPageHeader page;
-    if (!ResolveLeaf(film, uv, globalCell, page)) return;
-    DisplacementCell cell = LoadCell(globalCell);
+    if (!ResolveLeafRead(film, uv, globalCell, page)) return;
+    DisplacementCell cell = LoadCellRead(globalCell);
     float target = z - Height(film, u, v);
     float innovation = target - cell.displacement;
     float bestPressure = max(cell.bestPrecision, eventData.pressurePrecision);
@@ -684,25 +766,6 @@ void AccumulateDisplacement(uint3 id : SV_DispatchThreadID)
         huberDelta / max(abs(innovation), 1e-8);
     float weight = saturate(eventData.confidence) * gate * robust;
     if (weight <= 0.0) return;
-
-    MarkTopologyDirty(filmIndex);
-    uint topologyWord = filmIndex * WORDS_PER_FILM;
-    if (innovation >= 0.0)
-    {
-        AtomicAddScaled(topologyWord + 0u, weight * innovation, VALUE_SCALE);
-        AtomicAddScaled(topologyWord + 1u, weight, WEIGHT_SCALE);
-    }
-    else
-    {
-        AtomicAddScaled(topologyWord + 2u, weight * innovation, VALUE_SCALE);
-        AtomicAddScaled(topologyWord + 3u, weight, WEIGHT_SCALE);
-    }
-    AtomicAddScaled(topologyWord + 4u, weight * innovation * innovation,
-        VALUE_SCALE);
-    AtomicAddScaled(topologyWord + 5u, weight, WEIGHT_SCALE);
-    AtomicAddScaled(topologyWord + 6u,
-        weight * saturate(eventData.boundaryEvidence), WEIGHT_SCALE);
-    InterlockedAdd(_TopologyAccumulator[topologyWord + 7u], 1);
 
     MarkCellDirty(globalCell);
     uint baseWord = globalCell * WORDS_PER_CELL;
@@ -727,7 +790,7 @@ void AccumulateDisplacement(uint3 id : SV_DispatchThreadID)
     // Deposit contact coverage at the base scale as well as at the resolved leaf.
     uint supportCell;
     DisplacementPageHeader supportPage;
-    if (ResolveBaseCell(film, uv, supportCell, supportPage) &&
+    if (ResolveBaseCellRead(film, uv, supportCell, supportPage) &&
         supportCell != globalCell)
     {
         float baseMetricCellArea = max(4.0 * film.extentU * film.extentV /
@@ -739,6 +802,79 @@ void AccumulateDisplacement(uint3 id : SV_DispatchThreadID)
     }
     _FilmHeaders[filmIndex].flags |= FILM_DIRTY_GEOMETRY |
         FILM_DIRTY_MESHLET;
+}
+
+// Topology evidence is a separate GPU pass over the same MATCH indirect list.
+// This keeps every Adreno kernel below eight UAVs and, critically, keeps the
+// topology moments in their own arena instead of aliasing displacement cells.
+[numthreads(64, 1, 1)]
+void AccumulateTopologyEvidence(uint3 id : SV_DispatchThreadID)
+{
+    uint matchCount = min(_ClassCounters[CLASS_MATCH], _EventCapacity);
+    if (id.x >= matchCount) return;
+    uint eventIndex = _ClassifiedIndices[CLASS_MATCH * _EventCapacity + id.x];
+    ConeEvent eventData = _ConeEvents[eventIndex];
+    if (eventData.classification != CLASS_MATCH || eventData.filmId == 0u ||
+        eventData.measuredRange <= 0.0 || eventData.pressurePrecision <= 0.0)
+        return;
+    uint filmIndex = eventData.filmId - 1u;
+    if (filmIndex >= _FilmCapacity) return;
+    ContactFilmHeader film = _FilmHeadersRead[filmIndex];
+    if (film.id != eventData.filmId ||
+        film.generation != eventData.filmGeneration ||
+        (film.flags & FILM_ACTIVE) == 0u) return;
+
+    uint2 pixel = uint2(eventData.packedPixel & 0xffffu,
+        (eventData.packedPixel >> 16u) & 0x7fffu);
+    uint eye = eventData.packedPixel >> 31u;
+    float3 measuredDepth = LoadRay(pixel, eye) * eventData.measuredRange;
+    float3 measuredChunk = mul(_ChunkFromDepth[eye],
+        float4(measuredDepth, 1.0)).xyz;
+    float3 delta = measuredChunk - film.origin;
+    float u = dot(delta, film.tangentU);
+    float v = dot(delta, film.tangentV);
+    float z = dot(delta, film.normal);
+    float2 uv = float2(u / max(2.0 * film.extentU, 0.002) + 0.5,
+        v / max(2.0 * film.extentV, 0.002) + 0.5);
+    if (any(uv < 0.0) || any(uv > 1.0)) return;
+    uint globalCell;
+    DisplacementPageHeader page;
+    if (!ResolveLeafRead(film, uv, globalCell, page)) return;
+    DisplacementCell cell = LoadCellRead(globalCell);
+    float target = z - Height(film, u, v);
+    float innovation = target - cell.displacement;
+    float bestPressure = max(cell.bestPrecision, eventData.pressurePrecision);
+    float ratio = saturate(eventData.pressurePrecision / max(bestPressure, 1e-8));
+    float gate = saturate((ratio - _QualityFloor) /
+        max(1.0 - _QualityFloor, 1e-4));
+    gate = gate * gate * (3.0 - 2.0 * gate);
+    if (cell.support <= 0.0) gate = 1.0;
+    float huberDelta = max(_MinimumHuber, 2.0 * eventData.combinedSigma);
+    float robust = abs(innovation) <= huberDelta ? 1.0 :
+        huberDelta / max(abs(innovation), 1e-8);
+    float weight = saturate(eventData.confidence) * gate * robust;
+    if (weight <= 0.0) return;
+
+    MarkTopologyDirty(filmIndex);
+    uint topologyWord = filmIndex * WORDS_PER_FILM;
+    if (innovation >= 0.0)
+    {
+        AtomicAddTopologyScaled(topologyWord + 0u, weight * innovation,
+            VALUE_SCALE);
+        AtomicAddTopologyScaled(topologyWord + 1u, weight, WEIGHT_SCALE);
+    }
+    else
+    {
+        AtomicAddTopologyScaled(topologyWord + 2u, weight * innovation,
+            VALUE_SCALE);
+        AtomicAddTopologyScaled(topologyWord + 3u, weight, WEIGHT_SCALE);
+    }
+    AtomicAddTopologyScaled(topologyWord + 4u,
+        weight * innovation * innovation, VALUE_SCALE);
+    AtomicAddTopologyScaled(topologyWord + 5u, weight, WEIGHT_SCALE);
+    AtomicAddTopologyScaled(topologyWord + 6u,
+        weight * saturate(eventData.boundaryEvidence), WEIGHT_SCALE);
+    InterlockedAdd(_TopologyAccumulator[topologyWord + 7u], 1);
 }
 
 [numthreads(64, 1, 1)]
@@ -760,11 +896,12 @@ void AccumulatePreHitPressure(uint3 id : SV_DispatchThreadID)
         (film.flags & FILM_ACTIVE) == 0u) return;
     uint globalCell;
     DisplacementPageHeader page;
-    if (!ResolveBaseCell(film, saturate(eventData.predictedUv), globalCell, page))
+    if (!ResolveBaseCellRead(film, saturate(eventData.predictedUv),
+        globalCell, page))
         return;
-    DisplacementCell cell = LoadCell(globalCell);
+    DisplacementCell cell = LoadCellRead(globalCell);
     float bestPressure = max(cell.bestPrecision,
-        max(_FilmInformation[filmIndex * 9u + 8u].w, 1e-8));
+        max(_FilmInformationRead[filmIndex * 9u + 8u].w, 1e-8));
     float pressureRatio = saturate(eventData.pressurePrecision / bestPressure);
     float preHitPressureWeight = saturate(eventData.confidence) *
         pressureRatio * pressureRatio;
@@ -813,11 +950,12 @@ void AccumulateOccluderPreHitPressure(uint3 id : SV_DispatchThreadID)
         (film.flags & FILM_ACTIVE) == 0u) return;
     uint globalCell;
     DisplacementPageHeader page;
-    if (!ResolveBaseCell(film, saturate(eventData.occluderUv), globalCell, page))
+    if (!ResolveBaseCellRead(film, saturate(eventData.occluderUv),
+        globalCell, page))
         return;
-    DisplacementCell cell = LoadCell(globalCell);
+    DisplacementCell cell = LoadCellRead(globalCell);
     float bestPressure = max(cell.bestPrecision,
-        max(_FilmInformation[filmIndex * 9u + 8u].w, 1e-8));
+        max(_FilmInformationRead[filmIndex * 9u + 8u].w, 1e-8));
     float pressureRatio = saturate(eventData.pressurePrecision / bestPressure);
     float preHitPressureWeight = saturate(eventData.confidence) *
         pressureRatio * pressureRatio;
@@ -993,10 +1131,10 @@ void SolveDirtyDisplacement(uint3 id : SV_DispatchThreadID)
 [numthreads(64, 1, 1)]
 void AllocateMicrotiles(uint3 id : SV_DispatchThreadID)
 {
-    uint dirtyCount = min(_DisplacementDirtyState[0],
+    uint dirtyCount = min(_DisplacementDirtyStateRead[0],
         _BaseCellCapacity + _MicroCellCapacity);
     if (id.x >= dirtyCount) return;
-    uint globalCell = _DirtyDisplacementCellIndices[id.x];
+    uint globalCell = _DirtyDisplacementCellIndicesRead[id.x];
     if (globalCell >= _BaseCellCapacity + _MicroCellCapacity) return;
     bool sourceMicro = IsMicroCell(globalCell);
     uint sourceIndex = sourceMicro ? globalCell - _BaseCellCapacity : globalCell;
@@ -1006,7 +1144,7 @@ void AllocateMicrotiles(uint3 id : SV_DispatchThreadID)
         sourceIndex % BASE_CELLS_PER_PAGE;
     uint headerIndex = PageHeaderIndex(sourceMicro, sourcePage);
     DisplacementPageHeader parent = _DisplacementPages[headerIndex];
-    DisplacementCell cell = LoadCell(globalCell);
+    DisplacementCell cell = LoadCellRead(globalCell);
     if ((parent.flags & PAGE_ACTIVE) == 0u ||
         parent.level >= _MaximumMicroLevels || cell.support < 2.0 ||
         !isfinite(cell.bestFootprint))
@@ -1014,7 +1152,7 @@ void AllocateMicrotiles(uint3 id : SV_DispatchThreadID)
         _DisplacementCellDirtyFlags[globalCell] = 0u;
         return;
     }
-    ContactFilmHeader film = _FilmHeaders[parent.filmId - 1u];
+    ContactFilmHeader film = _FilmHeadersRead[parent.filmId - 1u];
     uint grid = sourceMicro ? MICRO_GRID : BASE_GRID;
     uint cellX = localCell % grid;
     uint cellY = localCell / grid;
@@ -1085,13 +1223,13 @@ void InitializeMicroPages(uint3 id : SV_DispatchThreadID)
 {
     uint pageListIndex = id.x / MICRO_CELLS_PER_PAGE;
     uint localCell = id.x % MICRO_CELLS_PER_PAGE;
-    uint pageCount = min(_DisplacementPageState[1], _MicroPageCapacity);
+    uint pageCount = min(_DisplacementPageStateRead[1], _MicroPageCapacity);
     if (pageListIndex >= pageCount) return;
-    uint pageIndex = _NewMicroPages[pageListIndex];
+    uint pageIndex = _NewMicroPagesRead[pageListIndex];
     if (pageIndex >= _MicroPageCapacity) return;
     DisplacementPageHeader page =
-        _DisplacementPages[PageHeaderIndex(true, pageIndex)];
-    ContactFilmHeader film = _FilmHeaders[page.filmId - 1u];
+        _DisplacementPagesRead[PageHeaderIndex(true, pageIndex)];
+    ContactFilmHeader film = _FilmHeadersRead[page.filmId - 1u];
     uint microCell = pageIndex * MICRO_CELLS_PER_PAGE + localCell;
     uint globalCell = _BaseCellCapacity + microCell;
     DisplacementCell inherited = EmptyCell(film.sigmaNormal);
@@ -1103,7 +1241,11 @@ void InitializeMicroPages(uint3 id : SV_DispatchThreadID)
             parentHeaderIndex;
         uint parentGlobalCell = CellForPage(parentMicro, parentPage,
             page.parentCell);
-        inherited = LoadCell(parentGlobalCell);
+        if (IsMicroCell(parentGlobalCell))
+            inherited = _MicroDisplacementCells[
+                parentGlobalCell - _BaseCellCapacity];
+        else
+            inherited = _BaseDisplacementCellsRead[parentGlobalCell];
         // The parent posterior is a spatial prior for the 8x8 children, not
         // 64 independent copies of the same evidence.  Partition support so
         // refinement cannot manufacture information merely by allocating a page.
@@ -1116,10 +1258,10 @@ void InitializeMicroPages(uint3 id : SV_DispatchThreadID)
     _MicroDisplacementCells[microCell] = inherited;
     _MicroChildPages[microCell] = 0u;
     _DisplacementCellDirtyFlags[globalCell] = 0u;
-    uint baseWord = globalCell * WORDS_PER_CELL;
+    uint baseWord = microCell * WORDS_PER_CELL;
     [unroll] for (uint word = 0u; word < WORDS_PER_CELL; ++word)
-        StoreAccumulator(baseWord + word,
-            word == 6u ? 0x7f7fffff : 0);
+        _MicroDisplacementCellAccumulator[baseWord + word] =
+            word == 6u ? 0x7f7fffff : 0;
 }
 
 [numthreads(64, 1, 1)]

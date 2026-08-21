@@ -232,16 +232,23 @@ namespace Genesis.RoomScan.Prism
                     displacement.BaseCellCapacity);
                 meshletBuildCompute.SetInt(MaximumMicroLevelsId,
                     displacementTopology.MaximumMicroLevels);
-                meshletBuildCompute.SetBuffer(_buildKernel, DisplacementPagesId,
-                    displacement.PageHeaders);
-                meshletBuildCompute.SetBuffer(_buildKernel, BaseCellsId,
-                    displacement.BaseCells);
-                meshletBuildCompute.SetBuffer(_buildKernel, MicroCellsId,
-                    displacement.MicroCells);
-                meshletBuildCompute.SetBuffer(_buildKernel, BaseChildrenId,
-                    displacement.BaseChildPages);
-                meshletBuildCompute.SetBuffer(_buildKernel, MicroChildrenId,
-                    displacement.MicroChildPages);
+                int[] displacementReaders =
+                {
+                    _buildKernel, _buildConnectorKernel
+                };
+                foreach (int kernel in displacementReaders)
+                {
+                    meshletBuildCompute.SetBuffer(kernel, DisplacementPagesId,
+                        displacement.PageHeaders);
+                    meshletBuildCompute.SetBuffer(kernel, BaseCellsId,
+                        displacement.BaseCells);
+                    meshletBuildCompute.SetBuffer(kernel, MicroCellsId,
+                        displacement.MicroCells);
+                    meshletBuildCompute.SetBuffer(kernel, BaseChildrenId,
+                        displacement.BaseChildPages);
+                    meshletBuildCompute.SetBuffer(kernel, MicroChildrenId,
+                        displacement.MicroChildPages);
+                }
             }
             int[] kernels =
             {

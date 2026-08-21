@@ -94,6 +94,7 @@ struct BoundaryHashEntry
 StructuredBuffer<ConeEvent> _ConeEvents;
 StructuredBuffer<uint> _ClassifiedIndices;
 StructuredBuffer<uint> _ClassCounters;
+StructuredBuffer<ContactFilmHeader> _FilmHeadersRead;
 RWStructuredBuffer<ContactFilmHeader> _FilmHeaders;
 RWStructuredBuffer<ContactBoundaryHeader> _BoundaryHeaders;
 RWStructuredBuffer<float4> _BoundaryInformation;
@@ -322,7 +323,7 @@ bool ResolveBoundary(uint filmId, uint generation, uint cellKey,
             }
             InterlockedAdd(_BoundaryAllocator[1], 1u);
             uint boundaryGeneration = max(1u, _BoundaryAllocator[3]);
-            ContactFilmHeader film = _FilmHeaders[filmId - 1u];
+            ContactFilmHeader film = _FilmHeadersRead[filmId - 1u];
             ContactBoundaryHeader boundary = (ContactBoundaryHeader)0;
             boundary.id = allocated + 1u;
             boundary.generation = boundaryGeneration;
@@ -572,7 +573,7 @@ void AccumulateBoundaryEvents(uint3 id : SV_DispatchThreadID)
     ConeEvent eventData = _ConeEvents[eventIndex];
     if (eventData.classification != CLASS_BOUNDARY || eventData.filmId == 0u ||
         eventData.filmGeneration == 0u || eventData.boundaryEvidence <= 0.0) return;
-    ContactFilmHeader film = _FilmHeaders[eventData.filmId - 1u];
+    ContactFilmHeader film = _FilmHeadersRead[eventData.filmId - 1u];
     if (film.id != eventData.filmId || film.generation != eventData.filmGeneration ||
         (film.flags & FILM_ACTIVE) == 0u) return;
 

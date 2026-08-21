@@ -169,3 +169,14 @@ remain recoverable from archive commit `e9f37c1` and are not active on this bran
 - Consequence: scan startup allocates the complete high-detail sparse hierarchy
   without violating a per-buffer device limit. Segmentation changes neither total app
   memory nor film/page capacity, posterior fields, microtile depth, or measured detail.
+
+## ADR-P017 — Adreno-safe indirect GPU work graph
+
+- Decision: preserve GPU compaction and `DispatchIndirect`, but give displacement
+  cells and topology evidence separate indirect passes and separate accumulator
+  address spaces. Every compute entry point may reach at most eight RW/UAV
+  resources; read-only views are bound explicitly per kernel, and the build gate
+  derives reachable resource use through the shader call graph.
+- Consequence: topology moments cannot alias or corrupt displacement cells, Vulkan
+  binding limits are enforced before Unity builds, and no CPU readback, lower
+  capacity, lower resolution, or direct-dispatch fallback is introduced.
