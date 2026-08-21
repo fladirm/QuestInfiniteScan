@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "source_digest": "87957808ee7ef0cf1af97f4aeed5078f366045f42160f49cdfcac3e9cd0a5c17",
+  "source_digest": "604c8702656769b244fade5b26ea341a1841b6ec82316625cb10105899403f3f",
   "scope": [
     "Runtime/Prism/**/*.cs",
     "Runtime/Resources/Prism/*.*",
@@ -6489,11 +6489,11 @@
       "line": 606
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::BuildElasticBoundaryMeshlets@839",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::BuildElasticBoundaryMeshlets@840",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "BuildElasticBoundaryMeshlets",
       "kind": "gpu_function",
-      "line": 839
+      "line": 840
     },
     {
       "id": "Runtime/Resources/Prism/MeshletBuild.compute::BuildMeshDispatchArguments@583",
@@ -6531,11 +6531,11 @@
       "line": 416
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::ConnectorNormal@810",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::ConnectorNormal@811",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "ConnectorNormal",
       "kind": "gpu_function",
-      "line": 810
+      "line": 811
     },
     {
       "id": "Runtime/Resources/Prism/MeshletBuild.compute::ContactBoundaryHeader",
@@ -6587,18 +6587,18 @@
       "line": 101
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::FilmPoint@801",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::FilmPoint@802",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "FilmPoint",
       "kind": "gpu_function",
-      "line": 801
+      "line": 802
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::FinalizeMeshletDrawArguments@950",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::FinalizeMeshletDrawArguments@951",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "FinalizeMeshletDrawArguments",
       "kind": "gpu_function",
-      "line": 950
+      "line": 951
     },
     {
       "id": "Runtime/Resources/Prism/MeshletBuild.compute::Height@481",
@@ -14036,22 +14036,22 @@
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildElasticBoundaryMeshlets@839",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::ConnectorNormal@810",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildElasticBoundaryMeshlets@840",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::ConnectorNormal@811",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildElasticBoundaryMeshlets@839",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::FilmPoint@801",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildElasticBoundaryMeshlets@840",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::FilmPoint@802",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildElasticBoundaryMeshlets@839",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildElasticBoundaryMeshlets@840",
       "target": "Runtime/Resources/Prism/MeshletBuild.compute::ProjectToFilmUv@793",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildElasticBoundaryMeshlets@839",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildElasticBoundaryMeshlets@840",
       "target": "Runtime/Resources/Prism/MeshletBuild.compute::Reserve@514",
       "kind": "calls"
     },
@@ -14066,12 +14066,12 @@
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::ConnectorNormal@810",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::FilmPoint@801",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::ConnectorNormal@811",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::FilmPoint@802",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::ConnectorNormal@810",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::ConnectorNormal@811",
       "target": "Runtime/Resources/Prism/MeshletBuild.compute::ProjectToFilmUv@793",
       "kind": "calls"
     },

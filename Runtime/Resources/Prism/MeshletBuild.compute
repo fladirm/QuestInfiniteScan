@@ -791,9 +791,10 @@ static const uint CONNECTOR_SEGMENTS = 8u;
 static const uint CONNECTOR_VERTICES = (CONNECTOR_SEGMENTS + 1u) * 2u;
 static const uint CONNECTOR_INDICES = CONNECTOR_SEGMENTS * 6u;
 
-float2 ProjectToFilmUv(ContactFilmHeader film, float3 point)
+float2 ProjectToFilmUv(ContactFilmHeader film, float3 surfacePoint)
 {
-    float3 delta = point - film.origin;
+    // `point` is an HLSL interpolation modifier on Vulkan backends.
+    float3 delta = surfacePoint - film.origin;
     return float2(
         dot(delta, film.tangentU) / max(2.0 * film.extentU, 0.002) + 0.5,
         dot(delta, film.tangentV) / max(2.0 * film.extentV, 0.002) + 0.5);

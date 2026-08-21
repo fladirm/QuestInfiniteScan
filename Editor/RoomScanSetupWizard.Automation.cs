@@ -178,7 +178,16 @@ namespace Genesis.RoomScan.Editor
                 Debug.Log($"[QuestInfiniteScan] APK build {summary.result}: {output}, " +
                           $"size={summary.totalSize}, errors={summary.totalErrors}, " +
                           $"warnings={summary.totalWarnings}");
-                EditorApplication.Exit(summary.result == BuildResult.Succeeded ? 0 : 1);
+                // Unity can report BuildResult.Succeeded while a player contains a
+                // ComputeShader variant that failed Vulkan compilation. Such an APK
+                // launches but silently lacks a reconstruction kernel, so it is not a
+                // deployable success.
+                bool clean = summary.result == BuildResult.Succeeded &&
+                             summary.totalErrors == 0;
+                if (!clean)
+                    Debug.LogError("[QuestInfiniteScan] Refusing a player with " +
+                                   $"result={summary.result}, errors={summary.totalErrors}.");
+                EditorApplication.Exit(clean ? 0 : 1);
             }
             catch (Exception exception)
             {
