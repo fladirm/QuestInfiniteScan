@@ -32,3 +32,22 @@ Git history and are not active on this branch.
   ontology.
 - Consequence: S4-01 exact algebra is a hard gate before live mutation, and S4-13
   physical Quest acceptance—not compilation—is the final product gate.
+
+## ADR-S403 — Exact algebra authority and fail-closed Quest lowering
+
+- Decision: `SigmaNumericDomain` is the sole CPU semantic authority for checked
+  nearest-even Q16.48. One deterministic generator owns the signed-XOR
+  Cayley-Dickson table, sparse basis/dyad actions, annihilator catalog, Hadamard
+  rows and semantic bundle fingerprints consumed by C# and HLSL.
+- Decision: hot-path algebra is an explicit bracket-preserving operator DAG with
+  deterministic common-subexpression sharing. Sparse sign/XOR/permutation/readout
+  operations may not route through generic qmul/qdiv; dense multiplication is an
+  explicitly named reference/generated fallback only where arbitrary coefficient
+  products require it.
+- Decision: packed-32 Vulkan is the currently proven exact execution lowering.
+  Native I64 remains fail-closed until separate parity evidence exists. A
+  GPU-resident startup witness gate—not an optimistic CPU flag—must be bound by
+  every later canonical mutation kernel.
+- Consequence: later carrier/inverse kernels consume `SigmaOperatorSet.Canonical`,
+  generated descriptors and the backend gate; they may not hand-code alternate
+  sedenion arithmetic or infer backend legality from platform names.

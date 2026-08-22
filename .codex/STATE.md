@@ -21,22 +21,47 @@ Updated: 2026-08-22 (Europe/Prague)
 
 ## Current DAG gate
 
-- `S4-00` is accepted and committed next as an isolated clean-shell checkpoint.
-- `S4-01` is the sole `in_progress` node.
+- `S4-00` is accepted in commit `be95c9e`.
+- `S4-01` is accepted for its isolated checkpoint commit.
+- `S4-02` is the sole `in_progress` node.
 - The retained product surface is only four-stream GPU capture/synchronization,
   immutable calibration/poses, Quest/XR lifecycle, permissions/anchors, input/UI,
   neutral GPU helpers and build/deploy tooling.
-- No S16 live state mutation is accepted until the S4-01 exact arithmetic,
-  generated-algebra and backend-parity gates pass.
+- Exact S16 mutation now has one CPU semantic domain, generated signed-XOR/operator
+  authority and a GPU-resident device self-test gate. No carrier allocation or live
+  state mutation exists until S4-02 supplies the sparse exact carrier.
+
+## S4-01 accepted implementation
+
+- `SigmaNumericDomain` is checked nearest-even Q16.48 semantic truth with outward
+  interval helpers; native execution formats are non-authoritative lowerings.
+- The deterministic generator emitted 1,344 sorted zero-divisor pairs, 168 unique
+  annihilator actions, `z_null=(-e1-e10)`, geometry rows `{1,2,5,6}`, CPU/HLSL
+  signed-XOR descriptors and stable fingerprints.
+- Immutable `SigmaS16`, sparse left/right basis and signed-dyad actions, Hadamard
+  `B/B^T/G/F`, specialized quaternionic view operator, explicit transition and
+  associator plans, projective meet/commit, codec predicates and generation-pair
+  transition cache are implemented.
+- `SigmaOperatorPlan` preserves bracket trees, performs deterministic CSE and
+  lowers from one descriptor DAG. Generic dense multiplication remains explicitly
+  named semantic reference/fallback and is absent from sparse dyad/readout paths.
+- Packed-32 Vulkan Q16.48 uses checked validity propagation, widened multiplication,
+  bounded exact division and outward interval rounding. `SigmaExactBackendGate`
+  dispatches a GPU-only exact witness; downstream mutation must bind and test it.
+- Verification: generated-output check passed; eight-UAV gate passed; Unity Vulkan
+  EditMode passed 21/21; final Android/Vulkan IL2CPP build produced a fresh
+  224,368,573-byte APK with no Sigma shader/C# compile error. This is build evidence,
+  not a claimed physical headset scan.
 
 ## Next exact actions
 
-1. Commit the accepted S4-00 clean-shell checkpoint with its generated code graph.
-2. Implement one checked nearest-even Q16.48 semantic domain with outward intervals.
-3. Add the deterministic Cayley-Dickson/operator generator and generated C#/HLSL
-   descriptors from one authority.
-4. Add bit-exact algebra/operator fixtures, including backend capability fail-closed
-   contracts, then close S4-01 in its own commit.
+1. Commit the accepted S4-01 exact operator checkpoint with this fresh code graph.
+2. Implement the logically unbounded signed-64 two-dimensional `SigmaCarrier` with
+   implicit `z_null`, 64x64 pages, 8x8 blocks and immutable generations.
+3. Implement deterministic lossless NULL/CONST/AFFINE/DELTA/RAW physical codecs,
+   segmented pools, certificate ranges and GPU dirty compaction.
+4. Prove byte-identical encode/decode/re-encode and restart fixtures, regenerate the
+   graph, then close S4-02 in its own commit.
 
 ## Verification policy
 

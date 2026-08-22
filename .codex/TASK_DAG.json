@@ -31,7 +31,7 @@
     {
       "id": "S4-01",
       "title": "Implement the inherited exact NumericDomain and generated S16 operator core",
-      "status": "in_progress",
+      "status": "done",
       "depends_on": ["S4-00"],
       "acceptance": [
         "num.fixed.q16_48.checked.nearest_even is implemented once as semantic truth with checked overflow, nearest-even point arithmetic and outward interval arithmetic",
@@ -41,12 +41,19 @@
         "Dense S16 multiplication exists only as reference or explicitly selected generated fallback, never as the default hot-path vocabulary",
         "All section 41 numeric/algebra/operator fixtures pass bit-for-bit"
       ],
-      "evidence": []
+      "evidence": [
+        "SigmaNumericDomain implements checked signed Q16.48 add/sub/mul/div/shifts, exact IEEE quantization, nearest-even point rounding and outward scalar interval bounds from one CPU semantic authority",
+        "Tools/sigma/generate_sigma_operators.py deterministically emits the recursive signed-XOR table, conjugation/basis permutations, 1344 sorted zero-divisor pairs, 168 annihilator actions, z_null, Hadamard G/F rows and stable generated fingerprints; --check passes",
+        "SigmaOperatorPlan provides bracket-preserving exact scalar DAGs, deterministic CSE, sparse basis/dyad/Hadamard/view lowering, explicit dense fallback plans only where coefficient products are genuinely required, CPU evaluation and fail-closed HLSL lowering",
+        "Sedenion16.hlsl implements the packed-32 exact Q16.48 fallback with widened qmul, bounded long qdiv, checked overflow validity and outward rounding; SigmaExactBackendGate keeps canonical GPU mutation disabled unless its device-side self-test writes the exact witness",
+        "Unity 6000.5.9f1 Vulkan EditMode gate passed 21/21 including CPU/GPU bit parity, all 256 basis products, all 1344 zero pairs, sparse annihilator equivalence, associator bracketing, CSE/masks, transition cache and generated fingerprints",
+        "Final Android/Vulkan IL2CPP smoke build succeeded and produced a fresh 224368573-byte Quest APK; shader/build logs contain no Sigma compile error and the eight-UAV validator passes"
+      ]
     },
     {
       "id": "S4-02",
       "title": "Implement the sparse exact Q16.48 carrier and lossless physical codec",
-      "status": "pending",
+      "status": "in_progress",
       "depends_on": ["S4-01"],
       "acceptance": [
         "SigmaCarrier is one logically unbounded signed-64 2D page space with implicit z_null for every unallocated sample",

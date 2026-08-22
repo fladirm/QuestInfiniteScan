@@ -6,16 +6,17 @@ touch `~/.codex` or untracked device/archive data.
 
 ## Exchange 1
 
-User: Required a separate commit after every completed S4 task and, after the S4-07
-commit, a source ZIP produced by `git archive` for audit before any S4-08 work.
+User: Asked for exact progress/state after the new independent Σ-PRISM pursuit had
+started.
 
-Assistant: Recorded that checkpoint protocol in `AGENTS.md` and `.codex/STATE.md`;
-it is now a compaction-safe hard execution gate.
+Assistant: Reported only accepted DAG evidence: S4-00 committed as `be95c9e`, S4-01
+in progress, with no fabricated file-count percentage, then continued implementation.
 
 ## Exchange 2
 
-User: Asked for exact status.
+User: Reiterated the 90% implementation / 10% proportional tests and control-file
+budget.
 
-Assistant: Reported S4-00 near closure: old reconstruction/persistence removed,
-clean four-stream shell retained, Unity compile and 7/7 rig tests passed, and only
-final controls/code-graph validation plus the isolated S4-00 commit remained.
+Assistant: Kept work on the S4-01 vertical slice and deferred control updates to
+the acceptance checkpoint. S4-01 subsequently passed 21/21 exact CPU/Vulkan tests,
+the generated-descriptor/UAV gates and a final Android build; S4-02 is next.

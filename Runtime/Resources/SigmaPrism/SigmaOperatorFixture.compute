@@ -1,0 +1,158 @@
+#pragma kernel NumericParity
+#pragma kernel AlgebraParity
+#pragma kernel BasisTableParity
+#pragma kernel CanonicalSelfTest
+#pragma target 5.0
+
+#include "SigmaOperatorPlan.hlsl"
+
+StructuredBuffer<uint4> _NumericPairs;
+StructuredBuffer<uint> _ShiftCounts;
+RWStructuredBuffer<uint4> _NumericResults;
+
+StructuredBuffer<uint2> _AlgebraInput;
+RWStructuredBuffer<uint4> _AlgebraResults;
+
+RWStructuredBuffer<uint2> _BasisResults;
+RWStructuredBuffer<uint> _CapabilityGate;
+
+#define SIGMA_NUMERIC_RESULT_COUNT 12u
+
+void SigmaWriteNumeric(uint fixture, uint operation, uint2 value, uint valid)
+{
+    _NumericResults[fixture * SIGMA_NUMERIC_RESULT_COUNT + operation] =
+        uint4(value, valid, operation);
+}
+
+[numthreads(64, 1, 1)]
+void NumericParity(uint3 id : SV_DispatchThreadID)
+{
+    uint fixture = id.x;
+    uint4 packed = _NumericPairs[fixture];
+    uint2 a = packed.xy;
+    uint2 b = packed.zw;
+    uint shift = _ShiftCounts[fixture];
+    uint valid;
+    uint2 value;
+
+    valid = 1u;
+    value = SigmaQ48AddChecked(a, b, valid);
+    SigmaWriteNumeric(fixture, 0u, value, valid);
+    valid = 1u;
+    value = SigmaQ48SubChecked(a, b, valid);
+    SigmaWriteNumeric(fixture, 1u, value, valid);
+    valid = 1u;
+    value = SigmaQ48NegateChecked(a, valid);
+    SigmaWriteNumeric(fixture, 2u, value, valid);
+    valid = 1u;
+    value = SigmaQ48ShiftLeftChecked(a, shift, valid);
+    SigmaWriteNumeric(fixture, 3u, value, valid);
+    valid = 1u;
+    value = SigmaQ48ShiftRightNearestEven(a, shift, valid);
+    SigmaWriteNumeric(fixture, 4u, value, valid);
+    valid = 1u;
+    value = SigmaQ48MulNearestEven(a, b, valid);
+    SigmaWriteNumeric(fixture, 5u, value, valid);
+    valid = 1u;
+    value = SigmaQ48DivNearestEven(a, b, valid);
+    SigmaWriteNumeric(fixture, 6u, value, valid);
+    valid = 1u;
+    value = SigmaQ48MulLower(a, b, valid);
+    SigmaWriteNumeric(fixture, 7u, value, valid);
+    valid = 1u;
+    value = SigmaQ48MulUpper(a, b, valid);
+    SigmaWriteNumeric(fixture, 8u, value, valid);
+    valid = 1u;
+    value = SigmaQ48DivLower(a, b, valid);
+    SigmaWriteNumeric(fixture, 9u, value, valid);
+    valid = 1u;
+    value = SigmaQ48DivUpper(a, b, valid);
+    SigmaWriteNumeric(fixture, 10u, value, valid);
+    valid = 1u;
+    value = SigmaQ48Select(SigmaQ48Less(a, b), a, b);
+    SigmaWriteNumeric(fixture, 11u, value, valid);
+}
+
+[numthreads(1, 1, 1)]
+void AlgebraParity(uint3 id : SV_DispatchThreadID)
+{
+    uint2 inputState[16];
+    [unroll]
+    for (uint lane = 0u; lane < 16u; ++lane)
+        inputState[lane] = _AlgebraInput[lane];
+
+    uint valid = 1u;
+    uint2 conjugated[16];
+    uint2 geometry[4];
+    uint2 dyad[16];
+    SigmaConjugatePlan(inputState, conjugated, valid);
+    SigmaGeometryGPlan(inputState, geometry, valid);
+    SigmaRightSignedDyadAction(inputState, SIGMA_ANNIHILATOR_ACTIONS[0], dyad, valid);
+
+    [unroll]
+    for (uint lane = 0u; lane < 16u; ++lane)
+        _AlgebraResults[lane] = uint4(conjugated[lane], valid, lane);
+    [unroll]
+    for (uint lane = 0u; lane < 4u; ++lane)
+        _AlgebraResults[16u + lane] = uint4(geometry[lane], valid, lane);
+    [unroll]
+    for (uint lane = 0u; lane < 16u; ++lane)
+        _AlgebraResults[20u + lane] = uint4(dyad[lane], valid, lane);
+}
+
+[numthreads(16, 16, 1)]
+void BasisTableParity(uint3 id : SV_DispatchThreadID)
+{
+    uint left = id.x;
+    uint right = id.y;
+    uint offset = left * 16u + right;
+    _BasisResults[offset] = uint2(SigmaMulBasisIndex(left, right),
+        asuint(SigmaMulBasisSign(left, right)));
+}
+
+[numthreads(1, 1, 1)]
+void CanonicalSelfTest(uint3 id : SV_DispatchThreadID)
+{
+    uint gate = 1u;
+    uint valid = 1u;
+    uint2 oneAndHalf = uint2(0u, 0x00018000u);
+    uint2 two = uint2(0u, 0x00020000u);
+    uint2 three = uint2(0u, 0x00030000u);
+    uint2 value = SigmaQ48MulNearestEven(oneAndHalf, two, valid);
+    gate &= valid & (all(value == three) ? 1u : 0u);
+    valid = 1u;
+    value = SigmaQ48DivNearestEven(three, two, valid);
+    gate &= valid & (all(value == oneAndHalf) ? 1u : 0u);
+    valid = 1u;
+    value = SigmaQ48MulNearestEven(uint2(3u, 0u),
+        uint2(0u, 0x00008000u), valid);
+    gate &= valid & (all(value == uint2(2u, 0u)) ? 1u : 0u);
+    valid = 1u;
+    SigmaQ48AddChecked(uint2(0xffffffffu, 0x7fffffffu),
+        uint2(0u, 0x00010000u), valid);
+    gate &= (valid == 0u ? 1u : 0u);
+
+    uint2 nullState[16];
+    [unroll]
+    for (uint lane = 0u; lane < 16u; ++lane)
+        nullState[lane] = uint2(0u, 0u);
+    nullState[(uint)SIGMA_Z_NULL_DYAD.x] = SIGMA_Z_NULL_DYAD.y < 0 ?
+        uint2(0u, 0xffff0000u) : uint2(0u, 0x00010000u);
+    nullState[(uint)SIGMA_Z_NULL_DYAD.z] = SIGMA_Z_NULL_DYAD.w < 0 ?
+        uint2(0u, 0xffff0000u) : uint2(0u, 0x00010000u);
+    valid = 1u;
+    uint2 geometry[4];
+    SigmaGeometryGPlan(nullState, geometry, valid);
+    [unroll]
+    for (uint lane = 0u; lane < 4u; ++lane)
+        gate &= all(geometry[lane] == 0u) ? 1u : 0u;
+    uint2 annihilated[16];
+    SigmaRightSignedDyadAction(nullState,
+        SIGMA_ANNIHILATOR_ACTIONS[SIGMA_Z_NULL_ANNIHILATOR_ACTION],
+        annihilated, valid);
+    [unroll]
+    for (uint lane = 0u; lane < 16u; ++lane)
+        gate &= all(annihilated[lane] == 0u) ? 1u : 0u;
+    gate &= valid;
+    _CapabilityGate[0] = gate;
+}

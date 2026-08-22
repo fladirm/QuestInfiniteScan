@@ -46,6 +46,7 @@ namespace Genesis.RoomScan
         private RoomAnchorManager _roomAnchor;
         private DebugMenuController _debugMenu;
         private IRoomScanModule[] _modules;
+        private SigmaExactBackendGate _exactBackendGate;
         private Task _startTask = Task.CompletedTask;
         private uint _lifecycleGeneration;
         private bool _roomReady;
@@ -58,11 +59,13 @@ namespace Genesis.RoomScan
         public bool IsScanStarting => ScanLifecycle == ScanLifecycleState.Starting;
         public string LastScanStartError { get; private set; }
         public ScanRenderMode CurrentRenderMode => renderMode;
-        public string RuntimeStage => "S4-00 capture shell; canonical mutation gated by S4-01";
+        public string RuntimeStage =>
+            "S4-01 exact S16 core; carrier mutation gated by S4-02";
         public DepthCapture DepthCapture => _depthCapture;
         public SigmaRigBridge RigBridge => _rigBridge;
         public DebugMenuController DebugMenu => _debugMenu;
         public bool ScanResourcesReleased => _resourcesReleased;
+        public SigmaExactBackendGate ExactBackendGate => _exactBackendGate;
 
         public event Action ScanStarted;
         public event Action ScanStopped;
@@ -89,6 +92,20 @@ namespace Genesis.RoomScan
             if (!XRRuntimeGuard.IsXRActive)
             {
                 Logger.Warning("RoomScanner: " + XRRuntimeGuard.EditorDisabledMessage);
+                enabled = false;
+                return;
+            }
+
+            try
+            {
+                _ = SigmaOperatorSet.Canonical;
+                _exactBackendGate = SigmaExactBackendGate.Dispatch();
+            }
+            catch (Exception exception)
+            {
+                LastScanStartError = "Exact S16 backend initialization failed: " +
+                    exception.Message;
+                Logger.Error(LastScanStartError);
                 enabled = false;
                 return;
             }
@@ -122,6 +139,8 @@ namespace Genesis.RoomScan
 
         private void OnDestroy()
         {
+            _exactBackendGate?.Dispose();
+            _exactBackendGate = null;
             if (Instance == this)
                 Instance = null;
         }
@@ -166,7 +185,8 @@ namespace Genesis.RoomScan
 
                 ScanLifecycle = ScanLifecycleState.Running;
                 Logger.Info("StartScanning — Σ-PRISM-16 synchronized capture active; " +
-                            "canonical mutation remains fail-closed until S4-01.");
+                            "exact backend gate dispatched; carrier mutation remains " +
+                            "fail-closed until S4-02.");
                 ScanStarted?.Invoke();
                 _ = CreateScanAnchorAsync();
             }

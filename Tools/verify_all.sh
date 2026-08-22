@@ -36,6 +36,8 @@ qis_run_step() {
 
 qis_run_step control_plane \
     python3 "$qis_repo_root/Tools/validate_goal_state.py"
+qis_run_step sigma_operator_codegen \
+    python3 "$qis_repo_root/Tools/sigma/generate_sigma_operators.py" --check
 qis_run_step diff_hygiene git -C "$qis_repo_root" diff --check
 qis_run_step sigma_compute_uav \
     python3 "$qis_repo_root/Tools/unity/validate_sigma_compute_uav.py"
