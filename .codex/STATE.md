@@ -29,9 +29,9 @@ Updated: 2026-08-22 (Europe/Prague)
 - `S4-05` is accepted in commit `96cbeca`.
 - `S4-06` is accepted in commit `c6dabef`.
 - `S4-07` is accepted in commit `dc6abf5`.
-- `S4-08` is reopened only for the bounded `S4-08.1` repair. The corrected source
-  is statically green and awaits a same-commit Release build/install for the user's
-  device audit. `S4-09` remains paused.
+- `S4-08` is accepted after the bounded `S4-08.1` repair and its real Vulkan pose
+  closure fixtures. The exact committed source is ready for its required Release
+  build/install and user device audit. `S4-09` remains paused.
 - The retained product surface is only four-stream GPU capture/synchronization,
   immutable calibration/poses, Quest/XR lifecycle, permissions/anchors, input/UI,
   neutral GPU helpers and build/deploy tooling.
@@ -284,8 +284,16 @@ Updated: 2026-08-22 (Europe/Prague)
   points, resource declarations, C# binding/dispatch call sites and affected tests
   before this candidate gate.
 - Evidence: generated-operator check, `git diff --check` and Quest eight-UAV
-  validation pass; Unity 6000.5.9f1 Vulkan EditMode passes 64/64 after the final
-  topology scheduling change. Release build/device execution is the next gate.
+  validation pass; Unity 6000.5.9f1 Vulkan EditMode passes 65/65. The new fixture
+  executes `BuildPoseGaugePartials`, `ReducePoseGauge` and
+  `BuildCorrectedCalibration`, proves a nonzero exact point-to-plane correction,
+  preserves the fixed stereo baseline, and the forward fixture proves that a
+  nonzero GPU pose result rerasterizes the same retained carrier frame.
+- Section 28 and ADR-S410 now state the implemented prior contract exactly: the
+  immutable Meta pose is the prior centre; capture-provided numeric covariance is
+  used when available, otherwise a conservative deterministic tracking envelope
+  is derived from coherent-frame timing/skew uncertainty, observed tracking rates,
+  rig residuals and persisted bounds. Missing covariance is never zero uncertainty.
 
 ## S4-00 neutral Quest-shell regression repair
 
@@ -309,9 +317,9 @@ Updated: 2026-08-22 (Europe/Prague)
 
 ## Next exact actions
 
-1. Regenerate/validate the code graph and commit the S4-08.1 device candidate.
-2. Create the matching source-only `git archive`, build and install that exact
-   Release commit.
+1. Commit the accepted S4-08.1 closure and create its matching source-only
+   `git archive`.
+2. Build and install that exact Release commit.
 3. Keep `S4-09` pending until the user completes the installed release audit.
 
 ## Verification policy

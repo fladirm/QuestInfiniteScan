@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "source_digest": "760e03f86e8cf8f2310c6922f8b62852f2aa47afe6bd0845f78476426cffe2c0",
+  "source_digest": "0fe6c729b46f89854a006bcbc7d79943f34f3b20fda6d84853d3a22a85dc1187",
   "scope": [
     "Runtime/**/*.cs",
     "Runtime/Resources/SigmaPrism/**/*.*",
@@ -11,8 +11,8 @@
   ],
   "summary": {
     "files": 111,
-    "symbols": 1590,
-    "methods_and_functions": 1303,
+    "symbols": 1608,
+    "methods_and_functions": 1317,
     "gpu_kernels": 67,
     "event_links": 4
   },
@@ -10837,39 +10837,39 @@
       "line": 354
     },
     {
-      "id": "Tests/Editor/SigmaForwardReadoutTests.cs::BuildFoldedPage@259",
+      "id": "Tests/Editor/SigmaForwardReadoutTests.cs::BuildFoldedPage@282",
       "file": "Tests/Editor/SigmaForwardReadoutTests.cs",
       "name": "BuildFoldedPage",
       "kind": "method",
-      "line": 259
+      "line": 282
     },
     {
-      "id": "Tests/Editor/SigmaForwardReadoutTests.cs::CreateColor@305",
+      "id": "Tests/Editor/SigmaForwardReadoutTests.cs::CreateColor@328",
       "file": "Tests/Editor/SigmaForwardReadoutTests.cs",
       "name": "CreateColor",
       "kind": "method",
-      "line": 305
+      "line": 328
     },
     {
-      "id": "Tests/Editor/SigmaForwardReadoutTests.cs::CreateDepth@319",
+      "id": "Tests/Editor/SigmaForwardReadoutTests.cs::CreateDepth@342",
       "file": "Tests/Editor/SigmaForwardReadoutTests.cs",
       "name": "CreateDepth",
       "kind": "method",
-      "line": 319
+      "line": 342
     },
     {
-      "id": "Tests/Editor/SigmaForwardReadoutTests.cs::Destroy@368",
+      "id": "Tests/Editor/SigmaForwardReadoutTests.cs::Destroy@405",
       "file": "Tests/Editor/SigmaForwardReadoutTests.cs",
       "name": "Destroy",
       "kind": "method",
-      "line": 368
+      "line": 405
     },
     {
-      "id": "Tests/Editor/SigmaForwardReadoutTests.cs::DrawPrediction@340",
+      "id": "Tests/Editor/SigmaForwardReadoutTests.cs::DrawPrediction@377",
       "file": "Tests/Editor/SigmaForwardReadoutTests.cs",
       "name": "DrawPrediction",
       "kind": "method",
-      "line": 340
+      "line": 377
     },
     {
       "id": "Tests/Editor/SigmaForwardReadoutTests.cs::ExactLiftReadoutRoundTripsAndNullHasNoContact@52",
@@ -10879,11 +10879,11 @@
       "line": 52
     },
     {
-      "id": "Tests/Editor/SigmaForwardReadoutTests.cs::FillPatch@269",
+      "id": "Tests/Editor/SigmaForwardReadoutTests.cs::FillPatch@292",
       "file": "Tests/Editor/SigmaForwardReadoutTests.cs",
       "name": "FillPatch",
       "kind": "method",
-      "line": 269
+      "line": 292
     },
     {
       "id": "Tests/Editor/SigmaForwardReadoutTests.cs::GpuReadoutAndRasterSelectNearFoldWhileNullStaysEmpty@70",
@@ -10893,11 +10893,18 @@
       "line": 70
     },
     {
-      "id": "Tests/Editor/SigmaForwardReadoutTests.cs::Pack@287",
+      "id": "Tests/Editor/SigmaForwardReadoutTests.cs::MinPositiveDepth@363",
+      "file": "Tests/Editor/SigmaForwardReadoutTests.cs",
+      "name": "MinPositiveDepth",
+      "kind": "method",
+      "line": 363
+    },
+    {
+      "id": "Tests/Editor/SigmaForwardReadoutTests.cs::Pack@310",
       "file": "Tests/Editor/SigmaForwardReadoutTests.cs",
       "name": "Pack",
       "kind": "method",
-      "line": 287
+      "line": 310
     },
     {
       "id": "Tests/Editor/SigmaForwardReadoutTests.cs::PageMeta",
@@ -11236,39 +11243,158 @@
       "line": 149
     },
     {
-      "id": "Tests/Editor/SigmaPoseGaugeTests.cs::ExactGpuResultSelectsMinimumMagnitudeMeetPoint@11",
+      "id": "Tests/Editor/SigmaPoseGaugeTests.cs::BuildDepthCalibration@374",
+      "file": "Tests/Editor/SigmaPoseGaugeTests.cs",
+      "name": "BuildDepthCalibration",
+      "kind": "method",
+      "line": 374
+    },
+    {
+      "id": "Tests/Editor/SigmaPoseGaugeTests.cs::BuildPosePrior@363",
+      "file": "Tests/Editor/SigmaPoseGaugeTests.cs",
+      "name": "BuildPosePrior",
+      "kind": "method",
+      "line": 363
+    },
+    {
+      "id": "Tests/Editor/SigmaPoseGaugeTests.cs::BuildPoseRays@293",
+      "file": "Tests/Editor/SigmaPoseGaugeTests.cs",
+      "name": "BuildPoseRays",
+      "kind": "method",
+      "line": 293
+    },
+    {
+      "id": "Tests/Editor/SigmaPoseGaugeTests.cs::BuildRgbCalibration@402",
+      "file": "Tests/Editor/SigmaPoseGaugeTests.cs",
+      "name": "BuildRgbCalibration",
+      "kind": "method",
+      "line": 402
+    },
+    {
+      "id": "Tests/Editor/SigmaPoseGaugeTests.cs::CreateArrayRenderTexture@431",
+      "file": "Tests/Editor/SigmaPoseGaugeTests.cs",
+      "name": "CreateArrayRenderTexture",
+      "kind": "method",
+      "line": 431
+    },
+    {
+      "id": "Tests/Editor/SigmaPoseGaugeTests.cs::EncodeOctahedral@349",
+      "file": "Tests/Editor/SigmaPoseGaugeTests.cs",
+      "name": "EncodeOctahedral",
+      "kind": "method",
+      "line": 349
+    },
+    {
+      "id": "Tests/Editor/SigmaPoseGaugeTests.cs::ExactGpuResultSelectsMinimumMagnitudeMeetPoint@46",
       "file": "Tests/Editor/SigmaPoseGaugeTests.cs",
       "name": "ExactGpuResultSelectsMinimumMagnitudeMeetPoint",
       "kind": "method",
-      "line": 11
+      "line": 46
     },
     {
-      "id": "Tests/Editor/SigmaPoseGaugeTests.cs::Matrix@85",
+      "id": "Tests/Editor/SigmaPoseGaugeTests.cs::FillPoseEye@319",
+      "file": "Tests/Editor/SigmaPoseGaugeTests.cs",
+      "name": "FillPoseEye",
+      "kind": "method",
+      "line": 319
+    },
+    {
+      "id": "Tests/Editor/SigmaPoseGaugeTests.cs::Float2",
+      "file": "Tests/Editor/SigmaPoseGaugeTests.cs",
+      "name": "Float2",
+      "kind": "struct",
+      "line": 30
+    },
+    {
+      "id": "Tests/Editor/SigmaPoseGaugeTests.cs::Float4",
+      "file": "Tests/Editor/SigmaPoseGaugeTests.cs",
+      "name": "Float4",
+      "kind": "struct",
+      "line": 37
+    },
+    {
+      "id": "Tests/Editor/SigmaPoseGaugeTests.cs::Matrix@290",
       "file": "Tests/Editor/SigmaPoseGaugeTests.cs",
       "name": "Matrix",
       "kind": "method",
-      "line": 85
+      "line": 290
+    },
+    {
+      "id": "Tests/Editor/SigmaPoseGaugeTests.cs::Pack@466",
+      "file": "Tests/Editor/SigmaPoseGaugeTests.cs",
+      "name": "Pack",
+      "kind": "method",
+      "line": 466
+    },
+    {
+      "id": "Tests/Editor/SigmaPoseGaugeTests.cs::Q@464",
+      "file": "Tests/Editor/SigmaPoseGaugeTests.cs",
+      "name": "Q",
+      "kind": "method",
+      "line": 464
     },
     {
       "id": "Tests/Editor/SigmaPoseGaugeTests.cs::SigmaPoseGaugeTests",
       "file": "Tests/Editor/SigmaPoseGaugeTests.cs",
       "name": "SigmaPoseGaugeTests",
       "kind": "class",
-      "line": 8
+      "line": 11
     },
     {
-      "id": "Tests/Editor/SigmaPoseGaugeTests.cs::UnresolvedMeetIsIdentityAndResolvedGaugePreservesRigExtrinsics@46",
+      "id": "Tests/Editor/SigmaPoseGaugeTests.cs::ToDouble@477",
+      "file": "Tests/Editor/SigmaPoseGaugeTests.cs",
+      "name": "ToDouble",
+      "kind": "method",
+      "line": 477
+    },
+    {
+      "id": "Tests/Editor/SigmaPoseGaugeTests.cs::UInt2",
+      "file": "Tests/Editor/SigmaPoseGaugeTests.cs",
+      "name": "UInt2",
+      "kind": "struct",
+      "line": 14
+    },
+    {
+      "id": "Tests/Editor/SigmaPoseGaugeTests.cs::UInt4",
+      "file": "Tests/Editor/SigmaPoseGaugeTests.cs",
+      "name": "UInt4",
+      "kind": "struct",
+      "line": 21
+    },
+    {
+      "id": "Tests/Editor/SigmaPoseGaugeTests.cs::Unpack@472",
+      "file": "Tests/Editor/SigmaPoseGaugeTests.cs",
+      "name": "Unpack",
+      "kind": "method",
+      "line": 472
+    },
+    {
+      "id": "Tests/Editor/SigmaPoseGaugeTests.cs::Unpack@474",
+      "file": "Tests/Editor/SigmaPoseGaugeTests.cs",
+      "name": "Unpack",
+      "kind": "method",
+      "line": 474
+    },
+    {
+      "id": "Tests/Editor/SigmaPoseGaugeTests.cs::UnresolvedMeetIsIdentityAndResolvedGaugePreservesRigExtrinsics@81",
       "file": "Tests/Editor/SigmaPoseGaugeTests.cs",
       "name": "UnresolvedMeetIsIdentityAndResolvedGaugePreservesRigExtrinsics",
       "kind": "method",
-      "line": 46
+      "line": 81
     },
     {
-      "id": "Tests/Editor/SigmaPoseGaugeTests.cs::VulkanPoseGaugeKernelIsPresent@75",
+      "id": "Tests/Editor/SigmaPoseGaugeTests.cs::VulkanPoseGaugeKernelIsPresent@110",
       "file": "Tests/Editor/SigmaPoseGaugeTests.cs",
       "name": "VulkanPoseGaugeKernelIsPresent",
       "kind": "method",
-      "line": 75
+      "line": 110
+    },
+    {
+      "id": "Tests/Editor/SigmaPoseGaugeTests.cs::VulkanPoseKernelsSolveAndCorrectTheSameRigGauge@124",
+      "file": "Tests/Editor/SigmaPoseGaugeTests.cs",
+      "name": "VulkanPoseKernelsSolveAndCorrectTheSameRigGauge",
+      "kind": "method",
+      "line": 124
     },
     {
       "id": "Tests/Editor/SigmaRgbInverseTests.cs::BoxAround@257",
@@ -11877,7 +12003,7 @@
     {
       "id": "S4-08",
       "title": "Implement bounded pose-gauge intersection",
-      "status": "in_progress",
+      "status": "done",
       "depends_on": [
         "S4-07"
       ],
@@ -18361,11 +18487,6 @@
     },
     {
       "source": "Runtime/SigmaPrism/SigmaGeometryReadout.cs::TryRead@25",
-      "target": "Runtime/SigmaPrism/SigmaNumericDomain.cs::ToDouble@206",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaGeometryReadout.cs::TryRead@25",
       "target": "Runtime/SigmaPrism/SigmaS16.cs::GeometryReadout@315",
       "kind": "calls"
     },
@@ -19362,11 +19483,6 @@
     {
       "source": "Runtime/SigmaPrism/SigmaOperatorSet.cs::RequireCanonicalBackend@33",
       "target": "Runtime/SigmaPrism/SigmaBackendCapabilities.cs::RequireCanonical@51",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaPoseGauge.cs::Apply@50",
-      "target": "Runtime/SigmaPrism/SigmaNumericDomain.cs::ToDouble@206",
       "kind": "calls"
     },
     {
@@ -21365,8 +21481,8 @@
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaForwardReadoutTests.cs::BuildFoldedPage@259",
-      "target": "Tests/Editor/SigmaForwardReadoutTests.cs::FillPatch@269",
+      "source": "Tests/Editor/SigmaForwardReadoutTests.cs::BuildFoldedPage@282",
+      "target": "Tests/Editor/SigmaForwardReadoutTests.cs::FillPatch@292",
       "kind": "calls"
     },
     {
@@ -21385,12 +21501,12 @@
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaForwardReadoutTests.cs::FillPatch@269",
+      "source": "Tests/Editor/SigmaForwardReadoutTests.cs::FillPatch@292",
       "target": "Runtime/SigmaPrism/SigmaGeometryReadout.cs::LiftFixture@61",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaForwardReadoutTests.cs::FillPatch@269",
+      "source": "Tests/Editor/SigmaForwardReadoutTests.cs::FillPatch@292",
       "target": "Runtime/SigmaPrism/SigmaNumericDomain.cs::FromInteger@193",
       "kind": "calls"
     },
@@ -21401,12 +21517,22 @@
     },
     {
       "source": "Tests/Editor/SigmaForwardReadoutTests.cs::GpuReadoutAndRasterSelectNearFoldWhileNullStaysEmpty@70",
-      "target": "Tests/Editor/SigmaForwardReadoutTests.cs::BuildFoldedPage@259",
+      "target": "Tests/Editor/SigmaForwardReadoutTests.cs::BuildFoldedPage@282",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaForwardReadoutTests.cs::GpuReadoutAndRasterSelectNearFoldWhileNullStaysEmpty@70",
-      "target": "Tests/Editor/SigmaForwardReadoutTests.cs::DrawPrediction@340",
+      "target": "Tests/Editor/SigmaForwardReadoutTests.cs::DrawPrediction@377",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaForwardReadoutTests.cs::GpuReadoutAndRasterSelectNearFoldWhileNullStaysEmpty@70",
+      "target": "Tests/Editor/SigmaForwardReadoutTests.cs::MinPositiveDepth@363",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaForwardReadoutTests.cs::MinPositiveDepth@363",
+      "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Min@170",
       "kind": "calls"
     },
     {
@@ -21685,33 +21811,98 @@
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaPoseGaugeTests.cs::ExactGpuResultSelectsMinimumMagnitudeMeetPoint@11",
+      "source": "Tests/Editor/SigmaPoseGaugeTests.cs::BuildDepthCalibration@374",
+      "target": "Runtime/SigmaPrism/SigmaNumericDomain.cs::FromRatio@196",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaPoseGaugeTests.cs::EncodeOctahedral@349",
+      "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Sign@154",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaPoseGaugeTests.cs::ExactGpuResultSelectsMinimumMagnitudeMeetPoint@46",
       "target": "Runtime/SigmaPrism/SigmaPoseGauge.cs::FromGpu@40",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaPoseGaugeTests.cs::ExactGpuResultSelectsMinimumMagnitudeMeetPoint@11",
+      "source": "Tests/Editor/SigmaPoseGaugeTests.cs::ExactGpuResultSelectsMinimumMagnitudeMeetPoint@46",
       "target": "Runtime/SigmaPrism/SigmaPoseGauge.cs::MinimumMagnitude@84",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaPoseGaugeTests.cs::ExactGpuResultSelectsMinimumMagnitudeMeetPoint@11",
+      "source": "Tests/Editor/SigmaPoseGaugeTests.cs::ExactGpuResultSelectsMinimumMagnitudeMeetPoint@46",
       "target": "Runtime/SigmaPrism/SigmaPoseGauge.cs::Raw@31",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaPoseGaugeTests.cs::UnresolvedMeetIsIdentityAndResolvedGaugePreservesRigExtrinsics@46",
+      "source": "Tests/Editor/SigmaPoseGaugeTests.cs::FillPoseEye@319",
+      "target": "Tests/Editor/SigmaPoseGaugeTests.cs::EncodeOctahedral@349",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaPoseGaugeTests.cs::UnresolvedMeetIsIdentityAndResolvedGaugePreservesRigExtrinsics@81",
       "target": "Runtime/SigmaPrism/SigmaPoseGauge.cs::FromGpu@40",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaPoseGaugeTests.cs::UnresolvedMeetIsIdentityAndResolvedGaugePreservesRigExtrinsics@46",
+      "source": "Tests/Editor/SigmaPoseGaugeTests.cs::UnresolvedMeetIsIdentityAndResolvedGaugePreservesRigExtrinsics@81",
       "target": "Runtime/SigmaPrism/SigmaPoseGauge.cs::SigmaPoseGaugeState",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaPoseGaugeTests.cs::UnresolvedMeetIsIdentityAndResolvedGaugePreservesRigExtrinsics@46",
-      "target": "Tests/Editor/SigmaPoseGaugeTests.cs::Matrix@85",
+      "source": "Tests/Editor/SigmaPoseGaugeTests.cs::UnresolvedMeetIsIdentityAndResolvedGaugePreservesRigExtrinsics@81",
+      "target": "Tests/Editor/SigmaPoseGaugeTests.cs::Matrix@290",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaPoseGaugeTests.cs::VulkanPoseKernelsSolveAndCorrectTheSameRigGauge@124",
+      "target": "Runtime/SigmaPrism/Calibration/ConeLutResources.cs::CreateTexture@207",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaPoseGaugeTests.cs::VulkanPoseKernelsSolveAndCorrectTheSameRigGauge@124",
+      "target": "Runtime/SigmaPrism/SigmaExactBackendGate.cs::Dispatch@45",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaPoseGaugeTests.cs::VulkanPoseKernelsSolveAndCorrectTheSameRigGauge@124",
+      "target": "Runtime/SigmaPrism/SigmaGaugeController.cs::Buffer@537",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaPoseGaugeTests.cs::VulkanPoseKernelsSolveAndCorrectTheSameRigGauge@124",
+      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::CreateArrayTexture@1318",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaPoseGaugeTests.cs::VulkanPoseKernelsSolveAndCorrectTheSameRigGauge@124",
+      "target": "Tests/Editor/SigmaPoseGaugeTests.cs::BuildDepthCalibration@374",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaPoseGaugeTests.cs::VulkanPoseKernelsSolveAndCorrectTheSameRigGauge@124",
+      "target": "Tests/Editor/SigmaPoseGaugeTests.cs::BuildPosePrior@363",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaPoseGaugeTests.cs::VulkanPoseKernelsSolveAndCorrectTheSameRigGauge@124",
+      "target": "Tests/Editor/SigmaPoseGaugeTests.cs::BuildPoseRays@293",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaPoseGaugeTests.cs::VulkanPoseKernelsSolveAndCorrectTheSameRigGauge@124",
+      "target": "Tests/Editor/SigmaPoseGaugeTests.cs::BuildRgbCalibration@402",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaPoseGaugeTests.cs::VulkanPoseKernelsSolveAndCorrectTheSameRigGauge@124",
+      "target": "Tests/Editor/SigmaPoseGaugeTests.cs::CreateArrayRenderTexture@431",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaPoseGaugeTests.cs::VulkanPoseKernelsSolveAndCorrectTheSameRigGauge@124",
+      "target": "Tests/Editor/SigmaPoseGaugeTests.cs::FillPoseEye@319",
       "kind": "calls"
     },
     {

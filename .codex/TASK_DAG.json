@@ -179,7 +179,7 @@
     {
       "id": "S4-08",
       "title": "Implement bounded pose-gauge intersection",
-      "status": "in_progress",
+      "status": "done",
       "active_repair_run": "S4-08.1 exact pose-gauge and bounded live-graph closure",
       "depends_on": ["S4-07"],
       "acceptance": [
@@ -197,7 +197,9 @@
         "Android/Vulkan IL2CPP Release correction commit 91e4721c30c0 built with zero shader/C# errors, was archived source-only and installed on the connected Quest before S4-09",
         "The repaired live path stably compacts inverse work, allocates generation-paired scratch, reduces proof, commits accepted proposals into the same Psi, consumes pose gauge on GPU and resolves topology/readout neighbours only by exact signed-64 Sigma_2 page identity; Unity Vulkan passed 64/64, the eight-UAV gate passed, and the fresh Release APK built with zero errors and was installed before S4-09",
         "S4-08.1 candidate corrects exact point-to-plane intervals, integer acceptance, true rigid SE(3), corrected same-frame reraster/exact source calibration, GPU-appended pose provenance, reusable active-local raw records, complete topology bindings, fail-closed associator gates and bounded fair candidate scheduling without introducing another world",
-        "Every changed shader was manually reviewed in full with its include ABI, all kernels/resources, C# binding and dispatch call sites and affected tests; generated operators, git diff, Quest eight-UAV validation and the final Unity Vulkan batch (64/64) pass before the Release device build"
+        "Every changed shader was manually reviewed in full with its include ABI, all kernels/resources, C# binding and dispatch call sites and affected tests; generated operators, git diff and Quest eight-UAV validation pass",
+        "Unity Vulkan passes 65/65; the closure fixture actually dispatches BuildPoseGaugePartials, ReducePoseGauge and BuildCorrectedCalibration, proves nonzero exact correction and fixed-rig preservation, and the prediction fixture proves nonzero same-frame reraster",
+        "The pose-prior contract is truthful: immutable Meta pose supplies the centre; numeric covariance is projected when exposed, otherwise the exact prior width is a deterministic conservative envelope from coherent-frame timing/skew uncertainty, observed tracking rates, rig residuals and persisted bounds"
       ]
     },
     {

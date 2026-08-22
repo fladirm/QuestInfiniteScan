@@ -1416,10 +1416,18 @@ Pose refinement uses the same set-valued principle as state reconstruction. Each
 \delta\xi=(\delta t_x,\delta t_y,\delta t_z,\delta r_x,\delta r_y,\delta r_z).
 \]
 
-The Meta tracking pose/covariance supplies the prior twist cell. Sensor/readout constraints intersect it componentwise after conservative projection into the local twist basis.
+The immutable Meta tracking pose supplies the centre of the prior twist cell. When
+the active Quest capture API exposes a numeric tracking covariance, quantize and
+conservatively project it into the local twist basis. When it does not, the prior
+width is the deterministic conservative tracking-derived uncertainty envelope
+formed from the coherent frame's clock-mapping uncertainty, RGB/depth and stereo
+timestamp skew, observed tracking translation/rotation rate, fixed-rig calibration
+residual and persisted calibration bounds. Missing covariance is never interpreted
+as zero uncertainty. Sensor/readout constraints intersect this exact prior cell
+componentwise after conservative projection into the local twist basis.
 
 ```text
-poseCell = MetaPrior
+poseCell = MetaPoseTrackingPrior
 for every valid independent overlap constraint:
     poseCell = intersect(poseCell, sourcePoseCell)
 ```

@@ -213,6 +213,7 @@ namespace Genesis.RoomScan.Tests
                 int pixel = 50 * targetSize + 52;
                 float[] depth = Readback<float>(depthSupport);
                 float[] uvNormal = Readback<float>(carrierUvNormal);
+                float identityMinDepth = MinPositiveDepth(depth);
                 Assert.That(depth[pixel * 2], Is.InRange(0.28f, 0.40f),
                     "hardware Z must select the near folded carrier branch");
                 Assert.That(depth[pixel * 2 + 1], Is.EqualTo(8f).Within(1e-3f));
@@ -222,6 +223,28 @@ namespace Genesis.RoomScan.Tests
                 int emptyPixel = 2 * targetSize + 2;
                 Assert.That(depth[emptyPixel * 2], Is.Zero,
                     "implicit/null carrier may not emit physical contact");
+
+                long gaugeZ = SigmaNumericDomain.Quantize(0.05);
+                poseResult.SetData(new[]
+                {
+                    new UInt4 { X = 1u },
+                    new UInt4(),
+                    new UInt4
+                    {
+                        X = unchecked((uint)gaugeZ),
+                        Y = unchecked((uint)(gaugeZ >> 32))
+                    },
+                    new UInt4()
+                });
+                DrawPrediction(material, arguments, properties, depthSupport,
+                    carrierPage, carrierUvNormal, stateKey, hardwareDepth);
+                depth = Readback<float>(depthSupport);
+                float correctedMinDepth = MinPositiveDepth(depth);
+                Assert.That(correctedMinDepth,
+                    Is.EqualTo(identityMinDepth - 0.05f).Within(0.004f),
+                    "a nonzero exact pose result must rerasterize the same " +
+                    "carrier frame through the inverse rigid gauge");
+                poseResult.SetData(new UInt4[4]);
 
                 topologyPageKeys.SetData(new[]
                 {
@@ -336,6 +359,20 @@ namespace Genesis.RoomScan.Tests
             request.WaitForCompletion();
             Assert.That(request.hasError, Is.False, texture.graphicsFormat.ToString());
             return request.GetData<T>().ToArray();
+        }
+
+        private static float MinPositiveDepth(float[] depthSupport)
+        {
+            float minimum = float.PositiveInfinity;
+            for (int index = 0; index < depthSupport.Length; index += 2)
+            {
+                float depth = depthSupport[index];
+                if (depth > 0f)
+                    minimum = Mathf.Min(minimum, depth);
+            }
+            Assert.That(float.IsFinite(minimum), Is.True,
+                "prediction fixture must contain a supported first hit");
+            return minimum;
         }
 
         private static void DrawPrediction(Material material,

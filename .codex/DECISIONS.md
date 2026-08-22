@@ -155,9 +155,13 @@ Git history and are not active on this branch.
 ## ADR-S410 — Pose correction is an exact same-frame readout gauge
 
 - Decision: conditioned dual-eye overlaps emit independent conservative twist
-  intervals which meet the bounded Meta prior in exact Q16.48. A non-empty meet
-  selects the componentwise minimum-magnitude point; conflict or insufficient
-  independent support retains the immutable Meta pose.
+  intervals which meet the bounded Meta-pose tracking prior in exact Q16.48. The
+  immutable Meta pose is its centre. Numeric tracking covariance is projected when
+  exposed by the capture API; otherwise a deterministic envelope is derived from
+  coherent-frame timing/skew uncertainty, observed tracking rates, fixed-rig
+  residuals and persisted calibration bounds. Missing covariance never means zero
+  uncertainty. A non-empty meet selects the componentwise minimum-magnitude point;
+  conflict or insufficient independent support retains the immutable Meta pose.
 - Decision: an accepted nonzero twist rerasterizes the same retained
   `StereoRigFrame` before any carrier inverse work. Depth and RGB calibration then
   consume that corrected prediction/gauge snapshot together; a correction from

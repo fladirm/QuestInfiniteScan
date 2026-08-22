@@ -2,16 +2,18 @@
 
 ## Latest user exchange
 
-User requires every edited shader to be manually read as a complete program with
-its includes/ABI, all kernels, bindings/dispatches and affected tests, and wants the
-verified source committed, archived, built as Release and installed without
-repeating already completed audits.
+User accepted the bounded S4-08.1 runtime repair after static audit and required
+only the last two closure gaps: make the Meta pose-prior contract truthful and add
+real Vulkan fixtures that execute the pose solver/corrected calibration and prove a
+nonzero same-frame reraster. Then commit, archive, Release-build and install without
+opening S4-09.
 
 ## Latest implementation update
 
-S4-08.1 source repair is manually reviewed and statically green: exact/operator,
-eight-UAV and diff gates pass, and the final Unity Vulkan batch is 64/64. Pose is
-applied to exact cells and a same-frame reraster; provenance is retained only for
-surviving raw evidence; topology is bounded/candidate-driven and remains intrinsic
-S16 algebra. Next action is code-graph validation, checkpoint commit, matching
-source-only archive, Release build and Quest install. S4-09 remains pending.
+Both closure gaps are implemented and manually reviewed. Section 28/ADR-S410 now
+describe the deterministic tracking-derived uncertainty envelope used when the
+capture API exposes no numeric covariance. Unity Vulkan passes 65/65: the new test
+dispatches all three pose kernels and verifies nonzero corrected calibration, while
+the forward fixture verifies nonzero same-frame reraster. Exact/operator, eight-UAV
+and diff gates pass. Next action is final code-graph validation, commit, matching
+source-only archive, exact Release build and Quest install. S4-09 remains pending.
