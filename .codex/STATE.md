@@ -29,10 +29,13 @@ Updated: 2026-08-22 (Europe/Prague)
 - `S4-05` is accepted in commit `96cbeca`.
 - `S4-06` is accepted in commit `c6dabef`.
 - `S4-07` is accepted in commit `dc6abf5`.
-- `S4-08` is accepted after the bounded `S4-08.1` repair and its real Vulkan pose
-  closure fixtures. Executable-source commit `6b3003a199df` built as a fresh
-  Android/Vulkan IL2CPP Release and installed successfully on the connected Quest.
-  `S4-09` remains paused for the user's device audit.
+- `S4-08` is reopened as `S4-08.2 exact GPU lowering and completion rebase` after
+  the installed Release device audit. The deterministic whole-file rewrite plan is
+  `.codex/S4-08.2_PLAN.md`; `S4-09` remains pending and ineligible until its device
+  gate passes.
+- Historical `S4-08.1` evidence remains useful correctness/build evidence, but no
+  longer closes the node: the first live inverse transaction uses an unsupported
+  async-queue fence and permanently occupies `_inFlight` on the audited Quest.
 - The retained product surface is only four-stream GPU capture/synchronization,
   immutable calibration/poses, Quest/XR lifecycle, permissions/anchors, input/UI,
   neutral GPU helpers and build/deploy tooling.
@@ -307,6 +310,30 @@ Updated: 2026-08-22 (Europe/Prague)
   and ADB streamed installation completed successfully on the single authorized
   Quest. No device runtime acceptance is claimed before the user's audit.
 
+## S4-08.2 device finding and planned rebase
+
+- Device log proves one deterministic P0 chain: `SigmaInverseController` creates
+  an `AsyncQueueSynchronisation` fence, Quest reports async compute unsupported,
+  `GraphicsFence.passed` throws in every `LateUpdate`, `_inFlight` is never retired
+  and all later prediction work is dropped. The captured interval contains 1,703
+  identical exceptions in 28 seconds while coherent capture continues to advance.
+- `GpuTextureRing` and `SigmaPredictionFrame` repeat the same unsupported fence
+  assumption but catch the polling exception and report completion. That is not a
+  valid fallback because it can recycle a still-live GPU resource.
+- The performance audit confirms that the exact hot path still uses reference-style
+  packed arithmetic and scheduling: schoolbook wide multiply, serial bit division,
+  scalar Hadamard, lane-zero pose/proof reducers, per-thread full 16D inverse state,
+  repeated RGB work/barriers, arena-wide raw scans and single-thread transaction
+  transforms.
+- `.codex/S4-08.2_PLAN.md` freezes a deterministic replacement order: supported
+  completion tickets, ExactALU-v2, generated exact operator circuits, whole-file
+  pose/RGB/inverse/proof/gauge/topology shader rewrites, matching C# dispatch/bind
+  rewrites, section 44 counters, bit-parity gates and one final Release device run.
+- Every affected shader is replaced cleanly as a complete file after its full
+  source/include/ABI/call-site review. No incremental shader patching, legacy
+  branch, CPU readback, synchronous wait, callback scheduler or runtime fallback is
+  allowed. No runtime source has yet been changed for S4-08.2.
+
 ## S4-00 neutral Quest-shell regression repair
 
 - Device audit proved the fresh-scene automation had stopped calling the retained
@@ -329,9 +356,11 @@ Updated: 2026-08-22 (Europe/Prague)
 
 ## Next exact actions
 
-1. Create the requested post-install evidence commit and matching source-only
-   `git archive`.
-2. Keep `S4-09` pending until the user completes the installed release audit.
+1. Execute Phase A of `.codex/S4-08.2_PLAN.md`: replace the three fence/lease paths
+   with one capability-correct nonblocking completion-ticket contract and its C#
+   lifecycle fixtures.
+2. Continue the exact whole-file shader/C# rewrite phases in the frozen plan; do
+   not open `S4-09` or rebuild Android until the S4-08.2 closure gate.
 
 ## Verification policy
 

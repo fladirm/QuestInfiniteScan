@@ -179,8 +179,22 @@
     {
       "id": "S4-08",
       "title": "Implement bounded pose-gauge intersection",
-      "status": "done",
-      "active_repair_run": "S4-08.1 exact pose-gauge and bounded live-graph closure",
+      "status": "in_progress",
+      "active_repair_run": "S4-08.2 exact GPU lowering and completion rebase",
+      "repair_plan": ".codex/S4-08.2_PLAN.md",
+      "reopen_reason": [
+        "Installed Release device audit proves the first inverse transaction creates an AsyncQueueSynchronisation fence on a Quest runtime that reports async compute unsupported; polling GraphicsFence.passed throws every frame, leaves _inFlight permanently occupied and drops all later prediction work",
+        "Capture and prediction rings use the same unsupported fence type and currently treat a polling exception as completion, which can recycle GPU resources before proven completion",
+        "The exact live hot path still contains reference-style serial arithmetic, lane-zero reducers, per-thread 16D state, repeated invariant work, full-arena scans and excessive barriers that violate the generated-operator and section 44 Quest lowering contract"
+      ],
+      "repair_acceptance": [
+        "Every shader/include changed by S4-08.2 is rewritten as one clean whole-file implementation from the canonical operator/ABI contract; no incremental hotfix body, compatibility switch or legacy shader branch remains",
+        "Owning C# recorders/controllers are rewritten to the new per-kernel dispatch and binding manifests in the same phase, with complete explicit bindings and no stale kernel/property/buffer path",
+        "Capture, prediction and inverse use one supported nonblocking completion-ticket contract; unsupported capabilities fail closed, no exception is treated as completion and no in-flight lease is recycled early",
+        "ExactALU-v2, OperatorPlan-v2 and cooperative coordinate-major kernel layouts remain bit-identical to the CPU semantic oracle and preserve source-order-independent carrier/certificate bytes",
+        "Runtime contains no AsyncGPUReadback, GetData, synchronous GPU wait, CPU canonical scheduler or old/new fallback path",
+        "Section 44 operation/stage counters are exposed and the installed Release continuously submits and commits inverse revisions on Quest without a fence exception, permanent in-flight transaction or device watchdog"
+      ],
       "depends_on": ["S4-07"],
       "acceptance": [
         "Conditioned overlaps produce bounded six-component Q16.48 pose-twist source cells that intersect the immutable Meta prior",

@@ -2,22 +2,24 @@
 
 ## Latest user exchange
 
-User accepted the bounded S4-08.1 runtime repair after static audit and required
-only the last two closure gaps: make the Meta pose-prior contract truthful and add
-real Vulkan fixtures that execute the pose solver/corrected calibration and prove a
-nonzero same-frame reraster. Then commit, archive, Release-build and install without
-opening S4-09.
+The installed S4-08 Release freezes after Start Scan. The user requested a read-only
+root-cause audit and then supplied a full hot-path performance audit. They require a
+new `S4-08.2` run that rewrites every affected shader cleanly as a whole file—not by
+patching the old implementation—and rewrites matching C# dispatch/binding code in
+the same phase. No CPU readback, synchronous wait, compatibility fallback, stale
+legacy branch or alternate ontology is allowed. This exchange authorizes control
+plan changes only, not runtime implementation yet.
 
-## Latest implementation update
+## Latest diagnostic and planning update
 
-Both closure gaps are implemented and manually reviewed. Section 28/ADR-S410 now
-describe the deterministic tracking-derived uncertainty envelope used when the
-capture API exposes no numeric covariance. Unity Vulkan passes 65/65: the new test
-dispatches all three pose kernels and verifies nonzero corrected calibration, while
-the forward fixture verifies nonzero same-frame reraster. The Release compiler's
-only new finding—a redundant varying early return around a later raw-reservation
-group barrier—was removed with one uniform bounded scan schedule; Vulkan remains
-65/65. Executable-source commit `6b3003a199df` then built a fresh 67,463,376-byte
-Release APK with zero build errors and streamed ADB installation succeeded. Next
-action is the requested post-install evidence commit/archive; S4-09 remains pending
-for the user's installed-device audit.
+Read-only Quest evidence isolates the immediate freeze: the first inverse command
+creates an `AsyncQueueSynchronisation` fence although the device reports async
+compute unsupported. `GpuSubmission.IsComplete` polls `GraphicsFence.passed`, which
+throws every frame before `_inFlight` can be cleared; future predictions are then
+dropped. The log contains 1,703 repetitions in 28 seconds while coherent capture
+continues. Capture/prediction rings share the same invalid fence assumption and
+catch polling failure as success, risking early resource reuse. No runtime source
+was changed. `S4-08` is reopened and `.codex/S4-08.2_PLAN.md` now specifies the
+deterministic completion, ExactALU, generated-circuit and coordinate-major GPU
+rewrite, matching C# ABI/dispatch replacement, parity/performance gates and final
+Release device acceptance. `S4-09` remains pending.
