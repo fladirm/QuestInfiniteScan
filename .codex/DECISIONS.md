@@ -134,3 +134,20 @@ Git history and are not active on this branch.
 - Consequence: S4-07 may change only carrier gauge sampling through a bijection. It
   must transport/revalidate these retained constraints over the same `Psi` and may
   not reinterpret the proof ledger as geometry, topology, detail or appearance.
+
+## ADR-S409 — Supported detail is a local carrier gauge bijection
+
+- Decision: gauge demand is derived only from independently accepted proof cells
+  whose exact common admissible width cannot reproduce local projective variation;
+  image tiles, pages and repeated correlated views never demand detail by count.
+- Decision: the accepted local gauge is a separable continuous bijection of the
+  same carrier. It expands one requested eight-sample band, translates retained
+  support and draws capacity only from two exact implicit-null tail bands while
+  fixing the outer support endpoint.
+- Decision: carrier samples, proof footprints, retained raw observations and
+  intrinsic transition evidence are transported and revalidated in one immutable
+  generation transaction. Singular or unresolved interpolation fails closed.
+- Consequence: supported fine geometry and appearance remain literal variation of
+  `Psi`; no displacement, chart, mip hierarchy or secondary detail ontology is
+  permitted. S4-08 changes only the observation pose gauge and must reuse this
+  exact-cell infrastructure rather than introduce a second SLAM.

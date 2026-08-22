@@ -72,6 +72,7 @@ namespace Genesis.RoomScan.SigmaPrism
         private GraphicsBuffer _rgbViewSupportScale;
         private SigmaRgbViewCatalog _rgbViewCatalog;
         private SigmaConstraintLedger _proofLedger;
+        private SigmaGaugeController _localGauge;
         private GraphicsBuffer _activePageFlags;
         private GraphicsBuffer _commitPageFlags;
         private GraphicsBuffer _unmatchedBlockFlags;
@@ -168,7 +169,9 @@ namespace Genesis.RoomScan.SigmaPrism
             _proofLedger = new SigmaConstraintLedger(
                 _carrier.DecodedBudgetPages,
                 Math.Max(1024, Math.Min(4096,
-                    _carrier.DecodedBudgetPages * 4)));
+                    _carrier.DecodedBudgetPages * 4)), _backendGate);
+            _localGauge = new SigmaGaugeController(_carrier, _topology,
+                _proofLedger, _backendGate);
             _conflictCount.SetData(new uint[1]);
             _frameCounters.SetData(new uint[8]);
             _gaugePromotionCounts.SetData(new uint[MaximumGaugeCommitSlots]);
@@ -345,6 +348,12 @@ namespace Genesis.RoomScan.SigmaPrism
                     case InFlightPhase.MatchedProof:
                         CompleteMatchedProofs(frame);
                         break;
+                    case InFlightPhase.LocalGaugeRequest:
+                        CompleteLocalGaugeRequest(frame);
+                        break;
+                    case InFlightPhase.LocalGaugeTransaction:
+                        CompleteLocalGaugeTransaction(frame);
+                        break;
                     case InFlightPhase.GaugeProof:
                         CompleteGaugePromotions(frame);
                         break;
@@ -451,6 +460,134 @@ namespace Genesis.RoomScan.SigmaPrism
             NativeArray<uint> activePages =
                 frame.ActivePageFlags.GetData<uint>();
             UpdateObservedTopologyPages(frame, activePages, publishedMatched);
+            frame.LocalGaugeSources.Clear();
+            for (int index = 0; index < publishedMatched.Count; ++index)
+                frame.LocalGaugeSources.Add(publishedMatched[index]);
+            frame.LocalGaugeSources.Sort(static (left, right) =>
+                left.Coordinate.CompareTo(right.Coordinate));
+            if (frame.LocalGaugeSources.Count != 0 &&
+                _localGauge.BuildRequests(frame.LocalGaugeSources) != 0)
+            {
+                frame.BeginLocalGaugeRequest(_localGauge.RequestBuffer);
+                return;
+            }
+            ContinueWithLatentPromotions(frame);
+        }
+
+        private void CompleteLocalGaugeRequest(InFlightFrame frame)
+        {
+            if (frame.Discard || frame.LocalGaugeRequest.hasError ||
+                !_localGauge.TryReadBestRequest(
+                    frame.LocalGaugeRequest.GetData<uint>(),
+                    frame.LocalGaugeSources, out SigmaGaugeSelection selection) ||
+                !_carrier.TryGetLatest(selection.Source.Coordinate,
+                    out SigmaCarrierPageHandle latest) ||
+                !latest.Equals(selection.Source) ||
+                GaugeTouchesResidentTransverseNeighbour(selection))
+            {
+                ContinueWithLatentPromotions(frame);
+                return;
+            }
+            try
+            {
+                SigmaGaugeTransaction transaction = null;
+                try
+                {
+                    transaction = _localGauge.BeginTransform(selection);
+                    SigmaTopologyEvidenceView evidence =
+                        SigmaTopologyEvidenceView.GaugeRebuild(
+                            transaction.Source.Coordinate, frame.Revision);
+                    _localGauge.TransportTopologyPrior(transaction);
+                    transaction.Topology = _topology.FinishGaugeGeneration(
+                        transaction.Carrier.Handle, evidence);
+                    _localGauge.ValidateTopology(transaction);
+                    frame.LocalGauge = transaction;
+                    transaction = null;
+                    frame.BeginLocalGaugeTransaction(_localGauge.StatusBuffer,
+                        _localGauge.RawCloneStatusBuffer,
+                        frame.LocalGauge.Proof.ClonePlan.Length);
+                }
+                finally
+                {
+                    transaction?.Dispose();
+                }
+            }
+            catch (InvalidOperationException exception)
+            {
+                Logger.Warning("Sigma local gauge skipped: " + exception.Message);
+                frame.LocalGauge?.Dispose();
+                frame.LocalGauge = null;
+                ContinueWithLatentPromotions(frame);
+            }
+        }
+
+        private bool GaugeTouchesResidentTransverseNeighbour(
+            SigmaGaugeSelection selection)
+        {
+            long dx = selection.Request.Axis == (uint)SigmaGaugeAxis.Y ? 1L : 0L;
+            long dy = selection.Request.Axis == (uint)SigmaGaugeAxis.X ? 1L : 0L;
+            try
+            {
+                var negative = new SigmaCarrierPageCoordinate(
+                    checked(selection.Source.Coordinate.X - dx),
+                    checked(selection.Source.Coordinate.Y - dy));
+                var positive = new SigmaCarrierPageCoordinate(
+                    checked(selection.Source.Coordinate.X + dx),
+                    checked(selection.Source.Coordinate.Y + dy));
+                return _carrier.TryGetLatest(negative, out _) ||
+                    _carrier.TryGetLatest(positive, out _);
+            }
+            catch (OverflowException)
+            {
+                return true;
+            }
+        }
+
+        private void CompleteLocalGaugeTransaction(InFlightFrame frame)
+        {
+            SigmaGaugeTransaction transaction = frame.LocalGauge;
+            frame.LocalGauge = null;
+            if (transaction == null)
+            {
+                ContinueWithLatentPromotions(frame);
+                return;
+            }
+            try
+            {
+                if (frame.Discard || frame.LocalGaugeStatus.hasError ||
+                    frame.LocalGaugeRawStatus.hasError ||
+                    !_carrier.TryGetLatest(transaction.Source.Coordinate,
+                        out SigmaCarrierPageHandle latest) ||
+                    !latest.Equals(transaction.Source))
+                    return;
+                SigmaGaugeTransactionStatus status = _localGauge.ReadStatus(
+                    frame.LocalGaugeStatus.GetData<uint>(), transaction);
+                if (!status.IsValid)
+                {
+                    Logger.Warning("Sigma local gauge failed closed: " +
+                        $"samples={status.TransformedSamples}, " +
+                        $"proof={status.ProofBlocks}, failed={status.Failed}.");
+                    return;
+                }
+                NativeArray<uint> raw = frame.LocalGaugeRawStatus.GetData<uint>();
+                _localGauge.ValidateProofForPublication(transaction, raw);
+                SigmaCarrierPageHandle published = transaction.Carrier.Publish();
+                _localGauge.PublishProof(transaction, raw);
+                transaction.Topology.Publish();
+                transaction.MarkPublished();
+                _carrier.TryReleaseRetiredGeneration(transaction.Source);
+                frame.LocalGaugePageCommits++;
+                RebuildAffectedTopology(frame, new[] { published });
+            }
+            finally
+            {
+                transaction.Dispose();
+                ContinueWithLatentPromotions(frame);
+            }
+        }
+
+        private void ContinueWithLatentPromotions(InFlightFrame frame)
+        {
             NativeArray<uint> unmatched = frame.UnmatchedBlocks.GetData<uint>();
             NativeArray<uint> anchors = frame.UnmatchedAnchors.GetData<uint>();
             int scheduled = BeginGaugePageCommits(frame, unmatched, anchors);
@@ -545,7 +682,7 @@ namespace Genesis.RoomScan.SigmaPrism
                     frame.ProducedConflicts, promotedSamples);
             }
             int committedPages = frame.MatchedPageCommits +
-                frame.PublishedGaugePages;
+                frame.LocalGaugePageCommits + frame.PublishedGaugePages;
             if (committedPages != 0)
                 CommittedFrames++;
             CommittedPageGenerations += committedPages;
@@ -614,7 +751,7 @@ namespace Genesis.RoomScan.SigmaPrism
                         scratch.ProposalStatus);
                     _inverse.Dispatch(_commitKernel,
                         SigmaCarrier.SamplesPerPage / 64, 1, 1);
-                    _proofLedger.Reduce(proof);
+                    _proofLedger.Reduce(proof, target);
                     frame.MatchedWrites.Add(new PendingMatchedPublication(source,
                         target, proof));
                     target = null;
@@ -808,7 +945,7 @@ namespace Genesis.RoomScan.SigmaPrism
                     BindPromotion(frame, target, proof, imagePage,
                         _gaugePages[imagePage], index);
                     _inverse.Dispatch(_promoteKernel, 8, 8, 1);
-                    _proofLedger.Reduce(proof);
+                    _proofLedger.Reduce(proof, target);
                     frame.GaugeWrites.Add(new PendingGaugeWrite(target, proof));
                     target = null;
                     proof = null;
@@ -1535,7 +1672,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 _commitPageFlags, _unmatchedBlockFlags, _unmatchedBlockAnchors,
                 _conflictRecords,
                 _conflictCount, _frameCounters, _gaugePromotionCounts,
-                _proofLedger, scratch);
+                _proofLedger, _localGauge, scratch);
             _coneLuts = null;
             _calibration = null;
             _metricDepth = null;
@@ -1554,6 +1691,7 @@ namespace Genesis.RoomScan.SigmaPrism
             _frameCounters = null;
             _gaugePromotionCounts = null;
             _proofLedger = null;
+            _localGauge = null;
             _activeFlagCapacity = 0;
             _blockFlagCapacity = 0;
             _scratchResolution = default;
@@ -1710,6 +1848,7 @@ namespace Genesis.RoomScan.SigmaPrism
             private GraphicsBuffer[] _buffers;
             private SegmentInverseScratch[] _scratch;
             private SigmaConstraintLedger _proofLedger;
+            private SigmaGaugeController _localGauge;
 
             public InverseOwnedResources(RigConeLutSet coneLuts,
                 RenderTexture metricDepth, RenderTexture depthFlags,
@@ -1721,6 +1860,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 GraphicsBuffer conflicts, GraphicsBuffer conflictCount,
                 GraphicsBuffer counters, GraphicsBuffer gaugePromotionCounts,
                 SigmaConstraintLedger proofLedger,
+                SigmaGaugeController localGauge,
                 SegmentInverseScratch[] scratch)
             {
                 _coneLuts = coneLuts;
@@ -1732,6 +1872,7 @@ namespace Genesis.RoomScan.SigmaPrism
                     gaugePromotionCounts };
                 _scratch = scratch ?? Array.Empty<SegmentInverseScratch>();
                 _proofLedger = proofLedger;
+                _localGauge = localGauge;
             }
 
             public void Dispose()
@@ -1756,6 +1897,8 @@ namespace Genesis.RoomScan.SigmaPrism
                 }
                 _proofLedger?.Dispose();
                 _proofLedger = null;
+                _localGauge?.Dispose();
+                _localGauge = null;
             }
         }
 
@@ -1771,6 +1914,10 @@ namespace Genesis.RoomScan.SigmaPrism
             private Action _retirement;
 
             public AsyncGPUReadbackRequest Request(GraphicsBuffer buffer)
+                => Request(buffer, 0, 0);
+
+            public AsyncGPUReadbackRequest Request(GraphicsBuffer buffer,
+                int size, int offset)
             {
                 if (buffer == null)
                     throw new ArgumentNullException(nameof(buffer));
@@ -1778,7 +1925,10 @@ namespace Genesis.RoomScan.SigmaPrism
                     checked { _pending++; }
                 try
                 {
-                    return AsyncGPUReadback.Request(buffer, OnCompleted);
+                    return size > 0
+                        ? AsyncGPUReadback.Request(buffer, size, offset,
+                            OnCompleted)
+                        : AsyncGPUReadback.Request(buffer, OnCompleted);
                 }
                 catch
                 {
@@ -1827,6 +1977,8 @@ namespace Genesis.RoomScan.SigmaPrism
         {
             Initial,
             MatchedProof,
+            LocalGaugeRequest,
+            LocalGaugeTransaction,
             GaugeProof,
         }
 
@@ -1889,14 +2041,20 @@ namespace Genesis.RoomScan.SigmaPrism
             public AsyncGPUReadbackRequest UnmatchedAnchors { get; }
             public AsyncGPUReadbackRequest Counters { get; }
             public AsyncGPUReadbackRequest ConflictCount { get; }
+            public AsyncGPUReadbackRequest LocalGaugeRequest { get; private set; }
+            public AsyncGPUReadbackRequest LocalGaugeStatus { get; private set; }
+            public AsyncGPUReadbackRequest LocalGaugeRawStatus { get; private set; }
             public AsyncGPUReadbackRequest GaugePromotions { get; private set; }
             public AsyncGPUReadbackRequest ProofStatus { get; private set; }
             public List<PendingMatchedPublication> MatchedWrites { get; } = new();
             public List<PendingGaugeWrite> GaugeWrites { get; } = new();
+            public List<SigmaCarrierPageHandle> LocalGaugeSources { get; } = new();
+            public SigmaGaugeTransaction LocalGauge { get; set; }
             public SigmaProofFrameLease ProofFrame { get; set; }
             public bool Discard { get; set; }
             public InFlightPhase Phase { get; private set; }
             public int MatchedPageCommits { get; set; }
+            public int LocalGaugePageCommits { get; set; }
             public int PublishedGaugePages { get; set; }
             public uint ProducedConflicts { get; set; }
             private readonly ReadbackRetirementLatch _readbackLatch;
@@ -1910,6 +2068,9 @@ namespace Genesis.RoomScan.SigmaPrism
                     CommitFlags.done && UnmatchedBlocks.done && Counters.done &&
                     UnmatchedAnchors.done && ConflictCount.done,
                 InFlightPhase.MatchedProof => ProofStatus.done,
+                InFlightPhase.LocalGaugeRequest => LocalGaugeRequest.done,
+                InFlightPhase.LocalGaugeTransaction => LocalGaugeStatus.done &&
+                    LocalGaugeRawStatus.done,
                 InFlightPhase.GaugeProof => GaugePromotions.done &&
                     ProofStatus.done,
                 _ => false,
@@ -1918,6 +2079,8 @@ namespace Genesis.RoomScan.SigmaPrism
             {
                 InFlightPhase.Initial => InitialReadbackHasError,
                 InFlightPhase.MatchedProof => ProofStatus.hasError,
+                InFlightPhase.LocalGaugeRequest => false,
+                InFlightPhase.LocalGaugeTransaction => false,
                 InFlightPhase.GaugeProof => GaugePromotions.hasError ||
                     ProofStatus.hasError,
                 _ => true,
@@ -1930,6 +2093,30 @@ namespace Genesis.RoomScan.SigmaPrism
                         "Matched proof readback requires the initial phase.");
                 ProofStatus = _readbackLatch.Request(proofStatus);
                 Phase = InFlightPhase.MatchedProof;
+            }
+
+            public void BeginLocalGaugeRequest(GraphicsBuffer requests)
+            {
+                if (Phase != InFlightPhase.Initial &&
+                    Phase != InFlightPhase.MatchedProof)
+                    throw new InvalidOperationException(
+                        "Local gauge request must follow matched publication.");
+                LocalGaugeRequest = _readbackLatch.Request(requests);
+                Phase = InFlightPhase.LocalGaugeRequest;
+            }
+
+            public void BeginLocalGaugeTransaction(GraphicsBuffer status,
+                GraphicsBuffer rawStatus, int rawCloneCount)
+            {
+                if (Phase != InFlightPhase.LocalGaugeRequest)
+                    throw new InvalidOperationException(
+                        "Local gauge transaction requires a selected request.");
+                LocalGaugeStatus = _readbackLatch.Request(status);
+                int bytes = Math.Max(sizeof(uint) * 4,
+                    checked(rawCloneCount * sizeof(uint) * 4));
+                LocalGaugeRawStatus = _readbackLatch.Request(rawStatus,
+                    bytes, 0);
+                Phase = InFlightPhase.LocalGaugeTransaction;
             }
 
             public void BeginGaugeReadback(GraphicsBuffer promotionCounts,
@@ -1970,6 +2157,8 @@ namespace Genesis.RoomScan.SigmaPrism
             {
                 AbortMatchedWrites();
                 AbortGaugeWrites();
+                LocalGauge?.Dispose();
+                LocalGauge = null;
             }
 
             public void Dispose()

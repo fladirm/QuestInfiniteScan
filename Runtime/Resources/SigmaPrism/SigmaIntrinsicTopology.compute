@@ -188,7 +188,8 @@ uint SigmaEvidenceDiscontinuity(uint source, uint sample)
 bool SigmaEvidenceChanged(uint source, uint sample, bool contact)
 {
     uint mode = SigmaEvidenceMode(source);
-    if (mode == SIGMA_TOPOLOGY_EVIDENCE_FULL_STEREO)
+    if (mode == SIGMA_TOPOLOGY_EVIDENCE_FULL_STEREO ||
+        mode == SIGMA_TOPOLOGY_EVIDENCE_GAUGE_REBUILD)
         return contact;
     uint status;
     return mode == SIGMA_TOPOLOGY_EVIDENCE_PROPOSALS &&

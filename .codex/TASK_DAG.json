@@ -158,7 +158,7 @@
     {
       "id": "S4-07",
       "title": "Implement local bijective carrier-gauge refinement for supported detail",
-      "status": "in_progress",
+      "status": "done",
       "depends_on": ["S4-06"],
       "acceptance": [
         "Independent accepted inverse cells request more carrier sampling only when current sampling cannot reproduce their common admissible readout",
@@ -166,12 +166,18 @@
         "Fine geometry and texture remain literal local variation of Psi; no displacement field, mip geometry ontology or chart hierarchy is introduced",
         "Gauge transform plus inverse reproduces the accepted Q16.48 readout within the persisted sensor-quantization bound"
       ],
-      "evidence": []
+      "evidence": [
+        "BuildGaugeDemand streams exact generated projective coordinates one lane at a time and emits a request only when two independent accepted proof sources jointly constrain an adjacent triple whose midpoint reproduction error exceeds their admissible width",
+        "SigmaGaugeRefinement implements one deterministic separable piecewise-linear carrier bijection: the requested 8-sample band expands twofold, retained bands translate, two exact null tail bands supply the gauge reservoir, and the outer support endpoint remains fixed",
+        "SigmaGaugeController transforms immutable packed-Q16.48 Psi samples, minimal proof certificates/raw observations and intrinsic topology evidence in one validated transaction; unsupported or singular midpoint transport fails closed and no displacement, chart, mip or second detail state exists",
+        "Direct Vulkan fixtures prove exact GPU gauge demand, carrier/oracle parity, proof-footprint transport and singular-transition transport; inverse round-trip restores every retained Q16.48 sample and all 61/61 Unity Vulkan EditMode tests pass",
+        "Generated operator check, git diff check and the Quest eight-UAV validator pass; Android/device execution remains intentionally batched with accepted S4-08"
+      ]
     },
     {
       "id": "S4-08",
       "title": "Implement bounded pose-gauge intersection",
-      "status": "pending",
+      "status": "in_progress",
       "depends_on": ["S4-07"],
       "acceptance": [
         "Conditioned overlaps produce bounded six-component Q16.48 pose-twist source cells that intersect the immutable Meta prior",

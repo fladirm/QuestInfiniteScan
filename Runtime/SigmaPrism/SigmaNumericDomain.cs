@@ -30,6 +30,14 @@ namespace Genesis.RoomScan.SigmaPrism
         public static long QSub(long a, long b) => checked(a - b);
         public static int QCompare(long a, long b) => a.CompareTo(b);
 
+        /// <summary>
+        /// Exact midpoint in the canonical integer lattice.  The widened sum
+        /// avoids the otherwise spurious overflow of <c>(a+b)/2</c>; ties use the
+        /// same nearest-even rule as every other point operation.
+        /// </summary>
+        public static long QMidpoint(long a, long b) => ToRawChecked(
+            DivideNearestEven(new BigInteger(a) + b, 2));
+
         public static long QNegate(long value)
         {
             if (value == long.MinValue)

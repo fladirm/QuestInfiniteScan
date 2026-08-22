@@ -55,6 +55,10 @@ namespace Genesis.RoomScan.SigmaPrism
             uint leftIndependenceKey, uint rightIndependenceKey) => new(
                 coordinate, null, null, 0, 1, frameSerial,
                 leftIndependenceKey, rightIndependenceKey, 2);
+
+        internal static SigmaTopologyEvidenceView GaugeRebuild(
+            SigmaCarrierPageCoordinate coordinate, uint frameSerial) => new(
+                coordinate, null, null, 0, 1, frameSerial, 0u, 0u, 3);
     }
 
     public readonly struct SigmaTopologySegmentView
@@ -96,6 +100,28 @@ namespace Genesis.RoomScan.SigmaPrism
                     "Invalid intrinsic-topology publication token.");
             _owner.PublishBuiltGeneration(Handle);
         }
+    }
+
+    internal readonly struct SigmaTopologyGaugeBinding
+    {
+        internal SigmaTopologyGaugeBinding(GraphicsBuffer sourceTransitions,
+            int sourceSlot, int sourceCapacity, GraphicsBuffer targetTransitions,
+            int targetSlot, int targetCapacity)
+        {
+            SourceTransitions = sourceTransitions;
+            SourceSlot = sourceSlot;
+            SourceCapacity = sourceCapacity;
+            TargetTransitions = targetTransitions;
+            TargetSlot = targetSlot;
+            TargetCapacity = targetCapacity;
+        }
+
+        internal GraphicsBuffer SourceTransitions { get; }
+        internal int SourceSlot { get; }
+        internal int SourceCapacity { get; }
+        internal GraphicsBuffer TargetTransitions { get; }
+        internal int TargetSlot { get; }
+        internal int TargetCapacity { get; }
     }
 
     /// <summary>
@@ -286,6 +312,38 @@ namespace Genesis.RoomScan.SigmaPrism
 
             BuildPage(target, targetCache, targetEvidence, rightEvidence,
                 downEvidence, false);
+            return new SigmaTopologyBuildToken(this, target);
+        }
+
+        internal SigmaTopologyGaugeBinding PrepareGaugeGeneration(
+            SigmaCarrierPageHandle target, SigmaCarrierPageHandle prior)
+        {
+            RequireInitialized();
+            if (!target.IsValid || !prior.IsValid ||
+                !target.Coordinate.Equals(prior.Coordinate))
+                throw new ArgumentException(
+                    "Gauge topology requires two generations of one carrier page.");
+            EnsureSegmentViews();
+            if (!TryGetCurrentTopology(prior,
+                    out TopologySegmentCache sourceCache))
+                throw new InvalidOperationException(
+                    "Gauge source topology generation is unavailable.");
+            TopologySegmentCache targetCache =
+                _segmentCaches[target.SegmentIndex];
+            CopyPrior(sourceCache, prior.PageSlot, targetCache, target.PageSlot);
+            return new SigmaTopologyGaugeBinding(sourceCache.TransitionRecords,
+                prior.PageSlot, sourceCache.Capacity,
+                targetCache.TransitionRecords, target.PageSlot,
+                targetCache.Capacity);
+        }
+
+        internal SigmaTopologyBuildToken FinishGaugeGeneration(
+            SigmaCarrierPageHandle target, SigmaTopologyEvidenceView evidence)
+        {
+            RequireInitialized();
+            EnsureSegmentViews();
+            BuildPage(target, _segmentCaches[target.SegmentIndex], evidence,
+                default, default, false);
             return new SigmaTopologyBuildToken(this, target);
         }
 

@@ -43,6 +43,24 @@ namespace Genesis.RoomScan.SigmaPrism
             SigmaProofMutationFlags.RawChanged)) != 0;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    internal readonly struct SigmaGaugeRawClonePlan
+    {
+        internal SigmaGaugeRawClonePlan(int sourceRaw, int targetRaw,
+            int targetBlock, int sourceBlock)
+        {
+            SourceRaw = unchecked((uint)sourceRaw);
+            TargetRaw = unchecked((uint)targetRaw);
+            TargetBlock = unchecked((uint)targetBlock);
+            SourceBlock = unchecked((uint)sourceBlock);
+        }
+
+        internal readonly uint SourceRaw;
+        internal readonly uint TargetRaw;
+        internal readonly uint TargetBlock;
+        internal readonly uint SourceBlock;
+    }
+
     /// <summary>
     /// Durable proof metadata for immutable Sigma carrier generations. The ledger
     /// stores only exact block certificates plus unresolved raw sensor tiles; it is
@@ -70,6 +88,7 @@ namespace Genesis.RoomScan.SigmaPrism
 
         private readonly ComputeShader _shader;
         private readonly Stack<int> _freeProofSlots;
+        private readonly SigmaExactBackendGate _backendGate;
         private readonly Stack<int> _freeRawTiles;
         private readonly Stack<int> _freeFrameSlots;
         private readonly bool[] _proofActive;
@@ -89,17 +108,21 @@ namespace Genesis.RoomScan.SigmaPrism
         private GraphicsBuffer _frameRecords;
         private GraphicsBuffer _proofSamples;
         private GraphicsBuffer _pageStatus;
+        private GraphicsBuffer _gaugeDemand;
         private int _clearKernel;
         private int _reduceKernel;
+        private int _gaugeDemandKernel;
         private bool _disposed;
 
         internal SigmaConstraintLedger(int proofPageCapacity,
-            int rawTileCapacity = 2048)
+            int rawTileCapacity, SigmaExactBackendGate backendGate)
         {
             if (proofPageCapacity <= 0)
                 throw new ArgumentOutOfRangeException(nameof(proofPageCapacity));
             if (rawTileCapacity < BlocksPerPage)
                 throw new ArgumentOutOfRangeException(nameof(rawTileCapacity));
+            _backendGate = backendGate ?? throw new ArgumentNullException(
+                nameof(backendGate));
             ProofPageCapacity = proofPageCapacity;
             RawTileCapacity = rawTileCapacity;
             _shader = Resources.Load<ComputeShader>(ResourceName);
@@ -108,6 +131,7 @@ namespace Genesis.RoomScan.SigmaPrism
                     "Sigma constraint-ledger compute resource is missing.");
             _clearKernel = _shader.FindKernel("ClearProofTransaction");
             _reduceKernel = _shader.FindKernel("ReduceProofPage");
+            _gaugeDemandKernel = _shader.FindKernel("BuildGaugeDemand");
 
             _certificates = CreateBuffer(checked(proofPageCapacity *
                 CertificatesPerPage), CertificateStride,
@@ -130,6 +154,8 @@ namespace Genesis.RoomScan.SigmaPrism
                 ProofSampleStride, "Sigma one-page source proof scratch");
             _pageStatus = CreateBuffer(checked(proofPageCapacity * StatusStride),
                 sizeof(uint), "Sigma proof transaction status");
+            _gaugeDemand = CreateBuffer(checked(proofPageCapacity * BlocksPerPage),
+                sizeof(uint) * 12, "Sigma exact carrier-gauge demand proof");
 
             _proofActive = new bool[proofPageCapacity];
             _proofRawHeads = new int[checked(proofPageCapacity * BlocksPerPage)];
@@ -150,6 +176,7 @@ namespace Genesis.RoomScan.SigmaPrism
         internal int ProofPageCapacity { get; }
         internal int RawTileCapacity { get; }
         internal GraphicsBuffer StatusBuffer => _pageStatus;
+        internal GraphicsBuffer GaugeDemandBuffer => _gaugeDemand;
         internal long CertificateBytes =>
             (long)ProofPageCapacity * CertificatesPerPage * CertificateStride +
             (long)ProofPageCapacity * BoundsPerPage * BoundStride +
@@ -263,10 +290,16 @@ namespace Genesis.RoomScan.SigmaPrism
             inverse.SetInt("_ConstraintProofCapacity", ProofPageCapacity);
         }
 
-        internal void Reduce(SigmaProofPageLease page)
+        internal void Reduce(SigmaProofPageLease page,
+            SigmaCarrierWriteLease carrierPage)
         {
             RequirePage(page);
+            if (carrierPage == null)
+                throw new ArgumentNullException(nameof(carrierPage));
             BindCommon(page, _reduceKernel);
+            carrierPage.BindWritable(_shader, _reduceKernel,
+                "_ProofCarrierState", "_ProofCarrierPageSlot",
+                "_ProofCarrierPageCapacity");
             _shader.SetBuffer(_reduceKernel, "_ProofSamples", _proofSamples);
             _shader.SetBuffer(_reduceKernel, "_Certificates", _certificates);
             _shader.SetBuffer(_reduceKernel, "_CertificateBounds", _bounds);
@@ -276,7 +309,207 @@ namespace Genesis.RoomScan.SigmaPrism
             _shader.SetBuffer(_reduceKernel, "_RawReservations",
                 _rawReservations);
             _shader.SetBuffer(_reduceKernel, "_ProofPageStatus", _pageStatus);
+            _shader.SetBuffer(_reduceKernel, "_GaugeDemand", _gaugeDemand);
+            _backendGate.Bind(_shader, _reduceKernel);
             _shader.Dispatch(_reduceKernel, BlocksPerPage, 1, 1);
+
+            BindCommon(page, _gaugeDemandKernel);
+            carrierPage.BindWritable(_shader, _gaugeDemandKernel,
+                "_ProofCarrierState", "_ProofCarrierPageSlot",
+                "_ProofCarrierPageCapacity");
+            _shader.SetBuffer(_gaugeDemandKernel, "_ProofSamples", _proofSamples);
+            _shader.SetBuffer(_gaugeDemandKernel, "_GaugeDemand", _gaugeDemand);
+            _backendGate.Bind(_shader, _gaugeDemandKernel);
+            _shader.Dispatch(_gaugeDemandKernel, BlocksPerPage, 1, 1);
+        }
+
+        internal void BindGaugeReadOnly(ComputeShader shader, int kernel)
+        {
+            BindReadOnly(shader, kernel);
+            shader.SetBuffer(kernel, "_GaugeDemand", _gaugeDemand);
+        }
+
+        internal void BindGaugeSourceReadOnly(ComputeShader shader, int kernel,
+            int sourceSlot)
+        {
+            RequireAlive();
+            if (shader == null)
+                throw new ArgumentNullException(nameof(shader));
+            if ((uint)sourceSlot >= (uint)ProofPageCapacity ||
+                !_proofActive[sourceSlot])
+                throw new InvalidOperationException(
+                    "Gauge source proof slot is not active.");
+            shader.SetBuffer(kernel, "_GaugeSourceCertificates", _certificates);
+            shader.SetBuffer(kernel, "_GaugeSourceBounds", _bounds);
+            shader.SetBuffer(kernel, "_GaugeSourceBlocks", _blocks);
+            shader.SetBuffer(kernel, "_GaugeDemand", _gaugeDemand);
+            shader.SetInt("_GaugeSourceProofSlot", sourceSlot);
+            shader.SetInt("_GaugeProofCapacity", ProofPageCapacity);
+        }
+
+        internal SigmaGaugeProofLease BeginGaugePage(
+            SigmaCarrierPageHandle source, SigmaGaugeMap map)
+        {
+            RequireAlive();
+            int sourceSlot = DecodeSourceSlot(source);
+            if (sourceSlot < 0)
+                throw new InvalidOperationException(
+                    "Gauge refinement requires an active source proof page.");
+            if (_freeProofSlots.Count == 0)
+                throw new InvalidOperationException(
+                    "Constraint-certificate page budget is exhausted.");
+
+            var sourceRecords = new List<(int Raw, int SourceBlock,
+                int TargetBlock)>();
+            int sourceBase = sourceSlot * BlocksPerPage;
+            for (int sourceBlock = 0; sourceBlock < BlocksPerPage;
+                ++sourceBlock)
+            {
+                int[] targetBlocks = SigmaGaugeRefinement.
+                    TargetBlocksForSourceBlock(sourceBlock, map);
+                int raw = _proofRawHeads[sourceBase + sourceBlock];
+                int guard = 0;
+                while (raw >= 0 && guard++ < RawTileCapacity)
+                {
+                    for (int target = 0; target < targetBlocks.Length; ++target)
+                        sourceRecords.Add((raw, sourceBlock,
+                            targetBlocks[target]));
+                    raw = _rawNext[raw];
+                }
+                if (raw >= 0)
+                    throw new InvalidOperationException(
+                        "Gauge source raw chain is cyclic or corrupt.");
+            }
+            if (_freeRawTiles.Count < sourceRecords.Count)
+                throw new InvalidOperationException(
+                    "Gauge proof transport raw reserve is exhausted.");
+
+            int targetSlot = _freeProofSlots.Pop();
+            var plan = new SigmaGaugeRawClonePlan[sourceRecords.Count];
+            int allocated = 0;
+            try
+            {
+                for (int index = 0; index < sourceRecords.Count; ++index)
+                {
+                    int targetRaw = _freeRawTiles.Pop();
+                    (int sourceRaw, int sourceBlock, int targetBlock) =
+                        sourceRecords[index];
+                    plan[index] = new SigmaGaugeRawClonePlan(sourceRaw,
+                        targetRaw, targetBlock, sourceBlock);
+                    allocated++;
+                }
+                return new SigmaGaugeProofLease(this, targetSlot, sourceSlot,
+                    map, plan);
+            }
+            catch
+            {
+                for (int index = 0; index < allocated; ++index)
+                    ReleaseUnusedReservation(
+                        unchecked((int)plan[index].TargetRaw));
+                ReleaseProofSlot(targetSlot, false);
+                throw;
+            }
+        }
+
+        internal void BindGaugeSource(ComputeShader shader, int kernel,
+            SigmaGaugeProofLease page)
+        {
+            RequireGaugePage(page);
+            shader.SetBuffer(kernel, "_GaugeSourceCertificates", _certificates);
+            shader.SetBuffer(kernel, "_GaugeSourceBounds", _bounds);
+            shader.SetBuffer(kernel, "_GaugeSourceBlocks", _blocks);
+            shader.SetBuffer(kernel, "_GaugeDemand", _gaugeDemand);
+            shader.SetInt("_GaugeSourceProofSlot", page.SourceSlot);
+            shader.SetInt("_GaugeProofCapacity", ProofPageCapacity);
+        }
+
+        internal void BindGaugeTarget(ComputeShader shader, int kernel,
+            SigmaGaugeProofLease page)
+        {
+            RequireGaugePage(page);
+            shader.SetBuffer(kernel, "_GaugeTargetCertificates", _certificates);
+            shader.SetBuffer(kernel, "_GaugeTargetBounds", _bounds);
+            shader.SetBuffer(kernel, "_GaugeTargetBlocks", _blocks);
+            shader.SetBuffer(kernel, "_GaugeTargetDemand", _gaugeDemand);
+            shader.SetBuffer(kernel, "_GaugeRawTiles", _rawHeaders);
+            shader.SetBuffer(kernel, "_GaugeRawWords", _rawWords);
+            shader.SetInt("_GaugeTargetProofSlot", page.TargetSlot);
+            shader.SetInt("_GaugeRawTileCapacity", RawTileCapacity);
+            shader.SetInt("_GaugeProofCapacity", ProofPageCapacity);
+        }
+
+        internal void ValidateGaugeForPublication(SigmaGaugeProofLease page,
+            NativeArray<uint> cloneStatus)
+        {
+            RequireGaugePage(page);
+            if (cloneStatus.Length < page.ClonePlan.Length * 4)
+                throw new InvalidOperationException(
+                    "Gauge raw-clone status is incomplete.");
+            for (int index = 0; index < page.ClonePlan.Length; ++index)
+            {
+                SigmaGaugeRawClonePlan plan = page.ClonePlan[index];
+                int status = index * 4;
+                bool used = cloneStatus[status] != 0u;
+                if (cloneStatus[status + 1] != plan.TargetRaw ||
+                    cloneStatus[status + 2] != plan.TargetBlock)
+                    throw new InvalidOperationException(
+                        "Gauge raw-clone status does not match its reservation.");
+                if (!used)
+                    continue;
+                int sourceRaw = unchecked((int)plan.SourceRaw);
+                int frame = _rawFrame[sourceRaw];
+                if ((uint)frame >= (uint)_frameRefCount.Length)
+                    throw new InvalidOperationException(
+                        "Gauge raw proof lost its immutable frame record.");
+                if (_frameRefCount[frame] == int.MaxValue)
+                    throw new OverflowException(
+                        "Gauge raw proof frame reference count overflowed.");
+            }
+        }
+
+        internal void PublishGauge(SigmaGaugeProofLease page,
+            NativeArray<uint> cloneStatus)
+        {
+            ValidateGaugeForPublication(page, cloneStatus);
+            int targetBase = page.TargetSlot * BlocksPerPage;
+            var heads = new int[BlocksPerPage];
+            Array.Fill(heads, -1);
+            for (int index = page.ClonePlan.Length - 1; index >= 0; --index)
+            {
+                SigmaGaugeRawClonePlan plan = page.ClonePlan[index];
+                int status = index * 4;
+                bool used = cloneStatus[status] != 0u;
+                int targetRaw = unchecked((int)plan.TargetRaw);
+                if (!used)
+                {
+                    ReleaseUnusedReservation(targetRaw);
+                    continue;
+                }
+                int sourceRaw = unchecked((int)plan.SourceRaw);
+                int targetBlock = unchecked((int)plan.TargetBlock);
+                int frame = _rawFrame[sourceRaw];
+                _rawNext[targetRaw] = heads[targetBlock];
+                _rawFrame[targetRaw] = frame;
+                checked { _frameRefCount[frame]++; }
+                heads[targetBlock] = targetRaw;
+            }
+            for (int block = 0; block < BlocksPerPage; ++block)
+                _proofRawHeads[targetBase + block] = heads[block];
+            _proofActive[page.TargetSlot] = true;
+            ReleaseProofSlot(page.SourceSlot, true);
+            page.MarkPublished();
+        }
+
+        internal void AbortGauge(SigmaGaugeProofLease page)
+        {
+            if (_disposed || page == null || page.Owner != this ||
+                page.IsDisposed || page.IsPublished)
+                return;
+            for (int index = 0; index < page.ClonePlan.Length; ++index)
+                ReleaseUnusedReservation(unchecked((int)
+                    page.ClonePlan[index].TargetRaw));
+            ReleaseProofSlot(page.TargetSlot, false);
+            page.MarkDisposed();
         }
 
         internal SigmaProofPageStatus ReadStatus(NativeArray<uint> status,
@@ -386,6 +619,7 @@ namespace Genesis.RoomScan.SigmaPrism
             _frameRecords?.Dispose();
             _proofSamples?.Dispose();
             _pageStatus?.Dispose();
+            _gaugeDemand?.Dispose();
             _certificates = null;
             _bounds = null;
             _blocks = null;
@@ -395,6 +629,7 @@ namespace Genesis.RoomScan.SigmaPrism
             _frameRecords = null;
             _proofSamples = null;
             _pageStatus = null;
+            _gaugeDemand = null;
         }
 
         private int DecodeSourceSlot(SigmaCarrierPageHandle source)
@@ -482,6 +717,15 @@ namespace Genesis.RoomScan.SigmaPrism
                 page.IsPublished)
                 throw new InvalidOperationException(
                     "Proof page transaction is not writable.");
+        }
+
+        private void RequireGaugePage(SigmaGaugeProofLease page)
+        {
+            RequireAlive();
+            if (page == null || page.Owner != this || page.IsDisposed ||
+                page.IsPublished)
+                throw new InvalidOperationException(
+                    "Gauge proof transaction is not writable.");
         }
 
         private void RequireAlive()
@@ -674,6 +918,48 @@ namespace Genesis.RoomScan.SigmaPrism
             if (_disposed)
                 return;
             Owner?.Abort(this);
+        }
+    }
+
+
+    internal sealed class SigmaGaugeProofLease : IDisposable
+    {
+        private bool _disposed;
+        private bool _published;
+
+        internal SigmaGaugeProofLease(SigmaConstraintLedger owner,
+            int targetSlot, int sourceSlot, SigmaGaugeMap map,
+            SigmaGaugeRawClonePlan[] clonePlan)
+        {
+            Owner = owner;
+            TargetSlot = targetSlot;
+            SourceSlot = sourceSlot;
+            Map = map;
+            ClonePlan = clonePlan ?? Array.Empty<SigmaGaugeRawClonePlan>();
+        }
+
+        internal SigmaConstraintLedger Owner { get; }
+        internal int TargetSlot { get; }
+        internal int SourceSlot { get; }
+        internal SigmaGaugeMap Map { get; }
+        internal SigmaGaugeRawClonePlan[] ClonePlan { get; }
+        internal ulong CertificateOffset =>
+            SigmaConstraintLedger.CertificateOffsetForSlot(TargetSlot);
+        internal uint CertificateCount =>
+            SigmaConstraintLedger.CertificatesPerPage;
+        internal bool IsDisposed => _disposed;
+        internal bool IsPublished => _published;
+        internal void MarkPublished()
+        {
+            _published = true;
+            _disposed = true;
+        }
+        internal void MarkDisposed() => _disposed = true;
+        public void Dispose()
+        {
+            if (_disposed)
+                return;
+            Owner?.AbortGauge(this);
         }
     }
 }

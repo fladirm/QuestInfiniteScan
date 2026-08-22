@@ -27,9 +27,9 @@ Updated: 2026-08-22 (Europe/Prague)
 - `S4-03` is accepted in commit `9a12f7e`.
 - `S4-04` is accepted in commit `d5c05b2`.
 - `S4-05` is accepted in commit `96cbeca`.
-- `S4-06` is accepted by this isolated checkpoint.
-- `S4-07` is the sole `in_progress` node: local bijective carrier-gauge
-  refinement for supported detail.
+- `S4-06` is accepted in commit `c6dabef`.
+- `S4-07` is accepted by this isolated checkpoint.
+- `S4-08` is the sole `in_progress` node: bounded pose-gauge intersection.
 - The retained product surface is only four-stream GPU capture/synchronization,
   immutable calibration/poses, Quest/XR lifecycle, permissions/anchors, input/UI,
   neutral GPU helpers and build/deploy tooling.
@@ -173,18 +173,41 @@ Updated: 2026-08-22 (Europe/Prague)
   compilation and is not a claimed Quest runtime duration. Android/device work is
   intentionally deferred to the accepted S4-08 consolidated milestone.
 
+## S4-07 accepted evidence
+
+- `BuildGaugeDemand` consumes the accepted directional proof of the same `Psi`
+  and streams one generated projective coordinate at a time. It requests gauge
+  work only for an adjacent carrier triple constrained by two independent source
+  keys whose exact midpoint reproduction error exceeds the common admissible
+  width.
+- `SigmaGaugeRefinement` defines a continuous separable local bijection rather
+  than a detail hierarchy: the requested eight-sample band expands by two, the
+  retained middle translates, two exact null tail bands compress into one and
+  the outer support endpoint remains fixed. The inverse restores every retained
+  Q16.48 carrier sample.
+- `SigmaGaugeController` transports immutable carrier state, minimal proof
+  certificates, retained raw observation footprints and intrinsic topology
+  evidence through the same gauge transaction. Unresolved/singular interpolation,
+  non-null reservoir state or any proof/topology mismatch aborts publication.
+- The gauge map changes only the parameterization of `Psi`; it introduces no
+  displacement, texture, chart, mip, topology graph or parallel geometry state.
+- Direct Vulkan fixtures prove demand gating, exact carrier/oracle parity, split
+  proof-footprint transport and singular-transition transport. The full Unity
+  Vulkan EditMode batch passed 61/61; generated operators, diff check and the
+  Quest eight-UAV validator passed. Android/device work remains batched with the
+  accepted S4-08 base milestone.
+
 ## Next exact actions
 
-1. Compact dirty carrier neighborhoods whose independently supported inverse cells
-   cannot reproduce their common admissible readout at the current gauge sampling.
-2. Construct a deterministic dirty-local bijective 2D gauge proposal that may
-   stretch into implicit-null carrier while preserving one global `Psi` domain.
-3. Pull the exact S16 samples and their proof footprints through the gauge map,
-   then revalidate every retained constraint, readout, singular transition and
-   information bound before atomic publication.
-4. Prove gauge round-trip/readout invariance and supported detail recovery without
-   introducing displacement, chart, mip-geometry or explicit topology state, then
-   checkpoint S4-07.
+1. Reuse existing prediction overlap and exact source-cell machinery to emit six
+   bounded Q16.48 pose-twist cells against the immutable Meta prior.
+2. Intersect source twist cells componentwise, keep zero when admissible, otherwise
+   apply the deterministic minimum-magnitude correction; an empty meet leaves the
+   Meta pose unchanged and unresolved.
+3. Re-evaluate forward readout under the corrected observation gauge and prove
+   that carrier bytes, connectivity and frame timestamps remain unchanged.
+4. Keep S4-08 a compact 400--700 LOC vertical slice by reusing the accepted exact
+   interval/meet/readout infrastructure rather than adding a second SLAM or state.
 
 ## Verification policy
 

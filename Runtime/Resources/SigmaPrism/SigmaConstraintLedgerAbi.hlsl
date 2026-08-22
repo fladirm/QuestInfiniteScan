@@ -17,7 +17,6 @@
 #define SIGMA_RAW_WORD4_PER_TILE 384u
 #define SIGMA_INVALID_PROOF_SLOT 0xffffffffu
 #define SIGMA_INVALID_RAW_TILE 0xffffffffu
-
 #define SIGMA_CERTIFICATE_ACTIVE (1u << 0u)
 #define SIGMA_CERTIFICATE_UNRESOLVED (1u << 1u)
 
@@ -51,6 +50,17 @@ struct SigmaConstraintBlockGpu
 {
     uint4 counts; // certificateCount, boundCount, rawHead, flags
     uint4 proof;  // meetMask, roleMask, independentCoordinateMask, revision
+};
+
+// 48 bytes.  This is inverse-proof scheduling metadata, never a detail field.
+// It records the strongest exact failure of the current piecewise-projective
+// readout to reproduce two independently accepted source cells in one 8x8
+// carrier block.
+struct SigmaGaugeDemandGpu
+{
+    uint4 trigger;  // valid, operator coordinate, local centre, axis
+    uint4 evidence; // independence key 0/1, source mask, proof revision
+    uint4 metric;   // reproduction error Q48, joint width Q48
 };
 
 // 32 bytes. Raw payload is a fixed 64-sample finite-footprint tile in a separate
@@ -94,6 +104,29 @@ uint SigmaCertificateBoundAddress(uint proofSlot, uint block, uint bound)
 uint SigmaConstraintBlockAddress(uint proofSlot, uint block)
 {
     return proofSlot * SIGMA_CERTIFICATE_BLOCKS_PER_PAGE + block;
+}
+
+uint SigmaProofBlockForPageSample(uint sample)
+{
+    uint x = sample & 63u;
+    uint y = sample >> 6u;
+    return (y >> 3u) * 8u + (x >> 3u);
+}
+
+uint SigmaProofLocalForPageSample(uint sample)
+{
+    uint x = sample & 63u;
+    uint y = sample >> 6u;
+    return (y & 7u) * 8u + (x & 7u);
+}
+
+uint SigmaProofPageSample(uint block, uint local)
+{
+    uint blockX = block & 7u;
+    uint blockY = block >> 3u;
+    uint localX = local & 7u;
+    uint localY = local >> 3u;
+    return (blockY * 8u + localY) * 64u + blockX * 8u + localX;
 }
 
 #endif

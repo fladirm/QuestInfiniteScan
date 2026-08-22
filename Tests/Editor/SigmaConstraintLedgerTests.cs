@@ -119,6 +119,14 @@ namespace Genesis.RoomScan.Tests
         }
 
         [StructLayout(LayoutKind.Sequential)]
+        private struct GaugeDemandGpu
+        {
+            public UInt4 Trigger;
+            public UInt4 Evidence;
+            public UInt4 Metric;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
         private struct RawTileGpu
         {
             public UInt4 Identity;
@@ -254,6 +262,71 @@ namespace Genesis.RoomScan.Tests
                 "keys may become resistant");
         }
 
+        [Test]
+        public void GpuGaugeDemandRequiresIndependentAcceptedReadoutFailure()
+        {
+            var samples = new ProofSampleGpu[SamplesPerPage];
+            const int y = 3;
+            const int centerX = 3;
+            long zero = 0L;
+            long peak = SigmaNumericDomain.Quantize(0.25);
+            samples[y * 64 + centerX - 1] = GaugeDepthSample(zero);
+            samples[y * 64 + centerX] = GaugeDepthSample(peak);
+            samples[y * 64 + centerX + 1] = GaugeDepthSample(zero);
+
+            var carrier = new UInt2[SamplesPerPage * SigmaS16.LaneCount];
+            SigmaS16 latent = SigmaS16Operators.NullState;
+            for (int sample = 0; sample < SamplesPerPage; ++sample)
+                PackState(latent, carrier, sample);
+            long mass = SigmaNumericDomain.FromInteger(8);
+            PackState(SigmaGeometryReadout.LiftFixture(mass, 0L, 0L,
+                SigmaNumericDomain.FromInteger(1)), carrier,
+                y * 64 + centerX - 1);
+            PackState(SigmaGeometryReadout.LiftFixture(mass, peak, 0L,
+                SigmaNumericDomain.FromInteger(1)), carrier,
+                y * 64 + centerX);
+            PackState(SigmaGeometryReadout.LiftFixture(mass, 0L, 0L,
+                SigmaNumericDomain.FromInteger(1)), carrier,
+                y * 64 + centerX + 1);
+            var demand = new GaugeDemandGpu[
+                SigmaConstraintLedger.BlocksPerPage];
+
+            ComputeShader shader = Resources.Load<ComputeShader>(
+                "SigmaPrism/SigmaConstraintLedger");
+            int kernel = shader.FindKernel("BuildGaugeDemand");
+            using SigmaExactBackendGate gate = SigmaExactBackendGate.Dispatch();
+            using GraphicsBuffer sampleBuffer = Buffer(samples,
+                Marshal.SizeOf<ProofSampleGpu>());
+            using GraphicsBuffer carrierBuffer = Buffer(carrier,
+                Marshal.SizeOf<UInt2>());
+            using GraphicsBuffer demandBuffer = Buffer(demand,
+                Marshal.SizeOf<GaugeDemandGpu>());
+            shader.SetInt("_TargetProofSlot", 0);
+            shader.SetInt("_ProofRevision", 77);
+            shader.SetInt("_ProofCarrierPageSlot", 0);
+            shader.SetInt("_ProofCarrierPageCapacity", 1);
+            shader.SetBuffer(kernel, "_ProofSamples", sampleBuffer);
+            shader.SetBuffer(kernel, "_ProofCarrierState", carrierBuffer);
+            shader.SetBuffer(kernel, "_GaugeDemand", demandBuffer);
+            gate.Bind(shader, kernel);
+            shader.Dispatch(kernel, SigmaConstraintLedger.BlocksPerPage, 1, 1);
+            demandBuffer.GetData(demand);
+
+            int localCenter = y * 8 + centerX;
+            Assert.That(demand[0].Trigger.X, Is.EqualTo(1u));
+            Assert.That(demand[0].Trigger.Y,
+                Is.EqualTo((uint)SigmaGeneratedAlgebra.GeometryRows[1]));
+            Assert.That(demand[0].Trigger.Z, Is.EqualTo((uint)localCenter));
+            Assert.That(demand[0].Trigger.W,
+                Is.EqualTo((uint)SigmaGaugeAxis.X));
+            Assert.That(demand[0].Evidence.X, Is.EqualTo(101u));
+            Assert.That(demand[0].Evidence.Y, Is.EqualTo(202u));
+            Assert.That(demand[0].Evidence.Z, Is.EqualTo(3u));
+            Assert.That(demand[0].Evidence.W, Is.EqualTo(77u));
+            Assert.That(Unpack(demand[0].Metric.X, demand[0].Metric.Y),
+                Is.GreaterThan(0L));
+        }
+
         private static LedgerFixture RunReducer(params ProofSampleGpu[] input)
         {
             Assert.That(Marshal.SizeOf<ProofSampleGpu>(),
@@ -272,10 +345,13 @@ namespace Genesis.RoomScan.Tests
             for (uint index = 0; index < reservations.Length; ++index)
                 reservations[index] = index;
             var status = new uint[SigmaConstraintLedger.StatusStride];
+            var carrier = new UInt2[SamplesPerPage * SigmaS16.LaneCount];
+            var gaugeDemand = new uint[SigmaConstraintLedger.BlocksPerPage * 12];
 
             ComputeShader shader = Resources.Load<ComputeShader>(
                 "SigmaPrism/SigmaConstraintLedger");
             int kernel = shader.FindKernel("ReduceProofPage");
+            using SigmaExactBackendGate gate = SigmaExactBackendGate.Dispatch();
             using var sampleBuffer = Buffer(samples,
                 Marshal.SizeOf<ProofSampleGpu>());
             using var certificateBuffer = Buffer(certificates,
@@ -288,6 +364,8 @@ namespace Genesis.RoomScan.Tests
             using var rawWordBuffer = Buffer(rawWords, Marshal.SizeOf<UInt4>());
             using var reservationBuffer = Buffer(reservations, sizeof(uint));
             using var statusBuffer = Buffer(status, sizeof(uint));
+            using var carrierBuffer = Buffer(carrier, Marshal.SizeOf<UInt2>());
+            using var demandBuffer = Buffer(gaugeDemand, sizeof(uint) * 12);
 
             shader.SetInt("_SourceProofSlot", unchecked((int)InvalidSlot));
             shader.SetInt("_TargetProofSlot", 0);
@@ -295,6 +373,9 @@ namespace Genesis.RoomScan.Tests
             shader.SetInt("_ProofCalibrationEpoch", 7);
             shader.SetInt("_ProofRevision", 11);
             shader.SetInt("_RawTileCapacity", rawTiles.Length);
+            shader.SetInt("_ProofCarrierPageSlot", 0);
+            shader.SetInt("_ProofCarrierPageCapacity", 1);
+            gate.Bind(shader, kernel);
             shader.SetBuffer(kernel, "_ProofSamples", sampleBuffer);
             shader.SetBuffer(kernel, "_Certificates", certificateBuffer);
             shader.SetBuffer(kernel, "_CertificateBounds", boundBuffer);
@@ -303,6 +384,8 @@ namespace Genesis.RoomScan.Tests
             shader.SetBuffer(kernel, "_RawTileWords", rawWordBuffer);
             shader.SetBuffer(kernel, "_RawReservations", reservationBuffer);
             shader.SetBuffer(kernel, "_ProofPageStatus", statusBuffer);
+            shader.SetBuffer(kernel, "_ProofCarrierState", carrierBuffer);
+            shader.SetBuffer(kernel, "_GaugeDemand", demandBuffer);
             shader.Dispatch(kernel, SigmaConstraintLedger.BlocksPerPage, 1, 1);
 
             certificateBuffer.GetData(certificates);
@@ -344,6 +427,32 @@ namespace Genesis.RoomScan.Tests
             };
         }
 
+        private static ProofSampleGpu GaugeDepthSample(long position)
+        {
+            ProofSampleGpu sample = DepthSample(position, position, 0L, 0L,
+                SigmaNumericDomain.FromInteger(1),
+                SigmaNumericDomain.FromInteger(1), 101u, 0u);
+            sample.DepthRight = new DepthCellGpu
+            {
+                X = Bound(position, position),
+                Y = Bound(0L, 0L),
+                Z = Bound(SigmaNumericDomain.FromInteger(1),
+                    SigmaNumericDomain.FromInteger(1)),
+                SourceClass = 2u,
+                IndependenceKey = 202u,
+                Sector = 1u,
+                Valid = 1u,
+            };
+            return sample;
+        }
+
+        private static void PackState(SigmaS16 state, UInt2[] target,
+            int sample)
+        {
+            for (int lane = 0; lane < SigmaS16.LaneCount; ++lane)
+                target[sample * SigmaS16.LaneCount + lane] = Pack(state[lane]);
+        }
+
         private static BoundsGpu Bound(long lower, long upper) => new()
         {
             Lo = Pack(lower),
@@ -355,6 +464,9 @@ namespace Genesis.RoomScan.Tests
 
         private static long Unpack(UInt2 value) => unchecked((long)(
             ((ulong)value.Y << 32) | value.X));
+
+        private static long Unpack(uint lo, uint hi) => unchecked((long)(
+            ((ulong)hi << 32) | lo));
 
         private static void AssertBound(BoundsGpu actual, long lower, long upper)
         {

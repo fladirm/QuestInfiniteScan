@@ -30,8 +30,8 @@ bool SigmaApplyConstraintPrior(SigmaCarrierPageMetaGpu metadata, uint sample,
         SIGMA_CERTIFICATES_PER_PAGE;
     if (proofSlot >= _ConstraintProofCapacity || sample >= SIGMA_PAGE_SAMPLE_COUNT)
         return false;
-    uint block = sample >> 6u;
-    uint local = sample & 63u;
+    uint block = SigmaProofBlockForPageSample(sample);
+    uint local = SigmaProofLocalForPageSample(sample);
     SigmaConstraintBlockGpu proof = _ConstraintBlocks[
         SigmaConstraintBlockAddress(proofSlot, block)];
     if (proof.counts.x > SIGMA_CERTIFICATES_PER_BLOCK ||
