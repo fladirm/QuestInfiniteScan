@@ -67,6 +67,8 @@ static const uint CELLS = 15u;
 static const uint ELASTIC_TOPOLOGY_DIRTY = 1u << 1u;
 
 groupshared uint sSegmentCount[256];
+groupshared uint sWriteFilmIndex;
+groupshared uint sWriteGroupActive;
 
 uint DirtyCount() { return min(_AtlasAllocator[7], _FilmCapacity); }
 
@@ -98,8 +100,22 @@ float BootstrapCoverage(AtlasContactFilmHeader film, uint2 node)
     return (float)supported;
 }
 
+float DomainSupportWindow(uint2 node)
+{
+    // ContactFilm extent is a numerical bounding domain with a finite-cone margin,
+    // not a physical rectangular edge.  The support field must therefore become
+    // strictly UNKNOWN at that numerical bound so marching squares can recover one
+    // closed measured contour even when the outermost deposited footprint reaches
+    // the chart's storage margin.
+    uint distanceToDomain = min(min(node.x, node.y),
+        min((GRID - 1u) - node.x, (GRID - 1u) - node.y));
+    return saturate((float)distanceToDomain);
+}
+
 float Coverage(AtlasContactFilmHeader film, uint2 node)
 {
+    float coverage = 0.0;
+    bool hasCanonicalCoverage = false;
     if ((film.flags & FILM_HAS_DISPLACEMENT) != 0u &&
         film.displacementPage > 0u)
     {
@@ -110,11 +126,18 @@ float Coverage(AtlasContactFilmHeader film, uint2 node)
             if ((page.flags & (PAGE_ACTIVE | PAGE_BASE)) ==
                     (PAGE_ACTIVE | PAGE_BASE) &&
                 page.filmId == film.id && page.filmGeneration == film.generation)
-                return saturate(_BaseDisplacementCells[
+            {
+                coverage = saturate(_BaseDisplacementCells[
                     pageIndex * GRID * GRID + node.y * GRID + node.x].coverage);
+                hasCanonicalCoverage = true;
+            }
         }
     }
-    return BootstrapCoverage(film, node);
+    // Once a live displacement page exists its zeroes are authoritative UNKNOWN.
+    // Falling back based on the numeric value would resurrect stale bootstrap
+    // support and can reopen/cross-link a contour after pressure has refined it.
+    if (!hasCanonicalCoverage) coverage = BootstrapCoverage(film, node);
+    return coverage * DomainSupportWindow(node);
 }
 
 uint CaseSegmentCount(uint code)
@@ -399,14 +422,42 @@ void CommitSupportContourPages(uint3 id : SV_DispatchThreadID)
 void WriteSupportContourSegments(uint3 groupId : SV_GroupID,
     uint3 threadId : SV_GroupThreadID)
 {
-    uint dirtyOrdinal = groupId.x; uint dirty = DirtyCount(); uint local = threadId.x;
-    if (dirtyOrdinal >= dirty || _AtlasAllocator[6] == 0u) return;
-    uint filmIndex = _DirtyTopologyFilms[dirtyOrdinal];
-    if (filmIndex >= _FilmCapacity) return;
-    AtlasContactFilmHeader film = _FilmHeaders[filmIndex];
-    uint4 range = _FilmTopologyRanges[filmIndex];
+    uint dirtyOrdinal = groupId.x;
+    uint local = threadId.x;
+    if (local == 0u)
+    {
+        sWriteFilmIndex = 0u;
+        sWriteGroupActive = 0u;
+        uint dirty = DirtyCount();
+        if (dirtyOrdinal < dirty && _AtlasAllocator[6] != 0u)
+        {
+            uint candidateFilmIndex = _DirtyTopologyFilms[dirtyOrdinal];
+            if (candidateFilmIndex < _FilmCapacity)
+            {
+                AtlasContactFilmHeader candidateFilm =
+                    _FilmHeaders[candidateFilmIndex];
+                if (candidateFilm.id == candidateFilmIndex + 1u &&
+                    (candidateFilm.flags & FILM_ACTIVE) != 0u)
+                {
+                    sWriteFilmIndex = candidateFilmIndex;
+                    sWriteGroupActive = 1u;
+                }
+            }
+        }
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    uint filmIndex = sWriteFilmIndex;
+    bool groupActive = sWriteGroupActive != 0u;
+    AtlasContactFilmHeader film = (AtlasContactFilmHeader)0;
+    uint4 range = 0u;
+    if (groupActive)
+    {
+        film = _FilmHeaders[filmIndex];
+        range = _FilmTopologyRanges[filmIndex];
+    }
     uint count = 0u; uint code = 0u; uint2 cell = 0u; float values[4];
-    if (local < CELLS * CELLS)
+    if (groupActive && local < CELLS * CELLS)
     {
         cell = uint2(local % CELLS, local / CELLS);
         values[0] = Coverage(film, cell);
@@ -430,7 +481,7 @@ void WriteSupportContourSegments(uint3 groupId : SV_GroupID,
         sSegmentCount[local] += add;
         GroupMemoryBarrierWithGroupSync();
     }
-    if (count == 0u) return;
+    if (!groupActive || count == 0u) return;
     uint firstOrdinal = sSegmentCount[local] - count;
     float centre = 0.25 * (values[0] + values[1] + values[2] + values[3]);
     float2 gradient = float2(values[1] + values[2] - values[0] - values[3],

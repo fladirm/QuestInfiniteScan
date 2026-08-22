@@ -267,9 +267,10 @@ void AccumulatePortalConstraints(uint3 id : SV_DispatchThreadID)
     AtlasContactFilmHeader film = _FilmHeaders[edge.filmId - 1u];
     if (film.generation != edge.filmGeneration) return;
     float2 uv = 0.5 * (segment.uv01.xy + segment.uv01.zw);
-    float3 point = AtlasSurfacePoint(film, uv);
+    float3 surfacePosition = AtlasSurfacePoint(film, uv);
     float3 normal = AtlasSurfaceNormal(film, uv);
-    float residual = dot(portal.localEndpointAndSigma.xyz - point, normal);
+    float residual = dot(portal.localEndpointAndSigma.xyz - surfacePosition,
+        normal);
     float sigma = max(sqrt(segment.sigma * segment.sigma +
         portal.localEndpointAndSigma.w * portal.localEndpointAndSigma.w),
         0.00025);

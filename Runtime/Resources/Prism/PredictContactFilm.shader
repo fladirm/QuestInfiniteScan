@@ -15,23 +15,7 @@ Shader "Hidden/Genesis/ConePrism/PredictContactFilm"
             #pragma target 4.5
             #pragma vertex Vert
             #pragma fragment Frag
-
-            struct ContactMeshletVertex
-            {
-                float3 position;
-                uint filmId;
-                float3 normal;
-                uint generation;
-                float2 uv;
-                float sigma;
-                float confidence;
-                uint sidedness;
-                uint flags;
-                uint appearancePage;
-                uint coverageBits;
-                uint boundarySampleId;
-                uint reserved;
-            };
+            #include "ContactMeshletVertexAbi.hlsl"
 
             StructuredBuffer<ContactMeshletVertex> _ContactVertices;
             StructuredBuffer<uint> _ContactIndices;
@@ -64,15 +48,20 @@ Shader "Hidden/Genesis/ConePrism/PredictContactFilm"
                 output.positionOptical = mul(_OpticalFromChunk,
                     float4(input.position, 1.0)).xyz;
                 output.normalOptical = normalize(mul((float3x3)_OpticalFromChunk,
-                    input.normal));
-                output.uv = input.uv;
-                output.sigma = input.sigma;
-                output.confidence = input.confidence;
-                output.filmId = input.filmId;
+                    UnpackContactMeshletNormal(input.packedNormal)));
+                output.uv = UnpackContactMeshletHalf2(input.packedUv);
+                float2 sigmaConfidence = UnpackContactMeshletHalf2(
+                    input.packedSigmaConfidence);
+                output.sigma = sigmaConfidence.x;
+                output.confidence = sigmaConfidence.y;
+                output.filmId = ContactMeshletFilmId(
+                    input.packedFilmMaterial);
                 output.generation = input.generation;
-                output.sidedness = input.sidedness;
-                output.flags = input.flags;
-                output.coverage = asfloat(input.coverageBits);
+                output.sidedness = ContactMeshletSidedness(
+                    input.packedFilmMaterial);
+                output.flags = ContactMeshletFlags(input.packedFilmMaterial);
+                output.coverage = ContactMeshletCoverage(
+                    input.packedFilmMaterial);
                 return output;
             }
 

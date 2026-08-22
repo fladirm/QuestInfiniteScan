@@ -752,23 +752,13 @@ namespace Genesis.RoomScan
         /// </summary>
         public void CycleRenderMode()
         {
-            ScanRenderMode[] order =
-            {
-                ScanRenderMode.Wireframe, ScanRenderMode.Vertex,
-                ScanRenderMode.None
-            };
-
-            int cur = Array.IndexOf(order, renderMode);
-            if (cur < 0) cur = 0;
-
-            for (int i = 1; i <= order.Length; i++)
-            {
-                var candidate = order[(cur + i) % order.Length];
-                if (!IsModeAvailable(candidate)) continue;
-
-                SetRenderMode(candidate);
-                return;
-            }
+            // The operator button is a visibility toggle. Wireframe remains an
+            // explicit diagnostic mode through SetRenderMode, but must not trap
+            // the normal Vertex -> None -> Vertex interaction in an invisible
+            // intermediate state.
+            SetRenderMode(renderMode == ScanRenderMode.None
+                ? ScanRenderMode.Vertex
+                : ScanRenderMode.None);
         }
 
         /// <summary>

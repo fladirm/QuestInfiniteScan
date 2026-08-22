@@ -1,6 +1,6 @@
 # Execution state
 
-Updated: 2026-08-21 (Europe/Prague)
+Updated: 2026-08-22 (Europe/Prague)
 
 ## Source of truth
 
@@ -31,8 +31,9 @@ Updated: 2026-08-21 (Europe/Prague)
 - Q3-15.6 is the sole `in_progress` node.
 - Source implementation, documentation cleanup, schema-v6 persistence and static
   verification are complete in the working tree.
-- Commit/archive, Android build, exact APK installation and one batched physical
-  Quest geometry/lifecycle run remain before Q3-15.6 can be accepted.
+- Commit/archive, exact APK installation and one batched physical Quest geometry/
+  lifecycle run remain before Q3-15.6 can be accepted. The fresh Android build is
+  complete and matches the runtime source tree being committed.
 - Q3-07 through Q3-15 remain physically unaccepted after the forensic audit even
   where their implementation is present. Q3-16 through Q3-22 remain behind the
   topology gate.
@@ -72,6 +73,16 @@ Updated: 2026-08-21 (Europe/Prague)
   motion/time remains starvation fallback only.
 - Vulkan resource retirement is fence-safe. Active/dirty lists, count/validate/commit
   mesh publication, GPU culling and indirect rendering remain preserved.
+- Initial mesh publication no longer deadlocks at zero geometry: support contours
+  close against the numerical chart-domain window, topology rejection diagnostics
+  reset per generation, empty plans reserve no arena capacity, measured plans reserve
+  only their current resolution envelope, and boundary cuts no longer consume the
+  output index arena as scratch storage. Prediction skips cull/draw until a real
+  publication exists.
+- The derived meshlet vertex ABI is 32-byte/16-byte-aligned and shared explicitly by
+  C# and HLSL. Canonical chart/posterior geometry remains full precision; the compact
+  ABI applies only to derived rendering vertices and removes the Quest maximum-buffer
+  allocation failure without reducing reconstruction detail.
 - Geometry evidence integrates every sensor ingress. Topology and derived meshlets
   coalesce two ingress frames transactionally; deterministic capacity-bounded
   hook/shortcut convergence remains intact without dropping observations or lowering
@@ -90,26 +101,27 @@ Updated: 2026-08-21 (Europe/Prague)
 - `Tools/unity/validate_prism_compute_uav.py`: passed; all reachable PRISM kernels
   remain at or below the Quest/Adreno eight-UAV limit.
 - `git diff --check`: passed.
-- Code graph digest `402d1527bbdd`: 161 source files, 2192 symbols, 1627 methods/
-  functions, 182 GPU kernels and 17 event links.
+- Code graph regenerated for this tree: 162 source files, 2221 symbols, 1657
+  methods/functions, 185 GPU kernels and 17 event links.
 - `Tools/validate_goal_state.py`: control plane valid; 24 nodes, Q3-15.6 sole active.
-- No Android/APK/install claim exists yet for this working tree. Earlier APK hashes
-  belong to rejected implementations and must not be reused.
+- Android ARM64/Vulkan development APK build succeeded with zero reported Unity
+  build errors: 226,538,124 bytes, SHA-256
+  `427cd7f0663c154d8cb4e7de2f354fed31f64e9504f5b8c87576122677710c94`.
+  APK: `/mnt/kingston-unity/Builds/QuestInfiniteScan/QuestInfiniteScan-dev.apk`.
+- No installation or physical-geometry acceptance claim exists yet for this APK.
 
 ## Next exact actions
 
-1. Re-run graph/control/static checks after this state update.
+1. Re-run control/static checks after this state update.
 2. Review the staged path set and commit the exact Q3-15.6 tree while excluding all
    archives, captures and generated builds.
 3. Create `QuestInfiniteScan-Q3-15.6-<commit>-source.zip` using `git archive` and
    record its SHA-256.
-4. Build a fresh Android ARM64/Vulkan APK from that committed tree and require the
-   Unity BuildReport success marker with zero errors.
-5. Install that exact APK on the one authorized Quest and record APK SHA-256/package.
-6. Run one batched physical acceptance: continuous support, no rectangular cards or
+4. Install the matching APK on the one authorized Quest and record APK SHA-256/package.
+5. Run one batched physical acceptance: continuous support, no rectangular cards or
    room-spanning curtains, continued scan growth, front/back thin surfaces, chunk
    continuity and Stop/Start retention.
-7. Close Q3-15.6 only after the physical evidence passes. Otherwise preserve the
+6. Close Q3-15.6 only after the physical evidence passes. Otherwise preserve the
    gate and repair the demonstrated systemic cause.
 
 ## Safety and quality

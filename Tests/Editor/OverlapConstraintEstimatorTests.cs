@@ -365,9 +365,8 @@ namespace Genesis.RoomScan.Tests
                 WriteFloat(vertices, offset, i * 0.01f);
                 WriteFloat(vertices, offset + 4, i % 7 * 0.02f);
                 WriteFloat(vertices, offset + 8, i % 11 * 0.03f);
-                WriteFloat(vertices, offset + 16, 0f);
-                WriteFloat(vertices, offset + 20, 1f);
-                WriteFloat(vertices, offset + 24, 0f);
+                WriteUInt(vertices, offset + 16,
+                    ContactMeshletVertexGpu.PackNormal(Vector3.up));
             }
             return new ContactMeshSnapshot
             {
@@ -380,6 +379,12 @@ namespace Genesis.RoomScan.Tests
         {
             Buffer.BlockCopy(BitConverter.GetBytes(value), 0, destination, offset,
                 sizeof(float));
+        }
+
+        private static void WriteUInt(byte[] destination, int offset, uint value)
+        {
+            Buffer.BlockCopy(BitConverter.GetBytes(value), 0, destination, offset,
+                sizeof(uint));
         }
 
         private static OverlapPointCloud CreateSmallCloud()

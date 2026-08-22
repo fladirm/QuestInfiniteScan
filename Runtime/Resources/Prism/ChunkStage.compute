@@ -60,14 +60,7 @@ struct ContactTopologyEvidence
     uint revision;
 };
 
-struct ContactMeshletVertex
-{
-    float3 position; uint filmId;
-    float3 normal; uint generation;
-    float2 uv; float sigma; float confidence;
-    uint sidedness; uint flags; uint appearancePage; uint coverageBits;
-    uint boundarySampleId; uint reserved;
-};
+#include "ContactMeshletVertexAbi.hlsl"
 
 struct ContactMeshletDescriptor
 {
@@ -216,7 +209,7 @@ void StageFilms(uint3 id : SV_DispatchThreadID)
         FilmSlotState freeSlot = (FilmSlotState)0;
         freeSlot.generation = max(1u, film.generation);
         freeSlot.activeOrdinal = 0xffffffffu;
-        freeSlot.freeNext = previousFree;
+        freeSlot.nextFree = previousFree;
         freeSlot.flags = 8u;
         _StageFilmSlotStates[sourceIndex] = freeSlot;
         InterlockedAdd(_StageFilmAllocator[5], 1u);
@@ -463,8 +456,8 @@ void StageMeshlets(uint3 id : SV_DispatchThreadID)
         uint sourceVertex = _SourceMeshletIndices[
             descriptor.sourceIndexBase + vertex];
         ContactMeshletVertex value = _SourceMeshletVertices[sourceVertex];
-        value.filmId = localFilm;
-        value.reserved = destinationDescriptor;
+        value.packedFilmMaterial = ContactMeshletWithFilmId(
+            value.packedFilmMaterial, localFilm);
         _StageMeshletVertices[vertexBase + vertex] = value;
         _StageMeshletIndices[indexBase + vertex] = vertexBase + vertex;
     }

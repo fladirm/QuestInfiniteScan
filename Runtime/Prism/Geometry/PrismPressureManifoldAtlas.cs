@@ -833,6 +833,8 @@ namespace Genesis.RoomScan.Prism
         private void BindPortalResources()
         {
             ContactFilmPool films = filmSpawner.FilmPool;
+            ContactDisplacementPool displacement =
+                displacementTopology.DisplacementPool;
             PressureManifoldPool atlas = films.Manifolds;
             crossChunkPortalCompute.SetInt(FilmCapacityId, films.Capacity);
             crossChunkPortalCompute.SetInt(ContourSegmentCapacityId,
@@ -848,6 +850,15 @@ namespace Genesis.RoomScan.Prism
                 weldPositionFloor);
             crossChunkPortalCompute.SetFloat(CreaseNormalCosineId,
                 Mathf.Cos(creaseNormalDegrees * Mathf.Deg2Rad));
+            crossChunkPortalCompute.SetInt(HasDisplacementId, 1);
+            crossChunkPortalCompute.SetInt(BasePageCapacityId,
+                displacement.BasePageCapacity);
+            crossChunkPortalCompute.SetInt(MicroPageCapacityId,
+                displacement.MicroPageCapacity);
+            crossChunkPortalCompute.SetInt(BaseCellCapacityId,
+                displacement.BaseCellCapacity);
+            crossChunkPortalCompute.SetInt(MaximumMicroLevelsId,
+                displacementTopology.MaximumMicroLevels);
             int[] kernels =
             {
                 _buildPortalReconcileArguments, _reconcilePortalGhosts
@@ -872,6 +883,22 @@ namespace Genesis.RoomScan.Prism
                     atlas.AtlasAllocator);
                 crossChunkPortalCompute.SetBuffer(kernel,
                     PortalDispatchArgumentsId, atlas.PortalDispatchArguments);
+                // ReconcilePortalGhosts evaluates exact chart geometry through
+                // SurfaceChartGeometry.hlsl. Bind the complete posterior hierarchy;
+                // relying on incidental bindings from staging is invalid because a
+                // ComputeShader owns a separate binding table per kernel.
+                crossChunkPortalCompute.SetBuffer(kernel, DisplacementPagesId,
+                    displacement.PageHeaders);
+                crossChunkPortalCompute.SetBuffer(kernel,
+                    BaseDisplacementCellsId, displacement.BaseCells);
+                crossChunkPortalCompute.SetBuffer(kernel,
+                    MicroDisplacementCellsId, displacement.MicroCells);
+                crossChunkPortalCompute.SetBuffer(kernel, BaseChildPagesId,
+                    displacement.BaseChildPages);
+                crossChunkPortalCompute.SetBuffer(kernel, MicroChildPagesId,
+                    displacement.MicroChildPages);
+                crossChunkPortalCompute.SetBuffer(kernel, ElasticChartStatesId,
+                    atlas.ElasticStates);
             }
         }
 

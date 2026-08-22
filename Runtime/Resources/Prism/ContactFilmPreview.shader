@@ -26,15 +26,7 @@ Shader "Hidden/Genesis/ConePrism/ContactFilmPreview"
             #pragma vertex Vert
             #pragma fragment Frag
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
-
-            struct ContactMeshletVertex
-            {
-                float3 position; uint filmId;
-                float3 normal; uint generation;
-                float2 uv; float sigma; float confidence;
-                uint sidedness; uint flags; uint appearancePage;
-                uint coverageBits; uint boundarySampleId; uint reserved;
-            };
+            #include "ContactMeshletVertexAbi.hlsl"
 
             StructuredBuffer<ContactMeshletVertex> _ContactVertices;
             StructuredBuffer<uint> _ContactIndices;
@@ -61,10 +53,12 @@ Shader "Hidden/Genesis/ConePrism/ContactFilmPreview"
                 output.positionCS = TransformWorldToHClip(world.xyz);
                 output.worldPosition = world.xyz;
                 output.worldNormal = normalize(mul((float3x3)_WorldFromChunk,
-                    input.normal));
-                output.confidence = input.confidence;
-                output.flags = input.flags;
-                output.coverage = asfloat(input.coverageBits);
+                    UnpackContactMeshletNormal(input.packedNormal)));
+                output.confidence = UnpackContactMeshletHalf2(
+                    input.packedSigmaConfidence).y;
+                output.flags = ContactMeshletFlags(input.packedFilmMaterial);
+                output.coverage = ContactMeshletCoverage(
+                    input.packedFilmMaterial);
                 return output;
             }
 

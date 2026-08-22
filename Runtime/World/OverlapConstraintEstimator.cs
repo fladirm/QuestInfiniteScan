@@ -115,10 +115,8 @@ namespace Genesis.RoomScan.World
                     BitConverter.ToSingle(snapshot.VertexBytes, offset),
                     BitConverter.ToSingle(snapshot.VertexBytes, offset + 4),
                     BitConverter.ToSingle(snapshot.VertexBytes, offset + 8));
-                var normal = new Vector3(
-                    BitConverter.ToSingle(snapshot.VertexBytes, offset + 16),
-                    BitConverter.ToSingle(snapshot.VertexBytes, offset + 20),
-                    BitConverter.ToSingle(snapshot.VertexBytes, offset + 24));
+                var normal = ContactMeshletVertexGpu.UnpackNormal(
+                    BitConverter.ToUInt32(snapshot.VertexBytes, offset + 16));
                 if (!Finite(point) || !Finite(normal) || normal.sqrMagnitude < 1e-12f)
                     continue;
                 candidatePoints.Add(point);

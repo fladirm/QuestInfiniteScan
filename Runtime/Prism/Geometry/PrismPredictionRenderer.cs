@@ -171,8 +171,12 @@ namespace Genesis.RoomScan.Prism
             CommandBuffer command = CommandBufferPool.Get("Cone-PRISM Predict ContactFilm");
             try
             {
-                EnsureViewBuffers();
-                BindMeshlets();
+                bool hasPublishedGeometry = _meshlets.PublicationGeneration != 0u;
+                if (hasPublishedGeometry)
+                {
+                    EnsureViewBuffers();
+                    BindMeshlets();
+                }
                 bool hasPreviousHiZ = _latest != null && !_latest.IsDisposed;
                 RenderTexture previousHiZ = hasPreviousHiZ
                     ? _latest.HiZRange
@@ -190,9 +194,6 @@ namespace Genesis.RoomScan.Prism
                         clipFromWorld * _meshlets.WorldFromChunk);
                     _properties.SetMatrix(OpticalFromChunkId,
                         opticalFromWorld * _meshlets.WorldFromChunk);
-                    BuildView(command, clipFromWorld * _meshlets.WorldFromChunk,
-                        opticalFromWorld * _meshlets.WorldFromChunk,
-                        view.Resolution, eye, previousHiZ, hasPreviousHiZ);
                     _properties.SetFloat(PeelEnabledId, 0f);
                     SetMrt(prediction.DepthSigma, prediction.NormalConfidence,
                         prediction.FilmIdGeneration, prediction.UvMetadata);
@@ -200,9 +201,15 @@ namespace Genesis.RoomScan.Prism
                         new RenderTargetIdentifier(prediction.HardwareDepth), 0,
                         CubemapFace.Unknown, eye);
                     command.ClearRenderTarget(true, true, Color.clear, 1f);
-                    command.DrawProceduralIndirect(Matrix4x4.identity, _material, 0,
-                        MeshTopology.Triangles, _viewBuffers.DrawArguments, 0,
-                        _properties);
+                    if (hasPublishedGeometry)
+                    {
+                        BuildView(command, clipFromWorld * _meshlets.WorldFromChunk,
+                            opticalFromWorld * _meshlets.WorldFromChunk,
+                            view.Resolution, eye, previousHiZ, hasPreviousHiZ);
+                        command.DrawProceduralIndirect(Matrix4x4.identity, _material,
+                            0, MeshTopology.Triangles,
+                            _viewBuffers.DrawArguments, 0, _properties);
+                    }
 
                     // Second visible ContactFilm layer.  The first depth texture is
                     // immutable during this draw, so the fragment shader peels every
@@ -221,20 +228,24 @@ namespace Genesis.RoomScan.Prism
                     // Occlusion against the previous first-hit pyramid is valid for
                     // the front layer, but the peeled layer must retain candidates
                     // behind it. Rebuild the same GPU list with Hi-Z disabled.
-                    BuildView(command, clipFromWorld * _meshlets.WorldFromChunk,
-                        opticalFromWorld * _meshlets.WorldFromChunk,
-                        view.Resolution, eye, prediction.HiZRange, false);
-                    command.DrawProceduralIndirect(Matrix4x4.identity, _material, 0,
-                        MeshTopology.Triangles, _viewBuffers.DrawArguments, 0,
-                        _properties);
+                    if (hasPublishedGeometry)
+                    {
+                        BuildView(command, clipFromWorld * _meshlets.WorldFromChunk,
+                            opticalFromWorld * _meshlets.WorldFromChunk,
+                            view.Resolution, eye, prediction.HiZRange, false);
+                        command.DrawProceduralIndirect(Matrix4x4.identity, _material,
+                            0, MeshTopology.Triangles,
+                            _viewBuffers.DrawArguments, 0, _properties);
+                    }
                 }
                 BuildHiZ(command, prediction);
                 Graphics.ExecuteCommandBuffer(command);
                 try
                 {
-                    _meshlets.MarkPublishedRead(Graphics.CreateGraphicsFence(
-                        GraphicsFenceType.AsyncQueueSynchronisation,
-                        SynchronisationStageFlags.AllGPUOperations));
+                    if (hasPublishedGeometry)
+                        _meshlets.MarkPublishedRead(Graphics.CreateGraphicsFence(
+                            GraphicsFenceType.AsyncQueueSynchronisation,
+                            SynchronisationStageFlags.AllGPUOperations));
                 }
                 catch (Exception) { }
                 prediction.CommitGpuWrite();

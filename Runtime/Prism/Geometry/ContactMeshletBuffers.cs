@@ -48,24 +48,63 @@ namespace Genesis.RoomScan.Prism
     public struct ContactMeshletVertexGpu
     {
         public Vector3 Position;
-        public uint FilmId;
-        public Vector3 Normal;
+        // Film id, flags, sidedness and coverage share one 32-bit identity word.
+        // The live film pool has at most 65,536 slots, so 17 id bits preserve the
+        // full generation-tagged id domain without truncation.
+        public uint PackedFilmMaterial;
+        // Derived display data is packed; canonical ContactFilm precision is
+        // unchanged. Keeping the three-million-vertex arena below Android's
+        // 128 MiB single-GraphicsBuffer limit also improves vertex bandwidth.
+        public uint PackedNormal;
         public uint Generation;
-        public Vector2 Uv;
-        public float Sigma;
-        public float Confidence;
-        public uint Sidedness;
-        public uint Flags;
-        public uint AppearancePage;
-        // Build-local continuous support sample.  It is persisted with the derived
-        // cache but is not part of canonical ContactFilm state.
-        public uint CoverageBits;
-        // Stable identity shared by the measured and latent duplicate at a clipped
-        // contact/boundary sample. Zero means an ordinary interior lattice vertex.
-        public uint BoundarySampleId;
-        public uint Reserved;
+        public uint PackedUv;
+        public uint PackedSigmaConfidence;
 
-        public const int Stride = 72;
+        // A 32-byte / 16-byte-aligned stride is invariant across D3D structured
+        // layout and Vulkan std430. A 44-byte stride can be rounded to 48 bytes by
+        // SPIR-V drivers, causing every vertex after the first to be misaddressed.
+        public const int Stride = 32;
+
+        public static uint PackNormal(Vector3 value)
+        {
+            if (value.sqrMagnitude < 1e-20f) value = Vector3.forward;
+            value.Normalize();
+            float inverseL1 = 1f / Mathf.Max(1e-20f,
+                Mathf.Abs(value.x) + Mathf.Abs(value.y) + Mathf.Abs(value.z));
+            float x = value.x * inverseL1;
+            float y = value.y * inverseL1;
+            if (value.z < 0f)
+            {
+                float oldX = x;
+                x = (1f - Mathf.Abs(y)) * (oldX >= 0f ? 1f : -1f);
+                y = (1f - Mathf.Abs(oldX)) * (y >= 0f ? 1f : -1f);
+            }
+            int encodedX = Mathf.Clamp(Mathf.RoundToInt(x * 32767f),
+                -32767, 32767);
+            int encodedY = Mathf.Clamp(Mathf.RoundToInt(y * 32767f),
+                -32767, 32767);
+            return (uint)(encodedX & 0xffff) |
+                   ((uint)(encodedY & 0xffff) << 16);
+        }
+
+        public static Vector3 UnpackNormal(uint packed)
+        {
+            float x = (short)(packed & 0xffffu) / 32767f;
+            float y = (short)(packed >> 16) / 32767f;
+            var result = new Vector3(x, y,
+                1f - Mathf.Abs(x) - Mathf.Abs(y));
+            if (result.z < 0f)
+            {
+                float oldX = result.x;
+                result.x = (1f - Mathf.Abs(result.y)) *
+                           (oldX >= 0f ? 1f : -1f);
+                result.y = (1f - Mathf.Abs(oldX)) *
+                           (result.y >= 0f ? 1f : -1f);
+            }
+            return result.sqrMagnitude > 1e-20f
+                ? result.normalized
+                : Vector3.forward;
+        }
     }
 
     [StructLayout(LayoutKind.Sequential)]

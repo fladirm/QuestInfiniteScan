@@ -59,16 +59,17 @@ float4 CachedSegment(BoundaryCurveCache cache, bool sideA, uint index)
         index == 2u ? cache.segmentB2 : cache.segmentB3;
 }
 
-float SegmentSignedDistance(float2 point, float4 segment)
+float SegmentSignedDistance(float2 sampleUv, float4 segment)
 {
     float2 a = segment.xy, b = segment.zw;
     float2 edge = b - a;
     float lengthSquared = max(dot(edge, edge), 1e-10);
-    float t = saturate(dot(point - a, edge) / lengthSquared);
+    float t = saturate(dot(sampleUv - a, edge) / lengthSquared);
     float2 closest = lerp(a, b, t);
-    float signValue = edge.x * (point.y - closest.y) -
-        edge.y * (point.x - closest.x);
-    return (signValue >= 0.0 ? 1.0 : -1.0) * distance(point, closest);
+    float signValue = edge.x * (sampleUv.y - closest.y) -
+        edge.y * (sampleUv.x - closest.x);
+    return (signValue >= 0.0 ? 1.0 : -1.0) *
+        distance(sampleUv, closest);
 }
 
 float SplitDistance(EvidenceAlignedSplitPlan plan,
@@ -105,8 +106,9 @@ uint ChildHandle(bool micro, uint pageIndex, uint cell)
 
 DisplacementCell LoadCell(bool micro, uint pageIndex, uint cell)
 {
-    return micro ? _MicroDisplacementCells[pageIndex * MICRO_CELLS + cell] :
-        _BaseDisplacementCells[pageIndex * BASE_CELLS + cell];
+    if (micro)
+        return _MicroDisplacementCells[pageIndex * MICRO_CELLS + cell];
+    return _BaseDisplacementCells[pageIndex * BASE_CELLS + cell];
 }
 
 DisplacementCell SampleHierarchy(uint rootHandle, float2 uv)

@@ -416,9 +416,10 @@ void AccumulateComponentExtents(uint3 id : SV_DispatchThreadID)
     {
         float su = (corner & 1u) != 0u ? 1.0 : -1.0;
         float sv = (corner & 2u) != 0u ? 1.0 : -1.0;
-        float3 point = film.origin + su * film.extentU * film.tangentU +
+        float3 cornerPosition = film.origin +
+            su * film.extentU * film.tangentU +
             sv * film.extentV * film.tangentV;
-        float3 delta = point - frame.origin;
+        float3 delta = cornerPosition - frame.origin;
         int u = (int)round(dot(delta, frame.tangentU) * EXTENT_SCALE);
         int v = (int)round(dot(delta, frame.tangentV) * EXTENT_SCALE);
         InterlockedMin(_ComponentMoments[baseMoment + 4u].x, u);

@@ -60,7 +60,10 @@ uint HashCell(int3 cell)
     return max(1u, value);
 }
 
-int3 WorldCell(float3 point) { return (int3)floor(point / 0.0125); }
+int3 WorldCell(float3 worldPosition)
+{
+    return (int3)floor(worldPosition / 0.0125);
+}
 
 uint BoundaryHashKey(uint filmId, uint generation, uint cellKey)
 {
@@ -76,9 +79,9 @@ float3 FilmPoint(AtlasContactFilmHeader film, float2 uv)
     return AtlasSurfacePoint(film, uv);
 }
 
-float2 FilmUv(AtlasContactFilmHeader film, float3 point)
+float2 FilmUv(AtlasContactFilmHeader film, float3 worldPosition)
 {
-    float3 delta = point - film.origin;
+    float3 delta = worldPosition - film.origin;
     float u = dot(delta, film.tangentU) / max(2.0 * film.extentU, 1e-6) + 0.5;
     float v = dot(delta, film.tangentV) / max(2.0 * film.extentV, 1e-6) + 0.5;
     return saturate(float2(u, v));
@@ -122,11 +125,12 @@ bool ActiveEdge(uint index, out SurfaceHalfEdge edge,
         segment.filmId == edge.filmId && segment.filmGeneration == edge.filmGeneration;
 }
 
-float PointSegmentDistance(float3 point, float3 a, float3 b)
+float PointSegmentDistance(float3 samplePosition, float3 a, float3 b)
 {
     float3 edge = b - a;
-    float t = saturate(dot(point - a, edge) / max(dot(edge, edge), 1e-12));
-    return distance(point, lerp(a, b, t));
+    float t = saturate(dot(samplePosition - a, edge) /
+        max(dot(edge, edge), 1e-12));
+    return distance(samplePosition, lerp(a, b, t));
 }
 
 uint FindBoundaryHalfEdge(uint boundaryIndex, uint requiredFilmId,
@@ -137,12 +141,12 @@ uint FindBoundaryHalfEdge(uint boundaryIndex, uint requiredFilmId,
     [unroll] for (uint sample = 0u; sample < 5u; ++sample)
         samples[sample] = WorldCubic(boundaryIndex, (float)sample * 0.25);
     uint best = ATLAS_INVALID; bestResidual = 3.402823466e+38;
-    [unroll] for (uint sample = 0u; sample < 5u; ++sample)
+    [loop] for (uint sample = 0u; sample < 5u; ++sample)
     {
         int3 centre = WorldCell(samples[sample]);
-        [unroll] for (int z = -1; z <= 1; ++z)
-        [unroll] for (int y = -1; y <= 1; ++y)
-        [unroll] for (int x = -1; x <= 1; ++x)
+        [loop] for (int z = -1; z <= 1; ++z)
+        [loop] for (int y = -1; y <= 1; ++y)
+        [loop] for (int x = -1; x <= 1; ++x)
         {
             uint key = HashCell(centre + int3(x, y, z));
             uint other = _HalfEdgeHashHeads[key & (_HalfEdgeHashCapacity - 1u)];

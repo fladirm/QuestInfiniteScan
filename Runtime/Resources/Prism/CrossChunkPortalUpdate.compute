@@ -97,7 +97,10 @@ uint HashCell(int3 cell)
     return max(1u, value);
 }
 
-int3 WorldCell(float3 point) { return (int3)floor(point / 0.0125); }
+int3 WorldCell(float3 worldPosition)
+{
+    return (int3)floor(worldPosition / 0.0125);
+}
 
 bool ExistingPortal(uint halfEdgeId, uint halfEdgeGeneration)
 {
@@ -323,10 +326,13 @@ void ReconcilePortalGhosts(uint3 id : SV_DispatchThreadID)
     int3 centre = WorldCell(anchor);
     uint best = ATLAS_INVALID;
     float bestResidual = 3.402823466e+38;
-    [unroll] for (int z = -1; z <= 1; ++z)
-    [unroll] for (int y = -1; y <= 1; ++y)
-    [unroll] for (int x = -1; x <= 1; ++x)
+    // This is a runtime hash stencil. Do not replicate the complete posterior,
+    // normal and multiview proof 27 times in the Android shader binary.
+    [loop] for (uint neighbour = 0u; neighbour < 27u; ++neighbour)
     {
+        int x = (int)(neighbour % 3u) - 1;
+        int y = (int)((neighbour / 3u) % 3u) - 1;
+        int z = (int)(neighbour / 9u) - 1;
         uint key = HashCell(centre + int3(x, y, z));
         uint candidate = _HalfEdgeHashHeads[key & (_HalfEdgeHashCapacity - 1u)];
         [loop]

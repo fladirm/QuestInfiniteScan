@@ -56,7 +56,6 @@ uint _BoundaryCapacity;
 uint _PortalCapacity;
 
 static const uint FILM_ACTIVE = 1u;
-static const uint BOUNDARY_TOPOLOGY_DIRTY_CACHE = 1u << 7u;
 static const uint SEGMENTS_PER_PAGE = 64u;
 
 bool StagedFilmIsActive(uint filmId, uint generation)

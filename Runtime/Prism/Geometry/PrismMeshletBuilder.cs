@@ -20,6 +20,7 @@ namespace Genesis.RoomScan.Prism
         private const int EmitArgumentsOffset = sizeof(uint) * 9;
         private const int RecoveryArgumentsOffset = sizeof(uint) * 12;
         private const int BuildPlanStride = sizeof(uint) * 16;
+        private const int TriangleWorkWordsPerFilm = 128;
         [SerializeField] private PrismFilmSpawner filmSpawner;
         [SerializeField] private PrismPredictionRenderer predictionRenderer;
         [SerializeField] private PrismBoundaryGraph boundaryGraph;
@@ -80,6 +81,8 @@ namespace Genesis.RoomScan.Prism
         private static readonly int MicroChildrenId = Shader.PropertyToID("_MicroChildPages");
         private static readonly int BuildPlansId =
             Shader.PropertyToID("_MeshletBuildPlans");
+        private static readonly int TriangleClassesId =
+            Shader.PropertyToID("_TriangleClasses");
         private static readonly int BuildGroupSumsId =
             Shader.PropertyToID("_MeshletBuildGroupSums");
         private static readonly int BuildPlanCapacityId =
@@ -123,7 +126,10 @@ namespace Genesis.RoomScan.Prism
         private int _scanGroupsKernel = -1;
         private int _addOffsetsKernel = -1;
         private int _validateKernel = -1;
-        private int _buildKernel = -1;
+        private int _buildVerticesKernel = -1;
+        private int _buildRegularTrianglesKernel = -1;
+        private int _buildBoundaryTrianglesKernel = -1;
+        private int _finalizeDescriptorsKernel = -1;
         private int _recoverKernel = -1;
         private int _finalizeKernel = -1;
         private int _prepareDirtyKernel = -1;
@@ -134,6 +140,7 @@ namespace Genesis.RoomScan.Prism
         private int _commitFullRepackKernel = -1;
         private GraphicsBuffer _buildPlans;
         private GraphicsBuffer _buildGroupSums;
+        private GraphicsBuffer _triangleClasses;
         private GraphicsBuffer _transactionState;
         private GraphicsBuffer _incrementalDispatchArguments;
         private bool _running;
@@ -173,7 +180,14 @@ namespace Genesis.RoomScan.Prism
             _addOffsetsKernel = meshletBuildCompute.FindKernel(
                 "AddMeshletBuildGroupOffsets");
             _validateKernel = meshletBuildCompute.FindKernel("ValidateMeshletBuild");
-            _buildKernel = meshletBuildCompute.FindKernel("BuildAdaptiveFilmMeshlets");
+            _buildVerticesKernel = meshletBuildCompute.FindKernel(
+                "BuildFilmMeshletVertices");
+            _buildRegularTrianglesKernel = meshletBuildCompute.FindKernel(
+                "BuildFilmMeshletRegularTriangles");
+            _buildBoundaryTrianglesKernel = meshletBuildCompute.FindKernel(
+                "BuildFilmMeshletBoundaryTriangles");
+            _finalizeDescriptorsKernel = meshletBuildCompute.FindKernel(
+                "FinalizeFilmMeshletDescriptors");
             _recoverKernel = meshletBuildCompute.FindKernel(
                 "RecoverPreviousMeshletGeneration");
             _finalizeKernel = meshletBuildCompute.FindKernel("FinalizeMeshletDrawArguments");
@@ -217,10 +231,12 @@ namespace Genesis.RoomScan.Prism
             StopBuilding();
             _buildPlans?.Dispose();
             _buildGroupSums?.Dispose();
+            _triangleClasses?.Dispose();
             _transactionState?.Dispose();
             _incrementalDispatchArguments?.Dispose();
             _buildPlans = null;
             _buildGroupSums = null;
+            _triangleClasses = null;
             _transactionState = null;
             _incrementalDispatchArguments = null;
         }
@@ -289,8 +305,8 @@ namespace Genesis.RoomScan.Prism
                 meshletBuildCompute.DispatchIndirect(_addOffsetsKernel,
                     target.BuildDispatchArguments, AddOffsetsArgumentsOffset);
                 meshletBuildCompute.Dispatch(_validateKernel, 1, 1, 1);
-                meshletBuildCompute.DispatchIndirect(_buildKernel,
-                    target.BuildDispatchArguments, EmitArgumentsOffset);
+                DispatchMaterialization(target.BuildDispatchArguments,
+                    EmitArgumentsOffset);
                 // ContactBoundary is image/world evidence on one film. Physical
                 // connectors are emitted only from the typed ManifoldLink pool; the
                 // former screen-neighbour boundary strips were able to bridge air.
@@ -319,8 +335,8 @@ namespace Genesis.RoomScan.Prism
             meshletBuildCompute.DispatchIndirect(_validateDirtyKernel,
                 _incrementalDispatchArguments, ScanArgumentsOffset);
             meshletBuildCompute.Dispatch(_commitDirtyKernel, 1, 1, 1);
-            meshletBuildCompute.DispatchIndirect(_buildKernel,
-                _incrementalDispatchArguments, AddOffsetsArgumentsOffset);
+            DispatchMaterialization(_incrementalDispatchArguments,
+                AddOffsetsArgumentsOffset);
 
             // A topology/range incompatibility requests an entirely GPU-side,
             // capacity-validated repack. No CPU readback and no partial publication.
@@ -334,8 +350,8 @@ namespace Genesis.RoomScan.Prism
             meshletBuildCompute.DispatchIndirect(_addOffsetsKernel,
                 target.BuildDispatchArguments, AddOffsetsArgumentsOffset);
             meshletBuildCompute.Dispatch(_validateKernel, 1, 1, 1);
-            meshletBuildCompute.DispatchIndirect(_buildKernel,
-                target.BuildDispatchArguments, EmitArgumentsOffset);
+            DispatchMaterialization(target.BuildDispatchArguments,
+                EmitArgumentsOffset);
             meshletBuildCompute.Dispatch(_commitFullRepackKernel, 1, 1, 1);
 
             meshletBuildCompute.DispatchIndirect(_finalizeDirtyKernel,
@@ -347,6 +363,19 @@ namespace Genesis.RoomScan.Prism
             meshlets.MarkPublishedMutation(_publicationGeneration);
             _rebuildPending = false;
             return true;
+        }
+
+        private void DispatchMaterialization(GraphicsBuffer arguments,
+            uint argumentsOffset)
+        {
+            meshletBuildCompute.DispatchIndirect(_buildVerticesKernel,
+                arguments, argumentsOffset);
+            meshletBuildCompute.DispatchIndirect(_buildBoundaryTrianglesKernel,
+                arguments, argumentsOffset);
+            meshletBuildCompute.DispatchIndirect(_buildRegularTrianglesKernel,
+                arguments, argumentsOffset);
+            meshletBuildCompute.DispatchIndirect(_finalizeDescriptorsKernel,
+                arguments, argumentsOffset);
         }
 
         private void Bind(ContactFilmPool pool,
@@ -366,8 +395,16 @@ namespace Genesis.RoomScan.Prism
             PressureManifoldPool manifolds = pool.Manifolds;
             meshletBuildCompute.SetBuffer(_countKernel, ElasticChartStatesId,
                 manifolds.ElasticStates);
-            meshletBuildCompute.SetBuffer(_buildKernel, ElasticChartStatesId,
-                manifolds.ElasticStates);
+            int[] materializationKernels =
+            {
+                _buildVerticesKernel,
+                _buildRegularTrianglesKernel,
+                _buildBoundaryTrianglesKernel,
+                _finalizeDescriptorsKernel
+            };
+            foreach (int kernel in materializationKernels)
+                meshletBuildCompute.SetBuffer(kernel, ElasticChartStatesId,
+                    manifolds.ElasticStates);
             ContactBoundaryPool boundaries = boundaryGraph?.BoundaryPool;
             bool hasBoundaries = boundaries != null && !boundaries.IsDisposed;
             meshletBuildCompute.SetInt(HasBoundariesId, hasBoundaries ? 1 : 0);
@@ -377,12 +414,21 @@ namespace Genesis.RoomScan.Prism
                     boundaries.HashCapacity - 1);
                 meshletBuildCompute.SetInt(BoundaryCellsPerAxisId,
                     boundaryGraph.CellsPerAxis);
-                meshletBuildCompute.SetBuffer(_buildKernel, BoundaryHeadersId,
-                    boundaries.Headers);
-                meshletBuildCompute.SetBuffer(_buildKernel, BoundaryHashId,
-                    boundaries.HashEntries);
-                meshletBuildCompute.SetBuffer(_buildKernel, BoundaryCurveCacheId,
-                    boundaries.CurveCache);
+                int[] boundaryReaders =
+                {
+                    _countKernel, _buildVerticesKernel,
+                    _buildRegularTrianglesKernel,
+                    _buildBoundaryTrianglesKernel, _finalizeDescriptorsKernel
+                };
+                foreach (int kernel in boundaryReaders)
+                {
+                    meshletBuildCompute.SetBuffer(kernel, BoundaryHeadersId,
+                        boundaries.Headers);
+                    meshletBuildCompute.SetBuffer(kernel, BoundaryHashId,
+                        boundaries.HashEntries);
+                    meshletBuildCompute.SetBuffer(kernel, BoundaryCurveCacheId,
+                        boundaries.CurveCache);
+                }
             }
             ContactDisplacementPool displacement =
                 displacementTopology?.DisplacementPool;
@@ -402,7 +448,10 @@ namespace Genesis.RoomScan.Prism
                     displacementTopology.MaximumMicroLevels);
                 int[] displacementReaders =
                 {
-                    _countKernel, _buildKernel
+                    _countKernel, _buildVerticesKernel,
+                    _buildRegularTrianglesKernel,
+                    _buildBoundaryTrianglesKernel,
+                    _finalizeDescriptorsKernel
                 };
                 foreach (int kernel in displacementReaders)
                 {
@@ -422,7 +471,10 @@ namespace Genesis.RoomScan.Prism
             {
                 _clearKernel, _buildArgsKernel, _countKernel, _scanPlansKernel,
                 _scanGroupsKernel, _addOffsetsKernel, _validateKernel,
-                _buildKernel, _recoverKernel, _finalizeKernel
+                _buildVerticesKernel,
+                _buildRegularTrianglesKernel,
+                _buildBoundaryTrianglesKernel,
+                _finalizeDescriptorsKernel, _recoverKernel, _finalizeKernel
             };
             foreach (int kernel in kernels)
             {
@@ -442,7 +494,9 @@ namespace Genesis.RoomScan.Prism
             int[] activeReaders =
             {
                 _countKernel, _scanPlansKernel, _scanGroupsKernel,
-                _addOffsetsKernel, _validateKernel, _buildKernel
+                _addOffsetsKernel, _validateKernel, _buildVerticesKernel,
+                _buildRegularTrianglesKernel, _buildBoundaryTrianglesKernel,
+                _finalizeDescriptorsKernel
             };
             foreach (int kernel in activeReaders)
                 meshletBuildCompute.SetBuffer(kernel, FilmAllocatorId,
@@ -458,7 +512,9 @@ namespace Genesis.RoomScan.Prism
             int[] planKernels =
             {
                 _countKernel, _scanPlansKernel, _scanGroupsKernel,
-                _addOffsetsKernel, _validateKernel, _buildKernel
+                _addOffsetsKernel, _validateKernel, _buildVerticesKernel,
+                _buildRegularTrianglesKernel, _buildBoundaryTrianglesKernel,
+                _finalizeDescriptorsKernel
             };
             foreach (int kernel in planKernels)
             {
@@ -466,6 +522,14 @@ namespace Genesis.RoomScan.Prism
                 meshletBuildCompute.SetBuffer(kernel, BuildGroupSumsId,
                     _buildGroupSums);
             }
+            int[] triangleClassKernels =
+            {
+                _countKernel, _buildRegularTrianglesKernel,
+                _buildBoundaryTrianglesKernel
+            };
+            foreach (int kernel in triangleClassKernels)
+                meshletBuildCompute.SetBuffer(kernel, TriangleClassesId,
+                    _triangleClasses);
             meshletBuildCompute.SetInt(BuildPlanCapacityId, _buildPlans.count);
             meshletBuildCompute.SetInt(BuildGroupCapacityId,
                 _buildGroupSums.count);
@@ -484,22 +548,28 @@ namespace Genesis.RoomScan.Prism
             // The boundary graph is a mandatory production dependency. Keep a
             // valid zero-count neutral binding for focused builder contracts that
             // intentionally instantiate the mesh stage without it.
-            meshletBuildCompute.SetBuffer(_buildKernel, FilmHeadersId, pool.Headers);
-            meshletBuildCompute.SetBuffer(_buildKernel, FilmAllocatorId, pool.Allocator);
-            meshletBuildCompute.SetBuffer(_buildKernel, ActiveFilmIndicesId,
-                pool.ActiveIndices);
-            meshletBuildCompute.SetBuffer(_buildKernel, DirtyFilmIndicesId,
-                pool.DirtyIndices);
-            meshletBuildCompute.SetBuffer(_buildKernel, TransactionStateId,
-                _transactionState);
-            meshletBuildCompute.SetBuffer(_buildKernel, VerticesId, meshlets.Vertices);
-            meshletBuildCompute.SetBuffer(_buildKernel, IndicesId, meshlets.Indices);
-            meshletBuildCompute.SetBuffer(_buildKernel, DescriptorsId,
-                meshlets.Descriptors);
-            meshletBuildCompute.SetBuffer(_buildKernel, FilmMeshletRangesId,
-                meshlets.FilmRanges);
-            meshletBuildCompute.SetBuffer(_buildKernel, ManifoldDiagnosticsId,
-                manifolds.Diagnostics);
+            foreach (int kernel in materializationKernels)
+            {
+                meshletBuildCompute.SetBuffer(kernel, FilmHeadersId, pool.Headers);
+                meshletBuildCompute.SetBuffer(kernel, FilmAllocatorId,
+                    pool.Allocator);
+                meshletBuildCompute.SetBuffer(kernel, ActiveFilmIndicesId,
+                    pool.ActiveIndices);
+                meshletBuildCompute.SetBuffer(kernel, DirtyFilmIndicesId,
+                    pool.DirtyIndices);
+                meshletBuildCompute.SetBuffer(kernel, TransactionStateId,
+                    _transactionState);
+                meshletBuildCompute.SetBuffer(kernel, VerticesId,
+                    meshlets.Vertices);
+                meshletBuildCompute.SetBuffer(kernel, IndicesId,
+                    meshlets.Indices);
+                meshletBuildCompute.SetBuffer(kernel, DescriptorsId,
+                    meshlets.Descriptors);
+                meshletBuildCompute.SetBuffer(kernel, FilmMeshletRangesId,
+                    meshlets.FilmRanges);
+                meshletBuildCompute.SetBuffer(kernel, ManifoldDiagnosticsId,
+                    manifolds.Diagnostics);
+            }
             meshletBuildCompute.SetBuffer(_recoverKernel, VerticesId,
                 meshlets.Vertices);
             meshletBuildCompute.SetBuffer(_recoverKernel, IndicesId,
@@ -586,16 +656,22 @@ namespace Genesis.RoomScan.Prism
             int groups = Math.Max(1, (capacity + 255) / 256);
             if (_buildPlans != null && _buildPlans.count == capacity &&
                 _buildGroupSums != null && _buildGroupSums.count == groups &&
+                _triangleClasses != null &&
+                _triangleClasses.count ==
+                    checked(capacity * TriangleWorkWordsPerFilm) &&
                 _transactionState != null &&
                 _incrementalDispatchArguments != null) return;
             _buildPlans?.Dispose();
             _buildGroupSums?.Dispose();
+            _triangleClasses?.Dispose();
             _transactionState?.Dispose();
             _incrementalDispatchArguments?.Dispose();
             _buildPlans = new GraphicsBuffer(GraphicsBuffer.Target.Structured,
                 capacity, BuildPlanStride);
             _buildGroupSums = new GraphicsBuffer(GraphicsBuffer.Target.Structured,
                 groups, sizeof(uint) * 4);
+            _triangleClasses = new GraphicsBuffer(GraphicsBuffer.Target.Structured,
+                checked(capacity * TriangleWorkWordsPerFilm), sizeof(uint));
             _transactionState = new GraphicsBuffer(GraphicsBuffer.Target.Structured,
                 8, sizeof(uint));
             _incrementalDispatchArguments = new GraphicsBuffer(

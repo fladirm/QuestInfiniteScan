@@ -28,9 +28,9 @@ namespace Genesis.RoomScan.Tests
         {
             long[] bindingBytes =
             {
-                1_500_000L * ContactMeshletVertexGpu.Stride,
-                6_000_000L * sizeof(uint),
-                131_072L * ContactMeshletDescriptorGpu.Stride,
+                3_000_000L * ContactMeshletVertexGpu.Stride,
+                12_000_000L * sizeof(uint),
+                262_144L * ContactMeshletDescriptorGpu.Stride,
                 131_072L * ContactMeshletViewLodGpu.Stride
             };
             foreach (long bytes in bindingBytes)
@@ -51,7 +51,10 @@ namespace Genesis.RoomScan.Tests
                      {
                          "ClearMeshletBuild", "BuildMeshDispatchArguments",
                          "PrepareFullMeshletRepack", "CommitFullMeshletRepack",
-                         "BuildAdaptiveFilmMeshlets",
+                         "BuildFilmMeshletVertices",
+                         "BuildFilmMeshletRegularTriangles",
+                         "BuildFilmMeshletBoundaryTriangles",
+                         "FinalizeFilmMeshletDescriptors",
                          "FinalizeMeshletDrawArguments"
                      })
                 Assert.DoesNotThrow(() => build.FindKernel(kernel), kernel);

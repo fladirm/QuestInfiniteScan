@@ -96,7 +96,10 @@ uint HashCell(int3 cell)
     return max(1u, value);
 }
 
-int3 WorldCell(float3 point) { return (int3)floor(point / 0.0125); }
+int3 WorldCell(float3 worldPosition)
+{
+    return (int3)floor(worldPosition / 0.0125);
+}
 
 float4 ContactViewState(uint filmId)
 {
@@ -115,6 +118,11 @@ uint FindLoopRoot(uint index)
 [numthreads(1, 1, 1)]
 void BuildHalfEdgeArguments(uint3 id : SV_DispatchThreadID)
 {
+    // These two words describe validity of the topology generation being built,
+    // not lifetime telemetry.  Leaving one failed/open intermediate contour in the
+    // counters permanently rejected every later meshlet publication.
+    _ManifoldDiagnostics[8] = 0u;
+    _ManifoldDiagnostics[9] = 0u;
     uint segments = SegmentDomain();
     bool topologyDirty = _AtlasAllocator[6] != 0u;
     uint hashDomain = max(_HalfEdgeHashCapacity, _HalfEdgeCapacity * 2u);
@@ -214,10 +222,14 @@ void ProveHalfEdgeTwins(uint3 id : SV_DispatchThreadID)
     float3 midpoint = 0.5 * (a0 + a1);
     int3 centre = WorldCell(midpoint);
     uint best = ATLAS_INVALID; float bestResidual = 3.402823466e+38;
-    [unroll] for (int z = -1; z <= 1; ++z)
-    [unroll] for (int y = -1; y <= 1; ++y)
-    [unroll] for (int x = -1; x <= 1; ++x)
+    // The neighbourhood is runtime data. Unrolling 27 copies of the complete
+    // covariance/continuation proof generated a huge Android kernel without
+    // removing a single hash probe.
+    [loop] for (uint neighbour = 0u; neighbour < 27u; ++neighbour)
     {
+        int x = (int)(neighbour % 3u) - 1;
+        int y = (int)((neighbour / 3u) % 3u) - 1;
+        int z = (int)(neighbour / 9u) - 1;
         uint key = HashCell(centre + int3(x, y, z));
         uint other = _HalfEdgeHashHeads[key & (_HalfEdgeHashCapacity - 1u)];
         [loop]
@@ -366,10 +378,13 @@ void OrderOuterHalfEdges(uint3 id : SV_DispatchThreadID)
     float3 endPoint = FilmPoint(film, segment.uv01.zw);
     int3 centre = WorldCell(endPoint); uint best = ATLAS_INVALID;
     float bestDistance = 3.402823466e+38;
-    [unroll] for (int z = -1; z <= 1; ++z)
-    [unroll] for (int y = -1; y <= 1; ++y)
-    [unroll] for (int x = -1; x <= 1; ++x)
+    // Keep one endpoint-ordering body and iterate the 3x3x3 hash stencil. The
+    // previous nested unroll expanded the full film evaluation 27 times.
+    [loop] for (uint neighbour = 0u; neighbour < 27u; ++neighbour)
     {
+        int x = (int)(neighbour % 3u) - 1;
+        int y = (int)((neighbour / 3u) % 3u) - 1;
+        int z = (int)(neighbour / 9u) - 1;
         uint key = HashCell(centre + int3(x, y, z));
         uint entry = _EndpointHashHeads[key & (_HalfEdgeHashCapacity - 1u)];
         [loop]
