@@ -334,6 +334,26 @@ Updated: 2026-08-22 (Europe/Prague)
   branch, CPU readback, synchronous wait, callback scheduler or runtime fallback is
   allowed. No runtime source has yet been changed for S4-08.2.
 
+## S4-08.2 implementation candidate
+
+- Capture, prediction and inverse now share one CPU-pollable graphics-queue
+  completion-ticket contract. No async-queue fence, catch-as-complete path,
+  synchronous wait or readback scheduler remains in the live Sigma runtime.
+- The packed exact ALU/operator lowering, pose/RGB inverse, raw reservation,
+  proof reduction, gauge transport and intrinsic-topology hot paths have been
+  replaced by bounded cooperative GPU schedules while retaining the same checked
+  Q16.48 and validity-bit semantics.
+- Gauge demand is a separate coordinate-major two-pass shader: one coordinate per
+  source lane followed by a 16-lane deterministic final reduction. The former
+  serial `BuildGaugeDemand` kernel and its bindings are deleted.
+- The temporary S4-08 human preview directly rasterizes the existing disposable
+  carrier readout into the stereo XR target with Carrier/Wireframe/None modes and
+  a front-depth/equal-depth colour pair. It owns no canonical geometry and is the
+  backend explicitly replaced by S4-11 meshlets.
+- Actual static evidence for this candidate: generated-operator check passed,
+  Quest eight-UAV validation passed, `git diff --check` passed and Unity 6000.5.9f1
+  Vulkan EditMode passed 65/65. No Release/device result is claimed yet.
+
 ## S4-00 neutral Quest-shell regression repair
 
 - Device audit proved the fresh-scene automation had stopped calling the retained
@@ -356,11 +376,10 @@ Updated: 2026-08-22 (Europe/Prague)
 
 ## Next exact actions
 
-1. Execute Phase A of `.codex/S4-08.2_PLAN.md`: replace the three fence/lease paths
-   with one capability-correct nonblocking completion-ticket contract and its C#
-   lifecycle fixtures.
-2. Continue the exact whole-file shader/C# rewrite phases in the frozen plan; do
-   not open `S4-09` or rebuild Android until the S4-08.2 closure gate.
+1. Commit the exact S4-08.2 Release candidate with its generated code graph.
+2. Create the source-only `git archive`, build one Android/Vulkan IL2CPP Release
+   from that exact commit and install it on the connected Quest.
+3. Stop before S4-09 while the user performs the live scan/device audit.
 
 ## Verification policy
 

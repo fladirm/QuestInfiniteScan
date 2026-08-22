@@ -1,12 +1,13 @@
 #ifndef SIGMA_POSE_CONSUME_INCLUDED
 #define SIGMA_POSE_CONSUME_INCLUDED
 
-// Exact pose-gauge proof stays packed Q16.48 in _PoseResult. These helpers are
-// the disposable rigid FP lowering permitted by section 28 after exact integer
-// acceptance. They never decide or store canonical state.
+// _PoseResult is exact packed Q16.48 proof. These routines are only its
+// disposable FP rigid-readout lowering after integer acceptance. They neither
+// decide nor persist canonical state.
 #ifndef SIGMA_POSE_RESULT_EXTERNAL
 StructuredBuffer<uint4> _PoseResult;
 #endif
+
 float4x4 _PoseConsumeReferenceFromWorld;
 float4x4 _PoseConsumeWorldFromReference;
 
@@ -24,16 +25,18 @@ uint2 SigmaPoseTwistPacked(uint component)
 
 void SigmaPoseTwist(out float3 translation, out float3 rotation)
 {
-    translation = float3(SigmaPoseQ48Float(SigmaPoseTwistPacked(0u)),
+    translation = float3(
+        SigmaPoseQ48Float(SigmaPoseTwistPacked(0u)),
         SigmaPoseQ48Float(SigmaPoseTwistPacked(1u)),
         SigmaPoseQ48Float(SigmaPoseTwistPacked(2u)));
-    rotation = float3(SigmaPoseQ48Float(SigmaPoseTwistPacked(3u)),
+    rotation = float3(
+        SigmaPoseQ48Float(SigmaPoseTwistPacked(3u)),
         SigmaPoseQ48Float(SigmaPoseTwistPacked(4u)),
         SigmaPoseQ48Float(SigmaPoseTwistPacked(5u)));
 }
 
-void SigmaPoseRodrigues(float3 rotation, out float sineOverAngle,
-    out float oneMinusCosineOverAngleSquared)
+void SigmaPoseRodriguesCoefficients(float3 rotation,
+    out float sineOverAngle, out float oneMinusCosineOverAngleSquared)
 {
     float thetaSquared = dot(rotation, rotation);
     if (thetaSquared < 1e-10)
@@ -42,7 +45,8 @@ void SigmaPoseRodrigues(float3 rotation, out float sineOverAngle,
         sineOverAngle = 1.0 - thetaSquared * (1.0 / 6.0) +
             thetaFourth * (1.0 / 120.0);
         oneMinusCosineOverAngleSquared = 0.5 -
-            thetaSquared * (1.0 / 24.0) + thetaFourth * (1.0 / 720.0);
+            thetaSquared * (1.0 / 24.0) +
+            thetaFourth * (1.0 / 720.0);
         return;
     }
     float theta = sqrt(thetaSquared);
@@ -54,11 +58,12 @@ float3 SigmaPoseRotate(float3 value, float3 rotation, bool inverse)
 {
     float sineOverAngle;
     float oneMinusCosineOverAngleSquared;
-    SigmaPoseRodrigues(rotation, sineOverAngle,
+    SigmaPoseRodriguesCoefficients(rotation, sineOverAngle,
         oneMinusCosineOverAngleSquared);
     float3 first = cross(rotation, value);
     float3 second = cross(rotation, first);
-    return value + (inverse ? -sineOverAngle : sineOverAngle) * first +
+    float signedSine = inverse ? -sineOverAngle : sineOverAngle;
+    return value + signedSine * first +
         oneMinusCosineOverAngleSquared * second;
 }
 

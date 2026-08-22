@@ -1,0 +1,470 @@
+#pragma kernel BuildGaugeCoordinateCandidates
+#pragma kernel FinalizeGaugeDemand
+#pragma target 5.0
+
+#include "Generated/SigmaGeneratedLayout.hlsl"
+#include "SigmaExactCompare.hlsl"
+#include "SigmaOperatorPlan.hlsl"
+#include "SigmaConstraintLedgerAbi.hlsl"
+#include "SigmaInverseWorkAbi.hlsl"
+
+StructuredBuffer<SigmaProofSampleGpu> _ProofSamples;
+StructuredBuffer<uint2> _ProofCarrierState;
+RWStructuredBuffer<SigmaGaugeDemandGpu> _GaugeCoordinateCandidates;
+StructuredBuffer<SigmaGaugeDemandGpu> _GaugeCoordinateCandidatesRead;
+RWStructuredBuffer<SigmaGaugeDemandGpu> _GaugeDemand;
+StructuredBuffer<SigmaInverseWorkGpu> _InverseWork;
+StructuredBuffer<uint> _InverseWorkControl;
+
+uint _TargetProofSlot;
+uint _ProofRevision;
+uint _ProofCarrierPageSlot;
+uint _ProofCarrierPageCapacity;
+uint _UseInverseWorkList;
+
+groupshared uint2 GaugeCoordinate[64u];
+groupshared uint GaugeCoordinateValid[64u];
+groupshared uint GaugeSourceMask[64u];
+groupshared uint4 GaugeSourceKeys[64u];
+groupshared SigmaQ48Bounds GaugeSourceBounds[64u * 4u];
+groupshared uint4 GaugeTrigger[64u];
+groupshared uint4 GaugeEvidence[64u];
+groupshared uint4 GaugeMetric[64u];
+groupshared uint GaugeBestIndex[64u];
+
+groupshared uint4 GaugeFinalTrigger[16u];
+groupshared uint4 GaugeFinalEvidence[16u];
+groupshared uint4 GaugeFinalMetric[16u];
+groupshared uint GaugeFinalBestIndex[16u];
+
+SigmaQ48Bounds SigmaGaugeFullBounds()
+{
+    SigmaQ48Bounds result;
+    result.lo = uint2(0u, 0x80000000u);
+    result.hi = uint2(0xffffffffu, 0x7fffffffu);
+    return result;
+}
+
+uint SigmaGaugeCandidateAddress(uint workIndex, uint block, uint coordinate)
+{
+    return (workIndex * SIGMA_CERTIFICATE_BLOCKS_PER_PAGE + block) * 16u +
+        coordinate;
+}
+
+bool SigmaGaugeSourceLane(uint source, in SigmaProofSampleGpu proof,
+    uint coordinate, out SigmaQ48Bounds bound, out uint key)
+{
+    bound = SigmaGaugeFullBounds();
+    key = 0u;
+    if ((proof.meta.x & SIGMA_PROPOSAL_ACCEPTED) == 0u)
+        return false;
+    if (source < 2u)
+    {
+        SigmaDepthCell3 depth;
+        if (source == 0u)
+            depth = proof.depthLeft;
+        else
+            depth = proof.depthRight;
+        if (depth.valid == 0u || depth.sector != SIGMA_SECTOR_HIT)
+            return false;
+        [unroll]
+        for (uint axis = 0u; axis < 3u; ++axis)
+        {
+            if (coordinate != SIGMA_GEOMETRY_ROWS[axis + 1u])
+                continue;
+            bound = depth.axis[axis];
+            key = depth.independenceKey;
+            return key != 0u;
+        }
+        return false;
+    }
+
+    SigmaAdmissibleCell16 rgb;
+    if (source == 2u)
+        rgb = proof.rgbLeft;
+    else
+        rgb = proof.rgbRight;
+    if (rgb.valid == 0u ||
+        (rgb.coordinateMask & (1u << coordinate)) == 0u)
+        return false;
+    bound = rgb.coordinate[coordinate];
+    key = rgb.independenceKey;
+    return key != 0u;
+}
+
+uint2 SigmaGaugeMidpoint(uint2 a, uint2 b, inout uint valid)
+{
+    uint2 lo = SigmaQ48Min(a, b);
+    uint2 hi = SigmaQ48Max(a, b);
+    uint2 delta = SigmaQ48SubChecked(hi, lo, valid);
+    uint2 half = SigmaQ48ShiftRightNearestEven(delta, 1u, valid);
+    return SigmaQ48AddChecked(lo, half, valid);
+}
+
+uint2 SigmaGaugeDistanceToInterval(uint2 value, SigmaQ48Bounds interval,
+    inout uint valid)
+{
+    if (SigmaQ48Less(value, interval.lo))
+        return SigmaQ48SubChecked(interval.lo, value, valid);
+    if (SigmaQ48Less(interval.hi, value))
+        return SigmaQ48SubChecked(value, interval.hi, valid);
+    return uint2(0u, 0u);
+}
+
+bool SigmaGaugeDemandBetter(SigmaGaugeDemandGpu candidate,
+    SigmaGaugeDemandGpu current)
+{
+    if (candidate.trigger.x == 0u)
+        return false;
+    if (current.trigger.x == 0u)
+        return true;
+    if (SigmaQ48Less(current.metric.xy, candidate.metric.xy))
+        return true;
+    if (!SigmaU64Equal(current.metric.xy, candidate.metric.xy))
+        return false;
+    if (candidate.trigger.y != current.trigger.y)
+        return candidate.trigger.y < current.trigger.y;
+    if (candidate.trigger.w != current.trigger.w)
+        return candidate.trigger.w < current.trigger.w;
+    return candidate.trigger.z < current.trigger.z;
+}
+
+bool SigmaGaugeSharedPairCoversTriple(uint previousLocal, uint centerLocal,
+    uint nextLocal, uint firstSource, uint secondSource,
+    out SigmaQ48Bounds centerMeet, out uint firstKey, out uint secondKey)
+{
+    centerMeet = SigmaGaugeFullBounds();
+    firstKey = 0u;
+    secondKey = 0u;
+    uint pairMask = (1u << firstSource) | (1u << secondSource);
+    uint locals[3] = { previousLocal, centerLocal, nextLocal };
+    [unroll]
+    for (uint pointIndex = 0u; pointIndex < 3u; ++pointIndex)
+    {
+        uint sampleLocal = locals[pointIndex];
+        if ((GaugeSourceMask[sampleLocal] & pairMask) != pairMask)
+            return false;
+        uint4 keys = GaugeSourceKeys[sampleLocal];
+        uint keyA = keys[firstSource];
+        uint keyB = keys[secondSource];
+        if (keyA == 0u || keyB == 0u || keyA == keyB)
+            return false;
+        if (pointIndex == 0u)
+        {
+            firstKey = keyA;
+            secondKey = keyB;
+        }
+        else if (keyA != firstKey || keyB != secondKey)
+            return false;
+
+        SigmaQ48Bounds firstBound = GaugeSourceBounds[
+            sampleLocal * 4u + firstSource];
+        SigmaQ48Bounds secondBound = GaugeSourceBounds[
+            sampleLocal * 4u + secondSource];
+        SigmaQ48Bounds meet;
+        meet.lo = SigmaQ48Max(firstBound.lo, secondBound.lo);
+        meet.hi = SigmaQ48Min(firstBound.hi, secondBound.hi);
+        if (SigmaQ48Less(meet.hi, meet.lo))
+            return false;
+        if (pointIndex == 1u)
+            centerMeet = meet;
+    }
+    return true;
+}
+
+void SigmaGaugeProjectiveCoordinate(uint stateBase, uint coordinate,
+    out uint2 value, out uint2 mass, out uint valid)
+{
+    uint2 state[16];
+    [unroll]
+    for (uint lane = 0u; lane < 16u; ++lane)
+        state[lane] = _ProofCarrierState[stateBase + lane];
+
+    valid = 1u;
+    value = uint2(0u, 0u);
+    mass = uint2(0u, 0u);
+    if (SigmaHadamardButterflySafe(state))
+    {
+        value = SigmaHadamardRow(state, coordinate, valid);
+        mass = coordinate == SIGMA_GEOMETRY_ROWS[0]
+            ? value : SigmaHadamardRow(state, SIGMA_GEOMETRY_ROWS[0], valid);
+        return;
+    }
+
+    // Preserve the canonical row-plan validity bit for extreme states without
+    // materialising sixteen transformed coordinates in every live thread. This
+    // bounded slow domain is reached only outside the proven butterfly range.
+    [loop]
+    for (uint row = 0u; row < 16u; ++row)
+    {
+        uint2 transformed = SigmaHadamardRow(state, row, valid);
+        if (row == coordinate)
+            value = transformed;
+        if (row == SIGMA_GEOMETRY_ROWS[0])
+            mass = transformed;
+    }
+}
+
+[numthreads(64, 1, 1)]
+void BuildGaugeCoordinateCandidates(uint3 groupId : SV_GroupID,
+    uint3 groupThreadId : SV_GroupThreadID)
+{
+    uint block = groupId.x;
+    uint workIndex = _UseInverseWorkList != 0u ? groupId.y : 0u;
+    uint coordinate = groupId.z;
+    uint local = groupThreadId.x;
+    if ((_UseInverseWorkList != 0u &&
+            workIndex >= _InverseWorkControl[2u]) ||
+        block >= SIGMA_CERTIFICATE_BLOCKS_PER_PAGE || coordinate >= 16u)
+        return;
+
+    SigmaInverseWorkGpu work = (SigmaInverseWorkGpu)0;
+    if (_UseInverseWorkList != 0u)
+        work = _InverseWork[workIndex];
+    uint targetProofSlot = _UseInverseWorkList != 0u
+        ? work.slots.w : _TargetProofSlot;
+    uint carrierPageSlot = _UseInverseWorkList != 0u
+        ? work.slots.y : _ProofCarrierPageSlot;
+    uint proofRevision = _UseInverseWorkList != 0u
+        ? work.control.w : _ProofRevision;
+    uint candidateAddress = SigmaGaugeCandidateAddress(workIndex, block,
+        coordinate);
+
+    GaugeCoordinate[local] = 0u;
+    GaugeCoordinateValid[local] = 0u;
+    GaugeSourceMask[local] = 0u;
+    GaugeSourceKeys[local] = 0u;
+    GaugeTrigger[local] = 0u;
+    GaugeEvidence[local] = 0u;
+    GaugeMetric[local] = 0u;
+    GaugeBestIndex[local] = 0xffffffffu;
+    [unroll]
+    for (uint sourceClear = 0u; sourceClear < 4u; ++sourceClear)
+        GaugeSourceBounds[local * 4u + sourceClear] = SigmaGaugeFullBounds();
+    GroupMemoryBarrierWithGroupSync();
+
+    if (!SigmaCanonicalMutationEnabled() ||
+        carrierPageSlot >= _ProofCarrierPageCapacity)
+    {
+        if (local == 0u)
+            _GaugeCoordinateCandidates[candidateAddress] =
+                (SigmaGaugeDemandGpu)0;
+        return;
+    }
+
+    uint pageSample = SigmaProofPageSample(block, local);
+    SigmaProofSampleGpu proof = _ProofSamples[
+        workIndex * SIGMA_PAGE_SAMPLE_COUNT + pageSample];
+    uint sourceMask = 0u;
+    uint4 sourceKeys = 0u;
+    [unroll]
+    for (uint source = 0u; source < 4u; ++source)
+    {
+        SigmaQ48Bounds bound;
+        uint key;
+        bool constrained = SigmaGaugeSourceLane(source, proof, coordinate,
+            bound, key);
+        GaugeSourceBounds[local * 4u + source] = bound;
+        if (constrained)
+        {
+            sourceMask |= 1u << source;
+            sourceKeys[source] = key;
+        }
+    }
+    GaugeSourceMask[local] = sourceMask;
+    GaugeSourceKeys[local] = sourceKeys;
+
+    uint coordinateValid = countbits(sourceMask) >= 2u ? 1u : 0u;
+    uint2 value = 0u;
+    uint2 mass = 0u;
+    if (coordinateValid != 0u)
+    {
+        uint stateBase = carrierPageSlot * SIGMA_PAGE_LANE_COUNT +
+            pageSample * SIGMA_LANE_COUNT;
+        SigmaGaugeProjectiveCoordinate(stateBase, coordinate, value, mass,
+            coordinateValid);
+        if (coordinateValid != 0u &&
+            SigmaQ48Less(uint2(0u, 0u), mass))
+            value = SigmaQ48DivNearestEven(value, mass, coordinateValid);
+        else
+            coordinateValid = 0u;
+    }
+    GaugeCoordinate[local] = value;
+    GaugeCoordinateValid[local] = coordinateValid;
+    GroupMemoryBarrierWithGroupSync();
+
+    uint2 bestError = 0u;
+    uint2 bestWidth = 0u;
+    uint bestAxis = 0u;
+    uint bestKey0 = 0u;
+    uint bestKey1 = 0u;
+    uint bestSourceMask = 0u;
+    uint centerX = local & 7u;
+    uint centerY = local >> 3u;
+    [unroll]
+    for (uint axis = 0u; axis < 2u; ++axis)
+    {
+        uint varying = axis == 0u ? centerX : centerY;
+        if (varying == 0u || varying == 7u)
+            continue;
+        uint previous = axis == 0u ? local - 1u : local - 8u;
+        uint next = axis == 0u ? local + 1u : local + 8u;
+        if (GaugeCoordinateValid[previous] == 0u ||
+            GaugeCoordinateValid[local] == 0u ||
+            GaugeCoordinateValid[next] == 0u)
+            continue;
+        [unroll]
+        for (uint firstSource = 0u; firstSource < 4u; ++firstSource)
+        [unroll]
+        for (uint secondSource = firstSource + 1u; secondSource < 4u;
+            ++secondSource)
+        {
+            SigmaQ48Bounds meet;
+            uint key0;
+            uint key1;
+            if (!SigmaGaugeSharedPairCoversTriple(previous, local, next,
+                    firstSource, secondSource, meet, key0, key1) ||
+                SigmaQ48Less(GaugeCoordinate[local], meet.lo) ||
+                SigmaQ48Less(meet.hi, GaugeCoordinate[local]))
+                continue;
+            uint exact = 1u;
+            uint2 coarse = SigmaGaugeMidpoint(GaugeCoordinate[previous],
+                GaugeCoordinate[next], exact);
+            uint2 error = SigmaGaugeDistanceToInterval(coarse, meet, exact);
+            uint2 width = SigmaQ48SubChecked(meet.hi, meet.lo, exact);
+            if (exact == 0u || SigmaU64Equal(error, uint2(0u, 0u)))
+                continue;
+            bool stronger = SigmaQ48Less(bestError, error);
+            bool equal = SigmaU64Equal(bestError, error);
+            if (!stronger && !(equal && axis < bestAxis))
+                continue;
+            bestError = error;
+            bestWidth = width;
+            bestAxis = axis;
+            bestKey0 = min(key0, key1);
+            bestKey1 = max(key0, key1);
+            bestSourceMask = (1u << firstSource) | (1u << secondSource);
+        }
+    }
+
+    if (!SigmaU64Equal(bestError, uint2(0u, 0u)))
+    {
+        GaugeTrigger[local] = uint4(1u, coordinate, local, bestAxis);
+        GaugeEvidence[local] = uint4(bestKey0, bestKey1, bestSourceMask,
+            proofRevision);
+        GaugeMetric[local] = uint4(bestError, bestWidth);
+        GaugeBestIndex[local] = local;
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    [unroll]
+    for (uint offset = 32u; offset > 0u; offset >>= 1u)
+    {
+        if (local < offset)
+        {
+            uint candidateIndex = GaugeBestIndex[local + offset];
+            uint currentIndex = GaugeBestIndex[local];
+            SigmaGaugeDemandGpu candidate = (SigmaGaugeDemandGpu)0;
+            SigmaGaugeDemandGpu current = (SigmaGaugeDemandGpu)0;
+            if (candidateIndex != 0xffffffffu)
+            {
+                candidate.trigger = GaugeTrigger[candidateIndex];
+                candidate.evidence = GaugeEvidence[candidateIndex];
+                candidate.metric = GaugeMetric[candidateIndex];
+            }
+            if (currentIndex != 0xffffffffu)
+            {
+                current.trigger = GaugeTrigger[currentIndex];
+                current.evidence = GaugeEvidence[currentIndex];
+                current.metric = GaugeMetric[currentIndex];
+            }
+            if (SigmaGaugeDemandBetter(candidate, current))
+                GaugeBestIndex[local] = candidateIndex;
+        }
+        GroupMemoryBarrierWithGroupSync();
+    }
+
+    if (local == 0u)
+    {
+        SigmaGaugeDemandGpu result = (SigmaGaugeDemandGpu)0;
+        uint best = GaugeBestIndex[0u];
+        if (best != 0xffffffffu)
+        {
+            result.trigger = GaugeTrigger[best];
+            result.evidence = GaugeEvidence[best];
+            result.metric = GaugeMetric[best];
+        }
+        _GaugeCoordinateCandidates[candidateAddress] = result;
+    }
+}
+
+[numthreads(16, 1, 1)]
+void FinalizeGaugeDemand(uint3 groupId : SV_GroupID,
+    uint3 groupThreadId : SV_GroupThreadID)
+{
+    uint block = groupId.x;
+    uint workIndex = _UseInverseWorkList != 0u ? groupId.y : 0u;
+    uint coordinate = groupThreadId.x;
+    if ((_UseInverseWorkList != 0u &&
+            workIndex >= _InverseWorkControl[2u]) ||
+        block >= SIGMA_CERTIFICATE_BLOCKS_PER_PAGE)
+        return;
+
+    SigmaInverseWorkGpu work = (SigmaInverseWorkGpu)0;
+    if (_UseInverseWorkList != 0u)
+        work = _InverseWork[workIndex];
+    uint targetProofSlot = _UseInverseWorkList != 0u
+        ? work.slots.w : _TargetProofSlot;
+
+    SigmaGaugeDemandGpu candidate = (SigmaGaugeDemandGpu)0;
+    if (SigmaCanonicalMutationEnabled())
+        candidate = _GaugeCoordinateCandidatesRead[
+            SigmaGaugeCandidateAddress(workIndex, block, coordinate)];
+    GaugeFinalTrigger[coordinate] = candidate.trigger;
+    GaugeFinalEvidence[coordinate] = candidate.evidence;
+    GaugeFinalMetric[coordinate] = candidate.metric;
+    GaugeFinalBestIndex[coordinate] = candidate.trigger.x != 0u
+        ? coordinate : 0xffffffffu;
+    GroupMemoryBarrierWithGroupSync();
+
+    [unroll]
+    for (uint offset = 8u; offset > 0u; offset >>= 1u)
+    {
+        if (coordinate < offset)
+        {
+            uint candidateIndex = GaugeFinalBestIndex[coordinate + offset];
+            uint currentIndex = GaugeFinalBestIndex[coordinate];
+            SigmaGaugeDemandGpu contender = (SigmaGaugeDemandGpu)0;
+            SigmaGaugeDemandGpu current = (SigmaGaugeDemandGpu)0;
+            if (candidateIndex != 0xffffffffu)
+            {
+                contender.trigger = GaugeFinalTrigger[candidateIndex];
+                contender.evidence = GaugeFinalEvidence[candidateIndex];
+                contender.metric = GaugeFinalMetric[candidateIndex];
+            }
+            if (currentIndex != 0xffffffffu)
+            {
+                current.trigger = GaugeFinalTrigger[currentIndex];
+                current.evidence = GaugeFinalEvidence[currentIndex];
+                current.metric = GaugeFinalMetric[currentIndex];
+            }
+            if (SigmaGaugeDemandBetter(contender, current))
+                GaugeFinalBestIndex[coordinate] = candidateIndex;
+        }
+        GroupMemoryBarrierWithGroupSync();
+    }
+
+    if (coordinate == 0u)
+    {
+        SigmaGaugeDemandGpu result = (SigmaGaugeDemandGpu)0;
+        uint best = GaugeFinalBestIndex[0u];
+        if (best != 0xffffffffu)
+        {
+            result.trigger = GaugeFinalTrigger[best];
+            result.evidence = GaugeFinalEvidence[best];
+            result.metric = GaugeFinalMetric[best];
+        }
+        _GaugeDemand[SigmaConstraintBlockAddress(targetProofSlot, block)] =
+            result;
+    }
+}

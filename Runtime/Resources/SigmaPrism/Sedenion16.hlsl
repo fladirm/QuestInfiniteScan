@@ -212,50 +212,61 @@ struct SigmaU128
     uint4 word;
 };
 
+// Exact 32x32 -> 64 packed multiply. Unity 6's Vulkan HLSL frontend does
+// not expose SM5 umulExtended even though SPIR-V has OpUMulExtended. Keep the
+// operation backend-independent and exact with four scalar 16x16 products and
+// a fixed carry network. There are no indexed limb arrays or data-dependent
+// loops, and both value and checked-validity behaviour match the semantic path.
+uint2 SigmaU32MultiplyWide(uint a, uint b)
+{
+    uint a0 = a & 0xffffu;
+    uint a1 = a >> 16u;
+    uint b0 = b & 0xffffu;
+    uint b1 = b >> 16u;
+    uint p00 = a0 * b0;
+    uint p01 = a0 * b1;
+    uint p10 = a1 * b0;
+    uint p11 = a1 * b1;
+    uint middle = (p00 >> 16u) + (p01 & 0xffffu) + (p10 & 0xffffu);
+    uint low = (p00 & 0xffffu) | (middle << 16u);
+    uint high = p11 + (p01 >> 16u) + (p10 >> 16u) + (middle >> 16u);
+    return uint2(low, high);
+}
+
 SigmaU128 SigmaU64MultiplyWide(uint2 a, uint2 b)
 {
-    // Base-2^16 schoolbook is confined to this proven generic qmul primitive.
-    // Every partial sum is <= 0xffffffff, so no hidden 32-bit overflow occurs.
-    uint left[4];
-    uint right[4];
-    uint digits[8];
-    left[0] = a.x & 0xffffu;
-    left[1] = a.x >> 16u;
-    left[2] = a.y & 0xffffu;
-    left[3] = a.y >> 16u;
-    right[0] = b.x & 0xffffu;
-    right[1] = b.x >> 16u;
-    right[2] = b.y & 0xffffu;
-    right[3] = b.y >> 16u;
-    [loop]
-    for (uint index = 0u; index < 8u; ++index)
-        digits[index] = 0u;
-    [loop]
-    for (uint i = 0u; i < 4u; ++i)
-    {
-        uint carry = 0u;
-        [loop]
-        for (uint j = 0u; j < 4u; ++j)
-        {
-            uint target = i + j;
-            uint sum = digits[target] + left[i] * right[j] + carry;
-            digits[target] = sum & 0xffffu;
-            carry = sum >> 16u;
-        }
-        [loop]
-        for (uint target = i + 4u; target < 8u; ++target)
-        {
-            uint sum = digits[target] + carry;
-            digits[target] = sum & 0xffffu;
-            carry = sum >> 16u;
-        }
-    }
+    uint2 p00 = SigmaU32MultiplyWide(a.x, b.x);
+    uint2 p01 = SigmaU32MultiplyWide(a.x, b.y);
+    uint2 p10 = SigmaU32MultiplyWide(a.y, b.x);
+    uint2 p11 = SigmaU32MultiplyWide(a.y, b.y);
+    uint p00Lo = p00.x, p00Hi = p00.y;
+    uint p01Lo = p01.x, p01Hi = p01.y;
+    uint p10Lo = p10.x, p10Hi = p10.y;
+    uint p11Lo = p11.x, p11Hi = p11.y;
+
+    uint word1 = p00Hi;
+    uint next = word1 + p01Lo;
+    uint carry1 = next < word1 ? 1u : 0u;
+    word1 = next;
+    next = word1 + p10Lo;
+    uint carry2 = next < word1 ? 1u : 0u;
+    word1 = next;
+
+    uint word2 = p01Hi;
+    uint word3 = p11Hi;
+    next = word2 + p10Hi;
+    word3 += next < word2 ? 1u : 0u;
+    word2 = next;
+    next = word2 + p11Lo;
+    word3 += next < word2 ? 1u : 0u;
+    word2 = next;
+    uint carry12 = carry1 + carry2;
+    next = word2 + carry12;
+    word3 += next < word2 ? 1u : 0u;
+    word2 = next;
+
     SigmaU128 wideResult;
-    wideResult.word = uint4(
-        digits[0] | (digits[1] << 16u),
-        digits[2] | (digits[3] << 16u),
-        digits[4] | (digits[5] << 16u),
-        digits[6] | (digits[7] << 16u));
+    wideResult.word = uint4(p00Lo, word1, word2, word3);
     return wideResult;
 }
 
@@ -304,28 +315,6 @@ uint2 SigmaQ48MulLower(uint2 a, uint2 b, inout uint valid)
 uint2 SigmaQ48MulUpper(uint2 a, uint2 b, inout uint valid)
 {
     return SigmaQ48MulRounded(a, b, 2u, valid);
-}
-
-uint SigmaU128Bit(uint4 value, uint bit)
-{
-    uint result = 0u;
-    uint word = bit >> 5u;
-    uint shift = bit & 31u;
-    if (word == 0u) result = (value.x >> shift) & 1u;
-    else if (word == 1u) result = (value.y >> shift) & 1u;
-    else if (word == 2u) result = (value.z >> shift) & 1u;
-    else result = (value.w >> shift) & 1u;
-    return result;
-}
-
-void SigmaU128SetBit(inout uint4 value, uint bit)
-{
-    uint mask = 1u << (bit & 31u);
-    uint word = bit >> 5u;
-    if (word == 0u) value.x |= mask;
-    else if (word == 1u) value.y |= mask;
-    else if (word == 2u) value.z |= mask;
-    else value.w |= mask;
 }
 
 // Q16.48 division by a signed power-of-two denominator is only a checked
@@ -403,38 +392,81 @@ uint2 SigmaQ48DivRounded(uint2 a, uint2 b, uint mode, inout uint valid)
         return dyadicResult;
     bool negative = ((a.y ^ b.y) & 0x80000000u) != 0u;
     uint2 numeratorMagnitude = SigmaU64AbsSigned(a);
-    uint4 numerator = uint4(0u, numeratorMagnitude.x << 16u,
-        (numeratorMagnitude.x >> 16u) | (numeratorMagnitude.y << 16u),
-        numeratorMagnitude.y >> 16u);
-    uint4 quotient = uint4(0u, 0u, 0u, 0u);
+    uint2 quotient64 = uint2(0u, 0u);
     uint2 remainder = uint2(0u, 0u);
     uint remainderExtra = 0u;
+    bool quotientOverflow = false;
 
-    [loop]
-    for (int block = 3; block >= 0; --block)
+    // numerator = |a| << 48. Seed restoring division from the aligned
+    // high prefix, then emit only quotient bits. Every valid Q16.48 quotient
+    // has at most 65 candidate bits, so the normal path executes <= 65
+    // iterations instead of walking the old fixed 128-bit numerator. Invalid
+    // gross-overflow inputs still run the exact longer path so diagnostics keep
+    // the same low quotient/remainder as the semantic reference.
+    if (all(numeratorMagnitude == 0u))
+        return uint2(0u, 0u);
+    int magnitudeTop = numeratorMagnitude.y != 0u
+        ? 32 + firstbithigh(numeratorMagnitude.y)
+        : firstbithigh(numeratorMagnitude.x);
+    int denominatorTop = denominator.y != 0u
+        ? 32 + firstbithigh(denominator.y)
+        : firstbithigh(denominator.x);
+    int numeratorTop = magnitudeTop + 48;
+    int quotientTop = numeratorTop - denominatorTop;
+
+    if (quotientTop < 0)
     {
-        [loop]
-        for (int localBit = 31; localBit >= 0; --localBit)
+        // numerator < denominator, therefore the shifted numerator fits 64 bit.
+        remainder = SigmaU64ShiftLeftRaw(numeratorMagnitude, 48u);
+    }
+    else
+    {
+        int seedShift = 48 - quotientTop;
+        remainder = seedShift >= 0
+            ? SigmaU64ShiftLeftRaw(numeratorMagnitude, (uint)seedShift)
+            : SigmaU64ShiftRight(numeratorMagnitude, (uint)(-seedShift));
+
+        bool subtractSeed = !SigmaU64Less(remainder, denominator);
+        if (subtractSeed)
         {
-            uint bit = (uint)(block * 32 + localBit);
+            uint borrow;
+            remainder = SigmaU64Subtract(remainder, denominator, borrow);
+            if (quotientTop >= 64)
+                quotientOverflow = true;
+            else if (quotientTop < 32)
+                quotient64.x |= 1u << (uint)quotientTop;
+            else
+                quotient64.y |= 1u << (uint)(quotientTop - 32);
+        }
+
+        [loop]
+        for (int bit = quotientTop - 1; bit >= 0; --bit)
+        {
+            uint sourceBit = bit >= 48
+                ? (SigmaU64Bit(numeratorMagnitude, (uint)(bit - 48))
+                    ? 1u : 0u)
+                : 0u;
             remainderExtra = remainder.y >> 31u;
             remainder.y = (remainder.y << 1u) | (remainder.x >> 31u);
-            remainder.x = (remainder.x << 1u) | SigmaU128Bit(numerator, bit);
+            remainder.x = (remainder.x << 1u) | sourceBit;
             bool subtract = remainderExtra != 0u ||
                 !SigmaU64Less(remainder, denominator);
-            if (subtract)
-            {
-                uint borrow;
-                remainder = SigmaU64Subtract(remainder, denominator, borrow);
-                remainderExtra -= borrow;
-                SigmaU128SetBit(quotient, bit);
-            }
+            if (!subtract)
+                continue;
+            uint borrow;
+            remainder = SigmaU64Subtract(remainder, denominator, borrow);
+            remainderExtra -= borrow;
+            if (bit >= 64)
+                quotientOverflow = true;
+            else if (bit < 32)
+                quotient64.x |= 1u << (uint)bit;
+            else
+                quotient64.y |= 1u << (uint)(bit - 32);
         }
     }
 
-    if (quotient.z != 0u || quotient.w != 0u)
+    if (quotientOverflow)
         valid = 0u;
-    uint2 quotient64 = quotient.xy;
     bool hasRemainder = any(remainder != 0u);
     bool increment = false;
     if (mode == 0u && hasRemainder)

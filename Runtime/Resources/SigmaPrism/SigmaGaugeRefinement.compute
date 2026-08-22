@@ -68,6 +68,9 @@ groupshared uint4 GaugeCandidateControl[64u];
 groupshared uint4 GaugeCandidateRegion[64u];
 groupshared uint4 GaugeCandidateMetric[64u];
 groupshared uint4 GaugeCandidateEvidence[64u];
+groupshared uint GaugeBestCandidate[64u];
+groupshared uint GaugeRawTargetMask[2u];
+groupshared uint2 GaugeProofMappedMask[4u];
 
 uint SigmaGaugeStateAddress(uint pageSlot, uint sample, uint lane)
 {
@@ -239,6 +242,18 @@ void BuildGaugeBlockFacts(uint3 groupId : SV_GroupID,
     }
 }
 
+bool SigmaGaugeCandidateBetter(uint candidate, uint incumbent)
+{
+    if (candidate == 0xffffffffu)
+        return false;
+    if (incumbent == 0xffffffffu)
+        return true;
+    uint2 candidateMetric = GaugeCandidateMetric[candidate].xy;
+    uint2 incumbentMetric = GaugeCandidateMetric[incumbent].xy;
+    return SigmaQ48Less(incumbentMetric, candidateMetric) ||
+        (SigmaU64Equal(candidateMetric, incumbentMetric) && candidate < incumbent);
+}
+
 [numthreads(64, 1, 1)]
 void SelectGaugeRequest(uint3 groupThreadId : SV_GroupThreadID)
 {
@@ -276,22 +291,23 @@ void SelectGaugeRequest(uint3 groupThreadId : SV_GroupThreadID)
             }
         }
     }
+    GaugeBestCandidate[block] = GaugeCandidateControl[block].x != 0u
+        ? block : 0xffffffffu;
     GroupMemoryBarrierWithGroupSync();
+    [unroll]
+    for (uint stride = 32u; stride != 0u; stride >>= 1u)
+    {
+        if (block < stride)
+        {
+            uint other = GaugeBestCandidate[block + stride];
+            if (SigmaGaugeCandidateBetter(other, GaugeBestCandidate[block]))
+                GaugeBestCandidate[block] = other;
+        }
+        GroupMemoryBarrierWithGroupSync();
+    }
     if (block != 0u || _GaugeRequestIndex >= _GaugeRequestCapacity)
         return;
-    uint best = 0xffffffffu;
-    [unroll]
-    for (uint candidate = 0u; candidate < 64u; ++candidate)
-    {
-        if (GaugeCandidateControl[candidate].x == 0u)
-            continue;
-        if (best == 0xffffffffu || SigmaQ48Less(
-                GaugeCandidateMetric[best].xy,
-                GaugeCandidateMetric[candidate].xy) ||
-            (SigmaU64Equal(GaugeCandidateMetric[best].xy,
-                GaugeCandidateMetric[candidate].xy) && candidate < best))
-            best = candidate;
-    }
+    uint best = GaugeBestCandidate[0u];
     SigmaGaugeRequestGpu request = (SigmaGaugeRequestGpu)0;
     if (best != 0xffffffffu)
     {
@@ -428,9 +444,11 @@ void TransformGaugeState(uint3 id : SV_DispatchThreadID)
 }
 
 [numthreads(64, 1, 1)]
-void CloneGaugeRawTiles(uint3 id : SV_DispatchThreadID)
+void CloneGaugeRawTiles(uint3 groupId : SV_GroupID,
+    uint3 groupThreadId : SV_GroupThreadID)
 {
-    uint planIndex = id.x;
+    uint planIndex = groupId.x;
+    uint local = groupThreadId.x;
     if (planIndex >= _GaugeRawCloneCount)
         return;
     SigmaGaugeRawCloneGpu plan = _GaugeRawClonePlan[planIndex];
@@ -440,57 +458,73 @@ void CloneGaugeRawTiles(uint3 id : SV_DispatchThreadID)
     uint sourceBlock = plan.transfer.w;
     if (sourceRaw >= _GaugeRawTileCapacity || targetRaw >= _GaugeRawTileCapacity)
     {
-        _GaugeRawCloneStatus[planIndex] = uint4(0u, targetRaw, targetBlock,
-            SIGMA_INVALID_RAW_TILE);
-        InterlockedOr(_GaugeStatus[0].w, SIGMA_GAUGE_FAILED);
+        if (local == 0u)
+        {
+            _GaugeRawCloneStatus[planIndex] = uint4(0u, targetRaw, targetBlock,
+                SIGMA_INVALID_RAW_TILE);
+            InterlockedOr(_GaugeStatus[0].w, SIGMA_GAUGE_FAILED);
+        }
         return;
     }
-    SigmaRawObservationTileGpu source = _GaugeRawTiles[sourceRaw];
-    SigmaGaugeRequestGpu request = SigmaGaugeActiveRequest();
-    SigmaRawObservationTileGpu target = source;
-    target.identity.x = SIGMA_INVALID_RAW_TILE;
-    target.identity.z = (_GaugeTargetProofSlot << 6u) | targetBlock;
-    target.identity.w = _GaugeTargetRevision;
-    uint2 sourceMask = source.provenance.zw;
-    uint2 targetMask = 0u;
-    [loop]
-    for (uint targetLocal = 0u; targetLocal < 64u; ++targetLocal)
+
+    if (local < 2u)
+        GaugeRawTargetMask[local] = 0u;
+    uint targetBase = targetRaw * SIGMA_RAW_WORD4_PER_TILE +
+        local * SIGMA_RAW_WORD4_PER_SAMPLE;
     [unroll]
     for (uint word = 0u; word < SIGMA_RAW_WORD4_PER_SAMPLE; ++word)
-        _GaugeRawWords[targetRaw * SIGMA_RAW_WORD4_PER_TILE +
-            targetLocal * SIGMA_RAW_WORD4_PER_SAMPLE + word] = 0u;
-    [loop]
-    for (uint sourceLocal = 0u; sourceLocal < 64u; ++sourceLocal)
+        _GaugeRawWords[targetBase + word] = 0u;
+    GroupMemoryBarrierWithGroupSync();
+
+    SigmaRawObservationTileGpu source = _GaugeRawTiles[sourceRaw];
+    uint2 sourceMask = source.provenance.zw;
+    bool selected = local < 32u
+        ? (sourceMask.x & (1u << local)) != 0u
+        : (sourceMask.y & (1u << (local - 32u))) != 0u;
+    if (selected)
     {
-        bool selected = sourceLocal < 32u
-            ? (sourceMask.x & (1u << sourceLocal)) != 0u
-            : (sourceMask.y & (1u << (sourceLocal - 32u))) != 0u;
-        if (!selected)
-            continue;
-        uint sourcePageSample = SigmaProofPageSample(sourceBlock, sourceLocal);
+        SigmaGaugeRequestGpu request = SigmaGaugeActiveRequest();
+        uint sourcePageSample = SigmaProofPageSample(sourceBlock, local);
         uint targetPageSample;
         if (SigmaGaugeMapSourceSample(sourcePageSample, request,
-                targetPageSample) == 0u ||
-            SigmaProofBlockForPageSample(targetPageSample) != targetBlock)
-            continue;
-        uint targetLocal = SigmaProofLocalForPageSample(targetPageSample);
-        if (targetLocal < 32u)
-            targetMask.x |= 1u << targetLocal;
-        else
-            targetMask.y |= 1u << (targetLocal - 32u);
-        [unroll]
-        for (uint word = 0u; word < SIGMA_RAW_WORD4_PER_SAMPLE; ++word)
-            _GaugeRawWords[targetRaw * SIGMA_RAW_WORD4_PER_TILE +
-                targetLocal * SIGMA_RAW_WORD4_PER_SAMPLE + word] =
-                _GaugeRawWords[sourceRaw * SIGMA_RAW_WORD4_PER_TILE +
-                    sourceLocal * SIGMA_RAW_WORD4_PER_SAMPLE + word];
+                targetPageSample) != 0u &&
+            SigmaProofBlockForPageSample(targetPageSample) == targetBlock)
+        {
+            uint targetLocal = SigmaProofLocalForPageSample(targetPageSample);
+            uint maskWord = targetLocal >> 5u;
+            InterlockedOr(GaugeRawTargetMask[maskWord],
+                1u << (targetLocal & 31u));
+            uint sourceBase = sourceRaw * SIGMA_RAW_WORD4_PER_TILE +
+                local * SIGMA_RAW_WORD4_PER_SAMPLE;
+            uint mappedBase = targetRaw * SIGMA_RAW_WORD4_PER_TILE +
+                targetLocal * SIGMA_RAW_WORD4_PER_SAMPLE;
+            // chi is injective on retained source samples, so each destination
+            // local has exactly one writer.
+            [unroll]
+            for (uint word = 0u; word < SIGMA_RAW_WORD4_PER_SAMPLE; ++word)
+                _GaugeRawWords[mappedBase + word] = _GaugeRawWords[
+                    sourceBase + word];
+        }
     }
-    target.provenance.zw = targetMask;
-    bool used = any(targetMask != 0u);
-    if (used)
-        _GaugeRawTiles[targetRaw] = target;
-    _GaugeRawCloneStatus[planIndex] = uint4(used ? 1u : 0u, targetRaw,
-        targetBlock, SIGMA_INVALID_RAW_TILE);
+    GroupMemoryBarrierWithGroupSync();
+
+    if (local == 0u)
+    {
+        uint2 targetMask = uint2(GaugeRawTargetMask[0u],
+            GaugeRawTargetMask[1u]);
+        bool used = any(targetMask != 0u);
+        if (used)
+        {
+            SigmaRawObservationTileGpu target = source;
+            target.identity.x = SIGMA_INVALID_RAW_TILE;
+            target.identity.z = (_GaugeTargetProofSlot << 6u) | targetBlock;
+            target.identity.w = _GaugeTargetRevision;
+            target.provenance.zw = targetMask;
+            _GaugeRawTiles[targetRaw] = target;
+        }
+        _GaugeRawCloneStatus[planIndex] = uint4(used ? 1u : 0u, targetRaw,
+            targetBlock, SIGMA_INVALID_RAW_TILE);
+    }
 }
 
 [numthreads(64, 1, 1)]
@@ -529,17 +563,21 @@ void SigmaGaugeSetMaskBit(inout uint2 mask, uint bit)
     else mask.y |= 1u << (bit - 32u);
 }
 
-[numthreads(1, 1, 1)]
-void TransformGaugeProof(uint3 groupId : SV_GroupID)
+[numthreads(64, 1, 1)]
+void TransformGaugeProof(uint3 groupId : SV_GroupID,
+    uint3 groupThreadId : SV_GroupThreadID)
 {
     uint targetBlock = groupId.x;
+    uint local = groupThreadId.x;
     if (targetBlock >= 64u)
         return;
     uint targetBlockX = SigmaGaugeBlockX(targetBlock);
     uint targetBlockY = SigmaGaugeBlockY(targetBlock);
     SigmaGaugeRequestGpu request = SigmaGaugeActiveRequest();
-    if (request.control.x == 0u)
-        return;
+    // Request validity is storage-backed and therefore potentially varying to
+    // Unity's Vulkan frontend. It may mask work/publication, but it must never
+    // bypass either workgroup barrier in this kernel.
+    uint active = request.control.x != 0u ? 1u : 0u;
     uint targetAxisBlock = request.control.z == SIGMA_GAUGE_AXIS_X
         ? targetBlockX : targetBlockY;
     int orientedTargetBlock = SigmaGaugeOrientedCoordinate(
@@ -560,6 +598,48 @@ void TransformGaugeProof(uint3 groupId : SV_GroupID)
     uint sourceBlock = SigmaGaugeBlock(sourceBlockX, sourceBlockY);
     SigmaConstraintBlockGpu sourceMeta = _GaugeSourceBlocks[
         SigmaConstraintBlockAddress(_GaugeSourceProofSlot, sourceBlock)];
+    uint sourceCount = min(sourceMeta.counts.x, 4u);
+
+    if (local < 4u)
+        GaugeProofMappedMask[local] = uint2(0u, 0u);
+    GroupMemoryBarrierWithGroupSync();
+
+    // One lane maps one source sample for every bounded source certificate.
+    // Source-sample iteration is independent; atomics only assemble exact masks.
+    uint sourceSample = SigmaProofPageSample(sourceBlock, local);
+    uint targetSample;
+    bool retained = active != 0u &&
+        SigmaGaugeMapSourceSample(sourceSample, request, targetSample) != 0u &&
+        SigmaProofBlockForPageSample(targetSample) == targetBlock;
+    if (retained)
+    {
+        uint targetLocal = SigmaProofLocalForPageSample(targetSample);
+        uint word = targetLocal >> 5u;
+        uint bit = 1u << (targetLocal & 31u);
+        [unroll]
+        for (uint sourceCertificate = 0u; sourceCertificate < 4u;
+            ++sourceCertificate)
+        {
+            if (sourceCertificate >= sourceCount)
+                continue;
+            SigmaConstraintCertificateGpu certificate =
+                _GaugeSourceCertificates[SigmaCertificateAddress(
+                    _GaugeSourceProofSlot, sourceBlock, sourceCertificate)];
+            if (!SigmaGaugeMaskBit(certificate.sampleMask, local))
+                continue;
+            if (word == 0u)
+                InterlockedOr(GaugeProofMappedMask[sourceCertificate].x, bit);
+            else
+                InterlockedOr(GaugeProofMappedMask[sourceCertificate].y, bit);
+        }
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    // At most four certificates and sixteen bounds survive. Keep publication in
+    // source-certificate/lane order so offsets and certificate ordering remain
+    // byte-for-byte canonical while removing the old 4 x 64 mapping loop.
+    if (local != 0u || active == 0u)
+        return;
     uint outputCount = 0u;
     uint outputBound = 0u;
     uint meetMask = 0u;
@@ -569,39 +649,23 @@ void TransformGaugeProof(uint3 groupId : SV_GroupID)
     [unroll]
     for (uint clear = 0u; clear < 4u; ++clear)
         output[clear] = (SigmaConstraintCertificateGpu)0;
-    [loop]
-    for (uint sourceCertificate = 0u;
-        sourceCertificate < min(sourceMeta.counts.x, 4u); ++sourceCertificate)
+    [unroll]
+    for (uint sourceCertificate = 0u; sourceCertificate < 4u;
+        ++sourceCertificate)
     {
+        if (sourceCertificate >= sourceCount)
+            continue;
+        uint2 mappedMask = GaugeProofMappedMask[sourceCertificate];
+        if (!any(mappedMask != 0u) || outputCount >= 4u)
+            continue;
         SigmaConstraintCertificateGpu certificate = _GaugeSourceCertificates[
             SigmaCertificateAddress(_GaugeSourceProofSlot, sourceBlock,
                 sourceCertificate)];
-        uint2 mappedMask = 0u;
-        [loop]
-        for (uint sourceLocal = 0u; sourceLocal < 64u; ++sourceLocal)
-        {
-            if (!SigmaGaugeMaskBit(certificate.sampleMask, sourceLocal))
-                continue;
-            uint sourceSample = SigmaProofPageSample(sourceBlock, sourceLocal);
-            uint targetSample;
-            if (SigmaGaugeMapSourceSample(sourceSample, request,
-                    targetSample) != 0u &&
-                SigmaProofBlockForPageSample(targetSample) == targetBlock)
-                SigmaGaugeSetMaskBit(mappedMask,
-                    SigmaProofLocalForPageSample(targetSample));
-        }
-        if (!any(mappedMask != 0u) || outputCount >= 4u)
-            continue;
+        uint sourceBoundCursor = certificate.range.y;
         certificate.sampleMask = mappedMask;
         certificate.range.y = outputBound;
-        uint sourceBoundCursor = certificate.range.y;
-        // Source range.y was replaced above; recover it from storage again.
-        SigmaConstraintCertificateGpu original = _GaugeSourceCertificates[
-            SigmaCertificateAddress(_GaugeSourceProofSlot, sourceBlock,
-                sourceCertificate)];
-        sourceBoundCursor = original.range.y;
         uint laneCursor = 0u;
-        [loop]
+        [unroll]
         for (uint lane = 0u; lane < 16u; ++lane)
         {
             if ((certificate.identity.x & (1u << lane)) == 0u)
@@ -616,13 +680,15 @@ void TransformGaugeProof(uint3 groupId : SV_GroupID)
         meetMask |= certificate.identity.x;
         roleMask |= certificate.range.x;
     }
-    [loop]
+    [unroll]
     for (uint lane = 0u; lane < 16u; ++lane)
-    [loop]
-    for (uint first = 0u; first < outputCount; ++first)
-    [loop]
-    for (uint second = first + 1u; second < outputCount; ++second)
+    [unroll]
+    for (uint first = 0u; first < 4u; ++first)
+    [unroll]
+    for (uint second = first + 1u; second < 4u; ++second)
     {
+        if (first >= outputCount || second >= outputCount)
+            continue;
         uint laneBit = 1u << lane;
         if ((output[first].identity.x & laneBit) == 0u ||
             (output[second].identity.x & laneBit) == 0u ||

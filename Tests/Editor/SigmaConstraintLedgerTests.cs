@@ -189,7 +189,14 @@ namespace Genesis.RoomScan.Tests
                 "SigmaPrism/SigmaConstraintLedger");
             Assert.That(shader, Is.Not.Null);
             Assert.That(shader.HasKernel("ClearProofTransaction"), Is.True);
-            Assert.That(shader.HasKernel("ReduceProofPage"), Is.True);
+            Assert.That(shader.HasKernel("ReduceProofSources"), Is.True);
+            Assert.That(shader.HasKernel("FinalizeProofPage"), Is.True);
+            ComputeShader gauge = Resources.Load<ComputeShader>(
+                "SigmaPrism/SigmaGaugeDemand");
+            Assert.That(gauge, Is.Not.Null);
+            Assert.That(gauge.HasKernel("BuildGaugeCoordinateCandidates"),
+                Is.True);
+            Assert.That(gauge.HasKernel("FinalizeGaugeDemand"), Is.True);
         }
 
         [Test]
@@ -305,14 +312,20 @@ namespace Genesis.RoomScan.Tests
             var demand = new GaugeDemandGpu[
                 SigmaConstraintLedger.BlocksPerPage];
 
+            var candidates = new GaugeDemandGpu[
+                SigmaConstraintLedger.BlocksPerPage * SigmaS16.LaneCount];
             ComputeShader shader = Resources.Load<ComputeShader>(
-                "SigmaPrism/SigmaConstraintLedger");
-            int kernel = shader.FindKernel("BuildGaugeDemand");
+                "SigmaPrism/SigmaGaugeDemand");
+            int coordinateKernel = shader.FindKernel(
+                "BuildGaugeCoordinateCandidates");
+            int finalizeKernel = shader.FindKernel("FinalizeGaugeDemand");
             using SigmaExactBackendGate gate = SigmaExactBackendGate.Dispatch();
             using GraphicsBuffer sampleBuffer = Buffer(samples,
                 Marshal.SizeOf<ProofSampleGpu>());
             using GraphicsBuffer carrierBuffer = Buffer(carrier,
                 Marshal.SizeOf<UInt2>());
+            using GraphicsBuffer candidateBuffer = Buffer(candidates,
+                Marshal.SizeOf<GaugeDemandGpu>());
             using GraphicsBuffer demandBuffer = Buffer(demand,
                 Marshal.SizeOf<GaugeDemandGpu>());
             using GraphicsBuffer workBuffer = Buffer(new[]
@@ -325,16 +338,31 @@ namespace Genesis.RoomScan.Tests
             }, Marshal.SizeOf<InverseWorkGpu>());
             using GraphicsBuffer workControlBuffer = Buffer(new uint[]
                 { 0u, 0u, 1u, 0u, 0u, 0u, 0u, 0u, 0u }, sizeof(uint));
+
             shader.SetInt("_UseInverseWorkList", 1);
-            shader.SetInt("_ProofCarrierPageSlot", 0);
             shader.SetInt("_ProofCarrierPageCapacity", 1);
-            shader.SetBuffer(kernel, "_ProofSamples", sampleBuffer);
-            shader.SetBuffer(kernel, "_ProofCarrierState", carrierBuffer);
-            shader.SetBuffer(kernel, "_GaugeDemand", demandBuffer);
-            shader.SetBuffer(kernel, "_InverseWork", workBuffer);
-            shader.SetBuffer(kernel, "_InverseWorkControl", workControlBuffer);
-            gate.Bind(shader, kernel);
-            shader.Dispatch(kernel, SigmaConstraintLedger.BlocksPerPage, 1, 1);
+            shader.SetBuffer(coordinateKernel, "_ProofSamples", sampleBuffer);
+            shader.SetBuffer(coordinateKernel, "_ProofCarrierState",
+                carrierBuffer);
+            shader.SetBuffer(coordinateKernel,
+                "_GaugeCoordinateCandidates", candidateBuffer);
+            shader.SetBuffer(coordinateKernel, "_InverseWork", workBuffer);
+            shader.SetBuffer(coordinateKernel, "_InverseWorkControl",
+                workControlBuffer);
+            gate.Bind(shader, coordinateKernel);
+            shader.Dispatch(coordinateKernel,
+                SigmaConstraintLedger.BlocksPerPage, 1, SigmaS16.LaneCount);
+
+            shader.SetInt("_UseInverseWorkList", 1);
+            shader.SetBuffer(finalizeKernel,
+                "_GaugeCoordinateCandidatesRead", candidateBuffer);
+            shader.SetBuffer(finalizeKernel, "_GaugeDemand", demandBuffer);
+            shader.SetBuffer(finalizeKernel, "_InverseWork", workBuffer);
+            shader.SetBuffer(finalizeKernel, "_InverseWorkControl",
+                workControlBuffer);
+            gate.Bind(shader, finalizeKernel);
+            shader.Dispatch(finalizeKernel,
+                SigmaConstraintLedger.BlocksPerPage, 1, 1);
             demandBuffer.GetData(demand);
 
             int localCenter = y * 8 + centerX;
@@ -369,15 +397,20 @@ namespace Genesis.RoomScan.Tests
             var reservations = new uint[SigmaConstraintLedger.BlocksPerPage];
             var rawRequests = new RawRetentionRequestGpu[
                 SigmaConstraintLedger.BlocksPerPage];
+            int scratchCandidateCount = SigmaConstraintLedger.BlocksPerPage *
+                SigmaConstraintLedger.ProofSourceCount;
+            var sourceScratchMeta = new UInt4[scratchCandidateCount *
+                SigmaConstraintLedger.ProofSourceMetaRecords];
+            var sourceScratchBounds = new BoundsGpu[scratchCandidateCount *
+                SigmaS16.LaneCount];
             for (uint index = 0; index < reservations.Length; ++index)
                 reservations[index] = index;
             var status = new uint[SigmaConstraintLedger.StatusStride];
-            var carrier = new UInt2[SamplesPerPage * SigmaS16.LaneCount];
-            var gaugeDemand = new uint[SigmaConstraintLedger.BlocksPerPage * 12];
 
             ComputeShader shader = Resources.Load<ComputeShader>(
                 "SigmaPrism/SigmaConstraintLedger");
-            int kernel = shader.FindKernel("ReduceProofPage");
+            int sourceKernel = shader.FindKernel("ReduceProofSources");
+            int finalizeKernel = shader.FindKernel("FinalizeProofPage");
             using SigmaExactBackendGate gate = SigmaExactBackendGate.Dispatch();
             using var sampleBuffer = Buffer(samples,
                 Marshal.SizeOf<ProofSampleGpu>());
@@ -392,9 +425,11 @@ namespace Genesis.RoomScan.Tests
             using var reservationBuffer = Buffer(reservations, sizeof(uint));
             using var rawRequestBuffer = Buffer(rawRequests,
                 Marshal.SizeOf<RawRetentionRequestGpu>());
+            using var sourceMetaBuffer = Buffer(sourceScratchMeta,
+                Marshal.SizeOf<UInt4>());
+            using var sourceBoundsBuffer = Buffer(sourceScratchBounds,
+                Marshal.SizeOf<BoundsGpu>());
             using var statusBuffer = Buffer(status, sizeof(uint));
-            using var carrierBuffer = Buffer(carrier, Marshal.SizeOf<UInt2>());
-            using var demandBuffer = Buffer(gaugeDemand, sizeof(uint) * 12);
             using var workBuffer = Buffer(new[]
             {
                 new InverseWorkGpu
@@ -406,9 +441,8 @@ namespace Genesis.RoomScan.Tests
             using var workControlBuffer = Buffer(new uint[]
                 { 0u, 0u, 1u, 0u, 0u, 0u, 0u, 0u, 0u }, sizeof(uint));
 
-            // This fixture exercises the reducer's direct/reference transaction.
-            // The live inverse graph plans retained raw slots after reduction and
-            // publishes them through CommitRawProof.
+            // This fixture exercises the same two-stage reducer ABI as the live
+            // graph while retaining the direct/reference raw reservation path.
             shader.SetInt("_UseInverseWorkList", 0);
             shader.SetInt("_SourceProofSlot", -1);
             shader.SetInt("_TargetProofSlot", 0);
@@ -416,23 +450,40 @@ namespace Genesis.RoomScan.Tests
             shader.SetInt("_ProofCalibrationEpoch", 7);
             shader.SetInt("_ProofRevision", 11);
             shader.SetInt("_RawTileCapacity", rawTiles.Length);
-            shader.SetInt("_ProofCarrierPageSlot", 0);
-            shader.SetInt("_ProofCarrierPageCapacity", 1);
-            gate.Bind(shader, kernel);
-            shader.SetBuffer(kernel, "_ProofSamples", sampleBuffer);
-            shader.SetBuffer(kernel, "_Certificates", certificateBuffer);
-            shader.SetBuffer(kernel, "_CertificateBounds", boundBuffer);
-            shader.SetBuffer(kernel, "_ConstraintBlocks", blockBuffer);
-            shader.SetBuffer(kernel, "_RawTiles", rawTileBuffer);
-            shader.SetBuffer(kernel, "_RawTileWords", rawWordBuffer);
-            shader.SetBuffer(kernel, "_RawReservations", reservationBuffer);
-            shader.SetBuffer(kernel, "_RawRequests", rawRequestBuffer);
-            shader.SetBuffer(kernel, "_ProofPageStatus", statusBuffer);
-            shader.SetBuffer(kernel, "_ProofCarrierState", carrierBuffer);
-            shader.SetBuffer(kernel, "_GaugeDemand", demandBuffer);
-            shader.SetBuffer(kernel, "_InverseWork", workBuffer);
-            shader.SetBuffer(kernel, "_InverseWorkControl", workControlBuffer);
-            shader.Dispatch(kernel, SigmaConstraintLedger.BlocksPerPage, 1, 1);
+
+            gate.Bind(shader, sourceKernel);
+            shader.SetBuffer(sourceKernel, "_ProofSamples", sampleBuffer);
+            shader.SetBuffer(sourceKernel, "_ProofSourceScratchMeta",
+                sourceMetaBuffer);
+            shader.SetBuffer(sourceKernel, "_ProofSourceScratchBounds",
+                sourceBoundsBuffer);
+            shader.SetBuffer(sourceKernel, "_InverseWork", workBuffer);
+            shader.SetBuffer(sourceKernel, "_InverseWorkControl",
+                workControlBuffer);
+            shader.Dispatch(sourceKernel, SigmaConstraintLedger.BlocksPerPage,
+                1, SigmaConstraintLedger.ProofSourceCount);
+
+            gate.Bind(shader, finalizeKernel);
+            shader.SetBuffer(finalizeKernel, "_ProofSamples", sampleBuffer);
+            shader.SetBuffer(finalizeKernel, "_ProofSourceScratchMetaRead",
+                sourceMetaBuffer);
+            shader.SetBuffer(finalizeKernel, "_ProofSourceScratchBoundsRead",
+                sourceBoundsBuffer);
+            shader.SetBuffer(finalizeKernel, "_Certificates",
+                certificateBuffer);
+            shader.SetBuffer(finalizeKernel, "_CertificateBounds", boundBuffer);
+            shader.SetBuffer(finalizeKernel, "_ConstraintBlocks", blockBuffer);
+            shader.SetBuffer(finalizeKernel, "_RawTiles", rawTileBuffer);
+            shader.SetBuffer(finalizeKernel, "_RawTileWords", rawWordBuffer);
+            shader.SetBuffer(finalizeKernel, "_RawReservations",
+                reservationBuffer);
+            shader.SetBuffer(finalizeKernel, "_RawRequests", rawRequestBuffer);
+            shader.SetBuffer(finalizeKernel, "_ProofPageStatus", statusBuffer);
+            shader.SetBuffer(finalizeKernel, "_InverseWork", workBuffer);
+            shader.SetBuffer(finalizeKernel, "_InverseWorkControl",
+                workControlBuffer);
+            shader.Dispatch(finalizeKernel,
+                SigmaConstraintLedger.BlocksPerPage, 1, 1);
 
             certificateBuffer.GetData(certificates);
             boundBuffer.GetData(bounds);

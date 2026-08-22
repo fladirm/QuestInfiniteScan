@@ -85,6 +85,8 @@ groupshared SigmaQ48Bounds RgbPrior[16];
 groupshared SigmaQ48Bounds RgbBox[16];
 groupshared uint2 RgbCoefficient[16];
 groupshared uint2 RgbMinimumContribution[16];
+groupshared uint2 RgbConstraintCoefficient[7u * 16u];
+groupshared uint RgbConstraintValid[7u * 16u];
 groupshared uint RgbLaneValid[16];
 groupshared SigmaQ48Bounds RgbMeasurement[3];
 groupshared uint2 RgbPriorWidth;
@@ -293,6 +295,27 @@ void BuildRgbSourceCells(uint3 groupId : SV_GroupID,
     }
     GroupMemoryBarrierWithGroupSync();
 
+    // The seven generated inequality coefficients depend only on the immutable
+    // measurement/direction/denominator sign for this source cell.  The old
+    // four-sweep loop rebuilt them 28 times per lane even though only RgbBox
+    // evolves.  Cache the exact coefficient once and reuse it in the mandated
+    // two-forward/two-reverse contraction schedule.
+    [unroll]
+    for (uint constraint = 0u; constraint < 7u; ++constraint)
+    {
+        uint coefficientValid = RgbActive;
+        uint2 coefficient = SIGMA_Q48_ZERO;
+        if (coefficientValid != 0u)
+            coefficient = SigmaRgbInequalityCoefficient(constraint,
+                RgbDirection, lane, RgbMeasurement[0], RgbMeasurement[1],
+                RgbMeasurement[2], RgbNegativeDenominator != 0u,
+                coefficientValid);
+        uint address = constraint * 16u + lane;
+        RgbConstraintCoefficient[address] = coefficient;
+        RgbConstraintValid[address] = coefficientValid;
+    }
+    GroupMemoryBarrierWithGroupSync();
+
     // Exact operator order: two forward sweeps followed by two reverse sweeps.
     // Sixteen wide interval products/divisions execute in parallel; lane zero
     // forms the ordered reduction required for bit-identical checked arithmetic.
@@ -309,9 +332,9 @@ void BuildRgbSourceCells(uint3 groupId : SV_GroupID,
             uint2 contribution = SIGMA_Q48_ZERO;
             if (valid != 0u)
             {
-                coefficient = SigmaRgbInequalityCoefficient(constraint,
-                    RgbDirection, lane, RgbMeasurement[0], RgbMeasurement[1],
-                    RgbMeasurement[2], RgbNegativeDenominator != 0u, valid);
+                uint address = constraint * 16u + lane;
+                coefficient = RgbConstraintCoefficient[address];
+                valid &= RgbConstraintValid[address];
                 contribution = SigmaQ48ScaleBounds(coefficient,
                     RgbBox[lane], valid).lo;
             }

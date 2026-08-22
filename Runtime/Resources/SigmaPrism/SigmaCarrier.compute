@@ -38,7 +38,8 @@ uint _CertificateOffsetHi;
 uint _CertificateCount;
 uint _GpuPoolPageCount;
 
-groupshared uint SigmaDirtyScan[256];
+groupshared uint SigmaDirtyScanA[256];
+groupshared uint SigmaDirtyScanB[256];
 
 uint2 SigmaCarrierNullLane(uint lane)
 {
@@ -194,24 +195,35 @@ void CompactDirtyPages(uint3 groupThreadId : SV_GroupThreadID)
 {
     uint lane = groupThreadId.x;
     uint active = lane < _PageCapacity && _DirtyFlags[lane] != 0u ? 1u : 0u;
-    SigmaDirtyScan[lane] = active;
+    SigmaDirtyScanA[lane] = active;
     GroupMemoryBarrierWithGroupSync();
 
+    uint useA = 1u;
     [unroll]
     for (uint offset = 1u; offset < 256u; offset <<= 1u)
     {
-        uint addend = lane >= offset ? SigmaDirtyScan[lane - offset] : 0u;
+        uint value = useA != 0u ? SigmaDirtyScanA[lane] : SigmaDirtyScanB[lane];
+        uint addend = lane >= offset
+            ? (useA != 0u ? SigmaDirtyScanA[lane - offset] :
+                SigmaDirtyScanB[lane - offset]) : 0u;
+        if (useA != 0u)
+            SigmaDirtyScanB[lane] = value + addend;
+        else
+            SigmaDirtyScanA[lane] = value + addend;
         GroupMemoryBarrierWithGroupSync();
-        SigmaDirtyScan[lane] += addend;
-        GroupMemoryBarrierWithGroupSync();
+        useA ^= 1u;
     }
 
+    uint inclusive = useA != 0u ? SigmaDirtyScanA[lane] :
+        SigmaDirtyScanB[lane];
+
     if (active != 0u)
-        _DirtyPageSlots[SigmaDirtyScan[lane] - 1u] = lane;
+        _DirtyPageSlots[inclusive - 1u] = lane;
 
     if (lane == 0u)
     {
-        uint count = SigmaDirtyScan[255u];
+        uint count = useA != 0u ? SigmaDirtyScanA[255u] :
+            SigmaDirtyScanB[255u];
         _DirtyCount[0] = count;
         _DirtyDispatchArgs[0] = count;
         _DirtyDispatchArgs[1] = 1u;

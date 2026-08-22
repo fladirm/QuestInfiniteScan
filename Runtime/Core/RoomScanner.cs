@@ -291,9 +291,12 @@ namespace Genesis.RoomScan
 
         public void CycleRenderMode()
         {
-            SetRenderMode(renderMode == ScanRenderMode.None
-                ? ScanRenderMode.Carrier
-                : ScanRenderMode.None);
+            SetRenderMode(renderMode switch
+            {
+                ScanRenderMode.Carrier => ScanRenderMode.Wireframe,
+                ScanRenderMode.Wireframe => ScanRenderMode.None,
+                _ => ScanRenderMode.Carrier,
+            });
         }
 
         public bool IsModeAvailable(ScanRenderMode mode) =>

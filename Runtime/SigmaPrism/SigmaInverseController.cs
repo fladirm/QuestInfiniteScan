@@ -27,6 +27,8 @@ namespace Genesis.RoomScan.SigmaPrism
             "SigmaPrism/SigmaRgbSourceCells";
         private const string WorkGraphResource =
             "SigmaPrism/SigmaInverseWorkGraph";
+        private const string GaugeDemandResource =
+            "SigmaPrism/SigmaGaugeDemand";
         private const string ConeLutResource = "SigmaPrism/ConeLut";
         private const string PoseGaugeResource = "SigmaPrism/SigmaPoseGauge";
         private const int CalibrationStride = 36;
@@ -41,6 +43,8 @@ namespace Genesis.RoomScan.SigmaPrism
         private const uint PromoteDispatchOffset = 6u * sizeof(uint);
         private const uint ProofDispatchOffset = 9u * sizeof(uint);
         private const uint CommitDispatchOffset = 12u * sizeof(uint);
+        private const uint ProofSourceDispatchOffset = 15u * sizeof(uint);
+        private const uint GaugeCoordinateDispatchOffset = 18u * sizeof(uint);
 
         [Header("Bounded GPU work graph")]
         [SerializeField, Range(1, 8)] private int inverseWorkCapacity = 8;
@@ -71,6 +75,7 @@ namespace Genesis.RoomScan.SigmaPrism
         private ComputeShader _rgbSource;
         private ComputeShader _workGraph;
         private ComputeShader _ledgerShader;
+        private ComputeShader _gaugeDemandShader;
         private ComputeShader _coneLutShader;
         private ComputeShader _poseGaugeCompute;
         private RigCalibration _calibration;
@@ -125,14 +130,17 @@ namespace Genesis.RoomScan.SigmaPrism
         private int _workRawPlanKernel;
         private int _workCommitKernel;
         private int _proofClearKernel;
-        private int _proofReduceKernel;
+        private int _proofSourceReduceKernel;
+        private int _proofFinalizeKernel;
         private int _proofRawCommitKernel;
-        private int _proofGaugeKernel;
+        private int _gaugeCoordinateKernel;
+        private int _gaugeFinalizeKernel;
 
         private uint _nextRevision = 1u;
         private bool _running;
         private bool _initialized;
         private bool _disposed;
+        private bool _completionFaulted;
         private Pose _previousTrackingPose;
         private long _previousTrackingTimestampNs;
         private bool _hasPreviousTrackingPose;
@@ -160,18 +168,21 @@ namespace Genesis.RoomScan.SigmaPrism
             _backendGate = scanner.ExactBackendGate ??
                 throw new InvalidOperationException(
                     "Sigma inverse requires the GPU-resident exact backend gate.");
+            SigmaGpuCompletion.RequireSupported();
             _normalize = Resources.Load<ComputeShader>(NormalizeResource);
             _inverse = Resources.Load<ComputeShader>(InverseResource);
             _rgbSource = Resources.Load<ComputeShader>(RgbSourceResource);
             _workGraph = Resources.Load<ComputeShader>(WorkGraphResource);
             _ledgerShader = Resources.Load<ComputeShader>(
                 "SigmaPrism/SigmaConstraintLedger");
+            _gaugeDemandShader = Resources.Load<ComputeShader>(
+                GaugeDemandResource);
             _coneLutShader = Resources.Load<ComputeShader>(ConeLutResource);
             _poseGaugeCompute = Resources.Load<ComputeShader>(PoseGaugeResource);
             if (_carrier == null || _topology == null || _renderer == null ||
                 _rigBridge == null || _normalize == null || _inverse == null ||
                 _rgbSource == null || _workGraph == null ||
-                _ledgerShader == null ||
+                _ledgerShader == null || _gaugeDemandShader == null ||
                 _coneLutShader == null || _poseGaugeCompute == null)
                 throw new InvalidOperationException(
                     "Sigma GPU inverse resources are incomplete.");
@@ -191,6 +202,12 @@ namespace Genesis.RoomScan.SigmaPrism
 
         public void OnScanStarted()
         {
+            if (_completionFaulted)
+            {
+                Logger.Error("Sigma inverse cannot restart after a GPU completion " +
+                             "fault; restart the application to rebuild its resources.");
+                return;
+            }
             _running = true;
             _hasPreviousTrackingPose = false;
             _previousTrackingTimestampNs = 0L;
@@ -222,13 +239,29 @@ namespace Genesis.RoomScan.SigmaPrism
         {
             if (!_initialized || _disposed)
                 return;
-            if (_inFlight != null && _inFlight.IsComplete)
+            if (_inFlight != null)
             {
-                GpuSubmission completed = _inFlight;
-                _inFlight = null;
-                if (!completed.Discard)
-                    CommittedFrames++;
-                completed.Dispose();
+                SigmaGpuCompletionStatus completion = _inFlight.Poll(
+                    out string completionError);
+                if (completion == SigmaGpuCompletionStatus.Complete)
+                {
+                    GpuSubmission completed = _inFlight;
+                    _inFlight = null;
+                    if (!completed.Discard)
+                        CommittedFrames++;
+                    completed.Dispose();
+                }
+                else if (completion == SigmaGpuCompletionStatus.Faulted &&
+                         !_completionFaulted)
+                {
+                    _completionFaulted = true;
+                    _running = false;
+                    _pendingPrediction?.Dispose();
+                    _pendingPrediction = null;
+                    FailedFrames++;
+                    Logger.Error("Sigma inverse GPU completion failed closed: " +
+                                 completionError);
+                }
             }
             if (!_running || _inFlight != null || _pendingPrediction == null)
                 return;
@@ -277,7 +310,7 @@ namespace Genesis.RoomScan.SigmaPrism
 
             CommandBuffer command = CommandBufferPool.Get(
                 "Sigma-PRISM-16 GPU Inverse Transaction");
-            GraphicsFence fence;
+            SigmaGpuCompletionTicket completion;
             SigmaPredictionFrameLease correctedPrediction = null;
             try
             {
@@ -307,16 +340,13 @@ namespace Genesis.RoomScan.SigmaPrism
                 RecordRawPlan(command, frameSlot, source.CalibrationEpoch);
                 RecordProofRawCommit(command, frameSlot,
                     source.CalibrationEpoch, revision);
-                RecordProofGaugeDemand(command, frameSlot,
-                    source.CalibrationEpoch, revision);
+                RecordProofGaugeDemand(command, revision);
                 RecordProofCommit(command);
                 _topology.RecordGpuInverseTopology(command, _pool,
                     _inverseWork, _inverseWorkControl, _proposalStatus,
                     _proposalEpoch, inverseWorkCapacity, revision, leftKey,
                     rightKey);
-                fence = command.CreateGraphicsFence(
-                    GraphicsFenceType.AsyncQueueSynchronisation,
-                    SynchronisationStageFlags.ComputeProcessing);
+                completion = SigmaGpuCompletion.RecordAfterAllWork(command);
                 Graphics.ExecuteCommandBuffer(command);
             }
             catch
@@ -328,7 +358,8 @@ namespace Genesis.RoomScan.SigmaPrism
             {
                 CommandBufferPool.Release(command);
             }
-            _inFlight = new GpuSubmission(prediction, correctedPrediction, fence);
+            _inFlight = new GpuSubmission(prediction, correctedPrediction,
+                completion);
             SubmittedFrames++;
             LastDiagnostics = SigmaInverseDiagnosticSnapshot.GpuResident(
                 revision);
@@ -506,7 +537,7 @@ namespace Genesis.RoomScan.SigmaPrism
             command.SetComputeBufferParam(_workGraph, _workRawPlanKernel,
                 "_RawAllocator", _proofLedger.RawAllocatorBuffer);
             command.SetComputeBufferParam(_workGraph, _workRawPlanKernel,
-                "_RawLiveFlags", _proofLedger.RawLiveFlagsBuffer);
+                "_RawLiveWords", _proofLedger.RawLiveBitmapBuffer);
             command.SetComputeBufferParam(_workGraph, _workRawPlanKernel,
                 "_RawRequests", _proofLedger.RawRequestBuffer);
             command.DispatchCompute(_workGraph, _workRawPlanKernel, 1, 1, 1);
@@ -515,30 +546,48 @@ namespace Genesis.RoomScan.SigmaPrism
         private void RecordProofReduce(CommandBuffer command, int frameSlot,
             uint calibrationEpoch, uint revision)
         {
-            BindLedger(command, _proofReduceKernel, frameSlot,
-                calibrationEpoch, revision);
             ComputeShader shader = _proofLedgerShader;
-            command.SetComputeBufferParam(shader, _proofReduceKernel,
+
+            BindLedger(command, _proofSourceReduceKernel, frameSlot,
+                calibrationEpoch, revision);
+            command.SetComputeBufferParam(shader, _proofSourceReduceKernel,
                 "_ProofSamples", _proofLedger.ProofSampleBuffer);
-            command.SetComputeBufferParam(shader, _proofReduceKernel,
+            command.SetComputeBufferParam(shader, _proofSourceReduceKernel,
+                "_ProofSourceScratchMeta",
+                _proofLedger.ProofSourceScratchMetaBuffer);
+            command.SetComputeBufferParam(shader, _proofSourceReduceKernel,
+                "_ProofSourceScratchBounds",
+                _proofLedger.ProofSourceScratchBoundsBuffer);
+            command.DispatchCompute(shader, _proofSourceReduceKernel,
+                _dispatchArguments, ProofSourceDispatchOffset);
+
+            BindLedger(command, _proofFinalizeKernel, frameSlot,
+                calibrationEpoch, revision);
+            command.SetComputeBufferParam(shader, _proofFinalizeKernel,
+                "_ProofSamples", _proofLedger.ProofSampleBuffer);
+            command.SetComputeBufferParam(shader, _proofFinalizeKernel,
+                "_ProofSourceScratchMetaRead",
+                _proofLedger.ProofSourceScratchMetaBuffer);
+            command.SetComputeBufferParam(shader, _proofFinalizeKernel,
+                "_ProofSourceScratchBoundsRead",
+                _proofLedger.ProofSourceScratchBoundsBuffer);
+            command.SetComputeBufferParam(shader, _proofFinalizeKernel,
                 "_Certificates", _proofLedger.CertificateBuffer);
-            command.SetComputeBufferParam(shader, _proofReduceKernel,
+            command.SetComputeBufferParam(shader, _proofFinalizeKernel,
                 "_CertificateBounds", _proofLedger.CertificateBoundsBuffer);
-            command.SetComputeBufferParam(shader, _proofReduceKernel,
+            command.SetComputeBufferParam(shader, _proofFinalizeKernel,
                 "_ConstraintBlocks", _proofLedger.ConstraintBlockBuffer);
-            command.SetComputeBufferParam(shader, _proofReduceKernel,
+            command.SetComputeBufferParam(shader, _proofFinalizeKernel,
                 "_RawTiles", _proofLedger.RawHeaderBuffer);
-            command.SetComputeBufferParam(shader, _proofReduceKernel,
+            command.SetComputeBufferParam(shader, _proofFinalizeKernel,
                 "_RawTileWords", _proofLedger.RawWordsBuffer);
-            command.SetComputeBufferParam(shader, _proofReduceKernel,
+            command.SetComputeBufferParam(shader, _proofFinalizeKernel,
                 "_RawReservations", _proofLedger.RawReservationBuffer);
-            command.SetComputeBufferParam(shader, _proofReduceKernel,
+            command.SetComputeBufferParam(shader, _proofFinalizeKernel,
                 "_RawRequests", _proofLedger.RawRequestBuffer);
-            command.SetComputeBufferParam(shader, _proofReduceKernel,
+            command.SetComputeBufferParam(shader, _proofFinalizeKernel,
                 "_ProofPageStatus", _proofLedger.StatusBuffer);
-            command.SetComputeBufferParam(shader, _proofReduceKernel,
-                "_GaugeDemand", _proofLedger.GaugeDemandBuffer);
-            command.DispatchCompute(shader, _proofReduceKernel,
+            command.DispatchCompute(shader, _proofFinalizeKernel,
                 _dispatchArguments, ProofDispatchOffset);
         }
 
@@ -573,17 +622,29 @@ namespace Genesis.RoomScan.SigmaPrism
         }
 
         private void RecordProofGaugeDemand(CommandBuffer command,
-            int frameSlot, uint calibrationEpoch, uint revision)
+            uint revision)
         {
-            BindLedger(command, _proofGaugeKernel, frameSlot,
-                calibrationEpoch, revision);
-            ComputeShader shader = _proofLedgerShader;
-            command.SetComputeBufferParam(shader, _proofGaugeKernel,
-                "_ProofSamples", _proofLedger.ProofSampleBuffer);
-            command.SetComputeBufferParam(shader, _proofGaugeKernel,
-                "_GaugeDemand", _proofLedger.GaugeDemandBuffer);
-            command.DispatchCompute(shader, _proofGaugeKernel,
-                _dispatchArguments, ProofDispatchOffset);
+            BindGaugeDemand(command, _gaugeCoordinateKernel, revision);
+            command.SetComputeBufferParam(_gaugeDemandShader,
+                _gaugeCoordinateKernel, "_ProofSamples",
+                _proofLedger.ProofSampleBuffer);
+            command.SetComputeBufferParam(_gaugeDemandShader,
+                _gaugeCoordinateKernel, "_GaugeCoordinateCandidates",
+                _proofLedger.GaugeCoordinateScratchBuffer);
+            command.DispatchCompute(_gaugeDemandShader,
+                _gaugeCoordinateKernel, _dispatchArguments,
+                GaugeCoordinateDispatchOffset);
+
+            BindGaugeDemand(command, _gaugeFinalizeKernel, revision);
+            command.SetComputeBufferParam(_gaugeDemandShader,
+                _gaugeFinalizeKernel, "_GaugeCoordinateCandidatesRead",
+                _proofLedger.GaugeCoordinateScratchBuffer);
+            command.SetComputeBufferParam(_gaugeDemandShader,
+                _gaugeFinalizeKernel, "_GaugeDemand",
+                _proofLedger.GaugeDemandBuffer);
+            command.DispatchCompute(_gaugeDemandShader,
+                _gaugeFinalizeKernel, _dispatchArguments,
+                ProofDispatchOffset);
         }
 
         private void RecordProofCommit(CommandBuffer command)
@@ -598,7 +659,7 @@ namespace Genesis.RoomScan.SigmaPrism
             command.SetComputeBufferParam(_workGraph, _workCommitKernel,
                 "_RawReservationsRead", _proofLedger.RawReservationBuffer);
             command.SetComputeBufferParam(_workGraph, _workCommitKernel,
-                "_RawLiveFlags", _proofLedger.RawLiveFlagsBuffer);
+                "_RawLiveWords", _proofLedger.RawLiveBitmapBuffer);
             command.SetComputeBufferParam(_workGraph, _workCommitKernel,
                 "_ConstraintBlocks", _proofLedger.ConstraintBlockBuffer);
             command.SetComputeBufferParam(_workGraph, _workCommitKernel,
@@ -660,6 +721,25 @@ namespace Genesis.RoomScan.SigmaPrism
             command.SetComputeBufferParam(shader, kernel,
                 "_InverseWorkControl", _inverseWorkControl);
             command.SetComputeBufferParam(shader, kernel,
+                "_ProofCarrierState", _pool.State);
+        }
+
+        private void BindGaugeDemand(CommandBuffer command, int kernel,
+            uint revision)
+        {
+            command.SetComputeIntParam(_gaugeDemandShader,
+                "_UseInverseWorkList", 1);
+            command.SetComputeIntParam(_gaugeDemandShader, "_ProofRevision",
+                unchecked((int)revision));
+            command.SetComputeIntParam(_gaugeDemandShader,
+                "_ProofCarrierPageCapacity", _pool.PageCapacity);
+            command.SetComputeBufferParam(_gaugeDemandShader, kernel,
+                "_SigmaExactBackendGate", _backendGate.Buffer);
+            command.SetComputeBufferParam(_gaugeDemandShader, kernel,
+                "_InverseWork", _inverseWork);
+            command.SetComputeBufferParam(_gaugeDemandShader, kernel,
+                "_InverseWorkControl", _inverseWorkControl);
+            command.SetComputeBufferParam(_gaugeDemandShader, kernel,
                 "_ProofCarrierState", _pool.State);
         }
 
@@ -1177,9 +1257,13 @@ namespace Genesis.RoomScan.SigmaPrism
                 "CommitInverseTransactions");
             ComputeShader ledger = _proofLedgerShader;
             _proofClearKernel = ledger.FindKernel("ClearProofTransaction");
-            _proofReduceKernel = ledger.FindKernel("ReduceProofPage");
+            _proofSourceReduceKernel = ledger.FindKernel("ReduceProofSources");
+            _proofFinalizeKernel = ledger.FindKernel("FinalizeProofPage");
             _proofRawCommitKernel = ledger.FindKernel("CommitRawProof");
-            _proofGaugeKernel = ledger.FindKernel("BuildGaugeDemand");
+            _gaugeCoordinateKernel = _gaugeDemandShader.FindKernel(
+                "BuildGaugeCoordinateCandidates");
+            _gaugeFinalizeKernel = _gaugeDemandShader.FindKernel(
+                "FinalizeGaugeDemand");
         }
 
         private void CreatePersistentResources()
@@ -1244,11 +1328,11 @@ namespace Genesis.RoomScan.SigmaPrism
             _dispatchArguments = new GraphicsBuffer(
                 GraphicsBuffer.Target.Structured |
                 GraphicsBuffer.Target.IndirectArguments,
-                15, sizeof(uint))
+                21, sizeof(uint))
             {
                 name = "Sigma inverse graph indirect argument arena"
             };
-            _dispatchArguments.SetData(new uint[15]);
+            _dispatchArguments.SetData(new uint[21]);
         }
 
         private uint NextRevision()
@@ -1408,17 +1492,18 @@ namespace Genesis.RoomScan.SigmaPrism
         {
             private SigmaPredictionFrameLease _prediction;
             private SigmaPredictionFrameLease _correctedPrediction;
-            private readonly GraphicsFence _fence;
+            private readonly SigmaGpuCompletionTicket _completion;
             internal GpuSubmission(SigmaPredictionFrameLease prediction,
                 SigmaPredictionFrameLease correctedPrediction,
-                GraphicsFence fence)
+                SigmaGpuCompletionTicket completion)
             {
                 _prediction = prediction;
                 _correctedPrediction = correctedPrediction;
-                _fence = fence;
+                _completion = completion;
             }
             internal bool Discard { get; set; }
-            internal bool IsComplete => _fence.passed;
+            internal SigmaGpuCompletionStatus Poll(out string error) =>
+                _completion.Poll(out error);
             public void Dispose()
             {
                 _prediction?.Dispose();

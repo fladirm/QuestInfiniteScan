@@ -24,6 +24,8 @@ namespace Genesis.RoomScan.SigmaPrism
 
         private const string ReadoutResource = "SigmaPrism/SigmaForwardReadout";
         private const string PredictionResource = "SigmaPrism/SigmaPredict";
+        private const string PreviewResource =
+            "SigmaPrism/SigmaDirectCarrierPreview";
 
         [SerializeField, Range(3, 12)] private int targetRingSlots = 4;
 
@@ -67,6 +69,12 @@ namespace Genesis.RoomScan.SigmaPrism
             "_PoseConsumeReferenceFromWorld");
         private static readonly int PoseWorldFromReferenceId = Shader.PropertyToID(
             "_PoseConsumeWorldFromReference");
+        private static readonly int PreviewWireframeId = Shader.PropertyToID(
+            "_PreviewWireframe");
+        private static readonly int PreviewAlphaId = Shader.PropertyToID(
+            "_PreviewAlpha");
+        private static readonly int PreviewWireThicknessId = Shader.PropertyToID(
+            "_PreviewWireThickness");
 
         private readonly List<SigmaCarrierReadBatch> _readBatches = new();
         private readonly List<SegmentReadoutCache> _segmentCaches = new();
@@ -80,6 +88,7 @@ namespace Genesis.RoomScan.SigmaPrism
         private SigmaExactBackendGate _backendGate;
         private ComputeShader _readoutCompute;
         private Material _predictionMaterial;
+        private Material _previewMaterial;
         private MaterialPropertyBlock _properties;
         private SigmaPredictionTargetRing _targets;
         private GraphicsBuffer _identityPoseResult;
@@ -124,8 +133,9 @@ namespace Genesis.RoomScan.SigmaPrism
                     "Sigma renderer requires the exact backend gate.");
             _readoutCompute = Resources.Load<ComputeShader>(ReadoutResource);
             Shader prediction = Resources.Load<Shader>(PredictionResource);
+            Shader preview = Resources.Load<Shader>(PreviewResource);
             if (_carrier == null || _topology == null || _rigBridge == null ||
-                _readoutCompute == null || prediction == null)
+                _readoutCompute == null || prediction == null || preview == null)
                 throw new InvalidOperationException(
                     "Sigma forward-readout resources are incomplete.");
 
@@ -138,6 +148,11 @@ namespace Genesis.RoomScan.SigmaPrism
                 name = "[Sigma-PRISM-16] Prediction Material",
                 hideFlags = HideFlags.HideAndDontSave
             };
+            _previewMaterial = new Material(preview)
+            {
+                name = "[Sigma-PRISM-16] Temporary Direct Carrier Preview",
+                hideFlags = HideFlags.HideAndDontSave
+            };
             _properties = new MaterialPropertyBlock();
             _targets = new SigmaPredictionTargetRing(targetRingSlots);
             _identityPoseResult = new GraphicsBuffer(
@@ -146,6 +161,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 name = "Sigma identity pose-gauge readout"
             };
             _identityPoseResult.SetData(new uint[16]);
+            RenderPipelineManager.endCameraRendering += OnEndCameraRendering;
             _initialized = true;
         }
 
@@ -495,8 +511,71 @@ namespace Genesis.RoomScan.SigmaPrism
                 graphicsFromOptical * opticalFromWorld;
         }
 
+        // Temporary S4-08 bring-up backend. It draws the already-derived carrier
+        // cache directly into the XR target and owns no geometry or state. S4-11
+        // replaces this method with dirty meshlet readout while preserving the
+        // Carrier/Wireframe/None operator contract.
+        private void OnEndCameraRendering(ScriptableRenderContext context,
+            Camera camera)
+        {
+            if (!_running || !_initialized || _scanner == null ||
+                _scanner.CurrentRenderMode == ScanRenderMode.None ||
+                camera == null || camera.cameraType != CameraType.Game ||
+                _previewMaterial == null || _readBatches.Count == 0)
+                return;
+            Camera main = Camera.main;
+            if (main != null && camera != main)
+                return;
+
+            CommandBuffer command = CommandBufferPool.Get(
+                "Sigma-PRISM-16 Temporary XR Carrier Preview");
+            try
+            {
+                command.SetRenderTarget(BuiltinRenderTextureType.CameraTarget,
+                    BuiltinRenderTextureType.Depth);
+                RecordDirectPreview(command, _scanner.CurrentRenderMode, 0);
+                RecordDirectPreview(command, _scanner.CurrentRenderMode, 1);
+                context.ExecuteCommandBuffer(command);
+            }
+            finally
+            {
+                CommandBufferPool.Release(command);
+            }
+        }
+
+        private void RecordDirectPreview(CommandBuffer command,
+            ScanRenderMode mode, int pass)
+        {
+            for (int index = 0; index < _readBatches.Count; ++index)
+            {
+                SigmaCarrierReadBatch batch = _readBatches[index];
+                SegmentReadoutCache cache = _segmentCaches[index];
+                if (!_topology.TryGetSegmentView(batch.SegmentIndex,
+                        out SigmaTopologySegmentView topologyView))
+                    continue;
+                _properties.Clear();
+                _properties.SetInt(SegmentIndexId, batch.SegmentIndex);
+                _properties.SetFloat(PreviewWireframeId,
+                    mode == ScanRenderMode.Wireframe ? 1f : 0f);
+                _properties.SetFloat(PreviewAlphaId, 0.34f);
+                _properties.SetFloat(PreviewWireThicknessId, 1.35f);
+                _properties.SetBuffer(ReadoutVerticesId, cache.Vertices);
+                _properties.SetBuffer(CurrentPageSlotsId,
+                    cache.CurrentPageSlots);
+                _properties.SetBuffer(PageMetadataId, batch.Metadata);
+                _properties.SetBuffer(TopologyCellFlagsId,
+                    topologyView.CellFlags);
+                _properties.SetBuffer(TopologyPageKeysId,
+                    topologyView.PageKeys);
+                command.DrawProceduralIndirect(Matrix4x4.identity,
+                    _previewMaterial, pass, MeshTopology.Triangles,
+                    cache.DrawArguments, 0, _properties);
+            }
+        }
+
         private void OnDestroy()
         {
+            RenderPipelineManager.endCameraRendering -= OnEndCameraRendering;
             _running = false;
             _latest?.Dispose();
             _latest = null;
@@ -515,6 +594,14 @@ namespace Genesis.RoomScan.SigmaPrism
                     DestroyImmediate(_predictionMaterial);
             }
             _predictionMaterial = null;
+            if (_previewMaterial != null)
+            {
+                if (Application.isPlaying)
+                    Destroy(_previewMaterial);
+                else
+                    DestroyImmediate(_previewMaterial);
+            }
+            _previewMaterial = null;
             _readoutCompute = null;
             _backendGate = null;
             _topology = null;

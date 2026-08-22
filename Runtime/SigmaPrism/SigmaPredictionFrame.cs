@@ -80,17 +80,20 @@ namespace Genesis.RoomScan.SigmaPrism
             internal RenderTexture HardwareDepth;
             internal uint Generation;
             internal int References;
-            internal GraphicsFence Fence;
-            internal bool HasFence;
+            internal SigmaGpuCompletionTicket Completion;
+            internal bool HasCompletion;
+            internal bool CompletionFaulted;
             internal bool RetireWhenReleased;
         }
 
         private readonly Slot[] _slots;
         private int _cursor;
         private bool _disposed;
+        private string _completionFault;
 
         internal SigmaPredictionTargetRing(int capacity)
         {
+            SigmaGpuCompletion.RequireSupported();
             _slots = new Slot[Math.Max(3, capacity)];
             for (int index = 0; index < _slots.Length; ++index)
                 _slots[index] = new Slot();
@@ -103,16 +106,26 @@ namespace Genesis.RoomScan.SigmaPrism
             frame = null;
             if (_disposed || source == null || !source.IsValid)
                 return false;
+            if (_completionFault != null)
+                return false;
             int selected = -1;
             for (int offset = 0; offset < _slots.Length; ++offset)
             {
                 int index = (_cursor + offset) % _slots.Length;
                 Slot candidate = _slots[index];
-                if (candidate.References == 0 && FencePassed(candidate))
+                if (candidate.References != 0)
+                    continue;
+                SigmaGpuCompletionStatus status = PollCompletion(candidate,
+                    out string completionError);
+                if (status == SigmaGpuCompletionStatus.Faulted)
                 {
-                    selected = index;
-                    break;
+                    LatchCompletionFault(candidate, completionError);
+                    return false;
                 }
+                if (status != SigmaGpuCompletionStatus.Complete)
+                    continue;
+                selected = index;
+                break;
             }
             if (selected < 0)
                 return false;
@@ -121,7 +134,8 @@ namespace Genesis.RoomScan.SigmaPrism
             EnsureTextures(slot, source.DepthResolution, selected);
             slot.Generation = NextGeneration(slot.Generation);
             slot.References = 1;
-            slot.HasFence = false;
+            slot.HasCompletion = false;
+            slot.CompletionFaulted = false;
             _cursor = (selected + 1) % _slots.Length;
             frame = new SigmaPredictionFrameLease(this, selected,
                 slot.Generation, source.Retain(), poseGauge);
@@ -144,16 +158,15 @@ namespace Genesis.RoomScan.SigmaPrism
             Slot slot = Get(index, generation);
             try
             {
-                slot.Fence = Graphics.CreateGraphicsFence(
-                    GraphicsFenceType.AsyncQueueSynchronisation,
-                    SynchronisationStageFlags.AllGPUOperations);
-                slot.HasFence = true;
+                slot.Completion = SigmaGpuCompletion.InsertAfterGraphicsWork();
+                slot.HasCompletion = true;
+                slot.CompletionFaulted = false;
             }
-            catch (Exception)
+            catch (Exception exception)
             {
-                // Null/editor devices may not expose explicit fences. This fallback
-                // never blocks; Quest Vulkan takes the normal fenced path.
-                slot.HasFence = false;
+                LatchCompletionFault(slot,
+                    $"Prediction write could not be fenced: {exception.Message}");
+                throw;
             }
         }
 
@@ -172,7 +185,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 return;
             slot.References--;
             if (slot.References == 0 && slot.RetireWhenReleased)
-                DestroySlot(slot);
+                TryDestroyRetiredSlot(slot);
         }
 
         public void Dispose()
@@ -182,10 +195,9 @@ namespace Genesis.RoomScan.SigmaPrism
             _disposed = true;
             foreach (Slot slot in _slots)
             {
+                slot.RetireWhenReleased = true;
                 if (slot.References == 0)
-                    DestroySlot(slot);
-                else
-                    slot.RetireWhenReleased = true;
+                    TryDestroyRetiredSlot(slot);
             }
         }
 
@@ -278,12 +290,44 @@ namespace Genesis.RoomScan.SigmaPrism
             texture.dimension == TextureDimension.Tex2DArray &&
             texture.depthStencilFormat == GraphicsFormat.D32_SFloat;
 
-        private static bool FencePassed(Slot slot)
+        private static SigmaGpuCompletionStatus PollCompletion(Slot slot,
+            out string error)
         {
-            if (!slot.HasFence)
-                return true;
-            try { return slot.Fence.passed; }
-            catch (Exception) { return true; }
+            if (slot.CompletionFaulted)
+            {
+                error = "The prediction slot has an unprovable GPU completion.";
+                return SigmaGpuCompletionStatus.Faulted;
+            }
+            if (!slot.HasCompletion)
+            {
+                error = null;
+                return SigmaGpuCompletionStatus.Complete;
+            }
+            return slot.Completion.Poll(out error);
+        }
+
+        private void LatchCompletionFault(Slot slot, string error)
+        {
+            slot.CompletionFaulted = true;
+            if (_completionFault != null)
+                return;
+            _completionFault = string.IsNullOrWhiteSpace(error)
+                ? "Unknown prediction completion failure."
+                : error;
+            Logger.Error("Sigma prediction ring: " + _completionFault);
+        }
+
+        private void TryDestroyRetiredSlot(Slot slot)
+        {
+            SigmaGpuCompletionStatus status = PollCompletion(slot,
+                out string error);
+            if (status == SigmaGpuCompletionStatus.Complete)
+            {
+                DestroySlot(slot);
+                return;
+            }
+            if (status == SigmaGpuCompletionStatus.Faulted)
+                LatchCompletionFault(slot, error);
         }
 
         private static void DestroySlot(Slot slot)
@@ -298,7 +342,8 @@ namespace Genesis.RoomScan.SigmaPrism
             slot.CarrierUvNormal = null;
             slot.StateKey = null;
             slot.HardwareDepth = null;
-            slot.HasFence = false;
+            slot.HasCompletion = false;
+            slot.CompletionFaulted = false;
             slot.RetireWhenReleased = false;
         }
 

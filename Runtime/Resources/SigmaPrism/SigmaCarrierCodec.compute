@@ -161,14 +161,17 @@ uint2 SigmaCodecAddScaled(uint2 origin, uint2 stepU, uint u,
     uint2 stepV, uint v, inout uint valid)
 {
     uint2 value = origin;
+    // u/v are shared sample coordinates across the 16 lanes, so these branches
+    // are workgroup-uniform. Skip the old checked additions of literal zero;
+    // the remaining additions keep the exact original association.
     [unroll]
     for (uint uStep = 0u; uStep < 7u; ++uStep)
-        value = SigmaQ48AddChecked(value,
-            SigmaQ48Select(uStep < u, stepU, uint2(0u, 0u)), valid);
+        if (uStep < u)
+            value = SigmaQ48AddChecked(value, stepU, valid);
     [unroll]
     for (uint vStep = 0u; vStep < 7u; ++vStep)
-        value = SigmaQ48AddChecked(value,
-            SigmaQ48Select(vStep < v, stepV, uint2(0u, 0u)), valid);
+        if (vStep < v)
+            value = SigmaQ48AddChecked(value, stepV, valid);
     return value;
 }
 
@@ -478,24 +481,33 @@ void DecodePageBlocks(uint3 groupId : SV_GroupID,
     if (block >= _BlockCount)
         return;
     uint4 descriptor = _BlockDescriptors[block];
-    if (_SigmaExactBackendGate[0] == 0u || (descriptor.w & 1u) == 0u)
-        return;
-    uint mode = descriptor.x;
-    uint scratchBase = descriptor.z;
+    // Descriptor/backend validity may originate in storage memory and Unity's
+    // Vulkan frontend therefore treats it as potentially lane-varying. Never
+    // let that value bypass the workgroup barrier below. Invalid work follows
+    // the same fixed schedule as a NULL block and masks only final publication.
+    uint active = _SigmaExactBackendGate[0] != 0u &&
+        (descriptor.w & 1u) != 0u ? 1u : 0u;
+    uint mode = active != 0u ? descriptor.x : SIGMA_CODEC_NULL;
+    uint scratchBase = active != 0u ? descriptor.z : 0u;
     uint width = mode == SIGMA_CODEC_DELTA ? SigmaCodecReadWidth(block, lane) : 0u;
+    SigmaCodecWidths[lane] = width;
+    GroupMemoryBarrierWithGroupSync();
     uint deltaPrefix = 0u;
     if (mode == SIGMA_CODEC_DELTA)
     {
         [unroll]
         for (uint other = 0u; other < 16u; ++other)
-            deltaPrefix += other < lane ? SigmaCodecReadWidth(block, other) : 0u;
+            deltaPrefix += other < lane ? SigmaCodecWidths[other] : 0u;
     }
     uint deltaBase = scratchBase + SIGMA_CODEC_DELTA_HEADER_BYTES + deltaPrefix * 8u;
 
+    uint2 constantValue = uint2(0u, 0u);
     uint2 affineOrigin = uint2(0u, 0u);
     uint2 affineU = uint2(0u, 0u);
     uint2 affineV = uint2(0u, 0u);
-    if (mode == SIGMA_CODEC_AFFINE)
+    if (mode == SIGMA_CODEC_CONST)
+        constantValue = _CodecPayload.Load2(scratchBase + lane * 8u);
+    else if (mode == SIGMA_CODEC_AFFINE)
     {
         affineOrigin = _CodecPayload.Load2(scratchBase + lane * 8u);
         affineU = _CodecPayload.Load2(
@@ -512,7 +524,7 @@ void DecodePageBlocks(uint3 groupId : SV_GroupID,
         if (mode == SIGMA_CODEC_NULL)
             value = SigmaCodecNullLane(lane);
         else if (mode == SIGMA_CODEC_CONST)
-            value = _CodecPayload.Load2(scratchBase + lane * 8u);
+            value = constantValue;
         else if (mode == SIGMA_CODEC_AFFINE)
             value = SigmaCodecAddScaled(affineOrigin, affineU, decodeSample & 7u,
                 affineV, decodeSample >> 3u, valid);
@@ -531,7 +543,7 @@ void DecodePageBlocks(uint3 groupId : SV_GroupID,
         else
             valid = 0u;
 
-        if (valid != 0u)
+        if (active != 0u && valid != 0u)
         {
             SigmaCodecValues[SigmaCodecSharedIndex(lane, decodeSample)] = value;
             _DecodedOutput[SigmaCodecOutputIndex(block, decodeSample, lane)] = value;

@@ -69,8 +69,9 @@ namespace Genesis.RoomScan.SigmaPrism
             internal RenderTexture Texture;
             internal uint Generation;
             internal int References;
-            internal GraphicsFence Fence;
-            internal bool HasFence;
+            internal SigmaGpuCompletionTicket Completion;
+            internal bool HasCompletion;
+            internal bool CompletionFaulted;
             internal bool RetireWhenReleased;
         }
 
@@ -82,6 +83,7 @@ namespace Genesis.RoomScan.SigmaPrism
         private readonly int _copyDepthArrayKernel;
         private int _cursor;
         private bool _disposed;
+        private string _completionFault;
 
         internal GpuTextureRing(string name, int capacity,
             GraphicsFormat fallbackFormat = GraphicsFormat.R8G8B8A8_UNorm,
@@ -90,6 +92,7 @@ namespace Genesis.RoomScan.SigmaPrism
             if (capacity < 3)
                 throw new ArgumentOutOfRangeException(nameof(capacity),
                     "A capture ring needs at least three slots.");
+            SigmaGpuCompletion.RequireSupported();
             _name = string.IsNullOrWhiteSpace(name) ? "RigCapture" : name;
             _fallbackFormat = fallbackFormat;
             _copyMode = copyMode;
@@ -120,6 +123,11 @@ namespace Genesis.RoomScan.SigmaPrism
                 rejection = RigFrameRejectionReason.MissingTexture;
                 return false;
             }
+            if (_completionFault != null)
+            {
+                rejection = RigFrameRejectionReason.GpuCopyFailed;
+                return false;
+            }
 
             if (!IsSupportedDimension(source) || source.width <= 0 ||
                 source.height <= 0)
@@ -133,7 +141,17 @@ namespace Genesis.RoomScan.SigmaPrism
             {
                 int index = (_cursor + offset) % _slots.Length;
                 Slot slot = _slots[index];
-                if (slot.References != 0 || !FencePassed(slot))
+                if (slot.References != 0)
+                    continue;
+                SigmaGpuCompletionStatus status = PollCompletion(slot,
+                    out string completionError);
+                if (status == SigmaGpuCompletionStatus.Faulted)
+                {
+                    LatchCompletionFault(slot, completionError);
+                    rejection = RigFrameRejectionReason.GpuCopyFailed;
+                    return false;
+                }
+                if (status != SigmaGpuCompletionStatus.Complete)
                     continue;
                 selected = index;
                 break;
@@ -150,19 +168,9 @@ namespace Genesis.RoomScan.SigmaPrism
             {
                 EnsureCompatibleTarget(target, source, selected);
                 CopyOnGpu(source, target.Texture);
-                try
-                {
-                    target.Fence = Graphics.CreateGraphicsFence(
-                        GraphicsFenceType.AsyncQueueSynchronisation,
-                        SynchronisationStageFlags.AllGPUOperations);
-                    target.HasFence = true;
-                }
-                catch (Exception)
-                {
-                    // Vulkan Quest supports fences. Keeping this fallback makes Editor/null
-                    // graphics fixtures usable without introducing a blocking wait.
-                    target.HasFence = false;
-                }
+                target.Completion = SigmaGpuCompletion.InsertAfterGraphicsWork();
+                target.HasCompletion = true;
+                target.CompletionFaulted = false;
 
                 target.Generation = NextGeneration(target.Generation);
                 target.References = 1;
@@ -172,6 +180,9 @@ namespace Genesis.RoomScan.SigmaPrism
             }
             catch (Exception exception)
             {
+                target.CompletionFaulted = true;
+                LatchCompletionFault(target,
+                    $"GPU copy submission could not be fenced: {exception.Message}");
                 Logger.Warning($"{_name}: GPU frame copy failed: {exception.Message}");
                 rejection = RigFrameRejectionReason.GpuCopyFailed;
                 return false;
@@ -199,7 +210,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 return;
             slot.References--;
             if (slot.References == 0 && slot.RetireWhenReleased)
-                DestroySlot(slot);
+                TryDestroyRetiredSlot(slot);
         }
 
         public void Dispose()
@@ -209,10 +220,9 @@ namespace Genesis.RoomScan.SigmaPrism
             _disposed = true;
             foreach (Slot slot in _slots)
             {
+                slot.RetireWhenReleased = true;
                 if (slot.References == 0)
-                    DestroySlot(slot);
-                else
-                    slot.RetireWhenReleased = true;
+                    TryDestroyRetiredSlot(slot);
             }
         }
 
@@ -226,18 +236,44 @@ namespace Genesis.RoomScan.SigmaPrism
             return slot;
         }
 
-        private static bool FencePassed(Slot slot)
+        private static SigmaGpuCompletionStatus PollCompletion(Slot slot,
+            out string error)
         {
-            if (!slot.HasFence)
-                return true;
-            try
+            if (slot.CompletionFaulted)
             {
-                return slot.Fence.passed;
+                error = "The capture slot has an unprovable GPU completion.";
+                return SigmaGpuCompletionStatus.Faulted;
             }
-            catch (Exception)
+            if (!slot.HasCompletion)
             {
-                return true;
+                error = null;
+                return SigmaGpuCompletionStatus.Complete;
             }
+            return slot.Completion.Poll(out error);
+        }
+
+        private void LatchCompletionFault(Slot slot, string error)
+        {
+            slot.CompletionFaulted = true;
+            if (_completionFault != null)
+                return;
+            _completionFault = string.IsNullOrWhiteSpace(error)
+                ? "Unknown GPU completion failure."
+                : error;
+            Logger.Error($"{_name}: {_completionFault}");
+        }
+
+        private void TryDestroyRetiredSlot(Slot slot)
+        {
+            SigmaGpuCompletionStatus status = PollCompletion(slot,
+                out string error);
+            if (status == SigmaGpuCompletionStatus.Complete)
+            {
+                DestroySlot(slot);
+                return;
+            }
+            if (status == SigmaGpuCompletionStatus.Faulted)
+                LatchCompletionFault(slot, error);
         }
 
         private void EnsureCompatibleTarget(Slot slot, Texture source, int slotIndex)
@@ -368,7 +404,8 @@ namespace Genesis.RoomScan.SigmaPrism
                     UnityEngine.Object.DestroyImmediate(slot.Texture);
             }
             slot.Texture = null;
-            slot.HasFence = false;
+            slot.HasCompletion = false;
+            slot.CompletionFaulted = false;
             slot.RetireWhenReleased = false;
         }
     }

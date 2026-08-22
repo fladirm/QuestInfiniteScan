@@ -2,24 +2,20 @@
 
 ## Latest user exchange
 
-The installed S4-08 Release freezes after Start Scan. The user requested a read-only
-root-cause audit and then supplied a full hot-path performance audit. They require a
-new `S4-08.2` run that rewrites every affected shader cleanly as a whole file—not by
-patching the old implementation—and rewrites matching C# dispatch/binding code in
-the same phase. No CPU readback, synchronous wait, compatibility fallback, stale
-legacy branch or alternate ontology is allowed. This exchange authorizes control
-plan changes only, not runtime implementation yet.
+The user confirmed that the previous long compile blockage was the old
+`BuildGaugeDemand` kernel and explicitly requested no repeated compilation or
+analysis. They want the finished Release APK deployed immediately, while retaining
+the clean whole-file shader rewrite, exact 16D ontology, no CPU readback/fallback,
+and the temporary visible carrier preview that S4-11 will replace with meshlets.
 
-## Latest diagnostic and planning update
+## Latest implementation checkpoint
 
-Read-only Quest evidence isolates the immediate freeze: the first inverse command
-creates an `AsyncQueueSynchronisation` fence although the device reports async
-compute unsupported. `GpuSubmission.IsComplete` polls `GraphicsFence.passed`, which
-throws every frame before `_inFlight` can be cleared; future predictions are then
-dropped. The log contains 1,703 repetitions in 28 seconds while coherent capture
-continues. Capture/prediction rings share the same invalid fence assumption and
-catch polling failure as success, risking early resource reuse. No runtime source
-was changed. `S4-08` is reopened and `.codex/S4-08.2_PLAN.md` now specifies the
-deterministic completion, ExactALU, generated-circuit and coordinate-major GPU
-rewrite, matching C# ABI/dispatch replacement, parity/performance gates and final
-Release device acceptance. `S4-09` remains pending.
+The old gauge kernel is gone. `SigmaGaugeDemand.compute` now uses a coordinate-major
+64-lane candidate pass and a 16-lane deterministic final pass; matching C# bindings
+and indirect axes use a seventh dispatch record. The completion-ticket, exact GPU
+lowering, proof/gauge/topology paths and temporary stereo DirectCarrierPreview are
+wired. The already-running Unity Vulkan batch completed 65/65; generated operators,
+`git diff --check` and the Quest eight-UAV validator pass. No second compile/test
+batch is being started. Exact next action is code-graph/control validation, one
+Release-candidate commit, source-only `git archive`, Android/Vulkan Release build
+from that commit and installation on the connected Quest; S4-09 stays pending.

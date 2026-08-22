@@ -345,8 +345,9 @@ namespace Genesis.RoomScan.SigmaPrism
                         _rawClonePlan);
                     _shader.SetBuffer(_cloneRawKernel, "_GaugeRawCloneStatus",
                         _rawCloneStatus);
+                    // One 64-lane workgroup owns one raw-tile clone plan.
                     _shader.Dispatch(_cloneRawKernel,
-                        CeilDiv(proof.ClonePlan.Length, 64), 1, 1);
+                        proof.ClonePlan.Length, 1, 1);
                 }
                 BindProofTarget(_finalizeRawKernel, proof);
                 _shader.SetBuffer(_finalizeRawKernel, "_GaugeRawCloneStatus",

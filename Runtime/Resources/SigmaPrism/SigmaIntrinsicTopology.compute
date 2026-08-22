@@ -88,7 +88,8 @@ uint _TopologyCandidateCapacity;
 groupshared uint2 SigmaTopologySharedTau[16];
 groupshared uint4 SigmaTopologySharedError[256];
 groupshared uint SigmaTopologySharedId[256];
-groupshared uint SigmaTopologyCandidateScan[256];
+groupshared uint SigmaTopologyCandidateScanA[256];
+groupshared uint SigmaTopologyCandidateScanB[256];
 groupshared uint SigmaTopologyRightSlotShared;
 groupshared uint SigmaTopologyDownSlotShared;
 groupshared uint SigmaTopologyDiagonalSlotShared;
@@ -724,18 +725,27 @@ void MarkTopologyCandidates(uint3 groupThreadId : SV_GroupThreadID)
         }
     }
 
-    SigmaTopologyCandidateScan[lane] = localCount;
+    SigmaTopologyCandidateScanA[lane] = localCount;
     GroupMemoryBarrierWithGroupSync();
+    uint useA = 1u;
     [unroll]
     for (uint scanOffset = 1u; scanOffset < 256u; scanOffset <<= 1u)
     {
+        uint value = useA != 0u ? SigmaTopologyCandidateScanA[lane] :
+            SigmaTopologyCandidateScanB[lane];
         uint addend = lane >= scanOffset
-            ? SigmaTopologyCandidateScan[lane - scanOffset] : 0u;
+            ? (useA != 0u ? SigmaTopologyCandidateScanA[lane - scanOffset] :
+                SigmaTopologyCandidateScanB[lane - scanOffset]) : 0u;
+        if (useA != 0u)
+            SigmaTopologyCandidateScanB[lane] = value + addend;
+        else
+            SigmaTopologyCandidateScanA[lane] = value + addend;
         GroupMemoryBarrierWithGroupSync();
-        SigmaTopologyCandidateScan[lane] += addend;
-        GroupMemoryBarrierWithGroupSync();
+        useA ^= 1u;
     }
-    uint destination = SigmaTopologyCandidateScan[lane] - localCount;
+    uint inclusive = useA != 0u ? SigmaTopologyCandidateScanA[lane] :
+        SigmaTopologyCandidateScanB[lane];
+    uint destination = inclusive - localCount;
     uint capacity = min(_TopologyCandidateCapacity,
         SIGMA_TRANSITIONS_PER_PAGE);
     uint localOrdinal = 0u;
@@ -752,7 +762,8 @@ void MarkTopologyCandidates(uint3 groupThreadId : SV_GroupThreadID)
     }
     if (lane != 0u)
         return;
-    uint total = SigmaTopologyCandidateScan[255u];
+    uint total = useA != 0u ? SigmaTopologyCandidateScanA[255u] :
+        SigmaTopologyCandidateScanB[255u];
     _TopologyCandidateCount[0] = total;
     if (total > capacity)
         InterlockedAdd(_TopologyCounters[6u], total - capacity);

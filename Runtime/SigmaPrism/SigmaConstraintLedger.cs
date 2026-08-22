@@ -84,11 +84,16 @@ namespace Genesis.RoomScan.SigmaPrism
         internal const int RawFrameRecordStride = 592;
         internal const int RawRequestStride = 16;
         internal const int ProofSampleStride = 784;
+        internal const int ProofSourceCount = 4;
+        internal const int ProofSourceMetaRecords = 3;
         internal const uint InvalidSlot = uint.MaxValue;
         private const string ResourceName =
             "SigmaPrism/SigmaConstraintLedger";
+        private const string GaugeResourceName =
+            "SigmaPrism/SigmaGaugeDemand";
 
         private readonly ComputeShader _shader;
+        private readonly ComputeShader _gaugeShader;
         private readonly Stack<int> _freeProofSlots;
         private readonly SigmaExactBackendGate _backendGate;
         private readonly Stack<int> _freeRawTiles;
@@ -108,16 +113,21 @@ namespace Genesis.RoomScan.SigmaPrism
         private GraphicsBuffer _rawWords;
         private GraphicsBuffer _rawReservations;
         private GraphicsBuffer _rawAllocator;
-        private GraphicsBuffer _rawLiveFlags;
+        private GraphicsBuffer _rawLiveWords;
         private GraphicsBuffer _frameRecords;
         private GraphicsBuffer _frameStaging;
         private GraphicsBuffer _rawRequests;
         private GraphicsBuffer _proofSamples;
+        private GraphicsBuffer _proofSourceScratchMeta;
+        private GraphicsBuffer _proofSourceScratchBounds;
+        private GraphicsBuffer _gaugeCoordinateScratch;
         private GraphicsBuffer _pageStatus;
         private GraphicsBuffer _gaugeDemand;
         private int _clearKernel;
-        private int _reduceKernel;
-        private int _gaugeDemandKernel;
+        private int _reduceSourcesKernel;
+        private int _finalizeKernel;
+        private int _gaugeCoordinateKernel;
+        private int _gaugeFinalizeKernel;
         private bool _disposed;
 
         internal SigmaConstraintLedger(int proofPageCapacity,
@@ -143,9 +153,17 @@ namespace Genesis.RoomScan.SigmaPrism
             if (_shader == null)
                 throw new InvalidOperationException(
                     "Sigma constraint-ledger compute resource is missing.");
+            _gaugeShader = Resources.Load<ComputeShader>(GaugeResourceName);
+            if (_gaugeShader == null)
+                throw new InvalidOperationException(
+                    "Sigma gauge-demand compute resource is missing.");
             _clearKernel = _shader.FindKernel("ClearProofTransaction");
-            _reduceKernel = _shader.FindKernel("ReduceProofPage");
-            _gaugeDemandKernel = _shader.FindKernel("BuildGaugeDemand");
+            _reduceSourcesKernel = _shader.FindKernel("ReduceProofSources");
+            _finalizeKernel = _shader.FindKernel("FinalizeProofPage");
+            _gaugeCoordinateKernel = _gaugeShader.FindKernel(
+                "BuildGaugeCoordinateCandidates");
+            _gaugeFinalizeKernel = _gaugeShader.FindKernel(
+                "FinalizeGaugeDemand");
 
             _certificates = CreateBuffer(checked(proofPageCapacity *
                 CertificatesPerPage), CertificateStride,
@@ -163,8 +181,9 @@ namespace Genesis.RoomScan.SigmaPrism
                 "Sigma raw observation transaction reservations");
             _rawAllocator = CreateBuffer(1, sizeof(uint),
                 "Sigma GPU raw observation active count");
-            _rawLiveFlags = CreateBuffer(rawTileCapacity, sizeof(uint),
-                "Sigma unresolved raw observation residency flags");
+            int rawLiveWordCount = checked((rawTileCapacity + 31) / 32);
+            _rawLiveWords = CreateBuffer(rawLiveWordCount, sizeof(uint),
+                "Sigma unresolved raw observation residency bitmap");
             _frameRecords = CreateBuffer(rawTileCapacity,
                 RawFrameRecordStride,
                 "Sigma unresolved observation frame records");
@@ -175,6 +194,17 @@ namespace Genesis.RoomScan.SigmaPrism
             _proofSamples = CreateBuffer(checked(gpuWorkCapacity *
                 SigmaCarrier.SamplesPerPage), ProofSampleStride,
                 "Sigma compact inverse proof scratch");
+            int sourceCandidates = checked(gpuWorkCapacity * BlocksPerPage *
+                ProofSourceCount);
+            _proofSourceScratchMeta = CreateBuffer(checked(sourceCandidates *
+                ProofSourceMetaRecords), sizeof(uint) * 4,
+                "Sigma proof source reduction metadata");
+            _proofSourceScratchBounds = CreateBuffer(checked(sourceCandidates *
+                SigmaS16.LaneCount), BoundStride,
+                "Sigma proof source reduction bounds");
+            _gaugeCoordinateScratch = CreateBuffer(checked(gpuWorkCapacity *
+                BlocksPerPage * SigmaS16.LaneCount), sizeof(uint) * 12,
+                "Sigma coordinate-major gauge candidates");
             _pageStatus = CreateBuffer(checked(proofPageCapacity * StatusStride),
                 sizeof(uint), "Sigma proof transaction status");
             _gaugeDemand = CreateBuffer(checked(proofPageCapacity * BlocksPerPage),
@@ -195,7 +225,7 @@ namespace Genesis.RoomScan.SigmaPrism
             _pageStatus.SetData(new uint[checked(proofPageCapacity *
                 StatusStride)]);
             _rawAllocator.SetData(new uint[1]);
-            _rawLiveFlags.SetData(new uint[rawTileCapacity]);
+            _rawLiveWords.SetData(new uint[(rawTileCapacity + 31) / 32]);
         }
 
         internal int ProofPageCapacity { get; }
@@ -210,11 +240,17 @@ namespace Genesis.RoomScan.SigmaPrism
         internal GraphicsBuffer RawWordsBuffer => _rawWords;
         internal GraphicsBuffer RawReservationBuffer => _rawReservations;
         internal GraphicsBuffer RawAllocatorBuffer => _rawAllocator;
-        internal GraphicsBuffer RawLiveFlagsBuffer => _rawLiveFlags;
+        internal GraphicsBuffer RawLiveBitmapBuffer => _rawLiveWords;
         internal GraphicsBuffer FrameRecordBuffer => _frameRecords;
         internal GraphicsBuffer FrameStagingBuffer => _frameStaging;
         internal GraphicsBuffer RawRequestBuffer => _rawRequests;
         internal GraphicsBuffer ProofSampleBuffer => _proofSamples;
+        internal GraphicsBuffer ProofSourceScratchMetaBuffer =>
+            _proofSourceScratchMeta;
+        internal GraphicsBuffer ProofSourceScratchBoundsBuffer =>
+            _proofSourceScratchBounds;
+        internal GraphicsBuffer GaugeCoordinateScratchBuffer =>
+            _gaugeCoordinateScratch;
         internal long CertificateBytes =>
             (long)ProofPageCapacity * CertificatesPerPage * CertificateStride +
             (long)ProofPageCapacity * BoundsPerPage * BoundStride +
@@ -222,7 +258,8 @@ namespace Genesis.RoomScan.SigmaPrism
         internal long RawObservationBytes =>
             (long)RawTileCapacity * RawHeaderStride +
             (long)RawTileCapacity * RawWord4PerTile * sizeof(uint) * 4 +
-            (long)RawTileCapacity * RawFrameRecordStride;
+            (long)RawTileCapacity * RawFrameRecordStride +
+            (long)((RawTileCapacity + 31) / 32) * sizeof(uint);
 
         /// <summary>
         /// Stages immutable capture provenance for the current GPU transaction.
@@ -354,32 +391,60 @@ namespace Genesis.RoomScan.SigmaPrism
             RequirePage(page);
             if (carrierPage == null)
                 throw new ArgumentNullException(nameof(carrierPage));
-            BindCommon(page, _reduceKernel);
-            carrierPage.BindWritable(_shader, _reduceKernel,
-                "_ProofCarrierState", "_ProofCarrierPageSlot",
-                "_ProofCarrierPageCapacity");
-            _shader.SetBuffer(_reduceKernel, "_ProofSamples", _proofSamples);
-            _shader.SetBuffer(_reduceKernel, "_Certificates", _certificates);
-            _shader.SetBuffer(_reduceKernel, "_CertificateBounds", _bounds);
-            _shader.SetBuffer(_reduceKernel, "_ConstraintBlocks", _blocks);
-            _shader.SetBuffer(_reduceKernel, "_RawTiles", _rawHeaders);
-            _shader.SetBuffer(_reduceKernel, "_RawTileWords", _rawWords);
-            _shader.SetBuffer(_reduceKernel, "_RawReservations",
-                _rawReservations);
-            _shader.SetBuffer(_reduceKernel, "_RawRequests", _rawRequests);
-            _shader.SetBuffer(_reduceKernel, "_ProofPageStatus", _pageStatus);
-            _shader.SetBuffer(_reduceKernel, "_GaugeDemand", _gaugeDemand);
-            _backendGate.Bind(_shader, _reduceKernel);
-            _shader.Dispatch(_reduceKernel, BlocksPerPage, 1, 1);
 
-            BindCommon(page, _gaugeDemandKernel);
-            carrierPage.BindWritable(_shader, _gaugeDemandKernel,
+            _shader.SetInt("_UseInverseWorkList", 0);
+            BindCommon(page, _reduceSourcesKernel);
+            _shader.SetBuffer(_reduceSourcesKernel, "_ProofSamples",
+                _proofSamples);
+            _shader.SetBuffer(_reduceSourcesKernel, "_ProofSourceScratchMeta",
+                _proofSourceScratchMeta);
+            _shader.SetBuffer(_reduceSourcesKernel, "_ProofSourceScratchBounds",
+                _proofSourceScratchBounds);
+            _backendGate.Bind(_shader, _reduceSourcesKernel);
+            _shader.Dispatch(_reduceSourcesKernel, BlocksPerPage, 1,
+                ProofSourceCount);
+
+            BindCommon(page, _finalizeKernel);
+            _shader.SetBuffer(_finalizeKernel, "_ProofSamples", _proofSamples);
+            _shader.SetBuffer(_finalizeKernel, "_ProofSourceScratchMetaRead",
+                _proofSourceScratchMeta);
+            _shader.SetBuffer(_finalizeKernel, "_ProofSourceScratchBoundsRead",
+                _proofSourceScratchBounds);
+            _shader.SetBuffer(_finalizeKernel, "_Certificates", _certificates);
+            _shader.SetBuffer(_finalizeKernel, "_CertificateBounds", _bounds);
+            _shader.SetBuffer(_finalizeKernel, "_ConstraintBlocks", _blocks);
+            _shader.SetBuffer(_finalizeKernel, "_RawTiles", _rawHeaders);
+            _shader.SetBuffer(_finalizeKernel, "_RawTileWords", _rawWords);
+            _shader.SetBuffer(_finalizeKernel, "_RawReservations",
+                _rawReservations);
+            _shader.SetBuffer(_finalizeKernel, "_RawRequests", _rawRequests);
+            _shader.SetBuffer(_finalizeKernel, "_ProofPageStatus", _pageStatus);
+            _backendGate.Bind(_shader, _finalizeKernel);
+            _shader.Dispatch(_finalizeKernel, BlocksPerPage, 1, 1);
+
+            _gaugeShader.SetInt("_UseInverseWorkList", 0);
+            _gaugeShader.SetInt("_TargetProofSlot", page.TargetSlot);
+            _gaugeShader.SetInt("_ProofRevision",
+                unchecked((int)page.Frame.Revision));
+            carrierPage.BindWritable(_gaugeShader, _gaugeCoordinateKernel,
                 "_ProofCarrierState", "_ProofCarrierPageSlot",
                 "_ProofCarrierPageCapacity");
-            _shader.SetBuffer(_gaugeDemandKernel, "_ProofSamples", _proofSamples);
-            _shader.SetBuffer(_gaugeDemandKernel, "_GaugeDemand", _gaugeDemand);
-            _backendGate.Bind(_shader, _gaugeDemandKernel);
-            _shader.Dispatch(_gaugeDemandKernel, BlocksPerPage, 1, 1);
+            _gaugeShader.SetBuffer(_gaugeCoordinateKernel, "_ProofSamples",
+                _proofSamples);
+            _gaugeShader.SetBuffer(_gaugeCoordinateKernel,
+                "_GaugeCoordinateCandidates", _gaugeCoordinateScratch);
+            _backendGate.Bind(_gaugeShader, _gaugeCoordinateKernel);
+            _gaugeShader.Dispatch(_gaugeCoordinateKernel, BlocksPerPage, 1,
+                SigmaS16.LaneCount);
+
+            _gaugeShader.SetInt("_UseInverseWorkList", 0);
+            _gaugeShader.SetInt("_TargetProofSlot", page.TargetSlot);
+            _gaugeShader.SetBuffer(_gaugeFinalizeKernel,
+                "_GaugeCoordinateCandidatesRead", _gaugeCoordinateScratch);
+            _gaugeShader.SetBuffer(_gaugeFinalizeKernel, "_GaugeDemand",
+                _gaugeDemand);
+            _backendGate.Bind(_gaugeShader, _gaugeFinalizeKernel);
+            _gaugeShader.Dispatch(_gaugeFinalizeKernel, BlocksPerPage, 1, 1);
         }
 
         internal void BindGaugeReadOnly(ComputeShader shader, int kernel)
@@ -676,11 +741,14 @@ namespace Genesis.RoomScan.SigmaPrism
             _rawWords?.Dispose();
             _rawReservations?.Dispose();
             _rawAllocator?.Dispose();
-            _rawLiveFlags?.Dispose();
+            _rawLiveWords?.Dispose();
             _frameRecords?.Dispose();
             _frameStaging?.Dispose();
             _rawRequests?.Dispose();
             _proofSamples?.Dispose();
+            _proofSourceScratchMeta?.Dispose();
+            _proofSourceScratchBounds?.Dispose();
+            _gaugeCoordinateScratch?.Dispose();
             _pageStatus?.Dispose();
             _gaugeDemand?.Dispose();
             _certificates = null;
@@ -690,11 +758,14 @@ namespace Genesis.RoomScan.SigmaPrism
             _rawWords = null;
             _rawReservations = null;
             _rawAllocator = null;
-            _rawLiveFlags = null;
+            _rawLiveWords = null;
             _frameRecords = null;
             _frameStaging = null;
             _rawRequests = null;
             _proofSamples = null;
+            _proofSourceScratchMeta = null;
+            _proofSourceScratchBounds = null;
+            _gaugeCoordinateScratch = null;
             _pageStatus = null;
             _gaugeDemand = null;
         }
