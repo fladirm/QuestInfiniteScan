@@ -191,9 +191,10 @@
         "SigmaPoseGauge.compute constructs sparse conditioned point-to-plane source intervals in parallel GPU workgroups, reduces them by exact source-order-independent Q16.48 intersection against the immutable six-component Meta prior, and selects the deterministic minimum-magnitude point only from a non-empty two-eye meet",
         "Pose solving is a two-stage readout transaction: raw Meta-pose prediction supplies the overlap, the accepted gauge rerasterizes the same immutable StereoRigFrame, and only that corrected prediction/pose snapshot enters both depth and RGB inverse calibration; unresolved/conflicting evidence retains the raw Meta pose",
         "SigmaPoseGaugeState is a bounded noncanonical readout value; applying it preserves fixed rig extrinsics and no carrier sample, intrinsic topology record, timestamp, calibration epoch or proof certificate is rewritten",
-        "The pose pass is GPU-parallel rather than a single long-running workgroup: sampled overlaps reduce to compact partial meets and one bounded 64-lane final reduction; only the 64-byte exact result returns asynchronously",
+        "The pose pass is GPU-parallel rather than a single long-running workgroup: sampled overlaps reduce to compact partial meets and one bounded 64-lane final reduction; the exact result remains GPU-resident and is consumed directly by same-frame depth/RGB association while CPU observes only a completion fence",
         "Unity 6000.5.9f1 Vulkan EditMode passed 64/64 including exact minimum-magnitude/identity and rigid-rig invariance contracts; generated operators, git diff and eight-UAV validation passed",
-        "Android/Vulkan IL2CPP Release correction commit 91e4721c30c0 built with zero shader/C# errors, was archived source-only and installed on the connected Quest before S4-09"
+        "Android/Vulkan IL2CPP Release correction commit 91e4721c30c0 built with zero shader/C# errors, was archived source-only and installed on the connected Quest before S4-09",
+        "The repaired live path stably compacts inverse work, allocates generation-paired scratch, reduces proof, commits accepted proposals into the same Psi, consumes pose gauge on GPU and resolves topology/readout neighbours only by exact signed-64 Sigma_2 page identity; Unity Vulkan passed 64/64, the eight-UAV gate passed, and the fresh Release APK built with zero errors and was installed before S4-09"
       ]
     },
     {

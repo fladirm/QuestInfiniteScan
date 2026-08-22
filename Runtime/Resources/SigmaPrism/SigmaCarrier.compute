@@ -1,4 +1,5 @@
 #pragma kernel InitializeNullPage
+#pragma kernel InitializeGpuPool
 #pragma kernel ClonePageGeneration
 #pragma kernel PublishPageGeneration
 #pragma kernel MarkPageDirty
@@ -35,6 +36,7 @@ uint _Revision;
 uint _CertificateOffsetLo;
 uint _CertificateOffsetHi;
 uint _CertificateCount;
+uint _GpuPoolPageCount;
 
 groupshared uint SigmaDirtyScan[256];
 
@@ -85,6 +87,34 @@ void InitializeNullPage(uint3 dispatchId : SV_DispatchThreadID)
     {
         _PageMetadata[_TargetPageSlot] = SigmaRequestedPageMetadata();
         _DirtyFlags[_TargetPageSlot] = 1u;
+    }
+}
+
+// Live reconstruction owns an even set of generation-paired physical slots.
+// Every slot starts as exact z_null but is neither allocated nor current.  A
+// proof-gated GPU transaction is the only operation allowed to publish it.
+[numthreads(64, 1, 1)]
+void InitializeGpuPool(uint3 groupId : SV_GroupID,
+    uint3 groupThreadId : SV_GroupThreadID)
+{
+    uint pageSlot = groupId.y;
+    uint sample = groupId.x * 64u + groupThreadId.x;
+    if (_SigmaExactBackendGate[0] == 0u || pageSlot >= _GpuPoolPageCount ||
+        pageSlot >= _PageCapacity || sample >= SIGMA_PAGE_SAMPLE_COUNT)
+        return;
+
+    uint stateBase = pageSlot * SIGMA_PAGE_LANE_COUNT +
+        sample * SIGMA_LANE_COUNT;
+    [unroll]
+    for (uint lane = 0u; lane < SIGMA_LANE_COUNT; ++lane)
+        _TargetCarrierState[stateBase + lane] = SigmaCarrierNullLane(lane);
+
+    if (sample == 0u)
+    {
+        _PageMetadata[pageSlot] = (SigmaCarrierPageMetaGpu)0;
+        _DirtyFlags[pageSlot] = 0u;
+        _CurrentFlags[pageSlot] = 0u;
+        _ReadoutDirtyFlags[pageSlot] = 0u;
     }
 }
 

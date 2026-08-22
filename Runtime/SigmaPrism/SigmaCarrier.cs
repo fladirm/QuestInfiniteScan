@@ -127,13 +127,15 @@ namespace Genesis.RoomScan.SigmaPrism
     {
         internal SigmaCarrierReadBatch(int segmentIndex, int capacity,
             ulong readoutRevision, GraphicsBuffer state, GraphicsBuffer metadata,
-            GraphicsBuffer currentFlags, GraphicsBuffer readoutDirtyFlags)
+            GraphicsBuffer dirtyFlags, GraphicsBuffer currentFlags,
+            GraphicsBuffer readoutDirtyFlags)
         {
             SegmentIndex = segmentIndex;
             PageCapacity = capacity;
             ReadoutRevision = readoutRevision;
             State = state;
             Metadata = metadata;
+            DirtyFlags = dirtyFlags;
             CurrentFlags = currentFlags;
             ReadoutDirtyFlags = readoutDirtyFlags;
         }
@@ -143,6 +145,7 @@ namespace Genesis.RoomScan.SigmaPrism
         public ulong ReadoutRevision { get; }
         public GraphicsBuffer State { get; }
         public GraphicsBuffer Metadata { get; }
+        public GraphicsBuffer DirtyFlags { get; }
         public GraphicsBuffer CurrentFlags { get; }
         public GraphicsBuffer ReadoutDirtyFlags { get; }
     }
@@ -188,6 +191,7 @@ namespace Genesis.RoomScan.SigmaPrism
         private ComputeShader _carrierShader;
         private ComputeShader _codecShader;
         private int _initializeNullKernel;
+        private int _initializeGpuPoolKernel;
         private int _cloneKernel;
         private int _publishKernel;
         private int _markDirtyKernel;
@@ -200,6 +204,7 @@ namespace Genesis.RoomScan.SigmaPrism
         private long _runtimeBindingLimit;
         private bool _initialized;
         private bool _disposed;
+        private CarrierSegment _gpuManagedSegment;
 
         public string ModuleName => "Sigma exact carrier";
         public bool IsInitialized => _initialized && !_disposed;
@@ -252,6 +257,8 @@ namespace Genesis.RoomScan.SigmaPrism
                     "Sigma carrier/codec compute resources are missing.");
 
             _initializeNullKernel = _carrierShader.FindKernel("InitializeNullPage");
+            _initializeGpuPoolKernel = _carrierShader.FindKernel(
+                "InitializeGpuPool");
             _cloneKernel = _carrierShader.FindKernel("ClonePageGeneration");
             _publishKernel = _carrierShader.FindKernel("PublishPageGeneration");
             _markDirtyKernel = _carrierShader.FindKernel("MarkPageDirty");
@@ -280,6 +287,53 @@ namespace Genesis.RoomScan.SigmaPrism
 
         public void OnScanStarted() { }
         public void OnScanStopped() { }
+
+        /// <summary>
+        /// Reserves one binding-safe, generation-paired execution pool for the
+        /// GPU-resident inverse work graph.  Physical pairs are replaceable exact
+        /// lowering storage; logical coordinates and current generations remain in
+        /// page metadata and never acquire segment/slot meaning.
+        /// </summary>
+        internal SigmaCarrierReadBatch AcquireGpuManagedPool()
+        {
+            RequireInitialized();
+            if (_gpuManagedSegment != null)
+                return _gpuManagedSegment.CreateReadBatch(
+                    _segments.IndexOf(_gpuManagedSegment));
+
+            int allocatedCapacity = 0;
+            for (int index = 0; index < _segments.Count; ++index)
+                allocatedCapacity += _segments[index].Capacity;
+            int remaining = _decodedBudgetPages - allocatedCapacity;
+            int capacity = Math.Min(_pagesPerSegment, remaining) & ~1;
+            if (capacity < 2)
+                throw new InvalidOperationException(
+                    "Sigma GPU transaction pool requires at least one slot pair.");
+
+            int segmentIndex = _segments.Count;
+            var segment = new CarrierSegment(capacity, segmentIndex);
+            segment.ReserveAllForGpu();
+            _segments.Add(segment);
+            _gpuManagedSegment = segment;
+
+            _carrierShader.SetInt("_GpuPoolPageCount", capacity);
+            _carrierShader.SetInt("_PageCapacity", capacity);
+            _backendGate.Bind(_carrierShader, _initializeGpuPoolKernel);
+            _carrierShader.SetBuffer(_initializeGpuPoolKernel,
+                "_TargetCarrierState", segment.State);
+            _carrierShader.SetBuffer(_initializeGpuPoolKernel,
+                "_PageMetadata", segment.Metadata);
+            _carrierShader.SetBuffer(_initializeGpuPoolKernel,
+                "_DirtyFlags", segment.DirtyFlags);
+            _carrierShader.SetBuffer(_initializeGpuPoolKernel,
+                "_CurrentFlags", segment.CurrentFlags);
+            _carrierShader.SetBuffer(_initializeGpuPoolKernel,
+                "_ReadoutDirtyFlags", segment.ReadoutDirtyFlags);
+            _carrierShader.Dispatch(_initializeGpuPoolKernel,
+                SamplesPerPage / 64, capacity, 1);
+            segment.MarkReadoutChanged();
+            return segment.CreateReadBatch(segmentIndex);
+        }
 
         public static int ComputeSegmentPageCapacity(long runtimeBindingLimitBytes,
             int requestedMegabytes)
@@ -553,6 +607,7 @@ namespace Genesis.RoomScan.SigmaPrism
             for (int index = 0; index < _segments.Count; ++index)
                 _segments[index].Dispose();
             _segments.Clear();
+            _gpuManagedSegment = null;
             _latest.Clear();
             _lastGeneration.Clear();
             _allocated.Clear();
@@ -765,6 +820,11 @@ namespace Genesis.RoomScan.SigmaPrism
                 return true;
             }
 
+            public void ReserveAllForGpu()
+            {
+                _freeSlots.Clear();
+            }
+
             public void ReleaseSlot(int slot)
             {
                 if ((uint)slot >= Capacity)
@@ -778,7 +838,7 @@ namespace Genesis.RoomScan.SigmaPrism
 
             public SigmaCarrierReadBatch CreateReadBatch(int segmentIndex) =>
                 new(segmentIndex, Capacity, ReadoutRevision, State, Metadata,
-                    CurrentFlags, ReadoutDirtyFlags);
+                    DirtyFlags, CurrentFlags, ReadoutDirtyFlags);
 
             public void Dispose()
             {

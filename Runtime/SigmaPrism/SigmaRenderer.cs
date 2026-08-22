@@ -47,20 +47,10 @@ namespace Genesis.RoomScan.SigmaPrism
             "_ReadoutDirtyPageSlots");
         private static readonly int ReadoutBuildArgumentsId = Shader.PropertyToID(
             "_ReadoutBuildArguments");
-        private static readonly int HaloSourceVerticesId = Shader.PropertyToID(
-            "_HaloSourceVertices");
-        private static readonly int HaloTargetVerticesId = Shader.PropertyToID(
-            "_HaloTargetVertices");
+        private static readonly int ReadoutHaloArgumentsId = Shader.PropertyToID(
+            "_ReadoutHaloArguments");
         private static readonly int PageCapacityId = Shader.PropertyToID(
             "_PageCapacity");
-        private static readonly int SourcePageCapacityId = Shader.PropertyToID(
-            "_SourcePageCapacity");
-        private static readonly int SourcePageSlotId = Shader.PropertyToID(
-            "_SourcePageSlot");
-        private static readonly int TargetPageSlotId = Shader.PropertyToID(
-            "_TargetPageSlot");
-        private static readonly int HaloDirectionId = Shader.PropertyToID(
-            "_HaloDirection");
         private static readonly int ClipFromWorldId = Shader.PropertyToID(
             "_ClipFromWorld");
         private static readonly int OpticalFromWorldId = Shader.PropertyToID(
@@ -73,12 +63,6 @@ namespace Genesis.RoomScan.SigmaPrism
             "_TopologyPageKeys");
 
         private readonly List<SigmaCarrierReadBatch> _readBatches = new();
-        private readonly List<SigmaCarrierPageHandle> _currentPages = new();
-        private readonly HashSet<SigmaCarrierPageCoordinate>
-            _readoutChangedCoordinates = new();
-        private readonly HashSet<SigmaCarrierPageCoordinate>
-            _haloRefreshCoordinates = new();
-        private readonly List<SigmaCarrierPageCoordinate> _coordinateOrder = new();
         private readonly List<SegmentReadoutCache> _segmentCaches = new();
         private readonly RenderTargetIdentifier[] _mrt =
             new RenderTargetIdentifier[4];
@@ -95,9 +79,8 @@ namespace Genesis.RoomScan.SigmaPrism
         private SigmaPredictionFrameLease _latest;
         private RigCalibration _calibration;
         private int _buildKernel;
-        private int _clearHaloKernel;
-        private int _copyHaloKernel;
         private int _compactKernel;
+        private int _resolveHaloKernel;
         private long _lastSourceSequence;
         private bool _running;
         private bool _initialized;
@@ -140,9 +123,9 @@ namespace Genesis.RoomScan.SigmaPrism
                     "Sigma forward-readout resources are incomplete.");
 
             _buildKernel = _readoutCompute.FindKernel("BuildCarrierReadout");
-            _clearHaloKernel = _readoutCompute.FindKernel("ClearCarrierHalos");
-            _copyHaloKernel = _readoutCompute.FindKernel("CopyCarrierHalo");
             _compactKernel = _readoutCompute.FindKernel("CompactCurrentPages");
+            _resolveHaloKernel = _readoutCompute.FindKernel(
+                "ResolveCarrierHalos");
             _predictionMaterial = new Material(prediction)
             {
                 name = "[Sigma-PRISM-16] Prediction Material",
@@ -150,14 +133,6 @@ namespace Genesis.RoomScan.SigmaPrism
             };
             _properties = new MaterialPropertyBlock();
             _targets = new SigmaPredictionTargetRing(targetRingSlots);
-            _carrier.ReadoutChanged += OnCarrierReadoutChanged;
-            if (_carrier.IsInitialized)
-            {
-                _carrier.CollectCurrentPages(_currentPages);
-                for (int index = 0; index < _currentPages.Count; ++index)
-                    _readoutChangedCoordinates.Add(
-                        _currentPages[index].Coordinate);
-            }
             _initialized = true;
         }
 
@@ -260,14 +235,6 @@ namespace Genesis.RoomScan.SigmaPrism
                 }
 
                 Graphics.ExecuteCommandBuffer(command);
-                if (cacheChanged)
-                {
-                    for (int index = 0; index < _readBatches.Count; ++index)
-                        _segmentCaches[index].BuiltRevision =
-                            _readBatches[index].ReadoutRevision;
-                }
-                if (cacheChanged)
-                    _readoutChangedCoordinates.Clear();
                 prediction.CommitGpuWrite();
                 result = prediction;
                 if (publish)
@@ -297,25 +264,20 @@ namespace Genesis.RoomScan.SigmaPrism
         {
             _carrier.CollectReadableSegments(_readBatches);
             EnsureSegmentCaches();
-            bool changed = false;
             for (int index = 0; index < _readBatches.Count; ++index)
             {
                 SigmaCarrierReadBatch batch = _readBatches[index];
                 SegmentReadoutCache cache = _segmentCaches[index];
-                if (cache.BuiltRevision == batch.ReadoutRevision)
-                    continue;
-                changed = true;
                 BindCompaction(command, batch, cache);
                 command.DispatchCompute(_readoutCompute, _compactKernel, 1, 1, 1);
                 BindBuild(command, batch, cache);
                 command.DispatchCompute(_readoutCompute, _buildKernel,
                     cache.BuildDispatchArguments, 0);
+                BindHaloResolve(command, batch, cache);
+                command.DispatchCompute(_readoutCompute, _resolveHaloKernel,
+                    cache.HaloDispatchArguments, 0);
             }
-            if (!changed)
-                return false;
-
-            RefreshChangedHalos(command);
-            return true;
+            return _readBatches.Count != 0;
         }
 
         private void BindBuild(CommandBuffer command, SigmaCarrierReadBatch batch,
@@ -356,89 +318,23 @@ namespace Genesis.RoomScan.SigmaPrism
                 ReadoutDirtyPageSlotsId, cache.DirtyPageSlots);
             command.SetComputeBufferParam(_readoutCompute, _compactKernel,
                 ReadoutBuildArgumentsId, cache.BuildDispatchArguments);
+            command.SetComputeBufferParam(_readoutCompute, _compactKernel,
+                ReadoutHaloArgumentsId, cache.HaloDispatchArguments);
         }
 
-        private void OnCarrierReadoutChanged(
-            SigmaCarrierPageCoordinate coordinate) =>
-            _readoutChangedCoordinates.Add(coordinate);
-
-        private void RefreshChangedHalos(CommandBuffer command)
+        private void BindHaloResolve(CommandBuffer command,
+            SigmaCarrierReadBatch batch, SegmentReadoutCache cache)
         {
-            _haloRefreshCoordinates.Clear();
-            foreach (SigmaCarrierPageCoordinate changed in
-                _readoutChangedCoordinates)
-            {
-                _haloRefreshCoordinates.Add(changed);
-                AddOffset(_haloRefreshCoordinates, changed, -1L, 0L);
-                AddOffset(_haloRefreshCoordinates, changed, 0L, -1L);
-                AddOffset(_haloRefreshCoordinates, changed, -1L, -1L);
-            }
-            _coordinateOrder.Clear();
-            foreach (SigmaCarrierPageCoordinate coordinate in
-                _haloRefreshCoordinates)
-                _coordinateOrder.Add(coordinate);
-            _coordinateOrder.Sort(static (left, right) => left.CompareTo(right));
-
-            for (int index = 0; index < _coordinateOrder.Count; ++index)
-            {
-                if (!_carrier.TryGetLatest(_coordinateOrder[index],
-                        out SigmaCarrierPageHandle target))
-                    continue;
-                ClearPageHalos(command, target);
-                CopyNeighbourHalo(command, target, 1L, 0L, 0);
-                CopyNeighbourHalo(command, target, 0L, 1L, 1);
-                CopyNeighbourHalo(command, target, 1L, 1L, 2);
-            }
-        }
-
-        private void ClearPageHalos(CommandBuffer command,
-            SigmaCarrierPageHandle target)
-        {
-            SigmaCarrierReadBatch batch = _readBatches[target.SegmentIndex];
-            SegmentReadoutCache cache = _segmentCaches[target.SegmentIndex];
             command.SetComputeIntParam(_readoutCompute, PageCapacityId,
                 batch.PageCapacity);
-            command.SetComputeIntParam(_readoutCompute, TargetPageSlotId,
-                target.PageSlot);
-            command.SetComputeBufferParam(_readoutCompute, _clearHaloKernel,
+            command.SetComputeBufferParam(_readoutCompute, _resolveHaloKernel,
+                PageMetadataId, batch.Metadata);
+            command.SetComputeBufferParam(_readoutCompute, _resolveHaloKernel,
+                CurrentFlagsId, batch.CurrentFlags);
+            command.SetComputeBufferParam(_readoutCompute, _resolveHaloKernel,
+                CurrentPageSlotsId, cache.CurrentPageSlots);
+            command.SetComputeBufferParam(_readoutCompute, _resolveHaloKernel,
                 ReadoutVerticesId, cache.Vertices);
-            command.DispatchCompute(_readoutCompute, _clearHaloKernel, 1, 1, 1);
-        }
-
-        private static void AddOffset(
-            HashSet<SigmaCarrierPageCoordinate> destination,
-            SigmaCarrierPageCoordinate source, long deltaX, long deltaY)
-        {
-            if (TryOffset(source, deltaX, deltaY, out var result))
-                destination.Add(result);
-        }
-
-        private void CopyNeighbourHalo(CommandBuffer command,
-            SigmaCarrierPageHandle target, long deltaX, long deltaY, int direction)
-        {
-            if (!TryOffset(target.Coordinate, deltaX, deltaY,
-                    out SigmaCarrierPageCoordinate neighbourCoordinate) ||
-                !_carrier.TryGetLatest(neighbourCoordinate,
-                    out SigmaCarrierPageHandle source))
-                return;
-            SegmentReadoutCache targetCache = _segmentCaches[target.SegmentIndex];
-            SegmentReadoutCache sourceCache = _segmentCaches[source.SegmentIndex];
-            SigmaCarrierReadBatch targetBatch = _readBatches[target.SegmentIndex];
-            SigmaCarrierReadBatch sourceBatch = _readBatches[source.SegmentIndex];
-            command.SetComputeIntParam(_readoutCompute, PageCapacityId,
-                targetBatch.PageCapacity);
-            command.SetComputeIntParam(_readoutCompute, SourcePageCapacityId,
-                sourceBatch.PageCapacity);
-            command.SetComputeIntParam(_readoutCompute, TargetPageSlotId,
-                target.PageSlot);
-            command.SetComputeIntParam(_readoutCompute, SourcePageSlotId,
-                source.PageSlot);
-            command.SetComputeIntParam(_readoutCompute, HaloDirectionId, direction);
-            command.SetComputeBufferParam(_readoutCompute, _copyHaloKernel,
-                HaloTargetVerticesId, targetCache.Vertices);
-            command.SetComputeBufferParam(_readoutCompute, _copyHaloKernel,
-                HaloSourceVerticesId, sourceCache.Vertices);
-            command.DispatchCompute(_readoutCompute, _copyHaloKernel, 1, 1, 1);
         }
 
         private void DrawSegments(CommandBuffer command, Matrix4x4 clipFromWorld,
@@ -523,27 +419,9 @@ namespace Genesis.RoomScan.SigmaPrism
                 graphicsFromOptical * opticalFromWorld;
         }
 
-        private static bool TryOffset(SigmaCarrierPageCoordinate source,
-            long deltaX, long deltaY, out SigmaCarrierPageCoordinate result)
-        {
-            try
-            {
-                result = new SigmaCarrierPageCoordinate(
-                    checked(source.X + deltaX), checked(source.Y + deltaY));
-                return true;
-            }
-            catch (OverflowException)
-            {
-                result = default;
-                return false;
-            }
-        }
-
         private void OnDestroy()
         {
             _running = false;
-            if (_carrier != null)
-                _carrier.ReadoutChanged -= OnCarrierReadoutChanged;
             _latest?.Dispose();
             _latest = null;
             _targets?.Dispose();
@@ -611,16 +489,24 @@ namespace Genesis.RoomScan.SigmaPrism
                     name = $"Sigma readout build args {SegmentIndex}"
                 };
                 BuildDispatchArguments.SetData(new uint[] { 64u, 0u, 1u });
+                HaloDispatchArguments = new GraphicsBuffer(
+                    GraphicsBuffer.Target.Structured |
+                    GraphicsBuffer.Target.IndirectArguments,
+                    3, sizeof(uint))
+                {
+                    name = $"Sigma readout halo args {SegmentIndex}"
+                };
+                HaloDispatchArguments.SetData(new uint[] { 1u, 0u, 1u });
             }
 
             public int SegmentIndex { get; }
             public int Capacity { get; }
-            public ulong BuiltRevision { get; set; }
             public GraphicsBuffer Vertices { get; }
             public GraphicsBuffer CurrentPageSlots { get; }
             public GraphicsBuffer DrawArguments { get; }
             public GraphicsBuffer DirtyPageSlots { get; }
             public GraphicsBuffer BuildDispatchArguments { get; }
+            public GraphicsBuffer HaloDispatchArguments { get; }
 
             public bool Matches(SigmaCarrierReadBatch batch) =>
                 SegmentIndex == batch.SegmentIndex &&
@@ -635,6 +521,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 DrawArguments.Dispose();
                 DirtyPageSlots.Dispose();
                 BuildDispatchArguments.Dispose();
+                HaloDispatchArguments.Dispose();
             }
         }
     }

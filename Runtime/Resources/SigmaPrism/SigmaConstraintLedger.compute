@@ -7,6 +7,7 @@
 #include "SigmaExactCompare.hlsl"
 #include "SigmaOperatorPlan.hlsl"
 #include "SigmaConstraintLedgerAbi.hlsl"
+#include "SigmaInverseWorkAbi.hlsl"
 
 RWStructuredBuffer<SigmaProofSampleGpu> _ProofSamples;
 RWStructuredBuffer<SigmaConstraintCertificateGpu> _Certificates;
@@ -18,6 +19,8 @@ StructuredBuffer<uint> _RawReservations;
 RWStructuredBuffer<uint> _ProofPageStatus;
 StructuredBuffer<uint2> _ProofCarrierState;
 RWStructuredBuffer<SigmaGaugeDemandGpu> _GaugeDemand;
+StructuredBuffer<SigmaInverseWorkGpu> _InverseWork;
+StructuredBuffer<uint> _InverseWorkControl;
 
 uint _SourceProofSlot;
 uint _TargetProofSlot;
@@ -27,6 +30,7 @@ uint _ProofRevision;
 uint _RawTileCapacity;
 uint _ProofCarrierPageSlot;
 uint _ProofCarrierPageCapacity;
+uint _UseInverseWorkList;
 
 #define SIGMA_LEDGER_CANDIDATE_CAPACITY 8u
 
@@ -232,18 +236,18 @@ bool SigmaSameProofResult(uint maskA, uint roleA, uint independentA,
     return true;
 }
 
-uint SigmaLoadPriorCertificates(uint block)
+uint SigmaLoadPriorCertificates(uint block, uint sourceProofSlot)
 {
-    if (_SourceProofSlot == SIGMA_INVALID_PROOF_SLOT)
+    if (sourceProofSlot == SIGMA_INVALID_PROOF_SLOT)
         return 0u;
     SigmaConstraintBlockGpu prior = _ConstraintBlocks[
-        SigmaConstraintBlockAddress(_SourceProofSlot, block)];
+        SigmaConstraintBlockAddress(sourceProofSlot, block)];
     uint count = min(prior.counts.x, SIGMA_CERTIFICATES_PER_BLOCK);
     [loop]
     for (uint candidate = 0u; candidate < count; ++candidate)
     {
         SigmaConstraintCertificateGpu certificate = _Certificates[
-            SigmaCertificateAddress(_SourceProofSlot, block, candidate)];
+            SigmaCertificateAddress(sourceProofSlot, block, candidate)];
         LedgerIdentity[candidate] = certificate.identity;
         LedgerRange[candidate] = certificate.range;
         LedgerSampleMask[candidate] = certificate.sampleMask;
@@ -259,7 +263,7 @@ uint SigmaLoadPriorCertificates(uint block)
             if (cursor >= certificate.range.z)
                 break;
             SigmaSetCandidateBound(candidate, lane, _CertificateBounds[
-                SigmaCertificateBoundAddress(_SourceProofSlot, block,
+                SigmaCertificateBoundAddress(sourceProofSlot, block,
                     certificate.range.y + cursor)]);
             cursor++;
         }
@@ -316,8 +320,9 @@ bool SigmaSourceCell(uint source, SigmaProofSampleGpu sample,
     return true;
 }
 
-bool SigmaAppendSourceCandidate(uint block, uint source, inout uint count,
-    inout uint rawReasons, inout uint2 rawSamples)
+bool SigmaAppendSourceCandidate(uint block, uint source, uint proofSampleBase,
+    uint calibrationEpoch, inout uint count, inout uint rawReasons,
+    inout uint2 rawSamples)
 {
     if (count >= SIGMA_LEDGER_CANDIDATE_CAPACITY)
     {
@@ -343,7 +348,7 @@ bool SigmaAppendSourceCandidate(uint block, uint source, inout uint count,
     [loop]
     for (uint local = 0u; local < 64u; ++local)
     {
-        SigmaProofSampleGpu proof = _ProofSamples[
+        SigmaProofSampleGpu proof = _ProofSamples[proofSampleBase +
             SigmaProofPageSample(block, local)];
         SigmaQ48Bounds incoming[16];
         uint incomingMask;
@@ -404,7 +409,7 @@ bool SigmaAppendSourceCandidate(uint block, uint source, inout uint count,
         rawSamples |= sourceSamples;
     }
     LedgerIdentity[candidate] = uint4(coordinateMask, sourceClass, key,
-        _ProofCalibrationEpoch);
+        calibrationEpoch);
     LedgerRange[candidate] = uint4(role, 0u, countbits(coordinateMask),
         SIGMA_CERTIFICATE_ACTIVE);
     LedgerSampleMask[candidate] = sourceSamples;
@@ -412,13 +417,13 @@ bool SigmaAppendSourceCandidate(uint block, uint source, inout uint count,
     return true;
 }
 
-bool SigmaProofEqualsSource(uint block, uint count, uint boundCount,
-    uint meetMask, uint roleMask, uint independentMask)
+bool SigmaProofEqualsSource(uint block, uint sourceProofSlot, uint count,
+    uint boundCount, uint meetMask, uint roleMask, uint independentMask)
 {
-    if (_SourceProofSlot == SIGMA_INVALID_PROOF_SLOT)
+    if (sourceProofSlot == SIGMA_INVALID_PROOF_SLOT)
         return count == 0u && boundCount == 0u;
     SigmaConstraintBlockGpu prior = _ConstraintBlocks[
-        SigmaConstraintBlockAddress(_SourceProofSlot, block)];
+        SigmaConstraintBlockAddress(sourceProofSlot, block)];
     if (prior.counts.x != count || prior.counts.y != boundCount ||
         prior.proof.x != meetMask || prior.proof.y != roleMask ||
         prior.proof.z != independentMask)
@@ -428,7 +433,7 @@ bool SigmaProofEqualsSource(uint block, uint count, uint boundCount,
     for (uint candidate = 0u; candidate < count; ++candidate)
     {
         SigmaConstraintCertificateGpu previous = _Certificates[
-            SigmaCertificateAddress(_SourceProofSlot, block, candidate)];
+            SigmaCertificateAddress(sourceProofSlot, block, candidate)];
         if (any(previous.identity != LedgerIdentity[candidate]) ||
             previous.range.x != LedgerRange[candidate].x ||
             previous.range.z != LedgerRange[candidate].z ||
@@ -442,7 +447,7 @@ bool SigmaProofEqualsSource(uint block, uint count, uint boundCount,
                 continue;
             SigmaQ48Bounds a = SigmaCandidateBound(candidate, lane);
             SigmaQ48Bounds b = _CertificateBounds[
-                SigmaCertificateBoundAddress(_SourceProofSlot, block, cursor)];
+                SigmaCertificateBoundAddress(sourceProofSlot, block, cursor)];
             if (!SigmaU64Equal(a.lo, b.lo) || !SigmaU64Equal(a.hi, b.hi))
                 return false;
             cursor++;
@@ -553,18 +558,43 @@ bool SigmaGaugeSharedPairCoversTriple(uint previousLocal, uint centerLocal,
 }
 
 [numthreads(64, 1, 1)]
-void ClearProofTransaction(uint3 id : SV_DispatchThreadID)
+void ClearProofTransaction(uint3 groupId : SV_GroupID,
+    uint3 groupThreadId : SV_GroupThreadID)
 {
-    if (id.x < SIGMA_PAGE_SAMPLE_COUNT)
-        _ProofSamples[id.x] = (SigmaProofSampleGpu)0;
-    if (id.x < SIGMA_PROOF_STATUS_STRIDE)
-        _ProofPageStatus[SigmaProofStatusAddress(_TargetProofSlot, id.x)] = 0u;
+    uint workIndex = _UseInverseWorkList != 0u ? groupId.y : 0u;
+    uint sample = groupId.x * 64u + groupThreadId.x;
+    if (_UseInverseWorkList != 0u &&
+        workIndex >= _InverseWorkControl[2u])
+        return;
+    uint targetProofSlot = _UseInverseWorkList != 0u
+        ? _InverseWork[workIndex].slots.w : _TargetProofSlot;
+    if (sample < SIGMA_PAGE_SAMPLE_COUNT)
+        _ProofSamples[workIndex * SIGMA_PAGE_SAMPLE_COUNT + sample] =
+            (SigmaProofSampleGpu)0;
+    if (sample < SIGMA_PROOF_STATUS_STRIDE)
+        _ProofPageStatus[SigmaProofStatusAddress(targetProofSlot, sample)] = 0u;
 }
 
 [numthreads(1, 1, 1)]
 void ReduceProofPage(uint3 groupId : SV_GroupID)
 {
     uint block = groupId.x;
+    uint workIndex = _UseInverseWorkList != 0u ? groupId.y : 0u;
+    if (_UseInverseWorkList != 0u &&
+        workIndex >= _InverseWorkControl[2u])
+        return;
+    SigmaInverseWorkGpu work = (SigmaInverseWorkGpu)0;
+    if (_UseInverseWorkList != 0u)
+        work = _InverseWork[workIndex];
+    uint sourceProofSlot = _UseInverseWorkList != 0u
+        ? work.slots.z : _SourceProofSlot;
+    uint targetProofSlot = _UseInverseWorkList != 0u
+        ? work.slots.w : _TargetProofSlot;
+    uint proofFrameSlot = _ProofFrameSlot;
+    uint proofCalibrationEpoch = _ProofCalibrationEpoch;
+    uint proofRevision = _UseInverseWorkList != 0u
+        ? work.control.w : _ProofRevision;
+    uint proofSampleBase = workIndex * SIGMA_PAGE_SAMPLE_COUNT;
     if (!SigmaCanonicalMutationEnabled() ||
         block >= SIGMA_CERTIFICATE_BLOCKS_PER_PAGE)
         return;
@@ -572,13 +602,13 @@ void ReduceProofPage(uint3 groupId : SV_GroupID)
     for (uint clear = 0u; clear < SIGMA_LEDGER_CANDIDATE_CAPACITY; ++clear)
         SigmaClearCandidate(clear);
 
-    uint candidateCount = SigmaLoadPriorCertificates(block);
+    uint candidateCount = SigmaLoadPriorCertificates(block, sourceProofSlot);
     uint rawReasons = 0u;
     uint2 rawSamples = 0u;
     [loop]
     for (uint local = 0u; local < 64u; ++local)
     {
-        SigmaProofSampleGpu proof = _ProofSamples[
+        SigmaProofSampleGpu proof = _ProofSamples[proofSampleBase +
             SigmaProofPageSample(block, local)];
         uint status = proof.meta.x;
         uint reason = 0u;
@@ -597,8 +627,8 @@ void ReduceProofPage(uint3 groupId : SV_GroupID)
     }
     [unroll]
     for (uint source = 0u; source < 4u; ++source)
-        SigmaAppendSourceCandidate(block, source, candidateCount, rawReasons,
-            rawSamples);
+        SigmaAppendSourceCandidate(block, source, proofSampleBase,
+            proofCalibrationEpoch, candidateCount, rawReasons, rawSamples);
 
     // Canonical lexicographic order.
     [loop]
@@ -697,8 +727,8 @@ void ReduceProofPage(uint3 groupId : SV_GroupID)
         }
     }
 
-    bool proofEqual = SigmaProofEqualsSource(block, storedCount, boundCount,
-        targetMask, targetRole, targetIndependent);
+    bool proofEqual = SigmaProofEqualsSource(block, sourceProofSlot,
+        storedCount, boundCount, targetMask, targetRole, targetIndependent);
     uint outputBound = 0u;
     [loop]
     for (uint certificate = 0u; certificate <
@@ -718,39 +748,39 @@ void ReduceProofPage(uint3 groupId : SV_GroupID)
                 if ((output.identity.x & (1u << lane)) == 0u)
                     continue;
                 _CertificateBounds[SigmaCertificateBoundAddress(
-                    _TargetProofSlot, block, outputBound++)] =
+                    targetProofSlot, block, outputBound++)] =
                     SigmaCandidateBound(certificate, lane);
             }
         }
-        _Certificates[SigmaCertificateAddress(_TargetProofSlot, block,
+        _Certificates[SigmaCertificateAddress(targetProofSlot, block,
             certificate)] = output;
     }
     [loop]
     for (uint clearBound = outputBound; clearBound <
         SIGMA_CERTIFICATE_BOUNDS_PER_BLOCK; ++clearBound)
-        _CertificateBounds[SigmaCertificateBoundAddress(_TargetProofSlot,
+        _CertificateBounds[SigmaCertificateBoundAddress(targetProofSlot,
             block, clearBound)] = (SigmaQ48Bounds)0;
 
     uint priorRawHead = SIGMA_INVALID_RAW_TILE;
-    if (_SourceProofSlot != SIGMA_INVALID_PROOF_SLOT)
+    if (sourceProofSlot != SIGMA_INVALID_PROOF_SLOT)
         priorRawHead = _ConstraintBlocks[SigmaConstraintBlockAddress(
-            _SourceProofSlot, block)].counts.z;
+            sourceProofSlot, block)].counts.z;
     uint rawHead = priorRawHead;
     if (rawReasons != 0u)
     {
         uint reservation = _RawReservations[
-            _TargetProofSlot * SIGMA_CERTIFICATE_BLOCKS_PER_PAGE + block];
+            targetProofSlot * SIGMA_CERTIFICATE_BLOCKS_PER_PAGE + block];
         if (reservation >= _RawTileCapacity)
         {
             InterlockedOr(_ProofPageStatus[SigmaProofStatusAddress(
-                _TargetProofSlot, 1u)], SIGMA_PROOF_FAILED);
+                targetProofSlot, 1u)], SIGMA_PROOF_FAILED);
         }
         else
         {
             SigmaRawObservationTileGpu raw;
-            raw.identity = uint4(priorRawHead, _ProofFrameSlot,
-                (_TargetProofSlot << 6u) | block, _ProofRevision);
-            raw.provenance = uint4(rawReasons, _ProofCalibrationEpoch,
+            raw.identity = uint4(priorRawHead, proofFrameSlot,
+                (targetProofSlot << 6u) | block, proofRevision);
+            raw.provenance = uint4(rawReasons, proofCalibrationEpoch,
                 rawSamples.x, rawSamples.y);
             _RawTiles[reservation] = raw;
             [loop]
@@ -759,33 +789,34 @@ void ReduceProofPage(uint3 groupId : SV_GroupID)
             for (uint word = 0u; word < SIGMA_RAW_WORD4_PER_SAMPLE; ++word)
                 _RawTileWords[reservation * SIGMA_RAW_WORD4_PER_TILE +
                     local * SIGMA_RAW_WORD4_PER_SAMPLE + word] =
-                    _ProofSamples[SigmaProofPageSample(block, local)].raw[word];
+                    _ProofSamples[proofSampleBase +
+                        SigmaProofPageSample(block, local)].raw[word];
             rawHead = reservation;
             uint statusWord = block < 32u ? 2u : 3u;
             uint bit = 1u << (block & 31u);
             InterlockedOr(_ProofPageStatus[SigmaProofStatusAddress(
-                _TargetProofSlot, statusWord)], bit);
+                targetProofSlot, statusWord)], bit);
             InterlockedOr(_ProofPageStatus[SigmaProofStatusAddress(
-                _TargetProofSlot, 1u)], SIGMA_PROOF_RAW_CHANGED);
+                targetProofSlot, 1u)], SIGMA_PROOF_RAW_CHANGED);
         }
     }
     if (!proofEqual)
         InterlockedOr(_ProofPageStatus[SigmaProofStatusAddress(
-            _TargetProofSlot, 1u)], SIGMA_PROOF_SET_CHANGED);
+            targetProofSlot, 1u)], SIGMA_PROOF_SET_CHANGED);
     InterlockedOr(_ProofPageStatus[SigmaProofStatusAddress(
-        _TargetProofSlot, 7u)], rawReasons);
+        targetProofSlot, 7u)], rawReasons);
     InterlockedAdd(_ProofPageStatus[SigmaProofStatusAddress(
-        _TargetProofSlot, 6u)], storedCount);
+        targetProofSlot, 6u)], storedCount);
 
     SigmaConstraintBlockGpu blockOutput;
     blockOutput.counts = uint4(storedCount, outputBound, rawHead,
         rawReasons != 0u ? 1u : 0u);
     blockOutput.proof = uint4(targetMask, targetRole, targetIndependent,
-        _ProofRevision);
-    _ConstraintBlocks[SigmaConstraintBlockAddress(_TargetProofSlot, block)] =
+        proofRevision);
+    _ConstraintBlocks[SigmaConstraintBlockAddress(targetProofSlot, block)] =
         blockOutput;
     InterlockedAdd(_ProofPageStatus[SigmaProofStatusAddress(
-        _TargetProofSlot, 0u)], 1u);
+        targetProofSlot, 0u)], 1u);
 }
 
 // One true 8x8 carrier block is one workgroup. B is evaluated once per sample.
@@ -797,7 +828,20 @@ void BuildGaugeDemand(uint3 groupId : SV_GroupID,
     uint3 groupThreadId : SV_GroupThreadID)
 {
     uint block = groupId.x;
+    uint workIndex = _UseInverseWorkList != 0u ? groupId.y : 0u;
     uint local = groupThreadId.x;
+    if (_UseInverseWorkList != 0u &&
+        workIndex >= _InverseWorkControl[2u])
+        return;
+    SigmaInverseWorkGpu work = (SigmaInverseWorkGpu)0;
+    if (_UseInverseWorkList != 0u)
+        work = _InverseWork[workIndex];
+    uint targetProofSlot = _UseInverseWorkList != 0u
+        ? work.slots.w : _TargetProofSlot;
+    uint carrierPageSlot = _UseInverseWorkList != 0u
+        ? work.slots.y : _ProofCarrierPageSlot;
+    uint proofRevision = _UseInverseWorkList != 0u
+        ? work.control.w : _ProofRevision;
     if (!SigmaCanonicalMutationEnabled() ||
         block >= SIGMA_CERTIFICATE_BLOCKS_PER_PAGE)
         return;
@@ -808,12 +852,13 @@ void BuildGaugeDemand(uint3 groupId : SV_GroupID,
     GroupMemoryBarrierWithGroupSync();
 
     uint pageSample = SigmaProofPageSample(block, local);
-    SigmaProofSampleGpu proof = _ProofSamples[pageSample];
+    SigmaProofSampleGpu proof = _ProofSamples[
+        workIndex * SIGMA_PAGE_SAMPLE_COUNT + pageSample];
     uint2 state[16];
     uint2 transformed[16];
-    uint transformValid = _ProofCarrierPageSlot < _ProofCarrierPageCapacity
+    uint transformValid = carrierPageSlot < _ProofCarrierPageCapacity
         ? 1u : 0u;
-    uint stateBase = _ProofCarrierPageSlot * SIGMA_PAGE_LANE_COUNT +
+    uint stateBase = carrierPageSlot * SIGMA_PAGE_LANE_COUNT +
         pageSample * SIGMA_LANE_COUNT;
     [unroll]
     for (uint stateLane = 0u; stateLane < 16u; ++stateLane)
@@ -927,7 +972,7 @@ void BuildGaugeDemand(uint3 groupId : SV_GroupID,
     {
         GaugeTrigger[local] = uint4(1u, bestLane, local, bestAxis);
         GaugeEvidence[local] = uint4(bestKey0, bestKey1, bestSourceMask,
-            _ProofRevision);
+            proofRevision);
         GaugeMetric[local] = uint4(bestError, bestWidth);
     }
     GroupMemoryBarrierWithGroupSync();
@@ -957,5 +1002,5 @@ void BuildGaugeDemand(uint3 groupId : SV_GroupID,
         result.evidence = GaugeEvidence[best];
         result.metric = GaugeMetric[best];
     }
-    _GaugeDemand[SigmaConstraintBlockAddress(_TargetProofSlot, block)] = result;
+    _GaugeDemand[SigmaConstraintBlockAddress(targetProofSlot, block)] = result;
 }

@@ -2,18 +2,17 @@
 
 ## Latest user exchange
 
-User identified that the S4-00 donor UX was not retained as a functional slice:
-the deployed clean scene had no controller ray, and existing S4-05/S4-08 gate
-state was not surfaced in the operator panel. User requests an immediate corrected
-Release build and install; no reconstruction-ontology change is authorized.
+User warned that the implementation must preserve the 16-dimensional Sigma-PRISM
+ontology and must not import conventional image-space or Euclidean 3D map identity.
+They requested the functional Release APK on Quest without another architectural
+detour.
 
 ## Latest implementation update
 
-The clean-scene setup now creates and validates EventSystem, OVRInputModule,
-PanelInputConfiguration, VRDocumentRaycaster, ControllerRayDriver, explicit URP ray
-shader wiring, UIDocument assets and RoomScanInputHandler. The operator panel reads
-the existing exact-gate/topology/inverse diagnostics without becoming mutation
-authority. Unity Vulkan is 64/64, static exact/UAV gates pass and the regenerated
-scene contains every serialized input/UI component. Next action is one checkpoint
-commit, source archive, matching Release build and immediate Quest install; S4-09
-remains pending.
+The S4-08 live inverse is now one GPU-resident transaction: compact work, exact
+scratch/proof/commit, same-frame pose consumption and intrinsic topology/readout
+adjacency remain on GPU. Adjacency uses only exact signed-64 `Sigma_2` page identity;
+singular physics remains generated S16 annihilator/associator algebra. Unity Vulkan
+passed 64/64, the eight-UAV gate passed, and the fresh Android/Vulkan IL2CPP Release
+built with zero errors and was installed. Next action is checkpoint commit plus a
+matching source-only git archive; S4-09 remains pending for device audit.

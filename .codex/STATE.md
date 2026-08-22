@@ -29,9 +29,10 @@ Updated: 2026-08-22 (Europe/Prague)
 - `S4-05` is accepted in commit `96cbeca`.
 - `S4-06` is accepted in commit `c6dabef`.
 - `S4-07` is accepted in commit `dc6abf5`.
-- `S4-08` is accepted in commit `0696228`; its Android correction is frozen in
-  `91e4721c30c0`, archived, built as Release and deployed. `S4-09` remains paused
-  during the user's base-device audit.
+- `S4-08` is accepted in commit `0696228`; the live-path correction now keeps
+  inverse scheduling, exact proof/commit, pose consumption and intrinsic-neighbour
+  resolution GPU-resident. Its fresh Android/Vulkan Release APK built with zero
+  errors and is installed for the user's base-device audit. `S4-09` remains paused.
 - The retained product surface is only four-stream GPU capture/synchronization,
   immutable calibration/poses, Quest/XR lifecycle, permissions/anchors, input/UI,
   neutral GPU helpers and build/deploy tooling.
@@ -207,12 +208,14 @@ Updated: 2026-08-22 (Europe/Prague)
   insufficient or conflicting evidence returns identity/unresolved; a non-empty
   meet selects the deterministic componentwise minimum-magnitude correction.
 - Overlap evaluation is GPU-parallel: many 64-lane workgroups produce compact
-  partial meets and one bounded reduction produces the 64-byte exact result. This
-  avoids a long single-workgroup scan without adding a pose graph or map state.
-- Pose acceptance is same-frame. The initial raster uses the immutable Meta pose;
-  an accepted nonzero twist rerasterizes that exact retained `StereoRigFrame`, and
-  the corrected prediction/gauge snapshot is then used consistently by depth and
-  RGB inverse calibration. It is never carried blindly to the next timestamp.
+  partial meets and one bounded reduction leaves the exact result GPU-resident.
+  Depth/RGB association and projection consume it directly in the same command
+  graph; CPU observes only the completion fence. This avoids both a long single-
+  workgroup scan and a readback-driven scheduler without adding a pose graph.
+- Pose acceptance is same-frame. The immutable Meta pose remains the prior and an
+  accepted twist focuses that same retained `StereoRigFrame` consistently in the
+  GPU depth/RGB inverse projections. It is never carried blindly to the next
+  timestamp.
 - `SigmaPoseGaugeState` changes only FP readout matrices after the exact integer
   decision. It preserves fixed rig extrinsics and cannot alter carrier bytes,
   intrinsic topology, proof records, calibration epochs or captured timestamps.
@@ -234,12 +237,33 @@ Updated: 2026-08-22 (Europe/Prague)
 - `SigmaInverse.compute` consumes the two prebuilt RGB cells together with the two
   independent depth cells in one joint proof-gated page solve. Dead proposal
   geometry/mass buffers and their duplicate full solve were removed.
-- The frame path retains only bounded asynchronous scheduler/proof metadata; no
-  pixels, vertices or carrier geometry are read back to CPU.
+- The live frame path has no asynchronous result callback: compact work, physical
+  generation allocation, proposal solve, raw-proof reservation, proof reduction,
+  immutable carrier commit and pose consumption remain one GPU command graph.
+  CPU owns only resources, immutable frame metadata and a completion fence.
 - Commit `91e4721c30c0` built successfully as Android/Vulkan IL2CPP Release with
   zero shader/C# errors. The 66,757,006-byte APK was installed on the connected
   Quest; its source-only archive is
   `SigmaPrism16-S4-08-91e4721c30c0-source.zip`.
+
+## S4-08 GPU-resident live-path repair
+
+- `SigmaInverseWorkGraph.compute` stably compacts active and unmatched work,
+  prepares generation-paired scratch transactions, plans raw-proof reservations
+  and commits only proof-accepted proposals back into the same `Psi`.
+- Exact pose-gauge output is consumed directly by depth/RGB association and
+  projection on GPU. `Runtime/SigmaPrism` contains no `AsyncGPUReadback`, runtime
+  `GetData` or callback retirement latch.
+- Intrinsic topology and disposable readout halos resolve neighbours exclusively
+  from exact signed-64 `Sigma_2` logical page addresses. They do not introduce
+  image adjacency, XYZ proximity, chart identity or a second geometric world.
+- The carrier initializes and allocates exact `z_null` generation pairs on GPU;
+  dirty/current/readout publication remains generation-keyed and indirect.
+- Verification: Unity Vulkan EditMode passed 64/64, the Quest eight-UAV validator
+  passed, and a fresh Android/Vulkan IL2CPP Release built with zero errors and was
+  installed on the connected headset. Two release-only HLSL portability defects
+  (a duplicate include-owned gate declaration and a struct-valued ternary) were
+  removed without changing algebra or topology semantics.
 
 ## S4-00 neutral Quest-shell regression repair
 
@@ -263,11 +287,9 @@ Updated: 2026-08-22 (Europe/Prague)
 
 ## Next exact actions
 
-1. Commit the repaired S4-00 Quest input/operator-UX vertical slice and its current
-   generated code graph.
-2. Create a source-only `git archive`, build that exact commit as Android/Vulkan
-   IL2CPP Release and install it on the connected Quest.
-3. Keep `S4-09` pending until the user completes this device audit.
+1. Commit this S4-08 GPU-resident repair with its regenerated code graph.
+2. Create the matching source-only `git archive` for audit.
+3. Keep `S4-09` pending until the user completes the installed release audit.
 
 ## Verification policy
 

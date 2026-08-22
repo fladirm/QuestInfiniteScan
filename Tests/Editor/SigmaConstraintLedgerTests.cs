@@ -43,6 +43,14 @@ namespace Genesis.RoomScan.Tests
         }
 
         [StructLayout(LayoutKind.Sequential)]
+        private struct InverseWorkGpu
+        {
+            public UInt4 Slots;
+            public UInt4 Control;
+            public UInt4 Coordinate;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
         private struct BoundsGpu
         {
             public UInt2 Lo;
@@ -301,13 +309,24 @@ namespace Genesis.RoomScan.Tests
                 Marshal.SizeOf<UInt2>());
             using GraphicsBuffer demandBuffer = Buffer(demand,
                 Marshal.SizeOf<GaugeDemandGpu>());
-            shader.SetInt("_TargetProofSlot", 0);
-            shader.SetInt("_ProofRevision", 77);
+            using GraphicsBuffer workBuffer = Buffer(new[]
+            {
+                new InverseWorkGpu
+                {
+                    Slots = new UInt4(InvalidSlot, 0u, InvalidSlot, 0u),
+                    Control = new UInt4(1u, 0u, 0u, 77u),
+                }
+            }, Marshal.SizeOf<InverseWorkGpu>());
+            using GraphicsBuffer workControlBuffer = Buffer(new uint[]
+                { 0u, 0u, 1u, 0u, 0u, 0u, 0u, 0u, 0u }, sizeof(uint));
+            shader.SetInt("_UseInverseWorkList", 1);
             shader.SetInt("_ProofCarrierPageSlot", 0);
             shader.SetInt("_ProofCarrierPageCapacity", 1);
             shader.SetBuffer(kernel, "_ProofSamples", sampleBuffer);
             shader.SetBuffer(kernel, "_ProofCarrierState", carrierBuffer);
             shader.SetBuffer(kernel, "_GaugeDemand", demandBuffer);
+            shader.SetBuffer(kernel, "_InverseWork", workBuffer);
+            shader.SetBuffer(kernel, "_InverseWorkControl", workControlBuffer);
             gate.Bind(shader, kernel);
             shader.Dispatch(kernel, SigmaConstraintLedger.BlocksPerPage, 1, 1);
             demandBuffer.GetData(demand);
@@ -366,9 +385,18 @@ namespace Genesis.RoomScan.Tests
             using var statusBuffer = Buffer(status, sizeof(uint));
             using var carrierBuffer = Buffer(carrier, Marshal.SizeOf<UInt2>());
             using var demandBuffer = Buffer(gaugeDemand, sizeof(uint) * 12);
+            using var workBuffer = Buffer(new[]
+            {
+                new InverseWorkGpu
+                {
+                    Slots = new UInt4(InvalidSlot, 0u, InvalidSlot, 0u),
+                    Control = new UInt4(1u, 0u, 0u, 11u),
+                }
+            }, Marshal.SizeOf<InverseWorkGpu>());
+            using var workControlBuffer = Buffer(new uint[]
+                { 0u, 0u, 1u, 0u, 0u, 0u, 0u, 0u, 0u }, sizeof(uint));
 
-            shader.SetInt("_SourceProofSlot", unchecked((int)InvalidSlot));
-            shader.SetInt("_TargetProofSlot", 0);
+            shader.SetInt("_UseInverseWorkList", 1);
             shader.SetInt("_ProofFrameSlot", 5);
             shader.SetInt("_ProofCalibrationEpoch", 7);
             shader.SetInt("_ProofRevision", 11);
@@ -386,6 +414,8 @@ namespace Genesis.RoomScan.Tests
             shader.SetBuffer(kernel, "_ProofPageStatus", statusBuffer);
             shader.SetBuffer(kernel, "_ProofCarrierState", carrierBuffer);
             shader.SetBuffer(kernel, "_GaugeDemand", demandBuffer);
+            shader.SetBuffer(kernel, "_InverseWork", workBuffer);
+            shader.SetBuffer(kernel, "_InverseWorkControl", workControlBuffer);
             shader.Dispatch(kernel, SigmaConstraintLedger.BlocksPerPage, 1, 1);
 
             certificateBuffer.GetData(certificates);

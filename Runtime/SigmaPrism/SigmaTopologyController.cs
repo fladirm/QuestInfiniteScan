@@ -1,11 +1,14 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Rendering;
 
 namespace Genesis.RoomScan.SigmaPrism
 {
     internal readonly struct SigmaTopologyEvidenceView
     {
+        internal const int ProposalMode = 1;
+
         private SigmaTopologyEvidenceView(SigmaCarrierPageCoordinate coordinate,
             GraphicsBuffer proposalStatus, GraphicsBuffer proposalEpoch,
             int pageSlot, int pageCapacity, uint frameSerial,
@@ -162,6 +165,7 @@ namespace Genesis.RoomScan.SigmaPrism
         private GraphicsBuffer _topologyDispatchArguments;
         private GraphicsBuffer _counters;
         private GraphicsBuffer _dummyEvidence;
+        private GraphicsBuffer _liveTopologyNeighbours;
         private bool _initialized;
 
         private int _clearCacheKernel;
@@ -179,6 +183,7 @@ namespace Genesis.RoomScan.SigmaPrism
         private int _finalizeKernel;
         private int _cellCutsKernel;
         private int _publishKernel;
+        private int _resolveLiveNeighboursKernel;
 
         public string ModuleName => "Sigma intrinsic singular topology";
         public bool IsInitialized => _initialized;
@@ -218,6 +223,8 @@ namespace Genesis.RoomScan.SigmaPrism
             _finalizeKernel = _shader.FindKernel("FinalizeTransitionClasses");
             _cellCutsKernel = _shader.FindKernel("BuildCellCutFlags");
             _publishKernel = _shader.FindKernel("PublishTopologyPage");
+            _resolveLiveNeighboursKernel = _shader.FindKernel(
+                "ResolveLiveTopologyNeighbours");
 
             _transitionTau = CreateBuffer(
                 checked(TransitionsPerPage * SigmaCarrier.LanesPerSample),
@@ -242,6 +249,9 @@ namespace Genesis.RoomScan.SigmaPrism
                 "Sigma topology diagnostic counters");
             _dummyEvidence = CreateBuffer(1, sizeof(uint),
                 "Sigma topology empty evidence");
+            _liveTopologyNeighbours = CreateBuffer(
+                SigmaCarrier.MaximumPagesPerSegment, sizeof(uint) * 4,
+                "Sigma intrinsic carrier neighbour work");
             _counters.SetData(new uint[8]);
             _dummyEvidence.SetData(new uint[1]);
             _topologyCandidateCount.SetData(new uint[1]);
@@ -289,6 +299,261 @@ namespace Genesis.RoomScan.SigmaPrism
             }
             view = _segmentCaches[segmentIndex].View;
             return true;
+        }
+
+        /// <summary>
+        /// Records exact intrinsic topology for the compact proof-committed
+        /// inverse work list. The bounded CPU loop records commands only; target
+        /// identity, validity and generation are consumed from GPU work/carrier
+        /// buffers. No page decision or topology value crosses to the CPU.
+        /// </summary>
+        internal void RecordGpuInverseTopology(CommandBuffer command,
+            SigmaCarrierReadBatch batch, GraphicsBuffer inverseWork,
+            GraphicsBuffer inverseWorkControl, GraphicsBuffer proposalStatus,
+            GraphicsBuffer proposalEpoch, int workCapacity, uint frameSerial,
+            uint leftIndependenceKey, uint rightIndependenceKey)
+        {
+            RequireInitialized();
+            if (command == null)
+                throw new ArgumentNullException(nameof(command));
+            if (inverseWork == null || inverseWorkControl == null ||
+                proposalStatus == null || proposalEpoch == null)
+                throw new ArgumentNullException(nameof(inverseWork));
+            EnsureSegmentViews();
+            if ((uint)batch.SegmentIndex >= (uint)_segmentCaches.Count)
+                throw new InvalidOperationException(
+                    "GPU topology target segment cache is unavailable.");
+            TopologySegmentCache cache = _segmentCaches[batch.SegmentIndex];
+
+            command.SetComputeIntParam(_shader, "_TargetPageCapacity",
+                batch.PageCapacity);
+            command.SetComputeBufferParam(_shader,
+                _resolveLiveNeighboursKernel, "_LiveInverseWork", inverseWork);
+            command.SetComputeBufferParam(_shader,
+                _resolveLiveNeighboursKernel, "_LiveInverseWorkControl",
+                inverseWorkControl);
+            command.SetComputeBufferParam(_shader,
+                _resolveLiveNeighboursKernel, "_LivePageMetadata",
+                batch.Metadata);
+            command.SetComputeBufferParam(_shader,
+                _resolveLiveNeighboursKernel, "_LiveCurrentFlags",
+                batch.CurrentFlags);
+            command.SetComputeBufferParam(_shader,
+                _resolveLiveNeighboursKernel, "_LiveTopologyNeighbours",
+                _liveTopologyNeighbours);
+            command.DispatchCompute(_shader, _resolveLiveNeighboursKernel,
+                workCapacity, 1, 1);
+
+            for (int workIndex = 0; workIndex < workCapacity; ++workIndex)
+            {
+                BindGpuLiveCommon(command, batch, cache, inverseWork,
+                    inverseWorkControl, proposalStatus, proposalEpoch,
+                    workIndex, frameSerial, leftIndependenceKey,
+                    rightIndependenceKey);
+
+                command.SetComputeBufferParam(_shader, _clearPageKernel,
+                    "_TransitionCache", cache.TransitionRecords);
+                command.SetComputeBufferParam(_shader, _clearPageKernel,
+                    "_AssociatorFlags", cache.AssociatorFlags);
+                command.SetComputeBufferParam(_shader, _clearPageKernel,
+                    "_CellTopologyFlags", cache.CellFlags);
+                command.SetComputeBufferParam(_shader, _clearPageKernel,
+                    "_TopologyPageKeys", cache.PageKeys);
+                command.DispatchCompute(_shader, _clearPageKernel,
+                    TransitionsPerPage / 64, 1, 1);
+
+                command.SetComputeBufferParam(_shader, _clearWorkKernel,
+                    "_TopologyCandidateCount", _topologyCandidateCount);
+                command.SetComputeBufferParam(_shader, _clearWorkKernel,
+                    "_TopologyDispatchArgs", _topologyDispatchArguments);
+                command.DispatchCompute(_shader, _clearWorkKernel, 1, 1, 1);
+
+                command.SetComputeBufferParam(_shader, _sampleSupportKernel,
+                    "_TargetState", batch.State);
+                command.SetComputeBufferParam(_shader, _sampleSupportKernel,
+                    "_SampleSupport", _sampleSupport);
+                command.DispatchCompute(_shader, _sampleSupportKernel,
+                    SigmaCarrier.SamplesPerPage / 64, 1, 1);
+
+                command.SetComputeBufferParam(_shader, _buildMetaKernel,
+                    "_TargetState", batch.State);
+                command.SetComputeBufferParam(_shader, _buildMetaKernel,
+                    "_RightState", batch.State);
+                command.SetComputeBufferParam(_shader, _buildMetaKernel,
+                    "_DownState", batch.State);
+                command.SetComputeBufferParam(_shader, _buildMetaKernel,
+                    "_TransitionMeta", _transitionMeta);
+                command.SetComputeBufferParam(_shader, _buildMetaKernel,
+                    "_SampleSupport", _sampleSupport);
+                command.SetComputeBufferParam(_shader, _buildMetaKernel,
+                    "_TransitionCache", cache.TransitionRecords);
+                BindGpuEvidence(command, _buildMetaKernel, proposalStatus,
+                    proposalEpoch);
+                command.DispatchCompute(_shader, _buildMetaKernel,
+                    TransitionsPerPage / 64, 1, 1);
+
+                command.SetComputeBufferParam(_shader, _associatorKernel,
+                    "_TargetState", batch.State);
+                command.SetComputeBufferParam(_shader, _associatorKernel,
+                    "_RightState", batch.State);
+                command.SetComputeBufferParam(_shader, _associatorKernel,
+                    "_DownState", batch.State);
+                command.SetComputeBufferParam(_shader, _associatorKernel,
+                    "_TransitionMeta", _transitionMeta);
+                command.SetComputeBufferParam(_shader, _associatorKernel,
+                    "_AssociatorFlags", cache.AssociatorFlags);
+                command.SetComputeBufferParam(_shader, _associatorKernel,
+                    "_TopologyCounters", _counters);
+                command.DispatchCompute(_shader, _associatorKernel,
+                    SigmaCarrier.SamplesPerPage / 64, 1, 1);
+
+                command.SetComputeBufferParam(_shader, _markCandidatesKernel,
+                    "_TransitionMeta", _transitionMeta);
+                command.SetComputeBufferParam(_shader, _markCandidatesKernel,
+                    "_AssociatorFlags", cache.AssociatorFlags);
+                command.SetComputeBufferParam(_shader, _markCandidatesKernel,
+                    "_TopologyCandidates", _topologyCandidates);
+                command.SetComputeBufferParam(_shader, _markCandidatesKernel,
+                    "_TopologyCandidateCount", _topologyCandidateCount);
+                command.DispatchCompute(_shader, _markCandidatesKernel,
+                    TransitionsPerPage / 64, 1, 1);
+
+                command.SetComputeBufferParam(_shader, _buildDispatchKernel,
+                    "_TopologyCandidateCount", _topologyCandidateCount);
+                command.SetComputeBufferParam(_shader, _buildDispatchKernel,
+                    "_TopologyDispatchArgs", _topologyDispatchArguments);
+                command.DispatchCompute(_shader, _buildDispatchKernel, 1, 1, 1);
+
+                command.SetComputeBufferParam(_shader, _buildTauKernel,
+                    "_TargetState", batch.State);
+                command.SetComputeBufferParam(_shader, _buildTauKernel,
+                    "_RightState", batch.State);
+                command.SetComputeBufferParam(_shader, _buildTauKernel,
+                    "_DownState", batch.State);
+                command.SetComputeBufferParam(_shader, _buildTauKernel,
+                    "_TransitionTau", _transitionTau);
+                command.SetComputeBufferParam(_shader, _buildTauKernel,
+                    "_TransitionScale", _transitionScale);
+                command.SetComputeBufferParam(_shader, _buildTauKernel,
+                    "_TransitionMeta", _transitionMeta);
+                command.DispatchCompute(_shader, _buildTauKernel,
+                    TransitionsPerPage / 64, 1, 1);
+
+                command.SetComputeBufferParam(_shader, _scanKernel,
+                    "_TransitionTau", _transitionTau);
+                command.SetComputeBufferParam(_shader, _scanKernel,
+                    "_TransitionScale", _transitionScale);
+                command.SetComputeBufferParam(_shader, _scanKernel,
+                    "_TransitionMeta", _transitionMeta);
+                command.SetComputeBufferParam(_shader, _scanKernel,
+                    "_TransitionCache", cache.TransitionRecords);
+                command.SetComputeBufferParam(_shader, _scanKernel,
+                    "_TopologyCounters", _counters);
+                command.SetComputeBufferParam(_shader, _scanKernel,
+                    "_TopologyCandidates", _topologyCandidates);
+                command.SetComputeBufferParam(_shader, _scanKernel,
+                    "_TopologyCandidateCount", _topologyCandidateCount);
+                command.DispatchCompute(_shader, _scanKernel,
+                    _topologyDispatchArguments, 0);
+
+                command.SetComputeBufferParam(_shader, _finalizeKernel,
+                    "_TransitionCache", cache.TransitionRecords);
+                command.SetComputeBufferParam(_shader, _finalizeKernel,
+                    "_AssociatorFlags", cache.AssociatorFlags);
+                command.SetComputeBufferParam(_shader, _finalizeKernel,
+                    "_TopologyCounters", _counters);
+                command.DispatchCompute(_shader, _finalizeKernel,
+                    TransitionsPerPage / 64, 1, 1);
+
+                command.SetComputeBufferParam(_shader, _cellCutsKernel,
+                    "_TransitionCache", cache.TransitionRecords);
+                command.SetComputeBufferParam(_shader, _cellCutsKernel,
+                    "_RightTransitionCache", cache.TransitionRecords);
+                command.SetComputeBufferParam(_shader, _cellCutsKernel,
+                    "_DownTransitionCache", cache.TransitionRecords);
+                command.SetComputeBufferParam(_shader, _cellCutsKernel,
+                    "_CellTopologyFlags", cache.CellFlags);
+                command.DispatchCompute(_shader, _cellCutsKernel,
+                    SigmaCarrier.SamplesPerPage / 64, 1, 1);
+
+                command.SetComputeBufferParam(_shader, _publishKernel,
+                    "_TopologyPageKeys", cache.PageKeys);
+                command.DispatchCompute(_shader, _publishKernel, 1, 1, 1);
+            }
+        }
+
+        private void BindGpuLiveCommon(CommandBuffer command,
+            SigmaCarrierReadBatch batch, TopologySegmentCache cache,
+            GraphicsBuffer inverseWork, GraphicsBuffer inverseWorkControl,
+            GraphicsBuffer proposalStatus, GraphicsBuffer proposalEpoch,
+            int workIndex, uint frameSerial, uint leftIndependenceKey,
+            uint rightIndependenceKey)
+        {
+            command.SetComputeIntParam(_shader, "_UseInverseWorkList", 1);
+            command.SetComputeIntParam(_shader, "_LiveWorkIndex", workIndex);
+            command.SetComputeIntParam(_shader, "_TargetPageCapacity",
+                batch.PageCapacity);
+            command.SetComputeIntParam(_shader, "_RightPageCapacity",
+                batch.PageCapacity);
+            command.SetComputeIntParam(_shader, "_DownPageCapacity",
+                batch.PageCapacity);
+            command.SetComputeIntParam(_shader, "_RightPageValid", 0);
+            command.SetComputeIntParam(_shader, "_DownPageValid", 0);
+            command.SetComputeIntParam(_shader, "_TargetEvidenceMode",
+                SigmaTopologyEvidenceView.ProposalMode);
+            command.SetComputeIntParam(_shader, "_RightEvidenceMode", 0);
+            command.SetComputeIntParam(_shader, "_DownEvidenceMode", 0);
+            command.SetComputeIntParam(_shader, "_TargetEvidencePageCapacity",
+                batch.PageCapacity);
+            command.SetComputeIntParam(_shader, "_RightEvidencePageCapacity", 1);
+            command.SetComputeIntParam(_shader, "_DownEvidencePageCapacity", 1);
+            command.SetComputeIntParam(_shader, "_EvidenceFrameSerial",
+                unchecked((int)frameSerial));
+            command.SetComputeIntParam(_shader, "_LeftIndependenceKey",
+                unchecked((int)leftIndependenceKey));
+            command.SetComputeIntParam(_shader, "_RightIndependenceKey",
+                unchecked((int)rightIndependenceKey));
+            command.SetComputeIntParam(_shader, "_ForceBoundaryTransitions", 0);
+            command.SetComputeIntParam(_shader, "_SingularShift", singularShift);
+            command.SetComputeIntParam(_shader, "_AssociatorShift",
+                associatorShift);
+            int[] kernels = { _clearPageKernel, _sampleSupportKernel,
+                _buildMetaKernel, _associatorKernel, _markCandidatesKernel,
+                _buildTauKernel, _scanKernel, _finalizeKernel,
+                _cellCutsKernel, _publishKernel };
+            for (int index = 0; index < kernels.Length; ++index)
+            {
+                int kernel = kernels[index];
+                command.SetComputeBufferParam(_shader, kernel,
+                    "_SigmaExactBackendGate", _backendGate.Buffer);
+                command.SetComputeBufferParam(_shader, kernel,
+                    "_LiveInverseWork", inverseWork);
+                command.SetComputeBufferParam(_shader, kernel,
+                    "_LiveInverseWorkControl", inverseWorkControl);
+                command.SetComputeBufferParam(_shader, kernel,
+                    "_LivePageMetadata", batch.Metadata);
+                command.SetComputeBufferParam(_shader, kernel,
+                    "_LiveCurrentFlags", batch.CurrentFlags);
+                command.SetComputeBufferParam(_shader, kernel,
+                    "_LiveTopologyNeighbours", _liveTopologyNeighbours);
+            }
+        }
+
+        private void BindGpuEvidence(CommandBuffer command, int kernel,
+            GraphicsBuffer proposalStatus, GraphicsBuffer proposalEpoch)
+        {
+            command.SetComputeBufferParam(_shader, kernel,
+                "_TargetEvidenceProposalStatus", proposalStatus);
+            command.SetComputeBufferParam(_shader, kernel,
+                "_TargetEvidenceEpoch", proposalEpoch);
+            command.SetComputeBufferParam(_shader, kernel,
+                "_RightEvidenceProposalStatus", _dummyEvidence);
+            command.SetComputeBufferParam(_shader, kernel,
+                "_RightEvidenceEpoch", _dummyEvidence);
+            command.SetComputeBufferParam(_shader, kernel,
+                "_DownEvidenceProposalStatus", _dummyEvidence);
+            command.SetComputeBufferParam(_shader, kernel,
+                "_DownEvidenceEpoch", _dummyEvidence);
         }
 
         internal SigmaTopologyBuildToken BuildGeneration(
@@ -829,6 +1094,7 @@ namespace Genesis.RoomScan.SigmaPrism
             _topologyDispatchArguments?.Dispose();
             _counters?.Dispose();
             _dummyEvidence?.Dispose();
+            _liveTopologyNeighbours?.Dispose();
             _transitionTau = null;
             _transitionScale = null;
             _transitionMeta = null;
@@ -838,6 +1104,7 @@ namespace Genesis.RoomScan.SigmaPrism
             _topologyDispatchArguments = null;
             _counters = null;
             _dummyEvidence = null;
+            _liveTopologyNeighbours = null;
             _latestTopology.Clear();
             _shader = null;
             _backendGate = null;

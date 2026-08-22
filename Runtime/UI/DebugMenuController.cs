@@ -146,18 +146,16 @@ namespace Genesis.RoomScan.UI
 
             var gate = scanner.ExactBackendGate;
             SigmaExactBackendGateStatus gateStatus = gate?.DiagnosticStatus ??
-                SigmaExactBackendGateStatus.Pending;
+                SigmaExactBackendGateStatus.Disposed;
             SetStatus(_gateState, gateStatus switch
             {
-                SigmaExactBackendGateStatus.Passed => "PASS · canonical mutation armed",
-                SigmaExactBackendGateStatus.Failed => "FAIL · mutation remains closed",
-                SigmaExactBackendGateStatus.ReadbackError => "diagnostic readback failed",
+                SigmaExactBackendGateStatus.GpuResident =>
+                    "GPU-resident · exact kernels fail closed",
                 SigmaExactBackendGateStatus.Disposed => "disposed",
-                _ => "checking exact GPU witness…"
+                _ => "unavailable"
             }, gateStatus switch
             {
-                SigmaExactBackendGateStatus.Passed => StatusKind.Good,
-                SigmaExactBackendGateStatus.Pending => StatusKind.Warning,
+                SigmaExactBackendGateStatus.GpuResident => StatusKind.Good,
                 _ => StatusKind.Error
             });
 

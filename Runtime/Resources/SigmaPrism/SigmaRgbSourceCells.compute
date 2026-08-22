@@ -4,6 +4,8 @@
 #include "SigmaGeometryReadout.hlsl"
 #include "SigmaInverseMath.hlsl"
 #include "SigmaRgbInverseMath.hlsl"
+#include "SigmaInverseWorkAbi.hlsl"
+#include "SigmaPoseConsume.hlsl"
 
 // Disposable source constraints for one carrier page. One 16-lane workgroup
 // owns one (sample, eye) pullback and one lane owns one generated B-coordinate.
@@ -12,6 +14,8 @@ StructuredBuffer<uint2> _CarrierState;
 StructuredBuffer<SigmaCarrierPageMetaGpu> _PageMetadata;
 RWStructuredBuffer<SigmaQ48Bounds> _RgbSourceBounds;
 RWStructuredBuffer<uint4> _RgbSourceMeta;
+StructuredBuffer<SigmaInverseWorkGpu> _InverseWork;
+StructuredBuffer<uint> _InverseWorkControl;
 
 // Source-cell-local hyperlinearization of the certificate meet. Keeping it here
 // prevents unrelated exact kernels from being invalidated by this dispatch-shape
@@ -72,6 +76,7 @@ bool SigmaApplyRgbConstraintPriorLane(SigmaCarrierPageMetaGpu metadata,
 
 uint _SourcePageSlot;
 uint _PageCapacity;
+uint _UseInverseWorkList;
 
 groupshared uint2 RgbState[16];
 groupshared uint2 RgbTransformed[16];
@@ -117,16 +122,23 @@ void BuildRgbSourceCells(uint3 groupId : SV_GroupID,
     uint3 groupThreadId : SV_GroupThreadID)
 {
     uint scheduledSample = groupId.x;
-    uint eye = groupId.y;
+    uint workIndex = _UseInverseWorkList != 0u ? groupId.y >> 1u : 0u;
+    uint eye = _UseInverseWorkList != 0u ? groupId.y & 1u : groupId.y;
     uint lane = groupThreadId.x;
+    if (_UseInverseWorkList != 0u &&
+        workIndex >= _InverseWorkControl[0u])
+        return;
+    uint sourcePageSlot = _UseInverseWorkList != 0u
+        ? _InverseWork[workIndex].slots.x : _SourcePageSlot;
     uint sample = SigmaRgbPhaseSample(scheduledSample);
-    uint sourceCell = SigmaRgbSourceCellAddress(eye, scheduledSample);
+    uint sourceCell = workIndex * 2u * SIGMA_RGB_PHASE_SAMPLE_COUNT +
+        SigmaRgbSourceCellAddress(eye, scheduledSample);
 
-    SigmaCarrierPageMetaGpu metadata = _PageMetadata[_SourcePageSlot];
+    SigmaCarrierPageMetaGpu metadata = _PageMetadata[sourcePageSlot];
     if (lane == 0u)
     {
         RgbActive = SigmaCanonicalMutationEnabled() &&
-            _SourcePageSlot < _PageCapacity &&
+            sourcePageSlot < _PageCapacity &&
             scheduledSample < SIGMA_RGB_PHASE_SAMPLE_COUNT && eye < 2u &&
             (metadata.flags & SIGMA_PAGE_PUBLISHED) != 0u ? 1u : 0u;
         RgbUnobservable = 0u;
@@ -136,7 +148,7 @@ void BuildRgbSourceCells(uint3 groupId : SV_GroupID,
     }
     GroupMemoryBarrierWithGroupSync();
 
-    uint stateBase = _SourcePageSlot * SIGMA_PAGE_LANE_COUNT +
+    uint stateBase = sourcePageSlot * SIGMA_PAGE_LANE_COUNT +
         sample * SIGMA_LANE_COUNT;
     RgbState[lane] = RgbActive != 0u
         ? _CarrierState[stateBase + lane] : SIGMA_Q48_ZERO;
@@ -203,7 +215,8 @@ void BuildRgbSourceCells(uint3 groupId : SV_GroupID,
             SigmaQ48ToReadoutFloat(RgbCurrentY[SIGMA_GEOMETRY_ROWS[2]]),
             SigmaQ48ToReadoutFloat(RgbCurrentY[SIGMA_GEOMETRY_ROWS[3]]));
         float2 pixel;
-        if (!SigmaProjectWorldToRgb(worldPosition, eye, pixel))
+        if (!SigmaProjectWorldToRgb(SigmaPoseUnapplyWorld(worldPosition), eye,
+                pixel))
         {
             RgbUnobservable = 1u;
             setupValid = 0u;
@@ -349,7 +362,8 @@ void BuildRgbSourceCells(uint3 groupId : SV_GroupID,
         (!SigmaU64Equal(RgbBox[lane].lo, RgbPrior[lane].lo) ||
          !SigmaU64Equal(RgbBox[lane].hi, RgbPrior[lane].hi)) ? 1u : 0u;
     RgbLaneValid[lane] = laneChanged;
-    _RgbSourceBounds[SigmaRgbSourceBoundAddress(eye, scheduledSample, lane)] =
+    _RgbSourceBounds[workIndex * 2u * SIGMA_RGB_PHASE_SAMPLE_COUNT * 16u +
+        SigmaRgbSourceBoundAddress(eye, scheduledSample, lane)] =
         RgbBox[lane];
     GroupMemoryBarrierWithGroupSync();
     if (lane == 0u)

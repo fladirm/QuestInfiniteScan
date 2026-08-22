@@ -163,8 +163,22 @@ Git history and are not active on this branch.
   consume that corrected prediction/gauge snapshot together; a correction from
   frame N is never blindly carried into frame N+1.
 - Decision: overlap work is distributed into GPU partial meets and one fixed
-  reduction. The 64-byte asynchronous result is readout scheduling metadata, not
-  carrier state, and cannot rewrite `Psi`, intrinsic topology, timestamps or rig
-  extrinsics.
+  reduction. The exact result remains GPU-resident and is consumed directly by
+  same-frame depth/RGB association and projection; CPU sees only a fence. It is a
+  readout gauge, not carrier state, and cannot rewrite `Psi`, intrinsic topology,
+  timestamps or rig extrinsics.
 - Consequence: S4-09 receives one unchanged canonical carrier plus a bounded
   observation gauge, not a pose graph, second SLAM or historical geometry rewrite.
+
+## ADR-S411 — Live inverse completion is one GPU-resident Psi transaction
+
+- Decision: active/unmatched work compaction, generation-paired scratch allocation,
+  inverse-cell solve, raw-proof reservation, exact proof reduction and immutable
+  publication execute as one indirect GPU command graph. CPU owns lifecycle,
+  immutable frame metadata and a completion fence only.
+- Decision: topology/readout execution adjacency is derived solely from exact
+  signed-64 `Sigma_2` logical page addresses. Image neighbourhoods, Euclidean 3D
+  proximity and storage-segment boundaries have no identity or physical meaning.
+- Consequence: no callback, CPU scheduler, chart/mesh topology or parallel world is
+  permitted to decide canonical mutation; singular structure remains an exact
+  annihilator/associator readout of the same `Psi`.

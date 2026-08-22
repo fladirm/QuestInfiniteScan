@@ -118,12 +118,16 @@ namespace Genesis.RoomScan.Tests
             using var buildArguments = new GraphicsBuffer(
                 GraphicsBuffer.Target.Structured |
                 GraphicsBuffer.Target.IndirectArguments, 3, sizeof(uint));
+            using var haloArguments = new GraphicsBuffer(
+                GraphicsBuffer.Target.Structured |
+                GraphicsBuffer.Target.IndirectArguments, 3, sizeof(uint));
             state.SetData(packed);
             meta.SetData(metadata);
             current.SetData(new uint[] { 1u });
             readoutDirty.SetData(new uint[] { 1u });
             arguments.SetData(new uint[] { 0u, 1u, 0u, 0u });
             buildArguments.SetData(new uint[] { 64u, 0u, 1u });
+            haloArguments.SetData(new uint[] { 1u, 0u, 1u });
             topologyCellFlags.SetData(new uint[PageSize * PageSize]);
             topologyPageKeys.SetData(new[]
             {
@@ -131,8 +135,8 @@ namespace Genesis.RoomScan.Tests
             });
 
             int build = readout.FindKernel("BuildCarrierReadout");
-            int clear = readout.FindKernel("ClearCarrierHalos");
             int compact = readout.FindKernel("CompactCurrentPages");
+            int resolveHalo = readout.FindKernel("ResolveCarrierHalos");
             readout.SetInt("_PageCapacity", 1);
             readout.SetBuffer(compact, "_CurrentFlags", current);
             readout.SetBuffer(compact, "_ReadoutDirtyFlags", readoutDirty);
@@ -140,6 +144,7 @@ namespace Genesis.RoomScan.Tests
             readout.SetBuffer(compact, "_ReadoutDrawArguments", arguments);
             readout.SetBuffer(compact, "_ReadoutDirtyPageSlots", dirtySlots);
             readout.SetBuffer(compact, "_ReadoutBuildArguments", buildArguments);
+            readout.SetBuffer(compact, "_ReadoutHaloArguments", haloArguments);
             readout.Dispatch(compact, 1, 1, 1);
 
             gate.Bind(readout, build);
@@ -150,9 +155,11 @@ namespace Genesis.RoomScan.Tests
             readout.SetBuffer(build, "_ReadoutDirtyPageSlots", dirtySlots);
             readout.SetBuffer(build, "_ReadoutVertices", vertices);
             readout.DispatchIndirect(build, buildArguments);
-            readout.SetInt("_TargetPageSlot", 0);
-            readout.SetBuffer(clear, "_ReadoutVertices", vertices);
-            readout.Dispatch(clear, 1, 1, 1);
+            readout.SetBuffer(resolveHalo, "_PageMetadata", meta);
+            readout.SetBuffer(resolveHalo, "_CurrentFlags", current);
+            readout.SetBuffer(resolveHalo, "_CurrentPageSlots", activeSlots);
+            readout.SetBuffer(resolveHalo, "_ReadoutVertices", vertices);
+            readout.DispatchIndirect(resolveHalo, haloArguments);
 
             var gpuReadout = new Vector4[ReadoutSampleCount];
             vertices.GetData(gpuReadout);
