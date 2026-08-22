@@ -2,16 +2,14 @@
 
 ## Latest user exchange
 
-User requires the consolidated S4-08 package to be an actual release build rather
-than a development/debug APK, followed by immediate Quest installation. S4-09 must
-remain paused until that exact release checkpoint is archived and deployed.
+User requires the last S4-08 Android correction to be completed now, frozen as a
+source-only git archive, built as a real Release APK and immediately installed on
+the connected Quest. S4-09 remains paused.
 
 ## Latest implementation update
 
-S4-08 is accepted in `0696228`. The first Android build was refused because the
-Android compiler exposed one varying-flow barrier and two invalid fixed-loop
-annotations in older S4-05/S4-04/S4-06 shader lowering. The precise three roots are
-corrected with unchanged exact semantics; Unity Vulkan remains 64/64. Build tooling
-now forces `BuildOptions.None`, clears debugging/profiling flags and selects IL2CPP
-Release. Next is the correction commit, zero-error Android release build, source
-archive and immediate Quest deploy; S4-09 remains paused.
+The duplicated inline RGB-D inverse was replaced by a 16-lane exact RGB source-cell
+kernel and one joint page commit, removing dead proposal buffers and the Android
+compiler explosion without changing the one-S16-carrier ontology. Unity Vulkan is
+64/64 and the static exact/UAV gates pass. Next is commit/archive, Android IL2CPP
+Release build and immediate Quest install.

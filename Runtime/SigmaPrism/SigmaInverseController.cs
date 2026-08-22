@@ -24,6 +24,7 @@ namespace Genesis.RoomScan.SigmaPrism
     {
         private const string NormalizeResource = "SigmaPrism/DepthNormalize";
         private const string InverseResource = "SigmaPrism/SigmaInverse";
+        private const string RgbSourceResource = "SigmaPrism/SigmaRgbSourceCells";
         private const string ConeLutResource = "SigmaPrism/ConeLut";
         private const string PoseGaugeResource = "SigmaPrism/SigmaPoseGauge";
         private const int SegmentFlagStride = SigmaCarrier.MaximumPagesPerSegment;
@@ -67,6 +68,7 @@ namespace Genesis.RoomScan.SigmaPrism
         private SigmaExactBackendGate _backendGate;
         private ComputeShader _normalize;
         private ComputeShader _inverse;
+        private ComputeShader _rgbSource;
         private ComputeShader _coneLutShader;
         private ComputeShader _poseGaugeCompute;
         private RigCalibration _calibration;
@@ -83,7 +85,8 @@ namespace Genesis.RoomScan.SigmaPrism
         private SigmaConstraintLedger _proofLedger;
         private SigmaGaugeController _localGauge;
         private GraphicsBuffer _activePageFlags;
-        private GraphicsBuffer _commitPageFlags;
+        private GraphicsBuffer _rgbSourceBounds;
+        private GraphicsBuffer _rgbSourceMeta;
         private GraphicsBuffer _unmatchedBlockFlags;
         private GraphicsBuffer _unmatchedBlockAnchors;
         private GraphicsBuffer _conflictRecords;
@@ -106,8 +109,7 @@ namespace Genesis.RoomScan.SigmaPrism
         private int _normalizeKernel;
         private int _clearKernel;
         private int _classifyKernel;
-        private int _compactKernel;
-        private int _proposalKernel;
+        private int _rgbSourceKernel;
         private int _commitKernel;
         private int _promoteKernel;
         private int _poseBuildKernel;
@@ -137,11 +139,13 @@ namespace Genesis.RoomScan.SigmaPrism
                 "Sigma inverse requires the GPU-resident exact backend gate.");
             _normalize = Resources.Load<ComputeShader>(NormalizeResource);
             _inverse = Resources.Load<ComputeShader>(InverseResource);
+            _rgbSource = Resources.Load<ComputeShader>(RgbSourceResource);
             _coneLutShader = Resources.Load<ComputeShader>(ConeLutResource);
             _poseGaugeCompute = Resources.Load<ComputeShader>(PoseGaugeResource);
             if (_carrier == null || _topology == null || _renderer == null ||
                 _rigBridge == null ||
-                _normalize == null || _inverse == null || _coneLutShader == null ||
+                _normalize == null || _inverse == null || _rgbSource == null ||
+                _coneLutShader == null ||
                 _poseGaugeCompute == null)
                 throw new InvalidOperationException(
                     "Sigma joint inverse resources are incomplete.");
@@ -152,9 +156,8 @@ namespace Genesis.RoomScan.SigmaPrism
             _normalizeKernel = _normalize.FindKernel("NormalizeStereoDepth");
             _clearKernel = _inverse.FindKernel("ClearInverseFrame");
             _classifyKernel = _inverse.FindKernel("ClassifyDepthFrame");
-            _compactKernel = _inverse.FindKernel("CompactActivePages");
-            _proposalKernel = _inverse.FindKernel("BuildDepthProposals");
-            _commitKernel = _inverse.FindKernel("CommitDepthProposals");
+            _rgbSourceKernel = _rgbSource.FindKernel("BuildRgbSourceCells");
+            _commitKernel = _inverse.FindKernel("SolveAndCommitPage");
             _promoteKernel = _inverse.FindKernel("PromoteGaugePage");
             _poseBuildKernel = _poseGaugeCompute.FindKernel(
                 "BuildPoseGaugePartials");
@@ -178,6 +181,10 @@ namespace Genesis.RoomScan.SigmaPrism
             _rgbViewSupportScale = CreateBuffer(scaleUpload.Length, sizeof(uint),
                 "Sigma RGB view support scales");
             _rgbViewSupportScale.SetData(scaleUpload);
+            _rgbSourceBounds = CreateBuffer(2 * 256 * 16,
+                sizeof(uint) * 4, "Sigma transient RGB source bounds");
+            _rgbSourceMeta = CreateBuffer(2 * 256, sizeof(uint) * 4,
+                "Sigma transient RGB source metadata");
             _conflictRecords = CreateBuffer(conflictCapacity, ConflictStride,
                 "Sigma inverse conflict records");
             _conflictCount = CreateBuffer(1, sizeof(uint),
@@ -424,26 +431,36 @@ namespace Genesis.RoomScan.SigmaPrism
                 command.DispatchCompute(_inverse, _classifyKernel,
                     CeilDiv(source.DepthResolution.x, 8),
                     CeilDiv(source.DepthResolution.y, 8), 2);
-                for (int segment = 0; segment < frame.SegmentCount; ++segment)
-                {
-                    SigmaCarrierReadBatch batch = _readBatches[segment];
-                    SegmentInverseScratch scratch = _segmentScratch[segment];
-                    RecordCompactActive(command, batch, scratch, segment);
-                    RecordBuildProposals(command, batch, scratch, segment,
-                        prediction, frame.Revision);
-                }
                 Graphics.ExecuteCommandBuffer(command);
             }
             finally { CommandBufferPool.Release(command); }
-            frame.BeginInitialReadbacks(_activePageFlags, _commitPageFlags,
-                _unmatchedBlockFlags, _unmatchedBlockAnchors, _frameCounters,
-                _conflictCount);
+            frame.BeginInitialReadbacks(_activePageFlags,
+                _unmatchedBlockFlags, _unmatchedBlockAnchors);
         }
 
         private void CompleteInitialReadback(InFlightFrame frame)
         {
             if (frame.HasError || frame.Discard)
             {
+                FailedFrames += frame.HasError ? 1L : 0L;
+                FinishFrame(frame, 0u);
+                return;
+            }
+            frame.ProofFrame = _proofLedger.BeginFrame(frame.Prediction.Source,
+                frame.Revision, frame.LeftIndependenceKey,
+                frame.RightIndependenceKey, frame.RgbLeftIndependenceKey,
+                frame.RgbRightIndependenceKey);
+            NativeArray<uint> active = frame.ActivePageFlags.GetData<uint>();
+            BeginMatchedPageCommits(frame, active);
+            frame.BeginMatchedProofReadback(_proofLedger.StatusBuffer,
+                _frameCounters, _conflictCount);
+        }
+
+        private void CompleteMatchedProofs(InFlightFrame frame)
+        {
+            if (frame.HasError || frame.Discard)
+            {
+                frame.AbortMatchedWrites();
                 FailedFrames += frame.HasError ? 1L : 0L;
                 FinishFrame(frame, 0u);
                 return;
@@ -455,33 +472,10 @@ namespace Genesis.RoomScan.SigmaPrism
             frame.ProducedConflicts = producedConflicts;
             if (producedConflicts > (uint)conflictCapacity)
             {
+                frame.AbortMatchedWrites();
                 FailedFrames++;
                 Logger.Warning(
                     "Sigma inverse evidence capacity exceeded; frame failed closed.");
-                FinishFrame(frame, 0u);
-                return;
-            }
-
-            frame.ProofFrame = _proofLedger.BeginFrame(frame.Prediction.Source,
-                frame.Revision, frame.LeftIndependenceKey,
-                frame.RightIndependenceKey, frame.RgbLeftIndependenceKey,
-                frame.RgbRightIndependenceKey);
-            NativeArray<uint> commits = frame.CommitFlags.GetData<uint>();
-            int pending = BeginMatchedPageCommits(frame, commits);
-            if (pending != 0)
-            {
-                frame.BeginMatchedProofReadback(_proofLedger.StatusBuffer);
-                return;
-            }
-            ContinueAfterMatched(frame, Array.Empty<SigmaCarrierPageHandle>());
-        }
-
-        private void CompleteMatchedProofs(InFlightFrame frame)
-        {
-            if (frame.HasError || frame.Discard)
-            {
-                frame.AbortMatchedWrites();
-                FailedFrames += frame.HasError ? 1L : 0L;
                 FinishFrame(frame, 0u);
                 return;
             }
@@ -760,7 +754,7 @@ namespace Genesis.RoomScan.SigmaPrism
         }
 
         private int BeginMatchedPageCommits(InFlightFrame frame,
-            NativeArray<uint> commitFlags)
+            NativeArray<uint> activeFlags)
         {
             int committed = 0;
             var changedSources = new List<SigmaCarrierPageHandle>();
@@ -768,8 +762,8 @@ namespace Genesis.RoomScan.SigmaPrism
                 frame.PageSnapshot)
             {
                 int global = pair.Key;
-                if ((uint)global >= (uint)commitFlags.Length ||
-                    commitFlags[global] == 0u)
+                if ((uint)global >= (uint)activeFlags.Length ||
+                    activeFlags[global] == 0u)
                     continue;
                 SigmaCarrierPageHandle source = pair.Value;
                 if (!_carrier.TryGetLatest(source.Coordinate,
@@ -794,6 +788,8 @@ namespace Genesis.RoomScan.SigmaPrism
                         frame.Revision, proof.CertificateOffset,
                         proof.CertificateCount);
                     _proofLedger.Prepare(proof);
+                    BindRgbSourcePage(frame, source, sourceBatch);
+                    _rgbSource.Dispatch(_rgbSourceKernel, 256, 2, 1);
                     target.BindWritable(_inverse, _commitKernel,
                         "_TargetCarrierState", "_TargetPageSlot",
                         "_TargetPageCapacity");
@@ -812,12 +808,23 @@ namespace Genesis.RoomScan.SigmaPrism
                     _inverse.SetInt("_SourcePageSlot", source.PageSlot);
                     _inverse.SetBuffer(_commitKernel, "_PageMetadata",
                         sourceBatch.Metadata);
-                    _inverse.SetBuffer(_commitKernel, "_ProposalGeometryRead",
-                        scratch.ProposalGeometry);
-                    _inverse.SetBuffer(_commitKernel, "_ProposalMassRead",
-                        scratch.ProposalMass);
-                    _inverse.SetBuffer(_commitKernel, "_ProposalStatusRead",
+                    _inverse.SetBuffer(_commitKernel, "_ProposalStatus",
                         scratch.ProposalStatus);
+                    _inverse.SetBuffer(_commitKernel, "_ProposalEpoch",
+                        scratch.ProposalEpoch);
+                    _inverse.SetBuffer(_commitKernel, "_RgbSourceBoundsRead",
+                        _rgbSourceBounds);
+                    _inverse.SetBuffer(_commitKernel, "_RgbSourceMetaRead",
+                        _rgbSourceMeta);
+                    _inverse.SetBuffer(_commitKernel, "_ConflictRecords",
+                        _conflictRecords);
+                    _inverse.SetBuffer(_commitKernel, "_ConflictCount",
+                        _conflictCount);
+                    _inverse.SetBuffer(_commitKernel, "_FrameCounters",
+                        _frameCounters);
+                    _inverse.SetInt("_ConflictCapacity", conflictCapacity);
+                    _inverse.SetInt("_ProposalFrameSerial",
+                        unchecked((int)frame.Revision));
                     _inverse.Dispatch(_commitKernel,
                         SigmaCarrier.SamplesPerPage / 64, 1, 1);
                     _proofLedger.Reduce(proof, target);
@@ -834,6 +841,55 @@ namespace Genesis.RoomScan.SigmaPrism
                 }
             }
             return committed;
+        }
+
+        private void BindRgbSourcePage(InFlightFrame frame,
+            SigmaCarrierPageHandle source, SigmaCarrierReadBatch batch)
+        {
+            StereoRigFrameLease rig = frame.Prediction.Source;
+            _backendGate.Bind(_rgbSource, _rgbSourceKernel);
+            _proofLedger.BindReadOnly(_rgbSource, _rgbSourceKernel);
+            _rgbSource.SetBuffer(_rgbSourceKernel, "_CarrierState", batch.State);
+            _rgbSource.SetBuffer(_rgbSourceKernel, "_PageMetadata", batch.Metadata);
+            _rgbSource.SetBuffer(_rgbSourceKernel, "_RgbSourceBounds",
+                _rgbSourceBounds);
+            _rgbSource.SetBuffer(_rgbSourceKernel, "_RgbSourceMeta",
+                _rgbSourceMeta);
+            _rgbSource.SetBuffer(_rgbSourceKernel, "_DepthCalibrationQ48",
+                _calibrationQ48);
+            _rgbSource.SetBuffer(_rgbSourceKernel, "_RgbCalibrationQ48",
+                _rgbCalibrationQ48);
+            _rgbSource.SetBuffer(_rgbSourceKernel, "_RgbViewOperators",
+                _rgbViewOperators);
+            _rgbSource.SetBuffer(_rgbSourceKernel, "_RgbViewSupportScale",
+                _rgbViewSupportScale);
+            _rgbSource.SetTexture(_rgbSourceKernel, "_RgbLeft",
+                rig.RgbLeft.Texture);
+            _rgbSource.SetTexture(_rgbSourceKernel, "_RgbRight",
+                rig.RgbRight.Texture);
+            _rgbSource.SetInt("_SourcePageSlot", source.PageSlot);
+            _rgbSource.SetInt("_PageCapacity", batch.PageCapacity);
+            _rgbSource.SetInt("_RgbLeftIndependenceKey",
+                unchecked((int)frame.RgbLeftIndependenceKey));
+            _rgbSource.SetInt("_RgbRightIndependenceKey",
+                unchecked((int)frame.RgbRightIndependenceKey));
+            _rgbSource.SetInt("_RgbPhase", unchecked((int)(frame.Revision & 15u)));
+            _rgbSource.SetInts("_RgbResolutionLeft", rig.RgbLeft.Resolution.x,
+                rig.RgbLeft.Resolution.y);
+            _rgbSource.SetInts("_RgbResolutionRight", rig.RgbRight.Resolution.x,
+                rig.RgbRight.Resolution.y);
+            Matrix4x4 rgbLeftWorld = PoseMatrix(GaugePose(rig, rig.RgbLeft,
+                frame.Prediction.PoseGauge));
+            Matrix4x4 rgbRightWorld = PoseMatrix(GaugePose(rig, rig.RgbRight,
+                frame.Prediction.PoseGauge));
+            _rgbSource.SetMatrix("_RgbOpticalFromWorldLeft",
+                rgbLeftWorld.inverse);
+            _rgbSource.SetMatrix("_RgbOpticalFromWorldRight",
+                rgbRightWorld.inverse);
+            _rgbSource.SetVector("_RgbIntrinsicsLeft",
+                IntrinsicsVector(rig.RgbLeft.Intrinsics));
+            _rgbSource.SetVector("_RgbIntrinsicsRight",
+                IntrinsicsVector(rig.RgbRight.Intrinsics));
         }
 
         private void UpdateObservedTopologyPages(InFlightFrame frame,
@@ -1176,8 +1232,6 @@ namespace Genesis.RoomScan.SigmaPrism
             command.SetComputeBufferParam(_inverse, _clearKernel,
                 "_ActivePageFlags", _activePageFlags);
             command.SetComputeBufferParam(_inverse, _clearKernel,
-                "_CommitPageFlags", _commitPageFlags);
-            command.SetComputeBufferParam(_inverse, _clearKernel,
                 "_UnmatchedBlockFlags", _unmatchedBlockFlags);
             command.SetComputeBufferParam(_inverse, _clearKernel,
                 "_UnmatchedBlockAnchors", _unmatchedBlockAnchors);
@@ -1242,75 +1296,6 @@ namespace Genesis.RoomScan.SigmaPrism
                 "_UnmatchedBlockAnchors", _unmatchedBlockAnchors);
             command.SetComputeBufferParam(_inverse, _classifyKernel,
                 "_FrameCounters", _frameCounters);
-        }
-
-        private void RecordCompactActive(CommandBuffer command,
-            SigmaCarrierReadBatch batch, SegmentInverseScratch scratch, int segment)
-        {
-            command.SetComputeIntParam(_inverse, "_PageCapacity", batch.PageCapacity);
-            command.SetComputeIntParam(_inverse, "_SegmentFlagOffset",
-                segment * SegmentFlagStride);
-            command.SetComputeBufferParam(_inverse, _compactKernel,
-                "_ActivePageFlagsRead", _activePageFlags);
-            command.SetComputeBufferParam(_inverse, _compactKernel,
-                "_ActivePageSlots", scratch.ActivePageSlots);
-            command.SetComputeBufferParam(_inverse, _compactKernel,
-                "_ActiveDispatchArgs", scratch.ActiveDispatchArguments);
-            command.SetComputeBufferParam(_inverse, _compactKernel,
-                "_FrameCounters", _frameCounters);
-            command.DispatchCompute(_inverse, _compactKernel, 1, 1, 1);
-        }
-
-        private void RecordBuildProposals(CommandBuffer command,
-            SigmaCarrierReadBatch batch, SegmentInverseScratch scratch, int segment,
-            SigmaPredictionFrameLease prediction, uint frameSerial)
-        {
-            command.SetComputeIntParam(_inverse, "_PageCapacity", batch.PageCapacity);
-            command.SetComputeIntParam(_inverse, "_SegmentIndex", segment);
-            command.SetComputeIntParam(_inverse, "_SegmentFlagOffset",
-                segment * SegmentFlagStride);
-            command.SetComputeIntParam(_inverse, "_ConflictCapacity",
-                conflictCapacity);
-            command.SetComputeIntParam(_inverse, "_ProposalFrameSerial",
-                unchecked((int)frameSerial));
-            command.SetComputeBufferParam(_inverse, _proposalKernel,
-                "_SigmaExactBackendGate", _backendGate.Buffer);
-            command.SetComputeBufferParam(_inverse, _proposalKernel,
-                "_DepthCalibrationQ48", _calibrationQ48);
-            command.SetComputeBufferParam(_inverse, _proposalKernel,
-                "_RgbCalibrationQ48", _rgbCalibrationQ48);
-            command.SetComputeBufferParam(_inverse, _proposalKernel,
-                "_RgbViewOperators", _rgbViewOperators);
-            command.SetComputeBufferParam(_inverse, _proposalKernel,
-                "_RgbViewSupportScale", _rgbViewSupportScale);
-            command.SetComputeBufferParam(_inverse, _proposalKernel,
-                "_CarrierState", batch.State);
-            command.SetComputeBufferParam(_inverse, _proposalKernel,
-                "_PageMetadata", batch.Metadata);
-            command.SetComputeBufferParam(_inverse, _proposalKernel,
-                "_CurrentFlags", batch.CurrentFlags);
-            command.SetComputeBufferParam(_inverse, _proposalKernel,
-                "_ActivePageSlotsRead", scratch.ActivePageSlots);
-            command.SetComputeBufferParam(_inverse, _proposalKernel,
-                "_ProposalGeometry", scratch.ProposalGeometry);
-            command.SetComputeBufferParam(_inverse, _proposalKernel,
-                "_ProposalMass", scratch.ProposalMass);
-            command.SetComputeBufferParam(_inverse, _proposalKernel,
-                "_ProposalStatus", scratch.ProposalStatus);
-            command.SetComputeBufferParam(_inverse, _proposalKernel,
-                "_ProposalEpoch", scratch.ProposalEpoch);
-            command.SetComputeBufferParam(_inverse, _proposalKernel,
-                "_CommitPageFlags", _commitPageFlags);
-            command.SetComputeBufferParam(_inverse, _proposalKernel,
-                "_ConflictRecords", _conflictRecords);
-            command.SetComputeBufferParam(_inverse, _proposalKernel,
-                "_ConflictCount", _conflictCount);
-            command.SetComputeBufferParam(_inverse, _proposalKernel,
-                "_FrameCounters", _frameCounters);
-            _proofLedger.BindReadOnly(command, _inverse, _proposalKernel);
-            BindFrameTextures(command, _proposalKernel, prediction);
-            command.DispatchCompute(_inverse, _proposalKernel,
-                scratch.ActiveDispatchArguments, 0);
         }
 
         private void BindFrameTextures(CommandBuffer command, int kernel,
@@ -1408,12 +1393,9 @@ namespace Genesis.RoomScan.SigmaPrism
             if (_activeFlagCapacity < activeFlagCount)
             {
                 _activePageFlags?.Dispose();
-                _commitPageFlags?.Dispose();
                 _activeFlagCapacity = NextPowerOfTwo(activeFlagCount);
                 _activePageFlags = CreateBuffer(_activeFlagCapacity, sizeof(uint),
                     "Sigma active page flags");
-                _commitPageFlags = CreateBuffer(_activeFlagCapacity, sizeof(uint),
-                    "Sigma commit page flags");
             }
             if (_blockFlagCapacity < blockCount)
             {
@@ -1837,7 +1819,8 @@ namespace Genesis.RoomScan.SigmaPrism
             var resources = new InverseOwnedResources(_coneLuts, _metricDepth,
                 _depthFlags, _calibrationQ48, _rgbCalibrationQ48,
                 _rgbViewOperators, _rgbViewSupportScale, _activePageFlags,
-                _commitPageFlags, _unmatchedBlockFlags, _unmatchedBlockAnchors,
+                _rgbSourceBounds, _rgbSourceMeta,
+                _unmatchedBlockFlags, _unmatchedBlockAnchors,
                 _conflictRecords,
                 _conflictCount, _frameCounters, _gaugePromotionCounts,
                 _posePrior, _poseResult, _posePartials, _proofLedger,
@@ -1852,7 +1835,8 @@ namespace Genesis.RoomScan.SigmaPrism
             _rgbViewSupportScale = null;
             _rgbViewCatalog = null;
             _activePageFlags = null;
-            _commitPageFlags = null;
+            _rgbSourceBounds = null;
+            _rgbSourceMeta = null;
             _unmatchedBlockFlags = null;
             _unmatchedBlockAnchors = null;
             _conflictRecords = null;
@@ -1965,35 +1949,16 @@ namespace Genesis.RoomScan.SigmaPrism
                 Capacity = batch.PageCapacity;
                 _stateIdentity = batch.State;
                 _metadataIdentity = batch.Metadata;
-                ActivePageSlots = CreateBuffer(Capacity, sizeof(uint),
-                    $"Sigma inverse active slots {SegmentIndex}");
-                ActiveDispatchArguments = new GraphicsBuffer(
-                    GraphicsBuffer.Target.Structured |
-                    GraphicsBuffer.Target.IndirectArguments, 3, sizeof(uint))
-                {
-                    name = $"Sigma inverse dispatch {SegmentIndex}"
-                };
-                ActiveDispatchArguments.SetData(new uint[] { 64u, 0u, 1u });
-                ProposalGeometry = CreateBuffer(checked(Capacity *
-                    SigmaCarrier.SamplesPerPage * 3), sizeof(uint) * 2,
-                    $"Sigma inverse proposal geometry {SegmentIndex}");
                 ProposalStatus = CreateBuffer(checked(Capacity *
                     SigmaCarrier.SamplesPerPage), sizeof(uint),
                     $"Sigma inverse proposal status {SegmentIndex}");
                 ProposalEpoch = CreateBuffer(Capacity, sizeof(uint),
                     $"Sigma inverse proposal epoch {SegmentIndex}");
                 ProposalEpoch.SetData(new uint[Capacity]);
-                ProposalMass = CreateBuffer(checked(Capacity *
-                    SigmaCarrier.SamplesPerPage), sizeof(uint) * 2,
-                    $"Sigma inverse proposal mass {SegmentIndex}");
             }
 
             public int SegmentIndex { get; }
             public int Capacity { get; }
-            public GraphicsBuffer ActivePageSlots { get; }
-            public GraphicsBuffer ActiveDispatchArguments { get; }
-            public GraphicsBuffer ProposalGeometry { get; }
-            public GraphicsBuffer ProposalMass { get; }
             public GraphicsBuffer ProposalStatus { get; }
             public GraphicsBuffer ProposalEpoch { get; }
 
@@ -2004,10 +1969,6 @@ namespace Genesis.RoomScan.SigmaPrism
 
             public void Dispose()
             {
-                ActivePageSlots.Dispose();
-                ActiveDispatchArguments.Dispose();
-                ProposalGeometry.Dispose();
-                ProposalMass.Dispose();
                 ProposalStatus.Dispose();
                 ProposalEpoch.Dispose();
             }
@@ -2028,7 +1989,8 @@ namespace Genesis.RoomScan.SigmaPrism
                 GraphicsBuffer calibration, GraphicsBuffer rgbCalibration,
                 GraphicsBuffer rgbOperators, GraphicsBuffer rgbSupportScale,
                 GraphicsBuffer activeFlags,
-                GraphicsBuffer commitFlags, GraphicsBuffer unmatchedFlags,
+                GraphicsBuffer rgbSourceBounds, GraphicsBuffer rgbSourceMeta,
+                GraphicsBuffer unmatchedFlags,
                 GraphicsBuffer unmatchedAnchors,
                 GraphicsBuffer conflicts, GraphicsBuffer conflictCount,
                 GraphicsBuffer counters, GraphicsBuffer gaugePromotionCounts,
@@ -2042,7 +2004,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 _metricDepth = metricDepth;
                 _depthFlags = depthFlags;
                 _buffers = new[] { calibration, rgbCalibration, rgbOperators,
-                    rgbSupportScale, activeFlags, commitFlags,
+                    rgbSupportScale, activeFlags, rgbSourceBounds, rgbSourceMeta,
                     unmatchedFlags, unmatchedAnchors, conflicts, conflictCount, counters,
                     gaugePromotionCounts, posePrior, poseResult, posePartials };
                 _scratch = scratch ?? Array.Empty<SegmentInverseScratch>();
@@ -2202,7 +2164,6 @@ namespace Genesis.RoomScan.SigmaPrism
             public Dictionary<SigmaCarrierPageCoordinate,
                 SigmaTopologyEvidenceView> TopologyEvidence { get; }
             public AsyncGPUReadbackRequest ActivePageFlags { get; private set; }
-            public AsyncGPUReadbackRequest CommitFlags { get; private set; }
             public AsyncGPUReadbackRequest UnmatchedBlocks { get; private set; }
             public AsyncGPUReadbackRequest UnmatchedAnchors { get; private set; }
             public AsyncGPUReadbackRequest Counters { get; private set; }
@@ -2226,16 +2187,14 @@ namespace Genesis.RoomScan.SigmaPrism
             public uint ProducedConflicts { get; set; }
             private readonly ReadbackRetirementLatch _readbackLatch;
             public bool InitialReadbackHasError => ActivePageFlags.hasError ||
-                CommitFlags.hasError ||
-                UnmatchedBlocks.hasError || UnmatchedAnchors.hasError ||
-                Counters.hasError || ConflictCount.hasError;
+                UnmatchedBlocks.hasError || UnmatchedAnchors.hasError;
             public bool AllRequestsDone => Phase switch
             {
                 InFlightPhase.PoseGauge => PoseGauge.done,
                 InFlightPhase.Initial => ActivePageFlags.done &&
-                    CommitFlags.done && UnmatchedBlocks.done && Counters.done &&
-                    UnmatchedAnchors.done && ConflictCount.done,
-                InFlightPhase.MatchedProof => ProofStatus.done,
+                    UnmatchedBlocks.done && UnmatchedAnchors.done,
+                InFlightPhase.MatchedProof => ProofStatus.done &&
+                    Counters.done && ConflictCount.done,
                 InFlightPhase.LocalGaugeRequest => LocalGaugeRequest.done,
                 InFlightPhase.LocalGaugeTransaction => LocalGaugeStatus.done &&
                     LocalGaugeRawStatus.done,
@@ -2247,7 +2206,8 @@ namespace Genesis.RoomScan.SigmaPrism
             {
                 InFlightPhase.PoseGauge => PoseGauge.hasError,
                 InFlightPhase.Initial => InitialReadbackHasError,
-                InFlightPhase.MatchedProof => ProofStatus.hasError,
+                InFlightPhase.MatchedProof => ProofStatus.hasError ||
+                    Counters.hasError || ConflictCount.hasError,
                 InFlightPhase.LocalGaugeRequest => false,
                 InFlightPhase.LocalGaugeTransaction => false,
                 InFlightPhase.GaugeProof => GaugePromotions.hasError ||
@@ -2265,28 +2225,26 @@ namespace Genesis.RoomScan.SigmaPrism
             }
 
             public void BeginInitialReadbacks(GraphicsBuffer activePageFlags,
-                GraphicsBuffer commitFlags, GraphicsBuffer unmatchedBlocks,
-                GraphicsBuffer unmatchedAnchors, GraphicsBuffer counters,
-                GraphicsBuffer conflictCount)
+                GraphicsBuffer unmatchedBlocks, GraphicsBuffer unmatchedAnchors)
             {
                 if (Phase != InFlightPhase.PoseGauge)
                     throw new InvalidOperationException(
                         "Carrier inverse must follow the pose-gauge meet.");
                 ActivePageFlags = _readbackLatch.Request(activePageFlags);
-                CommitFlags = _readbackLatch.Request(commitFlags);
                 UnmatchedBlocks = _readbackLatch.Request(unmatchedBlocks);
                 UnmatchedAnchors = _readbackLatch.Request(unmatchedAnchors);
-                Counters = _readbackLatch.Request(counters);
-                ConflictCount = _readbackLatch.Request(conflictCount);
                 Phase = InFlightPhase.Initial;
             }
 
-            public void BeginMatchedProofReadback(GraphicsBuffer proofStatus)
+            public void BeginMatchedProofReadback(GraphicsBuffer proofStatus,
+                GraphicsBuffer counters, GraphicsBuffer conflictCount)
             {
                 if (Phase != InFlightPhase.Initial)
                     throw new InvalidOperationException(
                         "Matched proof readback requires the initial phase.");
                 ProofStatus = _readbackLatch.Request(proofStatus);
+                Counters = _readbackLatch.Request(counters);
+                ConflictCount = _readbackLatch.Request(conflictCount);
                 Phase = InFlightPhase.MatchedProof;
             }
 

@@ -1,0 +1,372 @@
+#pragma kernel BuildRgbSourceCells
+#pragma target 5.0
+
+#include "SigmaGeometryReadout.hlsl"
+static const uint2 SIGMA_Q48_ZERO = uint2(0u, 0u);
+#include "SigmaRgbInverseMath.hlsl"
+
+// Disposable source constraints for one carrier page. One 16-lane workgroup
+// owns one (sample, eye) pullback and one lane owns one generated B-coordinate.
+// The canonical object remains Psi; these cells may be discarded at any time.
+StructuredBuffer<uint2> _CarrierState;
+StructuredBuffer<SigmaCarrierPageMetaGpu> _PageMetadata;
+RWStructuredBuffer<SigmaQ48Bounds> _RgbSourceBounds;
+RWStructuredBuffer<uint4> _RgbSourceMeta;
+
+// Source-cell-local hyperlinearization of the certificate meet. Keeping it here
+// prevents unrelated exact kernels from being invalidated by this dispatch-shape
+// specialization. One lane owns one generated projective coordinate.
+bool SigmaApplyRgbConstraintPriorLane(SigmaCarrierPageMetaGpu metadata,
+    uint sample, uint lane, inout SigmaQ48Bounds prior)
+{
+    if (metadata.certificateCount == 0u)
+        return true;
+    if (metadata.certificateCount != SIGMA_CERTIFICATES_PER_PAGE ||
+        metadata.certificateOffsetHi != 0u ||
+        metadata.certificateOffsetLo % SIGMA_CERTIFICATES_PER_PAGE != 0u ||
+        sample >= SIGMA_PAGE_SAMPLE_COUNT || lane >= 16u)
+        return false;
+    uint proofSlot = metadata.certificateOffsetLo /
+        SIGMA_CERTIFICATES_PER_PAGE;
+    if (proofSlot >= _ConstraintProofCapacity)
+        return false;
+    uint block = SigmaProofBlockForPageSample(sample);
+    uint local = SigmaProofLocalForPageSample(sample);
+    SigmaConstraintBlockGpu proof = _ConstraintBlocks[
+        SigmaConstraintBlockAddress(proofSlot, block)];
+    if (proof.counts.x > SIGMA_CERTIFICATES_PER_BLOCK ||
+        proof.counts.y > SIGMA_CERTIFICATE_BOUNDS_PER_BLOCK)
+        return false;
+
+    [loop]
+    for (uint certificateIndex = 0u; certificateIndex < proof.counts.x;
+        ++certificateIndex)
+    {
+        SigmaConstraintCertificateGpu certificate = _ConstraintCertificates[
+            SigmaCertificateAddress(proofSlot, block, certificateIndex)];
+        if ((certificate.range.w & SIGMA_CERTIFICATE_ACTIVE) == 0u ||
+            (certificate.range.w & SIGMA_CERTIFICATE_UNRESOLVED) != 0u ||
+            !SigmaCertificateContainsSample(certificate.sampleMask, local))
+            continue;
+        uint mask = certificate.identity.x;
+        uint cursor = certificate.range.y;
+        uint end = cursor + certificate.range.z;
+        if (certificate.range.z != countbits(mask) || end < cursor ||
+            end > proof.counts.y ||
+            end > SIGMA_CERTIFICATE_BOUNDS_PER_BLOCK)
+            return false;
+        uint laneBit = 1u << lane;
+        if ((mask & laneBit) == 0u)
+            continue;
+        uint precedingMask = lane == 0u ? 0u : mask & (laneBit - 1u);
+        uint boundIndex = cursor + countbits(precedingMask);
+        SigmaQ48Bounds bound = _ConstraintCertificateBounds[
+            SigmaCertificateBoundAddress(proofSlot, block, boundIndex)];
+        prior.lo = SigmaQ48Max(prior.lo, bound.lo);
+        prior.hi = SigmaQ48Min(prior.hi, bound.hi);
+        if (SigmaQ48Less(prior.hi, prior.lo))
+            return false;
+    }
+    return true;
+}
+
+uint _SourcePageSlot;
+uint _PageCapacity;
+
+groupshared uint2 RgbState[16];
+groupshared uint2 RgbTransformed[16];
+groupshared uint2 RgbCurrentY[16];
+groupshared SigmaQ48Bounds RgbPrior[16];
+groupshared SigmaQ48Bounds RgbBox[16];
+groupshared uint2 RgbCoefficient[16];
+groupshared uint2 RgbMinimumContribution[16];
+groupshared uint RgbLaneValid[16];
+groupshared SigmaQ48Bounds RgbMeasurement[3];
+groupshared uint2 RgbPriorWidth;
+groupshared uint2 RgbSupportFloor;
+groupshared uint2 RgbTotalMinimum;
+groupshared uint RgbActive;
+groupshared uint RgbUnobservable;
+groupshared uint RgbDirection;
+groupshared uint RgbNegativeDenominator;
+
+uint SigmaRgbPhaseSample(uint scheduledSample)
+{
+    uint phase = _RgbPhase & 15u;
+    uint x = ((scheduledSample & 15u) << 2u) | (phase & 3u);
+    uint y = ((scheduledSample >> 4u) << 2u) | (phase >> 2u);
+    return y * SIGMA_PAGE_SIZE + x;
+}
+
+void SigmaRgbCombineLaneValidity(uint lane)
+{
+    GroupMemoryBarrierWithGroupSync();
+    if (lane == 0u)
+    {
+        uint allValid = RgbActive;
+        [unroll]
+        for (uint index = 0u; index < 16u; ++index)
+            allValid &= RgbLaneValid[index];
+        RgbActive = allValid;
+    }
+    GroupMemoryBarrierWithGroupSync();
+}
+
+[numthreads(16, 1, 1)]
+void BuildRgbSourceCells(uint3 groupId : SV_GroupID,
+    uint3 groupThreadId : SV_GroupThreadID)
+{
+    uint scheduledSample = groupId.x;
+    uint eye = groupId.y;
+    uint lane = groupThreadId.x;
+    uint sample = SigmaRgbPhaseSample(scheduledSample);
+    uint sourceCell = SigmaRgbSourceCellAddress(eye, scheduledSample);
+
+    SigmaCarrierPageMetaGpu metadata = _PageMetadata[_SourcePageSlot];
+    if (lane == 0u)
+    {
+        RgbActive = SigmaCanonicalMutationEnabled() &&
+            _SourcePageSlot < _PageCapacity &&
+            scheduledSample < SIGMA_RGB_PHASE_SAMPLE_COUNT && eye < 2u &&
+            (metadata.flags & SIGMA_PAGE_PUBLISHED) != 0u ? 1u : 0u;
+        RgbUnobservable = 0u;
+        _RgbSourceMeta[sourceCell] = uint4(0u,
+            eye == 0u ? SIGMA_SOURCE_RGB_LEFT : SIGMA_SOURCE_RGB_RIGHT,
+            eye == 0u ? _RgbLeftIndependenceKey : _RgbRightIndependenceKey, 0u);
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    uint stateBase = _SourcePageSlot * SIGMA_PAGE_LANE_COUNT +
+        sample * SIGMA_LANE_COUNT;
+    RgbState[lane] = RgbActive != 0u
+        ? _CarrierState[stateBase + lane] : SIGMA_Q48_ZERO;
+    GroupMemoryBarrierWithGroupSync();
+
+    uint valid = RgbActive;
+    uint2 transformed = SIGMA_Q48_ZERO;
+    if (valid != 0u)
+    {
+        [unroll]
+        for (uint sourceLane = 0u; sourceLane < 16u; ++sourceLane)
+        {
+            uint2 value = SigmaHadamardSign(lane, sourceLane) < 0
+                ? SigmaQ48NegateChecked(RgbState[sourceLane], valid)
+                : RgbState[sourceLane];
+            transformed = SigmaQ48AddChecked(transformed, value, valid);
+        }
+    }
+    RgbTransformed[lane] = transformed;
+    RgbLaneValid[lane] = valid;
+    SigmaRgbCombineLaneValidity(lane);
+
+    if (lane == 0u && RgbActive != 0u)
+    {
+        uint massValid = 1u;
+        uint2 mass = RgbTransformed[SIGMA_GEOMETRY_ROWS[0]];
+        if (!SigmaQ48Positive(mass))
+            massValid = 0u;
+        RgbPriorWidth = SigmaPriorHalfWidth(mass, massValid);
+        RgbLaneValid[0] = massValid;
+    }
+    GroupMemoryBarrierWithGroupSync();
+    if (lane != 0u)
+        RgbLaneValid[lane] = RgbActive;
+    SigmaRgbCombineLaneValidity(lane);
+
+    valid = RgbActive;
+    SigmaQ48Bounds prior = SigmaQ48PointBounds(SIGMA_Q48_ZERO);
+    uint2 currentY = SIGMA_Q48_ZERO;
+    if (valid != 0u)
+    {
+        currentY = SigmaQ48DivNearestEven(RgbTransformed[lane],
+            RgbTransformed[SIGMA_GEOMETRY_ROWS[0]], valid);
+        prior = SigmaQ48Widen(currentY, RgbPriorWidth, valid);
+        valid &= SigmaApplyRgbConstraintPriorLane(metadata, sample, lane, prior)
+            ? 1u : 0u;
+    }
+    RgbCurrentY[lane] = currentY;
+    RgbPrior[lane] = prior;
+    RgbBox[lane] = prior;
+    RgbLaneValid[lane] = valid;
+    SigmaRgbCombineLaneValidity(lane);
+
+    if (lane == 0u && RgbActive != 0u &&
+        !SigmaU64Equal(RgbCurrentY[SIGMA_GEOMETRY_ROWS[0]], SIGMA_Q48_ONE))
+        RgbActive = 0u;
+    GroupMemoryBarrierWithGroupSync();
+
+    if (lane == 0u && RgbActive != 0u)
+    {
+        uint setupValid = 1u;
+        float3 worldPosition = float3(
+            SigmaQ48ToReadoutFloat(RgbCurrentY[SIGMA_GEOMETRY_ROWS[1]]),
+            SigmaQ48ToReadoutFloat(RgbCurrentY[SIGMA_GEOMETRY_ROWS[2]]),
+            SigmaQ48ToReadoutFloat(RgbCurrentY[SIGMA_GEOMETRY_ROWS[3]]));
+        float2 pixel;
+        if (!SigmaProjectWorldToRgb(worldPosition, eye, pixel))
+        {
+            RgbUnobservable = 1u;
+            setupValid = 0u;
+        }
+        SigmaQ48Bounds measured[3];
+        if (setupValid != 0u &&
+            !SigmaBuildRgbMeasurement(eye, pixel, measured, setupValid))
+            setupValid = 0u;
+        if (setupValid != 0u)
+        {
+            RgbMeasurement[0] = measured[0];
+            RgbMeasurement[1] = measured[1];
+            RgbMeasurement[2] = measured[2];
+            RgbDirection = SigmaRgbQuantizedDirection(
+                RgbCurrentY[SIGMA_GEOMETRY_ROWS[1]],
+                RgbCurrentY[SIGMA_GEOMETRY_ROWS[2]],
+                RgbCurrentY[SIGMA_GEOMETRY_ROWS[3]], eye, setupValid);
+            uint scale = RgbDirection < SIGMA_RGB_VIEW_COUNT
+                ? _RgbViewSupportScale[RgbDirection] : 0u;
+            if (RgbDirection == SIGMA_RGB_VIEW_NULL || scale == 0u)
+            {
+                RgbUnobservable = 1u;
+                setupValid = 0u;
+            }
+            uint2 scaleQ = SigmaQ48FromUnsignedInteger(scale, setupValid);
+            RgbSupportFloor = SigmaQ48MulNearestEven(
+                SigmaRgbCalibrationValue(eye, SIGMA_RGB_CAL_SUPPORT_FLOOR),
+                scaleQ, setupValid);
+        }
+        RgbActive = setupValid;
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    valid = RgbActive;
+    if (valid != 0u)
+    {
+        uint2 denominatorCoefficient = SigmaRgbOperator(RgbDirection, 0u, lane);
+        SigmaQ48Bounds contribution = SigmaQ48ScaleBounds(
+            denominatorCoefficient, RgbBox[lane], valid);
+        RgbMinimumContribution[lane] = contribution.lo;
+        RgbCoefficient[lane] = contribution.hi;
+    }
+    else
+    {
+        RgbMinimumContribution[lane] = SIGMA_Q48_ZERO;
+        RgbCoefficient[lane] = SIGMA_Q48_ZERO;
+    }
+    RgbLaneValid[lane] = valid;
+    GroupMemoryBarrierWithGroupSync();
+    if (lane == 0u && RgbActive != 0u)
+    {
+        uint reduceValid = 1u;
+        SigmaQ48Bounds denominator = SigmaQ48PointBounds(SIGMA_Q48_ZERO);
+        [unroll]
+        for (uint sourceLane = 0u; sourceLane < 16u; ++sourceLane)
+        {
+            denominator.lo = SigmaQ48AddChecked(denominator.lo,
+                RgbMinimumContribution[sourceLane], reduceValid);
+            denominator.hi = SigmaQ48AddChecked(denominator.hi,
+                RgbCoefficient[sourceLane], reduceValid);
+            reduceValid &= RgbLaneValid[sourceLane];
+        }
+        bool positive = !SigmaQ48Less(denominator.lo, RgbSupportFloor);
+        uint2 negativeFloor = SigmaQ48NegateChecked(RgbSupportFloor,
+            reduceValid);
+        bool negative = !SigmaQ48Less(negativeFloor, denominator.hi);
+        if (!positive && !negative)
+        {
+            RgbUnobservable = 1u;
+            reduceValid = 0u;
+        }
+        RgbNegativeDenominator = negative ? 1u : 0u;
+        RgbActive = reduceValid;
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    // Exact operator order: two forward sweeps followed by two reverse sweeps.
+    // Sixteen wide interval products/divisions execute in parallel; lane zero
+    // forms the ordered reduction required for bit-identical checked arithmetic.
+    [loop]
+    for (uint sweep = 0u; sweep < 4u; ++sweep)
+    {
+        bool reverse = sweep >= 2u;
+        [loop]
+        for (uint step = 0u; step < 7u; ++step)
+        {
+            uint constraint = reverse ? 6u - step : step;
+            valid = RgbActive;
+            uint2 coefficient = SIGMA_Q48_ZERO;
+            uint2 contribution = SIGMA_Q48_ZERO;
+            if (valid != 0u)
+            {
+                coefficient = SigmaRgbInequalityCoefficient(constraint,
+                    RgbDirection, lane, RgbMeasurement[0], RgbMeasurement[1],
+                    RgbMeasurement[2], RgbNegativeDenominator != 0u, valid);
+                contribution = SigmaQ48ScaleBounds(coefficient,
+                    RgbBox[lane], valid).lo;
+            }
+            RgbCoefficient[lane] = coefficient;
+            RgbMinimumContribution[lane] = contribution;
+            RgbLaneValid[lane] = valid;
+            GroupMemoryBarrierWithGroupSync();
+
+            if (lane == 0u && RgbActive != 0u)
+            {
+                uint reduceValid = 1u;
+                uint2 total = SIGMA_Q48_ZERO;
+                [unroll]
+                for (uint sourceLane = 0u; sourceLane < 16u; ++sourceLane)
+                {
+                    total = SigmaQ48AddChecked(total,
+                        RgbMinimumContribution[sourceLane], reduceValid);
+                    reduceValid &= RgbLaneValid[sourceLane];
+                }
+                RgbTotalMinimum = total;
+                RgbActive = reduceValid;
+            }
+            GroupMemoryBarrierWithGroupSync();
+
+            valid = RgbActive;
+            if (valid != 0u &&
+                !SigmaU64Equal(RgbCoefficient[lane], SIGMA_Q48_ZERO))
+            {
+                uint2 otherMinimum = SigmaQ48SubChecked(RgbTotalMinimum,
+                    RgbMinimumContribution[lane], valid);
+                uint2 upper = constraint == 0u
+                    ? SigmaQ48NegateChecked(RgbSupportFloor, valid)
+                    : SIGMA_Q48_ZERO;
+                uint2 numerator = SigmaQ48SubChecked(upper, otherMinimum, valid);
+                if ((RgbCoefficient[lane].y & 0x80000000u) == 0u)
+                    RgbBox[lane].hi = SigmaQ48Min(RgbBox[lane].hi,
+                        SigmaQ48DivUpper(numerator, RgbCoefficient[lane], valid));
+                else
+                    RgbBox[lane].lo = SigmaQ48Max(RgbBox[lane].lo,
+                        SigmaQ48DivLower(numerator, RgbCoefficient[lane], valid));
+            }
+            RgbLaneValid[lane] = valid;
+            SigmaRgbCombineLaneValidity(lane);
+        }
+    }
+
+    uint laneChanged = RgbActive != 0u &&
+        (!SigmaU64Equal(RgbBox[lane].lo, RgbPrior[lane].lo) ||
+         !SigmaU64Equal(RgbBox[lane].hi, RgbPrior[lane].hi)) ? 1u : 0u;
+    RgbLaneValid[lane] = laneChanged;
+    _RgbSourceBounds[SigmaRgbSourceBoundAddress(eye, scheduledSample, lane)] =
+        RgbBox[lane];
+    GroupMemoryBarrierWithGroupSync();
+    if (lane == 0u)
+    {
+        uint mask = 0u;
+        [unroll]
+        for (uint sourceLane = 0u; sourceLane < 16u; ++sourceLane)
+            mask |= (RgbLaneValid[sourceLane] & 1u) << sourceLane;
+        if (mask == 0u)
+            RgbUnobservable = 1u;
+        uint flags = mask != 0u && RgbActive != 0u
+            ? SIGMA_RGB_SOURCE_VALID : 0u;
+        if (RgbUnobservable != 0u)
+            flags |= SIGMA_RGB_SOURCE_UNOBSERVABLE;
+        _RgbSourceMeta[sourceCell] = uint4(mask,
+            eye == 0u ? SIGMA_SOURCE_RGB_LEFT : SIGMA_SOURCE_RGB_RIGHT,
+            eye == 0u ? _RgbLeftIndependenceKey : _RgbRightIndependenceKey,
+            flags);
+    }
+}

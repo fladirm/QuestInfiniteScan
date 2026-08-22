@@ -70,19 +70,19 @@ int SigmaRgbQuantizedComponent(uint2 component, uint2 maximum,
     return (component.y & 0x80000000u) != 0u ? -1 : 1;
 }
 
-uint SigmaRgbQuantizedDirection(uint2 currentY[16], uint eye,
+uint SigmaRgbQuantizedDirection(uint2 worldX, uint2 worldY, uint2 worldZ, uint eye,
     inout uint valid)
 {
     uint2 direction[3];
     direction[0] = SigmaQ48SubChecked(
         SigmaRgbCalibrationValue(eye, SIGMA_RGB_CAL_CAMERA_X),
-        currentY[SIGMA_GEOMETRY_ROWS[1]], valid);
+        worldX, valid);
     direction[1] = SigmaQ48SubChecked(
         SigmaRgbCalibrationValue(eye, SIGMA_RGB_CAL_CAMERA_Y),
-        currentY[SIGMA_GEOMETRY_ROWS[2]], valid);
+        worldY, valid);
     direction[2] = SigmaQ48SubChecked(
         SigmaRgbCalibrationValue(eye, SIGMA_RGB_CAL_CAMERA_Z),
-        currentY[SIGMA_GEOMETRY_ROWS[3]], valid);
+        worldZ, valid);
     uint2 maximum = SigmaQ48Max(SigmaU64AbsSigned(direction[0]),
         SigmaQ48Max(SigmaU64AbsSigned(direction[1]),
             SigmaU64AbsSigned(direction[2])));
@@ -160,22 +160,6 @@ bool SigmaBuildRgbMeasurement(uint eye, float2 pixel,
     return valid != 0u;
 }
 
-SigmaQ48Bounds SigmaRgbEvaluateRow(SigmaQ48Bounds box[16], uint direction,
-    uint row, inout uint valid)
-{
-    SigmaQ48Bounds result = SigmaQ48PointBounds(SIGMA_Q48_ZERO);
-    [loop]
-    for (uint lane = 0u; lane < 16u; ++lane)
-    {
-        uint2 coefficient = SigmaRgbOperator(direction, row, lane);
-        if (SigmaU64Equal(coefficient, SIGMA_Q48_ZERO))
-            continue;
-        result = SigmaQ48IntervalAdd(result,
-            SigmaQ48ScaleBounds(coefficient, box[lane], valid), valid);
-    }
-    return result;
-}
-
 uint2 SigmaRgbSignedOperator(uint direction, uint row, uint lane,
     bool negate, inout uint valid)
 {
@@ -183,177 +167,29 @@ uint2 SigmaRgbSignedOperator(uint direction, uint row, uint lane,
     return negate ? SigmaQ48NegateChecked(value, valid) : value;
 }
 
-void SigmaRgbBuildInequality(uint constraint, uint direction,
-    SigmaQ48Bounds rgb[3], bool negativeDenominator, uint2 supportFloor,
-    out uint2 coefficient[16], out uint2 upper, inout uint valid)
+uint2 SigmaRgbInequalityCoefficient(uint constraint, uint direction,
+    uint lane, SigmaQ48Bounds rgbR, SigmaQ48Bounds rgbG,
+    SigmaQ48Bounds rgbB, bool negativeDenominator,
+    inout uint valid)
 {
     if (constraint == 0u)
-    {
-        [loop]
-        for (uint lane = 0u; lane < 16u; ++lane)
-            coefficient[lane] = SigmaRgbSignedOperator(direction, 0u, lane,
-                !negativeDenominator, valid);
-        upper = SigmaQ48NegateChecked(supportFloor, valid);
-        return;
-    }
+        return SigmaRgbSignedOperator(direction, 0u, lane,
+            !negativeDenominator, valid);
 
     uint channel = (constraint - 1u) >> 1u;
     bool high = ((constraint - 1u) & 1u) != 0u;
-    uint2 colourBound = high ? rgb[channel].hi : rgb[channel].lo;
-    [loop]
-    for (uint lane = 0u; lane < 16u; ++lane)
-    {
-        uint2 denominator = SigmaRgbSignedOperator(direction, 0u, lane,
-            negativeDenominator, valid);
-        uint2 colour = SigmaRgbOperator(direction, channel + 1u, lane);
-        uint2 product = SigmaQ48MulNearestEven(colourBound, denominator, valid);
-        coefficient[lane] = high
-            ? SigmaQ48SubChecked(colour, product, valid)
-            : SigmaQ48SubChecked(product, colour, valid);
-    }
-    upper = SIGMA_Q48_ZERO;
-}
-
-// One Jacobi interval row contraction.  The total minimum is formed once from
-// one immutable box snapshot, reducing the exact wide operation count from
-// O(n^2) to O(n) without changing the conservative inequality semantics.
-void SigmaRgbContractInequality(inout SigmaQ48Bounds box[16],
-    uint2 coefficient[16], uint2 upper, inout uint valid)
-{
-    SigmaQ48Bounds snapshot[16];
-    SigmaQ48Bounds next[16];
-    uint2 minimumContribution[16];
-    uint2 totalMinimum = SIGMA_Q48_ZERO;
-    [loop]
-    for (uint lane = 0u; lane < 16u; ++lane)
-    {
-        snapshot[lane] = box[lane];
-        next[lane] = box[lane];
-        SigmaQ48Bounds product = SigmaQ48ScaleBounds(coefficient[lane],
-            snapshot[lane], valid);
-        minimumContribution[lane] = product.lo;
-        totalMinimum = SigmaQ48AddChecked(totalMinimum, product.lo, valid);
-    }
-    [loop]
-    for (uint lane = 0u; lane < 16u; ++lane)
-    {
-        uint2 a = coefficient[lane];
-        if (SigmaU64Equal(a, SIGMA_Q48_ZERO))
-            continue;
-        uint2 otherMinimum = SigmaQ48SubChecked(totalMinimum,
-            minimumContribution[lane], valid);
-        uint2 numerator = SigmaQ48SubChecked(upper, otherMinimum, valid);
-        if ((a.y & 0x80000000u) == 0u)
-            next[lane].hi = SigmaQ48Min(next[lane].hi,
-                SigmaQ48DivUpper(numerator, a, valid));
-        else
-            next[lane].lo = SigmaQ48Max(next[lane].lo,
-                SigmaQ48DivLower(numerator, a, valid));
-    }
-    [loop]
-    for (uint writeLane = 0u; writeLane < 16u; ++writeLane)
-        box[writeLane] = next[writeLane];
-}
-
-bool SigmaBuildRgbCell(uint eye, float3 worldPosition, uint2 currentY[16],
-    SigmaQ48Bounds prior[16], out SigmaAdmissibleCell16 cell,
-    out uint unobservable)
-{
-    cell = (SigmaAdmissibleCell16)0;
-    unobservable = 0u;
-    float2 pixel;
-    if (!SigmaProjectWorldToRgb(worldPosition, eye, pixel))
-    {
-        unobservable = 1u;
-        return false;
-    }
-    uint valid = 1u;
-    SigmaQ48Bounds rgb[3];
-    if (!SigmaBuildRgbMeasurement(eye, pixel, rgb, valid))
-        return false;
-    uint direction = SigmaRgbQuantizedDirection(currentY, eye, valid);
-    uint scale = direction < SIGMA_RGB_VIEW_COUNT
-        ? _RgbViewSupportScale[direction] : 0u;
-    if (valid == 0u || direction == SIGMA_RGB_VIEW_NULL || scale == 0u)
-    {
-        unobservable = 1u;
-        return false;
-    }
-
-    // Scalarized generated copy: fixed local struct arrays are not natively
-    // addressable in Unity's Android Vulkan backend. An unroll annotation makes
-    // the compiler clone excessive caller IR; explicit lanes keep the same exact
-    // operator while compiling to sixteen direct moves.
-    cell.coordinate[0] = prior[0];
-    cell.coordinate[1] = prior[1];
-    cell.coordinate[2] = prior[2];
-    cell.coordinate[3] = prior[3];
-    cell.coordinate[4] = prior[4];
-    cell.coordinate[5] = prior[5];
-    cell.coordinate[6] = prior[6];
-    cell.coordinate[7] = prior[7];
-    cell.coordinate[8] = prior[8];
-    cell.coordinate[9] = prior[9];
-    cell.coordinate[10] = prior[10];
-    cell.coordinate[11] = prior[11];
-    cell.coordinate[12] = prior[12];
-    cell.coordinate[13] = prior[13];
-    cell.coordinate[14] = prior[14];
-    cell.coordinate[15] = prior[15];
-    SigmaQ48Bounds denominator = SigmaRgbEvaluateRow(cell.coordinate,
-        direction, 0u, valid);
-    uint2 scaleQ = SigmaQ48FromUnsignedInteger(scale, valid);
-    uint2 supportFloor = SigmaQ48MulNearestEven(
-        SigmaRgbCalibrationValue(eye, SIGMA_RGB_CAL_SUPPORT_FLOOR),
-        scaleQ, valid);
-    bool positive = !SigmaQ48Less(denominator.lo, supportFloor);
-    uint2 negativeFloor = SigmaQ48NegateChecked(supportFloor, valid);
-    bool negative = !SigmaQ48Less(negativeFloor, denominator.hi);
-    if (valid == 0u || (!positive && !negative))
-    {
-        unobservable = 1u;
-        return false;
-    }
-
-    // Exactly two forward and two reverse constraint sweeps.
-    [loop]
-    for (uint sweep = 0u; sweep < 4u; ++sweep)
-    {
-        bool reverse = sweep >= 2u;
-        [loop]
-        for (uint step = 0u; step < 7u; ++step)
-        {
-            uint constraint = reverse ? 6u - step : step;
-            uint2 coefficients[16];
-            uint2 upper;
-            SigmaRgbBuildInequality(constraint, direction, rgb, negative,
-                supportFloor, coefficients, upper, valid);
-            SigmaRgbContractInequality(cell.coordinate, coefficients, upper,
-                valid);
-            if (valid == 0u)
-                return false;
-        }
-    }
-
-    uint mask = 0u;
-    [loop]
-    for (uint resultLane = 0u; resultLane < 16u; ++resultLane)
-    {
-        if (!SigmaU64Equal(cell.coordinate[resultLane].lo,
-                prior[resultLane].lo) ||
-            !SigmaU64Equal(cell.coordinate[resultLane].hi,
-                prior[resultLane].hi))
-            mask |= 1u << resultLane;
-    }
-    cell.coordinateMask = mask;
-    cell.sourceClass = eye == 0u ? SIGMA_SOURCE_RGB_LEFT :
-        SIGMA_SOURCE_RGB_RIGHT;
-    cell.independenceKey = eye == 0u ? _RgbLeftIndependenceKey :
-        _RgbRightIndependenceKey;
-    cell.valid = valid;
-    if (mask == 0u)
-        unobservable = 1u;
-    return valid != 0u && mask != 0u;
+    SigmaQ48Bounds channelBounds = rgbR;
+    if (channel == 1u)
+        channelBounds = rgbG;
+    else if (channel == 2u)
+        channelBounds = rgbB;
+    uint2 colourBound = high ? channelBounds.hi : channelBounds.lo;
+    uint2 denominator = SigmaRgbSignedOperator(direction, 0u, lane,
+        negativeDenominator, valid);
+    uint2 colour = SigmaRgbOperator(direction, channel + 1u, lane);
+    uint2 product = SigmaQ48MulNearestEven(colourBound, denominator, valid);
+    return high ? SigmaQ48SubChecked(colour, product, valid)
+        : SigmaQ48SubChecked(product, colour, valid);
 }
 
 void SigmaJointMeetCoordinate(SigmaQ48Bounds incoming, uint source,
@@ -415,23 +251,20 @@ bool SigmaRevalidateJointCandidate(uint2 candidate[16], uint2 expectedMass,
     return true;
 }
 
-// Builds one complete proposal from four independent source cells.  No source
-// residual is summed: all sources only tighten the same sixteen-coordinate box.
-bool SigmaBuildJointProposal(uint2 state[16], float3 worldPosition,
+// One exact fusion primitive consumes already-constructed independent source
+// cells. Source-cell construction is a disposable hyperlinearized GPU stage;
+// only this meet may mutate the single canonical Psi state.
+bool SigmaSolveJointCells(uint2 state[16],
     SigmaCarrierPageMetaGpu metadata, uint sample, SigmaDepthCell3 depthLeft,
     SigmaDepthCell3 depthRight, bool scheduleRgb,
+    SigmaAdmissibleCell16 rgbLeftEvidence,
+    SigmaAdmissibleCell16 rgbRightEvidence, uint rgbUnobservableMask,
     out uint2 candidate[16], out SigmaQ48Bounds accepted[16],
-    out SigmaAdmissibleCell16 rgbLeftEvidence,
-    out SigmaAdmissibleCell16 rgbRightEvidence,
-    out uint rgbUnobservableMask,
     out uint constrainedMask, out uint conflictMask,
     out uint loSource[16], out uint hiSource[16], out uint2 gaps[16],
     out uint status)
 {
     status = 0u;
-    rgbLeftEvidence = (SigmaAdmissibleCell16)0;
-    rgbRightEvidence = (SigmaAdmissibleCell16)0;
-    rgbUnobservableMask = 0u;
     constrainedMask = 0u;
     conflictMask = 0u;
     uint valid = 1u;
@@ -491,14 +324,11 @@ bool SigmaBuildJointProposal(uint2 state[16], float3 worldPosition,
 
     if (scheduleRgb)
     {
-        uint leftUnobservable;
-        uint rightUnobservable;
-        bool hasLeft = SigmaBuildRgbCell(0u, worldPosition, currentY, prior,
-            rgbLeftEvidence, leftUnobservable);
-        bool hasRight = SigmaBuildRgbCell(1u, worldPosition, currentY, prior,
-            rgbRightEvidence, rightUnobservable);
-        rgbUnobservableMask = leftUnobservable | (rightUnobservable << 1u);
-        if (leftUnobservable != 0u || rightUnobservable != 0u)
+        bool hasLeft = rgbLeftEvidence.valid != 0u &&
+            rgbLeftEvidence.coordinateMask != 0u;
+        bool hasRight = rgbRightEvidence.valid != 0u &&
+            rgbRightEvidence.coordinateMask != 0u;
+        if (rgbUnobservableMask != 0u)
             status |= SIGMA_PROPOSAL_RGB_UNOBSERVABLE;
         if (hasLeft)
         {

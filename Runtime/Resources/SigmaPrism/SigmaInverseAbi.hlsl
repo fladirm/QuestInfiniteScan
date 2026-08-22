@@ -52,6 +52,34 @@
 #define SIGMA_COUNTER_FAILED_CHECKS 7u
 #define SIGMA_COUNTER_COUNT 8u
 
+#define SIGMA_RGB_PHASE_SAMPLE_COUNT 256u
+#define SIGMA_RGB_SOURCE_VALID 1u
+#define SIGMA_RGB_SOURCE_UNOBSERVABLE 2u
+
+uint SigmaRgbPhaseScheduledIndex(uint sample)
+{
+    uint x = sample & 63u;
+    uint y = sample >> 6u;
+    return (y >> 2u) * 16u + (x >> 2u);
+}
+
+bool SigmaRgbSampleScheduled(uint sample, uint phase)
+{
+    uint x = sample & 63u;
+    uint y = sample >> 6u;
+    return ((x & 3u) | ((y & 3u) << 2u)) == (phase & 15u);
+}
+
+uint SigmaRgbSourceCellAddress(uint eye, uint scheduledSample)
+{
+    return eye * SIGMA_RGB_PHASE_SAMPLE_COUNT + scheduledSample;
+}
+
+uint SigmaRgbSourceBoundAddress(uint eye, uint scheduledSample, uint lane)
+{
+    return SigmaRgbSourceCellAddress(eye, scheduledSample) * 16u + lane;
+}
+
 struct SigmaQ48Bounds
 {
     uint2 lo;

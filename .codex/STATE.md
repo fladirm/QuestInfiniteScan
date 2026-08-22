@@ -226,12 +226,26 @@ Updated: 2026-08-22 (Europe/Prague)
 
 ## Next exact actions
 
-1. Commit the Android Vulkan legality and reproducible-release build correction.
-2. Build the exact commit as an Android/Vulkan IL2CPP Release APK and require zero
-   shader/C# errors.
-3. Create a source-only `git archive` ZIP from that exact commit and install the
-   release APK on the connected Quest.
-4. Pause before S4-09 for user audit/device evaluation.
+1. Commit the Android release correction that replaces the duplicated per-page
+   inline RGB solve with one 16-lane exact source-cell pass plus one joint commit.
+2. Create a source-only `git archive` ZIP and build that exact commit as an
+   Android/Vulkan IL2CPP Release APK with zero shader/C# errors.
+3. Install the release APK on the connected Quest and pause before S4-09.
+
+## S4-08 Android release correction in progress
+
+- `SigmaRgbSourceCells.compute` assigns one 16-thread workgroup to each scheduled
+  RGB source cell and one lane to each generated projective coordinate. Four fixed
+  contraction sweeps remain exact; products/divisions are parallel and ordered
+  reductions preserve the accepted Q16.48 semantics.
+- `SigmaInverse.compute` consumes the two prebuilt RGB cells together with the two
+  independent depth cells in one joint proof-gated page solve. Dead proposal
+  geometry/mass buffers and their duplicate full solve were removed.
+- The frame path retains only bounded asynchronous scheduler/proof metadata; no
+  pixels, vertices or carrier geometry are read back to CPU.
+- Verification so far: generated operators, diff check and eight-UAV validation
+  pass; Unity 6000.5.9f1 Vulkan EditMode passes 64/64. Android Release build and
+  physical install are the remaining gates for this checkpoint.
 
 ## Verification policy
 
