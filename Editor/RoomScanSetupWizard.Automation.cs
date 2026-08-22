@@ -86,6 +86,7 @@ namespace Genesis.RoomScan.Editor
                 GameObject roomScan = GameObject.Find("RoomScan");
                 if (roomScan == null || roomScan.GetComponent<RoomScanner>() == null ||
                     roomScan.GetComponent<SigmaRigBridge>() == null ||
+                    roomScan.GetComponent<SigmaCarrier>() == null ||
                     roomScan.GetComponent<DepthCapture>() == null)
                     throw new InvalidOperationException(
                         "The Σ-PRISM-16 capture/lifecycle shell was not created.");

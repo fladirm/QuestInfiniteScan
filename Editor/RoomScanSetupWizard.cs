@@ -102,6 +102,7 @@ namespace Genesis.RoomScan.Editor
             EnsureComponent<RoomAnchorManager>(root);
             EnsureComponent<PassthroughCameraProvider>(root);
             EnsureComponent<SigmaRigBridge>(root);
+            EnsureComponent<SigmaCarrier>(root);
             EnsureComponent<RoomScanner>(root);
             EnsureComponent<RoomScanInputHandler>(root);
             _roomScanRoot = root;

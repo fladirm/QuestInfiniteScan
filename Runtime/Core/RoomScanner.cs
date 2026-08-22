@@ -30,6 +30,7 @@ namespace Genesis.RoomScan
     [RequireComponent(typeof(DepthCapture))]
     [RequireComponent(typeof(RoomAnchorManager))]
     [RequireComponent(typeof(SigmaRigBridge))]
+    [RequireComponent(typeof(SigmaCarrier))]
     public sealed class RoomScanner : MonoBehaviour
     {
         public static RoomScanner Instance { get; private set; }
@@ -43,6 +44,7 @@ namespace Genesis.RoomScan
 
         private DepthCapture _depthCapture;
         private SigmaRigBridge _rigBridge;
+        private SigmaCarrier _carrier;
         private RoomAnchorManager _roomAnchor;
         private DebugMenuController _debugMenu;
         private IRoomScanModule[] _modules;
@@ -60,9 +62,10 @@ namespace Genesis.RoomScan
         public string LastScanStartError { get; private set; }
         public ScanRenderMode CurrentRenderMode => renderMode;
         public string RuntimeStage =>
-            "S4-01 exact S16 core; carrier mutation gated by S4-02";
+            "S4-02 exact sparse carrier; joint inverse readout gated by S4-04";
         public DepthCapture DepthCapture => _depthCapture;
         public SigmaRigBridge RigBridge => _rigBridge;
+        public SigmaCarrier Carrier => _carrier;
         public DebugMenuController DebugMenu => _debugMenu;
         public bool ScanResourcesReleased => _resourcesReleased;
         public SigmaExactBackendGate ExactBackendGate => _exactBackendGate;
@@ -81,6 +84,7 @@ namespace Genesis.RoomScan
             Logger.Level = logLevel;
             _depthCapture = GetComponent<DepthCapture>();
             _rigBridge = GetComponent<SigmaRigBridge>();
+            _carrier = GetComponent<SigmaCarrier>();
             _roomAnchor = GetComponent<RoomAnchorManager>();
             _debugMenu = GetComponentInChildren<DebugMenuController>(true);
             Shader.SetGlobalFloat(WireframeId, 0f);
@@ -185,8 +189,8 @@ namespace Genesis.RoomScan
 
                 ScanLifecycle = ScanLifecycleState.Running;
                 Logger.Info("StartScanning — Σ-PRISM-16 synchronized capture active; " +
-                            "exact backend gate dispatched; carrier mutation remains " +
-                            "fail-closed until S4-02.");
+                            "exact sparse carrier resident; sensor-driven inverse mutation " +
+                            "remains fail-closed until S4-04.");
                 ScanStarted?.Invoke();
                 _ = CreateScanAnchorAsync();
             }

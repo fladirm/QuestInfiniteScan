@@ -1,0 +1,540 @@
+#pragma kernel EncodePageBlocks
+#pragma kernel DecodePageBlocks
+#pragma target 5.0
+
+#include "Sedenion16.hlsl"
+
+StructuredBuffer<uint> _SigmaExactBackendGate;
+StructuredBuffer<uint2> _DecodedInput;
+RWStructuredBuffer<uint2> _DecodedOutput;
+RWStructuredBuffer<uint4> _BlockDescriptors;
+RWByteAddressBuffer _CodecPayload;
+
+uint _InputPageSlot;
+uint _OutputPageSlot;
+uint _BlockCount;
+
+#define SIGMA_CODEC_NULL 0u
+#define SIGMA_CODEC_CONST 1u
+#define SIGMA_CODEC_AFFINE 2u
+#define SIGMA_CODEC_DELTA 3u
+#define SIGMA_CODEC_RAW 4u
+
+#define SIGMA_CODEC_BLOCK_SIZE 8u
+#define SIGMA_CODEC_SAMPLES 64u
+#define SIGMA_CODEC_LANES 16u
+#define SIGMA_CODEC_PAGE_SIZE 64u
+#define SIGMA_CODEC_PAGE_LANES 65536u
+#define SIGMA_CODEC_SCRATCH_STRIDE 8192u
+#define SIGMA_CODEC_CONST_BYTES 128u
+#define SIGMA_CODEC_AFFINE_BYTES 384u
+#define SIGMA_CODEC_RAW_BYTES 8192u
+#define SIGMA_CODEC_DELTA_HEADER_BYTES 16u
+
+groupshared uint2 SigmaCodecValues[1024];
+groupshared uint2 SigmaCodecResiduals[1024];
+groupshared uint SigmaCodecWidths[16];
+groupshared uint SigmaCodecNullFlags[16];
+groupshared uint SigmaCodecConstFlags[16];
+groupshared uint SigmaCodecAffineFlags[16];
+groupshared uint SigmaCodecDeltaFlags[16];
+groupshared uint SigmaCodecSelectedMode;
+groupshared uint SigmaCodecSelectedBytes;
+
+uint SigmaCodecSharedIndex(uint lane, uint sample)
+{
+    return lane * SIGMA_CODEC_SAMPLES + sample;
+}
+
+uint2 SigmaCodecNullLane(uint lane)
+{
+    uint2 value = uint2(0u, 0u);
+    if (lane == (uint)SIGMA_Z_NULL_DYAD.x)
+        value = SIGMA_Z_NULL_DYAD.y < 0 ? uint2(0u, 0xffff0000u) :
+            uint2(0u, 0x00010000u);
+    if (lane == (uint)SIGMA_Z_NULL_DYAD.z)
+        value = SIGMA_Z_NULL_DYAD.w < 0 ? uint2(0u, 0xffff0000u) :
+            uint2(0u, 0x00010000u);
+    return value;
+}
+
+uint SigmaCodecPageSample(uint block, uint sample)
+{
+    uint blockX = block & 7u;
+    uint blockY = block >> 3u;
+    uint u = sample & 7u;
+    uint v = sample >> 3u;
+    return (blockY * 8u + v) * SIGMA_CODEC_PAGE_SIZE + blockX * 8u + u;
+}
+
+uint SigmaCodecInputIndex(uint block, uint sample, uint lane)
+{
+    return _InputPageSlot * SIGMA_CODEC_PAGE_LANES +
+        SigmaCodecPageSample(block, sample) * SIGMA_CODEC_LANES + lane;
+}
+
+uint SigmaCodecOutputIndex(uint block, uint sample, uint lane)
+{
+    return _OutputPageSlot * SIGMA_CODEC_PAGE_LANES +
+        SigmaCodecPageSample(block, sample) * SIGMA_CODEC_LANES + lane;
+}
+
+uint3 SigmaCodecSignExtend96(uint2 value)
+{
+    return uint3(value, (value.y & 0x80000000u) != 0u ? 0xffffffffu : 0u);
+}
+
+uint3 SigmaCodecAdd96(uint3 a, uint3 b)
+{
+    uint low = a.x + b.x;
+    uint carry0 = low < a.x ? 1u : 0u;
+    uint middle0 = a.y + b.y;
+    uint carry1 = middle0 < a.y ? 1u : 0u;
+    uint middle = middle0 + carry0;
+    carry1 |= middle < middle0 ? 1u : 0u;
+    return uint3(low, middle, a.z + b.z + carry1);
+}
+
+uint3 SigmaCodecSubtract96(uint3 a, uint3 b)
+{
+    uint low = a.x - b.x;
+    uint borrow0 = a.x < b.x ? 1u : 0u;
+    uint middle0 = a.y - b.y;
+    uint borrow1 = a.y < b.y ? 1u : 0u;
+    uint middle = middle0 - borrow0;
+    borrow1 |= middle0 < borrow0 ? 1u : 0u;
+    return uint3(low, middle, a.z - b.z - borrow1);
+}
+
+bool SigmaCodecFitsI64(uint3 value)
+{
+    uint extension = (value.y & 0x80000000u) != 0u ? 0xffffffffu : 0u;
+    return value.z == extension;
+}
+
+bool SigmaCodecResidual(uint lane, uint sample, out uint2 residual)
+{
+    uint u = sample & 7u;
+    uint v = sample >> 3u;
+    uint3 exact = SigmaCodecSignExtend96(
+        SigmaCodecValues[SigmaCodecSharedIndex(lane, sample)]);
+    if (v == 0u && u != 0u)
+    {
+        exact = SigmaCodecSubtract96(exact, SigmaCodecSignExtend96(
+            SigmaCodecValues[SigmaCodecSharedIndex(lane, sample - 1u)]));
+    }
+    else if (u == 0u && v != 0u)
+    {
+        exact = SigmaCodecSubtract96(exact, SigmaCodecSignExtend96(
+            SigmaCodecValues[SigmaCodecSharedIndex(lane, sample - 8u)]));
+    }
+    else if (u != 0u && v != 0u)
+    {
+        exact = SigmaCodecSubtract96(exact, SigmaCodecSignExtend96(
+            SigmaCodecValues[SigmaCodecSharedIndex(lane, sample - 1u)]));
+        exact = SigmaCodecSubtract96(exact, SigmaCodecSignExtend96(
+            SigmaCodecValues[SigmaCodecSharedIndex(lane, sample - 8u)]));
+        exact = SigmaCodecAdd96(exact, SigmaCodecSignExtend96(
+            SigmaCodecValues[SigmaCodecSharedIndex(lane, sample - 9u)]));
+    }
+    residual = exact.xy;
+    return SigmaCodecFitsI64(exact);
+}
+
+uint SigmaCodecSignedWidth(uint2 value)
+{
+    if (all(value == 0u))
+        return 0u;
+    bool negative = (value.y & 0x80000000u) != 0u;
+    uint2 varying = negative ? ~value : value;
+    int highBit = -1;
+    if (varying.y != 0u)
+        highBit = firstbithigh(varying.y) + 32;
+    else
+        highBit = firstbithigh(varying.x);
+    if (highBit < 0)
+        return 1u; // -1 is represented by one signed bit.
+    return min(64u, (uint)highBit + 2u);
+}
+
+uint2 SigmaCodecAddScaled(uint2 origin, uint2 stepU, uint u,
+    uint2 stepV, uint v, inout uint valid)
+{
+    uint2 value = origin;
+    [unroll]
+    for (uint uStep = 0u; uStep < 7u; ++uStep)
+        value = SigmaQ48AddChecked(value,
+            SigmaQ48Select(uStep < u, stepU, uint2(0u, 0u)), valid);
+    [unroll]
+    for (uint vStep = 0u; vStep < 7u; ++vStep)
+        value = SigmaQ48AddChecked(value,
+            SigmaQ48Select(vStep < v, stepV, uint2(0u, 0u)), valid);
+    return value;
+}
+
+uint SigmaCodecLowMask(uint count)
+{
+    return count >= 32u ? 0xffffffffu : count == 0u ? 0u :
+        ((1u << count) - 1u);
+}
+
+uint SigmaCodecExtractBits(uint2 value, uint start, uint count)
+{
+    if (count == 0u)
+        return 0u;
+    uint result = 0u;
+    if (start < 32u)
+    {
+        result = value.x >> start;
+        if (start != 0u)
+            result |= value.y << (32u - start);
+    }
+    else
+        result = value.y >> (start - 32u);
+    return result & SigmaCodecLowMask(count);
+}
+
+void SigmaCodecWriteDeltaLane(uint block, uint lane, uint width)
+{
+    if (width == 0u)
+        return;
+    uint prefixWidth = 0u;
+    [unroll]
+    for (uint other = 0u; other < 16u; ++other)
+        prefixWidth += other < lane ? SigmaCodecWidths[other] : 0u;
+    uint wordAddress = block * SIGMA_CODEC_SCRATCH_STRIDE +
+        SIGMA_CODEC_DELTA_HEADER_BYTES + prefixWidth * 8u;
+    uint currentWord = 0u;
+    uint bitsInWord = 0u;
+
+    [loop]
+    for (uint deltaSample = 0u; deltaSample < 64u; ++deltaSample)
+    {
+        uint2 residual = SigmaCodecResiduals[
+            SigmaCodecSharedIndex(lane, deltaSample)];
+        uint consumed = 0u;
+        uint remaining = width;
+        [unroll]
+        for (uint part = 0u; part < 3u; ++part)
+        {
+            uint take = min(remaining, 32u - bitsInWord);
+            if (take != 0u)
+            {
+                uint piece = SigmaCodecExtractBits(residual, consumed, take);
+                currentWord |= piece << bitsInWord;
+                bitsInWord += take;
+                consumed += take;
+                remaining -= take;
+            }
+            if (bitsInWord == 32u)
+            {
+                _CodecPayload.Store(wordAddress, currentWord);
+                wordAddress += 4u;
+                currentWord = 0u;
+                bitsInWord = 0u;
+            }
+        }
+    }
+}
+
+uint SigmaCodecReadWidth(uint block, uint lane)
+{
+    uint byteAddress = block * SIGMA_CODEC_SCRATCH_STRIDE + (lane & ~3u);
+    uint packed = _CodecPayload.Load(byteAddress);
+    return (packed >> ((lane & 3u) * 8u)) & 0xffu;
+}
+
+uint2 SigmaCodecReadSigned(uint byteAddress, uint bitPosition, uint width)
+{
+    if (width == 0u)
+        return uint2(0u, 0u);
+    uint wordAddress = byteAddress + (bitPosition >> 5u) * 4u;
+    uint shift = bitPosition & 31u;
+    uint word0 = _CodecPayload.Load(wordAddress);
+    uint required = shift + width;
+    uint word1 = required > 32u ? _CodecPayload.Load(wordAddress + 4u) : 0u;
+    uint word2 = required > 64u ? _CodecPayload.Load(wordAddress + 8u) : 0u;
+    uint2 value = uint2(0u, 0u);
+    if (shift == 0u)
+        value = uint2(word0, word1);
+    else
+        value = uint2((word0 >> shift) | (word1 << (32u - shift)),
+            (word1 >> shift) | (word2 << (32u - shift)));
+
+    if (width < 32u)
+        value = uint2(value.x & SigmaCodecLowMask(width), 0u);
+    else if (width == 32u)
+        value.y = 0u;
+    else if (width < 64u)
+        value.y &= SigmaCodecLowMask(width - 32u);
+
+    bool negative = width < 64u &&
+        SigmaU64Bit(value, width - 1u);
+    if (negative)
+    {
+        if (width < 32u)
+        {
+            value.x |= ~SigmaCodecLowMask(width);
+            value.y = 0xffffffffu;
+        }
+        else if (width == 32u)
+            value.y = 0xffffffffu;
+        else
+            value.y |= ~SigmaCodecLowMask(width - 32u);
+    }
+    return value;
+}
+
+bool SigmaCodecDecodeValue(uint lane, uint sample, uint2 residual,
+    out uint2 value)
+{
+    uint u = sample & 7u;
+    uint v = sample >> 3u;
+    uint3 exact = uint3(0u, 0u, 0u);
+    if (v == 0u && u != 0u)
+    {
+        exact = SigmaCodecSignExtend96(
+            SigmaCodecValues[SigmaCodecSharedIndex(lane, sample - 1u)]);
+    }
+    else if (u == 0u && v != 0u)
+    {
+        exact = SigmaCodecSignExtend96(
+            SigmaCodecValues[SigmaCodecSharedIndex(lane, sample - 8u)]);
+    }
+    else if (u != 0u && v != 0u)
+    {
+        exact = SigmaCodecAdd96(SigmaCodecSignExtend96(
+                SigmaCodecValues[SigmaCodecSharedIndex(lane, sample - 1u)]),
+            SigmaCodecSignExtend96(
+                SigmaCodecValues[SigmaCodecSharedIndex(lane, sample - 8u)]));
+        exact = SigmaCodecSubtract96(exact, SigmaCodecSignExtend96(
+            SigmaCodecValues[SigmaCodecSharedIndex(lane, sample - 9u)]));
+    }
+    exact = SigmaCodecAdd96(exact, SigmaCodecSignExtend96(residual));
+    value = exact.xy;
+    return SigmaCodecFitsI64(exact);
+}
+
+[numthreads(16, 1, 1)]
+void EncodePageBlocks(uint3 groupId : SV_GroupID,
+    uint3 groupThreadId : SV_GroupThreadID)
+{
+    uint block = groupId.x;
+    uint lane = groupThreadId.x;
+    uint scratchBase = block * SIGMA_CODEC_SCRATCH_STRIDE;
+    if (block >= _BlockCount)
+        return;
+    if (_SigmaExactBackendGate[0] == 0u)
+    {
+        if (lane == 0u)
+            _BlockDescriptors[block] = uint4(SIGMA_CODEC_NULL, 0u, scratchBase, 0u);
+        return;
+    }
+
+    [loop]
+    for (uint loadSample = 0u; loadSample < 64u; ++loadSample)
+    {
+        SigmaCodecValues[SigmaCodecSharedIndex(lane, loadSample)] =
+            _DecodedInput[SigmaCodecInputIndex(block, loadSample, lane)];
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    uint laneNull = 1u;
+    uint laneConstant = 1u;
+    uint laneAffine = 1u;
+    uint laneDelta = 1u;
+    uint maximumWidth = 0u;
+    uint valid = 1u;
+    uint2 origin = SigmaCodecValues[SigmaCodecSharedIndex(lane, 0u)];
+    uint2 stepU = SigmaQ48SubChecked(
+        SigmaCodecValues[SigmaCodecSharedIndex(lane, 1u)], origin, valid);
+    uint2 stepV = SigmaQ48SubChecked(
+        SigmaCodecValues[SigmaCodecSharedIndex(lane, 8u)], origin, valid);
+    laneAffine = laneAffine & valid;
+
+    [loop]
+    for (uint evalSample = 0u; evalSample < 64u; ++evalSample)
+    {
+        uint2 actual = SigmaCodecValues[SigmaCodecSharedIndex(lane, evalSample)];
+        uint2 nullValue = SigmaCodecNullLane(lane);
+        if (actual.x != nullValue.x || actual.y != nullValue.y)
+            laneNull = 0u;
+        if (actual.x != origin.x || actual.y != origin.y)
+            laneConstant = 0u;
+        uint u = evalSample & 7u;
+        uint v = evalSample >> 3u;
+        uint affineValid = 1u;
+        uint2 expected = SigmaCodecAddScaled(origin, stepU, u, stepV, v,
+            affineValid);
+        if (affineValid == 0u || actual.x != expected.x || actual.y != expected.y)
+            laneAffine = 0u;
+        uint2 residual;
+        bool residualValid = SigmaCodecResidual(lane, evalSample, residual);
+        SigmaCodecResiduals[SigmaCodecSharedIndex(lane, evalSample)] = residual;
+        laneDelta = laneDelta & (residualValid ? 1u : 0u);
+        maximumWidth = max(maximumWidth, SigmaCodecSignedWidth(residual));
+    }
+
+    SigmaCodecWidths[lane] = maximumWidth;
+    SigmaCodecNullFlags[lane] = laneNull;
+    SigmaCodecConstFlags[lane] = laneConstant;
+    SigmaCodecAffineFlags[lane] = laneAffine;
+    SigmaCodecDeltaFlags[lane] = laneDelta;
+    GroupMemoryBarrierWithGroupSync();
+
+    if (lane == 0u)
+    {
+        uint allNull = 1u;
+        uint allConstant = 1u;
+        uint allAffine = 1u;
+        uint allDelta = 1u;
+        uint widthSum = 0u;
+        [unroll]
+        for (uint other = 0u; other < 16u; ++other)
+        {
+            allNull = allNull & SigmaCodecNullFlags[other];
+            allConstant = allConstant & SigmaCodecConstFlags[other];
+            allAffine = allAffine & SigmaCodecAffineFlags[other];
+            allDelta = allDelta & SigmaCodecDeltaFlags[other];
+            widthSum += SigmaCodecWidths[other];
+        }
+        uint bestMode = SIGMA_CODEC_RAW;
+        uint bestBytes = SIGMA_CODEC_RAW_BYTES;
+        uint deltaBytes = SIGMA_CODEC_DELTA_HEADER_BYTES + widthSum * 8u;
+        if (allDelta != 0u && deltaBytes <= bestBytes)
+        {
+            bestMode = SIGMA_CODEC_DELTA;
+            bestBytes = deltaBytes;
+        }
+        if (allAffine != 0u && SIGMA_CODEC_AFFINE_BYTES <= bestBytes)
+        {
+            bestMode = SIGMA_CODEC_AFFINE;
+            bestBytes = SIGMA_CODEC_AFFINE_BYTES;
+        }
+        if (allConstant != 0u && SIGMA_CODEC_CONST_BYTES <= bestBytes)
+        {
+            bestMode = SIGMA_CODEC_CONST;
+            bestBytes = SIGMA_CODEC_CONST_BYTES;
+        }
+        if (allNull != 0u)
+        {
+            bestMode = SIGMA_CODEC_NULL;
+            bestBytes = 0u;
+        }
+        SigmaCodecSelectedMode = bestMode;
+        SigmaCodecSelectedBytes = bestBytes;
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    uint mode = SigmaCodecSelectedMode;
+    if (mode == SIGMA_CODEC_CONST)
+    {
+        _CodecPayload.Store2(scratchBase + lane * 8u, origin);
+    }
+    else if (mode == SIGMA_CODEC_AFFINE)
+    {
+        _CodecPayload.Store2(scratchBase + lane * 8u, origin);
+        _CodecPayload.Store2(scratchBase + SIGMA_CODEC_CONST_BYTES + lane * 8u,
+            stepU);
+        _CodecPayload.Store2(scratchBase + SIGMA_CODEC_CONST_BYTES * 2u + lane * 8u,
+            stepV);
+    }
+    else if (mode == SIGMA_CODEC_DELTA)
+    {
+        if (lane < 4u)
+        {
+            uint baseLane = lane * 4u;
+            uint packed = SigmaCodecWidths[baseLane] |
+                (SigmaCodecWidths[baseLane + 1u] << 8u) |
+                (SigmaCodecWidths[baseLane + 2u] << 16u) |
+                (SigmaCodecWidths[baseLane + 3u] << 24u);
+            _CodecPayload.Store(scratchBase + lane * 4u, packed);
+        }
+        SigmaCodecWriteDeltaLane(block, lane, SigmaCodecWidths[lane]);
+    }
+    else if (mode == SIGMA_CODEC_RAW)
+    {
+        [loop]
+        for (uint rawSample = 0u; rawSample < 64u; ++rawSample)
+        {
+            _CodecPayload.Store2(scratchBase +
+                (rawSample * SIGMA_CODEC_LANES + lane) * 8u,
+                SigmaCodecValues[SigmaCodecSharedIndex(lane, rawSample)]);
+        }
+    }
+
+    AllMemoryBarrierWithGroupSync();
+    if (lane == 0u)
+        _BlockDescriptors[block] = uint4(mode, SigmaCodecSelectedBytes,
+            scratchBase, 1u);
+}
+
+[numthreads(16, 1, 1)]
+void DecodePageBlocks(uint3 groupId : SV_GroupID,
+    uint3 groupThreadId : SV_GroupThreadID)
+{
+    uint block = groupId.x;
+    uint lane = groupThreadId.x;
+    if (block >= _BlockCount)
+        return;
+    uint4 descriptor = _BlockDescriptors[block];
+    if (_SigmaExactBackendGate[0] == 0u || (descriptor.w & 1u) == 0u)
+        return;
+    uint mode = descriptor.x;
+    uint scratchBase = descriptor.z;
+    uint width = mode == SIGMA_CODEC_DELTA ? SigmaCodecReadWidth(block, lane) : 0u;
+    uint deltaPrefix = 0u;
+    if (mode == SIGMA_CODEC_DELTA)
+    {
+        [unroll]
+        for (uint other = 0u; other < 16u; ++other)
+            deltaPrefix += other < lane ? SigmaCodecReadWidth(block, other) : 0u;
+    }
+    uint deltaBase = scratchBase + SIGMA_CODEC_DELTA_HEADER_BYTES + deltaPrefix * 8u;
+
+    uint2 affineOrigin = uint2(0u, 0u);
+    uint2 affineU = uint2(0u, 0u);
+    uint2 affineV = uint2(0u, 0u);
+    if (mode == SIGMA_CODEC_AFFINE)
+    {
+        affineOrigin = _CodecPayload.Load2(scratchBase + lane * 8u);
+        affineU = _CodecPayload.Load2(
+            scratchBase + SIGMA_CODEC_CONST_BYTES + lane * 8u);
+        affineV = _CodecPayload.Load2(
+            scratchBase + SIGMA_CODEC_CONST_BYTES * 2u + lane * 8u);
+    }
+
+    [loop]
+    for (uint decodeSample = 0u; decodeSample < 64u; ++decodeSample)
+    {
+        uint2 value = uint2(0u, 0u);
+        uint valid = 1u;
+        if (mode == SIGMA_CODEC_NULL)
+            value = SigmaCodecNullLane(lane);
+        else if (mode == SIGMA_CODEC_CONST)
+            value = _CodecPayload.Load2(scratchBase + lane * 8u);
+        else if (mode == SIGMA_CODEC_AFFINE)
+            value = SigmaCodecAddScaled(affineOrigin, affineU, decodeSample & 7u,
+                affineV, decodeSample >> 3u, valid);
+        else if (mode == SIGMA_CODEC_DELTA)
+        {
+            uint2 residual = SigmaCodecReadSigned(deltaBase,
+                decodeSample * width, width);
+            valid = valid &
+                (SigmaCodecDecodeValue(lane, decodeSample, residual, value) ? 1u : 0u);
+        }
+        else if (mode == SIGMA_CODEC_RAW)
+        {
+            value = _CodecPayload.Load2(scratchBase +
+                (decodeSample * SIGMA_CODEC_LANES + lane) * 8u);
+        }
+        else
+            valid = 0u;
+
+        if (valid != 0u)
+        {
+            SigmaCodecValues[SigmaCodecSharedIndex(lane, decodeSample)] = value;
+            _DecodedOutput[SigmaCodecOutputIndex(block, decodeSample, lane)] = value;
+        }
+    }
+}

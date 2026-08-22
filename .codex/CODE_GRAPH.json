@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "source_digest": "5145590babb5c73b197631a09fbc3e6658bd8e7474a32e026c8dec3381791378",
+  "source_digest": "9369f29b5a8625e70810c4e3c6c4826198f76e768ec2e1d95a693e1e28d5dc7e",
   "scope": [
     "Runtime/**/*.cs",
     "Runtime/Resources/SigmaPrism/**/*.*",
@@ -10,10 +10,10 @@
     "Tests/Editor/*.cs"
   ],
   "summary": {
-    "files": 63,
-    "symbols": 650,
-    "methods_and_functions": 546,
-    "gpu_kernels": 7,
+    "files": 68,
+    "symbols": 811,
+    "methods_and_functions": 679,
+    "gpu_kernels": 16,
     "event_links": 3
   },
   "files": [
@@ -163,6 +163,16 @@
       "language": "hlsl"
     },
     {
+      "id": "file:Runtime/Resources/SigmaPrism/SigmaCarrier.compute",
+      "path": "Runtime/Resources/SigmaPrism/SigmaCarrier.compute",
+      "language": "compute"
+    },
+    {
+      "id": "file:Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute",
+      "path": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute",
+      "language": "compute"
+    },
+    {
       "id": "file:Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute",
       "path": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute",
       "language": "compute"
@@ -233,6 +243,16 @@
       "language": "cs"
     },
     {
+      "id": "file:Runtime/SigmaPrism/SigmaCarrier.cs",
+      "path": "Runtime/SigmaPrism/SigmaCarrier.cs",
+      "language": "cs"
+    },
+    {
+      "id": "file:Runtime/SigmaPrism/SigmaCarrierCodec.cs",
+      "path": "Runtime/SigmaPrism/SigmaCarrierCodec.cs",
+      "language": "cs"
+    },
+    {
       "id": "file:Runtime/SigmaPrism/SigmaExactBackendGate.cs",
       "path": "Runtime/SigmaPrism/SigmaExactBackendGate.cs",
       "language": "cs"
@@ -295,6 +315,11 @@
     {
       "id": "file:Tests/Editor/SigmaAlgebraOperatorTests.cs",
       "path": "Tests/Editor/SigmaAlgebraOperatorTests.cs",
+      "language": "cs"
+    },
+    {
+      "id": "file:Tests/Editor/SigmaCarrierTests.cs",
+      "path": "Tests/Editor/SigmaCarrierTests.cs",
       "language": "cs"
     },
     {
@@ -363,11 +388,11 @@
       "line": 35
     },
     {
-      "id": "Editor/RoomScanSetupWizard.Automation.cs::BuildQuestInfiniteScanSmokeApk@120",
+      "id": "Editor/RoomScanSetupWizard.Automation.cs::BuildQuestInfiniteScanSmokeApk@121",
       "file": "Editor/RoomScanSetupWizard.Automation.cs",
       "name": "BuildQuestInfiniteScanSmokeApk",
       "kind": "method",
-      "line": 120
+      "line": 121
     },
     {
       "id": "Editor/RoomScanSetupWizard.Automation.cs::PrepareQuestInfiniteScanSmokeProject@24",
@@ -538,32 +563,32 @@
       "line": 94
     },
     {
-      "id": "Editor/RoomScanSetupWizard.cs::EnsureDebugMenuAssets@137",
+      "id": "Editor/RoomScanSetupWizard.cs::EnsureDebugMenuAssets@138",
       "file": "Editor/RoomScanSetupWizard.cs",
       "name": "EnsureDebugMenuAssets",
       "kind": "method",
-      "line": 137
+      "line": 138
     },
     {
-      "id": "Editor/RoomScanSetupWizard.cs::EnsureQuestVRManifest@132",
+      "id": "Editor/RoomScanSetupWizard.cs::EnsureQuestVRManifest@133",
       "file": "Editor/RoomScanSetupWizard.cs",
       "name": "EnsureQuestVRManifest",
       "kind": "method",
-      "line": 132
+      "line": 133
     },
     {
-      "id": "Editor/RoomScanSetupWizard.cs::EnsureVRInput@159",
+      "id": "Editor/RoomScanSetupWizard.cs::EnsureVRInput@160",
       "file": "Editor/RoomScanSetupWizard.cs",
       "name": "EnsureVRInput",
       "kind": "method",
-      "line": 159
+      "line": 160
     },
     {
-      "id": "Editor/RoomScanSetupWizard.cs::FindOrCreatePanelSettings@206",
+      "id": "Editor/RoomScanSetupWizard.cs::FindOrCreatePanelSettings@207",
       "file": "Editor/RoomScanSetupWizard.cs",
       "name": "FindOrCreatePanelSettings",
       "kind": "method",
-      "line": 206
+      "line": 207
     },
     {
       "id": "Editor/RoomScanSetupWizard.cs::FixAROcclusion@78",
@@ -580,25 +605,25 @@
       "line": 69
     },
     {
-      "id": "Editor/RoomScanSetupWizard.cs::FixDebugModules@110",
+      "id": "Editor/RoomScanSetupWizard.cs::FixDebugModules@111",
       "file": "Editor/RoomScanSetupWizard.cs",
       "name": "FixDebugModules",
       "kind": "method",
-      "line": 110
+      "line": 111
     },
     {
-      "id": "Editor/RoomScanSetupWizard.cs::FixShaderWiring@126",
+      "id": "Editor/RoomScanSetupWizard.cs::FixShaderWiring@127",
       "file": "Editor/RoomScanSetupWizard.cs",
       "name": "FixShaderWiring",
       "kind": "method",
-      "line": 126
+      "line": 127
     },
     {
-      "id": "Editor/RoomScanSetupWizard.cs::MarkDirty@220",
+      "id": "Editor/RoomScanSetupWizard.cs::MarkDirty@221",
       "file": "Editor/RoomScanSetupWizard.cs",
       "name": "MarkDirty",
       "kind": "method",
-      "line": 220
+      "line": 221
     },
     {
       "id": "Editor/RoomScanSetupWizard.cs::OnEnable@29",
@@ -636,25 +661,25 @@
       "line": 17
     },
     {
-      "id": "Editor/RoomScanSetupWizard.cs::SetBool@192",
+      "id": "Editor/RoomScanSetupWizard.cs::SetBool@193",
       "file": "Editor/RoomScanSetupWizard.cs",
       "name": "SetBool",
       "kind": "method",
-      "line": 192
+      "line": 193
     },
     {
-      "id": "Editor/RoomScanSetupWizard.cs::SetPanelRenderModeWorldSpace@198",
+      "id": "Editor/RoomScanSetupWizard.cs::SetPanelRenderModeWorldSpace@199",
       "file": "Editor/RoomScanSetupWizard.cs",
       "name": "SetPanelRenderModeWorldSpace",
       "kind": "method",
-      "line": 198
+      "line": 199
     },
     {
-      "id": "Editor/RoomScanSetupWizard.cs::WireComponent@181",
+      "id": "Editor/RoomScanSetupWizard.cs::WireComponent@182",
       "file": "Editor/RoomScanSetupWizard.cs",
       "name": "WireComponent",
       "kind": "method",
-      "line": 181
+      "line": 182
     },
     {
       "id": "Editor/VRProjectBootstrap.cs::AnyFeatureEnabled@643",
@@ -1224,88 +1249,88 @@
       "line": 43
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::Awake@77",
+      "id": "Runtime/Core/RoomScanner.cs::Awake@80",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "Awake",
       "kind": "method",
-      "line": 77
+      "line": 80
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::ClearAllDataAsync@259",
+      "id": "Runtime/Core/RoomScanner.cs::ClearAllDataAsync@263",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "ClearAllDataAsync",
       "kind": "method",
-      "line": 259
+      "line": 263
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::ClearScan@252",
+      "id": "Runtime/Core/RoomScanner.cs::ClearScan@256",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "ClearScan",
       "kind": "method",
-      "line": 252
+      "line": 256
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::CreateScanAnchorAsync@288",
+      "id": "Runtime/Core/RoomScanner.cs::CreateScanAnchorAsync@292",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "CreateScanAnchorAsync",
       "kind": "method",
-      "line": 288
+      "line": 292
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::CycleRenderMode@276",
+      "id": "Runtime/Core/RoomScanner.cs::CycleRenderMode@280",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "CycleRenderMode",
       "kind": "method",
-      "line": 276
+      "line": 280
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::IsModeAvailable@283",
+      "id": "Runtime/Core/RoomScanner.cs::IsModeAvailable@287",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "IsModeAvailable",
       "kind": "method",
-      "line": 283
+      "line": 287
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::ObserveStart@238",
+      "id": "Runtime/Core/RoomScanner.cs::ObserveStart@242",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "ObserveStart",
       "kind": "method",
-      "line": 238
+      "line": 242
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::OnDestroy@139",
+      "id": "Runtime/Core/RoomScanner.cs::OnDestroy@143",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "OnDestroy",
       "kind": "method",
-      "line": 139
+      "line": 143
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::OnDisable@132",
+      "id": "Runtime/Core/RoomScanner.cs::OnDisable@136",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "OnDisable",
       "kind": "method",
-      "line": 132
+      "line": 136
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::OnRoomReady@122",
+      "id": "Runtime/Core/RoomScanner.cs::OnRoomReady@126",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "OnRoomReady",
       "kind": "method",
-      "line": 122
+      "line": 126
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::ReleaseScanResources@244",
+      "id": "Runtime/Core/RoomScanner.cs::ReleaseScanResources@248",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "ReleaseScanResources",
       "kind": "method",
-      "line": 244
+      "line": 248
     },
     {
       "id": "Runtime/Core/RoomScanner.cs::RoomScanner",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "RoomScanner",
       "kind": "class",
-      "line": 33
+      "line": 34
     },
     {
       "id": "Runtime/Core/RoomScanner.cs::ScanLifecycleState",
@@ -1322,53 +1347,53 @@
       "line": 10
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::SetRenderMode@267",
+      "id": "Runtime/Core/RoomScanner.cs::SetRenderMode@271",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "SetRenderMode",
       "kind": "method",
-      "line": 267
+      "line": 271
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::Start@89",
+      "id": "Runtime/Core/RoomScanner.cs::Start@93",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "Start",
       "kind": "method",
-      "line": 89
+      "line": 93
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::StartScanningAsync@147",
+      "id": "Runtime/Core/RoomScanner.cs::StartScanningAsync@151",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "StartScanningAsync",
       "kind": "method",
-      "line": 147
+      "line": 151
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::StartScanningCoreAsync@161",
+      "id": "Runtime/Core/RoomScanner.cs::StartScanningCoreAsync@165",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "StartScanningCoreAsync",
       "kind": "method",
-      "line": 161
+      "line": 165
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::StopScanning@206",
+      "id": "Runtime/Core/RoomScanner.cs::StopScanning@210",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "StopScanning",
       "kind": "method",
-      "line": 206
+      "line": 210
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::ToggleDebugMenu@286",
+      "id": "Runtime/Core/RoomScanner.cs::ToggleDebugMenu@290",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "ToggleDebugMenu",
       "kind": "method",
-      "line": 286
+      "line": 290
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::ToggleScanning@228",
+      "id": "Runtime/Core/RoomScanner.cs::ToggleScanning@232",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "ToggleScanning",
       "kind": "method",
-      "line": 228
+      "line": 232
     },
     {
       "id": "Runtime/Core/RoomSpaceRoot.cs::Adopt@186",
@@ -1539,235 +1564,235 @@
       "line": 1
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaApplyMagnitudeSign@133",
+      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaApplyMagnitudeSign@135",
       "file": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl",
       "name": "SigmaApplyMagnitudeSign",
       "kind": "gpu_function",
-      "line": 133
+      "line": 135
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaHadamardRow@478",
+      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaHadamardRow@480",
       "file": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl",
       "name": "SigmaHadamardRow",
       "kind": "gpu_function",
-      "line": 478
+      "line": 480
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaI64Less@19",
+      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaI64Less@21",
       "file": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl",
       "name": "SigmaI64Less",
       "kind": "gpu_function",
-      "line": 19
+      "line": 21
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaI64ShiftRightRaw@93",
+      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaI64ShiftRightRaw@95",
       "file": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl",
       "name": "SigmaI64ShiftRightRaw",
       "kind": "gpu_function",
-      "line": 93
+      "line": 95
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaLeftBasisAction@436",
+      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaLeftBasisAction@438",
       "file": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl",
       "name": "SigmaLeftBasisAction",
       "kind": "gpu_function",
-      "line": 436
+      "line": 438
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaMagnitudeFitsSigned@126",
+      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaMagnitudeFitsSigned@128",
       "file": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl",
       "name": "SigmaMagnitudeFitsSigned",
       "kind": "gpu_function",
-      "line": 126
+      "line": 128
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48AddChecked@166",
+      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48AddChecked@168",
       "file": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl",
       "name": "SigmaQ48AddChecked",
       "kind": "gpu_function",
-      "line": 166
+      "line": 168
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48DivLower@426",
+      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48DivLower@428",
       "file": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl",
       "name": "SigmaQ48DivLower",
       "kind": "gpu_function",
-      "line": 426
+      "line": 428
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48DivNearestEven@421",
+      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48DivNearestEven@423",
       "file": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl",
       "name": "SigmaQ48DivNearestEven",
       "kind": "gpu_function",
-      "line": 421
+      "line": 423
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48DivRounded@356",
+      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48DivRounded@358",
       "file": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl",
       "name": "SigmaQ48DivRounded",
       "kind": "gpu_function",
-      "line": 356
+      "line": 358
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48DivUpper@431",
+      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48DivUpper@433",
       "file": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl",
       "name": "SigmaQ48DivUpper",
       "kind": "gpu_function",
-      "line": 431
+      "line": 433
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48Less@151",
+      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48Less@153",
       "file": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl",
       "name": "SigmaQ48Less",
       "kind": "gpu_function",
-      "line": 151
+      "line": 153
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48Mask@140",
+      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48Mask@142",
       "file": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl",
       "name": "SigmaQ48Mask",
       "kind": "gpu_function",
-      "line": 140
+      "line": 142
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48Max@161",
+      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48Max@163",
       "file": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl",
       "name": "SigmaQ48Max",
       "kind": "gpu_function",
-      "line": 161
+      "line": 163
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48Min@156",
+      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48Min@158",
       "file": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl",
       "name": "SigmaQ48Min",
       "kind": "gpu_function",
-      "line": 156
+      "line": 158
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48MulLower@324",
+      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48MulLower@326",
       "file": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl",
       "name": "SigmaQ48MulLower",
       "kind": "gpu_function",
-      "line": 324
+      "line": 326
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48MulNearestEven@319",
+      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48MulNearestEven@321",
       "file": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl",
       "name": "SigmaQ48MulNearestEven",
       "kind": "gpu_function",
-      "line": 319
+      "line": 321
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48MulRounded@289",
+      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48MulRounded@291",
       "file": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl",
       "name": "SigmaQ48MulRounded",
       "kind": "gpu_function",
-      "line": 289
+      "line": 291
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48MulUpper@329",
+      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48MulUpper@331",
       "file": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl",
       "name": "SigmaQ48MulUpper",
       "kind": "gpu_function",
-      "line": 329
+      "line": 331
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48NegateChecked@178",
+      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48NegateChecked@180",
       "file": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl",
       "name": "SigmaQ48NegateChecked",
       "kind": "gpu_function",
-      "line": 178
+      "line": 180
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48Select@145",
+      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48Select@147",
       "file": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl",
       "name": "SigmaQ48Select",
       "kind": "gpu_function",
-      "line": 145
+      "line": 147
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48ShiftLeftChecked@197",
+      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48ShiftLeftChecked@199",
       "file": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl",
       "name": "SigmaQ48ShiftLeftChecked",
       "kind": "gpu_function",
-      "line": 197
+      "line": 199
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48ShiftRightNearestEven@210",
+      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48ShiftRightNearestEven@212",
       "file": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl",
       "name": "SigmaQ48ShiftRightNearestEven",
       "kind": "gpu_function",
-      "line": 210
+      "line": 212
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48SubChecked@185",
+      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48SubChecked@187",
       "file": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl",
       "name": "SigmaQ48SubChecked",
       "kind": "gpu_function",
-      "line": 185
+      "line": 187
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaRightBasisAction@449",
+      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaRightBasisAction@451",
       "file": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl",
       "name": "SigmaRightBasisAction",
       "kind": "gpu_function",
-      "line": 449
+      "line": 451
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaRightSignedDyadAction@462",
+      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaRightSignedDyadAction@464",
       "file": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl",
       "name": "SigmaRightSignedDyadAction",
       "kind": "gpu_function",
-      "line": 462
+      "line": 464
     },
     {
       "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU128",
       "file": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl",
       "name": "SigmaU128",
       "kind": "struct",
-      "line": 235
+      "line": 237
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU128Bit@334",
+      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU128Bit@336",
       "file": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl",
       "name": "SigmaU128Bit",
       "kind": "gpu_function",
-      "line": 334
+      "line": 336
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU128SetBit@344",
+      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU128SetBit@346",
       "file": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl",
       "name": "SigmaU128SetBit",
       "kind": "gpu_function",
-      "line": 344
+      "line": 346
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU64AbsSigned@64",
+      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU64AbsSigned@66",
       "file": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl",
       "name": "SigmaU64AbsSigned",
       "kind": "gpu_function",
-      "line": 64
+      "line": 66
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU64Add@26",
+      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU64Add@28",
       "file": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl",
       "name": "SigmaU64Add",
       "kind": "gpu_function",
-      "line": 26
+      "line": 28
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU64AnyLowBits@106",
+      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU64AnyLowBits@108",
       "file": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl",
       "name": "SigmaU64AnyLowBits",
       "kind": "gpu_function",
-      "line": 106
+      "line": 108
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU64Bit@120",
+      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU64Bit@122",
       "file": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl",
       "name": "SigmaU64Bit",
       "kind": "gpu_function",
-      "line": 120
+      "line": 122
     },
     {
       "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU64Equal@9",
@@ -1777,53 +1802,389 @@
       "line": 9
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU64Increment@37",
+      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU64Increment@39",
       "file": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl",
       "name": "SigmaU64Increment",
       "kind": "gpu_function",
-      "line": 37
+      "line": 39
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU64Less@14",
+      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU64Less@16",
       "file": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl",
       "name": "SigmaU64Less",
       "kind": "gpu_function",
-      "line": 14
+      "line": 16
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU64MultiplyWide@240",
+      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU64MultiplyWide@242",
       "file": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl",
       "name": "SigmaU64MultiplyWide",
       "kind": "gpu_function",
-      "line": 240
+      "line": 242
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU64NegateRaw@57",
+      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU64NegateRaw@59",
       "file": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl",
       "name": "SigmaU64NegateRaw",
       "kind": "gpu_function",
-      "line": 57
+      "line": 59
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU64ShiftLeftRaw@81",
+      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU64ShiftLeftRaw@83",
       "file": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl",
       "name": "SigmaU64ShiftLeftRaw",
       "kind": "gpu_function",
-      "line": 81
+      "line": 83
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU64ShiftRight@69",
+      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU64ShiftRight@71",
       "file": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl",
       "name": "SigmaU64ShiftRight",
+      "kind": "gpu_function",
+      "line": 71
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU64Subtract@48",
+      "file": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl",
+      "name": "SigmaU64Subtract",
+      "kind": "gpu_function",
+      "line": 48
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaCarrier.compute::AcknowledgeDirtyPages@201",
+      "file": "Runtime/Resources/SigmaPrism/SigmaCarrier.compute",
+      "name": "AcknowledgeDirtyPages",
+      "kind": "gpu_function",
+      "line": 201
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaCarrier.compute::ClonePageGeneration@113",
+      "file": "Runtime/Resources/SigmaPrism/SigmaCarrier.compute",
+      "name": "ClonePageGeneration",
+      "kind": "gpu_function",
+      "line": 113
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaCarrier.compute::CompactDirtyPages@172",
+      "file": "Runtime/Resources/SigmaPrism/SigmaCarrier.compute",
+      "name": "CompactDirtyPages",
+      "kind": "gpu_function",
+      "line": 172
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaCarrier.compute::InitializeNullPage@92",
+      "file": "Runtime/Resources/SigmaPrism/SigmaCarrier.compute",
+      "name": "InitializeNullPage",
+      "kind": "gpu_function",
+      "line": 92
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaCarrier.compute::MarkPageDirty@147",
+      "file": "Runtime/Resources/SigmaPrism/SigmaCarrier.compute",
+      "name": "MarkPageDirty",
+      "kind": "gpu_function",
+      "line": 147
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaCarrier.compute::PublishPageGeneration@136",
+      "file": "Runtime/Resources/SigmaPrism/SigmaCarrier.compute",
+      "name": "PublishPageGeneration",
+      "kind": "gpu_function",
+      "line": 136
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaCarrier.compute::ReleasePageSlot@158",
+      "file": "Runtime/Resources/SigmaPrism/SigmaCarrier.compute",
+      "name": "ReleasePageSlot",
+      "kind": "gpu_function",
+      "line": 158
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaCarrier.compute::SigmaCarrierNullLane@63",
+      "file": "Runtime/Resources/SigmaPrism/SigmaCarrier.compute",
+      "name": "SigmaCarrierNullLane",
+      "kind": "gpu_function",
+      "line": 63
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaCarrier.compute::SigmaCarrierPageMetaGpu",
+      "file": "Runtime/Resources/SigmaPrism/SigmaCarrier.compute",
+      "name": "SigmaCarrierPageMetaGpu",
+      "kind": "struct",
+      "line": 14
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaCarrier.compute::SigmaRequestedPageMetadata@74",
+      "file": "Runtime/Resources/SigmaPrism/SigmaCarrier.compute",
+      "name": "SigmaRequestedPageMetadata",
+      "kind": "gpu_function",
+      "line": 74
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaCarrier.compute::kernel:AcknowledgeDirtyPages",
+      "file": "Runtime/Resources/SigmaPrism/SigmaCarrier.compute",
+      "name": "AcknowledgeDirtyPages",
+      "kind": "gpu_kernel",
+      "line": 7
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaCarrier.compute::kernel:ClonePageGeneration",
+      "file": "Runtime/Resources/SigmaPrism/SigmaCarrier.compute",
+      "name": "ClonePageGeneration",
+      "kind": "gpu_kernel",
+      "line": 2
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaCarrier.compute::kernel:CompactDirtyPages",
+      "file": "Runtime/Resources/SigmaPrism/SigmaCarrier.compute",
+      "name": "CompactDirtyPages",
+      "kind": "gpu_kernel",
+      "line": 6
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaCarrier.compute::kernel:InitializeNullPage",
+      "file": "Runtime/Resources/SigmaPrism/SigmaCarrier.compute",
+      "name": "InitializeNullPage",
+      "kind": "gpu_kernel",
+      "line": 1
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaCarrier.compute::kernel:MarkPageDirty",
+      "file": "Runtime/Resources/SigmaPrism/SigmaCarrier.compute",
+      "name": "MarkPageDirty",
+      "kind": "gpu_kernel",
+      "line": 4
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaCarrier.compute::kernel:PublishPageGeneration",
+      "file": "Runtime/Resources/SigmaPrism/SigmaCarrier.compute",
+      "name": "PublishPageGeneration",
+      "kind": "gpu_kernel",
+      "line": 3
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaCarrier.compute::kernel:ReleasePageSlot",
+      "file": "Runtime/Resources/SigmaPrism/SigmaCarrier.compute",
+      "name": "ReleasePageSlot",
+      "kind": "gpu_kernel",
+      "line": 5
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::DecodePageBlocks@471",
+      "file": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute",
+      "name": "DecodePageBlocks",
+      "kind": "gpu_function",
+      "line": 471
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::EncodePageBlocks@317",
+      "file": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute",
+      "name": "EncodePageBlocks",
+      "kind": "gpu_function",
+      "line": 317
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecAdd96@86",
+      "file": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute",
+      "name": "SigmaCodecAdd96",
+      "kind": "gpu_function",
+      "line": 86
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecAddScaled@159",
+      "file": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute",
+      "name": "SigmaCodecAddScaled",
+      "kind": "gpu_function",
+      "line": 159
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecDecodeValue@287",
+      "file": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute",
+      "name": "SigmaCodecDecodeValue",
+      "kind": "gpu_function",
+      "line": 287
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecExtractBits@180",
+      "file": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute",
+      "name": "SigmaCodecExtractBits",
+      "kind": "gpu_function",
+      "line": 180
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecFitsI64@108",
+      "file": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute",
+      "name": "SigmaCodecFitsI64",
+      "kind": "gpu_function",
+      "line": 108
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecInputIndex@69",
+      "file": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute",
+      "name": "SigmaCodecInputIndex",
       "kind": "gpu_function",
       "line": 69
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU64Subtract@46",
-      "file": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl",
-      "name": "SigmaU64Subtract",
+      "id": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecLowMask@174",
+      "file": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute",
+      "name": "SigmaCodecLowMask",
       "kind": "gpu_function",
-      "line": 46
+      "line": 174
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecNullLane@48",
+      "file": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute",
+      "name": "SigmaCodecNullLane",
+      "kind": "gpu_function",
+      "line": 48
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecOutputIndex@75",
+      "file": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute",
+      "name": "SigmaCodecOutputIndex",
+      "kind": "gpu_function",
+      "line": 75
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecPageSample@60",
+      "file": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute",
+      "name": "SigmaCodecPageSample",
+      "kind": "gpu_function",
+      "line": 60
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecReadSigned@246",
+      "file": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute",
+      "name": "SigmaCodecReadSigned",
+      "kind": "gpu_function",
+      "line": 246
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecReadWidth@239",
+      "file": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute",
+      "name": "SigmaCodecReadWidth",
+      "kind": "gpu_function",
+      "line": 239
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecResidual@114",
+      "file": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute",
+      "name": "SigmaCodecResidual",
+      "kind": "gpu_function",
+      "line": 114
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecSharedIndex@43",
+      "file": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute",
+      "name": "SigmaCodecSharedIndex",
+      "kind": "gpu_function",
+      "line": 43
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecSignExtend96@81",
+      "file": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute",
+      "name": "SigmaCodecSignExtend96",
+      "kind": "gpu_function",
+      "line": 81
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecSignedWidth@143",
+      "file": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute",
+      "name": "SigmaCodecSignedWidth",
+      "kind": "gpu_function",
+      "line": 143
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecSubtract96@97",
+      "file": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute",
+      "name": "SigmaCodecSubtract96",
+      "kind": "gpu_function",
+      "line": 97
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecWriteDeltaLane@196",
+      "file": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute",
+      "name": "SigmaCodecWriteDeltaLane",
+      "kind": "gpu_function",
+      "line": 196
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::if@126",
+      "file": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute",
+      "name": "if",
+      "kind": "gpu_function",
+      "line": 126
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::if@131",
+      "file": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute",
+      "name": "if",
+      "kind": "gpu_function",
+      "line": 131
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::if@299",
+      "file": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute",
+      "name": "if",
+      "kind": "gpu_function",
+      "line": 299
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::if@304",
+      "file": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute",
+      "name": "if",
+      "kind": "gpu_function",
+      "line": 304
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::if@434",
+      "file": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute",
+      "name": "if",
+      "kind": "gpu_function",
+      "line": 434
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::if@442",
+      "file": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute",
+      "name": "if",
+      "kind": "gpu_function",
+      "line": 442
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::if@455",
+      "file": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute",
+      "name": "if",
+      "kind": "gpu_function",
+      "line": 455
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::if@519",
+      "file": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute",
+      "name": "if",
+      "kind": "gpu_function",
+      "line": 519
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::if@526",
+      "file": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute",
+      "name": "if",
+      "kind": "gpu_function",
+      "line": 526
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::kernel:DecodePageBlocks",
+      "file": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute",
+      "name": "DecodePageBlocks",
+      "kind": "gpu_kernel",
+      "line": 2
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::kernel:EncodePageBlocks",
+      "file": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute",
+      "name": "EncodePageBlocks",
+      "kind": "gpu_kernel",
+      "line": 1
     },
     {
       "id": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::AlgebraParity@75",
@@ -3042,6 +3403,664 @@
       "name": "Supports",
       "kind": "method",
       "line": 48
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrier.cs::Abort@451",
+      "file": "Runtime/SigmaPrism/SigmaCarrier.cs",
+      "name": "Abort",
+      "kind": "method",
+      "line": 451
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrier.cs::AcknowledgeDirtyBatch@364",
+      "file": "Runtime/SigmaPrism/SigmaCarrier.cs",
+      "name": "AcknowledgeDirtyBatch",
+      "kind": "method",
+      "line": 364
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrier.cs::BeginNextGeneration@296",
+      "file": "Runtime/SigmaPrism/SigmaCarrier.cs",
+      "name": "BeginNextGeneration",
+      "kind": "method",
+      "line": 296
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrier.cs::BeginNullGeneration@275",
+      "file": "Runtime/SigmaPrism/SigmaCarrier.cs",
+      "name": "BeginNullGeneration",
+      "kind": "method",
+      "line": 275
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrier.cs::BindPageMutation@531",
+      "file": "Runtime/SigmaPrism/SigmaCarrier.cs",
+      "name": "BindPageMutation",
+      "kind": "method",
+      "line": 531
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrier.cs::BindReadable@324",
+      "file": "Runtime/SigmaPrism/SigmaCarrier.cs",
+      "name": "BindReadable",
+      "kind": "method",
+      "line": 324
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrier.cs::BindWritable@420",
+      "file": "Runtime/SigmaPrism/SigmaCarrier.cs",
+      "name": "BindWritable",
+      "kind": "method",
+      "line": 420
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrier.cs::BindWritable@71",
+      "file": "Runtime/SigmaPrism/SigmaCarrier.cs",
+      "name": "BindWritable",
+      "kind": "method",
+      "line": 71
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrier.cs::CarrierSegment",
+      "file": "Runtime/SigmaPrism/SigmaCarrier.cs",
+      "name": "CarrierSegment",
+      "kind": "class",
+      "line": 607
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrier.cs::CompactDirtyPages@337",
+      "file": "Runtime/SigmaPrism/SigmaCarrier.cs",
+      "name": "CompactDirtyPages",
+      "kind": "method",
+      "line": 337
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrier.cs::ComputeSegmentPageCapacity@249",
+      "file": "Runtime/SigmaPrism/SigmaCarrier.cs",
+      "name": "ComputeSegmentPageCapacity",
+      "kind": "method",
+      "line": 249
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrier.cs::Create@679",
+      "file": "Runtime/SigmaPrism/SigmaCarrier.cs",
+      "name": "Create",
+      "kind": "method",
+      "line": 679
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrier.cs::CreateDirtyBatch@665",
+      "file": "Runtime/SigmaPrism/SigmaCarrier.cs",
+      "name": "CreateDirtyBatch",
+      "kind": "method",
+      "line": 665
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrier.cs::Dispose@469",
+      "file": "Runtime/SigmaPrism/SigmaCarrier.cs",
+      "name": "Dispose",
+      "kind": "method",
+      "line": 469
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrier.cs::Dispose@669",
+      "file": "Runtime/SigmaPrism/SigmaCarrier.cs",
+      "name": "Dispose",
+      "kind": "method",
+      "line": 669
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrier.cs::Dispose@92",
+      "file": "Runtime/SigmaPrism/SigmaCarrier.cs",
+      "name": "Dispose",
+      "kind": "method",
+      "line": 92
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrier.cs::EnsureNoPendingCoordinate@551",
+      "file": "Runtime/SigmaPrism/SigmaCarrier.cs",
+      "name": "EnsureNoPendingCoordinate",
+      "kind": "method",
+      "line": 551
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrier.cs::Equals@40",
+      "file": "Runtime/SigmaPrism/SigmaCarrier.cs",
+      "name": "Equals",
+      "kind": "method",
+      "line": 40
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrier.cs::Equals@44",
+      "file": "Runtime/SigmaPrism/SigmaCarrier.cs",
+      "name": "Equals",
+      "kind": "method",
+      "line": 44
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrier.cs::Equals@601",
+      "file": "Runtime/SigmaPrism/SigmaCarrier.cs",
+      "name": "Equals",
+      "kind": "method",
+      "line": 601
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrier.cs::Equals@603",
+      "file": "Runtime/SigmaPrism/SigmaCarrier.cs",
+      "name": "Equals",
+      "kind": "method",
+      "line": 603
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrier.cs::GetHashCode@46",
+      "file": "Runtime/SigmaPrism/SigmaCarrier.cs",
+      "name": "GetHashCode",
+      "kind": "method",
+      "line": 46
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrier.cs::GetHashCode@605",
+      "file": "Runtime/SigmaPrism/SigmaCarrier.cs",
+      "name": "GetHashCode",
+      "kind": "method",
+      "line": 605
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrier.cs::MarkDirty@384",
+      "file": "Runtime/SigmaPrism/SigmaCarrier.cs",
+      "name": "MarkDirty",
+      "kind": "method",
+      "line": 384
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrier.cs::OnDestroy@487",
+      "file": "Runtime/SigmaPrism/SigmaCarrier.cs",
+      "name": "OnDestroy",
+      "kind": "method",
+      "line": 487
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrier.cs::OnModuleInitialize@203",
+      "file": "Runtime/SigmaPrism/SigmaCarrier.cs",
+      "name": "OnModuleInitialize",
+      "kind": "method",
+      "line": 203
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrier.cs::OnScanStarted@246",
+      "file": "Runtime/SigmaPrism/SigmaCarrier.cs",
+      "name": "OnScanStarted",
+      "kind": "method",
+      "line": 246
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrier.cs::OnScanStopped@248",
+      "file": "Runtime/SigmaPrism/SigmaCarrier.cs",
+      "name": "OnScanStopped",
+      "kind": "method",
+      "line": 248
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrier.cs::PageGenerationKey",
+      "file": "Runtime/SigmaPrism/SigmaCarrier.cs",
+      "name": "PageGenerationKey",
+      "kind": "struct",
+      "line": 589
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrier.cs::Publish@435",
+      "file": "Runtime/SigmaPrism/SigmaCarrier.cs",
+      "name": "Publish",
+      "kind": "method",
+      "line": 435
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrier.cs::Publish@81",
+      "file": "Runtime/SigmaPrism/SigmaCarrier.cs",
+      "name": "Publish",
+      "kind": "method",
+      "line": 81
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrier.cs::ReleaseSlot@658",
+      "file": "Runtime/SigmaPrism/SigmaCarrier.cs",
+      "name": "ReleaseSlot",
+      "kind": "method",
+      "line": 658
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrier.cs::RequireAllocated@574",
+      "file": "Runtime/SigmaPrism/SigmaCarrier.cs",
+      "name": "RequireAllocated",
+      "kind": "method",
+      "line": 574
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrier.cs::RequireInitialized@583",
+      "file": "Runtime/SigmaPrism/SigmaCarrier.cs",
+      "name": "RequireInitialized",
+      "kind": "method",
+      "line": 583
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrier.cs::RequirePending@561",
+      "file": "Runtime/SigmaPrism/SigmaCarrier.cs",
+      "name": "RequirePending",
+      "kind": "method",
+      "line": 561
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrier.cs::ReserveGeneration@489",
+      "file": "Runtime/SigmaPrism/SigmaCarrier.cs",
+      "name": "ReserveGeneration",
+      "kind": "method",
+      "line": 489
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrier.cs::SetUInt@548",
+      "file": "Runtime/SigmaPrism/SigmaCarrier.cs",
+      "name": "SetUInt",
+      "kind": "method",
+      "line": 548
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrier.cs::SigmaCarrier",
+      "file": "Runtime/SigmaPrism/SigmaCarrier.cs",
+      "name": "SigmaCarrier",
+      "kind": "class",
+      "line": 127
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrier.cs::SigmaCarrierDirtyBatch",
+      "file": "Runtime/SigmaPrism/SigmaCarrier.cs",
+      "name": "SigmaCarrierDirtyBatch",
+      "kind": "struct",
+      "line": 101
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrier.cs::SigmaCarrierPageFlags",
+      "file": "Runtime/SigmaPrism/SigmaCarrier.cs",
+      "name": "SigmaCarrierPageFlags",
+      "kind": "enum",
+      "line": 8
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrier.cs::SigmaCarrierPageHandle",
+      "file": "Runtime/SigmaPrism/SigmaCarrier.cs",
+      "name": "SigmaCarrierPageHandle",
+      "kind": "struct",
+      "line": 15
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrier.cs::SigmaCarrierWriteLease",
+      "file": "Runtime/SigmaPrism/SigmaCarrier.cs",
+      "name": "SigmaCarrierWriteLease",
+      "kind": "class",
+      "line": 57
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrier.cs::ToString@48",
+      "file": "Runtime/SigmaPrism/SigmaCarrier.cs",
+      "name": "ToString",
+      "kind": "method",
+      "line": 48
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrier.cs::TryGetLatest@268",
+      "file": "Runtime/SigmaPrism/SigmaCarrier.cs",
+      "name": "TryGetLatest",
+      "kind": "method",
+      "line": 268
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrier.cs::TryReleaseRetiredGeneration@398",
+      "file": "Runtime/SigmaPrism/SigmaCarrier.cs",
+      "name": "TryReleaseRetiredGeneration",
+      "kind": "method",
+      "line": 398
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrier.cs::TryReserveSlot@647",
+      "file": "Runtime/SigmaPrism/SigmaCarrier.cs",
+      "name": "TryReserveSlot",
+      "kind": "method",
+      "line": 647
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::AddScaled@636",
+      "file": "Runtime/SigmaPrism/SigmaCarrierCodec.cs",
+      "name": "AddScaled",
+      "kind": "method",
+      "line": 636
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::ComparePages@693",
+      "file": "Runtime/SigmaPrism/SigmaCarrierCodec.cs",
+      "name": "ComparePages",
+      "kind": "method",
+      "line": 693
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::CompareTo@28",
+      "file": "Runtime/SigmaPrism/SigmaCarrierCodec.cs",
+      "name": "CompareTo",
+      "kind": "method",
+      "line": 28
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::CopyBlock@102",
+      "file": "Runtime/SigmaPrism/SigmaCarrierCodec.cs",
+      "name": "CopyBlock",
+      "kind": "method",
+      "line": 102
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::CopySamples@100",
+      "file": "Runtime/SigmaPrism/SigmaCarrierCodec.cs",
+      "name": "CopySamples",
+      "kind": "method",
+      "line": 100
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::DecodeAffine@520",
+      "file": "Runtime/SigmaPrism/SigmaCarrierCodec.cs",
+      "name": "DecodeAffine",
+      "kind": "method",
+      "line": 520
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::DecodeBlock@191",
+      "file": "Runtime/SigmaPrism/SigmaCarrierCodec.cs",
+      "name": "DecodeBlock",
+      "kind": "method",
+      "line": 191
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::DecodeConstant@508",
+      "file": "Runtime/SigmaPrism/SigmaCarrierCodec.cs",
+      "name": "DecodeConstant",
+      "kind": "method",
+      "line": 508
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::DecodeDelta@544",
+      "file": "Runtime/SigmaPrism/SigmaCarrierCodec.cs",
+      "name": "DecodeDelta",
+      "kind": "method",
+      "line": 544
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::DecodeNull@498",
+      "file": "Runtime/SigmaPrism/SigmaCarrierCodec.cs",
+      "name": "DecodeNull",
+      "kind": "method",
+      "line": 498
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::DecodePage@245",
+      "file": "Runtime/SigmaPrism/SigmaCarrierCodec.cs",
+      "name": "DecodePage",
+      "kind": "method",
+      "line": 245
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::DecodeRaw@585",
+      "file": "Runtime/SigmaPrism/SigmaCarrierCodec.cs",
+      "name": "DecodeRaw",
+      "kind": "method",
+      "line": 585
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::DecodeSnapshot@326",
+      "file": "Runtime/SigmaPrism/SigmaCarrierCodec.cs",
+      "name": "DecodeSnapshot",
+      "kind": "method",
+      "line": 326
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::EncodeBlock@164",
+      "file": "Runtime/SigmaPrism/SigmaCarrierCodec.cs",
+      "name": "EncodeBlock",
+      "kind": "method",
+      "line": 164
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::EncodePage@204",
+      "file": "Runtime/SigmaPrism/SigmaCarrierCodec.cs",
+      "name": "EncodePage",
+      "kind": "method",
+      "line": 204
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::EncodeRaw@488",
+      "file": "Runtime/SigmaPrism/SigmaCarrierCodec.cs",
+      "name": "EncodeRaw",
+      "kind": "method",
+      "line": 488
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::EncodeSnapshot@296",
+      "file": "Runtime/SigmaPrism/SigmaCarrierCodec.cs",
+      "name": "EncodeSnapshot",
+      "kind": "method",
+      "line": 296
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::Equals@34",
+      "file": "Runtime/SigmaPrism/SigmaCarrierCodec.cs",
+      "name": "Equals",
+      "kind": "method",
+      "line": 34
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::Equals@37",
+      "file": "Runtime/SigmaPrism/SigmaCarrierCodec.cs",
+      "name": "Equals",
+      "kind": "method",
+      "line": 37
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::FloorDivide@700",
+      "file": "Runtime/SigmaPrism/SigmaCarrierCodec.cs",
+      "name": "FloorDivide",
+      "kind": "method",
+      "line": 700
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::GetHashCode@39",
+      "file": "Runtime/SigmaPrism/SigmaCarrierCodec.cs",
+      "name": "GetHashCode",
+      "kind": "method",
+      "line": 39
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::IsNull@360",
+      "file": "Runtime/SigmaPrism/SigmaCarrierCodec.cs",
+      "name": "IsNull",
+      "kind": "method",
+      "line": 360
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::LeastSignificantBitReader",
+      "file": "Runtime/SigmaPrism/SigmaCarrierCodec.cs",
+      "name": "LeastSignificantBitReader",
+      "kind": "class",
+      "line": 752
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::LeastSignificantBitWriter",
+      "file": "Runtime/SigmaPrism/SigmaCarrierCodec.cs",
+      "name": "LeastSignificantBitWriter",
+      "kind": "class",
+      "line": 722
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::Predictor@610",
+      "file": "Runtime/SigmaPrism/SigmaCarrierCodec.cs",
+      "name": "Predictor",
+      "kind": "method",
+      "line": 610
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::Predictor@623",
+      "file": "Runtime/SigmaPrism/SigmaCarrierCodec.cs",
+      "name": "Predictor",
+      "kind": "method",
+      "line": 623
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::ReadFingerprint@669",
+      "file": "Runtime/SigmaPrism/SigmaCarrierCodec.cs",
+      "name": "ReadFingerprint",
+      "kind": "method",
+      "line": 669
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::ReadSigned@759",
+      "file": "Runtime/SigmaPrism/SigmaCarrierCodec.cs",
+      "name": "ReadSigned",
+      "kind": "method",
+      "line": 759
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::ReadState@653",
+      "file": "Runtime/SigmaPrism/SigmaCarrierCodec.cs",
+      "name": "ReadState",
+      "kind": "method",
+      "line": 653
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::Require@716",
+      "file": "Runtime/SigmaPrism/SigmaCarrierCodec.cs",
+      "name": "Require",
+      "kind": "method",
+      "line": 716
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::ResolveAddress@148",
+      "file": "Runtime/SigmaPrism/SigmaCarrierCodec.cs",
+      "name": "ResolveAddress",
+      "kind": "method",
+      "line": 148
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::SigmaBlockMode",
+      "file": "Runtime/SigmaPrism/SigmaCarrierCodec.cs",
+      "name": "SigmaBlockMode",
+      "kind": "enum",
+      "line": 8
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::SigmaCarrierAddress",
+      "file": "Runtime/SigmaPrism/SigmaCarrierCodec.cs",
+      "name": "SigmaCarrierAddress",
+      "kind": "struct",
+      "line": 42
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::SigmaCarrierCodec",
+      "file": "Runtime/SigmaPrism/SigmaCarrierCodec.cs",
+      "name": "SigmaCarrierCodec",
+      "kind": "class",
+      "line": 138
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::SigmaCarrierPageCoordinate",
+      "file": "Runtime/SigmaPrism/SigmaCarrierCodec.cs",
+      "name": "SigmaCarrierPageCoordinate",
+      "kind": "struct",
+      "line": 16
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::SigmaDecodedPage",
+      "file": "Runtime/SigmaPrism/SigmaCarrierCodec.cs",
+      "name": "SigmaDecodedPage",
+      "kind": "class",
+      "line": 57
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::SigmaEncodedBlock",
+      "file": "Runtime/SigmaPrism/SigmaCarrierCodec.cs",
+      "name": "SigmaEncodedBlock",
+      "kind": "struct",
+      "line": 119
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::SignedBitWidth@596",
+      "file": "Runtime/SigmaPrism/SigmaCarrierCodec.cs",
+      "name": "SignedBitWidth",
+      "kind": "method",
+      "line": 596
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::StoreBlock@676",
+      "file": "Runtime/SigmaPrism/SigmaCarrierCodec.cs",
+      "name": "StoreBlock",
+      "kind": "method",
+      "line": 676
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::ToArray@749",
+      "file": "Runtime/SigmaPrism/SigmaCarrierCodec.cs",
+      "name": "ToArray",
+      "kind": "method",
+      "line": 749
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::ToString@40",
+      "file": "Runtime/SigmaPrism/SigmaCarrierCodec.cs",
+      "name": "ToString",
+      "kind": "method",
+      "line": 40
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::TryEncodeAffine@390",
+      "file": "Runtime/SigmaPrism/SigmaCarrierCodec.cs",
+      "name": "TryEncodeAffine",
+      "kind": "method",
+      "line": 390
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::TryEncodeConstant@371",
+      "file": "Runtime/SigmaPrism/SigmaCarrierCodec.cs",
+      "name": "TryEncodeConstant",
+      "kind": "method",
+      "line": 371
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::TryEncodeDelta@438",
+      "file": "Runtime/SigmaPrism/SigmaCarrierCodec.cs",
+      "name": "TryEncodeDelta",
+      "kind": "method",
+      "line": 438
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::ValidateBlock@707",
+      "file": "Runtime/SigmaPrism/SigmaCarrierCodec.cs",
+      "name": "ValidateBlock",
+      "kind": "method",
+      "line": 707
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::WriteFingerprint@661",
+      "file": "Runtime/SigmaPrism/SigmaCarrierCodec.cs",
+      "name": "WriteFingerprint",
+      "kind": "method",
+      "line": 661
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::WriteSigned@727",
+      "file": "Runtime/SigmaPrism/SigmaCarrierCodec.cs",
+      "name": "WriteSigned",
+      "kind": "method",
+      "line": 727
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::WriteState@647",
+      "file": "Runtime/SigmaPrism/SigmaCarrierCodec.cs",
+      "name": "WriteState",
+      "kind": "method",
+      "line": 647
     },
     {
       "id": "Runtime/SigmaPrism/SigmaExactBackendGate.cs::Bind@46",
@@ -4514,6 +5533,139 @@
       "line": 281
     },
     {
+      "id": "Tests/Editor/SigmaCarrierTests.cs::AssertAddress@201",
+      "file": "Tests/Editor/SigmaCarrierTests.cs",
+      "name": "AssertAddress",
+      "kind": "method",
+      "line": 201
+    },
+    {
+      "id": "Tests/Editor/SigmaCarrierTests.cs::BindCodec@349",
+      "file": "Tests/Editor/SigmaCarrierTests.cs",
+      "name": "BindCodec",
+      "kind": "method",
+      "line": 349
+    },
+    {
+      "id": "Tests/Editor/SigmaCarrierTests.cs::DirtyCompactionIsStableAndSegmentSizingRespectsBindingLimit@155",
+      "file": "Tests/Editor/SigmaCarrierTests.cs",
+      "name": "DirtyCompactionIsStableAndSegmentSizingRespectsBindingLimit",
+      "kind": "method",
+      "line": 155
+    },
+    {
+      "id": "Tests/Editor/SigmaCarrierTests.cs::EveryExactBlockModeIsCanonicalAndRoundTripsBitForBit@42",
+      "file": "Tests/Editor/SigmaCarrierTests.cs",
+      "name": "EveryExactBlockModeIsCanonicalAndRoundTripsBitForBit",
+      "kind": "method",
+      "line": 42
+    },
+    {
+      "id": "Tests/Editor/SigmaCarrierTests.cs::MakeAffineBlock@235",
+      "file": "Tests/Editor/SigmaCarrierTests.cs",
+      "name": "MakeAffineBlock",
+      "kind": "method",
+      "line": 235
+    },
+    {
+      "id": "Tests/Editor/SigmaCarrierTests.cs::MakeConstantBlock@222",
+      "file": "Tests/Editor/SigmaCarrierTests.cs",
+      "name": "MakeConstantBlock",
+      "kind": "method",
+      "line": 222
+    },
+    {
+      "id": "Tests/Editor/SigmaCarrierTests.cs::MakeDeltaBlock@256",
+      "file": "Tests/Editor/SigmaCarrierTests.cs",
+      "name": "MakeDeltaBlock",
+      "kind": "method",
+      "line": 256
+    },
+    {
+      "id": "Tests/Editor/SigmaCarrierTests.cs::MakeMixedPage@288",
+      "file": "Tests/Editor/SigmaCarrierTests.cs",
+      "name": "MakeMixedPage",
+      "kind": "method",
+      "line": 288
+    },
+    {
+      "id": "Tests/Editor/SigmaCarrierTests.cs::MakeNullBlock@214",
+      "file": "Tests/Editor/SigmaCarrierTests.cs",
+      "name": "MakeNullBlock",
+      "kind": "method",
+      "line": 214
+    },
+    {
+      "id": "Tests/Editor/SigmaCarrierTests.cs::MakeRawBlock@269",
+      "file": "Tests/Editor/SigmaCarrierTests.cs",
+      "name": "MakeRawBlock",
+      "kind": "method",
+      "line": 269
+    },
+    {
+      "id": "Tests/Editor/SigmaCarrierTests.cs::PackPage@316",
+      "file": "Tests/Editor/SigmaCarrierTests.cs",
+      "name": "PackPage",
+      "kind": "method",
+      "line": 316
+    },
+    {
+      "id": "Tests/Editor/SigmaCarrierTests.cs::PackedGpuCodecMatchesCanonicalCpuBytesAndDecodedState@88",
+      "file": "Tests/Editor/SigmaCarrierTests.cs",
+      "name": "PackedGpuCodecMatchesCanonicalCpuBytesAndDecodedState",
+      "kind": "method",
+      "line": 88
+    },
+    {
+      "id": "Tests/Editor/SigmaCarrierTests.cs::PageAndSortedSnapshotRestartAreByteIdentical@67",
+      "file": "Tests/Editor/SigmaCarrierTests.cs",
+      "name": "PageAndSortedSnapshotRestartAreByteIdentical",
+      "kind": "method",
+      "line": 67
+    },
+    {
+      "id": "Tests/Editor/SigmaCarrierTests.cs::SigmaCarrierTests",
+      "file": "Tests/Editor/SigmaCarrierTests.cs",
+      "name": "SigmaCarrierTests",
+      "kind": "class",
+      "line": 10
+    },
+    {
+      "id": "Tests/Editor/SigmaCarrierTests.cs::SignedCarrierAddressingUsesMathematicalFloorAcrossZero@29",
+      "file": "Tests/Editor/SigmaCarrierTests.cs",
+      "name": "SignedCarrierAddressingUsesMathematicalFloorAcrossZero",
+      "kind": "method",
+      "line": 29
+    },
+    {
+      "id": "Tests/Editor/SigmaCarrierTests.cs::StoreBlock@304",
+      "file": "Tests/Editor/SigmaCarrierTests.cs",
+      "name": "StoreBlock",
+      "kind": "method",
+      "line": 304
+    },
+    {
+      "id": "Tests/Editor/SigmaCarrierTests.cs::UInt2",
+      "file": "Tests/Editor/SigmaCarrierTests.cs",
+      "name": "UInt2",
+      "kind": "struct",
+      "line": 13
+    },
+    {
+      "id": "Tests/Editor/SigmaCarrierTests.cs::UInt4",
+      "file": "Tests/Editor/SigmaCarrierTests.cs",
+      "name": "UInt4",
+      "kind": "struct",
+      "line": 20
+    },
+    {
+      "id": "Tests/Editor/SigmaCarrierTests.cs::WordsToLittleEndian@334",
+      "file": "Tests/Editor/SigmaCarrierTests.cs",
+      "name": "WordsToLittleEndian",
+      "kind": "method",
+      "line": 334
+    },
+    {
       "id": "Tests/Editor/SigmaGpuLoweringTests.cs::AssertPacked@212",
       "file": "Tests/Editor/SigmaGpuLoweringTests.cs",
       "name": "AssertPacked",
@@ -4900,7 +6052,7 @@
       "source_type": "RoomAnchorManager",
       "event": "RoomReady",
       "handler": "OnRoomReady",
-      "line": 118
+      "line": 122
     },
     {
       "file": "Runtime/SigmaPrism/SigmaRigBridge.cs",
@@ -4977,16 +6129,22 @@
     {
       "id": "S4-02",
       "title": "Implement the sparse exact Q16.48 carrier and lossless physical codec",
-      "status": "in_progress",
+      "status": "done",
       "depends_on": [
         "S4-01"
       ],
-      "files": []
+      "files": [
+        "Runtime/Resources/SigmaPrism/SigmaCarrier.compute",
+        "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute",
+        "Runtime/SigmaPrism/SigmaCarrier.cs",
+        "Runtime/SigmaPrism/SigmaCarrierCodec.cs",
+        "Tests/Editor/SigmaCarrierTests.cs"
+      ]
     },
     {
       "id": "S4-03",
       "title": "Implement forward geometry readout from the single carrier",
-      "status": "pending",
+      "status": "in_progress",
       "depends_on": [
         "S4-02"
       ],
@@ -5104,11 +6262,6 @@
       "kind": "calls"
     },
     {
-      "source": "Editor/MetaVrManifestPostprocessor.cs::UpgradeGeneratedManifest@35",
-      "target": "Runtime/SigmaPrism/SigmaS16.cs::ToArray@104",
-      "kind": "calls"
-    },
-    {
       "source": "Editor/RoomScanSetupWizard.Automation.cs::PrepareQuestInfiniteScanSmokeProject@24",
       "target": "Editor/RoomScanSetupWizard.Automation.cs::PrepareSmokeProjectAsync@32",
       "kind": "calls"
@@ -5130,7 +6283,7 @@
     },
     {
       "source": "Editor/RoomScanSetupWizard.Automation.cs::PrepareSmokeProjectAsync@32",
-      "target": "Editor/RoomScanSetupWizard.cs::EnsureQuestVRManifest@132",
+      "target": "Editor/RoomScanSetupWizard.cs::EnsureQuestVRManifest@133",
       "kind": "calls"
     },
     {
@@ -5145,12 +6298,12 @@
     },
     {
       "source": "Editor/RoomScanSetupWizard.Automation.cs::PrepareSmokeProjectAsync@32",
-      "target": "Editor/RoomScanSetupWizard.cs::FixDebugModules@110",
+      "target": "Editor/RoomScanSetupWizard.cs::FixDebugModules@111",
       "kind": "calls"
     },
     {
       "source": "Editor/RoomScanSetupWizard.Automation.cs::PrepareSmokeProjectAsync@32",
-      "target": "Editor/RoomScanSetupWizard.cs::FixShaderWiring@126",
+      "target": "Editor/RoomScanSetupWizard.cs::FixShaderWiring@127",
       "kind": "calls"
     },
     {
@@ -5215,12 +6368,7 @@
     },
     {
       "source": "Editor/RoomScanSetupWizard.URP.cs::ApplyQuestFriendlyDefaults@177",
-      "target": "Editor/RoomScanSetupWizard.cs::SetBool@192",
-      "kind": "calls"
-    },
-    {
-      "source": "Editor/RoomScanSetupWizard.URP.cs::CreateURPPipelineAsset@112",
-      "target": "Runtime/SigmaPrism/Calibration/ConeLutResources.cs::Create@108",
+      "target": "Editor/RoomScanSetupWizard.cs::SetBool@193",
       "kind": "calls"
     },
     {
@@ -5239,33 +6387,23 @@
       "kind": "calls"
     },
     {
-      "source": "Editor/RoomScanSetupWizard.cs::AddGameReadyComponentsToRoot@94",
-      "target": "Editor/RoomScanSetupWizard.cs::MarkDirty@220",
+      "source": "Editor/RoomScanSetupWizard.cs::EnsureDebugMenuAssets@138",
+      "target": "Editor/RoomScanSetupWizard.cs::FindOrCreatePanelSettings@207",
       "kind": "calls"
     },
     {
-      "source": "Editor/RoomScanSetupWizard.cs::EnsureDebugMenuAssets@137",
-      "target": "Editor/RoomScanSetupWizard.cs::FindOrCreatePanelSettings@206",
+      "source": "Editor/RoomScanSetupWizard.cs::EnsureDebugMenuAssets@138",
+      "target": "Editor/RoomScanSetupWizard.cs::SetPanelRenderModeWorldSpace@199",
       "kind": "calls"
     },
     {
-      "source": "Editor/RoomScanSetupWizard.cs::EnsureDebugMenuAssets@137",
-      "target": "Editor/RoomScanSetupWizard.cs::SetPanelRenderModeWorldSpace@198",
-      "kind": "calls"
-    },
-    {
-      "source": "Editor/RoomScanSetupWizard.cs::EnsureQuestVRManifest@132",
+      "source": "Editor/RoomScanSetupWizard.cs::EnsureQuestVRManifest@133",
       "target": "Editor/VRProjectBootstrap.cs::RequireQuestScanningFeatures@100",
       "kind": "calls"
     },
     {
-      "source": "Editor/RoomScanSetupWizard.cs::EnsureVRInput@159",
-      "target": "Editor/RoomScanSetupWizard.cs::SetBool@192",
-      "kind": "calls"
-    },
-    {
-      "source": "Editor/RoomScanSetupWizard.cs::FixAROcclusion@78",
-      "target": "Editor/RoomScanSetupWizard.cs::MarkDirty@220",
+      "source": "Editor/RoomScanSetupWizard.cs::EnsureVRInput@160",
+      "target": "Editor/RoomScanSetupWizard.cs::SetBool@193",
       "kind": "calls"
     },
     {
@@ -5275,22 +6413,17 @@
     },
     {
       "source": "Editor/RoomScanSetupWizard.cs::FixARSession@69",
-      "target": "Editor/RoomScanSetupWizard.cs::MarkDirty@220",
-      "kind": "calls"
-    },
-    {
-      "source": "Editor/RoomScanSetupWizard.cs::FixARSession@69",
       "target": "Editor/RoomScanSetupWizard.cs::Refresh@59",
       "kind": "calls"
     },
     {
-      "source": "Editor/RoomScanSetupWizard.cs::FixDebugModules@110",
+      "source": "Editor/RoomScanSetupWizard.cs::FixDebugModules@111",
       "target": "Editor/RoomScanSetupWizard.cs::AddGameReadyComponentsToRoot@94",
       "kind": "calls"
     },
     {
-      "source": "Editor/RoomScanSetupWizard.cs::FixDebugModules@110",
-      "target": "Editor/RoomScanSetupWizard.cs::EnsureDebugMenuAssets@137",
+      "source": "Editor/RoomScanSetupWizard.cs::FixDebugModules@111",
+      "target": "Editor/RoomScanSetupWizard.cs::EnsureDebugMenuAssets@138",
       "kind": "calls"
     },
     {
@@ -5300,7 +6433,7 @@
     },
     {
       "source": "Editor/RoomScanSetupWizard.cs::OnGUI@31",
-      "target": "Editor/RoomScanSetupWizard.cs::EnsureVRInput@159",
+      "target": "Editor/RoomScanSetupWizard.cs::EnsureVRInput@160",
       "kind": "calls"
     },
     {
@@ -5315,12 +6448,7 @@
     },
     {
       "source": "Editor/RoomScanSetupWizard.cs::OnGUI@31",
-      "target": "Editor/RoomScanSetupWizard.cs::FixDebugModules@110",
-      "kind": "calls"
-    },
-    {
-      "source": "Editor/RoomScanSetupWizard.cs::OnGUI@31",
-      "target": "Editor/RoomScanSetupWizard.cs::MarkDirty@220",
+      "target": "Editor/RoomScanSetupWizard.cs::FixDebugModules@111",
       "kind": "calls"
     },
     {
@@ -5705,7 +6833,7 @@
     },
     {
       "source": "Runtime/Core/RoomAnchorManager.cs::RoomAnchorManager",
-      "target": "Runtime/Core/RoomScanner.cs::OnRoomReady@122",
+      "target": "Runtime/Core/RoomScanner.cs::OnRoomReady@126",
       "kind": "event:RoomReady"
     },
     {
@@ -5714,133 +6842,138 @@
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::ClearAllDataAsync@259",
-      "target": "Runtime/Core/RoomScanner.cs::ClearScan@252",
+      "source": "Runtime/Core/RoomScanner.cs::ClearAllDataAsync@263",
+      "target": "Runtime/Core/RoomScanner.cs::ClearScan@256",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::ClearScan@252",
-      "target": "Runtime/Core/RoomScanner.cs::SetRenderMode@267",
+      "source": "Runtime/Core/RoomScanner.cs::ClearScan@256",
+      "target": "Runtime/Core/RoomScanner.cs::SetRenderMode@271",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::ClearScan@252",
-      "target": "Runtime/Core/RoomScanner.cs::StopScanning@206",
+      "source": "Runtime/Core/RoomScanner.cs::ClearScan@256",
+      "target": "Runtime/Core/RoomScanner.cs::StopScanning@210",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::CycleRenderMode@276",
-      "target": "Runtime/Core/RoomScanner.cs::SetRenderMode@267",
+      "source": "Runtime/Core/RoomScanner.cs::CycleRenderMode@280",
+      "target": "Runtime/Core/RoomScanner.cs::SetRenderMode@271",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::OnDisable@132",
-      "target": "Runtime/Core/RoomScanner.cs::StopScanning@206",
+      "source": "Runtime/Core/RoomScanner.cs::OnDisable@136",
+      "target": "Runtime/Core/RoomScanner.cs::StopScanning@210",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::OnRoomReady@122",
+      "source": "Runtime/Core/RoomScanner.cs::OnRoomReady@126",
       "target": "Runtime/Utils/Logger.cs::Info@30",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::ReleaseScanResources@244",
+      "source": "Runtime/Core/RoomScanner.cs::ReleaseScanResources@248",
       "target": "Runtime/Core/DepthCapture.cs::ReleaseResources@83",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::ReleaseScanResources@244",
-      "target": "Runtime/Core/RoomScanner.cs::SetRenderMode@267",
+      "source": "Runtime/Core/RoomScanner.cs::ReleaseScanResources@248",
+      "target": "Runtime/Core/RoomScanner.cs::SetRenderMode@271",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::ReleaseScanResources@244",
-      "target": "Runtime/Core/RoomScanner.cs::StopScanning@206",
+      "source": "Runtime/Core/RoomScanner.cs::ReleaseScanResources@248",
+      "target": "Runtime/Core/RoomScanner.cs::StopScanning@210",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::Start@89",
-      "target": "Runtime/Core/RoomAnchorManager.cs::OnModuleInitialize@22",
+      "source": "Runtime/Core/RoomScanner.cs::Start@93",
+      "target": "Runtime/Core/RoomScanner.cs::OnRoomReady@126",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::Start@89",
-      "target": "Runtime/Core/RoomScanner.cs::OnRoomReady@122",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Core/RoomScanner.cs::Start@89",
+      "source": "Runtime/Core/RoomScanner.cs::Start@93",
       "target": "Runtime/SigmaPrism/SigmaExactBackendGate.cs::Dispatch@31",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::Start@89",
+      "source": "Runtime/Core/RoomScanner.cs::Start@93",
       "target": "Runtime/Utils/Logger.cs::Error@42",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::Start@89",
+      "source": "Runtime/Core/RoomScanner.cs::Start@93",
       "target": "Runtime/Utils/Logger.cs::Warning@36",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::StartScanningAsync@147",
-      "target": "Runtime/Core/RoomScanner.cs::StartScanningCoreAsync@161",
+      "source": "Runtime/Core/RoomScanner.cs::StartScanningAsync@151",
+      "target": "Runtime/Core/RoomScanner.cs::StartScanningCoreAsync@165",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::StartScanningCoreAsync@161",
+      "source": "Runtime/Core/RoomScanner.cs::StartScanningCoreAsync@165",
       "target": "Runtime/Camera/PassthroughCameraProvider.cs::RequestCameraPermissionAsync@81",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::StartScanningCoreAsync@161",
+      "source": "Runtime/Core/RoomScanner.cs::StartScanningCoreAsync@165",
       "target": "Runtime/Core/DepthCapture.cs::StartDepthCapture@69",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::StartScanningCoreAsync@161",
+      "source": "Runtime/Core/RoomScanner.cs::StartScanningCoreAsync@165",
       "target": "Runtime/Core/DepthCapture.cs::StopDepthCapture@77",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::StartScanningCoreAsync@161",
-      "target": "Runtime/Core/RoomScanner.cs::CreateScanAnchorAsync@288",
+      "source": "Runtime/Core/RoomScanner.cs::StartScanningCoreAsync@165",
+      "target": "Runtime/Core/RoomScanner.cs::CreateScanAnchorAsync@292",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::StartScanningCoreAsync@161",
+      "source": "Runtime/Core/RoomScanner.cs::StartScanningCoreAsync@165",
+      "target": "Runtime/SigmaPrism/SigmaCarrier.cs::OnScanStarted@246",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Core/RoomScanner.cs::StartScanningCoreAsync@165",
       "target": "Runtime/Utils/Logger.cs::Error@42",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::StartScanningCoreAsync@161",
+      "source": "Runtime/Core/RoomScanner.cs::StartScanningCoreAsync@165",
       "target": "Runtime/Utils/Logger.cs::Info@30",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::StopScanning@206",
+      "source": "Runtime/Core/RoomScanner.cs::StopScanning@210",
       "target": "Runtime/Core/DepthCapture.cs::StopDepthCapture@77",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::StopScanning@206",
+      "source": "Runtime/Core/RoomScanner.cs::StopScanning@210",
+      "target": "Runtime/SigmaPrism/SigmaCarrier.cs::OnScanStopped@248",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Core/RoomScanner.cs::StopScanning@210",
       "target": "Runtime/Utils/Logger.cs::Info@30",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::ToggleScanning@228",
-      "target": "Runtime/Core/RoomScanner.cs::ObserveStart@238",
+      "source": "Runtime/Core/RoomScanner.cs::ToggleScanning@232",
+      "target": "Runtime/Core/RoomScanner.cs::ObserveStart@242",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::ToggleScanning@228",
-      "target": "Runtime/Core/RoomScanner.cs::StartScanningAsync@147",
+      "source": "Runtime/Core/RoomScanner.cs::ToggleScanning@232",
+      "target": "Runtime/Core/RoomScanner.cs::StartScanningAsync@151",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::ToggleScanning@228",
-      "target": "Runtime/Core/RoomScanner.cs::StopScanning@206",
+      "source": "Runtime/Core/RoomScanner.cs::ToggleScanning@232",
+      "target": "Runtime/Core/RoomScanner.cs::StopScanning@210",
       "kind": "calls"
     },
     {
@@ -5904,248 +7037,518 @@
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaApplyMagnitudeSign@133",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaMagnitudeFitsSigned@126",
+      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaApplyMagnitudeSign@135",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaMagnitudeFitsSigned@128",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaApplyMagnitudeSign@133",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU64NegateRaw@57",
+      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaApplyMagnitudeSign@135",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU64NegateRaw@59",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaHadamardRow@478",
+      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaHadamardRow@480",
       "target": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedTables.hlsl::SigmaHadamardSign@201",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaHadamardRow@478",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48AddChecked@166",
+      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaHadamardRow@480",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48AddChecked@168",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaHadamardRow@478",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48NegateChecked@178",
+      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaHadamardRow@480",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48NegateChecked@180",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaLeftBasisAction@436",
+      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaLeftBasisAction@438",
       "target": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedTables.hlsl::SigmaMulBasisSign@196",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaLeftBasisAction@436",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48NegateChecked@178",
+      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaLeftBasisAction@438",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48NegateChecked@180",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaMagnitudeFitsSigned@126",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU64Less@14",
+      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaMagnitudeFitsSigned@128",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU64Less@16",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48AddChecked@166",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU64Add@26",
+      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48AddChecked@168",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU64Add@28",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48DivLower@426",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48DivRounded@356",
+      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48DivLower@428",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48DivRounded@358",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48DivNearestEven@421",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48DivRounded@356",
+      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48DivNearestEven@423",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48DivRounded@358",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48DivRounded@356",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaApplyMagnitudeSign@133",
+      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48DivRounded@358",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaApplyMagnitudeSign@135",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48DivRounded@356",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU128Bit@334",
+      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48DivRounded@358",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU128Bit@336",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48DivRounded@356",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU128SetBit@344",
+      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48DivRounded@358",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU128SetBit@346",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48DivRounded@356",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU64AbsSigned@64",
+      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48DivRounded@358",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU64AbsSigned@66",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48DivRounded@356",
+      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48DivRounded@358",
       "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU64Equal@9",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48DivRounded@356",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU64Increment@37",
+      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48DivRounded@358",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU64Increment@39",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48DivRounded@356",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU64Less@14",
+      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48DivRounded@358",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU64Less@16",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48DivRounded@356",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU64Subtract@46",
+      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48DivRounded@358",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU64Subtract@48",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48DivUpper@431",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48DivRounded@356",
+      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48DivUpper@433",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48DivRounded@358",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48Less@151",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaI64Less@19",
+      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48Less@153",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaI64Less@21",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48Max@161",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaI64Less@19",
+      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48Max@163",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaI64Less@21",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48Min@156",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaI64Less@19",
+      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48Min@158",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaI64Less@21",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48MulLower@324",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48MulRounded@289",
+      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48MulLower@326",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48MulRounded@291",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48MulNearestEven@319",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48MulRounded@289",
+      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48MulNearestEven@321",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48MulRounded@291",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48MulRounded@289",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaApplyMagnitudeSign@133",
+      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48MulRounded@291",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaApplyMagnitudeSign@135",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48MulRounded@289",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU64AbsSigned@64",
+      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48MulRounded@291",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU64AbsSigned@66",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48MulRounded@289",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU64Increment@37",
+      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48MulRounded@291",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU64Increment@39",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48MulRounded@289",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU64MultiplyWide@240",
+      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48MulRounded@291",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU64MultiplyWide@242",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48MulUpper@329",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48MulRounded@289",
+      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48MulUpper@331",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48MulRounded@291",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48NegateChecked@178",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU64NegateRaw@57",
+      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48NegateChecked@180",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU64NegateRaw@59",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48ShiftLeftChecked@197",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaI64ShiftRightRaw@93",
+      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48ShiftLeftChecked@199",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaI64ShiftRightRaw@95",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48ShiftLeftChecked@197",
+      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48ShiftLeftChecked@199",
       "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU64Equal@9",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48ShiftLeftChecked@197",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU64ShiftLeftRaw@81",
+      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48ShiftLeftChecked@199",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU64ShiftLeftRaw@83",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48ShiftRightNearestEven@210",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaApplyMagnitudeSign@133",
+      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48ShiftRightNearestEven@212",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaApplyMagnitudeSign@135",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48ShiftRightNearestEven@210",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU64AbsSigned@64",
+      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48ShiftRightNearestEven@212",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU64AbsSigned@66",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48ShiftRightNearestEven@210",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU64AnyLowBits@106",
+      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48ShiftRightNearestEven@212",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU64AnyLowBits@108",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48ShiftRightNearestEven@210",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU64Bit@120",
+      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48ShiftRightNearestEven@212",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU64Bit@122",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48ShiftRightNearestEven@210",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU64Increment@37",
+      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48ShiftRightNearestEven@212",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU64Increment@39",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48ShiftRightNearestEven@210",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU64ShiftRight@69",
+      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48ShiftRightNearestEven@212",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU64ShiftRight@71",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48SubChecked@185",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU64Subtract@46",
+      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48SubChecked@187",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU64Subtract@48",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaRightBasisAction@449",
+      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaRightBasisAction@451",
       "target": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedTables.hlsl::SigmaMulBasisSign@196",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaRightBasisAction@449",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48NegateChecked@178",
+      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaRightBasisAction@451",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48NegateChecked@180",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaRightSignedDyadAction@462",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48AddChecked@166",
+      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaRightSignedDyadAction@464",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48AddChecked@168",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaRightSignedDyadAction@462",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48NegateChecked@178",
+      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaRightSignedDyadAction@464",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48NegateChecked@180",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaRightSignedDyadAction@462",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaRightBasisAction@449",
+      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaRightSignedDyadAction@464",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaRightBasisAction@451",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU64AbsSigned@64",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU64NegateRaw@57",
+      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU64AbsSigned@66",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU64NegateRaw@59",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU64NegateRaw@57",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU64Increment@37",
+      "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU64NegateRaw@59",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU64Increment@39",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaCarrier.compute::ClonePageGeneration@113",
+      "target": "Runtime/Resources/SigmaPrism/SigmaCarrier.compute::SigmaRequestedPageMetadata@74",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaCarrier.compute::InitializeNullPage@92",
+      "target": "Runtime/Resources/SigmaPrism/SigmaCarrier.compute::SigmaCarrierNullLane@63",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaCarrier.compute::InitializeNullPage@92",
+      "target": "Runtime/Resources/SigmaPrism/SigmaCarrier.compute::SigmaRequestedPageMetadata@74",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::DecodePageBlocks@471",
+      "target": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecAddScaled@159",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::DecodePageBlocks@471",
+      "target": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecDecodeValue@287",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::DecodePageBlocks@471",
+      "target": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecNullLane@48",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::DecodePageBlocks@471",
+      "target": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecOutputIndex@75",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::DecodePageBlocks@471",
+      "target": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecReadSigned@246",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::DecodePageBlocks@471",
+      "target": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecReadWidth@239",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::DecodePageBlocks@471",
+      "target": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecSharedIndex@43",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::EncodePageBlocks@317",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48SubChecked@187",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::EncodePageBlocks@317",
+      "target": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecAddScaled@159",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::EncodePageBlocks@317",
+      "target": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecInputIndex@69",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::EncodePageBlocks@317",
+      "target": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecNullLane@48",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::EncodePageBlocks@317",
+      "target": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecResidual@114",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::EncodePageBlocks@317",
+      "target": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecSharedIndex@43",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::EncodePageBlocks@317",
+      "target": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecSignedWidth@143",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::EncodePageBlocks@317",
+      "target": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecWriteDeltaLane@196",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecAddScaled@159",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48AddChecked@168",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecAddScaled@159",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48Select@147",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecDecodeValue@287",
+      "target": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecAdd96@86",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecDecodeValue@287",
+      "target": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecFitsI64@108",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecDecodeValue@287",
+      "target": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecSharedIndex@43",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecDecodeValue@287",
+      "target": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecSignExtend96@81",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecDecodeValue@287",
+      "target": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecSubtract96@97",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecExtractBits@180",
+      "target": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecLowMask@174",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecInputIndex@69",
+      "target": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecPageSample@60",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecOutputIndex@75",
+      "target": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecPageSample@60",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecReadSigned@246",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU64Bit@122",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecReadSigned@246",
+      "target": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecLowMask@174",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecResidual@114",
+      "target": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecAdd96@86",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecResidual@114",
+      "target": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecFitsI64@108",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecResidual@114",
+      "target": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecSharedIndex@43",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecResidual@114",
+      "target": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecSignExtend96@81",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecResidual@114",
+      "target": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecSubtract96@97",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecWriteDeltaLane@196",
+      "target": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecExtractBits@180",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecWriteDeltaLane@196",
+      "target": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecSharedIndex@43",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::if@126",
+      "target": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecSharedIndex@43",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::if@126",
+      "target": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecSignExtend96@81",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::if@126",
+      "target": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecSubtract96@97",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::if@131",
+      "target": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecAdd96@86",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::if@131",
+      "target": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecSharedIndex@43",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::if@131",
+      "target": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecSignExtend96@81",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::if@131",
+      "target": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecSubtract96@97",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::if@299",
+      "target": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecSharedIndex@43",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::if@299",
+      "target": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecSignExtend96@81",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::if@304",
+      "target": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecAdd96@86",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::if@304",
+      "target": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecSharedIndex@43",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::if@304",
+      "target": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecSignExtend96@81",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::if@304",
+      "target": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecSubtract96@97",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::if@442",
+      "target": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecWriteDeltaLane@196",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::if@455",
+      "target": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecSharedIndex@43",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::if@519",
+      "target": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecDecodeValue@287",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::if@519",
+      "target": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecReadSigned@246",
       "kind": "calls"
     },
     {
       "source": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::AlgebraParity@75",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaRightSignedDyadAction@462",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaRightSignedDyadAction@464",
       "kind": "calls"
     },
     {
@@ -6170,22 +7573,22 @@
     },
     {
       "source": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::CanonicalSelfTest@112",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48AddChecked@166",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48AddChecked@168",
       "kind": "calls"
     },
     {
       "source": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::CanonicalSelfTest@112",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48DivNearestEven@421",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48DivNearestEven@423",
       "kind": "calls"
     },
     {
       "source": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::CanonicalSelfTest@112",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48MulNearestEven@319",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48MulNearestEven@321",
       "kind": "calls"
     },
     {
       "source": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::CanonicalSelfTest@112",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaRightSignedDyadAction@462",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaRightSignedDyadAction@464",
       "kind": "calls"
     },
     {
@@ -6195,67 +7598,67 @@
     },
     {
       "source": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::NumericParity@26",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48AddChecked@166",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48AddChecked@168",
       "kind": "calls"
     },
     {
       "source": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::NumericParity@26",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48DivLower@426",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48DivLower@428",
       "kind": "calls"
     },
     {
       "source": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::NumericParity@26",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48DivNearestEven@421",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48DivNearestEven@423",
       "kind": "calls"
     },
     {
       "source": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::NumericParity@26",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48DivUpper@431",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48DivUpper@433",
       "kind": "calls"
     },
     {
       "source": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::NumericParity@26",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48Less@151",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48Less@153",
       "kind": "calls"
     },
     {
       "source": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::NumericParity@26",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48MulLower@324",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48MulLower@326",
       "kind": "calls"
     },
     {
       "source": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::NumericParity@26",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48MulNearestEven@319",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48MulNearestEven@321",
       "kind": "calls"
     },
     {
       "source": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::NumericParity@26",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48MulUpper@329",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48MulUpper@331",
       "kind": "calls"
     },
     {
       "source": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::NumericParity@26",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48NegateChecked@178",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48NegateChecked@180",
       "kind": "calls"
     },
     {
       "source": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::NumericParity@26",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48Select@145",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48Select@147",
       "kind": "calls"
     },
     {
       "source": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::NumericParity@26",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48ShiftLeftChecked@197",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48ShiftLeftChecked@199",
       "kind": "calls"
     },
     {
       "source": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::NumericParity@26",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48ShiftRightNearestEven@210",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48ShiftRightNearestEven@212",
       "kind": "calls"
     },
     {
       "source": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::NumericParity@26",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48SubChecked@185",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48SubChecked@187",
       "kind": "calls"
     },
     {
@@ -6265,42 +7668,42 @@
     },
     {
       "source": "Runtime/Resources/SigmaPrism/SigmaOperatorPlan.hlsl::SigmaConjugatePlan@16",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48NegateChecked@178",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48NegateChecked@180",
       "kind": "calls"
     },
     {
       "source": "Runtime/Resources/SigmaPrism/SigmaOperatorPlan.hlsl::SigmaGeometryGPlan@33",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaHadamardRow@478",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaHadamardRow@480",
       "kind": "calls"
     },
     {
       "source": "Runtime/Resources/SigmaPrism/SigmaOperatorPlan.hlsl::SigmaHadamardBPlan@25",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaHadamardRow@478",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaHadamardRow@480",
       "kind": "calls"
     },
     {
       "source": "Runtime/Resources/SigmaPrism/SigmaOperatorPlan.hlsl::SigmaHiddenFPlan@42",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaHadamardRow@478",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaHadamardRow@480",
       "kind": "calls"
     },
     {
       "source": "Runtime/Resources/SigmaPrism/SigmaOperatorPlan.hlsl::SigmaProjectiveClamp@61",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48Max@161",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48Max@163",
       "kind": "calls"
     },
     {
       "source": "Runtime/Resources/SigmaPrism/SigmaOperatorPlan.hlsl::SigmaProjectiveClamp@61",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48Min@156",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48Min@158",
       "kind": "calls"
     },
     {
       "source": "Runtime/Resources/SigmaPrism/SigmaOperatorPlan.hlsl::SigmaProjectiveMeetLower@51",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48Max@161",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48Max@163",
       "kind": "calls"
     },
     {
       "source": "Runtime/Resources/SigmaPrism/SigmaOperatorPlan.hlsl::SigmaProjectiveMeetUpper@56",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48Min@156",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48Min@158",
       "kind": "calls"
     },
     {
@@ -6310,22 +7713,22 @@
     },
     {
       "source": "Runtime/RoomScanInputHandler.cs::ExecuteAction@110",
-      "target": "Runtime/Core/RoomScanner.cs::ClearAllDataAsync@259",
+      "target": "Runtime/Core/RoomScanner.cs::ClearAllDataAsync@263",
       "kind": "calls"
     },
     {
       "source": "Runtime/RoomScanInputHandler.cs::ExecuteAction@110",
-      "target": "Runtime/Core/RoomScanner.cs::CycleRenderMode@276",
+      "target": "Runtime/Core/RoomScanner.cs::CycleRenderMode@280",
       "kind": "calls"
     },
     {
       "source": "Runtime/RoomScanInputHandler.cs::ExecuteAction@110",
-      "target": "Runtime/Core/RoomScanner.cs::ToggleDebugMenu@286",
+      "target": "Runtime/Core/RoomScanner.cs::ToggleDebugMenu@290",
       "kind": "calls"
     },
     {
       "source": "Runtime/RoomScanInputHandler.cs::ExecuteAction@110",
-      "target": "Runtime/Core/RoomScanner.cs::ToggleScanning@228",
+      "target": "Runtime/Core/RoomScanner.cs::ToggleScanning@232",
       "kind": "calls"
     },
     {
@@ -6371,11 +7774,6 @@
     {
       "source": "Runtime/SigmaPrism/Calibration/ConeLutResources.cs::Create@108",
       "target": "Runtime/SigmaPrism/Calibration/ConeLutResources.cs::RigConeLutSet",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/Calibration/ConeLutResources.cs::CreateTexture@198",
-      "target": "Runtime/SigmaPrism/Calibration/ConeLutResources.cs::Create@108",
       "kind": "calls"
     },
     {
@@ -6461,11 +7859,6 @@
     {
       "source": "Runtime/SigmaPrism/Capture/GpuTextureRing.cs::Dispose@204",
       "target": "Runtime/SigmaPrism/Capture/GpuTextureRing.cs::DestroySlot@360",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/Capture/GpuTextureRing.cs::EnsureCompatibleTarget@242",
-      "target": "Runtime/SigmaPrism/Calibration/ConeLutResources.cs::Create@108",
       "kind": "calls"
     },
     {
@@ -6725,82 +8118,82 @@
     },
     {
       "source": "Runtime/SigmaPrism/SigmaBackendCapabilities.cs::LowerNode@132",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48AddChecked@166",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48AddChecked@168",
       "kind": "calls"
     },
     {
       "source": "Runtime/SigmaPrism/SigmaBackendCapabilities.cs::LowerNode@132",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48DivLower@426",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48DivLower@428",
       "kind": "calls"
     },
     {
       "source": "Runtime/SigmaPrism/SigmaBackendCapabilities.cs::LowerNode@132",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48DivNearestEven@421",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48DivNearestEven@423",
       "kind": "calls"
     },
     {
       "source": "Runtime/SigmaPrism/SigmaBackendCapabilities.cs::LowerNode@132",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48DivUpper@431",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48DivUpper@433",
       "kind": "calls"
     },
     {
       "source": "Runtime/SigmaPrism/SigmaBackendCapabilities.cs::LowerNode@132",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48Less@151",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48Less@153",
       "kind": "calls"
     },
     {
       "source": "Runtime/SigmaPrism/SigmaBackendCapabilities.cs::LowerNode@132",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48Mask@140",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48Mask@142",
       "kind": "calls"
     },
     {
       "source": "Runtime/SigmaPrism/SigmaBackendCapabilities.cs::LowerNode@132",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48Max@161",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48Max@163",
       "kind": "calls"
     },
     {
       "source": "Runtime/SigmaPrism/SigmaBackendCapabilities.cs::LowerNode@132",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48Min@156",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48Min@158",
       "kind": "calls"
     },
     {
       "source": "Runtime/SigmaPrism/SigmaBackendCapabilities.cs::LowerNode@132",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48MulLower@324",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48MulLower@326",
       "kind": "calls"
     },
     {
       "source": "Runtime/SigmaPrism/SigmaBackendCapabilities.cs::LowerNode@132",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48MulNearestEven@319",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48MulNearestEven@321",
       "kind": "calls"
     },
     {
       "source": "Runtime/SigmaPrism/SigmaBackendCapabilities.cs::LowerNode@132",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48MulUpper@329",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48MulUpper@331",
       "kind": "calls"
     },
     {
       "source": "Runtime/SigmaPrism/SigmaBackendCapabilities.cs::LowerNode@132",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48NegateChecked@178",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48NegateChecked@180",
       "kind": "calls"
     },
     {
       "source": "Runtime/SigmaPrism/SigmaBackendCapabilities.cs::LowerNode@132",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48Select@145",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48Select@147",
       "kind": "calls"
     },
     {
       "source": "Runtime/SigmaPrism/SigmaBackendCapabilities.cs::LowerNode@132",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48ShiftLeftChecked@197",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48ShiftLeftChecked@199",
       "kind": "calls"
     },
     {
       "source": "Runtime/SigmaPrism/SigmaBackendCapabilities.cs::LowerNode@132",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48ShiftRightNearestEven@210",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48ShiftRightNearestEven@212",
       "kind": "calls"
     },
     {
       "source": "Runtime/SigmaPrism/SigmaBackendCapabilities.cs::LowerNode@132",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48SubChecked@185",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48SubChecked@187",
       "kind": "calls"
     },
     {
@@ -6810,12 +8203,572 @@
     },
     {
       "source": "Runtime/SigmaPrism/SigmaBackendCapabilities.cs::LowerReduction@178",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48AddChecked@166",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48AddChecked@168",
       "kind": "calls"
     },
     {
       "source": "Runtime/SigmaPrism/SigmaBackendCapabilities.cs::RequireCanonical@51",
       "target": "Runtime/SigmaPrism/SigmaBackendCapabilities.cs::Supports@48",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrier.cs::Abort@451",
+      "target": "Runtime/SigmaPrism/SigmaCarrier.cs::PageGenerationKey",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrier.cs::Abort@451",
+      "target": "Runtime/SigmaPrism/SigmaCarrier.cs::ReleaseSlot@658",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrier.cs::Abort@451",
+      "target": "Runtime/SigmaPrism/SigmaExactBackendGate.cs::Dispatch@31",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrier.cs::AcknowledgeDirtyBatch@364",
+      "target": "Runtime/SigmaPrism/SigmaCarrier.cs::RequireInitialized@583",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrier.cs::AcknowledgeDirtyBatch@364",
+      "target": "Runtime/SigmaPrism/SigmaExactBackendGate.cs::Dispatch@31",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrier.cs::BeginNextGeneration@296",
+      "target": "Runtime/SigmaPrism/SigmaCarrier.cs::BindPageMutation@531",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrier.cs::BeginNextGeneration@296",
+      "target": "Runtime/SigmaPrism/SigmaCarrier.cs::EnsureNoPendingCoordinate@551",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrier.cs::BeginNextGeneration@296",
+      "target": "Runtime/SigmaPrism/SigmaCarrier.cs::RequireInitialized@583",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrier.cs::BeginNextGeneration@296",
+      "target": "Runtime/SigmaPrism/SigmaCarrier.cs::ReserveGeneration@489",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrier.cs::BeginNextGeneration@296",
+      "target": "Runtime/SigmaPrism/SigmaCarrier.cs::SigmaCarrierWriteLease",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrier.cs::BeginNextGeneration@296",
+      "target": "Runtime/SigmaPrism/SigmaExactBackendGate.cs::Dispatch@31",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrier.cs::BeginNullGeneration@275",
+      "target": "Runtime/SigmaPrism/SigmaCarrier.cs::BindPageMutation@531",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrier.cs::BeginNullGeneration@275",
+      "target": "Runtime/SigmaPrism/SigmaCarrier.cs::EnsureNoPendingCoordinate@551",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrier.cs::BeginNullGeneration@275",
+      "target": "Runtime/SigmaPrism/SigmaCarrier.cs::RequireInitialized@583",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrier.cs::BeginNullGeneration@275",
+      "target": "Runtime/SigmaPrism/SigmaCarrier.cs::ReserveGeneration@489",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrier.cs::BeginNullGeneration@275",
+      "target": "Runtime/SigmaPrism/SigmaCarrier.cs::SigmaCarrierWriteLease",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrier.cs::BeginNullGeneration@275",
+      "target": "Runtime/SigmaPrism/SigmaExactBackendGate.cs::Dispatch@31",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrier.cs::BindPageMutation@531",
+      "target": "Runtime/SigmaPrism/SigmaCarrier.cs::SetUInt@548",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrier.cs::BindReadable@324",
+      "target": "Runtime/SigmaPrism/SigmaCarrier.cs::RequireAllocated@574",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrier.cs::BindWritable@420",
+      "target": "Runtime/SigmaPrism/SigmaCarrier.cs::RequirePending@561",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrier.cs::CompactDirtyPages@337",
+      "target": "Runtime/SigmaPrism/SigmaCarrier.cs::CreateDirtyBatch@665",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrier.cs::CompactDirtyPages@337",
+      "target": "Runtime/SigmaPrism/SigmaCarrier.cs::RequireInitialized@583",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrier.cs::CompactDirtyPages@337",
+      "target": "Runtime/SigmaPrism/SigmaExactBackendGate.cs::Dispatch@31",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrier.cs::ComputeSegmentPageCapacity@249",
+      "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Max@172",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrier.cs::ComputeSegmentPageCapacity@249",
+      "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Min@170",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrier.cs::Dispose@469",
+      "target": "Runtime/SigmaPrism/SigmaTransitionCache.cs::Clear@104",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrier.cs::Dispose@92",
+      "target": "Runtime/SigmaPrism/SigmaCarrier.cs::Abort@451",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrier.cs::MarkDirty@384",
+      "target": "Runtime/SigmaPrism/SigmaCarrier.cs::RequireAllocated@574",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrier.cs::MarkDirty@384",
+      "target": "Runtime/SigmaPrism/SigmaExactBackendGate.cs::Dispatch@31",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrier.cs::OnModuleInitialize@203",
+      "target": "Runtime/SigmaPrism/SigmaCarrier.cs::ComputeSegmentPageCapacity@249",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrier.cs::OnModuleInitialize@203",
+      "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Max@172",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrier.cs::OnModuleInitialize@203",
+      "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Min@170",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrier.cs::OnModuleInitialize@203",
+      "target": "Runtime/Utils/Logger.cs::Info@30",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrier.cs::Publish@435",
+      "target": "Runtime/SigmaPrism/SigmaCarrier.cs::PageGenerationKey",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrier.cs::Publish@435",
+      "target": "Runtime/SigmaPrism/SigmaCarrier.cs::RequirePending@561",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrier.cs::Publish@435",
+      "target": "Runtime/SigmaPrism/SigmaExactBackendGate.cs::Dispatch@31",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrier.cs::RequireAllocated@574",
+      "target": "Runtime/SigmaPrism/SigmaCarrier.cs::PageGenerationKey",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrier.cs::RequireAllocated@574",
+      "target": "Runtime/SigmaPrism/SigmaCarrier.cs::RequireInitialized@583",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrier.cs::RequirePending@561",
+      "target": "Runtime/SigmaPrism/SigmaCarrier.cs::PageGenerationKey",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrier.cs::RequirePending@561",
+      "target": "Runtime/SigmaPrism/SigmaCarrier.cs::RequireInitialized@583",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrier.cs::ReserveGeneration@489",
+      "target": "Runtime/SigmaPrism/SigmaCarrier.cs::PageGenerationKey",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrier.cs::ReserveGeneration@489",
+      "target": "Runtime/SigmaPrism/SigmaCarrier.cs::SigmaCarrierPageHandle",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrier.cs::TryGetLatest@268",
+      "target": "Runtime/SigmaPrism/SigmaCarrier.cs::RequireInitialized@583",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrier.cs::TryReleaseRetiredGeneration@398",
+      "target": "Runtime/SigmaPrism/SigmaCarrier.cs::PageGenerationKey",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrier.cs::TryReleaseRetiredGeneration@398",
+      "target": "Runtime/SigmaPrism/SigmaCarrier.cs::ReleaseSlot@658",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrier.cs::TryReleaseRetiredGeneration@398",
+      "target": "Runtime/SigmaPrism/SigmaCarrier.cs::RequireInitialized@583",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrier.cs::TryReleaseRetiredGeneration@398",
+      "target": "Runtime/SigmaPrism/SigmaExactBackendGate.cs::Dispatch@31",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::AddScaled@636",
+      "target": "Runtime/SigmaPrism/SigmaNumericDomain.cs::QAdd@28",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::DecodeAffine@520",
+      "target": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::AddScaled@636",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::DecodeAffine@520",
+      "target": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::ReadState@653",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::DecodeAffine@520",
+      "target": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::Require@716",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::DecodeAffine@520",
+      "target": "Runtime/SigmaPrism/SigmaS16.cs::FromArray@82",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::DecodeBlock@191",
+      "target": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::DecodeAffine@520",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::DecodeBlock@191",
+      "target": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::DecodeConstant@508",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::DecodeBlock@191",
+      "target": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::DecodeDelta@544",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::DecodeBlock@191",
+      "target": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::DecodeNull@498",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::DecodeBlock@191",
+      "target": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::DecodeRaw@585",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::DecodeConstant@508",
+      "target": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::ReadState@653",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::DecodeConstant@508",
+      "target": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::Require@716",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::DecodeDelta@544",
+      "target": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::LeastSignificantBitReader",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::DecodeDelta@544",
+      "target": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::ReadSigned@759",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::DecodeDelta@544",
+      "target": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::Require@716",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::DecodeDelta@544",
+      "target": "Runtime/SigmaPrism/SigmaS16.cs::FromArray@82",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::DecodeNull@498",
+      "target": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::Require@716",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::DecodePage@245",
+      "target": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::DecodeBlock@191",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::DecodePage@245",
+      "target": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::ReadFingerprint@669",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::DecodePage@245",
+      "target": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::Require@716",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::DecodePage@245",
+      "target": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::SigmaCarrierPageCoordinate",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::DecodePage@245",
+      "target": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::SigmaDecodedPage",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::DecodePage@245",
+      "target": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::SigmaEncodedBlock",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::DecodeRaw@585",
+      "target": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::ReadState@653",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::DecodeRaw@585",
+      "target": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::Require@716",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::DecodeSnapshot@326",
+      "target": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::ComparePages@693",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::DecodeSnapshot@326",
+      "target": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::DecodePage@245",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::DecodeSnapshot@326",
+      "target": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::ReadFingerprint@669",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::DecodeSnapshot@326",
+      "target": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::Require@716",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::EncodeBlock@164",
+      "target": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::EncodeRaw@488",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::EncodeBlock@164",
+      "target": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::IsNull@360",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::EncodeBlock@164",
+      "target": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::SigmaEncodedBlock",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::EncodeBlock@164",
+      "target": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::TryEncodeAffine@390",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::EncodeBlock@164",
+      "target": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::TryEncodeConstant@371",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::EncodeBlock@164",
+      "target": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::TryEncodeDelta@438",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::EncodeBlock@164",
+      "target": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::ValidateBlock@707",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::EncodePage@204",
+      "target": "Runtime/SigmaPrism/Capture/RigFrameSynchronizer.cs::Flush@228",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::EncodePage@204",
+      "target": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::CopyBlock@102",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::EncodePage@204",
+      "target": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::EncodeBlock@164",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::EncodePage@204",
+      "target": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::WriteFingerprint@661",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::EncodeRaw@488",
+      "target": "Runtime/SigmaPrism/Capture/RigFrameSynchronizer.cs::Flush@228",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::EncodeRaw@488",
+      "target": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::WriteState@647",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::EncodeSnapshot@296",
+      "target": "Runtime/SigmaPrism/Capture/RigFrameSynchronizer.cs::Flush@228",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::EncodeSnapshot@296",
+      "target": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::ComparePages@693",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::EncodeSnapshot@296",
+      "target": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::EncodePage@204",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::EncodeSnapshot@296",
+      "target": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::Require@716",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::EncodeSnapshot@296",
+      "target": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::WriteFingerprint@661",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::ReadFingerprint@669",
+      "target": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::Require@716",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::ReadState@653",
+      "target": "Runtime/SigmaPrism/SigmaS16.cs::FromArray@82",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::ResolveAddress@148",
+      "target": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::FloorDivide@700",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::ResolveAddress@148",
+      "target": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::SigmaCarrierAddress",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::ResolveAddress@148",
+      "target": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::SigmaCarrierPageCoordinate",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::SignedBitWidth@596",
+      "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Min@170",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::TryEncodeAffine@390",
+      "target": "Runtime/SigmaPrism/Capture/RigFrameSynchronizer.cs::Flush@228",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::TryEncodeAffine@390",
+      "target": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::AddScaled@636",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::TryEncodeAffine@390",
+      "target": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::WriteState@647",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::TryEncodeAffine@390",
+      "target": "Runtime/SigmaPrism/SigmaNumericDomain.cs::QSub@30",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::TryEncodeAffine@390",
+      "target": "Runtime/SigmaPrism/SigmaS16.cs::FromArray@82",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::TryEncodeConstant@371",
+      "target": "Runtime/SigmaPrism/Capture/RigFrameSynchronizer.cs::Flush@228",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::TryEncodeConstant@371",
+      "target": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::WriteState@647",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::TryEncodeDelta@438",
+      "target": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::LeastSignificantBitWriter",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::TryEncodeDelta@438",
+      "target": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::SignedBitWidth@596",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::TryEncodeDelta@438",
+      "target": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::WriteSigned@727",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::TryEncodeDelta@438",
+      "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Max@172",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::WriteFingerprint@661",
+      "target": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::Require@716",
       "kind": "calls"
     },
     {
@@ -6841,11 +8794,6 @@
     {
       "source": "Runtime/SigmaPrism/SigmaNumericDomain.cs::DivideNearestEven@199",
       "target": "Runtime/SigmaPrism/SigmaNumericDomain.cs::NormalizeDenominator@234",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaNumericDomain.cs::DivideNearestEven@199",
-      "target": "Runtime/SigmaPrism/SigmaS16.cs::CompareTo@178",
       "kind": "calls"
     },
     {
@@ -6961,11 +8909,6 @@
     {
       "source": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Build@220",
       "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::SigmaOperatorPlan",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Build@220",
-      "target": "Runtime/SigmaPrism/SigmaS16.cs::ToArray@104",
       "kind": "calls"
     },
     {
@@ -7191,16 +9134,6 @@
     {
       "source": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::BuildView@506",
       "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Sign@154",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::ComputeFingerprint@96",
-      "target": "Runtime/SigmaPrism/Calibration/ConeLutResources.cs::Create@108",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::ComputePlanBundleFingerprint@630",
-      "target": "Runtime/SigmaPrism/Calibration/ConeLutResources.cs::Create@108",
       "kind": "calls"
     },
     {
@@ -7725,17 +9658,17 @@
     },
     {
       "source": "Runtime/UI/DebugMenuController.cs::Bind@96",
-      "target": "Runtime/Core/RoomScanner.cs::ClearAllDataAsync@259",
+      "target": "Runtime/Core/RoomScanner.cs::ClearAllDataAsync@263",
       "kind": "calls"
     },
     {
       "source": "Runtime/UI/DebugMenuController.cs::Bind@96",
-      "target": "Runtime/Core/RoomScanner.cs::CycleRenderMode@276",
+      "target": "Runtime/Core/RoomScanner.cs::CycleRenderMode@280",
       "kind": "calls"
     },
     {
       "source": "Runtime/UI/DebugMenuController.cs::Bind@96",
-      "target": "Runtime/Core/RoomScanner.cs::ToggleScanning@228",
+      "target": "Runtime/Core/RoomScanner.cs::ToggleScanning@232",
       "kind": "calls"
     },
     {
@@ -7811,11 +9744,6 @@
     {
       "source": "Tests/Editor/SigmaAlgebraOperatorTests.cs::BuildCseFixture@325",
       "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::SigmaOperatorPlanBuilder",
-      "kind": "calls"
-    },
-    {
-      "source": "Tests/Editor/SigmaAlgebraOperatorTests.cs::CompareEntries@374",
-      "target": "Runtime/SigmaPrism/SigmaS16.cs::CompareTo@178",
       "kind": "calls"
     },
     {
@@ -8126,6 +10054,196 @@
     {
       "source": "Tests/Editor/SigmaAlgebraOperatorTests.cs::TransitionCacheHitMissAndGenerationInvalidationAreExact@281",
       "target": "Tests/Editor/SigmaAlgebraOperatorTests.cs::DeterministicState@338",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaCarrierTests.cs::AssertAddress@201",
+      "target": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::ResolveAddress@148",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaCarrierTests.cs::AssertAddress@201",
+      "target": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::SigmaCarrierPageCoordinate",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaCarrierTests.cs::DirtyCompactionIsStableAndSegmentSizingRespectsBindingLimit@155",
+      "target": "Runtime/SigmaPrism/SigmaCarrier.cs::ComputeSegmentPageCapacity@249",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaCarrierTests.cs::DirtyCompactionIsStableAndSegmentSizingRespectsBindingLimit@155",
+      "target": "Runtime/SigmaPrism/SigmaExactBackendGate.cs::Dispatch@31",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaCarrierTests.cs::EveryExactBlockModeIsCanonicalAndRoundTripsBitForBit@42",
+      "target": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::DecodeBlock@191",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaCarrierTests.cs::EveryExactBlockModeIsCanonicalAndRoundTripsBitForBit@42",
+      "target": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::EncodeBlock@164",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaCarrierTests.cs::EveryExactBlockModeIsCanonicalAndRoundTripsBitForBit@42",
+      "target": "Tests/Editor/SigmaCarrierTests.cs::MakeAffineBlock@235",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaCarrierTests.cs::EveryExactBlockModeIsCanonicalAndRoundTripsBitForBit@42",
+      "target": "Tests/Editor/SigmaCarrierTests.cs::MakeConstantBlock@222",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaCarrierTests.cs::EveryExactBlockModeIsCanonicalAndRoundTripsBitForBit@42",
+      "target": "Tests/Editor/SigmaCarrierTests.cs::MakeDeltaBlock@256",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaCarrierTests.cs::EveryExactBlockModeIsCanonicalAndRoundTripsBitForBit@42",
+      "target": "Tests/Editor/SigmaCarrierTests.cs::MakeNullBlock@214",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaCarrierTests.cs::EveryExactBlockModeIsCanonicalAndRoundTripsBitForBit@42",
+      "target": "Tests/Editor/SigmaCarrierTests.cs::MakeRawBlock@269",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaCarrierTests.cs::MakeAffineBlock@235",
+      "target": "Runtime/SigmaPrism/SigmaS16.cs::FromArray@82",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaCarrierTests.cs::MakeConstantBlock@222",
+      "target": "Runtime/SigmaPrism/SigmaS16.cs::FromArray@82",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaCarrierTests.cs::MakeDeltaBlock@256",
+      "target": "Runtime/SigmaPrism/SigmaS16.cs::FromArray@82",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaCarrierTests.cs::MakeMixedPage@288",
+      "target": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::SigmaDecodedPage",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaCarrierTests.cs::MakeMixedPage@288",
+      "target": "Tests/Editor/SigmaCarrierTests.cs::MakeAffineBlock@235",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaCarrierTests.cs::MakeMixedPage@288",
+      "target": "Tests/Editor/SigmaCarrierTests.cs::MakeConstantBlock@222",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaCarrierTests.cs::MakeMixedPage@288",
+      "target": "Tests/Editor/SigmaCarrierTests.cs::MakeDeltaBlock@256",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaCarrierTests.cs::MakeMixedPage@288",
+      "target": "Tests/Editor/SigmaCarrierTests.cs::MakeNullBlock@214",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaCarrierTests.cs::MakeMixedPage@288",
+      "target": "Tests/Editor/SigmaCarrierTests.cs::MakeRawBlock@269",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaCarrierTests.cs::MakeRawBlock@269",
+      "target": "Runtime/SigmaPrism/SigmaS16.cs::FromArray@82",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaCarrierTests.cs::PackedGpuCodecMatchesCanonicalCpuBytesAndDecodedState@88",
+      "target": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::CopyBlock@102",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaCarrierTests.cs::PackedGpuCodecMatchesCanonicalCpuBytesAndDecodedState@88",
+      "target": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::CopySamples@100",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaCarrierTests.cs::PackedGpuCodecMatchesCanonicalCpuBytesAndDecodedState@88",
+      "target": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::EncodeBlock@164",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaCarrierTests.cs::PackedGpuCodecMatchesCanonicalCpuBytesAndDecodedState@88",
+      "target": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::SigmaCarrierPageCoordinate",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaCarrierTests.cs::PackedGpuCodecMatchesCanonicalCpuBytesAndDecodedState@88",
+      "target": "Runtime/SigmaPrism/SigmaExactBackendGate.cs::Dispatch@31",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaCarrierTests.cs::PackedGpuCodecMatchesCanonicalCpuBytesAndDecodedState@88",
+      "target": "Tests/Editor/SigmaCarrierTests.cs::BindCodec@349",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaCarrierTests.cs::PackedGpuCodecMatchesCanonicalCpuBytesAndDecodedState@88",
+      "target": "Tests/Editor/SigmaCarrierTests.cs::MakeMixedPage@288",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaCarrierTests.cs::PackedGpuCodecMatchesCanonicalCpuBytesAndDecodedState@88",
+      "target": "Tests/Editor/SigmaCarrierTests.cs::PackPage@316",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaCarrierTests.cs::PackedGpuCodecMatchesCanonicalCpuBytesAndDecodedState@88",
+      "target": "Tests/Editor/SigmaCarrierTests.cs::WordsToLittleEndian@334",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaCarrierTests.cs::PageAndSortedSnapshotRestartAreByteIdentical@67",
+      "target": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::CopySamples@100",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaCarrierTests.cs::PageAndSortedSnapshotRestartAreByteIdentical@67",
+      "target": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::DecodePage@245",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaCarrierTests.cs::PageAndSortedSnapshotRestartAreByteIdentical@67",
+      "target": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::DecodeSnapshot@326",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaCarrierTests.cs::PageAndSortedSnapshotRestartAreByteIdentical@67",
+      "target": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::EncodePage@204",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaCarrierTests.cs::PageAndSortedSnapshotRestartAreByteIdentical@67",
+      "target": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::EncodeSnapshot@296",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaCarrierTests.cs::PageAndSortedSnapshotRestartAreByteIdentical@67",
+      "target": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::SigmaCarrierPageCoordinate",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaCarrierTests.cs::PageAndSortedSnapshotRestartAreByteIdentical@67",
+      "target": "Tests/Editor/SigmaCarrierTests.cs::MakeMixedPage@288",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaCarrierTests.cs::SignedCarrierAddressingUsesMathematicalFloorAcrossZero@29",
+      "target": "Tests/Editor/SigmaCarrierTests.cs::AssertAddress@201",
       "kind": "calls"
     },
     {
@@ -8561,6 +10679,31 @@
     {
       "source": "task:S4-01",
       "target": "file:Tools/sigma/generate_sigma_operators.py",
+      "kind": "implemented_by"
+    },
+    {
+      "source": "task:S4-02",
+      "target": "file:Runtime/Resources/SigmaPrism/SigmaCarrier.compute",
+      "kind": "implemented_by"
+    },
+    {
+      "source": "task:S4-02",
+      "target": "file:Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute",
+      "kind": "implemented_by"
+    },
+    {
+      "source": "task:S4-02",
+      "target": "file:Runtime/SigmaPrism/SigmaCarrier.cs",
+      "kind": "implemented_by"
+    },
+    {
+      "source": "task:S4-02",
+      "target": "file:Runtime/SigmaPrism/SigmaCarrierCodec.cs",
+      "kind": "implemented_by"
+    },
+    {
+      "source": "task:S4-02",
+      "target": "file:Tests/Editor/SigmaCarrierTests.cs",
       "kind": "implemented_by"
     },
     {

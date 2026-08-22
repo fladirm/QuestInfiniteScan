@@ -9,7 +9,9 @@
 
 bool SigmaU64Equal(uint2 a, uint2 b)
 {
-    return all(a == b);
+    // Explicit scalar comparison avoids legacy HLSL vector-bool lowering
+    // differences across Vulkan compiler paths.
+    return a.x == b.x && a.y == b.y;
 }
 
 bool SigmaU64Less(uint2 a, uint2 b)

@@ -53,7 +53,7 @@
     {
       "id": "S4-02",
       "title": "Implement the sparse exact Q16.48 carrier and lossless physical codec",
-      "status": "in_progress",
+      "status": "done",
       "depends_on": ["S4-01"],
       "acceptance": [
         "SigmaCarrier is one logically unbounded signed-64 2D page space with implicit z_null for every unallocated sample",
@@ -62,12 +62,19 @@
         "Segmented GPU pools obey the runtime Vulkan per-binding range without giving page/block boundaries physical meaning",
         "Encode/decode/re-encode and snapshot/restart fixtures are byte-identical"
       ],
-      "evidence": []
+      "evidence": [
+        "SigmaCarrier exposes a signed-64 logical page map with implicit generated z_null, 64x64 decoded pages, 8x8 logical codec blocks, immutable generation write leases, page certificate ranges and generation-safe reusable physical slots",
+        "SigmaCarrierCodec defines canonical deterministic page/snapshot bytes and exact NULL/CONST/AFFINE/DELTA/RAW selection; DELTA uses per-lane minimum signed widths, exact 96-bit-or-BigInteger predictor intermediates and fixed LSB-first coefficient/v/u order",
+        "SigmaCarrier.compute performs exact-gated GPU null initialization, generation cloning/publication, stable per-segment dirty prefix compaction and indirect dispatch construction without coefficient readback or CPU pixel work",
+        "SigmaCarrierCodec.compute uses one 16-lane workgroup per 8x8 block and matches the CPU persistence oracle exactly for all five modes and decoded packed Q16.48 samples",
+        "Unity 6000.5.9f1 Vulkan EditMode passed 26/26 including signed extreme addressing, all codec modes, page/snapshot restart identity, CPU/GPU codec byte parity and stable dirty compaction",
+        "Android/Vulkan IL2CPP build completed successfully with a fresh 224657841-byte APK; Sigma shader/C# error scan is clean and the Quest eight-UAV validator passes"
+      ]
     },
     {
       "id": "S4-03",
       "title": "Implement forward geometry readout from the single carrier",
-      "status": "pending",
+      "status": "in_progress",
       "depends_on": ["S4-02"],
       "acceptance": [
         "SigmaRigBridge supplies coherent RGB_L/R, DEPTH_L/R, timestamps, immutable calibration epochs and exact sensor poses without CPU pixel copies",

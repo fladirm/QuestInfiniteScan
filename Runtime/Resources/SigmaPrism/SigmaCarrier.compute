@@ -1,0 +1,216 @@
+#pragma kernel InitializeNullPage
+#pragma kernel ClonePageGeneration
+#pragma kernel PublishPageGeneration
+#pragma kernel MarkPageDirty
+#pragma kernel ReleasePageSlot
+#pragma kernel CompactDirtyPages
+#pragma kernel AcknowledgeDirtyPages
+#pragma target 5.0
+
+#include "Sedenion16.hlsl"
+
+// Page metadata is scheduling/proof metadata. The 64x64xS16 decoded buffer is
+// the only physical carrier state consumed by later canonical operators.
+struct SigmaCarrierPageMetaGpu
+{
+    uint pageXLo;
+    uint pageXHi;
+    uint pageYLo;
+    uint pageYHi;
+    uint generation;
+    uint revision;
+    uint certificateOffsetLo;
+    uint certificateOffsetHi;
+    uint certificateCount;
+    uint flags;
+    uint reserved0;
+    uint reserved1;
+};
+
+StructuredBuffer<uint> _SigmaExactBackendGate;
+StructuredBuffer<uint2> _SourceCarrierState;
+RWStructuredBuffer<uint2> _TargetCarrierState;
+RWStructuredBuffer<SigmaCarrierPageMetaGpu> _PageMetadata;
+RWStructuredBuffer<uint> _DirtyFlags;
+RWStructuredBuffer<uint> _DirtyPageSlots;
+RWStructuredBuffer<uint> _DirtyCount;
+RWStructuredBuffer<uint> _DirtyDispatchArgs;
+
+uint _SourcePageSlot;
+uint _TargetPageSlot;
+uint _SourcePageCapacity;
+uint _PageCapacity;
+uint _PageXLo;
+uint _PageXHi;
+uint _PageYLo;
+uint _PageYHi;
+uint _Generation;
+uint _Revision;
+uint _CertificateOffsetLo;
+uint _CertificateOffsetHi;
+uint _CertificateCount;
+
+#define SIGMA_PAGE_SIZE 64u
+#define SIGMA_PAGE_SAMPLE_COUNT 4096u
+#define SIGMA_LANE_COUNT 16u
+#define SIGMA_PAGE_LANE_COUNT 65536u
+
+#define SIGMA_PAGE_ALLOCATED 1u
+#define SIGMA_PAGE_PUBLISHED 2u
+#define SIGMA_PAGE_DIRTY 4u
+
+groupshared uint SigmaDirtyScan[256];
+
+uint2 SigmaCarrierNullLane(uint lane)
+{
+    if (lane == (uint)SIGMA_Z_NULL_DYAD.x)
+        return SIGMA_Z_NULL_DYAD.y < 0 ? uint2(0u, 0xffff0000u) :
+            uint2(0u, 0x00010000u);
+    if (lane == (uint)SIGMA_Z_NULL_DYAD.z)
+        return SIGMA_Z_NULL_DYAD.w < 0 ? uint2(0u, 0xffff0000u) :
+            uint2(0u, 0x00010000u);
+    return uint2(0u, 0u);
+}
+
+SigmaCarrierPageMetaGpu SigmaRequestedPageMetadata()
+{
+    SigmaCarrierPageMetaGpu metadata;
+    metadata.pageXLo = _PageXLo;
+    metadata.pageXHi = _PageXHi;
+    metadata.pageYLo = _PageYLo;
+    metadata.pageYHi = _PageYHi;
+    metadata.generation = _Generation;
+    metadata.revision = _Revision;
+    metadata.certificateOffsetLo = _CertificateOffsetLo;
+    metadata.certificateOffsetHi = _CertificateOffsetHi;
+    metadata.certificateCount = _CertificateCount;
+    metadata.flags = SIGMA_PAGE_ALLOCATED | SIGMA_PAGE_DIRTY;
+    metadata.reserved0 = 0u;
+    metadata.reserved1 = 0u;
+    return metadata;
+}
+
+[numthreads(64, 1, 1)]
+void InitializeNullPage(uint3 dispatchId : SV_DispatchThreadID)
+{
+    uint sample = dispatchId.x;
+    if (_SigmaExactBackendGate[0] == 0u || sample >= SIGMA_PAGE_SAMPLE_COUNT ||
+        _TargetPageSlot >= _PageCapacity)
+        return;
+
+    uint stateBase = _TargetPageSlot * SIGMA_PAGE_LANE_COUNT +
+        sample * SIGMA_LANE_COUNT;
+    [unroll]
+    for (uint lane = 0u; lane < SIGMA_LANE_COUNT; ++lane)
+        _TargetCarrierState[stateBase + lane] = SigmaCarrierNullLane(lane);
+
+    if (sample == 0u)
+    {
+        _PageMetadata[_TargetPageSlot] = SigmaRequestedPageMetadata();
+        _DirtyFlags[_TargetPageSlot] = 1u;
+    }
+}
+
+[numthreads(64, 1, 1)]
+void ClonePageGeneration(uint3 dispatchId : SV_DispatchThreadID)
+{
+    uint sample = dispatchId.x;
+    if (_SigmaExactBackendGate[0] == 0u || sample >= SIGMA_PAGE_SAMPLE_COUNT ||
+        _SourcePageSlot >= _SourcePageCapacity || _TargetPageSlot >= _PageCapacity)
+        return;
+
+    uint sourceBase = _SourcePageSlot * SIGMA_PAGE_LANE_COUNT +
+        sample * SIGMA_LANE_COUNT;
+    uint targetBase = _TargetPageSlot * SIGMA_PAGE_LANE_COUNT +
+        sample * SIGMA_LANE_COUNT;
+    [unroll]
+    for (uint lane = 0u; lane < SIGMA_LANE_COUNT; ++lane)
+        _TargetCarrierState[targetBase + lane] = _SourceCarrierState[sourceBase + lane];
+
+    if (sample == 0u)
+    {
+        _PageMetadata[_TargetPageSlot] = SigmaRequestedPageMetadata();
+        _DirtyFlags[_TargetPageSlot] = 1u;
+    }
+}
+
+[numthreads(1, 1, 1)]
+void PublishPageGeneration(uint3 dispatchId : SV_DispatchThreadID)
+{
+    if (_SigmaExactBackendGate[0] == 0u || _TargetPageSlot >= _PageCapacity)
+        return;
+    SigmaCarrierPageMetaGpu metadata = _PageMetadata[_TargetPageSlot];
+    metadata.flags |= SIGMA_PAGE_PUBLISHED | SIGMA_PAGE_DIRTY;
+    _PageMetadata[_TargetPageSlot] = metadata;
+    _DirtyFlags[_TargetPageSlot] = 1u;
+}
+
+[numthreads(1, 1, 1)]
+void MarkPageDirty(uint3 dispatchId : SV_DispatchThreadID)
+{
+    if (_SigmaExactBackendGate[0] == 0u || _TargetPageSlot >= _PageCapacity)
+        return;
+    _DirtyFlags[_TargetPageSlot] = 1u;
+    SigmaCarrierPageMetaGpu metadata = _PageMetadata[_TargetPageSlot];
+    metadata.flags |= SIGMA_PAGE_DIRTY;
+    _PageMetadata[_TargetPageSlot] = metadata;
+}
+
+[numthreads(1, 1, 1)]
+void ReleasePageSlot(uint3 dispatchId : SV_DispatchThreadID)
+{
+    if (_TargetPageSlot >= _PageCapacity)
+        return;
+    SigmaCarrierPageMetaGpu metadata = (SigmaCarrierPageMetaGpu)0;
+    _PageMetadata[_TargetPageSlot] = metadata;
+    _DirtyFlags[_TargetPageSlot] = 0u;
+}
+
+// One segment has at most 256 decoded pages. The fixed scan is therefore a
+// complete, stable prefix operation: dirty slots are emitted in ascending slot
+// order and never inherit nondeterministic atomic arrival order.
+[numthreads(256, 1, 1)]
+void CompactDirtyPages(uint3 groupThreadId : SV_GroupThreadID)
+{
+    uint lane = groupThreadId.x;
+    uint active = lane < _PageCapacity && _DirtyFlags[lane] != 0u ? 1u : 0u;
+    SigmaDirtyScan[lane] = active;
+    GroupMemoryBarrierWithGroupSync();
+
+    [unroll]
+    for (uint offset = 1u; offset < 256u; offset <<= 1u)
+    {
+        uint addend = lane >= offset ? SigmaDirtyScan[lane - offset] : 0u;
+        GroupMemoryBarrierWithGroupSync();
+        SigmaDirtyScan[lane] += addend;
+        GroupMemoryBarrierWithGroupSync();
+    }
+
+    if (active != 0u)
+        _DirtyPageSlots[SigmaDirtyScan[lane] - 1u] = lane;
+
+    if (lane == 0u)
+    {
+        uint count = SigmaDirtyScan[255u];
+        _DirtyCount[0] = count;
+        _DirtyDispatchArgs[0] = count;
+        _DirtyDispatchArgs[1] = 1u;
+        _DirtyDispatchArgs[2] = 1u;
+    }
+}
+
+[numthreads(64, 1, 1)]
+void AcknowledgeDirtyPages(uint3 dispatchId : SV_DispatchThreadID)
+{
+    uint index = dispatchId.x;
+    uint count = _DirtyCount[0];
+    if (index >= count)
+        return;
+    uint slot = _DirtyPageSlots[index];
+    if (slot >= _PageCapacity)
+        return;
+    _DirtyFlags[slot] = 0u;
+    SigmaCarrierPageMetaGpu metadata = _PageMetadata[slot];
+    metadata.flags &= ~SIGMA_PAGE_DIRTY;
+    _PageMetadata[slot] = metadata;
+}

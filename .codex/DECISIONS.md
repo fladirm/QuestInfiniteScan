@@ -51,3 +51,18 @@ Git history and are not active on this branch.
 - Consequence: later carrier/inverse kernels consume `SigmaOperatorSet.Canonical`,
   generated descriptors and the backend gate; they may not hand-code alternate
   sedenion arithmetic or infer backend legality from platform names.
+
+## ADR-S404 — Exact sparse carrier storage and immutable publication
+
+- Decision: canonical persistence bytes are defined by the deterministic
+  NULL/CONST/AFFINE/DELTA/RAW CPU codec oracle; packed GPU decoded pages are an
+  exact execution lowering of the same Q16.48 samples, not another state format.
+- Decision: every published page generation is immutable. Canonical mutation owns
+  an unpublished GPU write lease, publishes atomically after the exact backend
+  gate, and never reuses a generation number after abort.
+- Decision: physical pages, 8x8 codec blocks and segmented Vulkan buffers are only
+  addressing/storage boundaries. Dirty publication is stably compacted and driven
+  indirectly; no boundary may acquire reconstruction meaning.
+- Consequence: later readout/inverse stages consume generation-keyed decoded pages
+  and must create a new generation for accepted mutation. Persistence/restart must
+  reproduce the exact selected page bytes and algebra/operator fingerprints.

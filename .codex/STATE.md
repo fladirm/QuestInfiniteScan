@@ -22,14 +22,15 @@ Updated: 2026-08-22 (Europe/Prague)
 ## Current DAG gate
 
 - `S4-00` is accepted in commit `be95c9e`.
-- `S4-01` is accepted for its isolated checkpoint commit.
-- `S4-02` is the sole `in_progress` node.
+- `S4-01` is accepted in commit `5f71653`.
+- `S4-02` is accepted for its isolated checkpoint commit.
+- `S4-03` is the sole `in_progress` node.
 - The retained product surface is only four-stream GPU capture/synchronization,
   immutable calibration/poses, Quest/XR lifecycle, permissions/anchors, input/UI,
   neutral GPU helpers and build/deploy tooling.
-- Exact S16 mutation now has one CPU semantic domain, generated signed-XOR/operator
-  authority and a GPU-resident device self-test gate. No carrier allocation or live
-  state mutation exists until S4-02 supplies the sparse exact carrier.
+- Exact S16 mutation has one CPU semantic domain, generated signed-XOR/operator
+  authority and a GPU-resident device self-test gate. The sparse decoded carrier is
+  now live GPU state; sensor-driven inverse mutation remains gated until S4-04.
 
 ## S4-01 accepted implementation
 
@@ -53,15 +54,32 @@ Updated: 2026-08-22 (Europe/Prague)
   224,368,573-byte APK with no Sigma shader/C# compile error. This is build evidence,
   not a claimed physical headset scan.
 
+## S4-02 accepted implementation
+
+- `SigmaCarrier` is a logically unbounded signed-64 page map whose unallocated
+  state is the generated `z_null`; 64x64 decoded pages contain 8x8 codec blocks.
+- GPU page state is packed exact Q16.48 and segmented below the runtime Vulkan
+  binding range. Immutable write leases publish monotonically numbered generations;
+  prior generations remain independently releasable.
+- `SigmaCarrierCodec` owns deterministic persistence bytes for
+  NULL/CONST/AFFINE/DELTA/RAW. The GPU codec matches its exact CPU oracle, including
+  widened DELTA predictor/residual arithmetic and stable LSB-first packing.
+- Dirty pages compact stably in ascending physical slot order into indirect work
+  without runtime readback. Page/block/segment boundaries remain storage only.
+- Verification: Unity Vulkan EditMode passed 26/26; CPU/GPU codec bytes and decoded
+  samples match, page/snapshot restart re-encodes byte-identically, the eight-UAV
+  gate passes, and Android/Vulkan IL2CPP produced a fresh 224,657,841-byte APK with
+  no Sigma compile error. This is build evidence, not a device scan claim.
+
 ## Next exact actions
 
-1. Commit the accepted S4-01 exact operator checkpoint with this fresh code graph.
-2. Implement the logically unbounded signed-64 two-dimensional `SigmaCarrier` with
-   implicit `z_null`, 64x64 pages, 8x8 blocks and immutable generations.
-3. Implement deterministic lossless NULL/CONST/AFFINE/DELTA/RAW physical codecs,
-   segmented pools, certificate ranges and GPU dirty compaction.
-4. Prove byte-identical encode/decode/re-encode and restart fixtures, regenerate the
-   graph, then close S4-02 in its own commit.
+1. Commit the accepted S4-02 carrier/codec checkpoint with this fresh code graph.
+2. Implement `SigmaRigBridge`-driven forward geometry readout over visible resident
+   carrier pages into per-eye depth, CarrierUV, support and generation-key targets.
+3. Ensure generated `z_null`/unsupported transitions emit no contact and hardware
+   rasterization remains the sole first-hit visibility mechanism.
+4. Prove deterministic regular/folded/null carrier fixtures, regenerate the graph
+   and close S4-03 in its own commit.
 
 ## Verification policy
 
