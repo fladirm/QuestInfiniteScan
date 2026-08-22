@@ -195,6 +195,30 @@ namespace Genesis.RoomScan.SigmaPrism
 
         internal bool TryRender(StereoRigFrameLease source)
         {
+            if (source == null)
+                return false;
+            return RenderPrediction(source,
+                SigmaPoseGaugeState.Identity(source.CalibrationEpoch), true,
+                out _);
+        }
+
+        internal bool TryRenderPoseGauge(StereoRigFrameLease source,
+            SigmaPoseGaugeState gauge, out SigmaPredictionFrameLease prediction)
+        {
+            if (!gauge.Resolved || source == null ||
+                gauge.CalibrationEpoch != source.CalibrationEpoch)
+            {
+                prediction = null;
+                return false;
+            }
+            return RenderPrediction(source, gauge, false, out prediction);
+        }
+
+        private bool RenderPrediction(StereoRigFrameLease source,
+            SigmaPoseGaugeState gauge, bool publish,
+            out SigmaPredictionFrameLease result)
+        {
+            result = null;
             if (!_initialized || source == null || !source.IsValid)
                 return false;
             if (_calibration == null || !_calibration.IsCompatible(source))
@@ -202,7 +226,8 @@ namespace Genesis.RoomScan.SigmaPrism
                 if (!RigCalibration.TryCreate(source, out _calibration))
                     return false;
             }
-            if (!_targets.TryBegin(source, out SigmaPredictionFrameLease prediction))
+            if (!_targets.TryBegin(source, gauge,
+                    out SigmaPredictionFrameLease prediction))
             {
                 BackpressureFrames++;
                 return false;
@@ -218,9 +243,12 @@ namespace Genesis.RoomScan.SigmaPrism
                     GpuImageView view = eye == 0
                         ? source.DepthLeft
                         : source.DepthRight;
+                    Pose correctedPose = gauge.Apply(
+                        source.DepthLeft.WorldFromCamera,
+                        view.WorldFromCamera);
                     Matrix4x4 opticalFromWorld = Matrix4x4.TRS(
-                        view.WorldFromCamera.position,
-                        view.WorldFromCamera.rotation, Vector3.one).inverse;
+                        correctedPose.position, correctedPose.rotation,
+                        Vector3.one).inverse;
                     Matrix4x4 clipFromWorld = BuildClipFromWorld(view,
                         opticalFromWorld);
                     SetMrt(prediction);
@@ -241,16 +269,21 @@ namespace Genesis.RoomScan.SigmaPrism
                 if (cacheChanged)
                     _readoutChangedCoordinates.Clear();
                 prediction.CommitGpuWrite();
-                SigmaPredictionFrameLease previous = _latest;
-                _latest = prediction;
-                previous?.Dispose();
+                result = prediction;
+                if (publish)
+                {
+                    SigmaPredictionFrameLease previous = _latest;
+                    _latest = prediction;
+                    previous?.Dispose();
+                    PredictionReady?.Invoke(prediction);
+                }
                 RenderedFrames++;
-                PredictionReady?.Invoke(prediction);
                 return true;
             }
             catch (Exception exception)
             {
                 prediction.Dispose();
+                result = null;
                 Logger.Error("Sigma forward readout failed: " + exception.Message);
                 return false;
             }

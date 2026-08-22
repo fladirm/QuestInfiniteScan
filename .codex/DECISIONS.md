@@ -151,3 +151,20 @@ Git history and are not active on this branch.
   `Psi`; no displacement, chart, mip hierarchy or secondary detail ontology is
   permitted. S4-08 changes only the observation pose gauge and must reuse this
   exact-cell infrastructure rather than introduce a second SLAM.
+
+## ADR-S410 — Pose correction is an exact same-frame readout gauge
+
+- Decision: conditioned dual-eye overlaps emit independent conservative twist
+  intervals which meet the bounded Meta prior in exact Q16.48. A non-empty meet
+  selects the componentwise minimum-magnitude point; conflict or insufficient
+  independent support retains the immutable Meta pose.
+- Decision: an accepted nonzero twist rerasterizes the same retained
+  `StereoRigFrame` before any carrier inverse work. Depth and RGB calibration then
+  consume that corrected prediction/gauge snapshot together; a correction from
+  frame N is never blindly carried into frame N+1.
+- Decision: overlap work is distributed into GPU partial meets and one fixed
+  reduction. The 64-byte asynchronous result is readout scheduling metadata, not
+  carrier state, and cannot rewrite `Psi`, intrinsic topology, timestamps or rig
+  extrinsics.
+- Consequence: S4-09 receives one unchanged canonical carrier plus a bounded
+  observation gauge, not a pose graph, second SLAM or historical geometry rewrite.

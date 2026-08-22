@@ -1,0 +1,319 @@
+#pragma kernel BuildPoseGaugePartials
+#pragma kernel ReducePoseGauge
+#pragma target 5.0
+
+#include "SigmaInverseMath.hlsl"
+
+Texture2DArray<float2> _PoseMetricDepth;
+Texture2DArray<uint> _PoseDepthFlags;
+Texture2DArray<float2> _PosePredDepthSupport;
+Texture2DArray<float4> _PosePredCarrierUvNormal;
+Texture2D<float4> _PoseRayLeft;
+Texture2D<float4> _PoseRayRight;
+StructuredBuffer<uint2> _PosePrior; // current[6], Meta half-width[6]
+RWStructuredBuffer<uint4> _PoseResult;
+RWStructuredBuffer<uint4> _PosePartials; // meta + six bounds per workgroup
+
+uint2 _PoseResolution;
+uint _PoseSampleStride;
+uint _PoseRevision;
+uint _PosePartialCount;
+float4 _PosePriorFloat; // translation half-width, rotation half-width, min effect, reserved
+float4x4 _PoseWorldFromOpticalLeft;
+float4x4 _PoseWorldFromOpticalRight;
+float4x4 _PoseReferenceFromWorld;
+
+groupshared uint4 PoseLaneBounds[64u * 6u];
+groupshared uint PoseLaneSourceMask[64u];
+groupshared uint PoseLaneCount[64u];
+groupshared uint PoseLaneFailed[64u];
+
+float3 SigmaPoseDecodeNormal(float2 encoded)
+{
+    float3 n = float3(encoded, 1.0 - abs(encoded.x) - abs(encoded.y));
+    if (n.z < 0.0)
+        n.xy = (1.0 - abs(n.yx)) *
+            float2(n.x >= 0.0 ? 1.0 : -1.0,
+                n.y >= 0.0 ? 1.0 : -1.0);
+    return normalize(n);
+}
+
+SigmaQ48Bounds SigmaPoseMetaPrior(uint component, inout uint valid)
+{
+    SigmaQ48Bounds result;
+    uint2 halfWidth = _PosePrior[6u + component];
+    result.lo = SigmaQ48NegateChecked(halfWidth, valid);
+    result.hi = halfWidth;
+    return result;
+}
+
+uint2 SigmaPoseMaxIncrement(uint component, inout uint valid)
+{
+    SigmaQ48Bounds prior = SigmaPoseMetaPrior(component, valid);
+    uint2 current = _PosePrior[component];
+    uint2 lo = SigmaQ48SubChecked(prior.lo, current, valid);
+    uint2 hi = SigmaQ48SubChecked(prior.hi, current, valid);
+    return SigmaQ48Max(SigmaU64AbsSigned(lo), SigmaU64AbsSigned(hi));
+}
+
+bool SigmaPoseBuildCell(uint eye, uint2 pixel, out uint component,
+    out SigmaQ48Bounds absoluteCell)
+{
+    component = 0u;
+    absoluteCell = (SigmaQ48Bounds)0;
+    uint3 address = uint3(pixel, eye);
+    float2 metric = _PoseMetricDepth[address];
+    float2 prediction = _PosePredDepthSupport[address];
+    if ((_PoseDepthFlags[address] & 1u) == 0u || !(prediction.y > 0.0) ||
+        !(metric.x > 0.0) || !all(isfinite(metric)) ||
+        !all(isfinite(prediction)) || abs(metric.x - prediction.x) > 0.15)
+        return false;
+
+    uint2 neighbour = min(pixel + uint2(1u, 0u), _PoseResolution - 1u);
+    float2 adjacent = _PosePredDepthSupport[uint3(neighbour, eye)];
+    if (!(adjacent.y > 0.0) || abs(adjacent.x - prediction.x) > 0.03)
+        return false;
+
+    float3 ray = eye == 0u ? _PoseRayLeft[pixel].xyz : _PoseRayRight[pixel].xyz;
+    float4x4 worldFromOptical = eye == 0u
+        ? _PoseWorldFromOpticalLeft : _PoseWorldFromOpticalRight;
+    float3 measuredWorld = mul(worldFromOptical,
+        float4(ray * metric.x, 1.0)).xyz;
+    float3 predictedWorld = mul(worldFromOptical,
+        float4(ray * prediction.x, 1.0)).xyz;
+    float3 normalOptical = SigmaPoseDecodeNormal(
+        _PosePredCarrierUvNormal[address].zw);
+    float3 normalWorld = normalize(mul((float3x3)worldFromOptical,
+        normalOptical));
+    float3 measured = mul(_PoseReferenceFromWorld,
+        float4(measuredWorld, 1.0)).xyz;
+    float3 predicted = mul(_PoseReferenceFromWorld,
+        float4(predictedWorld, 1.0)).xyz;
+    float3 normal = normalize(mul((float3x3)_PoseReferenceFromWorld,
+        normalWorld));
+    if (!all(isfinite(measured)) || !all(isfinite(predicted)) ||
+        !all(isfinite(normal)))
+        return false;
+
+    float residual = dot(measured - predicted, normal);
+    float3 rotationJacobian = cross(measured, normal);
+    float jacobian[6] = { normal.x, normal.y, normal.z,
+        rotationJacobian.x, rotationJacobian.y, rotationJacobian.z };
+    float bestEffect = 0.0;
+    [unroll]
+    for (uint candidate = 0u; candidate < 6u; ++candidate)
+    {
+        float scale = candidate < 3u ? _PosePriorFloat.x : _PosePriorFloat.y;
+        float effect = abs(jacobian[candidate]) * scale;
+        if (effect > bestEffect)
+        {
+            bestEffect = effect;
+            component = candidate;
+        }
+    }
+    if (bestEffect <= _PosePriorFloat.z)
+        return false;
+
+    uint valid = 1u;
+    uint2 measuredQ = SigmaQ48FromFloatNearestEven(metric.x, valid);
+    uint2 predictedQ = SigmaQ48FromFloatNearestEven(prediction.x, valid);
+    uint2 residualQ = SigmaQ48SubChecked(measuredQ, predictedQ, valid);
+    uint2 coefficient = SigmaQ48FromFloatNearestEven(jacobian[component], valid);
+    if (valid == 0u || SigmaU64Equal(coefficient, SIGMA_Q48_ZERO))
+        return false;
+
+    uint2 width = SigmaDepthHalfWidth(eye, measuredQ, valid);
+    uint2 predictionMass = SigmaQ48FromFloatNearestEven(prediction.y, valid);
+    width = SigmaQ48AddChecked(width,
+        SigmaPriorHalfWidth(predictionMass, valid), valid);
+    [unroll]
+    for (uint other = 0u; other < 6u; ++other)
+    {
+        if (other == component)
+            continue;
+        uint2 otherJacobian = SigmaQ48FromFloatNearestEven(
+            abs(jacobian[other]), valid);
+        uint2 contribution = SigmaQ48MulUpper(otherJacobian,
+            SigmaPoseMaxIncrement(other, valid), valid);
+        width = SigmaQ48AddChecked(width, contribution, valid);
+    }
+    width = SigmaQ48AddChecked(width, uint2(2u, 0u), valid);
+    uint2 target = SigmaQ48NegateChecked(residualQ, valid);
+    SigmaQ48Bounds numerator = SigmaQ48Widen(target, width, valid);
+    uint2 q0lo = SigmaQ48DivLower(numerator.lo, coefficient, valid);
+    uint2 q1lo = SigmaQ48DivLower(numerator.hi, coefficient, valid);
+    uint2 q0hi = SigmaQ48DivUpper(numerator.lo, coefficient, valid);
+    uint2 q1hi = SigmaQ48DivUpper(numerator.hi, coefficient, valid);
+    uint2 current = _PosePrior[component];
+    absoluteCell.lo = SigmaQ48AddChecked(SigmaQ48Min(q0lo, q1lo), current,
+        valid);
+    absoluteCell.hi = SigmaQ48AddChecked(SigmaQ48Max(q0hi, q1hi), current,
+        valid);
+    SigmaQ48Bounds prior = SigmaPoseMetaPrior(component, valid);
+    absoluteCell.lo = SigmaQ48Max(absoluteCell.lo, prior.lo);
+    absoluteCell.hi = SigmaQ48Min(absoluteCell.hi, prior.hi);
+    return valid != 0u;
+}
+
+[numthreads(64, 1, 1)]
+void BuildPoseGaugePartials(uint3 groupThreadId : SV_GroupThreadID,
+    uint3 groupId : SV_GroupID)
+{
+    uint lane = groupThreadId.x;
+    uint valid = 1u;
+    SigmaQ48Bounds joint[6];
+    [unroll]
+    for (uint component = 0u; component < 6u; ++component)
+        joint[component] = SigmaPoseMetaPrior(component, valid);
+    uint sourceMask = 0u;
+    uint acceptedCount = 0u;
+    uint failed = valid == 0u ? 1u : 0u;
+
+    uint stride = max(1u, _PoseSampleStride);
+    uint sampleWidth = (_PoseResolution.x + stride - 1u) / stride;
+    uint sampleHeight = (_PoseResolution.y + stride - 1u) / stride;
+    uint samplesPerEye = sampleWidth * sampleHeight;
+    uint work = groupId.x * 64u + lane;
+    if (work < samplesPerEye * 2u)
+    {
+        uint eye = work / samplesPerEye;
+        uint sample = work - eye * samplesPerEye;
+        uint2 pixel = uint2((sample % sampleWidth) * stride + stride / 2u,
+            (sample / sampleWidth) * stride + stride / 2u);
+        pixel = min(pixel, _PoseResolution - 1u);
+        uint component;
+        SigmaQ48Bounds cell;
+        if (SigmaPoseBuildCell(eye, pixel, component, cell))
+        {
+            joint[component] = cell;
+            sourceMask = 1u << eye;
+            acceptedCount = 1u;
+        }
+    }
+
+    [unroll]
+    for (uint component = 0u; component < 6u; ++component)
+        PoseLaneBounds[lane * 6u + component] = uint4(joint[component].lo,
+            joint[component].hi);
+    PoseLaneSourceMask[lane] = sourceMask;
+    PoseLaneCount[lane] = acceptedCount;
+    PoseLaneFailed[lane] = failed;
+    GroupMemoryBarrierWithGroupSync();
+    if (lane != 0u)
+        return;
+
+    SigmaQ48Bounds result[6];
+    [unroll]
+    for (uint component = 0u; component < 6u; ++component)
+        result[component] = SigmaPoseMetaPrior(component, valid);
+    sourceMask = 0u;
+    acceptedCount = 0u;
+    failed = valid == 0u ? 1u : 0u;
+    [loop]
+    for (uint sourceLane = 0u; sourceLane < 64u; ++sourceLane)
+    {
+        sourceMask |= PoseLaneSourceMask[sourceLane];
+        acceptedCount += PoseLaneCount[sourceLane];
+        failed |= PoseLaneFailed[sourceLane];
+        [unroll]
+        for (uint component = 0u; component < 6u; ++component)
+        {
+            uint4 packed = PoseLaneBounds[sourceLane * 6u + component];
+            result[component].lo = SigmaQ48Max(result[component].lo, packed.xy);
+            result[component].hi = SigmaQ48Min(result[component].hi, packed.zw);
+            failed |= SigmaQ48Less(result[component].hi,
+                result[component].lo) ? 1u : 0u;
+        }
+    }
+
+    uint output = groupId.x * 7u;
+    _PosePartials[output] = uint4(sourceMask, acceptedCount, failed, 0u);
+    [unroll]
+    for (uint component = 0u; component < 6u; ++component)
+        _PosePartials[output + 1u + component] = uint4(
+            result[component].lo, result[component].hi);
+}
+
+[numthreads(64, 1, 1)]
+void ReducePoseGauge(uint3 groupThreadId : SV_GroupThreadID)
+{
+    uint lane = groupThreadId.x;
+    uint valid = 1u;
+    SigmaQ48Bounds joint[6];
+    [unroll]
+    for (uint component = 0u; component < 6u; ++component)
+        joint[component] = SigmaPoseMetaPrior(component, valid);
+    uint sourceMask = 0u;
+    uint acceptedCount = 0u;
+    uint failed = valid == 0u ? 1u : 0u;
+    [loop]
+    for (uint partial = lane; partial < _PosePartialCount; partial += 64u)
+    {
+        uint offset = partial * 7u;
+        uint4 meta = _PosePartials[offset];
+        sourceMask |= meta.x;
+        acceptedCount += meta.y;
+        failed |= meta.z;
+        [unroll]
+        for (uint component = 0u; component < 6u; ++component)
+        {
+            uint4 packed = _PosePartials[offset + 1u + component];
+            joint[component].lo = SigmaQ48Max(joint[component].lo, packed.xy);
+            joint[component].hi = SigmaQ48Min(joint[component].hi, packed.zw);
+            failed |= SigmaQ48Less(joint[component].hi,
+                joint[component].lo) ? 1u : 0u;
+        }
+    }
+    [unroll]
+    for (uint component = 0u; component < 6u; ++component)
+        PoseLaneBounds[lane * 6u + component] = uint4(joint[component].lo,
+            joint[component].hi);
+    PoseLaneSourceMask[lane] = sourceMask;
+    PoseLaneCount[lane] = acceptedCount;
+    PoseLaneFailed[lane] = failed;
+    GroupMemoryBarrierWithGroupSync();
+    if (lane != 0u)
+        return;
+
+    SigmaQ48Bounds result[6];
+    [unroll]
+    for (uint component = 0u; component < 6u; ++component)
+        result[component] = SigmaPoseMetaPrior(component, valid);
+    sourceMask = 0u;
+    acceptedCount = 0u;
+    failed = valid == 0u || !SigmaCanonicalMutationEnabled() ? 1u : 0u;
+    [loop]
+    for (uint sourceLane = 0u; sourceLane < 64u; ++sourceLane)
+    {
+        sourceMask |= PoseLaneSourceMask[sourceLane];
+        acceptedCount += PoseLaneCount[sourceLane];
+        failed |= PoseLaneFailed[sourceLane];
+        [unroll]
+        for (uint component = 0u; component < 6u; ++component)
+        {
+            uint4 packed = PoseLaneBounds[sourceLane * 6u + component];
+            result[component].lo = SigmaQ48Max(result[component].lo, packed.xy);
+            result[component].hi = SigmaQ48Min(result[component].hi, packed.zw);
+            failed |= SigmaQ48Less(result[component].hi,
+                result[component].lo) ? 1u : 0u;
+        }
+    }
+    bool resolved = failed == 0u && (sourceMask & 3u) == 3u &&
+        acceptedCount >= 8u;
+    uint2 twist[6];
+    [unroll]
+    for (uint component = 0u; component < 6u; ++component)
+    {
+        bool containsZero = !SigmaQ48Less(SIGMA_Q48_ZERO,
+                result[component].lo) &&
+            !SigmaQ48Less(result[component].hi, SIGMA_Q48_ZERO);
+        twist[component] = !resolved || containsZero ? SIGMA_Q48_ZERO :
+            SigmaQ48Less(SIGMA_Q48_ZERO, result[component].lo)
+                ? result[component].lo : result[component].hi;
+    }
+    _PoseResult[0] = uint4(resolved ? 1u : 0u, resolved ? 0u : 1u,
+        sourceMask, acceptedCount);
+    _PoseResult[1] = uint4(twist[0], twist[1]);
+    _PoseResult[2] = uint4(twist[2], twist[3]);
+    _PoseResult[3] = uint4(twist[4], twist[5]);
+}

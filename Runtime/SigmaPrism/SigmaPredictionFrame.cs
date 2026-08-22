@@ -14,15 +14,18 @@ namespace Genesis.RoomScan.SigmaPrism
         private SigmaPredictionTargetRing _owner;
         private readonly int _slot;
         private readonly uint _generation;
+        private readonly SigmaPoseGaugeState _poseGauge;
         private StereoRigFrameLease _source;
 
         internal SigmaPredictionFrameLease(SigmaPredictionTargetRing owner,
-            int slot, uint generation, StereoRigFrameLease source)
+            int slot, uint generation, StereoRigFrameLease source,
+            SigmaPoseGaugeState poseGauge)
         {
             _owner = owner;
             _slot = slot;
             _generation = generation;
             _source = source;
+            _poseGauge = poseGauge;
         }
 
         public StereoRigFrameLease Source => _source ??
@@ -33,6 +36,7 @@ namespace Genesis.RoomScan.SigmaPrism
         public RenderTexture StateKey => Slot.StateKey;
         public RenderTexture HardwareDepth => Slot.HardwareDepth;
         public uint TargetGeneration => _generation;
+        public SigmaPoseGaugeState PoseGauge => _poseGauge;
         public bool IsDisposed => _owner == null;
 
         public SigmaPredictionFrameLease Retain()
@@ -40,7 +44,7 @@ namespace Genesis.RoomScan.SigmaPrism
             SigmaPredictionTargetRing owner = Owner;
             owner.Retain(_slot, _generation);
             return new SigmaPredictionFrameLease(owner, _slot, _generation,
-                Source.Retain());
+                Source.Retain(), _poseGauge);
         }
 
         internal void CommitGpuWrite() => Owner.CommitGpuWrite(_slot, _generation);
@@ -93,6 +97,7 @@ namespace Genesis.RoomScan.SigmaPrism
         }
 
         internal bool TryBegin(StereoRigFrameLease source,
+            SigmaPoseGaugeState poseGauge,
             out SigmaPredictionFrameLease frame)
         {
             frame = null;
@@ -119,7 +124,7 @@ namespace Genesis.RoomScan.SigmaPrism
             slot.HasFence = false;
             _cursor = (selected + 1) % _slots.Length;
             frame = new SigmaPredictionFrameLease(this, selected,
-                slot.Generation, source.Retain());
+                slot.Generation, source.Retain(), poseGauge);
             return true;
         }
 

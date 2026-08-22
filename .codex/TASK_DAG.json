@@ -177,7 +177,7 @@
     {
       "id": "S4-08",
       "title": "Implement bounded pose-gauge intersection",
-      "status": "in_progress",
+      "status": "done",
       "depends_on": ["S4-07"],
       "acceptance": [
         "Conditioned overlaps produce bounded six-component Q16.48 pose-twist source cells that intersect the immutable Meta prior",
@@ -185,7 +185,13 @@
         "Pose is a readout gauge and never rewrites carrier connectivity, frame timestamps or canonical samples",
         "Revisit improves complete forward-readout agreement without creating a second SLAM or reconstruction state"
       ],
-      "evidence": []
+      "evidence": [
+        "SigmaPoseGauge.compute constructs sparse conditioned point-to-plane source intervals in parallel GPU workgroups, reduces them by exact source-order-independent Q16.48 intersection against the immutable six-component Meta prior, and selects the deterministic minimum-magnitude point only from a non-empty two-eye meet",
+        "Pose solving is a two-stage readout transaction: raw Meta-pose prediction supplies the overlap, the accepted gauge rerasterizes the same immutable StereoRigFrame, and only that corrected prediction/pose snapshot enters both depth and RGB inverse calibration; unresolved/conflicting evidence retains the raw Meta pose",
+        "SigmaPoseGaugeState is a bounded noncanonical readout value; applying it preserves fixed rig extrinsics and no carrier sample, intrinsic topology record, timestamp, calibration epoch or proof certificate is rewritten",
+        "The pose pass is GPU-parallel rather than a single long-running workgroup: sampled overlaps reduce to compact partial meets and one bounded 64-lane final reduction; only the 64-byte exact result returns asynchronously",
+        "Unity 6000.5.9f1 Vulkan EditMode passed 64/64 including exact minimum-magnitude/identity and rigid-rig invariance contracts; generated operators, git diff and eight-UAV validation passed. Android build/deploy follows from this exact checkpoint before S4-09"
+      ]
     },
     {
       "id": "S4-09",

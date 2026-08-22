@@ -25,6 +25,7 @@ namespace Genesis.RoomScan.SigmaPrism
         private const string NormalizeResource = "SigmaPrism/DepthNormalize";
         private const string InverseResource = "SigmaPrism/SigmaInverse";
         private const string ConeLutResource = "SigmaPrism/ConeLut";
+        private const string PoseGaugeResource = "SigmaPrism/SigmaPoseGauge";
         private const int SegmentFlagStride = SigmaCarrier.MaximumPagesPerSegment;
         private const int CalibrationStride = 36;
         private const int RgbCalibrationStride = 8;
@@ -38,6 +39,11 @@ namespace Genesis.RoomScan.SigmaPrism
         [Header("Bounded asynchronous scheduling")]
         [SerializeField, Range(4096, 131072)] private int conflictCapacity = 32768;
         [SerializeField, Range(1, 8)] private int maxGaugePagesPerCommit = 6;
+        [SerializeField, Range(0.005f, 0.1f)]
+        private float poseTranslationPriorMetres = 0.03f;
+        [SerializeField, Range(0.25f, 5f)]
+        private float poseRotationPriorDegrees = 2f;
+        [SerializeField, Range(4, 32)] private int poseSampleStride = 16;
 
         private readonly List<SigmaCarrierReadBatch> _readBatches = new();
         private readonly List<SigmaCarrierPageHandle> _currentPages = new();
@@ -50,6 +56,8 @@ namespace Genesis.RoomScan.SigmaPrism
             new SigmaPackedQ48[CalibrationStride * 2];
         private readonly SigmaPackedQ48[] _rgbCalibrationUpload =
             new SigmaPackedQ48[RgbCalibrationStride * 2];
+        private readonly SigmaPackedQ48[] _posePriorUpload =
+            new SigmaPackedQ48[12];
 
         private RoomScanner _scanner;
         private SigmaCarrier _carrier;
@@ -60,6 +68,7 @@ namespace Genesis.RoomScan.SigmaPrism
         private ComputeShader _normalize;
         private ComputeShader _inverse;
         private ComputeShader _coneLutShader;
+        private ComputeShader _poseGaugeCompute;
         private RigCalibration _calibration;
         private RigConeLutSet _coneLuts;
         private SigmaPredictionFrameLease _pendingPrediction;
@@ -81,6 +90,10 @@ namespace Genesis.RoomScan.SigmaPrism
         private GraphicsBuffer _conflictCount;
         private GraphicsBuffer _frameCounters;
         private GraphicsBuffer _gaugePromotionCounts;
+        private GraphicsBuffer _posePrior;
+        private GraphicsBuffer _poseResult;
+        private GraphicsBuffer _posePartials;
+        private int _posePartialCapacity;
         private int _activeFlagCapacity;
         private int _blockFlagCapacity;
         private Vector2Int _scratchResolution;
@@ -97,6 +110,8 @@ namespace Genesis.RoomScan.SigmaPrism
         private int _proposalKernel;
         private int _commitKernel;
         private int _promoteKernel;
+        private int _poseBuildKernel;
+        private int _poseReduceKernel;
 
         public string ModuleName => "Sigma joint RGB-D inverse";
         public bool IsInitialized => _initialized && !_disposed;
@@ -123,9 +138,11 @@ namespace Genesis.RoomScan.SigmaPrism
             _normalize = Resources.Load<ComputeShader>(NormalizeResource);
             _inverse = Resources.Load<ComputeShader>(InverseResource);
             _coneLutShader = Resources.Load<ComputeShader>(ConeLutResource);
+            _poseGaugeCompute = Resources.Load<ComputeShader>(PoseGaugeResource);
             if (_carrier == null || _topology == null || _renderer == null ||
                 _rigBridge == null ||
-                _normalize == null || _inverse == null || _coneLutShader == null)
+                _normalize == null || _inverse == null || _coneLutShader == null ||
+                _poseGaugeCompute == null)
                 throw new InvalidOperationException(
                     "Sigma joint inverse resources are incomplete.");
             if (!SystemInfo.supportsAsyncGPUReadback)
@@ -139,6 +156,9 @@ namespace Genesis.RoomScan.SigmaPrism
             _proposalKernel = _inverse.FindKernel("BuildDepthProposals");
             _commitKernel = _inverse.FindKernel("CommitDepthProposals");
             _promoteKernel = _inverse.FindKernel("PromoteGaugePage");
+            _poseBuildKernel = _poseGaugeCompute.FindKernel(
+                "BuildPoseGaugePartials");
+            _poseReduceKernel = _poseGaugeCompute.FindKernel("ReducePoseGauge");
             _calibrationQ48 = CreateBuffer(CalibrationStride * 2,
                 Marshal.SizeOf<SigmaPackedQ48>(), "Sigma depth calibration Q48");
             _rgbCalibrationQ48 = CreateBuffer(RgbCalibrationStride * 2,
@@ -166,6 +186,10 @@ namespace Genesis.RoomScan.SigmaPrism
                 "Sigma inverse frame counters");
             _gaugePromotionCounts = CreateBuffer(MaximumGaugeCommitSlots,
                 sizeof(uint), "Sigma inverse gauge promotion counts");
+            _posePrior = CreateBuffer(12, Marshal.SizeOf<SigmaPackedQ48>(),
+                "Sigma exact pose prior");
+            _poseResult = CreateBuffer(4, sizeof(uint) * 4,
+                "Sigma exact pose meet");
             _proofLedger = new SigmaConstraintLedger(
                 _carrier.DecodedBudgetPages,
                 Math.Max(1024, Math.Min(4096,
@@ -175,6 +199,7 @@ namespace Genesis.RoomScan.SigmaPrism
             _conflictCount.SetData(new uint[1]);
             _frameCounters.SetData(new uint[8]);
             _gaugePromotionCounts.SetData(new uint[MaximumGaugeCommitSlots]);
+            _poseResult.SetData(new uint[16]);
             _renderer.PredictionReady += OnPredictionReady;
             _initialized = true;
         }
@@ -237,7 +262,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 throw new InvalidOperationException("Inverse source lease is invalid.");
             EnsureCalibration(source);
             EnsureFrameResources(source.DepthResolution);
-            UploadExactCalibration(source);
+            UploadExactCalibration(source, prediction.PoseGauge);
 
             _carrier.CollectReadableSegments(_readBatches);
             EnsureSegmentScratch();
@@ -273,22 +298,7 @@ namespace Genesis.RoomScan.SigmaPrism
             try
             {
                 RecordNormalize(command, source);
-                RecordClear(command, activeFlagCount, blockCount);
-                BindFrameInputs(command, source, prediction, blockResolution,
-                    segmentCount, leftKey, rightKey, rgbLeftKey, rgbRightKey,
-                    revision);
-                command.DispatchCompute(_inverse, _classifyKernel,
-                    CeilDiv(source.DepthResolution.x, 8),
-                    CeilDiv(source.DepthResolution.y, 8), 2);
-
-                for (int segment = 0; segment < segmentCount; ++segment)
-                {
-                    SigmaCarrierReadBatch batch = _readBatches[segment];
-                    SegmentInverseScratch scratch = _segmentScratch[segment];
-                    RecordCompactActive(command, batch, scratch, segment);
-                    RecordBuildProposals(command, batch, scratch, segment,
-                        prediction, revision);
-                }
+                RecordPoseGauge(command, source, prediction, revision);
                 Graphics.ExecuteCommandBuffer(command);
             }
             finally
@@ -307,12 +317,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 leftKey, rightKey, rgbLeftKey, rgbRightKey, pageSnapshot,
                 topologyEvidence,
                 readbackLatch,
-                readbackLatch.Request(_activePageFlags),
-                readbackLatch.Request(_commitPageFlags),
-                readbackLatch.Request(_unmatchedBlockFlags),
-                readbackLatch.Request(_unmatchedBlockAnchors),
-                readbackLatch.Request(_frameCounters),
-                readbackLatch.Request(_conflictCount));
+                readbackLatch.Request(_poseResult));
             _inFlight = inFlight;
             SubmittedFrames++;
         }
@@ -342,6 +347,9 @@ namespace Genesis.RoomScan.SigmaPrism
             {
                 switch (frame.Phase)
                 {
+                    case InFlightPhase.PoseGauge:
+                        CompletePoseGauge(frame);
+                        break;
                     case InFlightPhase.Initial:
                         CompleteInitialReadback(frame);
                         break;
@@ -369,6 +377,67 @@ namespace Genesis.RoomScan.SigmaPrism
                 Logger.Error("Sigma inverse completion failed: " + exception.Message);
                 FinishFrame(frame, 0u);
             }
+        }
+
+        private void CompletePoseGauge(InFlightFrame frame)
+        {
+            if (frame.HasError || frame.Discard)
+            {
+                FailedFrames += frame.HasError ? 1L : 0L;
+                FinishFrame(frame, 0u);
+                return;
+            }
+            StereoRigFrameLease source = frame.Prediction.Source;
+            SigmaPoseGaugeState gauge = SigmaPoseGaugeState.FromGpu(
+                frame.PoseGauge.GetData<uint>(), source.CalibrationEpoch,
+                frame.Revision);
+            if (gauge.Resolved && !gauge.IsIdentity)
+            {
+                if (!_renderer.TryRenderPoseGauge(source, gauge,
+                        out SigmaPredictionFrameLease corrected))
+                    throw new InvalidOperationException(
+                        "Accepted pose gauge could not be rasterized.");
+                frame.ReplacePrediction(corrected);
+            }
+            BeginCarrierInverse(frame);
+        }
+
+        private void BeginCarrierInverse(InFlightFrame frame)
+        {
+            SigmaPredictionFrameLease prediction = frame.Prediction;
+            StereoRigFrameLease source = prediction.Source;
+            UploadExactCalibration(source, prediction.PoseGauge);
+            int activeFlagCount = Math.Max(1,
+                frame.SegmentCount * SegmentFlagStride);
+            int blockCount = checked(frame.BlockResolution.x *
+                frame.BlockResolution.y);
+            CommandBuffer command = CommandBufferPool.Get(
+                "Sigma-PRISM-16 Joint Inverse RGB-D");
+            try
+            {
+                RecordClear(command, activeFlagCount, blockCount);
+                BindFrameInputs(command, source, prediction,
+                    frame.BlockResolution, frame.SegmentCount,
+                    frame.LeftIndependenceKey, frame.RightIndependenceKey,
+                    frame.RgbLeftIndependenceKey,
+                    frame.RgbRightIndependenceKey, frame.Revision);
+                command.DispatchCompute(_inverse, _classifyKernel,
+                    CeilDiv(source.DepthResolution.x, 8),
+                    CeilDiv(source.DepthResolution.y, 8), 2);
+                for (int segment = 0; segment < frame.SegmentCount; ++segment)
+                {
+                    SigmaCarrierReadBatch batch = _readBatches[segment];
+                    SegmentInverseScratch scratch = _segmentScratch[segment];
+                    RecordCompactActive(command, batch, scratch, segment);
+                    RecordBuildProposals(command, batch, scratch, segment,
+                        prediction, frame.Revision);
+                }
+                Graphics.ExecuteCommandBuffer(command);
+            }
+            finally { CommandBufferPool.Release(command); }
+            frame.BeginInitialReadbacks(_activePageFlags, _commitPageFlags,
+                _unmatchedBlockFlags, _unmatchedBlockAnchors, _frameCounters,
+                _conflictCount);
         }
 
         private void CompleteInitialReadback(InFlightFrame frame)
@@ -1005,6 +1074,95 @@ namespace Genesis.RoomScan.SigmaPrism
                 CeilDiv(source.DepthResolution.y, 8), 2);
         }
 
+        private void RecordPoseGauge(CommandBuffer command,
+            StereoRigFrameLease source, SigmaPredictionFrameLease prediction,
+            uint revision)
+        {
+            SigmaPoseGaugeState current = prediction.PoseGauge;
+            for (int component = 0; component < 6; ++component)
+                _posePriorUpload[component] = SigmaPackedQ48.FromRaw(
+                    current.CalibrationEpoch == source.CalibrationEpoch
+                        ? current.Raw(component) : 0L);
+            long translationWidth = SigmaNumericDomain.Quantize(
+                poseTranslationPriorMetres);
+            long rotationWidth = SigmaNumericDomain.Quantize(
+                poseRotationPriorDegrees * Mathf.Deg2Rad);
+            for (int component = 0; component < 6; ++component)
+                _posePriorUpload[6 + component] = SigmaPackedQ48.FromRaw(
+                    component < 3 ? translationWidth : rotationWidth);
+            _posePrior.SetData(_posePriorUpload);
+            int sampleWidth = CeilDiv(source.DepthResolution.x,
+                poseSampleStride);
+            int sampleHeight = CeilDiv(source.DepthResolution.y,
+                poseSampleStride);
+            int partialCount = CeilDiv(checked(sampleWidth * sampleHeight * 2),
+                64);
+            EnsurePosePartials(partialCount);
+
+            Pose left = GaugePose(source, source.DepthLeft, current);
+            Pose right = GaugePose(source, source.DepthRight, current);
+            Matrix4x4 leftWorld = PoseMatrix(left);
+            command.SetComputeBufferParam(_poseGaugeCompute, _poseBuildKernel,
+                "_SigmaExactBackendGate", _backendGate.Buffer);
+            command.SetComputeBufferParam(_poseGaugeCompute, _poseBuildKernel,
+                "_DepthCalibrationQ48", _calibrationQ48);
+            command.SetComputeBufferParam(_poseGaugeCompute, _poseBuildKernel,
+                "_PosePrior", _posePrior);
+            command.SetComputeBufferParam(_poseGaugeCompute, _poseBuildKernel,
+                "_PosePartials", _posePartials);
+            command.SetComputeTextureParam(_poseGaugeCompute, _poseBuildKernel,
+                "_PoseMetricDepth", _metricDepth);
+            command.SetComputeTextureParam(_poseGaugeCompute, _poseBuildKernel,
+                "_PoseDepthFlags", _depthFlags);
+            command.SetComputeTextureParam(_poseGaugeCompute, _poseBuildKernel,
+                "_PosePredDepthSupport", prediction.DepthSupport);
+            command.SetComputeTextureParam(_poseGaugeCompute, _poseBuildKernel,
+                "_PosePredCarrierUvNormal", prediction.CarrierUvNormal);
+            command.SetComputeTextureParam(_poseGaugeCompute, _poseBuildKernel,
+                "_PoseRayLeft", _coneLuts.DepthLeft.CenterRaySolidAngle);
+            command.SetComputeTextureParam(_poseGaugeCompute, _poseBuildKernel,
+                "_PoseRayRight", _coneLuts.DepthRight.CenterRaySolidAngle);
+            command.SetComputeIntParams(_poseGaugeCompute, "_PoseResolution",
+                source.DepthResolution.x, source.DepthResolution.y);
+            command.SetComputeIntParam(_poseGaugeCompute, "_PoseSampleStride",
+                poseSampleStride);
+            command.SetComputeIntParam(_poseGaugeCompute, "_PoseRevision",
+                unchecked((int)revision));
+            command.SetComputeIntParam(_poseGaugeCompute, "_PosePartialCount",
+                partialCount);
+            command.SetComputeVectorParam(_poseGaugeCompute, "_PosePriorFloat",
+                new Vector4(poseTranslationPriorMetres,
+                    poseRotationPriorDegrees * Mathf.Deg2Rad, 0.00025f, 0f));
+            command.SetComputeMatrixParam(_poseGaugeCompute,
+                "_PoseWorldFromOpticalLeft", leftWorld);
+            command.SetComputeMatrixParam(_poseGaugeCompute,
+                "_PoseWorldFromOpticalRight", PoseMatrix(right));
+            command.SetComputeMatrixParam(_poseGaugeCompute,
+                "_PoseReferenceFromWorld",
+                PoseMatrix(source.DepthLeft.WorldFromCamera).inverse);
+            command.DispatchCompute(_poseGaugeCompute, _poseBuildKernel,
+                partialCount, 1, 1);
+            command.SetComputeBufferParam(_poseGaugeCompute, _poseReduceKernel,
+                "_SigmaExactBackendGate", _backendGate.Buffer);
+            command.SetComputeBufferParam(_poseGaugeCompute, _poseReduceKernel,
+                "_PosePrior", _posePrior);
+            command.SetComputeBufferParam(_poseGaugeCompute, _poseReduceKernel,
+                "_PosePartials", _posePartials);
+            command.SetComputeBufferParam(_poseGaugeCompute, _poseReduceKernel,
+                "_PoseResult", _poseResult);
+            command.DispatchCompute(_poseGaugeCompute, _poseReduceKernel, 1, 1, 1);
+        }
+
+        private void EnsurePosePartials(int partialCount)
+        {
+            if (_posePartials != null && _posePartialCapacity >= partialCount)
+                return;
+            _posePartials?.Dispose();
+            _posePartialCapacity = Math.Max(1, partialCount);
+            _posePartials = CreateBuffer(checked(_posePartialCapacity * 7),
+                sizeof(uint) * 4, "Sigma pose partial meets");
+        }
+
         private void RecordClear(CommandBuffer command, int activeFlagCount,
             int blockCount)
         {
@@ -1057,7 +1215,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 source.RgbLeft.Resolution.x, source.RgbLeft.Resolution.y);
             command.SetComputeIntParams(_inverse, Id("_RgbResolutionRight"),
                 source.RgbRight.Resolution.x, source.RgbRight.Resolution.y);
-            SetFrameMatrices(command, source);
+            SetFrameMatrices(command, source, prediction.PoseGauge);
             command.SetComputeBufferParam(_inverse, _classifyKernel,
                 "_DepthCalibrationQ48", _calibrationQ48);
             command.SetComputeTextureParam(_inverse, _classifyKernel,
@@ -1217,7 +1375,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 source.RgbLeft.Resolution.y);
             shader.SetInts("_RgbResolutionRight", source.RgbRight.Resolution.x,
                 source.RgbRight.Resolution.y);
-            SetFrameMatrices(shader, source);
+            SetFrameMatrices(shader, source, prediction.PoseGauge);
         }
 
         private void EnsureCalibration(StereoRigFrameLease source)
@@ -1293,23 +1451,28 @@ namespace Genesis.RoomScan.SigmaPrism
             }
         }
 
-        private void UploadExactCalibration(StereoRigFrameLease source)
+        private void UploadExactCalibration(StereoRigFrameLease source,
+            SigmaPoseGaugeState gauge)
         {
-            FillCalibration(0, source.DepthLeft, source.Health);
-            FillCalibration(1, source.DepthRight, source.Health);
+            FillCalibration(0, source.DepthLeft,
+                GaugePose(source, source.DepthLeft, gauge), source.Health);
+            FillCalibration(1, source.DepthRight,
+                GaugePose(source, source.DepthRight, gauge), source.Health);
             _calibrationQ48.SetData(_calibrationUpload);
-            FillRgbCalibration(0, source.RgbLeft, source.Health);
-            FillRgbCalibration(1, source.RgbRight, source.Health);
+            FillRgbCalibration(0, GaugePose(source, source.RgbLeft, gauge),
+                source.Health);
+            FillRgbCalibration(1, GaugePose(source, source.RgbRight, gauge),
+                source.Health);
             _rgbCalibrationQ48.SetData(_rgbCalibrationUpload);
         }
 
-        private void FillRgbCalibration(int eye, GpuImageView view,
+        private void FillRgbCalibration(int eye, Pose pose,
             RigPairingHealth health)
         {
             int offset = eye * RgbCalibrationStride;
-            SetRgbQ(offset + 0, view.WorldFromCamera.position.x);
-            SetRgbQ(offset + 1, view.WorldFromCamera.position.y);
-            SetRgbQ(offset + 2, view.WorldFromCamera.position.z);
+            SetRgbQ(offset + 0, pose.position.x);
+            SetRgbQ(offset + 1, pose.position.y);
+            SetRgbQ(offset + 2, pose.position.z);
             SetRgbQRaw(offset + 3, SigmaNumericDomain.FromRatio(2, 255));
             SetRgbQRaw(offset + 4, SigmaNumericDomain.FromRatio(1, 64));
             double clockWidth = Math.Min(0.01,
@@ -1319,7 +1482,7 @@ namespace Genesis.RoomScan.SigmaPrism
             SetRgbQRaw(offset + 7, 0L);
         }
 
-        private void FillCalibration(int eye, GpuImageView view,
+        private void FillCalibration(int eye, GpuImageView view, Pose pose,
             RigPairingHealth health)
         {
             int offset = eye * CalibrationStride;
@@ -1327,8 +1490,7 @@ namespace Genesis.RoomScan.SigmaPrism
             SetQ(offset + 1, view.Intrinsics.FocalLength.y);
             SetQ(offset + 2, view.Intrinsics.PrincipalPoint.x);
             SetQ(offset + 3, view.Intrinsics.PrincipalPoint.y);
-            Matrix4x4 world = Matrix4x4.TRS(view.WorldFromCamera.position,
-                view.WorldFromCamera.rotation, Vector3.one);
+            Matrix4x4 world = PoseMatrix(pose);
             int cursor = offset + 4;
             for (int row = 0; row < 3; ++row)
             {
@@ -1370,12 +1532,12 @@ namespace Genesis.RoomScan.SigmaPrism
             _rgbCalibrationUpload[index] = SigmaPackedQ48.FromRaw(raw);
 
         private void SetFrameMatrices(CommandBuffer command,
-            StereoRigFrameLease source)
+            StereoRigFrameLease source, SigmaPoseGaugeState gauge)
         {
-            Matrix4x4 leftWorld = Matrix4x4.TRS(source.DepthLeft.WorldFromCamera.position,
-                source.DepthLeft.WorldFromCamera.rotation, Vector3.one);
-            Matrix4x4 rightWorld = Matrix4x4.TRS(source.DepthRight.WorldFromCamera.position,
-                source.DepthRight.WorldFromCamera.rotation, Vector3.one);
+            Matrix4x4 leftWorld = PoseMatrix(GaugePose(source,
+                source.DepthLeft, gauge));
+            Matrix4x4 rightWorld = PoseMatrix(GaugePose(source,
+                source.DepthRight, gauge));
             command.SetComputeMatrixParam(_inverse, Id("_WorldFromOpticalLeft"), leftWorld);
             command.SetComputeMatrixParam(_inverse, Id("_WorldFromOpticalRight"), rightWorld);
             command.SetComputeMatrixParam(_inverse, Id("_OpticalFromWorldLeft"),
@@ -1386,12 +1548,10 @@ namespace Genesis.RoomScan.SigmaPrism
                 IntrinsicsVector(source.DepthLeft.Intrinsics));
             command.SetComputeVectorParam(_inverse, Id("_DepthIntrinsicsRight"),
                 IntrinsicsVector(source.DepthRight.Intrinsics));
-            Matrix4x4 rgbLeftWorld = Matrix4x4.TRS(
-                source.RgbLeft.WorldFromCamera.position,
-                source.RgbLeft.WorldFromCamera.rotation, Vector3.one);
-            Matrix4x4 rgbRightWorld = Matrix4x4.TRS(
-                source.RgbRight.WorldFromCamera.position,
-                source.RgbRight.WorldFromCamera.rotation, Vector3.one);
+            Matrix4x4 rgbLeftWorld = PoseMatrix(GaugePose(source,
+                source.RgbLeft, gauge));
+            Matrix4x4 rgbRightWorld = PoseMatrix(GaugePose(source,
+                source.RgbRight, gauge));
             command.SetComputeMatrixParam(_inverse,
                 Id("_RgbOpticalFromWorldLeft"), rgbLeftWorld.inverse);
             command.SetComputeMatrixParam(_inverse,
@@ -1403,12 +1563,12 @@ namespace Genesis.RoomScan.SigmaPrism
         }
 
         private void SetFrameMatrices(ComputeShader shader,
-            StereoRigFrameLease source)
+            StereoRigFrameLease source, SigmaPoseGaugeState gauge)
         {
-            Matrix4x4 leftWorld = Matrix4x4.TRS(source.DepthLeft.WorldFromCamera.position,
-                source.DepthLeft.WorldFromCamera.rotation, Vector3.one);
-            Matrix4x4 rightWorld = Matrix4x4.TRS(source.DepthRight.WorldFromCamera.position,
-                source.DepthRight.WorldFromCamera.rotation, Vector3.one);
+            Matrix4x4 leftWorld = PoseMatrix(GaugePose(source,
+                source.DepthLeft, gauge));
+            Matrix4x4 rightWorld = PoseMatrix(GaugePose(source,
+                source.DepthRight, gauge));
             shader.SetMatrix("_WorldFromOpticalLeft", leftWorld);
             shader.SetMatrix("_WorldFromOpticalRight", rightWorld);
             shader.SetMatrix("_OpticalFromWorldLeft", leftWorld.inverse);
@@ -1417,12 +1577,10 @@ namespace Genesis.RoomScan.SigmaPrism
                 IntrinsicsVector(source.DepthLeft.Intrinsics));
             shader.SetVector("_DepthIntrinsicsRight",
                 IntrinsicsVector(source.DepthRight.Intrinsics));
-            Matrix4x4 rgbLeftWorld = Matrix4x4.TRS(
-                source.RgbLeft.WorldFromCamera.position,
-                source.RgbLeft.WorldFromCamera.rotation, Vector3.one);
-            Matrix4x4 rgbRightWorld = Matrix4x4.TRS(
-                source.RgbRight.WorldFromCamera.position,
-                source.RgbRight.WorldFromCamera.rotation, Vector3.one);
+            Matrix4x4 rgbLeftWorld = PoseMatrix(GaugePose(source,
+                source.RgbLeft, gauge));
+            Matrix4x4 rgbRightWorld = PoseMatrix(GaugePose(source,
+                source.RgbRight, gauge));
             shader.SetMatrix("_RgbOpticalFromWorldLeft", rgbLeftWorld.inverse);
             shader.SetMatrix("_RgbOpticalFromWorldRight", rgbRightWorld.inverse);
             shader.SetVector("_RgbIntrinsicsLeft",
@@ -1430,6 +1588,16 @@ namespace Genesis.RoomScan.SigmaPrism
             shader.SetVector("_RgbIntrinsicsRight",
                 IntrinsicsVector(source.RgbRight.Intrinsics));
         }
+
+        private static Pose GaugePose(StereoRigFrameLease source,
+            GpuImageView view, SigmaPoseGaugeState gauge) =>
+            gauge.CalibrationEpoch == source.CalibrationEpoch
+                ? gauge.Apply(source.DepthLeft.WorldFromCamera,
+                    view.WorldFromCamera)
+                : view.WorldFromCamera;
+
+        private static Matrix4x4 PoseMatrix(Pose pose) => Matrix4x4.TRS(
+            pose.position, pose.rotation, Vector3.one);
 
         private static Vector4 IntrinsicsVector(RigIntrinsics intrinsics) => new(
             intrinsics.FocalLength.x, intrinsics.FocalLength.y,
@@ -1672,7 +1840,8 @@ namespace Genesis.RoomScan.SigmaPrism
                 _commitPageFlags, _unmatchedBlockFlags, _unmatchedBlockAnchors,
                 _conflictRecords,
                 _conflictCount, _frameCounters, _gaugePromotionCounts,
-                _proofLedger, _localGauge, scratch);
+                _posePrior, _poseResult, _posePartials, _proofLedger,
+                _localGauge, scratch);
             _coneLuts = null;
             _calibration = null;
             _metricDepth = null;
@@ -1690,6 +1859,10 @@ namespace Genesis.RoomScan.SigmaPrism
             _conflictCount = null;
             _frameCounters = null;
             _gaugePromotionCounts = null;
+            _posePrior = null;
+            _poseResult = null;
+            _posePartials = null;
+            _posePartialCapacity = 0;
             _proofLedger = null;
             _localGauge = null;
             _activeFlagCapacity = 0;
@@ -1859,6 +2032,8 @@ namespace Genesis.RoomScan.SigmaPrism
                 GraphicsBuffer unmatchedAnchors,
                 GraphicsBuffer conflicts, GraphicsBuffer conflictCount,
                 GraphicsBuffer counters, GraphicsBuffer gaugePromotionCounts,
+                GraphicsBuffer posePrior, GraphicsBuffer poseResult,
+                GraphicsBuffer posePartials,
                 SigmaConstraintLedger proofLedger,
                 SigmaGaugeController localGauge,
                 SegmentInverseScratch[] scratch)
@@ -1869,7 +2044,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 _buffers = new[] { calibration, rgbCalibration, rgbOperators,
                     rgbSupportScale, activeFlags, commitFlags,
                     unmatchedFlags, unmatchedAnchors, conflicts, conflictCount, counters,
-                    gaugePromotionCounts };
+                    gaugePromotionCounts, posePrior, poseResult, posePartials };
                 _scratch = scratch ?? Array.Empty<SegmentInverseScratch>();
                 _proofLedger = proofLedger;
                 _localGauge = localGauge;
@@ -1975,6 +2150,7 @@ namespace Genesis.RoomScan.SigmaPrism
 
         private enum InFlightPhase
         {
+            PoseGauge,
             Initial,
             MatchedProof,
             LocalGaugeRequest,
@@ -1993,12 +2169,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 Dictionary<SigmaCarrierPageCoordinate,
                     SigmaTopologyEvidenceView> topologyEvidence,
                 ReadbackRetirementLatch readbackLatch,
-                AsyncGPUReadbackRequest activePageFlags,
-                AsyncGPUReadbackRequest commitFlags,
-                AsyncGPUReadbackRequest unmatchedBlocks,
-                AsyncGPUReadbackRequest unmatchedAnchors,
-                AsyncGPUReadbackRequest counters,
-                AsyncGPUReadbackRequest conflictCount)
+                AsyncGPUReadbackRequest poseGauge)
             {
                 Prediction = prediction;
                 Revision = revision;
@@ -2014,16 +2185,11 @@ namespace Genesis.RoomScan.SigmaPrism
                     ArgumentNullException(nameof(topologyEvidence));
                 _readbackLatch = readbackLatch ?? throw new ArgumentNullException(
                     nameof(readbackLatch));
-                ActivePageFlags = activePageFlags;
-                CommitFlags = commitFlags;
-                UnmatchedBlocks = unmatchedBlocks;
-                UnmatchedAnchors = unmatchedAnchors;
-                Counters = counters;
-                ConflictCount = conflictCount;
-                Phase = InFlightPhase.Initial;
+                PoseGauge = poseGauge;
+                Phase = InFlightPhase.PoseGauge;
             }
 
-            public SigmaPredictionFrameLease Prediction { get; }
+            public SigmaPredictionFrameLease Prediction { get; private set; }
             public uint Revision { get; }
             public Vector2Int Resolution { get; }
             public Vector2Int BlockResolution { get; }
@@ -2035,12 +2201,13 @@ namespace Genesis.RoomScan.SigmaPrism
             public Dictionary<int, SigmaCarrierPageHandle> PageSnapshot { get; }
             public Dictionary<SigmaCarrierPageCoordinate,
                 SigmaTopologyEvidenceView> TopologyEvidence { get; }
-            public AsyncGPUReadbackRequest ActivePageFlags { get; }
-            public AsyncGPUReadbackRequest CommitFlags { get; }
-            public AsyncGPUReadbackRequest UnmatchedBlocks { get; }
-            public AsyncGPUReadbackRequest UnmatchedAnchors { get; }
-            public AsyncGPUReadbackRequest Counters { get; }
-            public AsyncGPUReadbackRequest ConflictCount { get; }
+            public AsyncGPUReadbackRequest ActivePageFlags { get; private set; }
+            public AsyncGPUReadbackRequest CommitFlags { get; private set; }
+            public AsyncGPUReadbackRequest UnmatchedBlocks { get; private set; }
+            public AsyncGPUReadbackRequest UnmatchedAnchors { get; private set; }
+            public AsyncGPUReadbackRequest Counters { get; private set; }
+            public AsyncGPUReadbackRequest ConflictCount { get; private set; }
+            public AsyncGPUReadbackRequest PoseGauge { get; }
             public AsyncGPUReadbackRequest LocalGaugeRequest { get; private set; }
             public AsyncGPUReadbackRequest LocalGaugeStatus { get; private set; }
             public AsyncGPUReadbackRequest LocalGaugeRawStatus { get; private set; }
@@ -2064,6 +2231,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 Counters.hasError || ConflictCount.hasError;
             public bool AllRequestsDone => Phase switch
             {
+                InFlightPhase.PoseGauge => PoseGauge.done,
                 InFlightPhase.Initial => ActivePageFlags.done &&
                     CommitFlags.done && UnmatchedBlocks.done && Counters.done &&
                     UnmatchedAnchors.done && ConflictCount.done,
@@ -2077,6 +2245,7 @@ namespace Genesis.RoomScan.SigmaPrism
             };
             public bool HasError => Phase switch
             {
+                InFlightPhase.PoseGauge => PoseGauge.hasError,
                 InFlightPhase.Initial => InitialReadbackHasError,
                 InFlightPhase.MatchedProof => ProofStatus.hasError,
                 InFlightPhase.LocalGaugeRequest => false,
@@ -2085,6 +2254,32 @@ namespace Genesis.RoomScan.SigmaPrism
                     ProofStatus.hasError,
                 _ => true,
             };
+
+            public void ReplacePrediction(SigmaPredictionFrameLease prediction)
+            {
+                if (Phase != InFlightPhase.PoseGauge || prediction == null)
+                    throw new InvalidOperationException(
+                        "Pose rerasterization requires the pose-gauge phase.");
+                Prediction.Dispose();
+                Prediction = prediction;
+            }
+
+            public void BeginInitialReadbacks(GraphicsBuffer activePageFlags,
+                GraphicsBuffer commitFlags, GraphicsBuffer unmatchedBlocks,
+                GraphicsBuffer unmatchedAnchors, GraphicsBuffer counters,
+                GraphicsBuffer conflictCount)
+            {
+                if (Phase != InFlightPhase.PoseGauge)
+                    throw new InvalidOperationException(
+                        "Carrier inverse must follow the pose-gauge meet.");
+                ActivePageFlags = _readbackLatch.Request(activePageFlags);
+                CommitFlags = _readbackLatch.Request(commitFlags);
+                UnmatchedBlocks = _readbackLatch.Request(unmatchedBlocks);
+                UnmatchedAnchors = _readbackLatch.Request(unmatchedAnchors);
+                Counters = _readbackLatch.Request(counters);
+                ConflictCount = _readbackLatch.Request(conflictCount);
+                Phase = InFlightPhase.Initial;
+            }
 
             public void BeginMatchedProofReadback(GraphicsBuffer proofStatus)
             {

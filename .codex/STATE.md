@@ -28,8 +28,9 @@ Updated: 2026-08-22 (Europe/Prague)
 - `S4-04` is accepted in commit `d5c05b2`.
 - `S4-05` is accepted in commit `96cbeca`.
 - `S4-06` is accepted in commit `c6dabef`.
-- `S4-07` is accepted by this isolated checkpoint.
-- `S4-08` is the sole `in_progress` node: bounded pose-gauge intersection.
+- `S4-07` is accepted in commit `dc6abf5`.
+- `S4-08` is accepted by this isolated checkpoint; S4-09 remains paused until the
+  checkpoint is archived, built and deployed for user audit.
 - The retained product surface is only four-stream GPU capture/synchronization,
   immutable calibration/poses, Quest/XR lifecycle, permissions/anchors, input/UI,
   neutral GPU helpers and build/deploy tooling.
@@ -197,17 +198,35 @@ Updated: 2026-08-22 (Europe/Prague)
   Quest eight-UAV validator passed. Android/device work remains batched with the
   accepted S4-08 base milestone.
 
+## S4-08 accepted evidence
+
+- `SigmaPoseGauge.compute` converts conditioned dual-eye first-hit overlaps into
+  conservative six-component twist intervals and intersects them with the bounded
+  Meta prior using the accepted packed-Q16.48 interval primitives. Empty,
+  insufficient or conflicting evidence returns identity/unresolved; a non-empty
+  meet selects the deterministic componentwise minimum-magnitude correction.
+- Overlap evaluation is GPU-parallel: many 64-lane workgroups produce compact
+  partial meets and one bounded reduction produces the 64-byte exact result. This
+  avoids a long single-workgroup scan without adding a pose graph or map state.
+- Pose acceptance is same-frame. The initial raster uses the immutable Meta pose;
+  an accepted nonzero twist rerasterizes that exact retained `StereoRigFrame`, and
+  the corrected prediction/gauge snapshot is then used consistently by depth and
+  RGB inverse calibration. It is never carried blindly to the next timestamp.
+- `SigmaPoseGaugeState` changes only FP readout matrices after the exact integer
+  decision. It preserves fixed rig extrinsics and cannot alter carrier bytes,
+  intrinsic topology, proof records, calibration epochs or captured timestamps.
+- Verification: generated operator check, diff check and eight-UAV validation
+  pass; Unity 6000.5.9f1 Vulkan EditMode passed 64/64. The exact checkpoint still
+  requires its mandated source archive, Android build and Quest installation
+  before S4-09 starts.
+
 ## Next exact actions
 
-1. Reuse existing prediction overlap and exact source-cell machinery to emit six
-   bounded Q16.48 pose-twist cells against the immutable Meta prior.
-2. Intersect source twist cells componentwise, keep zero when admissible, otherwise
-   apply the deterministic minimum-magnitude correction; an empty meet leaves the
-   Meta pose unchanged and unresolved.
-3. Re-evaluate forward readout under the corrected observation gauge and prove
-   that carrier bytes, connectivity and frame timestamps remain unchanged.
-4. Keep S4-08 a compact 400--700 LOC vertical slice by reusing the accepted exact
-   interval/meet/readout infrastructure rather than adding a second SLAM or state.
+1. Regenerate the code graph, validate control state and create the isolated S4-08
+   commit.
+2. Create a source-only `git archive` ZIP from that exact commit.
+3. Build its Android/Vulkan APK and install it on the connected Quest.
+4. Pause before S4-09 for user audit/device evaluation.
 
 ## Verification policy
 
