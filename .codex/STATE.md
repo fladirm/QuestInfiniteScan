@@ -294,6 +294,12 @@ Updated: 2026-08-22 (Europe/Prague)
   used when available, otherwise a conservative deterministic tracking envelope
   is derived from coherent-frame timing/skew uncertainty, observed tracking rates,
   rig residuals and persisted bounds. Missing covariance is never zero uncertainty.
+- The first closure Release compile rejected `PlanRawReservations` because an
+  early zero-request return enclosed a later group prefix barrier in potentially
+  varying flow. The redundant fast return is removed, so all 256 lanes execute the
+  same two bounded scans; zero requests naturally publish invalid reservations.
+  The free-pair predicate is also initialized explicitly. Unity Vulkan remains
+  65/65 after this backend-legality correction.
 
 ## S4-00 neutral Quest-shell regression repair
 

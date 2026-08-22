@@ -14,6 +14,9 @@ Both closure gaps are implemented and manually reviewed. Section 28/ADR-S410 now
 describe the deterministic tracking-derived uncertainty envelope used when the
 capture API exposes no numeric covariance. Unity Vulkan passes 65/65: the new test
 dispatches all three pose kernels and verifies nonzero corrected calibration, while
-the forward fixture verifies nonzero same-frame reraster. Exact/operator, eight-UAV
-and diff gates pass. Next action is final code-graph validation, commit, matching
-source-only archive, exact Release build and Quest install. S4-09 remains pending.
+the forward fixture verifies nonzero same-frame reraster. The Release compiler's
+only new finding—a redundant varying early return around a later raw-reservation
+group barrier—is removed with one uniform bounded scan schedule; Vulkan remains
+65/65. Next action is exact/operator/UAV validation, source commit, Release build,
+Quest install, then the requested post-install evidence commit/archive. S4-09
+remains pending.

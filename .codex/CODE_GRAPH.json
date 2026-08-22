@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "source_digest": "0fe6c729b46f89854a006bcbc7d79943f34f3b20fda6d84853d3a22a85dc1187",
+  "source_digest": "2730f8f3db270c408507df9c389ed55d103873603c80e2cbdda659b7397e9fe5",
   "scope": [
     "Runtime/**/*.cs",
     "Runtime/Resources/SigmaPrism/**/*.*",
@@ -4026,11 +4026,11 @@
       "line": 115
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaInverseWorkGraph.compute::CommitInverseTransactions@392",
+      "id": "Runtime/Resources/SigmaPrism/SigmaInverseWorkGraph.compute::CommitInverseTransactions@373",
       "file": "Runtime/Resources/SigmaPrism/SigmaInverseWorkGraph.compute",
       "name": "CommitInverseTransactions",
       "kind": "gpu_function",
-      "line": 392
+      "line": 373
     },
     {
       "id": "Runtime/Resources/SigmaPrism/SigmaInverseWorkGraph.compute::CompactInverseWork@139",
@@ -4040,18 +4040,18 @@
       "line": 139
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaInverseWorkGraph.compute::PlanRawReservations@299",
+      "id": "Runtime/Resources/SigmaPrism/SigmaInverseWorkGraph.compute::PlanRawReservations@300",
       "file": "Runtime/Resources/SigmaPrism/SigmaInverseWorkGraph.compute",
       "name": "PlanRawReservations",
       "kind": "gpu_function",
-      "line": 299
+      "line": 300
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaInverseWorkGraph.compute::PrepareInverseTransactions@234",
+      "id": "Runtime/Resources/SigmaPrism/SigmaInverseWorkGraph.compute::PrepareInverseTransactions@235",
       "file": "Runtime/Resources/SigmaPrism/SigmaInverseWorkGraph.compute",
       "name": "PrepareInverseTransactions",
       "kind": "gpu_function",
-      "line": 234
+      "line": 235
     },
     {
       "id": "Runtime/Resources/SigmaPrism/SigmaInverseWorkGraph.compute::SigmaCompactMorton@86",
@@ -15711,12 +15711,12 @@
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaInverseWorkGraph.compute::CommitInverseTransactions@392",
+      "source": "Runtime/Resources/SigmaPrism/SigmaInverseWorkGraph.compute::CommitInverseTransactions@373",
       "target": "Runtime/Resources/SigmaPrism/SigmaConstraintLedgerAbi.hlsl::SigmaConstraintBlockAddress@121",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaInverseWorkGraph.compute::CommitInverseTransactions@392",
+      "source": "Runtime/Resources/SigmaPrism/SigmaInverseWorkGraph.compute::CommitInverseTransactions@373",
       "target": "Runtime/Resources/SigmaPrism/SigmaOperatorPlan.hlsl::SigmaCanonicalMutationEnabled@7",
       "kind": "calls"
     },
@@ -15736,17 +15736,17 @@
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaInverseWorkGraph.compute::PlanRawReservations@299",
+      "source": "Runtime/Resources/SigmaPrism/SigmaInverseWorkGraph.compute::PlanRawReservations@300",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkGraph.compute::SigmaWorkPrefix@71",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaInverseWorkGraph.compute::PrepareInverseTransactions@234",
+      "source": "Runtime/Resources/SigmaPrism/SigmaInverseWorkGraph.compute::PrepareInverseTransactions@235",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkGraph.compute::SigmaWorkNullLane@60",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaInverseWorkGraph.compute::PrepareInverseTransactions@234",
+      "source": "Runtime/Resources/SigmaPrism/SigmaInverseWorkGraph.compute::PrepareInverseTransactions@235",
       "target": "Runtime/Resources/SigmaPrism/SigmaOperatorPlan.hlsl::SigmaCanonicalMutationEnabled@7",
       "kind": "calls"
     },

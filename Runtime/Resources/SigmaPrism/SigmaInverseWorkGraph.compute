@@ -163,8 +163,9 @@ void CompactInverseWork(uint3 threadId : SV_GroupThreadID)
 
     // Compact reusable generation pairs once. Gauge lanes index this shared
     // free list in O(1); no lane performs an O(PageCapacity) nth-free scan.
-    uint freePair = lane * 2u + 1u < _PageCapacity && SigmaPairFree(lane)
-        ? 1u : 0u;
+    uint freePair = 0u;
+    if (lane * 2u + 1u < _PageCapacity)
+        freePair = SigmaPairFree(lane) ? 1u : 0u;
     uint freePrefix = SigmaWorkPrefix(lane, freePair);
     if (freePair != 0u)
         FreePairList[freePrefix] = lane;
@@ -312,26 +313,6 @@ void PlanRawReservations(uint3 threadId : SV_GroupThreadID)
     uint localCount = firstRequested + secondRequested;
     uint requestPrefix = SigmaWorkPrefix(lane, localCount);
     uint requestTotal = WorkScan[255u];
-    if (requestTotal == 0u)
-    {
-        if (first < requestCount)
-        {
-            uint firstWork = first >> 6u;
-            uint firstBlock = first & 63u;
-            uint firstProof = _InverseWork[firstWork].slots.w;
-            _RawReservations[firstProof * SIGMA_CERTIFICATE_BLOCKS_PER_PAGE +
-                firstBlock] = SIGMA_INVALID_RAW_TILE;
-        }
-        if (second < requestCount)
-        {
-            uint secondWork = second >> 6u;
-            uint secondBlock = second & 63u;
-            uint secondProof = _InverseWork[secondWork].slots.w;
-            _RawReservations[secondProof * SIGMA_CERTIFICATE_BLOCKS_PER_PAGE +
-                secondBlock] = SIGMA_INVALID_RAW_TILE;
-        }
-        return;
-    }
 
     uint span = (_RawTileCapacity + 255u) >> 8u;
     uint begin = lane * span;
