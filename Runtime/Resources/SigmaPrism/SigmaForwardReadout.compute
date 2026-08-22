@@ -1,0 +1,164 @@
+#pragma kernel BuildCarrierReadout
+#pragma kernel ClearCarrierHalos
+#pragma kernel CopyCarrierHalo
+#pragma kernel CompactCurrentPages
+#pragma target 5.0
+
+#include "SigmaCarrierAbi.hlsl"
+#include "SigmaGeometryReadout.hlsl"
+
+StructuredBuffer<uint2> _CarrierState;
+StructuredBuffer<SigmaCarrierPageMetaGpu> _PageMetadata;
+StructuredBuffer<uint> _CurrentFlags;
+RWStructuredBuffer<uint> _ReadoutDirtyFlags;
+RWStructuredBuffer<float4> _ReadoutVertices;
+
+StructuredBuffer<float4> _HaloSourceVertices;
+RWStructuredBuffer<float4> _HaloTargetVertices;
+
+RWStructuredBuffer<uint> _CurrentPageSlots;
+RWStructuredBuffer<uint> _ReadoutDrawArguments;
+RWStructuredBuffer<uint> _ReadoutDirtyPageSlots;
+RWStructuredBuffer<uint> _ReadoutBuildArguments;
+
+uint _PageCapacity;
+uint _SourcePageCapacity;
+uint _SourcePageSlot;
+uint _TargetPageSlot;
+uint _HaloDirection;
+
+#define SIGMA_READOUT_EXTENT 65u
+#define SIGMA_READOUT_SAMPLES 4225u
+#define SIGMA_READOUT_VERTICES_PER_PAGE 24576u
+
+groupshared uint SigmaCurrentScan[256];
+groupshared uint SigmaReadoutDirtyScan[256];
+
+uint SigmaReadoutIndex(uint pageSlot, uint x, uint y)
+{
+    return pageSlot * SIGMA_READOUT_SAMPLES + y * SIGMA_READOUT_EXTENT + x;
+}
+
+[numthreads(64, 1, 1)]
+void BuildCarrierReadout(uint3 groupId : SV_GroupID,
+    uint3 groupThreadId : SV_GroupThreadID)
+{
+    uint dirtyPageIndex = groupId.y;
+    uint pageSlot = _ReadoutDirtyPageSlots[dirtyPageIndex];
+    uint sample = groupId.x * 64u + groupThreadId.x;
+    if (pageSlot >= _PageCapacity || sample >= SIGMA_PAGE_SAMPLE_COUNT)
+        return;
+
+    uint x = sample & 63u;
+    uint y = sample >> 6u;
+    uint outputIndex = SigmaReadoutIndex(pageSlot, x, y);
+    SigmaCarrierPageMetaGpu metadata = _PageMetadata[pageSlot];
+    bool current = _CurrentFlags[pageSlot] != 0u &&
+        (metadata.flags & SIGMA_PAGE_PUBLISHED) != 0u;
+    bool exactBackend = SigmaCanonicalMutationEnabled();
+    if (!current || !exactBackend)
+    {
+        _ReadoutVertices[outputIndex] = 0.0;
+        return;
+    }
+
+    uint2 state[16];
+    uint stateBase = pageSlot * SIGMA_PAGE_LANE_COUNT +
+        sample * SIGMA_LANE_COUNT;
+    [unroll]
+    for (uint lane = 0u; lane < SIGMA_LANE_COUNT; ++lane)
+        state[lane] = _CarrierState[stateBase + lane];
+
+    float3 position;
+    float informationMass;
+    bool supported = SigmaGeometryReadoutPlan(state, position, informationMass);
+    _ReadoutVertices[outputIndex] = supported
+        ? float4(position, informationMass)
+        : 0.0;
+    if (sample == 0u)
+        _ReadoutDirtyFlags[pageSlot] = 0u;
+}
+
+[numthreads(64, 1, 1)]
+void ClearCarrierHalos(uint3 groupId : SV_GroupID,
+    uint3 groupThreadId : SV_GroupThreadID)
+{
+    uint pageSlot = _TargetPageSlot;
+    uint lane = groupThreadId.x;
+    if (pageSlot >= _PageCapacity)
+        return;
+    _ReadoutVertices[SigmaReadoutIndex(pageSlot, 64u, lane)] = 0.0;
+    _ReadoutVertices[SigmaReadoutIndex(pageSlot, lane, 64u)] = 0.0;
+    if (lane == 0u)
+        _ReadoutVertices[SigmaReadoutIndex(pageSlot, 64u, 64u)] = 0.0;
+}
+
+// A page owns cells [0,64)x[0,64). Its +X/+Y halo is copied from the
+// neighbouring current logical page, so physical page/segment borders cannot
+// become holes in the derived readout.
+[numthreads(64, 1, 1)]
+void CopyCarrierHalo(uint3 groupThreadId : SV_GroupThreadID)
+{
+    uint lane = groupThreadId.x;
+    if (_TargetPageSlot >= _PageCapacity ||
+        _SourcePageSlot >= _SourcePageCapacity)
+        return;
+    if (_HaloDirection == 0u)
+    {
+        _HaloTargetVertices[SigmaReadoutIndex(_TargetPageSlot, 64u, lane)] =
+            _HaloSourceVertices[SigmaReadoutIndex(_SourcePageSlot, 0u, lane)];
+    }
+    else if (_HaloDirection == 1u)
+    {
+        _HaloTargetVertices[SigmaReadoutIndex(_TargetPageSlot, lane, 64u)] =
+            _HaloSourceVertices[SigmaReadoutIndex(_SourcePageSlot, lane, 0u)];
+    }
+    else if (_HaloDirection == 2u && lane == 0u)
+    {
+        _HaloTargetVertices[SigmaReadoutIndex(_TargetPageSlot, 64u, 64u)] =
+            _HaloSourceVertices[SigmaReadoutIndex(_SourcePageSlot, 0u, 0u)];
+    }
+}
+
+// One segment is capped at 256 pages. A complete fixed prefix scan therefore
+// gives stable ascending-slot identity without atomic arrival ordering.
+[numthreads(256, 1, 1)]
+void CompactCurrentPages(uint3 groupThreadId : SV_GroupThreadID)
+{
+    uint lane = groupThreadId.x;
+    uint active = lane < _PageCapacity && _CurrentFlags[lane] != 0u ? 1u : 0u;
+    uint dirty = active != 0u && _ReadoutDirtyFlags[lane] != 0u ? 1u : 0u;
+    SigmaCurrentScan[lane] = active;
+    SigmaReadoutDirtyScan[lane] = dirty;
+    GroupMemoryBarrierWithGroupSync();
+
+    [unroll]
+    for (uint offset = 1u; offset < 256u; offset <<= 1u)
+    {
+        uint addend = lane >= offset ? SigmaCurrentScan[lane - offset] : 0u;
+        uint dirtyAddend = lane >= offset
+            ? SigmaReadoutDirtyScan[lane - offset]
+            : 0u;
+        GroupMemoryBarrierWithGroupSync();
+        SigmaCurrentScan[lane] += addend;
+        SigmaReadoutDirtyScan[lane] += dirtyAddend;
+        GroupMemoryBarrierWithGroupSync();
+    }
+
+    if (active != 0u)
+        _CurrentPageSlots[SigmaCurrentScan[lane] - 1u] = lane;
+    if (dirty != 0u)
+        _ReadoutDirtyPageSlots[SigmaReadoutDirtyScan[lane] - 1u] = lane;
+    if (lane == 0u)
+    {
+        uint count = SigmaCurrentScan[255u];
+        uint dirtyCount = SigmaReadoutDirtyScan[255u];
+        _ReadoutDrawArguments[0] = count * SIGMA_READOUT_VERTICES_PER_PAGE;
+        _ReadoutDrawArguments[1] = 1u;
+        _ReadoutDrawArguments[2] = 0u;
+        _ReadoutDrawArguments[3] = 0u;
+        _ReadoutBuildArguments[0] = 64u;
+        _ReadoutBuildArguments[1] = dirtyCount;
+        _ReadoutBuildArguments[2] = 1u;
+    }
+}

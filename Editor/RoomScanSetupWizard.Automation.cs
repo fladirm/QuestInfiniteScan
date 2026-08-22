@@ -87,6 +87,7 @@ namespace Genesis.RoomScan.Editor
                 if (roomScan == null || roomScan.GetComponent<RoomScanner>() == null ||
                     roomScan.GetComponent<SigmaRigBridge>() == null ||
                     roomScan.GetComponent<SigmaCarrier>() == null ||
+                    roomScan.GetComponent<SigmaRenderer>() == null ||
                     roomScan.GetComponent<DepthCapture>() == null)
                     throw new InvalidOperationException(
                         "The Σ-PRISM-16 capture/lifecycle shell was not created.");

@@ -74,7 +74,7 @@
     {
       "id": "S4-03",
       "title": "Implement forward geometry readout from the single carrier",
-      "status": "in_progress",
+      "status": "done",
       "depends_on": ["S4-02"],
       "acceptance": [
         "SigmaRigBridge supplies coherent RGB_L/R, DEPTH_L/R, timestamps, immutable calibration epochs and exact sensor poses without CPU pixel copies",
@@ -83,12 +83,19 @@
         "Raster hardware performs first-hit visibility; all prediction buffers are derived and disposable",
         "Synthetic regular, folded, singular and null carrier fixtures produce deterministic expected depth and CarrierUV"
       ],
-      "evidence": []
+      "evidence": [
+        "SigmaGeometryReadout and the generated SigmaGeometryReadout.hlsl evaluate G and exact checked Q16.48 projective division before producing disposable FP32 position/information readout; z_null and failed exact operations emit no support",
+        "SigmaForwardReadout.compute rebuilds only stably compacted current dirty pages through indirect dispatch, preserves 65x65 cross-page/cross-segment halos without giving page boundaries physical meaning, and compacts current generations for procedural raster",
+        "SigmaRenderer consumes coherent SigmaRigBridge depth-eye poses/calibration, rasterizes both eyes through hardware Z into depth/support, exact signed-64 page limbs, local CarrierUV/derived normal and page generation/revision keys, with ref-counted non-blocking disposable target leases",
+        "The active RoomScanner and setup automation require SigmaRenderer; no legacy mapper, CPU pixel/mesh path, synchronous runtime readback or second geometry state is reachable",
+        "Unity 6000.5.9f1 Vulkan EditMode passed 28/28, including exact lift/readout, GPU exact readout, folded two-branch hardware first-hit selection and null-carrier no-contact fixtures; the eight-UAV validator and generated-operator check pass",
+        "Android/Vulkan IL2CPP build completed successfully with a fresh 224804460-byte APK and zero build errors; this is build evidence, not a claimed physical scan"
+      ]
     },
     {
       "id": "S4-04",
       "title": "Implement joint inverse depth readout and exact admissible-set fusion",
-      "status": "pending",
+      "status": "in_progress",
       "depends_on": ["S4-03"],
       "acceptance": [
         "Both depth eyes independently construct finite-footprint conservative Q16.48 S16 source cells against the same predicted Psi",

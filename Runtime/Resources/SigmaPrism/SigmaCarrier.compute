@@ -2,36 +2,22 @@
 #pragma kernel ClonePageGeneration
 #pragma kernel PublishPageGeneration
 #pragma kernel MarkPageDirty
+#pragma kernel DeactivatePageGeneration
 #pragma kernel ReleasePageSlot
 #pragma kernel CompactDirtyPages
 #pragma kernel AcknowledgeDirtyPages
 #pragma target 5.0
 
 #include "Sedenion16.hlsl"
-
-// Page metadata is scheduling/proof metadata. The 64x64xS16 decoded buffer is
-// the only physical carrier state consumed by later canonical operators.
-struct SigmaCarrierPageMetaGpu
-{
-    uint pageXLo;
-    uint pageXHi;
-    uint pageYLo;
-    uint pageYHi;
-    uint generation;
-    uint revision;
-    uint certificateOffsetLo;
-    uint certificateOffsetHi;
-    uint certificateCount;
-    uint flags;
-    uint reserved0;
-    uint reserved1;
-};
+#include "SigmaCarrierAbi.hlsl"
 
 StructuredBuffer<uint> _SigmaExactBackendGate;
 StructuredBuffer<uint2> _SourceCarrierState;
 RWStructuredBuffer<uint2> _TargetCarrierState;
 RWStructuredBuffer<SigmaCarrierPageMetaGpu> _PageMetadata;
 RWStructuredBuffer<uint> _DirtyFlags;
+RWStructuredBuffer<uint> _CurrentFlags;
+RWStructuredBuffer<uint> _ReadoutDirtyFlags;
 RWStructuredBuffer<uint> _DirtyPageSlots;
 RWStructuredBuffer<uint> _DirtyCount;
 RWStructuredBuffer<uint> _DirtyDispatchArgs;
@@ -49,15 +35,6 @@ uint _Revision;
 uint _CertificateOffsetLo;
 uint _CertificateOffsetHi;
 uint _CertificateCount;
-
-#define SIGMA_PAGE_SIZE 64u
-#define SIGMA_PAGE_SAMPLE_COUNT 4096u
-#define SIGMA_LANE_COUNT 16u
-#define SIGMA_PAGE_LANE_COUNT 65536u
-
-#define SIGMA_PAGE_ALLOCATED 1u
-#define SIGMA_PAGE_PUBLISHED 2u
-#define SIGMA_PAGE_DIRTY 4u
 
 groupshared uint SigmaDirtyScan[256];
 
@@ -143,6 +120,17 @@ void PublishPageGeneration(uint3 dispatchId : SV_DispatchThreadID)
     metadata.flags |= SIGMA_PAGE_PUBLISHED | SIGMA_PAGE_DIRTY;
     _PageMetadata[_TargetPageSlot] = metadata;
     _DirtyFlags[_TargetPageSlot] = 1u;
+    _CurrentFlags[_TargetPageSlot] = 1u;
+    _ReadoutDirtyFlags[_TargetPageSlot] = 1u;
+}
+
+[numthreads(1, 1, 1)]
+void DeactivatePageGeneration(uint3 dispatchId : SV_DispatchThreadID)
+{
+    if (_TargetPageSlot >= _PageCapacity)
+        return;
+    _CurrentFlags[_TargetPageSlot] = 0u;
+    _ReadoutDirtyFlags[_TargetPageSlot] = 0u;
 }
 
 [numthreads(1, 1, 1)]
@@ -164,6 +152,8 @@ void ReleasePageSlot(uint3 dispatchId : SV_DispatchThreadID)
     SigmaCarrierPageMetaGpu metadata = (SigmaCarrierPageMetaGpu)0;
     _PageMetadata[_TargetPageSlot] = metadata;
     _DirtyFlags[_TargetPageSlot] = 0u;
+    _CurrentFlags[_TargetPageSlot] = 0u;
+    _ReadoutDirtyFlags[_TargetPageSlot] = 0u;
 }
 
 // One segment has at most 256 decoded pages. The fixed scan is therefore a

@@ -119,6 +119,35 @@ namespace Genesis.RoomScan.SigmaPrism
     }
 
     /// <summary>
+    /// Read-only execution view of one decoded pool segment. The current-page mask
+    /// is scheduling metadata; consumers must never infer physics from the segment
+    /// or physical slot number.
+    /// </summary>
+    public readonly struct SigmaCarrierReadBatch
+    {
+        internal SigmaCarrierReadBatch(int segmentIndex, int capacity,
+            ulong readoutRevision, GraphicsBuffer state, GraphicsBuffer metadata,
+            GraphicsBuffer currentFlags, GraphicsBuffer readoutDirtyFlags)
+        {
+            SegmentIndex = segmentIndex;
+            PageCapacity = capacity;
+            ReadoutRevision = readoutRevision;
+            State = state;
+            Metadata = metadata;
+            CurrentFlags = currentFlags;
+            ReadoutDirtyFlags = readoutDirtyFlags;
+        }
+
+        public int SegmentIndex { get; }
+        public int PageCapacity { get; }
+        public ulong ReadoutRevision { get; }
+        public GraphicsBuffer State { get; }
+        public GraphicsBuffer Metadata { get; }
+        public GraphicsBuffer CurrentFlags { get; }
+        public GraphicsBuffer ReadoutDirtyFlags { get; }
+    }
+
+    /// <summary>
     /// Sparse GPU-resident Psi carrier. Signed logical coordinates and generation
     /// maps are scheduling metadata only; every allocated physical sample is one
     /// exact packed Q16.48 S16 state. Missing pages are the single implicit z_null.
@@ -162,6 +191,7 @@ namespace Genesis.RoomScan.SigmaPrism
         private int _cloneKernel;
         private int _publishKernel;
         private int _markDirtyKernel;
+        private int _deactivateKernel;
         private int _releaseKernel;
         private int _compactKernel;
         private int _acknowledgeKernel;
@@ -188,6 +218,8 @@ namespace Genesis.RoomScan.SigmaPrism
                 return bytes;
             }
         }
+
+        public event Action<SigmaCarrierPageCoordinate> ReadoutChanged;
 
         /// <summary>Execution resource only; it never defines persistence bytes.</summary>
         public ComputeShader CodecShader
@@ -223,6 +255,8 @@ namespace Genesis.RoomScan.SigmaPrism
             _cloneKernel = _carrierShader.FindKernel("ClonePageGeneration");
             _publishKernel = _carrierShader.FindKernel("PublishPageGeneration");
             _markDirtyKernel = _carrierShader.FindKernel("MarkPageDirty");
+            _deactivateKernel = _carrierShader.FindKernel(
+                "DeactivatePageGeneration");
             _releaseKernel = _carrierShader.FindKernel("ReleasePageSlot");
             _compactKernel = _carrierShader.FindKernel("CompactDirtyPages");
             _acknowledgeKernel = _carrierShader.FindKernel("AcknowledgeDirtyPages");
@@ -357,6 +391,32 @@ namespace Genesis.RoomScan.SigmaPrism
             return batches;
         }
 
+        public void CollectReadableSegments(List<SigmaCarrierReadBatch> destination)
+        {
+            RequireInitialized();
+            if (destination == null)
+                throw new ArgumentNullException(nameof(destination));
+            destination.Clear();
+            for (int index = 0; index < _segments.Count; ++index)
+                destination.Add(_segments[index].CreateReadBatch(index));
+        }
+
+        public void CollectCurrentPages(List<SigmaCarrierPageHandle> destination)
+        {
+            RequireInitialized();
+            if (destination == null)
+                throw new ArgumentNullException(nameof(destination));
+            destination.Clear();
+            foreach (SigmaCarrierPageHandle handle in _latest.Values)
+                destination.Add(handle);
+            destination.Sort(static (left, right) =>
+            {
+                int coordinate = left.Coordinate.CompareTo(right.Coordinate);
+                return coordinate != 0 ? coordinate :
+                    left.Generation.CompareTo(right.Generation);
+            });
+        }
+
         /// <summary>
         /// Called only after the compacted generations have durable ownership or a
         /// later stage's equivalent fence. It never mutates carrier coefficients.
@@ -412,6 +472,10 @@ namespace Genesis.RoomScan.SigmaPrism
             _carrierShader.SetInt("_PageCapacity", segment.Capacity);
             _carrierShader.SetBuffer(_releaseKernel, "_PageMetadata", segment.Metadata);
             _carrierShader.SetBuffer(_releaseKernel, "_DirtyFlags", segment.DirtyFlags);
+            _carrierShader.SetBuffer(_releaseKernel, "_CurrentFlags",
+                segment.CurrentFlags);
+            _carrierShader.SetBuffer(_releaseKernel, "_ReadoutDirtyFlags",
+                segment.ReadoutDirtyFlags);
             _carrierShader.Dispatch(_releaseKernel, 1, 1, 1);
             _allocated.Remove(key);
             segment.ReleaseSlot(handle.PageSlot);
@@ -438,15 +502,25 @@ namespace Genesis.RoomScan.SigmaPrism
             RequirePending(lease);
             SigmaCarrierPageHandle handle = lease.Handle;
             CarrierSegment segment = _segments[handle.SegmentIndex];
+            bool hadPrevious = _latest.TryGetValue(handle.Coordinate,
+                out SigmaCarrierPageHandle previous);
+            if (hadPrevious)
+                DeactivateCurrent(previous);
             _carrierShader.SetInt("_TargetPageSlot", handle.PageSlot);
             _carrierShader.SetInt("_PageCapacity", segment.Capacity);
             _backendGate.Bind(_carrierShader, _publishKernel);
             _carrierShader.SetBuffer(_publishKernel, "_PageMetadata", segment.Metadata);
             _carrierShader.SetBuffer(_publishKernel, "_DirtyFlags", segment.DirtyFlags);
+            _carrierShader.SetBuffer(_publishKernel, "_CurrentFlags",
+                segment.CurrentFlags);
+            _carrierShader.SetBuffer(_publishKernel, "_ReadoutDirtyFlags",
+                segment.ReadoutDirtyFlags);
             _carrierShader.Dispatch(_publishKernel, 1, 1, 1);
             var key = new PageGenerationKey(handle.Coordinate, handle.Generation);
             _pending.Remove(key);
             _latest[handle.Coordinate] = handle;
+            segment.MarkReadoutChanged();
+            ReadoutChanged?.Invoke(handle.Coordinate);
         }
 
         internal void Abort(SigmaCarrierWriteLease lease)
@@ -462,6 +536,10 @@ namespace Genesis.RoomScan.SigmaPrism
             _carrierShader.SetInt("_PageCapacity", segment.Capacity);
             _carrierShader.SetBuffer(_releaseKernel, "_PageMetadata", segment.Metadata);
             _carrierShader.SetBuffer(_releaseKernel, "_DirtyFlags", segment.DirtyFlags);
+            _carrierShader.SetBuffer(_releaseKernel, "_CurrentFlags",
+                segment.CurrentFlags);
+            _carrierShader.SetBuffer(_releaseKernel, "_ReadoutDirtyFlags",
+                segment.ReadoutDirtyFlags);
             _carrierShader.Dispatch(_releaseKernel, 1, 1, 1);
             _allocated.Remove(key);
             segment.ReleaseSlot(handle.PageSlot);
@@ -476,6 +554,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 _segments[index].Dispose();
             _segments.Clear();
             _latest.Clear();
+            _lastGeneration.Clear();
             _allocated.Clear();
             _pending.Clear();
             _carrierShader = null;
@@ -544,6 +623,19 @@ namespace Genesis.RoomScan.SigmaPrism
             SetUInt("_CertificateOffsetLo", unchecked((uint)handle.CertificateOffset));
             SetUInt("_CertificateOffsetHi", unchecked((uint)(handle.CertificateOffset >> 32)));
             SetUInt("_CertificateCount", handle.CertificateCount);
+        }
+
+        private void DeactivateCurrent(SigmaCarrierPageHandle handle)
+        {
+            CarrierSegment segment = _segments[handle.SegmentIndex];
+            _carrierShader.SetInt("_TargetPageSlot", handle.PageSlot);
+            _carrierShader.SetInt("_PageCapacity", segment.Capacity);
+            _carrierShader.SetBuffer(_deactivateKernel, "_CurrentFlags",
+                segment.CurrentFlags);
+            _carrierShader.SetBuffer(_deactivateKernel, "_ReadoutDirtyFlags",
+                segment.ReadoutDirtyFlags);
+            _carrierShader.Dispatch(_deactivateKernel, 1, 1, 1);
+            segment.MarkReadoutChanged();
         }
 
         private void SetUInt(string name, uint value) =>
@@ -621,6 +713,11 @@ namespace Genesis.RoomScan.SigmaPrism
                     PageMetadataStride, $"Sigma carrier metadata {index}");
                 DirtyFlags = Create(GraphicsBuffer.Target.Structured, capacity,
                     sizeof(uint), $"Sigma carrier dirty flags {index}");
+                CurrentFlags = Create(GraphicsBuffer.Target.Structured, capacity,
+                    sizeof(uint), $"Sigma carrier current flags {index}");
+                ReadoutDirtyFlags = Create(GraphicsBuffer.Target.Structured,
+                    capacity, sizeof(uint),
+                    $"Sigma carrier readout dirty flags {index}");
                 DirtySlots = Create(GraphicsBuffer.Target.Structured, capacity,
                     sizeof(uint), $"Sigma carrier dirty slots {index}");
                 DirtyCount = Create(GraphicsBuffer.Target.Structured, 1,
@@ -630,6 +727,8 @@ namespace Genesis.RoomScan.SigmaPrism
                     GraphicsBuffer.Target.IndirectArguments,
                     3, sizeof(uint), $"Sigma carrier dirty dispatch {index}");
                 DirtyFlags.SetData(new uint[capacity]);
+                CurrentFlags.SetData(new uint[capacity]);
+                ReadoutDirtyFlags.SetData(new uint[capacity]);
                 DirtyCount.SetData(new uint[1]);
                 DirtyDispatchArguments.SetData(new uint[] { 0u, 1u, 1u });
                 _freeSlots = new Stack<int>(capacity);
@@ -641,9 +740,19 @@ namespace Genesis.RoomScan.SigmaPrism
             public GraphicsBuffer State { get; }
             public GraphicsBuffer Metadata { get; }
             public GraphicsBuffer DirtyFlags { get; }
+            public GraphicsBuffer CurrentFlags { get; }
+            public GraphicsBuffer ReadoutDirtyFlags { get; }
             public GraphicsBuffer DirtySlots { get; }
             public GraphicsBuffer DirtyCount { get; }
             public GraphicsBuffer DirtyDispatchArguments { get; }
+            public ulong ReadoutRevision { get; private set; } = 1UL;
+
+            public void MarkReadoutChanged()
+            {
+                ReadoutRevision = ReadoutRevision == ulong.MaxValue
+                    ? 1UL
+                    : ReadoutRevision + 1UL;
+            }
 
             public bool TryReserveSlot(out int slot)
             {
@@ -667,11 +776,17 @@ namespace Genesis.RoomScan.SigmaPrism
                 new(segmentIndex, Capacity, DirtySlots, DirtyCount,
                     DirtyDispatchArguments);
 
+            public SigmaCarrierReadBatch CreateReadBatch(int segmentIndex) =>
+                new(segmentIndex, Capacity, ReadoutRevision, State, Metadata,
+                    CurrentFlags, ReadoutDirtyFlags);
+
             public void Dispose()
             {
                 State.Dispose();
                 Metadata.Dispose();
                 DirtyFlags.Dispose();
+                CurrentFlags.Dispose();
+                ReadoutDirtyFlags.Dispose();
                 DirtySlots.Dispose();
                 DirtyCount.Dispose();
                 DirtyDispatchArguments.Dispose();

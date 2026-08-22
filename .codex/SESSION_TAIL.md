@@ -6,20 +6,18 @@ touch `~/.codex` or untracked device/archive data.
 
 ## Exchange 1
 
-User: Asked for current status during the new independent Σ-PRISM pursuit and
-required one commit after every DAG node, with a source-only `git archive` after
-S4-07 before further work.
+User: Required one commit after every independent Σ-PRISM DAG task and a
+source-only `git archive` after S4-07 before continuing to S4-08.
 
-Assistant: Continued the active goal without restarting completed work. S4-00 and
-S4-01 remained accepted checkpoints; S4-02 was implemented as the sparse exact
-carrier/codec vertical slice.
+Assistant: Preserved the accepted S4-00, S4-01 and S4-02 checkpoints and continued
+only the canonical `new_spec.md` implementation on S4-03.
 
 ## Exchange 2
 
-User: Reiterated that effort must stay approximately 90% implementation and only
-10% proportional tests plus control-file overhead.
+User: Reiterated the 90% implementation / 10% proportional tests-and-controls
+budget.
 
-Assistant: Kept work on implementation, batched verification at the S4-02 gate,
-and deferred controls to this completion checkpoint. S4-02 now has exact CPU/GPU
-codec parity, byte-identical restart, 26/26 Vulkan EditMode tests and a successful
-Android build; S4-03 is the next active node.
+Assistant: Implemented the S4-03 exact dirty-local dual-eye forward readout,
+cross-page halos, disposable prediction ring and hardware first-hit path. The
+focused folded/null gate passes, the Android build succeeds, S4-03 is checkpointed
+separately, and S4-04 joint inverse depth is now the sole active node.

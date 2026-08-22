@@ -66,3 +66,20 @@ Git history and are not active on this branch.
 - Consequence: later readout/inverse stages consume generation-keyed decoded pages
   and must create a new generation for accepted mutation. Persistence/restart must
   reproduce the exact selected page bytes and algebra/operator fingerprints.
+
+## ADR-S405 — Exact derived forward readout and raster first-hit authority
+
+- Decision: geometry support and projective position are decided by the generated
+  exact packed-Q16.48 `G`/`qdiv` plan. Conversion to FP32 occurs only after that
+  decision in a disposable readout cache; it cannot mutate or reinterpret `Psi`.
+- Decision: only the latest immutable generation of each logical carrier page may
+  enter prediction. Changed pages compact stably into indirect exact-readout work;
+  derived neighbour halos cross physical page/segment boundaries and are refreshed
+  only in the changed local neighbourhood.
+- Decision: hardware rasterization is the visibility/first-hit operator for both
+  timestamped depth-eye poses. Prediction preserves exact signed-64 carrier page
+  limbs and immutable page generation/revision keys so S4-04 can pull every source
+  constraint back into the same canonical state.
+- Consequence: prediction/readout buffers are deletable, ref-counted GPU caches.
+  No CPU geometry, synchronous readback, Unity Mesh or parallel geometry world may
+  be introduced by inverse, topology or rendering stages.

@@ -23,14 +23,16 @@ Updated: 2026-08-22 (Europe/Prague)
 
 - `S4-00` is accepted in commit `be95c9e`.
 - `S4-01` is accepted in commit `5f71653`.
-- `S4-02` is accepted for its isolated checkpoint commit.
-- `S4-03` is the sole `in_progress` node.
+- `S4-02` is accepted in commit `8a04057`.
+- `S4-03` is accepted by the current isolated checkpoint.
+- `S4-04` is the sole `in_progress` node.
 - The retained product surface is only four-stream GPU capture/synchronization,
   immutable calibration/poses, Quest/XR lifecycle, permissions/anchors, input/UI,
   neutral GPU helpers and build/deploy tooling.
 - Exact S16 mutation has one CPU semantic domain, generated signed-XOR/operator
   authority and a GPU-resident device self-test gate. The sparse decoded carrier is
-  now live GPU state; sensor-driven inverse mutation remains gated until S4-04.
+  live GPU state with an exact disposable dual-eye forward readout; sensor-driven
+  inverse mutation begins only in S4-04.
 
 ## S4-01 accepted implementation
 
@@ -71,15 +73,38 @@ Updated: 2026-08-22 (Europe/Prague)
   gate passes, and Android/Vulkan IL2CPP produced a fresh 224,657,841-byte APK with
   no Sigma compile error. This is build evidence, not a device scan claim.
 
+## S4-03 accepted implementation
+
+- Exact packed Q16.48 `G` plus checked projective division produces disposable
+  GPU readout position and information mass; `z_null`, invalid division and
+  unsupported transitions produce no contact.
+- `SigmaForwardReadout.compute` rebuilds only stably compacted current dirty pages
+  through indirect dispatch. Derived 65x65 halos join logical neighbours across
+  physical page and segment boundaries without adding canonical samples.
+- `SigmaRenderer` consumes coherent `SigmaRigBridge` depth-eye poses and immutable
+  calibration epochs, then hardware-rasterizes both views into depth/support,
+  exact signed-64 carrier-page limbs, local CarrierUV/normal and immutable
+  generation/revision keys.
+- Prediction targets and readout vertices are ref-counted disposable GPU caches;
+  runtime contains no coefficient readback, CPU pixel loop, Unity Mesh or second
+  geometry state.
+- Verification: Unity Vulkan EditMode passed 28/28, including exact CPU/GPU
+  readout, folded first-hit selection and null no-contact; generated operators and
+  eight-UAV checks pass. Android/Vulkan IL2CPP produced a fresh 224,804,460-byte
+  APK with zero build errors. This is build evidence, not a physical scan claim.
+
 ## Next exact actions
 
-1. Commit the accepted S4-02 carrier/codec checkpoint with this fresh code graph.
-2. Implement `SigmaRigBridge`-driven forward geometry readout over visible resident
-   carrier pages into per-eye depth, CarrierUV, support and generation-key targets.
-3. Ensure generated `z_null`/unsupported transitions emit no contact and hardware
-   rasterization remains the sole first-hit visibility mechanism.
-4. Prove deterministic regular/folded/null carrier fixtures, regenerate the graph
-   and close S4-03 in its own commit.
+1. Implement independent finite-footprint `DEPTH_L` and `DEPTH_R` Q16.48 source
+   cells against the S4-03 carrier preimage/state keys.
+2. Implement the exact commutative admissible-set meet, explicit empty-conflict
+   provenance and checked minimum-change projective commit into a new immutable
+   carrier generation.
+3. Enforce HIT / PRE_HIT_EXCLUSION / NO_CONSTRAINT with byte-zero effect behind the
+   measured first hit; never form a stereo consensus or sensor-weighted sum.
+4. Add deterministic latent-gauge probation/allocation for unmatched supported
+   depth, then prove source/LR-order invariance and the first four-stream-to-carrier
+   vertical slice before the S4-04 checkpoint.
 
 ## Verification policy
 
