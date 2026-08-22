@@ -9,7 +9,7 @@ qis_unity_version="${QIS_UNITY_VERSION:-6000.5.9f1}"
 qis_editor="$QIS_UNITY_EDITOR_ROOT/$qis_unity_version/Editor/Unity"
 qis_project="$QIS_UNITY_PROJECT_ROOT/QuestInfiniteScanHost"
 qis_log_dir="$QIS_BUILD_ROOT/QuestInfiniteScan/logs"
-export QIS_APK_PATH="${QIS_APK_PATH:-$QIS_BUILD_ROOT/QuestInfiniteScan/QuestInfiniteScan-dev.apk}"
+export QIS_APK_PATH="${QIS_APK_PATH:-$QIS_BUILD_ROOT/QuestInfiniteScan/QuestInfiniteScan-release.apk}"
 
 if [[ ! -x "$qis_editor" ]]; then
     printf 'Unity editor is missing: %s\n' "$qis_editor" >&2

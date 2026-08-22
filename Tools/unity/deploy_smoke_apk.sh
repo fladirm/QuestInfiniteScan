@@ -5,7 +5,7 @@ qis_script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=Tools/storage/dev_environment.sh
 source "$qis_script_dir/../storage/dev_environment.sh"
 
-qis_apk="${QIS_APK_PATH:-$QIS_BUILD_ROOT/QuestInfiniteScan/QuestInfiniteScan-dev.apk}"
+qis_apk="${QIS_APK_PATH:-$QIS_BUILD_ROOT/QuestInfiniteScan/QuestInfiniteScan-release.apk}"
 if [[ ! -s "$qis_apk" ]]; then
     printf 'APK is missing or empty: %s\n' "$qis_apk" >&2
     exit 1

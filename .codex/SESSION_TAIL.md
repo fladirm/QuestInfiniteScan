@@ -2,16 +2,16 @@
 
 ## Latest user exchange
 
-User repeatedly requested immediate progress and constrained S4-08 to a compact
-400--700 LOC implementation. It must reuse the accepted exact cell/readout
-machinery, avoid a long serial kernel and never inflate bounded pose gauge into a
-second SLAM, framework or reconstruction state.
+User requires the consolidated S4-08 package to be an actual release build rather
+than a development/debug APK, followed by immediate Quest installation. S4-09 must
+remain paused until that exact release checkpoint is archived and deployed.
 
 ## Latest implementation update
 
-S4-08 is implemented as a compact exact two-stage readout transaction. Parallel
-GPU overlap cells meet the six-component Meta prior; a nonzero accepted correction
-rerasterizes the same immutable frame before the joint inverse runs. It never
-touches `Psi`, timestamp, topology or rig extrinsics. Unity Vulkan passed 64/64 and
-generated/UAV/diff gates pass. Next is the isolated S4-08 checkpoint, code graph,
-source-only git archive, Android build and Quest deploy; S4-09 remains paused.
+S4-08 is accepted in `0696228`. The first Android build was refused because the
+Android compiler exposed one varying-flow barrier and two invalid fixed-loop
+annotations in older S4-05/S4-04/S4-06 shader lowering. The precise three roots are
+corrected with unchanged exact semantics; Unity Vulkan remains 64/64. Build tooling
+now forces `BuildOptions.None`, clears debugging/profiling flags and selects IL2CPP
+Release. Next is the correction commit, zero-error Android release build, source
+archive and immediate Quest deploy; S4-09 remains paused.

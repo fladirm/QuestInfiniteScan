@@ -263,7 +263,10 @@ bool SigmaBuildMatchedEyeCell(uint eye, float3 worldPosition,
 uint2 SigmaPackSourceNibbles(uint sources[16])
 {
     uint2 packed = 0u;
-    [loop]
+    // Local array references are not natively addressable in Unity's Android
+    // Vulkan lowering.  This fixed 16-lane operator is intentionally unrolled;
+    // the schedule and packed result remain identical and source-order stable.
+    [unroll]
     for (uint lane = 0u; lane < 16u; ++lane)
     {
         uint word = lane >> 3u;

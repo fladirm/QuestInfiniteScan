@@ -280,7 +280,10 @@ bool SigmaBuildRgbCell(uint eye, float3 worldPosition, uint2 currentY[16],
         return false;
     }
 
-    [loop]
+    // The destination is a fixed local struct array.  Android Vulkan requires
+    // static addressing for this copy, so express the specified 16-lane bounded
+    // operator schedule explicitly through unrolling.
+    [unroll]
     for (uint lane = 0u; lane < 16u; ++lane)
         cell.coordinate[lane] = prior[lane];
     SigmaQ48Bounds denominator = SigmaRgbEvaluateRow(cell.coordinate,

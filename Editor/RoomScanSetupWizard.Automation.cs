@@ -13,9 +13,9 @@ using UnityEngine.SceneManagement;
 namespace Genesis.RoomScan.Editor
 {
     /// <summary>
-    /// Non-interactive equivalents of the setup wizard's game-ready + debug presets.
-    /// These entry points make the first Quest smoke APK reproducible instead of relying
-    /// on clicks in a particular editor session.
+    /// Non-interactive equivalents of the setup wizard's game-ready preset.
+    /// These entry points make the Quest milestone release APK reproducible instead of
+    /// relying on clicks or persistent editor build flags from a previous session.
     /// </summary>
     public partial class RoomScanSetupWizard
     {
@@ -47,8 +47,8 @@ namespace Genesis.RoomScan.Editor
                 PlayerSettings.productName = "Quest Infinite Scan";
                 PlayerSettings.SetApplicationIdentifier(NamedBuildTarget.Android,
                     "com.questinfinitescan.smoke");
-                PlayerSettings.bundleVersion = "0.1.0-dev";
-                PlayerSettings.Android.bundleVersionCode = 1;
+                PlayerSettings.bundleVersion = "0.1.0";
+                PlayerSettings.Android.bundleVersionCode = 8;
                 PlayerSettings.colorSpace = ColorSpace.Linear;
 
                 EnsureURPSetup();
@@ -130,10 +130,20 @@ namespace Genesis.RoomScan.Editor
                     throw new FileNotFoundException("Prepare the smoke scene first.", SmokeScenePath);
                 string output = Environment.GetEnvironmentVariable("QIS_APK_PATH");
                 if (string.IsNullOrWhiteSpace(output))
-                    output = Path.GetFullPath("Builds/QuestInfiniteScan-dev.apk");
+                    output = Path.GetFullPath("Builds/QuestInfiniteScan-release.apk");
                 string parent = Path.GetDirectoryName(output);
                 if (!string.IsNullOrEmpty(parent))
                     Directory.CreateDirectory(parent);
+
+                // Build settings persist outside source control in the Unity host.
+                // Set every authority-bearing release flag explicitly so a previous
+                // profiling/debug session cannot contaminate the milestone package.
+                EditorUserBuildSettings.development = false;
+                EditorUserBuildSettings.allowDebugging = false;
+                EditorUserBuildSettings.connectProfiler = false;
+                EditorUserBuildSettings.buildWithDeepProfilingSupport = false;
+                PlayerSettings.SetIl2CppCompilerConfiguration(NamedBuildTarget.Android,
+                    Il2CppCompilerConfiguration.Release);
 
                 var options = new BuildPlayerOptions
                 {
@@ -141,13 +151,13 @@ namespace Genesis.RoomScan.Editor
                     locationPathName = output,
                     target = BuildTarget.Android,
                     targetGroup = BuildTargetGroup.Android,
-                    options = BuildOptions.Development | BuildOptions.AllowDebugging
+                    options = BuildOptions.None
                 };
                 BuildReport report = BuildPipeline.BuildPlayer(options);
                 BuildSummary summary = report.summary;
                 Debug.Log($"[QuestInfiniteScan] APK build {summary.result}: {output}, " +
                           $"size={summary.totalSize}, errors={summary.totalErrors}, " +
-                          $"warnings={summary.totalWarnings}");
+                          $"warnings={summary.totalWarnings}, configuration=Release");
                 // Unity can report BuildResult.Succeeded while a player contains a
                 // ComputeShader variant that failed Vulkan compilation. Such an APK
                 // launches but silently lacks a reconstruction kernel, so it is not a

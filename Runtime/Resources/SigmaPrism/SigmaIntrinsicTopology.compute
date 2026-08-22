@@ -561,13 +561,22 @@ void ScanAnnihilatorCatalog(uint3 groupId : SV_GroupID,
     uint candidateIndex = groupId.x;
     uint candidateCount = min(_TopologyCandidateCount[0],
         SIGMA_TRANSITIONS_PER_PAGE);
-    if (candidateIndex >= candidateCount)
-        return;
-    uint transitionIndex = _TopologyCandidates[candidateIndex];
     uint lane = groupThreadId.x;
-    if (transitionIndex >= SIGMA_TRANSITIONS_PER_PAGE ||
-        _TargetPageSlot >= _TargetPageCapacity)
-        return;
+
+    // A UAV-loaded transition index is conservatively considered lane-varying by
+    // the Android Vulkan compiler even though every lane reads the same group
+    // candidate.  Keep the complete group on one barrier schedule: clamp every
+    // speculative address and carry validity as data until the final lane-zero
+    // publication.  Canonical acceptance therefore remains fail-closed without
+    // placing a group sync behind data-dependent control flow.
+    uint safeCandidateIndex = min(candidateIndex,
+        SIGMA_TRANSITIONS_PER_PAGE - 1u);
+    uint rawTransitionIndex = _TopologyCandidates[safeCandidateIndex];
+    uint transitionIndex = min(rawTransitionIndex,
+        SIGMA_TRANSITIONS_PER_PAGE - 1u);
+    uint candidateValid = candidateIndex < candidateCount &&
+        rawTransitionIndex < SIGMA_TRANSITIONS_PER_PAGE &&
+        _TargetPageSlot < _TargetPageCapacity ? 1u : 0u;
 
     if (lane < 16u)
         SigmaTopologySharedTau[lane] =
@@ -575,7 +584,7 @@ void ScanAnnihilatorCatalog(uint3 groupId : SV_GroupID,
     GroupMemoryBarrierWithGroupSync();
 
     uint4 meta = _TransitionMeta[transitionIndex];
-    uint valid = (meta.x & 1u) != 0u ? 1u : 0u;
+    uint valid = candidateValid != 0u && (meta.x & 1u) != 0u ? 1u : 0u;
     uint4 error = SIGMA_U128_MAX;
     uint actionId = lane;
     if (lane < SIGMA_ANNIHILATOR_ACTION_COUNT && valid != 0u)
@@ -608,6 +617,8 @@ void ScanAnnihilatorCatalog(uint3 groupId : SV_GroupID,
     }
 
     if (lane != 0u)
+        return;
+    if (candidateValid == 0u)
         return;
     uint cacheIndex = SigmaTopologyCacheIndex(_TargetPageSlot, transitionIndex);
     uint4 previous = _TransitionCache[cacheIndex];

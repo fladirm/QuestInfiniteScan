@@ -29,8 +29,8 @@ Updated: 2026-08-22 (Europe/Prague)
 - `S4-05` is accepted in commit `96cbeca`.
 - `S4-06` is accepted in commit `c6dabef`.
 - `S4-07` is accepted in commit `dc6abf5`.
-- `S4-08` is accepted by this isolated checkpoint; S4-09 remains paused until the
-  checkpoint is archived, built and deployed for user audit.
+- `S4-08` is accepted in commit `0696228`; S4-09 remains paused until its
+  Android-clean release checkpoint is archived, built and deployed for user audit.
 - The retained product surface is only four-stream GPU capture/synchronization,
   immutable calibration/poses, Quest/XR lifecycle, permissions/anchors, input/UI,
   neutral GPU helpers and build/deploy tooling.
@@ -216,16 +216,21 @@ Updated: 2026-08-22 (Europe/Prague)
   decision. It preserves fixed rig extrinsics and cannot alter carrier bytes,
   intrinsic topology, proof records, calibration epochs or captured timestamps.
 - Verification: generated operator check, diff check and eight-UAV validation
-  pass; Unity 6000.5.9f1 Vulkan EditMode passed 64/64. The exact checkpoint still
-  requires its mandated source archive, Android build and Quest installation
-  before S4-09 starts.
+  pass; Unity 6000.5.9f1 Vulkan EditMode passed 64/64. The first consolidated
+  Android attempt correctly refused publication after the Android compiler found
+  a varying-flow group barrier in the S4-05 topology kernel and two contradictory
+  fixed-loop attributes in S4-04/S4-06 local-array lowering. Those three exact
+  backend-legality roots are corrected without changing canonical semantics, the
+  64/64 batch remains green, and build automation now explicitly clears all
+  development/debug/profiler flags and selects IL2CPP Release.
 
 ## Next exact actions
 
-1. Regenerate the code graph, validate control state and create the isolated S4-08
-   commit.
-2. Create a source-only `git archive` ZIP from that exact commit.
-3. Build its Android/Vulkan APK and install it on the connected Quest.
+1. Commit the Android Vulkan legality and reproducible-release build correction.
+2. Build the exact commit as an Android/Vulkan IL2CPP Release APK and require zero
+   shader/C# errors.
+3. Create a source-only `git archive` ZIP from that exact commit and install the
+   release APK on the connected Quest.
 4. Pause before S4-09 for user audit/device evaluation.
 
 ## Verification policy
