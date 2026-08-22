@@ -1,8 +1,19 @@
 using System;
+using System.Threading;
 using UnityEngine;
+using UnityEngine.Rendering;
 
 namespace Genesis.RoomScan.SigmaPrism
 {
+    public enum SigmaExactBackendGateStatus
+    {
+        Pending = 0,
+        Passed = 1,
+        Failed = 2,
+        ReadbackError = 3,
+        Disposed = 4
+    }
+
     /// <summary>
     /// GPU-resident exact-backend witness. Canonical mutation kernels consume this
     /// one-word buffer directly; no CPU readback or optimistic device assumption is
@@ -12,12 +23,21 @@ namespace Genesis.RoomScan.SigmaPrism
     {
         private const string FixtureResource = "SigmaPrism/SigmaOperatorFixture";
         private readonly GraphicsBuffer _gate;
+        private int _diagnosticStatus;
         private bool _disposed;
 
         private SigmaExactBackendGate(GraphicsBuffer gate)
         {
             _gate = gate;
+            _diagnosticStatus = (int)SigmaExactBackendGateStatus.Pending;
         }
+
+        /// <summary>
+        /// Asynchronous operator-UX diagnostic only. Canonical mutation still reads
+        /// the GPU gate buffer directly and never trusts this CPU mirror.
+        /// </summary>
+        public SigmaExactBackendGateStatus DiagnosticStatus =>
+            (SigmaExactBackendGateStatus)Volatile.Read(ref _diagnosticStatus);
 
         public GraphicsBuffer Buffer
         {
@@ -41,7 +61,35 @@ namespace Genesis.RoomScan.SigmaPrism
             gate.SetData(new uint[] { 0u });
             fixture.SetBuffer(kernel, "_CapabilityGate", gate);
             fixture.Dispatch(kernel, 1, 1, 1);
-            return new SigmaExactBackendGate(gate);
+            var result = new SigmaExactBackendGate(gate);
+            result.RequestDiagnosticStatus();
+            return result;
+        }
+
+        private void RequestDiagnosticStatus()
+        {
+            AsyncGPUReadback.Request(_gate, request =>
+            {
+                if (_disposed)
+                    return;
+
+                SigmaExactBackendGateStatus status;
+                if (request.hasError)
+                    status = SigmaExactBackendGateStatus.ReadbackError;
+                else
+                {
+                    var values = request.GetData<uint>();
+                    status = values.Length == 1 && values[0] == 1u
+                        ? SigmaExactBackendGateStatus.Passed
+                        : SigmaExactBackendGateStatus.Failed;
+                }
+
+                Interlocked.Exchange(ref _diagnosticStatus, (int)status);
+                if (status == SigmaExactBackendGateStatus.Passed)
+                    Logger.Info("Exact S16 GPU mutation gate passed.");
+                else
+                    Logger.Error("Exact S16 GPU mutation gate diagnostic: " + status);
+            });
         }
 
         public void Bind(ComputeShader shader, int kernel,
@@ -57,6 +105,8 @@ namespace Genesis.RoomScan.SigmaPrism
             if (_disposed)
                 return;
             _disposed = true;
+            Interlocked.Exchange(ref _diagnosticStatus,
+                (int)SigmaExactBackendGateStatus.Disposed);
             _gate.Dispose();
         }
     }

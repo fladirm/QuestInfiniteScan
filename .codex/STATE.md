@@ -29,8 +29,9 @@ Updated: 2026-08-22 (Europe/Prague)
 - `S4-05` is accepted in commit `96cbeca`.
 - `S4-06` is accepted in commit `c6dabef`.
 - `S4-07` is accepted in commit `dc6abf5`.
-- `S4-08` is accepted in commit `0696228`; S4-09 remains paused until its
-  Android-clean release checkpoint is archived, built and deployed for user audit.
+- `S4-08` is accepted in commit `0696228`; its Android correction is frozen in
+  `91e4721c30c0`, archived, built as Release and deployed. `S4-09` remains paused
+  during the user's base-device audit.
 - The retained product surface is only four-stream GPU capture/synchronization,
   immutable calibration/poses, Quest/XR lifecycle, permissions/anchors, input/UI,
   neutral GPU helpers and build/deploy tooling.
@@ -224,15 +225,7 @@ Updated: 2026-08-22 (Europe/Prague)
   64/64 batch remains green, and build automation now explicitly clears all
   development/debug/profiler flags and selects IL2CPP Release.
 
-## Next exact actions
-
-1. Commit the Android release correction that replaces the duplicated per-page
-   inline RGB solve with one 16-lane exact source-cell pass plus one joint commit.
-2. Create a source-only `git archive` ZIP and build that exact commit as an
-   Android/Vulkan IL2CPP Release APK with zero shader/C# errors.
-3. Install the release APK on the connected Quest and pause before S4-09.
-
-## S4-08 Android release correction in progress
+## S4-08 Android release correction
 
 - `SigmaRgbSourceCells.compute` assigns one 16-thread workgroup to each scheduled
   RGB source cell and one lane to each generated projective coordinate. Four fixed
@@ -243,9 +236,38 @@ Updated: 2026-08-22 (Europe/Prague)
   geometry/mass buffers and their duplicate full solve were removed.
 - The frame path retains only bounded asynchronous scheduler/proof metadata; no
   pixels, vertices or carrier geometry are read back to CPU.
-- Verification so far: generated operators, diff check and eight-UAV validation
-  pass; Unity 6000.5.9f1 Vulkan EditMode passes 64/64. Android Release build and
-  physical install are the remaining gates for this checkpoint.
+- Commit `91e4721c30c0` built successfully as Android/Vulkan IL2CPP Release with
+  zero shader/C# errors. The 66,757,006-byte APK was installed on the connected
+  Quest; its source-only archive is
+  `SigmaPrism16-S4-08-91e4721c30c0-source.zip`.
+
+## S4-00 neutral Quest-shell regression repair
+
+- Device audit proved the fresh-scene automation had stopped calling the retained
+  controller/UI setup path. The generated APK therefore had no EventSystem,
+  OVRInputModule, PanelInputConfiguration, VRDocumentRaycaster or
+  ControllerRayDriver even though the source helpers still existed.
+- The clean-scene path now transactionally creates that complete representation-
+  neutral XR pointer stack, removes StandaloneInputModule, assigns the main XR
+  camera and serializes a dedicated URP controller-ray shader. Build preparation
+  fails if any element, the operator UIDocument, its assets or RoomScanInputHandler
+  is absent.
+- The operator panel now reports the actual asynchronous GPU witness diagnostic,
+  resident carrier state, S4-05 intrinsic-topology publication and S4-08 inverse
+  counters. This diagnostic mirror never authorizes canonical mutation; kernels
+  still consume the GPU gate buffer directly.
+- Evidence: Unity Vulkan EditMode passed 64/64; generated-operator and eight-UAV
+  checks pass. A fresh generated scene contains the complete EventSystem stack,
+  main-camera raycaster, non-null shader GUID and menu/input components, and the
+  preparation log has no C#/shader/UI import error.
+
+## Next exact actions
+
+1. Commit the repaired S4-00 Quest input/operator-UX vertical slice and its current
+   generated code graph.
+2. Create a source-only `git archive`, build that exact commit as Android/Vulkan
+   IL2CPP Release and install it on the connected Quest.
+3. Keep `S4-09` pending until the user completes this device audit.
 
 ## Verification policy
 

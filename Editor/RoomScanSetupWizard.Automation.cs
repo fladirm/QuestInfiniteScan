@@ -2,13 +2,16 @@ using System;
 using System.IO;
 using System.Threading.Tasks;
 using Genesis.RoomScan.SigmaPrism;
+using Genesis.RoomScan.UI;
 using UnityEditor;
 using UnityEditor.Build;
 using UnityEditor.Build.Reporting;
 using UnityEditor.SceneManagement;
 using UnityEngine;
+using UnityEngine.EventSystems;
 using UnityEngine.Rendering;
 using UnityEngine.SceneManagement;
+using UnityEngine.UIElements;
 
 namespace Genesis.RoomScan.Editor
 {
@@ -70,6 +73,7 @@ namespace Genesis.RoomScan.Editor
                 wizard.EnsurePassthroughSceneConfig();
                 wizard.Refresh();
                 wizard.FixDebugModules();
+                EnsureVRInput();
                 wizard.Refresh();
                 wizard.FixShaderWiring();
 
@@ -93,6 +97,24 @@ namespace Genesis.RoomScan.Editor
                     roomScan.GetComponent<DepthCapture>() == null)
                     throw new InvalidOperationException(
                         "The Σ-PRISM-16 capture/lifecycle shell was not created.");
+
+                EventSystem eventSystem = FindAny<EventSystem>();
+                ControllerRayDriver rayDriver = FindAny<ControllerRayDriver>();
+                DebugMenuController debugMenu = FindAny<DebugMenuController>();
+                UIDocument debugDocument = debugMenu != null
+                    ? debugMenu.GetComponent<UIDocument>()
+                    : null;
+                if (eventSystem == null ||
+                    eventSystem.GetComponent<OVRInputModule>() == null ||
+                    eventSystem.GetComponent<PanelInputConfiguration>() == null ||
+                    eventSystem.GetComponent<VRDocumentRaycaster>() == null ||
+                    eventSystem.GetComponent<StandaloneInputModule>() != null ||
+                    rayDriver == null || rayDriver.OverlayShader == null ||
+                    debugDocument == null || debugDocument.visualTreeAsset == null ||
+                    debugDocument.panelSettings == null ||
+                    roomScan.GetComponent<RoomScanInputHandler>() == null)
+                    throw new InvalidOperationException(
+                        "The Quest controller-ray/operator UX vertical slice is incomplete.");
                 Debug.Log("[QuestInfiniteScan] Σ-PRISM-16 CPQ4 product shell; " +
                           "no legacy reconstruction or persistence path is active.");
 

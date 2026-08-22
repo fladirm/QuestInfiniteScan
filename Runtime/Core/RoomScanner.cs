@@ -68,7 +68,7 @@ namespace Genesis.RoomScan
         public string LastScanStartError { get; private set; }
         public ScanRenderMode CurrentRenderMode => renderMode;
         public string RuntimeStage =>
-            "S4-05 exact intrinsic singular topology and fail-closed readout cuts";
+            "S4-08 exact four-stream inverse + bounded pose gauge";
         public DepthCapture DepthCapture => _depthCapture;
         public SigmaRigBridge RigBridge => _rigBridge;
         public SigmaCarrier Carrier => _carrier;

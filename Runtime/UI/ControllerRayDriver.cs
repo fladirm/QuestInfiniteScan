@@ -9,8 +9,9 @@ namespace Genesis.RoomScan.UI
     /// pointing along the controller ray, and draws a laser + cursor dot.
     /// Place on the same GameObject as the <c>EventSystem</c> / <c>OVRInputModule</c>.
     /// </summary>
+    [DisallowMultipleComponent]
     [RequireComponent(typeof(OVRInputModule))]
-    public class ControllerRayDriver : MonoBehaviour
+    public sealed class ControllerRayDriver : MonoBehaviour
     {
         [Header("Ray")]
         [SerializeField, Tooltip("Forward offset from controller origin (meters)")]
@@ -18,9 +19,9 @@ namespace Genesis.RoomScan.UI
         [SerializeField] private float maxLength = 5f;
 
         [Header("Laser Visual")]
-        [SerializeField] private float beamWidth = 0.002f;
-        [SerializeField] private Color idleColor = new(1f, 1f, 1f, 0.15f);
-        [SerializeField] private Color hoverColor = new(0f, 0.8f, 1f, 0.7f);
+        [SerializeField] private float beamWidth = 0.003f;
+        [SerializeField] private Color idleColor = new(0.25f, 0.85f, 1f, 0.65f);
+        [SerializeField] private Color hoverColor = new(0.1f, 1f, 0.65f, 0.95f);
 
         [Header("Cursor Dot")]
         [SerializeField] private float cursorRadius = 0.006f;
@@ -34,12 +35,19 @@ namespace Genesis.RoomScan.UI
         private LineRenderer _line;
         private GameObject _cursor;
         private MeshRenderer _cursorRenderer;
-        private OVRInput.Controller _activeController = OVRInput.Controller.RTouch;
+        private Material _overlayMaterial;
+        private MaterialPropertyBlock _cursorProperties;
+        private OVRInput.Controller _activeController = OVRInput.Controller.None;
+        private bool _hasTrackedPose;
 
         private static OVRPlugin.HandState _handState = new();
+        private static readonly int ColorId = Shader.PropertyToID("_Color");
 
         // Layer mask matching the debug menu's panel collider layer
         private int _uiLayerMask;
+
+        public Shader OverlayShader => overlayShader;
+        public bool HasTrackedPose => _hasTrackedPose;
 
         private void Awake()
         {
@@ -52,6 +60,18 @@ namespace Genesis.RoomScan.UI
 
             _uiLayerMask = LayerMask.GetMask("Default", "UI");
 
+            if (overlayShader == null)
+            {
+                Logger.Error("ControllerRayDriver: controller-ray shader is not wired; " +
+                             "pointer interaction remains active but the ray is invisible.");
+                return;
+            }
+
+            _overlayMaterial = new Material(overlayShader)
+            {
+                name = "Sigma Controller Ray (Runtime)",
+                hideFlags = HideFlags.DontSave
+            };
             SetupLineRenderer();
             SetupCursor();
         }
@@ -59,18 +79,24 @@ namespace Genesis.RoomScan.UI
         private void Update()
         {
             _activeController = ChooseBestController(_activeController);
-            UpdateRayOrigin();
+            _hasTrackedPose = TryUpdateRayOrigin();
+            if (_line != null)
+                _line.enabled = _hasTrackedPose;
+            if (!_hasTrackedPose && _cursor != null)
+                _cursor.SetActive(false);
         }
 
         private void LateUpdate()
         {
-            DrawLaser();
+            if (_hasTrackedPose)
+                DrawLaser();
         }
 
         private void OnDestroy()
         {
             if (_rayHelper != null) Destroy(_rayHelper.gameObject);
             if (_cursor != null) Destroy(_cursor);
+            if (_overlayMaterial != null) Destroy(_overlayMaterial);
         }
 
         // ─── Controller Selection (adapted from Meta ImmersiveDebugger) ───
@@ -80,25 +106,28 @@ namespace Genesis.RoomScan.UI
             var left = OVRInput.GetActiveControllerForHand(OVRInput.Handedness.LeftHanded);
             var right = OVRInput.GetActiveControllerForHand(OVRInput.Handedness.RightHanded);
 
-            var ctrl = previous;
-            if (ctrl == OVRInput.Controller.None || (ctrl != left && ctrl != right))
-            {
-                ctrl = right != OVRInput.Controller.None ? right
-                     : left != OVRInput.Controller.None ? left
-                     : OVRInput.GetDominantHand() == OVRInput.Handedness.LeftHanded ? left : right;
-            }
-
-            if (ctrl != left && OVRInput.Get(OVRInput.Button.Any, left)) ctrl = left;
-            if (ctrl != right && OVRInput.Get(OVRInput.Button.Any, right)) ctrl = right;
-            if (ctrl == OVRInput.Controller.None) ctrl = OVRInput.Controller.RTouch;
-
-            return ctrl;
+            if (left != OVRInput.Controller.None &&
+                OVRInput.Get(OVRInput.Button.Any, left))
+                return left;
+            if (right != OVRInput.Controller.None &&
+                OVRInput.Get(OVRInput.Button.Any, right))
+                return right;
+            if (previous != OVRInput.Controller.None &&
+                (previous == left || previous == right))
+                return previous;
+            if (OVRInput.GetDominantHand() == OVRInput.Handedness.LeftHanded &&
+                left != OVRInput.Controller.None)
+                return left;
+            return right != OVRInput.Controller.None ? right : left;
         }
 
         // ─── Ray Transform ───
 
-        private void UpdateRayOrigin()
+        private bool TryUpdateRayOrigin()
         {
+            if (_activeController == OVRInput.Controller.None || _rayHelper == null)
+                return false;
+
             bool isHand = _activeController is OVRInput.Controller.LHand or OVRInput.Controller.RHand;
 
             Vector3 localPos;
@@ -108,12 +137,16 @@ namespace Genesis.RoomScan.UI
             {
                 var hand = _activeController == OVRInput.Controller.LHand
                     ? OVRPlugin.Hand.HandLeft : OVRPlugin.Hand.HandRight;
-                OVRPlugin.GetHandState(OVRPlugin.Step.Render, hand, ref _handState);
+                if (!OVRPlugin.GetHandState(OVRPlugin.Step.Render, hand, ref _handState))
+                    return false;
                 localPos = _handState.PointerPose.Position.FromFlippedZVector3f();
                 localRot = _handState.PointerPose.Orientation.FromFlippedZQuatf();
             }
             else
             {
+                if (!OVRInput.GetControllerPositionTracked(_activeController) &&
+                    !OVRInput.GetControllerOrientationTracked(_activeController))
+                    return false;
                 localPos = OVRInput.GetLocalControllerPosition(_activeController);
                 localRot = OVRInput.GetLocalControllerRotation(_activeController);
             }
@@ -121,24 +154,28 @@ namespace Genesis.RoomScan.UI
             var pose = new OVRPose { position = localPos, orientation = localRot };
 
             var cam = Camera.main;
-            if (cam != null) pose = pose.ToWorldSpacePose(cam);
+            if (cam == null)
+                return false;
+            pose = pose.ToWorldSpacePose(cam);
 
             _rayHelper.SetPositionAndRotation(pose.position, pose.orientation);
+            return true;
         }
 
         // ─── Laser Visual ───
 
         private void SetupLineRenderer()
         {
-            _line = gameObject.AddComponent<LineRenderer>();
+            _line = GetComponent<LineRenderer>() ?? gameObject.AddComponent<LineRenderer>();
             _line.positionCount = 2;
             _line.startWidth = beamWidth;
             _line.endWidth = beamWidth * 0.5f;
-            _line.material = new Material(overlayShader);
+            _line.sharedMaterial = _overlayMaterial;
             _line.startColor = _line.endColor = idleColor;
             _line.useWorldSpace = true;
             _line.receiveShadows = false;
             _line.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            _line.enabled = false;
         }
 
         private void SetupCursor()
@@ -152,8 +189,9 @@ namespace Genesis.RoomScan.UI
             if (col != null) Destroy(col);
 
             _cursorRenderer = _cursor.GetComponent<MeshRenderer>();
-            _cursorRenderer.material = new Material(overlayShader);
-            _cursorRenderer.material.color = cursorColor;
+            _cursorRenderer.sharedMaterial = _overlayMaterial;
+            _cursorProperties = new MaterialPropertyBlock();
+            SetCursorColor(cursorColor);
             _cursorRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             _cursorRenderer.receiveShadows = false;
 
@@ -171,7 +209,8 @@ namespace Genesis.RoomScan.UI
             bool hoveringUI = false;
 
             // Only highlight when hitting a world-space UI Toolkit panel collider
-            if (Physics.Raycast(origin, dir, out var hit, maxLength + rayStartOffset))
+            if (Physics.Raycast(origin, dir, out var hit, maxLength + rayStartOffset,
+                    _uiLayerMask, QueryTriggerInteraction.Collide))
             {
                 end = hit.point;
 
@@ -195,9 +234,18 @@ namespace Genesis.RoomScan.UI
                 {
                     _cursor.transform.position = end;
                     _cursor.transform.LookAt(_rayHelper);
-                    _cursorRenderer.material.color = hoverColor;
+                    SetCursorColor(hoverColor);
                 }
             }
+        }
+
+        private void SetCursorColor(Color color)
+        {
+            if (_cursorRenderer == null)
+                return;
+            _cursorProperties ??= new MaterialPropertyBlock();
+            _cursorProperties.SetColor(ColorId, color);
+            _cursorRenderer.SetPropertyBlock(_cursorProperties);
         }
     }
 }

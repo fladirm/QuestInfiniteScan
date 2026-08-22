@@ -2,14 +2,18 @@
 
 ## Latest user exchange
 
-User requires the last S4-08 Android correction to be completed now, frozen as a
-source-only git archive, built as a real Release APK and immediately installed on
-the connected Quest. S4-09 remains paused.
+User identified that the S4-00 donor UX was not retained as a functional slice:
+the deployed clean scene had no controller ray, and existing S4-05/S4-08 gate
+state was not surfaced in the operator panel. User requests an immediate corrected
+Release build and install; no reconstruction-ontology change is authorized.
 
 ## Latest implementation update
 
-The duplicated inline RGB-D inverse was replaced by a 16-lane exact RGB source-cell
-kernel and one joint page commit, removing dead proposal buffers and the Android
-compiler explosion without changing the one-S16-carrier ontology. Unity Vulkan is
-64/64 and the static exact/UAV gates pass. Next is commit/archive, Android IL2CPP
-Release build and immediate Quest install.
+The clean-scene setup now creates and validates EventSystem, OVRInputModule,
+PanelInputConfiguration, VRDocumentRaycaster, ControllerRayDriver, explicit URP ray
+shader wiring, UIDocument assets and RoomScanInputHandler. The operator panel reads
+the existing exact-gate/topology/inverse diagnostics without becoming mutation
+authority. Unity Vulkan is 64/64, static exact/UAV gates pass and the regenerated
+scene contains every serialized input/UI component. Next action is one checkpoint
+commit, source archive, matching Release build and immediate Quest install; S4-09
+remains pending.

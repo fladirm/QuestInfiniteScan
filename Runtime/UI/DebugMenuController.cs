@@ -1,3 +1,4 @@
+using Genesis.RoomScan.SigmaPrism;
 using UnityEngine;
 using UnityEngine.UIElements;
 
@@ -17,9 +18,15 @@ namespace Genesis.RoomScan.UI
         private Label _scanState;
         private Label _renderState;
         private Label _pipeline;
+        private Label _gateState;
+        private Label _carrierState;
+        private Label _topologyState;
+        private Label _inverseState;
+        private Label _pointerState;
         private Label _rigState;
         private Label _pairing;
         private Label _fps;
+        private ControllerRayDriver _rayDriver;
         private bool _visible;
         private float _fpsWindow;
         private int _fpsFrames;
@@ -31,6 +38,7 @@ namespace Genesis.RoomScan.UI
         {
             _document = GetComponent<UIDocument>();
             _follower = GetComponent<DebugMenuFollower>();
+            _rayDriver = FindAnyObjectByType<ControllerRayDriver>();
         }
 
         private void OnEnable()
@@ -89,6 +97,11 @@ namespace Genesis.RoomScan.UI
             _scanState = _root.Q<Label>("val-scanning");
             _renderState = _root.Q<Label>("val-render");
             _pipeline = _root.Q<Label>("val-pipeline");
+            _gateState = _root.Q<Label>("val-gate");
+            _carrierState = _root.Q<Label>("val-carrier");
+            _topologyState = _root.Q<Label>("val-topology");
+            _inverseState = _root.Q<Label>("val-inverse");
+            _pointerState = _root.Q<Label>("val-pointer");
             _rigState = _root.Q<Label>("val-rig");
             _pairing = _root.Q<Label>("val-pairing");
             _fps = _root.Q<Label>("val-fps");
@@ -119,14 +132,77 @@ namespace Genesis.RoomScan.UI
                     "Failed: " + scanner.LastScanStartError,
                 _ => "Stopped"
             };
-            Set(_scanState, lifecycle);
+            SetStatus(_scanState, lifecycle, scanner.ScanLifecycle switch
+            {
+                ScanLifecycleState.Running => StatusKind.Good,
+                ScanLifecycleState.Starting or ScanLifecycleState.Stopping =>
+                    StatusKind.Warning,
+                _ when !string.IsNullOrEmpty(scanner.LastScanStartError) =>
+                    StatusKind.Error,
+                _ => StatusKind.Neutral
+            });
             Set(_renderState, scanner.CurrentRenderMode.ToString());
             Set(_pipeline, scanner.RuntimeStage);
 
+            var gate = scanner.ExactBackendGate;
+            SigmaExactBackendGateStatus gateStatus = gate?.DiagnosticStatus ??
+                SigmaExactBackendGateStatus.Pending;
+            SetStatus(_gateState, gateStatus switch
+            {
+                SigmaExactBackendGateStatus.Passed => "PASS · canonical mutation armed",
+                SigmaExactBackendGateStatus.Failed => "FAIL · mutation remains closed",
+                SigmaExactBackendGateStatus.ReadbackError => "diagnostic readback failed",
+                SigmaExactBackendGateStatus.Disposed => "disposed",
+                _ => "checking exact GPU witness…"
+            }, gateStatus switch
+            {
+                SigmaExactBackendGateStatus.Passed => StatusKind.Good,
+                SigmaExactBackendGateStatus.Pending => StatusKind.Warning,
+                _ => StatusKind.Error
+            });
+
+            var carrier = scanner.Carrier;
+            SetStatus(_carrierState, carrier == null ? "missing" :
+                carrier.IsInitialized
+                    ? $"ready · pages={carrier.ResidentPageCount} · segments={carrier.SegmentCount}"
+                    : "initializing", carrier != null && carrier.IsInitialized
+                        ? StatusKind.Good : StatusKind.Warning);
+
+            var topology = scanner.SigmaTopology;
+            SetStatus(_topologyState, topology == null ? "missing" :
+                topology.IsInitialized
+                    ? $"ready · derived pages={topology.PublishedPageCount}"
+                    : "initializing", topology != null && topology.IsInitialized
+                        ? StatusKind.Good : StatusKind.Warning);
+
+            var inverse = scanner.SigmaInverse;
+            if (inverse == null)
+                SetStatus(_inverseState, "missing", StatusKind.Error);
+            else if (!inverse.IsInitialized)
+                SetStatus(_inverseState, "initializing", StatusKind.Warning);
+            else
+            {
+                var diagnostics = inverse.LastDiagnostics;
+                string text = $"ready · frames={inverse.CommittedFrames}/" +
+                              $"{inverse.SubmittedFrames} · changed={diagnostics.ChangedSamples}";
+                SetStatus(_inverseState, text,
+                    inverse.FailedFrames == 0 && diagnostics.FailedChecks == 0
+                        ? StatusKind.Good : StatusKind.Warning);
+            }
+
+            _rayDriver ??= FindAnyObjectByType<ControllerRayDriver>();
+            SetStatus(_pointerState, _rayDriver == null ? "missing" :
+                _rayDriver.HasTrackedPose ? "tracked · trigger selects" :
+                "ready · waiting for controller pose", _rayDriver == null
+                    ? StatusKind.Error : _rayDriver.HasTrackedPose
+                        ? StatusKind.Good : StatusKind.Warning);
+
             var rig = scanner.RigBridge;
-            Set(_rigState, rig == null ? "missing" :
+            SetStatus(_rigState, rig == null ? "missing" :
                 rig.HasCoherentFrame ? $"coherent / epoch {rig.CalibrationEpoch}" :
-                rig.IsCapturing ? "waiting for coherent frame" : "idle");
+                rig.IsCapturing ? "waiting for coherent frame" : "idle",
+                rig == null ? StatusKind.Error : rig.HasCoherentFrame
+                    ? StatusKind.Good : StatusKind.Neutral);
             if (rig != null)
             {
                 var d = rig.PairingDiagnostics;
@@ -150,6 +226,36 @@ namespace Genesis.RoomScan.UI
         {
             if (label != null)
                 label.text = text ?? string.Empty;
+        }
+
+        private static void SetStatus(Label label, string text, StatusKind kind)
+        {
+            if (label == null)
+                return;
+            label.text = text ?? string.Empty;
+            label.RemoveFromClassList("status-val--good");
+            label.RemoveFromClassList("status-val--warning");
+            label.RemoveFromClassList("status-val--error");
+            switch (kind)
+            {
+                case StatusKind.Good:
+                    label.AddToClassList("status-val--good");
+                    break;
+                case StatusKind.Warning:
+                    label.AddToClassList("status-val--warning");
+                    break;
+                case StatusKind.Error:
+                    label.AddToClassList("status-val--error");
+                    break;
+            }
+        }
+
+        private enum StatusKind
+        {
+            Neutral,
+            Good,
+            Warning,
+            Error
         }
     }
 }

@@ -16,6 +16,9 @@ namespace Genesis.RoomScan.Editor
     /// </summary>
     public partial class RoomScanSetupWizard : EditorWindow
     {
+        private const string ControllerRayShaderPath =
+            "Packages/com.genesis.roomscan/Runtime/UI/ControllerRay.shader";
+
         internal ARSession _arSession;
         internal OVRCameraRig _cameraRig;
         internal AROcclusionManager _arOcclusion;
@@ -126,12 +129,14 @@ namespace Genesis.RoomScan.Editor
                 controller = Undo.AddComponent<DebugMenuController>(host);
             }
             EnsureDebugMenuAssets();
+            EnsureVRInput();
         }
 
         internal void FixShaderWiring()
         {
-            // Sigma readout shaders are loaded explicitly by their owners. The retained
-            // capture/debug shell has no mapper material to wire here.
+            ControllerRayDriver rayDriver = FindAny<ControllerRayDriver>();
+            if (rayDriver != null)
+                WireComponent(rayDriver);
         }
 
         internal static void EnsureQuestVRManifest()
@@ -169,21 +174,54 @@ namespace Genesis.RoomScan.Editor
                 var host = new GameObject("EventSystem");
                 eventSystem = Undo.AddComponent<EventSystem>(host);
             }
+
+            foreach (StandaloneInputModule legacy in
+                     eventSystem.GetComponents<StandaloneInputModule>())
+                Undo.DestroyObjectImmediate(legacy);
+
             if (eventSystem.GetComponent<OVRInputModule>() == null)
                 Undo.AddComponent<OVRInputModule>(eventSystem.gameObject);
-            if (eventSystem.GetComponent<PanelInputConfiguration>() == null)
-            {
-                var config = Undo.AddComponent<PanelInputConfiguration>(eventSystem.gameObject);
-                var serialized = new SerializedObject(config);
-                SetBool(serialized, "m_DefaultEventCameraIsMainCamera", true);
-                SetBool(serialized, "m_AutoCreatePanelComponents", true);
-                serialized.ApplyModifiedProperties();
-            }
-            EnsureComponent<VRDocumentRaycaster>(eventSystem.gameObject);
-            EnsureComponent<ControllerRayDriver>(eventSystem.gameObject);
+
+            PanelInputConfiguration config =
+                eventSystem.GetComponent<PanelInputConfiguration>() ??
+                Undo.AddComponent<PanelInputConfiguration>(eventSystem.gameObject);
+            var configState = new SerializedObject(config);
+            SetBool(configState, "m_DefaultEventCameraIsMainCamera", true);
+            SetBool(configState, "m_AutoCreatePanelComponents", true);
+            configState.ApplyModifiedPropertiesWithoutUndo();
+
+            VRDocumentRaycaster raycaster =
+                EnsureComponent<VRDocumentRaycaster>(eventSystem.gameObject);
+            if (Camera.main != null)
+                raycaster.camera = Camera.main;
+
+            ControllerRayDriver rayDriver =
+                EnsureComponent<ControllerRayDriver>(eventSystem.gameObject);
+            WireComponent(rayDriver);
+
+            EditorUtility.SetDirty(eventSystem.gameObject);
         }
 
-        internal static void WireComponent(Component component) { }
+        internal static void WireComponent(Component component)
+        {
+            if (component is not ControllerRayDriver)
+                return;
+
+            Shader shader = AssetDatabase.LoadAssetAtPath<Shader>(
+                ControllerRayShaderPath);
+            if (shader == null)
+                throw new System.InvalidOperationException(
+                    "The representation-neutral Quest controller-ray shader is missing: " +
+                    ControllerRayShaderPath);
+
+            var serialized = new SerializedObject(component);
+            SerializedProperty property = serialized.FindProperty("overlayShader") ??
+                throw new System.InvalidOperationException(
+                    "ControllerRayDriver.overlayShader is not serializable.");
+            property.objectReferenceValue = shader;
+            serialized.ApplyModifiedPropertiesWithoutUndo();
+            EditorUtility.SetDirty(component);
+        }
 
         private static T EnsureComponent<T>(GameObject host) where T : Component
         {

@@ -26,7 +26,9 @@
         "Filesystem/source exclusion gate passed: no Runtime/Prism, Runtime/World, Runtime/Export, Runtime.AIDetection, old plugin/material, forbidden mapper namespace or active reconstruction fallback remains",
         "Tools/unity/run_editmode_tests.sh passed on Unity 6000.5.9f1 Vulkan: 7/7 SigmaRigContractTests, 0 failures, clean package compilation",
         "python3 Tools/unity/validate_sigma_compute_uav.py passed with the Quest eight-UAV limit",
-        "README.md, ALGORITHM.md, setup automation, UX and generated code graph name only new_spec.md / CPQ4-2026-08-22-S16-v6"
+        "README.md, ALGORITHM.md, setup automation, UX and generated code graph name only new_spec.md / CPQ4-2026-08-22-S16-v6",
+        "Regression repair: clean-scene automation now requires EventSystem + OVRInputModule + PanelInputConfiguration + VRDocumentRaycaster + ControllerRayDriver, a serialized dedicated ray shader, UIDocument assets and RoomScanInputHandler before it can publish a Quest scene",
+        "Unity Vulkan EditMode remains 64/64; the freshly generated Quest scene contains the complete controller-ray/operator UX stack and its preparation log contains no C#/shader/UI import error"
       ]
     },
     {
@@ -190,7 +192,8 @@
         "Pose solving is a two-stage readout transaction: raw Meta-pose prediction supplies the overlap, the accepted gauge rerasterizes the same immutable StereoRigFrame, and only that corrected prediction/pose snapshot enters both depth and RGB inverse calibration; unresolved/conflicting evidence retains the raw Meta pose",
         "SigmaPoseGaugeState is a bounded noncanonical readout value; applying it preserves fixed rig extrinsics and no carrier sample, intrinsic topology record, timestamp, calibration epoch or proof certificate is rewritten",
         "The pose pass is GPU-parallel rather than a single long-running workgroup: sampled overlaps reduce to compact partial meets and one bounded 64-lane final reduction; only the 64-byte exact result returns asynchronously",
-        "Unity 6000.5.9f1 Vulkan EditMode passed 64/64 including exact minimum-magnitude/identity and rigid-rig invariance contracts; generated operators, git diff and eight-UAV validation passed. Android build/deploy follows from this exact checkpoint before S4-09"
+        "Unity 6000.5.9f1 Vulkan EditMode passed 64/64 including exact minimum-magnitude/identity and rigid-rig invariance contracts; generated operators, git diff and eight-UAV validation passed",
+        "Android/Vulkan IL2CPP Release correction commit 91e4721c30c0 built with zero shader/C# errors, was archived source-only and installed on the connected Quest before S4-09"
       ]
     },
     {

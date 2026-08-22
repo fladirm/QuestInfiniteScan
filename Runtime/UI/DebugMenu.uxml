@@ -5,49 +5,74 @@
     editor-extension-mode="False">
     <Style src="DebugMenu.uss" />
     <ui:VisualElement name="debug-root" class="debug-root">
-        <ui:VisualElement name="nav-panel" class="nav-panel">
-            <ui:VisualElement class="nav-header">
-                <ui:Label text="Σ-PRISM-16" class="nav-header-title" />
-                <ui:Label text="CPQ4 / QUEST" class="nav-header-sub" />
+        <ui:VisualElement class="header-row">
+            <ui:VisualElement class="title-stack">
+                <ui:Label text="Σ-PRISM-16" class="title" />
+                <ui:Label text="PURE QUEST · CPQ4-S16-v6" class="subtitle" />
             </ui:VisualElement>
-            <ui:Label text="Scan" class="nav-btn nav-btn--active" />
-            <ui:VisualElement class="nav-spacer" />
-            <ui:Label name="val-fps" text="-- FPS" class="nav-fps" />
+            <ui:Label name="val-fps" text="-- FPS" class="fps" />
         </ui:VisualElement>
-        <ui:VisualElement name="detail-panel" class="detail-panel">
-            <ui:VisualElement class="detail-view">
-                <ui:Label text="HOLISTIC SEDENION CARRIER" class="view-title" />
-                <ui:VisualElement class="status-row">
-                    <ui:Label text="Lifecycle" class="status-key" />
-                    <ui:Label name="val-scanning" text="--" class="status-val" />
-                </ui:VisualElement>
-                <ui:VisualElement class="status-row">
-                    <ui:Label text="Four-stream rig" class="status-key" />
-                    <ui:Label name="val-rig" text="--" class="status-val status-val--small" />
-                </ui:VisualElement>
-                <ui:VisualElement class="status-row">
-                    <ui:Label text="Pairing" class="status-key" />
-                    <ui:Label name="val-pairing" text="--" class="status-val status-val--small" />
-                </ui:VisualElement>
-                <ui:VisualElement class="status-row">
-                    <ui:Label text="Readout" class="status-key" />
-                    <ui:Label name="val-render" text="--" class="status-val" />
-                </ui:VisualElement>
-                <ui:VisualElement class="status-row">
-                    <ui:Label text="Gate" class="status-key" />
-                    <ui:Label name="val-pipeline" text="--" class="status-val status-val--small" />
-                </ui:VisualElement>
-                <ui:VisualElement class="btn-group">
-                    <ui:Button name="btn-toggle-scan" text="Start Scanning"
-                        class="action-btn action-btn--primary" />
-                    <ui:Button name="btn-render-mode" text="Readout: Carrier"
-                        class="action-btn" />
-                    <ui:Button name="btn-clear-all" text="Reset Session"
-                        class="action-btn action-btn--danger" />
-                </ui:VisualElement>
-                <ui:Label text="One exact sparse Ψ:Σ₂→S₁₆ is the only physical world. Mesh, topology, appearance and export are readouts; no legacy mapper is active."
-                    class="hint-label" />
+
+        <ui:Label text="LIVE CONTROL" class="section-title" />
+        <ui:VisualElement class="status-card">
+            <ui:VisualElement class="status-row">
+                <ui:Label text="Lifecycle" class="status-key" />
+                <ui:Label name="val-scanning" text="--" class="status-val" />
+            </ui:VisualElement>
+            <ui:VisualElement class="status-row">
+                <ui:Label text="Controller pointer" class="status-key" />
+                <ui:Label name="val-pointer" text="--" class="status-val status-val--small" />
+            </ui:VisualElement>
+            <ui:VisualElement class="status-row">
+                <ui:Label text="Four-stream rig" class="status-key" />
+                <ui:Label name="val-rig" text="--" class="status-val status-val--small" />
+            </ui:VisualElement>
+            <ui:VisualElement class="status-row">
+                <ui:Label text="Pairing" class="status-key" />
+                <ui:Label name="val-pairing" text="--" class="status-val status-val--small" />
+            </ui:VisualElement>
+            <ui:VisualElement class="status-row status-row--last">
+                <ui:Label text="Readout" class="status-key" />
+                <ui:Label name="val-render" text="--" class="status-val" />
             </ui:VisualElement>
         </ui:VisualElement>
+
+        <ui:Label text="EXACT PIPELINE" class="section-title" />
+        <ui:VisualElement class="status-card">
+            <ui:VisualElement class="status-row">
+                <ui:Label text="Milestone" class="status-key" />
+                <ui:Label name="val-pipeline" text="--" class="status-val status-val--small" />
+            </ui:VisualElement>
+            <ui:VisualElement class="status-row">
+                <ui:Label text="GPU mutation gate" class="status-key" />
+                <ui:Label name="val-gate" text="--" class="status-val status-val--small" />
+            </ui:VisualElement>
+            <ui:VisualElement class="status-row">
+                <ui:Label text="Ψ carrier" class="status-key" />
+                <ui:Label name="val-carrier" text="--" class="status-val status-val--small" />
+            </ui:VisualElement>
+            <ui:VisualElement class="status-row">
+                <ui:Label text="S4-05 singular topology" class="status-key" />
+                <ui:Label name="val-topology" text="--" class="status-val status-val--small" />
+            </ui:VisualElement>
+            <ui:VisualElement class="status-row status-row--last">
+                <ui:Label text="S4-08 joint inverse" class="status-key" />
+                <ui:Label name="val-inverse" text="--" class="status-val status-val--small" />
+            </ui:VisualElement>
+        </ui:VisualElement>
+
+        <ui:VisualElement class="button-row">
+            <ui:Button name="btn-toggle-scan" text="START SCANNING"
+                class="action-btn action-btn--primary" />
+            <ui:Button name="btn-render-mode" text="READOUT: CARRIER"
+                class="action-btn" />
+            <ui:Button name="btn-clear-all" text="RESET SESSION"
+                class="action-btn action-btn--danger action-btn--last" />
+        </ui:VisualElement>
+
+        <ui:Label text="Left thumbstick click opens/closes · point with either controller · index trigger selects"
+            class="control-hint" />
+        <ui:Label text="Ψ:Σ₂→S₁₆ is the only physical world. Mesh, topology and appearance are disposable readouts."
+            class="ontology-hint" />
     </ui:VisualElement>
 </ui:UXML>

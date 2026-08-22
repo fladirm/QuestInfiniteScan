@@ -182,6 +182,7 @@ namespace Genesis.RoomScan.SigmaPrism
 
         public string ModuleName => "Sigma intrinsic singular topology";
         public bool IsInitialized => _initialized;
+        public int PublishedPageCount => _latestTopology.Count;
         public GraphicsBuffer DiagnosticCounters => _counters;
 
         public void OnModuleInitialize(RoomScanner scanner)
