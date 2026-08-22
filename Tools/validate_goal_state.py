@@ -12,6 +12,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 DAG_PATH = ROOT / ".codex" / "TASK_DAG.json"
 REQUIRED_FILES = (
+    ROOT / "new_spec.md",
     ROOT / "AGENTS.md",
     ROOT / ".codex" / "GOAL.md",
     ROOT / ".codex" / "STATE.md",

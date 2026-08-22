@@ -4,139 +4,47 @@ Updated: 2026-08-22 (Europe/Prague)
 
 ## Source of truth
 
-- `specka.md` is the frozen canonical Cone-PRISM-Q3 specification
-  (`CPQ3-2026-08-21-v6`).
-- `.codex/TASK_DAG.json` is the only active pursuit DAG.
-- `.codex/runbooks/Q3-15.6_PRESSURE_MANIFOLD_ATLAS_REBASE.md` is the binding
-  execution order for the current geometry gate.
-- Q3-15.6 is an architectural topology rebase of the audited `3521c44`
-  checkpoint. It must not regress to rectangular ContactFilm topology, patch soup,
-  TSDF/DTSDF, surfels, triangle soup, Gaussian training, CPU geometry readback or
-  server reconstruction.
+- `new_spec.md` is the sole canonical Σ-PRISM-16 specification
+  (`CPQ4-2026-08-22-S16-v6`).
+- `.codex/TASK_DAG.json` is a new independent `S4-00..S4-13` pursuit DAG copied
+  directly from section 49 of that specification.
+- The old Cone-PRISM goal, DAG and implementation claims are superseded on this
+  branch and remain recoverable from Git history.
 
-## Repository and branch safety
+## Repository safety
 
-- Active branch: `feat/cone-prism-pressure-manifold-atlas-20260821`.
-- Current committed parent: `74323e30de27`; the connected-materialization repair
-  is not committed yet.
-- Donor checkpoint: Q3-15.5 `3521c44`.
-- Legacy implementations remain recoverable from git/archive branches and are
-  deliberately absent from the active production tree.
-- Do not push this run. Commit locally, create a workspace ZIP with `git archive`
-  from that exact commit, then build and deploy the exact commit.
-- Never add `.device-forensics/`, `.source-archives/`, existing ZIPs, captured room
-  imagery, device identifiers or build products to the commit.
+- Active branch: `feat/sigma-prism-16-cpq4-20260822`.
+- Branch parent: committed Cone-PRISM checkpoint `cabcbc7`.
+- Existing untracked archives, device captures and `.source-archives/` are user
+  artifacts and must remain untouched/uncommitted.
+- Never touch `~/.codex`, capture imagery, device identifiers or generated APKs.
 
 ## Current DAG gate
 
-- Q3-15.6 is the sole `in_progress` node.
-- Source implementation, documentation cleanup, schema-v6 persistence and static
-  verification are complete in the working tree.
-- Commit/archive and one batched physical Quest geometry/lifecycle run remain before
-  Q3-15.6 can be accepted. The fresh Android build matches this working tree and is
-  installed on the authorized Quest.
-- Q3-07 through Q3-15 remain physically unaccepted after the forensic audit even
-  where their implementation is present. Q3-16 through Q3-22 remain behind the
-  topology gate.
-
-## Q3-15.6 implemented working tree
-
-- Contact posterior, topology atlas and derived meshlet materialization are separate
-  ownership layers. A chart rectangle is only a numerical parameter domain.
-- Provisional 8x8/cross-eye candidates use one complete evidence hook followed by a
-  capacity-derived pointer-jump bound. Components select a global orthonormal frame,
-  refit directly from original finite-cone samples and reject non-representable
-  transitive unions instead of publishing one root tile posterior.
-- Measured Grid16 support is converted by deterministic marching squares into
-  arbitrary contour segments. The former four-edges-per-film frontier capacity,
-  rectangle validator and rectangle closure tests are removed.
-- Generation-safe measured half-edges are welded only from explicit continuation
-  evidence: covariance/coincidence, sidedness, first-hit ordering, visibility,
-  independent view bins and pose/calibration quality. Unpaired arcs are ordered into
-  manifold-level FrontierLoops.
-- Latent closure is topology-only UNKNOWN with FilmID zero. It is excluded from
-  prediction, ordinary display geometry and GLB export; no fake Euclidean back sheet
-  is asserted in unobserved space.
-- One shared BoundaryCurve atlas record owns both chart incidences and a precomputed
-  cell-intersection cache. Canonical evidence-aligned split emits two supported
-  partitions along a boundary/residual separator instead of fixed four quadrants.
-- Dirty topology islands receive a bounded GPU elastic solve: smooth links couple
-  position/normal, creases preserve positional continuity with hinge freedom, and
-  supported discontinuities do not smooth across the boundary.
-- Global manifold/component identity is independent of storage chunks. Generation-
-  safe cross-chunk portals retain ghost endpoints; staging no longer creates a new
-  optical seed or physical latent seam.
-- Contact-normal covariance separates sensor, pose/calibration, motion/mixed-pixel
-  and model terms from cone footprint bandwidth. Normal estimation chooses the
-  smallest stable boundary-safe 3x3/5x5/7x7 support.
-- GPU information-gain ingress ranks new surface/side, posterior reduction,
-  footprint, angular/baseline diversity, boundary value, sharpness and exposure;
-  motion/time remains starvation fallback only.
-- Vulkan resource retirement is fence-safe. Active/dirty lists, count/validate/commit
-  mesh publication, GPU culling and indirect rendering remain preserved.
-- Initial mesh publication no longer deadlocks at zero geometry: support contours
-  close against the numerical chart-domain window, topology rejection diagnostics
-  reset per generation, empty plans reserve no arena capacity, measured plans reserve
-  only their current resolution envelope, and boundary cuts no longer consume the
-  output index arena as scratch storage. Prediction skips cull/draw until a real
-  publication exists.
-- The derived meshlet vertex ABI is 32-byte/16-byte-aligned and shared explicitly by
-  C# and HLSL. Canonical chart/posterior geometry remains full precision; the compact
-  ABI applies only to derived rendering vertices and removes the Quest maximum-buffer
-  allocation failure without reducing reconstruction detail.
-- Geometry evidence integrates every sensor ingress. Topology and derived meshlets
-  coalesce two ingress frames transactionally; deterministic capacity-bounded
-  hook/shortcut convergence remains intact without dropping observations or lowering
-  canonical detail.
-- Mesh publication validity is generation-tagged per ContactFilm. A provisional/open
-  contour can no longer globally freeze every later publication. Local support cycles
-  are ordered before confirmed reverse twins are spliced into manifold-level outer
-  loops; the resulting membership validity is consumed directly by materialization.
-- Derived materialization now emits measured and FilmID-zero latent partitions plus
-  only evidence-bearing smooth/crease seam strips. Latent vertices cannot enter
-  first-hit prediction/export, and the normal preview renders only measured contact
-  plus softly distinguished proven seams.
-- Canonical persistence is schema v6 and includes atlas contours, half-edges,
-  FrontierLoops, shared boundary topology/cache, continuation evidence, elastic
-  state and cross-chunk portals.
-- The active project no longer contains production TSDF, Surface Nets, triplanar,
-  GSplat, DiffSoup/server, XAtlas or their stale setup/documentation paths.
-
-## Verified evidence
-
-- Unity 6000.5.9f1 Vulkan EditMode: 85 total, 85 passed, 0 failed, 0 skipped.
-  Results: `/mnt/kingston-unity/Builds/TestResults/editmode-results.xml`.
-  Log: `/mnt/kingston-unity/Builds/TestResults/editmode.log`.
-- `Tools/unity/validate_prism_compute_uav.py`: passed; all reachable PRISM kernels
-  remain at or below the Quest/Adreno eight-UAV limit.
-- `git diff --check`: passed.
-- Code graph regenerated for this tree: 162 source files, 2237 symbols, 1670
-  methods/functions, 189 GPU kernels and 17 event links.
-- `Tools/validate_goal_state.py`: control plane valid; 24 nodes, Q3-15.6 sole active.
-- Android ARM64/Vulkan development APK build succeeded with zero reported Unity
-  build errors: 226,527,883 bytes, SHA-256
-  `019ffacef47604f3d72869df217ed5ec25557fb8655c8983b62a0d29205544e3`.
-  APK: `/mnt/kingston-unity/Builds/QuestInfiniteScan/QuestInfiniteScan-dev.apk`.
-- Installed successfully as `com.questinfinitescan.smoke` `0.1.0-dev` on Quest
-  `340YC20G7X0QZ4`; application process launched. Physical geometry acceptance is
-  still open.
+- `S4-00` is accepted and committed next as an isolated clean-shell checkpoint.
+- `S4-01` is the sole `in_progress` node.
+- The retained product surface is only four-stream GPU capture/synchronization,
+  immutable calibration/poses, Quest/XR lifecycle, permissions/anchors, input/UI,
+  neutral GPU helpers and build/deploy tooling.
+- No S16 live state mutation is accepted until the S4-01 exact arithmetic,
+  generated-algebra and backend-parity gates pass.
 
 ## Next exact actions
 
-1. Review the staged path set and commit the exact Q3-15.6 tree while excluding all
-   archives, captures and generated builds.
-2. Create `QuestInfiniteScan-Q3-15.6-<commit>-source.zip` using `git archive` and
-   record its SHA-256.
-3. Run one batched physical acceptance: continuous support, no rectangular cards or
-   room-spanning curtains, continued scan growth, front/back thin surfaces, chunk
-   continuity and Stop/Start retention.
-4. Close Q3-15.6 only after the physical evidence passes. Otherwise preserve the
-   gate and repair the demonstrated systemic cause.
+1. Commit the accepted S4-00 clean-shell checkpoint with its generated code graph.
+2. Implement one checked nearest-even Q16.48 semantic domain with outward intervals.
+3. Add the deterministic Cayley-Dickson/operator generator and generated C#/HLSL
+   descriptors from one authority.
+4. Add bit-exact algebra/operator fixtures, including backend capability fail-closed
+   contracts, then close S4-01 in its own commit.
 
-## Safety and quality
+## Verification policy
 
-- Keep build caches and device captures outside git.
-- Do not lower sensor resolution, chart/microtile detail, uncertainty physics,
-  topology guarantees or GPU-only/indirect ownership to make acceptance easier.
-- Tests are batched at the vertical milestone; implementation remains the dominant
-  effort.
+Use cheap compile/contracts during S4-00/S4-01. Regenerate the code graph at every
+completed node. Android/device runs are batched at the meaningful forward/inverse
+vertical milestones and final physical corpus; do not retest known capture plumbing
+for every algebra substep.
+
+Every accepted S4 node is committed separately. After the S4-07 commit, create a
+source-only `git archive` ZIP from that exact commit and pause before S4-08 for user
+audit.

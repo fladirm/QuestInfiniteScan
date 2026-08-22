@@ -7,83 +7,45 @@
     <ui:VisualElement name="debug-root" class="debug-root">
         <ui:VisualElement name="nav-panel" class="nav-panel">
             <ui:VisualElement class="nav-header">
-                <ui:Label text="CONE-PRISM Q3" class="nav-header-title" />
-                <ui:Label text="OPERATOR" class="nav-header-sub" />
+                <ui:Label text="Σ-PRISM-16" class="nav-header-title" />
+                <ui:Label text="CPQ4 / QUEST" class="nav-header-sub" />
             </ui:VisualElement>
-            <ui:Button name="nav-scan" text="Scan" class="nav-btn nav-btn--active" />
-            <ui:Button name="nav-world" text="World / Export" class="nav-btn" />
+            <ui:Label text="Scan" class="nav-btn nav-btn--active" />
             <ui:VisualElement class="nav-spacer" />
             <ui:Label name="val-fps" text="-- FPS" class="nav-fps" />
         </ui:VisualElement>
-
         <ui:VisualElement name="detail-panel" class="detail-panel">
-            <ui:VisualElement name="view-scan" class="detail-view">
-                <ui:Label text="PURE-QUEST CONTACT SCAN" class="view-title" />
+            <ui:VisualElement class="detail-view">
+                <ui:Label text="HOLISTIC SEDENION CARRIER" class="view-title" />
                 <ui:VisualElement class="status-row">
                     <ui:Label text="Lifecycle" class="status-key" />
                     <ui:Label name="val-scanning" text="--" class="status-val" />
                 </ui:VisualElement>
                 <ui:VisualElement class="status-row">
-                    <ui:Label text="Stereo/Temporal" class="status-key" />
-                    <ui:Label name="val-focus-frames" text="0/0" class="status-val" />
+                    <ui:Label text="Four-stream rig" class="status-key" />
+                    <ui:Label name="val-rig" text="--" class="status-val status-val--small" />
                 </ui:VisualElement>
                 <ui:VisualElement class="status-row">
-                    <ui:Label text="Preview" class="status-key" />
+                    <ui:Label text="Pairing" class="status-key" />
+                    <ui:Label name="val-pairing" text="--" class="status-val status-val--small" />
+                </ui:VisualElement>
+                <ui:VisualElement class="status-row">
+                    <ui:Label text="Readout" class="status-key" />
                     <ui:Label name="val-render" text="--" class="status-val" />
+                </ui:VisualElement>
+                <ui:VisualElement class="status-row">
+                    <ui:Label text="Gate" class="status-key" />
+                    <ui:Label name="val-pipeline" text="--" class="status-val status-val--small" />
                 </ui:VisualElement>
                 <ui:VisualElement class="btn-group">
                     <ui:Button name="btn-toggle-scan" text="Start Scanning"
                         class="action-btn action-btn--primary" />
-                    <ui:Button name="btn-render-mode" text="Render: Vertex"
+                    <ui:Button name="btn-render-mode" text="Readout: Carrier"
                         class="action-btn" />
-                    <ui:Button name="btn-clear-all" text="Clear All Data"
+                    <ui:Button name="btn-clear-all" text="Reset Session"
                         class="action-btn action-btn--danger" />
                 </ui:VisualElement>
-                <ui:Label text="Vertex and Wireframe are two views of the same canonical PressureManifold; no legacy mapper or server path is active."
-                    class="hint-label" />
-            </ui:VisualElement>
-
-            <ui:VisualElement name="view-world" class="detail-view" style="display:none;">
-                <ui:Label text="INFINITE CONTACT WORLD" class="view-title" />
-                <ui:VisualElement class="status-row">
-                    <ui:Label text="Mode" class="status-key" />
-                    <ui:Label name="val-world-mode" text="--" class="status-val status-val--small" />
-                </ui:VisualElement>
-                <ui:VisualElement class="status-row">
-                    <ui:Label text="World" class="status-key" />
-                    <ui:Label name="val-world-id" text="--" class="status-val status-val--small" />
-                </ui:VisualElement>
-                <ui:VisualElement class="status-row">
-                    <ui:Label text="Active Chunk" class="status-key" />
-                    <ui:Label name="val-active-chunk" text="--" class="status-val status-val--small" />
-                </ui:VisualElement>
-                <ui:VisualElement class="status-row">
-                    <ui:Label text="Lifecycle" class="status-key" />
-                    <ui:Label name="val-chunk-lifecycle" text="--" class="status-val status-val--small" />
-                </ui:VisualElement>
-                <ui:VisualElement class="status-row">
-                    <ui:Label text="Residency" class="status-key" />
-                    <ui:Label name="val-residency" text="--" class="status-val status-val--small" />
-                </ui:VisualElement>
-                <ui:VisualElement class="status-row">
-                    <ui:Label text="Chunk Graph" class="status-key" />
-                    <ui:Label name="val-graph" text="--" class="status-val status-val--small" />
-                </ui:VisualElement>
-                <ui:VisualElement class="status-row">
-                    <ui:Label text="Storage" class="status-key" />
-                    <ui:Label name="val-world-storage" text="--" class="status-val status-val--small" />
-                </ui:VisualElement>
-                <ui:VisualElement class="status-row">
-                    <ui:Label text="GLB Export" class="status-key" />
-                    <ui:Label name="val-glb-export" text="Idle" class="status-val status-val--small" />
-                </ui:VisualElement>
-                <ui:VisualElement class="btn-group">
-                    <ui:Button name="btn-export-chunk-glb" text="Export Active Chunk GLB"
-                        class="action-btn" />
-                    <ui:Button name="btn-export-world-glb" text="Export World GLB/PBR"
-                        class="action-btn action-btn--primary" />
-                </ui:VisualElement>
-                <ui:Label text="Stop scanning before export. Canonical PRISM state remains resumable; GLB is a derived interoperable artifact."
+                <ui:Label text="One exact sparse Ψ:Σ₂→S₁₆ is the only physical world. Mesh, topology, appearance and export are readouts; no legacy mapper is active."
                     class="hint-label" />
             </ui:VisualElement>
         </ui:VisualElement>

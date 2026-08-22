@@ -127,7 +127,7 @@ namespace Genesis.RoomScan
         /// Floor MRUK anchor → world matrix. Used as fallback when spatial anchor
         /// localization fails. Main thread only.
         /// </summary>
-        public Matrix4x4 GetRoomLocalToWorldForPersistence()
+        public Matrix4x4 GetRoomLocalToWorld()
         {
             return _anchorTransform != null ? _anchorTransform.localToWorldMatrix : Matrix4x4.identity;
         }
@@ -163,12 +163,12 @@ namespace Genesis.RoomScan
         /// <see cref="CreateAndSaveSpatialAnchorAsync"/> or <see cref="LoadSpatialAnchorAsync"/>.
         /// Returns identity if no spatial anchor is active.
         ///
-        /// <para><b>Persisting data baked in world space.</b> Store this
-        /// alongside the data at the moment you bake it, and on load multiply
+        /// <para><b>Relocating anchored local data.</b> Store this
+        /// alongside the local frame and on load multiply
         /// by <c>ComputeRelocationMatrix(SpatialAnchorMatrix, stored)</c> to
         /// bring it into the current session's world frame. This is how the
-        /// refined mesh survives a restart, and it is the right recipe only for
-        /// data a transform cannot move — vertex buffers, precomputed fields.
+        /// exact carrier readouts survive a restart. For content represented by a
+        /// transform, prefer parenting through
         /// Anything you can parent should use <see cref="RoomSpaceRoot"/>
         /// instead and store plain local coordinates.</para>
         /// </summary>
@@ -254,15 +254,15 @@ namespace Genesis.RoomScan
 
             if (_activeSpatialAnchor != null && _activeSpatialAnchor.gameObject != go)
             {
-                // Consumers (game-side WorldRoot, refined-mesh holder, etc.)
+                // Consumers of the room-local frame
                 // commonly parent anchor-tracked content under the active
                 // [SpatialAnchor] GO so it stays glued to the room across
                 // drift correction. Destroying the GO with those children
                 // still attached recursively destroys them too — the
-                // gameplay scene loses its world root and the player's
+                // gameplay scene loses its anchored root and the player's
                 // UI vanishes mid-rescan. Detach first with world pose
                 // preserved so the children survive and a downstream
-                // adopter (e.g. WorldRoot.Update polling
+                // adopter (for example RoomSpaceRoot.Update polling
                 // SpatialAnchorTransform) can reparent them under the
                 // new anchor on the next frame.
                 DetachChildrenForReparent(_activeSpatialAnchor.transform);
@@ -325,8 +325,7 @@ namespace Genesis.RoomScan
             if (_activeSpatialAnchor != null && _activeSpatialAnchor.gameObject != go)
             {
                 // See note in CreateAndSaveSpatialAnchorAsync: detach
-                // children first so anchor-tracked scene content (game-side
-                // WorldRoot, refined-mesh holder, etc.) survives the
+                // children first so anchor-tracked scene content survives the
                 // destroy and can be re-adopted under the new anchor on
                 // the next frame.
                 DetachChildrenForReparent(_activeSpatialAnchor.transform);
@@ -359,11 +358,10 @@ namespace Genesis.RoomScan
         /// Reparent every direct child of <paramref name="oldAnchor"/> to the
         /// scene root with world pose preserved. Called immediately before
         /// destroying a superseded <c>[SpatialAnchor]</c> GameObject so that
-        /// anchor-tracked content parented underneath (e.g. the game-side
-        /// <c>WorldRoot</c>, refined-mesh holder GameObjects) is not
+        /// anchor-tracked content parented underneath is not
         /// recursively destroyed by Unity's child-cascade. Once detached,
         /// any consumer polling <see cref="SpatialAnchorTransform"/> (the
-        /// canonical pattern: <c>WorldRoot.Update</c>) will reparent them
+        /// canonical pattern: <c>RoomSpaceRoot.Update</c>) will reparent them
         /// under the new active anchor on the next frame, also with world
         /// pose preserved — the player sees no visible jump.
         ///

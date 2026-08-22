@@ -21,7 +21,7 @@ namespace Genesis.RoomScan
     /// PCA self-disables when <c>Play()</c> fails.
     /// </para>
     /// </summary>
-    public class PassthroughCameraProvider : MonoBehaviour, ICameraProvider
+    public sealed class PassthroughCameraProvider : MonoBehaviour
     {
         /// <summary>The Horizon OS permission required by PCA on Quest 3+.</summary>
         public const string CameraPermissionId = "horizonos.permission.HEADSET_CAMERA";
@@ -35,33 +35,25 @@ namespace Genesis.RoomScan
         private bool _ownsPca;
         private bool _captureRequested;
 
-        /// <inheritdoc />
         public bool IsReady => _captureRequested && _pca != null &&
                                _pca.IsPlaying && _pca.IsUpdatedThisFrame;
 
-        /// <inheritdoc />
         public bool IsPlaying => _captureRequested && _pca != null && _pca.IsPlaying;
 
-        /// <inheritdoc />
         public Texture CurrentFrame => IsPlaying ? _pca.GetTexture() : null;
 
-        /// <inheritdoc />
         public Pose CameraPose =>
             IsPlaying ? _pca.GetCameraPose() : Pose.identity;
 
-        /// <inheritdoc />
         public Vector2 FocalLength =>
             IsPlaying ? _pca.Intrinsics.FocalLength : Vector2.one;
 
-        /// <inheritdoc />
         public Vector2 PrincipalPoint =>
             IsPlaying ? _pca.Intrinsics.PrincipalPoint : Vector2.zero;
 
-        /// <inheritdoc />
         public Vector2 SensorResolution =>
             IsPlaying ? _pca.Intrinsics.SensorResolution : new Vector2(1280, 960);
 
-        /// <inheritdoc />
         public Vector2 CurrentResolution =>
             IsPlaying
                 ? new Vector2(_pca.CurrentResolution.x, _pca.CurrentResolution.y)
@@ -112,7 +104,7 @@ namespace Genesis.RoomScan
 #endif
         }
 
-        /// <inheritdoc />
+        /// <summary>Starts the configured passthrough source when used directly.</summary>
         public void StartCapture()
         {
             _captureRequested = true;
@@ -156,8 +148,8 @@ namespace Genesis.RoomScan
             // preferences: PCA.OnDisable calls CameraStop + IssuePluginEvent,
             // which can block the XR render fence for tens of seconds when the
             // mapper's Vulkan resources have just been created. The setup
-            // wizard serializes matching settings before build. For legacy or
-            // hand-authored scenes, keep the already-running stream and report
+            // wizard serializes matching settings before build. For hand-authored
+            // scenes, keep the already-running stream and report
             // the mismatch instead of disrupting the native camera lifecycle.
             if (_pca.isActiveAndEnabled)
             {
@@ -180,7 +172,7 @@ namespace Genesis.RoomScan
             _pca.enabled = true;
         }
 
-        /// <inheritdoc />
+        /// <summary>Stops only a passthrough source owned by this component.</summary>
         public void StopCapture()
         {
             _captureRequested = false;

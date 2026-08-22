@@ -48,9 +48,7 @@ sudo install -d -o "$qis_uid" -g "$qis_gid" -- \
     "$qis_mount/Unity/Projects" \
     "$qis_mount/Unity/Caches/hub-downloads" \
     "$qis_mount/Caches" \
-    "$qis_mount/Builds" \
-    "$qis_mount/DiffSoup" \
-    "$qis_mount/Server"
+    "$qis_mount/Builds"
 
 printf '%s\n' "$qis_mount_message"
 df -h -- "$qis_mount"

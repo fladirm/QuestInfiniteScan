@@ -27,7 +27,7 @@ if [[ -e "$QIS_APK_PATH" ]]; then
     qis_apk_mtime_before="$(stat -c '%Y' -- "$QIS_APK_PATH")"
 fi
 
-python3 "$qis_script_dir/validate_prism_compute_uav.py"
+python3 "$qis_script_dir/validate_sigma_compute_uav.py"
 
 "$qis_editor" -batchmode -nographics -buildTarget Android \
     -projectPath "$qis_project" \

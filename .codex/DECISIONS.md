@@ -1,232 +1,34 @@
 # Active architecture decisions
 
-The canonical detail is in `specka.md`. Superseded hybrid/DiffSoup/DTSDF decisions
-remain recoverable from archive commit `e9f37c1` and are not active on this branch.
+`new_spec.md` is the detailed authority. Previous Cone-PRISM decisions remain in
+Git history and are not active on this branch.
 
-## ADR-P001 — One canonical spec and isolated branch
+## ADR-S400 — Canonical replacement and clean branch
 
-- Decision: develop PRISM-Q3 on the active isolated implementation/fix branch;
-  preserve all earlier work and its DAG on
-  `archive/hybrid-diffsoup-checkpoint-20260820`.
-- Consequence: `specka.md` wins over summaries and may be improved but not weakened.
+- Decision: `CPQ4-2026-08-22-S16-v6` replaces the complete previous reconstruction
+  architecture. Development occurs on `feat/sigma-prism-16-cpq4-20260822`, whose
+  parent preserves the former mapper.
+- Decision: retain only representation-neutral Quest/Unity capture, calibration,
+  lifecycle, input/UI and GPU/build plumbing. Delete old reconstruction,
+  persistence and compatibility wiring from the active branch.
+- Consequence: no ContactFilm, PressureManifold atlas, explicit boundary/topology
+  graph, old chunk schema or derived old mesh cache may become a donor abstraction.
 
-## ADR-P002 — Probabilistic one-sided ContactFilms are canonical
+## ADR-S401 — One exact carrier is the physical world
 
-- Decision: canonical world state is a graph of one-sided `ContactFilm` hypotheses;
-  each film owns `SurfaceChartGeometry` with quadratic base, sparse hierarchical
-  displacement, posterior information/covariance, sidedness, first-contact
-  visibility, ContactBoundaries, UV, deposited observations, appearance, and revision.
-  Meshlets and GLB are derived materializations.
-- Consequence: representation resolution follows evidence, and opposing/nearby
-  surfaces do not compete for one voxel or averaged primitive.
+- Decision: the only durable physical state is `Psi : Sigma_2 -> S16`; unallocated
+  carrier is implicit `z_null`. Geometry, singular topology, detail, appearance,
+  scene evolution and render/export products are operators/readouts of this state.
+- Decision: canonical values and state decisions use the inherited checked
+  nearest-even Q16.48 NumericDomain. Independent sensors meet as exact admissible
+  sets; confidence changes interval width and never becomes a summation weight.
+- Consequence: all later DAG nodes must fail closed rather than introduce a second
+  physical world, FP decision path, sensor consensus object or paging-defined seam.
 
-## ADR-P003 — Finite first-hit cones and renderer-based association
+## ADR-S402 — Section 49 is the implementation order
 
-- Decision: each calibrated pixel is a finite cone/truncated-pyramid measurement
-  with a projected elliptical footprint. It applies supported outward pressure only
-  before its first hit, a contact constraint at the hit, and explicitly UNKNOWN
-  state behind it. Render current films from exact eye poses into
-  depth/normal/film/UV/sigma MRTs and classify ConeEvents against that prediction.
-- Consequence: visibility and association use the hardware rasterizer; contradictory
-  evidence becomes a hypothesis/boundary/split rather than an average.
-
-## ADR-P004 — Pressure-equilibrium posterior and monotonic information resistance
-
-- Decision: compatible cone contact pressure linearizes to quadratic-basis `H/g`
-  and a deterministic 6x6 solve; it is one solver, not simulated forces plus a
-  second estimator. Precision follows measured range noise, footprint, incidence,
-  pose/calibration covariance, motion, consensus, and robust innovation. Persisted
-  information/covariance and geometry/appearance quality envelopes are film
-  resistance. Lower-information observations cannot degrade stable better data.
-- Consequence: revisits converge a posterior instead of repeatedly smoothing the
-  map, and uncertainty directly schedules refinement.
-
-## ADR-P005 — Persistent boundaries and probabilistic soft-to-hard surfaces
-
-- Decision: multi-view depth/RGB/visibility evidence creates uncertainty-bearing 3D
-  `ContactBoundary` entities with spline BoundaryCurve geometry. Immature films procedurally sample their normal posterior
-  as an adaptive GPU shell and collapse to one opaque surface as sigma shrinks.
-- Consequence: edges and capture range are first-class without a volume, permanent
-  alpha cloud, or depth-edge bridges.
-
-## ADR-P006 — Surface-conditioned RGB geometry refinement
-
-- Decision: after a ContactFilm exists, stereo and temporal refinement solve only a small
-  normal displacement using calibrated current/historical views and posterior prior.
-  There is no global correspondence search, cost volume, or neural MVS.
-- Consequence: Quest motion and both RGB cameras contribute sub-depth information
-  exactly where unresolved geometry can benefit.
-
-## ADR-P007 — Surface-space measured appearance remains richer than PBR
-
-- Decision: film UV exists at spawn. Finite RGB cone EWA footprints build multiresolution measured
-  superresolution and canonical diffuse plus adaptive directional state. PBR is a
-  confidence-bearing derivative; uncertain metallic is zero.
-- Consequence: GLB interoperability does not destroy measured view-dependent data or
-  block later refinement.
-
-## ADR-P008 — GPU-only hot path and indirect derived caches
-
-- Decision: pixel work, ContactFilm allocation/update, topology, meshlet build, culling,
-  LOD, virtual-page feedback, and drawing are GPU/indirect. CPU owns small workflow
-  and durable manifests. Only fenced immutable dirty pages stage asynchronously for
-  persistence/export.
-- Consequence: no synchronous readback, CPU mesh, CPU per-pixel work, or fixed global
-  geometry/texture resolution enters the production loop.
-
-## ADR-P009 — Resumable PRISM chunks and pose corrections
-
-- Decision: chunks are local storage/residency units containing the full posterior,
-  boundaries, microtiles, appearance, and views. Revisit resumes it. Meta pose is a
-  strong prior; accepted small SE(3) revisit constraints update chunk transforms,
-  not local geometry.
-- Consequence: world size grows on flash with local active cost, and week-later
-  refinement remains possible.
-
-## ADR-P010 — Reuse infrastructure, replace the reconstruction product
-
-- Decision: retain Quest shell, world/store/pose graph, resource fences, and GLB
-  primitives. Replace the mapper, renderer, appearance model, persistence payload,
-  workflow/UI, then remove TSDF/DTSDF/Surface Nets/GS/DiffSoup/server production
-  wiring after PRISM physical parity.
-- Consequence: implementation can remain buildable during migration while shipping
-  one coherent product architecture.
-
-## ADR-P011 — Freeze Cone-PRISM reconstruction physics
-
-- Decision: `specka.md` baseline `CPQ3-2026-08-21-v5` freezes finite-cone
-  first-hit/contact/unknown semantics, ContactFilms, pressure-information solve,
-  ContactBoundaries, monotonic resistance, and meshlets as derived state. Evidence
-  may strengthen it; changing those foundations requires explicit user authority, a
-  replacement ADR, and DAG re-baseline.
-- Consequence: implementation work now proceeds from Q3-02 and cannot silently
-  collapse the design back to infinitesimal rays, constant averaging, voxels,
-  surfels, or fixed triangle soup for convenience.
-
-## ADR-P012 — Persistent local pressure and cooperative full-detail materialization
-
-- Decision: local pre-hit contradiction is a persisted per-cell pressure posterior
-  with independent calibrated eye/angular evidence. It competes against persisted
-  close-view precision/support resistance, is cancelled by compatible contact, and
-  is consumed when it performs bounded displacement work. It is never a one-frame whole-film
-  delete and is not multiplied by displacement children. Derived meshlets are built
-  cooperatively by one `8x8` GPU workgroup per film with shared continuous-coverage
-  samples and full supported chart/microtile detail.
-- Consequence: repeated independent cones can push unsupported view-axis artifacts
-  while distant/grazing evidence cannot punch through a strongly baked nearby film;
-  reconstruction remains full quality without the serial per-film mesh-build
-  bottleneck or a CPU/readback fallback.
-
-## ADR-P013 — Conserved topology, informational coverage, and outer-only closure
-
-- Decision: coverage is posterior confidence/support, never occupancy or a triangle
-  deletion mask. Every active chart retains its complete logical lattice. Charts are
-  generation-linked members of a conserved `PressureManifold`; compatible borders
-  weld, physical discontinuities form elastic FilmA/FilmB connectors, and only one
-  ordered outer `LatentFrontier` may return the unresolved sheet to its optical
-  injection seed. Latent connector/frontier geometry has no measured FilmID and is
-  excluded from prediction/association.
-- Consequence: sparse observations cannot expose square tile holes or eye rays, and
-  derived closure cannot hallucinate a measured contact. Split/merge must transfer
-  topology; an active edge with neither one compatible link nor exactly one ordered
-  frontier segment is a publication error, not permission to invent an independent
-  cap.
-
-## ADR-P014 — Information-positive aperture and coalesced immutable publication
-
-- Decision: canonical surface spawn is restricted to the calibrated central
-  30x30-degree high-quality cone field. The wider 50x46-degree revisit field may
-  update already predicted geometry only above an information-confidence floor;
-  passthrough/tracking remain full-FOV. Canonical sensor/fusion work stays at native
-  resolution and cadence, while all dirty mutations coalesce into at most one
-  derived mesh publication request and an initial 15 Hz preview-publication ceiling.
-- Consequence: peripheral noise cannot flood topology, and repeated full mesh builds
-  cannot block XR. The last immutable mesh generation remains visible until a fenced
-  replacement is complete; throttling derived publication never drops measurements
-  or lowers canonical detail.
-
-## ADR-P015 — Serialized transactional scan lifecycle
-
-- Decision: live ingress has explicit `Stopped -> Starting -> Running -> Stopping`
-  states. Concurrent Start requests share one activation task. A toggle received
-  while Starting is coalesced and cannot become Stop; only a genuinely Running scan
-  emits Stop and begins canonical staging. UI Toolkit callbacks bind once per
-  concrete visual-tree generation. Active-chunk residency is invoked exactly once
-  by the awaited start path, and GPU-fence wait is bounded with a surfaced retryable
-  error.
-- Consequence: one physical UI click cannot create alternating Start/Stop tasks or a
-  snapshot dependency cycle before depth capture. Sensor ingress begins only after
-  canonical arenas are resident, while failed/cancelled starts remain stopped
-  without publishing or destroying durable state.
-
-## ADR-P016 — Lossless segmented transient displacement information
-
-- Decision: the eleven-word per-cell displacement/pressure accumulator uses separate
-  base-Grid16 and micro-Grid8 storage buffers while preserving one logical global-cell
-  address space in compute helpers. Topology adaptation writes the base segment
-  directly. Default segments are 92,274,688 and 46,137,344 bytes; the former combined
-  138,412,032-byte binding is forbidden by Quest's 134,217,728-byte Vulkan limit.
-- Consequence: scan startup allocates the complete high-detail sparse hierarchy
-  without violating a per-buffer device limit. Segmentation changes neither total app
-  memory nor film/page capacity, posterior fields, microtile depth, or measured detail.
-
-## ADR-P017 — Adreno-safe indirect GPU work graph
-
-- Decision: preserve GPU compaction and `DispatchIndirect`, but give displacement
-  cells and topology evidence separate indirect passes and separate accumulator
-  address spaces. Every compute entry point may reach at most eight RW/UAV
-  resources; read-only views are bound explicitly per kernel, and the build gate
-  derives reachable resource use through the shader call graph.
-- Consequence: topology moments cannot alias or corrupt displacement cells, Vulkan
-  binding limits are enforced before Unity builds, and no CPU readback, lower
-  capacity, lower resolution, or direct-dispatch fallback is introduced.
-
-## ADR-P018 — Q3-15.5 semantic ABI and canonical-manifold repair gate
-
-- Decision: physical/source forensics at commit `8f2b31b1bc72` supersede the current
-  patch-soup implementation claims. Film lifecycle flags, meshlet vertex flags,
-  descriptor flags and view flags are distinct typed ABIs and are never copied raw
-  between representations. Measured-contact eligibility is explicit and positive;
-  latent connector/frontier material always has zero FilmID and cannot predict or
-  export. A canonical generation-safe PressureManifold/member/link/ordered-frontier
-  GPU pool, cross-tile/cross-eye candidate union, measured/latent material split,
-  link-gated topology, symmetric endpoint remap, and covariance-consistent
-  view-decorrelated pressure posterior are mandatory before Q3-16.
-- Consequence: Q3-15.5 preempts Q3-11 continuation as the only active task. Threshold,
-  opacity, merge-angle or cadence tuning cannot close it. Photometric geometry
-  pressure remains implemented but is gated until depth-only manifold fixtures pass;
-  one batched Quest deployment follows source/fixture acceptance. Exact execution is
-  frozen in `.codex/runbooks/Q3-15.5_PRESSURE_MANIFOLD_REPAIR.md`.
-
-## ADR-P019 — Transactional manifold publication and measured/latent material
-
-- Decision: one continuous pressure sheet is materialized as explicitly separated
-  measured and latent fragments. Only measured fragments carry FilmID/generation and
-  enter prediction/export; latent continuation remains connected but identity-free.
-  Canonical films publish only after cross-eye/tile candidate union and capacity
-  reservation. Derived dirty updates publish only after topology/capacity validation;
-  overflow or an unpaired/stale edge fails closed. Physical links are canonical
-  world-space relations, never a consequence of screen-neighbour FilmIDs.
-- Consequence: continuous manifold topology no longer implies a false measured
-  rectangle, tile/eye boundaries cannot publish duplicate plates, background surfaces
-  cannot be joined to foreground silhouettes by a connector curtain, and a failed
-  allocation cannot expose a torn prediction generation. Active/dirty indirect lists
-  and reusable generation-tagged slots keep work local without lowering detail.
-
-## ADR-P020 — Q3-15.6 PressureManifold topology-atlas rebase
-
-- Decision: Q3-15.5 is retained only as a transactional GPU substrate checkpoint.
-  Its four-rectangle-edge frontier, root-candidate posterior publication, finite-wave
-  DSU, quadtree-only split, FilmA-only boundaries and chunk-local seed/cut semantics
-  are rejected. Canonical topology is a chunk-independent atlas of measured support
-  contours, oriented generation-safe half-edges, shared two-sided BoundaryCurves,
-  evidence-bearing continuation relations, ordered component FrontierLoops and
-  cross-chunk portals. Candidate components choose a global frame and exactly rebase
-  sufficient statistics before aggregate refit/model selection. Dirty connected
-  islands receive a bounded elastic posterior solve; meshlets/macrocharts remain
-  derived caches.
-- Consequence: chart rectangles lose physical meaning, UNKNOWN latent closure cannot
-  become measured geometry, storage boundaries cannot create seams, and the injected
-  sheet is implemented by topology and coupled inference rather than defensive
-  rectangle bookkeeping. `CPQ3-2026-08-21-v6` and Q3-15.6 become the active geometry
-  gate.
+- Decision: the active DAG is exactly `S4-00..S4-13` from `new_spec.md`; additional
+  kernels/helpers may only decompose those semantic stages and may not create a new
+  ontology.
+- Consequence: S4-01 exact algebra is a hard gate before live mutation, and S4-13
+  physical Quest acceptance—not compilation—is the final product gate.

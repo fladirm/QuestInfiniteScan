@@ -1,208 +1,146 @@
-# QuestInfiniteScan working contract
+# Sigma-PRISM-16 working contract
 
-These instructions apply to the whole repository. They keep implementation moving
-after context compaction without rediscovering or repeating completed work.
+These instructions apply to the whole repository and preserve implementation intent
+after context compaction.
 
 ## Resume order
 
-At the start of every implementation turn and after every compaction, read, in
-order:
+At the start of every implementation turn and after every compaction, read in order:
 
-1. `specka.md` (canonical reconstruction/product specification)
+1. `new_spec.md` — sole canonical reconstruction/product specification
 2. `.codex/GOAL.md`
 3. `.codex/STATE.md`
 4. `.codex/TASK_DAG.json`
 5. `.codex/SESSION_TAIL.md`
 6. `.codex/DECISIONS.md` when the current node touches architecture
 
-`SESSION_TAIL.md` must preserve the intent of the latest two user/assistant
-exchanges. Trust checked-in code and verification evidence over prose. Never redo a
-DAG node marked `done` unless its evidence is missing or a later change regressed
-it.
+Trust checked-in source and verification evidence over prose. Never redo a node
+marked `done` unless its evidence is absent or a later change regressed it.
 
 ## Execution budget
 
-- Spend roughly 90% of effort on implementation, 5% on proportional automated/
-  milestone testing, and 5% on control files/prose. Do not repeat already-proven
-  baseline capture or run a separate headset test for every small contract/pass.
+- Spend about 90% of effort on implementation, 5% on proportional verification and
+  5% on control/prose.
 - Keep at most one DAG node `in_progress`.
-- Update control files only at meaningful checkpoints.
-- After every completed DAG task, run `python3 Tools/generate_code_graph.py`; the
-  generated `.codex/CODE_GRAPH.json` and `docs/architecture/CODE_GRAPH.md` are the
-  current file/type/function/GPU-kernel/data-flow map and must land in the same
-  checkpoint. `validate_goal_state.py` rejects a stale graph.
-- Prefer complete vertical slices over disconnected scaffolds.
-- Do not report percentages from file count. Report accepted DAG nodes and the next
-  blocked or executable gate.
+- Update controls only at meaningful checkpoints.
+- After every completed DAG node run `python3 Tools/generate_code_graph.py`; commit
+  `.codex/CODE_GRAPH.json` and `docs/architecture/CODE_GRAPH.md` with the node.
+- Land every completed `S4-xx` node as its own Git commit after its acceptance
+  evidence and generated code graph are current; never combine two accepted nodes
+  into one checkpoint commit.
+- After committing `S4-07`, create a source-only ZIP from that exact commit with
+  `git archive` and stop before activating `S4-08` for the user's audit.
+- Prefer complete vertical slices over disconnected scaffolding.
+- Report accepted DAG nodes and the next exact gate, not file-count percentages.
 
-## Product invariant
+## Canonical product
 
-The production product is a fully on-device Quest 3/3S spatial scanner named
-Cone-PRISM-Q3. Reconstruction physics `CPQ3-2026-08-21-v6` is frozen in
-`specka.md`. Canonical world state is a chunk-independent topology atlas of
-one-sided probabilistic `ContactFilm`s; chunks are storage owners only.
-`SurfaceChartGeometry` is their quadratic plus hierarchical displacement
-parameterization, support contours and half-edges define connectivity,
-`ContactBoundary` is one shared persistent contact discontinuity, and meshlets are
-only derived render/export caches. The product does not require a
-notebook, network, Python, CUDA, DiffSoup, Gaussian splatting, TSDF, or DTSDF to
-scan, refine, render, persist, revisit, or export.
+`new_spec.md`, baseline `CPQ4-2026-08-22-S16-v6`, is frozen. The product is a fully
+on-device Quest 3 scanner whose only durable physical world is:
 
-The retained QuestRoomScan shell supplies Meta XR permissions/session plumbing,
-tracking, Unity/Vulkan build setup, anchors, and selected reusable utilities. The
-old scalar TSDF/Surface Nets and LAN/DiffSoup/GS sources exist only in the archival
-Git branch. They are deleted from this production branch; never restore a second
-reconstruction architecture or compatibility fallback here.
+```text
+Psi : Sigma_2 -> S16
+```
 
-## Mapping guardrails
+The canonical carrier is sparse, logically unbounded and exact Q16.48. Geometry,
+topology/singularities, boundaries, detail, directional appearance, scene changes,
+meshlets, PBR and GLB are inverse constraints or readouts of this same state. Never
+create a parallel canonical geometry, topology, texture, scene-history or object
+world.
 
-- Capture both passthrough RGB streams and both environment-depth views directly as
-  GPU textures with timestamps, intrinsics, extrinsics, and poses in one immutable
-  `StereoRigFrame` contract.
-- Pair frames by timestamp and pose validity. Reject mismatched data; never silently
-  fuse a stale eye or reuse a pose from another timestamp.
-- Static LUTs contain center rays, ray differentials/cone footprint support,
-  distortion, and epipolar geometry. Depth-to-RGB
-  reprojection remains depth-dependent.
-- Treat each pixel as a finite calibrated pressure cone: it pushes the conserved
-  elastic manifold outward through the pre-hit interval until the first-hit mould
-  stops it, while everything behind that contact is force-free UNKNOWN. It does not
-  carve, erase, or independently cap an image tile. Treat transient depth
-  triangles/patches as observations, never permanent canonical topology.
-- Associate observations by rasterizing film ID, mean depth, normal, UV,
-  sidedness, confidence, and normal uncertainty from the observation pose. A
-  spatial hash/page table is an index, not a voxel geometry resolution.
-- Fuse only position-, normal-, visibility-, and confidence-compatible evidence.
-  Opposite-facing or occluded observations create/target another layer or are
-  rejected; they never erase a stable surface.
-- Update active film shape with bounded robust pressure/information sufficient
-  statistics. Pressure precision follows learned range noise, projected footprint,
-  incidence, pose/calibration uncertainty, motion, consensus, and robust innovation;
-  never use constant voting or blindly assume a universal inverse-square law.
-  Persisted information/covariance and quality envelopes are the film's resistance:
-  weak far/grazing observations may confirm but cannot pull or blur a strongly
-  compressed close film. Geometry is
-  hierarchical: a tangent/quadratic base plus sparse multiresolution displacement
-  microtiles. The base supplies stable low-frequency structure; microtiles preserve
-  all supported high-frequency detail without forcing a global resolution.
-- Persist local opposing first-hit pressure and independent eye/angular evidence in
-  each base film cell. Contact evidence cancels pressure; only accumulated
-  multi-view pre-hit pressure exceeding the cell's stored information resistance
-  may perform bounded normal-direction displacement work. It never lowers coverage,
-  deletes indices, or retires a film. Never turn a frame-local contradiction into
-  whole-film deletion or duplicate it through child microtiles.
-- Model the capture basin as normal uncertainty `mu +/- k*sigma`. Uncertain films
-  procedurally emit adaptive quadrature shell layers for association/photometric
-  focusing; as covariance shrinks they collapse continuously to one opaque surface.
-  Shell samples are derived GPU work, not duplicated canonical geometry.
-- Accumulate persistent RGB/depth/visibility discontinuities into canonical
-  `ContactBoundary` records with uncertainty-bearing 3D spline `BoundaryCurve`
-  geometry and GPU-refined controls. Boundaries constrain
-  film domains, splits, and tessellation; a noisy single-frame edge cannot create
-  or erase a boundary.
-- Build adaptive local meshlets from ContactFilms. Publish topology with
-  generation IDs and double buffering; the renderer must never consume buffers
-  being mutated.
-- ContactFilms are local coordinate charts of a connected closed PressureManifold,
-  not independent plates and not rectangular topology. Measured support contours,
-  oriented half-edges and shared generation-safe BoundaryCurves define connectivity.
-  Only manifold-level ordered FrontierLoops may return latent topology to an optical
-  seed; internal chart/tile edges never do. Coverage is information, never occupancy
-  or a triangle-deletion mask.
-- Materialize one dirty film cooperatively with an `8x8` GPU workgroup (or a measured
-  stronger equivalent), caching its continuous support domain for parallel vertex
-  and triangle work. Performance work may not lower the canonical chart/microtile
-  detail or reintroduce a serial single-lane film builder.
-- Keep association, fusion, regularization, topology construction, visibility
-  culling, screen-space LOD selection, draw-list compaction, and rendering on GPU.
-  Use indirect dispatch/draw arguments; never rebuild live geometry through Unity
-  `Mesh`, `GetData`, or synchronous CPU readback.
-- CPU orchestration may handle small manifests and scheduling metadata. Geometry or
-  appearance may leave GPU only as bounded asynchronous immutable page staging for
-  persistence/export, outside the frame-critical path and behind fences.
-- Schedule narrow stereo/temporal MVS only for uncertain tiles and only around the
-  native metric depth prior. Inconsistent photometric evidence must fail closed.
-- Keep realtime preview responsive through GPU queues, dirty work, and indirect
-  scheduling. Performance tuning may delay refinement work or evict derived pages;
-  it must not lower canonical measurement resolution or discard accepted detail.
-- No individual storage buffer may exceed the device-reported Vulkan range (128 MiB
-  on the measured Quest). Total mapper residency is not capped by that per-buffer
-  value. A runtime memory governor discovers the actual device/app budget, reserves
-  measured Horizon/compositor/Unity headroom, and may use multiple segmented pools
-  up to the safe budget. Pressure evicts/reloads derived or durable pages; it never
-  discards canonical detail. World size grows on flash, not without bound in GPU.
-- Preserve a monotonic per-surface/per-texel quality envelope (projected sampling
-  density, range, incidence, sharpness, baseline, exposure, residual, confidence).
-  A weaker observation may add support but cannot lower stable geometry or texture
-  detail. Replacement requires measured information gain.
-- Treat Meta tracking as a strong pose prior. Optional GPU residual reduction may
-  estimate a small bounded keyframe/chunk micro-correction; it never becomes an
-  unconstrained second SLAM or rewrites historical frame timestamps.
+The previous Cone-PRISM/ContactFilm/PressureManifold mapper is recoverable from Git
+history only. It is not an implementation donor. The only retained donor surface is:
 
-## World and persistence guardrails
+- Unity 6 / Android / Vulkan / Meta XR setup and build tooling;
+- synchronized GPU-native `RGB_L/R + DEPTH_L/R` capture;
+- exact timestamps, poses, intrinsics, extrinsics and immutable calibration epochs;
+- permissions, lifecycle, anchors, input, VR UI and logging;
+- representation-neutral fences, indirect-dispatch helpers and deployment tooling.
 
-- Reuse the versioned world/pose-graph/store foundations, storing ContactFilm,
-  ContactBoundary, sufficient-statistic, topology, meshlet-cache, observation and
-  appearance pages in the versioned `.prism` format.
-- Chunk transition is a two-arena overlap: the source remains visible while the
-  target accepts observations and dirty source pages publish incrementally.
-- Durable publication precedes eviction. A chunk cannot disappear merely because
-  finalization or readback is pending.
-- Revisit loads the last complete revision, preserves stable layers, and publishes
-  a monotonic new revision atomically.
-- Pose-graph optimization updates only `worldFromChunk`; it never resamples or
-  silently mutates chunk-local geometry.
-- Keep active GPU residency bounded independently of scanned building size and
-  support arbitrary vertical/multi-floor trajectories.
+## Reconstruction guardrails
 
-## Appearance and export guardrails
+- Canonical coefficient semantics are
+  `num.fixed.q16_48.checked.nearest_even`: signed 16.48, 64-bit storage, checked
+  overflow and nearest-even point arithmetic. Interval arithmetic rounds outward.
+- Execution layouts are replaceable exact lowerings. Native I64 or packed-32 may run
+  only after bit-parity/capability gates; FP never decides canonical mutation.
+- Generate the signed-XOR Cayley-Dickson table, conjugation, basis permutations,
+  annihilator catalog, Hadamard/readout rows and operator fingerprints. Do not hand
+  maintain tables or use dense schoolbook S16 multiplication by default.
+- Preserve explicit product bracketing. Optimized operator DAGs must equal their
+  semantic reference bit-for-bit and use mask/select/fixed schedules for bounded
+  GPU control.
+- Both RGB streams, both depth views and temporal sources remain independent until
+  their exact Q16.48 admissible cells meet by componentwise max/min. Confidence
+  changes interval width, never a weighted sum.
+- Each finite calibrated pixel footprint constrains only the pre-hit sector and its
+  first supported hit. State behind the hit receives no inclusive cell, exclusion
+  cell or confidence change. UNKNOWN is never inferred EMPTY.
+- Contradictory cells retain exact gaps and provenance; they never average or cancel.
+- Stronger prior intervals and minimal certificates are state resistance. Broad,
+  far, grazing or redundant observations may confirm but cannot blur a narrower
+  supported result.
+- Null-to-contact uses deterministic gauge allocation and independent-support
+  probation. Contact-to-null requires proven multi-view pass-through. Coherent
+  identity-preserving transport is tested before retire/recreate.
+- Topology is intrinsic to regular/singular sedenion transitions and exact
+  annihilator/associator gates. Do not allocate canonical charts, films,
+  BoundaryCurves, half-edge graphs, split/merge objects or 3D proximity identities.
+- Fine geometry and appearance are local variation of the same carrier. Gauge
+  refinement is a bijective reparameterization; no displacement/texture world may
+  appear beside `Psi`.
+- Page/block/codec/chunk boundaries are storage only and have zero physical meaning.
 
-- Every ContactFilm owns UV at creation. Deposit exposure-normalized finite RGB
-  cone footprints directly in film/chart
-  space with EWA/footprint weighting, producing multi-frame surface superresolution
-  without hallucinated upscaling. Preserve the surface light field using an online
-  adaptive mixture of compact directional lobes plus diffuse state; do not collapse
-  canonical appearance to PBR or low-order SH merely for export convenience.
-- Keep live appearance in GPU-resident, independently streamable multiresolution
-  pages. Select geometry and appearance LOD independently from screen-space error,
-  visibility, confidence, and bandwidth so close inspection reveals the best
-  captured detail without globally inflating residency.
-- Roughness is emitted only with evidence and confidence. Metallic remains zero
-  until reliable evidence exists; never invent polished PBR maps.
-- `.prism` persistence/export is mandatory so a scan can reopen and continue
-  refining with uncertainty, chart graph, boundaries, directional appearance, and
-  sufficient statistics intact. GLB/PBR remains the interoperable derivative.
-  Support selected chunk, bounded monolithic
-  world, and `building.json + chunks/*.glb`; preserve pose-graph node transforms.
-- Validate output with Khronos glTF Validator and an independent importer.
+## GPU and runtime guardrails
 
-## Branch and safety
+- Keep association, inverse-cell construction/meet, state mutation, transition
+  algebra, gauge work, readout, culling, LOD, draw compaction and rendering on GPU.
+- Use compacted work and indirect dispatch/draw. No CPU pixel loop, CPU mesh,
+  synchronous GPU readback or full-world frame traversal.
+- C# owns lifecycle, calibration epoch, resources, page residency, fences,
+  immutable publication, staging, error reporting and export orchestration only.
+- Render meshes/prediction caches are disposable readouts. Deleting them must not
+  alter replay or canonical page bytes.
+- No storage-buffer binding may exceed the runtime Vulkan range. Use segmented pools
+  and the memory governor; pressure may evict clean pages/caches, never canonical
+  detail or accepted sensor resolution.
+- Sensor ingress never waits for reconstruction. Stage work by active visible,
+  inverse-active, dirty and unresolved locality.
 
-- Historical mappers remain recoverable only from their archival Git branch. Do not
-  copy their production code, UI or shader resources back into this branch.
-- Preserve unrelated user changes. Never use destructive git recovery commands.
+## Persistence and export
+
+- Persist the exact sparse carrier pages, algebra/operator metadata, minimal proof
+  certificates and only unresolved raw observation tiles required by `new_spec.md`.
+- Durable publication precedes eviction. Restart plus the same observation sequence
+  must reproduce byte-identical carrier pages/certificates.
+- Persistence writes sorted logical page generations; codec mode is deterministic
+  and lossless.
+- Mesh/PBR/GLB are readouts and never mutate or replace `Psi`.
+
+## Repository and safety
+
+- Active reconstruction code lives only under `Runtime/SigmaPrism` and
+  `Runtime/Resources/SigmaPrism`.
+- Do not restore old TSDF/DTSDF, ContactFilm/PressureManifold, GS/DiffSoup/server,
+  old persistence or compatibility fallback code to this branch.
+- Preserve unrelated user changes and untracked archives/captures. Never use
+  destructive Git recovery commands.
 - Add Unity `.meta` files for every new Unity-visible asset.
 - Never commit credentials, LAN addresses, device identifiers, room captures,
-  generated models, Unity caches, Android build products, or third-party weights.
-- Never delete, move, compress, prune, or otherwise modify anything under
-  `~/.codex`; the user explicitly requires all sessions/history/goals/caches.
-- Cleanup is limited to clearly regenerable artifacts owned by this repository or
-  its dedicated Kingston development environments.
+  generated models, Unity caches, Android products or third-party weights.
+- Never modify anything under `~/.codex`.
 
 ## Verification and checkpoint protocol
 
-Verification is proportional and batched: cheap contract/unit or captured-fixture
-checks plus compilation while implementing, Android builds at meaningful vertical
-slices, and physical Quest tests only at consolidated hardware milestones (complete
-four-stream-to-film slice, multilayer/boundary slice, persistence/revisit, and final
-quality/export). Never claim a device result that was not actually run.
+Verification is proportional: exact unit/captured fixtures and compilation during
+implementation; Android/device builds only at meaningful forward/inverse, paging,
+renderer/export and final physical milestones. Never claim an unrun device result.
 
-Before compaction, handoff, or a major commit:
+Before compaction, handoff or a major commit:
 
-1. Update `.codex/STATE.md` with the current node, changed files, next exact action,
-   and verification evidence.
-2. Update `.codex/TASK_DAG.json`, then run `python3 Tools/validate_goal_state.py`.
-   Generate the code graph first with `python3 Tools/generate_code_graph.py`.
-3. Record only real architecture decisions in `.codex/DECISIONS.md`.
-4. Replace `.codex/SESSION_TAIL.md` with concise snapshots of the latest two
-   user/assistant exchanges.
+1. update `.codex/STATE.md` with current node, changed files, exact next action and
+   real evidence;
+2. update `.codex/TASK_DAG.json`;
+3. regenerate the code graph, then run `python3 Tools/validate_goal_state.py`;
+4. record only actual architectural decisions in `.codex/DECISIONS.md`;
+5. replace `.codex/SESSION_TAIL.md` with the latest two exchange snapshots.

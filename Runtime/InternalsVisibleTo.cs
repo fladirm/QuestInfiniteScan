@@ -1,5 +1,4 @@
 using System.Runtime.CompilerServices;
 
 [assembly: InternalsVisibleTo("Genesis.RoomScan.Editor")]
-[assembly: InternalsVisibleTo("Genesis.RoomScan.AIDetection")]
 [assembly: InternalsVisibleTo("Genesis.RoomScan.Tests")]

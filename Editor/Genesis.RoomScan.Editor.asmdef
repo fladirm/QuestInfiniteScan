@@ -3,12 +3,10 @@
   "rootNamespace": "Genesis.RoomScan.Editor",
   "references": [
     "Genesis.RoomScan",
-    "Genesis.RoomScan.AIDetection",
     "Unity.XR.ARFoundation",
     "Unity.XR.CoreUtils",
     "Unity.RenderPipelines.Universal.Runtime",
     "Unity.RenderPipelines.Core.Runtime",
-    "Unity.InferenceEngine",
     "Unity.XR.OpenXR",
     "Unity.XR.OpenXR.Editor",
     "Unity.XR.Management",
@@ -27,12 +25,6 @@
   "precompiledReferences": [],
   "autoReferenced": true,
   "defineConstraints": [],
-  "versionDefines": [
-    {
-      "name": "com.unity.ai.inference",
-      "expression": "",
-      "define": "HAS_AI_INFERENCE"
-    }
-  ],
+  "versionDefines": [],
   "noEngineReferences": false
 }

@@ -2,7 +2,7 @@
   "name": "com.genesis.roomscan",
   "version": "0.2.0-pre.1",
   "displayName": "Quest Infinite Scan",
-  "description": "Pure-Quest Cone-PRISM reconstruction with probabilistic ContactFilms, a support-contour PressureManifold atlas, persistent refinement, and GLB/PBR export.",
+  "description": "Pure-Quest Sigma-PRISM-16 exact holistic sedenion-carrier reconstruction, refinement, rendering and GLB/PBR readout.",
   "unity": "6000.0",
   "dependencies": {
     "com.unity.xr.arfoundation": "6.5.0",
@@ -29,10 +29,10 @@
     "reconstruction",
     "3d-reconstruction",
     "large-world",
-    "cone-prism",
-    "contact-film",
-    "pressure-manifold",
-    "surface-atlas",
+    "sigma-prism",
+    "sedenion",
+    "exact-arithmetic",
+    "carrier-field",
     "gltf",
     "glb"
   ],

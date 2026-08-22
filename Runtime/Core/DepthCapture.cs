@@ -1,5 +1,5 @@
 using System;
-using Genesis.RoomScan.Prism;
+using Genesis.RoomScan.SigmaPrism;
 using Unity.XR.CoreUtils.Collections;
 using UnityEngine;
 using UnityEngine.XR.ARFoundation;
@@ -13,7 +13,7 @@ namespace Genesis.RoomScan
     /// <summary>
     /// Thin Quest stereo-depth ingress. ARFoundation owns the native texture; this
     /// component publishes its exact timestamp, per-eye poses, FOV and near/far range
-    /// synchronously. Cone-PRISM performs the only retained GPU copy and all subsequent
+    /// synchronously. Sigma-PRISM-16 performs the only retained GPU copy and all subsequent
     /// normalization, consensus, normal and uncertainty work.
     /// </summary>
     [DefaultExecutionOrder(-40)]
@@ -147,7 +147,7 @@ namespace Genesis.RoomScan
             DepthAvailable = true;
 
             // ARFoundation supplies the per-eye poses at the depth-frame timestamp.
-            // PrismRigCapture freezes intrinsics once per calibration epoch and copies
+            // SigmaRigBridge freezes intrinsics once per calibration epoch and copies
             // the borrowed stereo array into its generation-safe GPU ring immediately.
             RawStereoFrameReceived?.Invoke(new RawStereoDepthFrame(texture, timestampNs,
                 poses[0], poses[1], fovs[0], fovs[1],

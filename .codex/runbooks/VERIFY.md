@@ -1,36 +1,20 @@
-# Verification runbook
+# Σ-PRISM-16 verification runbook
 
-Use the applicable layers in this order; later layers do not replace earlier ones.
+Apply the narrowest relevant layers; broader layers never replace exact semantic
+fixtures:
 
-1. Code map: `python3 Tools/generate_code_graph.py` after each completed DAG task
-2. Control plane and graph freshness: `python3 Tools/validate_goal_state.py`
-3. Formatting/static hygiene: `git diff --check`, targeted source analyzers
-   - Run `python3 Tools/unity/validate_prism_compute_uav.py`; all reachable Prism
-     compute entry points must stay at or below eight RW/UAV resources.
-4. Pure C# domain/format tests in Unity EditMode
-5. CPU reference versus real-GPU compute/raster parity on synthetic/captured PRISM fixtures
-6. Unity package compilation in the pinned Unity 6000.5 project
-7. Android Vulkan/IL2CPP ARM64 build
-8. Quest 3/3S physical run-specific acceptance from `Q3-02` through `Q3-22`
+1. generated algebra/operator fingerprints and bit-exact CPU fixtures;
+2. CPU semantic oracle versus real-GPU lowering parity;
+3. captured four-stream/invariance fixtures named by the active S4 gate;
+4. code graph, control-plane and `git diff --check`;
+5. Unity package compilation on the pinned Unity 6000.5 editor;
+6. Android Vulkan/IL2CPP ARM64 build at consolidated vertical milestones;
+7. physical Quest corpus from sections 40, 43 and 44 of `new_spec.md`.
 
-Cone-PRISM compute contracts must run on a real graphics backend. Use
-`Tools/unity/run_editmode_tests.sh`, which selects Vulkan without `-nographics`;
-Unity's NullGfx device imports compute assets without executable kernels and cannot
-validate `FindKernel`, bindings, strides, or dispatch contracts.
+Run `python3 Tools/unity/validate_sigma_compute_uav.py` for every shader checkpoint.
+Unity compute fixtures need a real graphics backend; NullGfx import is not GPU proof.
+No result may be reported as a device result unless it was run on that deployed APK.
 
-Before a device deployment from a repair branch:
-
-1. validate controls/code graph and static hygiene;
-2. create a local commit;
-3. create and verify a workspace source ZIP from that exact commit using
-   `git archive` (do not push when the user requested an archive instead);
-4. rebuild Android/Vulkan from the committed tree;
-5. record APK hash and deploy that exact APK;
-6. batch related physical acceptance instead of issuing diagnostic-only builds.
-
-Device acceptance must capture at least: Unity version, headset OS, package commit,
-calibration epoch, stream timing/poses, scene/corpus item, PRISM revision, chart/
-boundary/posterior metrics, number of traversed chunks, GPU/RAM/storage residency,
-scan/render frame costs, restart/revisit result, GLB validation where applicable,
-and logs for any rejected/fallback evidence. Do not substitute a build for the
-physical acceptance item named by the active DAG run.
+Before a required deployment: validate, commit the exact node, archive when required,
+build from that commit, hash the APK, deploy that exact artifact, then batch the
+physical gate rather than rebuilding for each subpass.

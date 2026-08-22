@@ -1,7 +1,7 @@
 using System;
 using System.IO;
 using System.Threading.Tasks;
-using Genesis.RoomScan.World;
+using Genesis.RoomScan.SigmaPrism;
 using UnityEditor;
 using UnityEditor.Build;
 using UnityEditor.Build.Reporting;
@@ -74,8 +74,8 @@ namespace Genesis.RoomScan.Editor
                 wizard.FixShaderWiring();
 
                 EnsureQuestVRManifest();
-                // Cone-PRISM is a pure on-device reconstruction path. Do not revive
-                // the historical LAN/server cleartext exception in automated builds.
+                // Σ-PRISM-16 is pure on-device. No historical LAN/server exception
+                // belongs in the generated product manifest.
                 PlayerSettings.insecureHttpOption = InsecureHttpOption.NotAllowed;
                 PlayerSettings.SetUseDefaultGraphicsAPIs(BuildTarget.Android, false);
                 PlayerSettings.SetGraphicsAPIs(BuildTarget.Android,
@@ -84,17 +84,13 @@ namespace Genesis.RoomScan.Editor
                 AssetDatabase.Refresh(ImportAssetOptions.ForceSynchronousImport);
 
                 GameObject roomScan = GameObject.Find("RoomScan");
-                SubmapManager submaps = roomScan != null
-                    ? roomScan.GetComponent<SubmapManager>()
-                    : null;
-                if (submaps == null || !submaps.LargeWorldMode)
-                    throw new InvalidOperationException("Infinite Submaps was not enabled.");
-
-                if (roomScan.GetComponent<PrismChunkResidencyManager>() == null)
+                if (roomScan == null || roomScan.GetComponent<RoomScanner>() == null ||
+                    roomScan.GetComponent<SigmaRigBridge>() == null ||
+                    roomScan.GetComponent<DepthCapture>() == null)
                     throw new InvalidOperationException(
-                        "Cone-PRISM chunk residency was not added to the smoke scene.");
-                Debug.Log("[QuestInfiniteScan] Pure-Quest Cone-PRISM production path; " +
-                          "no TSDF, Surface Nets, triplanar, GSplat or DiffSoup backend.");
+                        "The Σ-PRISM-16 capture/lifecycle shell was not created.");
+                Debug.Log("[QuestInfiniteScan] Σ-PRISM-16 CPQ4 product shell; " +
+                          "no legacy reconstruction or persistence path is active.");
 
                 Directory.CreateDirectory(Path.GetDirectoryName(SmokeScenePath));
                 Scene scene = SceneManager.GetActiveScene();

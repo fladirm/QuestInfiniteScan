@@ -37,22 +37,13 @@ qis_run_step() {
 qis_run_step control_plane \
     python3 "$qis_repo_root/Tools/validate_goal_state.py"
 qis_run_step diff_hygiene git -C "$qis_repo_root" diff --check
-qis_run_step profile_parser \
-    python3 -m unittest discover -s "$qis_repo_root/Tools/unity/tests" \
-        -p 'test_*.py' -v
-qis_run_step server_contract \
-    "$qis_repo_root/Tools/server/run_contract_tests.sh"
-qis_run_step server_fake_backend \
-    "$qis_repo_root/Tools/server/run_tests.sh"
+qis_run_step sigma_compute_uav \
+    python3 "$qis_repo_root/Tools/unity/validate_sigma_compute_uav.py"
 qis_run_step unity_editmode \
     "$qis_repo_root/Tools/unity/run_editmode_tests.sh"
 qis_run_step gltf_interoperability \
     "$qis_repo_root/Tools/gltf/verify_interoperability.sh"
 
-if [[ "${QIS_VERIFY_CUDA:-0}" == "1" ]]; then
-    qis_run_step diffsoup_cuda \
-        "$qis_repo_root/Tools/server/run_cuda_tests.sh"
-fi
 if [[ "${QIS_VERIFY_ANDROID:-0}" == "1" ]]; then
     qis_run_step android_vulkan_build \
         "$qis_repo_root/Tools/unity/build_smoke_apk.sh"
