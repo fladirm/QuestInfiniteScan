@@ -112,6 +112,8 @@ namespace Genesis.RoomScan.Tests
                 sizeof(uint));
             using var topologyPageKeys = new GraphicsBuffer(
                 GraphicsBuffer.Target.Structured, 1, sizeof(uint) * 4);
+            using var poseResult = new GraphicsBuffer(
+                GraphicsBuffer.Target.Structured, 4, sizeof(uint) * 4);
             using var arguments = new GraphicsBuffer(
                 GraphicsBuffer.Target.Structured |
                 GraphicsBuffer.Target.IndirectArguments, 4, sizeof(uint));
@@ -133,6 +135,7 @@ namespace Genesis.RoomScan.Tests
             {
                 new UInt4 { X = 9u, Y = 17u, Z = 1u, W = 0u }
             });
+            poseResult.SetData(new UInt4[4]);
 
             int build = readout.FindKernel("BuildCarrierReadout");
             int compact = readout.FindKernel("CompactCurrentPages");
@@ -199,6 +202,11 @@ namespace Genesis.RoomScan.Tests
                 properties.SetBuffer("_PageMetadata", meta);
                 properties.SetBuffer("_TopologyCellFlags", topologyCellFlags);
                 properties.SetBuffer("_TopologyPageKeys", topologyPageKeys);
+                properties.SetBuffer("_PoseResult", poseResult);
+                properties.SetMatrix("_PoseConsumeReferenceFromWorld",
+                    Matrix4x4.identity);
+                properties.SetMatrix("_PoseConsumeWorldFromReference",
+                    Matrix4x4.identity);
                 DrawPrediction(material, arguments, properties, depthSupport,
                     carrierPage, carrierUvNormal, stateKey, hardwareDepth);
 

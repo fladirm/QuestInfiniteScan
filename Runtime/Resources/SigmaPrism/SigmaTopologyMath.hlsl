@@ -166,7 +166,7 @@ bool SigmaRelativeAssociatorGate(uint4 error, uint4 scale, uint shift)
 {
     uint valid = 1u;
     uint4 shifted = SigmaU128ShiftLeftSmall(error, shift, valid);
-    return valid == 0u || !SigmaU128Less(shifted, scale);
+    return valid != 0u && !SigmaU128Less(shifted, scale);
 }
 
 void SigmaLoadNullState(out uint2 state[16])

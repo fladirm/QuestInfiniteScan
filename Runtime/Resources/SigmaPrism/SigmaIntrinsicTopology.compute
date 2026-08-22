@@ -83,10 +83,12 @@ uint _ClearCellCount;
 uint _ClearPageCount;
 uint _UseInverseWorkList;
 uint _LiveWorkIndex;
+uint _TopologyCandidateCapacity;
 
 groupshared uint2 SigmaTopologySharedTau[16];
 groupshared uint4 SigmaTopologySharedError[256];
 groupshared uint SigmaTopologySharedId[256];
+groupshared uint SigmaTopologyCandidateScan[256];
 groupshared uint SigmaTopologyRightSlotShared;
 groupshared uint SigmaTopologyDownSlotShared;
 groupshared uint SigmaTopologyDiagonalSlotShared;
@@ -429,6 +431,9 @@ void ClearTopologyWork(uint3 id : SV_DispatchThreadID)
     _TopologyDispatchArgs[0] = 0u;
     _TopologyDispatchArgs[1] = 1u;
     _TopologyDispatchArgs[2] = 1u;
+    _TopologyDispatchArgs[3] = 0u;
+    _TopologyDispatchArgs[4] = 1u;
+    _TopologyDispatchArgs[5] = 1u;
 }
 
 void SigmaLoadTransitionEndpoints(uint transitionIndex, out uint sample,
@@ -600,6 +605,8 @@ void BuildTransitionMeta(uint3 id : SV_DispatchThreadID)
     bool constraintActive = leftChanged || rightChanged || discontinuity != 0u ||
         (_ForceBoundaryTransitions != 0u && boundaryTransition);
     flags |= constraintActive ? (1u << 7u) : 0u;
+    flags |= _ForceBoundaryTransitions != 0u && boundaryTransition
+        ? (1u << 9u) : 0u;
     _TransitionMeta[transitionIndex] = uint4(flags, hitMask,
         _LeftIndependenceKey, _RightIndependenceKey);
     uint cacheIndex = SigmaTopologyCacheIndex(SigmaTopologyTargetPageSlot(),
@@ -615,15 +622,35 @@ void BuildTransitionMeta(uint3 id : SV_DispatchThreadID)
         _TransitionCache[cacheIndex] = uint4(SigmaTopologyPack(
             SIGMA_TOPOLOGY_UNSUPPORTED, 255u, 0u), 0u, 0u, 0u);
     }
+    else
+    {
+        uint regularFlags = 0u;
+        if (leftContact) regularFlags |= SIGMA_TOPOLOGY_LEFT_CONTACT;
+        if (rightContact) regularFlags |= SIGMA_TOPOLOGY_RIGHT_CONTACT;
+        if (contactNull) regularFlags |= SIGMA_TOPOLOGY_CONTACT_NULL;
+        if (discontinuity != 0u)
+            regularFlags |= SIGMA_TOPOLOGY_DISCONTINUITY_EVIDENCE;
+        bool requiresTopologySolve = contactNull || discontinuity != 0u ||
+            (_ForceBoundaryTransitions != 0u && boundaryTransition);
+        _TransitionCache[cacheIndex] = uint4(SigmaTopologyPack(
+            requiresTopologySolve ? SIGMA_TOPOLOGY_UNRESOLVED :
+                SIGMA_TOPOLOGY_REGULAR,
+            255u, regularFlags | (requiresTopologySolve ?
+                SIGMA_TOPOLOGY_INVALID : 0u)), 0u, 0u, 0u);
+    }
 }
 
 [numthreads(64, 1, 1)]
 void BuildTransitionTau(uint3 id : SV_DispatchThreadID)
 {
-    uint transitionIndex = id.x;
-    if (!SigmaCanonicalMutationEnabled() ||
-        transitionIndex >= SIGMA_TRANSITIONS_PER_PAGE ||
+    uint candidateIndex = id.x;
+    uint candidateCount = min(_TopologyCandidateCount[0],
+        min(_TopologyCandidateCapacity, SIGMA_TRANSITIONS_PER_PAGE));
+    if (!SigmaCanonicalMutationEnabled() || candidateIndex >= candidateCount ||
         !SigmaTopologyLiveWorkValid())
+        return;
+    uint transitionIndex = _TopologyCandidates[candidateIndex];
+    if (transitionIndex >= SIGMA_TRANSITIONS_PER_PAGE)
         return;
     uint4 meta = _TransitionMeta[transitionIndex];
     if ((meta.x & (1u << 8u)) == 0u)
@@ -664,39 +691,84 @@ void BuildTransitionTau(uint3 id : SV_DispatchThreadID)
     }
 }
 
-[numthreads(64, 1, 1)]
-void MarkTopologyCandidates(uint3 id : SV_DispatchThreadID)
+[numthreads(256, 1, 1)]
+void MarkTopologyCandidates(uint3 groupThreadId : SV_GroupThreadID)
 {
-    uint transitionIndex = id.x;
-    if (transitionIndex >= SIGMA_TRANSITIONS_PER_PAGE ||
-        !SigmaTopologyLiveWorkValid())
+    uint lane = groupThreadId.x;
+    const uint transitionsPerLane = SIGMA_TRANSITIONS_PER_PAGE / 256u;
+    uint first = lane * transitionsPerLane;
+    // A bounded batch must not starve a persistent candidate behind the first
+    // capacity entries.  Rotate the stable cyclic source order by one batch per
+    // immutable frame revision; every transition is visited within a bounded
+    // number of frames while each individual dispatch remains capped.
+    uint candidateCapacity = max(1u, min(_TopologyCandidateCapacity,
+        SIGMA_TRANSITIONS_PER_PAGE));
+    uint candidateStart = (_EvidenceFrameSerial * candidateCapacity) &
+        (SIGMA_TRANSITIONS_PER_PAGE - 1u);
+    bool graphValid = SigmaCanonicalMutationEnabled() &&
+        SigmaTopologyLiveWorkValid();
+    uint localCount = 0u;
+    [unroll]
+    for (uint offset = 0u; offset < transitionsPerLane; ++offset)
+    {
+        uint transitionIndex = (candidateStart + first + offset) &
+            (SIGMA_TRANSITIONS_PER_PAGE - 1u);
+        uint4 meta = _TransitionMeta[transitionIndex];
+        bool candidate = graphValid && (meta.x & 1u) != 0u &&
+            (meta.x & ((1u << 4u) | (1u << 6u) | (1u << 9u))) != 0u;
+        if (candidate)
+        {
+            meta.x |= 1u << 8u;
+            _TransitionMeta[transitionIndex] = meta;
+            localCount++;
+        }
+    }
+
+    SigmaTopologyCandidateScan[lane] = localCount;
+    GroupMemoryBarrierWithGroupSync();
+    [unroll]
+    for (uint scanOffset = 1u; scanOffset < 256u; scanOffset <<= 1u)
+    {
+        uint addend = lane >= scanOffset
+            ? SigmaTopologyCandidateScan[lane - scanOffset] : 0u;
+        GroupMemoryBarrierWithGroupSync();
+        SigmaTopologyCandidateScan[lane] += addend;
+        GroupMemoryBarrierWithGroupSync();
+    }
+    uint destination = SigmaTopologyCandidateScan[lane] - localCount;
+    uint capacity = min(_TopologyCandidateCapacity,
+        SIGMA_TRANSITIONS_PER_PAGE);
+    uint localOrdinal = 0u;
+    [unroll]
+    for (uint storeOffset = 0u; storeOffset < transitionsPerLane; ++storeOffset)
+    {
+        uint transitionIndex = (candidateStart + first + storeOffset) &
+            (SIGMA_TRANSITIONS_PER_PAGE - 1u);
+        if ((_TransitionMeta[transitionIndex].x & (1u << 8u)) == 0u)
+            continue;
+        uint output = destination + localOrdinal++;
+        if (output < capacity)
+            _TopologyCandidates[output] = transitionIndex;
+    }
+    if (lane != 0u)
         return;
-    uint4 meta = _TransitionMeta[transitionIndex];
-    uint sample = transitionIndex & (SIGMA_PAGE_SAMPLE_COUNT - 1u);
-    if ((meta.x & 1u) == 0u)
-        return;
-    uint associator = _AssociatorFlags[SigmaTopologyCellIndex(
-        SigmaTopologyTargetPageSlot(), sample)];
-    bool candidate = (meta.x & ((1u << 4u) | (1u << 6u) |
-        (1u << 7u))) != 0u ||
-        (associator & SIGMA_ASSOCIATOR_STRONG) != 0u;
-    if (!candidate)
-        return;
-    meta.x |= 1u << 8u;
-    _TransitionMeta[transitionIndex] = meta;
-    uint destination;
-    InterlockedAdd(_TopologyCandidateCount[0], 1u, destination);
-    if (destination < SIGMA_TRANSITIONS_PER_PAGE)
-        _TopologyCandidates[destination] = transitionIndex;
+    uint total = SigmaTopologyCandidateScan[255u];
+    _TopologyCandidateCount[0] = total;
+    if (total > capacity)
+        InterlockedAdd(_TopologyCounters[6u], total - capacity);
 }
 
 [numthreads(1, 1, 1)]
 void BuildTopologyDispatchArgs(uint3 id : SV_DispatchThreadID)
 {
-    _TopologyDispatchArgs[0] = min(_TopologyCandidateCount[0],
-        SIGMA_TRANSITIONS_PER_PAGE);
+    uint candidateCount = min(_TopologyCandidateCount[0],
+        min(_TopologyCandidateCapacity, SIGMA_TRANSITIONS_PER_PAGE));
+    _TopologyDispatchArgs[0] = (candidateCount + 63u) / 64u;
     _TopologyDispatchArgs[1] = 1u;
     _TopologyDispatchArgs[2] = 1u;
+    _TopologyDispatchArgs[3] = candidateCount;
+    _TopologyDispatchArgs[4] = 1u;
+    _TopologyDispatchArgs[5] = 1u;
 }
 
 [numthreads(256, 1, 1)]
@@ -705,7 +777,7 @@ void ScanAnnihilatorCatalog(uint3 groupId : SV_GroupID,
 {
     uint candidateIndex = groupId.x;
     uint candidateCount = min(_TopologyCandidateCount[0],
-        SIGMA_TRANSITIONS_PER_PAGE);
+        min(_TopologyCandidateCapacity, SIGMA_TRANSITIONS_PER_PAGE));
     uint lane = groupThreadId.x;
 
     // A UAV-loaded transition index is conservatively considered lane-varying by
@@ -900,24 +972,42 @@ void AccumulateTopologyEvidence(uint3 id : SV_DispatchThreadID)
 [numthreads(64, 1, 1)]
 void EvaluateAssociatorCells(uint3 id : SV_DispatchThreadID)
 {
-    uint sample = id.x;
-    if (!SigmaCanonicalMutationEnabled() ||
-        sample >= SIGMA_PAGE_SAMPLE_COUNT ||
+    uint candidateIndex = id.x;
+    uint candidateCount = min(_TopologyCandidateCount[0],
+        min(_TopologyCandidateCapacity, SIGMA_TRANSITIONS_PER_PAGE));
+    if (!SigmaCanonicalMutationEnabled() || candidateIndex >= candidateCount ||
         !SigmaTopologyLiveWorkValid())
         return;
-    uint cellIndex = SigmaTopologyCellIndex(SigmaTopologyTargetPageSlot(),
-        sample);
-    uint4 transitionU = _TransitionMeta[sample];
-    uint4 transitionV = _TransitionMeta[SIGMA_PAGE_SAMPLE_COUNT + sample];
-    uint topologyEvidenceMask = (1u << 4u) | (1u << 6u) | (1u << 7u);
-    bool candidate = (transitionU.x & topologyEvidenceMask) != 0u ||
-        (transitionV.x & topologyEvidenceMask) != 0u;
-    if (!candidate)
+    uint transitionIndex = _TopologyCandidates[candidateIndex];
+    if (transitionIndex >= SIGMA_TRANSITIONS_PER_PAGE)
+        return;
+    uint sample = transitionIndex & (SIGMA_PAGE_SAMPLE_COUNT - 1u);
+    // U is the stable representative when both transition directions of one
+    // logical cell request the same associator. This prevents duplicate dense
+    // evaluation without changing the exact cell predicate.
+    if (transitionIndex >= SIGMA_PAGE_SAMPLE_COUNT &&
+        (_TransitionMeta[sample].x & (1u << 8u)) != 0u)
+        return;
+    uint transitionBase = SigmaTopologyCacheIndex(
+        SigmaTopologyTargetPageSlot(), 0u);
+    uint4 horizontal = _TransitionCache[transitionBase + sample];
+    uint4 vertical = _TransitionCache[transitionBase +
+        SIGMA_PAGE_SAMPLE_COUNT + sample];
+    // The associator can affect publication only together with a proven
+    // near-annihilator transition (FinalizeTransitionClasses requires `near`).
+    // Run the four dense S16 products once per logical cell and only after the
+    // complete annihilator scan has established that prerequisite.  Testing both
+    // directions preserves the exact cell predicate when U is the de-duplicated
+    // representative but only V is near-singular.
+    if (((horizontal.x | vertical.x) &
+            SIGMA_TOPOLOGY_NEAR_ANNIHILATOR) == 0u)
     {
-        _AssociatorFlags[cellIndex] = 0u;
+        _AssociatorFlags[SigmaTopologyCellIndex(
+            SigmaTopologyTargetPageSlot(), sample)] = 0u;
         return;
     }
-
+    uint cellIndex = SigmaTopologyCellIndex(SigmaTopologyTargetPageSlot(),
+        sample);
     uint x = sample & 63u;
     uint y = sample >> 6u;
     uint2 center[16];
@@ -980,7 +1070,8 @@ void EvaluateAssociatorCells(uint3 id : SV_DispatchThreadID)
 void FinalizeTransitionClasses(uint3 id : SV_DispatchThreadID)
 {
     uint transitionIndex = id.x;
-    if (transitionIndex >= SIGMA_TRANSITIONS_PER_PAGE ||
+    if (!SigmaCanonicalMutationEnabled() ||
+        transitionIndex >= SIGMA_TRANSITIONS_PER_PAGE ||
         !SigmaTopologyLiveWorkValid())
         return;
     uint cacheIndex = SigmaTopologyCacheIndex(SigmaTopologyTargetPageSlot(),

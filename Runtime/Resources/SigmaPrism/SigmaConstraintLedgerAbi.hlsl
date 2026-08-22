@@ -15,6 +15,7 @@
 #define SIGMA_PROOF_STATUS_STRIDE 8u
 #define SIGMA_RAW_WORD4_PER_SAMPLE 6u
 #define SIGMA_RAW_WORD4_PER_TILE 384u
+#define SIGMA_RAW_FRAME_WORD4_COUNT 37u
 #define SIGMA_INVALID_PROOF_SLOT 0xffffffffu
 #define SIGMA_INVALID_RAW_TILE 0xffffffffu
 #define SIGMA_CERTIFICATE_ACTIVE (1u << 0u)
@@ -69,6 +70,23 @@ struct SigmaRawObservationTileGpu
 {
     uint4 identity;   // next, frameSlot, pageBlock, revision
     uint4 provenance; // reasons, epoch, sampleMaskLo, sampleMaskHi
+};
+
+// One immutable retained-frame record. The first 33 uint4 words are the exact
+// capture metadata staged by C# (poses, intrinsics, timestamps and pairing
+// health). The final four words are the accepted same-frame pose-gauge result,
+// appended by the GPU only when unresolved evidence actually retains a raw tile.
+// Ordinary submitted frames therefore consume no durable provenance slot.
+struct SigmaRawFrameRecordGpu
+{
+    uint4 word[SIGMA_RAW_FRAME_WORD4_COUNT];
+};
+
+// Exact reducer output consumed by the stable raw-reservation pass. It is
+// transaction scratch, not durable evidence and not reconstruction state.
+struct SigmaRawRetentionRequestGpu
+{
+    uint4 value; // reasons, sampleMaskLo, sampleMaskHi, previous raw head
 };
 
 // One page scratch record is rewritten before each proof transaction. It is not

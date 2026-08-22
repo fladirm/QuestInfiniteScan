@@ -20,15 +20,19 @@ StructuredBuffer<uint> _UnmatchedBlockFlags;
 StructuredBuffer<uint> _UnmatchedBlockAnchors;
 RWStructuredBuffer<SigmaInverseWorkGpu> _InverseWork;
 RWStructuredBuffer<uint> _InverseWorkControl;
+StructuredBuffer<SigmaInverseWorkGpu> _InverseWorkRead;
 // Five uint3 records in one indirect-argument arena.  Besides staying below the
 // Quest Vulkan storage-image/buffer binding ceiling this makes graph publication
 // one atomic scheduling product instead of five parallel control objects.
 RWStructuredBuffer<uint> _DispatchArgs;
-StructuredBuffer<SigmaProofSampleGpu> _ProofSamplesRead;
 RWStructuredBuffer<uint> _RawReservations;
+StructuredBuffer<uint> _RawReservationsRead;
 RWStructuredBuffer<uint> _RawAllocator;
+RWStructuredBuffer<uint> _RawLiveFlags;
+RWStructuredBuffer<SigmaConstraintBlockGpu> _ConstraintBlocks;
 StructuredBuffer<uint> _ProofPageStatus;
 StructuredBuffer<uint> _GaugePromotionCounts;
+StructuredBuffer<SigmaRawRetentionRequestGpu> _RawRequests;
 
 uint _PageCapacity;
 uint _SegmentIndex;
@@ -43,6 +47,10 @@ uint _RawTileCapacity;
 
 groupshared uint WorkScan[256];
 groupshared uint MatchedCount;
+groupshared uint FreePairList[256];
+groupshared uint FreePairCount;
+groupshared uint RawReservationCount;
+groupshared uint FreeRawList[512];
 
 #define SIGMA_RGB_ARGS 0u
 #define SIGMA_SOLVE_ARGS 3u
@@ -98,30 +106,11 @@ bool SigmaPairFree(uint pair)
 {
     uint first = pair * 2u;
     uint second = first + 1u;
-    return second < _PageCapacity && _CurrentFlags[first] == 0u &&
+    if (second >= _PageCapacity)
+        return false;
+    return _CurrentFlags[first] == 0u &&
         _CurrentFlags[second] == 0u && _PageMetadata[first].flags == 0u &&
         _PageMetadata[second].flags == 0u;
-}
-
-uint SigmaNthFreePair(uint ordinal)
-{
-    uint rank = 0u;
-    for (uint pair = 0u; pair * 2u + 1u < _PageCapacity; ++pair)
-    {
-        if (!SigmaPairFree(pair))
-            continue;
-        if (rank++ == ordinal)
-            return pair;
-    }
-    return SIGMA_INVERSE_INVALID_SLOT;
-}
-
-uint SigmaFreePairCount()
-{
-    uint count = 0u;
-    for (uint pair = 0u; pair * 2u + 1u < _PageCapacity; ++pair)
-        count += SigmaPairFree(pair) ? 1u : 0u;
-    return count;
 }
 
 [numthreads(64, 1, 1)]
@@ -172,6 +161,17 @@ void CompactInverseWork(uint3 threadId : SV_GroupThreadID)
         MatchedCount = min(matchedTotal, _InverseWorkCapacity);
     GroupMemoryBarrierWithGroupSync();
 
+    // Compact reusable generation pairs once. Gauge lanes index this shared
+    // free list in O(1); no lane performs an O(PageCapacity) nth-free scan.
+    uint freePair = lane * 2u + 1u < _PageCapacity && SigmaPairFree(lane)
+        ? 1u : 0u;
+    uint freePrefix = SigmaWorkPrefix(lane, freePair);
+    if (freePair != 0u)
+        FreePairList[freePrefix] = lane;
+    if (lane == 0u)
+        FreePairCount = WorkScan[255u];
+    GroupMemoryBarrierWithGroupSync();
+
     uint gaugeWidth = (_GaugeBlockResolution.x + 1u) >> 1u;
     uint gaugeHeight = (_GaugeBlockResolution.y + 1u) >> 1u;
     uint gaugeCandidates = gaugeWidth * gaugeHeight;
@@ -196,10 +196,10 @@ void CompactInverseWork(uint3 threadId : SV_GroupThreadID)
     uint gaugePrefix = SigmaWorkPrefix(lane, gauge);
     uint available = _InverseWorkCapacity - MatchedCount;
     uint gaugeTotal = min(min(WorkScan[255u], available),
-        SigmaFreePairCount());
+        FreePairCount);
     if (gauge != 0u && gaugePrefix < gaugeTotal)
     {
-        uint pair = SigmaNthFreePair(gaugePrefix);
+        uint pair = FreePairList[gaugePrefix];
         if (pair != SIGMA_INVERSE_INVALID_SLOT)
         {
             uint ordinal = _InverseWorkControl[8u] + gaugePrefix;
@@ -291,44 +291,103 @@ void PrepareInverseTransactions(uint3 groupId : SV_GroupID,
     }
 }
 
-bool SigmaWorkRawReason(uint workIndex, uint block)
+// Stable source-order allocation over at most 8 work pages x 64 blocks.  Raw
+// storage is an active-locality arena, not a session/frame counter: every lane
+// compacts one contiguous capacity span into a deterministic free list and each
+// surviving request takes one entry in O(1).  S4-10 may page live entries out,
+// but an arbitrarily long session never consumes an ordinal-only allocator.
+[numthreads(256, 1, 1)]
+void PlanRawReservations(uint3 threadId : SV_GroupThreadID)
 {
-    [loop]
-    for (uint local = 0u; local < 64u; ++local)
-    {
-        SigmaProofSampleGpu proof = _ProofSamplesRead[
-            workIndex * SIGMA_PAGE_SAMPLE_COUNT +
-            SigmaProofPageSample(block, local)];
-        uint status = proof.meta.x;
-        if ((status & (SIGMA_PROPOSAL_CONFLICT |
-                SIGMA_PROPOSAL_EXCLUSION)) != 0u ||
-            ((status & SIGMA_PROPOSAL_RGB_UNOBSERVABLE) != 0u &&
-             proof.meta.z != 0u))
-            return true;
-    }
-    return false;
-}
-
-// Stable source-order allocation: one lane walks compact work then blocks.  Raw
-// tile identity is therefore independent of GPU workgroup arrival order.
-[numthreads(1, 1, 1)]
-void PlanRawReservations(uint3 id : SV_DispatchThreadID)
-{
-    uint cursor = _RawAllocator[0];
+    uint lane = threadId.x;
     uint workCount = _InverseWorkControl[2u];
-    for (uint workIndex = 0u; workIndex < workCount; ++workIndex)
+    uint requestCount = min(workCount, _InverseWorkCapacity) *
+        SIGMA_CERTIFICATE_BLOCKS_PER_PAGE;
+    uint first = lane;
+    uint second = lane + 256u;
+    uint firstRequested = first < requestCount &&
+        _RawRequests[first].value.x != 0u ? 1u : 0u;
+    uint secondRequested = second < requestCount &&
+        _RawRequests[second].value.x != 0u ? 1u : 0u;
+    uint localCount = firstRequested + secondRequested;
+    uint requestPrefix = SigmaWorkPrefix(lane, localCount);
+    uint requestTotal = WorkScan[255u];
+    if (requestTotal == 0u)
     {
-        uint proofSlot = _InverseWork[workIndex].slots.w;
-        for (uint block = 0u; block < SIGMA_CERTIFICATE_BLOCKS_PER_PAGE; ++block)
+        if (first < requestCount)
         {
-            uint reservation = SIGMA_INVALID_RAW_TILE;
-            if (SigmaWorkRawReason(workIndex, block) && cursor < _RawTileCapacity)
-                reservation = cursor++;
-            _RawReservations[proofSlot * SIGMA_CERTIFICATE_BLOCKS_PER_PAGE +
-                block] = reservation;
+            uint firstWork = first >> 6u;
+            uint firstBlock = first & 63u;
+            uint firstProof = _InverseWork[firstWork].slots.w;
+            _RawReservations[firstProof * SIGMA_CERTIFICATE_BLOCKS_PER_PAGE +
+                firstBlock] = SIGMA_INVALID_RAW_TILE;
         }
+        if (second < requestCount)
+        {
+            uint secondWork = second >> 6u;
+            uint secondBlock = second & 63u;
+            uint secondProof = _InverseWork[secondWork].slots.w;
+            _RawReservations[secondProof * SIGMA_CERTIFICATE_BLOCKS_PER_PAGE +
+                secondBlock] = SIGMA_INVALID_RAW_TILE;
+        }
+        return;
     }
-    _RawAllocator[0] = cursor;
+
+    uint span = (_RawTileCapacity + 255u) >> 8u;
+    uint begin = lane * span;
+    uint end = min(begin + span, _RawTileCapacity);
+    uint freeCount = 0u;
+    [loop]
+    for (uint raw = begin; raw < end; ++raw)
+        freeCount += _RawLiveFlags[raw] == 0u ? 1u : 0u;
+    uint freePrefix = SigmaWorkPrefix(lane, freeCount);
+    uint freeTotal = WorkScan[255u];
+    uint freeCursor = freePrefix;
+    [loop]
+    for (uint rawSlot = begin; rawSlot < end; ++rawSlot)
+    {
+        if (_RawLiveFlags[rawSlot] != 0u)
+            continue;
+        if (freeCursor < 512u)
+            FreeRawList[freeCursor] = rawSlot;
+        freeCursor++;
+    }
+    GroupMemoryBarrierWithGroupSync();
+    if (lane == 0u)
+    {
+        RawReservationCount = min(requestTotal, min(freeTotal, 512u));
+        _RawAllocator[0] = _RawTileCapacity - freeTotal +
+            RawReservationCount;
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    if (first < requestCount)
+    {
+        uint workIndex = first >> 6u;
+        uint block = first & 63u;
+        uint proofSlot = _InverseWork[workIndex].slots.w;
+        uint reservation = firstRequested != 0u &&
+            requestPrefix < RawReservationCount
+            ? FreeRawList[requestPrefix] : SIGMA_INVALID_RAW_TILE;
+        if (reservation < _RawTileCapacity)
+            _RawLiveFlags[reservation] = 1u;
+        _RawReservations[proofSlot * SIGMA_CERTIFICATE_BLOCKS_PER_PAGE +
+            block] = reservation;
+    }
+    if (second < requestCount)
+    {
+        uint workIndex = second >> 6u;
+        uint block = second & 63u;
+        uint proofSlot = _InverseWork[workIndex].slots.w;
+        uint rank = requestPrefix + firstRequested;
+        uint reservation = secondRequested != 0u &&
+            rank < RawReservationCount
+            ? FreeRawList[rank] : SIGMA_INVALID_RAW_TILE;
+        if (reservation < _RawTileCapacity)
+            _RawLiveFlags[reservation] = 1u;
+        _RawReservations[proofSlot * SIGMA_CERTIFICATE_BLOCKS_PER_PAGE +
+            block] = reservation;
+    }
 }
 
 [numthreads(1, 1, 1)]
@@ -338,7 +397,7 @@ void CommitInverseTransactions(uint3 groupId : SV_GroupID)
     if (!SigmaCanonicalMutationEnabled() ||
         workIndex >= _InverseWorkControl[2u])
         return;
-    SigmaInverseWorkGpu work = _InverseWork[workIndex];
+    SigmaInverseWorkGpu work = _InverseWorkRead[workIndex];
     uint target = work.slots.y;
     uint proof = work.slots.w;
     if (target >= _PageCapacity)
@@ -354,6 +413,17 @@ void CommitInverseTransactions(uint3 groupId : SV_GroupID)
         valid = valid && _GaugePromotionCounts[workIndex] != 0u;
     if (!valid)
     {
+        [unroll]
+        for (uint block = 0u; block < SIGMA_CERTIFICATE_BLOCKS_PER_PAGE;
+            ++block)
+        {
+            uint reservation = _RawReservationsRead[
+                proof * SIGMA_CERTIFICATE_BLOCKS_PER_PAGE + block];
+            if (reservation < _RawTileCapacity)
+                _RawLiveFlags[reservation] = 0u;
+            _ConstraintBlocks[SigmaConstraintBlockAddress(proof, block)] =
+                (SigmaConstraintBlockGpu)0;
+        }
         _PageMetadata[target] = (SigmaCarrierPageMetaGpu)0;
         _DirtyFlags[target] = 0u;
         _CurrentFlags[target] = 0u;
@@ -364,6 +434,19 @@ void CommitInverseTransactions(uint3 groupId : SV_GroupID)
     if (work.control.x == SIGMA_INVERSE_WORK_MATCHED &&
         work.slots.x < _PageCapacity)
     {
+        // The target proof inherited every still-required raw chain by handle.
+        // Transfer unique live ownership from the retired source generation;
+        // do not duplicate, free or reinterpret the unresolved evidence.
+        if (work.slots.z != SIGMA_INVALID_PROOF_SLOT &&
+            work.slots.z != proof)
+        {
+            [unroll]
+            for (uint sourceBlock = 0u;
+                sourceBlock < SIGMA_CERTIFICATE_BLOCKS_PER_PAGE;
+                ++sourceBlock)
+                _ConstraintBlocks[SigmaConstraintBlockAddress(work.slots.z,
+                    sourceBlock)] = (SigmaConstraintBlockGpu)0;
+        }
         _CurrentFlags[work.slots.x] = 0u;
         _ReadoutDirtyFlags[work.slots.x] = 0u;
     }

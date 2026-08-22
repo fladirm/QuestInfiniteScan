@@ -29,10 +29,9 @@ Updated: 2026-08-22 (Europe/Prague)
 - `S4-05` is accepted in commit `96cbeca`.
 - `S4-06` is accepted in commit `c6dabef`.
 - `S4-07` is accepted in commit `dc6abf5`.
-- `S4-08` is accepted in commit `0696228`; the live-path correction now keeps
-  inverse scheduling, exact proof/commit, pose consumption and intrinsic-neighbour
-  resolution GPU-resident. Its fresh Android/Vulkan Release APK built with zero
-  errors and is installed for the user's base-device audit. `S4-09` remains paused.
+- `S4-08` is reopened only for the bounded `S4-08.1` repair. The corrected source
+  is statically green and awaits a same-commit Release build/install for the user's
+  device audit. `S4-09` remains paused.
 - The retained product surface is only four-stream GPU capture/synchronization,
   immutable calibration/poses, Quest/XR lifecycle, permissions/anchors, input/UI,
   neutral GPU helpers and build/deploy tooling.
@@ -265,6 +264,29 @@ Updated: 2026-08-22 (Europe/Prague)
   (a duplicate include-owned gate declaration and a struct-valued ternary) were
   removed without changing algebra or topology semantics.
 
+## S4-08.1 exact pose/live-graph repair candidate
+
+- The pose solver now forms point-to-plane residuals and uncertainty intervals in
+  exact Q16.48, makes canonical acceptance decisions after quantization, requires
+  dual-eye six-axis observability and consumes a conservative tracking-derived
+  prior rather than a fixed per-frame box.
+- The accepted pose is a true rigid SE(3) readout gauge. It corrects the exact
+  depth/RGB calibration, rerasterizes the same retained frame before inverse work
+  and is appended GPU-side to immutable raw provenance only when unresolved raw
+  evidence is retained.
+- Ordinary submitted frames no longer consume monotonically numbered provenance
+  records. Live raw reservations are compacted from reusable active-local slots;
+  inverse work, proof and carrier publication remain one indirect GPU transaction.
+- Intrinsic topology has complete per-kernel bindings, a fail-closed associator,
+  bounded fair candidate compaction and evaluates the expensive associator only
+  after the complete annihilator scan proves its required near-singular premise.
+- Every modified shader was manually read in full with its includes/ABI, all entry
+  points, resource declarations, C# binding/dispatch call sites and affected tests
+  before this candidate gate.
+- Evidence: generated-operator check, `git diff --check` and Quest eight-UAV
+  validation pass; Unity 6000.5.9f1 Vulkan EditMode passes 64/64 after the final
+  topology scheduling change. Release build/device execution is the next gate.
+
 ## S4-00 neutral Quest-shell regression repair
 
 - Device audit proved the fresh-scene automation had stopped calling the retained
@@ -287,8 +309,9 @@ Updated: 2026-08-22 (Europe/Prague)
 
 ## Next exact actions
 
-1. Commit this S4-08 GPU-resident repair with its regenerated code graph.
-2. Create the matching source-only `git archive` for audit.
+1. Regenerate/validate the code graph and commit the S4-08.1 device candidate.
+2. Create the matching source-only `git archive`, build and install that exact
+   Release commit.
 3. Keep `S4-09` pending until the user completes the installed release audit.
 
 ## Verification policy

@@ -141,6 +141,12 @@ namespace Genesis.RoomScan.Tests
             public UInt4 Provenance;
         }
 
+        [StructLayout(LayoutKind.Sequential)]
+        private struct RawRetentionRequestGpu
+        {
+            public UInt4 Value;
+        }
+
         [Test]
         public void CertificateArenaFitsTheFrozenQuestMetadataBudget()
         {
@@ -361,6 +367,8 @@ namespace Genesis.RoomScan.Tests
             var rawWords = new UInt4[SigmaConstraintLedger.BlocksPerPage *
                 RawWordsPerTile];
             var reservations = new uint[SigmaConstraintLedger.BlocksPerPage];
+            var rawRequests = new RawRetentionRequestGpu[
+                SigmaConstraintLedger.BlocksPerPage];
             for (uint index = 0; index < reservations.Length; ++index)
                 reservations[index] = index;
             var status = new uint[SigmaConstraintLedger.StatusStride];
@@ -382,6 +390,8 @@ namespace Genesis.RoomScan.Tests
                 Marshal.SizeOf<RawTileGpu>());
             using var rawWordBuffer = Buffer(rawWords, Marshal.SizeOf<UInt4>());
             using var reservationBuffer = Buffer(reservations, sizeof(uint));
+            using var rawRequestBuffer = Buffer(rawRequests,
+                Marshal.SizeOf<RawRetentionRequestGpu>());
             using var statusBuffer = Buffer(status, sizeof(uint));
             using var carrierBuffer = Buffer(carrier, Marshal.SizeOf<UInt2>());
             using var demandBuffer = Buffer(gaugeDemand, sizeof(uint) * 12);
@@ -396,7 +406,12 @@ namespace Genesis.RoomScan.Tests
             using var workControlBuffer = Buffer(new uint[]
                 { 0u, 0u, 1u, 0u, 0u, 0u, 0u, 0u, 0u }, sizeof(uint));
 
-            shader.SetInt("_UseInverseWorkList", 1);
+            // This fixture exercises the reducer's direct/reference transaction.
+            // The live inverse graph plans retained raw slots after reduction and
+            // publishes them through CommitRawProof.
+            shader.SetInt("_UseInverseWorkList", 0);
+            shader.SetInt("_SourceProofSlot", -1);
+            shader.SetInt("_TargetProofSlot", 0);
             shader.SetInt("_ProofFrameSlot", 5);
             shader.SetInt("_ProofCalibrationEpoch", 7);
             shader.SetInt("_ProofRevision", 11);
@@ -411,6 +426,7 @@ namespace Genesis.RoomScan.Tests
             shader.SetBuffer(kernel, "_RawTiles", rawTileBuffer);
             shader.SetBuffer(kernel, "_RawTileWords", rawWordBuffer);
             shader.SetBuffer(kernel, "_RawReservations", reservationBuffer);
+            shader.SetBuffer(kernel, "_RawRequests", rawRequestBuffer);
             shader.SetBuffer(kernel, "_ProofPageStatus", statusBuffer);
             shader.SetBuffer(kernel, "_ProofCarrierState", carrierBuffer);
             shader.SetBuffer(kernel, "_GaugeDemand", demandBuffer);

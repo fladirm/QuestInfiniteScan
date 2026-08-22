@@ -61,6 +61,12 @@ namespace Genesis.RoomScan.SigmaPrism
             "_TopologyCellFlags");
         private static readonly int TopologyPageKeysId = Shader.PropertyToID(
             "_TopologyPageKeys");
+        private static readonly int PoseResultId = Shader.PropertyToID(
+            "_PoseResult");
+        private static readonly int PoseReferenceFromWorldId = Shader.PropertyToID(
+            "_PoseConsumeReferenceFromWorld");
+        private static readonly int PoseWorldFromReferenceId = Shader.PropertyToID(
+            "_PoseConsumeWorldFromReference");
 
         private readonly List<SigmaCarrierReadBatch> _readBatches = new();
         private readonly List<SegmentReadoutCache> _segmentCaches = new();
@@ -76,6 +82,7 @@ namespace Genesis.RoomScan.SigmaPrism
         private Material _predictionMaterial;
         private MaterialPropertyBlock _properties;
         private SigmaPredictionTargetRing _targets;
+        private GraphicsBuffer _identityPoseResult;
         private SigmaPredictionFrameLease _latest;
         private RigCalibration _calibration;
         private int _buildKernel;
@@ -133,6 +140,12 @@ namespace Genesis.RoomScan.SigmaPrism
             };
             _properties = new MaterialPropertyBlock();
             _targets = new SigmaPredictionTargetRing(targetRingSlots);
+            _identityPoseResult = new GraphicsBuffer(
+                GraphicsBuffer.Target.Structured, 4, sizeof(uint) * 4)
+            {
+                name = "Sigma identity pose-gauge readout"
+            };
+            _identityPoseResult.SetData(new uint[16]);
             _initialized = true;
         }
 
@@ -189,6 +202,58 @@ namespace Genesis.RoomScan.SigmaPrism
             return RenderPrediction(source, gauge, false, out prediction);
         }
 
+        /// <summary>
+        /// Records the accepted GPU-resident pose gauge into the caller's same-frame
+        /// transaction. No result is read back: the returned target lease remains
+        /// alive until the caller's fence passes.
+        /// </summary>
+        internal bool TryRecordPoseGaugePrediction(CommandBuffer command,
+            StereoRigFrameLease source, GraphicsBuffer poseResult,
+            out SigmaPredictionFrameLease prediction)
+        {
+            prediction = null;
+            if (!_initialized || command == null || source == null ||
+                !source.IsValid || poseResult == null || _readBatches.Count == 0)
+                return false;
+            if (!_targets.TryBegin(source,
+                    SigmaPoseGaugeState.Identity(source.CalibrationEpoch),
+                    out prediction))
+            {
+                BackpressureFrames++;
+                return false;
+            }
+            try
+            {
+                Matrix4x4 referenceWorld = Matrix4x4.TRS(
+                    source.DepthLeft.WorldFromCamera.position,
+                    source.DepthLeft.WorldFromCamera.rotation, Vector3.one);
+                for (int eye = 0; eye < 2; ++eye)
+                {
+                    GpuImageView view = eye == 0 ? source.DepthLeft :
+                        source.DepthRight;
+                    Matrix4x4 rawWorld = Matrix4x4.TRS(
+                        view.WorldFromCamera.position,
+                        view.WorldFromCamera.rotation, Vector3.one);
+                    Matrix4x4 opticalFromWorld = rawWorld.inverse;
+                    SetMrt(prediction);
+                    command.SetRenderTarget(_mrt,
+                        new RenderTargetIdentifier(prediction.HardwareDepth), 0,
+                        CubemapFace.Unknown, eye);
+                    command.ClearRenderTarget(true, true, Color.clear, 1f);
+                    DrawSegments(command, BuildClipFromWorld(view,
+                            opticalFromWorld), opticalFromWorld, poseResult,
+                        referenceWorld.inverse, referenceWorld);
+                }
+                return true;
+            }
+            catch
+            {
+                prediction.Dispose();
+                prediction = null;
+                throw;
+            }
+        }
+
         private bool RenderPrediction(StereoRigFrameLease source,
             SigmaPoseGaugeState gauge, bool publish,
             out SigmaPredictionFrameLease result)
@@ -231,7 +296,12 @@ namespace Genesis.RoomScan.SigmaPrism
                         new RenderTargetIdentifier(prediction.HardwareDepth), 0,
                         CubemapFace.Unknown, eye);
                     command.ClearRenderTarget(true, true, Color.clear, 1f);
-                    DrawSegments(command, clipFromWorld, opticalFromWorld);
+                    Matrix4x4 referenceWorld = Matrix4x4.TRS(
+                        source.DepthLeft.WorldFromCamera.position,
+                        source.DepthLeft.WorldFromCamera.rotation, Vector3.one);
+                    DrawSegments(command, clipFromWorld, opticalFromWorld,
+                        _identityPoseResult, referenceWorld.inverse,
+                        referenceWorld);
                 }
 
                 Graphics.ExecuteCommandBuffer(command);
@@ -338,7 +408,8 @@ namespace Genesis.RoomScan.SigmaPrism
         }
 
         private void DrawSegments(CommandBuffer command, Matrix4x4 clipFromWorld,
-            Matrix4x4 opticalFromWorld)
+            Matrix4x4 opticalFromWorld, GraphicsBuffer poseResult,
+            Matrix4x4 referenceFromWorld, Matrix4x4 worldFromReference)
         {
             for (int index = 0; index < _readBatches.Count; ++index)
             {
@@ -350,7 +421,12 @@ namespace Genesis.RoomScan.SigmaPrism
                 _properties.Clear();
                 _properties.SetMatrix(ClipFromWorldId, clipFromWorld);
                 _properties.SetMatrix(OpticalFromWorldId, opticalFromWorld);
+                _properties.SetMatrix(PoseReferenceFromWorldId,
+                    referenceFromWorld);
+                _properties.SetMatrix(PoseWorldFromReferenceId,
+                    worldFromReference);
                 _properties.SetInt(SegmentIndexId, batch.SegmentIndex);
+                _properties.SetBuffer(PoseResultId, poseResult);
                 _properties.SetBuffer(ReadoutVerticesId, cache.Vertices);
                 _properties.SetBuffer(CurrentPageSlotsId, cache.CurrentPageSlots);
                 _properties.SetBuffer(PageMetadataId, batch.Metadata);
@@ -426,6 +502,8 @@ namespace Genesis.RoomScan.SigmaPrism
             _latest = null;
             _targets?.Dispose();
             _targets = null;
+            _identityPoseResult?.Dispose();
+            _identityPoseResult = null;
             for (int index = 0; index < _segmentCaches.Count; ++index)
                 _segmentCaches[index].Dispose();
             _segmentCaches.Clear();

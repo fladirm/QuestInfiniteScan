@@ -18,6 +18,7 @@ Shader "Hidden/Genesis/SigmaPrism/Predict"
 
             #include "SigmaCarrierAbi.hlsl"
             #include "SigmaTopologyAbi.hlsl"
+            #include "SigmaPoseConsume.hlsl"
 
             StructuredBuffer<float4> _ReadoutVertices;
             StructuredBuffer<uint> _CurrentPageSlots;
@@ -118,6 +119,12 @@ Shader "Hidden/Genesis/SigmaPrism/Predict"
                     corner == 1u ? r1.xyz : r2.xyz;
                 float3 normal = valid ? areaVector * rsqrt(areaSquared) :
                     float3(0.0, 0.0, 1.0);
+                // The accepted gauge rerasterizes this same immutable carrier
+                // readout. Transforming world geometry by the exact inverse
+                // readout gauge is equivalent to using the corrected camera and
+                // preserves hardware first-hit visibility at silhouettes/folds.
+                position = SigmaPoseUnapplyWorld(position);
+                normal = SigmaPoseUnapplyVectorWorld(normal);
                 output.positionCS = valid
                     ? mul(_ClipFromWorld, float4(position, 1.0))
                     : float4(0.0, 0.0, 2.0, 1.0);

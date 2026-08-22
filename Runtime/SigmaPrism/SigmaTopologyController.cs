@@ -139,6 +139,9 @@ namespace Genesis.RoomScan.SigmaPrism
     {
         public const int TransitionsPerPage = SigmaCarrier.SamplesPerPage * 2;
         public const int TransitionRecordStride = sizeof(uint) * 4;
+        public const int TopologyCandidateCapacity = 1024;
+        private const uint CandidateDispatchOffset = 0u;
+        private const uint WitnessDispatchOffset = 3u * sizeof(uint);
 
         private const string TopologyResource =
             "SigmaPrism/SigmaIntrinsicTopology";
@@ -235,13 +238,14 @@ namespace Genesis.RoomScan.SigmaPrism
                 sizeof(uint) * 4, "Sigma transition evidence scratch");
             _sampleSupport = CreateBuffer(SigmaCarrier.SamplesPerPage,
                 sizeof(uint), "Sigma exact sample support scratch");
-            _topologyCandidates = CreateBuffer(TransitionsPerPage, sizeof(uint),
+            _topologyCandidates = CreateBuffer(TopologyCandidateCapacity,
+                sizeof(uint),
                 "Sigma active topology transitions");
             _topologyCandidateCount = CreateBuffer(1, sizeof(uint),
                 "Sigma active topology count");
             _topologyDispatchArguments = new GraphicsBuffer(
                 GraphicsBuffer.Target.Structured |
-                GraphicsBuffer.Target.IndirectArguments, 3, sizeof(uint))
+                GraphicsBuffer.Target.IndirectArguments, 6, sizeof(uint))
             {
                 name = "Sigma topology indirect dispatch"
             };
@@ -255,7 +259,8 @@ namespace Genesis.RoomScan.SigmaPrism
             _counters.SetData(new uint[8]);
             _dummyEvidence.SetData(new uint[1]);
             _topologyCandidateCount.SetData(new uint[1]);
-            _topologyDispatchArguments.SetData(new uint[] { 0u, 1u, 1u });
+            _topologyDispatchArguments.SetData(new uint[]
+                { 0u, 1u, 1u, 0u, 1u, 1u });
             _initialized = true;
         }
 
@@ -392,31 +397,16 @@ namespace Genesis.RoomScan.SigmaPrism
                 command.DispatchCompute(_shader, _buildMetaKernel,
                     TransitionsPerPage / 64, 1, 1);
 
-                command.SetComputeBufferParam(_shader, _associatorKernel,
-                    "_TargetState", batch.State);
-                command.SetComputeBufferParam(_shader, _associatorKernel,
-                    "_RightState", batch.State);
-                command.SetComputeBufferParam(_shader, _associatorKernel,
-                    "_DownState", batch.State);
-                command.SetComputeBufferParam(_shader, _associatorKernel,
-                    "_TransitionMeta", _transitionMeta);
-                command.SetComputeBufferParam(_shader, _associatorKernel,
-                    "_AssociatorFlags", cache.AssociatorFlags);
-                command.SetComputeBufferParam(_shader, _associatorKernel,
-                    "_TopologyCounters", _counters);
-                command.DispatchCompute(_shader, _associatorKernel,
-                    SigmaCarrier.SamplesPerPage / 64, 1, 1);
-
                 command.SetComputeBufferParam(_shader, _markCandidatesKernel,
                     "_TransitionMeta", _transitionMeta);
-                command.SetComputeBufferParam(_shader, _markCandidatesKernel,
-                    "_AssociatorFlags", cache.AssociatorFlags);
                 command.SetComputeBufferParam(_shader, _markCandidatesKernel,
                     "_TopologyCandidates", _topologyCandidates);
                 command.SetComputeBufferParam(_shader, _markCandidatesKernel,
                     "_TopologyCandidateCount", _topologyCandidateCount);
+                command.SetComputeBufferParam(_shader, _markCandidatesKernel,
+                    "_TopologyCounters", _counters);
                 command.DispatchCompute(_shader, _markCandidatesKernel,
-                    TransitionsPerPage / 64, 1, 1);
+                    1, 1, 1);
 
                 command.SetComputeBufferParam(_shader, _buildDispatchKernel,
                     "_TopologyCandidateCount", _topologyCandidateCount);
@@ -436,8 +426,12 @@ namespace Genesis.RoomScan.SigmaPrism
                     "_TransitionScale", _transitionScale);
                 command.SetComputeBufferParam(_shader, _buildTauKernel,
                     "_TransitionMeta", _transitionMeta);
+                command.SetComputeBufferParam(_shader, _buildTauKernel,
+                    "_TopologyCandidates", _topologyCandidates);
+                command.SetComputeBufferParam(_shader, _buildTauKernel,
+                    "_TopologyCandidateCount", _topologyCandidateCount);
                 command.DispatchCompute(_shader, _buildTauKernel,
-                    TransitionsPerPage / 64, 1, 1);
+                    _topologyDispatchArguments, CandidateDispatchOffset);
 
                 command.SetComputeBufferParam(_shader, _scanKernel,
                     "_TransitionTau", _transitionTau);
@@ -454,10 +448,16 @@ namespace Genesis.RoomScan.SigmaPrism
                 command.SetComputeBufferParam(_shader, _scanKernel,
                     "_TopologyCandidateCount", _topologyCandidateCount);
                 command.DispatchCompute(_shader, _scanKernel,
-                    _topologyDispatchArguments, 0);
+                    _topologyDispatchArguments, WitnessDispatchOffset);
+
+                BindLiveAssociator(command, batch, cache);
+                command.DispatchCompute(_shader, _associatorKernel,
+                    _topologyDispatchArguments, CandidateDispatchOffset);
 
                 command.SetComputeBufferParam(_shader, _finalizeKernel,
                     "_TransitionCache", cache.TransitionRecords);
+                command.SetComputeBufferParam(_shader, _finalizeKernel,
+                    "_TransitionMeta", _transitionMeta);
                 command.SetComputeBufferParam(_shader, _finalizeKernel,
                     "_AssociatorFlags", cache.AssociatorFlags);
                 command.SetComputeBufferParam(_shader, _finalizeKernel,
@@ -517,6 +517,8 @@ namespace Genesis.RoomScan.SigmaPrism
             command.SetComputeIntParam(_shader, "_SingularShift", singularShift);
             command.SetComputeIntParam(_shader, "_AssociatorShift",
                 associatorShift);
+            command.SetComputeIntParam(_shader, "_TopologyCandidateCapacity",
+                TopologyCandidateCapacity);
             int[] kernels = { _clearPageKernel, _sampleSupportKernel,
                 _buildMetaKernel, _associatorKernel, _markCandidatesKernel,
                 _buildTauKernel, _scanKernel, _finalizeKernel,
@@ -554,6 +556,29 @@ namespace Genesis.RoomScan.SigmaPrism
                 "_DownEvidenceProposalStatus", _dummyEvidence);
             command.SetComputeBufferParam(_shader, kernel,
                 "_DownEvidenceEpoch", _dummyEvidence);
+        }
+
+        private void BindLiveAssociator(CommandBuffer command,
+            SigmaCarrierReadBatch batch, TopologySegmentCache cache)
+        {
+            command.SetComputeBufferParam(_shader, _associatorKernel,
+                "_TargetState", batch.State);
+            command.SetComputeBufferParam(_shader, _associatorKernel,
+                "_RightState", batch.State);
+            command.SetComputeBufferParam(_shader, _associatorKernel,
+                "_DownState", batch.State);
+            command.SetComputeBufferParam(_shader, _associatorKernel,
+                "_TransitionMeta", _transitionMeta);
+            command.SetComputeBufferParam(_shader, _associatorKernel,
+                "_TransitionCache", cache.TransitionRecords);
+            command.SetComputeBufferParam(_shader, _associatorKernel,
+                "_AssociatorFlags", cache.AssociatorFlags);
+            command.SetComputeBufferParam(_shader, _associatorKernel,
+                "_TopologyCounters", _counters);
+            command.SetComputeBufferParam(_shader, _associatorKernel,
+                "_TopologyCandidates", _topologyCandidates);
+            command.SetComputeBufferParam(_shader, _associatorKernel,
+                "_TopologyCandidateCount", _topologyCandidateCount);
         }
 
         internal SigmaTopologyBuildToken BuildGeneration(
@@ -640,6 +665,7 @@ namespace Genesis.RoomScan.SigmaPrism
             SigmaTopologyEvidenceView rightEvidence,
             SigmaTopologyEvidenceView downEvidence)
         {
+            BindDirectExecutionMode();
             SigmaCarrierReadBatch targetBatch = _readBatches[target.SegmentIndex];
             ResolveNeighbour(target.Coordinate, 1L, 0L, targetBatch,
                 out SigmaCarrierReadBatch rightBatch,
@@ -708,6 +734,7 @@ namespace Genesis.RoomScan.SigmaPrism
             SigmaTopologyEvidenceView downEvidence,
             bool forceBoundaryTransitions)
         {
+            BindDirectExecutionMode();
             SigmaCarrierReadBatch targetBatch = _readBatches[target.SegmentIndex];
             ResolveNeighbour(target.Coordinate, 1L, 0L, targetBatch,
                 out SigmaCarrierReadBatch rightBatch,
@@ -762,25 +789,19 @@ namespace Genesis.RoomScan.SigmaPrism
 
             _shader.SetInt("_SingularShift", singularShift);
             _shader.SetInt("_AssociatorShift", associatorShift);
-            _shader.SetBuffer(_associatorKernel, "_TransitionMeta",
-                _transitionMeta);
-            _shader.SetBuffer(_associatorKernel, "_AssociatorFlags",
-                targetCache.AssociatorFlags);
-            _shader.SetBuffer(_associatorKernel, "_TopologyCounters", _counters);
-            _backendGate.Bind(_shader, _associatorKernel);
-            _shader.Dispatch(_associatorKernel,
-                SigmaCarrier.SamplesPerPage / 64, 1, 1);
-
+            _shader.SetInt("_TopologyCandidateCapacity",
+                TopologyCandidateCapacity);
             _shader.SetBuffer(_markCandidatesKernel, "_TransitionMeta",
                 _transitionMeta);
-            _shader.SetBuffer(_markCandidatesKernel, "_AssociatorFlags",
-                targetCache.AssociatorFlags);
             _shader.SetBuffer(_markCandidatesKernel, "_TopologyCandidates",
                 _topologyCandidates);
             _shader.SetBuffer(_markCandidatesKernel, "_TopologyCandidateCount",
                 _topologyCandidateCount);
+            _shader.SetBuffer(_markCandidatesKernel, "_TopologyCounters",
+                _counters);
+            _backendGate.Bind(_shader, _markCandidatesKernel);
             _shader.Dispatch(_markCandidatesKernel,
-                TransitionsPerPage / 64, 1, 1);
+                1, 1, 1);
             _shader.SetBuffer(_buildDispatchKernel, "_TopologyCandidateCount",
                 _topologyCandidateCount);
             _shader.SetBuffer(_buildDispatchKernel, "_TopologyDispatchArgs",
@@ -795,8 +816,13 @@ namespace Genesis.RoomScan.SigmaPrism
                 _transitionScale);
             _shader.SetBuffer(_buildTauKernel, "_TransitionMeta",
                 _transitionMeta);
+            _shader.SetBuffer(_buildTauKernel, "_TopologyCandidates",
+                _topologyCandidates);
+            _shader.SetBuffer(_buildTauKernel, "_TopologyCandidateCount",
+                _topologyCandidateCount);
             _backendGate.Bind(_shader, _buildTauKernel);
-            _shader.Dispatch(_buildTauKernel, TransitionsPerPage / 64, 1, 1);
+            _shader.DispatchIndirect(_buildTauKernel,
+                _topologyDispatchArguments, CandidateDispatchOffset);
 
             _shader.SetBuffer(_scanKernel, "_TransitionTau", _transitionTau);
             _shader.SetBuffer(_scanKernel, "_TransitionScale", _transitionScale);
@@ -808,13 +834,21 @@ namespace Genesis.RoomScan.SigmaPrism
                 _topologyCandidates);
             _shader.SetBuffer(_scanKernel, "_TopologyCandidateCount",
                 _topologyCandidateCount);
-            _shader.DispatchIndirect(_scanKernel, _topologyDispatchArguments);
+            _shader.DispatchIndirect(_scanKernel, _topologyDispatchArguments,
+                WitnessDispatchOffset);
+
+            BindDirectAssociator(targetCache);
+            _shader.DispatchIndirect(_associatorKernel,
+                _topologyDispatchArguments, CandidateDispatchOffset);
 
             _shader.SetBuffer(_finalizeKernel, "_TransitionCache",
                 targetCache.TransitionRecords);
+            _shader.SetBuffer(_finalizeKernel, "_TransitionMeta",
+                _transitionMeta);
             _shader.SetBuffer(_finalizeKernel, "_AssociatorFlags",
                 targetCache.AssociatorFlags);
             _shader.SetBuffer(_finalizeKernel, "_TopologyCounters", _counters);
+            _backendGate.Bind(_shader, _finalizeKernel);
             _shader.Dispatch(_finalizeKernel, TransitionsPerPage / 64, 1, 1);
 
             BindTopologyNeighbours(right, rightValid, down, downValid,
@@ -833,6 +867,22 @@ namespace Genesis.RoomScan.SigmaPrism
                 targetCache.PageKeys);
             _backendGate.Bind(_shader, _publishKernel);
             _shader.Dispatch(_publishKernel, 1, 1, 1);
+        }
+
+        private void BindDirectAssociator(TopologySegmentCache targetCache)
+        {
+            _shader.SetBuffer(_associatorKernel, "_AssociatorFlags",
+                targetCache.AssociatorFlags);
+            _shader.SetBuffer(_associatorKernel, "_TransitionMeta",
+                _transitionMeta);
+            _shader.SetBuffer(_associatorKernel, "_TransitionCache",
+                targetCache.TransitionRecords);
+            _shader.SetBuffer(_associatorKernel, "_TopologyCounters", _counters);
+            _shader.SetBuffer(_associatorKernel, "_TopologyCandidates",
+                _topologyCandidates);
+            _shader.SetBuffer(_associatorKernel, "_TopologyCandidateCount",
+                _topologyCandidateCount);
+            _backendGate.Bind(_shader, _associatorKernel);
         }
 
         private static void ValidateEvidenceCoordinate(
@@ -998,6 +1048,7 @@ namespace Genesis.RoomScan.SigmaPrism
         private void CopyPrior(TopologySegmentCache source, int sourceSlot,
             TopologySegmentCache target, int targetSlot)
         {
+            BindDirectExecutionMode();
             _shader.SetInt("_PriorPageSlot", sourceSlot);
             _shader.SetInt("_PriorPageCapacity", source.Capacity);
             _shader.SetInt("_TargetPageSlot", targetSlot);
@@ -1011,6 +1062,7 @@ namespace Genesis.RoomScan.SigmaPrism
 
         private void ClearPage(TopologySegmentCache cache, int pageSlot)
         {
+            BindDirectExecutionMode();
             _shader.SetInt("_TargetPageSlot", pageSlot);
             _shader.SetInt("_TargetPageCapacity", cache.Capacity);
             _shader.SetBuffer(_clearPageKernel, "_TransitionCache",
@@ -1022,6 +1074,14 @@ namespace Genesis.RoomScan.SigmaPrism
             _shader.SetBuffer(_clearPageKernel, "_TopologyPageKeys",
                 cache.PageKeys);
             _shader.Dispatch(_clearPageKernel, TransitionsPerPage / 64, 1, 1);
+        }
+
+        private void BindDirectExecutionMode()
+        {
+            // Scalar compute parameters are shared by the shader asset. Direct
+            // work can follow a live inverse dispatch, so never inherit its
+            // compact work-list addressing mode.
+            _shader.SetInt("_UseInverseWorkList", 0);
         }
 
         private TopologySegmentCache CreateSegmentCache(

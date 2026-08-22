@@ -81,6 +81,8 @@ namespace Genesis.RoomScan.SigmaPrism
         internal const int BlockStride = 32;
         internal const int RawHeaderStride = 32;
         internal const int RawWord4PerTile = 384;
+        internal const int RawFrameRecordStride = 592;
+        internal const int RawRequestStride = 16;
         internal const int ProofSampleStride = 784;
         internal const uint InvalidSlot = uint.MaxValue;
         private const string ResourceName =
@@ -106,14 +108,16 @@ namespace Genesis.RoomScan.SigmaPrism
         private GraphicsBuffer _rawWords;
         private GraphicsBuffer _rawReservations;
         private GraphicsBuffer _rawAllocator;
+        private GraphicsBuffer _rawLiveFlags;
         private GraphicsBuffer _frameRecords;
+        private GraphicsBuffer _frameStaging;
+        private GraphicsBuffer _rawRequests;
         private GraphicsBuffer _proofSamples;
         private GraphicsBuffer _pageStatus;
         private GraphicsBuffer _gaugeDemand;
         private int _clearKernel;
         private int _reduceKernel;
         private int _gaugeDemandKernel;
-        private int _nextGpuFrameSlot;
         private bool _disposed;
 
         internal SigmaConstraintLedger(int proofPageCapacity,
@@ -126,6 +130,10 @@ namespace Genesis.RoomScan.SigmaPrism
                 throw new ArgumentOutOfRangeException(nameof(rawTileCapacity));
             if (gpuWorkCapacity <= 0 || gpuWorkCapacity > proofPageCapacity)
                 throw new ArgumentOutOfRangeException(nameof(gpuWorkCapacity));
+            if (Marshal.SizeOf<SigmaRawFrameRecordGpu>() !=
+                RawFrameRecordStride)
+                throw new InvalidOperationException(
+                    "Sigma raw-frame ABI stride does not match the GPU contract.");
             _backendGate = backendGate ?? throw new ArgumentNullException(
                 nameof(backendGate));
             ProofPageCapacity = proofPageCapacity;
@@ -154,10 +162,16 @@ namespace Genesis.RoomScan.SigmaPrism
                 BlocksPerPage), sizeof(uint),
                 "Sigma raw observation transaction reservations");
             _rawAllocator = CreateBuffer(1, sizeof(uint),
-                "Sigma GPU raw observation allocator");
+                "Sigma GPU raw observation active count");
+            _rawLiveFlags = CreateBuffer(rawTileCapacity, sizeof(uint),
+                "Sigma unresolved raw observation residency flags");
             _frameRecords = CreateBuffer(rawTileCapacity,
-                Marshal.SizeOf<SigmaRawFrameRecordGpu>(),
+                RawFrameRecordStride,
                 "Sigma unresolved observation frame records");
+            _frameStaging = CreateBuffer(1, RawFrameRecordStride,
+                "Sigma current immutable frame provenance staging");
+            _rawRequests = CreateBuffer(checked(gpuWorkCapacity * BlocksPerPage),
+                RawRequestStride, "Sigma raw-retention transaction requests");
             _proofSamples = CreateBuffer(checked(gpuWorkCapacity *
                 SigmaCarrier.SamplesPerPage), ProofSampleStride,
                 "Sigma compact inverse proof scratch");
@@ -181,6 +195,7 @@ namespace Genesis.RoomScan.SigmaPrism
             _pageStatus.SetData(new uint[checked(proofPageCapacity *
                 StatusStride)]);
             _rawAllocator.SetData(new uint[1]);
+            _rawLiveFlags.SetData(new uint[rawTileCapacity]);
         }
 
         internal int ProofPageCapacity { get; }
@@ -195,7 +210,10 @@ namespace Genesis.RoomScan.SigmaPrism
         internal GraphicsBuffer RawWordsBuffer => _rawWords;
         internal GraphicsBuffer RawReservationBuffer => _rawReservations;
         internal GraphicsBuffer RawAllocatorBuffer => _rawAllocator;
+        internal GraphicsBuffer RawLiveFlagsBuffer => _rawLiveFlags;
         internal GraphicsBuffer FrameRecordBuffer => _frameRecords;
+        internal GraphicsBuffer FrameStagingBuffer => _frameStaging;
+        internal GraphicsBuffer RawRequestBuffer => _rawRequests;
         internal GraphicsBuffer ProofSampleBuffer => _proofSamples;
         internal long CertificateBytes =>
             (long)ProofPageCapacity * CertificatesPerPage * CertificateStride +
@@ -204,16 +222,15 @@ namespace Genesis.RoomScan.SigmaPrism
         internal long RawObservationBytes =>
             (long)RawTileCapacity * RawHeaderStride +
             (long)RawTileCapacity * RawWord4PerTile * sizeof(uint) * 4 +
-            (long)RawTileCapacity * Marshal.SizeOf<SigmaRawFrameRecordGpu>();
+            (long)RawTileCapacity * RawFrameRecordStride;
 
         /// <summary>
-        /// Uploads one immutable provenance record for a GPU-resident inverse
-        /// transaction. The CPU stages only rig metadata; it never observes proof,
-        /// carrier or scheduling results. Slots are monotonic so unresolved raw
-        /// tiles can retain their exact frame identity without a readback-driven
-        /// reclamation protocol.
+        /// Stages immutable capture provenance for the current GPU transaction.
+        /// The reducer copies it into durable storage only for raw evidence that
+        /// survives proof minimization, so ordinary frames consume no record slot
+        /// and no readback-driven lifetime scheduler is required.
         /// </summary>
-        internal int UploadGpuFrame(StereoRigFrameLease frame, uint revision,
+        internal void StageGpuFrame(StereoRigFrameLease frame, uint revision,
             uint depthLeftKey, uint depthRightKey, uint rgbLeftKey,
             uint rgbRightKey)
         {
@@ -221,15 +238,9 @@ namespace Genesis.RoomScan.SigmaPrism
             if (frame == null || !frame.IsValid)
                 throw new ArgumentException("A coherent rig frame is required.",
                     nameof(frame));
-            if (_nextGpuFrameSlot >= RawTileCapacity)
-                throw new InvalidOperationException(
-                    "Immutable Sigma frame-record pool is exhausted; persist or " +
-                    "restart the bounded transaction epoch before accepting more input.");
-            int slot = _nextGpuFrameSlot++;
             SigmaRawFrameRecordGpu record = SigmaRawFrameRecordGpu.From(frame,
                 revision, depthLeftKey, depthRightKey, rgbLeftKey, rgbRightKey);
-            _frameRecords.SetData(new[] { record }, 0, slot, 1);
-            return slot;
+            _frameStaging.SetData(new[] { record });
         }
 
         internal SigmaProofFrameLease BeginFrame(StereoRigFrameLease frame,
@@ -289,6 +300,7 @@ namespace Genesis.RoomScan.SigmaPrism
             BindCommon(page, _clearKernel);
             _shader.SetBuffer(_clearKernel, "_ProofSamples", _proofSamples);
             _shader.SetBuffer(_clearKernel, "_ProofPageStatus", _pageStatus);
+            _shader.SetBuffer(_clearKernel, "_RawRequests", _rawRequests);
             _shader.Dispatch(_clearKernel,
                 (SigmaCarrier.SamplesPerPage + 63) / 64, 1, 1);
         }
@@ -354,6 +366,7 @@ namespace Genesis.RoomScan.SigmaPrism
             _shader.SetBuffer(_reduceKernel, "_RawTileWords", _rawWords);
             _shader.SetBuffer(_reduceKernel, "_RawReservations",
                 _rawReservations);
+            _shader.SetBuffer(_reduceKernel, "_RawRequests", _rawRequests);
             _shader.SetBuffer(_reduceKernel, "_ProofPageStatus", _pageStatus);
             _shader.SetBuffer(_reduceKernel, "_GaugeDemand", _gaugeDemand);
             _backendGate.Bind(_shader, _reduceKernel);
@@ -663,7 +676,10 @@ namespace Genesis.RoomScan.SigmaPrism
             _rawWords?.Dispose();
             _rawReservations?.Dispose();
             _rawAllocator?.Dispose();
+            _rawLiveFlags?.Dispose();
             _frameRecords?.Dispose();
+            _frameStaging?.Dispose();
+            _rawRequests?.Dispose();
             _proofSamples?.Dispose();
             _pageStatus?.Dispose();
             _gaugeDemand?.Dispose();
@@ -674,7 +690,10 @@ namespace Genesis.RoomScan.SigmaPrism
             _rawWords = null;
             _rawReservations = null;
             _rawAllocator = null;
+            _rawLiveFlags = null;
             _frameRecords = null;
+            _frameStaging = null;
+            _rawRequests = null;
             _proofSamples = null;
             _pageStatus = null;
             _gaugeDemand = null;
@@ -861,6 +880,10 @@ namespace Genesis.RoomScan.SigmaPrism
             public SigmaRawTimestampGpu DepthLeftTimestamp;
             public SigmaRawTimestampGpu DepthRightTimestamp;
             public SigmaRawPairingHealthGpu PairingHealth;
+            public Vector4 PoseGaugeMeta;
+            public Vector4 PoseGaugeTranslation01;
+            public Vector4 PoseGaugeTranslation2Rotation0;
+            public Vector4 PoseGaugeRotation12;
 
             internal static SigmaRawFrameRecordGpu From(StereoRigFrameLease frame,
                 uint revision, uint depthLeftKey, uint depthRightKey,

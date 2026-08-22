@@ -179,7 +179,8 @@
     {
       "id": "S4-08",
       "title": "Implement bounded pose-gauge intersection",
-      "status": "done",
+      "status": "in_progress",
+      "active_repair_run": "S4-08.1 exact pose-gauge and bounded live-graph closure",
       "depends_on": ["S4-07"],
       "acceptance": [
         "Conditioned overlaps produce bounded six-component Q16.48 pose-twist source cells that intersect the immutable Meta prior",
@@ -194,7 +195,9 @@
         "The pose pass is GPU-parallel rather than a single long-running workgroup: sampled overlaps reduce to compact partial meets and one bounded 64-lane final reduction; the exact result remains GPU-resident and is consumed directly by same-frame depth/RGB association while CPU observes only a completion fence",
         "Unity 6000.5.9f1 Vulkan EditMode passed 64/64 including exact minimum-magnitude/identity and rigid-rig invariance contracts; generated operators, git diff and eight-UAV validation passed",
         "Android/Vulkan IL2CPP Release correction commit 91e4721c30c0 built with zero shader/C# errors, was archived source-only and installed on the connected Quest before S4-09",
-        "The repaired live path stably compacts inverse work, allocates generation-paired scratch, reduces proof, commits accepted proposals into the same Psi, consumes pose gauge on GPU and resolves topology/readout neighbours only by exact signed-64 Sigma_2 page identity; Unity Vulkan passed 64/64, the eight-UAV gate passed, and the fresh Release APK built with zero errors and was installed before S4-09"
+        "The repaired live path stably compacts inverse work, allocates generation-paired scratch, reduces proof, commits accepted proposals into the same Psi, consumes pose gauge on GPU and resolves topology/readout neighbours only by exact signed-64 Sigma_2 page identity; Unity Vulkan passed 64/64, the eight-UAV gate passed, and the fresh Release APK built with zero errors and was installed before S4-09",
+        "S4-08.1 candidate corrects exact point-to-plane intervals, integer acceptance, true rigid SE(3), corrected same-frame reraster/exact source calibration, GPU-appended pose provenance, reusable active-local raw records, complete topology bindings, fail-closed associator gates and bounded fair candidate scheduling without introducing another world",
+        "Every changed shader was manually reviewed in full with its include ABI, all kernels/resources, C# binding and dispatch call sites and affected tests; generated operators, git diff, Quest eight-UAV validation and the final Unity Vulkan batch (64/64) pass before the Release device build"
       ]
     },
     {

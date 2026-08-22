@@ -35,6 +35,7 @@ namespace Genesis.RoomScan.SigmaPrism
         private const int WorkStride = 48;
         private const int WorkControlWords = 9;
         private const int RgbPhaseSamples = 256;
+        private const int PosePriorValueCount = 15;
         private const uint RgbDispatchOffset = 0u;
         private const uint SolveDispatchOffset = 3u * sizeof(uint);
         private const uint PromoteDispatchOffset = 6u * sizeof(uint);
@@ -57,7 +58,7 @@ namespace Genesis.RoomScan.SigmaPrism
         private readonly SigmaPackedQ48[] _rgbCalibrationUpload =
             new SigmaPackedQ48[RgbCalibrationStride * 2];
         private readonly SigmaPackedQ48[] _posePriorUpload =
-            new SigmaPackedQ48[12];
+            new SigmaPackedQ48[PosePriorValueCount];
 
         private RoomScanner _scanner;
         private SigmaCarrier _carrier;
@@ -84,6 +85,8 @@ namespace Genesis.RoomScan.SigmaPrism
         private Vector2Int _scratchResolution;
         private GraphicsBuffer _calibrationQ48;
         private GraphicsBuffer _rgbCalibrationQ48;
+        private GraphicsBuffer _rawCalibrationQ48;
+        private GraphicsBuffer _rawRgbCalibrationQ48;
         private GraphicsBuffer _rgbViewOperators;
         private GraphicsBuffer _rgbViewSupportScale;
         private GraphicsBuffer _activePageFlags;
@@ -115,6 +118,7 @@ namespace Genesis.RoomScan.SigmaPrism
         private int _promoteKernel;
         private int _poseBuildKernel;
         private int _poseReduceKernel;
+        private int _poseCalibrationKernel;
         private int _workClearKernel;
         private int _workCompactKernel;
         private int _workPrepareKernel;
@@ -122,12 +126,16 @@ namespace Genesis.RoomScan.SigmaPrism
         private int _workCommitKernel;
         private int _proofClearKernel;
         private int _proofReduceKernel;
+        private int _proofRawCommitKernel;
         private int _proofGaugeKernel;
 
         private uint _nextRevision = 1u;
         private bool _running;
         private bool _initialized;
         private bool _disposed;
+        private Pose _previousTrackingPose;
+        private long _previousTrackingTimestampNs;
+        private bool _hasPreviousTrackingPose;
 
         public string ModuleName => "Sigma GPU-resident joint RGB-D inverse";
         public bool IsInitialized => _initialized && !_disposed;
@@ -184,6 +192,8 @@ namespace Genesis.RoomScan.SigmaPrism
         public void OnScanStarted()
         {
             _running = true;
+            _hasPreviousTrackingPose = false;
+            _previousTrackingTimestampNs = 0L;
         }
 
         public void OnScanStopped()
@@ -261,17 +271,24 @@ namespace Genesis.RoomScan.SigmaPrism
                 source.CalibrationEpoch);
             uint rgbRightKey = IndependenceKey(source.RgbRight,
                 source.CalibrationEpoch);
-            int frameSlot = _proofLedger.UploadGpuFrame(source, revision,
+            _proofLedger.StageGpuFrame(source, revision,
                 leftKey, rightKey, rgbLeftKey, rgbRightKey);
+            const int frameSlot = 0;
 
             CommandBuffer command = CommandBufferPool.Get(
                 "Sigma-PRISM-16 GPU Inverse Transaction");
             GraphicsFence fence;
+            SigmaPredictionFrameLease correctedPrediction = null;
             try
             {
                 RecordNormalize(command, source);
                 RecordPoseGauge(command, source, prediction, revision);
-                RecordClearAndClassify(command, source, prediction,
+                RecordCorrectedCalibration(command, source);
+                if (!_renderer.TryRecordPoseGaugePrediction(command, source,
+                        _poseResult, out correctedPrediction))
+                    throw new InvalidOperationException(
+                        "Unable to reserve same-frame corrected prediction.");
+                RecordClearAndClassify(command, source, correctedPrediction,
                     blockResolution, blockCount, revision, leftKey, rightKey,
                     rgbLeftKey, rgbRightKey);
                 RecordWorkCompaction(command, blockResolution, blockCount,
@@ -279,14 +296,16 @@ namespace Genesis.RoomScan.SigmaPrism
                 RecordPrepareTransactions(command);
                 RecordProofClear(command, frameSlot, source.CalibrationEpoch,
                     revision);
-                RecordRgbSource(command, source, prediction, revision,
+                RecordRgbSource(command, source, correctedPrediction, revision,
                     leftKey, rightKey, rgbLeftKey, rgbRightKey);
-                RecordMatchedSolve(command, source, prediction, revision,
+                RecordMatchedSolve(command, source, correctedPrediction, revision,
                     leftKey, rightKey, rgbLeftKey, rgbRightKey);
-                RecordGaugePromote(command, source, prediction, revision,
+                RecordGaugePromote(command, source, correctedPrediction, revision,
                     leftKey, rightKey, rgbLeftKey, rgbRightKey);
-                RecordRawPlan(command, frameSlot, source.CalibrationEpoch);
                 RecordProofReduce(command, frameSlot,
+                    source.CalibrationEpoch, revision);
+                RecordRawPlan(command, frameSlot, source.CalibrationEpoch);
+                RecordProofRawCommit(command, frameSlot,
                     source.CalibrationEpoch, revision);
                 RecordProofGaugeDemand(command, frameSlot,
                     source.CalibrationEpoch, revision);
@@ -300,11 +319,16 @@ namespace Genesis.RoomScan.SigmaPrism
                     SynchronisationStageFlags.ComputeProcessing);
                 Graphics.ExecuteCommandBuffer(command);
             }
+            catch
+            {
+                correctedPrediction?.Dispose();
+                throw;
+            }
             finally
             {
                 CommandBufferPool.Release(command);
             }
-            _inFlight = new GpuSubmission(prediction, fence);
+            _inFlight = new GpuSubmission(prediction, correctedPrediction, fence);
             SubmittedFrames++;
             LastDiagnostics = SigmaInverseDiagnosticSnapshot.GpuResident(
                 revision);
@@ -414,6 +438,8 @@ namespace Genesis.RoomScan.SigmaPrism
                 "_ProofSamples", _proofLedger.ProofSampleBuffer);
             command.SetComputeBufferParam(_proofLedgerShader, _proofClearKernel,
                 "_ProofPageStatus", _proofLedger.StatusBuffer);
+            command.SetComputeBufferParam(_proofLedgerShader, _proofClearKernel,
+                "_RawRequests", _proofLedger.RawRequestBuffer);
             command.DispatchCompute(_proofLedgerShader, _proofClearKernel,
                 _dispatchArguments, ProofDispatchOffset);
         }
@@ -476,11 +502,13 @@ namespace Genesis.RoomScan.SigmaPrism
             command.SetComputeIntParam(_workGraph, "_RawTileCapacity",
                 _proofLedger.RawTileCapacity);
             command.SetComputeBufferParam(_workGraph, _workRawPlanKernel,
-                "_ProofSamplesRead", _proofLedger.ProofSampleBuffer);
-            command.SetComputeBufferParam(_workGraph, _workRawPlanKernel,
                 "_RawReservations", _proofLedger.RawReservationBuffer);
             command.SetComputeBufferParam(_workGraph, _workRawPlanKernel,
                 "_RawAllocator", _proofLedger.RawAllocatorBuffer);
+            command.SetComputeBufferParam(_workGraph, _workRawPlanKernel,
+                "_RawLiveFlags", _proofLedger.RawLiveFlagsBuffer);
+            command.SetComputeBufferParam(_workGraph, _workRawPlanKernel,
+                "_RawRequests", _proofLedger.RawRequestBuffer);
             command.DispatchCompute(_workGraph, _workRawPlanKernel, 1, 1, 1);
         }
 
@@ -505,10 +533,42 @@ namespace Genesis.RoomScan.SigmaPrism
             command.SetComputeBufferParam(shader, _proofReduceKernel,
                 "_RawReservations", _proofLedger.RawReservationBuffer);
             command.SetComputeBufferParam(shader, _proofReduceKernel,
+                "_RawRequests", _proofLedger.RawRequestBuffer);
+            command.SetComputeBufferParam(shader, _proofReduceKernel,
                 "_ProofPageStatus", _proofLedger.StatusBuffer);
             command.SetComputeBufferParam(shader, _proofReduceKernel,
                 "_GaugeDemand", _proofLedger.GaugeDemandBuffer);
             command.DispatchCompute(shader, _proofReduceKernel,
+                _dispatchArguments, ProofDispatchOffset);
+        }
+
+        private void RecordProofRawCommit(CommandBuffer command, int frameSlot,
+            uint calibrationEpoch, uint revision)
+        {
+            BindLedger(command, _proofRawCommitKernel, frameSlot,
+                calibrationEpoch, revision);
+            ComputeShader shader = _proofLedgerShader;
+            command.SetComputeBufferParam(shader, _proofRawCommitKernel,
+                "_ProofSamples", _proofLedger.ProofSampleBuffer);
+            command.SetComputeBufferParam(shader, _proofRawCommitKernel,
+                "_ConstraintBlocks", _proofLedger.ConstraintBlockBuffer);
+            command.SetComputeBufferParam(shader, _proofRawCommitKernel,
+                "_RawTiles", _proofLedger.RawHeaderBuffer);
+            command.SetComputeBufferParam(shader, _proofRawCommitKernel,
+                "_RawTileWords", _proofLedger.RawWordsBuffer);
+            command.SetComputeBufferParam(shader, _proofRawCommitKernel,
+                "_RawReservations", _proofLedger.RawReservationBuffer);
+            command.SetComputeBufferParam(shader, _proofRawCommitKernel,
+                "_RawRequests", _proofLedger.RawRequestBuffer);
+            command.SetComputeBufferParam(shader, _proofRawCommitKernel,
+                "_RawFrameStaging", _proofLedger.FrameStagingBuffer);
+            command.SetComputeBufferParam(shader, _proofRawCommitKernel,
+                "_RawFrameRecords", _proofLedger.FrameRecordBuffer);
+            command.SetComputeBufferParam(shader, _proofRawCommitKernel,
+                "_PoseResult", _poseResult);
+            command.SetComputeBufferParam(shader, _proofRawCommitKernel,
+                "_ProofPageStatus", _proofLedger.StatusBuffer);
+            command.DispatchCompute(shader, _proofRawCommitKernel,
                 _dispatchArguments, ProofDispatchOffset);
         }
 
@@ -529,10 +589,20 @@ namespace Genesis.RoomScan.SigmaPrism
         private void RecordProofCommit(CommandBuffer command)
         {
             BindWorkGraph(command, _workCommitKernel);
+            command.SetComputeIntParam(_workGraph, "_RawTileCapacity",
+                _proofLedger.RawTileCapacity);
             command.SetComputeBufferParam(_workGraph, _workCommitKernel,
                 "_ProofPageStatus", _proofLedger.StatusBuffer);
             command.SetComputeBufferParam(_workGraph, _workCommitKernel,
                 "_GaugePromotionCounts", _gaugePromotionCounts);
+            command.SetComputeBufferParam(_workGraph, _workCommitKernel,
+                "_RawReservationsRead", _proofLedger.RawReservationBuffer);
+            command.SetComputeBufferParam(_workGraph, _workCommitKernel,
+                "_RawLiveFlags", _proofLedger.RawLiveFlagsBuffer);
+            command.SetComputeBufferParam(_workGraph, _workCommitKernel,
+                "_ConstraintBlocks", _proofLedger.ConstraintBlockBuffer);
+            command.SetComputeBufferParam(_workGraph, _workCommitKernel,
+                "_InverseWorkRead", _inverseWork);
             command.DispatchCompute(_workGraph, _workCommitKernel,
                 _dispatchArguments, CommitDispatchOffset);
         }
@@ -779,13 +849,20 @@ namespace Genesis.RoomScan.SigmaPrism
         {
             for (int component = 0; component < 6; ++component)
                 _posePriorUpload[component] = SigmaPackedQ48.FromRaw(0L);
+            Vector2 trackingEnvelope = BuildTrackingPriorEnvelope(source);
             long translationWidth = SigmaNumericDomain.Quantize(
-                poseTranslationPriorMetres);
+                trackingEnvelope.x);
             long rotationWidth = SigmaNumericDomain.Quantize(
-                poseRotationPriorDegrees * Mathf.Deg2Rad);
+                trackingEnvelope.y);
             for (int component = 0; component < 6; ++component)
                 _posePriorUpload[6 + component] = SigmaPackedQ48.FromRaw(
                     component < 3 ? translationWidth : rotationWidth);
+            _posePriorUpload[12] = SigmaPackedQ48.FromRaw(
+                SigmaNumericDomain.Quantize(0.00025));
+            _posePriorUpload[13] = SigmaPackedQ48.FromRaw(
+                SigmaNumericDomain.Quantize(0.15));
+            _posePriorUpload[14] = SigmaPackedQ48.FromRaw(
+                SigmaNumericDomain.Quantize(0.03));
             _posePrior.SetData(_posePriorUpload);
             int sampleWidth = CeilDiv(source.DepthResolution.x,
                 poseSampleStride);
@@ -794,11 +871,10 @@ namespace Genesis.RoomScan.SigmaPrism
             int partialCount = CeilDiv(checked(sampleWidth * sampleHeight * 2),
                 64);
             EnsurePosePartials(partialCount);
-            Matrix4x4 leftWorld = PoseMatrix(source.DepthLeft.WorldFromCamera);
             command.SetComputeBufferParam(_poseGaugeCompute, _poseBuildKernel,
                 "_SigmaExactBackendGate", _backendGate.Buffer);
             command.SetComputeBufferParam(_poseGaugeCompute, _poseBuildKernel,
-                "_DepthCalibrationQ48", _calibrationQ48);
+                "_DepthCalibrationQ48", _rawCalibrationQ48);
             command.SetComputeBufferParam(_poseGaugeCompute, _poseBuildKernel,
                 "_PosePrior", _posePrior);
             command.SetComputeBufferParam(_poseGaugeCompute, _poseBuildKernel,
@@ -823,16 +899,6 @@ namespace Genesis.RoomScan.SigmaPrism
                 unchecked((int)revision));
             command.SetComputeIntParam(_poseGaugeCompute, "_PosePartialCount",
                 partialCount);
-            command.SetComputeVectorParam(_poseGaugeCompute, "_PosePriorFloat",
-                new Vector4(poseTranslationPriorMetres,
-                    poseRotationPriorDegrees * Mathf.Deg2Rad, 0.00025f, 0f));
-            command.SetComputeMatrixParam(_poseGaugeCompute,
-                "_PoseWorldFromOpticalLeft", leftWorld);
-            command.SetComputeMatrixParam(_poseGaugeCompute,
-                "_PoseWorldFromOpticalRight",
-                PoseMatrix(source.DepthRight.WorldFromCamera));
-            command.SetComputeMatrixParam(_poseGaugeCompute,
-                "_PoseReferenceFromWorld", leftWorld.inverse);
             command.DispatchCompute(_poseGaugeCompute, _poseBuildKernel,
                 partialCount, 1, 1);
             command.SetComputeBufferParam(_poseGaugeCompute, _poseReduceKernel,
@@ -845,6 +911,111 @@ namespace Genesis.RoomScan.SigmaPrism
                 "_PoseResult", _poseResult);
             command.DispatchCompute(_poseGaugeCompute, _poseReduceKernel, 1, 1, 1);
         }
+
+        private void RecordCorrectedCalibration(CommandBuffer command,
+            StereoRigFrameLease source)
+        {
+            Matrix4x4 referenceWorld = PoseMatrix(
+                source.DepthLeft.WorldFromCamera);
+            command.SetComputeBufferParam(_poseGaugeCompute,
+                _poseCalibrationKernel, "_DepthCalibrationQ48",
+                _rawCalibrationQ48);
+            command.SetComputeBufferParam(_poseGaugeCompute,
+                _poseCalibrationKernel, "_PoseRgbCalibrationQ48",
+                _rawRgbCalibrationQ48);
+            command.SetComputeBufferParam(_poseGaugeCompute,
+                _poseCalibrationKernel, "_CorrectedDepthCalibrationQ48",
+                _calibrationQ48);
+            command.SetComputeBufferParam(_poseGaugeCompute,
+                _poseCalibrationKernel, "_CorrectedRgbCalibrationQ48",
+                _rgbCalibrationQ48);
+            command.SetComputeBufferParam(_poseGaugeCompute,
+                _poseCalibrationKernel, "_PoseResult", _poseResult);
+            command.SetComputeMatrixParam(_poseGaugeCompute,
+                "_PoseConsumeReferenceFromWorld", referenceWorld.inverse);
+            command.SetComputeMatrixParam(_poseGaugeCompute,
+                "_PoseConsumeWorldFromReference", referenceWorld);
+            command.DispatchCompute(_poseGaugeCompute, _poseCalibrationKernel,
+                2, 1, 1);
+        }
+
+        private Vector2 BuildTrackingPriorEnvelope(StereoRigFrameLease source)
+        {
+            Pose current = source.DepthLeft.WorldFromCamera;
+            long timestamp = source.DepthLeft.Timestamp.UnixNanoseconds;
+            float translation = poseTranslationPriorMetres;
+            float rotation = poseRotationPriorDegrees * Mathf.Deg2Rad;
+            if (_hasPreviousTrackingPose && timestamp > _previousTrackingTimestampNs)
+            {
+                double deltaSeconds = (timestamp - _previousTrackingTimestampNs) *
+                    1e-9;
+                // Build the deterministic prior envelope from every uncertainty
+                // quantity carried by the coherent Meta frame: timestamp mapping,
+                // stereo RGB skew, RGB/depth skew, observed tracking velocity and
+                // the fixed-rig residual against this immutable calibration epoch.
+                // The final bounds are quantized before canonical pose acceptance.
+                long timingNanoseconds = SaturatingAdd(
+                    Math.Max(0L, source.Health.ClockUncertaintyNanoseconds),
+                    SaturatingAdd(AbsNanoseconds(
+                            source.Health.RgbDepthDeltaNanoseconds),
+                        AbsNanoseconds(source.Health.RgbDeltaNanoseconds) / 2L));
+                double uncertaintySeconds = timingNanoseconds * 1e-9;
+                float distance = Vector3.Distance(_previousTrackingPose.position,
+                    current.position);
+                float angle = Quaternion.Angle(_previousTrackingPose.rotation,
+                    current.rotation) * Mathf.Deg2Rad;
+                float linearRate = distance /
+                    (float)Math.Max(deltaSeconds, 1e-6);
+                float angularRate = angle /
+                    (float)Math.Max(deltaSeconds, 1e-6);
+                float rigTranslationResidual = MaxRigTranslationResidual(source);
+                float rigRotationResidual = MaxRigRotationResidual(source);
+                translation = Mathf.Clamp(0.003f +
+                    linearRate * (float)uncertaintySeconds * 2f +
+                    rigTranslationResidual,
+                    0.003f, poseTranslationPriorMetres);
+                rotation = Mathf.Clamp(0.25f * Mathf.Deg2Rad +
+                    angularRate * (float)uncertaintySeconds * 2f +
+                    rigRotationResidual, 0.25f * Mathf.Deg2Rad,
+                    poseRotationPriorDegrees * Mathf.Deg2Rad);
+            }
+            _previousTrackingPose = current;
+            _previousTrackingTimestampNs = timestamp;
+            _hasPreviousTrackingPose = true;
+            return new Vector2(translation, rotation);
+        }
+
+        private float MaxRigTranslationResidual(StereoRigFrameLease source)
+        {
+            RigExtrinsicsSnapshot reference = _calibration.ReferenceExtrinsics;
+            RigExtrinsicsSnapshot current = source.Extrinsics;
+            return Mathf.Max(
+                Vector3.Distance(reference.LeftDepthFromRightDepth.position,
+                    current.LeftDepthFromRightDepth.position),
+                Vector3.Distance(reference.LeftRgbFromLeftDepth.position,
+                    current.LeftRgbFromLeftDepth.position),
+                Vector3.Distance(reference.RightRgbFromRightDepth.position,
+                    current.RightRgbFromRightDepth.position));
+        }
+
+        private float MaxRigRotationResidual(StereoRigFrameLease source)
+        {
+            RigExtrinsicsSnapshot reference = _calibration.ReferenceExtrinsics;
+            RigExtrinsicsSnapshot current = source.Extrinsics;
+            return Mathf.Deg2Rad * Mathf.Max(
+                Quaternion.Angle(reference.LeftDepthFromRightDepth.rotation,
+                    current.LeftDepthFromRightDepth.rotation),
+                Quaternion.Angle(reference.LeftRgbFromLeftDepth.rotation,
+                    current.LeftRgbFromLeftDepth.rotation),
+                Quaternion.Angle(reference.RightRgbFromRightDepth.rotation,
+                    current.RightRgbFromRightDepth.rotation));
+        }
+
+        private static long AbsNanoseconds(long value) => value == long.MinValue
+            ? long.MaxValue : Math.Abs(value);
+
+        private static long SaturatingAdd(long left, long right) =>
+            left > long.MaxValue - right ? long.MaxValue : left + right;
 
         private void EnsureCalibration(StereoRigFrameLease source)
         {
@@ -899,10 +1070,10 @@ namespace Genesis.RoomScan.SigmaPrism
         {
             FillCalibration(0, source.DepthLeft, source.Health);
             FillCalibration(1, source.DepthRight, source.Health);
-            _calibrationQ48.SetData(_calibrationUpload);
+            _rawCalibrationQ48.SetData(_calibrationUpload);
             FillRgbCalibration(0, source.RgbLeft.WorldFromCamera, source.Health);
             FillRgbCalibration(1, source.RgbRight.WorldFromCamera, source.Health);
-            _rgbCalibrationQ48.SetData(_rgbCalibrationUpload);
+            _rawRgbCalibrationQ48.SetData(_rgbCalibrationUpload);
         }
 
         private void FillCalibration(int eye, GpuImageView view,
@@ -995,6 +1166,8 @@ namespace Genesis.RoomScan.SigmaPrism
             _poseBuildKernel = _poseGaugeCompute.FindKernel(
                 "BuildPoseGaugePartials");
             _poseReduceKernel = _poseGaugeCompute.FindKernel("ReducePoseGauge");
+            _poseCalibrationKernel = _poseGaugeCompute.FindKernel(
+                "BuildCorrectedCalibration");
             _workClearKernel = _workGraph.FindKernel("ClearInverseWorkGraph");
             _workCompactKernel = _workGraph.FindKernel("CompactInverseWork");
             _workPrepareKernel = _workGraph.FindKernel(
@@ -1005,6 +1178,7 @@ namespace Genesis.RoomScan.SigmaPrism
             ComputeShader ledger = _proofLedgerShader;
             _proofClearKernel = ledger.FindKernel("ClearProofTransaction");
             _proofReduceKernel = ledger.FindKernel("ReduceProofPage");
+            _proofRawCommitKernel = ledger.FindKernel("CommitRawProof");
             _proofGaugeKernel = ledger.FindKernel("BuildGaugeDemand");
         }
 
@@ -1014,6 +1188,12 @@ namespace Genesis.RoomScan.SigmaPrism
                 Marshal.SizeOf<SigmaPackedQ48>(), "Sigma depth calibration Q48");
             _rgbCalibrationQ48 = CreateBuffer(RgbCalibrationStride * 2,
                 Marshal.SizeOf<SigmaPackedQ48>(), "Sigma RGB calibration Q48");
+            _rawCalibrationQ48 = CreateBuffer(CalibrationStride * 2,
+                Marshal.SizeOf<SigmaPackedQ48>(),
+                "Sigma raw Meta depth calibration Q48");
+            _rawRgbCalibrationQ48 = CreateBuffer(RgbCalibrationStride * 2,
+                Marshal.SizeOf<SigmaPackedQ48>(),
+                "Sigma raw Meta RGB calibration Q48");
             SigmaRgbViewCatalog catalog = SigmaRgbViewCatalog.CreateCanonical();
             var operators = new SigmaPackedQ48[catalog.OperatorRaw.Count];
             for (int index = 0; index < operators.Length; ++index)
@@ -1051,7 +1231,8 @@ namespace Genesis.RoomScan.SigmaPrism
             _rgbSourceMeta = CreateBuffer(checked(inverseWorkCapacity * 2 *
                 RgbPhaseSamples), sizeof(uint) * 4,
                 "Sigma compact RGB source metadata");
-            _posePrior = CreateBuffer(12, Marshal.SizeOf<SigmaPackedQ48>(),
+            _posePrior = CreateBuffer(PosePriorValueCount,
+                Marshal.SizeOf<SigmaPackedQ48>(),
                 "Sigma exact pose prior");
             _poseResult = CreateBuffer(4, sizeof(uint) * 4,
                 "Sigma GPU-resident exact pose meet");
@@ -1193,7 +1374,8 @@ namespace Genesis.RoomScan.SigmaPrism
             DestroyTexture(_metricDepth);
             DestroyTexture(_depthFlags);
             GraphicsBuffer[] buffers = {
-                _calibrationQ48, _rgbCalibrationQ48, _rgbViewOperators,
+                _calibrationQ48, _rgbCalibrationQ48, _rawCalibrationQ48,
+                _rawRgbCalibrationQ48, _rgbViewOperators,
                 _rgbViewSupportScale, _activePageFlags, _unmatchedBlockFlags,
                 _unmatchedBlockAnchors, _conflictRecords, _conflictCount,
                 _frameCounters, _gaugePromotionCounts, _proposalStatus,
@@ -1225,11 +1407,14 @@ namespace Genesis.RoomScan.SigmaPrism
         private sealed class GpuSubmission : IDisposable
         {
             private SigmaPredictionFrameLease _prediction;
+            private SigmaPredictionFrameLease _correctedPrediction;
             private readonly GraphicsFence _fence;
             internal GpuSubmission(SigmaPredictionFrameLease prediction,
+                SigmaPredictionFrameLease correctedPrediction,
                 GraphicsFence fence)
             {
                 _prediction = prediction;
+                _correctedPrediction = correctedPrediction;
                 _fence = fence;
             }
             internal bool Discard { get; set; }
@@ -1238,6 +1423,8 @@ namespace Genesis.RoomScan.SigmaPrism
             {
                 _prediction?.Dispose();
                 _prediction = null;
+                _correctedPrediction?.Dispose();
+                _correctedPrediction = null;
             }
         }
     }

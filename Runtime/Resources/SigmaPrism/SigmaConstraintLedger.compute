@@ -1,5 +1,6 @@
 #pragma kernel ClearProofTransaction
 #pragma kernel ReduceProofPage
+#pragma kernel CommitRawProof
 #pragma kernel BuildGaugeDemand
 #pragma target 5.0
 
@@ -16,6 +17,10 @@ RWStructuredBuffer<SigmaConstraintBlockGpu> _ConstraintBlocks;
 RWStructuredBuffer<SigmaRawObservationTileGpu> _RawTiles;
 RWStructuredBuffer<uint4> _RawTileWords;
 StructuredBuffer<uint> _RawReservations;
+RWStructuredBuffer<SigmaRawRetentionRequestGpu> _RawRequests;
+StructuredBuffer<SigmaRawFrameRecordGpu> _RawFrameStaging;
+RWStructuredBuffer<SigmaRawFrameRecordGpu> _RawFrameRecords;
+StructuredBuffer<uint4> _PoseResult;
 RWStructuredBuffer<uint> _ProofPageStatus;
 StructuredBuffer<uint2> _ProofCarrierState;
 RWStructuredBuffer<SigmaGaugeDemandGpu> _GaugeDemand;
@@ -573,6 +578,9 @@ void ClearProofTransaction(uint3 groupId : SV_GroupID,
             (SigmaProofSampleGpu)0;
     if (sample < SIGMA_PROOF_STATUS_STRIDE)
         _ProofPageStatus[SigmaProofStatusAddress(targetProofSlot, sample)] = 0u;
+    if (sample < SIGMA_CERTIFICATE_BLOCKS_PER_PAGE)
+        _RawRequests[workIndex * SIGMA_CERTIFICATE_BLOCKS_PER_PAGE + sample] =
+            (SigmaRawRetentionRequestGpu)0;
 }
 
 [numthreads(1, 1, 1)]
@@ -590,7 +598,6 @@ void ReduceProofPage(uint3 groupId : SV_GroupID)
         ? work.slots.z : _SourceProofSlot;
     uint targetProofSlot = _UseInverseWorkList != 0u
         ? work.slots.w : _TargetProofSlot;
-    uint proofFrameSlot = _ProofFrameSlot;
     uint proofCalibrationEpoch = _ProofCalibrationEpoch;
     uint proofRevision = _UseInverseWorkList != 0u
         ? work.control.w : _ProofRevision;
@@ -685,6 +692,7 @@ void ReduceProofPage(uint3 groupId : SV_GroupID)
     SigmaComputeCandidateMeet(candidateCount, -1, targetMask, targetRole,
         targetIndependent, targetMeet);
     bool removed;
+    uint redundancySweeps = 0u;
     do
     {
         removed = false;
@@ -707,7 +715,8 @@ void ReduceProofPage(uint3 groupId : SV_GroupID)
             SigmaRemoveCandidate(candidateCount, (uint)candidate);
             removed = true;
         }
-    } while (removed);
+        redundancySweeps++;
+    } while (removed && redundancySweeps < SIGMA_LEDGER_CANDIDATE_CAPACITY);
 
     uint storedCount = min(candidateCount, SIGMA_CERTIFICATES_PER_BLOCK);
     uint boundCount = 0u;
@@ -766,7 +775,13 @@ void ReduceProofPage(uint3 groupId : SV_GroupID)
         priorRawHead = _ConstraintBlocks[SigmaConstraintBlockAddress(
             sourceProofSlot, block)].counts.z;
     uint rawHead = priorRawHead;
-    if (rawReasons != 0u)
+    uint rawRequestIndex = workIndex * SIGMA_CERTIFICATE_BLOCKS_PER_PAGE + block;
+    _RawRequests[rawRequestIndex].value = uint4(rawReasons, rawSamples,
+        priorRawHead);
+    // The retained CPU/reference fixture path owns reservations up front. The
+    // live GPU graph defers payload/frame publication until the stable parallel
+    // planner has assigned only the requests that survived proof reduction.
+    if (rawReasons != 0u && _UseInverseWorkList == 0u)
     {
         uint reservation = _RawReservations[
             targetProofSlot * SIGMA_CERTIFICATE_BLOCKS_PER_PAGE + block];
@@ -778,7 +793,7 @@ void ReduceProofPage(uint3 groupId : SV_GroupID)
         else
         {
             SigmaRawObservationTileGpu raw;
-            raw.identity = uint4(priorRawHead, proofFrameSlot,
+            raw.identity = uint4(priorRawHead, _ProofFrameSlot,
                 (targetProofSlot << 6u) | block, proofRevision);
             raw.provenance = uint4(rawReasons, proofCalibrationEpoch,
                 rawSamples.x, rawSamples.y);
@@ -817,6 +832,78 @@ void ReduceProofPage(uint3 groupId : SV_GroupID)
         blockOutput;
     InterlockedAdd(_ProofPageStatus[SigmaProofStatusAddress(
         targetProofSlot, 0u)], 1u);
+}
+
+// The live reducer first finishes the exact certificate decision. Only then can
+// raw retention be planned without reserving one durable slot per submitted
+// frame. One lane copies one finite-footprint sample; lane zero publishes the
+// tile header, the same-frame pose gauge and the new immutable raw-chain head.
+[numthreads(64, 1, 1)]
+void CommitRawProof(uint3 groupId : SV_GroupID,
+    uint3 groupThreadId : SV_GroupThreadID)
+{
+    uint block = groupId.x;
+    uint workIndex = groupId.y;
+    uint local = groupThreadId.x;
+    if (!SigmaCanonicalMutationEnabled() ||
+        workIndex >= _InverseWorkControl[2u] ||
+        block >= SIGMA_CERTIFICATE_BLOCKS_PER_PAGE)
+        return;
+
+    SigmaInverseWorkGpu work = _InverseWork[workIndex];
+    uint targetProofSlot = work.slots.w;
+    uint requestIndex = workIndex * SIGMA_CERTIFICATE_BLOCKS_PER_PAGE + block;
+    uint4 request = _RawRequests[requestIndex].value;
+    if (request.x == 0u)
+        return;
+
+    uint reservation = _RawReservations[
+        targetProofSlot * SIGMA_CERTIFICATE_BLOCKS_PER_PAGE + block];
+    if (reservation >= _RawTileCapacity)
+    {
+        if (local == 0u)
+            InterlockedOr(_ProofPageStatus[SigmaProofStatusAddress(
+                targetProofSlot, 1u)], SIGMA_PROOF_FAILED);
+        return;
+    }
+
+    uint proofSampleBase = workIndex * SIGMA_PAGE_SAMPLE_COUNT;
+    [unroll]
+    for (uint word = 0u; word < SIGMA_RAW_WORD4_PER_SAMPLE; ++word)
+        _RawTileWords[reservation * SIGMA_RAW_WORD4_PER_TILE +
+            local * SIGMA_RAW_WORD4_PER_SAMPLE + word] =
+            _ProofSamples[proofSampleBase +
+                SigmaProofPageSample(block, local)].raw[word];
+
+    if (local != 0u)
+        return;
+
+    SigmaRawObservationTileGpu raw;
+    raw.identity = uint4(request.w, reservation,
+        (targetProofSlot << 6u) | block, work.control.w);
+    raw.provenance = uint4(request.x, _ProofCalibrationEpoch,
+        request.y, request.z);
+    _RawTiles[reservation] = raw;
+
+    SigmaRawFrameRecordGpu frame = _RawFrameStaging[0u];
+    frame.word[33u] = _PoseResult[0u];
+    frame.word[34u] = _PoseResult[1u];
+    frame.word[35u] = _PoseResult[2u];
+    frame.word[36u] = _PoseResult[3u];
+    _RawFrameRecords[reservation] = frame;
+
+    uint blockAddress = SigmaConstraintBlockAddress(targetProofSlot, block);
+    SigmaConstraintBlockGpu blockOutput = _ConstraintBlocks[blockAddress];
+    blockOutput.counts.z = reservation;
+    blockOutput.counts.w = 1u;
+    _ConstraintBlocks[blockAddress] = blockOutput;
+
+    uint statusWord = block < 32u ? 2u : 3u;
+    uint bit = 1u << (block & 31u);
+    InterlockedOr(_ProofPageStatus[SigmaProofStatusAddress(
+        targetProofSlot, statusWord)], bit);
+    InterlockedOr(_ProofPageStatus[SigmaProofStatusAddress(
+        targetProofSlot, 1u)], SIGMA_PROOF_RAW_CHANGED);
 }
 
 // One true 8x8 carrier block is one workgroup. B is evaluated once per sample.

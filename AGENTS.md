@@ -95,6 +95,11 @@ history only. It is not an implementation donor. The only retained donor surface
 
 ## GPU and runtime guardrails
 
+- Before editing any shader, load and read the entire shader source as one coherent
+  program, then inspect every kernel entry point, included helper/ABI file, resource
+  declaration, C# binding/dispatch call site and directly affected test. Do not patch
+  a shader from an `rg` excerpt or isolated error line. Record the completed manual
+  shader review in the active node evidence before build/deploy.
 - Keep association, inverse-cell construction/meet, state mutation, transition
   algebra, gauge work, readout, culling, LOD, draw compaction and rendering on GPU.
 - Use compacted work and indirect dispatch/draw. No CPU pixel loop, CPU mesh,
