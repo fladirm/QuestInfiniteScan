@@ -25,16 +25,18 @@ Updated: 2026-08-22 (Europe/Prague)
 - `S4-01` is accepted in commit `5f71653`.
 - `S4-02` is accepted in commit `8a04057`.
 - `S4-03` is accepted in commit `9a12f7e`.
-- `S4-04` is accepted by the current isolated checkpoint.
-- `S4-05` is accepted in the current checkpoint commit (pending commit creation in this turn).
-- `S4-06` is the sole `in_progress` node: joint RGB inverse readout and minimal proof certificates.
+- `S4-04` is accepted in commit `d5c05b2`.
+- `S4-05` is accepted in commit `96cbeca`.
+- `S4-06` is accepted by this isolated checkpoint.
+- `S4-07` is the sole `in_progress` node: local bijective carrier-gauge
+  refinement for supported detail.
 - The retained product surface is only four-stream GPU capture/synchronization,
   immutable calibration/poses, Quest/XR lifecycle, permissions/anchors, input/UI,
   neutral GPU helpers and build/deploy tooling.
 - Exact S16 mutation has one CPU semantic domain, generated signed-XOR/operator
   authority and a GPU-resident device self-test gate. The sparse decoded carrier is
-  live GPU state with exact disposable dual-eye forward and joint inverse depth
-  readouts. Intrinsic singular topology begins only in S4-05.
+  live GPU state with exact disposable dual-eye forward and joint four-stream
+  inverse readouts. Intrinsic singular topology is a derived readout only.
 
 ## S4-01 accepted implementation
 
@@ -136,19 +138,53 @@ Updated: 2026-08-22 (Europe/Prague)
   Sigma carrier.
 - Verification: topology fixtures 4/4, forward-cut fixtures 2/2, full Unity
   Vulkan EditMode 38/38, generated operator check, diff check and eight-UAV
-  validator passed. Android build is intentionally deferred to S4-07's
-  consolidated vertical milestone; no physical Quest scan is claimed here.
+  validator passed. Android build is intentionally deferred to the accepted
+  S4-08 consolidated base milestone; no physical Quest scan is claimed here.
+
+## S4-06 accepted evidence
+
+- `RGB_L` and `RGB_R` now enter the same exact projective S16 inverse as both
+  depth eyes. Each eye constructs its own outward-rounded finite-footprint cell
+  through a generated 27-direction view-operator catalog and the fixed two
+  forward plus two reverse bounded interval-contraction schedule.
+- The joint proposal intersects the durable directional proof prior and all four
+  current source cells before one checked minimum-change lift back into `Psi`.
+  Unobservable RGB directions add no bound; incompatible RGB/depth bounds remain
+  explicit gap/provenance conflicts; no texture or detached correction state
+  exists.
+- `SigmaConstraintLedger` deterministically coalesces equal-provenance cells,
+  performs reverse-lexicographic redundancy sweeps and stores sparse Q16.48
+  `ConstraintCertificate` records. Independence is tracked per constrained S16
+  coordinate, so appearance-only evidence cannot manufacture geometry hardness.
+- Nonuniform finite footprints, exclusions, conflicts, unobservable contractions
+  and certificate overflow retain exact raw source cells plus immutable four-view
+  timestamps, pairing uncertainty, calibration epoch, poses, intrinsics and source
+  keys for later replay. This ledger is inference proof for the same `Psi`, never
+  a physical side world.
+- Proof and carrier publication are one validated generation transaction. A
+  subsequent proposal reads the selected generation's certificates back into its
+  exact prior, preventing weak/far/broad evidence from pulling a narrower supported
+  state.
+- Verification: generated-operator check, diff check and eight-UAV validator pass;
+  Unity 6000.5.9f1 Vulkan EditMode passed 52/52. Direct GPU reducer fixtures prove
+  exact minimal depth proof, raw retention for nonuniform cells and per-coordinate
+  independent support. Cached reducer dispatches complete in 0.009--0.018 seconds;
+  the first desktop fixture invocation includes roughly 40 seconds of Vulkan shader
+  compilation and is not a claimed Quest runtime duration. Android/device work is
+  intentionally deferred to the accepted S4-08 consolidated milestone.
 
 ## Next exact actions
 
-1. Implement independent RGB_L/R finite-footprint Q16.48 source cells through the
-   generated view operator and exact bounded interval contraction.
-2. Narrow RGB and depth onto one carrier state; preserve incompatible cells as
-   explicit conflicts and emit no bound on unobservable appearance axes.
-3. Reduce absorbed evidence to minimal deterministic ConstraintCertificate proof
-   sets, retaining raw tiles only while inverse evaluation still needs them.
-4. Add calibrated subpixel-view fixtures proving geometry/appearance sharpening
-   without sensor summation or a detached texture state, then checkpoint S4-06.
+1. Compact dirty carrier neighborhoods whose independently supported inverse cells
+   cannot reproduce their common admissible readout at the current gauge sampling.
+2. Construct a deterministic dirty-local bijective 2D gauge proposal that may
+   stretch into implicit-null carrier while preserving one global `Psi` domain.
+3. Pull the exact S16 samples and their proof footprints through the gauge map,
+   then revalidate every retained constraint, readout, singular transition and
+   information bound before atomic publication.
+4. Prove gauge round-trip/readout invariance and supported detail recovery without
+   introducing displacement, chart, mip-geometry or explicit topology state, then
+   checkpoint S4-07.
 
 ## Verification policy
 
@@ -157,6 +193,7 @@ completed node. Android/device runs are batched at the meaningful forward/invers
 vertical milestones and final physical corpus; do not retest known capture plumbing
 for every algebra substep.
 
-Every accepted S4 node is committed separately. After the S4-07 commit, create a
-source-only `git archive` ZIP from that exact commit and pause before S4-08 for user
-audit.
+Every accepted S4 node is committed separately. After accepted S4-08 is committed,
+freeze that exact commit as the consolidated base: create its source-only
+`git archive` ZIP, build its Android/Vulkan APK, deploy that APK to the connected
+Quest, and pause before S4-09 for user audit/device evaluation.

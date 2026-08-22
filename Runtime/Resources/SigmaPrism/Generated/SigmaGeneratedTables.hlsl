@@ -3,17 +3,13 @@
 #ifndef SIGMA_GENERATED_TABLES_INCLUDED
 #define SIGMA_GENERATED_TABLES_INCLUDED
 
-#define SIGMA_S16_LANES 16u
-#define SIGMA_Q48_FRACTION_BITS 48u
-#define SIGMA_Q48_ONE_LO 0u
-#define SIGMA_Q48_ONE_HI 0x00010000u
+#include "SigmaGeneratedLayout.hlsl"
+
 #define SIGMA_ANNIHILATOR_ACTION_COUNT 168u
 #define SIGMA_ZERO_DIVISOR_CATALOG_COUNT 1344u
 #define SIGMA_Z_NULL_ANNIHILATOR_ACTION 83u
 
 static const uint SIGMA_MUL_NEGATIVE_MASK[16] = { 0x0000u, 0x6996u, 0xc33cu, 0xa55au, 0x0ff0u, 0x55aau, 0x9966u, 0x33ccu, 0xff00u, 0x6a6au, 0xc6c6u, 0xacacu, 0x1e1eu, 0x7474u, 0xd8d8u, 0xb2b2u };
-static const uint SIGMA_GEOMETRY_ROWS[4] = { 1u, 2u, 5u, 6u };
-static const uint SIGMA_HIDDEN_ROWS[12] = { 0u, 3u, 4u, 7u, 8u, 9u, 10u, 11u, 12u, 13u, 14u, 15u };
 static const int4 SIGMA_Z_NULL_DYAD = int4(1, -1, 10, -1);
 static const int4 SIGMA_ANNIHILATOR_ACTIONS[168] = {
     int4(1, -1, 10, -1),

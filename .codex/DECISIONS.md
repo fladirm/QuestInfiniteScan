@@ -115,3 +115,22 @@ Git history and are not active on this branch.
 - Consequence: S4-06 RGB inverse evidence must narrow the same carrier and emit
   proof certificates/conflicts; it may not create a detached appearance or
   geometry correction world.
+
+## ADR-S408 — RGB-D proof narrows the same hyperdimensional carrier
+
+- Decision: both RGB eyes and both depth eyes remain four independent source cells
+  until exact admissible-set intersection against one selected `Psi` generation.
+  RGB can alter geometry-relevant S16 directions only where the generated view
+  operator actually makes them observable; there is no texture-world or detached
+  photometric correction.
+- Decision: sparse `ConstraintCertificate` records and unresolved raw tiles are
+  directional inference proof for `Psi`, not physical state. Certificates are
+  reapplied to the exact prior of later inverse evaluations; raw tiles retain the
+  original timestamps, pairing uncertainty, pose/calibration gauge, footprint and
+  source cells required for deterministic replay.
+- Decision: independent support is evaluated per S16 operator coordinate. Two
+  distinct sources may harden only the directions both actually constrain; an
+  appearance-only constraint cannot make an unrelated geometry direction resistive.
+- Consequence: S4-07 may change only carrier gauge sampling through a bijection. It
+  must transport/revalidate these retained constraints over the same `Psi` and may
+  not reinterpret the proof ledger as geometry, topology, detail or appearance.

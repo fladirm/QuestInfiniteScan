@@ -23,6 +23,9 @@
 #define SIGMA_SOURCE_PRIOR 0u
 #define SIGMA_SOURCE_DEPTH_LEFT 1u
 #define SIGMA_SOURCE_DEPTH_RIGHT 2u
+#define SIGMA_SOURCE_RGB_LEFT 3u
+#define SIGMA_SOURCE_RGB_RIGHT 4u
+#define SIGMA_SOURCE_TEMPORAL 5u
 
 #define SIGMA_SECTOR_NO_CONSTRAINT 0u
 #define SIGMA_SECTOR_HIT 1u
@@ -35,6 +38,9 @@
 #define SIGMA_PROPOSAL_CONFLICT (1u << 4u)
 #define SIGMA_PROPOSAL_EXCLUSION (1u << 5u)
 #define SIGMA_PROPOSAL_INVALID (1u << 6u)
+#define SIGMA_PROPOSAL_RGB_LEFT (1u << 7u)
+#define SIGMA_PROPOSAL_RGB_RIGHT (1u << 8u)
+#define SIGMA_PROPOSAL_RGB_UNOBSERVABLE (1u << 9u)
 
 #define SIGMA_COUNTER_ACTIVE_PAGES 0u
 #define SIGMA_COUNTER_HIT_SAMPLES 1u
@@ -61,16 +67,24 @@ struct SigmaDepthCell3
     uint valid;
 };
 
+struct SigmaAdmissibleCell16
+{
+    SigmaQ48Bounds coordinate[16];
+    uint coordinateMask;
+    uint sourceClass;
+    uint independenceKey;
+    uint valid;
+};
+
 // A transient exact incompatibility/exclusion record. It is evidence about one
 // carrier preimage and can never render as another physical surface.
-struct SigmaDepthConflictGpu
+struct SigmaInverseConflictGpu
 {
     uint4 carrierPage;
-    uint4 stateAndSector; // generation, sample, sector mask, conflict-axis mask
-    uint4 provenance;    // lo sources, hi sources, left key, right key
-    uint2 gapX;
-    uint2 gapY;
-    uint2 gapZ;
+    uint4 stateAndSector; // generation, sample, sector mask, coordinate mask
+    uint4 independenceKeys; // depth L/R, RGB L/R
+    uint4 provenance; // packed 4-bit lo-source words, then hi-source words
+    uint4 gapPairs[8]; // two exact Q16.48 gaps per uint4
 };
 
 #endif

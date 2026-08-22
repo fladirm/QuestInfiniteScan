@@ -28,8 +28,10 @@ marked `done` unless its evidence is absent or a later change regressed it.
 - Land every completed `S4-xx` node as its own Git commit after its acceptance
   evidence and generated code graph are current; never combine two accepted nodes
   into one checkpoint commit.
-- After committing `S4-07`, create a source-only ZIP from that exact commit with
-  `git archive` and stop before activating `S4-08` for the user's audit.
+- After committing accepted `S4-08`, freeze that exact commit as the consolidated
+  base milestone: create a source-only ZIP with `git archive`, build the Quest
+  Android/Vulkan APK from the same commit, deploy it to the connected headset, and
+  stop before activating `S4-09` for the user's audit/device evaluation.
 - Prefer complete vertical slices over disconnected scaffolding.
 - Report accepted DAG nodes and the next exact gate, not file-count percentages.
 

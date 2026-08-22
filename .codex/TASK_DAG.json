@@ -5,6 +5,7 @@
   "reconstruction_physics": "CPQ4-2026-08-22-S16-v6",
   "spec_status": "canonical_replacement_frozen_for_implementation",
   "effort_policy": "90_percent_implementation_5_percent_tests_5_percent_controls; physical Quest tests only at consolidated vertical milestones",
+  "base_freeze_policy": "After accepted S4-08 is committed, create a source-only git archive ZIP from that exact commit, build the Quest Android/Vulkan APK from the same commit, deploy it to the connected headset, and stop before S4-09 for user audit/device evaluation",
   "allowed_statuses": ["pending", "in_progress", "done", "blocked"],
   "nodes": [
     {
@@ -131,13 +132,13 @@
         "SigmaTopologyController preserves immutable carrier generations, uses epoch/frame-validated evidence, supports exact full build and bounded evidence-only revisit accumulation, and publishes topology keys before prediction consumes them",
         "SigmaRenderer and SigmaPredict reject stale topology generation/revision or cut triangles; topology state remains disposable derived readout and never mutates the Sigma carrier",
         "Unity 6000.5.9f1 Vulkan EditMode passed 4/4 SigmaIntrinsicTopologyTests, 2/2 SigmaForwardReadoutTests and 38/38 full Sigma EditMode tests; generated operator check, git diff check and eight-UAV validator passed",
-        "The Android smoke build was intentionally deferred to the S4-07 consolidated four-stream vertical milestone; no physical Quest scan is claimed for this algebra/topology substep"
+        "The Android smoke build was intentionally deferred to the accepted S4-08 consolidated base milestone; no physical Quest scan is claimed for this algebra/topology substep"
       ]
     },
     {
       "id": "S4-06",
       "title": "Implement joint RGB inverse readout and minimal proof certificates",
-      "status": "in_progress",
+      "status": "done",
       "depends_on": ["S4-05"],
       "acceptance": [
         "RGB_L/R construct independent outward-rounded projective S16 cells through the generated view operator and exact bounded interval contraction",
@@ -146,12 +147,18 @@
         "Absorbed evidence reduces deterministically to the minimal ConstraintCertificate proof set; raw tiles persist only while future inverse evaluation needs them",
         "Repeated calibrated subpixel views sharpen geometry and appearance readout without sensor summation or a side-channel texture bake"
       ],
-      "evidence": []
+      "evidence": [
+        "RGB_L/R independently construct conservative Q16.48 projective cells through the generated 27-direction view operator and exact 2-forward/2-reverse interval contraction, then meet both independent depth cells and the selected generation proof prior in one SigmaBuildJointProposal path",
+        "The checked joint commit changes only Psi: unobservable RGB axes add no bounds, empty RGB/depth intersections preserve exact conflict provenance, and per-coordinate independent support prevents appearance evidence from manufacturing unrelated geometry hardness",
+        "SigmaConstraintLedger performs exact same-key coalescing plus deterministic reverse-lexicographic redundancy sweeps into sparse ConstraintCertificates; nonuniform/conflicting/exclusion/unobservable/overflow evidence retains replayable raw finite-footprint cells and immutable timestamp/pose/calibration metadata",
+        "Carrier and proof generations publish only after asynchronous GPU proof validation, and durable certificates are reapplied as the exact prior of subsequent inverse proposals so weaker evidence cannot degrade a narrower supported state",
+        "Unity 6000.5.9f1 Vulkan EditMode passed 52/52 including direct GPU reducer fixtures; generated operators, git diff and eight-UAV validation passed. Android and physical Quest execution remain intentionally deferred to accepted S4-08"
+      ]
     },
     {
       "id": "S4-07",
       "title": "Implement local bijective carrier-gauge refinement for supported detail",
-      "status": "pending",
+      "status": "in_progress",
       "depends_on": ["S4-06"],
       "acceptance": [
         "Independent accepted inverse cells request more carrier sampling only when current sampling cannot reproduce their common admissible readout",

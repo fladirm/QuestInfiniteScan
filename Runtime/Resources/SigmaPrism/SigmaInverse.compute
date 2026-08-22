@@ -10,6 +10,8 @@
 
 #include "SigmaGeometryReadout.hlsl"
 #include "SigmaInverseMath.hlsl"
+#include "SigmaRgbInverseMath.hlsl"
+#include "SigmaConstraintLedgerAbi.hlsl"
 
 Texture2DArray<float2> _MetricDepth;
 Texture2DArray<uint> _DepthFlags;
@@ -39,11 +41,13 @@ RWStructuredBuffer<uint2> _ProposalGeometry;
 RWStructuredBuffer<uint2> _ProposalMass;
 RWStructuredBuffer<uint> _ProposalStatus;
 RWStructuredBuffer<uint> _ProposalEpoch;
-RWStructuredBuffer<SigmaDepthConflictGpu> _ConflictRecords;
+RWStructuredBuffer<SigmaInverseConflictGpu> _ConflictRecords;
 RWStructuredBuffer<uint> _ConflictCount;
 RWStructuredBuffer<uint> _FrameCounters;
 RWStructuredBuffer<uint> _GaugePromotionCounts;
 RWStructuredBuffer<uint2> _TargetCarrierState;
+RWStructuredBuffer<SigmaProofSampleGpu> _ProofSamples;
+RWStructuredBuffer<uint> _ProofPageStatus;
 
 StructuredBuffer<uint2> _FixtureState;
 StructuredBuffer<uint2> _FixtureCellBounds;
@@ -70,6 +74,9 @@ uint _GaugeBlockMask;
 uint _GaugeCommitCapacity;
 uint _GaugeCommitIndex;
 uint _ProposalFrameSerial;
+uint _ProofTargetSlot;
+uint _ProofCalibrationEpoch;
+uint _ProofFrameSlot;
 uint2 _GaugePixelOrigin;
 
 float4x4 _WorldFromOpticalLeft;
@@ -80,6 +87,78 @@ float4 _DepthIntrinsicsLeft;
 float4 _DepthIntrinsicsRight;
 
 groupshared uint SigmaActiveScan[256];
+
+bool SigmaProjectWorldToPixel(float3 worldPosition, uint eye, out uint2 pixel,
+    out float3 opticalPosition);
+
+uint SigmaPackPixel16(uint2 pixel)
+{
+    return (pixel.x & 0xffffu) | ((pixel.y & 0xffffu) << 16u);
+}
+
+uint SigmaPackUnorm4x8Exact(float4 colour)
+{
+    uint4 quantized = (uint4)round(saturate(colour) * 255.0);
+    return quantized.x | (quantized.y << 8u) | (quantized.z << 16u) |
+        (quantized.w << 24u);
+}
+
+void SigmaCaptureRgbRaw(uint eye, float3 worldPosition,
+    out uint4 first, out uint4 second)
+{
+    first = uint4(0xffffffffu, 0xffffffffu, 0u, 0u);
+    second = 0u;
+    float2 projected;
+    if (!SigmaProjectWorldToRgb(worldPosition, eye, projected))
+        return;
+    int2 p00 = int2(floor(projected - 0.5));
+    float4 c00 = SigmaRgbLoad(eye, p00);
+    float4 c10 = SigmaRgbLoad(eye, p00 + int2(1, 0));
+    float4 c01 = SigmaRgbLoad(eye, p00 + int2(0, 1));
+    float4 c11 = SigmaRgbLoad(eye, p00 + int2(1, 1));
+    if (!all(isfinite(c00)) || !all(isfinite(c10)) ||
+        !all(isfinite(c01)) || !all(isfinite(c11)))
+        return;
+    first = uint4(asuint(projected.x), asuint(projected.y),
+        SigmaPackUnorm4x8Exact(c00), SigmaPackUnorm4x8Exact(c10));
+    second = uint4(SigmaPackUnorm4x8Exact(c01),
+        SigmaPackUnorm4x8Exact(c11), 1u, eye);
+}
+
+uint4 SigmaCaptureDepthRaw(uint eye, float3 worldPosition,
+    SigmaDepthCell3 cell)
+{
+    uint2 pixel;
+    float3 optical;
+    if (!SigmaProjectWorldToPixel(worldPosition, eye, pixel, optical) ||
+        any(pixel >= _Resolution))
+        return uint4(0xffffffffu, 0u, 0u, 0u);
+    float2 metric = _MetricDepth[uint3(pixel, eye)];
+    return uint4(SigmaPackPixel16(pixel), asuint(metric.x), asuint(metric.y),
+        (cell.valid & 1u) | ((cell.sector & 3u) << 1u));
+}
+
+void SigmaWriteProofSample(uint sample, uint status, uint constrainedMask,
+    uint rgbUnobservableMask, bool scheduleRgb, float3 worldPosition,
+    SigmaDepthCell3 depthLeft, SigmaDepthCell3 depthRight,
+    SigmaAdmissibleCell16 rgbLeft, SigmaAdmissibleCell16 rgbRight)
+{
+    SigmaProofSampleGpu proof = (SigmaProofSampleGpu)0;
+    proof.meta = uint4(status, constrainedMask,
+        scheduleRgb ? 1u : 0u, rgbUnobservableMask);
+    proof.depthLeft = depthLeft;
+    proof.depthRight = depthRight;
+    proof.rgbLeft = rgbLeft;
+    proof.rgbRight = rgbRight;
+    proof.raw[0] = SigmaCaptureDepthRaw(0u, worldPosition, depthLeft);
+    proof.raw[1] = SigmaCaptureDepthRaw(1u, worldPosition, depthRight);
+    if (scheduleRgb)
+    {
+        SigmaCaptureRgbRaw(0u, worldPosition, proof.raw[2], proof.raw[3]);
+        SigmaCaptureRgbRaw(1u, worldPosition, proof.raw[4], proof.raw[5]);
+    }
+    _ProofSamples[sample] = proof;
+}
 
 bool SigmaPredictionHasContact(uint2 pixel, uint eye)
 {
@@ -181,24 +260,42 @@ bool SigmaBuildMatchedEyeCell(uint eye, float3 worldPosition,
     return valid != 0u;
 }
 
+uint2 SigmaPackSourceNibbles(uint sources[16])
+{
+    uint2 packed = 0u;
+    [loop]
+    for (uint lane = 0u; lane < 16u; ++lane)
+    {
+        uint word = lane >> 3u;
+        uint shift = (lane & 7u) * 4u;
+        packed[word] |= (sources[lane] & 15u) << shift;
+    }
+    return packed;
+}
+
 void SigmaAppendEvidence(SigmaCarrierPageMetaGpu metadata, uint sample,
-    uint sectorMask, uint conflictMask, uint loSources, uint hiSources,
-    uint2 gaps[3])
+    uint sectorMask, uint conflictMask, uint loSources[16], uint hiSources[16],
+    uint2 gaps[16])
 {
     uint recordIndex;
     InterlockedAdd(_ConflictCount[0], 1u, recordIndex);
     if (recordIndex >= _ConflictCapacity)
         return;
-    SigmaDepthConflictGpu record;
+    SigmaInverseConflictGpu record;
     record.carrierPage = uint4(metadata.pageXLo, metadata.pageXHi,
         metadata.pageYLo, metadata.pageYHi);
     record.stateAndSector = uint4(metadata.generation, sample, sectorMask,
         conflictMask);
-    record.provenance = uint4(loSources, hiSources,
-        _LeftIndependenceKey, _RightIndependenceKey);
-    record.gapX = gaps[0];
-    record.gapY = gaps[1];
-    record.gapZ = gaps[2];
+    record.independenceKeys = uint4(_LeftIndependenceKey,
+        _RightIndependenceKey, _RgbLeftIndependenceKey,
+        _RgbRightIndependenceKey);
+    uint2 packedLo = SigmaPackSourceNibbles(loSources);
+    uint2 packedHi = SigmaPackSourceNibbles(hiSources);
+    record.provenance = uint4(packedLo, packedHi);
+    [unroll]
+    for (uint pair = 0u; pair < 8u; ++pair)
+        record.gapPairs[pair] = uint4(gaps[pair * 2u],
+            gaps[pair * 2u + 1u]);
     _ConflictRecords[recordIndex] = record;
 }
 
@@ -376,35 +473,45 @@ void BuildDepthProposals(uint3 groupId : SV_GroupID,
     SigmaBuildMatchedEyeCell(0u, worldPosition, metadata, pageSlot, sample, left);
     SigmaBuildMatchedEyeCell(1u, worldPosition, metadata, pageSlot, sample, right);
     uint sectorMask = (left.sector & 3u) | ((right.sector & 3u) << 2u);
-    uint2 zeroGaps[3];
+    uint2 zeroGaps[16];
+    uint zeroSources[16];
     [unroll]
-    for (uint axis = 0u; axis < 3u; ++axis)
-        zeroGaps[axis] = SIGMA_Q48_ZERO;
+    for (uint coordinate = 0u; coordinate < 16u; ++coordinate)
+    {
+        zeroGaps[coordinate] = SIGMA_Q48_ZERO;
+        zeroSources[coordinate] = SIGMA_SOURCE_PRIOR;
+    }
     if ((left.valid != 0u && left.sector == SIGMA_SECTOR_PRE_HIT_EXCLUSION) ||
         (right.valid != 0u && right.sector == SIGMA_SECTOR_PRE_HIT_EXCLUSION))
     {
         _ProposalStatus[proposalIndex] = SIGMA_PROPOSAL_EXCLUSION;
-        SigmaAppendEvidence(metadata, sample, sectorMask, 0u, 0u, 0u,
-            zeroGaps);
+        _CommitPageFlags[_SegmentFlagOffset + pageSlot] = 1u;
+        SigmaAppendEvidence(metadata, sample, sectorMask, 0u, zeroSources,
+            zeroSources, zeroGaps);
         InterlockedAdd(_FrameCounters[SIGMA_COUNTER_EXCLUSIONS], 1u);
         return;
     }
 
-    uint2 targetGeometry[3];
-    uint2 targetMass;
+    uint2 candidate[16];
+    SigmaQ48Bounds acceptedBounds[16];
+    SigmaAdmissibleCell16 rgbLeftEvidence;
+    SigmaAdmissibleCell16 rgbRightEvidence;
+    uint rgbUnobservableMask;
+    uint constrainedMask;
     uint status;
     uint conflictMask;
-    uint loSources;
-    uint hiSources;
-    uint2 gaps[3];
-    bool accepted = SigmaBuildSupportedDepthProposal(state, left, right,
-        targetGeometry, targetMass, status, conflictMask, loSources, hiSources,
-        gaps);
+    uint loSources[16];
+    uint hiSources[16];
+    uint2 gaps[16];
+    uint localX = sample & 63u;
+    uint localY = sample >> 6u;
+    bool scheduleRgb = ((localX & 3u) | ((localY & 3u) << 2u)) ==
+        (_RgbPhase & 15u);
+    bool accepted = SigmaBuildJointProposal(state, worldPosition, metadata,
+        sample, left, right, scheduleRgb, candidate, acceptedBounds, rgbLeftEvidence,
+        rgbRightEvidence, rgbUnobservableMask, constrainedMask, conflictMask,
+        loSources, hiSources, gaps, status);
     _ProposalStatus[proposalIndex] = status;
-    _ProposalMass[proposalIndex] = targetMass;
-    [unroll]
-    for (uint axis = 0u; axis < 3u; ++axis)
-        _ProposalGeometry[proposalIndex * 3u + axis] = targetGeometry[axis];
     if ((status & (SIGMA_PROPOSAL_HIT_LEFT | SIGMA_PROPOSAL_HIT_RIGHT)) != 0u)
         InterlockedAdd(_FrameCounters[SIGMA_COUNTER_HIT_SAMPLES], 1u);
     if ((status & SIGMA_PROPOSAL_CONFLICT) != 0u)
@@ -413,9 +520,11 @@ void BuildDepthProposals(uint3 groupId : SV_GroupID,
             loSources, hiSources, gaps);
         InterlockedAdd(_FrameCounters[SIGMA_COUNTER_EMPTY_MEETS], 1u);
     }
+    if (accepted || (status & (SIGMA_PROPOSAL_CONFLICT |
+            SIGMA_PROPOSAL_EXCLUSION | SIGMA_PROPOSAL_RGB_UNOBSERVABLE)) != 0u)
+        _CommitPageFlags[_SegmentFlagOffset + pageSlot] = 1u;
     if (accepted && (status & SIGMA_PROPOSAL_CHANGED) != 0u)
     {
-        _CommitPageFlags[_SegmentFlagOffset + pageSlot] = 1u;
         InterlockedAdd(_FrameCounters[SIGMA_COUNTER_CHANGED_SAMPLES], 1u);
     }
 }
@@ -429,42 +538,74 @@ void CommitDepthProposals(uint3 dispatchId : SV_DispatchThreadID)
         return;
     uint proposalIndex = _SourcePageSlot * SIGMA_PAGE_SAMPLE_COUNT + sample;
     uint status = _ProposalStatusRead[proposalIndex];
-    if ((status & (SIGMA_PROPOSAL_ACCEPTED | SIGMA_PROPOSAL_CHANGED)) !=
-        (SIGMA_PROPOSAL_ACCEPTED | SIGMA_PROPOSAL_CHANGED))
-        return;
-
     uint targetBase = _TargetPageSlot * SIGMA_PAGE_LANE_COUNT +
         sample * SIGMA_LANE_COUNT;
     uint2 state[16];
     [unroll]
     for (uint lane = 0u; lane < 16u; ++lane)
         state[lane] = _TargetCarrierState[targetBase + lane];
-    uint valid = 1u;
-    uint2 geometry[4];
-    SigmaGeometryGPlan(state, geometry, valid);
-    uint2 targetGeometry[3];
-    SigmaQ48Bounds accepted[3];
-    uint2 oneLsb = uint2(1u, 0u);
-    [unroll]
-    for (uint axis = 0u; axis < 3u; ++axis)
+    SigmaCarrierPageMetaGpu metadata = _PageMetadata[_SourcePageSlot];
+    float3 worldPosition;
+    float ignoredMass;
+    if (!SigmaGeometryReadoutPlan(state, worldPosition, ignoredMass))
     {
-        targetGeometry[axis] = _ProposalGeometryRead[
-            proposalIndex * 3u + axis];
-        uint2 coordinate = SigmaQ48DivNearestEven(targetGeometry[axis],
-            geometry[0], valid);
-        accepted[axis].lo = SigmaQ48SubChecked(coordinate, oneLsb, valid);
-        accepted[axis].hi = SigmaQ48AddChecked(coordinate, oneLsb, valid);
+        SigmaProofSampleGpu emptyProof = (SigmaProofSampleGpu)0;
+        emptyProof.meta = uint4(status, 0u, 0u, 0u);
+        _ProofSamples[sample] = emptyProof;
+        return;
+    }
+    SigmaDepthCell3 left;
+    SigmaDepthCell3 right;
+    SigmaBuildMatchedEyeCell(0u, worldPosition, metadata, _SourcePageSlot,
+        sample, left);
+    SigmaBuildMatchedEyeCell(1u, worldPosition, metadata, _SourcePageSlot,
+        sample, right);
+    bool exclusion = (left.valid != 0u &&
+            left.sector == SIGMA_SECTOR_PRE_HIT_EXCLUSION) ||
+        (right.valid != 0u &&
+            right.sector == SIGMA_SECTOR_PRE_HIT_EXCLUSION);
+    bool scheduleRgb = (((sample & 63u) & 3u) |
+        ((((sample >> 6u) & 63u) & 3u) << 2u)) == (_RgbPhase & 15u);
+    if (exclusion)
+    {
+        SigmaAdmissibleCell16 emptyRgb = (SigmaAdmissibleCell16)0;
+        SigmaWriteProofSample(sample, SIGMA_PROPOSAL_EXCLUSION, 0u, 0u,
+            scheduleRgb, worldPosition, left, right, emptyRgb, emptyRgb);
+        return;
     }
     uint2 candidate[16];
-    uint2 targetMass = _ProposalMassRead[proposalIndex];
-    if (!SigmaApplyGeometryTargets(state, geometry, targetGeometry, candidate,
-            valid) || !SigmaStrengthenCandidateMass(candidate, geometry[0],
-            targetMass, valid) || !SigmaRevalidateGeometryCandidate(candidate,
-            targetMass, accepted, valid))
+    SigmaQ48Bounds acceptedBounds[16];
+    SigmaAdmissibleCell16 rgbLeftEvidence;
+    SigmaAdmissibleCell16 rgbRightEvidence;
+    uint rgbUnobservableMask;
+    uint constrainedMask;
+    uint conflictMask;
+    uint loSources[16];
+    uint hiSources[16];
+    uint2 gaps[16];
+    uint rebuiltStatus;
+    bool accepted = SigmaBuildJointProposal(state, worldPosition, metadata,
+        sample, left, right, scheduleRgb, candidate, acceptedBounds, rgbLeftEvidence,
+        rgbRightEvidence, rgbUnobservableMask, constrainedMask, conflictMask,
+        loSources, hiSources, gaps, rebuiltStatus);
+    SigmaWriteProofSample(sample, rebuiltStatus, constrainedMask,
+        rgbUnobservableMask, scheduleRgb, worldPosition, left, right,
+        rgbLeftEvidence, rgbRightEvidence);
+    if (rebuiltStatus != status)
+    {
+        InterlockedOr(_ProofPageStatus[SigmaProofStatusAddress(
+            _ProofTargetSlot, 1u)], SIGMA_PROOF_FAILED);
+        return;
+    }
+    if (!accepted || (rebuiltStatus & (SIGMA_PROPOSAL_ACCEPTED |
+            SIGMA_PROPOSAL_CHANGED)) != (SIGMA_PROPOSAL_ACCEPTED |
+            SIGMA_PROPOSAL_CHANGED))
         return;
     [unroll]
     for (uint lane = 0u; lane < 16u; ++lane)
         _TargetCarrierState[targetBase + lane] = candidate[lane];
+    InterlockedOr(_ProofPageStatus[SigmaProofStatusAddress(
+        _ProofTargetSlot, 1u)], SIGMA_PROOF_STATE_CHANGED);
 }
 
 [numthreads(8, 8, 1)]
@@ -532,6 +673,17 @@ void PromoteGaugePage(uint3 id : SV_DispatchThreadID)
     [unroll]
     for (uint lane = 0u; lane < 16u; ++lane)
         _TargetCarrierState[targetBase + lane] = promoted[lane];
+    SigmaAdmissibleCell16 emptyRgb = (SigmaAdmissibleCell16)0;
+    SigmaWriteProofSample(sample,
+        SIGMA_PROPOSAL_ACCEPTED | SIGMA_PROPOSAL_CHANGED |
+        SIGMA_PROPOSAL_HIT_LEFT | SIGMA_PROPOSAL_HIT_RIGHT,
+        (1u << SIGMA_GEOMETRY_ROWS[1]) |
+        (1u << SIGMA_GEOMETRY_ROWS[2]) |
+        (1u << SIGMA_GEOMETRY_ROWS[3]), 0u, false,
+        SigmaDepthWorldPointCandidate(0u, leftPixel, leftMetric.x),
+        left, right, emptyRgb, emptyRgb);
+    InterlockedOr(_ProofPageStatus[SigmaProofStatusAddress(
+        _ProofTargetSlot, 1u)], SIGMA_PROOF_STATE_CHANGED);
     if (_GaugeCommitIndex < _GaugeCommitCapacity)
         InterlockedAdd(_GaugePromotionCounts[_GaugeCommitIndex], 1u);
 }
