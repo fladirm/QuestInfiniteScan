@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "source_digest": "001fcfbfb5ac288cb28934588331af8d760ae7a0249c972e370078784fd4558c",
+  "source_digest": "29a9f392a74d587c49f9d9cb7149ff643734164955b21b10a56ea89f542c8db0",
   "scope": [
     "Runtime/**/*.cs",
     "Runtime/Resources/SigmaPrism/**/*.*",
@@ -3474,67 +3474,67 @@
       "line": 10
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::BuildDepthProposals@441",
+      "id": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::BuildDepthProposals@451",
       "file": "Runtime/Resources/SigmaPrism/SigmaInverse.compute",
       "name": "BuildDepthProposals",
       "kind": "gpu_function",
-      "line": 441
+      "line": 451
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::ClassifyDepthFrame@326",
+      "id": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::ClassifyDepthFrame@336",
       "file": "Runtime/Resources/SigmaPrism/SigmaInverse.compute",
       "name": "ClassifyDepthFrame",
       "kind": "gpu_function",
-      "line": 326
+      "line": 336
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::ClearInverseFrame@304",
+      "id": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::ClearInverseFrame@314",
       "file": "Runtime/Resources/SigmaPrism/SigmaInverse.compute",
       "name": "ClearInverseFrame",
       "kind": "gpu_function",
-      "line": 304
+      "line": 314
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::CommitDepthProposals@534",
+      "id": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::CommitDepthProposals@544",
       "file": "Runtime/Resources/SigmaPrism/SigmaInverse.compute",
       "name": "CommitDepthProposals",
       "kind": "gpu_function",
-      "line": 534
+      "line": 544
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::CompactActivePages@413",
+      "id": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::CompactActivePages@423",
       "file": "Runtime/Resources/SigmaPrism/SigmaInverse.compute",
       "name": "CompactActivePages",
       "kind": "gpu_function",
-      "line": 413
+      "line": 423
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::EvaluateDepthMeetFixture@693",
+      "id": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::EvaluateDepthMeetFixture@703",
       "file": "Runtime/Resources/SigmaPrism/SigmaInverse.compute",
       "name": "EvaluateDepthMeetFixture",
       "kind": "gpu_function",
-      "line": 693
+      "line": 703
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::EvaluateNullDepthMeetFixture@752",
+      "id": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::EvaluateNullDepthMeetFixture@762",
       "file": "Runtime/Resources/SigmaPrism/SigmaInverse.compute",
       "name": "EvaluateNullDepthMeetFixture",
       "kind": "gpu_function",
-      "line": 752
+      "line": 762
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::PromoteGaugePage@613",
+      "id": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::PromoteGaugePage@623",
       "file": "Runtime/Resources/SigmaPrism/SigmaInverse.compute",
       "name": "PromoteGaugePage",
       "kind": "gpu_function",
-      "line": 613
+      "line": 623
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::SigmaAppendEvidence@278",
+      "id": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::SigmaAppendEvidence@288",
       "file": "Runtime/Resources/SigmaPrism/SigmaInverse.compute",
       "name": "SigmaAppendEvidence",
       "kind": "gpu_function",
-      "line": 278
+      "line": 288
     },
     {
       "id": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::SigmaBuildMatchedEyeCell@233",
@@ -4097,18 +4097,18 @@
       "line": 76
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaAccumulateIndependentKey@366",
+      "id": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaAccumulateIndependentKey@380",
       "file": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl",
       "name": "SigmaAccumulateIndependentKey",
       "kind": "gpu_function",
-      "line": 366
+      "line": 380
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaBuildJointProposal@406",
+      "id": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaBuildJointProposal@420",
       "file": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl",
       "name": "SigmaBuildJointProposal",
       "kind": "gpu_function",
-      "line": 406
+      "line": 420
     },
     {
       "id": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaBuildRgbCell@257",
@@ -4125,11 +4125,11 @@
       "line": 124
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaJointMeetCoordinate@344",
+      "id": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaJointMeetCoordinate@358",
       "file": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl",
       "name": "SigmaJointMeetCoordinate",
       "kind": "gpu_function",
-      "line": 344
+      "line": 358
     },
     {
       "id": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaProjectWorldToRgb@96",
@@ -4139,11 +4139,11 @@
       "line": 96
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaRevalidateJointCandidate@377",
+      "id": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaRevalidateJointCandidate@391",
       "file": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl",
       "name": "SigmaRevalidateJointCandidate",
       "kind": "gpu_function",
-      "line": 377
+      "line": 391
     },
     {
       "id": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaRgbBuildInequality@185",
@@ -14301,167 +14301,167 @@
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::BuildDepthProposals@441",
+      "source": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::BuildDepthProposals@451",
       "target": "Runtime/Resources/SigmaPrism/SigmaGeometryReadout.hlsl::SigmaGeometryReadoutPlan@39",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::BuildDepthProposals@441",
-      "target": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::SigmaAppendEvidence@278",
+      "source": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::BuildDepthProposals@451",
+      "target": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::SigmaAppendEvidence@288",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::BuildDepthProposals@441",
+      "source": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::BuildDepthProposals@451",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::SigmaBuildMatchedEyeCell@233",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::BuildDepthProposals@441",
-      "target": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaBuildJointProposal@406",
+      "source": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::BuildDepthProposals@451",
+      "target": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaBuildJointProposal@420",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::ClassifyDepthFrame@326",
+      "source": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::ClassifyDepthFrame@336",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::SigmaDepthWorldPointCandidate@192",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::ClassifyDepthFrame@326",
+      "source": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::ClassifyDepthFrame@336",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::SigmaProjectWorldToPixel@168",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::ClassifyDepthFrame@326",
+      "source": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::ClassifyDepthFrame@336",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseMath.hlsl::SigmaClassifyFirstHitExact@185",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::ClassifyDepthFrame@326",
+      "source": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::ClassifyDepthFrame@336",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseMath.hlsl::SigmaDepthHalfWidth@123",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::ClassifyDepthFrame@326",
+      "source": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::ClassifyDepthFrame@336",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseMath.hlsl::SigmaQ48FromFloatNearestEven@34",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::CommitDepthProposals@534",
+      "source": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::CommitDepthProposals@544",
       "target": "Runtime/Resources/SigmaPrism/SigmaConstraintLedgerAbi.hlsl::SigmaProofStatusAddress@86",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::CommitDepthProposals@534",
+      "source": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::CommitDepthProposals@544",
       "target": "Runtime/Resources/SigmaPrism/SigmaGeometryReadout.hlsl::SigmaGeometryReadoutPlan@39",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::CommitDepthProposals@534",
+      "source": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::CommitDepthProposals@544",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::SigmaBuildMatchedEyeCell@233",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::CommitDepthProposals@534",
+      "source": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::CommitDepthProposals@544",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::SigmaWriteProofSample@140",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::CommitDepthProposals@534",
+      "source": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::CommitDepthProposals@544",
       "target": "Runtime/Resources/SigmaPrism/SigmaOperatorPlan.hlsl::SigmaCanonicalMutationEnabled@7",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::CommitDepthProposals@534",
-      "target": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaBuildJointProposal@406",
+      "source": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::CommitDepthProposals@544",
+      "target": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaBuildJointProposal@420",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::EvaluateDepthMeetFixture@693",
+      "source": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::EvaluateDepthMeetFixture@703",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseMath.hlsl::SigmaApplyGeometryTargets@319",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::EvaluateDepthMeetFixture@693",
+      "source": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::EvaluateDepthMeetFixture@703",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseMath.hlsl::SigmaBuildSupportedDepthProposal@389",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::EvaluateDepthMeetFixture@693",
+      "source": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::EvaluateDepthMeetFixture@703",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseMath.hlsl::SigmaStrengthenCandidateMass@376",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::EvaluateDepthMeetFixture@693",
+      "source": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::EvaluateDepthMeetFixture@703",
       "target": "Runtime/Resources/SigmaPrism/SigmaOperatorPlan.hlsl::SigmaGeometryGPlan@33",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::EvaluateNullDepthMeetFixture@752",
+      "source": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::EvaluateNullDepthMeetFixture@762",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseMath.hlsl::SigmaLiftNullDepthMeet@517",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::EvaluateNullDepthMeetFixture@752",
+      "source": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::EvaluateNullDepthMeetFixture@762",
       "target": "Runtime/Resources/SigmaPrism/SigmaOperatorPlan.hlsl::SigmaGeometryGPlan@33",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::PromoteGaugePage@613",
+      "source": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::PromoteGaugePage@623",
       "target": "Runtime/Resources/SigmaPrism/SigmaConstraintLedgerAbi.hlsl::SigmaProofStatusAddress@86",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::PromoteGaugePage@613",
+      "source": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::PromoteGaugePage@623",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::SigmaDepthWorldPointCandidate@192",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::PromoteGaugePage@613",
+      "source": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::PromoteGaugePage@623",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::SigmaPredictionHasContact@162",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::PromoteGaugePage@613",
+      "source": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::PromoteGaugePage@623",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::SigmaProjectWorldToPixel@168",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::PromoteGaugePage@613",
+      "source": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::PromoteGaugePage@623",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::SigmaWriteProofSample@140",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::PromoteGaugePage@613",
+      "source": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::PromoteGaugePage@623",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseMath.hlsl::SigmaBuildDepthWorldCell@228",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::PromoteGaugePage@613",
+      "source": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::PromoteGaugePage@623",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseMath.hlsl::SigmaClassifyFirstHitExact@185",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::PromoteGaugePage@613",
+      "source": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::PromoteGaugePage@623",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseMath.hlsl::SigmaDepthHalfWidth@123",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::PromoteGaugePage@613",
+      "source": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::PromoteGaugePage@623",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseMath.hlsl::SigmaLiftNullDepthMeet@517",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::PromoteGaugePage@613",
+      "source": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::PromoteGaugePage@623",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseMath.hlsl::SigmaQ48FromFloatNearestEven@34",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::PromoteGaugePage@613",
+      "source": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::PromoteGaugePage@623",
       "target": "Runtime/Resources/SigmaPrism/SigmaOperatorPlan.hlsl::SigmaCanonicalMutationEnabled@7",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::SigmaAppendEvidence@278",
+      "source": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::SigmaAppendEvidence@288",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverse.compute::SigmaPackSourceNibbles@262",
       "kind": "calls"
     },
@@ -15396,93 +15396,93 @@
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaBuildJointProposal@406",
+      "source": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaBuildJointProposal@420",
       "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48DivNearestEven@461",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaBuildJointProposal@406",
+      "source": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaBuildJointProposal@420",
       "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48MulNearestEven@293",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaBuildJointProposal@406",
+      "source": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaBuildJointProposal@420",
       "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48ShiftRightNearestEven@184",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaBuildJointProposal@406",
+      "source": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaBuildJointProposal@420",
       "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48SubChecked@159",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaBuildJointProposal@406",
+      "source": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaBuildJointProposal@420",
       "target": "Runtime/Resources/SigmaPrism/SigmaConstraintPrior.hlsl::SigmaApplyConstraintPrior@19",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaBuildJointProposal@406",
+      "source": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaBuildJointProposal@420",
       "target": "Runtime/Resources/SigmaPrism/SigmaExactCompare.hlsl::SigmaQ48Less@25",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaBuildJointProposal@406",
+      "source": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaBuildJointProposal@420",
       "target": "Runtime/Resources/SigmaPrism/SigmaExactCompare.hlsl::SigmaQ48Max@35",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaBuildJointProposal@406",
+      "source": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaBuildJointProposal@420",
       "target": "Runtime/Resources/SigmaPrism/SigmaExactCompare.hlsl::SigmaU64Equal@7",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaBuildJointProposal@406",
+      "source": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaBuildJointProposal@420",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseMath.hlsl::SigmaInformationMassForWidth@162",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaBuildJointProposal@406",
+      "source": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaBuildJointProposal@420",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseMath.hlsl::SigmaPriorHalfWidth@139",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaBuildJointProposal@406",
+      "source": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaBuildJointProposal@420",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseMath.hlsl::SigmaQ48Positive@18",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaBuildJointProposal@406",
+      "source": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaBuildJointProposal@420",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseMath.hlsl::SigmaQ48Widen@81",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaBuildJointProposal@406",
+      "source": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaBuildJointProposal@420",
       "target": "Runtime/Resources/SigmaPrism/SigmaOperatorPlan.hlsl::SigmaHadamardBPlan@25",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaBuildJointProposal@406",
+      "source": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaBuildJointProposal@420",
       "target": "Runtime/Resources/SigmaPrism/SigmaOperatorPlan.hlsl::SigmaProjectiveClamp@61",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaBuildJointProposal@406",
-      "target": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaAccumulateIndependentKey@366",
+      "source": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaBuildJointProposal@420",
+      "target": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaAccumulateIndependentKey@380",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaBuildJointProposal@406",
+      "source": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaBuildJointProposal@420",
       "target": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaBuildRgbCell@257",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaBuildJointProposal@406",
-      "target": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaJointMeetCoordinate@344",
+      "source": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaBuildJointProposal@420",
+      "target": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaJointMeetCoordinate@358",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaBuildJointProposal@406",
-      "target": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaRevalidateJointCandidate@377",
+      "source": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaBuildJointProposal@420",
+      "target": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaRevalidateJointCandidate@391",
       "kind": "calls"
     },
     {
@@ -15581,47 +15581,47 @@
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaJointMeetCoordinate@344",
+      "source": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaJointMeetCoordinate@358",
       "target": "Runtime/Resources/SigmaPrism/SigmaExactCompare.hlsl::SigmaQ48Less@25",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaJointMeetCoordinate@344",
+      "source": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaJointMeetCoordinate@358",
       "target": "Runtime/Resources/SigmaPrism/SigmaExactCompare.hlsl::SigmaU64Equal@7",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaRevalidateJointCandidate@377",
+      "source": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaRevalidateJointCandidate@391",
       "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48AddChecked@140",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaRevalidateJointCandidate@377",
+      "source": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaRevalidateJointCandidate@391",
       "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48DivNearestEven@461",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaRevalidateJointCandidate@377",
+      "source": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaRevalidateJointCandidate@391",
       "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48SubChecked@159",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaRevalidateJointCandidate@377",
+      "source": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaRevalidateJointCandidate@391",
       "target": "Runtime/Resources/SigmaPrism/SigmaExactCompare.hlsl::SigmaQ48Less@25",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaRevalidateJointCandidate@377",
+      "source": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaRevalidateJointCandidate@391",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseMath.hlsl::SigmaQ48AbsDifference@59",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaRevalidateJointCandidate@377",
+      "source": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaRevalidateJointCandidate@391",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseMath.hlsl::SigmaQ48Positive@18",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaRevalidateJointCandidate@377",
+      "source": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaRevalidateJointCandidate@391",
       "target": "Runtime/Resources/SigmaPrism/SigmaOperatorPlan.hlsl::SigmaHadamardBPlan@25",
       "kind": "calls"
     },

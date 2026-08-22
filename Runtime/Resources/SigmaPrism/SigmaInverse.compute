@@ -262,18 +262,28 @@ bool SigmaBuildMatchedEyeCell(uint eye, float3 worldPosition,
 
 uint2 SigmaPackSourceNibbles(uint sources[16])
 {
-    uint2 packed = 0u;
-    // Local array references are not natively addressable in Unity's Android
-    // Vulkan lowering.  This fixed 16-lane operator is intentionally unrolled;
-    // the schedule and packed result remain identical and source-order stable.
-    [unroll]
-    for (uint lane = 0u; lane < 16u; ++lane)
-    {
-        uint word = lane >> 3u;
-        uint shift = (lane & 7u) * 4u;
-        packed[word] |= (sources[lane] & 15u) << shift;
-    }
-    return packed;
+    // Scalarize this generated fixed operator directly. Unity's Android Vulkan
+    // compiler otherwise clones the complete caller while trying to legalize an
+    // indexed local-array l-value, producing pathological compile time and IR.
+    uint low =
+        ((sources[0] & 15u) << 0u) |
+        ((sources[1] & 15u) << 4u) |
+        ((sources[2] & 15u) << 8u) |
+        ((sources[3] & 15u) << 12u) |
+        ((sources[4] & 15u) << 16u) |
+        ((sources[5] & 15u) << 20u) |
+        ((sources[6] & 15u) << 24u) |
+        ((sources[7] & 15u) << 28u);
+    uint high =
+        ((sources[8] & 15u) << 0u) |
+        ((sources[9] & 15u) << 4u) |
+        ((sources[10] & 15u) << 8u) |
+        ((sources[11] & 15u) << 12u) |
+        ((sources[12] & 15u) << 16u) |
+        ((sources[13] & 15u) << 20u) |
+        ((sources[14] & 15u) << 24u) |
+        ((sources[15] & 15u) << 28u);
+    return uint2(low, high);
 }
 
 void SigmaAppendEvidence(SigmaCarrierPageMetaGpu metadata, uint sample,

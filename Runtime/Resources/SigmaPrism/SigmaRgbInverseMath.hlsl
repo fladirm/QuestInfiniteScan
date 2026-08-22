@@ -280,12 +280,26 @@ bool SigmaBuildRgbCell(uint eye, float3 worldPosition, uint2 currentY[16],
         return false;
     }
 
-    // The destination is a fixed local struct array.  Android Vulkan requires
-    // static addressing for this copy, so express the specified 16-lane bounded
-    // operator schedule explicitly through unrolling.
-    [unroll]
-    for (uint lane = 0u; lane < 16u; ++lane)
-        cell.coordinate[lane] = prior[lane];
+    // Scalarized generated copy: fixed local struct arrays are not natively
+    // addressable in Unity's Android Vulkan backend. An unroll annotation makes
+    // the compiler clone excessive caller IR; explicit lanes keep the same exact
+    // operator while compiling to sixteen direct moves.
+    cell.coordinate[0] = prior[0];
+    cell.coordinate[1] = prior[1];
+    cell.coordinate[2] = prior[2];
+    cell.coordinate[3] = prior[3];
+    cell.coordinate[4] = prior[4];
+    cell.coordinate[5] = prior[5];
+    cell.coordinate[6] = prior[6];
+    cell.coordinate[7] = prior[7];
+    cell.coordinate[8] = prior[8];
+    cell.coordinate[9] = prior[9];
+    cell.coordinate[10] = prior[10];
+    cell.coordinate[11] = prior[11];
+    cell.coordinate[12] = prior[12];
+    cell.coordinate[13] = prior[13];
+    cell.coordinate[14] = prior[14];
+    cell.coordinate[15] = prior[15];
     SigmaQ48Bounds denominator = SigmaRgbEvaluateRow(cell.coordinate,
         direction, 0u, valid);
     uint2 scaleQ = SigmaQ48FromUnsignedInteger(scale, valid);
