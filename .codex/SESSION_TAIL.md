@@ -16,7 +16,8 @@ capture API exposes no numeric covariance. Unity Vulkan passes 65/65: the new te
 dispatches all three pose kernels and verifies nonzero corrected calibration, while
 the forward fixture verifies nonzero same-frame reraster. The Release compiler's
 only new finding—a redundant varying early return around a later raw-reservation
-group barrier—is removed with one uniform bounded scan schedule; Vulkan remains
-65/65. Next action is exact/operator/UAV validation, source commit, Release build,
-Quest install, then the requested post-install evidence commit/archive. S4-09
-remains pending.
+group barrier—was removed with one uniform bounded scan schedule; Vulkan remains
+65/65. Executable-source commit `6b3003a199df` then built a fresh 67,463,376-byte
+Release APK with zero build errors and streamed ADB installation succeeded. Next
+action is the requested post-install evidence commit/archive; S4-09 remains pending
+for the user's installed-device audit.

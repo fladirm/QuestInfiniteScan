@@ -200,7 +200,8 @@
         "Every changed shader was manually reviewed in full with its include ABI, all kernels/resources, C# binding and dispatch call sites and affected tests; generated operators, git diff and Quest eight-UAV validation pass",
         "Unity Vulkan passes 65/65; the closure fixture actually dispatches BuildPoseGaugePartials, ReducePoseGauge and BuildCorrectedCalibration, proves nonzero exact correction and fixed-rig preservation, and the prediction fixture proves nonzero same-frame reraster",
         "The pose-prior contract is truthful: immutable Meta pose supplies the centre; numeric covariance is projected when exposed, otherwise the exact prior width is a deterministic conservative envelope from coherent-frame timing/skew uncertainty, observed tracking rates, rig residuals and persisted bounds",
-        "Release-only Vulkan validation found and removed the redundant varying early return around the second PlanRawReservations group scan; every lane now follows one uniform bounded barrier schedule and the 65/65 Vulkan suite remains green"
+        "Release-only Vulkan validation found and removed the redundant varying early return around the second PlanRawReservations group scan; every lane now follows one uniform bounded barrier schedule and the 65/65 Vulkan suite remains green",
+        "Executable-source commit 6b3003a199df produced a fresh 67463376-byte Android/Vulkan IL2CPP Release APK with zero build errors; its SHA-256 is 0d3278947652746c9a7dac1f01cb9361e512d28d5db0b2e7b466d8b6d46dc12c and streamed ADB installation succeeded on the single authorized Quest"
       ]
     },
     {

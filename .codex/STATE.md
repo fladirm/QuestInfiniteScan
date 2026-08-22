@@ -30,8 +30,9 @@ Updated: 2026-08-22 (Europe/Prague)
 - `S4-06` is accepted in commit `c6dabef`.
 - `S4-07` is accepted in commit `dc6abf5`.
 - `S4-08` is accepted after the bounded `S4-08.1` repair and its real Vulkan pose
-  closure fixtures. The exact committed source is ready for its required Release
-  build/install and user device audit. `S4-09` remains paused.
+  closure fixtures. Executable-source commit `6b3003a199df` built as a fresh
+  Android/Vulkan IL2CPP Release and installed successfully on the connected Quest.
+  `S4-09` remains paused for the user's device audit.
 - The retained product surface is only four-stream GPU capture/synchronization,
   immutable calibration/poses, Quest/XR lifecycle, permissions/anchors, input/UI,
   neutral GPU helpers and build/deploy tooling.
@@ -300,6 +301,11 @@ Updated: 2026-08-22 (Europe/Prague)
   same two bounded scans; zero requests naturally publish invalid reservations.
   The free-pair predicate is also initialized explicitly. Unity Vulkan remains
   65/65 after this backend-legality correction.
+- Executable-source commit `6b3003a199df` produced a fresh 67,463,376-byte Release
+  APK (`sha256 0d3278947652746c9a7dac1f01cb9361e512d28d5db0b2e7b466d8b6d46dc12c`).
+  The build log records `Build Finished, Result: Success` with zero build errors,
+  and ADB streamed installation completed successfully on the single authorized
+  Quest. No device runtime acceptance is claimed before the user's audit.
 
 ## S4-00 neutral Quest-shell regression repair
 
@@ -323,10 +329,9 @@ Updated: 2026-08-22 (Europe/Prague)
 
 ## Next exact actions
 
-1. Commit the accepted S4-08.1 closure and create its matching source-only
+1. Create the requested post-install evidence commit and matching source-only
    `git archive`.
-2. Build and install that exact Release commit.
-3. Keep `S4-09` pending until the user completes the installed release audit.
+2. Keep `S4-09` pending until the user completes the installed release audit.
 
 ## Verification policy
 
