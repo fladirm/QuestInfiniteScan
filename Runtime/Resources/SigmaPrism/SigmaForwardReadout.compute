@@ -5,6 +5,7 @@
 
 #include "SigmaCarrierAbi.hlsl"
 #include "SigmaGeometryReadout.hlsl"
+#include "SigmaStableScan.hlsl"
 
 StructuredBuffer<uint2> _CarrierState;
 StructuredBuffer<SigmaCarrierPageMetaGpu> _PageMetadata;
@@ -19,15 +20,12 @@ RWStructuredBuffer<uint> _ReadoutBuildArguments;
 RWStructuredBuffer<uint> _ReadoutHaloArguments;
 
 uint _PageCapacity;
+
 #define SIGMA_READOUT_EXTENT 65u
 #define SIGMA_READOUT_SAMPLES 4225u
 #define SIGMA_READOUT_VERTICES_PER_PAGE 24576u
 #define SIGMA_INVALID_PAGE_SLOT 0xffffffffu
 
-groupshared uint SigmaCurrentScanA[256];
-groupshared uint SigmaCurrentScanB[256];
-groupshared uint SigmaReadoutDirtyScanA[256];
-groupshared uint SigmaReadoutDirtyScanB[256];
 groupshared uint SigmaHaloRightSlot;
 groupshared uint SigmaHaloDownSlot;
 groupshared uint SigmaHaloDiagonalSlot;
@@ -54,8 +52,7 @@ void BuildCarrierReadout(uint3 groupId : SV_GroupID,
     SigmaCarrierPageMetaGpu metadata = _PageMetadata[pageSlot];
     bool current = _CurrentFlags[pageSlot] != 0u &&
         (metadata.flags & SIGMA_PAGE_PUBLISHED) != 0u;
-    bool exactBackend = SigmaCanonicalMutationEnabled();
-    if (!current || !exactBackend)
+    if (!current || !SigmaCanonicalMutationEnabled())
     {
         _ReadoutVertices[outputIndex] = 0.0;
         return;
@@ -78,62 +75,37 @@ void BuildCarrierReadout(uint3 groupId : SV_GroupID,
         _ReadoutDirtyFlags[pageSlot] = 0u;
 }
 
-// One segment is capped at 256 pages. A complete fixed prefix scan therefore
-// gives stable ascending-slot identity without atomic arrival ordering.
+// Current and dirty lists share one fixed barrier schedule but remain two scalar
+// integer scans. Both lists preserve ascending physical-slot order exactly.
 [numthreads(256, 1, 1)]
 void CompactCurrentPages(uint3 groupThreadId : SV_GroupThreadID)
 {
     uint lane = groupThreadId.x;
     uint active = lane < _PageCapacity && _CurrentFlags[lane] != 0u ? 1u : 0u;
     uint dirty = active != 0u && _ReadoutDirtyFlags[lane] != 0u ? 1u : 0u;
-    SigmaCurrentScanA[lane] = active;
-    SigmaReadoutDirtyScanA[lane] = dirty;
-    GroupMemoryBarrierWithGroupSync();
 
-    uint useA = 1u;
-    [unroll]
-    for (uint offset = 1u; offset < 256u; offset <<= 1u)
-    {
-        uint current = useA != 0u ? SigmaCurrentScanA[lane] :
-            SigmaCurrentScanB[lane];
-        uint currentAdd = lane >= offset
-            ? (useA != 0u ? SigmaCurrentScanA[lane - offset] :
-                SigmaCurrentScanB[lane - offset]) : 0u;
-        uint dirtyValue = useA != 0u ? SigmaReadoutDirtyScanA[lane] :
-            SigmaReadoutDirtyScanB[lane];
-        uint dirtyAdd = lane >= offset
-            ? (useA != 0u ? SigmaReadoutDirtyScanA[lane - offset] :
-                SigmaReadoutDirtyScanB[lane - offset]) : 0u;
-        if (useA != 0u)
-        {
-            SigmaCurrentScanB[lane] = current + currentAdd;
-            SigmaReadoutDirtyScanB[lane] = dirtyValue + dirtyAdd;
-        }
-        else
-        {
-            SigmaCurrentScanA[lane] = current + currentAdd;
-            SigmaReadoutDirtyScanA[lane] = dirtyValue + dirtyAdd;
-        }
-        GroupMemoryBarrierWithGroupSync();
-        useA ^= 1u;
-    }
-
-    uint currentInclusive = useA != 0u ? SigmaCurrentScanA[lane] :
-        SigmaCurrentScanB[lane];
-    uint dirtyInclusive = useA != 0u ? SigmaReadoutDirtyScanA[lane] :
-        SigmaReadoutDirtyScanB[lane];
+    uint currentPrefix;
+    uint dirtyPrefix;
+    uint currentCount;
+    uint dirtyCount;
+    SigmaStableExclusiveScan256Dual(
+        lane,
+        active,
+        dirty,
+        currentPrefix,
+        dirtyPrefix,
+        currentCount,
+        dirtyCount);
 
     if (active != 0u)
-        _CurrentPageSlots[currentInclusive - 1u] = lane;
+        _CurrentPageSlots[currentPrefix] = lane;
     if (dirty != 0u)
-        _ReadoutDirtyPageSlots[dirtyInclusive - 1u] = lane;
+        _ReadoutDirtyPageSlots[dirtyPrefix] = lane;
+
     if (lane == 0u)
     {
-        uint count = useA != 0u ? SigmaCurrentScanA[255u] :
-            SigmaCurrentScanB[255u];
-        uint dirtyCount = useA != 0u ? SigmaReadoutDirtyScanA[255u] :
-            SigmaReadoutDirtyScanB[255u];
-        _ReadoutDrawArguments[0] = count * SIGMA_READOUT_VERTICES_PER_PAGE;
+        _ReadoutDrawArguments[0] = currentCount *
+            SIGMA_READOUT_VERTICES_PER_PAGE;
         _ReadoutDrawArguments[1] = 1u;
         _ReadoutDrawArguments[2] = 0u;
         _ReadoutDrawArguments[3] = 0u;
@@ -141,7 +113,7 @@ void CompactCurrentPages(uint3 groupThreadId : SV_GroupThreadID)
         _ReadoutBuildArguments[1] = dirtyCount;
         _ReadoutBuildArguments[2] = 1u;
         _ReadoutHaloArguments[0] = 1u;
-        _ReadoutHaloArguments[1] = count;
+        _ReadoutHaloArguments[1] = currentCount;
         _ReadoutHaloArguments[2] = 1u;
     }
 }
@@ -161,9 +133,8 @@ bool SigmaReadoutIncrementI64(uint2 value, out uint2 incremented)
     return true;
 }
 
-// Logical page adjacency is resolved entirely from current carrier metadata.
-// The carrier page is storage only: no CPU page dictionary or frame readback may
-// decide whether a readout cell crosses a physical allocation boundary.
+// Logical adjacency comes only from exact signed-64 Sigma_2 page coordinates.
+// A storage slot, segment or CPU dictionary never creates carrier identity.
 [numthreads(64, 1, 1)]
 void ResolveCarrierHalos(uint3 groupId : SV_GroupID,
     uint3 groupThreadId : SV_GroupThreadID)
@@ -188,6 +159,7 @@ void ResolveCarrierHalos(uint3 groupId : SV_GroupID,
     uint2 nextY;
     bool hasNextX = SigmaReadoutIncrementI64(targetX, nextX);
     bool hasNextY = SigmaReadoutIncrementI64(targetY, nextY);
+
     for (uint candidate = lane; candidate < _PageCapacity; candidate += 64u)
     {
         SigmaCarrierPageMetaGpu neighbour = _PageMetadata[candidate];
@@ -218,6 +190,7 @@ void ResolveCarrierHalos(uint3 groupId : SV_GroupID,
             SigmaHaloDownSlot, lane, 0u)];
     _ReadoutVertices[SigmaReadoutIndex(targetSlot, 64u, lane)] = right;
     _ReadoutVertices[SigmaReadoutIndex(targetSlot, lane, 64u)] = down;
+
     if (lane == 0u)
     {
         float4 diagonal = 0.0;

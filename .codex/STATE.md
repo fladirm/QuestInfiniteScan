@@ -353,6 +353,16 @@ Updated: 2026-08-22 (Europe/Prague)
 - Actual static evidence for this candidate: generated-operator check passed,
   Quest eight-UAV validation passed, `git diff --check` passed and Unity 6000.5.9f1
   Vulkan EditMode passed 65/65. No Release/device result is claimed yet.
+- The closure rewrite now also removes the teardown/resource-lifetime race through
+  one nonblocking fail-closed retirement queue; replaces the remaining exact wide
+  divider with a fixed normalized packed-limb circuit; maps the supported inverse
+  solve coordinate-major; shares one scalar stable compaction circuit across
+  carrier/readout/work/topology; and exposes generated-plan Section 44 counters
+  plus GPU profiler stage markers. All changed shader/include bodies were replaced
+  as coherent whole files. Generated descriptors, `git diff --check` and the Quest
+  eight-UAV gate pass. The long EditMode batch was stopped at the user's request in
+  favour of the Release/headset gate; no result from that interrupted batch is
+  claimed.
 
 ## S4-00 neutral Quest-shell regression repair
 
@@ -377,9 +387,10 @@ Updated: 2026-08-22 (Europe/Prague)
 ## Next exact actions
 
 1. Commit the exact S4-08.2 Release candidate with its generated code graph.
-2. Create the source-only `git archive`, build one Android/Vulkan IL2CPP Release
-   from that exact commit and install it on the connected Quest.
-3. Stop before S4-09 while the user performs the live scan/device audit.
+2. Build one Android/Vulkan IL2CPP Release from that exact commit and install it on
+   the connected Quest.
+3. Create the source-only `git archive` from that same commit for audit.
+4. Stop before S4-09 while the user performs the live scan/device audit.
 
 ## Verification policy
 

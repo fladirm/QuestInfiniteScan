@@ -259,55 +259,244 @@ bool SigmaBuildMatchedEyeCell(uint eye, float3 worldPosition,
     return valid != 0u;
 }
 
-uint2 SigmaPackSourceNibbles(uint sources[16])
+#define SIGMA_SOLVE_SAMPLES_PER_GROUP 16u
+#define SIGMA_SOLVE_THREADS 256u
+
+groupshared uint2 SolveOriginal[SIGMA_SOLVE_THREADS];
+groupshared uint2 SolveTransformA[SIGMA_SOLVE_THREADS];
+groupshared uint2 SolveTransformB[SIGMA_SOLVE_THREADS];
+groupshared uint SolveTransformValidA[SIGMA_SOLVE_THREADS];
+groupshared uint SolveTransformValidB[SIGMA_SOLVE_THREADS];
+groupshared uint2 SolveCurrentY[SIGMA_SOLVE_THREADS];
+groupshared SigmaQ48Bounds SolveAccepted[SIGMA_SOLVE_THREADS];
+groupshared uint2 SolveCandidate[SIGMA_SOLVE_THREADS];
+groupshared uint2 SolveGap[SIGMA_SOLVE_THREADS];
+groupshared uint SolveLoSource[SIGMA_SOLVE_THREADS];
+groupshared uint SolveHiSource[SIGMA_SOLVE_THREADS];
+groupshared uint SolveCoordinateValid[SIGMA_SOLVE_THREADS];
+groupshared uint SolveCoordinateConstrained[SIGMA_SOLVE_THREADS];
+groupshared uint SolveCoordinateIndependent[SIGMA_SOLVE_THREADS];
+groupshared uint SolveCoordinateChanged[SIGMA_SOLVE_THREADS];
+groupshared SigmaCarrierPageMetaGpu SolveMetadata[SIGMA_SOLVE_SAMPLES_PER_GROUP];
+groupshared SigmaDepthCell3 SolveDepthLeft[SIGMA_SOLVE_SAMPLES_PER_GROUP];
+groupshared SigmaDepthCell3 SolveDepthRight[SIGMA_SOLVE_SAMPLES_PER_GROUP];
+groupshared uint4 SolveRgbLeftMeta[SIGMA_SOLVE_SAMPLES_PER_GROUP];
+groupshared uint4 SolveRgbRightMeta[SIGMA_SOLVE_SAMPLES_PER_GROUP];
+groupshared float4 SolveWorldPosition[SIGMA_SOLVE_SAMPLES_PER_GROUP];
+groupshared uint2 SolveMass[SIGMA_SOLVE_SAMPLES_PER_GROUP];
+groupshared uint2 SolvePriorWidth[SIGMA_SOLVE_SAMPLES_PER_GROUP];
+groupshared uint2 SolveTargetMass[SIGMA_SOLVE_SAMPLES_PER_GROUP];
+groupshared uint SolveButterflySafe[SIGMA_SOLVE_SAMPLES_PER_GROUP];
+groupshared uint SolveGeometryValid[SIGMA_SOLVE_SAMPLES_PER_GROUP];
+groupshared uint SolveSampleValid[SIGMA_SOLVE_SAMPLES_PER_GROUP];
+groupshared uint SolveStatus[SIGMA_SOLVE_SAMPLES_PER_GROUP];
+groupshared uint SolveConstrainedMask[SIGMA_SOLVE_SAMPLES_PER_GROUP];
+groupshared uint SolveConflictMask[SIGMA_SOLVE_SAMPLES_PER_GROUP];
+groupshared uint SolveIndependentMask[SIGMA_SOLVE_SAMPLES_PER_GROUP];
+groupshared uint SolveSectorMask[SIGMA_SOLVE_SAMPLES_PER_GROUP];
+groupshared uint SolveRgbUnobservableMask[SIGMA_SOLVE_SAMPLES_PER_GROUP];
+groupshared uint SolveScheduleRgb[SIGMA_SOLVE_SAMPLES_PER_GROUP];
+groupshared uint SolveNeedsCandidate[SIGMA_SOLVE_SAMPLES_PER_GROUP];
+groupshared uint SolveCandidateAccepted[SIGMA_SOLVE_SAMPLES_PER_GROUP];
+
+void SigmaSolveButterflyStage(uint flat, uint coordinate, uint span,
+    bool sourceA)
 {
-    // Scalarize this generated fixed operator directly. Unity's Android Vulkan
-    // compiler otherwise clones the complete caller while trying to legalize an
-    // indexed local-array l-value, producing pathological compile time and IR.
-    uint low =
-        ((sources[0] & 15u) << 0u) |
-        ((sources[1] & 15u) << 4u) |
-        ((sources[2] & 15u) << 8u) |
-        ((sources[3] & 15u) << 12u) |
-        ((sources[4] & 15u) << 16u) |
-        ((sources[5] & 15u) << 20u) |
-        ((sources[6] & 15u) << 24u) |
-        ((sources[7] & 15u) << 28u);
-    uint high =
-        ((sources[8] & 15u) << 0u) |
-        ((sources[9] & 15u) << 4u) |
-        ((sources[10] & 15u) << 8u) |
-        ((sources[11] & 15u) << 12u) |
-        ((sources[12] & 15u) << 16u) |
-        ((sources[13] & 15u) << 20u) |
-        ((sources[14] & 15u) << 24u) |
-        ((sources[15] & 15u) << 28u);
+    uint base = flat - coordinate;
+    uint lower = base + (coordinate & ~span);
+    uint upper = lower | span;
+    uint2 a = sourceA ? SolveTransformA[lower] : SolveTransformB[lower];
+    uint2 b = sourceA ? SolveTransformA[upper] : SolveTransformB[upper];
+    uint valid = (sourceA ? SolveTransformValidA[lower] :
+        SolveTransformValidB[lower]) &
+        (sourceA ? SolveTransformValidA[upper] :
+        SolveTransformValidB[upper]);
+    uint2 result = (coordinate & span) == 0u
+        ? SigmaQ48AddChecked(a, b, valid)
+        : SigmaQ48SubChecked(a, b, valid);
+    if (sourceA)
+    {
+        SolveTransformB[flat] = result;
+        SolveTransformValidB[flat] = valid;
+    }
+    else
+    {
+        SolveTransformA[flat] = result;
+        SolveTransformValidA[flat] = valid;
+    }
+}
+
+void SigmaSolveHadamard(uint flat, uint coordinate, uint sampleLocal,
+    out uint2 result, out uint valid)
+{
+    uint inputValid = SolveTransformValidA[flat];
+    SolveOriginal[flat] = SolveTransformA[flat];
+    if (coordinate == 0u)
+        SolveButterflySafe[sampleLocal] = 1u;
+    GroupMemoryBarrierWithGroupSync();
+    const uint2 limit = uint2(0xffffffffu, 0x07ffffffu);
+    if (SigmaU64Less(limit, SigmaU64AbsSigned(SolveOriginal[flat])))
+        InterlockedAnd(SolveButterflySafe[sampleLocal], 0u);
+    GroupMemoryBarrierWithGroupSync();
+
+    SigmaSolveButterflyStage(flat, coordinate, 1u, true);
+    GroupMemoryBarrierWithGroupSync();
+    SigmaSolveButterflyStage(flat, coordinate, 2u, false);
+    GroupMemoryBarrierWithGroupSync();
+    SigmaSolveButterflyStage(flat, coordinate, 4u, true);
+    GroupMemoryBarrierWithGroupSync();
+    SigmaSolveButterflyStage(flat, coordinate, 8u, false);
+    GroupMemoryBarrierWithGroupSync();
+
+    if (SolveButterflySafe[sampleLocal] != 0u)
+    {
+        result = SolveTransformA[flat];
+        valid = SolveTransformValidA[flat];
+        return;
+    }
+    valid = inputValid;
+    result = SIGMA_Q48_ZERO;
+    uint base = flat - coordinate;
+    [unroll]
+    for (uint sourceLane = 0u; sourceLane < 16u; ++sourceLane)
+    {
+        uint2 term = SigmaHadamardSign(coordinate, sourceLane) < 0
+            ? SigmaQ48NegateChecked(SolveOriginal[base + sourceLane], valid)
+            : SolveOriginal[base + sourceLane];
+        result = SigmaQ48AddChecked(result, term, valid);
+    }
+}
+
+void SigmaSolveMeetLane(SigmaQ48Bounds incoming, uint source,
+    inout SigmaQ48Bounds joint, inout uint loSource, inout uint hiSource)
+{
+    bool takeLo = SigmaQ48Less(joint.lo, incoming.lo) ||
+        (SigmaU64Equal(incoming.lo, joint.lo) && source < loSource);
+    bool takeHi = SigmaQ48Less(incoming.hi, joint.hi) ||
+        (SigmaU64Equal(incoming.hi, joint.hi) && source < hiSource);
+    if (takeLo)
+    {
+        joint.lo = incoming.lo;
+        loSource = source;
+    }
+    if (takeHi)
+    {
+        joint.hi = incoming.hi;
+        hiSource = source;
+    }
+}
+
+void SigmaSolveReduceCoordinateFacts(uint flat, uint coordinate)
+{
+    uint constrainedBit = SolveCoordinateConstrained[flat] != 0u
+        ? 1u << coordinate : 0u;
+    uint conflictBit = SolveCoordinateConstrained[flat] != 0u &&
+        SigmaQ48Less(SolveAccepted[flat].hi, SolveAccepted[flat].lo)
+        ? 1u << coordinate : 0u;
+    uint independentBit = SolveCoordinateIndependent[flat] != 0u
+        ? 1u << coordinate : 0u;
+    uint laneValid = SolveCoordinateValid[flat];
+    uint2 width = SIGMA_Q48_ZERO;
+    if (constrainedBit != 0u && conflictBit == 0u)
+        width = SigmaQ48SubChecked(SolveAccepted[flat].hi,
+            SolveAccepted[flat].lo, laneValid);
+    SolveTransformA[flat] = width;
+    SolveTransformB[flat] = uint2(constrainedBit | (conflictBit << 16u),
+        independentBit);
+    SolveTransformValidA[flat] = laneValid;
+    GroupMemoryBarrierWithGroupSync();
+
+    [unroll]
+    for (uint span = 1u; span < 16u; span <<= 1u)
+    {
+        if ((coordinate & ((span << 1u) - 1u)) == 0u)
+        {
+            uint other = flat + span;
+            SolveTransformA[flat] = SigmaQ48Max(SolveTransformA[flat],
+                SolveTransformA[other]);
+            SolveTransformB[flat] |= SolveTransformB[other];
+            SolveTransformValidA[flat] &= SolveTransformValidA[other];
+        }
+        GroupMemoryBarrierWithGroupSync();
+    }
+}
+
+void SigmaSolveReduceCoordinateOr(uint flat, uint coordinate, uint value)
+{
+    SolveTransformValidB[flat] = value;
+    GroupMemoryBarrierWithGroupSync();
+    [unroll]
+    for (uint span = 1u; span < 16u; span <<= 1u)
+    {
+        if ((coordinate & ((span << 1u) - 1u)) == 0u)
+            SolveTransformValidB[flat] |= SolveTransformValidB[flat + span];
+        GroupMemoryBarrierWithGroupSync();
+    }
+}
+
+void SigmaSolveReduceCoordinateAnd(uint flat, uint coordinate, uint value)
+{
+    SolveTransformValidB[flat] = value;
+    GroupMemoryBarrierWithGroupSync();
+    [unroll]
+    for (uint span = 1u; span < 16u; span <<= 1u)
+    {
+        if ((coordinate & ((span << 1u) - 1u)) == 0u)
+            SolveTransformValidB[flat] &= SolveTransformValidB[flat + span];
+        GroupMemoryBarrierWithGroupSync();
+    }
+}
+
+uint2 SigmaSolvePackSources(uint base)
+{
+    uint low = 0u;
+    uint high = 0u;
+    [unroll]
+    for (uint coordinate = 0u; coordinate < 8u; ++coordinate)
+        low |= (SolveLoSource[base + coordinate] & 15u) << (coordinate * 4u);
+    [unroll]
+    for (uint coordinate = 8u; coordinate < 16u; ++coordinate)
+        high |= (SolveLoSource[base + coordinate] & 15u) <<
+            ((coordinate - 8u) * 4u);
     return uint2(low, high);
 }
 
-void SigmaAppendEvidence(SigmaCarrierPageMetaGpu metadata, uint sample,
-    uint sectorMask, uint conflictMask, uint loSources[16], uint hiSources[16],
-    uint2 gaps[16])
+uint2 SigmaSolvePackHiSources(uint base)
+{
+    uint low = 0u;
+    uint high = 0u;
+    [unroll]
+    for (uint coordinate = 0u; coordinate < 8u; ++coordinate)
+        low |= (SolveHiSource[base + coordinate] & 15u) << (coordinate * 4u);
+    [unroll]
+    for (uint coordinate = 8u; coordinate < 16u; ++coordinate)
+        high |= (SolveHiSource[base + coordinate] & 15u) <<
+            ((coordinate - 8u) * 4u);
+    return uint2(low, high);
+}
+
+void SigmaAppendSolveEvidence(uint sampleLocal, uint sample)
 {
     uint recordIndex;
     InterlockedAdd(_ConflictCount[0], 1u, recordIndex);
     if (recordIndex >= _ConflictCapacity)
         return;
+    uint base = sampleLocal * 16u;
+    SigmaCarrierPageMetaGpu metadata = SolveMetadata[sampleLocal];
     SigmaInverseConflictGpu record;
     record.carrierPage = uint4(metadata.pageXLo, metadata.pageXHi,
         metadata.pageYLo, metadata.pageYHi);
-    record.stateAndSector = uint4(metadata.generation, sample, sectorMask,
-        conflictMask);
+    record.stateAndSector = uint4(metadata.generation, sample,
+        SolveSectorMask[sampleLocal], SolveConflictMask[sampleLocal]);
     record.independenceKeys = uint4(_LeftIndependenceKey,
         _RightIndependenceKey, _RgbLeftIndependenceKey,
         _RgbRightIndependenceKey);
-    uint2 packedLo = SigmaPackSourceNibbles(loSources);
-    uint2 packedHi = SigmaPackSourceNibbles(hiSources);
-    record.provenance = uint4(packedLo, packedHi);
+    record.provenance = uint4(SigmaSolvePackSources(base),
+        SigmaSolvePackHiSources(base));
     [unroll]
     for (uint pair = 0u; pair < 8u; ++pair)
-        record.gapPairs[pair] = uint4(gaps[pair * 2u],
-            gaps[pair * 2u + 1u]);
+        record.gapPairs[pair] = uint4(SolveGap[base + pair * 2u],
+            SolveGap[base + pair * 2u + 1u]);
     _ConflictRecords[recordIndex] = record;
 }
 
@@ -417,15 +606,18 @@ void ClassifyDepthFrame(uint3 id : SV_DispatchThreadID)
         InterlockedMin(_UnmatchedBlockAnchors[blockIndex], anchor);
 }
 
-[numthreads(64, 1, 1)]
+[numthreads(256, 1, 1)]
 void SolveAndCommitPage(uint3 groupId : SV_GroupID,
     uint3 groupThreadId : SV_GroupThreadID)
 {
     uint workIndex = _UseInverseWorkList != 0u ? groupId.y : 0u;
-    uint sample = groupId.x * 64u + groupThreadId.x;
-    if (_UseInverseWorkList != 0u &&
-        workIndex >= _InverseWorkControl[0u])
+    if ((_UseInverseWorkList != 0u &&
+            workIndex >= _InverseWorkControl[0u]) ||
+        groupId.x >= SIGMA_PAGE_SAMPLE_COUNT /
+            SIGMA_SOLVE_SAMPLES_PER_GROUP ||
+        !SigmaCanonicalMutationEnabled())
         return;
+
     SigmaInverseWorkGpu work = (SigmaInverseWorkGpu)0;
     if (_UseInverseWorkList != 0u)
         work = _InverseWork[workIndex];
@@ -435,148 +627,478 @@ void SolveAndCommitPage(uint3 groupId : SV_GroupID,
         ? work.slots.y : _TargetPageSlot;
     uint proofTargetSlot = _UseInverseWorkList != 0u
         ? work.slots.w : _ProofTargetSlot;
-    if (!SigmaCanonicalMutationEnabled() || sample >= SIGMA_PAGE_SAMPLE_COUNT ||
-        targetPageSlot >= _TargetPageCapacity ||
+    if (targetPageSlot >= _TargetPageCapacity ||
         sourcePageSlot >= _PageCapacity)
         return;
+
+    uint flat = groupThreadId.x;
+    uint coordinate = flat & 15u;
+    uint sampleLocal = flat >> 4u;
+    uint sample = groupId.x * SIGMA_SOLVE_SAMPLES_PER_GROUP + sampleLocal;
+    uint sampleBase = sampleLocal * 16u;
+    uint targetBase = targetPageSlot * SIGMA_PAGE_LANE_COUNT +
+        sample * SIGMA_LANE_COUNT;
     uint proposalPageSlot = _UseInverseWorkList != 0u
         ? targetPageSlot : sourcePageSlot;
     uint proposalIndex = proposalPageSlot * SIGMA_PAGE_SAMPLE_COUNT + sample;
-    if (sample == 0u)
-        _ProposalEpoch[proposalPageSlot] = _ProposalFrameSerial;
-    _ProposalStatus[proposalIndex] = 0u;
-    uint targetBase = targetPageSlot * SIGMA_PAGE_LANE_COUNT +
-        sample * SIGMA_LANE_COUNT;
-    uint2 state[16];
-    [unroll]
-    for (uint lane = 0u; lane < 16u; ++lane)
-        state[lane] = _TargetCarrierState[targetBase + lane];
-    SigmaCarrierPageMetaGpu metadata = _PageMetadata[sourcePageSlot];
-    float3 worldPosition;
-    float ignoredMass;
-    if (!SigmaGeometryReadoutPlan(state, worldPosition, ignoredMass))
+    uint proofIndex = workIndex * SIGMA_PAGE_SAMPLE_COUNT + sample;
+
+    if (coordinate == 0u)
     {
-        SigmaProofSampleGpu emptyProof = (SigmaProofSampleGpu)0;
-        emptyProof.meta = 0u;
-        _ProofSamples[workIndex * SIGMA_PAGE_SAMPLE_COUNT + sample] = emptyProof;
-        return;
+        SolveMetadata[sampleLocal] = _PageMetadata[sourcePageSlot];
+        SolveDepthLeft[sampleLocal] = (SigmaDepthCell3)0;
+        SolveDepthRight[sampleLocal] = (SigmaDepthCell3)0;
+        SolveRgbLeftMeta[sampleLocal] = 0u;
+        SolveRgbRightMeta[sampleLocal] = 0u;
+        SolveWorldPosition[sampleLocal] = 0.0;
+        SolveGeometryValid[sampleLocal] = 0u;
+        SolveSampleValid[sampleLocal] = 0u;
+        SolveStatus[sampleLocal] = 0u;
+        SolveConstrainedMask[sampleLocal] = 0u;
+        SolveConflictMask[sampleLocal] = 0u;
+        SolveIndependentMask[sampleLocal] = 0u;
+        SolveSectorMask[sampleLocal] = 0u;
+        SolveRgbUnobservableMask[sampleLocal] = 0u;
+        SolveScheduleRgb[sampleLocal] = SigmaRgbSampleScheduled(sample,
+            _RgbPhase) ? 1u : 0u;
+        SolveNeedsCandidate[sampleLocal] = 0u;
+        SolveCandidateAccepted[sampleLocal] = 0u;
+        SolveTargetMass[sampleLocal] = SIGMA_Q48_ZERO;
+        _ProposalStatus[proposalIndex] = 0u;
+        if (sample == 0u)
+            _ProposalEpoch[proposalPageSlot] = _ProposalFrameSerial;
     }
-    SigmaDepthCell3 left;
-    SigmaDepthCell3 right;
-    SigmaBuildMatchedEyeCell(0u, worldPosition, metadata, sourcePageSlot,
-        sample, left);
-    SigmaBuildMatchedEyeCell(1u, worldPosition, metadata, sourcePageSlot,
-        sample, right);
-    bool exclusion = (left.valid != 0u &&
-            left.sector == SIGMA_SECTOR_PRE_HIT_EXCLUSION) ||
-        (right.valid != 0u &&
-            right.sector == SIGMA_SECTOR_PRE_HIT_EXCLUSION);
-    uint sectorMask = (left.sector & 3u) | ((right.sector & 3u) << 2u);
-    bool scheduleRgb = SigmaRgbSampleScheduled(sample, _RgbPhase);
-    if (exclusion)
+    SolveTransformA[flat] = _TargetCarrierState[targetBase + coordinate];
+    SolveTransformValidA[flat] = 1u;
+    GroupMemoryBarrierWithGroupSync();
+
+    uint2 transformed;
+    uint transformValid;
+    SigmaSolveHadamard(flat, coordinate, sampleLocal, transformed,
+        transformValid);
+    SolveTransformB[flat] = transformed;
+    SolveTransformValidB[flat] = transformValid;
+    if (coordinate == SIGMA_GEOMETRY_ROWS[0])
+        SolveMass[sampleLocal] = transformed;
+    GroupMemoryBarrierWithGroupSync();
+
+    if (coordinate == 0u)
     {
-        uint2 zeroGaps[16];
-        uint zeroSources[16];
-        [unroll]
-        for (uint coordinate = 0u; coordinate < 16u; ++coordinate)
+        uint widthValid = SolveTransformValidB[sampleBase +
+            SIGMA_GEOMETRY_ROWS[0]];
+        if (!SigmaQ48Positive(SolveMass[sampleLocal]))
+            widthValid = 0u;
+        SolvePriorWidth[sampleLocal] = SigmaPriorHalfWidth(
+            SolveMass[sampleLocal], widthValid);
+        SolveSampleValid[sampleLocal] = widthValid;
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    uint projectiveValid = transformValid & SolveSampleValid[sampleLocal];
+    uint2 currentY = SIGMA_Q48_ZERO;
+    SigmaQ48Bounds accepted = SigmaQ48PointBounds(SIGMA_Q48_ZERO);
+    if (projectiveValid != 0u)
+    {
+        currentY = SigmaQ48DivNearestEven(transformed,
+            SolveMass[sampleLocal], projectiveValid);
+        accepted = SigmaQ48Widen(currentY,
+            SolvePriorWidth[sampleLocal], projectiveValid);
+    }
+    SolveCurrentY[flat] = currentY;
+    SolveTransformValidA[flat] = projectiveValid;
+    uint priorValid = projectiveValid;
+    if (priorValid != 0u)
+        priorValid &= SigmaApplyConstraintPriorLane(
+            SolveMetadata[sampleLocal], sample, coordinate, accepted) ? 1u : 0u;
+    SolveAccepted[flat] = accepted;
+    SolveCoordinateValid[flat] = priorValid;
+    SolveLoSource[flat] = SIGMA_SOURCE_PRIOR;
+    SolveHiSource[flat] = SIGMA_SOURCE_PRIOR;
+    SolveGap[flat] = SIGMA_Q48_ZERO;
+    SolveCoordinateConstrained[flat] = 0u;
+    SolveCoordinateIndependent[flat] = 0u;
+    SolveCoordinateChanged[flat] = 0u;
+    GroupMemoryBarrierWithGroupSync();
+
+    if (coordinate == 0u)
+    {
+        uint geometryValid = SolveTransformValidA[sampleBase +
+            SIGMA_GEOMETRY_ROWS[0]] &
+            SolveTransformValidA[sampleBase + SIGMA_GEOMETRY_ROWS[1]] &
+            SolveTransformValidA[sampleBase + SIGMA_GEOMETRY_ROWS[2]] &
+            SolveTransformValidA[sampleBase + SIGMA_GEOMETRY_ROWS[3]];
+        SolveGeometryValid[sampleLocal] = geometryValid;
+        float3 world = float3(
+            SigmaQ48ToReadoutFloat(SolveCurrentY[sampleBase +
+                SIGMA_GEOMETRY_ROWS[1]]),
+            SigmaQ48ToReadoutFloat(SolveCurrentY[sampleBase +
+                SIGMA_GEOMETRY_ROWS[2]]),
+            SigmaQ48ToReadoutFloat(SolveCurrentY[sampleBase +
+                SIGMA_GEOMETRY_ROWS[3]]));
+        SolveWorldPosition[sampleLocal] = float4(world, 1.0);
+        if (geometryValid != 0u)
         {
-            zeroGaps[coordinate] = SIGMA_Q48_ZERO;
-            zeroSources[coordinate] = SIGMA_SOURCE_PRIOR;
+            SigmaBuildMatchedEyeCell(0u, world,
+                SolveMetadata[sampleLocal], sourcePageSlot, sample,
+                SolveDepthLeft[sampleLocal]);
+            SigmaBuildMatchedEyeCell(1u, world,
+                SolveMetadata[sampleLocal], sourcePageSlot, sample,
+                SolveDepthRight[sampleLocal]);
         }
-        _ProposalStatus[proposalIndex] = SIGMA_PROPOSAL_EXCLUSION;
-        SigmaAppendEvidence(metadata, sample, sectorMask, 0u, zeroSources,
-            zeroSources, zeroGaps);
-        InterlockedAdd(_FrameCounters[SIGMA_COUNTER_EXCLUSIONS], 1u);
-        SigmaAdmissibleCell16 emptyRgb = (SigmaAdmissibleCell16)0;
-        SigmaWriteProofSample(workIndex, sample, SIGMA_PROPOSAL_EXCLUSION,
-            0u, 0u,
-            scheduleRgb, worldPosition, left, right, emptyRgb, emptyRgb);
-        return;
+        SigmaDepthCell3 left = SolveDepthLeft[sampleLocal];
+        SigmaDepthCell3 right = SolveDepthRight[sampleLocal];
+        SolveSectorMask[sampleLocal] = (left.sector & 3u) |
+            ((right.sector & 3u) << 2u);
+        bool exclusion = (left.valid != 0u &&
+                left.sector == SIGMA_SECTOR_PRE_HIT_EXCLUSION) ||
+            (right.valid != 0u &&
+                right.sector == SIGMA_SECTOR_PRE_HIT_EXCLUSION);
+        if (exclusion)
+            SolveStatus[sampleLocal] = SIGMA_PROPOSAL_EXCLUSION;
+
+        if (SolveScheduleRgb[sampleLocal] != 0u)
+        {
+            uint scheduledSample = SigmaRgbPhaseScheduledIndex(sample);
+            uint cellBase = workIndex * 2u * SIGMA_RGB_PHASE_SAMPLE_COUNT;
+            SolveRgbLeftMeta[sampleLocal] = _RgbSourceMetaRead[cellBase +
+                SigmaRgbSourceCellAddress(0u, scheduledSample)];
+            SolveRgbRightMeta[sampleLocal] = _RgbSourceMetaRead[cellBase +
+                SigmaRgbSourceCellAddress(1u, scheduledSample)];
+            SolveRgbUnobservableMask[sampleLocal] =
+                ((SolveRgbLeftMeta[sampleLocal].w &
+                    SIGMA_RGB_SOURCE_UNOBSERVABLE) != 0u ? 1u : 0u) |
+                ((SolveRgbRightMeta[sampleLocal].w &
+                    SIGMA_RGB_SOURCE_UNOBSERVABLE) != 0u ? 2u : 0u);
+        }
+
+        uint allValid = geometryValid;
+        [unroll]
+        for (uint lane = 0u; lane < 16u; ++lane)
+            allValid &= SolveCoordinateValid[sampleBase + lane];
+        if (!SigmaU64Equal(SolveCurrentY[sampleBase +
+                SIGMA_GEOMETRY_ROWS[0]], SIGMA_Q48_ONE))
+            allValid = 0u;
+        SolveSampleValid[sampleLocal] = allValid;
     }
-    uint2 candidate[16];
-    SigmaQ48Bounds acceptedBounds[16];
-    SigmaAdmissibleCell16 rgbLeftEvidence;
-    SigmaAdmissibleCell16 rgbRightEvidence;
-    rgbLeftEvidence = (SigmaAdmissibleCell16)0;
-    rgbRightEvidence = (SigmaAdmissibleCell16)0;
-    uint rgbUnobservableMask = 0u;
-    if (scheduleRgb)
+    GroupMemoryBarrierWithGroupSync();
+
+    bool exclusion = (SolveStatus[sampleLocal] &
+        SIGMA_PROPOSAL_EXCLUSION) != 0u;
+    uint laneValid = SolveSampleValid[sampleLocal];
+    SigmaQ48Bounds laneAccepted = SolveAccepted[flat];
+    uint loSource = SIGMA_SOURCE_PRIOR;
+    uint hiSource = SIGMA_SOURCE_PRIOR;
+    bool constrained = false;
+    bool independent = false;
+    uint firstKey = 0u;
+
+    if (laneValid != 0u && !exclusion)
+    {
+        [unroll]
+        for (uint axis = 0u; axis < 3u; ++axis)
+        {
+            if (coordinate != SIGMA_GEOMETRY_ROWS[axis + 1u])
+                continue;
+            SigmaDepthCell3 left = SolveDepthLeft[sampleLocal];
+            SigmaDepthCell3 right = SolveDepthRight[sampleLocal];
+            if (left.valid != 0u && left.sector == SIGMA_SECTOR_HIT)
+            {
+                SigmaSolveMeetLane(left.axis[axis], SIGMA_SOURCE_DEPTH_LEFT,
+                    laneAccepted, loSource, hiSource);
+                constrained = true;
+                SigmaAccumulateIndependentKey(left.independenceKey,
+                    firstKey, independent);
+            }
+            if (right.valid != 0u && right.sector == SIGMA_SECTOR_HIT)
+            {
+                SigmaSolveMeetLane(right.axis[axis], SIGMA_SOURCE_DEPTH_RIGHT,
+                    laneAccepted, loSource, hiSource);
+                constrained = true;
+                SigmaAccumulateIndependentKey(right.independenceKey,
+                    firstKey, independent);
+            }
+        }
+
+        if (SolveScheduleRgb[sampleLocal] != 0u)
+        {
+            uint scheduledSample = SigmaRgbPhaseScheduledIndex(sample);
+            uint boundBase = workIndex * 2u *
+                SIGMA_RGB_PHASE_SAMPLE_COUNT * 16u;
+            uint4 leftMeta = SolveRgbLeftMeta[sampleLocal];
+            uint4 rightMeta = SolveRgbRightMeta[sampleLocal];
+            if ((leftMeta.w & SIGMA_RGB_SOURCE_VALID) != 0u &&
+                (leftMeta.x & (1u << coordinate)) != 0u)
+            {
+                SigmaQ48Bounds rgb = _RgbSourceBoundsRead[boundBase +
+                    SigmaRgbSourceBoundAddress(0u, scheduledSample,
+                        coordinate)];
+                SigmaSolveMeetLane(rgb, SIGMA_SOURCE_RGB_LEFT,
+                    laneAccepted, loSource, hiSource);
+                constrained = true;
+                SigmaAccumulateIndependentKey(leftMeta.z,
+                    firstKey, independent);
+            }
+            if ((rightMeta.w & SIGMA_RGB_SOURCE_VALID) != 0u &&
+                (rightMeta.x & (1u << coordinate)) != 0u)
+            {
+                SigmaQ48Bounds rgb = _RgbSourceBoundsRead[boundBase +
+                    SigmaRgbSourceBoundAddress(1u, scheduledSample,
+                        coordinate)];
+                SigmaSolveMeetLane(rgb, SIGMA_SOURCE_RGB_RIGHT,
+                    laneAccepted, loSource, hiSource);
+                constrained = true;
+                SigmaAccumulateIndependentKey(rightMeta.z,
+                    firstKey, independent);
+            }
+        }
+    }
+
+    SolveAccepted[flat] = laneAccepted;
+    SolveLoSource[flat] = loSource;
+    SolveHiSource[flat] = hiSource;
+    SolveCoordinateConstrained[flat] = constrained ? 1u : 0u;
+    SolveCoordinateIndependent[flat] = independent ? 1u : 0u;
+    if (laneValid != 0u && constrained &&
+        SigmaQ48Less(laneAccepted.hi, laneAccepted.lo))
+    {
+        SolveGap[flat] = SigmaQ48SubChecked(laneAccepted.lo,
+            laneAccepted.hi, laneValid);
+    }
+    SolveCoordinateValid[flat] = laneValid;
+    SigmaSolveReduceCoordinateFacts(flat, coordinate);
+
+    if (coordinate == 0u)
+    {
+        uint status = SolveStatus[sampleLocal];
+        uint2 facts = SolveTransformB[sampleBase];
+        uint constrainedMask = facts.x & 0xffffu;
+        uint conflictMask = facts.x >> 16u;
+        uint independentMask = facts.y;
+        uint reductionValid = SolveSampleValid[sampleLocal] &
+            SolveTransformValidA[sampleBase];
+        uint2 maximumWidth = SolveTransformA[sampleBase];
+        SigmaDepthCell3 left = SolveDepthLeft[sampleLocal];
+        SigmaDepthCell3 right = SolveDepthRight[sampleLocal];
+        if (!exclusion && reductionValid != 0u)
+        {
+            if (left.valid != 0u && left.sector == SIGMA_SECTOR_HIT)
+                status |= SIGMA_PROPOSAL_HIT_LEFT;
+            if (right.valid != 0u && right.sector == SIGMA_SECTOR_HIT)
+                status |= SIGMA_PROPOSAL_HIT_RIGHT;
+            uint4 leftMeta = SolveRgbLeftMeta[sampleLocal];
+            uint4 rightMeta = SolveRgbRightMeta[sampleLocal];
+            if (SolveRgbUnobservableMask[sampleLocal] != 0u)
+                status |= SIGMA_PROPOSAL_RGB_UNOBSERVABLE;
+            if ((leftMeta.w & SIGMA_RGB_SOURCE_VALID) != 0u &&
+                leftMeta.x != 0u)
+                status |= SIGMA_PROPOSAL_RGB_LEFT;
+            if ((rightMeta.w & SIGMA_RGB_SOURCE_VALID) != 0u &&
+                rightMeta.x != 0u)
+                status |= SIGMA_PROPOSAL_RGB_RIGHT;
+        }
+        SolveConstrainedMask[sampleLocal] = constrainedMask;
+        SolveConflictMask[sampleLocal] = conflictMask;
+        SolveIndependentMask[sampleLocal] = independentMask;
+        if (conflictMask != 0u)
+            status |= SIGMA_PROPOSAL_CONFLICT;
+        if (constrainedMask == 0u || conflictMask != 0u ||
+            reductionValid == 0u || exclusion)
+            SolveSampleValid[sampleLocal] = 0u;
+        else
+        {
+            uint2 targetMass = SolveMass[sampleLocal];
+            if ((independentMask & constrainedMask) == constrainedMask)
+                targetMass = SigmaQ48Max(targetMass,
+                    SigmaInformationMassForWidth(maximumWidth,
+                        reductionValid));
+            SolveTargetMass[sampleLocal] = targetMass;
+            SolveSampleValid[sampleLocal] = reductionValid;
+        }
+        SolveStatus[sampleLocal] = status;
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    uint2 targetY = SolveCurrentY[flat];
+    uint targetValid = SolveSampleValid[sampleLocal];
+    if (targetValid != 0u &&
+        SolveCoordinateConstrained[flat] != 0u)
+        targetY = SigmaProjectiveClamp(targetY,
+            SolveAccepted[flat].lo, SolveAccepted[flat].hi);
+    SolveCoordinateChanged[flat] = targetValid != 0u &&
+        (!SigmaU64Equal(targetY, SolveCurrentY[flat]) ||
+         SigmaQ48Less(SolveMass[sampleLocal],
+            SolveTargetMass[sampleLocal])) ? 1u : 0u;
+    SolveTransformA[flat] = targetY;
+    SolveTransformValidA[flat] = targetValid;
+    SigmaSolveReduceCoordinateOr(flat, coordinate,
+        SolveCoordinateChanged[flat]);
+
+    if (coordinate == 0u)
+    {
+        uint changed = SolveTransformValidB[sampleBase];
+        SolveNeedsCandidate[sampleLocal] = changed;
+        if (SolveSampleValid[sampleLocal] != 0u && changed == 0u)
+            SolveStatus[sampleLocal] |= SIGMA_PROPOSAL_ACCEPTED;
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    uint needsCandidate = SolveNeedsCandidate[sampleLocal] &
+        SolveSampleValid[sampleLocal];
+    if (needsCandidate == 0u)
+    {
+        SolveTransformA[flat] = SIGMA_Q48_ZERO;
+        SolveTransformValidA[flat] = 0u;
+    }
+    uint2 inverse;
+    uint inverseValid;
+    SigmaSolveHadamard(flat, coordinate, sampleLocal, inverse, inverseValid);
+    uint candidateValid = needsCandidate & inverseValid;
+    uint2 projective = SigmaQ48ShiftRightNearestEven(inverse, 4u,
+        candidateValid);
+    uint2 candidate = SigmaQ48MulNearestEven(
+        SolveTargetMass[sampleLocal], projective, candidateValid);
+    SolveCandidate[flat] = candidate;
+    SolveTransformA[flat] = candidate;
+    SolveTransformValidA[flat] = candidateValid;
+
+    uint2 candidateReadout;
+    uint candidateReadoutValid;
+    SigmaSolveHadamard(flat, coordinate, sampleLocal, candidateReadout,
+        candidateReadoutValid);
+    SolveTransformB[flat] = candidateReadout;
+    SolveCoordinateValid[flat] = candidateReadoutValid;
+    if (coordinate == SIGMA_GEOMETRY_ROWS[0])
+        SolveMass[sampleLocal] = candidateReadout;
+    GroupMemoryBarrierWithGroupSync();
+
+    uint revalidate = candidateReadoutValid & needsCandidate;
+    uint2 oneLsb = uint2(1u, 0u);
+    if (revalidate != 0u && coordinate == SIGMA_GEOMETRY_ROWS[0])
+    {
+        if (!SigmaQ48Positive(SolveMass[sampleLocal]) ||
+            SigmaQ48Less(oneLsb, SigmaQ48AbsDifference(
+                SolveMass[sampleLocal], SolveTargetMass[sampleLocal],
+                revalidate)))
+            revalidate = 0u;
+    }
+    if (revalidate != 0u && SolveCoordinateConstrained[flat] != 0u)
+    {
+        uint2 check = SigmaQ48DivNearestEven(candidateReadout,
+            SolveMass[sampleLocal], revalidate);
+        uint2 lo = SigmaQ48SubChecked(SolveAccepted[flat].lo,
+            oneLsb, revalidate);
+        uint2 hi = SigmaQ48AddChecked(SolveAccepted[flat].hi,
+            oneLsb, revalidate);
+        if (revalidate == 0u || SigmaQ48Less(check, lo) ||
+            SigmaQ48Less(hi, check))
+            revalidate = 0u;
+    }
+    SolveCoordinateValid[flat] = revalidate;
+    SigmaSolveReduceCoordinateAnd(flat, coordinate, revalidate);
+
+    if (coordinate == 0u)
+    {
+        uint acceptedCandidate = needsCandidate &
+            SolveTransformValidB[sampleBase];
+        SolveCandidateAccepted[sampleLocal] = acceptedCandidate;
+        if (needsCandidate != 0u)
+        {
+            if (acceptedCandidate != 0u)
+                SolveStatus[sampleLocal] |= SIGMA_PROPOSAL_ACCEPTED |
+                    SIGMA_PROPOSAL_CHANGED;
+            else
+                SolveStatus[sampleLocal] |= SIGMA_PROPOSAL_INVALID;
+        }
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    if (SolveCandidateAccepted[sampleLocal] != 0u)
+        _TargetCarrierState[targetBase + coordinate] = SolveCandidate[flat];
+
+    // Write the proof record cooperatively. Distinct coordinate lanes own
+    // disjoint structured-buffer members; lane zero owns scalar provenance.
+    SigmaQ48Bounds rgbLeftBound = (SigmaQ48Bounds)0;
+    SigmaQ48Bounds rgbRightBound = (SigmaQ48Bounds)0;
+    if (SolveScheduleRgb[sampleLocal] != 0u)
     {
         uint scheduledSample = SigmaRgbPhaseScheduledIndex(sample);
-        uint rgbCellBase = workIndex * 2u * SIGMA_RGB_PHASE_SAMPLE_COUNT;
-        uint4 leftMeta = _RgbSourceMetaRead[rgbCellBase +
-            SigmaRgbSourceCellAddress(0u, scheduledSample)];
-        uint4 rightMeta = _RgbSourceMetaRead[rgbCellBase +
-            SigmaRgbSourceCellAddress(1u, scheduledSample)];
-        rgbLeftEvidence.coordinateMask = leftMeta.x;
-        rgbLeftEvidence.sourceClass = leftMeta.y;
-        rgbLeftEvidence.independenceKey = leftMeta.z;
-        rgbLeftEvidence.valid = leftMeta.w & SIGMA_RGB_SOURCE_VALID;
-        rgbRightEvidence.coordinateMask = rightMeta.x;
-        rgbRightEvidence.sourceClass = rightMeta.y;
-        rgbRightEvidence.independenceKey = rightMeta.z;
-        rgbRightEvidence.valid = rightMeta.w & SIGMA_RGB_SOURCE_VALID;
-        rgbUnobservableMask =
-            ((leftMeta.w & SIGMA_RGB_SOURCE_UNOBSERVABLE) != 0u ? 1u : 0u) |
-            ((rightMeta.w & SIGMA_RGB_SOURCE_UNOBSERVABLE) != 0u ? 2u : 0u);
-#define SIGMA_LOAD_RGB_SOURCE_BOUND(LANE) \
-        rgbLeftEvidence.coordinate[LANE] = _RgbSourceBoundsRead[ \
-            workIndex * 2u * SIGMA_RGB_PHASE_SAMPLE_COUNT * 16u + \
-            SigmaRgbSourceBoundAddress(0u, scheduledSample, LANE)]; \
-        rgbRightEvidence.coordinate[LANE] = _RgbSourceBoundsRead[ \
-            workIndex * 2u * SIGMA_RGB_PHASE_SAMPLE_COUNT * 16u + \
-            SigmaRgbSourceBoundAddress(1u, scheduledSample, LANE)]
-        SIGMA_LOAD_RGB_SOURCE_BOUND(0u);
-        SIGMA_LOAD_RGB_SOURCE_BOUND(1u);
-        SIGMA_LOAD_RGB_SOURCE_BOUND(2u);
-        SIGMA_LOAD_RGB_SOURCE_BOUND(3u);
-        SIGMA_LOAD_RGB_SOURCE_BOUND(4u);
-        SIGMA_LOAD_RGB_SOURCE_BOUND(5u);
-        SIGMA_LOAD_RGB_SOURCE_BOUND(6u);
-        SIGMA_LOAD_RGB_SOURCE_BOUND(7u);
-        SIGMA_LOAD_RGB_SOURCE_BOUND(8u);
-        SIGMA_LOAD_RGB_SOURCE_BOUND(9u);
-        SIGMA_LOAD_RGB_SOURCE_BOUND(10u);
-        SIGMA_LOAD_RGB_SOURCE_BOUND(11u);
-        SIGMA_LOAD_RGB_SOURCE_BOUND(12u);
-        SIGMA_LOAD_RGB_SOURCE_BOUND(13u);
-        SIGMA_LOAD_RGB_SOURCE_BOUND(14u);
-        SIGMA_LOAD_RGB_SOURCE_BOUND(15u);
-#undef SIGMA_LOAD_RGB_SOURCE_BOUND
+        uint boundBase = workIndex * 2u *
+            SIGMA_RGB_PHASE_SAMPLE_COUNT * 16u;
+        rgbLeftBound = _RgbSourceBoundsRead[boundBase +
+            SigmaRgbSourceBoundAddress(0u, scheduledSample, coordinate)];
+        rgbRightBound = _RgbSourceBoundsRead[boundBase +
+            SigmaRgbSourceBoundAddress(1u, scheduledSample, coordinate)];
     }
-    uint constrainedMask;
-    uint conflictMask;
-    uint loSources[16];
-    uint hiSources[16];
-    uint2 gaps[16];
-    uint rebuiltStatus;
-    bool accepted = SigmaSolveJointCells(state, metadata, sample, left, right,
-        scheduleRgb, rgbLeftEvidence, rgbRightEvidence, rgbUnobservableMask,
-        candidate, acceptedBounds, constrainedMask, conflictMask,
-        loSources, hiSources, gaps, rebuiltStatus);
-    _ProposalStatus[proposalIndex] = rebuiltStatus;
-    if ((rebuiltStatus & (SIGMA_PROPOSAL_HIT_LEFT |
-            SIGMA_PROPOSAL_HIT_RIGHT)) != 0u)
-        InterlockedAdd(_FrameCounters[SIGMA_COUNTER_HIT_SAMPLES], 1u);
-    if ((rebuiltStatus & SIGMA_PROPOSAL_CONFLICT) != 0u)
+    _ProofSamples[proofIndex].rgbLeft.coordinate[coordinate] = rgbLeftBound;
+    _ProofSamples[proofIndex].rgbRight.coordinate[coordinate] = rgbRightBound;
+
+    if (coordinate == 0u)
     {
-        SigmaAppendEvidence(metadata, sample, sectorMask, conflictMask,
-            loSources, hiSources, gaps);
-        InterlockedAdd(_FrameCounters[SIGMA_COUNTER_EMPTY_MEETS], 1u);
+        uint status = SolveStatus[sampleLocal];
+        uint constrainedMask = SolveConstrainedMask[sampleLocal];
+        uint rgbUnobservable = SolveRgbUnobservableMask[sampleLocal];
+        float3 world = SolveWorldPosition[sampleLocal].xyz;
+        if (SolveGeometryValid[sampleLocal] == 0u)
+        {
+            status = 0u;
+            constrainedMask = 0u;
+            rgbUnobservable = 0u;
+        }
+        _ProofSamples[proofIndex].meta = uint4(status, constrainedMask,
+            SolveScheduleRgb[sampleLocal], rgbUnobservable);
+        _ProofSamples[proofIndex].depthLeft = SolveDepthLeft[sampleLocal];
+        _ProofSamples[proofIndex].depthRight = SolveDepthRight[sampleLocal];
+        uint4 leftMeta = SolveRgbLeftMeta[sampleLocal];
+        uint4 rightMeta = SolveRgbRightMeta[sampleLocal];
+        _ProofSamples[proofIndex].rgbLeft.coordinateMask = leftMeta.x;
+        _ProofSamples[proofIndex].rgbLeft.sourceClass = leftMeta.y;
+        _ProofSamples[proofIndex].rgbLeft.independenceKey = leftMeta.z;
+        _ProofSamples[proofIndex].rgbLeft.valid = leftMeta.w &
+            SIGMA_RGB_SOURCE_VALID;
+        _ProofSamples[proofIndex].rgbRight.coordinateMask = rightMeta.x;
+        _ProofSamples[proofIndex].rgbRight.sourceClass = rightMeta.y;
+        _ProofSamples[proofIndex].rgbRight.independenceKey = rightMeta.z;
+        _ProofSamples[proofIndex].rgbRight.valid = rightMeta.w &
+            SIGMA_RGB_SOURCE_VALID;
+        _ProofSamples[proofIndex].raw[0] = SolveGeometryValid[sampleLocal] != 0u
+            ? SigmaCaptureDepthRaw(0u, world, SolveDepthLeft[sampleLocal]) : 0u;
+        _ProofSamples[proofIndex].raw[1] = SolveGeometryValid[sampleLocal] != 0u
+            ? SigmaCaptureDepthRaw(1u, world, SolveDepthRight[sampleLocal]) : 0u;
+        uint4 rgb00 = 0u, rgb01 = 0u, rgb10 = 0u, rgb11 = 0u;
+        if (SolveGeometryValid[sampleLocal] != 0u &&
+            SolveScheduleRgb[sampleLocal] != 0u)
+        {
+            SigmaCaptureRgbRaw(0u, world, rgb00, rgb01);
+            SigmaCaptureRgbRaw(1u, world, rgb10, rgb11);
+        }
+        _ProofSamples[proofIndex].raw[2] = rgb00;
+        _ProofSamples[proofIndex].raw[3] = rgb01;
+        _ProofSamples[proofIndex].raw[4] = rgb10;
+        _ProofSamples[proofIndex].raw[5] = rgb11;
+
+        _ProposalStatus[proposalIndex] = status;
+        if ((status & (SIGMA_PROPOSAL_HIT_LEFT |
+                SIGMA_PROPOSAL_HIT_RIGHT)) != 0u)
+            InterlockedAdd(_FrameCounters[SIGMA_COUNTER_HIT_SAMPLES], 1u);
+        if ((status & SIGMA_PROPOSAL_EXCLUSION) != 0u)
+        {
+            SigmaAppendSolveEvidence(sampleLocal, sample);
+            InterlockedAdd(_FrameCounters[SIGMA_COUNTER_EXCLUSIONS], 1u);
+        }
+        if ((status & SIGMA_PROPOSAL_CONFLICT) != 0u)
+        {
+            SigmaAppendSolveEvidence(sampleLocal, sample);
+            InterlockedAdd(_FrameCounters[SIGMA_COUNTER_EMPTY_MEETS], 1u);
+        }
+        if ((status & (SIGMA_PROPOSAL_ACCEPTED |
+                SIGMA_PROPOSAL_CHANGED)) ==
+            (SIGMA_PROPOSAL_ACCEPTED | SIGMA_PROPOSAL_CHANGED))
+        {
+            InterlockedAdd(_FrameCounters[SIGMA_COUNTER_CHANGED_SAMPLES], 1u);
+            InterlockedOr(_ProofPageStatus[SigmaProofStatusAddress(
+                proofTargetSlot, 1u)], SIGMA_PROOF_STATE_CHANGED);
+        }
     }
-    SigmaWriteProofSample(workIndex, sample, rebuiltStatus, constrainedMask,
-        rgbUnobservableMask, scheduleRgb, worldPosition, left, right,
-        rgbLeftEvidence, rgbRightEvidence);
-    if (!accepted || (rebuiltStatus & (SIGMA_PROPOSAL_ACCEPTED |
-            SIGMA_PROPOSAL_CHANGED)) != (SIGMA_PROPOSAL_ACCEPTED |
-            SIGMA_PROPOSAL_CHANGED))
-        return;
-    InterlockedAdd(_FrameCounters[SIGMA_COUNTER_CHANGED_SAMPLES], 1u);
-    [unroll]
-    for (uint lane = 0u; lane < 16u; ++lane)
-        _TargetCarrierState[targetBase + lane] = candidate[lane];
-    InterlockedOr(_ProofPageStatus[SigmaProofStatusAddress(
-        proofTargetSlot, 1u)], SIGMA_PROOF_STATE_CHANGED);
 }
 
 [numthreads(8, 8, 1)]

@@ -378,6 +378,201 @@ bool SigmaQ48TryDivDyadic(uint2 a, uint2 b, uint mode,
     return true;
 }
 
+// Exact 64/32 division with high<divisor.  This is Hacker's Delight divlu
+// circuit lowered to two base-2^16 quotient digits.  All schedules are fixed;
+// the unsigned wrap in un21 is intentional and the returned remainder is exact.
+uint SigmaU64DivideByU32(uint high, uint low, uint divisor,
+    out uint remainder)
+{
+    uint shift = 31u - (uint)firstbithigh(divisor);
+    uint normalizedDivisor = divisor << shift;
+    uint highPrefix = high;
+    uint lowShifted = low;
+    if (shift != 0u)
+    {
+        highPrefix = (high << shift) | (low >> (32u - shift));
+        lowShifted = low << shift;
+    }
+
+    uint divisorHigh = normalizedDivisor >> 16u;
+    uint divisorLow = normalizedDivisor & 0xffffu;
+    uint numeratorLowHigh = lowShifted >> 16u;
+    uint numeratorLowLow = lowShifted & 0xffffu;
+
+    uint quotientHigh = highPrefix / divisorHigh;
+    uint trialRemainder = highPrefix - quotientHigh * divisorHigh;
+    [unroll]
+    for (uint correction = 0u; correction < 2u; ++correction)
+    {
+        if (quotientHigh < 0x10000u &&
+            quotientHigh * divisorLow <=
+                0x10000u * trialRemainder + numeratorLowHigh)
+            break;
+        --quotientHigh;
+        trialRemainder += divisorHigh;
+        if (trialRemainder >= 0x10000u)
+            break;
+    }
+
+    uint un21 = highPrefix * 0x10000u + numeratorLowHigh -
+        quotientHigh * normalizedDivisor;
+    uint quotientLow = un21 / divisorHigh;
+    trialRemainder = un21 - quotientLow * divisorHigh;
+    [unroll]
+    for (uint correction = 0u; correction < 2u; ++correction)
+    {
+        if (quotientLow < 0x10000u &&
+            quotientLow * divisorLow <=
+                0x10000u * trialRemainder + numeratorLowLow)
+            break;
+        --quotientLow;
+        trialRemainder += divisorHigh;
+        if (trialRemainder >= 0x10000u)
+            break;
+    }
+
+    uint normalizedRemainder = un21 * 0x10000u + numeratorLowLow -
+        quotientLow * normalizedDivisor;
+    remainder = normalizedRemainder >> shift;
+    return quotientHigh * 0x10000u + quotientLow;
+}
+
+// One Knuth-D base-2^32 quotient digit for a three-word numerator and a
+// normalized two-word divisor.  The estimate needs at most two corrections;
+// the final add-back preserves the exact quotient even at the limb boundaries.
+uint SigmaU96DivideStep(inout uint low, inout uint middle, inout uint high,
+    uint divisorLow, uint divisorHigh)
+{
+    uint quotient;
+    uint trialRemainder;
+    bool remainderOverflow;
+    if (high == divisorHigh)
+    {
+        quotient = 0xffffffffu;
+        trialRemainder = middle + divisorHigh;
+        remainderOverflow = trialRemainder < middle;
+    }
+    else
+    {
+        quotient = SigmaU64DivideByU32(high, middle, divisorHigh,
+            trialRemainder);
+        remainderOverflow = false;
+    }
+
+    [unroll]
+    for (uint correction = 0u; correction < 2u; ++correction)
+    {
+        uint2 product = SigmaU32MultiplyWide(quotient, divisorLow);
+        if (remainderOverflow ||
+            !SigmaU64Less(uint2(low, trialRemainder), product))
+            break;
+        --quotient;
+        uint previous = trialRemainder;
+        trialRemainder += divisorHigh;
+        remainderOverflow = trialRemainder < previous;
+    }
+
+    uint2 productLow = SigmaU32MultiplyWide(quotient, divisorLow);
+    uint2 productHigh = SigmaU32MultiplyWide(quotient, divisorHigh);
+    uint productMiddle = productLow.y + productHigh.x;
+    uint productCarry = productMiddle < productLow.y ? 1u : 0u;
+    uint productTop = productHigh.y + productCarry;
+
+    uint nextLow = low - productLow.x;
+    uint borrow = low < productLow.x ? 1u : 0u;
+    uint middleSubtrahend = productMiddle + borrow;
+    uint middleCarry = middleSubtrahend < productMiddle ? 1u : 0u;
+    uint nextMiddle = middle - middleSubtrahend;
+    uint middleBorrow = middleCarry != 0u || middle < middleSubtrahend
+        ? 1u : 0u;
+    uint highSubtrahend = productTop + middleBorrow;
+    uint highCarry = highSubtrahend < productTop ? 1u : 0u;
+    uint nextHigh = high - highSubtrahend;
+    bool underflow = highCarry != 0u || high < highSubtrahend;
+
+    if (underflow)
+    {
+        --quotient;
+        uint restoredLow = nextLow + divisorLow;
+        uint carry = restoredLow < nextLow ? 1u : 0u;
+        uint restoredMiddle = nextMiddle + divisorHigh;
+        uint carryMiddle = restoredMiddle < nextMiddle ? 1u : 0u;
+        uint restoredMiddleWithCarry = restoredMiddle + carry;
+        carryMiddle |= restoredMiddleWithCarry < restoredMiddle ? 1u : 0u;
+        nextLow = restoredLow;
+        nextMiddle = restoredMiddleWithCarry;
+        nextHigh += carryMiddle;
+    }
+
+    low = nextLow;
+    middle = nextMiddle;
+    high = nextHigh;
+    return quotient;
+}
+
+// Divide the exact 112-bit Q48 numerator |a|<<48 by a 64-bit denominator.
+// The one-word and two-word divisor paths are fixed packed-limb circuits; no
+// restoring bit loop or data-dependent trip count remains in the live ALU.
+uint2 SigmaQ48DivideMagnitude(uint2 numeratorMagnitude, uint2 denominator,
+    out uint2 remainder, out bool quotientOverflow)
+{
+    uint numerator0 = 0u;
+    uint numerator1 = numeratorMagnitude.x << 16u;
+    uint numerator2 = (numeratorMagnitude.x >> 16u) |
+        (numeratorMagnitude.y << 16u);
+    uint numerator3 = numeratorMagnitude.y >> 16u;
+
+    if (denominator.y == 0u)
+    {
+        uint remainder3;
+        uint quotient3 = SigmaU64DivideByU32(0u, numerator3,
+            denominator.x, remainder3);
+        uint remainder2;
+        uint quotient2 = SigmaU64DivideByU32(remainder3, numerator2,
+            denominator.x, remainder2);
+        uint remainder1;
+        uint quotient1 = SigmaU64DivideByU32(remainder2, numerator1,
+            denominator.x, remainder1);
+        uint remainder0;
+        uint quotient0 = SigmaU64DivideByU32(remainder1, numerator0,
+            denominator.x, remainder0);
+        remainder = uint2(remainder0, 0u);
+        quotientOverflow = quotient3 != 0u || quotient2 != 0u;
+        return uint2(quotient0, quotient1);
+    }
+
+    uint shift = 31u - (uint)firstbithigh(denominator.y);
+    uint divisorLow = denominator.x;
+    uint divisorHigh = denominator.y;
+    uint u0 = numerator0;
+    uint u1 = numerator1;
+    uint u2 = numerator2;
+    uint u3 = numerator3;
+    uint u4 = 0u;
+    if (shift != 0u)
+    {
+        divisorHigh = (denominator.y << shift) |
+            (denominator.x >> (32u - shift));
+        divisorLow = denominator.x << shift;
+        u4 = numerator3 >> (32u - shift);
+        u3 = (numerator3 << shift) | (numerator2 >> (32u - shift));
+        u2 = (numerator2 << shift) | (numerator1 >> (32u - shift));
+        u1 = (numerator1 << shift) | (numerator0 >> (32u - shift));
+        u0 = numerator0 << shift;
+    }
+
+    uint quotient2 = SigmaU96DivideStep(u2, u3, u4,
+        divisorLow, divisorHigh);
+    uint quotient1 = SigmaU96DivideStep(u1, u2, u3,
+        divisorLow, divisorHigh);
+    uint quotient0 = SigmaU96DivideStep(u0, u1, u2,
+        divisorLow, divisorHigh);
+    remainder = shift == 0u ? uint2(u0, u1) :
+        SigmaU64ShiftRight(uint2(u0, u1), shift);
+    quotientOverflow = quotient2 != 0u;
+    return uint2(quotient0, quotient1);
+}
+
 // mode: 0 nearest-even, 1 floor, 2 ceiling.
 uint2 SigmaQ48DivRounded(uint2 a, uint2 b, uint mode, inout uint valid)
 {
@@ -391,80 +586,10 @@ uint2 SigmaQ48DivRounded(uint2 a, uint2 b, uint mode, inout uint valid)
     if (SigmaQ48TryDivDyadic(a, b, mode, dyadicResult, valid))
         return dyadicResult;
     bool negative = ((a.y ^ b.y) & 0x80000000u) != 0u;
-    uint2 numeratorMagnitude = SigmaU64AbsSigned(a);
-    uint2 quotient64 = uint2(0u, 0u);
-    uint2 remainder = uint2(0u, 0u);
-    uint remainderExtra = 0u;
-    bool quotientOverflow = false;
-
-    // numerator = |a| << 48. Seed restoring division from the aligned
-    // high prefix, then emit only quotient bits. Every valid Q16.48 quotient
-    // has at most 65 candidate bits, so the normal path executes <= 65
-    // iterations instead of walking the old fixed 128-bit numerator. Invalid
-    // gross-overflow inputs still run the exact longer path so diagnostics keep
-    // the same low quotient/remainder as the semantic reference.
-    if (all(numeratorMagnitude == 0u))
-        return uint2(0u, 0u);
-    int magnitudeTop = numeratorMagnitude.y != 0u
-        ? 32 + firstbithigh(numeratorMagnitude.y)
-        : firstbithigh(numeratorMagnitude.x);
-    int denominatorTop = denominator.y != 0u
-        ? 32 + firstbithigh(denominator.y)
-        : firstbithigh(denominator.x);
-    int numeratorTop = magnitudeTop + 48;
-    int quotientTop = numeratorTop - denominatorTop;
-
-    if (quotientTop < 0)
-    {
-        // numerator < denominator, therefore the shifted numerator fits 64 bit.
-        remainder = SigmaU64ShiftLeftRaw(numeratorMagnitude, 48u);
-    }
-    else
-    {
-        int seedShift = 48 - quotientTop;
-        remainder = seedShift >= 0
-            ? SigmaU64ShiftLeftRaw(numeratorMagnitude, (uint)seedShift)
-            : SigmaU64ShiftRight(numeratorMagnitude, (uint)(-seedShift));
-
-        bool subtractSeed = !SigmaU64Less(remainder, denominator);
-        if (subtractSeed)
-        {
-            uint borrow;
-            remainder = SigmaU64Subtract(remainder, denominator, borrow);
-            if (quotientTop >= 64)
-                quotientOverflow = true;
-            else if (quotientTop < 32)
-                quotient64.x |= 1u << (uint)quotientTop;
-            else
-                quotient64.y |= 1u << (uint)(quotientTop - 32);
-        }
-
-        [loop]
-        for (int bit = quotientTop - 1; bit >= 0; --bit)
-        {
-            uint sourceBit = bit >= 48
-                ? (SigmaU64Bit(numeratorMagnitude, (uint)(bit - 48))
-                    ? 1u : 0u)
-                : 0u;
-            remainderExtra = remainder.y >> 31u;
-            remainder.y = (remainder.y << 1u) | (remainder.x >> 31u);
-            remainder.x = (remainder.x << 1u) | sourceBit;
-            bool subtract = remainderExtra != 0u ||
-                !SigmaU64Less(remainder, denominator);
-            if (!subtract)
-                continue;
-            uint borrow;
-            remainder = SigmaU64Subtract(remainder, denominator, borrow);
-            remainderExtra -= borrow;
-            if (bit >= 64)
-                quotientOverflow = true;
-            else if (bit < 32)
-                quotient64.x |= 1u << (uint)bit;
-            else
-                quotient64.y |= 1u << (uint)(bit - 32);
-        }
-    }
-
+    uint2 remainder;
+    bool quotientOverflow;
+    uint2 quotient64 = SigmaQ48DivideMagnitude(SigmaU64AbsSigned(a),
+        denominator, remainder, quotientOverflow);
     if (quotientOverflow)
         valid = 0u;
     bool hasRemainder = any(remainder != 0u);

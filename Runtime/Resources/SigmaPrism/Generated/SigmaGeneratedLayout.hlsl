@@ -8,6 +8,22 @@
 #define SIGMA_Q48_ONE_LO 0u
 #define SIGMA_Q48_ONE_HI 0x00010000u
 
+// Generated fixed-circuit diagnostic costs. These constants describe the
+// scheduled exact lowering and are consumed only by Section 44 telemetry.
+#define SIGMA_COST_HADAMARD_SIGNED_ADD_SUB 64u
+#define SIGMA_COST_HADAMARD_MASK_SELECT 16u
+#define SIGMA_COST_DYAD_XOR_PERMUTATION 32u
+#define SIGMA_COST_DYAD_SIGNED_ADD_SUB 16u
+#define SIGMA_COST_DYAD_MASK_SELECT 32u
+#define SIGMA_COST_MEET_MASK_SELECT 32u
+#define SIGMA_COST_SOURCE_XOR_PERMUTATION 64u
+#define SIGMA_COST_SOURCE_SIGNED_ADD_SUB 192u
+#define SIGMA_COST_SOURCE_MASK_SELECT 96u
+#define SIGMA_COST_SOURCE_WIDE_MULTIPLY 32u
+#define SIGMA_COST_SOURCE_DIVIDE 16u
+#define SIGMA_COST_SOURCE_INTERVAL_MULDIV 16u
+#define SIGMA_COST_ASSOCIATOR_DENSE_PRODUCTS 4u
+
 static const uint SIGMA_GEOMETRY_ROWS[4] = { 1u, 2u, 5u, 6u };
 static const uint SIGMA_HIDDEN_ROWS[12] = { 0u, 3u, 4u, 7u, 8u, 9u, 10u, 11u, 12u, 13u, 14u, 15u };
 

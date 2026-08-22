@@ -11,6 +11,7 @@
 
 #include "Sedenion16.hlsl"
 #include "SigmaCarrierAbi.hlsl"
+#include "SigmaStableScan.hlsl"
 
 StructuredBuffer<uint> _SigmaExactBackendGate;
 StructuredBuffer<uint2> _SourceCarrierState;
@@ -37,9 +38,6 @@ uint _CertificateOffsetLo;
 uint _CertificateOffsetHi;
 uint _CertificateCount;
 uint _GpuPoolPageCount;
-
-groupshared uint SigmaDirtyScanA[256];
-groupshared uint SigmaDirtyScanB[256];
 
 uint2 SigmaCarrierNullLane(uint lane)
 {
@@ -92,7 +90,7 @@ void InitializeNullPage(uint3 dispatchId : SV_DispatchThreadID)
 }
 
 // Live reconstruction owns an even set of generation-paired physical slots.
-// Every slot starts as exact z_null but is neither allocated nor current.  A
+// Every slot starts as exact z_null but is neither allocated nor current. A
 // proof-gated GPU transaction is the only operation allowed to publish it.
 [numthreads(64, 1, 1)]
 void InitializeGpuPool(uint3 groupId : SV_GroupID,
@@ -187,45 +185,24 @@ void ReleasePageSlot(uint3 dispatchId : SV_DispatchThreadID)
     _ReadoutDirtyFlags[_TargetPageSlot] = 0u;
 }
 
-// One segment has at most 256 decoded pages. The fixed scan is therefore a
-// complete, stable prefix operation: dirty slots are emitted in ascending slot
-// order and never inherit nondeterministic atomic arrival order.
+// One segment has at most 256 decoded pages. This shared fixed scalar circuit
+// emits dirty slots in stable ascending physical-slot order without atomic
+// arrival order becoming canonical addressing authority.
 [numthreads(256, 1, 1)]
 void CompactDirtyPages(uint3 groupThreadId : SV_GroupThreadID)
 {
     uint lane = groupThreadId.x;
     uint active = lane < _PageCapacity && _DirtyFlags[lane] != 0u ? 1u : 0u;
-    SigmaDirtyScanA[lane] = active;
-    GroupMemoryBarrierWithGroupSync();
-
-    uint useA = 1u;
-    [unroll]
-    for (uint offset = 1u; offset < 256u; offset <<= 1u)
-    {
-        uint value = useA != 0u ? SigmaDirtyScanA[lane] : SigmaDirtyScanB[lane];
-        uint addend = lane >= offset
-            ? (useA != 0u ? SigmaDirtyScanA[lane - offset] :
-                SigmaDirtyScanB[lane - offset]) : 0u;
-        if (useA != 0u)
-            SigmaDirtyScanB[lane] = value + addend;
-        else
-            SigmaDirtyScanA[lane] = value + addend;
-        GroupMemoryBarrierWithGroupSync();
-        useA ^= 1u;
-    }
-
-    uint inclusive = useA != 0u ? SigmaDirtyScanA[lane] :
-        SigmaDirtyScanB[lane];
+    uint total;
+    uint prefix = SigmaStableExclusiveScan256(lane, active, total);
 
     if (active != 0u)
-        _DirtyPageSlots[inclusive - 1u] = lane;
+        _DirtyPageSlots[prefix] = lane;
 
     if (lane == 0u)
     {
-        uint count = useA != 0u ? SigmaDirtyScanA[255u] :
-            SigmaDirtyScanB[255u];
-        _DirtyCount[0] = count;
-        _DirtyDispatchArgs[0] = count;
+        _DirtyCount[0] = total;
+        _DirtyDispatchArgs[0] = total;
         _DirtyDispatchArgs[1] = 1u;
         _DirtyDispatchArgs[2] = 1u;
     }

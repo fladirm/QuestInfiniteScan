@@ -7,7 +7,7 @@
 
 // Indirect dispatch ABI:
 //   RGB         = (256 sample phases, matchedEyeCount, 1)
-//   SOLVE       = (64 carrier rows, matchedWorkCount, 1)
+//   SOLVE       = (256 sixteen-sample coordinate groups, matchedWorkCount, 1)
 //   PROMOTE     = (8 local X groups, 8 local Y groups, gaugeWorkCount)
 //   PROOF       = (64 carrier blocks, totalWorkCount, 1)
 //   COMMIT      = (1, totalWorkCount, 1)

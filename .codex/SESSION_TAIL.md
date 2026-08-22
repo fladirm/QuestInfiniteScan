@@ -2,20 +2,21 @@
 
 ## Latest user exchange
 
-The user confirmed that the previous long compile blockage was the old
-`BuildGaugeDemand` kernel and explicitly requested no repeated compilation or
-analysis. They want the finished Release APK deployed immediately, while retaining
-the clean whole-file shader rewrite, exact 16D ontology, no CPU readback/fallback,
-and the temporary visible carrier preview that S4-11 will replace with meshlets.
+The user ordered the current S4-08.2 source committed immediately, followed by one
+Release APK build/install and then a source-only `git archive`; they explicitly
+stopped the long EditMode batch because the next useful evidence is the live Quest
+run. S4-09 must remain pending.
 
 ## Latest implementation checkpoint
 
-The old gauge kernel is gone. `SigmaGaugeDemand.compute` now uses a coordinate-major
-64-lane candidate pass and a 16-lane deterministic final pass; matching C# bindings
-and indirect axes use a seventh dispatch record. The completion-ticket, exact GPU
-lowering, proof/gauge/topology paths and temporary stereo DirectCarrierPreview are
-wired. The already-running Unity Vulkan batch completed 65/65; generated operators,
-`git diff --check` and the Quest eight-UAV validator pass. No second compile/test
-batch is being started. Exact next action is code-graph/control validation, one
-Release-candidate commit, source-only `git archive`, Android/Vulkan Release build
-from that commit and installation on the connected Quest; S4-09 stays pending.
+The closure source retains the sole exact `Psi : Sigma_2 -> S16` ontology and now
+contains the fail-closed graphics completion/retirement contract, fixed packed-limb
+ExactALU divider, coordinate-major inverse, cooperative pose/RGB/proof/gauge work,
+one scalar shared stable-scan circuit, bounded candidate-local intrinsic topology,
+temporary stereo carrier preview and GPU-resident Section 44 counters/profiler
+markers. Every changed shader/include was re-emitted as one coherent whole file;
+no CPU readback, synchronous wait, fallback or legacy shader path was introduced.
+Generated-output, `git diff --check` and Quest eight-UAV gates pass. The EditMode
+batch was interrupted on user instruction and has no claimed result. Exact next
+action is code graph + control validation, candidate commit, Release build/install,
+then `git archive` from the same commit.

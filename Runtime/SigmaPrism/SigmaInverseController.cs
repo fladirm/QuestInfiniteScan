@@ -31,6 +31,8 @@ namespace Genesis.RoomScan.SigmaPrism
             "SigmaPrism/SigmaGaugeDemand";
         private const string ConeLutResource = "SigmaPrism/ConeLut";
         private const string PoseGaugeResource = "SigmaPrism/SigmaPoseGauge";
+        private const string PerformanceResource =
+            "SigmaPrism/SigmaPerformanceCounters";
         private const int CalibrationStride = 36;
         private const int RgbCalibrationStride = 8;
         private const int ConflictStride = 192;
@@ -38,6 +40,8 @@ namespace Genesis.RoomScan.SigmaPrism
         private const int WorkControlWords = 9;
         private const int RgbPhaseSamples = 256;
         private const int PosePriorValueCount = 15;
+        private const int PerformanceCounterCount = 18;
+        private const int PerformanceTopologyHistoryCount = 8;
         private const uint RgbDispatchOffset = 0u;
         private const uint SolveDispatchOffset = 3u * sizeof(uint);
         private const uint PromoteDispatchOffset = 6u * sizeof(uint);
@@ -78,6 +82,7 @@ namespace Genesis.RoomScan.SigmaPrism
         private ComputeShader _gaugeDemandShader;
         private ComputeShader _coneLutShader;
         private ComputeShader _poseGaugeCompute;
+        private ComputeShader _performanceCompute;
         private RigCalibration _calibration;
         private RigConeLutSet _coneLuts;
         private SigmaCarrierReadBatch _pool;
@@ -111,6 +116,8 @@ namespace Genesis.RoomScan.SigmaPrism
         private GraphicsBuffer _inverseWork;
         private GraphicsBuffer _inverseWorkControl;
         private GraphicsBuffer _dispatchArguments;
+        private GraphicsBuffer _performanceCounters;
+        private GraphicsBuffer _performanceTopologyHistory;
         private int _posePartialCapacity;
         private int _blockFlagCapacity;
         private int _activeFlagCount;
@@ -135,6 +142,7 @@ namespace Genesis.RoomScan.SigmaPrism
         private int _proofRawCommitKernel;
         private int _gaugeCoordinateKernel;
         private int _gaugeFinalizeKernel;
+        private int _performanceKernel;
 
         private uint _nextRevision = 1u;
         private bool _running;
@@ -153,6 +161,10 @@ namespace Genesis.RoomScan.SigmaPrism
         public long FailedFrames { get; private set; }
         public long CommittedPageGenerations { get; private set; }
         public long AllocatedGaugePages { get; private set; }
+        public long PeakCompletionAgeFrames { get; private set; }
+        public int PendingCompletionTickets => (_inFlight != null ? 1 : 0) +
+            SigmaGpuRetirement.PendingCount;
+        public GraphicsBuffer PerformanceCounters => _performanceCounters;
         public SigmaInverseDiagnosticSnapshot LastDiagnostics { get; private set; }
 
         public void OnModuleInitialize(RoomScanner scanner)
@@ -179,11 +191,14 @@ namespace Genesis.RoomScan.SigmaPrism
                 GaugeDemandResource);
             _coneLutShader = Resources.Load<ComputeShader>(ConeLutResource);
             _poseGaugeCompute = Resources.Load<ComputeShader>(PoseGaugeResource);
+            _performanceCompute = Resources.Load<ComputeShader>(
+                PerformanceResource);
             if (_carrier == null || _topology == null || _renderer == null ||
                 _rigBridge == null || _normalize == null || _inverse == null ||
                 _rgbSource == null || _workGraph == null ||
                 _ledgerShader == null || _gaugeDemandShader == null ||
-                _coneLutShader == null || _poseGaugeCompute == null)
+                _coneLutShader == null || _poseGaugeCompute == null ||
+                _performanceCompute == null)
                 throw new InvalidOperationException(
                     "Sigma GPU inverse resources are incomplete.");
 
@@ -262,6 +277,12 @@ namespace Genesis.RoomScan.SigmaPrism
                     Logger.Error("Sigma inverse GPU completion failed closed: " +
                                  completionError);
                 }
+                else
+                {
+                    _inFlight.AdvanceAge();
+                    PeakCompletionAgeFrames = Math.Max(
+                        PeakCompletionAgeFrames, _inFlight.AgeFrames);
+                }
             }
             if (!_running || _inFlight != null || _pendingPrediction == null)
                 return;
@@ -314,13 +335,22 @@ namespace Genesis.RoomScan.SigmaPrism
             SigmaPredictionFrameLease correctedPrediction = null;
             try
             {
+                command.BeginSample("Sigma.Normalize");
                 RecordNormalize(command, source);
+                command.EndSample("Sigma.Normalize");
+                command.BeginSample("Sigma.PoseGauge");
                 RecordPoseGauge(command, source, prediction, revision);
                 RecordCorrectedCalibration(command, source);
-                if (!_renderer.TryRecordPoseGaugePrediction(command, source,
-                        _poseResult, out correctedPrediction))
+                command.EndSample("Sigma.PoseGauge");
+                command.BeginSample("Sigma.PredictionReraster");
+                bool correctedPredictionRecorded =
+                    _renderer.TryRecordPoseGaugePrediction(command, source,
+                        _poseResult, out correctedPrediction);
+                command.EndSample("Sigma.PredictionReraster");
+                if (!correctedPredictionRecorded)
                     throw new InvalidOperationException(
                         "Unable to reserve same-frame corrected prediction.");
+                command.BeginSample("Sigma.InverseClassifyCompact");
                 RecordClearAndClassify(command, source, correctedPrediction,
                     blockResolution, blockCount, revision, leftKey, rightKey,
                     rgbLeftKey, rgbRightKey);
@@ -329,8 +359,12 @@ namespace Genesis.RoomScan.SigmaPrism
                 RecordPrepareTransactions(command);
                 RecordProofClear(command, frameSlot, source.CalibrationEpoch,
                     revision);
+                command.EndSample("Sigma.InverseClassifyCompact");
+                command.BeginSample("Sigma.RgbInverse");
                 RecordRgbSource(command, source, correctedPrediction, revision,
                     leftKey, rightKey, rgbLeftKey, rgbRightKey);
+                command.EndSample("Sigma.RgbInverse");
+                command.BeginSample("Sigma.SolveProofCommit");
                 RecordMatchedSolve(command, source, correctedPrediction, revision,
                     leftKey, rightKey, rgbLeftKey, rgbRightKey);
                 RecordGaugePromote(command, source, correctedPrediction, revision,
@@ -342,10 +376,16 @@ namespace Genesis.RoomScan.SigmaPrism
                     source.CalibrationEpoch, revision);
                 RecordProofGaugeDemand(command, revision);
                 RecordProofCommit(command);
+                command.EndSample("Sigma.SolveProofCommit");
+                command.BeginSample("Sigma.IntrinsicTopology");
                 _topology.RecordGpuInverseTopology(command, _pool,
                     _inverseWork, _inverseWorkControl, _proposalStatus,
                     _proposalEpoch, inverseWorkCapacity, revision, leftKey,
                     rightKey);
+                command.EndSample("Sigma.IntrinsicTopology");
+                command.BeginSample("Sigma.Section44Counters");
+                RecordPerformanceCounters(command);
+                command.EndSample("Sigma.Section44Counters");
                 completion = SigmaGpuCompletion.RecordAfterAllWork(command);
                 Graphics.ExecuteCommandBuffer(command);
             }
@@ -666,6 +706,26 @@ namespace Genesis.RoomScan.SigmaPrism
                 "_InverseWorkRead", _inverseWork);
             command.DispatchCompute(_workGraph, _workCommitKernel,
                 _dispatchArguments, CommitDispatchOffset);
+        }
+
+        private void RecordPerformanceCounters(CommandBuffer command)
+        {
+            command.SetComputeBufferParam(_performanceCompute,
+                _performanceKernel, "_FrameCounters", _frameCounters);
+            command.SetComputeBufferParam(_performanceCompute,
+                _performanceKernel, "_InverseWorkControl",
+                _inverseWorkControl);
+            command.SetComputeBufferParam(_performanceCompute,
+                _performanceKernel, "_TopologyCounters",
+                _topology.DiagnosticCounters);
+            command.SetComputeBufferParam(_performanceCompute,
+                _performanceKernel, "_PerformanceCounters",
+                _performanceCounters);
+            command.SetComputeBufferParam(_performanceCompute,
+                _performanceKernel, "_PerformanceTopologyHistory",
+                _performanceTopologyHistory);
+            command.DispatchCompute(_performanceCompute, _performanceKernel,
+                1, 1, 1);
         }
 
         private void BindWorkGraph(CommandBuffer command, int kernel)
@@ -1264,6 +1324,8 @@ namespace Genesis.RoomScan.SigmaPrism
                 "BuildGaugeCoordinateCandidates");
             _gaugeFinalizeKernel = _gaugeDemandShader.FindKernel(
                 "FinalizeGaugeDemand");
+            _performanceKernel = _performanceCompute.FindKernel(
+                "AccumulateSigmaPerformanceCounters");
         }
 
         private void CreatePersistentResources()
@@ -1333,6 +1395,14 @@ namespace Genesis.RoomScan.SigmaPrism
                 name = "Sigma inverse graph indirect argument arena"
             };
             _dispatchArguments.SetData(new uint[21]);
+            _performanceCounters = CreateBuffer(PerformanceCounterCount,
+                sizeof(uint), "Sigma Section 44 performance counters");
+            _performanceTopologyHistory = CreateBuffer(
+                PerformanceTopologyHistoryCount, sizeof(uint),
+                "Sigma topology counter history");
+            _performanceCounters.SetData(new uint[PerformanceCounterCount]);
+            _performanceTopologyHistory.SetData(
+                new uint[PerformanceTopologyHistoryCount]);
         }
 
         private uint NextRevision()
@@ -1451,12 +1521,14 @@ namespace Genesis.RoomScan.SigmaPrism
                 _renderer.PredictionReady -= OnPredictionReady;
             _pendingPrediction?.Dispose();
             _pendingPrediction = null;
-            _inFlight?.Dispose();
+            GpuSubmission submission = _inFlight;
             _inFlight = null;
-            _coneLuts?.Retire();
+            RigConeLutSet coneLuts = _coneLuts;
             _coneLuts = null;
-            DestroyTexture(_metricDepth);
-            DestroyTexture(_depthFlags);
+            RenderTexture metricDepth = _metricDepth;
+            RenderTexture depthFlags = _depthFlags;
+            _metricDepth = null;
+            _depthFlags = null;
             GraphicsBuffer[] buffers = {
                 _calibrationQ48, _rgbCalibrationQ48, _rawCalibrationQ48,
                 _rawRgbCalibrationQ48, _rgbViewOperators,
@@ -1465,13 +1537,30 @@ namespace Genesis.RoomScan.SigmaPrism
                 _frameCounters, _gaugePromotionCounts, _proposalStatus,
                 _proposalEpoch, _rgbSourceBounds, _rgbSourceMeta, _posePrior,
                 _poseResult, _posePartials, _inverseWork,
-                _inverseWorkControl, _dispatchArguments
+                _inverseWorkControl, _dispatchArguments,
+                _performanceCounters, _performanceTopologyHistory
             };
-            for (int index = 0; index < buffers.Length; ++index)
-                buffers[index]?.Dispose();
-            _proofLedger?.Dispose();
+            SigmaConstraintLedger proofLedger = _proofLedger;
             _proofLedger = null;
             _initialized = false;
+
+            void ReleaseOwnedResources()
+            {
+                submission?.Dispose();
+                coneLuts?.Retire();
+                DestroyTexture(metricDepth);
+                DestroyTexture(depthFlags);
+                for (int index = 0; index < buffers.Length; ++index)
+                    buffers[index]?.Dispose();
+                proofLedger?.Dispose();
+            }
+
+            if (submission == null)
+                ReleaseOwnedResources();
+            else
+                SigmaGpuRetirement.Retire(submission.Completion,
+                    ReleaseOwnedResources,
+                    "Sigma inverse controller teardown");
         }
 
         [StructLayout(LayoutKind.Sequential)]
@@ -1502,6 +1591,9 @@ namespace Genesis.RoomScan.SigmaPrism
                 _completion = completion;
             }
             internal bool Discard { get; set; }
+            internal long AgeFrames { get; private set; }
+            internal SigmaGpuCompletionTicket Completion => _completion;
+            internal void AdvanceAge() => AgeFrames++;
             internal SigmaGpuCompletionStatus Poll(out string error) =>
                 _completion.Poll(out error);
             public void Dispose()

@@ -327,7 +327,44 @@ namespace Genesis.RoomScan.SigmaPrism
                 return;
             }
             if (status == SigmaGpuCompletionStatus.Faulted)
+            {
                 LatchCompletionFault(slot, error);
+                RetireSlot(slot, true, error);
+                return;
+            }
+            RetireSlot(slot, false, null);
+        }
+
+        private static void RetireSlot(Slot slot, bool faulted, string error)
+        {
+            RenderTexture depthSupport = slot.DepthSupport;
+            RenderTexture carrierPage = slot.CarrierPage;
+            RenderTexture carrierUvNormal = slot.CarrierUvNormal;
+            RenderTexture stateKey = slot.StateKey;
+            RenderTexture hardwareDepth = slot.HardwareDepth;
+            SigmaGpuCompletionTicket completion = slot.Completion;
+            slot.DepthSupport = null;
+            slot.CarrierPage = null;
+            slot.CarrierUvNormal = null;
+            slot.StateKey = null;
+            slot.HardwareDepth = null;
+            slot.HasCompletion = false;
+            slot.CompletionFaulted = false;
+            slot.RetireWhenReleased = false;
+            Action release = () =>
+            {
+                DestroyTexture(depthSupport);
+                DestroyTexture(carrierPage);
+                DestroyTexture(carrierUvNormal);
+                DestroyTexture(stateKey);
+                DestroyTexture(hardwareDepth);
+            };
+            if (faulted)
+                SigmaGpuRetirement.Quarantine(release,
+                    "Sigma retired prediction slot", error);
+            else
+                SigmaGpuRetirement.Retire(completion, release,
+                    "Sigma retired prediction slot");
         }
 
         private static void DestroySlot(Slot slot)

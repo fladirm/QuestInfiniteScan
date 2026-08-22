@@ -322,6 +322,27 @@ bool SigmaPoseBuildCells(uint eye, uint2 pixel,
     if (valid == 0u)
         return false;
 
+    // Every contribution is a non-negative outward width.  Ordered prefix and
+    // suffix sums therefore preserve the former checked-validity result while
+    // sharing nuisance work across all six components.  The unused full-total
+    // prefix/suffix is deliberately not formed: a component remains valid iff
+    // exactly its five nuisance contributions plus residualWidth fit.
+    uint2 prefix[SIGMA_POSE_COMPONENTS];
+    uint2 suffix[SIGMA_POSE_COMPONENTS + 1u];
+    prefix[0u] = SIGMA_Q48_ZERO;
+    [unroll]
+    for (uint component = 1u; component < SIGMA_POSE_COMPONENTS; ++component)
+        prefix[component] = SigmaQ48AddChecked(prefix[component - 1u],
+            contribution[component - 1u], valid);
+    suffix[SIGMA_POSE_COMPONENTS] = SIGMA_Q48_ZERO;
+    [unroll]
+    for (int component = (int)SIGMA_POSE_COMPONENTS - 1;
+        component >= 1; --component)
+        suffix[component] = SigmaQ48AddChecked(suffix[component + 1],
+            contribution[component], valid);
+    if (valid == 0u)
+        return false;
+
     [unroll]
     for (uint component = 0u; component < SIGMA_POSE_COMPONENTS; ++component)
     {
@@ -331,14 +352,9 @@ bool SigmaPoseBuildCells(uint eye, uint2 pixel,
             SigmaQ48Less(effect, _PosePrior[SIGMA_POSE_MIN_EFFECT]))
             continue;
 
-        uint2 width = residualWidth;
-        [unroll]
-        for (uint other = 0u; other < SIGMA_POSE_COMPONENTS; ++other)
-        {
-            if (other == component)
-                continue;
-            width = SigmaQ48AddChecked(width, contribution[other], valid);
-        }
+        uint2 width = SigmaQ48AddChecked(residualWidth, prefix[component],
+            valid);
+        width = SigmaQ48AddChecked(width, suffix[component + 1u], valid);
         SigmaQ48Bounds numerator = SigmaQ48Widen(target, width, valid);
         bool negativeCoefficient = (coefficient.y & 0x80000000u) != 0u;
         uint2 qLo = SigmaQ48DivLower(negativeCoefficient ? numerator.hi :

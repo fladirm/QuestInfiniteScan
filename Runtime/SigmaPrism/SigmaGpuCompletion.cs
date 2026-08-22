@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Rendering;
 
@@ -77,6 +78,132 @@ namespace Genesis.RoomScan.SigmaPrism
             return new SigmaGpuCompletionTicket(command.CreateGraphicsFence(
                 GraphicsFenceType.CPUSynchronisation,
                 SynchronisationStageFlags.AllGPUOperations));
+        }
+    }
+
+    /// <summary>
+    /// Main-thread, non-blocking retirement for GPU-owned resources whose normal
+    /// component owner can disappear before the graphics queue reaches its fence.
+    /// A failed fence is quarantined: unproven resources are intentionally kept
+    /// alive instead of being recycled or destroyed under live GPU work.
+    /// </summary>
+    internal static class SigmaGpuRetirement
+    {
+        private sealed class Entry
+        {
+            internal SigmaGpuCompletionTicket Ticket;
+            internal Action Release;
+            internal string Label;
+        }
+
+        private static readonly List<Entry> Pending = new();
+        private static readonly List<Entry> Quarantined = new();
+        private static bool _subscribed;
+
+        internal static int PendingCount => Pending.Count;
+        internal static int QuarantinedCount => Quarantined.Count;
+
+        internal static void Retire(SigmaGpuCompletionTicket ticket,
+            Action release, string label)
+        {
+            if (release == null)
+                return;
+            var entry = new Entry
+            {
+                Ticket = ticket,
+                Release = release,
+                Label = string.IsNullOrWhiteSpace(label)
+                    ? "Sigma GPU resources"
+                    : label
+            };
+            SigmaGpuCompletionStatus status = ticket.Poll(out string error);
+            if (status == SigmaGpuCompletionStatus.Complete)
+            {
+                ReleaseOnce(entry);
+                return;
+            }
+            if (status == SigmaGpuCompletionStatus.Faulted)
+            {
+                Quarantine(entry, error);
+                return;
+            }
+            Pending.Add(entry);
+            EnsurePump();
+        }
+
+        internal static void Quarantine(Action release, string label,
+            string error)
+        {
+            if (release == null)
+                return;
+            Quarantine(new Entry
+            {
+                Release = release,
+                Label = string.IsNullOrWhiteSpace(label)
+                    ? "Sigma GPU resources"
+                    : label
+            }, error);
+        }
+
+        internal static void Poll()
+        {
+            for (int index = Pending.Count - 1; index >= 0; --index)
+            {
+                Entry entry = Pending[index];
+                SigmaGpuCompletionStatus status = entry.Ticket.Poll(
+                    out string error);
+                if (status == SigmaGpuCompletionStatus.Pending)
+                    continue;
+                Pending.RemoveAt(index);
+                if (status == SigmaGpuCompletionStatus.Complete)
+                    ReleaseOnce(entry);
+                else
+                    Quarantine(entry, error);
+            }
+            if (Pending.Count == 0)
+                StopPump();
+        }
+
+        private static void EnsurePump()
+        {
+            if (_subscribed)
+                return;
+            RenderPipelineManager.endFrameRendering += EndFrameRendering;
+            _subscribed = true;
+        }
+
+        private static void StopPump()
+        {
+            if (!_subscribed)
+                return;
+            RenderPipelineManager.endFrameRendering -= EndFrameRendering;
+            _subscribed = false;
+        }
+
+        private static void EndFrameRendering(ScriptableRenderContext context,
+            Camera[] cameras) => Poll();
+
+        private static void ReleaseOnce(Entry entry)
+        {
+            Action release = entry.Release;
+            entry.Release = null;
+            try
+            {
+                release?.Invoke();
+            }
+            catch (Exception exception)
+            {
+                Logger.Error($"{entry.Label}: deferred GPU resource release " +
+                             $"failed: {exception.Message}");
+            }
+        }
+
+        private static void Quarantine(Entry entry, string error)
+        {
+            Quarantined.Add(entry);
+            Logger.Error($"{entry.Label}: GPU completion is unprovable; " +
+                         "resources were quarantined and will not be reused. " +
+                         (string.IsNullOrWhiteSpace(error) ? string.Empty : error));
         }
     }
 }

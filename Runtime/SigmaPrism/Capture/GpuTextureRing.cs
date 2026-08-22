@@ -273,7 +273,29 @@ namespace Genesis.RoomScan.SigmaPrism
                 return;
             }
             if (status == SigmaGpuCompletionStatus.Faulted)
+            {
                 LatchCompletionFault(slot, error);
+                RetireSlot(slot, true, error);
+                return;
+            }
+            RetireSlot(slot, false, null);
+        }
+
+        private void RetireSlot(Slot slot, bool faulted, string error)
+        {
+            RenderTexture texture = slot.Texture;
+            SigmaGpuCompletionTicket completion = slot.Completion;
+            slot.Texture = null;
+            slot.HasCompletion = false;
+            slot.CompletionFaulted = false;
+            slot.RetireWhenReleased = false;
+            Action release = () => DestroyTexture(texture);
+            if (faulted)
+                SigmaGpuRetirement.Quarantine(release,
+                    $"{_name} retired capture slot", error);
+            else
+                SigmaGpuRetirement.Retire(completion, release,
+                    $"{_name} retired capture slot");
         }
 
         private void EnsureCompatibleTarget(Slot slot, Texture source, int slotIndex)
@@ -396,17 +418,22 @@ namespace Genesis.RoomScan.SigmaPrism
 
         private static void DestroySlot(Slot slot)
         {
-            if (slot.Texture != null)
-            {
-                if (Application.isPlaying)
-                    UnityEngine.Object.Destroy(slot.Texture);
-                else
-                    UnityEngine.Object.DestroyImmediate(slot.Texture);
-            }
+            DestroyTexture(slot.Texture);
             slot.Texture = null;
             slot.HasCompletion = false;
             slot.CompletionFaulted = false;
             slot.RetireWhenReleased = false;
+        }
+
+        private static void DestroyTexture(RenderTexture texture)
+        {
+            if (texture == null)
+                return;
+            texture.Release();
+            if (Application.isPlaying)
+                UnityEngine.Object.Destroy(texture);
+            else
+                UnityEngine.Object.DestroyImmediate(texture);
         }
     }
 }

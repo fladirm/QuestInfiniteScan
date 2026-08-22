@@ -19,6 +19,22 @@ namespace Genesis.RoomScan.SigmaPrism
         internal const string OperatorFingerprint = "8188e64c65da75e3cd1ba061615af7ca3ca4cc7654e10efa6bc4e4cd06a6fffd";
         internal const string BundleFingerprint = "976425702f4426d07ccad591c185a8c7841721a7cebb2d7aa6dfd283ade09e2e";
 
+        // Generated fixed-circuit diagnostic costs. They are execution metadata,
+        // not canonical algebra semantics and therefore do not alter fingerprints.
+        internal const int CostHadamardSignedAddSub = 64;
+        internal const int CostHadamardMaskSelect = 16;
+        internal const int CostDyadXorPermutation = 32;
+        internal const int CostDyadSignedAddSub = 16;
+        internal const int CostDyadMaskSelect = 32;
+        internal const int CostMeetMaskSelect = 32;
+        internal const int CostSourceXorPermutation = 64;
+        internal const int CostSourceSignedAddSub = 192;
+        internal const int CostSourceMaskSelect = 96;
+        internal const int CostSourceWideMultiply = 32;
+        internal const int CostSourceDivide = 16;
+        internal const int CostSourceIntervalMulDiv = 16;
+        internal const int CostAssociatorDenseProducts = 4;
+
         internal static readonly sbyte[] MultiplicationSigns =
         {
             1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
