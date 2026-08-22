@@ -83,3 +83,21 @@ Git history and are not active on this branch.
 - Consequence: prediction/readout buffers are deletable, ref-counted GPU caches.
   No CPU geometry, synchronous readback, Unity Mesh or parallel geometry world may
   be introduced by inverse, topology or rendering stages.
+
+## ADR-S406 — Independent depth cells and transactional latent-gauge promotion
+
+- Decision: left and right depth remain independent conservative finite-cone Q16.48
+  source cells. Their contribution is exact inclusive admissible-set intersection;
+  confidence changes interval width only and never becomes a weighted sensor sum.
+- Decision: empty meets and pre-hit exclusions produce bounded provenance evidence,
+  not canonical mutation. Accepted proposals are revalidated against the immutable
+  source generation before a new page generation is published, and weaker or
+  correlated observations cannot reduce existing information resistance.
+- Decision: image blocks and nearby carrier pages may schedule unmatched work but
+  have no topological meaning. A latent-gauge generation remains unpublished until
+  distinct L/R evidence promotes at least one exact sample; otherwise the write is
+  aborted. Small scheduling counters may return asynchronously while all pixel and
+  carrier arithmetic remains on GPU.
+- Consequence: S4-05 topology must be derived from exact carrier transitions and
+  evidence signatures, never from gauge allocation layout, image blocks, depth
+  patches or spatial proximity.

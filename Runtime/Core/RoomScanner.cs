@@ -32,6 +32,7 @@ namespace Genesis.RoomScan
     [RequireComponent(typeof(SigmaRigBridge))]
     [RequireComponent(typeof(SigmaCarrier))]
     [RequireComponent(typeof(SigmaRenderer))]
+    [RequireComponent(typeof(SigmaInverseController))]
     public sealed class RoomScanner : MonoBehaviour
     {
         public static RoomScanner Instance { get; private set; }
@@ -47,6 +48,7 @@ namespace Genesis.RoomScan
         private SigmaRigBridge _rigBridge;
         private SigmaCarrier _carrier;
         private SigmaRenderer _sigmaRenderer;
+        private SigmaInverseController _sigmaInverse;
         private RoomAnchorManager _roomAnchor;
         private DebugMenuController _debugMenu;
         private IRoomScanModule[] _modules;
@@ -64,11 +66,12 @@ namespace Genesis.RoomScan
         public string LastScanStartError { get; private set; }
         public ScanRenderMode CurrentRenderMode => renderMode;
         public string RuntimeStage =>
-            "S4-03 exact dual-eye carrier readout; inverse mutation gated by S4-04";
+            "S4-04 exact dual-depth inverse readout and immutable carrier commit";
         public DepthCapture DepthCapture => _depthCapture;
         public SigmaRigBridge RigBridge => _rigBridge;
         public SigmaCarrier Carrier => _carrier;
         public SigmaRenderer SigmaRenderer => _sigmaRenderer;
+        public SigmaInverseController SigmaInverse => _sigmaInverse;
         public DebugMenuController DebugMenu => _debugMenu;
         public bool ScanResourcesReleased => _resourcesReleased;
         public SigmaExactBackendGate ExactBackendGate => _exactBackendGate;
@@ -89,6 +92,7 @@ namespace Genesis.RoomScan
             _rigBridge = GetComponent<SigmaRigBridge>();
             _carrier = GetComponent<SigmaCarrier>();
             _sigmaRenderer = GetComponent<SigmaRenderer>();
+            _sigmaInverse = GetComponent<SigmaInverseController>();
             _roomAnchor = GetComponent<RoomAnchorManager>();
             _debugMenu = GetComponentInChildren<DebugMenuController>(true);
             Shader.SetGlobalFloat(WireframeId, 0f);
@@ -192,9 +196,8 @@ namespace Genesis.RoomScan
                     module.OnScanStarted();
 
                 ScanLifecycle = ScanLifecycleState.Running;
-                Logger.Info("StartScanning — Σ-PRISM-16 synchronized capture active; " +
-                            "exact carrier forward readout active; sensor-driven inverse " +
-                            "mutation remains fail-closed until S4-04.");
+                Logger.Info("StartScanning — Σ-PRISM-16 synchronized capture, exact " +
+                            "dual-eye forward readout and joint dual-depth inverse active.");
                 ScanStarted?.Invoke();
                 _ = CreateScanAnchorAsync();
             }

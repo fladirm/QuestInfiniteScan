@@ -3,6 +3,7 @@
 RWTexture2D<float4> _ConeCenter;
 RWTexture2D<float4> _ConeDifferentialX;
 RWTexture2D<float4> _ConeDifferentialY;
+RWTexture2D<float4> _ConeSlopeBounds;
 
 uint2 _Resolution;
 float2 _FocalLength;
@@ -48,4 +49,12 @@ void BuildConeLut(uint3 id : SV_DispatchThreadID)
     _ConeCenter[id.xy] = float4(ray, solidAngle);
     _ConeDifferentialX[id.xy] = float4(rayDx, halfAngleX);
     _ConeDifferentialY[id.xy] = float4(rayDy, halfAngleY);
+    // Unnormalised pixel-edge slopes are the immutable finite-cone support used
+    // by the exact inverse path. They remove all inverse-intrinsics division from
+    // live kernels; each value is quantized once when it enters a source cell.
+    _ConeSlopeBounds[id.xy] = float4(
+        ((float)id.x - _PrincipalPoint.x) / _FocalLength.x,
+        ((float)id.x + 1.0 - _PrincipalPoint.x) / _FocalLength.x,
+        ((float)id.y - _PrincipalPoint.y) / _FocalLength.y,
+        ((float)id.y + 1.0 - _PrincipalPoint.y) / _FocalLength.y);
 }

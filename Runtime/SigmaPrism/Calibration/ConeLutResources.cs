@@ -12,18 +12,21 @@ namespace Genesis.RoomScan.SigmaPrism
     {
         internal ConeProjectionLut(RigProjectionCalibration calibration,
             RenderTexture center, RenderTexture differentialX,
-            RenderTexture differentialY)
+            RenderTexture differentialY, RenderTexture slopeBounds)
         {
             Calibration = calibration;
             CenterRaySolidAngle = center;
             DifferentialXHalfAngle = differentialX;
             DifferentialYHalfAngle = differentialY;
+            SlopeBounds = slopeBounds;
         }
 
         public RigProjectionCalibration Calibration { get; }
         public RenderTexture CenterRaySolidAngle { get; }
         public RenderTexture DifferentialXHalfAngle { get; }
         public RenderTexture DifferentialYHalfAngle { get; }
+        /// <summary>(slopeXLo, slopeXHi, slopeYLo, slopeYHi) at pixel edges.</summary>
+        public RenderTexture SlopeBounds { get; }
     }
 
     /// <summary>Ref-counted immutable four-projection LUT epoch.</summary>
@@ -71,6 +74,7 @@ namespace Genesis.RoomScan.SigmaPrism
         private static readonly int CenterId = Shader.PropertyToID("_ConeCenter");
         private static readonly int DifferentialXId = Shader.PropertyToID("_ConeDifferentialX");
         private static readonly int DifferentialYId = Shader.PropertyToID("_ConeDifferentialY");
+        private static readonly int SlopeBoundsId = Shader.PropertyToID("_ConeSlopeBounds");
 
         private readonly ComputeShader _shader;
         private readonly int _kernel;
@@ -164,6 +168,9 @@ namespace Genesis.RoomScan.SigmaPrism
                 resolution, GraphicsFormat.R16G16B16A16_SFloat);
             RenderTexture dy = CreateTexture($"{projection.Projection} Cone dY",
                 resolution, GraphicsFormat.R16G16B16A16_SFloat);
+            RenderTexture slopes = CreateTexture(
+                $"{projection.Projection} Cone Slope Bounds", resolution,
+                GraphicsFormat.R32G32B32A32_SFloat);
             try
             {
                 _shader.SetInts(ResolutionId, resolution.x, resolution.y);
@@ -172,15 +179,17 @@ namespace Genesis.RoomScan.SigmaPrism
                 _shader.SetTexture(_kernel, CenterId, center);
                 _shader.SetTexture(_kernel, DifferentialXId, dx);
                 _shader.SetTexture(_kernel, DifferentialYId, dy);
+                _shader.SetTexture(_kernel, SlopeBoundsId, slopes);
                 _shader.Dispatch(_kernel, CeilDiv(resolution.x, 8),
                     CeilDiv(resolution.y, 8), 1);
-                return new ConeProjectionLut(projection, center, dx, dy);
+                return new ConeProjectionLut(projection, center, dx, dy, slopes);
             }
             catch
             {
                 DestroyTexture(center);
                 DestroyTexture(dx);
                 DestroyTexture(dy);
+                DestroyTexture(slopes);
                 throw;
             }
         }
@@ -229,6 +238,7 @@ namespace Genesis.RoomScan.SigmaPrism
             DestroyTexture(projection.CenterRaySolidAngle);
             DestroyTexture(projection.DifferentialXHalfAngle);
             DestroyTexture(projection.DifferentialYHalfAngle);
+            DestroyTexture(projection.SlopeBounds);
         }
 
         private static void DestroyTexture(RenderTexture texture)

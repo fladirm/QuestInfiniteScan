@@ -95,7 +95,7 @@
     {
       "id": "S4-04",
       "title": "Implement joint inverse depth readout and exact admissible-set fusion",
-      "status": "in_progress",
+      "status": "done",
       "depends_on": ["S4-03"],
       "acceptance": [
         "Both depth eyes independently construct finite-footprint conservative Q16.48 S16 source cells against the same predicted Psi",
@@ -105,12 +105,19 @@
         "The checked projective commit intersects the prior, clamps minimum-change coordinates, preserves stronger prior information and atomically updates only legal state",
         "Unmatched supported depth deterministically allocates latent gauge and promotes only through the section 18 independent-support gate"
       ],
-      "evidence": []
+      "evidence": [
+        "SigmaInverse.compute independently builds conservative finite-footprint Q16.48 source cells for both depth eyes against one immutable prediction and implements exact inclusive componentwise meet with no stereo averaging",
+        "Exact HIT/PRE_HIT_EXCLUSION/NO_CONSTRAINT sectors, gap/sector/source conflict records and checked proposal revalidation preserve byte-zero canonical effect for empty meets and all evidence behind the measured first hit",
+        "Accepted projective updates use the sparse geometry transpose correction, prior intersection and a monotone information-resistance ladder; repeated correlated eye/pose keys cannot add count-based hardness",
+        "Unmatched blocks are bounded scheduling metadata only; an unpublished latent gauge generation promotes and publishes only after distinct L/R support yields at least one exact accepted sample, otherwise it aborts",
+        "Runtime pixel and carrier work remains GPU-only and indirect; the CPU consumes only bounded asynchronous page/block scheduler flags, with teardown resources retired after callbacks and no synchronous readback",
+        "Unity 6000.5.9f1 Vulkan EditMode passed 34/34; generated-operator and eight-UAV gates pass; Android/Vulkan IL2CPP produced a fresh 225040262-byte APK with Build Finished, Result: Success and no build errors"
+      ]
     },
     {
       "id": "S4-05",
       "title": "Implement exact intrinsic singular topology",
-      "status": "pending",
+      "status": "in_progress",
       "depends_on": ["S4-04"],
       "acceptance": [
         "Changed neighbour generations produce one cached exact transition tau and complete annihilator-catalog residual scan through generated signed permutations/additions",

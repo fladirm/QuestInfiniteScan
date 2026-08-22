@@ -24,15 +24,16 @@ Updated: 2026-08-22 (Europe/Prague)
 - `S4-00` is accepted in commit `be95c9e`.
 - `S4-01` is accepted in commit `5f71653`.
 - `S4-02` is accepted in commit `8a04057`.
-- `S4-03` is accepted by the current isolated checkpoint.
-- `S4-04` is the sole `in_progress` node.
+- `S4-03` is accepted in commit `9a12f7e`.
+- `S4-04` is accepted by the current isolated checkpoint.
+- `S4-05` is the sole `in_progress` node.
 - The retained product surface is only four-stream GPU capture/synchronization,
   immutable calibration/poses, Quest/XR lifecycle, permissions/anchors, input/UI,
   neutral GPU helpers and build/deploy tooling.
 - Exact S16 mutation has one CPU semantic domain, generated signed-XOR/operator
   authority and a GPU-resident device self-test gate. The sparse decoded carrier is
-  live GPU state with an exact disposable dual-eye forward readout; sensor-driven
-  inverse mutation begins only in S4-04.
+  live GPU state with exact disposable dual-eye forward and joint inverse depth
+  readouts. Intrinsic singular topology begins only in S4-05.
 
 ## S4-01 accepted implementation
 
@@ -93,18 +94,46 @@ Updated: 2026-08-22 (Europe/Prague)
   eight-UAV checks pass. Android/Vulkan IL2CPP produced a fresh 224,804,460-byte
   APK with zero build errors. This is build evidence, not a physical scan claim.
 
+## S4-04 accepted implementation
+
+- `SigmaInverse.compute` independently constructs conservative finite-footprint
+  Q16.48 source cells from both depth eyes against the same immutable prediction,
+  then performs exact inclusive componentwise meet without stereo averaging.
+- HIT, PRE_HIT_EXCLUSION and NO_CONSTRAINT are explicit first-hit sectors. Empty
+  intersections append bounded gap/sector/source provenance and leave the carrier
+  byte-unchanged; nothing behind a measured first hit contributes a mutation.
+- Accepted updates intersect the projective prior, apply the exact sparse geometry
+  transpose correction, retain the stronger information mass and revalidate before
+  publishing a new immutable carrier generation. Replaying correlated eye/pose
+  keys cannot add count-based hardness.
+- Unmatched depth uses image blocks only as bounded GPU scheduling metadata. A
+  latent gauge page is published only after independent L/R support promotes at
+  least one exact sample; empty speculative pages are aborted. Existing adjacent
+  carrier pages are preferred without assigning block or page boundaries topology.
+- Frame-critical pixel, interval, meet, proposal, validation and promotion work is
+  GPU-only. CPU observes only small asynchronous page/block scheduling flags;
+  teardown retains resources until all callbacks complete and never blocks on a
+  synchronous readback.
+- Verification: generated operator and eight-UAV checks pass; Unity Vulkan
+  EditMode passed 34/34 including source-order invariance, exact gap provenance,
+  behind-hit no-effect, stronger-prior resistance and independent-support gauge
+  promotion. Android/Vulkan IL2CPP produced a fresh 225,040,262-byte APK with
+  `Build Finished, Result: Success` and no build errors. This is build evidence,
+  not a claimed physical headset scan.
+
 ## Next exact actions
 
-1. Implement independent finite-footprint `DEPTH_L` and `DEPTH_R` Q16.48 source
-   cells against the S4-03 carrier preimage/state keys.
-2. Implement the exact commutative admissible-set meet, explicit empty-conflict
-   provenance and checked minimum-change projective commit into a new immutable
-   carrier generation.
-3. Enforce HIT / PRE_HIT_EXCLUSION / NO_CONSTRAINT with byte-zero effect behind the
-   measured first hit; never form a stereo consensus or sensor-weighted sum.
-4. Add deterministic latent-gauge probation/allocation for unmatched supported
-   depth, then prove source/LR-order invariance and the first four-stream-to-carrier
-   vertical slice before the S4-04 checkpoint.
+1. Compute generation-pair transition keys and cache each exact transition `tau`
+   once for changed neighbouring carrier generations.
+2. Scan the complete generated annihilator catalog through signed permutations and
+   additions, accumulating stable independent-view signatures and integer
+   associator witnesses.
+3. Classify regular, singular and unresolved transitions intrinsically from `Psi`;
+   cut only the disposable readout at supported singular loci and fail closed when
+   evidence is unresolved.
+4. Prove wall, crease, doorway, pipe, fold/termination and thin-side signatures
+   without introducing boundary objects, proximity topology or a second geometry
+   state, then checkpoint S4-05 separately.
 
 ## Verification policy
 

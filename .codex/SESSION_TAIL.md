@@ -9,15 +9,16 @@ touch `~/.codex` or untracked device/archive data.
 User: Required one commit after every independent Σ-PRISM DAG task and a
 source-only `git archive` after S4-07 before continuing to S4-08.
 
-Assistant: Preserved the accepted S4-00, S4-01 and S4-02 checkpoints and continued
-only the canonical `new_spec.md` implementation on S4-03.
+Assistant: Preserved that checkpoint protocol. S4-00 through S4-03 are accepted as
+separate commits; no archive is due before the S4-07 commit.
 
 ## Exchange 2
 
 User: Reiterated the 90% implementation / 10% proportional tests-and-controls
-budget.
+budget and asked for current status.
 
-Assistant: Implemented the S4-03 exact dirty-local dual-eye forward readout,
-cross-page halos, disposable prediction ring and hardware first-hit path. The
-focused folded/null gate passes, the Android build succeeds, S4-03 is checkpointed
-separately, and S4-04 joint inverse depth is now the sole active node.
+Assistant: Completed S4-04 joint inverse depth: exact independent finite-cone
+cells, commutative meet/conflict provenance, first-hit exclusions, resistant
+minimum-change commit and independently gated latent-gauge promotion. The complete
+34/34 Vulkan EditMode suite and Android/Vulkan build pass; S4-04 is being committed
+and S4-05 exact intrinsic singular topology is next.
