@@ -38,6 +38,7 @@ RWStructuredBuffer<uint> _ActiveDispatchArgs;
 RWStructuredBuffer<uint2> _ProposalGeometry;
 RWStructuredBuffer<uint2> _ProposalMass;
 RWStructuredBuffer<uint> _ProposalStatus;
+RWStructuredBuffer<uint> _ProposalEpoch;
 RWStructuredBuffer<SigmaDepthConflictGpu> _ConflictRecords;
 RWStructuredBuffer<uint> _ConflictCount;
 RWStructuredBuffer<uint> _FrameCounters;
@@ -68,6 +69,7 @@ uint _SourcePageSlot;
 uint _GaugeBlockMask;
 uint _GaugeCommitCapacity;
 uint _GaugeCommitIndex;
+uint _ProposalFrameSerial;
 uint2 _GaugePixelOrigin;
 
 float4x4 _WorldFromOpticalLeft;
@@ -347,6 +349,8 @@ void BuildDepthProposals(uint3 groupId : SV_GroupID,
         _CurrentFlags[pageSlot] == 0u)
         return;
     uint proposalIndex = pageSlot * SIGMA_PAGE_SAMPLE_COUNT + sample;
+    if (sample == 0u)
+        _ProposalEpoch[pageSlot] = _ProposalFrameSerial;
     _ProposalStatus[proposalIndex] = 0u;
     _ProposalMass[proposalIndex] = SIGMA_Q48_ZERO;
     [unroll]

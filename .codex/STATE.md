@@ -26,7 +26,8 @@ Updated: 2026-08-22 (Europe/Prague)
 - `S4-02` is accepted in commit `8a04057`.
 - `S4-03` is accepted in commit `9a12f7e`.
 - `S4-04` is accepted by the current isolated checkpoint.
-- `S4-05` is the sole `in_progress` node.
+- `S4-05` is accepted in the current checkpoint commit (pending commit creation in this turn).
+- `S4-06` is the sole `in_progress` node: joint RGB inverse readout and minimal proof certificates.
 - The retained product surface is only four-stream GPU capture/synchronization,
   immutable calibration/poses, Quest/XR lifecycle, permissions/anchors, input/UI,
   neutral GPU helpers and build/deploy tooling.
@@ -121,19 +122,33 @@ Updated: 2026-08-22 (Europe/Prague)
   `Build Finished, Result: Success` and no build errors. This is build evidence,
   not a claimed physical headset scan.
 
+## S4-05 accepted evidence
+
+- `SigmaIntrinsicTopology.compute` implements generation-keyed exact transition
+  caching, the complete generated 168-action annihilator catalog, integer
+  associator gates, regular/singular/unresolved classification and fail-closed
+  disposable readout cuts without topology objects or proximity identity.
+- `SigmaTopologyController` validates epoch/frame evidence, supports exact page
+  build plus bounded evidence-only revisit accumulation, and publishes topology
+  keys before prediction consumes them.
+- `SigmaRenderer`/`SigmaPredict` reject stale topology generation/revision and cut
+  triangles; topology remains derived disposable state and never mutates the
+  Sigma carrier.
+- Verification: topology fixtures 4/4, forward-cut fixtures 2/2, full Unity
+  Vulkan EditMode 38/38, generated operator check, diff check and eight-UAV
+  validator passed. Android build is intentionally deferred to S4-07's
+  consolidated vertical milestone; no physical Quest scan is claimed here.
+
 ## Next exact actions
 
-1. Compute generation-pair transition keys and cache each exact transition `tau`
-   once for changed neighbouring carrier generations.
-2. Scan the complete generated annihilator catalog through signed permutations and
-   additions, accumulating stable independent-view signatures and integer
-   associator witnesses.
-3. Classify regular, singular and unresolved transitions intrinsically from `Psi`;
-   cut only the disposable readout at supported singular loci and fail closed when
-   evidence is unresolved.
-4. Prove wall, crease, doorway, pipe, fold/termination and thin-side signatures
-   without introducing boundary objects, proximity topology or a second geometry
-   state, then checkpoint S4-05 separately.
+1. Implement independent RGB_L/R finite-footprint Q16.48 source cells through the
+   generated view operator and exact bounded interval contraction.
+2. Narrow RGB and depth onto one carrier state; preserve incompatible cells as
+   explicit conflicts and emit no bound on unobservable appearance axes.
+3. Reduce absorbed evidence to minimal deterministic ConstraintCertificate proof
+   sets, retaining raw tiles only while inverse evaluation still needs them.
+4. Add calibrated subpixel-view fixtures proving geometry/appearance sharpening
+   without sensor summation or a detached texture state, then checkpoint S4-06.
 
 ## Verification policy
 

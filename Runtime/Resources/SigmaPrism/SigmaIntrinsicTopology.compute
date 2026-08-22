@@ -1,0 +1,944 @@
+#pragma kernel ClearTopologyCache
+#pragma kernel ClearTopologyPage
+#pragma kernel CopyPriorTopologyPage
+#pragma kernel ClearTopologyWork
+#pragma kernel BuildSampleSupport
+#pragma kernel BuildTransitionMeta
+#pragma kernel BuildTransitionTau
+#pragma kernel MarkTopologyCandidates
+#pragma kernel BuildTopologyDispatchArgs
+#pragma kernel ScanAnnihilatorCatalog
+#pragma kernel AccumulateTopologyEvidence
+#pragma kernel EvaluateAssociatorCells
+#pragma kernel FinalizeTransitionClasses
+#pragma kernel BuildCellCutFlags
+#pragma kernel PublishTopologyPage
+#pragma target 5.0
+
+#include "SigmaInverseAbi.hlsl"
+#include "SigmaTopologyMath.hlsl"
+
+StructuredBuffer<uint2> _TargetState;
+StructuredBuffer<uint2> _RightState;
+StructuredBuffer<uint2> _DownState;
+StructuredBuffer<uint4> _PriorTransitionCache;
+StructuredBuffer<uint4> _RightTransitionCache;
+StructuredBuffer<uint4> _DownTransitionCache;
+StructuredBuffer<uint> _TargetEvidenceProposalStatus;
+StructuredBuffer<uint> _RightEvidenceProposalStatus;
+StructuredBuffer<uint> _DownEvidenceProposalStatus;
+StructuredBuffer<uint> _TargetEvidenceEpoch;
+StructuredBuffer<uint> _RightEvidenceEpoch;
+StructuredBuffer<uint> _DownEvidenceEpoch;
+
+RWStructuredBuffer<uint2> _TransitionTau;
+RWStructuredBuffer<uint4> _TransitionScale;
+RWStructuredBuffer<uint4> _TransitionMeta;
+RWStructuredBuffer<uint> _SampleSupport;
+RWStructuredBuffer<uint4> _TransitionCache;
+RWStructuredBuffer<uint> _AssociatorFlags;
+RWStructuredBuffer<uint> _CellTopologyFlags;
+RWStructuredBuffer<uint4> _TopologyPageKeys;
+RWStructuredBuffer<uint> _TopologyCounters;
+RWStructuredBuffer<uint> _TopologyCandidates;
+RWStructuredBuffer<uint> _TopologyCandidateCount;
+RWStructuredBuffer<uint> _TopologyDispatchArgs;
+
+uint _TargetPageSlot;
+uint _TargetPageCapacity;
+uint _RightPageSlot;
+uint _RightPageCapacity;
+uint _RightPageValid;
+uint _DownPageSlot;
+uint _DownPageCapacity;
+uint _DownPageValid;
+uint _PriorPageSlot;
+uint _PriorPageCapacity;
+uint _ForceBoundaryTransitions;
+uint _TargetEvidenceMode;
+uint _RightEvidenceMode;
+uint _DownEvidenceMode;
+uint _TargetEvidencePageSlot;
+uint _RightEvidencePageSlot;
+uint _DownEvidencePageSlot;
+uint _TargetEvidencePageCapacity;
+uint _RightEvidencePageCapacity;
+uint _DownEvidencePageCapacity;
+uint _EvidenceFrameSerial;
+uint _LeftIndependenceKey;
+uint _RightIndependenceKey;
+uint _SingularShift;
+uint _AssociatorShift;
+uint _TargetGeneration;
+uint _TargetRevision;
+uint _ClearTransitionCount;
+uint _ClearCellCount;
+uint _ClearPageCount;
+
+groupshared uint2 SigmaTopologySharedTau[16];
+groupshared uint4 SigmaTopologySharedError[256];
+groupshared uint SigmaTopologySharedId[256];
+
+uint SigmaTopologyTransitionIndex(uint direction, uint sample)
+{
+    return direction * SIGMA_PAGE_SAMPLE_COUNT + sample;
+}
+
+uint SigmaTopologyCacheIndex(uint pageSlot, uint transition)
+{
+    return pageSlot * SIGMA_TRANSITIONS_PER_PAGE + transition;
+}
+
+uint SigmaTopologyCellIndex(uint pageSlot, uint sample)
+{
+    return pageSlot * SIGMA_PAGE_SAMPLE_COUNT + sample;
+}
+
+void SigmaLoadTargetState(uint sample, out uint2 state[16])
+{
+    uint baseIndex = _TargetPageSlot * SIGMA_PAGE_LANE_COUNT +
+        sample * SIGMA_LANE_COUNT;
+    [unroll]
+    for (uint lane = 0u; lane < 16u; ++lane)
+        state[lane] = _TargetState[baseIndex + lane];
+}
+
+void SigmaLoadRightState(uint sample, out uint2 state[16])
+{
+    uint baseIndex = _RightPageSlot * SIGMA_PAGE_LANE_COUNT +
+        sample * SIGMA_LANE_COUNT;
+    [unroll]
+    for (uint lane = 0u; lane < 16u; ++lane)
+        state[lane] = _RightState[baseIndex + lane];
+}
+
+void SigmaLoadDownState(uint sample, out uint2 state[16])
+{
+    uint baseIndex = _DownPageSlot * SIGMA_PAGE_LANE_COUNT +
+        sample * SIGMA_LANE_COUNT;
+    [unroll]
+    for (uint lane = 0u; lane < 16u; ++lane)
+        state[lane] = _DownState[baseIndex + lane];
+}
+
+uint SigmaEvidenceMode(uint source)
+{
+    return source == 0u ? _TargetEvidenceMode :
+        source == 1u ? _RightEvidenceMode : _DownEvidenceMode;
+}
+
+bool SigmaReadProposalEvidence(uint source, uint sample, out uint status)
+{
+    uint pageSlot = source == 0u ? _TargetEvidencePageSlot :
+        source == 1u ? _RightEvidencePageSlot : _DownEvidencePageSlot;
+    uint pageCapacity = source == 0u ? _TargetEvidencePageCapacity :
+        source == 1u ? _RightEvidencePageCapacity : _DownEvidencePageCapacity;
+    if (pageSlot >= pageCapacity)
+    {
+        status = 0u;
+        return false;
+    }
+    uint epoch = source == 0u ? _TargetEvidenceEpoch[pageSlot] :
+        source == 1u ? _RightEvidenceEpoch[pageSlot] :
+        _DownEvidenceEpoch[pageSlot];
+    if (epoch != _EvidenceFrameSerial)
+    {
+        status = 0u;
+        return false;
+    }
+    uint index = pageSlot * SIGMA_PAGE_SAMPLE_COUNT + sample;
+    status = source == 0u ? _TargetEvidenceProposalStatus[index] :
+        source == 1u ? _RightEvidenceProposalStatus[index] :
+        _DownEvidenceProposalStatus[index];
+    return true;
+}
+
+uint SigmaEvidenceHitMask(uint source, uint sample, bool contact)
+{
+    if (!contact)
+        return 0u;
+    uint mode = SigmaEvidenceMode(source);
+    if (mode == SIGMA_TOPOLOGY_EVIDENCE_FULL_STEREO)
+        return 3u;
+    uint status;
+    if (mode != SIGMA_TOPOLOGY_EVIDENCE_PROPOSALS ||
+        !SigmaReadProposalEvidence(source, sample, status))
+        return 0u;
+    uint mask = 0u;
+    if ((status & SIGMA_PROPOSAL_HIT_LEFT) != 0u)
+        mask |= 1u;
+    if ((status & SIGMA_PROPOSAL_HIT_RIGHT) != 0u)
+        mask |= 2u;
+    return mask;
+}
+
+uint SigmaEvidenceDiscontinuity(uint source, uint sample)
+{
+    uint mode = SigmaEvidenceMode(source);
+    if (mode == SIGMA_TOPOLOGY_EVIDENCE_FULL_STEREO)
+        return 0u;
+    uint status;
+    if (mode != SIGMA_TOPOLOGY_EVIDENCE_PROPOSALS ||
+        !SigmaReadProposalEvidence(source, sample, status))
+        return 0u;
+    return (status & (SIGMA_PROPOSAL_CONFLICT |
+        SIGMA_PROPOSAL_EXCLUSION)) != 0u ? 1u : 0u;
+}
+
+bool SigmaEvidenceChanged(uint source, uint sample, bool contact)
+{
+    uint mode = SigmaEvidenceMode(source);
+    if (mode == SIGMA_TOPOLOGY_EVIDENCE_FULL_STEREO)
+        return contact;
+    uint status;
+    return mode == SIGMA_TOPOLOGY_EVIDENCE_PROPOSALS &&
+        SigmaReadProposalEvidence(source, sample, status) &&
+        (status & SIGMA_PROPOSAL_CHANGED) != 0u;
+}
+
+void SigmaAddIndependentKey(inout uint key0, inout uint key1, uint key)
+{
+    if (key == 0u || key == key0 || key == key1)
+        return;
+    if (key0 == 0u)
+        key0 = key;
+    else if (key1 == 0u)
+        key1 = key;
+    else
+    {
+        // Retain the lexicographically smallest exact pair so dispatch/replay
+        // ordering cannot change the stability witness.
+        uint maximum = max(key0, key1);
+        if (key < maximum)
+        {
+            if (key0 == maximum) key0 = key;
+            else key1 = key;
+        }
+    }
+    if (key1 != 0u && key1 < key0)
+    {
+        uint swap = key0;
+        key0 = key1;
+        key1 = swap;
+    }
+}
+
+bool SigmaTopologyRecordCuts(uint4 record)
+{
+    return SigmaTopologyClass(record.x) != SIGMA_TOPOLOGY_REGULAR;
+}
+
+[numthreads(64, 1, 1)]
+void ClearTopologyCache(uint3 id : SV_DispatchThreadID)
+{
+    uint index = id.x;
+    if (index < _ClearTransitionCount)
+        _TransitionCache[index] = uint4(SigmaTopologyPack(
+            SIGMA_TOPOLOGY_UNRESOLVED, 255u, SIGMA_TOPOLOGY_INVALID), 0u, 0u, 0u);
+    if (index < _ClearCellCount)
+    {
+        _AssociatorFlags[index] = 0u;
+        _CellTopologyFlags[index] = SIGMA_TOPOLOGY_ALL_TRIANGLES_CUT;
+    }
+    if (index < _ClearPageCount)
+        _TopologyPageKeys[index] = 0u;
+    if (index < 8u)
+        _TopologyCounters[index] = 0u;
+}
+
+[numthreads(64, 1, 1)]
+void ClearTopologyPage(uint3 id : SV_DispatchThreadID)
+{
+    uint index = id.x;
+    if (_TargetPageSlot >= _TargetPageCapacity)
+        return;
+    if (index < SIGMA_TRANSITIONS_PER_PAGE)
+        _TransitionCache[SigmaTopologyCacheIndex(_TargetPageSlot, index)] =
+            uint4(SigmaTopologyPack(SIGMA_TOPOLOGY_UNRESOLVED, 255u,
+                SIGMA_TOPOLOGY_INVALID), 0u, 0u, 0u);
+    if (index < SIGMA_PAGE_SAMPLE_COUNT)
+    {
+        uint cell = SigmaTopologyCellIndex(_TargetPageSlot, index);
+        _AssociatorFlags[cell] = 0u;
+        _CellTopologyFlags[cell] = SIGMA_TOPOLOGY_ALL_TRIANGLES_CUT;
+    }
+    if (index == 0u)
+        _TopologyPageKeys[_TargetPageSlot] = 0u;
+}
+
+[numthreads(64, 1, 1)]
+void CopyPriorTopologyPage(uint3 id : SV_DispatchThreadID)
+{
+    uint index = id.x;
+    if (index >= SIGMA_TRANSITIONS_PER_PAGE ||
+        _TargetPageSlot >= _TargetPageCapacity ||
+        _PriorPageSlot >= _PriorPageCapacity)
+        return;
+    _TransitionCache[SigmaTopologyCacheIndex(_TargetPageSlot, index)] =
+        _PriorTransitionCache[SigmaTopologyCacheIndex(_PriorPageSlot, index)];
+}
+
+[numthreads(1, 1, 1)]
+void ClearTopologyWork(uint3 id : SV_DispatchThreadID)
+{
+    _TopologyCandidateCount[0] = 0u;
+    _TopologyDispatchArgs[0] = 0u;
+    _TopologyDispatchArgs[1] = 1u;
+    _TopologyDispatchArgs[2] = 1u;
+}
+
+void SigmaLoadTransitionEndpoints(uint transitionIndex, out uint sample,
+    out uint neighbourSample, out uint neighbourEvidenceSource,
+    out bool neighbourPresent, out bool boundaryTransition,
+    out uint2 left[16], out uint2 right[16])
+{
+    uint direction = transitionIndex / SIGMA_PAGE_SAMPLE_COUNT;
+    sample = transitionIndex & (SIGMA_PAGE_SAMPLE_COUNT - 1u);
+    uint x = sample & 63u;
+    uint y = sample >> 6u;
+    SigmaLoadTargetState(sample, left);
+    neighbourPresent = true;
+    boundaryTransition = false;
+    neighbourEvidenceSource = 0u;
+    neighbourSample = 0u;
+    if (direction == 0u)
+    {
+        if (x < 63u)
+        {
+            neighbourSample = sample + 1u;
+            SigmaLoadTargetState(neighbourSample, right);
+        }
+        else if (_RightPageValid != 0u &&
+            _RightPageSlot < _RightPageCapacity)
+        {
+            neighbourSample = y * 64u;
+            neighbourEvidenceSource = 1u;
+            boundaryTransition = true;
+            SigmaLoadRightState(neighbourSample, right);
+        }
+        else
+        {
+            SigmaLoadNullState(right);
+            neighbourPresent = false;
+            neighbourEvidenceSource = 1u;
+            boundaryTransition = true;
+        }
+    }
+    else
+    {
+        if (y < 63u)
+        {
+            neighbourSample = sample + 64u;
+            SigmaLoadTargetState(neighbourSample, right);
+        }
+        else if (_DownPageValid != 0u &&
+            _DownPageSlot < _DownPageCapacity)
+        {
+            neighbourSample = x;
+            neighbourEvidenceSource = 2u;
+            boundaryTransition = true;
+            SigmaLoadDownState(neighbourSample, right);
+        }
+        else
+        {
+            SigmaLoadNullState(right);
+            neighbourPresent = false;
+            neighbourEvidenceSource = 2u;
+            boundaryTransition = true;
+        }
+    }
+}
+
+[numthreads(64, 1, 1)]
+void BuildSampleSupport(uint3 id : SV_DispatchThreadID)
+{
+    uint sample = id.x;
+    if (!SigmaCanonicalMutationEnabled() ||
+        sample >= SIGMA_PAGE_SAMPLE_COUNT ||
+        _TargetPageSlot >= _TargetPageCapacity)
+        return;
+    uint2 state[16];
+    SigmaLoadTargetState(sample, state);
+    uint readoutValid;
+    bool contact = SigmaStateHasContact(state, readoutValid);
+    _SampleSupport[sample] = (contact ? 1u : 0u) |
+        (readoutValid != 0u ? 2u : 0u);
+}
+
+[numthreads(64, 1, 1)]
+void BuildTransitionMeta(uint3 id : SV_DispatchThreadID)
+{
+    uint transitionIndex = id.x;
+    if (!SigmaCanonicalMutationEnabled() ||
+        transitionIndex >= SIGMA_TRANSITIONS_PER_PAGE ||
+        _TargetPageSlot >= _TargetPageCapacity)
+        return;
+
+    uint direction = transitionIndex / SIGMA_PAGE_SAMPLE_COUNT;
+    uint sample = transitionIndex & (SIGMA_PAGE_SAMPLE_COUNT - 1u);
+    uint x = sample & 63u;
+    uint y = sample >> 6u;
+    uint neighbourSample;
+    uint neighbourEvidenceSource = 0u;
+    bool neighbourPresent = true;
+    bool boundaryTransition = false;
+    uint leftSupport = _SampleSupport[sample];
+    uint rightSupport;
+    if (direction == 0u && x < 63u)
+    {
+        neighbourSample = sample + 1u;
+        rightSupport = _SampleSupport[neighbourSample];
+    }
+    else if (direction != 0u && y < 63u)
+    {
+        neighbourSample = sample + 64u;
+        rightSupport = _SampleSupport[neighbourSample];
+    }
+    else
+    {
+        boundaryTransition = true;
+        neighbourEvidenceSource = direction == 0u ? 1u : 2u;
+        neighbourSample = direction == 0u ? y * 64u : x;
+        bool neighbourValid = direction == 0u
+            ? _RightPageValid != 0u && _RightPageSlot < _RightPageCapacity
+            : _DownPageValid != 0u && _DownPageSlot < _DownPageCapacity;
+        if (!neighbourValid)
+        {
+            neighbourPresent = false;
+            rightSupport = 0u;
+        }
+        else
+        {
+            uint2 neighbour[16];
+            if (direction == 0u)
+                SigmaLoadRightState(neighbourSample, neighbour);
+            else
+                SigmaLoadDownState(neighbourSample, neighbour);
+            uint neighbourReadoutValid;
+            bool neighbourContact = SigmaStateHasContact(neighbour,
+                neighbourReadoutValid);
+            rightSupport = (neighbourContact ? 1u : 0u) |
+                (neighbourReadoutValid != 0u ? 2u : 0u);
+        }
+    }
+
+    bool leftContact = (leftSupport & 1u) != 0u;
+    bool rightContact = (rightSupport & 1u) != 0u;
+    bool endpointsValid = neighbourPresent && (leftSupport & 2u) != 0u &&
+        (rightSupport & 2u) != 0u;
+    uint leftMask = SigmaEvidenceHitMask(0u, sample, leftContact);
+    uint rightMask = neighbourPresent
+        ? SigmaEvidenceHitMask(neighbourEvidenceSource, neighbourSample,
+            rightContact) : 0u;
+    uint hitMask = leftContact && rightContact
+        ? (leftMask & rightMask) : (leftMask | rightMask);
+    uint discontinuity = SigmaEvidenceDiscontinuity(0u, sample);
+    if (neighbourPresent)
+        discontinuity |= SigmaEvidenceDiscontinuity(neighbourEvidenceSource,
+            neighbourSample);
+    if (leftContact != rightContact && hitMask != 0u)
+        discontinuity = 1u;
+    bool leftChanged = SigmaEvidenceChanged(0u, sample, leftContact);
+    bool rightChanged = neighbourPresent && SigmaEvidenceChanged(
+        neighbourEvidenceSource, neighbourSample, rightContact);
+
+    bool bothNull = endpointsValid && !leftContact && !rightContact;
+    bool contactNull = endpointsValid && leftContact != rightContact;
+    uint flags = endpointsValid ? 1u : 0u;
+    flags |= leftContact ? (1u << 1u) : 0u;
+    flags |= rightContact ? (1u << 2u) : 0u;
+    flags |= bothNull ? (1u << 3u) : 0u;
+    flags |= contactNull ? (1u << 4u) : 0u;
+    flags |= neighbourPresent ? (1u << 5u) : 0u;
+    flags |= discontinuity != 0u ? (1u << 6u) : 0u;
+    bool constraintActive = leftChanged || rightChanged || discontinuity != 0u ||
+        (_ForceBoundaryTransitions != 0u && boundaryTransition);
+    flags |= constraintActive ? (1u << 7u) : 0u;
+    _TransitionMeta[transitionIndex] = uint4(flags, hitMask,
+        _LeftIndependenceKey, _RightIndependenceKey);
+    uint cacheIndex = SigmaTopologyCacheIndex(_TargetPageSlot,
+        transitionIndex);
+    if (!endpointsValid)
+    {
+        _TransitionCache[cacheIndex] = uint4(SigmaTopologyPack(
+            SIGMA_TOPOLOGY_UNRESOLVED, 255u, SIGMA_TOPOLOGY_INVALID),
+            0u, 0u, 0u);
+    }
+    else if (bothNull)
+    {
+        _TransitionCache[cacheIndex] = uint4(SigmaTopologyPack(
+            SIGMA_TOPOLOGY_UNSUPPORTED, 255u, 0u), 0u, 0u, 0u);
+    }
+}
+
+[numthreads(64, 1, 1)]
+void BuildTransitionTau(uint3 id : SV_DispatchThreadID)
+{
+    uint transitionIndex = id.x;
+    if (!SigmaCanonicalMutationEnabled() ||
+        transitionIndex >= SIGMA_TRANSITIONS_PER_PAGE ||
+        _TargetPageSlot >= _TargetPageCapacity)
+        return;
+    uint4 meta = _TransitionMeta[transitionIndex];
+    if ((meta.x & (1u << 8u)) == 0u)
+        return;
+
+    uint sample;
+    uint neighbourSample;
+    uint neighbourEvidenceSource;
+    bool neighbourPresent;
+    bool boundaryTransition;
+    uint2 left[16];
+    uint2 right[16];
+    SigmaLoadTransitionEndpoints(transitionIndex, sample, neighbourSample,
+        neighbourEvidenceSource, neighbourPresent, boundaryTransition,
+        left, right);
+    uint valid = (meta.x & 1u) != 0u ? 1u : 0u;
+    uint2 transition[16];
+    if (valid != 0u)
+        SigmaTransitionPlan(left, right, transition, valid);
+    else
+    {
+        [unroll]
+        for (uint lane = 0u; lane < 16u; ++lane)
+            transition[lane] = uint2(0u, 0u);
+    }
+    uint4 scale = valid != 0u ? SigmaS16L1(transition, valid) : SIGMA_U128_ZERO;
+    if (SigmaU128Equal(scale, SIGMA_U128_ZERO))
+        scale = SIGMA_U128_ONE;
+    uint tauBase = transitionIndex * 16u;
+    [unroll]
+    for (uint lane = 0u; lane < 16u; ++lane)
+        _TransitionTau[tauBase + lane] = transition[lane];
+    _TransitionScale[transitionIndex] = scale;
+    if (valid == 0u)
+    {
+        meta.x &= ~1u;
+        _TransitionMeta[transitionIndex] = meta;
+    }
+}
+
+[numthreads(64, 1, 1)]
+void MarkTopologyCandidates(uint3 id : SV_DispatchThreadID)
+{
+    uint transitionIndex = id.x;
+    if (transitionIndex >= SIGMA_TRANSITIONS_PER_PAGE ||
+        _TargetPageSlot >= _TargetPageCapacity)
+        return;
+    uint4 meta = _TransitionMeta[transitionIndex];
+    uint sample = transitionIndex & (SIGMA_PAGE_SAMPLE_COUNT - 1u);
+    if ((meta.x & 1u) == 0u)
+        return;
+    uint associator = _AssociatorFlags[SigmaTopologyCellIndex(
+        _TargetPageSlot, sample)];
+    bool candidate = (meta.x & ((1u << 4u) | (1u << 6u) |
+        (1u << 7u))) != 0u ||
+        (associator & SIGMA_ASSOCIATOR_STRONG) != 0u;
+    if (!candidate)
+        return;
+    meta.x |= 1u << 8u;
+    _TransitionMeta[transitionIndex] = meta;
+    uint destination;
+    InterlockedAdd(_TopologyCandidateCount[0], 1u, destination);
+    if (destination < SIGMA_TRANSITIONS_PER_PAGE)
+        _TopologyCandidates[destination] = transitionIndex;
+}
+
+[numthreads(1, 1, 1)]
+void BuildTopologyDispatchArgs(uint3 id : SV_DispatchThreadID)
+{
+    _TopologyDispatchArgs[0] = min(_TopologyCandidateCount[0],
+        SIGMA_TRANSITIONS_PER_PAGE);
+    _TopologyDispatchArgs[1] = 1u;
+    _TopologyDispatchArgs[2] = 1u;
+}
+
+[numthreads(256, 1, 1)]
+void ScanAnnihilatorCatalog(uint3 groupId : SV_GroupID,
+    uint3 groupThreadId : SV_GroupThreadID)
+{
+    uint candidateIndex = groupId.x;
+    uint candidateCount = min(_TopologyCandidateCount[0],
+        SIGMA_TRANSITIONS_PER_PAGE);
+    if (candidateIndex >= candidateCount)
+        return;
+    uint transitionIndex = _TopologyCandidates[candidateIndex];
+    uint lane = groupThreadId.x;
+    if (transitionIndex >= SIGMA_TRANSITIONS_PER_PAGE ||
+        _TargetPageSlot >= _TargetPageCapacity)
+        return;
+
+    if (lane < 16u)
+        SigmaTopologySharedTau[lane] =
+            _TransitionTau[transitionIndex * 16u + lane];
+    GroupMemoryBarrierWithGroupSync();
+
+    uint4 meta = _TransitionMeta[transitionIndex];
+    uint valid = (meta.x & 1u) != 0u ? 1u : 0u;
+    uint4 error = SIGMA_U128_MAX;
+    uint actionId = lane;
+    if (lane < SIGMA_ANNIHILATOR_ACTION_COUNT && valid != 0u)
+        error = SigmaRightDyadL1(SigmaTopologySharedTau,
+            SIGMA_ANNIHILATOR_ACTIONS[lane], valid);
+    if (valid == 0u)
+        error = SIGMA_U128_MAX;
+    SigmaTopologySharedError[lane] = error;
+    SigmaTopologySharedId[lane] = actionId;
+    GroupMemoryBarrierWithGroupSync();
+
+    [unroll]
+    for (uint offset = 128u; offset > 0u; offset >>= 1u)
+    {
+        if (lane < offset)
+        {
+            uint otherId = SigmaTopologySharedId[lane + offset];
+            uint4 otherError = SigmaTopologySharedError[lane + offset];
+            uint ownId = SigmaTopologySharedId[lane];
+            uint4 ownError = SigmaTopologySharedError[lane];
+            bool takeOther = SigmaU128Less(otherError, ownError) ||
+                (SigmaU128Equal(otherError, ownError) && otherId < ownId);
+            if (takeOther)
+            {
+                SigmaTopologySharedError[lane] = otherError;
+                SigmaTopologySharedId[lane] = otherId;
+            }
+        }
+        GroupMemoryBarrierWithGroupSync();
+    }
+
+    if (lane != 0u)
+        return;
+    uint cacheIndex = SigmaTopologyCacheIndex(_TargetPageSlot, transitionIndex);
+    uint4 previous = _TransitionCache[cacheIndex];
+    uint bestId = SigmaTopologySharedId[0];
+    uint4 bestError = SigmaTopologySharedError[0];
+    uint4 scale = _TransitionScale[transitionIndex];
+    bool validTransition = (meta.x & 1u) != 0u &&
+        bestId < SIGMA_ANNIHILATOR_ACTION_COUNT &&
+        !SigmaU128Equal(bestError, SIGMA_U128_MAX);
+    bool bothNull = (meta.x & (1u << 3u)) != 0u;
+    bool contactNull = (meta.x & (1u << 4u)) != 0u;
+    bool near = validTransition && SigmaRelativeNearGate(bestError, scale,
+        _SingularShift);
+    bool exact = validTransition && SigmaU128Equal(bestError, SIGMA_U128_ZERO);
+
+    uint key0 = 0u;
+    uint key1 = 0u;
+    if (validTransition && SigmaTopologyAnnihilatorId(previous.x) == bestId)
+    {
+        key0 = previous.y;
+        key1 = previous.z;
+    }
+    uint hitMask = meta.y;
+    if ((hitMask & 1u) != 0u)
+        SigmaAddIndependentKey(key0, key1, meta.z);
+    if ((hitMask & 2u) != 0u)
+        SigmaAddIndependentKey(key0, key1, meta.w);
+
+    uint classification = SIGMA_TOPOLOGY_REGULAR;
+    uint flags = 0u;
+    if (bothNull)
+        classification = SIGMA_TOPOLOGY_UNSUPPORTED;
+    else if (!validTransition)
+    {
+        classification = SIGMA_TOPOLOGY_UNRESOLVED;
+        flags |= SIGMA_TOPOLOGY_INVALID;
+    }
+    else if (contactNull || near)
+        classification = SIGMA_TOPOLOGY_UNRESOLVED;
+    if (near) flags |= SIGMA_TOPOLOGY_NEAR_ANNIHILATOR;
+    if (exact) flags |= SIGMA_TOPOLOGY_EXACT_ANNIHILATOR;
+    if (contactNull) flags |= SIGMA_TOPOLOGY_CONTACT_NULL;
+    if ((meta.x & (1u << 1u)) != 0u)
+        flags |= SIGMA_TOPOLOGY_LEFT_CONTACT;
+    if ((meta.x & (1u << 2u)) != 0u)
+        flags |= SIGMA_TOPOLOGY_RIGHT_CONTACT;
+    if ((meta.x & (1u << 6u)) != 0u)
+        flags |= SIGMA_TOPOLOGY_DISCONTINUITY_EVIDENCE;
+    _TransitionCache[cacheIndex] = uint4(SigmaTopologyPack(classification,
+        validTransition ? bestId : 255u, flags), key0, key1, bestError.x);
+    InterlockedAdd(_TopologyCounters[0], 1u);
+    InterlockedAdd(_TopologyCounters[1], SIGMA_ANNIHILATOR_ACTION_COUNT);
+}
+
+// A new independent observation of an immutable carrier generation cannot change
+// tau, its complete-catalog argmin or the associator. It only strengthens the
+// persisted view signature. This pass is the cheap revisit path and never
+// substitutes a reduced witness set for a changed transition.
+[numthreads(64, 1, 1)]
+void AccumulateTopologyEvidence(uint3 id : SV_DispatchThreadID)
+{
+    uint transitionIndex = id.x;
+    if (!SigmaCanonicalMutationEnabled() ||
+        transitionIndex >= SIGMA_TRANSITIONS_PER_PAGE ||
+        _TargetPageSlot >= _TargetPageCapacity)
+        return;
+    uint cacheIndex = SigmaTopologyCacheIndex(_TargetPageSlot, transitionIndex);
+    uint4 record = _TransitionCache[cacheIndex];
+    if (SigmaTopologyClass(record.x) == SIGMA_TOPOLOGY_UNSUPPORTED ||
+        (record.x & SIGMA_TOPOLOGY_INVALID) != 0u ||
+        SigmaTopologyAnnihilatorId(record.x) >=
+            SIGMA_ANNIHILATOR_ACTION_COUNT)
+        return;
+    if ((record.x & SIGMA_TOPOLOGY_NEAR_ANNIHILATOR) == 0u)
+        return;
+
+    uint direction = transitionIndex / SIGMA_PAGE_SAMPLE_COUNT;
+    uint sample = transitionIndex & (SIGMA_PAGE_SAMPLE_COUNT - 1u);
+    uint x = sample & 63u;
+    uint y = sample >> 6u;
+    uint neighbourSample;
+    uint neighbourSource = 0u;
+    bool neighbourPresent = true;
+    if (direction == 0u && x < 63u)
+        neighbourSample = sample + 1u;
+    else if (direction != 0u && y < 63u)
+        neighbourSample = sample + 64u;
+    else if (direction == 0u && _RightPageValid != 0u &&
+        _RightPageSlot < _RightPageCapacity)
+    {
+        neighbourSample = y * 64u;
+        neighbourSource = 1u;
+    }
+    else if (direction != 0u && _DownPageValid != 0u &&
+        _DownPageSlot < _DownPageCapacity)
+    {
+        neighbourSample = x;
+        neighbourSource = 2u;
+    }
+    else
+    {
+        neighbourSample = 0u;
+        neighbourPresent = false;
+    }
+    if (!neighbourPresent)
+        return;
+
+    bool leftContact = (record.x & SIGMA_TOPOLOGY_LEFT_CONTACT) != 0u;
+    bool rightContact = (record.x & SIGMA_TOPOLOGY_RIGHT_CONTACT) != 0u;
+    uint leftMask = SigmaEvidenceHitMask(0u, sample, leftContact);
+    uint rightMask = SigmaEvidenceHitMask(neighbourSource, neighbourSample,
+        rightContact);
+    uint hitMask = leftContact && rightContact
+        ? (leftMask & rightMask) : (leftMask | rightMask);
+    if ((hitMask & 1u) != 0u)
+        SigmaAddIndependentKey(record.y, record.z, _LeftIndependenceKey);
+    if ((hitMask & 2u) != 0u)
+        SigmaAddIndependentKey(record.y, record.z, _RightIndependenceKey);
+
+    bool supportedDiscontinuity = (record.x &
+        (SIGMA_TOPOLOGY_CONTACT_NULL | SIGMA_TOPOLOGY_ASSOCIATOR |
+         SIGMA_TOPOLOGY_DISCONTINUITY_EVIDENCE)) != 0u;
+    bool independent = record.y != 0u && record.z != 0u && record.y != record.z;
+    uint classification = independent && supportedDiscontinuity
+        ? SIGMA_TOPOLOGY_SINGULAR
+        : SIGMA_TOPOLOGY_UNRESOLVED;
+    record.x = (record.x & ~SIGMA_TOPOLOGY_CLASS_MASK) | classification;
+    _TransitionCache[cacheIndex] = record;
+    InterlockedAdd(_TopologyCounters[5], 1u);
+}
+
+[numthreads(64, 1, 1)]
+void EvaluateAssociatorCells(uint3 id : SV_DispatchThreadID)
+{
+    uint sample = id.x;
+    if (!SigmaCanonicalMutationEnabled() ||
+        sample >= SIGMA_PAGE_SAMPLE_COUNT ||
+        _TargetPageSlot >= _TargetPageCapacity)
+        return;
+    uint cellIndex = SigmaTopologyCellIndex(_TargetPageSlot, sample);
+    uint4 transitionU = _TransitionMeta[sample];
+    uint4 transitionV = _TransitionMeta[SIGMA_PAGE_SAMPLE_COUNT + sample];
+    uint topologyEvidenceMask = (1u << 4u) | (1u << 6u) | (1u << 7u);
+    bool candidate = (transitionU.x & topologyEvidenceMask) != 0u ||
+        (transitionV.x & topologyEvidenceMask) != 0u;
+    if (!candidate)
+    {
+        _AssociatorFlags[cellIndex] = 0u;
+        return;
+    }
+
+    uint x = sample & 63u;
+    uint y = sample >> 6u;
+    uint2 center[16];
+    uint2 right[16];
+    uint2 down[16];
+    SigmaLoadTargetState(sample, center);
+    if (x < 63u)
+        SigmaLoadTargetState(sample + 1u, right);
+    else if (_RightPageValid != 0u && _RightPageSlot < _RightPageCapacity)
+        SigmaLoadRightState(y * 64u, right);
+    else
+        SigmaLoadNullState(right);
+    if (y < 63u)
+        SigmaLoadTargetState(sample + 64u, down);
+    else if (_DownPageValid != 0u && _DownPageSlot < _DownPageCapacity)
+        SigmaLoadDownState(x, down);
+    else
+        SigmaLoadNullState(down);
+    uint centerReadoutValid;
+    uint rightReadoutValid;
+    uint downReadoutValid;
+    if (!SigmaStateHasContact(center, centerReadoutValid) ||
+        !SigmaStateHasContact(right, rightReadoutValid) ||
+        !SigmaStateHasContact(down, downReadoutValid) ||
+        centerReadoutValid == 0u || rightReadoutValid == 0u ||
+        downReadoutValid == 0u)
+    {
+        _AssociatorFlags[cellIndex] = 0u;
+        return;
+    }
+
+    uint valid = 1u;
+    uint2 deltaU[16];
+    uint2 deltaV[16];
+    [unroll]
+    for (uint lane = 0u; lane < 16u; ++lane)
+    {
+        deltaU[lane] = SigmaQ48SubChecked(right[lane], center[lane], valid);
+        deltaV[lane] = SigmaQ48SubChecked(down[lane], center[lane], valid);
+    }
+    uint2 associator[16];
+    SigmaAssociatorPlan(center, deltaU, deltaV, associator, valid);
+    uint4 error = SigmaS16L1(associator, valid);
+    uint4 scale = SigmaS16L1(center, valid);
+    scale = SigmaU128Add(scale, SigmaS16L1(deltaU, valid), valid);
+    scale = SigmaU128Add(scale, SigmaS16L1(deltaV, valid), valid);
+    if (SigmaU128Equal(scale, SIGMA_U128_ZERO))
+        scale = SIGMA_U128_ONE;
+    uint flags = valid != 0u ? SIGMA_ASSOCIATOR_VALID : 0u;
+    if (valid != 0u && SigmaRelativeAssociatorGate(error, scale,
+            _AssociatorShift))
+        flags |= SIGMA_ASSOCIATOR_STRONG;
+    _AssociatorFlags[cellIndex] = flags;
+    InterlockedAdd(_TopologyCounters[2], 1u);
+}
+
+[numthreads(64, 1, 1)]
+void FinalizeTransitionClasses(uint3 id : SV_DispatchThreadID)
+{
+    uint transitionIndex = id.x;
+    if (transitionIndex >= SIGMA_TRANSITIONS_PER_PAGE ||
+        _TargetPageSlot >= _TargetPageCapacity)
+        return;
+    uint cacheIndex = SigmaTopologyCacheIndex(_TargetPageSlot, transitionIndex);
+    uint4 record = _TransitionCache[cacheIndex];
+    uint classification = SigmaTopologyClass(record.x);
+    if (classification == SIGMA_TOPOLOGY_UNSUPPORTED)
+        return;
+    uint4 meta = _TransitionMeta[transitionIndex];
+    if (SigmaTopologyAnnihilatorId(record.x) <
+        SIGMA_ANNIHILATOR_ACTION_COUNT)
+    {
+        if ((meta.y & 1u) != 0u)
+            SigmaAddIndependentKey(record.y, record.z, meta.z);
+        if ((meta.y & 2u) != 0u)
+            SigmaAddIndependentKey(record.y, record.z, meta.w);
+    }
+    uint sample = transitionIndex & (SIGMA_PAGE_SAMPLE_COUNT - 1u);
+    uint assoc = _AssociatorFlags[SigmaTopologyCellIndex(
+        _TargetPageSlot, sample)];
+    bool near = (record.x & SIGMA_TOPOLOGY_NEAR_ANNIHILATOR) != 0u;
+    bool exact = (record.x & SIGMA_TOPOLOGY_EXACT_ANNIHILATOR) != 0u;
+    bool contactNull = (record.x & SIGMA_TOPOLOGY_CONTACT_NULL) != 0u;
+    bool invalid = (record.x & SIGMA_TOPOLOGY_INVALID) != 0u;
+    bool discontinuity = (record.x &
+        SIGMA_TOPOLOGY_DISCONTINUITY_EVIDENCE) != 0u;
+    bool associatorStrong = (assoc & SIGMA_ASSOCIATOR_STRONG) != 0u ||
+        (record.x & SIGMA_TOPOLOGY_ASSOCIATOR) != 0u;
+    bool independent = record.y != 0u && record.z != 0u && record.y != record.z;
+    if (invalid)
+        classification = SIGMA_TOPOLOGY_UNRESOLVED;
+    else if (near && independent &&
+        (contactNull || associatorStrong || discontinuity))
+        classification = SIGMA_TOPOLOGY_SINGULAR;
+    else if (near || contactNull || associatorStrong || discontinuity)
+        classification = SIGMA_TOPOLOGY_UNRESOLVED;
+    else
+        classification = SIGMA_TOPOLOGY_REGULAR;
+    uint packed = (record.x & ~(SIGMA_TOPOLOGY_CLASS_MASK |
+        SIGMA_TOPOLOGY_ASSOCIATOR)) | classification;
+    if (associatorStrong)
+        packed |= SIGMA_TOPOLOGY_ASSOCIATOR;
+    record.x = packed;
+    _TransitionCache[cacheIndex] = record;
+    if (classification == SIGMA_TOPOLOGY_SINGULAR)
+        InterlockedAdd(_TopologyCounters[3], 1u);
+    else if (classification == SIGMA_TOPOLOGY_UNRESOLVED)
+        InterlockedAdd(_TopologyCounters[4], 1u);
+}
+
+uint4 SigmaNeighbourTransition(bool rightNeighbour, uint transition)
+{
+    if (rightNeighbour)
+    {
+        if (_RightPageValid == 0u || _RightPageSlot >= _RightPageCapacity)
+            return uint4(SigmaTopologyPack(SIGMA_TOPOLOGY_UNRESOLVED, 255u,
+                SIGMA_TOPOLOGY_INVALID), 0u, 0u, 0u);
+        return _RightTransitionCache[SigmaTopologyCacheIndex(
+            _RightPageSlot, transition)];
+    }
+    if (_DownPageValid == 0u || _DownPageSlot >= _DownPageCapacity)
+        return uint4(SigmaTopologyPack(SIGMA_TOPOLOGY_UNRESOLVED, 255u,
+            SIGMA_TOPOLOGY_INVALID), 0u, 0u, 0u);
+    return _DownTransitionCache[SigmaTopologyCacheIndex(
+        _DownPageSlot, transition)];
+}
+
+[numthreads(64, 1, 1)]
+void BuildCellCutFlags(uint3 id : SV_DispatchThreadID)
+{
+    uint sample = id.x;
+    if (sample >= SIGMA_PAGE_SAMPLE_COUNT ||
+        _TargetPageSlot >= _TargetPageCapacity)
+        return;
+    if (!SigmaCanonicalMutationEnabled())
+    {
+        _CellTopologyFlags[SigmaTopologyCellIndex(_TargetPageSlot, sample)] =
+            SIGMA_TOPOLOGY_ALL_TRIANGLES_CUT;
+        return;
+    }
+    uint x = sample & 63u;
+    uint y = sample >> 6u;
+    uint baseIndex = SigmaTopologyCacheIndex(_TargetPageSlot, 0u);
+    uint4 top = _TransitionCache[baseIndex + sample];
+    uint4 left = _TransitionCache[baseIndex + SIGMA_PAGE_SAMPLE_COUNT + sample];
+    uint4 right = x < 63u
+        ? _TransitionCache[baseIndex + SIGMA_PAGE_SAMPLE_COUNT + sample + 1u]
+        : SigmaNeighbourTransition(true,
+            SIGMA_PAGE_SAMPLE_COUNT + y * 64u);
+    uint4 bottom = y < 63u
+        ? _TransitionCache[baseIndex + sample + 64u]
+        : SigmaNeighbourTransition(false, x);
+
+    uint flags = 0u;
+    if (SigmaTopologyRecordCuts(top) || SigmaTopologyRecordCuts(left))
+        flags |= SIGMA_TOPOLOGY_TRIANGLE_0_CUT;
+    if (SigmaTopologyRecordCuts(right) || SigmaTopologyRecordCuts(bottom))
+        flags |= SIGMA_TOPOLOGY_TRIANGLE_1_CUT;
+    uint classes[4] = { SigmaTopologyClass(top.x), SigmaTopologyClass(left.x),
+        SigmaTopologyClass(right.x), SigmaTopologyClass(bottom.x) };
+    [unroll]
+    for (uint edge = 0u; edge < 4u; ++edge)
+    {
+        if (classes[edge] == SIGMA_TOPOLOGY_SINGULAR)
+            flags |= SIGMA_TOPOLOGY_CELL_SINGULAR;
+        else if (classes[edge] != SIGMA_TOPOLOGY_REGULAR)
+            flags |= SIGMA_TOPOLOGY_CELL_UNRESOLVED;
+    }
+    _CellTopologyFlags[SigmaTopologyCellIndex(_TargetPageSlot, sample)] = flags;
+}
+
+[numthreads(1, 1, 1)]
+void PublishTopologyPage(uint3 id : SV_DispatchThreadID)
+{
+    if (_TargetPageSlot >= _TargetPageCapacity)
+        return;
+    if (!SigmaCanonicalMutationEnabled())
+    {
+        _TopologyPageKeys[_TargetPageSlot] = 0u;
+        return;
+    }
+    _TopologyPageKeys[_TargetPageSlot] = uint4(_TargetGeneration,
+        _TargetRevision, 1u, 0u);
+}

@@ -23,6 +23,15 @@ namespace Genesis.RoomScan.Tests
         }
 
         [StructLayout(LayoutKind.Sequential)]
+        private struct UInt4
+        {
+            public uint X;
+            public uint Y;
+            public uint Z;
+            public uint W;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
         private struct PageMeta
         {
             public uint PageXLo;
@@ -98,6 +107,11 @@ namespace Genesis.RoomScan.Tests
                 1, sizeof(uint));
             using var dirtySlots = new GraphicsBuffer(GraphicsBuffer.Target.Structured,
                 1, sizeof(uint));
+            using var topologyCellFlags = new GraphicsBuffer(
+                GraphicsBuffer.Target.Structured, PageSize * PageSize,
+                sizeof(uint));
+            using var topologyPageKeys = new GraphicsBuffer(
+                GraphicsBuffer.Target.Structured, 1, sizeof(uint) * 4);
             using var arguments = new GraphicsBuffer(
                 GraphicsBuffer.Target.Structured |
                 GraphicsBuffer.Target.IndirectArguments, 4, sizeof(uint));
@@ -110,6 +124,11 @@ namespace Genesis.RoomScan.Tests
             readoutDirty.SetData(new uint[] { 1u });
             arguments.SetData(new uint[] { 0u, 1u, 0u, 0u });
             buildArguments.SetData(new uint[] { 64u, 0u, 1u });
+            topologyCellFlags.SetData(new uint[PageSize * PageSize]);
+            topologyPageKeys.SetData(new[]
+            {
+                new UInt4 { X = 9u, Y = 17u, Z = 1u, W = 0u }
+            });
 
             int build = readout.FindKernel("BuildCarrierReadout");
             int clear = readout.FindKernel("ClearCarrierHalos");
@@ -171,23 +190,10 @@ namespace Genesis.RoomScan.Tests
                 properties.SetBuffer("_ReadoutVertices", vertices);
                 properties.SetBuffer("_CurrentPageSlots", activeSlots);
                 properties.SetBuffer("_PageMetadata", meta);
-                var command = new CommandBuffer { name = "Sigma folded readout fixture" };
-                try
-                {
-                    var mrt = new RenderTargetIdentifier[]
-                    {
-                        depthSupport, carrierPage, carrierUvNormal, stateKey
-                    };
-                    command.SetRenderTarget(mrt, hardwareDepth);
-                    command.ClearRenderTarget(true, true, Color.clear, 1f);
-                    command.DrawProceduralIndirect(Matrix4x4.identity, material, 0,
-                        MeshTopology.Triangles, arguments, 0, properties);
-                    Graphics.ExecuteCommandBuffer(command);
-                }
-                finally
-                {
-                    command.Dispose();
-                }
+                properties.SetBuffer("_TopologyCellFlags", topologyCellFlags);
+                properties.SetBuffer("_TopologyPageKeys", topologyPageKeys);
+                DrawPrediction(material, arguments, properties, depthSupport,
+                    carrierPage, carrierUvNormal, stateKey, hardwareDepth);
 
                 int pixel = 50 * targetSize + 52;
                 float[] depth = Readback<float>(depthSupport);
@@ -201,6 +207,29 @@ namespace Genesis.RoomScan.Tests
                 int emptyPixel = 2 * targetSize + 2;
                 Assert.That(depth[emptyPixel * 2], Is.Zero,
                     "implicit/null carrier may not emit physical contact");
+
+                topologyPageKeys.SetData(new[]
+                {
+                    new UInt4 { X = 8u, Y = 17u, Z = 1u, W = 0u }
+                });
+                DrawPrediction(material, arguments, properties, depthSupport,
+                    carrierPage, carrierUvNormal, stateKey, hardwareDepth);
+                depth = Readback<float>(depthSupport);
+                Assert.That(depth[pixel * 2], Is.Zero,
+                    "a topology cache from another carrier generation must fail closed");
+
+                topologyPageKeys.SetData(new[]
+                {
+                    new UInt4 { X = 9u, Y = 17u, Z = 1u, W = 0u }
+                });
+                var allCut = new uint[PageSize * PageSize];
+                Array.Fill(allCut, 3u);
+                topologyCellFlags.SetData(allCut);
+                DrawPrediction(material, arguments, properties, depthSupport,
+                    carrierPage, carrierUvNormal, stateKey, hardwareDepth);
+                depth = Readback<float>(depthSupport);
+                Assert.That(depth[pixel * 2], Is.Zero,
+                    "a supported intrinsic singular cut must not be interpolated");
             }
             finally
             {
@@ -292,6 +321,34 @@ namespace Genesis.RoomScan.Tests
             request.WaitForCompletion();
             Assert.That(request.hasError, Is.False, texture.graphicsFormat.ToString());
             return request.GetData<T>().ToArray();
+        }
+
+        private static void DrawPrediction(Material material,
+            GraphicsBuffer arguments, MaterialPropertyBlock properties,
+            RenderTexture depthSupport, RenderTexture carrierPage,
+            RenderTexture carrierUvNormal, RenderTexture stateKey,
+            RenderTexture hardwareDepth)
+        {
+            var command = new CommandBuffer
+            {
+                name = "Sigma folded readout fixture"
+            };
+            try
+            {
+                var mrt = new RenderTargetIdentifier[]
+                {
+                    depthSupport, carrierPage, carrierUvNormal, stateKey
+                };
+                command.SetRenderTarget(mrt, hardwareDepth);
+                command.ClearRenderTarget(true, true, Color.clear, 1f);
+                command.DrawProceduralIndirect(Matrix4x4.identity, material, 0,
+                    MeshTopology.Triangles, arguments, 0, properties);
+                Graphics.ExecuteCommandBuffer(command);
+            }
+            finally
+            {
+                command.Dispose();
+            }
         }
 
         private static void Destroy(RenderTexture texture)

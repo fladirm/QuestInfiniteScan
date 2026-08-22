@@ -1,24 +1,14 @@
-# Latest exchange snapshots
+# Session tail
 
-After compaction read `new_spec.md`, goal, state, DAG, this file and relevant ADRs
-in the order in `AGENTS.md`. Trust checked-in code/evidence over prose and never
-touch `~/.codex` or untracked device/archive data.
+## Latest user exchange
 
-## Exchange 1
+User asked for status and correctly noted that an APK is unnecessary before S4-07.
 
-User: Required one commit after every independent Σ-PRISM DAG task and a
-source-only `git archive` after S4-07 before continuing to S4-08.
+## Latest implementation update
 
-Assistant: Preserved that checkpoint protocol. S4-00 through S4-03 are accepted as
-separate commits; no archive is due before the S4-07 commit.
-
-## Exchange 2
-
-User: Reiterated the 90% implementation / 10% proportional tests-and-controls
-budget and asked for current status.
-
-Assistant: Completed S4-04 joint inverse depth: exact independent finite-cone
-cells, commutative meet/conflict provenance, first-hit exclusions, resistant
-minimum-change commit and independently gated latent-gauge promotion. The complete
-34/34 Vulkan EditMode suite and Android/Vulkan build pass; S4-04 is being committed
-and S4-05 exact intrinsic singular topology is next.
+S4-05 exact intrinsic topology is implemented and verified with topology 4/4,
+forward 2/2 and full Unity Vulkan EditMode 38/38. The premature Android smoke
+build was stopped; no device/build result is claimed for S4-05. S4-05 is now
+being checkpointed and S4-06 (joint RGB inverse readout/proof certificates) is
+the only in-progress node. APK is deferred to the consolidated S4-07 vertical
+milestone as required by the implementation contract.

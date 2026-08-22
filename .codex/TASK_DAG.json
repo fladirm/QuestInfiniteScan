@@ -117,7 +117,7 @@
     {
       "id": "S4-05",
       "title": "Implement exact intrinsic singular topology",
-      "status": "in_progress",
+      "status": "done",
       "depends_on": ["S4-04"],
       "acceptance": [
         "Changed neighbour generations produce one cached exact transition tau and complete annihilator-catalog residual scan through generated signed permutations/additions",
@@ -126,12 +126,18 @@
         "Derived readout cuts interpolation at supported singular loci and unresolved state fails closed",
         "H0 wall, crease, doorway, pipe and thin-plate signatures meet the persisted integer gates"
       ],
-      "evidence": []
+      "evidence": [
+        "SigmaIntrinsicTopology.compute implements generation-keyed exact transition caching, 168-action annihilator catalog scanning, integer associator gates, regular/singular/unresolved classification, and fail-closed cut publication without topology objects or proximity identity",
+        "SigmaTopologyController preserves immutable carrier generations, uses epoch/frame-validated evidence, supports exact full build and bounded evidence-only revisit accumulation, and publishes topology keys before prediction consumes them",
+        "SigmaRenderer and SigmaPredict reject stale topology generation/revision or cut triangles; topology state remains disposable derived readout and never mutates the Sigma carrier",
+        "Unity 6000.5.9f1 Vulkan EditMode passed 4/4 SigmaIntrinsicTopologyTests, 2/2 SigmaForwardReadoutTests and 38/38 full Sigma EditMode tests; generated operator check, git diff check and eight-UAV validator passed",
+        "The Android smoke build was intentionally deferred to the S4-07 consolidated four-stream vertical milestone; no physical Quest scan is claimed for this algebra/topology substep"
+      ]
     },
     {
       "id": "S4-06",
       "title": "Implement joint RGB inverse readout and minimal proof certificates",
-      "status": "pending",
+      "status": "in_progress",
       "depends_on": ["S4-05"],
       "acceptance": [
         "RGB_L/R construct independent outward-rounded projective S16 cells through the generated view operator and exact bounded interval contraction",

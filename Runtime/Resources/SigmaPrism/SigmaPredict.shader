@@ -17,10 +17,13 @@ Shader "Hidden/Genesis/SigmaPrism/Predict"
             #pragma fragment Frag
 
             #include "SigmaCarrierAbi.hlsl"
+            #include "SigmaTopologyAbi.hlsl"
 
             StructuredBuffer<float4> _ReadoutVertices;
             StructuredBuffer<uint> _CurrentPageSlots;
             StructuredBuffer<SigmaCarrierPageMetaGpu> _PageMetadata;
+            StructuredBuffer<uint> _TopologyCellFlags;
+            StructuredBuffer<uint4> _TopologyPageKeys;
             float4x4 _ClipFromWorld;
             float4x4 _OpticalFromWorld;
             uint _SegmentIndex;
@@ -84,6 +87,15 @@ Shader "Hidden/Genesis/SigmaPrism/Predict"
                 uint cell = primitive >> 1u;
                 uint cellX = cell & 63u;
                 uint cellY = cell >> 6u;
+                SigmaCarrierPageMetaGpu metadata = _PageMetadata[pageSlot];
+                uint4 topologyKey = _TopologyPageKeys[pageSlot];
+                uint cellTopology = _TopologyCellFlags[
+                    pageSlot * SIGMA_PAGE_SAMPLE_COUNT + cell];
+                uint triangleCut = triangleIndex == 0u
+                    ? SIGMA_TOPOLOGY_TRIANGLE_0_CUT
+                    : SIGMA_TOPOLOGY_TRIANGLE_1_CUT;
+                bool topologyCurrent = topologyKey.x == metadata.generation &&
+                    topologyKey.y == metadata.revision && topologyKey.z == 1u;
 
                 uint2 c0 = SigmaTriangleCorner(triangleIndex, 0u);
                 uint2 c1 = SigmaTriangleCorner(triangleIndex, 1u);
@@ -97,7 +109,9 @@ Shader "Hidden/Genesis/SigmaPrism/Predict"
                 float support = min(r0.w, min(r1.w, r2.w));
                 float3 areaVector = cross(r1.xyz - r0.xyz, r2.xyz - r0.xyz);
                 float areaSquared = dot(areaVector, areaVector);
-                bool valid = support > 0.0 && areaSquared > 1e-20;
+                bool valid = topologyCurrent &&
+                    (cellTopology & triangleCut) == 0u &&
+                    support > 0.0 && areaSquared > 1e-20;
 
                 uint2 selectedCorner = SigmaTriangleCorner(triangleIndex, corner);
                 float3 position = corner == 0u ? r0.xyz :
@@ -114,7 +128,6 @@ Shader "Hidden/Genesis/SigmaPrism/Predict"
                 output.carrierLocal = float2(cellX + selectedCorner.x,
                     cellY + selectedCorner.y);
                 output.support = valid ? support : 0.0;
-                SigmaCarrierPageMetaGpu metadata = _PageMetadata[pageSlot];
                 output.pageCoordinate = uint4(metadata.pageXLo, metadata.pageXHi,
                     metadata.pageYLo, metadata.pageYHi);
                 output.stateKey = uint4(metadata.generation, metadata.revision,

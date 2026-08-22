@@ -16,6 +16,7 @@ namespace Genesis.RoomScan.SigmaPrism
     /// </summary>
     [DisallowMultipleComponent]
     [RequireComponent(typeof(SigmaCarrier))]
+    [RequireComponent(typeof(SigmaTopologyController))]
     [RequireComponent(typeof(SigmaRenderer))]
     [RequireComponent(typeof(SigmaRigBridge))]
     [DefaultExecutionOrder(0)]
@@ -49,6 +50,7 @@ namespace Genesis.RoomScan.SigmaPrism
 
         private RoomScanner _scanner;
         private SigmaCarrier _carrier;
+        private SigmaTopologyController _topology;
         private SigmaRenderer _renderer;
         private SigmaRigBridge _rigBridge;
         private SigmaExactBackendGate _backendGate;
@@ -103,6 +105,8 @@ namespace Genesis.RoomScan.SigmaPrism
                 return;
             _scanner = scanner ?? throw new ArgumentNullException(nameof(scanner));
             _carrier = scanner.Carrier ?? GetComponent<SigmaCarrier>();
+            _topology = scanner.SigmaTopology ??
+                GetComponent<SigmaTopologyController>();
             _renderer = scanner.SigmaRenderer ?? GetComponent<SigmaRenderer>();
             _rigBridge = scanner.RigBridge ?? GetComponent<SigmaRigBridge>();
             _backendGate = scanner.ExactBackendGate ?? throw new InvalidOperationException(
@@ -110,7 +114,8 @@ namespace Genesis.RoomScan.SigmaPrism
             _normalize = Resources.Load<ComputeShader>(NormalizeResource);
             _inverse = Resources.Load<ComputeShader>(InverseResource);
             _coneLutShader = Resources.Load<ComputeShader>(ConeLutResource);
-            if (_carrier == null || _renderer == null || _rigBridge == null ||
+            if (_carrier == null || _topology == null || _renderer == null ||
+                _rigBridge == null ||
                 _normalize == null || _inverse == null || _coneLutShader == null)
                 throw new InvalidOperationException(
                     "Sigma joint inverse resources are incomplete.");
@@ -245,7 +250,7 @@ namespace Genesis.RoomScan.SigmaPrism
                     SegmentInverseScratch scratch = _segmentScratch[segment];
                     RecordCompactActive(command, batch, scratch, segment);
                     RecordBuildProposals(command, batch, scratch, segment,
-                        prediction);
+                        prediction, revision);
                 }
                 Graphics.ExecuteCommandBuffer(command);
             }
@@ -256,11 +261,16 @@ namespace Genesis.RoomScan.SigmaPrism
 
             var pageSnapshot = new Dictionary<int, SigmaCarrierPageHandle>(
                 _pageSnapshot);
+            Dictionary<SigmaCarrierPageCoordinate, SigmaTopologyEvidenceView>
+                topologyEvidence = BuildTopologyEvidenceMap(pageSnapshot,
+                    revision, leftKey, rightKey);
             var readbackLatch = new ReadbackRetirementLatch();
             var inFlight = new InFlightFrame(prediction, revision,
                 source.DepthResolution, blockResolution, segmentCount,
                 leftKey, rightKey, pageSnapshot,
+                topologyEvidence,
                 readbackLatch,
+                readbackLatch.Request(_activePageFlags),
                 readbackLatch.Request(_commitPageFlags),
                 readbackLatch.Request(_unmatchedBlockFlags),
                 readbackLatch.Request(_unmatchedBlockAnchors),
@@ -268,6 +278,24 @@ namespace Genesis.RoomScan.SigmaPrism
                 readbackLatch.Request(_conflictCount));
             _inFlight = inFlight;
             SubmittedFrames++;
+        }
+
+        private Dictionary<SigmaCarrierPageCoordinate,
+            SigmaTopologyEvidenceView> BuildTopologyEvidenceMap(
+            Dictionary<int, SigmaCarrierPageHandle> pageSnapshot,
+            uint frameSerial, uint leftKey, uint rightKey)
+        {
+            var evidence = new Dictionary<SigmaCarrierPageCoordinate,
+                SigmaTopologyEvidenceView>(pageSnapshot.Count);
+            foreach (SigmaCarrierPageHandle page in pageSnapshot.Values)
+            {
+                SegmentInverseScratch scratch = _segmentScratch[page.SegmentIndex];
+                evidence[page.Coordinate] = SigmaTopologyEvidenceView.Proposals(
+                    page.Coordinate, scratch.ProposalStatus,
+                    scratch.ProposalEpoch, page.PageSlot, scratch.Capacity,
+                    frameSerial, leftKey, rightKey);
+            }
+            return evidence;
         }
 
         private void CompleteInFlight()
@@ -298,7 +326,12 @@ namespace Genesis.RoomScan.SigmaPrism
                     return;
                 }
                 NativeArray<uint> commits = frame.CommitFlags.GetData<uint>();
-                CommitMatchedPages(frame, commits);
+                var publishedMatched = new List<SigmaCarrierPageHandle>();
+                CommitMatchedPages(frame, commits, publishedMatched);
+                NativeArray<uint> activePages =
+                    frame.ActivePageFlags.GetData<uint>();
+                UpdateObservedTopologyPages(frame, activePages,
+                    publishedMatched);
                 NativeArray<uint> unmatched = frame.UnmatchedBlocks.GetData<uint>();
                 NativeArray<uint> anchors = frame.UnmatchedAnchors.GetData<uint>();
                 int scheduledGaugePages = BeginGaugePageCommits(frame, unmatched,
@@ -332,6 +365,10 @@ namespace Genesis.RoomScan.SigmaPrism
             NativeArray<uint> counts = frame.GaugePromotions.GetData<uint>();
             uint promotedSamples = 0u;
             int publishedPages = 0;
+            var publishedHandles = new List<SigmaCarrierPageHandle>(
+                frame.GaugeWrites.Count);
+            var pendingGauge = new List<PendingGaugePublication>(
+                frame.GaugeWrites.Count);
             for (int index = 0; index < frame.GaugeWrites.Count; ++index)
             {
                 SigmaCarrierWriteLease write = frame.GaugeWrites[index];
@@ -341,12 +378,35 @@ namespace Genesis.RoomScan.SigmaPrism
                     write.Dispose();
                     continue;
                 }
-                write.Publish();
+                pendingGauge.Add(new PendingGaugePublication(write, count));
+            }
+            pendingGauge.Sort(static (left, right) =>
+                right.Write.Handle.Coordinate.CompareTo(
+                    left.Write.Handle.Coordinate));
+            for (int index = 0; index < pendingGauge.Count; ++index)
+            {
+                SigmaCarrierWriteLease write = pendingGauge[index].Write;
+                uint count = pendingGauge[index].PromotedSamples;
+                frame.TopologyEvidence[write.Handle.Coordinate] =
+                    SigmaTopologyEvidenceView.FullStereo(
+                        write.Handle.Coordinate, frame.Revision,
+                        frame.LeftIndependenceKey, frame.RightIndependenceKey);
+                ResolveTopologyEvidence(frame, write.Handle.Coordinate,
+                    out SigmaTopologyEvidenceView targetEvidence,
+                    out SigmaTopologyEvidenceView rightEvidence,
+                    out SigmaTopologyEvidenceView downEvidence);
+                SigmaTopologyBuildToken topology = _topology.BuildGeneration(
+                    write.Handle, default, targetEvidence, rightEvidence,
+                    downEvidence);
+                SigmaCarrierPageHandle published = write.Publish();
+                topology.Publish();
                 write.Dispose();
+                publishedHandles.Add(published);
                 promotedSamples = checked(promotedSamples + count);
                 publishedPages++;
             }
             frame.GaugeWrites.Clear();
+            RebuildAffectedTopology(frame, publishedHandles);
             frame.PublishedGaugePages = publishedPages;
             FinishFrame(frame, promotedSamples);
         }
@@ -372,9 +432,11 @@ namespace Genesis.RoomScan.SigmaPrism
         }
 
         private int CommitMatchedPages(InFlightFrame frame,
-            NativeArray<uint> commitFlags)
+            NativeArray<uint> commitFlags,
+            List<SigmaCarrierPageHandle> publishedHandles)
         {
             int committed = 0;
+            var changedSources = new List<SigmaCarrierPageHandle>();
             foreach (KeyValuePair<int, SigmaCarrierPageHandle> pair in
                 frame.PageSnapshot)
             {
@@ -386,6 +448,17 @@ namespace Genesis.RoomScan.SigmaPrism
                 if (!_carrier.TryGetLatest(source.Coordinate,
                         out SigmaCarrierPageHandle latest) || !latest.Equals(source))
                     continue;
+                changedSources.Add(source);
+            }
+            // Right/down neighbours sort before their left/up owners. Each page can
+            // therefore publish its topology once against final neighbours while
+            // the retired source slot is still safe to copy and can be reclaimed
+            // immediately afterwards.
+            changedSources.Sort(static (left, right) =>
+                right.Coordinate.CompareTo(left.Coordinate));
+            for (int index = 0; index < changedSources.Count; ++index)
+            {
+                SigmaCarrierPageHandle source = changedSources[index];
                 SegmentInverseScratch scratch = _segmentScratch[source.SegmentIndex];
                 using SigmaCarrierWriteLease target = _carrier.BeginNextGeneration(
                     source.Coordinate, frame.Revision, source.CertificateOffset,
@@ -401,12 +474,142 @@ namespace Genesis.RoomScan.SigmaPrism
                     scratch.ProposalStatus);
                 _inverse.Dispatch(_commitKernel,
                     SigmaCarrier.SamplesPerPage / 64, 1, 1);
-                target.Publish();
+                ResolveTopologyEvidence(frame, source.Coordinate,
+                    out SigmaTopologyEvidenceView targetEvidence,
+                    out SigmaTopologyEvidenceView rightEvidence,
+                    out SigmaTopologyEvidenceView downEvidence);
+                SigmaTopologyBuildToken topology = _topology.BuildGeneration(
+                    target.Handle, source, targetEvidence, rightEvidence,
+                    downEvidence);
+                SigmaCarrierPageHandle published = target.Publish();
+                topology.Publish();
+                publishedHandles.Add(published);
                 _carrier.TryReleaseRetiredGeneration(source);
                 committed++;
                 frame.MatchedPageCommits++;
             }
             return committed;
+        }
+
+        private void UpdateObservedTopologyPages(InFlightFrame frame,
+            NativeArray<uint> activeFlags,
+            IReadOnlyList<SigmaCarrierPageHandle> changedPages)
+        {
+            var rebuild = new Dictionary<SigmaCarrierPageCoordinate, bool>();
+            var changed = new HashSet<SigmaCarrierPageCoordinate>();
+            for (int index = 0; index < changedPages.Count; ++index)
+                changed.Add(changedPages[index].Coordinate);
+            foreach (KeyValuePair<int, SigmaCarrierPageHandle> pair in
+                frame.PageSnapshot)
+            {
+                if ((uint)pair.Key < (uint)activeFlags.Length &&
+                    activeFlags[pair.Key] != 0u &&
+                    !changed.Contains(pair.Value.Coordinate))
+                    AddTopologyRebuild(rebuild, pair.Value.Coordinate, false);
+            }
+            for (int index = 0; index < changedPages.Count; ++index)
+            {
+                SigmaCarrierPageCoordinate coordinate =
+                    changedPages[index].Coordinate;
+                if (TryOffset(coordinate, -1L, 0L,
+                        out SigmaCarrierPageCoordinate left) &&
+                    !changed.Contains(left))
+                    AddTopologyRebuild(rebuild, left, true);
+                if (TryOffset(coordinate, 0L, -1L,
+                        out SigmaCarrierPageCoordinate up) &&
+                    !changed.Contains(up))
+                    AddTopologyRebuild(rebuild, up, true);
+            }
+            RebuildTopologyCoordinates(frame, rebuild);
+        }
+
+        private void RebuildAffectedTopology(InFlightFrame frame,
+            IReadOnlyList<SigmaCarrierPageHandle> changedPages)
+        {
+            if (changedPages == null || changedPages.Count == 0)
+                return;
+            var changed = new HashSet<SigmaCarrierPageCoordinate>();
+            for (int index = 0; index < changedPages.Count; ++index)
+                changed.Add(changedPages[index].Coordinate);
+            var rebuild = new Dictionary<SigmaCarrierPageCoordinate, bool>();
+            for (int index = 0; index < changedPages.Count; ++index)
+            {
+                SigmaCarrierPageCoordinate coordinate =
+                    changedPages[index].Coordinate;
+                if (TryOffset(coordinate, -1L, 0L,
+                        out SigmaCarrierPageCoordinate left) &&
+                    !changed.Contains(left))
+                    AddTopologyRebuild(rebuild, left, true);
+                if (TryOffset(coordinate, 0L, -1L,
+                        out SigmaCarrierPageCoordinate up) &&
+                    !changed.Contains(up))
+                    AddTopologyRebuild(rebuild, up, true);
+            }
+            RebuildTopologyCoordinates(frame, rebuild);
+        }
+
+        private void RebuildTopologyCoordinates(InFlightFrame frame,
+            Dictionary<SigmaCarrierPageCoordinate, bool> coordinates)
+        {
+            var ordered = new List<SigmaCarrierPageCoordinate>(coordinates.Keys);
+            ordered.Sort(static (left, right) =>
+                right.CompareTo(left));
+            for (int index = 0; index < ordered.Count; ++index)
+            {
+                SigmaCarrierPageCoordinate coordinate = ordered[index];
+                if (!_carrier.TryGetLatest(coordinate,
+                        out SigmaCarrierPageHandle page))
+                    continue;
+                ResolveTopologyEvidence(frame, coordinate,
+                    out SigmaTopologyEvidenceView targetEvidence,
+                    out SigmaTopologyEvidenceView rightEvidence,
+                    out SigmaTopologyEvidenceView downEvidence);
+                _topology.RebuildCurrent(page, targetEvidence, rightEvidence,
+                    downEvidence, coordinates[coordinate]);
+            }
+        }
+
+        private static void AddTopologyRebuild(
+            Dictionary<SigmaCarrierPageCoordinate, bool> rebuild,
+            SigmaCarrierPageCoordinate coordinate, bool forceBoundaryTransitions)
+        {
+            if (rebuild.TryGetValue(coordinate, out bool existing))
+                rebuild[coordinate] = existing || forceBoundaryTransitions;
+            else
+                rebuild.Add(coordinate, forceBoundaryTransitions);
+        }
+
+        private static void ResolveTopologyEvidence(InFlightFrame frame,
+            SigmaCarrierPageCoordinate coordinate,
+            out SigmaTopologyEvidenceView target,
+            out SigmaTopologyEvidenceView right,
+            out SigmaTopologyEvidenceView down)
+        {
+            frame.TopologyEvidence.TryGetValue(coordinate, out target);
+            right = default;
+            down = default;
+            if (TryOffset(coordinate, 1L, 0L,
+                    out SigmaCarrierPageCoordinate rightCoordinate))
+                frame.TopologyEvidence.TryGetValue(rightCoordinate, out right);
+            if (TryOffset(coordinate, 0L, 1L,
+                    out SigmaCarrierPageCoordinate downCoordinate))
+                frame.TopologyEvidence.TryGetValue(downCoordinate, out down);
+        }
+
+        private static bool TryOffset(SigmaCarrierPageCoordinate source,
+            long deltaX, long deltaY, out SigmaCarrierPageCoordinate result)
+        {
+            try
+            {
+                result = new SigmaCarrierPageCoordinate(
+                    checked(source.X + deltaX), checked(source.Y + deltaY));
+                return true;
+            }
+            catch (OverflowException)
+            {
+                result = default;
+                return false;
+            }
         }
 
         private int BeginGaugePageCommits(InFlightFrame frame,
@@ -598,7 +801,7 @@ namespace Genesis.RoomScan.SigmaPrism
 
         private void RecordBuildProposals(CommandBuffer command,
             SigmaCarrierReadBatch batch, SegmentInverseScratch scratch, int segment,
-            SigmaPredictionFrameLease prediction)
+            SigmaPredictionFrameLease prediction, uint frameSerial)
         {
             command.SetComputeIntParam(_inverse, "_PageCapacity", batch.PageCapacity);
             command.SetComputeIntParam(_inverse, "_SegmentIndex", segment);
@@ -606,6 +809,8 @@ namespace Genesis.RoomScan.SigmaPrism
                 segment * SegmentFlagStride);
             command.SetComputeIntParam(_inverse, "_ConflictCapacity",
                 conflictCapacity);
+            command.SetComputeIntParam(_inverse, "_ProposalFrameSerial",
+                unchecked((int)frameSerial));
             command.SetComputeBufferParam(_inverse, _proposalKernel,
                 "_SigmaExactBackendGate", _backendGate.Buffer);
             command.SetComputeBufferParam(_inverse, _proposalKernel,
@@ -624,6 +829,8 @@ namespace Genesis.RoomScan.SigmaPrism
                 "_ProposalMass", scratch.ProposalMass);
             command.SetComputeBufferParam(_inverse, _proposalKernel,
                 "_ProposalStatus", scratch.ProposalStatus);
+            command.SetComputeBufferParam(_inverse, _proposalKernel,
+                "_ProposalEpoch", scratch.ProposalEpoch);
             command.SetComputeBufferParam(_inverse, _proposalKernel,
                 "_CommitPageFlags", _commitPageFlags);
             command.SetComputeBufferParam(_inverse, _proposalKernel,
@@ -1118,6 +1325,19 @@ namespace Genesis.RoomScan.SigmaPrism
                 unchecked((uint)raw), unchecked((uint)(raw >> 32)));
         }
 
+        private readonly struct PendingGaugePublication
+        {
+            public PendingGaugePublication(SigmaCarrierWriteLease write,
+                uint promotedSamples)
+            {
+                Write = write;
+                PromotedSamples = promotedSamples;
+            }
+
+            public SigmaCarrierWriteLease Write { get; }
+            public uint PromotedSamples { get; }
+        }
+
         private readonly struct GaugeImagePage : IEquatable<GaugeImagePage>,
             IComparable<GaugeImagePage>
         {
@@ -1166,6 +1386,9 @@ namespace Genesis.RoomScan.SigmaPrism
                 ProposalStatus = CreateBuffer(checked(Capacity *
                     SigmaCarrier.SamplesPerPage), sizeof(uint),
                     $"Sigma inverse proposal status {SegmentIndex}");
+                ProposalEpoch = CreateBuffer(Capacity, sizeof(uint),
+                    $"Sigma inverse proposal epoch {SegmentIndex}");
+                ProposalEpoch.SetData(new uint[Capacity]);
                 ProposalMass = CreateBuffer(checked(Capacity *
                     SigmaCarrier.SamplesPerPage), sizeof(uint) * 2,
                     $"Sigma inverse proposal mass {SegmentIndex}");
@@ -1178,6 +1401,7 @@ namespace Genesis.RoomScan.SigmaPrism
             public GraphicsBuffer ProposalGeometry { get; }
             public GraphicsBuffer ProposalMass { get; }
             public GraphicsBuffer ProposalStatus { get; }
+            public GraphicsBuffer ProposalEpoch { get; }
 
             public bool Matches(SigmaCarrierReadBatch batch) =>
                 SegmentIndex == batch.SegmentIndex && Capacity == batch.PageCapacity &&
@@ -1191,6 +1415,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 ProposalGeometry.Dispose();
                 ProposalMass.Dispose();
                 ProposalStatus.Dispose();
+                ProposalEpoch.Dispose();
             }
         }
 
@@ -1314,7 +1539,10 @@ namespace Genesis.RoomScan.SigmaPrism
                 int segmentCount, uint leftIndependenceKey,
                 uint rightIndependenceKey,
                 Dictionary<int, SigmaCarrierPageHandle> pageSnapshot,
+                Dictionary<SigmaCarrierPageCoordinate,
+                    SigmaTopologyEvidenceView> topologyEvidence,
                 ReadbackRetirementLatch readbackLatch,
+                AsyncGPUReadbackRequest activePageFlags,
                 AsyncGPUReadbackRequest commitFlags,
                 AsyncGPUReadbackRequest unmatchedBlocks,
                 AsyncGPUReadbackRequest unmatchedAnchors,
@@ -1329,8 +1557,11 @@ namespace Genesis.RoomScan.SigmaPrism
                 LeftIndependenceKey = leftIndependenceKey;
                 RightIndependenceKey = rightIndependenceKey;
                 PageSnapshot = pageSnapshot;
+                TopologyEvidence = topologyEvidence ?? throw new
+                    ArgumentNullException(nameof(topologyEvidence));
                 _readbackLatch = readbackLatch ?? throw new ArgumentNullException(
                     nameof(readbackLatch));
+                ActivePageFlags = activePageFlags;
                 CommitFlags = commitFlags;
                 UnmatchedBlocks = unmatchedBlocks;
                 UnmatchedAnchors = unmatchedAnchors;
@@ -1346,6 +1577,9 @@ namespace Genesis.RoomScan.SigmaPrism
             public uint LeftIndependenceKey { get; }
             public uint RightIndependenceKey { get; }
             public Dictionary<int, SigmaCarrierPageHandle> PageSnapshot { get; }
+            public Dictionary<SigmaCarrierPageCoordinate,
+                SigmaTopologyEvidenceView> TopologyEvidence { get; }
+            public AsyncGPUReadbackRequest ActivePageFlags { get; }
             public AsyncGPUReadbackRequest CommitFlags { get; }
             public AsyncGPUReadbackRequest UnmatchedBlocks { get; }
             public AsyncGPUReadbackRequest UnmatchedAnchors { get; }
@@ -1359,12 +1593,14 @@ namespace Genesis.RoomScan.SigmaPrism
             public int PublishedGaugePages { get; set; }
             public uint ProducedConflicts { get; set; }
             private readonly ReadbackRetirementLatch _readbackLatch;
-            public bool InitialReadbackHasError => CommitFlags.hasError ||
+            public bool InitialReadbackHasError => ActivePageFlags.hasError ||
+                CommitFlags.hasError ||
                 UnmatchedBlocks.hasError || UnmatchedAnchors.hasError ||
                 Counters.hasError || ConflictCount.hasError;
             public bool AllRequestsDone => HasGaugeReadback
                 ? GaugePromotions.done
-                : CommitFlags.done && UnmatchedBlocks.done && Counters.done &&
+                : ActivePageFlags.done && CommitFlags.done &&
+                    UnmatchedBlocks.done && Counters.done &&
                     UnmatchedAnchors.done && ConflictCount.done;
             public bool HasError => HasGaugeReadback
                 ? GaugePromotions.hasError

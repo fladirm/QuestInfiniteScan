@@ -12,6 +12,7 @@ namespace Genesis.RoomScan.SigmaPrism
     /// </summary>
     [DisallowMultipleComponent]
     [RequireComponent(typeof(SigmaCarrier))]
+    [RequireComponent(typeof(SigmaTopologyController))]
     [RequireComponent(typeof(SigmaRigBridge))]
     [DefaultExecutionOrder(-10)]
     public sealed class SigmaRenderer : MonoBehaviour, IRoomScanModule
@@ -66,6 +67,10 @@ namespace Genesis.RoomScan.SigmaPrism
             "_OpticalFromWorld");
         private static readonly int SegmentIndexId = Shader.PropertyToID(
             "_SegmentIndex");
+        private static readonly int TopologyCellFlagsId = Shader.PropertyToID(
+            "_TopologyCellFlags");
+        private static readonly int TopologyPageKeysId = Shader.PropertyToID(
+            "_TopologyPageKeys");
 
         private readonly List<SigmaCarrierReadBatch> _readBatches = new();
         private readonly List<SigmaCarrierPageHandle> _currentPages = new();
@@ -80,6 +85,7 @@ namespace Genesis.RoomScan.SigmaPrism
 
         private RoomScanner _scanner;
         private SigmaCarrier _carrier;
+        private SigmaTopologyController _topology;
         private SigmaRigBridge _rigBridge;
         private SigmaExactBackendGate _backendGate;
         private ComputeShader _readoutCompute;
@@ -120,14 +126,16 @@ namespace Genesis.RoomScan.SigmaPrism
                 return;
             _scanner = scanner ?? throw new ArgumentNullException(nameof(scanner));
             _carrier = scanner.Carrier ?? GetComponent<SigmaCarrier>();
+            _topology = scanner.SigmaTopology ??
+                GetComponent<SigmaTopologyController>();
             _rigBridge = scanner.RigBridge ?? GetComponent<SigmaRigBridge>();
             _backendGate = scanner.ExactBackendGate ??
                 throw new InvalidOperationException(
                     "Sigma renderer requires the exact backend gate.");
             _readoutCompute = Resources.Load<ComputeShader>(ReadoutResource);
             Shader prediction = Resources.Load<Shader>(PredictionResource);
-            if (_carrier == null || _rigBridge == null || _readoutCompute == null ||
-                prediction == null)
+            if (_carrier == null || _topology == null || _rigBridge == null ||
+                _readoutCompute == null || prediction == null)
                 throw new InvalidOperationException(
                     "Sigma forward-readout resources are incomplete.");
 
@@ -407,6 +415,9 @@ namespace Genesis.RoomScan.SigmaPrism
             {
                 SigmaCarrierReadBatch batch = _readBatches[index];
                 SegmentReadoutCache cache = _segmentCaches[index];
+                if (!_topology.TryGetSegmentView(batch.SegmentIndex,
+                        out SigmaTopologySegmentView topologyView))
+                    continue;
                 _properties.Clear();
                 _properties.SetMatrix(ClipFromWorldId, clipFromWorld);
                 _properties.SetMatrix(OpticalFromWorldId, opticalFromWorld);
@@ -414,6 +425,10 @@ namespace Genesis.RoomScan.SigmaPrism
                 _properties.SetBuffer(ReadoutVerticesId, cache.Vertices);
                 _properties.SetBuffer(CurrentPageSlotsId, cache.CurrentPageSlots);
                 _properties.SetBuffer(PageMetadataId, batch.Metadata);
+                _properties.SetBuffer(TopologyCellFlagsId,
+                    topologyView.CellFlags);
+                _properties.SetBuffer(TopologyPageKeysId,
+                    topologyView.PageKeys);
                 command.DrawProceduralIndirect(Matrix4x4.identity,
                     _predictionMaterial, 0, MeshTopology.Triangles,
                     cache.DrawArguments, 0, _properties);
@@ -513,6 +528,7 @@ namespace Genesis.RoomScan.SigmaPrism
             _predictionMaterial = null;
             _readoutCompute = null;
             _backendGate = null;
+            _topology = null;
             _carrier = null;
             _rigBridge = null;
             _scanner = null;

@@ -12,26 +12,43 @@ float SigmaQ48ToReadoutFloat(uint2 raw)
         (float)raw.x * (1.0 / 281474976710656.0);
 }
 
-bool SigmaGeometryReadoutPlan(uint2 state[16], out float3 position,
-    out float informationMass)
+// Exact support/readout decision shared by forward rasterization and intrinsic
+// topology.  Keeping the checked projective divisions here prevents topology
+// from treating an out-of-range projective state as physical contact when the
+// renderer would correctly fail closed.
+bool SigmaGeometryReadoutExact(uint2 state[16], out uint2 geometry[4],
+    out uint2 projectivePosition[3], out uint readoutValid)
 {
     uint valid = 1u;
-    uint2 geometry[4];
     SigmaGeometryGPlan(state, geometry, valid);
     bool supported = valid != 0u &&
         SigmaQ48Less(uint2(0u, 0u), geometry[0]);
-    uint2 x = uint2(0u, 0u);
-    uint2 y = uint2(0u, 0u);
-    uint2 z = uint2(0u, 0u);
+    [unroll]
+    for (uint axis = 0u; axis < 3u; ++axis)
+        projectivePosition[axis] = uint2(0u, 0u);
     if (supported)
     {
-        x = SigmaQ48DivNearestEven(geometry[1], geometry[0], valid);
-        y = SigmaQ48DivNearestEven(geometry[2], geometry[0], valid);
-        z = SigmaQ48DivNearestEven(geometry[3], geometry[0], valid);
+        [unroll]
+        for (uint axis = 0u; axis < 3u; ++axis)
+            projectivePosition[axis] = SigmaQ48DivNearestEven(
+                geometry[axis + 1u], geometry[0], valid);
     }
-    supported = supported && valid != 0u;
-    position = supported ? float3(SigmaQ48ToReadoutFloat(x),
-        SigmaQ48ToReadoutFloat(y), SigmaQ48ToReadoutFloat(z)) : 0.0;
+    readoutValid = valid;
+    return supported && valid != 0u;
+}
+
+bool SigmaGeometryReadoutPlan(uint2 state[16], out float3 position,
+    out float informationMass)
+{
+    uint2 geometry[4];
+    uint2 projectivePosition[3];
+    uint readoutValid;
+    bool supported = SigmaGeometryReadoutExact(state, geometry,
+        projectivePosition, readoutValid);
+    position = supported ? float3(
+        SigmaQ48ToReadoutFloat(projectivePosition[0]),
+        SigmaQ48ToReadoutFloat(projectivePosition[1]),
+        SigmaQ48ToReadoutFloat(projectivePosition[2])) : 0.0;
     informationMass = supported ? SigmaQ48ToReadoutFloat(geometry[0]) : 0.0;
     return supported;
 }

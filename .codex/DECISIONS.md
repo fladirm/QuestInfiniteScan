@@ -101,3 +101,17 @@ Git history and are not active on this branch.
 - Consequence: S4-05 topology must be derived from exact carrier transitions and
   evidence signatures, never from gauge allocation layout, image blocks, depth
   patches or spatial proximity.
+
+## ADR-S407 — Exact intrinsic topology is derived readout, not a second world
+
+- Decision: S4-05 derives transition classes, annihilator evidence and
+  singular/unresolved cuts from generation-keyed Sigma carrier readout. It does
+  not introduce ContactFilm, BoundaryCurve, manifold, proximity or other
+  topology state, and it never mutates the canonical carrier.
+- Decision: changed pages use the full exact topology build; unchanged active
+  pages use only bounded epoch/frame-validated evidence accumulation. Published
+  topology keys are generation/revision keyed and stale or cut readout is
+  rejected by prediction.
+- Consequence: S4-06 RGB inverse evidence must narrow the same carrier and emit
+  proof certificates/conflicts; it may not create a detached appearance or
+  geometry correction world.
