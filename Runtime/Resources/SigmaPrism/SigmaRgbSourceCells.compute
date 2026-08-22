@@ -2,7 +2,7 @@
 #pragma target 5.0
 
 #include "SigmaGeometryReadout.hlsl"
-static const uint2 SIGMA_Q48_ZERO = uint2(0u, 0u);
+#include "SigmaInverseMath.hlsl"
 #include "SigmaRgbInverseMath.hlsl"
 
 // Disposable source constraints for one carrier page. One 16-lane workgroup
