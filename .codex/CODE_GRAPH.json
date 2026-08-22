@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "source_digest": "1cbd654a0397b4ad15f69cba1ba2e6fa1e3484e8138690c2f16f637cdd0b0f13",
+  "source_digest": "bb6fc9b1fb2e826e9d1162816d5178957ca662006670ae26ae2fd9b9b40ee45e",
   "scope": [
     "Runtime/**/*.cs",
     "Runtime/Resources/Prism/*.*",
@@ -11,9 +11,9 @@
   ],
   "summary": {
     "files": 162,
-    "symbols": 2221,
-    "methods_and_functions": 1657,
-    "gpu_kernels": 185,
+    "symbols": 2237,
+    "methods_and_functions": 1670,
+    "gpu_kernels": 189,
     "event_links": 17
   },
   "files": [
@@ -5531,49 +5531,49 @@
       "file": "Runtime/Prism/Geometry/PressureManifoldPool.cs",
       "name": "ContinuationEvidenceFlags",
       "kind": "enum",
-      "line": 97
+      "line": 100
     },
     {
       "id": "Runtime/Prism/Geometry/PressureManifoldPool.cs::ContinuationEvidenceGpu",
       "file": "Runtime/Prism/Geometry/PressureManifoldPool.cs",
       "name": "ContinuationEvidenceGpu",
       "kind": "struct",
-      "line": 259
+      "line": 262
     },
     {
       "id": "Runtime/Prism/Geometry/PressureManifoldPool.cs::CrossChunkTopologyPortalFlags",
       "file": "Runtime/Prism/Geometry/PressureManifoldPool.cs",
       "name": "CrossChunkTopologyPortalFlags",
       "kind": "enum",
-      "line": 60
+      "line": 63
     },
     {
       "id": "Runtime/Prism/Geometry/PressureManifoldPool.cs::CrossChunkTopologyPortalGpu",
       "file": "Runtime/Prism/Geometry/PressureManifoldPool.cs",
       "name": "CrossChunkTopologyPortalGpu",
       "kind": "struct",
-      "line": 328
+      "line": 331
     },
     {
-      "id": "Runtime/Prism/Geometry/PressureManifoldPool.cs::Dispose@517",
+      "id": "Runtime/Prism/Geometry/PressureManifoldPool.cs::Dispose@520",
       "file": "Runtime/Prism/Geometry/PressureManifoldPool.cs",
       "name": "Dispose",
       "kind": "method",
-      "line": 517
+      "line": 520
     },
     {
       "id": "Runtime/Prism/Geometry/PressureManifoldPool.cs::ElasticChartStateGpu",
       "file": "Runtime/Prism/Geometry/PressureManifoldPool.cs",
       "name": "ElasticChartStateGpu",
       "kind": "struct",
-      "line": 286
+      "line": 289
     },
     {
       "id": "Runtime/Prism/Geometry/PressureManifoldPool.cs::EvidenceAlignedSplitPlanGpu",
       "file": "Runtime/Prism/Geometry/PressureManifoldPool.cs",
       "name": "EvidenceAlignedSplitPlanGpu",
       "kind": "struct",
-      "line": 301
+      "line": 304
     },
     {
       "id": "Runtime/Prism/Geometry/PressureManifoldPool.cs::FilmMembershipFlags",
@@ -5587,28 +5587,28 @@
       "file": "Runtime/Prism/Geometry/PressureManifoldPool.cs",
       "name": "FilmMembershipGpu",
       "kind": "struct",
-      "line": 142
+      "line": 145
     },
     {
       "id": "Runtime/Prism/Geometry/PressureManifoldPool.cs::FrontierLoopFlags",
       "file": "Runtime/Prism/Geometry/PressureManifoldPool.cs",
       "name": "FrontierLoopFlags",
       "kind": "enum",
-      "line": 85
+      "line": 88
     },
     {
       "id": "Runtime/Prism/Geometry/PressureManifoldPool.cs::FrontierLoopGpu",
       "file": "Runtime/Prism/Geometry/PressureManifoldPool.cs",
       "name": "FrontierLoopGpu",
       "kind": "struct",
-      "line": 234
+      "line": 237
     },
     {
-      "id": "Runtime/Prism/Geometry/PressureManifoldPool.cs::NextPowerOfTwo@595",
+      "id": "Runtime/Prism/Geometry/PressureManifoldPool.cs::NextPowerOfTwo@598",
       "file": "Runtime/Prism/Geometry/PressureManifoldPool.cs",
       "name": "NextPowerOfTwo",
       "kind": "method",
-      "line": 595
+      "line": 598
     },
     {
       "id": "Runtime/Prism/Geometry/PressureManifoldPool.cs::PressureManifoldDiagnostic",
@@ -5629,49 +5629,49 @@
       "file": "Runtime/Prism/Geometry/PressureManifoldPool.cs",
       "name": "PressureManifoldHeaderGpu",
       "kind": "struct",
-      "line": 112
+      "line": 115
     },
     {
       "id": "Runtime/Prism/Geometry/PressureManifoldPool.cs::PressureManifoldPool",
       "file": "Runtime/Prism/Geometry/PressureManifoldPool.cs",
       "name": "PressureManifoldPool",
       "kind": "class",
-      "line": 358
+      "line": 361
     },
     {
       "id": "Runtime/Prism/Geometry/PressureManifoldPool.cs::SupportContourPageGpu",
       "file": "Runtime/Prism/Geometry/PressureManifoldPool.cs",
       "name": "SupportContourPageGpu",
       "kind": "struct",
-      "line": 184
+      "line": 187
     },
     {
       "id": "Runtime/Prism/Geometry/PressureManifoldPool.cs::SupportContourSegmentGpu",
       "file": "Runtime/Prism/Geometry/PressureManifoldPool.cs",
       "name": "SupportContourSegmentGpu",
       "kind": "struct",
-      "line": 164
+      "line": 167
     },
     {
       "id": "Runtime/Prism/Geometry/PressureManifoldPool.cs::SurfaceHalfEdgeFlags",
       "file": "Runtime/Prism/Geometry/PressureManifoldPool.cs",
       "name": "SurfaceHalfEdgeFlags",
       "kind": "enum",
-      "line": 72
+      "line": 75
     },
     {
       "id": "Runtime/Prism/Geometry/PressureManifoldPool.cs::SurfaceHalfEdgeGpu",
       "file": "Runtime/Prism/Geometry/PressureManifoldPool.cs",
       "name": "SurfaceHalfEdgeGpu",
       "kind": "struct",
-      "line": 203
+      "line": 206
     },
     {
       "id": "Runtime/Prism/Geometry/PressureManifoldPool.cs::SurfaceHalfEdgeRelation",
       "file": "Runtime/Prism/Geometry/PressureManifoldPool.cs",
       "name": "SurfaceHalfEdgeRelation",
       "kind": "enum",
-      "line": 49
+      "line": 52
     },
     {
       "id": "Runtime/Prism/Geometry/PrismBoundaryGraph.cs::AllocateFrameBuffers@292",
@@ -6164,46 +6164,46 @@
       "line": 137
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::Bind@380",
+      "id": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::Bind@402",
       "file": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs",
       "name": "Bind",
       "kind": "method",
-      "line": 380
+      "line": 402
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::DispatchMaterialization@367",
+      "id": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::DispatchMaterialization@387",
       "file": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs",
       "name": "DispatchMaterialization",
       "kind": "method",
-      "line": 367
+      "line": 387
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::EnsurePlanBuffers@652",
+      "id": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::EnsurePlanBuffers@701",
       "file": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs",
       "name": "EnsurePlanBuffers",
       "kind": "method",
-      "line": 652
+      "line": 701
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::LateUpdate@243",
+      "id": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::LateUpdate@263",
       "file": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs",
       "name": "LateUpdate",
       "kind": "method",
-      "line": 243
+      "line": 263
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::OnDestroy@228",
+      "id": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::OnDestroy@248",
       "file": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs",
       "name": "OnDestroy",
       "kind": "method",
-      "line": 228
+      "line": 248
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::OnFilmsMutated@252",
+      "id": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::OnFilmsMutated@272",
       "file": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs",
       "name": "OnFilmsMutated",
       "kind": "method",
-      "line": 252
+      "line": 272
     },
     {
       "id": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::PrismMeshletBuilder",
@@ -6213,46 +6213,46 @@
       "line": 15
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::RequestBuild@269",
+      "id": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::RequestBuild@289",
       "file": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs",
       "name": "RequestBuild",
       "kind": "method",
-      "line": 269
+      "line": 289
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::StartBuilding@151",
+      "id": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::StartBuilding@169",
       "file": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs",
       "name": "StartBuilding",
       "kind": "method",
-      "line": 151
+      "line": 169
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::StopBuilding@220",
+      "id": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::StopBuilding@240",
       "file": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs",
       "name": "StopBuilding",
       "kind": "method",
-      "line": 220
+      "line": 240
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::TryBuild@270",
+      "id": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::TryBuild@290",
       "file": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs",
       "name": "TryBuild",
       "kind": "method",
-      "line": 270
+      "line": 290
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::TryIncrementalPublication@323",
+      "id": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::TryIncrementalPublication@343",
       "file": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs",
       "name": "TryIncrementalPublication",
       "kind": "method",
-      "line": 323
+      "line": 343
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::TryInitialPublication@288",
+      "id": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::TryInitialPublication@308",
       "file": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs",
       "name": "TryInitialPublication",
       "kind": "method",
-      "line": 288
+      "line": 308
     },
     {
       "id": "Runtime/Prism/Geometry/PrismPredictionRenderer.cs::BindMeshlets@272",
@@ -6353,81 +6353,81 @@
       "line": 159
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::BindBoundaryCurveResources@669",
+      "id": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::BindBoundaryCurveResources@686",
       "file": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs",
       "name": "BindBoundaryCurveResources",
       "kind": "method",
-      "line": 669
+      "line": 686
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::BindContourResources@517",
+      "id": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::BindContourResources@533",
       "file": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs",
       "name": "BindContourResources",
       "kind": "method",
-      "line": 517
+      "line": 533
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::BindElasticResources@754",
+      "id": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::BindElasticResources@771",
       "file": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs",
       "name": "BindElasticResources",
       "kind": "method",
-      "line": 754
+      "line": 771
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::BindHalfEdgeResources@578",
+      "id": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::BindHalfEdgeResources@594",
       "file": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs",
       "name": "BindHalfEdgeResources",
       "kind": "method",
-      "line": 578
+      "line": 594
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::BindPortalResources@832",
+      "id": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::BindPortalResources@849",
       "file": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs",
       "name": "BindPortalResources",
       "kind": "method",
-      "line": 832
+      "line": 849
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::CeilDiv@904",
+      "id": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::CeilDiv@921",
       "file": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs",
       "name": "CeilDiv",
       "kind": "method",
-      "line": 904
+      "line": 921
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::CeilLog2@907",
+      "id": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::CeilLog2@924",
       "file": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs",
       "name": "CeilLog2",
       "kind": "method",
-      "line": 907
+      "line": 924
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::DispatchAtlas@315",
+      "id": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::DispatchAtlas@318",
       "file": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs",
       "name": "DispatchAtlas",
       "kind": "method",
-      "line": 315
+      "line": 318
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::FindKernels@439",
+      "id": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::FindKernels@449",
       "file": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs",
       "name": "FindKernels",
       "kind": "method",
-      "line": 439
+      "line": 449
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::OnDestroy@292",
+      "id": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::OnDestroy@295",
       "file": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs",
       "name": "OnDestroy",
       "kind": "method",
-      "line": 292
+      "line": 295
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::PrepareRestoredResidency@305",
+      "id": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::PrepareRestoredResidency@308",
       "file": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs",
       "name": "PrepareRestoredResidency",
       "kind": "method",
-      "line": 305
+      "line": 308
     },
     {
       "id": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::PrismPressureManifoldAtlas",
@@ -6437,109 +6437,109 @@
       "line": 14
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::ResetEmptyResidency@294",
+      "id": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::ResetEmptyResidency@297",
       "file": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs",
       "name": "ResetEmptyResidency",
       "kind": "method",
-      "line": 294
+      "line": 297
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::SetChunkFrame@287",
+      "id": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::SetChunkFrame@290",
       "file": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs",
       "name": "SetChunkFrame",
       "kind": "method",
-      "line": 287
+      "line": 290
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::StartAtlas@227",
+      "id": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::StartAtlas@230",
       "file": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs",
       "name": "StartAtlas",
       "kind": "method",
-      "line": 227
+      "line": 230
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::StopAtlas@280",
+      "id": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::StopAtlas@283",
       "file": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs",
       "name": "StopAtlas",
       "kind": "method",
-      "line": 280
+      "line": 283
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::CollectRetired@281",
+      "id": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::CollectRetired@299",
       "file": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs",
       "name": "CollectRetired",
       "kind": "method",
-      "line": 281
+      "line": 299
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::CreateMaterial@321",
+      "id": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::CreateMaterial@339",
       "file": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs",
       "name": "CreateMaterial",
       "kind": "method",
-      "line": 321
+      "line": 339
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::DestroyResource@348",
+      "id": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::DestroyResource@368",
       "file": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs",
       "name": "DestroyResource",
       "kind": "method",
-      "line": 348
+      "line": 368
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::DispatchViewCull@189",
+      "id": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::DispatchViewCull@207",
       "file": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs",
       "name": "DispatchViewCull",
       "kind": "method",
-      "line": 189
+      "line": 207
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::DisposeView@300",
+      "id": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::DisposeView@318",
       "file": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs",
       "name": "DisposeView",
       "kind": "method",
-      "line": 300
+      "line": 318
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::Draw@153",
+      "id": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::Draw@170",
       "file": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs",
       "name": "Draw",
       "kind": "method",
-      "line": 153
+      "line": 170
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::EnsureDisabledHiZ@307",
+      "id": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::EnsureDisabledHiZ@325",
       "file": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs",
       "name": "EnsureDisabledHiZ",
       "kind": "method",
-      "line": 307
+      "line": 325
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::EnsureView@251",
+      "id": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::EnsureView@269",
       "file": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs",
       "name": "EnsureView",
       "kind": "method",
-      "line": 251
+      "line": 269
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::LateUpdate@138",
+      "id": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::LateUpdate@154",
       "file": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs",
       "name": "LateUpdate",
       "kind": "method",
-      "line": 138
+      "line": 154
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::OnDestroy@328",
+      "id": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::OnDestroy@346",
       "file": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs",
       "name": "OnDestroy",
       "kind": "method",
-      "line": 328
+      "line": 346
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::OnEnable@84",
+      "id": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::OnEnable@87",
       "file": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs",
       "name": "OnEnable",
       "kind": "method",
-      "line": 84
+      "line": 87
     },
     {
       "id": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::PrismWorldMeshletRenderer",
@@ -6549,46 +6549,46 @@
       "line": 17
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::RegisterResident@115",
+      "id": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::RegisterResident@131",
       "file": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs",
       "name": "RegisterResident",
       "kind": "method",
-      "line": 115
+      "line": 131
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::RemoveResident@125",
+      "id": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::RemoveResident@141",
       "file": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs",
       "name": "RemoveResident",
+      "kind": "method",
+      "line": 141
+    },
+    {
+      "id": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::Render@283",
+      "file": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs",
+      "name": "Render",
+      "kind": "method",
+      "line": 283
+    },
+    {
+      "id": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::Retire@312",
+      "file": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs",
+      "name": "Retire",
+      "kind": "method",
+      "line": 312
+    },
+    {
+      "id": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::SetActive@125",
+      "file": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs",
+      "name": "SetActive",
       "kind": "method",
       "line": 125
     },
     {
-      "id": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::Render@265",
-      "file": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs",
-      "name": "Render",
-      "kind": "method",
-      "line": 265
-    },
-    {
-      "id": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::Retire@294",
-      "file": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs",
-      "name": "Retire",
-      "kind": "method",
-      "line": 294
-    },
-    {
-      "id": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::SetActive@109",
-      "file": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs",
-      "name": "SetActive",
-      "kind": "method",
-      "line": 109
-    },
-    {
-      "id": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::SetResidentTransform@131",
+      "id": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::SetResidentTransform@147",
       "file": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs",
       "name": "SetResidentTransform",
       "kind": "method",
-      "line": 131
+      "line": 147
     },
     {
       "id": "Runtime/Prism/Preprocessing/NormalizedDepthFrame.cs::CommitGpuWrite@160",
@@ -8054,67 +8054,67 @@
       "line": 4
     },
     {
-      "id": "Runtime/Resources/Prism/ContactChartSplit.compute::CreateChild@135",
+      "id": "Runtime/Resources/Prism/ContactChartSplit.compute::CreateChild@133",
       "file": "Runtime/Resources/Prism/ContactChartSplit.compute",
       "name": "CreateChild",
       "kind": "gpu_function",
-      "line": 135
+      "line": 133
     },
     {
-      "id": "Runtime/Resources/Prism/ContactChartSplit.compute::CreateEvidenceAlignedChildren@187",
+      "id": "Runtime/Resources/Prism/ContactChartSplit.compute::CreateEvidenceAlignedChildren@185",
       "file": "Runtime/Resources/Prism/ContactChartSplit.compute",
       "name": "CreateEvidenceAlignedChildren",
       "kind": "gpu_function",
-      "line": 187
+      "line": 185
     },
     {
-      "id": "Runtime/Resources/Prism/ContactChartSplit.compute::LoadG@47",
+      "id": "Runtime/Resources/Prism/ContactChartSplit.compute::LoadG@45",
       "file": "Runtime/Resources/Prism/ContactChartSplit.compute",
       "name": "LoadG",
       "kind": "gpu_function",
-      "line": 47
+      "line": 45
     },
     {
-      "id": "Runtime/Resources/Prism/ContactChartSplit.compute::LoadH@38",
+      "id": "Runtime/Resources/Prism/ContactChartSplit.compute::LoadH@36",
       "file": "Runtime/Resources/Prism/ContactChartSplit.compute",
       "name": "LoadH",
       "kind": "gpu_function",
-      "line": 38
+      "line": 36
     },
     {
-      "id": "Runtime/Resources/Prism/ContactChartSplit.compute::PartitionInformation@97",
+      "id": "Runtime/Resources/Prism/ContactChartSplit.compute::PartitionInformation@95",
       "file": "Runtime/Resources/Prism/ContactChartSplit.compute",
       "name": "PartitionInformation",
       "kind": "gpu_function",
-      "line": 97
+      "line": 95
     },
     {
-      "id": "Runtime/Resources/Prism/ContactChartSplit.compute::PartitionSupportMask@79",
+      "id": "Runtime/Resources/Prism/ContactChartSplit.compute::PartitionSupportMask@77",
       "file": "Runtime/Resources/Prism/ContactChartSplit.compute",
       "name": "PartitionSupportMask",
       "kind": "gpu_function",
-      "line": 79
+      "line": 77
     },
     {
-      "id": "Runtime/Resources/Prism/ContactChartSplit.compute::StoreG@67",
+      "id": "Runtime/Resources/Prism/ContactChartSplit.compute::StoreG@65",
       "file": "Runtime/Resources/Prism/ContactChartSplit.compute",
       "name": "StoreG",
       "kind": "gpu_function",
-      "line": 67
+      "line": 65
     },
     {
-      "id": "Runtime/Resources/Prism/ContactChartSplit.compute::StoreH@56",
+      "id": "Runtime/Resources/Prism/ContactChartSplit.compute::StoreH@54",
       "file": "Runtime/Resources/Prism/ContactChartSplit.compute",
       "name": "StoreH",
       "kind": "gpu_function",
-      "line": 56
+      "line": 54
     },
     {
-      "id": "Runtime/Resources/Prism/ContactChartSplit.compute::UpperIndex@33",
+      "id": "Runtime/Resources/Prism/ContactChartSplit.compute::UpperIndex@31",
       "file": "Runtime/Resources/Prism/ContactChartSplit.compute",
       "name": "UpperIndex",
       "kind": "gpu_function",
-      "line": 33
+      "line": 31
     },
     {
       "id": "Runtime/Resources/Prism/ContactChartSplit.compute::kernel:CreateEvidenceAlignedChildren",
@@ -8481,32 +8481,32 @@
       "line": 36
     },
     {
-      "id": "Runtime/Resources/Prism/ContactFilmPreview.shader::Frag@64",
+      "id": "Runtime/Resources/Prism/ContactFilmPreview.shader::Frag@65",
       "file": "Runtime/Resources/Prism/ContactFilmPreview.shader",
       "name": "Frag",
       "kind": "gpu_function",
-      "line": 64
+      "line": 65
     },
     {
       "id": "Runtime/Resources/Prism/ContactFilmPreview.shader::Varyings",
       "file": "Runtime/Resources/Prism/ContactFilmPreview.shader",
       "name": "Varyings",
       "kind": "struct",
-      "line": 36
+      "line": 37
     },
     {
-      "id": "Runtime/Resources/Prism/ContactFilmPreview.shader::Vert@46",
+      "id": "Runtime/Resources/Prism/ContactFilmPreview.shader::Vert@47",
       "file": "Runtime/Resources/Prism/ContactFilmPreview.shader",
       "name": "Vert",
       "kind": "gpu_function",
-      "line": 46
+      "line": 47
     },
     {
-      "id": "Runtime/Resources/Prism/ContactFilmSpawn.compute::BuildSpawnTileDispatchArguments@280",
+      "id": "Runtime/Resources/Prism/ContactFilmSpawn.compute::BuildSpawnTileDispatchArguments@278",
       "file": "Runtime/Resources/Prism/ContactFilmSpawn.compute",
       "name": "BuildSpawnTileDispatchArguments",
       "kind": "gpu_function",
-      "line": 280
+      "line": 278
     },
     {
       "id": "Runtime/Resources/Prism/ContactFilmSpawn.compute::CandidatePublication",
@@ -8516,39 +8516,39 @@
       "line": 71
     },
     {
-      "id": "Runtime/Resources/Prism/ContactFilmSpawn.compute::ClearCandidatePixelOwners@304",
+      "id": "Runtime/Resources/Prism/ContactFilmSpawn.compute::ClearCandidatePixelOwners@302",
       "file": "Runtime/Resources/Prism/ContactFilmSpawn.compute",
       "name": "ClearCandidatePixelOwners",
       "kind": "gpu_function",
-      "line": 304
+      "line": 302
     },
     {
-      "id": "Runtime/Resources/Prism/ContactFilmSpawn.compute::ClearSpawnCandidates@287",
+      "id": "Runtime/Resources/Prism/ContactFilmSpawn.compute::ClearSpawnCandidates@285",
       "file": "Runtime/Resources/Prism/ContactFilmSpawn.compute",
       "name": "ClearSpawnCandidates",
       "kind": "gpu_function",
-      "line": 287
+      "line": 285
     },
     {
-      "id": "Runtime/Resources/Prism/ContactFilmSpawn.compute::ClearSpawnTileState@232",
+      "id": "Runtime/Resources/Prism/ContactFilmSpawn.compute::ClearSpawnTileState@230",
       "file": "Runtime/Resources/Prism/ContactFilmSpawn.compute",
       "name": "ClearSpawnTileState",
       "kind": "gpu_function",
-      "line": 232
+      "line": 230
     },
     {
-      "id": "Runtime/Resources/Prism/ContactFilmSpawn.compute::CompactSpawnTiles@245",
+      "id": "Runtime/Resources/Prism/ContactFilmSpawn.compute::CompactSpawnTiles@243",
       "file": "Runtime/Resources/Prism/ContactFilmSpawn.compute",
       "name": "CompactSpawnTiles",
       "kind": "gpu_function",
-      "line": 245
+      "line": 243
     },
     {
-      "id": "Runtime/Resources/Prism/ContactFilmSpawn.compute::Compatible@204",
+      "id": "Runtime/Resources/Prism/ContactFilmSpawn.compute::Compatible@202",
       "file": "Runtime/Resources/Prism/ContactFilmSpawn.compute",
       "name": "Compatible",
       "kind": "gpu_function",
-      "line": 204
+      "line": 202
     },
     {
       "id": "Runtime/Resources/Prism/ContactFilmSpawn.compute::ConeEvent",
@@ -8565,18 +8565,18 @@
       "line": 41
     },
     {
-      "id": "Runtime/Resources/Prism/ContactFilmSpawn.compute::EmitSpawnCandidates@311",
+      "id": "Runtime/Resources/Prism/ContactFilmSpawn.compute::EmitSpawnCandidates@309",
       "file": "Runtime/Resources/Prism/ContactFilmSpawn.compute",
       "name": "EmitSpawnCandidates",
       "kind": "gpu_function",
-      "line": 311
+      "line": 309
     },
     {
-      "id": "Runtime/Resources/Prism/ContactFilmSpawn.compute::EnsurePressureManifold@809",
+      "id": "Runtime/Resources/Prism/ContactFilmSpawn.compute::EnsurePressureManifold@807",
       "file": "Runtime/Resources/Prism/ContactFilmSpawn.compute",
       "name": "EnsurePressureManifold",
       "kind": "gpu_function",
-      "line": 809
+      "line": 807
     },
     {
       "id": "Runtime/Resources/Prism/ContactFilmSpawn.compute::FilmSlotState",
@@ -8586,67 +8586,67 @@
       "line": 79
     },
     {
-      "id": "Runtime/Resources/Prism/ContactFilmSpawn.compute::FinalizePressureManifoldCounts@1014",
+      "id": "Runtime/Resources/Prism/ContactFilmSpawn.compute::FinalizePressureManifoldCounts@1012",
       "file": "Runtime/Resources/Prism/ContactFilmSpawn.compute",
       "name": "FinalizePressureManifoldCounts",
       "kind": "gpu_function",
-      "line": 1014
+      "line": 1012
     },
     {
-      "id": "Runtime/Resources/Prism/ContactFilmSpawn.compute::IsSpawnCandidate@184",
+      "id": "Runtime/Resources/Prism/ContactFilmSpawn.compute::IsSpawnCandidate@182",
       "file": "Runtime/Resources/Prism/ContactFilmSpawn.compute",
       "name": "IsSpawnCandidate",
       "kind": "gpu_function",
-      "line": 184
+      "line": 182
     },
     {
-      "id": "Runtime/Resources/Prism/ContactFilmSpawn.compute::LoadRay@167",
+      "id": "Runtime/Resources/Prism/ContactFilmSpawn.compute::LoadRay@165",
       "file": "Runtime/Resources/Prism/ContactFilmSpawn.compute",
       "name": "LoadRay",
       "kind": "gpu_function",
-      "line": 167
+      "line": 165
     },
     {
-      "id": "Runtime/Resources/Prism/ContactFilmSpawn.compute::MapCandidatePixels@739",
+      "id": "Runtime/Resources/Prism/ContactFilmSpawn.compute::MapCandidatePixels@737",
       "file": "Runtime/Resources/Prism/ContactFilmSpawn.compute",
       "name": "MapCandidatePixels",
       "kind": "gpu_function",
-      "line": 739
+      "line": 737
     },
     {
-      "id": "Runtime/Resources/Prism/ContactFilmSpawn.compute::ReserveCandidatePublication@861",
+      "id": "Runtime/Resources/Prism/ContactFilmSpawn.compute::ReserveCandidatePublication@859",
       "file": "Runtime/Resources/Prism/ContactFilmSpawn.compute",
       "name": "ReserveCandidatePublication",
       "kind": "gpu_function",
-      "line": 861
+      "line": 859
     },
     {
-      "id": "Runtime/Resources/Prism/ContactFilmSpawn.compute::SafeNormalize@173",
+      "id": "Runtime/Resources/Prism/ContactFilmSpawn.compute::SafeNormalize@171",
       "file": "Runtime/Resources/Prism/ContactFilmSpawn.compute",
       "name": "SafeNormalize",
       "kind": "gpu_function",
-      "line": 173
+      "line": 171
     },
     {
-      "id": "Runtime/Resources/Prism/ContactFilmSpawn.compute::SolveSymmetric3x3@215",
+      "id": "Runtime/Resources/Prism/ContactFilmSpawn.compute::SolveSymmetric3x3@213",
       "file": "Runtime/Resources/Prism/ContactFilmSpawn.compute",
       "name": "SolveSymmetric3x3",
       "kind": "gpu_function",
-      "line": 215
+      "line": 213
     },
     {
-      "id": "Runtime/Resources/Prism/ContactFilmSpawn.compute::WriteCanonicalFilms@968",
+      "id": "Runtime/Resources/Prism/ContactFilmSpawn.compute::WriteCanonicalFilms@966",
       "file": "Runtime/Resources/Prism/ContactFilmSpawn.compute",
       "name": "WriteCanonicalFilms",
       "kind": "gpu_function",
-      "line": 968
+      "line": 966
     },
     {
-      "id": "Runtime/Resources/Prism/ContactFilmSpawn.compute::WriteCanonicalMembership@989",
+      "id": "Runtime/Resources/Prism/ContactFilmSpawn.compute::WriteCanonicalMembership@987",
       "file": "Runtime/Resources/Prism/ContactFilmSpawn.compute",
       "name": "WriteCanonicalMembership",
       "kind": "gpu_function",
-      "line": 989
+      "line": 987
     },
     {
       "id": "Runtime/Resources/Prism/ContactFilmSpawn.compute::kernel:BuildSpawnTileDispatchArguments",
@@ -10448,158 +10448,207 @@
       "line": 5
     },
     {
-      "id": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::ActiveSegment@72",
+      "id": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::AccumulateFilmTopologyValidity@626",
+      "file": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute",
+      "name": "AccumulateFilmTopologyValidity",
+      "kind": "gpu_function",
+      "line": 626
+    },
+    {
+      "id": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::ActiveSegment@75",
       "file": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute",
       "name": "ActiveSegment",
       "kind": "gpu_function",
-      "line": 72
+      "line": 75
     },
     {
-      "id": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::AssignFrontierLoops@484",
+      "id": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::AssignFrontierLoops@565",
       "file": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute",
       "name": "AssignFrontierLoops",
       "kind": "gpu_function",
-      "line": 484
+      "line": 565
     },
     {
-      "id": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::BuildFrontierEndpointHash@349",
+      "id": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::BuildFrontierEndpointHash@361",
       "file": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute",
       "name": "BuildFrontierEndpointHash",
       "kind": "gpu_function",
-      "line": 349
+      "line": 361
     },
     {
-      "id": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::BuildHalfEdgeArguments@117",
+      "id": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::BuildHalfEdgeArguments@120",
       "file": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute",
       "name": "BuildHalfEdgeArguments",
       "kind": "gpu_function",
-      "line": 117
+      "line": 120
     },
     {
-      "id": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::BuildHalfEdgeSpatialHash@188",
+      "id": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::BuildHalfEdgeSpatialHash@200",
       "file": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute",
       "name": "BuildHalfEdgeSpatialHash",
       "kind": "gpu_function",
-      "line": 188
+      "line": 200
     },
     {
-      "id": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::ClearHalfEdgeDerivedState@154",
+      "id": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::ClearHalfEdgeDerivedState@159",
       "file": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute",
       "name": "ClearHalfEdgeDerivedState",
       "kind": "gpu_function",
-      "line": 154
+      "line": 159
     },
     {
-      "id": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::ClearHalfEdgeHashState@136",
+      "id": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::ClearHalfEdgeHashState@141",
       "file": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute",
       "name": "ClearHalfEdgeHashState",
       "kind": "gpu_function",
-      "line": 136
+      "line": 141
     },
     {
-      "id": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::ContactViewState@103",
+      "id": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::ContactViewState@106",
       "file": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute",
       "name": "ContactViewState",
       "kind": "gpu_function",
-      "line": 103
+      "line": 106
     },
     {
-      "id": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::CreateFrontierLoops@462",
+      "id": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::CreateFrontierLoops@543",
       "file": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute",
       "name": "CreateFrontierLoops",
       "kind": "gpu_function",
-      "line": 462
+      "line": 543
     },
     {
-      "id": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::FilmPoint@67",
+      "id": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::FilmPoint@70",
       "file": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute",
       "name": "FilmPoint",
       "kind": "gpu_function",
-      "line": 67
+      "line": 70
     },
     {
-      "id": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::FinalizeFrontierLoops@521",
+      "id": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::FinalizeFilmTopologyValidity@677",
+      "file": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute",
+      "name": "FinalizeFilmTopologyValidity",
+      "kind": "gpu_function",
+      "line": 677
+    },
+    {
+      "id": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::FinalizeFrontierLoops@602",
       "file": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute",
       "name": "FinalizeFrontierLoops",
+      "kind": "gpu_function",
+      "line": 602
+    },
+    {
+      "id": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::FindLoopRoot@112",
+      "file": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute",
+      "name": "FindLoopRoot",
+      "kind": "gpu_function",
+      "line": 112
+    },
+    {
+      "id": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::FindOuterNeighbour@445",
+      "file": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute",
+      "name": "FindOuterNeighbour",
+      "kind": "gpu_function",
+      "line": 445
+    },
+    {
+      "id": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::HashCell@92",
+      "file": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute",
+      "name": "HashCell",
+      "kind": "gpu_function",
+      "line": 92
+    },
+    {
+      "id": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::HookFrontierComponents@521",
+      "file": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute",
+      "name": "HookFrontierComponents",
       "kind": "gpu_function",
       "line": 521
     },
     {
-      "id": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::FindLoopRoot@109",
-      "file": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute",
-      "name": "FindLoopRoot",
-      "kind": "gpu_function",
-      "line": 109
-    },
-    {
-      "id": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::HashCell@89",
-      "file": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute",
-      "name": "HashCell",
-      "kind": "gpu_function",
-      "line": 89
-    },
-    {
-      "id": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::HookFrontierComponents@440",
-      "file": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute",
-      "name": "HookFrontierComponents",
-      "kind": "gpu_function",
-      "line": 440
-    },
-    {
-      "id": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::InitializeFrontierComponents@430",
+      "id": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::InitializeFrontierComponents@511",
       "file": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute",
       "name": "InitializeFrontierComponents",
       "kind": "gpu_function",
-      "line": 430
+      "line": 511
     },
     {
-      "id": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::MaterializeMeasuredHalfEdges@169",
+      "id": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::LinkOrderedEdges@462",
+      "file": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute",
+      "name": "LinkOrderedEdges",
+      "kind": "gpu_function",
+      "line": 462
+    },
+    {
+      "id": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::MaterializeMeasuredHalfEdges@181",
       "file": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute",
       "name": "MaterializeMeasuredHalfEdges",
       "kind": "gpu_function",
-      "line": 169
+      "line": 181
     },
     {
-      "id": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::OrderOuterHalfEdges@367",
+      "id": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::OrderOuterHalfEdges@382",
       "file": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute",
       "name": "OrderOuterHalfEdges",
       "kind": "gpu_function",
-      "line": 367
+      "line": 382
     },
     {
-      "id": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::ProveHalfEdgeTwins@205",
+      "id": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::ProveHalfEdgeTwins@217",
       "file": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute",
       "name": "ProveHalfEdgeTwins",
       "kind": "gpu_function",
-      "line": 205
+      "line": 217
     },
     {
-      "id": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::SegmentDomain@62",
+      "id": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::SegmentDomain@65",
       "file": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute",
       "name": "SegmentDomain",
       "kind": "gpu_function",
-      "line": 62
+      "line": 65
     },
     {
-      "id": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::ShortcutFrontierComponents@454",
+      "id": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::ShortcutFrontierComponents@535",
       "file": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute",
       "name": "ShortcutFrontierComponents",
       "kind": "gpu_function",
-      "line": 454
+      "line": 535
     },
     {
-      "id": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::WorldCell@98",
+      "id": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::SpliceConfirmedTwins@481",
+      "file": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute",
+      "name": "SpliceConfirmedTwins",
+      "kind": "gpu_function",
+      "line": 481
+    },
+    {
+      "id": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::WorldCell@101",
       "file": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute",
       "name": "WorldCell",
       "kind": "gpu_function",
-      "line": 98
+      "line": 101
+    },
+    {
+      "id": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::if@654",
+      "file": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute",
+      "name": "if",
+      "kind": "gpu_function",
+      "line": 654
+    },
+    {
+      "id": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::kernel:AccumulateFilmTopologyValidity",
+      "file": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute",
+      "name": "AccumulateFilmTopologyValidity",
+      "kind": "gpu_kernel",
+      "line": 16
     },
     {
       "id": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::kernel:AssignFrontierLoops",
       "file": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute",
       "name": "AssignFrontierLoops",
       "kind": "gpu_kernel",
-      "line": 13
+      "line": 14
     },
     {
       "id": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::kernel:BuildFrontierEndpointHash",
@@ -10641,28 +10690,35 @@
       "file": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute",
       "name": "CreateFrontierLoops",
       "kind": "gpu_kernel",
-      "line": 12
+      "line": 13
+    },
+    {
+      "id": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::kernel:FinalizeFilmTopologyValidity",
+      "file": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute",
+      "name": "FinalizeFilmTopologyValidity",
+      "kind": "gpu_kernel",
+      "line": 17
     },
     {
       "id": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::kernel:FinalizeFrontierLoops",
       "file": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute",
       "name": "FinalizeFrontierLoops",
       "kind": "gpu_kernel",
-      "line": 14
+      "line": 15
     },
     {
       "id": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::kernel:HookFrontierComponents",
       "file": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute",
       "name": "HookFrontierComponents",
       "kind": "gpu_kernel",
-      "line": 10
+      "line": 11
     },
     {
       "id": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::kernel:InitializeFrontierComponents",
       "file": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute",
       "name": "InitializeFrontierComponents",
       "kind": "gpu_kernel",
-      "line": 9
+      "line": 10
     },
     {
       "id": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::kernel:MaterializeMeasuredHalfEdges",
@@ -10690,511 +10746,553 @@
       "file": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute",
       "name": "ShortcutFrontierComponents",
       "kind": "gpu_kernel",
-      "line": 11
+      "line": 12
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::AddMeshletBuildGroupOffsets@1249",
+      "id": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::kernel:SpliceConfirmedTwins",
+      "file": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute",
+      "name": "SpliceConfirmedTwins",
+      "kind": "gpu_kernel",
+      "line": 9
+    },
+    {
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::AddMeshletBuildGroupOffsets@1387",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "AddMeshletBuildGroupOffsets",
       "kind": "gpu_function",
-      "line": 1249
+      "line": 1387
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::BootstrapCoverage@500",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::BootstrapCoverage@588",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "BootstrapCoverage",
       "kind": "gpu_function",
-      "line": 500
+      "line": 588
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::BootstrapCoverageCell@490",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::BootstrapCoverageCell@578",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "BootstrapCoverageCell",
       "kind": "gpu_function",
-      "line": 490
+      "line": 578
     },
     {
       "id": "Runtime/Resources/Prism/MeshletBuild.compute::BoundaryCurveCache",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "BoundaryCurveCache",
       "kind": "struct",
-      "line": 105
+      "line": 107
     },
     {
       "id": "Runtime/Resources/Prism/MeshletBuild.compute::BoundaryHashEntry",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "BoundaryHashEntry",
       "kind": "struct",
-      "line": 93
+      "line": 95
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::BoundaryHashKey@564",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::BoundaryHashKey@652",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "BoundaryHashKey",
       "kind": "gpu_function",
-      "line": 564
+      "line": 652
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::BoundarySignedDistance@670",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::BoundarySignedDistance@758",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "BoundarySignedDistance",
       "kind": "gpu_function",
-      "line": 670
+      "line": 758
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::BuildFilmCount@267",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::BuildFilmCount@280",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "BuildFilmCount",
       "kind": "gpu_function",
-      "line": 267
+      "line": 280
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::BuildFilmIndex@273",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::BuildFilmIndex@286",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "BuildFilmIndex",
       "kind": "gpu_function",
-      "line": 273
+      "line": 286
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::BuildFilmMeshletBoundaryTriangles@1673",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::BuildFilmMeshletBoundaryTriangles@2019",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "BuildFilmMeshletBoundaryTriangles",
       "kind": "gpu_function",
-      "line": 1673
+      "line": 2019
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::BuildFilmMeshletRegularTriangles@1651",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::BuildFilmMeshletRegularTriangles@1835",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "BuildFilmMeshletRegularTriangles",
       "kind": "gpu_function",
-      "line": 1651
+      "line": 1835
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::BuildFilmMeshletVertices@1424",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::BuildFilmMeshletSeams@1877",
+      "file": "Runtime/Resources/Prism/MeshletBuild.compute",
+      "name": "BuildFilmMeshletSeams",
+      "kind": "gpu_function",
+      "line": 1877
+    },
+    {
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::BuildFilmMeshletVertices@1564",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "BuildFilmMeshletVertices",
       "kind": "gpu_function",
-      "line": 1424
+      "line": 1564
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::BuildMeshDispatchArguments@951",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::BuildMeshDispatchArguments@1041",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "BuildMeshDispatchArguments",
       "kind": "gpu_function",
-      "line": 951
+      "line": 1041
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::BuildSurfaceVertex@1369",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::BuildSeamVertex@1862",
+      "file": "Runtime/Resources/Prism/MeshletBuild.compute",
+      "name": "BuildSeamVertex",
+      "kind": "gpu_function",
+      "line": 1862
+    },
+    {
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::BuildSurfaceVertex@1505",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "BuildSurfaceVertex",
       "kind": "gpu_function",
-      "line": 1369
+      "line": 1505
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::CachedBoundarySegment@575",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::CachedBoundarySegment@663",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "CachedBoundarySegment",
       "kind": "gpu_function",
-      "line": 575
+      "line": 663
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::CachedBoundarySide@584",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::CachedBoundarySide@672",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "CachedBoundarySide",
       "kind": "gpu_function",
-      "line": 584
+      "line": 672
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::CellTouchesPersistentBoundary@656",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::CellTouchesPersistentBoundary@744",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "CellTouchesPersistentBoundary",
       "kind": "gpu_function",
-      "line": 656
+      "line": 744
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::ChooseSubdivision@879",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::ChooseSubdivision@968",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "ChooseSubdivision",
       "kind": "gpu_function",
-      "line": 879
+      "line": 968
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::ClassifyMaterialTriangle@774",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::ClassifyMaterialTriangle@863",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "ClassifyMaterialTriangle",
       "kind": "gpu_function",
-      "line": 774
+      "line": 863
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::ClearMeshletBuild@932",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::ClearMeshletBuild@1022",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "ClearMeshletBuild",
       "kind": "gpu_function",
-      "line": 932
+      "line": 1022
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::ClosestBoundaryPoint@603",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::ClipTriangle@1665",
+      "file": "Runtime/Resources/Prism/MeshletBuild.compute",
+      "name": "ClipTriangle",
+      "kind": "gpu_function",
+      "line": 1665
+    },
+    {
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::ClosestBoundaryPoint@691",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "ClosestBoundaryPoint",
       "kind": "gpu_function",
-      "line": 603
+      "line": 691
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::ClosestPointOnUvSegment@593",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::ClosestPointOnUvSegment@681",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "ClosestPointOnUvSegment",
       "kind": "gpu_function",
-      "line": 593
+      "line": 681
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::CommitDirtyMeshletBuild@1009",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::CommitDirtyMeshletBuild@1099",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "CommitDirtyMeshletBuild",
       "kind": "gpu_function",
-      "line": 1009
+      "line": 1099
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::CommitFullMeshletRepack@1315",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::CommitFullMeshletRepack@1451",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "CommitFullMeshletRepack",
       "kind": "gpu_function",
-      "line": 1315
+      "line": 1451
     },
     {
       "id": "Runtime/Resources/Prism/MeshletBuild.compute::ContactBoundaryHeader",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "ContactBoundaryHeader",
       "kind": "struct",
-      "line": 71
+      "line": 73
     },
     {
       "id": "Runtime/Resources/Prism/MeshletBuild.compute::ContactFilmHeader",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "ContactFilmHeader",
       "kind": "struct",
-      "line": 20
+      "line": 21
     },
     {
       "id": "Runtime/Resources/Prism/MeshletBuild.compute::ContactMeshletDescriptor",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "ContactMeshletDescriptor",
       "kind": "struct",
-      "line": 52
+      "line": 54
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::CountMeshletBuildPlans@1049",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::CountMeshletBuildPlans@1142",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "CountMeshletBuildPlans",
       "kind": "gpu_function",
-      "line": 1049
+      "line": 1142
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::CutIntersection@1391",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::CutIntersection@1531",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "CutIntersection",
       "kind": "gpu_function",
-      "line": 1391
+      "line": 1531
     },
     {
       "id": "Runtime/Resources/Prism/MeshletBuild.compute::DisplacementCell",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "DisplacementCell",
       "kind": "struct",
-      "line": 130
+      "line": 132
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::DisplacementMetrics@342",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::DisplacementMetrics@430",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "DisplacementMetrics",
       "kind": "gpu_function",
-      "line": 342
+      "line": 430
     },
     {
       "id": "Runtime/Resources/Prism/MeshletBuild.compute::DisplacementPageHeader",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "DisplacementPageHeader",
       "kind": "struct",
-      "line": 113
+      "line": 115
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::ElasticChartState",
-      "file": "Runtime/Resources/Prism/MeshletBuild.compute",
-      "name": "ElasticChartState",
-      "kind": "struct",
-      "line": 178
-    },
-    {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::EmitBoundaryMaterialTriangle@1575",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::EmitBoundaryMaterialTriangle@1758",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "EmitBoundaryMaterialTriangle",
       "kind": "gpu_function",
-      "line": 1575
+      "line": 1758
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::EmitRegularMaterialTriangle@1513",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::EmitRegularMaterialTriangle@1702",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "EmitRegularMaterialTriangle",
       "kind": "gpu_function",
-      "line": 1513
+      "line": 1702
     },
     {
       "id": "Runtime/Resources/Prism/MeshletBuild.compute::FilmMeshletRange",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "FilmMeshletRange",
       "kind": "struct",
-      "line": 164
+      "line": 166
     },
     {
       "id": "Runtime/Resources/Prism/MeshletBuild.compute::FilmSlotState",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "FilmSlotState",
       "kind": "struct",
-      "line": 173
+      "line": 175
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::FinalizeDirtyMeshletFilms@1336",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::FilmTopologyPublishable@292",
+      "file": "Runtime/Resources/Prism/MeshletBuild.compute",
+      "name": "FilmTopologyPublishable",
+      "kind": "gpu_function",
+      "line": 292
+    },
+    {
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::FinalizeDirtyMeshletFilms@1472",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "FinalizeDirtyMeshletFilms",
       "kind": "gpu_function",
-      "line": 1336
+      "line": 1472
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::FinalizeFilmMeshletDescriptors@1700",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::FinalizeFilmMeshletDescriptors@2046",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "FinalizeFilmMeshletDescriptors",
       "kind": "gpu_function",
-      "line": 1700
+      "line": 2046
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::FinalizeMeshletDrawArguments@1786",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::FinalizeMeshletDrawArguments@2151",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "FinalizeMeshletDrawArguments",
       "kind": "gpu_function",
-      "line": 1786
+      "line": 2151
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::Height@804",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::Height@893",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "Height",
       "kind": "gpu_function",
-      "line": 804
+      "line": 893
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::LoadDisplacementCell@279",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::LoadDisplacementCell@367",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "LoadDisplacementCell",
       "kind": "gpu_function",
-      "line": 279
+      "line": 367
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::LoadDisplacementChild@291",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::LoadDisplacementChild@379",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "LoadDisplacementChild",
       "kind": "gpu_function",
-      "line": 291
+      "line": 379
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::LoadMeshletBuildContext@1406",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::LoadMeshletBuildContext@1546",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "LoadMeshletBuildContext",
       "kind": "gpu_function",
-      "line": 1406
+      "line": 1546
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::MaterialClassCounts@744",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::MaterialClassCounts@832",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "MaterialClassCounts",
       "kind": "gpu_function",
-      "line": 744
+      "line": 832
     },
     {
       "id": "Runtime/Resources/Prism/MeshletBuild.compute::MeshletBuildPlan",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "MeshletBuildPlan",
       "kind": "struct",
-      "line": 144
+      "line": 146
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::NonDegenerateCutScalar@753",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::NonDegenerateCutScalar@842",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "NonDegenerateCutScalar",
       "kind": "gpu_function",
-      "line": 753
+      "line": 842
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::PrepareDirtyMeshletBuild@968",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::OwnedConfirmedSeam@305",
+      "file": "Runtime/Resources/Prism/MeshletBuild.compute",
+      "name": "OwnedConfirmedSeam",
+      "kind": "gpu_function",
+      "line": 305
+    },
+    {
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::PrepareDirtyMeshletBuild@1058",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "PrepareDirtyMeshletBuild",
       "kind": "gpu_function",
-      "line": 968
+      "line": 1058
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::PrepareFullMeshletRepack@1030",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::PrepareFullMeshletRepack@1121",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "PrepareFullMeshletRepack",
       "kind": "gpu_function",
-      "line": 1030
+      "line": 1121
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::RecoverPreviousMeshletGeneration@1759",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::RecoverPreviousMeshletGeneration@2124",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "RecoverPreviousMeshletGeneration",
       "kind": "gpu_function",
-      "line": 1759
+      "line": 2124
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::Reserve@859",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::Reserve@948",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "Reserve",
       "kind": "gpu_function",
-      "line": 859
+      "line": 948
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::ReservedIndexCount@925",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::ReservedIndexCount@1015",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "ReservedIndexCount",
       "kind": "gpu_function",
-      "line": 925
+      "line": 1015
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::ReservedSubdivision@911",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::ReservedSubdivision@1000",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "ReservedSubdivision",
       "kind": "gpu_function",
-      "line": 911
+      "line": 1000
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::ReservedVertexCount@917",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::ReservedVertexCount@1006",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "ReservedVertexCount",
       "kind": "gpu_function",
-      "line": 917
+      "line": 1006
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::ResolveDisplacementPage@301",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::ResolveDisplacementPage@389",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "ResolveDisplacementPage",
       "kind": "gpu_function",
-      "line": 301
+      "line": 389
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::SampleDisplacement@394",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::SampleDisplacement@482",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "SampleDisplacement",
       "kind": "gpu_function",
-      "line": 394
+      "line": 482
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::ScanMeshletBuildGroups@1227",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::ScanMeshletBuildGroups@1365",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "ScanMeshletBuildGroups",
       "kind": "gpu_function",
-      "line": 1227
+      "line": 1365
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::ScanMeshletBuildPlans@1191",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::ScanMeshletBuildPlans@1329",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "ScanMeshletBuildPlans",
       "kind": "gpu_function",
-      "line": 1191
+      "line": 1329
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::StableSurfaceSampleId@1358",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::StableSurfaceSampleId@1494",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "StableSurfaceSampleId",
       "kind": "gpu_function",
-      "line": 1358
+      "line": 1494
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::StoreTriangle@1399",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::StorePolygonIndices@1690",
+      "file": "Runtime/Resources/Prism/MeshletBuild.compute",
+      "name": "StorePolygonIndices",
+      "kind": "gpu_function",
+      "line": 1690
+    },
+    {
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::StoreTriangle@1539",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "StoreTriangle",
       "kind": "gpu_function",
-      "line": 1399
+      "line": 1539
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::SurfaceCoverage@516",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::SurfaceCoverage@604",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "SurfaceCoverage",
       "kind": "gpu_function",
-      "line": 516
+      "line": 604
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::SurfaceNormal@819",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::SurfaceNormal@908",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "SurfaceNormal",
       "kind": "gpu_function",
-      "line": 819
+      "line": 908
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::SurfacePosition@850",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::SurfacePosition@939",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "SurfacePosition",
+      "kind": "gpu_function",
+      "line": 939
+    },
+    {
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::TriangleBoundaryCut@850",
+      "file": "Runtime/Resources/Prism/MeshletBuild.compute",
+      "name": "TriangleBoundaryCut",
       "kind": "gpu_function",
       "line": 850
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::TriangleBoundaryCut@761",
-      "file": "Runtime/Resources/Prism/MeshletBuild.compute",
-      "name": "TriangleBoundaryCut",
-      "kind": "gpu_function",
-      "line": 761
-    },
-    {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::TriangleClassAt@1465",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::TriangleClassAt@1616",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "TriangleClassAt",
       "kind": "gpu_function",
-      "line": 1465
+      "line": 1616
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::TriangleCoordinates@1492",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::TriangleCoordinates@1644",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "TriangleCoordinates",
       "kind": "gpu_function",
-      "line": 1492
+      "line": 1644
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::TriangleMask@737",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::TriangleMask@825",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "TriangleMask",
       "kind": "gpu_function",
-      "line": 737
+      "line": 825
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::TrianglePrefixAt@1472",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::TrianglePrefixAt@1623",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "TrianglePrefixAt",
       "kind": "gpu_function",
-      "line": 1472
+      "line": 1623
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::ValidateDirtyMeshletBuild@982",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::ValidateDirtyMeshletBuild@1072",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "ValidateDirtyMeshletBuild",
       "kind": "gpu_function",
-      "line": 982
+      "line": 1072
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::ValidateMeshletBuild@1264",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::ValidateMeshletBuild@1402",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "ValidateMeshletBuild",
       "kind": "gpu_function",
-      "line": 1264
+      "line": 1402
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::if@1598",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::if@1782",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "if",
       "kind": "gpu_function",
-      "line": 1598
+      "line": 1782
     },
     {
-      "id": "Runtime/Resources/Prism/MeshletBuild.compute::if@1631",
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::if@1815",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "if",
       "kind": "gpu_function",
-      "line": 1631
+      "line": 1815
     },
     {
       "id": "Runtime/Resources/Prism/MeshletBuild.compute::kernel:AddMeshletBuildGroupOffsets",
@@ -11216,6 +11314,13 @@
       "name": "BuildFilmMeshletRegularTriangles",
       "kind": "gpu_kernel",
       "line": 9
+    },
+    {
+      "id": "Runtime/Resources/Prism/MeshletBuild.compute::kernel:BuildFilmMeshletSeams",
+      "file": "Runtime/Resources/Prism/MeshletBuild.compute",
+      "name": "BuildFilmMeshletSeams",
+      "kind": "gpu_kernel",
+      "line": 11
     },
     {
       "id": "Runtime/Resources/Prism/MeshletBuild.compute::kernel:BuildFilmMeshletVertices",
@@ -11243,14 +11348,14 @@
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "CommitDirtyMeshletBuild",
       "kind": "gpu_kernel",
-      "line": 17
+      "line": 18
     },
     {
       "id": "Runtime/Resources/Prism/MeshletBuild.compute::kernel:CommitFullMeshletRepack",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "CommitFullMeshletRepack",
       "kind": "gpu_kernel",
-      "line": 19
+      "line": 20
     },
     {
       "id": "Runtime/Resources/Prism/MeshletBuild.compute::kernel:CountMeshletBuildPlans",
@@ -11264,42 +11369,42 @@
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "FinalizeDirtyMeshletFilms",
       "kind": "gpu_kernel",
-      "line": 16
+      "line": 17
     },
     {
       "id": "Runtime/Resources/Prism/MeshletBuild.compute::kernel:FinalizeFilmMeshletDescriptors",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "FinalizeFilmMeshletDescriptors",
       "kind": "gpu_kernel",
-      "line": 11
+      "line": 12
     },
     {
       "id": "Runtime/Resources/Prism/MeshletBuild.compute::kernel:FinalizeMeshletDrawArguments",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "FinalizeMeshletDrawArguments",
       "kind": "gpu_kernel",
-      "line": 13
+      "line": 14
     },
     {
       "id": "Runtime/Resources/Prism/MeshletBuild.compute::kernel:PrepareDirtyMeshletBuild",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "PrepareDirtyMeshletBuild",
       "kind": "gpu_kernel",
-      "line": 14
+      "line": 15
     },
     {
       "id": "Runtime/Resources/Prism/MeshletBuild.compute::kernel:PrepareFullMeshletRepack",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "PrepareFullMeshletRepack",
       "kind": "gpu_kernel",
-      "line": 18
+      "line": 19
     },
     {
       "id": "Runtime/Resources/Prism/MeshletBuild.compute::kernel:RecoverPreviousMeshletGeneration",
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "RecoverPreviousMeshletGeneration",
       "kind": "gpu_kernel",
-      "line": 12
+      "line": 13
     },
     {
       "id": "Runtime/Resources/Prism/MeshletBuild.compute::kernel:ScanMeshletBuildGroups",
@@ -11320,7 +11425,7 @@
       "file": "Runtime/Resources/Prism/MeshletBuild.compute",
       "name": "ValidateDirtyMeshletBuild",
       "kind": "gpu_kernel",
-      "line": 15
+      "line": 16
     },
     {
       "id": "Runtime/Resources/Prism/MeshletBuild.compute::kernel:ValidateMeshletBuild",
@@ -15656,11 +15761,11 @@
       "line": 27
     },
     {
-      "id": "Tests/Editor/PrismMeshletContractTests.cs::Load@105",
+      "id": "Tests/Editor/PrismMeshletContractTests.cs::Load@106",
       "file": "Tests/Editor/PrismMeshletContractTests.cs",
       "name": "Load",
       "kind": "method",
-      "line": 105
+      "line": 106
     },
     {
       "id": "Tests/Editor/PrismMeshletContractTests.cs::MeshletGpuAbiMatchesDeclaredStrides@16",
@@ -15677,18 +15782,18 @@
       "line": 11
     },
     {
-      "id": "Tests/Editor/PrismMeshletContractTests.cs::ProductionMeshletPathContainsNoCpuReadback@89",
+      "id": "Tests/Editor/PrismMeshletContractTests.cs::ProductionMeshletPathContainsNoCpuReadback@90",
       "file": "Tests/Editor/PrismMeshletContractTests.cs",
       "name": "ProductionMeshletPathContainsNoCpuReadback",
       "kind": "method",
-      "line": 89
+      "line": 90
     },
     {
-      "id": "Tests/Editor/PrismMeshletContractTests.cs::PublicationUsesDistinctFrontAndBackBuffers@70",
+      "id": "Tests/Editor/PrismMeshletContractTests.cs::PublicationUsesDistinctFrontAndBackBuffers@71",
       "file": "Tests/Editor/PrismMeshletContractTests.cs",
       "name": "PublicationUsesDistinctFrontAndBackBuffers",
       "kind": "method",
-      "line": 70
+      "line": 71
     },
     {
       "id": "Tests/Editor/PrismMeshletContractTests.cs::RequiredQ312ComputeKernelsImport@42",
@@ -15824,11 +15929,11 @@
       "line": 26
     },
     {
-      "id": "Tests/Editor/PrismTopologyContractTests.cs::AssertKernels@254",
+      "id": "Tests/Editor/PrismTopologyContractTests.cs::AssertKernels@275",
       "file": "Tests/Editor/PrismTopologyContractTests.cs",
       "name": "AssertKernels",
       "kind": "method",
-      "line": 254
+      "line": 275
     },
     {
       "id": "Tests/Editor/PrismTopologyContractTests.cs::AtlasWorkGraphKernelsImport@66",
@@ -15838,11 +15943,11 @@
       "line": 66
     },
     {
-      "id": "Tests/Editor/PrismTopologyContractTests.cs::BoundaryCurveIsSharedAndCachedBeforeMaterialization@181",
+      "id": "Tests/Editor/PrismTopologyContractTests.cs::BoundaryCurveIsSharedAndCachedBeforeMaterialization@202",
       "file": "Tests/Editor/PrismTopologyContractTests.cs",
       "name": "BoundaryCurveIsSharedAndCachedBeforeMaterialization",
       "kind": "method",
-      "line": 181
+      "line": 202
     },
     {
       "id": "Tests/Editor/PrismTopologyContractTests.cs::CanonicalAtlasAbiMatchesDeclaredStrides@18",
@@ -15852,25 +15957,25 @@
       "line": 18
     },
     {
-      "id": "Tests/Editor/PrismTopologyContractTests.cs::CanonicalSplitFollowsEvidenceAndCreatesTwoHypotheses@194",
+      "id": "Tests/Editor/PrismTopologyContractTests.cs::CanonicalSplitFollowsEvidenceAndCreatesTwoHypotheses@215",
       "file": "Tests/Editor/PrismTopologyContractTests.cs",
       "name": "CanonicalSplitFollowsEvidenceAndCreatesTwoHypotheses",
       "kind": "method",
-      "line": 194
+      "line": 215
     },
     {
-      "id": "Tests/Editor/PrismTopologyContractTests.cs::ChunkStagePreservesGlobalManifoldAndPortalTopology@209",
+      "id": "Tests/Editor/PrismTopologyContractTests.cs::ChunkStagePreservesGlobalManifoldAndPortalTopology@230",
       "file": "Tests/Editor/PrismTopologyContractTests.cs",
       "name": "ChunkStagePreservesGlobalManifoldAndPortalTopology",
       "kind": "method",
-      "line": 209
+      "line": 230
     },
     {
-      "id": "Tests/Editor/PrismTopologyContractTests.cs::ContinuationsRequireIndependentPhysicalEvidence@169",
+      "id": "Tests/Editor/PrismTopologyContractTests.cs::ContinuationsRequireIndependentPhysicalEvidence@190",
       "file": "Tests/Editor/PrismTopologyContractTests.cs",
       "name": "ContinuationsRequireIndependentPhysicalEvidence",
       "kind": "method",
-      "line": 169
+      "line": 190
     },
     {
       "id": "Tests/Editor/PrismTopologyContractTests.cs::DefaultAtlasBindingsFitQuestVulkanStorageLimit@40",
@@ -15880,11 +15985,11 @@
       "line": 40
     },
     {
-      "id": "Tests/Editor/PrismTopologyContractTests.cs::KeyframesAreSelectedByGpuInformationGain@223",
+      "id": "Tests/Editor/PrismTopologyContractTests.cs::KeyframesAreSelectedByGpuInformationGain@244",
       "file": "Tests/Editor/PrismTopologyContractTests.cs",
       "name": "KeyframesAreSelectedByGpuInformationGain",
       "kind": "method",
-      "line": 223
+      "line": 244
     },
     {
       "id": "Tests/Editor/PrismTopologyContractTests.cs::MeasuredSupportCreatesContoursAndLatentStateNeverPredicts@152",
@@ -15894,18 +15999,25 @@
       "line": 152
     },
     {
-      "id": "Tests/Editor/PrismTopologyContractTests.cs::NextPowerOfTwo@270",
+      "id": "Tests/Editor/PrismTopologyContractTests.cs::MeshPublicationUsesPerFilmAtlasValidityAndProvenSeams@172",
+      "file": "Tests/Editor/PrismTopologyContractTests.cs",
+      "name": "MeshPublicationUsesPerFilmAtlasValidityAndProvenSeams",
+      "kind": "method",
+      "line": 172
+    },
+    {
+      "id": "Tests/Editor/PrismTopologyContractTests.cs::NextPowerOfTwo@291",
       "file": "Tests/Editor/PrismTopologyContractTests.cs",
       "name": "NextPowerOfTwo",
       "kind": "method",
-      "line": 270
+      "line": 291
     },
     {
-      "id": "Tests/Editor/PrismTopologyContractTests.cs::PressureDiagnosticAbiIsStable@238",
+      "id": "Tests/Editor/PrismTopologyContractTests.cs::PressureDiagnosticAbiIsStable@259",
       "file": "Tests/Editor/PrismTopologyContractTests.cs",
       "name": "PressureDiagnosticAbiIsStable",
       "kind": "method",
-      "line": 238
+      "line": 259
     },
     {
       "id": "Tests/Editor/PrismTopologyContractTests.cs::PrismTopologyContractTests",
@@ -15922,18 +16034,18 @@
       "line": 104
     },
     {
-      "id": "Tests/Editor/PrismTopologyContractTests.cs::RuntimeRoot@267",
+      "id": "Tests/Editor/PrismTopologyContractTests.cs::RuntimeRoot@288",
       "file": "Tests/Editor/PrismTopologyContractTests.cs",
       "name": "RuntimeRoot",
       "kind": "method",
-      "line": 267
+      "line": 288
     },
     {
-      "id": "Tests/Editor/PrismTopologyContractTests.cs::Source@264",
+      "id": "Tests/Editor/PrismTopologyContractTests.cs::Source@285",
       "file": "Tests/Editor/PrismTopologyContractTests.cs",
       "name": "Source",
       "kind": "method",
-      "line": 264
+      "line": 285
     },
     {
       "id": "Tests/Editor/PrismTopologyContractTests.cs::SpawnPublishesOneCoordinateConsistentComponentPosterior@130",
@@ -16464,7 +16576,7 @@
       "source_type": "PrismFilmSpawner",
       "event": "FilmsMutated",
       "handler": "OnFilmsMutated",
-      "line": 214
+      "line": 234
     },
     {
       "file": "Runtime/Prism/Geometry/PrismPredictionRenderer.cs",
@@ -16939,7 +17051,7 @@
     },
     {
       "source": "Editor/MetaVrManifestPostprocessor.cs::UpgradeGeneratedManifest@35",
-      "target": "Tests/Editor/PrismMeshletContractTests.cs::Load@105",
+      "target": "Tests/Editor/PrismMeshletContractTests.cs::Load@106",
       "kind": "calls"
     },
     {
@@ -17129,7 +17241,7 @@
     },
     {
       "source": "Editor/RoomScanSetupWizard.cs::EnsureQuestVRManifest@497",
-      "target": "Tests/Editor/PrismMeshletContractTests.cs::Load@105",
+      "target": "Tests/Editor/PrismMeshletContractTests.cs::Load@106",
       "kind": "calls"
     },
     {
@@ -17189,7 +17301,7 @@
     },
     {
       "source": "Editor/RoomScanSetupWizard.cs::LoadQuestManifestDocuments@381",
-      "target": "Tests/Editor/PrismMeshletContractTests.cs::Load@105",
+      "target": "Tests/Editor/PrismMeshletContractTests.cs::Load@106",
       "kind": "calls"
     },
     {
@@ -17339,7 +17451,7 @@
     },
     {
       "source": "Runtime/Camera/PassthroughCameraProvider.cs::CreateOwnedPca@199",
-      "target": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::SetActive@109",
+      "target": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::SetActive@125",
       "kind": "calls"
     },
     {
@@ -17619,7 +17731,7 @@
     },
     {
       "source": "Runtime/Core/RoomScanner.cs::ClearAllDataAsync@704",
-      "target": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::SetActive@109",
+      "target": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::SetActive@125",
       "kind": "calls"
     },
     {
@@ -17644,7 +17756,7 @@
     },
     {
       "source": "Runtime/Core/RoomScanner.cs::ClearScan@687",
-      "target": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::SetActive@109",
+      "target": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::SetActive@125",
       "kind": "calls"
     },
     {
@@ -17734,7 +17846,7 @@
     },
     {
       "source": "Runtime/Core/RoomScanner.cs::PreparePrismPipeline@545",
-      "target": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::StartBuilding@151",
+      "target": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::StartBuilding@169",
       "kind": "calls"
     },
     {
@@ -17744,12 +17856,12 @@
     },
     {
       "source": "Runtime/Core/RoomScanner.cs::PreparePrismPipeline@545",
-      "target": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::StartAtlas@227",
+      "target": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::StartAtlas@230",
       "kind": "calls"
     },
     {
       "source": "Runtime/Core/RoomScanner.cs::PreparePrismPipeline@545",
-      "target": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::SetActive@109",
+      "target": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::SetActive@125",
       "kind": "calls"
     },
     {
@@ -17839,7 +17951,7 @@
     },
     {
       "source": "Runtime/Core/RoomScanner.cs::ShutdownPrismPipeline@613",
-      "target": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::StopBuilding@220",
+      "target": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::StopBuilding@240",
       "kind": "calls"
     },
     {
@@ -19224,7 +19336,7 @@
     },
     {
       "source": "Runtime/Prism/Capture/PrismRigCapture.cs::ResolveEye@320",
-      "target": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::SetActive@109",
+      "target": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::SetActive@125",
       "kind": "calls"
     },
     {
@@ -19684,7 +19796,7 @@
     },
     {
       "source": "Runtime/Prism/Geometry/PrismFilmSpawner.cs::PrismFilmSpawner",
-      "target": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::OnFilmsMutated@252",
+      "target": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::OnFilmsMutated@272",
       "kind": "event:FilmsMutated"
     },
     {
@@ -19733,87 +19845,87 @@
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::DispatchMaterialization@367",
+      "source": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::DispatchMaterialization@387",
       "target": "Runtime/World/PrismChunkSnapshotStager.cs::DispatchIndirect@528",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::LateUpdate@243",
-      "target": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::TryBuild@270",
+      "source": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::LateUpdate@263",
+      "target": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::TryBuild@290",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::OnDestroy@228",
-      "target": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::StopBuilding@220",
+      "source": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::OnDestroy@248",
+      "target": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::StopBuilding@240",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::StartBuilding@151",
+      "source": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::StartBuilding@169",
       "target": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::EnsureCapacity@354",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::StartBuilding@151",
-      "target": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::EnsurePlanBuffers@652",
+      "source": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::StartBuilding@169",
+      "target": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::EnsurePlanBuffers@701",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::StartBuilding@151",
+      "source": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::StartBuilding@169",
       "target": "Runtime/Utils/Logger.cs::Error@42",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::TryBuild@270",
-      "target": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::TryIncrementalPublication@323",
+      "source": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::TryBuild@290",
+      "target": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::TryIncrementalPublication@343",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::TryBuild@270",
-      "target": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::TryInitialPublication@288",
+      "source": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::TryBuild@290",
+      "target": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::TryInitialPublication@308",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::TryBuild@270",
+      "source": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::TryBuild@290",
       "target": "Runtime/Utils/Logger.cs::Error@42",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::TryIncrementalPublication@323",
+      "source": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::TryIncrementalPublication@343",
       "target": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::MarkPublishedMutation@401",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::TryIncrementalPublication@323",
+      "source": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::TryIncrementalPublication@343",
       "target": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::TryBeginPublishedWrite@378",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::TryIncrementalPublication@323",
-      "target": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::DispatchMaterialization@367",
+      "source": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::TryIncrementalPublication@343",
+      "target": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::DispatchMaterialization@387",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::TryIncrementalPublication@323",
+      "source": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::TryIncrementalPublication@343",
       "target": "Runtime/World/PrismChunkSnapshotStager.cs::DispatchIndirect@528",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::TryInitialPublication@288",
+      "source": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::TryInitialPublication@308",
       "target": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::Publish@391",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::TryInitialPublication@288",
+      "source": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::TryInitialPublication@308",
       "target": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::TryBeginBuild@372",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::TryInitialPublication@288",
-      "target": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::DispatchMaterialization@367",
+      "source": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::TryInitialPublication@308",
+      "target": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::DispatchMaterialization@387",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::TryInitialPublication@288",
+      "source": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::TryInitialPublication@308",
       "target": "Runtime/World/PrismChunkSnapshotStager.cs::DispatchIndirect@528",
       "kind": "calls"
     },
@@ -19898,167 +20010,167 @@
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::DispatchAtlas@315",
+      "source": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::DispatchAtlas@318",
       "target": "Runtime/Prism/Geometry/PrismEvidenceAlignedSplitter.cs::DispatchSplits@145",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::DispatchAtlas@315",
-      "target": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::BindBoundaryCurveResources@669",
+      "source": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::DispatchAtlas@318",
+      "target": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::BindBoundaryCurveResources@686",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::DispatchAtlas@315",
-      "target": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::BindContourResources@517",
+      "source": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::DispatchAtlas@318",
+      "target": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::BindContourResources@533",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::DispatchAtlas@315",
-      "target": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::BindElasticResources@754",
+      "source": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::DispatchAtlas@318",
+      "target": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::BindElasticResources@771",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::DispatchAtlas@315",
-      "target": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::BindHalfEdgeResources@578",
+      "source": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::DispatchAtlas@318",
+      "target": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::BindHalfEdgeResources@594",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::DispatchAtlas@315",
-      "target": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::BindPortalResources@832",
+      "source": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::DispatchAtlas@318",
+      "target": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::BindPortalResources@849",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::DispatchAtlas@315",
+      "source": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::DispatchAtlas@318",
       "target": "Runtime/Utils/Logger.cs::Error@42",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::DispatchAtlas@315",
+      "source": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::DispatchAtlas@318",
       "target": "Runtime/World/PrismChunkSnapshotStager.cs::DispatchIndirect@528",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::PrepareRestoredResidency@305",
-      "target": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::BindContourResources@517",
+      "source": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::PrepareRestoredResidency@308",
+      "target": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::BindContourResources@533",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::ResetEmptyResidency@294",
-      "target": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::BindContourResources@517",
+      "source": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::ResetEmptyResidency@297",
+      "target": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::BindContourResources@533",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::StartAtlas@227",
+      "source": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::StartAtlas@230",
       "target": "Runtime/Prism/Geometry/PrismEvidenceAlignedSplitter.cs::StartSplitting@114",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::StartAtlas@227",
-      "target": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::BindBoundaryCurveResources@669",
+      "source": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::StartAtlas@230",
+      "target": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::BindBoundaryCurveResources@686",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::StartAtlas@227",
-      "target": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::BindContourResources@517",
+      "source": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::StartAtlas@230",
+      "target": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::BindContourResources@533",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::StartAtlas@227",
-      "target": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::BindElasticResources@754",
+      "source": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::StartAtlas@230",
+      "target": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::BindElasticResources@771",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::StartAtlas@227",
-      "target": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::BindHalfEdgeResources@578",
+      "source": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::StartAtlas@230",
+      "target": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::BindHalfEdgeResources@594",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::StartAtlas@227",
-      "target": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::BindPortalResources@832",
+      "source": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::StartAtlas@230",
+      "target": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::BindPortalResources@849",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::StartAtlas@227",
+      "source": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::StartAtlas@230",
       "target": "Runtime/Utils/Logger.cs::Error@42",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::StopAtlas@280",
+      "source": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::StopAtlas@283",
       "target": "Runtime/Prism/Geometry/PrismEvidenceAlignedSplitter.cs::StopSplitting@143",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::CollectRetired@281",
-      "target": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::DisposeView@300",
+      "source": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::CollectRetired@299",
+      "target": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::DisposeView@318",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::Draw@153",
+      "source": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::Draw@170",
       "target": "Runtime/Modules/SceneObjectRegistry.cs::Clear@182",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::Draw@153",
+      "source": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::Draw@170",
       "target": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::MarkRead@247",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::Draw@153",
-      "target": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::DispatchViewCull@189",
+      "source": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::Draw@170",
+      "target": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::DispatchViewCull@207",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::Draw@153",
-      "target": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::EnsureView@251",
+      "source": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::Draw@170",
+      "target": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::EnsureView@269",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::Draw@153",
-      "target": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::Render@265",
+      "source": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::Draw@170",
+      "target": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::Render@283",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::EnsureDisabledHiZ@307",
+      "source": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::EnsureDisabledHiZ@325",
       "target": "Runtime/Prism/Calibration/ConeLutResources.cs::Create@108",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::EnsureView@251",
+      "source": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::EnsureView@269",
       "target": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::CreateViewBuffers@385",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::LateUpdate@138",
-      "target": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::CollectRetired@281",
+      "source": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::LateUpdate@154",
+      "target": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::CollectRetired@299",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::LateUpdate@138",
-      "target": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::Draw@153",
+      "source": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::LateUpdate@154",
+      "target": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::Draw@170",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::OnDestroy@328",
+      "source": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::OnDestroy@346",
       "target": "Runtime/Modules/SceneObjectRegistry.cs::Clear@182",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::OnDestroy@328",
-      "target": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::DestroyResource@348",
+      "source": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::OnDestroy@346",
+      "target": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::DestroyResource@368",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::OnEnable@84",
-      "target": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::CreateMaterial@321",
+      "source": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::OnEnable@87",
+      "target": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::CreateMaterial@339",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::OnEnable@84",
-      "target": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::EnsureDisabledHiZ@307",
+      "source": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::OnEnable@87",
+      "target": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::EnsureDisabledHiZ@325",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::SetResidentTransform@131",
+      "source": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::SetResidentTransform@147",
       "target": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::SetChunkTransform@388",
       "kind": "calls"
     },
@@ -20214,7 +20326,7 @@
     },
     {
       "source": "Runtime/Prism/PrismGpuWorkGraph.cs::ExecuteFrame@74",
-      "target": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::RequestBuild@269",
+      "target": "Runtime/Prism/Geometry/PrismMeshletBuilder.cs::RequestBuild@289",
       "kind": "calls"
     },
     {
@@ -20224,7 +20336,7 @@
     },
     {
       "source": "Runtime/Prism/PrismGpuWorkGraph.cs::ExecuteFrame@74",
-      "target": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::DispatchAtlas@315",
+      "target": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::DispatchAtlas@318",
       "kind": "calls"
     },
     {
@@ -20489,7 +20601,7 @@
     },
     {
       "source": "Runtime/Resources/Prism/ContactBoundaryUpdate.compute::LoadRgb@166",
-      "target": "Tests/Editor/PrismMeshletContractTests.cs::Load@105",
+      "target": "Tests/Editor/PrismMeshletContractTests.cs::Load@106",
       "kind": "calls"
     },
     {
@@ -20533,38 +20645,38 @@
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/ContactChartSplit.compute::CreateChild@135",
-      "target": "Runtime/Resources/Prism/ContactChartSplit.compute::PartitionInformation@97",
+      "source": "Runtime/Resources/Prism/ContactChartSplit.compute::CreateChild@133",
+      "target": "Runtime/Resources/Prism/ContactChartSplit.compute::PartitionInformation@95",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/ContactChartSplit.compute::CreateChild@135",
-      "target": "Runtime/Resources/Prism/ContactChartSplit.compute::PartitionSupportMask@79",
+      "source": "Runtime/Resources/Prism/ContactChartSplit.compute::CreateChild@133",
+      "target": "Runtime/Resources/Prism/ContactChartSplit.compute::PartitionSupportMask@77",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/ContactChartSplit.compute::CreateEvidenceAlignedChildren@187",
-      "target": "Runtime/Resources/Prism/ContactChartSplit.compute::CreateChild@135",
+      "source": "Runtime/Resources/Prism/ContactChartSplit.compute::CreateEvidenceAlignedChildren@185",
+      "target": "Runtime/Resources/Prism/ContactChartSplit.compute::CreateChild@133",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/ContactChartSplit.compute::PartitionInformation@97",
-      "target": "Runtime/Resources/Prism/ContactChartSplit.compute::LoadG@47",
+      "source": "Runtime/Resources/Prism/ContactChartSplit.compute::PartitionInformation@95",
+      "target": "Runtime/Resources/Prism/ContactChartSplit.compute::LoadG@45",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/ContactChartSplit.compute::PartitionInformation@97",
-      "target": "Runtime/Resources/Prism/ContactChartSplit.compute::LoadH@38",
+      "source": "Runtime/Resources/Prism/ContactChartSplit.compute::PartitionInformation@95",
+      "target": "Runtime/Resources/Prism/ContactChartSplit.compute::LoadH@36",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/ContactChartSplit.compute::PartitionInformation@97",
-      "target": "Runtime/Resources/Prism/ContactChartSplit.compute::StoreG@67",
+      "source": "Runtime/Resources/Prism/ContactChartSplit.compute::PartitionInformation@95",
+      "target": "Runtime/Resources/Prism/ContactChartSplit.compute::StoreG@65",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/ContactChartSplit.compute::PartitionInformation@97",
-      "target": "Runtime/Resources/Prism/ContactChartSplit.compute::StoreH@56",
+      "source": "Runtime/Resources/Prism/ContactChartSplit.compute::PartitionInformation@95",
+      "target": "Runtime/Resources/Prism/ContactChartSplit.compute::StoreH@54",
       "kind": "calls"
     },
     {
@@ -20678,38 +20790,38 @@
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/ContactFilmPreview.shader::Vert@46",
+      "source": "Runtime/Resources/Prism/ContactFilmPreview.shader::Vert@47",
       "target": "Runtime/Resources/Prism/ContactMeshletVertexAbi.hlsl::ContactMeshletCoverage@108",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/ContactFilmPreview.shader::Vert@46",
+      "source": "Runtime/Resources/Prism/ContactFilmPreview.shader::Vert@47",
       "target": "Runtime/Resources/Prism/ContactMeshletVertexAbi.hlsl::ContactMeshletFlags@98",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/ContactFilmPreview.shader::Vert@46",
+      "source": "Runtime/Resources/Prism/ContactFilmPreview.shader::Vert@47",
       "target": "Runtime/Resources/Prism/ContactMeshletVertexAbi.hlsl::UnpackContactMeshletHalf2@70",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/ContactFilmPreview.shader::Vert@46",
+      "source": "Runtime/Resources/Prism/ContactFilmPreview.shader::Vert@47",
       "target": "Runtime/Resources/Prism/ContactMeshletVertexAbi.hlsl::UnpackContactMeshletNormal@50",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/ContactFilmSpawn.compute::CompactSpawnTiles@245",
-      "target": "Runtime/Resources/Prism/ContactFilmSpawn.compute::IsSpawnCandidate@184",
+      "source": "Runtime/Resources/Prism/ContactFilmSpawn.compute::CompactSpawnTiles@243",
+      "target": "Runtime/Resources/Prism/ContactFilmSpawn.compute::IsSpawnCandidate@182",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/ContactFilmSpawn.compute::EmitSpawnCandidates@311",
-      "target": "Runtime/Resources/Prism/ContactFilmSpawn.compute::IsSpawnCandidate@184",
+      "source": "Runtime/Resources/Prism/ContactFilmSpawn.compute::EmitSpawnCandidates@309",
+      "target": "Runtime/Resources/Prism/ContactFilmSpawn.compute::IsSpawnCandidate@182",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/ContactFilmSpawn.compute::MapCandidatePixels@739",
-      "target": "Runtime/Resources/Prism/ContactFilmSpawn.compute::IsSpawnCandidate@184",
+      "source": "Runtime/Resources/Prism/ContactFilmSpawn.compute::MapCandidatePixels@737",
+      "target": "Runtime/Resources/Prism/ContactFilmSpawn.compute::IsSpawnCandidate@182",
       "kind": "calls"
     },
     {
@@ -20839,7 +20951,7 @@
     },
     {
       "source": "Runtime/Resources/Prism/DepthConsensusNormalBoundary.compute::LoadRgb@55",
-      "target": "Tests/Editor/PrismMeshletContractTests.cs::Load@105",
+      "target": "Tests/Editor/PrismMeshletContractTests.cs::Load@106",
       "kind": "calls"
     },
     {
@@ -21284,17 +21396,17 @@
     },
     {
       "source": "Runtime/Resources/Prism/HiZRangePyramid.compute::CopyHiZLevelZero@9",
-      "target": "Tests/Editor/PrismMeshletContractTests.cs::Load@105",
+      "target": "Tests/Editor/PrismMeshletContractTests.cs::Load@106",
       "kind": "calls"
     },
     {
       "source": "Runtime/Resources/Prism/HiZRangePyramid.compute::ReduceHiZLevel@19",
-      "target": "Tests/Editor/PrismMeshletContractTests.cs::Load@105",
+      "target": "Tests/Editor/PrismMeshletContractTests.cs::Load@106",
       "kind": "calls"
     },
     {
       "source": "Runtime/Resources/Prism/InformationGainKeyframes.compute::CommitKeyframePixels@352",
-      "target": "Tests/Editor/PrismMeshletContractTests.cs::Load@105",
+      "target": "Tests/Editor/PrismMeshletContractTests.cs::Load@106",
       "kind": "calls"
     },
     {
@@ -21304,7 +21416,7 @@
     },
     {
       "source": "Runtime/Resources/Prism/InformationGainKeyframes.compute::LoadRgb@124",
-      "target": "Tests/Editor/PrismMeshletContractTests.cs::Load@105",
+      "target": "Tests/Editor/PrismMeshletContractTests.cs::Load@106",
       "kind": "calls"
     },
     {
@@ -21318,428 +21430,498 @@
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::AssignFrontierLoops@484",
-      "target": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::FindLoopRoot@109",
+      "source": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::AssignFrontierLoops@565",
+      "target": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::FindLoopRoot@112",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::BuildFrontierEndpointHash@349",
-      "target": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::ActiveSegment@72",
+      "source": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::BuildFrontierEndpointHash@361",
+      "target": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::ActiveSegment@75",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::BuildHalfEdgeSpatialHash@188",
-      "target": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::ActiveSegment@72",
+      "source": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::BuildHalfEdgeSpatialHash@200",
+      "target": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::ActiveSegment@75",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::FilmPoint@67",
+      "source": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::FilmPoint@70",
       "target": "Runtime/Resources/Prism/SurfaceChartGeometry.hlsl::AtlasSurfacePoint@222",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::HookFrontierComponents@440",
-      "target": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::FindLoopRoot@109",
+      "source": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::HookFrontierComponents@521",
+      "target": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::FindLoopRoot@112",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::MaterializeMeasuredHalfEdges@169",
-      "target": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::ActiveSegment@72",
+      "source": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::MaterializeMeasuredHalfEdges@181",
+      "target": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::ActiveSegment@75",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::OrderOuterHalfEdges@367",
-      "target": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::ActiveSegment@72",
+      "source": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::OrderOuterHalfEdges@382",
+      "target": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::ActiveSegment@75",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::ProveHalfEdgeTwins@205",
-      "target": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::ActiveSegment@72",
+      "source": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::ProveHalfEdgeTwins@217",
+      "target": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::ActiveSegment@75",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::ProveHalfEdgeTwins@205",
+      "source": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::ProveHalfEdgeTwins@217",
       "target": "Runtime/Resources/Prism/SurfaceChartGeometry.hlsl::AtlasSurfaceNormal@234",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::ShortcutFrontierComponents@454",
-      "target": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::FindLoopRoot@109",
+      "source": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::ShortcutFrontierComponents@535",
+      "target": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::FindLoopRoot@112",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::AddMeshletBuildGroupOffsets@1249",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::BuildFilmCount@267",
+      "source": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::SpliceConfirmedTwins@481",
+      "target": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::FindOuterNeighbour@445",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BootstrapCoverage@500",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::BootstrapCoverageCell@490",
+      "source": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::SpliceConfirmedTwins@481",
+      "target": "Runtime/Resources/Prism/ManifoldHalfEdgeUpdate.compute::LinkOrderedEdges@462",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BoundarySignedDistance@670",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::CachedBoundarySegment@575",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::AddMeshletBuildGroupOffsets@1387",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::BuildFilmCount@280",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BoundarySignedDistance@670",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::CachedBoundarySide@584",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BootstrapCoverage@588",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::BootstrapCoverageCell@578",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildFilmMeshletBoundaryTriangles@1673",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::EmitBoundaryMaterialTriangle@1575",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BoundarySignedDistance@758",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::CachedBoundarySegment@663",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildFilmMeshletBoundaryTriangles@1673",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::LoadMeshletBuildContext@1406",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BoundarySignedDistance@758",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::CachedBoundarySide@672",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildFilmMeshletBoundaryTriangles@1673",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::TriangleBoundaryCut@761",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildFilmMeshletBoundaryTriangles@2019",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::EmitBoundaryMaterialTriangle@1758",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildFilmMeshletBoundaryTriangles@1673",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::TriangleClassAt@1465",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildFilmMeshletBoundaryTriangles@2019",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::LoadMeshletBuildContext@1546",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildFilmMeshletBoundaryTriangles@1673",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::TriangleCoordinates@1492",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildFilmMeshletBoundaryTriangles@2019",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::TriangleBoundaryCut@850",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildFilmMeshletBoundaryTriangles@1673",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::TrianglePrefixAt@1472",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildFilmMeshletBoundaryTriangles@2019",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::TriangleClassAt@1616",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildFilmMeshletRegularTriangles@1651",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::EmitRegularMaterialTriangle@1513",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildFilmMeshletBoundaryTriangles@2019",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::TriangleCoordinates@1644",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildFilmMeshletRegularTriangles@1651",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::LoadMeshletBuildContext@1406",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildFilmMeshletBoundaryTriangles@2019",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::TrianglePrefixAt@1623",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildFilmMeshletRegularTriangles@1651",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::TriangleClassAt@1465",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildFilmMeshletRegularTriangles@1835",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::EmitRegularMaterialTriangle@1702",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildFilmMeshletRegularTriangles@1651",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::TrianglePrefixAt@1472",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildFilmMeshletRegularTriangles@1835",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::LoadMeshletBuildContext@1546",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildFilmMeshletVertices@1424",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildFilmMeshletRegularTriangles@1835",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::TriangleClassAt@1616",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildFilmMeshletRegularTriangles@1835",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::TrianglePrefixAt@1623",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildFilmMeshletSeams@1877",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::BuildSeamVertex@1862",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildFilmMeshletSeams@1877",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::LoadMeshletBuildContext@1546",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildFilmMeshletSeams@1877",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::OwnedConfirmedSeam@305",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildFilmMeshletSeams@1877",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::StoreTriangle@1539",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildFilmMeshletSeams@1877",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::SurfacePosition@939",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildFilmMeshletVertices@1564",
       "target": "Runtime/Resources/Prism/ContactMeshletVertexAbi.hlsl::PackContactMeshletFilmMaterial@78",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildFilmMeshletVertices@1424",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildFilmMeshletVertices@1564",
       "target": "Runtime/Resources/Prism/ContactMeshletVertexAbi.hlsl::PackContactMeshletHalf2@64",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildFilmMeshletVertices@1424",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildFilmMeshletVertices@1564",
       "target": "Runtime/Resources/Prism/ContactMeshletVertexAbi.hlsl::PackContactMeshletNormal@35",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildFilmMeshletVertices@1424",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::ClosestBoundaryPoint@603",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildFilmMeshletVertices@1564",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::ClosestBoundaryPoint@691",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildFilmMeshletVertices@1424",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::LoadMeshletBuildContext@1406",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildFilmMeshletVertices@1564",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::LoadMeshletBuildContext@1546",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildFilmMeshletVertices@1424",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::SurfaceCoverage@516",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildFilmMeshletVertices@1564",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::SurfaceCoverage@604",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildFilmMeshletVertices@1424",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::SurfacePosition@850",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildFilmMeshletVertices@1564",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::SurfacePosition@939",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildMeshDispatchArguments@951",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::BuildFilmCount@267",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildMeshDispatchArguments@1041",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::BuildFilmCount@280",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildSurfaceVertex@1369",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildSeamVertex@1862",
       "target": "Runtime/Resources/Prism/ContactMeshletVertexAbi.hlsl::PackContactMeshletFilmMaterial@78",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildSurfaceVertex@1369",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildSeamVertex@1862",
       "target": "Runtime/Resources/Prism/ContactMeshletVertexAbi.hlsl::PackContactMeshletHalf2@64",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildSurfaceVertex@1369",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildSeamVertex@1862",
       "target": "Runtime/Resources/Prism/ContactMeshletVertexAbi.hlsl::PackContactMeshletNormal@35",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildSurfaceVertex@1369",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::SurfacePosition@850",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildSurfaceVertex@1505",
+      "target": "Runtime/Resources/Prism/ContactMeshletVertexAbi.hlsl::PackContactMeshletFilmMaterial@78",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::CellTouchesPersistentBoundary@656",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::ClosestBoundaryPoint@603",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildSurfaceVertex@1505",
+      "target": "Runtime/Resources/Prism/ContactMeshletVertexAbi.hlsl::PackContactMeshletHalf2@64",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::ChooseSubdivision@879",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::DisplacementMetrics@342",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildSurfaceVertex@1505",
+      "target": "Runtime/Resources/Prism/ContactMeshletVertexAbi.hlsl::PackContactMeshletNormal@35",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::ClassifyMaterialTriangle@774",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::NonDegenerateCutScalar@753",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildSurfaceVertex@1505",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::SurfaceCoverage@604",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::ClassifyMaterialTriangle@774",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::SurfaceCoverage@516",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::BuildSurfaceVertex@1505",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::SurfacePosition@939",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::ClassifyMaterialTriangle@774",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::TriangleBoundaryCut@761",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::CellTouchesPersistentBoundary@744",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::ClosestBoundaryPoint@691",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::ClassifyMaterialTriangle@774",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::TriangleMask@737",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::ChooseSubdivision@968",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::DisplacementMetrics@430",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::ClosestBoundaryPoint@603",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::CachedBoundarySegment@575",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::ClassifyMaterialTriangle@863",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::NonDegenerateCutScalar@842",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::ClosestBoundaryPoint@603",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::CachedBoundarySide@584",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::ClassifyMaterialTriangle@863",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::SurfaceCoverage@604",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::ClosestBoundaryPoint@603",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::ClosestPointOnUvSegment@593",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::ClassifyMaterialTriangle@863",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::TriangleBoundaryCut@850",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::CountMeshletBuildPlans@1049",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::BuildFilmCount@267",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::ClassifyMaterialTriangle@863",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::TriangleMask@825",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::CountMeshletBuildPlans@1049",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::BuildFilmIndex@273",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::ClosestBoundaryPoint@691",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::CachedBoundarySegment@663",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::CountMeshletBuildPlans@1049",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::ChooseSubdivision@879",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::ClosestBoundaryPoint@691",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::CachedBoundarySide@672",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::CountMeshletBuildPlans@1049",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::ClassifyMaterialTriangle@774",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::ClosestBoundaryPoint@691",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::ClosestPointOnUvSegment@681",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::CountMeshletBuildPlans@1049",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::MaterialClassCounts@744",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::CountMeshletBuildPlans@1142",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::BuildFilmCount@280",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::CountMeshletBuildPlans@1049",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::ReservedIndexCount@925",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::CountMeshletBuildPlans@1142",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::BuildFilmIndex@286",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::CountMeshletBuildPlans@1049",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::ReservedVertexCount@917",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::CountMeshletBuildPlans@1142",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::ChooseSubdivision@968",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::DisplacementMetrics@342",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::LoadDisplacementChild@291",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::CountMeshletBuildPlans@1142",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::ClassifyMaterialTriangle@863",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::EmitBoundaryMaterialTriangle@1575",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::BuildSurfaceVertex@1369",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::CountMeshletBuildPlans@1142",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::FilmTopologyPublishable@292",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::EmitBoundaryMaterialTriangle@1575",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::CutIntersection@1391",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::CountMeshletBuildPlans@1142",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::MaterialClassCounts@832",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::EmitBoundaryMaterialTriangle@1575",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::NonDegenerateCutScalar@753",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::CountMeshletBuildPlans@1142",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::OwnedConfirmedSeam@305",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::EmitBoundaryMaterialTriangle@1575",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::StoreTriangle@1399",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::CountMeshletBuildPlans@1142",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::ReservedIndexCount@1015",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::EmitBoundaryMaterialTriangle@1575",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::TriangleCoordinates@1492",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::CountMeshletBuildPlans@1142",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::ReservedVertexCount@1006",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::EmitBoundaryMaterialTriangle@1575",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::TriangleMask@737",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::DisplacementMetrics@430",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::LoadDisplacementChild@379",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::EmitRegularMaterialTriangle@1513",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::BuildSurfaceVertex@1369",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::EmitBoundaryMaterialTriangle@1758",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::BuildSurfaceVertex@1505",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::EmitRegularMaterialTriangle@1513",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::CutIntersection@1391",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::EmitBoundaryMaterialTriangle@1758",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::CutIntersection@1531",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::EmitRegularMaterialTriangle@1513",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::NonDegenerateCutScalar@753",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::EmitBoundaryMaterialTriangle@1758",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::NonDegenerateCutScalar@842",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::EmitRegularMaterialTriangle@1513",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::StoreTriangle@1399",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::EmitBoundaryMaterialTriangle@1758",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::StoreTriangle@1539",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::EmitRegularMaterialTriangle@1513",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::SurfaceCoverage@516",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::EmitBoundaryMaterialTriangle@1758",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::TriangleCoordinates@1644",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::EmitRegularMaterialTriangle@1513",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::TriangleCoordinates@1492",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::EmitBoundaryMaterialTriangle@1758",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::TriangleMask@825",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::EmitRegularMaterialTriangle@1513",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::TriangleMask@737",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::EmitRegularMaterialTriangle@1702",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::BuildSurfaceVertex@1505",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::FinalizeFilmMeshletDescriptors@1700",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::DisplacementMetrics@342",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::EmitRegularMaterialTriangle@1702",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::ClipTriangle@1665",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::FinalizeFilmMeshletDescriptors@1700",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::LoadMeshletBuildContext@1406",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::EmitRegularMaterialTriangle@1702",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::NonDegenerateCutScalar@842",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::FinalizeFilmMeshletDescriptors@1700",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::ReservedSubdivision@911",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::EmitRegularMaterialTriangle@1702",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::StorePolygonIndices@1690",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::Height@804",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::SampleDisplacement@394",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::EmitRegularMaterialTriangle@1702",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::StoreTriangle@1539",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::LoadMeshletBuildContext@1406",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::BuildFilmCount@267",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::EmitRegularMaterialTriangle@1702",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::SurfaceCoverage@604",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::ResolveDisplacementPage@301",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::LoadDisplacementChild@291",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::EmitRegularMaterialTriangle@1702",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::TriangleCoordinates@1644",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::SampleDisplacement@394",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::LoadDisplacementCell@279",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::EmitRegularMaterialTriangle@1702",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::TriangleMask@825",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::SampleDisplacement@394",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::LoadDisplacementChild@291",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::FinalizeFilmMeshletDescriptors@2046",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::DisplacementMetrics@430",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::SampleDisplacement@394",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::ResolveDisplacementPage@301",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::FinalizeFilmMeshletDescriptors@2046",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::LoadMeshletBuildContext@1546",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::ScanMeshletBuildGroups@1227",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::BuildFilmCount@267",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::Height@893",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::SampleDisplacement@482",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::ScanMeshletBuildPlans@1191",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::BuildFilmCount@267",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::LoadMeshletBuildContext@1546",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::BuildFilmCount@280",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::SurfaceCoverage@516",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::LoadDisplacementCell@279",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::ResolveDisplacementPage@389",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::LoadDisplacementChild@379",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::SurfaceNormal@819",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::SampleDisplacement@394",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::SampleDisplacement@482",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::LoadDisplacementCell@367",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::TriangleBoundaryCut@761",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::BoundarySignedDistance@670",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::SampleDisplacement@482",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::LoadDisplacementChild@379",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::TriangleBoundaryCut@761",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::TriangleMask@737",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::SampleDisplacement@482",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::ResolveDisplacementPage@389",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::TrianglePrefixAt@1472",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::MaterialClassCounts@744",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::ScanMeshletBuildGroups@1365",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::BuildFilmCount@280",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::ValidateMeshletBuild@1264",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::BuildFilmCount@267",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::ScanMeshletBuildPlans@1329",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::BuildFilmCount@280",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::if@1598",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::CutIntersection@1391",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::StorePolygonIndices@1690",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::StoreTriangle@1539",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/Prism/MeshletBuild.compute::if@1631",
-      "target": "Runtime/Resources/Prism/MeshletBuild.compute::StoreTriangle@1399",
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::SurfaceCoverage@604",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::LoadDisplacementCell@367",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::SurfaceNormal@908",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::SampleDisplacement@482",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::TriangleBoundaryCut@850",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::BoundarySignedDistance@758",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::TriangleBoundaryCut@850",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::TriangleMask@825",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::TrianglePrefixAt@1623",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::MaterialClassCounts@832",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::ValidateMeshletBuild@1402",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::BuildFilmCount@280",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::if@1782",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::CutIntersection@1531",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/Prism/MeshletBuild.compute::if@1815",
+      "target": "Runtime/Resources/Prism/MeshletBuild.compute::StoreTriangle@1539",
       "kind": "calls"
     },
     {
@@ -21769,7 +21951,7 @@
     },
     {
       "source": "Runtime/Resources/Prism/MeshletViewCull.compute::OccludedByHiZ@98",
-      "target": "Tests/Editor/PrismMeshletContractTests.cs::Load@105",
+      "target": "Tests/Editor/PrismMeshletContractTests.cs::Load@106",
       "kind": "calls"
     },
     {
@@ -21804,7 +21986,7 @@
     },
     {
       "source": "Runtime/Resources/Prism/PhotometricFocus.compute::LoadCurrentRgb@148",
-      "target": "Tests/Editor/PrismMeshletContractTests.cs::Load@105",
+      "target": "Tests/Editor/PrismMeshletContractTests.cs::Load@106",
       "kind": "calls"
     },
     {
@@ -21894,7 +22076,7 @@
     },
     {
       "source": "Runtime/Resources/Prism/PhotometricFocus.compute::TemporalLuma@168",
-      "target": "Tests/Editor/PrismMeshletContractTests.cs::Load@105",
+      "target": "Tests/Editor/PrismMeshletContractTests.cs::Load@106",
       "kind": "calls"
     },
     {
@@ -21904,7 +22086,7 @@
     },
     {
       "source": "Runtime/Resources/Prism/PredictContactFilm.shader::Frag@75",
-      "target": "Tests/Editor/PrismMeshletContractTests.cs::Load@105",
+      "target": "Tests/Editor/PrismMeshletContractTests.cs::Load@106",
       "kind": "calls"
     },
     {
@@ -22134,7 +22316,7 @@
     },
     {
       "source": "Runtime/UI/ControllerRayDriver.cs::DrawLaser@162",
-      "target": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::SetActive@109",
+      "target": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::SetActive@125",
       "kind": "calls"
     },
     {
@@ -22144,7 +22326,7 @@
     },
     {
       "source": "Runtime/UI/ControllerRayDriver.cs::SetupCursor@143",
-      "target": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::SetActive@109",
+      "target": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::SetActive@125",
       "kind": "calls"
     },
     {
@@ -22934,17 +23116,17 @@
     },
     {
       "source": "Runtime/World/PrismChunkResidencyManager.cs::ActivateAfterAsync@234",
-      "target": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::PrepareRestoredResidency@305",
+      "target": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::PrepareRestoredResidency@308",
       "kind": "calls"
     },
     {
       "source": "Runtime/World/PrismChunkResidencyManager.cs::ActivateAfterAsync@234",
-      "target": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::ResetEmptyResidency@294",
+      "target": "Runtime/Prism/Geometry/PrismPressureManifoldAtlas.cs::ResetEmptyResidency@297",
       "kind": "calls"
     },
     {
       "source": "Runtime/World/PrismChunkResidencyManager.cs::ActivateAfterAsync@234",
-      "target": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::SetActive@109",
+      "target": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::SetActive@125",
       "kind": "calls"
     },
     {
@@ -23029,7 +23211,7 @@
     },
     {
       "source": "Runtime/World/PrismChunkResidencyManager.cs::OnActiveChunkChanged@211",
-      "target": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::SetActive@109",
+      "target": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::SetActive@125",
       "kind": "calls"
     },
     {
@@ -23094,12 +23276,12 @@
     },
     {
       "source": "Runtime/World/PrismChunkResidencyManager.cs::RetainRecent@338",
-      "target": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::RegisterResident@115",
+      "target": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::RegisterResident@131",
       "kind": "calls"
     },
     {
       "source": "Runtime/World/PrismChunkResidencyManager.cs::RetainRecent@338",
-      "target": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::RemoveResident@125",
+      "target": "Runtime/Prism/Geometry/PrismWorldMeshletRenderer.cs::RemoveResident@141",
       "kind": "calls"
     },
     {
@@ -24968,23 +25150,23 @@
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/PrismMeshletContractTests.cs::PublicationUsesDistinctFrontAndBackBuffers@70",
+      "source": "Tests/Editor/PrismMeshletContractTests.cs::PublicationUsesDistinctFrontAndBackBuffers@71",
       "target": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::ContactMeshletBuffers",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/PrismMeshletContractTests.cs::PublicationUsesDistinctFrontAndBackBuffers@70",
+      "source": "Tests/Editor/PrismMeshletContractTests.cs::PublicationUsesDistinctFrontAndBackBuffers@71",
       "target": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::Publish@391",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/PrismMeshletContractTests.cs::PublicationUsesDistinctFrontAndBackBuffers@70",
+      "source": "Tests/Editor/PrismMeshletContractTests.cs::PublicationUsesDistinctFrontAndBackBuffers@71",
       "target": "Runtime/Prism/Geometry/ContactMeshletBuffers.cs::TryBeginBuild@372",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/PrismMeshletContractTests.cs::RequiredQ312ComputeKernelsImport@42",
-      "target": "Tests/Editor/PrismMeshletContractTests.cs::Load@105",
+      "target": "Tests/Editor/PrismMeshletContractTests.cs::Load@106",
       "kind": "calls"
     },
     {
@@ -25129,57 +25311,62 @@
     },
     {
       "source": "Tests/Editor/PrismTopologyContractTests.cs::AtlasWorkGraphKernelsImport@66",
-      "target": "Tests/Editor/PrismTopologyContractTests.cs::AssertKernels@254",
+      "target": "Tests/Editor/PrismTopologyContractTests.cs::AssertKernels@275",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/PrismTopologyContractTests.cs::BoundaryCurveIsSharedAndCachedBeforeMaterialization@181",
-      "target": "Tests/Editor/PrismTopologyContractTests.cs::Source@264",
+      "source": "Tests/Editor/PrismTopologyContractTests.cs::BoundaryCurveIsSharedAndCachedBeforeMaterialization@202",
+      "target": "Tests/Editor/PrismTopologyContractTests.cs::Source@285",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/PrismTopologyContractTests.cs::CanonicalSplitFollowsEvidenceAndCreatesTwoHypotheses@194",
-      "target": "Tests/Editor/PrismTopologyContractTests.cs::Source@264",
+      "source": "Tests/Editor/PrismTopologyContractTests.cs::CanonicalSplitFollowsEvidenceAndCreatesTwoHypotheses@215",
+      "target": "Tests/Editor/PrismTopologyContractTests.cs::Source@285",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/PrismTopologyContractTests.cs::ChunkStagePreservesGlobalManifoldAndPortalTopology@209",
-      "target": "Tests/Editor/PrismTopologyContractTests.cs::Source@264",
+      "source": "Tests/Editor/PrismTopologyContractTests.cs::ChunkStagePreservesGlobalManifoldAndPortalTopology@230",
+      "target": "Tests/Editor/PrismTopologyContractTests.cs::Source@285",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/PrismTopologyContractTests.cs::ContinuationsRequireIndependentPhysicalEvidence@169",
-      "target": "Tests/Editor/PrismTopologyContractTests.cs::Source@264",
+      "source": "Tests/Editor/PrismTopologyContractTests.cs::ContinuationsRequireIndependentPhysicalEvidence@190",
+      "target": "Tests/Editor/PrismTopologyContractTests.cs::Source@285",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/PrismTopologyContractTests.cs::KeyframesAreSelectedByGpuInformationGain@223",
-      "target": "Tests/Editor/PrismTopologyContractTests.cs::RuntimeRoot@267",
+      "source": "Tests/Editor/PrismTopologyContractTests.cs::KeyframesAreSelectedByGpuInformationGain@244",
+      "target": "Tests/Editor/PrismTopologyContractTests.cs::RuntimeRoot@288",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/PrismTopologyContractTests.cs::KeyframesAreSelectedByGpuInformationGain@223",
-      "target": "Tests/Editor/PrismTopologyContractTests.cs::Source@264",
+      "source": "Tests/Editor/PrismTopologyContractTests.cs::KeyframesAreSelectedByGpuInformationGain@244",
+      "target": "Tests/Editor/PrismTopologyContractTests.cs::Source@285",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/PrismTopologyContractTests.cs::MeasuredSupportCreatesContoursAndLatentStateNeverPredicts@152",
-      "target": "Tests/Editor/PrismTopologyContractTests.cs::Source@264",
+      "target": "Tests/Editor/PrismTopologyContractTests.cs::Source@285",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/PrismTopologyContractTests.cs::MeshPublicationUsesPerFilmAtlasValidityAndProvenSeams@172",
+      "target": "Tests/Editor/PrismTopologyContractTests.cs::Source@285",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/PrismTopologyContractTests.cs::RectangleFrontierOntologyIsAbsent@104",
-      "target": "Tests/Editor/PrismTopologyContractTests.cs::RuntimeRoot@267",
+      "target": "Tests/Editor/PrismTopologyContractTests.cs::RuntimeRoot@288",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/PrismTopologyContractTests.cs::SpawnPublishesOneCoordinateConsistentComponentPosterior@130",
-      "target": "Tests/Editor/PrismTopologyContractTests.cs::RuntimeRoot@267",
+      "target": "Tests/Editor/PrismTopologyContractTests.cs::RuntimeRoot@288",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/PrismTopologyContractTests.cs::SpawnPublishesOneCoordinateConsistentComponentPosterior@130",
-      "target": "Tests/Editor/PrismTopologyContractTests.cs::Source@264",
+      "target": "Tests/Editor/PrismTopologyContractTests.cs::Source@285",
       "kind": "calls"
     },
     {

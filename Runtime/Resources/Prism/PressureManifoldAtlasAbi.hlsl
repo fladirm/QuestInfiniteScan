@@ -122,6 +122,13 @@ struct CrossChunkTopologyPortal
 };
 
 static const uint ATLAS_INVALID = 0xffffffffu;
+static const uint MEMBERSHIP_ACTIVE = 1u << 0u;
+static const uint MEMBERSHIP_MEASURED = 1u << 1u;
+// Derived topology-publication state. These bits are rebuilt from the current
+// support-contour/half-edge generation; they are never inferred from chart bounds.
+static const uint MEMBERSHIP_TOPOLOGY_VALID = 1u << 2u;
+static const uint MEMBERSHIP_TOPOLOGY_OPEN = 1u << 3u;
+static const uint MEMBERSHIP_HAS_TOPOLOGY = 1u << 4u;
 static const uint HALF_EDGE_ACTIVE = 1u << 0u;
 static const uint HALF_EDGE_MEASURED = 1u << 1u;
 static const uint HALF_EDGE_TWIN_CONFIRMED = 1u << 2u;

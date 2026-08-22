@@ -6,19 +6,22 @@
 #pragma kernel ProveHalfEdgeTwins
 #pragma kernel BuildFrontierEndpointHash
 #pragma kernel OrderOuterHalfEdges
+#pragma kernel SpliceConfirmedTwins
 #pragma kernel InitializeFrontierComponents
 #pragma kernel HookFrontierComponents
 #pragma kernel ShortcutFrontierComponents
 #pragma kernel CreateFrontierLoops
 #pragma kernel AssignFrontierLoops
 #pragma kernel FinalizeFrontierLoops
+#pragma kernel AccumulateFilmTopologyValidity
+#pragma kernel FinalizeFilmTopologyValidity
 
 #include "PressureManifoldAtlasAbi.hlsl"
 #include "SurfaceChartGeometry.hlsl"
 
 StructuredBuffer<AtlasContactFilmHeader> _FilmHeaders;
 StructuredBuffer<float4> _FilmInformation;
-StructuredBuffer<AtlasFilmMembership> _FilmMemberships;
+RWStructuredBuffer<AtlasFilmMembership> _FilmMemberships;
 StructuredBuffer<AtlasPressureManifoldHeader> _ManifoldHeaders;
 StructuredBuffer<SupportContourPage> _SupportContourPages;
 StructuredBuffer<SupportContourSegment> _SupportContours;
@@ -132,6 +135,8 @@ void BuildHalfEdgeArguments(uint3 id : SV_DispatchThreadID)
         (segments + 63u) / 64u : 0u, 1u, 1u);
     _AtlasDispatchArguments[5] = uint3(topologyDirty ?
         (segments * 2u + 63u) / 64u : 0u, 1u, 1u);
+    _AtlasDispatchArguments[6] = uint3(topologyDirty ?
+        (_FilmCapacity + 63u) / 64u : 0u, 1u, 1u);
 }
 
 [numthreads(64, 1, 1)]
@@ -156,6 +161,13 @@ void ClearHalfEdgeHashState(uint3 id : SV_DispatchThreadID)
 void ClearHalfEdgeDerivedState(uint3 id : SV_DispatchThreadID)
 {
     uint index = id.x;
+    if (index < _FilmCapacity)
+    {
+        AtlasFilmMembership membership = _FilmMemberships[index];
+        membership.flags &= ~(MEMBERSHIP_TOPOLOGY_VALID |
+            MEMBERSHIP_TOPOLOGY_OPEN | MEMBERSHIP_HAS_TOPOLOGY);
+        _FilmMemberships[index] = membership;
+    }
     if (index < _HalfEdgeCapacity)
     {
         _HalfEdgeLoopParents[index] = ATLAS_INVALID;
@@ -354,8 +366,11 @@ void BuildFrontierEndpointHash(uint3 id : SV_DispatchThreadID)
     uint endpoint = entryIndex & 1u; SupportContourSegment segment;
     if (!ActiveSegment(edgeIndex, segment)) return;
     SurfaceHalfEdge edge = _HalfEdges[edgeIndex];
-    if ((edge.flags & (HALF_EDGE_ACTIVE | HALF_EDGE_OUTER)) !=
-        (HALF_EDGE_ACTIVE | HALF_EDGE_OUTER) || segment.filmId == 0u ||
+    // First construct the exact local support-contour cycles, including arcs that
+    // will later cancel as proven twins. Removing twins before ordering leaves two
+    // open chains and was the source of the global publication deadlock.
+    if ((edge.flags & (HALF_EDGE_ACTIVE | HALF_EDGE_MEASURED)) !=
+        (HALF_EDGE_ACTIVE | HALF_EDGE_MEASURED) || segment.filmId == 0u ||
         segment.filmId > _FilmCapacity) return;
     AtlasContactFilmHeader film = _FilmHeaders[segment.filmId - 1u];
     float2 uv = endpoint == 0u ? segment.uv01.xy : segment.uv01.zw;
@@ -371,8 +386,8 @@ void OrderOuterHalfEdges(uint3 id : SV_DispatchThreadID)
     uint index = id.x; SupportContourSegment segment;
     if (!ActiveSegment(index, segment)) return;
     SurfaceHalfEdge edge = _HalfEdges[index];
-    if ((edge.flags & (HALF_EDGE_ACTIVE | HALF_EDGE_OUTER)) !=
-        (HALF_EDGE_ACTIVE | HALF_EDGE_OUTER) || segment.filmId == 0u ||
+    if ((edge.flags & (HALF_EDGE_ACTIVE | HALF_EDGE_MEASURED)) !=
+        (HALF_EDGE_ACTIVE | HALF_EDGE_MEASURED) || segment.filmId == 0u ||
         segment.filmId > _FilmCapacity) return;
     AtlasContactFilmHeader film = _FilmHeaders[segment.filmId - 1u];
     float3 endPoint = FilmPoint(film, segment.uv01.zw);
@@ -396,10 +411,10 @@ void OrderOuterHalfEdges(uint3 id : SV_DispatchThreadID)
                 otherIndex < _HalfEdgeCapacity)
             {
                 SurfaceHalfEdge other = _HalfEdges[otherIndex];
-                if ((other.flags & (HALF_EDGE_ACTIVE | HALF_EDGE_OUTER)) ==
-                        (HALF_EDGE_ACTIVE | HALF_EDGE_OUTER) &&
-                    other.manifoldId == edge.manifoldId &&
-                    other.manifoldGeneration == edge.manifoldGeneration)
+                if ((other.flags & (HALF_EDGE_ACTIVE | HALF_EDGE_MEASURED)) ==
+                        (HALF_EDGE_ACTIVE | HALF_EDGE_MEASURED) &&
+                    other.filmId == edge.filmId &&
+                    other.filmGeneration == edge.filmGeneration)
                 {
                     SupportContourSegment otherSegment = _SupportContours[otherIndex];
                     AtlasContactFilmHeader otherFilm =
@@ -426,6 +441,72 @@ void OrderOuterHalfEdges(uint3 id : SV_DispatchThreadID)
     InterlockedCompareExchange(_HalfEdges[best].previousId, 0u,
         edge.id, observed);
     if (observed == 0u) _HalfEdges[best].previousGeneration = edge.generation;
+}
+
+uint FindOuterNeighbour(uint edgeId, bool forward)
+{
+    uint current = edgeId;
+    // Grid16 support contours contain at most 512 marching-squares arcs per chart.
+    // This data-derived bound is independent of room/world size.
+    [loop]
+    for (uint step = 0u; step < 512u && current != 0u; ++step)
+    {
+        if (current > _HalfEdgeCapacity) return 0u;
+        SurfaceHalfEdge candidate = _HalfEdges[current - 1u];
+        if ((candidate.flags & HALF_EDGE_ACTIVE) == 0u) return 0u;
+        if ((candidate.flags & HALF_EDGE_OUTER) != 0u) return current;
+        current = forward ? candidate.nextId : candidate.previousId;
+    }
+    return 0u;
+}
+
+void LinkOrderedEdges(uint previousId, uint nextId)
+{
+    if (previousId == 0u || nextId == 0u ||
+        previousId > _HalfEdgeCapacity || nextId > _HalfEdgeCapacity) return;
+    SurfaceHalfEdge previous = _HalfEdges[previousId - 1u];
+    SurfaceHalfEdge next = _HalfEdges[nextId - 1u];
+    previous.nextId = next.id;
+    previous.nextGeneration = next.generation;
+    next.previousId = previous.id;
+    next.previousGeneration = previous.generation;
+    _HalfEdges[previousId - 1u] = previous;
+    _HalfEdges[nextId - 1u] = next;
+}
+
+// Cancel a proven pair of oppositely oriented support arcs and splice their two
+// local contour cycles into the ordered outer contour of the combined manifold.
+// The operation consumes canonical twin/evidence records only; image adjacency can
+// never manufacture a bridge.
+[numthreads(64, 1, 1)]
+void SpliceConfirmedTwins(uint3 id : SV_DispatchThreadID)
+{
+    uint index = id.x;
+    if (index >= SegmentDomain()) return;
+    SurfaceHalfEdge a = _HalfEdges[index];
+    if ((a.flags & (HALF_EDGE_ACTIVE | HALF_EDGE_TWIN_CONFIRMED)) !=
+            (HALF_EDGE_ACTIVE | HALF_EDGE_TWIN_CONFIRMED) ||
+        a.twinId == 0u || a.twinId > _HalfEdgeCapacity || a.id >= a.twinId)
+        return;
+    SurfaceHalfEdge b = _HalfEdges[a.twinId - 1u];
+    if ((b.flags & (HALF_EDGE_ACTIVE | HALF_EDGE_TWIN_CONFIRMED)) !=
+            (HALF_EDGE_ACTIVE | HALF_EDGE_TWIN_CONFIRMED) ||
+        b.twinId != a.id || b.twinGeneration != a.generation ||
+        a.twinGeneration != b.generation) return;
+
+    uint previousA = FindOuterNeighbour(a.previousId, false);
+    uint nextA = FindOuterNeighbour(a.nextId, true);
+    uint previousB = FindOuterNeighbour(b.previousId, false);
+    uint nextB = FindOuterNeighbour(b.nextId, true);
+    if (previousA == 0u || nextA == 0u || previousB == 0u || nextB == 0u)
+    {
+        InterlockedAdd(_ManifoldDiagnostics[8], 1u);
+        return;
+    }
+    // Twin arcs have reverse orientation: A.prev continues into B.next and
+    // B.prev continues into A.next.
+    LinkOrderedEdges(previousA, nextB);
+    LinkOrderedEdges(previousB, nextA);
 }
 
 [numthreads(64, 1, 1)]
@@ -541,4 +622,72 @@ void FinalizeFrontierLoops(uint3 id : SV_DispatchThreadID)
         saturate((float)moment.w / (4096.0 * (float)loop.halfEdgeCount)) : 0.0;
     loop.revision = max(1u, loop.revision + 1u);
     _FrontierLoops[root] = loop;
+}
+
+[numthreads(64, 1, 1)]
+void AccumulateFilmTopologyValidity(uint3 id : SV_DispatchThreadID)
+{
+    uint index = id.x;
+    if (index >= SegmentDomain()) return;
+    SurfaceHalfEdge edge = _HalfEdges[index];
+    if ((edge.flags & (HALF_EDGE_ACTIVE | HALF_EDGE_MEASURED)) !=
+        (HALF_EDGE_ACTIVE | HALF_EDGE_MEASURED) || edge.filmId == 0u ||
+        edge.filmId > _FilmCapacity) return;
+
+    bool valid = false;
+    if ((edge.flags & HALF_EDGE_TWIN_CONFIRMED) != 0u)
+    {
+        if (edge.twinId > 0u && edge.twinId <= _HalfEdgeCapacity &&
+            edge.evidenceId > 0u && edge.evidenceId <= _HalfEdgeCapacity)
+        {
+            SurfaceHalfEdge twin = _HalfEdges[edge.twinId - 1u];
+            ContinuationEvidence evidence =
+                _ContinuationEvidence[edge.evidenceId - 1u];
+            valid = twin.id == edge.twinId &&
+                twin.generation == edge.twinGeneration &&
+                twin.twinId == edge.id && twin.twinGeneration == edge.generation &&
+                evidence.id == edge.evidenceId &&
+                evidence.generation == edge.evidenceGeneration &&
+                (evidence.flags & EVIDENCE_COMMITTABLE) != 0u;
+        }
+    }
+    else if ((edge.flags & HALF_EDGE_OUTER) != 0u && edge.nextId > 0u &&
+        edge.previousId > 0u && edge.frontierLoopId > 0u &&
+        edge.frontierLoopId <= _HalfEdgeCapacity)
+    {
+        FrontierLoop loop = _FrontierLoops[edge.frontierLoopId - 1u];
+        valid = loop.id == edge.frontierLoopId &&
+            loop.generation == edge.frontierLoopGeneration &&
+            (loop.flags & (FRONTIER_LOOP_ACTIVE | FRONTIER_LOOP_ORDERED |
+                FRONTIER_LOOP_LATENT_TOPOLOGY_ONLY)) ==
+            (FRONTIER_LOOP_ACTIVE | FRONTIER_LOOP_ORDERED |
+                FRONTIER_LOOP_LATENT_TOPOLOGY_ONLY);
+    }
+
+    uint filmIndex = edge.filmId - 1u;
+    InterlockedOr(_FilmMemberships[filmIndex].flags,
+        MEMBERSHIP_HAS_TOPOLOGY);
+    if (!valid)
+    {
+        InterlockedOr(_FilmMemberships[filmIndex].flags,
+            MEMBERSHIP_TOPOLOGY_OPEN);
+        InterlockedAdd(_ManifoldDiagnostics[8], 1u);
+    }
+}
+
+[numthreads(64, 1, 1)]
+void FinalizeFilmTopologyValidity(uint3 id : SV_DispatchThreadID)
+{
+    uint filmIndex = id.x;
+    if (filmIndex >= _FilmCapacity) return;
+    AtlasFilmMembership membership = _FilmMemberships[filmIndex];
+    bool current = membership.filmId == filmIndex + 1u &&
+        (membership.flags & (MEMBERSHIP_ACTIVE | MEMBERSHIP_MEASURED)) ==
+        (MEMBERSHIP_ACTIVE | MEMBERSHIP_MEASURED);
+    bool valid = current &&
+        (membership.flags & MEMBERSHIP_HAS_TOPOLOGY) != 0u &&
+        (membership.flags & MEMBERSHIP_TOPOLOGY_OPEN) == 0u;
+    if (valid) membership.flags |= MEMBERSHIP_TOPOLOGY_VALID;
+    else membership.flags &= ~MEMBERSHIP_TOPOLOGY_VALID;
+    _FilmMemberships[filmIndex] = membership;
 }

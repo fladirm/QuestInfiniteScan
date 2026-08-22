@@ -196,12 +196,15 @@ namespace Genesis.RoomScan.Prism
         private int _proveTwins = -1;
         private int _buildEndpointHash = -1;
         private int _orderOuterEdges = -1;
+        private int _spliceConfirmedTwins = -1;
         private int _initializeFrontierComponents = -1;
         private int _hookFrontierComponents = -1;
         private int _shortcutFrontierComponents = -1;
         private int _createFrontierLoops = -1;
         private int _assignFrontierLoops = -1;
         private int _finalizeFrontierLoops = -1;
+        private int _accumulateFilmTopologyValidity = -1;
+        private int _finalizeFilmTopologyValidity = -1;
         private int _clearBoundaryClaims = -1;
         private int _claimBoundaryHalfEdges = -1;
         private int _commitBoundaryCurves = -1;
@@ -379,6 +382,8 @@ namespace Genesis.RoomScan.Prism
                     atlas.AtlasDispatchArguments, sizeof(uint) * 15);
                 halfEdgeCompute.DispatchIndirect(_orderOuterEdges,
                     atlas.AtlasDispatchArguments, sizeof(uint) * 12);
+                halfEdgeCompute.DispatchIndirect(_spliceConfirmedTwins,
+                    atlas.AtlasDispatchArguments, sizeof(uint) * 12);
                 halfEdgeCompute.DispatchIndirect(_initializeFrontierComponents,
                     atlas.AtlasDispatchArguments, sizeof(uint) * 12);
                 int convergenceWaves = CeilLog2(atlas.HalfEdgeCapacity) + 2;
@@ -395,6 +400,11 @@ namespace Genesis.RoomScan.Prism
                     atlas.AtlasDispatchArguments, sizeof(uint) * 12);
                 halfEdgeCompute.DispatchIndirect(_finalizeFrontierLoops,
                     atlas.AtlasDispatchArguments, sizeof(uint) * 12);
+                halfEdgeCompute.DispatchIndirect(
+                    _accumulateFilmTopologyValidity,
+                    atlas.AtlasDispatchArguments, sizeof(uint) * 12);
+                halfEdgeCompute.DispatchIndirect(_finalizeFilmTopologyValidity,
+                    atlas.AtlasDispatchArguments, sizeof(uint) * 18);
                 supportContourCompute.DispatchIndirect(_finalizeTopologyDirtyFlags,
                     atlas.AtlasDispatchArguments, sizeof(uint) * 3);
                 supportContourCompute.Dispatch(_resetTopologyDirtyQueue, 1, 1, 1);
@@ -481,6 +491,8 @@ namespace Genesis.RoomScan.Prism
             _buildEndpointHash = halfEdgeCompute.FindKernel(
                 "BuildFrontierEndpointHash");
             _orderOuterEdges = halfEdgeCompute.FindKernel("OrderOuterHalfEdges");
+            _spliceConfirmedTwins = halfEdgeCompute.FindKernel(
+                "SpliceConfirmedTwins");
             _initializeFrontierComponents = halfEdgeCompute.FindKernel(
                 "InitializeFrontierComponents");
             _hookFrontierComponents = halfEdgeCompute.FindKernel(
@@ -491,6 +503,10 @@ namespace Genesis.RoomScan.Prism
             _assignFrontierLoops = halfEdgeCompute.FindKernel("AssignFrontierLoops");
             _finalizeFrontierLoops = halfEdgeCompute.FindKernel(
                 "FinalizeFrontierLoops");
+            _accumulateFilmTopologyValidity = halfEdgeCompute.FindKernel(
+                "AccumulateFilmTopologyValidity");
+            _finalizeFilmTopologyValidity = halfEdgeCompute.FindKernel(
+                "FinalizeFilmTopologyValidity");
             _clearBoundaryClaims = boundaryCurveCompute.FindKernel(
                 "ClearHalfEdgeBoundaryClaims");
             _claimBoundaryHalfEdges = boundaryCurveCompute.FindKernel(
@@ -608,10 +624,11 @@ namespace Genesis.RoomScan.Prism
                 _buildHalfEdgeArguments, _clearHalfEdgeHashState,
                 _clearHalfEdgeState,
                 _materializeHalfEdges, _buildHalfEdgeHash, _proveTwins,
-                _buildEndpointHash, _orderOuterEdges,
+                _buildEndpointHash, _orderOuterEdges, _spliceConfirmedTwins,
                 _initializeFrontierComponents, _hookFrontierComponents,
                 _shortcutFrontierComponents, _createFrontierLoops,
-                _assignFrontierLoops, _finalizeFrontierLoops
+                _assignFrontierLoops, _finalizeFrontierLoops,
+                _accumulateFilmTopologyValidity, _finalizeFilmTopologyValidity
             };
             foreach (int kernel in kernels)
             {

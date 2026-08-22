@@ -54,6 +54,7 @@ namespace Genesis.RoomScan.Tests
                          "BuildFilmMeshletVertices",
                          "BuildFilmMeshletRegularTriangles",
                          "BuildFilmMeshletBoundaryTriangles",
+                         "BuildFilmMeshletSeams",
                          "FinalizeFilmMeshletDescriptors",
                          "FinalizeMeshletDrawArguments"
                      })

@@ -44,7 +44,10 @@ namespace Genesis.RoomScan.Prism
     {
         None = 0,
         Active = 1u << 0,
-        Measured = 1u << 1
+        Measured = 1u << 1,
+        TopologyValid = 1u << 2,
+        TopologyOpen = 1u << 3,
+        HasTopology = 1u << 4
     }
 
     public enum SurfaceHalfEdgeRelation : uint

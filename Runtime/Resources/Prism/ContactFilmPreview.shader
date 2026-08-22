@@ -3,7 +3,8 @@ Shader "Hidden/Genesis/ConePrism/ContactFilmPreview"
     Properties
     {
         _PreviewCoverage ("Preview Opacity", Range(0, 1)) = 0.72
-        _ShowLatentDiagnostic ("Show Latent Diagnostic", Float) = 0
+        _PreviewMode ("Preview Mode", Float) = 0
+        [Enum(UnityEngine.Rendering.CompareFunction)] _ZTest ("Depth Test", Float) = 3
     }
     SubShader
     {
@@ -18,7 +19,7 @@ Shader "Hidden/Genesis/ConePrism/ContactFilmPreview"
             Name "Cone-PRISM Preview"
             Cull Off
             ZWrite Off
-            ZTest Equal
+            ZTest [_ZTest]
             Blend SrcAlpha OneMinusSrcAlpha
 
             HLSLPROGRAM
@@ -32,7 +33,7 @@ Shader "Hidden/Genesis/ConePrism/ContactFilmPreview"
             StructuredBuffer<uint> _ContactIndices;
             float4x4 _WorldFromChunk;
             float _PreviewCoverage;
-            float _ShowLatentDiagnostic;
+            float _PreviewMode;
 
             struct Varyings
             {
@@ -65,14 +66,13 @@ Shader "Hidden/Genesis/ConePrism/ContactFilmPreview"
             float4 Frag(Varyings input) : SV_Target
             {
                 bool measured = (input.flags & (1u << 0u)) != 0u;
-                bool latent = (input.flags & ((1u << 2u) | (1u << 3u))) != 0u;
-                if (latent && _ShowLatentDiagnostic < 0.5) discard;
-                if (measured && input.coverage < 0.5) discard;
-                if (latent && input.coverage >= 0.5 &&
-                    (input.flags & (1u << 2u)) == 0u) discard;
+                bool connector = (input.flags & (1u << 2u)) != 0u;
+                bool measuredPass = _PreviewMode < 0.5;
+                if (measuredPass && (!measured || input.coverage < 0.5)) discard;
+                if (!measuredPass && !connector) discard;
                 float opacity = saturate(_PreviewCoverage) *
                     lerp(0.72, 1.0, saturate(input.confidence));
-                if (latent) opacity *= 0.30;
+                if (connector) opacity *= 0.30;
                 float3 view = normalize(GetCameraPositionWS() -
                     input.worldPosition);
                 if (dot(input.worldNormal, view) <= 0.0) discard;

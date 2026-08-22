@@ -390,9 +390,11 @@
         "Working-tree topology rebase separates contact posterior, support-contour/half-edge atlas and derived meshlets; removes four-edge rectangle ontology; implements arbitrary marching-squares contours, evidence-bearing twins, manifold FrontierLoops, shared BoundaryCurve cache, evidence-aligned split, elastic islands and cross-chunk portals",
         "Spawn reduction now performs one complete monotone evidence hook plus a capacity-derived shortcut bound, refits original finite-cone samples in one global orthonormal component frame, aggregates coordinate-consistent posterior statistics and rejects non-representable transitive components",
         "Schema-v6 capture/restore/staging persists contours, half-edges, frontier loops, shared boundaries, continuation evidence, elastic state and cross-chunk portals without chunk-created seeds or latent cuts",
-        "Unity 6000.5.9f1 Vulkan EditMode on 2026-08-21: 84/84 passed; reachable PRISM compute UAV validation passed at the Quest limit of 8; git diff check and control-plane validation passed",
-        "Current code graph digest 68169743f6e1 covers 161 source files, 2192 symbols, 1627 methods/functions, 182 GPU kernels and 17 event links; legacy TSDF/SurfaceNets/GSplat/DiffSoup/server sources are absent from the active production tree",
-        "Commit/archive/APK/install and the one batched physical Quest acceptance remain open; Q3-15.6 therefore remains in_progress"
+      "Unity 6000.5.9f1 Vulkan EditMode on 2026-08-22: 85/85 passed; reachable PRISM compute UAV validation passed at the Quest limit of 8; git diff check and control-plane validation passed",
+      "The regenerated code graph covers 162 source files, 2237 symbols, 1670 methods/functions, 189 GPU kernels and 17 event links; legacy TSDF/SurfaceNets/GSplat/DiffSoup/server sources are absent from the active production tree",
+      "Connected materialization repair replaces world-global topology rejection with generation-tagged per-film validity, orders local contour cycles before confirmed-twin splicing, and emits FilmID-zero latent partitions plus evidence-bearing smooth/crease seams without prediction/export eligibility",
+      "Android ARM64/Vulkan build succeeded with zero Unity build errors; APK SHA-256 019ffacef47604f3d72869df217ed5ec25557fb8655c8983b62a0d29205544e3 was installed as com.questinfinitescan.smoke 0.1.0-dev on the authorized Quest",
+      "Commit/archive and the one batched physical Quest acceptance remain open; Q3-15.6 therefore remains in_progress"
       ]
     },
     {

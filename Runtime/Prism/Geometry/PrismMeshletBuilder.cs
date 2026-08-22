@@ -69,6 +69,23 @@ namespace Genesis.RoomScan.Prism
             Shader.PropertyToID("_BoundaryCurveCache");
         private static readonly int ElasticChartStatesId =
             Shader.PropertyToID("_ElasticChartStates");
+        private static readonly int FilmMembershipsId =
+            Shader.PropertyToID("_FilmMemberships");
+        private static readonly int FilmTopologyRangesId =
+            Shader.PropertyToID("_FilmTopologyRanges");
+        private static readonly int SupportContourPagesId =
+            Shader.PropertyToID("_SupportContourPages");
+        private static readonly int SupportContoursId =
+            Shader.PropertyToID("_SupportContours");
+        private static readonly int HalfEdgesId = Shader.PropertyToID("_HalfEdges");
+        private static readonly int ContinuationEvidenceId =
+            Shader.PropertyToID("_ContinuationEvidence");
+        private static readonly int ContourPageCapacityId =
+            Shader.PropertyToID("_ContourPageCapacity");
+        private static readonly int ContourSegmentCapacityId =
+            Shader.PropertyToID("_ContourSegmentCapacity");
+        private static readonly int HalfEdgeCapacityId =
+            Shader.PropertyToID("_HalfEdgeCapacity");
         private static readonly int HasDisplacementId = Shader.PropertyToID("_HasDisplacement");
         private static readonly int BasePageCapacityId = Shader.PropertyToID("_BasePageCapacity");
         private static readonly int MicroPageCapacityId = Shader.PropertyToID("_MicroPageCapacity");
@@ -129,6 +146,7 @@ namespace Genesis.RoomScan.Prism
         private int _buildVerticesKernel = -1;
         private int _buildRegularTrianglesKernel = -1;
         private int _buildBoundaryTrianglesKernel = -1;
+        private int _buildSeamsKernel = -1;
         private int _finalizeDescriptorsKernel = -1;
         private int _recoverKernel = -1;
         private int _finalizeKernel = -1;
@@ -186,6 +204,8 @@ namespace Genesis.RoomScan.Prism
                 "BuildFilmMeshletRegularTriangles");
             _buildBoundaryTrianglesKernel = meshletBuildCompute.FindKernel(
                 "BuildFilmMeshletBoundaryTriangles");
+            _buildSeamsKernel = meshletBuildCompute.FindKernel(
+                "BuildFilmMeshletSeams");
             _finalizeDescriptorsKernel = meshletBuildCompute.FindKernel(
                 "FinalizeFilmMeshletDescriptors");
             _recoverKernel = meshletBuildCompute.FindKernel(
@@ -374,6 +394,8 @@ namespace Genesis.RoomScan.Prism
                 arguments, argumentsOffset);
             meshletBuildCompute.DispatchIndirect(_buildRegularTrianglesKernel,
                 arguments, argumentsOffset);
+            meshletBuildCompute.DispatchIndirect(_buildSeamsKernel,
+                arguments, argumentsOffset);
             meshletBuildCompute.DispatchIndirect(_finalizeDescriptorsKernel,
                 arguments, argumentsOffset);
         }
@@ -393,6 +415,12 @@ namespace Genesis.RoomScan.Prism
                 minimumTessellationError);
             meshletBuildCompute.SetInt(InPlacePublicationId, inPlace ? 1 : 0);
             PressureManifoldPool manifolds = pool.Manifolds;
+            meshletBuildCompute.SetInt(ContourPageCapacityId,
+                manifolds.ContourPageCapacity);
+            meshletBuildCompute.SetInt(ContourSegmentCapacityId,
+                manifolds.ContourSegmentCapacity);
+            meshletBuildCompute.SetInt(HalfEdgeCapacityId,
+                manifolds.HalfEdgeCapacity);
             meshletBuildCompute.SetBuffer(_countKernel, ElasticChartStatesId,
                 manifolds.ElasticStates);
             int[] materializationKernels =
@@ -400,11 +428,28 @@ namespace Genesis.RoomScan.Prism
                 _buildVerticesKernel,
                 _buildRegularTrianglesKernel,
                 _buildBoundaryTrianglesKernel,
+                _buildSeamsKernel,
                 _finalizeDescriptorsKernel
             };
             foreach (int kernel in materializationKernels)
                 meshletBuildCompute.SetBuffer(kernel, ElasticChartStatesId,
                     manifolds.ElasticStates);
+            int[] topologyReaders = { _countKernel, _buildSeamsKernel };
+            foreach (int kernel in topologyReaders)
+            {
+                meshletBuildCompute.SetBuffer(kernel, FilmMembershipsId,
+                    manifolds.Memberships);
+                meshletBuildCompute.SetBuffer(kernel, FilmTopologyRangesId,
+                    manifolds.FilmTopologyRanges);
+                meshletBuildCompute.SetBuffer(kernel, SupportContourPagesId,
+                    manifolds.SupportContourPages);
+                meshletBuildCompute.SetBuffer(kernel, SupportContoursId,
+                    manifolds.SupportContours);
+                meshletBuildCompute.SetBuffer(kernel, HalfEdgesId,
+                    manifolds.HalfEdges);
+                meshletBuildCompute.SetBuffer(kernel, ContinuationEvidenceId,
+                    manifolds.ContinuationEvidence);
+            }
             ContactBoundaryPool boundaries = boundaryGraph?.BoundaryPool;
             bool hasBoundaries = boundaries != null && !boundaries.IsDisposed;
             meshletBuildCompute.SetInt(HasBoundariesId, hasBoundaries ? 1 : 0);
@@ -451,6 +496,7 @@ namespace Genesis.RoomScan.Prism
                     _countKernel, _buildVerticesKernel,
                     _buildRegularTrianglesKernel,
                     _buildBoundaryTrianglesKernel,
+                    _buildSeamsKernel,
                     _finalizeDescriptorsKernel
                 };
                 foreach (int kernel in displacementReaders)
@@ -474,6 +520,7 @@ namespace Genesis.RoomScan.Prism
                 _buildVerticesKernel,
                 _buildRegularTrianglesKernel,
                 _buildBoundaryTrianglesKernel,
+                _buildSeamsKernel,
                 _finalizeDescriptorsKernel, _recoverKernel, _finalizeKernel
             };
             foreach (int kernel in kernels)
@@ -496,6 +543,7 @@ namespace Genesis.RoomScan.Prism
                 _countKernel, _scanPlansKernel, _scanGroupsKernel,
                 _addOffsetsKernel, _validateKernel, _buildVerticesKernel,
                 _buildRegularTrianglesKernel, _buildBoundaryTrianglesKernel,
+                _buildSeamsKernel,
                 _finalizeDescriptorsKernel
             };
             foreach (int kernel in activeReaders)
@@ -514,6 +562,7 @@ namespace Genesis.RoomScan.Prism
                 _countKernel, _scanPlansKernel, _scanGroupsKernel,
                 _addOffsetsKernel, _validateKernel, _buildVerticesKernel,
                 _buildRegularTrianglesKernel, _buildBoundaryTrianglesKernel,
+                _buildSeamsKernel,
                 _finalizeDescriptorsKernel
             };
             foreach (int kernel in planKernels)

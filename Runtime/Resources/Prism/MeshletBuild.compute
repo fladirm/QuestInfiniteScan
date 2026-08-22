@@ -8,6 +8,7 @@
 #pragma kernel BuildFilmMeshletVertices
 #pragma kernel BuildFilmMeshletRegularTriangles
 #pragma kernel BuildFilmMeshletBoundaryTriangles
+#pragma kernel BuildFilmMeshletSeams
 #pragma kernel FinalizeFilmMeshletDescriptors
 #pragma kernel RecoverPreviousMeshletGeneration
 #pragma kernel FinalizeMeshletDrawArguments
@@ -48,6 +49,7 @@ struct ContactFilmHeader
     uint reserved2;
 };
 
+#include "PressureManifoldAtlasAbi.hlsl"
 #include "ContactMeshletVertexAbi.hlsl"
 
 struct ContactMeshletDescriptor
@@ -176,13 +178,6 @@ struct FilmSlotState
     uint generation; uint activeOrdinal; uint nextFree; uint flags;
 };
 
-struct ElasticChartState
-{
-    uint filmId; uint filmGeneration; uint revision; uint flags;
-    float normalOffset; float normalizedTiltU; float normalizedTiltV;
-    float confidence;
-};
-
 StructuredBuffer<ContactFilmHeader> _FilmHeaders;
 StructuredBuffer<uint> _FilmAllocator;
 StructuredBuffer<uint> _ActiveFilmIndices;
@@ -191,6 +186,12 @@ StructuredBuffer<ContactBoundaryHeader> _BoundaryHeaders;
 StructuredBuffer<BoundaryHashEntry> _BoundaryHash;
 StructuredBuffer<BoundaryCurveCache> _BoundaryCurveCache;
 StructuredBuffer<ElasticChartState> _ElasticChartStates;
+StructuredBuffer<AtlasFilmMembership> _FilmMemberships;
+StructuredBuffer<uint4> _FilmTopologyRanges;
+StructuredBuffer<SupportContourPage> _SupportContourPages;
+StructuredBuffer<SupportContourSegment> _SupportContours;
+StructuredBuffer<SurfaceHalfEdge> _HalfEdges;
+StructuredBuffer<ContinuationEvidence> _ContinuationEvidence;
 StructuredBuffer<DisplacementPageHeader> _DisplacementPages;
 StructuredBuffer<DisplacementCell> _BaseDisplacementCells;
 StructuredBuffer<DisplacementCell> _MicroDisplacementCells;
@@ -238,6 +239,9 @@ uint _BaseCellCapacity;
 uint _MaximumMicroLevels;
 uint _BuildPlanCapacity;
 uint _BuildGroupCapacity;
+uint _ContourPageCapacity;
+uint _ContourSegmentCapacity;
+uint _HalfEdgeCapacity;
 uint _PreviousVertexCapacity;
 uint _PreviousIndexCapacity;
 uint _PreviousDescriptorCapacity;
@@ -254,9 +258,18 @@ static const uint BOUNDARY_CACHE_ACTIVE = 1u;
 // Derived ABI. Never alias or copy ContactFilm lifecycle bits into these values.
 static const uint VERTEX_MEASURED_CONTACT = 1u << 0u;
 static const uint VERTEX_BOUNDARY = 1u << 1u;
+static const uint VERTEX_LATENT_CONNECTOR = 1u << 2u;
+static const uint VERTEX_LATENT_FRONTIER = 1u << 3u;
 static const uint MESHLET_MEASURED_SURFACE = 1u << 0u;
 static const uint MESHLET_HAS_BOUNDARY = 1u << 1u;
 static const uint MESHLET_EXACT_TOPOLOGY = 1u << 2u;
+static const uint MESHLET_LATENT_CONNECTOR = 1u << 3u;
+static const uint MESHLET_LATENT_FRONTIER = 1u << 4u;
+static const uint EVIDENCE_COMMITTABLE = 1u << 8u;
+static const uint CONTOUR_PAGE_ACTIVE = 1u;
+static const uint CONTOUR_ACTIVE = 1u;
+static const uint CONTOUR_MEASURED = 1u << 1u;
+static const uint CONTOUR_SEGMENTS_PER_PAGE = 64u;
 static const uint FILM_HAS_DISPLACEMENT = 1u << 5u;
 static const uint PAGE_ACTIVE = 1u;
 static const uint BASE_GRID = 16u;
@@ -275,6 +288,81 @@ uint BuildFilmIndex(uint ordinal)
 {
     return _BuildMode != 0u ? _DirtyFilmIndices[ordinal] :
         _ActiveFilmIndices[ordinal];
+}
+
+bool FilmTopologyPublishable(uint filmIndex, ContactFilmHeader film)
+{
+    if (filmIndex >= _FilmCapacity) return false;
+    AtlasFilmMembership membership = _FilmMemberships[filmIndex];
+    return membership.filmId == film.id &&
+        membership.filmGeneration == film.generation &&
+        (membership.flags & (MEMBERSHIP_ACTIVE | MEMBERSHIP_MEASURED |
+            MEMBERSHIP_TOPOLOGY_VALID)) ==
+        (MEMBERSHIP_ACTIVE | MEMBERSHIP_MEASURED |
+            MEMBERSHIP_TOPOLOGY_VALID) &&
+        (membership.flags & MEMBERSHIP_TOPOLOGY_OPEN) == 0u;
+}
+
+bool OwnedConfirmedSeam(uint edgeIndex, ContactFilmHeader film,
+    out SurfaceHalfEdge edge, out SurfaceHalfEdge twin,
+    out SupportContourSegment segmentA, out SupportContourSegment segmentB,
+    out ContinuationEvidence evidence)
+{
+    edge = (SurfaceHalfEdge)0;
+    twin = (SurfaceHalfEdge)0;
+    segmentA = (SupportContourSegment)0;
+    segmentB = (SupportContourSegment)0;
+    evidence = (ContinuationEvidence)0;
+    if (edgeIndex >= _HalfEdgeCapacity) return false;
+    edge = _HalfEdges[edgeIndex];
+    if ((edge.flags & (HALF_EDGE_ACTIVE | HALF_EDGE_MEASURED |
+            HALF_EDGE_TWIN_CONFIRMED)) !=
+        (HALF_EDGE_ACTIVE | HALF_EDGE_MEASURED |
+            HALF_EDGE_TWIN_CONFIRMED) || edge.filmId != film.id ||
+        edge.filmGeneration != film.generation || edge.twinId == 0u ||
+        edge.twinId > _HalfEdgeCapacity || edge.id >= edge.twinId ||
+        (edge.relation != HALF_EDGE_SMOOTH &&
+            edge.relation != HALF_EDGE_CREASE)) return false;
+    twin = _HalfEdges[edge.twinId - 1u];
+    if ((twin.flags & (HALF_EDGE_ACTIVE | HALF_EDGE_MEASURED |
+            HALF_EDGE_TWIN_CONFIRMED)) !=
+        (HALF_EDGE_ACTIVE | HALF_EDGE_MEASURED |
+            HALF_EDGE_TWIN_CONFIRMED) || twin.twinId != edge.id ||
+        twin.twinGeneration != edge.generation ||
+        edge.twinGeneration != twin.generation || twin.filmId == 0u ||
+        twin.filmId > _FilmCapacity || edge.contourSegmentId == 0u ||
+        twin.contourSegmentId == 0u ||
+        edge.contourSegmentId > _ContourSegmentCapacity ||
+        twin.contourSegmentId > _ContourSegmentCapacity ||
+        edge.evidenceId == 0u || edge.evidenceId > _HalfEdgeCapacity)
+        return false;
+    AtlasFilmMembership twinMembership = _FilmMemberships[twin.filmId - 1u];
+    if (twinMembership.filmId != twin.filmId ||
+        twinMembership.filmGeneration != twin.filmGeneration ||
+        (twinMembership.flags & (MEMBERSHIP_ACTIVE | MEMBERSHIP_MEASURED |
+            MEMBERSHIP_TOPOLOGY_VALID)) !=
+        (MEMBERSHIP_ACTIVE | MEMBERSHIP_MEASURED |
+            MEMBERSHIP_TOPOLOGY_VALID) ||
+        (twinMembership.flags & MEMBERSHIP_TOPOLOGY_OPEN) != 0u) return false;
+    evidence = _ContinuationEvidence[edge.evidenceId - 1u];
+    if (evidence.id != edge.evidenceId ||
+        evidence.generation != edge.evidenceGeneration ||
+        (evidence.flags & EVIDENCE_COMMITTABLE) == 0u ||
+        countbits(evidence.independentViewMask) < 2u) return false;
+    segmentA = _SupportContours[edge.contourSegmentId - 1u];
+    segmentB = _SupportContours[twin.contourSegmentId - 1u];
+    return segmentA.id == edge.contourSegmentId &&
+        segmentA.generation == edge.contourSegmentGeneration &&
+        segmentA.filmId == edge.filmId &&
+        segmentA.filmGeneration == edge.filmGeneration &&
+        segmentB.id == twin.contourSegmentId &&
+        segmentB.generation == twin.contourSegmentGeneration &&
+        segmentB.filmId == twin.filmId &&
+        segmentB.filmGeneration == twin.filmGeneration &&
+        (segmentA.flags & (CONTOUR_ACTIVE | CONTOUR_MEASURED)) ==
+            (CONTOUR_ACTIVE | CONTOUR_MEASURED) &&
+        (segmentB.flags & (CONTOUR_ACTIVE | CONTOUR_MEASURED)) ==
+            (CONTOUR_ACTIVE | CONTOUR_MEASURED);
 }
 
 DisplacementCell LoadDisplacementCell(bool micro, uint pageIndex, uint localCell)
@@ -742,13 +830,14 @@ uint TriangleMask(float3 scalar)
         (scalar.z >= 0.0 ? 4u : 0u);
 }
 
-uint2 MaterialClassCounts(uint triangleClass)
+uint3 MaterialClassCounts(uint triangleClass)
 {
-    if (triangleClass == 1u) return uint2(0u, 1u);
-    if (triangleClass == 2u) return uint2(1u, 1u);
-    if (triangleClass == 3u) return uint2(1u, 2u);
-    if (triangleClass == 4u) return uint2(1u, 3u);
-    return 0u;
+    // x = clipped-fragment slot, y = measured triangles, z = latent triangles.
+    if (triangleClass == 1u) return uint3(0u, 1u, 0u);
+    if (triangleClass == 2u) return uint3(1u, 1u, 2u);
+    if (triangleClass == 3u) return uint3(1u, 2u, 1u);
+    if (triangleClass == 4u) return uint3(1u, 3u, 0u);
+    return uint3(0u, 0u, 1u);
 }
 
 float3 NonDegenerateCutScalar(float3 scalar)
@@ -918,9 +1007,10 @@ uint ReservedSubdivision(uint segments)
 uint ReservedVertexCount(uint segments)
 {
     uint row = segments + 1u;
-    // One measured lattice plus the worst seven vertices produced when one source
-    // triangle is cut into two separately materialized measured regions.
-    return row * row + 14u * segments * segments;
+    // Explicit measured/latent lattices plus the worst seven vertices produced by
+    // each clipped source triangle. This preserves the conserved sheet without
+    // allowing latent fragments into first-hit prediction.
+    return 2u * row * row + 14u * segments * segments;
 }
 
 uint ReservedIndexCount(uint segments)
@@ -1019,9 +1109,10 @@ void CommitDirtyMeshletBuild(uint3 id : SV_DispatchThreadID)
         _TransactionState[6] = 0u;
         return;
     }
-    bool topologyValid = _ManifoldDiagnostics[8] == 0u &&
-        _ManifoldDiagnostics[9] == 0u;
-    bool valid = _TransactionState[0] == 0u && topologyValid;
+    // Topology eligibility is resolved per generation-tagged FilmMembership in
+    // CountMeshletBuildPlans. One provisional/open contour must never freeze every
+    // already valid manifold component in the world.
+    bool valid = _TransactionState[0] == 0u;
     _TransactionState[5] = valid ? 1u : 0u;
     _IncrementalDispatchArguments[2] = uint3(valid ? dirtyCount : 0u, 1u, 1u);
     _IncrementalDispatchArguments[3] = uint3(
@@ -1043,9 +1134,11 @@ void PrepareFullMeshletRepack(uint3 id : SV_DispatchThreadID)
 
 groupshared uint sCountSegments;
 groupshared uint sCountMeasuredTriangles;
+groupshared uint sCountLatentTriangles;
 groupshared uint sCountMixedTriangles;
+groupshared uint sCountSeams;
 groupshared uint sCountValid;
-groupshared uint2 sTriangleBlockPrefix[64];
+groupshared uint3 sTriangleBlockPrefix[64];
 
 [numthreads(64, 1, 1)]
 void CountMeshletBuildPlans(uint3 groupId : SV_GroupID,
@@ -1059,12 +1152,15 @@ void CountMeshletBuildPlans(uint3 groupId : SV_GroupID,
     {
         sCountSegments = 0u;
         sCountMeasuredTriangles = 0u;
+        sCountLatentTriangles = 0u;
         sCountMixedTriangles = 0u;
+        sCountSeams = 0u;
         sCountValid = 0u;
         if (filmIndex < _FilmCapacity)
         {
             ContactFilmHeader candidate = _FilmHeaders[filmIndex];
-            if ((candidate.flags & FILM_ACTIVE) != 0u)
+            if ((candidate.flags & FILM_ACTIVE) != 0u &&
+                FilmTopologyPublishable(filmIndex, candidate))
             {
                 sCountSegments = ChooseSubdivision(candidate);
                 sCountValid = 1u;
@@ -1116,11 +1212,44 @@ void CountMeshletBuildPlans(uint3 groupId : SV_GroupID,
         uint classShift = (triangleOrdinal & 7u) << 2u;
         InterlockedOr(_TriangleClasses[classWord], triangleClass << classShift);
         InterlockedAdd(sCountMeasuredTriangles, measured);
+        InterlockedAdd(sCountLatentTriangles, ignoredLatent);
         InterlockedAdd(sCountMixedTriangles, mixed);
     }
     GroupMemoryBarrierWithGroupSync();
+
+    // A seam belongs to exactly one chart: the lower canonical half-edge id owns
+    // its derived connector. Pages are traversed directly, avoiding an O(n^2)
+    // contour-slot lookup in this hot planning pass.
+    uint4 topologyRange = _FilmTopologyRanges[filmIndex];
+    uint pageId = topologyRange.x;
+    [loop]
+    for (uint pageOrdinal = 0u;
+        pageOrdinal < topologyRange.y && pageId != 0u; ++pageOrdinal)
+    {
+        if (pageId > _ContourPageCapacity) break;
+        SupportContourPage page = _SupportContourPages[pageId - 1u];
+        if ((page.flags & CONTOUR_PAGE_ACTIVE) != 0u &&
+            page.filmId == film.id && page.filmGeneration == film.generation)
+        {
+            [loop]
+            for (uint local = groupIndex; local < page.segmentCount;
+                local += 64u)
+            {
+                uint edgeIndex = (pageId - 1u) *
+                    CONTOUR_SEGMENTS_PER_PAGE + local;
+                SurfaceHalfEdge edge, twin;
+                SupportContourSegment segmentA, segmentB;
+                ContinuationEvidence evidence;
+                if (OwnedConfirmedSeam(edgeIndex, film, edge, twin,
+                    segmentA, segmentB, evidence))
+                    InterlockedAdd(sCountSeams, 1u);
+            }
+        }
+        pageId = page.nextPageId;
+    }
+    GroupMemoryBarrierWithGroupSync();
     uint packedClasses = _TriangleClasses[triangleWorkBase + groupIndex];
-    uint2 blockCount = 0u;
+    uint3 blockCount = 0u;
     [unroll]
     for (uint localTriangle = 0u; localTriangle < 8u; ++localTriangle)
         blockCount += MaterialClassCounts(
@@ -1130,36 +1259,45 @@ void CountMeshletBuildPlans(uint3 groupId : SV_GroupID,
     [unroll]
     for (uint offset = 1u; offset < 64u; offset <<= 1u)
     {
-        uint2 add = groupIndex >= offset ?
+        uint3 add = groupIndex >= offset ?
             sTriangleBlockPrefix[groupIndex - offset] : 0u;
         GroupMemoryBarrierWithGroupSync();
         sTriangleBlockPrefix[groupIndex] += add;
         GroupMemoryBarrierWithGroupSync();
     }
-    uint2 exclusiveBlockPrefix = sTriangleBlockPrefix[groupIndex] - blockCount;
+    uint3 exclusiveBlockPrefix = sTriangleBlockPrefix[groupIndex] - blockCount;
     _TriangleClasses[triangleWorkBase + TRIANGLE_CLASS_WORDS_PER_FILM +
         groupIndex] = min(exclusiveBlockPrefix.x, 1023u) |
-        (min(exclusiveBlockPrefix.y, 2047u) << 10u);
+        (min(exclusiveBlockPrefix.y, 2047u) << 10u) |
+        (min(exclusiveBlockPrefix.z, 2047u) << 21u);
     if (groupIndex != 0u) return;
     MeshletBuildPlan plan = (MeshletBuildPlan)0;
     plan.filmIndex = filmIndex;
     plan.segments = segments;
     plan.rowVertices = segments + 1u;
     uint latticeVertices = plan.rowVertices * plan.rowVertices;
-    plan.vertexCount = latticeVertices + sCountMixedTriangles * 7u;
-    plan.triangleCount = sCountMeasuredTriangles;
+    plan.vertexCount = 2u * latticeVertices + sCountMixedTriangles * 7u +
+        sCountSeams * 4u;
+    plan.triangleCount = sCountMeasuredTriangles + sCountLatentTriangles +
+        sCountSeams * 2u;
     plan.measuredIndexCount = sCountMeasuredTriangles * 3u;
-    plan.latentIndexCount = 0u;
-    plan.indexCount = plan.measuredIndexCount;
-    plan.descriptorCount = plan.indexCount > 0u ? 1u : 0u;
+    plan.latentIndexCount = sCountLatentTriangles * 3u;
+    plan.indexCount = plan.measuredIndexCount + plan.latentIndexCount +
+        sCountSeams * 6u;
+    // Stable measured/latent descriptor slots prevent material ranges from
+    // shifting when confidence crosses the measured-support threshold.
+    plan.descriptorCount = plan.indexCount > 0u ? 2u : 0u;
     plan.reserved0 = sCountMixedTriangles;
     // Reserve the complete topology envelope of the current measured resolution,
     // not the next LOD for every film.  Growth remains lossless: an incompatible
     // dirty range requests the existing transactional full repack.  The previous
     // policy consumed ~3,873 vertices even for an empty 8-segment film and could
     // make the first publication fail before a single vertex became visible.
-    plan.reserved1 = plan.indexCount > 0u ? ReservedVertexCount(segments) : 0u;
-    plan.reserved2 = plan.indexCount > 0u ? ReservedIndexCount(segments) : 0u;
+    uint reservedSeams = topologyRange.y * CONTOUR_SEGMENTS_PER_PAGE;
+    plan.reserved1 = plan.indexCount > 0u ?
+        ReservedVertexCount(segments) + reservedSeams * 4u : 0u;
+    plan.reserved2 = plan.indexCount > 0u ?
+        ReservedIndexCount(segments) + reservedSeams * 6u : 0u;
     plan.valid = plan.indexCount > 0u ? 1u : 0u;
     if (_BuildMode != 0u)
     {
@@ -1169,7 +1307,7 @@ void CountMeshletBuildPlans(uint3 groupId : SV_GroupID,
             range.maximumSegments >= segments &&
             plan.vertexCount <= range.vertexCapacity &&
             plan.indexCount <= range.indexCapacity &&
-            range.descriptorCapacity >= 1u;
+            range.descriptorCapacity >= 2u;
         if (compatible)
         {
             plan.vertexOffset = range.vertexOffset;
@@ -1274,12 +1412,10 @@ void ValidateMeshletBuild(uint3 id : SV_DispatchThreadID)
         indices = last.indexOffset + last.reserved2;
         descriptors = last.descriptorOffset + last.descriptorCount;
     }
-    bool topologyValid = _ManifoldDiagnostics[8] == 0u &&
-        _ManifoldDiagnostics[9] == 0u;
     bool capacityValid = activeCount <= _BuildPlanCapacity &&
         vertices <= _VertexCapacity && indices <= _IndexCapacity &&
         descriptors <= _DescriptorCapacity;
-    bool valid = capacityValid && topologyValid;
+    bool valid = capacityValid;
     _ManifoldDiagnostics[15] = capacityValid ? 0u : 1u;
     if (_InPlacePublication != 0u)
     {
@@ -1368,7 +1504,7 @@ uint StableSurfaceSampleId(ContactFilmHeader film, float2 uv)
 }
 
 ContactMeshletVertex BuildSurfaceVertex(ContactFilmHeader film, float2 uv,
-    bool boundarySample)
+    bool measuredContact, bool boundarySample)
 {
     float2 surfaceUv = uv;
     float3 sharedPosition = SurfacePosition(film, uv);
@@ -1378,14 +1514,18 @@ ContactMeshletVertex BuildSurfaceVertex(ContactFilmHeader film, float2 uv,
     vertex.position = sharedPosition;
     vertex.packedNormal = PackContactMeshletNormal(
         SurfaceNormal(film, u, v, uv));
-    vertex.generation = film.generation;
+    vertex.generation = measuredContact ? film.generation : 0u;
     vertex.packedUv = PackContactMeshletHalf2(surfaceUv);
+    float coverage = saturate(SurfaceCoverage(film, uv));
+    float confidence = measuredContact ? film.confidence * coverage :
+        max(0.02, 0.25 * film.confidence * (1.0 - coverage));
     vertex.packedSigmaConfidence = PackContactMeshletHalf2(
-        float2(film.sigmaNormal, film.confidence));
-    uint flags = VERTEX_MEASURED_CONTACT |
+        float2(film.sigmaNormal, confidence));
+    uint flags = (measuredContact ? VERTEX_MEASURED_CONTACT :
+        VERTEX_LATENT_FRONTIER) |
         (boundarySample ? VERTEX_BOUNDARY : 0u);
     vertex.packedFilmMaterial = PackContactMeshletFilmMaterial(
-        film.id, 1u, flags, 1.0);
+        measuredContact ? film.id : 0u, 1u, flags, coverage);
     return vertex;
 }
 
@@ -1426,8 +1566,9 @@ bool LoadMeshletBuildContext(uint activeOrdinal, out MeshletBuildPlan plan,
 void BuildFilmMeshletVertices(uint3 groupId : SV_GroupID,
     uint groupIndex : SV_GroupIndex)
 {
-    // Canonical latent closure is topology-only. Only measured contact support is
-    // materialized for first-hit prediction, preview, collision and export.
+    // Canonical UNKNOWN closure remains topology-only. The derived latent lattice
+    // below carries FilmID zero and is isolated from first-hit prediction, ordinary
+    // preview, collision and export; it only preserves materialization continuity.
     MeshletBuildPlan plan;
     ContactFilmHeader film;
     if (!LoadMeshletBuildContext(groupId.x, plan, film)) return;
@@ -1460,6 +1601,16 @@ void BuildFilmMeshletVertices(uint3 groupId : SV_GroupID,
         measured.packedFilmMaterial = PackContactMeshletFilmMaterial(
             film.id, 1u, flags, observedConfidence);
         _ContactVertices[plan.vertexOffset + vertexOrdinal] = measured;
+
+        ContactMeshletVertex latent = measured;
+        latent.generation = 0u;
+        latent.packedSigmaConfidence = PackContactMeshletHalf2(float2(
+            film.sigmaNormal, max(0.02, 0.25 * film.confidence *
+                (1.0 - observedConfidence))));
+        latent.packedFilmMaterial = PackContactMeshletFilmMaterial(
+            0u, 1u, VERTEX_LATENT_FRONTIER |
+                (onBoundary ? VERTEX_BOUNDARY : 0u), observedConfidence);
+        _ContactVertices[plan.vertexOffset + vertexCount + vertexOrdinal] = latent;
     }
 }
 
@@ -1470,14 +1621,15 @@ uint TriangleClassAt(uint filmIndex, uint triangleOrdinal)
     return (packed >> ((triangleOrdinal & 7u) << 2u)) & 15u;
 }
 
-uint2 TrianglePrefixAt(uint filmIndex, uint triangleOrdinal)
+uint3 TrianglePrefixAt(uint filmIndex, uint triangleOrdinal)
 {
     uint workBase = filmIndex * TRIANGLE_WORK_WORDS_PER_FILM;
     uint classWordIndex = triangleOrdinal >> 3u;
     uint packedPrefix = _TriangleClasses[workBase +
         TRIANGLE_CLASS_WORDS_PER_FILM + classWordIndex];
-    uint2 prefix = uint2(packedPrefix & 1023u,
-        (packedPrefix >> 10u) & 2047u);
+    uint3 prefix = uint3(packedPrefix & 1023u,
+        (packedPrefix >> 10u) & 2047u,
+        (packedPrefix >> 21u) & 2047u);
     uint packedClasses = _TriangleClasses[workBase + classWordIndex];
     uint withinWord = triangleOrdinal & 7u;
     [unroll]
@@ -1511,19 +1663,68 @@ void TriangleCoordinates(uint segments, uint triangleOrdinal,
     uv2 = float2((float)x.z, (float)y.z) / (float)segments;
 }
 
+void ClipTriangle(float2 triangleUv[3], float scalar[3], bool keepPositive,
+    out float2 polygon[4], out uint polygonCount)
+{
+    polygonCount = 0u;
+    uint previous = 2u;
+    [unroll]
+    for (uint current = 0u; current < 3u; ++current)
+    {
+        bool previousInside = keepPositive ? scalar[previous] >= 0.0 :
+            scalar[previous] <= 0.0;
+        bool currentInside = keepPositive ? scalar[current] >= 0.0 :
+            scalar[current] <= 0.0;
+        if (previousInside != currentInside)
+        {
+            float denominator = scalar[previous] - scalar[current];
+            float t = abs(denominator) > 1e-10 ?
+                saturate(scalar[previous] / denominator) : 0.5;
+            polygon[polygonCount++] = lerp(triangleUv[previous],
+                triangleUv[current], t);
+        }
+        if (currentInside) polygon[polygonCount++] = triangleUv[current];
+        previous = current;
+    }
+}
+
+void StorePolygonIndices(uint indexBase, uint vertexBase, uint vertexCount)
+{
+    [unroll]
+    for (uint outputTriangle = 0u; outputTriangle < 2u; ++outputTriangle)
+    {
+        if (outputTriangle + 2u >= vertexCount) break;
+        StoreTriangle(indexBase + outputTriangle * 3u, vertexBase,
+            vertexBase + outputTriangle + 1u,
+            vertexBase + outputTriangle + 2u);
+    }
+}
+
 void EmitRegularMaterialTriangle(ContactFilmHeader film, MeshletBuildPlan plan,
-    uint triangleOrdinal, uint triangleClass, uint2 prefix)
+    uint triangleOrdinal, uint triangleClass, uint3 prefix)
 {
     uint3 localVertex;
     float2 uv0, uv1, uv2;
     TriangleCoordinates(plan.segments, triangleOrdinal, localVertex,
         uv0, uv1, uv2);
-    uint indexCursor = plan.indexOffset + prefix.y * 3u;
+    uint latticeVertices = plan.rowVertices * plan.rowVertices;
+    uint measuredIndexCursor = plan.indexOffset + prefix.y * 3u;
+    uint latentIndexCursor = plan.indexOffset + plan.measuredIndexCount +
+        prefix.z * 3u;
+    if (triangleClass == 0u)
+    {
+        StoreTriangle(latentIndexCursor,
+            plan.vertexOffset + latticeVertices + localVertex.x,
+            plan.vertexOffset + latticeVertices + localVertex.y,
+            plan.vertexOffset + latticeVertices + localVertex.z);
+        return;
+    }
     if (triangleClass == 1u)
     {
-        _ContactIndices[indexCursor] = plan.vertexOffset + localVertex.x;
-        _ContactIndices[indexCursor + 1u] = plan.vertexOffset + localVertex.y;
-        _ContactIndices[indexCursor + 2u] = plan.vertexOffset + localVertex.z;
+        StoreTriangle(measuredIndexCursor,
+            plan.vertexOffset + localVertex.x,
+            plan.vertexOffset + localVertex.y,
+            plan.vertexOffset + localVertex.z);
         return;
     }
     float3 support = NonDegenerateCutScalar(float3(
@@ -1531,50 +1732,32 @@ void EmitRegularMaterialTriangle(ContactFilmHeader film, MeshletBuildPlan plan,
         SurfaceCoverage(film, uv2)) - 0.5);
     uint mask = TriangleMask(support);
     if (mask == 0u || mask == 7u) return;
-    uint vertexBase = plan.vertexOffset + plan.rowVertices * plan.rowVertices +
+    uint vertexBase = plan.vertexOffset + 2u * latticeVertices +
         prefix.x * 7u;
-    float2 cut01 = CutIntersection(uv0, uv1, support.x, support.y);
-    float2 cut12 = CutIntersection(uv1, uv2, support.y, support.z);
-    float2 cut20 = CutIntersection(uv2, uv0, support.z, support.x);
-    uint outputVertexCount = triangleClass == 2u ? 3u : 4u;
+    float2 triangleUv[3] = { uv0, uv1, uv2 };
+    float scalar[3] = { support.x, support.y, support.z };
+    float2 measuredPolygon[4];
+    float2 latentPolygon[4];
+    uint measuredCount;
+    uint latentCount;
+    ClipTriangle(triangleUv, scalar, true, measuredPolygon, measuredCount);
+    ClipTriangle(triangleUv, scalar, false, latentPolygon, latentCount);
     [loop]
-    for (uint outputVertex = 0u; outputVertex < outputVertexCount;
+    for (uint outputVertex = 0u; outputVertex < measuredCount;
         ++outputVertex)
-    {
-        float2 outputUv = 0.0;
-        if (mask == 1u)
-            outputUv = outputVertex == 0u ? uv0 :
-                (outputVertex == 1u ? cut01 : cut20);
-        else if (mask == 6u)
-            outputUv = outputVertex == 0u ? cut01 :
-                (outputVertex == 1u ? uv1 :
-                    (outputVertex == 2u ? uv2 : cut20));
-        else if (mask == 2u)
-            outputUv = outputVertex == 0u ? cut01 :
-                (outputVertex == 1u ? uv1 : cut12);
-        else if (mask == 5u)
-            outputUv = outputVertex == 0u ? uv0 :
-                (outputVertex == 1u ? cut01 :
-                    (outputVertex == 2u ? cut12 : uv2));
-        else if (mask == 4u)
-            outputUv = outputVertex == 0u ? cut12 :
-                (outputVertex == 1u ? uv2 : cut20);
-        else
-            outputUv = outputVertex == 0u ? uv0 :
-                (outputVertex == 1u ? uv1 :
-                    (outputVertex == 2u ? cut12 : cut20));
         _ContactVertices[vertexBase + outputVertex] =
-            BuildSurfaceVertex(film, outputUv, true);
-    }
-    StoreTriangle(indexCursor, vertexBase, vertexBase + 1u,
-        vertexBase + 2u);
-    if (triangleClass == 3u)
-        StoreTriangle(indexCursor + 3u, vertexBase, vertexBase + 2u,
-            vertexBase + 3u);
+            BuildSurfaceVertex(film, measuredPolygon[outputVertex], true, true);
+    uint latentVertexBase = vertexBase + measuredCount;
+    [loop]
+    for (uint outputVertex = 0u; outputVertex < latentCount; ++outputVertex)
+        _ContactVertices[latentVertexBase + outputVertex] =
+            BuildSurfaceVertex(film, latentPolygon[outputVertex], false, true);
+    StorePolygonIndices(measuredIndexCursor, vertexBase, measuredCount);
+    StorePolygonIndices(latentIndexCursor, latentVertexBase, latentCount);
 }
 
 void EmitBoundaryMaterialTriangle(ContactFilmHeader film, MeshletBuildPlan plan,
-    uint triangleOrdinal, float3 boundaryScalar, uint2 prefix)
+    uint triangleOrdinal, float3 boundaryScalar, uint3 prefix)
 {
     uint3 ignoredLocalVertex;
     float2 uv0, uv1, uv2;
@@ -1583,7 +1766,8 @@ void EmitBoundaryMaterialTriangle(ContactFilmHeader film, MeshletBuildPlan plan,
     boundaryScalar = NonDegenerateCutScalar(boundaryScalar);
     uint mask = TriangleMask(boundaryScalar);
     if (mask == 0u || mask == 7u) return;
-    uint vertexBase = plan.vertexOffset + plan.rowVertices * plan.rowVertices +
+    uint vertexBase = plan.vertexOffset +
+        2u * plan.rowVertices * plan.rowVertices +
         prefix.x * 7u;
     uint indexCursor = plan.indexOffset + prefix.y * 3u;
     float2 cutA = 0.0;
@@ -1617,7 +1801,7 @@ void EmitBoundaryMaterialTriangle(ContactFilmHeader film, MeshletBuildPlan plan,
                 (outputVertex == 2u ? uv2 :
                     (outputVertex == 3u ? cutA : cutB)));
         _ContactVertices[vertexBase + outputVertex] =
-            BuildSurfaceVertex(film, outputUv, true);
+            BuildSurfaceVertex(film, outputUv, true, true);
     }
     if (mask == 1u || mask == 6u)
     {
@@ -1665,9 +1849,171 @@ void BuildFilmMeshletRegularTriangles(uint3 groupId : SV_GroupID,
         uint triangleOrdinal = groupIndex + laneItem * 256u;
         if (triangleOrdinal >= baseTriangleCount) continue;
         uint triangleClass = TriangleClassAt(plan.filmIndex, triangleOrdinal);
-        if (triangleClass < 1u || triangleClass > 3u) continue;
+        if (triangleClass > 3u) continue;
         EmitRegularMaterialTriangle(film, plan, triangleOrdinal,
             triangleClass, TrianglePrefixAt(plan.filmIndex, triangleOrdinal));
+    }
+}
+
+groupshared uint sSeamLanePrefix[64];
+groupshared MeshletBuildPlan sSeamPlan;
+groupshared ContactFilmHeader sSeamFilm;
+groupshared uint sSeamBuildValid;
+
+ContactMeshletVertex BuildSeamVertex(float3 position, float3 normal,
+    float sigma, float confidence, float2 uv, uint generation)
+{
+    ContactMeshletVertex vertex = (ContactMeshletVertex)0;
+    vertex.position = position;
+    vertex.packedNormal = PackContactMeshletNormal(normalize(normal));
+    vertex.generation = generation;
+    vertex.packedUv = PackContactMeshletHalf2(saturate(uv));
+    vertex.packedSigmaConfidence = PackContactMeshletHalf2(float2(
+        sigma, confidence));
+    vertex.packedFilmMaterial = PackContactMeshletFilmMaterial(0u, 1u,
+        VERTEX_LATENT_CONNECTOR | VERTEX_BOUNDARY, 0.0);
+    return vertex;
+}
+
+[numthreads(64, 1, 1)]
+void BuildFilmMeshletSeams(uint3 groupId : SV_GroupID,
+    uint groupIndex : SV_GroupIndex)
+{
+    if (groupIndex == 0u)
+    {
+        MeshletBuildPlan candidatePlan;
+        ContactFilmHeader candidateFilm;
+        bool valid = LoadMeshletBuildContext(groupId.x, candidatePlan,
+            candidateFilm);
+        sSeamPlan = candidatePlan;
+        sSeamFilm = candidateFilm;
+        sSeamBuildValid = valid ? 1u : 0u;
+    }
+    GroupMemoryBarrierWithGroupSync();
+    if (sSeamBuildValid == 0u) return;
+    MeshletBuildPlan plan = sSeamPlan;
+    ContactFilmHeader film = sSeamFilm;
+    uint4 topologyRange = _FilmTopologyRanges[plan.filmIndex];
+    uint ownedCount = 0u;
+    uint pageId = topologyRange.x;
+    [loop]
+    for (uint pageOrdinal = 0u;
+        pageOrdinal < topologyRange.y && pageId != 0u; ++pageOrdinal)
+    {
+        if (pageId > _ContourPageCapacity) break;
+        SupportContourPage page = _SupportContourPages[pageId - 1u];
+        if ((page.flags & CONTOUR_PAGE_ACTIVE) != 0u &&
+            page.filmId == film.id && page.filmGeneration == film.generation)
+        {
+            [loop]
+            for (uint local = groupIndex; local < page.segmentCount;
+                local += 64u)
+            {
+                uint edgeIndex = (pageId - 1u) *
+                    CONTOUR_SEGMENTS_PER_PAGE + local;
+                SurfaceHalfEdge edge, twin;
+                SupportContourSegment segmentA, segmentB;
+                ContinuationEvidence evidence;
+                if (OwnedConfirmedSeam(edgeIndex, film, edge, twin,
+                    segmentA, segmentB, evidence)) ownedCount++;
+            }
+        }
+        pageId = page.nextPageId;
+    }
+    sSeamLanePrefix[groupIndex] = ownedCount;
+    GroupMemoryBarrierWithGroupSync();
+    [unroll]
+    for (uint offset = 1u; offset < 64u; offset <<= 1u)
+    {
+        uint add = groupIndex >= offset ?
+            sSeamLanePrefix[groupIndex - offset] : 0u;
+        GroupMemoryBarrierWithGroupSync();
+        sSeamLanePrefix[groupIndex] += add;
+        GroupMemoryBarrierWithGroupSync();
+    }
+    uint seamOrdinal = sSeamLanePrefix[groupIndex] - ownedCount;
+    uint expectedSeams = (plan.indexCount - plan.measuredIndexCount -
+        plan.latentIndexCount) / 6u;
+    uint latticeVertices = plan.rowVertices * plan.rowVertices;
+    uint seamVertexBase = plan.vertexOffset + 2u * latticeVertices +
+        (plan.reserved0 & 0x7fffffffu) * 7u;
+    uint seamIndexBase = plan.indexOffset + plan.measuredIndexCount +
+        plan.latentIndexCount;
+
+    pageId = topologyRange.x;
+    [loop]
+    for (uint pageOrdinal = 0u;
+        pageOrdinal < topologyRange.y && pageId != 0u; ++pageOrdinal)
+    {
+        if (pageId > _ContourPageCapacity) break;
+        SupportContourPage page = _SupportContourPages[pageId - 1u];
+        if ((page.flags & CONTOUR_PAGE_ACTIVE) != 0u &&
+            page.filmId == film.id && page.filmGeneration == film.generation)
+        {
+            [loop]
+            for (uint local = groupIndex; local < page.segmentCount;
+                local += 64u)
+            {
+                uint edgeIndex = (pageId - 1u) *
+                    CONTOUR_SEGMENTS_PER_PAGE + local;
+                SurfaceHalfEdge edge, twin;
+                SupportContourSegment a, b;
+                ContinuationEvidence evidence;
+                if (!OwnedConfirmedSeam(edgeIndex, film, edge, twin, a, b,
+                    evidence)) continue;
+                uint outputOrdinal = seamOrdinal++;
+                if (outputOrdinal >= expectedSeams || twin.filmId == 0u ||
+                    twin.filmId > _FilmCapacity) continue;
+                ContactFilmHeader filmB = _FilmHeaders[twin.filmId - 1u];
+                if ((filmB.flags & FILM_ACTIVE) == 0u ||
+                    filmB.id != twin.filmId ||
+                    filmB.generation != twin.filmGeneration) continue;
+
+                float3 pA0 = SurfacePosition(film, a.uv01.xy);
+                float3 pA1 = SurfacePosition(film, a.uv01.zw);
+                float3 pB0 = SurfacePosition(filmB, b.uv01.xy);
+                float3 pB1 = SurfacePosition(filmB, b.uv01.zw);
+                float3 nA0 = SurfaceNormal(film,
+                    lerp(-film.extentU, film.extentU, a.uv01.x),
+                    lerp(-film.extentV, film.extentV, a.uv01.y), a.uv01.xy);
+                float3 nA1 = SurfaceNormal(film,
+                    lerp(-film.extentU, film.extentU, a.uv01.z),
+                    lerp(-film.extentV, film.extentV, a.uv01.w), a.uv01.zw);
+                float3 nB0 = SurfaceNormal(filmB,
+                    lerp(-filmB.extentU, filmB.extentU, b.uv01.x),
+                    lerp(-filmB.extentV, filmB.extentV, b.uv01.y), b.uv01.xy);
+                float3 nB1 = SurfaceNormal(filmB,
+                    lerp(-filmB.extentU, filmB.extentU, b.uv01.z),
+                    lerp(-filmB.extentV, filmB.extentV, b.uv01.w), b.uv01.zw);
+                bool smooth = edge.relation == HALF_EDGE_SMOOTH;
+                float3 shared0 = normalize(nA0 + nB1);
+                float3 shared1 = normalize(nA1 + nB0);
+                float sigma = max(max(a.sigma, b.sigma),
+                    max(film.sigmaNormal, filmB.sigmaNormal));
+                float confidence = saturate(min(min(a.confidence, b.confidence),
+                    min(film.confidence, filmB.confidence)) *
+                    evidence.poseCalibrationQuality);
+                uint vertexBase = seamVertexBase + outputOrdinal * 4u;
+                _ContactVertices[vertexBase] = BuildSeamVertex(pA0,
+                    smooth ? shared0 : nA0, sigma, confidence, a.uv01.xy,
+                    evidence.generation);
+                _ContactVertices[vertexBase + 1u] = BuildSeamVertex(pA1,
+                    smooth ? shared1 : nA1, sigma, confidence, a.uv01.zw,
+                    evidence.generation);
+                _ContactVertices[vertexBase + 2u] = BuildSeamVertex(pB0,
+                    smooth ? shared1 : nB0, sigma, confidence, b.uv01.xy,
+                    evidence.generation);
+                _ContactVertices[vertexBase + 3u] = BuildSeamVertex(pB1,
+                    smooth ? shared0 : nB1, sigma, confidence, b.uv01.zw,
+                    evidence.generation);
+                uint indexBase = seamIndexBase + outputOrdinal * 6u;
+                StoreTriangle(indexBase, vertexBase, vertexBase + 1u,
+                    vertexBase + 2u);
+                StoreTriangle(indexBase + 3u, vertexBase,
+                    vertexBase + 2u, vertexBase + 3u);
+            }
+        }
+        pageId = page.nextPageId;
     }
 }
 
@@ -1739,8 +2085,27 @@ void FinalizeFilmMeshletDescriptors(uint3 groupId : SV_GroupID)
     descriptor.reserved = filmIndex;
     ContactMeshletDescriptor emptyDescriptor = (ContactMeshletDescriptor)0;
     _MeshletDescriptors[plan.descriptorOffset] = emptyDescriptor;
+    _MeshletDescriptors[plan.descriptorOffset + 1u] = emptyDescriptor;
     if (plan.measuredIndexCount > 0u)
         _MeshletDescriptors[plan.descriptorOffset] = descriptor;
+
+    ContactMeshletDescriptor latentDescriptor = descriptor;
+    latentDescriptor.filmId = 0u;
+    latentDescriptor.generation = 0u;
+    latentDescriptor.vertexBase = plan.vertexOffset +
+        plan.rowVertices * plan.rowVertices;
+    latentDescriptor.confidence = max(0.02, 0.25 * film.confidence);
+    latentDescriptor.appearancePage = 0u;
+    latentDescriptor.flags = MESHLET_EXACT_TOPOLOGY |
+        MESHLET_LATENT_FRONTIER | MESHLET_LATENT_CONNECTOR |
+        (film.boundaryCount > 0u ? MESHLET_HAS_BOUNDARY : 0u);
+    latentDescriptor.sourceIndexBase = plan.indexOffset +
+        plan.measuredIndexCount;
+    latentDescriptor.sourceIndexCount = plan.indexCount -
+        plan.measuredIndexCount;
+    latentDescriptor.reserved = filmIndex;
+    if (latentDescriptor.sourceIndexCount > 0u)
+        _MeshletDescriptors[plan.descriptorOffset + 1u] = latentDescriptor;
 
     FilmMeshletRange range = (FilmMeshletRange)0;
     range.filmId = film.id;
@@ -1752,8 +2117,8 @@ void FinalizeFilmMeshletDescriptors(uint3 groupId : SV_GroupID)
     range.indexOffset = plan.indexOffset;
     range.indexCapacity = plan.reserved2;
     range.descriptorOffset = plan.descriptorOffset;
-    range.descriptorCapacity = 1u;
-    range.maximumSegments = ReservedSubdivision(segments);
+    range.descriptorCapacity = 2u;
+    range.maximumSegments = segments;
     _FilmMeshletRanges[filmIndex] = range;
 }
 

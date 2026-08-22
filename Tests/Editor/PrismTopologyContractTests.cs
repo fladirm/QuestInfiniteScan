@@ -158,11 +158,32 @@ namespace Genesis.RoomScan.Tests
             StringAssert.Contains("CaseSegmentCount", contour);
             StringAssert.Contains("CaseEdges", contour);
             StringAssert.Contains("_CoverageThreshold", contour);
-            StringAssert.Contains("Canonical latent closure is topology-only", mesh);
-            StringAssert.Contains("plan.latentIndexCount = 0u", mesh);
+            StringAssert.Contains("Canonical UNKNOWN closure remains topology-only",
+                mesh);
+            StringAssert.Contains("VERTEX_LATENT_FRONTIER", mesh);
+            StringAssert.Contains("measuredContact ? film.id : 0u", mesh);
+            StringAssert.Contains("BuildFilmMeshletSeams", mesh);
             StringAssert.Contains("VERTEX_MEASURED_CONTACT", mesh);
             StringAssert.Contains("only explicitly measured fragments", prediction);
             StringAssert.Contains("input.filmId == 0u", prediction);
+        }
+
+        [Test]
+        public void MeshPublicationUsesPerFilmAtlasValidityAndProvenSeams()
+        {
+            string topology = Source("ManifoldHalfEdgeUpdate.compute");
+            string mesh = Source("MeshletBuild.compute");
+
+            StringAssert.Contains("SpliceConfirmedTwins", topology);
+            StringAssert.Contains("AccumulateFilmTopologyValidity", topology);
+            StringAssert.Contains("FinalizeFilmTopologyValidity", topology);
+            StringAssert.Contains("MEMBERSHIP_TOPOLOGY_VALID", topology);
+            StringAssert.Contains("FilmTopologyPublishable", mesh);
+            StringAssert.Contains("OwnedConfirmedSeam", mesh);
+            StringAssert.Contains("countbits(evidence.independentViewMask) < 2u",
+                mesh);
+            StringAssert.DoesNotContain("_ManifoldDiagnostics[8] != 0u", mesh);
+            StringAssert.DoesNotContain("_ManifoldDiagnostics[9] != 0u", mesh);
         }
 
         [Test]

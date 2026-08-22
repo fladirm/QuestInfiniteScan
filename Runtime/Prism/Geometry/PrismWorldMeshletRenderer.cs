@@ -63,6 +63,8 @@ namespace Genesis.RoomScan.Prism
         private static readonly int AppearanceMipBiasId =
             Shader.PropertyToID("_AppearanceMipBias");
         private static readonly int HiZRangeId = Shader.PropertyToID("_HiZRange");
+        private static readonly int PreviewModeId = Shader.PropertyToID("_PreviewMode");
+        private static readonly int PreviewZTestId = Shader.PropertyToID("_ZTest");
 
         private readonly Dictionary<string, ContactMeshletBuffers> _resident =
             new(StringComparer.Ordinal);
@@ -70,6 +72,7 @@ namespace Genesis.RoomScan.Prism
             _views = new();
         private readonly List<ContactMeshletBuffers> _retiring = new();
         private Material _previewMaterial;
+        private Material _connectorMaterial;
         private Material _depthMaterial;
         private MaterialPropertyBlock _properties;
         private RenderTexture _disabledHiZ;
@@ -89,8 +92,21 @@ namespace Genesis.RoomScan.Prism
             meshletViewCullCompute ??=
                 Resources.Load<ComputeShader>("Prism/MeshletViewCull");
             if (previewShader != null && _previewMaterial == null)
+            {
                 _previewMaterial = CreateMaterial(previewShader,
                     "[Cone-PRISM] World Meshlets");
+                _previewMaterial.SetFloat(PreviewModeId, 0f);
+                _previewMaterial.SetFloat(PreviewZTestId,
+                    (float)CompareFunction.Equal);
+            }
+            if (previewShader != null && _connectorMaterial == null)
+            {
+                _connectorMaterial = CreateMaterial(previewShader,
+                    "[Cone-PRISM] Proven Manifold Seams");
+                _connectorMaterial.SetFloat(PreviewModeId, 1f);
+                _connectorMaterial.SetFloat(PreviewZTestId,
+                    (float)CompareFunction.LessEqual);
+            }
             if (depthShader != null && _depthMaterial == null)
                 _depthMaterial = CreateMaterial(depthShader,
                     "[Cone-PRISM] Measured Front Depth");
@@ -140,7 +156,8 @@ namespace Genesis.RoomScan.Prism
         {
             CollectRetired();
             if (!RenderVisible || _previewMaterial == null ||
-                _depthMaterial == null || meshletViewCullCompute == null) return;
+                _connectorMaterial == null || _depthMaterial == null ||
+                meshletViewCullCompute == null) return;
             Camera camera = Camera.main;
             if (camera == null || !camera.isActiveAndEnabled) return;
 
@@ -177,6 +194,7 @@ namespace Genesis.RoomScan.Prism
             Bounds bounds = new(chunkOrigin,
                 Vector3.one * conservativeChunkBounds);
             Render(_depthMaterial, camera, bounds, view, _properties);
+            Render(_connectorMaterial, camera, bounds, view, _properties);
             Render(_previewMaterial, camera, bounds, view, _properties);
             try
             {
@@ -338,10 +356,12 @@ namespace Genesis.RoomScan.Prism
             _resident.Clear();
             _retiring.Clear();
             DestroyResource(_previewMaterial);
+            DestroyResource(_connectorMaterial);
             DestroyResource(_depthMaterial);
             _disabledHiZ?.Release();
             DestroyResource(_disabledHiZ);
             _previewMaterial = null;
+            _connectorMaterial = null;
             _depthMaterial = null;
             _disabledHiZ = null;
         }

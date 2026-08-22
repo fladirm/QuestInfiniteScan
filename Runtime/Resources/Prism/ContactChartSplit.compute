@@ -27,8 +27,6 @@ static const uint FILM_DIRTY_GEOMETRY = 1u << 3u;
 static const uint FILM_DIRTY_MESHLET = 1u << 4u;
 static const uint FILM_HAS_DISPLACEMENT = 1u << 5u;
 static const uint FILM_PRESSURE_MANIFOLD_MEMBER = 1u << 9u;
-static const uint MEMBERSHIP_ACTIVE = 1u;
-static const uint MEMBERSHIP_MEASURED = 1u << 1u;
 static const uint SPLIT_RESERVED = 2u;
 
 uint UpperIndex(uint row, uint column)

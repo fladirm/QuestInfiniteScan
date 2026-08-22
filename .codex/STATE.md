@@ -17,7 +17,8 @@ Updated: 2026-08-22 (Europe/Prague)
 ## Repository and branch safety
 
 - Active branch: `feat/cone-prism-pressure-manifold-atlas-20260821`.
-- Current committed parent: `6c377adb78ff`; the Q3-15.6 tree is not committed yet.
+- Current committed parent: `74323e30de27`; the connected-materialization repair
+  is not committed yet.
 - Donor checkpoint: Q3-15.5 `3521c44`.
 - Legacy implementations remain recoverable from git/archive branches and are
   deliberately absent from the active production tree.
@@ -31,9 +32,9 @@ Updated: 2026-08-22 (Europe/Prague)
 - Q3-15.6 is the sole `in_progress` node.
 - Source implementation, documentation cleanup, schema-v6 persistence and static
   verification are complete in the working tree.
-- Commit/archive, exact APK installation and one batched physical Quest geometry/
-  lifecycle run remain before Q3-15.6 can be accepted. The fresh Android build is
-  complete and matches the runtime source tree being committed.
+- Commit/archive and one batched physical Quest geometry/lifecycle run remain before
+  Q3-15.6 can be accepted. The fresh Android build matches this working tree and is
+  installed on the authorized Quest.
 - Q3-07 through Q3-15 remain physically unaccepted after the forensic audit even
   where their implementation is present. Q3-16 through Q3-22 remain behind the
   topology gate.
@@ -87,6 +88,14 @@ Updated: 2026-08-22 (Europe/Prague)
   coalesce two ingress frames transactionally; deterministic capacity-bounded
   hook/shortcut convergence remains intact without dropping observations or lowering
   canonical detail.
+- Mesh publication validity is generation-tagged per ContactFilm. A provisional/open
+  contour can no longer globally freeze every later publication. Local support cycles
+  are ordered before confirmed reverse twins are spliced into manifold-level outer
+  loops; the resulting membership validity is consumed directly by materialization.
+- Derived materialization now emits measured and FilmID-zero latent partitions plus
+  only evidence-bearing smooth/crease seam strips. Latent vertices cannot enter
+  first-hit prediction/export, and the normal preview renders only measured contact
+  plus softly distinguished proven seams.
 - Canonical persistence is schema v6 and includes atlas contours, half-edges,
   FrontierLoops, shared boundary topology/cache, continuation evidence, elastic
   state and cross-chunk portals.
@@ -95,33 +104,33 @@ Updated: 2026-08-22 (Europe/Prague)
 
 ## Verified evidence
 
-- Unity 6000.5.9f1 Vulkan EditMode: 84 total, 84 passed, 0 failed, 0 skipped.
+- Unity 6000.5.9f1 Vulkan EditMode: 85 total, 85 passed, 0 failed, 0 skipped.
   Results: `/mnt/kingston-unity/Builds/TestResults/editmode-results.xml`.
   Log: `/mnt/kingston-unity/Builds/TestResults/editmode.log`.
 - `Tools/unity/validate_prism_compute_uav.py`: passed; all reachable PRISM kernels
   remain at or below the Quest/Adreno eight-UAV limit.
 - `git diff --check`: passed.
-- Code graph regenerated for this tree: 162 source files, 2221 symbols, 1657
-  methods/functions, 185 GPU kernels and 17 event links.
+- Code graph regenerated for this tree: 162 source files, 2237 symbols, 1670
+  methods/functions, 189 GPU kernels and 17 event links.
 - `Tools/validate_goal_state.py`: control plane valid; 24 nodes, Q3-15.6 sole active.
 - Android ARM64/Vulkan development APK build succeeded with zero reported Unity
-  build errors: 226,538,124 bytes, SHA-256
-  `427cd7f0663c154d8cb4e7de2f354fed31f64e9504f5b8c87576122677710c94`.
+  build errors: 226,527,883 bytes, SHA-256
+  `019ffacef47604f3d72869df217ed5ec25557fb8655c8983b62a0d29205544e3`.
   APK: `/mnt/kingston-unity/Builds/QuestInfiniteScan/QuestInfiniteScan-dev.apk`.
-- No installation or physical-geometry acceptance claim exists yet for this APK.
+- Installed successfully as `com.questinfinitescan.smoke` `0.1.0-dev` on Quest
+  `340YC20G7X0QZ4`; application process launched. Physical geometry acceptance is
+  still open.
 
 ## Next exact actions
 
-1. Re-run control/static checks after this state update.
-2. Review the staged path set and commit the exact Q3-15.6 tree while excluding all
+1. Review the staged path set and commit the exact Q3-15.6 tree while excluding all
    archives, captures and generated builds.
-3. Create `QuestInfiniteScan-Q3-15.6-<commit>-source.zip` using `git archive` and
+2. Create `QuestInfiniteScan-Q3-15.6-<commit>-source.zip` using `git archive` and
    record its SHA-256.
-4. Install the matching APK on the one authorized Quest and record APK SHA-256/package.
-5. Run one batched physical acceptance: continuous support, no rectangular cards or
+3. Run one batched physical acceptance: continuous support, no rectangular cards or
    room-spanning curtains, continued scan growth, front/back thin surfaces, chunk
    continuity and Stop/Start retention.
-6. Close Q3-15.6 only after the physical evidence passes. Otherwise preserve the
+4. Close Q3-15.6 only after the physical evidence passes. Otherwise preserve the
    gate and repair the demonstrated systemic cause.
 
 ## Safety and quality
