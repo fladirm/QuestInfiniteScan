@@ -2,7 +2,7 @@
   "schema_version": 1,
   "goal": "Cone-PRISM-Q3 pure-Quest continuous probabilistic contact-film reconstruction",
   "canonical_spec": "specka.md",
-  "reconstruction_physics": "CPQ3-2026-08-21-v5",
+  "reconstruction_physics": "CPQ3-2026-08-21-v6",
   "spec_status": "frozen_for_implementation",
   "effort_policy": "90_percent_implementation_5_percent_tests_5_percent_controls; batch device tests at vertical milestones",
   "allowed_statuses": ["pending", "in_progress", "done", "blocked"],
@@ -206,7 +206,7 @@
       "id": "Q3-11",
       "title": "Implement closed elastic PressureManifolds, chart topology, pressure solve, and hierarchical displacement",
       "status": "pending",
-      "depends_on": ["Q3-10", "Q3-15.5"],
+      "depends_on": ["Q3-10", "Q3-15.6"],
       "acceptance": [
         "Quadratic residual updates logical Grid16 displacement with information/sigma/support/coverage and monotonic quality",
         "Measured footprint can allocate recursive sparse microtiles so Grid16 is not a detail ceiling",
@@ -331,8 +331,8 @@
     },
     {
       "id": "Q3-15.5",
-      "title": "Repair canonical PressureManifold integrity before displacement refinement",
-      "status": "in_progress",
+      "title": "Checkpoint transactional PressureManifold repair substrate",
+      "status": "pending",
       "depends_on": ["Q3-06"],
       "acceptance": [
         "ContactFilm, ContactMeshletVertex, ContactMeshletDescriptor, boundary/link, and view-LOD flags use distinct typed namespaces; no film flags are copied raw into derived vertex or descriptor flags",
@@ -363,10 +363,43 @@
       ]
     },
     {
+      "id": "Q3-15.6",
+      "title": "Rebase canonical geometry onto the PressureManifold topology atlas",
+      "status": "in_progress",
+      "depends_on": ["Q3-06"],
+      "acceptance": [
+        "Contact posterior, PressureManifold topology atlas, and derived materialization are separate layers; chart rectangle edges have zero canonical topology meaning",
+        "Measured Grid16/microtile information produces deterministic support contours, oriented generation-safe half-edges, shared BoundaryCurves, and ordered manifold-level FrontierLoops without four-edges-per-film assumptions",
+        "Latent closure is topology-only UNKNOWN with FilmID zero and no prediction/export eligibility; an optional derived harmonic/ARAP debug membrane cannot feed association",
+        "Cross-tile/cross-eye connected components converge independent of ordering and candidate count, select a global orthonormal component frame, exactly rebase and aggregate every H/g posterior, and pass component-level representability/model selection",
+        "Topology split follows supported BoundaryCurve, residual-mode, non-single-valued, or sidedness evidence and produces the required 2-4 children rather than fixed quadrants",
+        "One shared BoundaryCurve owns both incident half-edges, covariance, sidedness, first-hit/visibility ordering and independent-view evidence; dirty updates precompute cell/microtile intersection caches",
+        "Smooth, crease, and occlusion relations are committed only from explicit ContinuationEvidence and drive a bounded GPU elastic solve over compact dirty connected islands",
+        "Canonical measured leaves remain lossless; derived macrocharts provide coarse prediction/LOD without destructive proximity merge or split/merge churn",
+        "PressureManifold component identity and half-edge connectivity survive chunk transitions through generation-safe portals/ghosts; paging never creates a new optical seed or latent physical cut",
+        "Sensor, pose, calibration, motion/mixed-pixel, footprint bandwidth, and model uncertainties remain distinct and project consistently into contact-normal covariance; normals select boundary-safe 3x3/5x5/7x7 support",
+        "Keyframe ingress is driven primarily by GPU ContactFilm information gain and only uses motion/time as starvation fallback",
+        "GPU resource retirement is fence-safe; no buffer or texture can be destroyed while queued Vulkan work still references it",
+        "Focused fixtures cover >100 candidate convergence, exact posterior rebase versus direct fit, nonrectangular contours, internal arc cancellation, diagonal split, shared two-sided boundary, cross-chunk topology, near/far non-degradation, latent prediction exclusion, and information-positive keyframes",
+        "One committed/archive-exact Android APK is installed and the batched Quest geometry test shows continued responsive scan growth without patch rectangles, room curtains, GPU page faults, or chunk seams"
+      ],
+      "evidence": [
+        "User-supplied forensic audit of commit 3521c44 established rectangle-frontier ontology, root-only posterior publication, finite DSU convergence, quadtree split, FilmA-only boundaries, chunk-induced seeds/cuts, and incomplete appearance/keyframe semantics",
+        "Q3-15.5 transactional infrastructure remains the checkpoint donor for typed ABIs, reusable generations, compact dirty lists, capacity preflight, count/validate/commit publication, measured/latent identity separation, persistence framing, culling and indirect rendering",
+        "Exact execution contract: .codex/runbooks/Q3-15.6_PRESSURE_MANIFOLD_ATLAS_REBASE.md",
+        "Working-tree topology rebase separates contact posterior, support-contour/half-edge atlas and derived meshlets; removes four-edge rectangle ontology; implements arbitrary marching-squares contours, evidence-bearing twins, manifold FrontierLoops, shared BoundaryCurve cache, evidence-aligned split, elastic islands and cross-chunk portals",
+        "Spawn reduction now performs one complete monotone evidence hook plus a capacity-derived shortcut bound, refits original finite-cone samples in one global orthonormal component frame, aggregates coordinate-consistent posterior statistics and rejects non-representable transitive components",
+        "Schema-v6 capture/restore/staging persists contours, half-edges, frontier loops, shared boundaries, continuation evidence, elastic state and cross-chunk portals without chunk-created seeds or latent cuts",
+        "Unity 6000.5.9f1 Vulkan EditMode on 2026-08-21: 84/84 passed; reachable PRISM compute UAV validation passed at the Quest limit of 8; git diff check and control-plane validation passed",
+        "Current code graph digest 68169743f6e1 covers 161 source files, 2192 symbols, 1627 methods/functions, 182 GPU kernels and 17 event links; legacy TSDF/SurfaceNets/GSplat/DiffSoup/server sources are absent from the active production tree",
+        "Commit/archive/APK/install and the one batched physical Quest acceptance remain open; Q3-15.6 therefore remains in_progress"
+      ]
+    },
+    {
       "id": "Q3-16",
       "title": "Implement measured hierarchical displacement and normal refinement",
       "status": "pending",
-      "depends_on": ["Q3-11", "Q3-15", "Q3-15.5"],
+      "depends_on": ["Q3-11", "Q3-15", "Q3-15.6"],
       "acceptance": [
         "Depth/stereo/temporal residuals update analytic base versus displacement at the correct scale with posterior uncertainty",
         "Recursive microtiles allocate only from supported projected footprint and consistent information",

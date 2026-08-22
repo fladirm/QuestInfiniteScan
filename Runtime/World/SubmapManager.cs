@@ -251,7 +251,6 @@ namespace Genesis.RoomScan.World
             if (_keyframes != null)
                 _keyframes.CaptureEnabled = !pending.IsRevisit ||
                     _keyframeRestoreTask == null || _keyframeRestoreTask.IsCompleted;
-            _scanner?.ConfigurePrismChunk(target);
             ActiveChunkChanged?.Invoke(target);
             Logger.Info($"Cone-PRISM rollover complete: active={target.chunkId}, " +
                         $"revisit={pending.IsRevisit}");

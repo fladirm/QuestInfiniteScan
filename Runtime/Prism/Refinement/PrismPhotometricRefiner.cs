@@ -59,9 +59,11 @@ namespace Genesis.RoomScan.Prism
         [SerializeField, Min(0.00025f)] private float minimumRefineSigma = 0.001f;
         [SerializeField, Range(0f, 1f)] private float ambiguityMargin = 0.035f;
         [SerializeField, Range(0f, 1f)] private float minimumTextureEnergy = 0.025f;
-        [SerializeField, Min(0.005f)] private float keyframeTranslation = 0.04f;
-        [SerializeField, Min(0.5f)] private float keyframeRotationDegrees = 4f;
+        [SerializeField, Range(1, 8)] private int minimumKeyframeSpacing = 2;
         [SerializeField, Range(10, 120)] private int maximumKeyframeInterval = 36;
+        [SerializeField, Range(0.01f, 1f)] private float minimumFilmInformationGain = 0.10f;
+        [SerializeField, Range(0.01f, 1f)] private float minimumFrameInformationGain = 0.22f;
+        [SerializeField, Range(0.01f, 1f)] private float aggregateFrameInformationGain = 0.08f;
 
         private static readonly int EventCapacityId = Shader.PropertyToID("_EventCapacity");
         private static readonly int FilmCapacityId = Shader.PropertyToID("_FilmCapacity");
@@ -72,9 +74,6 @@ namespace Genesis.RoomScan.Prism
         private static readonly int AmbiguityMarginId = Shader.PropertyToID("_AmbiguityMargin");
         private static readonly int TextureEnergyId = Shader.PropertyToID("_MinimumTextureEnergy");
         private static readonly int CurrentSequenceId = Shader.PropertyToID("_CurrentSequence");
-        private static readonly int NewViewLeftId = Shader.PropertyToID("_NewViewLeft");
-        private static readonly int NewViewRightId = Shader.PropertyToID("_NewViewRight");
-        private static readonly int NewViewGenerationId = Shader.PropertyToID("_NewViewGeneration");
         private static readonly int RgbResolutionId = Shader.PropertyToID("_RgbResolution");
         private static readonly int DepthResolutionId = Shader.PropertyToID("_DepthResolution");
         private static readonly int RgbIntrinsicsId = Shader.PropertyToID("_RgbIntrinsics");
@@ -87,6 +86,8 @@ namespace Genesis.RoomScan.Prism
         private static readonly int ClassCountersId = Shader.PropertyToID("_ClassCounters");
         private static readonly int FilmHeadersId = Shader.PropertyToID("_FilmHeaders");
         private static readonly int FilmAllocatorId = Shader.PropertyToID("_FilmAllocator");
+        private static readonly int ActiveFilmsId =
+            Shader.PropertyToID("_CanonicalActiveFilmIndices");
         private static readonly int RayLeftId = Shader.PropertyToID("_DepthRayCenterLeft");
         private static readonly int RayRightId = Shader.PropertyToID("_DepthRayCenterRight");
         private static readonly int ConsensusDepthId = Shader.PropertyToID("_ConsensusDepth");
@@ -104,15 +105,18 @@ namespace Genesis.RoomScan.Prism
         private static readonly int ViewSelectArgsId = Shader.PropertyToID("_ViewSelectDispatchArguments");
         private static readonly int RefinementClaimsId =
             Shader.PropertyToID("_RefinementClaims");
+        private static readonly int KeyframeStateId =
+            Shader.PropertyToID("_KeyframeIngressState");
+        private static readonly int KeyframeFilmGainId =
+            Shader.PropertyToID("_KeyframeFilmGain");
 
         private readonly Matrix4x4[] _chunkFromDepth = new Matrix4x4[2];
         private readonly Matrix4x4[] _rgbFromChunk = new Matrix4x4[2];
         private readonly Matrix4x4[] _depthFromChunk = new Matrix4x4[2];
         private readonly Vector4[] _rgbIntrinsics = new Vector4[2];
         private readonly Vector4[] _depthIntrinsics = new Vector4[2];
-        private readonly uint[] _slotGenerations = new uint[24];
-        private readonly TemporalRgbViewGpu[] _metadataUpload =
-            new TemporalRgbViewGpu[1];
+        private readonly Vector4[] _cameraOriginChunk = new Vector4[2];
+        private readonly GpuResourceRetirementQueue _gpuRetirement = new();
 
         private GraphicsBuffer _pressures;
         private GraphicsBuffer _pressureState;
@@ -127,21 +131,17 @@ namespace Genesis.RoomScan.Prism
         private int _pressureCapacity;
         private int _filmCapacity;
         private int _temporalViewCapacity;
-        private int _nextTemporalSlot;
+        private PrismInformationGainKeyframeIngress _keyframeIngress;
         private int _clearKernel = -1;
         private int _clearClaimsKernel = -1;
         private int _initializeKernel = -1;
         private int _stereoKernel = -1;
         private int _temporalKernel = -1;
         private int _buildPressureArgsKernel = -1;
-        private int _buildViewArgsKernel = -1;
         private int _selectViewsKernel = -1;
         private bool _running;
-        private bool _hasKeyframePose;
         private bool _historyResetRequested = true;
         private uint _historyCalibrationEpoch;
-        private Pose _lastKeyframePose;
-        private long _lastKeyframeSequence;
         private Matrix4x4 _worldFromChunk = Matrix4x4.identity;
         private long _stereoFrames;
         private long _temporalFrames;
@@ -160,7 +160,6 @@ namespace Genesis.RoomScan.Prism
             // coordinates. A residency/pose-graph frame change invalidates them even
             // when the RGB resolution and film arena capacities stay identical.
             _historyResetRequested = true;
-            _hasKeyframePose = false;
         }
 
         internal void StartRefining(PrismFilmSpawner films = null)
@@ -180,8 +179,9 @@ namespace Genesis.RoomScan.Prism
             _stereoKernel = focusCompute.FindKernel("NarrowStereoPressure");
             _temporalKernel = focusCompute.FindKernel("TemporalFocusPressure");
             _buildPressureArgsKernel = focusCompute.FindKernel("BuildPhotometricArguments");
-            _buildViewArgsKernel = focusCompute.FindKernel("BuildTemporalViewArguments");
             _selectViewsKernel = focusCompute.FindKernel("SelectTemporalViews");
+            _keyframeIngress ??= new PrismInformationGainKeyframeIngress(
+                _gpuRetirement);
             _running = true;
         }
 
@@ -189,13 +189,17 @@ namespace Genesis.RoomScan.Prism
         {
             _running = false;
             DisposeBuffers();
-            _hasKeyframePose = false;
-            _lastKeyframeSequence = 0L;
             _historyCalibrationEpoch = 0u;
             _historyResetRequested = true;
         }
 
-        private void OnDestroy() => StopRefining();
+        private void LateUpdate() => _gpuRetirement.DrainCompleted();
+
+        private void OnDestroy()
+        {
+            StopRefining();
+            _gpuRetirement.DrainAndWait();
+        }
 
         internal bool DispatchPhotometricPressure(ConeEventFrameLease eventFrame)
         {
@@ -222,16 +226,20 @@ namespace Genesis.RoomScan.Prism
                 focusCompute.DispatchIndirect(_stereoKernel,
                     eventFrame.ClassDispatchArguments, MatchClassDispatchOffset);
                 _stereoFrames++;
-                if (_hasKeyframePose)
-                {
-                    focusCompute.DispatchIndirect(_temporalKernel,
-                        eventFrame.ClassDispatchArguments, MatchClassDispatchOffset);
-                    _temporalFrames++;
-                }
+                focusCompute.DispatchIndirect(_temporalKernel,
+                    eventFrame.ClassDispatchArguments, MatchClassDispatchOffset);
+                _temporalFrames++;
                 focusCompute.Dispatch(_buildPressureArgsKernel, 1, 1, 1);
 
-                if (ShouldCaptureKeyframe(rig))
-                    CaptureKeyframeAndUpdateFilmViews(rig, pool);
+                _keyframeIngress.Dispatch(eventFrame, pool, rig, normalized,
+                    _rgbFromChunk, _chunkFromDepth, _rgbIntrinsics,
+                    _cameraOriginChunk, _temporalViews, _temporalRgb,
+                    _viewSelectArguments, minimumRefineSigma,
+                    maximumKeyframeInterval, minimumKeyframeSpacing,
+                    minimumFilmInformationGain, minimumFrameInformationGain,
+                    aggregateFrameInformationGain);
+                focusCompute.DispatchIndirect(_selectViewsKernel,
+                    _viewSelectArguments, 0);
                 return true;
             }
             catch (Exception exception)
@@ -244,11 +252,11 @@ namespace Genesis.RoomScan.Prism
         private void EnsureBuffers(int eventCapacity, int filmCapacity,
             Vector2Int rgbResolution)
         {
-            int stereoFrames = Mathf.Clamp(temporalStereoFrames, 8,
-                _slotGenerations.Length);
+            int stereoFrames = Mathf.Clamp(temporalStereoFrames, 8, 24);
             int viewCapacity = stereoFrames * 2;
             bool buffersCompatible = _pressures != null &&
                 _refinementClaims != null &&
+                _keyframeIngress?.IsReady == true &&
                 _pressureCapacity == eventCapacity && _filmCapacity == filmCapacity &&
                 _temporalViewCapacity == viewCapacity;
             bool textureCompatible = _temporalRgb != null &&
@@ -295,7 +303,7 @@ namespace Genesis.RoomScan.Prism
                 volumeDepth = _temporalViewCapacity,
                 useMipMap = false,
                 autoGenerateMips = false,
-                enableRandomWrite = false
+                enableRandomWrite = true
             };
             _temporalRgb = new RenderTexture(descriptor)
             {
@@ -305,6 +313,11 @@ namespace Genesis.RoomScan.Prism
             };
             if (!_temporalRgb.Create())
                 throw new InvalidOperationException("Unable to allocate temporal RGB cone fields.");
+            _keyframeIngress ??= new PrismInformationGainKeyframeIngress(
+                _gpuRetirement);
+            if (!_keyframeIngress.Ensure(_filmCapacity, _temporalViewCapacity))
+                throw new InvalidOperationException(
+                    "Information-gain keyframe shader is unavailable.");
 
             BindPersistent(pool: filmSpawner.FilmPool);
             ResetHistoryState();
@@ -320,10 +333,8 @@ namespace Genesis.RoomScan.Prism
             focusCompute.Dispatch(_initializeKernel,
                 CeilDiv(Math.Max(_filmCapacity * ViewsPerFilm,
                     _temporalViewCapacity), 64), 1, 1);
-            Array.Clear(_slotGenerations, 0, _slotGenerations.Length);
-            _nextTemporalSlot = 0;
-            _hasKeyframePose = false;
-            _lastKeyframeSequence = 0L;
+            _keyframeIngress.Reset(filmSpawner.FilmPool, _temporalViews,
+                _viewSelectArguments);
             _historyResetRequested = false;
         }
 
@@ -343,6 +354,10 @@ namespace Genesis.RoomScan.Prism
                 _depthFromChunk[eye] = worldFromDepth.inverse * _worldFromChunk;
                 _rgbIntrinsics[eye] = Intrinsics(rgb[eye].Intrinsics);
                 _depthIntrinsics[eye] = Intrinsics(depth[eye].Intrinsics);
+                Vector3 cameraOrigin = chunkFromWorld.MultiplyPoint3x4(
+                    rgb[eye].WorldFromCamera.position);
+                _cameraOriginChunk[eye] = new Vector4(cameraOrigin.x,
+                    cameraOrigin.y, cameraOrigin.z, 1f);
             }
 
             BindPersistent(pool);
@@ -390,7 +405,7 @@ namespace Genesis.RoomScan.Prism
             {
                 _initializeKernel, _clearKernel, _stereoKernel, _temporalKernel,
                 _clearClaimsKernel, _buildPressureArgsKernel,
-                _buildViewArgsKernel, _selectViewsKernel
+                _selectViewsKernel
             };
             foreach (int kernel in allKernels)
             {
@@ -410,11 +425,17 @@ namespace Genesis.RoomScan.Prism
             }
             focusCompute.SetBuffer(_stereoKernel, FilmHeadersId, pool.Headers);
             focusCompute.SetBuffer(_temporalKernel, FilmHeadersId, pool.Headers);
-            focusCompute.SetBuffer(_buildViewArgsKernel, FilmAllocatorId,
-                pool.Allocator);
+            focusCompute.SetBuffer(_temporalKernel, KeyframeStateId,
+                _keyframeIngress.State);
             focusCompute.SetBuffer(_selectViewsKernel, FilmAllocatorId,
                 pool.Allocator);
             focusCompute.SetBuffer(_selectViewsKernel, FilmHeadersId, pool.Headers);
+            focusCompute.SetBuffer(_selectViewsKernel, ActiveFilmsId,
+                pool.ActiveIndices);
+            focusCompute.SetBuffer(_selectViewsKernel, KeyframeStateId,
+                _keyframeIngress.State);
+            focusCompute.SetBuffer(_selectViewsKernel, KeyframeFilmGainId,
+                _keyframeIngress.FilmGain);
             if (_temporalRgb != null)
             {
                 focusCompute.SetTexture(_temporalKernel, TemporalRgbId, _temporalRgb);
@@ -422,76 +443,18 @@ namespace Genesis.RoomScan.Prism
             }
         }
 
-        private bool ShouldCaptureKeyframe(StereoRigFrameLease rig)
-        {
-            Pose pose = rig.RgbLeft.WorldFromCamera;
-            if (!_hasKeyframePose) return true;
-            if (Vector3.Distance(pose.position, _lastKeyframePose.position) >=
-                keyframeTranslation) return true;
-            if (Quaternion.Angle(pose.rotation, _lastKeyframePose.rotation) >=
-                keyframeRotationDegrees) return true;
-            return rig.Sequence - _lastKeyframeSequence >= maximumKeyframeInterval;
-        }
-
-        private void CaptureKeyframeAndUpdateFilmViews(StereoRigFrameLease rig,
-            ContactFilmPool pool)
-        {
-            int stereoSlots = _temporalViewCapacity / 2;
-            int slot = _nextTemporalSlot++ % stereoSlots;
-            uint generation = NextGeneration(_slotGenerations[slot]);
-            _slotGenerations[slot] = generation;
-            int leftIndex = slot * 2;
-            int rightIndex = leftIndex + 1;
-            Graphics.Blit(rig.RgbLeft.Texture, _temporalRgb, 0, leftIndex);
-            Graphics.Blit(rig.RgbRight.Texture, _temporalRgb, 0, rightIndex);
-            UploadView(leftIndex, generation, rig.Sequence, rig.RgbLeft,
-                RigEye.Left);
-            UploadView(rightIndex, generation, rig.Sequence, rig.RgbRight,
-                RigEye.Right);
-
-            focusCompute.SetInt(NewViewLeftId, leftIndex);
-            focusCompute.SetInt(NewViewRightId, rightIndex);
-            focusCompute.SetInt(NewViewGenerationId, unchecked((int)generation));
-            focusCompute.Dispatch(_buildViewArgsKernel, 1, 1, 1);
-            focusCompute.DispatchIndirect(_selectViewsKernel,
-                _viewSelectArguments, 0);
-            _lastKeyframePose = rig.RgbLeft.WorldFromCamera;
-            _lastKeyframeSequence = rig.Sequence;
-            _hasKeyframePose = true;
-        }
-
-        private void UploadView(int index, uint generation, long sequence,
-            GpuImageView view, RigEye eye)
-        {
-            Matrix4x4 chunkFromWorld = _worldFromChunk.inverse;
-            Matrix4x4 worldFromRgb = PoseMatrix(view.WorldFromCamera);
-            Vector3 cameraChunk = chunkFromWorld.MultiplyPoint3x4(
-                view.WorldFromCamera.position);
-            _metadataUpload[0] = new TemporalRgbViewGpu
-            {
-                RgbFromChunk = worldFromRgb.inverse * _worldFromChunk,
-                Intrinsics = Intrinsics(view.Intrinsics),
-                CameraOriginChunk = new Vector4(cameraChunk.x, cameraChunk.y,
-                    cameraChunk.z, 1f),
-                Generation = generation,
-                SourceSequence = unchecked((uint)sequence),
-                Eye = (uint)eye,
-                Active = 1u
-            };
-            _temporalViews.SetData(_metadataUpload, 0, index, 1);
-        }
-
         private void DisposeBuffers()
         {
-            _pressures?.Dispose();
-            _pressureState?.Dispose();
-            _pressureArguments?.Dispose();
-            _temporalViews?.Dispose();
-            _filmViewRefs?.Dispose();
-            _filmViewScores?.Dispose();
-            _filmViewOwnerGeneration?.Dispose();
-            _viewSelectArguments?.Dispose();
-            _refinementClaims?.Dispose();
+            _gpuRetirement.RetireAfterCurrentGpuWork(_pressures);
+            _gpuRetirement.RetireAfterCurrentGpuWork(_pressureState);
+            _gpuRetirement.RetireAfterCurrentGpuWork(_pressureArguments);
+            _gpuRetirement.RetireAfterCurrentGpuWork(_temporalViews);
+            _gpuRetirement.RetireAfterCurrentGpuWork(_filmViewRefs);
+            _gpuRetirement.RetireAfterCurrentGpuWork(_filmViewScores);
+            _gpuRetirement.RetireAfterCurrentGpuWork(_filmViewOwnerGeneration);
+            _gpuRetirement.RetireAfterCurrentGpuWork(_viewSelectArguments);
+            _gpuRetirement.RetireAfterCurrentGpuWork(_refinementClaims);
+            _keyframeIngress?.Dispose();
             _pressures = null;
             _pressureState = null;
             _pressureArguments = null;
@@ -503,9 +466,7 @@ namespace Genesis.RoomScan.Prism
             _refinementClaims = null;
             if (_temporalRgb != null)
             {
-                _temporalRgb.Release();
-                if (Application.isPlaying) Destroy(_temporalRgb);
-                else DestroyImmediate(_temporalRgb);
+                _gpuRetirement.RetireAfterCurrentGpuWork(_temporalRgb);
                 _temporalRgb = null;
             }
             _pressureCapacity = 0;
@@ -519,9 +480,6 @@ namespace Genesis.RoomScan.Prism
 
         private static Matrix4x4 PoseMatrix(Pose pose) =>
             Matrix4x4.TRS(pose.position, pose.rotation, Vector3.one);
-
-        private static uint NextGeneration(uint current) =>
-            current == uint.MaxValue ? 1u : current + 1u;
 
         private static int CeilDiv(int value, int divisor) =>
             Math.Max(1, (value + divisor - 1) / divisor);

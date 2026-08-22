@@ -14,12 +14,21 @@ namespace Genesis.RoomScan
     {
         private readonly struct Entry
         {
-            internal readonly UnityEngine.Object Resource;
+            internal readonly UnityEngine.Object UnityResource;
+            internal readonly IDisposable DisposableResource;
             internal readonly GraphicsFence Fence;
 
             internal Entry(UnityEngine.Object resource, GraphicsFence fence)
             {
-                Resource = resource;
+                UnityResource = resource;
+                DisposableResource = null;
+                Fence = fence;
+            }
+
+            internal Entry(IDisposable resource, GraphicsFence fence)
+            {
+                UnityResource = null;
+                DisposableResource = resource;
                 Fence = fence;
             }
         }
@@ -55,6 +64,31 @@ namespace Genesis.RoomScan
             }
         }
 
+        internal void RetireAfterCurrentGpuWork(IDisposable resource)
+        {
+            if (resource == null)
+                return;
+            if (!Application.isPlaying || SystemInfo.graphicsDeviceType ==
+                GraphicsDeviceType.Null)
+            {
+                resource.Dispose();
+                return;
+            }
+
+            try
+            {
+                GraphicsFence fence = Graphics.CreateGraphicsFence(
+                    GraphicsFenceType.AsyncQueueSynchronisation,
+                    SynchronisationStageFlags.AllGPUOperations);
+                _entries.Add(new Entry(resource, fence));
+            }
+            catch (Exception exception)
+            {
+                Logger.Warning("GPU retirement fence unavailable: " + exception.Message);
+                resource.Dispose();
+            }
+        }
+
         internal void DrainCompleted()
         {
             for (int i = _entries.Count - 1; i >= 0; i--)
@@ -71,9 +105,37 @@ namespace Genesis.RoomScan
                 }
                 if (!passed)
                     continue;
-                DestroyOwned(_entries[i].Resource);
+                Release(_entries[i]);
                 _entries.RemoveAt(i);
             }
+        }
+
+        /// <summary>Final component teardown only; ordinary rollover never waits.</summary>
+        internal void DrainAndWait()
+        {
+            for (int i = _entries.Count - 1; i >= 0; i--)
+            {
+                try
+                {
+                    if (!_entries[i].Fence.passed)
+                        Graphics.WaitOnAsyncGraphicsFence(_entries[i].Fence);
+                }
+                catch (Exception exception)
+                {
+                    Logger.Warning("GPU retirement fence wait failed: " +
+                        exception.Message);
+                }
+                Release(_entries[i]);
+            }
+            _entries.Clear();
+        }
+
+        private static void Release(Entry entry)
+        {
+            if (entry.DisposableResource != null)
+                entry.DisposableResource.Dispose();
+            else
+                DestroyOwned(entry.UnityResource);
         }
 
         private static void DestroyOwned(UnityEngine.Object resource)

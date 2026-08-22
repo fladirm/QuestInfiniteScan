@@ -65,13 +65,10 @@ namespace Genesis.RoomScan.World
     public enum ChunkArtifactKind
     {
         Unknown = 0,
-        Volume = 1,
         Keyframes = 2,
-        LiveMesh = 3,
         RefinedMesh = 4,
         RefinedAtlas = 5,
         RefinedNormal = 6,
-        DiffSoup = 7,
         Glb = 8,
         /// <summary>Resumable Cone-PRISM films, posterior statistics and boundaries.</summary>
         PrismCanonical = 9,

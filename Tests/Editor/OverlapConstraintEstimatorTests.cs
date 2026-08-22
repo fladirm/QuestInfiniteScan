@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Genesis.RoomScan.Prism;
 using Genesis.RoomScan.World;
 using NUnit.Framework;
 using UnityEngine;
@@ -182,9 +183,9 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
-        public void SurfaceNetsSnapshotConversionIsBoundedAndDeterministic()
+        public void ContactMeshletSnapshotConversionIsBoundedAndDeterministic()
         {
-            ChunkLiveMeshSnapshot snapshot = CreateLiveMeshSnapshot(200);
+            ContactMeshSnapshot snapshot = CreateLiveMeshSnapshot(200);
 
             Assert.That(OverlapPointCloudBuilder.TryCreate(snapshot, 64,
                 out OverlapPointCloud first, out string firstError), Is.True, firstError);
@@ -355,30 +356,23 @@ namespace Genesis.RoomScan.Tests
             };
         }
 
-        private static ChunkLiveMeshSnapshot CreateLiveMeshSnapshot(int vertexCount)
+        private static ContactMeshSnapshot CreateLiveMeshSnapshot(int vertexCount)
         {
-            var vertices = new byte[vertexCount * ChunkLiveMeshSnapshot.VertexStride];
+            var vertices = new byte[vertexCount * ContactMeshletVertexGpu.Stride];
             for (int i = 0; i < vertexCount; i++)
             {
-                int offset = i * ChunkLiveMeshSnapshot.VertexStride;
+                int offset = i * ContactMeshletVertexGpu.Stride;
                 WriteFloat(vertices, offset, i * 0.01f);
                 WriteFloat(vertices, offset + 4, i % 7 * 0.02f);
                 WriteFloat(vertices, offset + 8, i % 11 * 0.03f);
-                WriteFloat(vertices, offset + 12, 0f);
-                WriteFloat(vertices, offset + 16, 1f);
-                WriteFloat(vertices, offset + 20, 0f);
-                Buffer.BlockCopy(BitConverter.GetBytes(0xFFFFFFFFu), 0,
-                    vertices, offset + 24, sizeof(uint));
-                Buffer.BlockCopy(BitConverter.GetBytes((uint)i), 0,
-                    vertices, offset + 28, sizeof(uint));
+                WriteFloat(vertices, offset + 16, 0f);
+                WriteFloat(vertices, offset + 20, 1f);
+                WriteFloat(vertices, offset + 24, 0f);
             }
-            return new ChunkLiveMeshSnapshot
+            return new ContactMeshSnapshot
             {
                 VertexCount = vertexCount,
-                IndexCount = 0,
-                LocalBounds = new BoundsData(Vector3.zero, Vector3.one),
-                VertexBytes = vertices,
-                IndexBytes = Array.Empty<byte>()
+                VertexBytes = vertices
             };
         }
 

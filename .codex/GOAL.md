@@ -32,8 +32,11 @@ stereo RGB + stereo depth + timestamped poses/intrinsics
 ```
 
 The canonical geometry is not a scalar field, surfel cloud, or permanent per-frame
-triangle soup. Each chunk owns a graph of one-sided probabilistic `ContactFilm`s;
-their `SurfaceChartGeometry` owns stable IDs, tangent frames,
+triangle soup. Chunks own storage pages for one-sided probabilistic `ContactFilm`s;
+their connectivity belongs to a stable chunk-independent PressureManifold atlas of
+measured support contours, oriented half-edges, shared BoundaryCurves and ordered
+FrontierLoops. A chart rectangle is only a numerical parameter domain. Their
+`SurfaceChartGeometry` owns stable IDs, tangent frames,
 planar/quadratic/micro-detail shape variants,
 normal-direction covariance, robust sufficient statistics, sidedness/visibility,
 a tangent/quadratic base with sparse displacement microtiles. Persistent

@@ -17,7 +17,7 @@ namespace Genesis.RoomScan.World
 
     /// <summary>
     /// Atomically publishes one chunk-local PBR-ready mesh/atlas set as a monotonic chunk
-    /// revision. Existing mapper, keyframe, DiffSoup, and export artifacts are preserved.
+    /// revision. Existing PRISM canonical, keyframe and export artifacts are preserved.
     /// </summary>
     internal static class ChunkRefinedArtifactPublisher
     {

@@ -24,6 +24,10 @@ namespace Genesis.RoomScan.Prism
         [SerializeField, Range(20f, 100f)] private float revisitHorizontalFov = 50f;
         [SerializeField, Range(20f, 100f)] private float revisitVerticalFov = 46f;
         [SerializeField, Range(0f, 1f)] private float peripheralConfidenceFloor = 0.72f;
+        [Header("Finite-cone pressure bandwidth")]
+        [SerializeField, Min(0.1f)] private float referenceFootprintDiameterMm = 4f;
+        [SerializeField, Range(0f, 2f)] private float footprintNormalCoupling = 1f;
+        [SerializeField, Range(0.001f, 1f)] private float minimumBandwidthWeight = 0.04f;
 
         private static readonly int ResolutionId = Shader.PropertyToID("_Resolution");
         private static readonly int EventCapacityId = Shader.PropertyToID("_EventCapacity");
@@ -35,6 +39,12 @@ namespace Genesis.RoomScan.Prism
             Shader.PropertyToID("_RevisitRoiTanHalfFov");
         private static readonly int PeripheralConfidenceFloorId =
             Shader.PropertyToID("_PeripheralConfidenceFloor");
+        private static readonly int ReferenceFootprintAreaId =
+            Shader.PropertyToID("_ReferenceFootprintArea");
+        private static readonly int FootprintNormalCouplingId =
+            Shader.PropertyToID("_FootprintNormalCoupling");
+        private static readonly int MinimumBandwidthWeightId =
+            Shader.PropertyToID("_MinimumBandwidthWeight");
         private static readonly int MeasuredConsensusId = Shader.PropertyToID("_MeasuredConsensus");
         private static readonly int MeasuredFlagsId = Shader.PropertyToID("_MeasuredFlags");
         private static readonly int MeasuredNormalId = Shader.PropertyToID("_MeasuredNormal");
@@ -167,6 +177,13 @@ namespace Genesis.RoomScan.Prism
                     Mathf.Tan(0.5f * revisitVerticalFov * Mathf.Deg2Rad), 0f, 0f));
                 classifyCompute.SetFloat(PeripheralConfidenceFloorId,
                     peripheralConfidenceFloor);
+                float referenceRadius = 0.0005f * referenceFootprintDiameterMm;
+                classifyCompute.SetFloat(ReferenceFootprintAreaId,
+                    Mathf.PI * referenceRadius * referenceRadius);
+                classifyCompute.SetFloat(FootprintNormalCouplingId,
+                    footprintNormalCoupling);
+                classifyCompute.SetFloat(MinimumBandwidthWeightId,
+                    minimumBandwidthWeight);
 
                 BindTextures(_classifyKernel, measured, prediction, luts);
                 BindCanonicalBoundaries(_classifyKernel);

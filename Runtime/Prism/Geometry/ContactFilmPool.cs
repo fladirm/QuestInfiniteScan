@@ -47,13 +47,13 @@ namespace Genesis.RoomScan.Prism
         public uint AppearancePage;
         public uint BoundaryStart;
         public uint BoundaryCount;
-        // Conservative 8x8 observed-contact support captured at spawn.  It controls
-        // posterior confidence/detail deposition only; it must never punch holes in
-        // the closed pressure manifold.
+        // Conservative 8x8 bootstrap support. The continuous displacement coverage
+        // field supersedes it as observations arrive and directly defines measured
+        // contact contours; UNKNOWN remains topology-only and never predicts.
         public uint SupportMaskLow;
         public uint SupportMaskHigh;
-        // TopologyAdapt owns these words for split-parent/child bookkeeping. Closed
-        // manifold/eye-seed state lives in its own generation-tagged GPU pool.
+        // Evidence-aligned split lineage only. Manifold connectivity and frontier
+        // loops live in the generation-tagged topology atlas.
         public uint Reserved0;
         public uint Reserved1;
         public uint Reserved2;

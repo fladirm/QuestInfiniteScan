@@ -58,8 +58,9 @@ namespace Genesis.RoomScan.World
     }
 
     /// <summary>
-    /// Deterministic rollover state machine. It owns no GPU resources: one caller finalizes
-    /// the source payload, then commits the request and reuses the sole TSDF for the target.
+    /// Deterministic storage-locality state machine. It owns no GPU resources and never
+    /// changes PressureManifold identity: one caller stages the source chunk, commits the
+    /// locality transition, and keeps cross-chunk topology connected through portals.
     /// </summary>
     public sealed class SubmapRolloverController
     {
@@ -85,8 +86,7 @@ namespace Genesis.RoomScan.World
         public ChunkRecord ActiveChunk => _activeChunk;
         public SubmapRolloverRequest PendingRequest => _pending;
         public bool IsArmed => _armed;
-        public int ResidentVolumeCount => _activeChunk == null ? 0 : 1;
-        public int MaximumResidentVolumeCount => 1;
+        public int ActiveChunkCount => _activeChunk == null ? 0 : 1;
 
         public static bool TryCreate(WorldManifest manifest, SubmapRolloverSettings settings,
             out SubmapRolloverController controller, out string error)

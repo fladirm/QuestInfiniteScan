@@ -1,0 +1,202 @@
+#pragma kernel PrepareTopologyStage
+#pragma kernel StageManifoldHeaders
+#pragma kernel StageFilmTopology
+#pragma kernel StageContourPages
+#pragma kernel StageContourTopology
+#pragma kernel StageFrontierLoops
+#pragma kernel StageBoundaryTopology
+#pragma kernel StageCrossChunkPortals
+
+#include "PressureManifoldAtlasAbi.hlsl"
+#include "BoundaryCurveAtlasAbi.hlsl"
+
+StructuredBuffer<AtlasPressureManifoldHeader> _SourceManifoldHeaders;
+StructuredBuffer<AtlasFilmMembership> _SourceFilmMemberships;
+StructuredBuffer<uint> _SourceManifoldAllocator;
+StructuredBuffer<uint> _SourceCurrentManifold;
+StructuredBuffer<uint> _SourceFilmAllocator;
+StructuredBuffer<AtlasContactFilmHeader> _SourceFilmHeaders;
+StructuredBuffer<SupportContourPage> _SourceSupportContourPages;
+StructuredBuffer<SupportContourSegment> _SourceSupportContours;
+StructuredBuffer<SurfaceHalfEdge> _SourceHalfEdges;
+StructuredBuffer<FrontierLoop> _SourceFrontierLoops;
+StructuredBuffer<ContinuationEvidence> _SourceContinuationEvidence;
+StructuredBuffer<ElasticChartState> _SourceElasticStates;
+StructuredBuffer<uint4> _SourceFilmTopologyRanges;
+StructuredBuffer<uint> _SourceAtlasAllocator;
+StructuredBuffer<CrossChunkTopologyPortal> _SourceCrossChunkPortals;
+StructuredBuffer<BoundaryCurveTopology> _SourceBoundaryTopology;
+StructuredBuffer<AtlasContactBoundaryHeader> _SourceBoundaryHeaders;
+StructuredBuffer<uint> _SourceBoundaryAllocator;
+
+RWStructuredBuffer<AtlasPressureManifoldHeader> _StageManifoldHeaders;
+RWStructuredBuffer<AtlasFilmMembership> _StageFilmMemberships;
+RWStructuredBuffer<uint> _StageManifoldAllocator;
+RWStructuredBuffer<uint> _StageCurrentManifold;
+RWStructuredBuffer<SupportContourPage> _StageSupportContourPages;
+RWStructuredBuffer<SupportContourSegment> _StageSupportContours;
+RWStructuredBuffer<SurfaceHalfEdge> _StageHalfEdges;
+RWStructuredBuffer<FrontierLoop> _StageFrontierLoops;
+RWStructuredBuffer<ContinuationEvidence> _StageContinuationEvidence;
+RWStructuredBuffer<ElasticChartState> _StageElasticStates;
+RWStructuredBuffer<uint4> _StageFilmTopologyRanges;
+RWStructuredBuffer<uint> _StageAtlasAllocator;
+RWStructuredBuffer<CrossChunkTopologyPortal> _StageCrossChunkPortals;
+RWStructuredBuffer<BoundaryCurveTopology> _StageBoundaryTopology;
+RWStructuredBuffer<BoundaryCurveCache> _StageBoundaryCurveCache;
+RWStructuredBuffer<uint> _StageTopologyDirtyFlags;
+RWStructuredBuffer<uint3> _TopologyStageArguments;
+
+uint _TargetChunkId;
+uint _FilmCapacity;
+uint _ManifoldCapacity;
+uint _ContourPageCapacity;
+uint _ContourSegmentCapacity;
+uint _BoundaryCapacity;
+uint _PortalCapacity;
+
+static const uint FILM_ACTIVE = 1u;
+static const uint BOUNDARY_TOPOLOGY_DIRTY_CACHE = 1u << 7u;
+static const uint SEGMENTS_PER_PAGE = 64u;
+
+bool StagedFilmIsActive(uint filmId, uint generation)
+{
+    if (filmId == 0u || filmId > _FilmCapacity) return false;
+    AtlasContactFilmHeader film = _SourceFilmHeaders[filmId - 1u];
+    return film.id == filmId && film.generation == generation &&
+        film.chunkId == _TargetChunkId && (film.flags & FILM_ACTIVE) != 0u;
+}
+
+[numthreads(1, 1, 1)]
+void PrepareTopologyStage(uint3 id : SV_DispatchThreadID)
+{
+    uint manifoldCount = min(_SourceManifoldAllocator[0], _ManifoldCapacity);
+    uint filmCount = min(_SourceFilmAllocator[0], _FilmCapacity);
+    uint pageCount = min(_SourceAtlasAllocator[0], _ContourPageCapacity);
+    uint contourCount = min(pageCount * SEGMENTS_PER_PAGE,
+        _ContourSegmentCapacity);
+    uint boundaryCount = min(_SourceBoundaryAllocator[0], _BoundaryCapacity);
+    uint portalCount = min(_SourceAtlasAllocator[10], _PortalCapacity);
+
+    _TopologyStageArguments[0] = uint3((manifoldCount + 63u) / 64u, 1u, 1u);
+    _TopologyStageArguments[1] = uint3((filmCount + 63u) / 64u, 1u, 1u);
+    _TopologyStageArguments[2] = uint3((pageCount + 63u) / 64u, 1u, 1u);
+    _TopologyStageArguments[3] = uint3((contourCount + 63u) / 64u, 1u, 1u);
+    _TopologyStageArguments[4] = uint3((contourCount + 63u) / 64u, 1u, 1u);
+    _TopologyStageArguments[5] = uint3((boundaryCount + 63u) / 64u, 1u, 1u);
+    _TopologyStageArguments[6] = uint3((portalCount + 63u) / 64u, 1u, 1u);
+
+    [unroll] for (uint word = 0u; word < 8u; ++word)
+        _StageManifoldAllocator[word] = _SourceManifoldAllocator[word];
+    [unroll] for (uint word = 0u; word < 16u; ++word)
+        _StageAtlasAllocator[word] = _SourceAtlasAllocator[word];
+    [unroll] for (uint word = 0u; word < 4u; ++word)
+        _StageCurrentManifold[word] = _SourceCurrentManifold[word];
+    // Transient work-graph state is always rebuilt after restore.
+    [unroll] for (uint word = 4u; word <= 9u; ++word)
+        _StageAtlasAllocator[word] = 0u;
+}
+
+[numthreads(64, 1, 1)]
+void StageManifoldHeaders(uint3 id : SV_DispatchThreadID)
+{
+    uint count = min(_SourceManifoldAllocator[0], _ManifoldCapacity);
+    if (id.x >= count) return;
+    _StageManifoldHeaders[id.x] = _SourceManifoldHeaders[id.x];
+}
+
+[numthreads(64, 1, 1)]
+void StageFilmTopology(uint3 id : SV_DispatchThreadID)
+{
+    uint count = min(_SourceFilmAllocator[0], _FilmCapacity);
+    if (id.x >= count) return;
+    AtlasContactFilmHeader film = _SourceFilmHeaders[id.x];
+    bool active = film.id == id.x + 1u && film.chunkId == _TargetChunkId &&
+        (film.flags & FILM_ACTIVE) != 0u;
+    if (active)
+    {
+        _StageFilmMemberships[id.x] = _SourceFilmMemberships[id.x];
+        _StageElasticStates[id.x] = _SourceElasticStates[id.x];
+        _StageFilmTopologyRanges[id.x] = _SourceFilmTopologyRanges[id.x];
+    }
+    else
+    {
+        _StageFilmMemberships[id.x] = (AtlasFilmMembership)0;
+        _StageElasticStates[id.x] = (ElasticChartState)0;
+        _StageFilmTopologyRanges[id.x] = 0u;
+    }
+    // The film dirty list is the authoritative restore seed. The deduplication
+    // flag starts clear so the first atlas tick can enqueue every restored leaf.
+    _StageTopologyDirtyFlags[id.x] = 0u;
+}
+
+[numthreads(64, 1, 1)]
+void StageContourPages(uint3 id : SV_DispatchThreadID)
+{
+    uint count = min(_SourceAtlasAllocator[0], _ContourPageCapacity);
+    if (id.x >= count) return;
+    SupportContourPage page = _SourceSupportContourPages[id.x];
+    if (StagedFilmIsActive(page.filmId, page.filmGeneration))
+        _StageSupportContourPages[id.x] = page;
+    else
+        _StageSupportContourPages[id.x] = (SupportContourPage)0;
+}
+
+[numthreads(64, 1, 1)]
+void StageContourTopology(uint3 id : SV_DispatchThreadID)
+{
+    uint pages = min(_SourceAtlasAllocator[0], _ContourPageCapacity);
+    uint count = min(pages * SEGMENTS_PER_PAGE, _ContourSegmentCapacity);
+    if (id.x >= count) return;
+    SupportContourSegment contour = _SourceSupportContours[id.x];
+    bool active = StagedFilmIsActive(contour.filmId, contour.filmGeneration);
+    if (active) _StageSupportContours[id.x] = contour;
+    else _StageSupportContours[id.x] = (SupportContourSegment)0;
+    SurfaceHalfEdge edge = _SourceHalfEdges[id.x];
+    if (active) _StageHalfEdges[id.x] = edge;
+    else _StageHalfEdges[id.x] = (SurfaceHalfEdge)0;
+    ContinuationEvidence evidence = _SourceContinuationEvidence[id.x];
+    bool evidenceOwned = StagedFilmIsActive(
+        evidence.filmA, evidence.filmAGeneration);
+    if (evidenceOwned) _StageContinuationEvidence[id.x] = evidence;
+    else _StageContinuationEvidence[id.x] = (ContinuationEvidence)0;
+}
+
+[numthreads(64, 1, 1)]
+void StageFrontierLoops(uint3 id : SV_DispatchThreadID)
+{
+    uint pages = min(_SourceAtlasAllocator[0], _ContourPageCapacity);
+    uint count = min(pages * SEGMENTS_PER_PAGE, _ContourSegmentCapacity);
+    if (id.x >= count) return;
+    _StageFrontierLoops[id.x] = _SourceFrontierLoops[id.x];
+}
+
+[numthreads(64, 1, 1)]
+void StageBoundaryTopology(uint3 id : SV_DispatchThreadID)
+{
+    uint count = min(_SourceBoundaryAllocator[0], _BoundaryCapacity);
+    if (id.x >= count) return;
+    AtlasContactBoundaryHeader boundary = _SourceBoundaryHeaders[id.x];
+    bool active = boundary.id == id.x + 1u &&
+        boundary.chunkId == _TargetChunkId;
+    BoundaryCurveTopology topology = (BoundaryCurveTopology)0;
+    if (active) topology = _SourceBoundaryTopology[id.x];
+    if (active) topology.flags |= BOUNDARY_TOPOLOGY_DIRTY_CACHE;
+    _StageBoundaryTopology[id.x] = topology;
+    _StageBoundaryCurveCache[id.x] = (BoundaryCurveCache)0;
+}
+
+[numthreads(64, 1, 1)]
+void StageCrossChunkPortals(uint3 id : SV_DispatchThreadID)
+{
+    uint count = min(_SourceAtlasAllocator[10], _PortalCapacity);
+    if (id.x >= count) return;
+    CrossChunkTopologyPortal portal = _SourceCrossChunkPortals[id.x];
+    // Persist both sides of a portal pair with either incident chunk.  The
+    // non-owned side is a topology ghost, not a measured surface or frontier.
+    if (portal.ownerChunkId == _TargetChunkId ||
+        portal.remoteChunkId == _TargetChunkId)
+        _StageCrossChunkPortals[id.x] = portal;
+    else
+        _StageCrossChunkPortals[id.x] = (CrossChunkTopologyPortal)0;
+}

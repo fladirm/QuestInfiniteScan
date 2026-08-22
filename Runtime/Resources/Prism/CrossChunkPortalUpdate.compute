@@ -1,0 +1,419 @@
+#pragma kernel PreparePortalExport
+#pragma kernel ClearPortalPlans
+#pragma kernel PlanPortalCandidates
+#pragma kernel ReservePortalPairs
+#pragma kernel CommitPortalPairs
+#pragma kernel PreparePortalBootstrap
+#pragma kernel BootstrapManifoldIdentity
+#pragma kernel BootstrapPortalGhosts
+#pragma kernel BuildPortalReconcileArguments
+#pragma kernel ReconcilePortalGhosts
+
+#include "PressureManifoldAtlasAbi.hlsl"
+#include "SurfaceChartGeometry.hlsl"
+
+StructuredBuffer<AtlasContactFilmHeader> _FilmHeaders;
+StructuredBuffer<float4> _FilmInformation;
+StructuredBuffer<SupportContourSegment> _SupportContours;
+RWStructuredBuffer<SurfaceHalfEdge> _HalfEdges;
+RWStructuredBuffer<CrossChunkTopologyPortal> _CrossChunkPortals;
+RWStructuredBuffer<uint> _AtlasAllocator;
+RWStructuredBuffer<uint> _PortalPlans;
+RWStructuredBuffer<uint> _PortalState;
+RWStructuredBuffer<uint3> _PortalDispatchArguments;
+
+StructuredBuffer<uint> _HalfEdgeHashHeads;
+StructuredBuffer<uint> _HalfEdgeHashNext;
+
+StructuredBuffer<AtlasPressureManifoldHeader> _SourceManifoldHeaders;
+StructuredBuffer<uint> _SourceManifoldAllocator;
+StructuredBuffer<uint> _SourceCurrentManifold;
+StructuredBuffer<uint> _SourceAtlasAllocator;
+StructuredBuffer<CrossChunkTopologyPortal> _SourceCrossChunkPortals;
+RWStructuredBuffer<AtlasPressureManifoldHeader> _TargetManifoldHeaders;
+RWStructuredBuffer<uint> _TargetManifoldAllocator;
+RWStructuredBuffer<uint> _TargetCurrentManifold;
+RWStructuredBuffer<uint> _TargetAtlasAllocator;
+RWStructuredBuffer<CrossChunkTopologyPortal> _TargetCrossChunkPortals;
+
+uint _FilmCapacity;
+uint _ContourSegmentCapacity;
+uint _HalfEdgeCapacity;
+uint _HalfEdgeHashCapacity;
+uint _ManifoldCapacity;
+uint _PortalCapacity;
+uint _SourceChunkId;
+uint _TargetChunkId;
+uint _CurrentChunkId;
+float4 _OwnershipPlaneInSource;
+float _OverlapBandMeters;
+float _WeldPositionFloor;
+float _CreaseNormalCosine;
+float4x4 _TargetFromSource;
+
+static const uint CONTOUR_ACTIVE = 1u;
+static const uint CONTOUR_MEASURED = 1u << 1u;
+static const uint FILM_ACTIVE = 1u;
+static const uint EVIDENCE_GEOMETRY = 1u << 0u;
+static const uint EVIDENCE_SIDEDNESS = 1u << 1u;
+static const uint EVIDENCE_FIRST_HIT = 1u << 2u;
+static const uint EVIDENCE_VISIBILITY = 1u << 3u;
+static const uint EVIDENCE_MULTIVIEW = 1u << 4u;
+static const uint EVIDENCE_POSE_CALIBRATION = 1u << 5u;
+static const uint EVIDENCE_COMMITTABLE = 1u << 8u;
+
+uint SegmentDomain()
+{
+    return min(_AtlasAllocator[0] * 64u, _ContourSegmentCapacity);
+}
+
+bool ActiveMeasuredSegment(uint index, out SupportContourSegment segment)
+{
+    segment = (SupportContourSegment)0;
+    if (index >= SegmentDomain()) return false;
+    segment = _SupportContours[index];
+    return segment.id == index + 1u &&
+        (segment.flags & (CONTOUR_ACTIVE | CONTOUR_MEASURED)) ==
+        (CONTOUR_ACTIVE | CONTOUR_MEASURED);
+}
+
+float3 FilmPoint(AtlasContactFilmHeader film, float2 uv)
+{
+    return AtlasSurfacePoint(film, uv);
+}
+
+float4 ContactViewState(uint filmId)
+{
+    if (filmId == 0u || filmId > _FilmCapacity) return 0.0;
+    return _FilmInformation[(filmId - 1u) * 10u + 9u];
+}
+
+uint HashCell(int3 cell)
+{
+    uint value = asuint(cell.x) * 0x8da6b343u;
+    value ^= asuint(cell.y) * 0xd8163841u;
+    value ^= asuint(cell.z) * 0xcb1ab31fu;
+    value ^= value >> 16u; value *= 0x7feb352du; value ^= value >> 15u;
+    return max(1u, value);
+}
+
+int3 WorldCell(float3 point) { return (int3)floor(point / 0.0125); }
+
+bool ExistingPortal(uint halfEdgeId, uint halfEdgeGeneration)
+{
+    uint count = min(_AtlasAllocator[10], _PortalCapacity);
+    [loop]
+    for (uint index = 0u; index < count; ++index)
+    {
+        CrossChunkTopologyPortal portal = _CrossChunkPortals[index];
+        if ((portal.flags & PORTAL_ACTIVE) != 0u &&
+            portal.ownerChunkId == _SourceChunkId &&
+            portal.remoteChunkId == _TargetChunkId &&
+            portal.halfEdgeId == halfEdgeId &&
+            portal.halfEdgeGeneration == halfEdgeGeneration)
+            return true;
+    }
+    return false;
+}
+
+[numthreads(1, 1, 1)]
+void PreparePortalExport(uint3 id : SV_DispatchThreadID)
+{
+    uint domain = SegmentDomain();
+    _PortalState[0] = 0u;
+    _PortalState[1] = 0u;
+    _PortalState[2] = 0u;
+    _PortalState[3] = 0u;
+    _PortalDispatchArguments[0] = uint3((domain + 63u) / 64u, 1u, 1u);
+    _PortalDispatchArguments[1] = uint3(0u, 1u, 1u);
+}
+
+[numthreads(64, 1, 1)]
+void ClearPortalPlans(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x < _HalfEdgeCapacity) _PortalPlans[id.x] = 0u;
+}
+
+[numthreads(64, 1, 1)]
+void PlanPortalCandidates(uint3 id : SV_DispatchThreadID)
+{
+    uint index = id.x;
+    SupportContourSegment segment;
+    if (!ActiveMeasuredSegment(index, segment) || segment.filmId == 0u ||
+        segment.filmId > _FilmCapacity || index >= _HalfEdgeCapacity) return;
+    SurfaceHalfEdge edge = _HalfEdges[index];
+    if ((edge.flags & (HALF_EDGE_ACTIVE | HALF_EDGE_MEASURED |
+        HALF_EDGE_OUTER)) != (HALF_EDGE_ACTIVE | HALF_EDGE_MEASURED |
+        HALF_EDGE_OUTER) || edge.boundaryId != 0u) return;
+    AtlasContactFilmHeader film = _FilmHeaders[segment.filmId - 1u];
+    if (film.id != segment.filmId || film.generation != segment.filmGeneration ||
+        film.chunkId != _SourceChunkId || (film.flags & FILM_ACTIVE) == 0u)
+        return;
+    float3 p0 = FilmPoint(film, segment.uv01.xy);
+    float3 p1 = FilmPoint(film, segment.uv01.zw);
+    float d0 = dot(_OwnershipPlaneInSource.xyz, p0) -
+        _OwnershipPlaneInSource.w;
+    float d1 = dot(_OwnershipPlaneInSource.xyz, p1) -
+        _OwnershipPlaneInSource.w;
+    bool straddles = d0 * d1 <= 0.0;
+    bool inOverlap = min(abs(d0), abs(d1)) <= _OverlapBandMeters ||
+        abs(0.5 * (d0 + d1)) <= _OverlapBandMeters;
+    if (!(straddles || inOverlap) || segment.support <= 0.0 ||
+        segment.confidence < 0.2 || ExistingPortal(edge.id, edge.generation))
+        return;
+    uint ordinal;
+    InterlockedAdd(_PortalState[0], 1u, ordinal);
+    _PortalPlans[index] = ordinal + 1u;
+}
+
+[numthreads(1, 1, 1)]
+void ReservePortalPairs(uint3 id : SV_DispatchThreadID)
+{
+    uint count = _PortalState[0];
+    uint base = min(_AtlasAllocator[10], _PortalCapacity);
+    uint required = count * 2u;
+    if (required > _PortalCapacity - base)
+    {
+        _PortalState[3] = required;
+        InterlockedAdd(_AtlasAllocator[11], required);
+        _PortalDispatchArguments[1] = uint3(0u, 1u, 1u);
+        return;
+    }
+    _PortalState[1] = base;
+    _PortalState[2] = count;
+    _AtlasAllocator[10] = base + required;
+    _PortalDispatchArguments[1] = uint3((SegmentDomain() + 63u) / 64u, 1u, 1u);
+}
+
+[numthreads(64, 1, 1)]
+void CommitPortalPairs(uint3 id : SV_DispatchThreadID)
+{
+    uint index = id.x;
+    if (index >= _HalfEdgeCapacity) return;
+    uint planned = _PortalPlans[index];
+    if (planned == 0u || planned > _PortalState[2]) return;
+    SupportContourSegment segment;
+    if (!ActiveMeasuredSegment(index, segment) || segment.filmId == 0u ||
+        segment.filmId > _FilmCapacity) return;
+    SurfaceHalfEdge edge = _HalfEdges[index];
+    AtlasContactFilmHeader film = _FilmHeaders[segment.filmId - 1u];
+    float2 midUv = 0.5 * (segment.uv01.xy + segment.uv01.zw);
+    float3 midpoint = FilmPoint(film, midUv);
+    float3 normal = AtlasSurfaceNormal(film, midUv);
+    float3 tangent = normalize(FilmPoint(film, segment.uv01.zw) -
+        FilmPoint(film, segment.uv01.xy));
+    float4 viewState = ContactViewState(segment.filmId);
+    uint viewMask = asuint(viewState.x);
+    float firstHit = saturate(1.0 - film.contradiction);
+    float poseQuality = saturate(film.confidence /
+        max(film.confidence + film.sigmaNormal * 32.0, 1e-5));
+    uint evidence = EVIDENCE_GEOMETRY | EVIDENCE_SIDEDNESS |
+        EVIDENCE_FIRST_HIT | EVIDENCE_VISIBILITY |
+        EVIDENCE_POSE_CALIBRATION;
+    if (countbits(viewMask) >= 2u) evidence |= EVIDENCE_MULTIVIEW;
+
+    uint sourceIndex = _PortalState[1] + (planned - 1u) * 2u;
+    uint targetIndex = sourceIndex + 1u;
+    CrossChunkTopologyPortal source = (CrossChunkTopologyPortal)0;
+    source.id = sourceIndex + 1u; source.generation = max(1u, edge.generation);
+    source.halfEdgeId = edge.id; source.halfEdgeGeneration = edge.generation;
+    source.ownerChunkId = _SourceChunkId; source.remoteChunkId = _TargetChunkId;
+    source.manifoldId = edge.manifoldId;
+    source.manifoldGeneration = edge.manifoldGeneration;
+    source.flags = PORTAL_ACTIVE | PORTAL_OWNER_RESIDENT | PORTAL_GHOST |
+        PORTAL_DIRTY;
+    source.revision = 1u;
+    source.localEndpointAndSigma = float4(midpoint, segment.sigma);
+    source.localNormalAndBandwidth = float4(normal, segment.bandwidth);
+    source.localTangentAndSupport = float4(tangent, segment.support);
+    source.independentViewMask = viewMask; source.evidenceFlags = evidence;
+    source.firstHitScore = firstHit;
+    source.poseCalibrationQuality = poseQuality;
+
+    CrossChunkTopologyPortal target = source;
+    target.id = targetIndex + 1u;
+    target.halfEdgeId = 0u; target.halfEdgeGeneration = 0u;
+    target.remoteHalfEdgeId = edge.id;
+    target.remoteHalfEdgeGeneration = edge.generation;
+    target.ownerChunkId = _TargetChunkId; target.remoteChunkId = _SourceChunkId;
+    target.flags = PORTAL_ACTIVE | PORTAL_REMOTE_RESIDENT | PORTAL_GHOST |
+        PORTAL_DIRTY;
+    target.localEndpointAndSigma = float4(
+        mul(_TargetFromSource, float4(midpoint, 1.0)).xyz, segment.sigma);
+    target.localNormalAndBandwidth = float4(normalize(
+        mul((float3x3)_TargetFromSource, normal)), segment.bandwidth);
+    target.localTangentAndSupport = float4(normalize(
+        mul((float3x3)_TargetFromSource, tangent)), segment.support);
+
+    _CrossChunkPortals[sourceIndex] = source;
+    _CrossChunkPortals[targetIndex] = target;
+    edge.flags = (edge.flags & ~HALF_EDGE_OUTER) | HALF_EDGE_PORTAL;
+    _HalfEdges[index] = edge;
+}
+
+[numthreads(1, 1, 1)]
+void PreparePortalBootstrap(uint3 id : SV_DispatchThreadID)
+{
+    uint count = min(_SourceAtlasAllocator[10], _PortalCapacity);
+    _PortalDispatchArguments[2] = uint3((count + 63u) / 64u, 1u, 1u);
+    _TargetAtlasAllocator[10] = max(_TargetAtlasAllocator[10], count);
+}
+
+[numthreads(1, 1, 1)]
+void BootstrapManifoldIdentity(uint3 id : SV_DispatchThreadID)
+{
+    uint manifoldId = _SourceCurrentManifold[0];
+    uint generation = _SourceCurrentManifold[1];
+    if (manifoldId == 0u || manifoldId > _ManifoldCapacity) return;
+    AtlasPressureManifoldHeader source = _SourceManifoldHeaders[manifoldId - 1u];
+    if (source.id != manifoldId || source.generation != generation) return;
+    AtlasPressureManifoldHeader target = _TargetManifoldHeaders[manifoldId - 1u];
+    if (target.id == 0u || target.generation != generation ||
+        source.revision > target.revision)
+        _TargetManifoldHeaders[manifoldId - 1u] = source;
+    _TargetCurrentManifold[0] = manifoldId;
+    _TargetCurrentManifold[1] = generation;
+    _TargetCurrentManifold[2] = max(_TargetCurrentManifold[2],
+        _SourceCurrentManifold[2]);
+    _TargetManifoldAllocator[0] = max(_TargetManifoldAllocator[0],
+        _SourceManifoldAllocator[0]);
+    _TargetManifoldAllocator[1] = max(_TargetManifoldAllocator[1],
+        _SourceManifoldAllocator[1]);
+    _TargetManifoldAllocator[3] = max(_TargetManifoldAllocator[3],
+        _SourceManifoldAllocator[3]);
+    _TargetManifoldAllocator[4] = max(_TargetManifoldAllocator[4],
+        _SourceManifoldAllocator[4]);
+}
+
+[numthreads(64, 1, 1)]
+void BootstrapPortalGhosts(uint3 id : SV_DispatchThreadID)
+{
+    uint count = min(_SourceAtlasAllocator[10], _PortalCapacity);
+    if (id.x >= count) return;
+    CrossChunkTopologyPortal source = _SourceCrossChunkPortals[id.x];
+    if ((source.flags & PORTAL_ACTIVE) == 0u ||
+        (source.ownerChunkId != _TargetChunkId &&
+         source.remoteChunkId != _TargetChunkId)) return;
+    CrossChunkTopologyPortal target = _TargetCrossChunkPortals[id.x];
+    if ((target.flags & PORTAL_ACTIVE) == 0u ||
+        source.generation > target.generation ||
+        (source.generation == target.generation && source.revision > target.revision))
+        _TargetCrossChunkPortals[id.x] = source;
+}
+
+[numthreads(1, 1, 1)]
+void BuildPortalReconcileArguments(uint3 id : SV_DispatchThreadID)
+{
+    uint count = min(_AtlasAllocator[10], _PortalCapacity);
+    _PortalDispatchArguments[3] = uint3((count + 63u) / 64u, 1u, 1u);
+}
+
+[numthreads(64, 1, 1)]
+void ReconcilePortalGhosts(uint3 id : SV_DispatchThreadID)
+{
+    uint portalCount = min(_AtlasAllocator[10], _PortalCapacity);
+    if (id.x >= portalCount) return;
+    CrossChunkTopologyPortal portal = _CrossChunkPortals[id.x];
+    if ((portal.flags & PORTAL_ACTIVE) == 0u ||
+        portal.ownerChunkId != _CurrentChunkId || portal.halfEdgeId != 0u)
+        return;
+    float3 anchor = portal.localEndpointAndSigma.xyz;
+    float3 remoteNormal = normalize(portal.localNormalAndBandwidth.xyz);
+    float3 remoteTangent = normalize(portal.localTangentAndSupport.xyz);
+    int3 centre = WorldCell(anchor);
+    uint best = ATLAS_INVALID;
+    float bestResidual = 3.402823466e+38;
+    [unroll] for (int z = -1; z <= 1; ++z)
+    [unroll] for (int y = -1; y <= 1; ++y)
+    [unroll] for (int x = -1; x <= 1; ++x)
+    {
+        uint key = HashCell(centre + int3(x, y, z));
+        uint candidate = _HalfEdgeHashHeads[key & (_HalfEdgeHashCapacity - 1u)];
+        [loop]
+        for (uint chain = 0u; chain < 128u && candidate != ATLAS_INVALID;
+             ++chain)
+        {
+            if (candidate < _HalfEdgeCapacity)
+            {
+                SurfaceHalfEdge edge = _HalfEdges[candidate];
+                SupportContourSegment segment = _SupportContours[candidate];
+                if ((edge.flags & (HALF_EDGE_ACTIVE | HALF_EDGE_MEASURED |
+                    HALF_EDGE_OUTER)) == (HALF_EDGE_ACTIVE |
+                    HALF_EDGE_MEASURED | HALF_EDGE_OUTER) &&
+                    edge.boundaryId == 0u && edge.twinId == 0u &&
+                    edge.manifoldId == portal.manifoldId &&
+                    edge.manifoldGeneration == portal.manifoldGeneration &&
+                    segment.filmId > 0u && segment.filmId <= _FilmCapacity)
+                {
+                    AtlasContactFilmHeader film =
+                        _FilmHeaders[segment.filmId - 1u];
+                    if (film.chunkId == _CurrentChunkId)
+                    {
+                        float2 midUv = 0.5 * (segment.uv01.xy +
+                            segment.uv01.zw);
+                        float3 midpoint = FilmPoint(film, midUv);
+                        float residual = distance(midpoint, anchor);
+                        float3 normal = AtlasSurfaceNormal(film, midUv);
+                        float3 tangent = normalize(FilmPoint(film,
+                            segment.uv01.zw) - FilmPoint(film,
+                            segment.uv01.xy));
+                        float normalCosine = dot(normal, remoteNormal);
+                        float tangentCosine = abs(dot(tangent, remoteTangent));
+                        uint localViewMask = asuint(
+                            ContactViewState(segment.filmId).x);
+                        uint combinedViews = localViewMask |
+                            portal.independentViewMask;
+                        float gate = _WeldPositionFloor + 3.0 * sqrt(
+                            segment.sigma * segment.sigma +
+                            portal.localEndpointAndSigma.w *
+                            portal.localEndpointAndSigma.w) + 0.5 *
+                            (segment.bandwidth +
+                             portal.localNormalAndBandwidth.w);
+                        bool independent = countbits(combinedViews) >= 2u &&
+                            (localViewMask & ~portal.independentViewMask) != 0u;
+                        if (residual <= gate && normalCosine >=
+                            _CreaseNormalCosine && tangentCosine >= 0.35 &&
+                            independent && portal.firstHitScore >= 0.5 &&
+                            portal.poseCalibrationQuality >= 0.2 &&
+                            residual < bestResidual)
+                        {
+                            bestResidual = residual;
+                            best = candidate;
+                        }
+                    }
+                }
+            }
+            candidate = candidate < _HalfEdgeCapacity ?
+                _HalfEdgeHashNext[candidate] : ATLAS_INVALID;
+        }
+    }
+    if (best == ATLAS_INVALID) return;
+    uint observed;
+    InterlockedCompareExchange(_HalfEdges[best].reserved, 0u,
+        portal.id, observed);
+    if (observed != 0u && observed != portal.id) return;
+    SurfaceHalfEdge matched = _HalfEdges[best];
+    SupportContourSegment matchedSegment = _SupportContours[best];
+    AtlasContactFilmHeader matchedFilm =
+        _FilmHeaders[matchedSegment.filmId - 1u];
+    float2 matchedMidUv = 0.5 * (matchedSegment.uv01.xy +
+        matchedSegment.uv01.zw);
+    float normalCosine = dot(AtlasSurfaceNormal(matchedFilm, matchedMidUv),
+        remoteNormal);
+    matched.relation = normalCosine >= 0.9961947 ?
+        HALF_EDGE_SMOOTH : HALF_EDGE_CREASE;
+    matched.flags = (matched.flags & ~HALF_EDGE_OUTER) | HALF_EDGE_PORTAL;
+    matched.revision++;
+    _HalfEdges[best] = matched;
+    portal.halfEdgeId = matched.id;
+    portal.halfEdgeGeneration = matched.generation;
+    portal.flags = (portal.flags & ~PORTAL_GHOST) | PORTAL_OWNER_RESIDENT |
+        PORTAL_REMOTE_RESIDENT | PORTAL_MATCHED;
+    portal.revision++;
+    portal.evidenceFlags |= EVIDENCE_GEOMETRY | EVIDENCE_SIDEDNESS |
+        EVIDENCE_FIRST_HIT | EVIDENCE_VISIBILITY | EVIDENCE_MULTIVIEW |
+        EVIDENCE_POSE_CALIBRATION | EVIDENCE_COMMITTABLE;
+    portal.independentViewMask |= asuint(
+        ContactViewState(matchedSegment.filmId).x);
+    _CrossChunkPortals[id.x] = portal;
+}

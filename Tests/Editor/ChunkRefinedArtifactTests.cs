@@ -81,8 +81,9 @@ namespace Genesis.RoomScan.Tests
                 RigidPoseData.Identity, new BoundsData(Vector3.zero, Vector3.one), 1_000,
                 out WorldManifest manifest, out string createError), Is.True, createError);
             ChunkRecord chunk = manifest.chunks[0];
-            ChunkSnapshotPublishResult mapper = await ChunkSnapshotPublisher.PublishAsync(
-                store, manifest, chunk, CreateSnapshot(), 2_000);
+            PrismChunkPublishResult mapper = await PrismChunkPublisher.PublishAsync(
+                store, manifest, chunk, ChunkGlbWriterTests.CreateCanonicalSnapshot(),
+                2_000);
             Assert.That(mapper.Success, Is.True, mapper.Error);
 
             ChunkRefinedPublishResult first = await ChunkRefinedArtifactPublisher.PublishAsync(
@@ -92,8 +93,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(chunk.artifacts.Select(artifact => artifact.kind), Is.EquivalentTo(
                 new[]
                 {
-                    ChunkArtifactKind.Volume,
-                    ChunkArtifactKind.LiveMesh,
+                    ChunkArtifactKind.PrismCanonical,
                     ChunkArtifactKind.RefinedMesh,
                     ChunkArtifactKind.RefinedAtlas,
                     ChunkArtifactKind.RefinedNormal
@@ -110,9 +110,9 @@ namespace Genesis.RoomScan.Tests
             Assert.That(chunk.artifacts.Count(artifact =>
                 artifact.kind == ChunkArtifactKind.RefinedNormal), Is.Zero);
             Assert.That(chunk.artifacts.Count(artifact =>
-                artifact.kind == ChunkArtifactKind.Volume), Is.EqualTo(1));
+                artifact.kind == ChunkArtifactKind.PrismCanonical), Is.EqualTo(1));
             Assert.That(chunk.artifacts.Count(artifact =>
-                artifact.kind == ChunkArtifactKind.LiveMesh), Is.EqualTo(1));
+                artifact.kind == ChunkArtifactKind.RefinedMesh), Is.EqualTo(1));
         }
 
         private static RefinedTextureResult CreateRefined(bool includeNormal)
@@ -135,37 +135,6 @@ namespace Genesis.RoomScan.Tests
                     ? Enumerable.Repeat((byte)127, 16).ToArray()
                     : null
             };
-        }
-
-        private static ChunkGpuSnapshot CreateSnapshot()
-        {
-            return new ChunkGpuSnapshot
-            {
-                Volume = new ChunkVolumeSnapshot
-                {
-                    VoxelCount = new Vector3Int(2, 2, 2),
-                    VoxelSize = 0.05f,
-                    IntegrationCount = 1,
-                    WorldFromVolume = RigidPoseData.Identity,
-                    TsdfBytes = new byte[16],
-                    ColorBytes = new byte[32]
-                },
-                LiveMesh = new ChunkLiveMeshSnapshot
-                {
-                    VertexCount = 3,
-                    IndexCount = 3,
-                    LocalBounds = new BoundsData(Vector3.zero, Vector3.one),
-                    VertexBytes = new byte[3 * ChunkLiveMeshSnapshot.VertexStride],
-                    IndexBytes = Indices(0, 1, 2)
-                }
-            };
-        }
-
-        private static byte[] Indices(params uint[] indices)
-        {
-            var bytes = new byte[indices.Length * sizeof(uint)];
-            Buffer.BlockCopy(indices, 0, bytes, 0, bytes.Length);
-            return bytes;
         }
 
         private static void AssertVerified(WorldStore store, string worldId,

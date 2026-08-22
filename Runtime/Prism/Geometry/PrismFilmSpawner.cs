@@ -14,6 +14,7 @@ namespace Genesis.RoomScan.Prism
     {
         [SerializeField] private PrismConeClassifier coneClassifier;
         [SerializeField] private ComputeShader spawnCompute;
+        [SerializeField] private ComputeShader componentReduceCompute;
         [SerializeField, Min(1024)] private int filmCapacity = 65536;
         [SerializeField, Range(0.1f, 1f)] private float behindLayerThreshold = 0.6f;
         [SerializeField, Min(1f)] private float physicalPrecisionUnit = 4096f;
@@ -51,19 +52,34 @@ namespace Genesis.RoomScan.Prism
         private static readonly int CandidateHashNextId = Shader.PropertyToID("_CandidateHashNext");
         private static readonly int CandidateHashKeysId = Shader.PropertyToID("_CandidateHashKeys");
         private static readonly int CandidateRepresentativesId = Shader.PropertyToID("_CandidateRepresentatives");
-        private static readonly int CandidateAggregatesId = Shader.PropertyToID("_CandidateAggregates");
+        private static readonly int CandidateTileLeadersId =
+            Shader.PropertyToID("_CandidateTileLeaders");
+        private static readonly int CandidatePixelOwnersId =
+            Shader.PropertyToID("_CandidatePixelOwners");
+        private static readonly int ComponentMomentsId =
+            Shader.PropertyToID("_ComponentMoments");
+        private static readonly int ComponentFramesId =
+            Shader.PropertyToID("_ComponentFrames");
+        private static readonly int ComponentPosteriorId =
+            Shader.PropertyToID("_ComponentPosterior");
+        private static readonly int ComponentModelFlagsId =
+            Shader.PropertyToID("_ComponentModelFlags");
+        private static readonly int EventCapacityId = Shader.PropertyToID("_EventCapacity");
+        private static readonly int PosteriorPassId = Shader.PropertyToID("_PosteriorPass");
+        private static readonly int CommitPosteriorId =
+            Shader.PropertyToID("_CommitPosterior");
+        private static readonly int ModelResidualFloorId =
+            Shader.PropertyToID("_ModelResidualFloor");
+        private static readonly int ComponentNormalCosineId =
+            Shader.PropertyToID("_ComponentNormalCosine");
         private static readonly int CandidateStateId = Shader.PropertyToID("_CandidateState");
         private static readonly int CandidateDispatchArgumentsId =
             Shader.PropertyToID("_CandidateDispatchArguments");
         private static readonly int ManifoldCapacityId = Shader.PropertyToID("_ManifoldCapacity");
-        private static readonly int FrontierCapacityId = Shader.PropertyToID("_FrontierCapacity");
         private static readonly int CalibrationEpochId = Shader.PropertyToID("_CalibrationEpoch");
         private static readonly int OpticalSeedId = Shader.PropertyToID("_OpticalSeed");
         private static readonly int ManifoldHeadersId = Shader.PropertyToID("_ManifoldHeaders");
         private static readonly int FilmMembershipsId = Shader.PropertyToID("_FilmMemberships");
-        private static readonly int LatentFrontiersId = Shader.PropertyToID("_LatentFrontiers");
-        private static readonly int ManifoldFrontierIncidencesId =
-            Shader.PropertyToID("_ManifoldFrontierIncidences");
         private static readonly int ManifoldAllocatorId = Shader.PropertyToID("_ManifoldAllocator");
         private static readonly int CurrentManifoldId = Shader.PropertyToID("_CurrentManifold");
         private static readonly int ManifoldDiagnosticsId = Shader.PropertyToID("_ManifoldDiagnostics");
@@ -75,8 +91,6 @@ namespace Genesis.RoomScan.Prism
             Shader.PropertyToID("_CandidateInformationRead");
         private static readonly int CandidateRepresentativesReadId =
             Shader.PropertyToID("_CandidateRepresentativesRead");
-        private static readonly int CandidateAggregatesReadId =
-            Shader.PropertyToID("_CandidateAggregatesRead");
         private static readonly int CandidatePublicationsReadId =
             Shader.PropertyToID("_CandidatePublicationsRead");
         private static readonly int FilmHeadersReadId =
@@ -87,6 +101,7 @@ namespace Genesis.RoomScan.Prism
             Shader.PropertyToID("_CurrentManifoldRead");
 
         private readonly Matrix4x4[] _chunkFromDepth = new Matrix4x4[2];
+        private readonly GpuResourceRetirementQueue _gpuRetirement = new();
         private ContactFilmPool _filmPool;
         private GraphicsBuffer _spawnTileIndices;
         private GraphicsBuffer _spawnTileState;
@@ -98,10 +113,15 @@ namespace Genesis.RoomScan.Prism
         private GraphicsBuffer _candidateHashNext;
         private GraphicsBuffer _candidateHashKeys;
         private GraphicsBuffer _candidateRepresentatives;
-        private GraphicsBuffer _candidateAggregates;
         private GraphicsBuffer _candidateState;
         private GraphicsBuffer _candidateDispatchArguments;
         private GraphicsBuffer _candidatePublications;
+        private GraphicsBuffer _candidateTileLeaders;
+        private GraphicsBuffer _candidatePixelOwners;
+        private GraphicsBuffer _componentMoments;
+        private GraphicsBuffer _componentFrames;
+        private GraphicsBuffer _componentPosterior;
+        private GraphicsBuffer _componentModelFlags;
         private int _candidateHashCapacity;
         private int _spawnTileCapacity;
         private int _clearTilesKernel = -1;
@@ -109,14 +129,24 @@ namespace Genesis.RoomScan.Prism
         private int _buildTileArgsKernel = -1;
         private int _spawnKernel = -1;
         private int _clearCandidatesKernel = -1;
-        private int _buildCandidateArgsKernel = -1;
-        private int _buildCandidateHashKernel = -1;
-        private int _unionCandidatesKernel = -1;
-        private int _compressCandidatesKernel = -1;
-        private int _compactRepresentativesKernel = -1;
-        private int _buildRepresentativeArgsKernel = -1;
-        private int _accumulateRepresentativesKernel = -1;
-        private int _stampCandidateSupportKernel = -1;
+        private int _clearCandidatePixelOwnersKernel = -1;
+        private int _mapCandidatePixelsKernel = -1;
+        private int _prepareComponentsKernel = -1;
+        private int _clearComponentProductsKernel = -1;
+        private int _buildComponentHashKernel = -1;
+        private int _hookComponentsKernel = -1;
+        private int _shortcutComponentsKernel = -1;
+        private int _compactComponentRootsKernel = -1;
+        private int _buildComponentArgumentsKernel = -1;
+        private int _accumulateComponentMomentsKernel = -1;
+        private int _finalizeComponentFramesKernel = -1;
+        private int _accumulateComponentExtentsKernel = -1;
+        private int _finalizeComponentExtentsKernel = -1;
+        private int _clearComponentPosteriorKernel = -1;
+        private int _accumulateComponentPosteriorKernel = -1;
+        private int _solveComponentPosteriorKernel = -1;
+        private int _evaluateComponentModelKernel = -1;
+        private int _expandRejectedComponentsKernel = -1;
         private int _ensureManifoldKernel = -1;
         private int _reservePublicationKernel = -1;
         private int _writeCanonicalFilmsKernel = -1;
@@ -149,7 +179,10 @@ namespace Genesis.RoomScan.Prism
             coneClassifier = source != null ? source : coneClassifier;
             coneClassifier ??= GetComponent<PrismConeClassifier>();
             spawnCompute ??= Resources.Load<ComputeShader>("Prism/ContactFilmSpawn");
-            if (coneClassifier == null || spawnCompute == null)
+            componentReduceCompute ??=
+                Resources.Load<ComputeShader>("Prism/ContactComponentReduce");
+            if (coneClassifier == null || spawnCompute == null ||
+                componentReduceCompute == null)
             {
                 Logger.Error("Cone-PRISM ContactFilm spawn dependencies are missing.");
                 return;
@@ -159,29 +192,18 @@ namespace Genesis.RoomScan.Prism
             _buildTileArgsKernel =
                 spawnCompute.FindKernel("BuildSpawnTileDispatchArguments");
             _clearCandidatesKernel = spawnCompute.FindKernel("ClearSpawnCandidates");
+            _clearCandidatePixelOwnersKernel =
+                spawnCompute.FindKernel("ClearCandidatePixelOwners");
             _spawnKernel = spawnCompute.FindKernel("EmitSpawnCandidates");
-            _buildCandidateArgsKernel =
-                spawnCompute.FindKernel("BuildCandidateDispatchArguments");
-            _buildCandidateHashKernel = spawnCompute.FindKernel("BuildCandidateHash");
-            _unionCandidatesKernel =
-                spawnCompute.FindKernel("UnionCompatibleCandidates");
-            _compressCandidatesKernel =
-                spawnCompute.FindKernel("CompressCandidateParents");
-            _compactRepresentativesKernel =
-                spawnCompute.FindKernel("CompactCandidateRepresentatives");
-            _buildRepresentativeArgsKernel =
-                spawnCompute.FindKernel("BuildRepresentativeDispatchArguments");
-            _accumulateRepresentativesKernel =
-                spawnCompute.FindKernel("AccumulateCandidateRepresentatives");
-            _stampCandidateSupportKernel =
-                spawnCompute.FindKernel("StampCandidateSupport");
+            _mapCandidatePixelsKernel = spawnCompute.FindKernel("MapCandidatePixels");
+            FindComponentKernels();
             _ensureManifoldKernel = spawnCompute.FindKernel("EnsurePressureManifold");
             _reservePublicationKernel =
                 spawnCompute.FindKernel("ReserveCandidatePublication");
             _writeCanonicalFilmsKernel =
                 spawnCompute.FindKernel("WriteCanonicalFilms");
             _writeCanonicalTopologyKernel =
-                spawnCompute.FindKernel("WriteCanonicalMembershipAndFrontier");
+                spawnCompute.FindKernel("WriteCanonicalMembership");
             _finalizeManifoldKernel =
                 spawnCompute.FindKernel("FinalizePressureManifoldCounts");
             _filmPool ??= new ContactFilmPool(filmCapacity);
@@ -207,9 +229,12 @@ namespace Genesis.RoomScan.Prism
             StopSpawning();
             DisposeTileBuffers();
             DisposeCandidateBuffers();
-            _filmPool?.Dispose();
+            _gpuRetirement.RetireAfterCurrentGpuWork(_filmPool);
             _filmPool = null;
+            _gpuRetirement.DrainAndWait();
         }
+
+        private void LateUpdate() => _gpuRetirement.DrainCompleted();
 
         private void OnConeEvents(ConeEventFrameLease eventFrame) =>
             DispatchSpawn(eventFrame);
@@ -247,7 +272,8 @@ namespace Genesis.RoomScan.Prism
                 spawnCompute.SetMatrixArray(ChunkFromDepthId, _chunkFromDepth);
                 Vector4 opticalSeed = _chunkFromDepth[0].GetColumn(3);
                 spawnCompute.SetVector(OpticalSeedId, opticalSeed);
-                int[] eventKernels = { _compactTilesKernel, _spawnKernel };
+                int[] eventKernels =
+                    { _compactTilesKernel, _spawnKernel, _mapCandidatePixelsKernel };
                 foreach (int kernel in eventKernels)
                 {
                     spawnCompute.SetBuffer(kernel, EventsId, eventFrame.Events);
@@ -276,18 +302,28 @@ namespace Genesis.RoomScan.Prism
                     luts.DepthLeft.CenterRaySolidAngle);
                 spawnCompute.SetTexture(_spawnKernel, RayRightId,
                     luts.DepthRight.CenterRaySolidAngle);
+                spawnCompute.SetTexture(_mapCandidatePixelsKernel, RayLeftId,
+                    luts.DepthLeft.CenterRaySolidAngle);
+                spawnCompute.SetTexture(_mapCandidatePixelsKernel, RayRightId,
+                    luts.DepthRight.CenterRaySolidAngle);
                 spawnCompute.SetBuffer(_spawnKernel, FilmInformationId,
                     _filmPool.Information);
                 spawnCompute.SetBuffer(_spawnKernel, FilmAllocatorId,
                     _filmPool.Allocator);
+                int[] pixelOwnerKernels =
+                    { _clearCandidatePixelOwnersKernel, _spawnKernel,
+                      _mapCandidatePixelsKernel };
+                foreach (int kernel in pixelOwnerKernels)
+                {
+                    spawnCompute.SetBuffer(kernel, CandidatePixelOwnersId,
+                        _candidatePixelOwners);
+                    spawnCompute.SetBuffer(kernel, CandidateTileLeadersId,
+                        _candidateTileLeaders);
+                }
 
                 int[] candidateKernels =
                 {
                     _clearCandidatesKernel, _spawnKernel,
-                    _buildCandidateArgsKernel, _buildCandidateHashKernel,
-                    _unionCandidatesKernel, _compressCandidatesKernel,
-                    _compactRepresentativesKernel, _buildRepresentativeArgsKernel,
-                    _accumulateRepresentativesKernel, _stampCandidateSupportKernel,
                     _ensureManifoldKernel, _reservePublicationKernel,
                     _writeCanonicalFilmsKernel,
                     _writeCanonicalTopologyKernel,
@@ -310,8 +346,6 @@ namespace Genesis.RoomScan.Prism
                         _candidateHashKeys);
                     spawnCompute.SetBuffer(kernel, CandidateRepresentativesId,
                         _candidateRepresentatives);
-                    spawnCompute.SetBuffer(kernel, CandidateAggregatesId,
-                        _candidateAggregates);
                     spawnCompute.SetBuffer(kernel, CandidateStateId,
                         _candidateState);
                     spawnCompute.SetBuffer(kernel, CandidateDispatchArgumentsId,
@@ -331,10 +365,6 @@ namespace Genesis.RoomScan.Prism
                         manifolds.Headers);
                     spawnCompute.SetBuffer(kernel, FilmMembershipsId,
                         manifolds.Memberships);
-                    spawnCompute.SetBuffer(kernel, LatentFrontiersId,
-                        manifolds.Frontiers);
-                    spawnCompute.SetBuffer(kernel, ManifoldFrontierIncidencesId,
-                        manifolds.FrontierIncidences);
                     spawnCompute.SetBuffer(kernel, ManifoldAllocatorId,
                         manifolds.Allocator);
                     spawnCompute.SetBuffer(kernel, CurrentManifoldId,
@@ -357,8 +387,6 @@ namespace Genesis.RoomScan.Prism
                         _candidateInformation);
                     spawnCompute.SetBuffer(kernel, CandidateRepresentativesReadId,
                         _candidateRepresentatives);
-                    spawnCompute.SetBuffer(kernel, CandidateAggregatesReadId,
-                        _candidateAggregates);
                     spawnCompute.SetBuffer(kernel, CandidatePublicationsReadId,
                         _candidatePublications);
                     spawnCompute.SetBuffer(kernel, FilmHeadersReadId,
@@ -369,35 +397,20 @@ namespace Genesis.RoomScan.Prism
                         manifolds.Current);
                 }
                 spawnCompute.SetInt(ManifoldCapacityId, manifolds.ManifoldCapacity);
-                spawnCompute.SetInt(FrontierCapacityId, manifolds.FrontierCapacity);
                 spawnCompute.Dispatch(_clearTilesKernel, 1, 1, 1);
                 spawnCompute.Dispatch(_clearCandidatesKernel,
                     CeilDiv(Math.Max(_filmPool.Capacity, _candidateHashCapacity), 64),
                     1, 1);
+                spawnCompute.Dispatch(_clearCandidatePixelOwnersKernel,
+                    CeilDiv(eventFrame.EventCapacity, 64), 1, 1);
                 spawnCompute.Dispatch(_compactTilesKernel, tileResolution.x,
                     tileResolution.y, 2);
                 spawnCompute.Dispatch(_buildTileArgsKernel, 1, 1, 1);
                 spawnCompute.DispatchIndirect(_spawnKernel,
                     _spawnTileDispatchArguments, 0);
-                spawnCompute.Dispatch(_buildCandidateArgsKernel, 1, 1, 1);
-                spawnCompute.DispatchIndirect(_buildCandidateHashKernel,
-                    _candidateDispatchArguments, 0);
-                // DSU unions are order-independent; two relaxation waves plus path
-                // compression converge chains crossing tile and eye boundaries.
-                for (int wave = 0; wave < 2; wave++)
-                {
-                    spawnCompute.DispatchIndirect(_unionCandidatesKernel,
-                        _candidateDispatchArguments, 0);
-                    spawnCompute.DispatchIndirect(_compressCandidatesKernel,
-                        _candidateDispatchArguments, 0);
-                }
-                spawnCompute.DispatchIndirect(_compactRepresentativesKernel,
-                    _candidateDispatchArguments, 0);
-                spawnCompute.Dispatch(_buildRepresentativeArgsKernel, 1, 1, 1);
-                spawnCompute.DispatchIndirect(_accumulateRepresentativesKernel,
-                    _candidateDispatchArguments, sizeof(uint) * 6);
-                spawnCompute.DispatchIndirect(_stampCandidateSupportKernel,
-                    _candidateDispatchArguments, sizeof(uint) * 6);
+                spawnCompute.DispatchIndirect(_mapCandidatePixelsKernel,
+                    _spawnTileDispatchArguments, 0);
+                DispatchComponentReduction(eventFrame, luts, resolution);
                 spawnCompute.Dispatch(_ensureManifoldKernel, 1, 1, 1);
                 spawnCompute.Dispatch(_reservePublicationKernel, 1, 1, 1);
                 spawnCompute.DispatchIndirect(_writeCanonicalFilmsKernel,
@@ -420,6 +433,177 @@ namespace Genesis.RoomScan.Prism
             }
         }
 
+        private void FindComponentKernels()
+        {
+            _prepareComponentsKernel =
+                componentReduceCompute.FindKernel("PrepareComponentReduction");
+            _clearComponentProductsKernel =
+                componentReduceCompute.FindKernel("ClearComponentProducts");
+            _buildComponentHashKernel =
+                componentReduceCompute.FindKernel("BuildComponentHash");
+            _hookComponentsKernel =
+                componentReduceCompute.FindKernel("HookComponentGraph");
+            _shortcutComponentsKernel =
+                componentReduceCompute.FindKernel("ShortcutComponentParents");
+            _compactComponentRootsKernel =
+                componentReduceCompute.FindKernel("CompactComponentRoots");
+            _buildComponentArgumentsKernel =
+                componentReduceCompute.FindKernel("BuildComponentDispatchArguments");
+            _accumulateComponentMomentsKernel =
+                componentReduceCompute.FindKernel("AccumulateComponentMoments");
+            _finalizeComponentFramesKernel =
+                componentReduceCompute.FindKernel("FinalizeComponentFrames");
+            _accumulateComponentExtentsKernel =
+                componentReduceCompute.FindKernel("AccumulateComponentExtents");
+            _finalizeComponentExtentsKernel =
+                componentReduceCompute.FindKernel("FinalizeComponentExtents");
+            _clearComponentPosteriorKernel =
+                componentReduceCompute.FindKernel("ClearComponentPosterior");
+            _accumulateComponentPosteriorKernel =
+                componentReduceCompute.FindKernel("AccumulateComponentPosterior");
+            _solveComponentPosteriorKernel =
+                componentReduceCompute.FindKernel("SolveComponentPosterior");
+            _evaluateComponentModelKernel =
+                componentReduceCompute.FindKernel("EvaluateComponentModel");
+            _expandRejectedComponentsKernel =
+                componentReduceCompute.FindKernel("ExpandRejectedComponents");
+        }
+
+        private void DispatchComponentReduction(ConeEventFrameLease eventFrame,
+            ConeLutLease luts, Vector2Int resolution)
+        {
+            componentReduceCompute.SetInts(ResolutionId, resolution.x, resolution.y);
+            componentReduceCompute.SetInt(CandidateCapacityId, _filmPool.Capacity);
+            componentReduceCompute.SetInt(CandidateHashCapacityId,
+                _candidateHashCapacity);
+            componentReduceCompute.SetInt(EventCapacityId, eventFrame.EventCapacity);
+            componentReduceCompute.SetFloat(PrecisionUnitId, physicalPrecisionUnit);
+            componentReduceCompute.SetFloat(ModelResidualFloorId, 0.002f);
+            componentReduceCompute.SetFloat(ComponentNormalCosineId,
+                Mathf.Cos(12f * Mathf.Deg2Rad));
+            componentReduceCompute.SetMatrixArray(ChunkFromDepthId, _chunkFromDepth);
+
+            int[] kernels =
+            {
+                _prepareComponentsKernel, _clearComponentProductsKernel,
+                _buildComponentHashKernel, _hookComponentsKernel,
+                _shortcutComponentsKernel, _compactComponentRootsKernel,
+                _buildComponentArgumentsKernel, _accumulateComponentMomentsKernel,
+                _finalizeComponentFramesKernel, _accumulateComponentExtentsKernel,
+                _finalizeComponentExtentsKernel, _clearComponentPosteriorKernel,
+                _accumulateComponentPosteriorKernel,
+                _solveComponentPosteriorKernel, _evaluateComponentModelKernel,
+                _expandRejectedComponentsKernel
+            };
+            foreach (int kernel in kernels)
+            {
+                componentReduceCompute.SetBuffer(kernel, CandidateHeadersId,
+                    _candidateHeaders);
+                componentReduceCompute.SetBuffer(kernel, CandidateInformationId,
+                    _candidateInformation);
+                componentReduceCompute.SetBuffer(kernel, CandidateParentsId,
+                    _candidateParents);
+                componentReduceCompute.SetBuffer(kernel, CandidateHashHeadsId,
+                    _candidateHashHeads);
+                componentReduceCompute.SetBuffer(kernel, CandidateHashNextId,
+                    _candidateHashNext);
+                componentReduceCompute.SetBuffer(kernel, CandidateHashKeysId,
+                    _candidateHashKeys);
+                componentReduceCompute.SetBuffer(kernel, CandidateRepresentativesId,
+                    _candidateRepresentatives);
+                componentReduceCompute.SetBuffer(kernel, CandidateStateId,
+                    _candidateState);
+                componentReduceCompute.SetBuffer(kernel,
+                    CandidateDispatchArgumentsId, _candidateDispatchArguments);
+                componentReduceCompute.SetBuffer(kernel, ComponentMomentsId,
+                    _componentMoments);
+                componentReduceCompute.SetBuffer(kernel, ComponentFramesId,
+                    _componentFrames);
+                componentReduceCompute.SetBuffer(kernel, ComponentPosteriorId,
+                    _componentPosterior);
+                componentReduceCompute.SetBuffer(kernel, ComponentModelFlagsId,
+                    _componentModelFlags);
+            }
+            componentReduceCompute.SetBuffer(_accumulateComponentPosteriorKernel,
+                EventsId, eventFrame.Events);
+            componentReduceCompute.SetBuffer(_accumulateComponentPosteriorKernel,
+                CandidatePixelOwnersId, _candidatePixelOwners);
+            componentReduceCompute.SetTexture(_accumulateComponentPosteriorKernel,
+                RayLeftId, luts.DepthLeft.CenterRaySolidAngle);
+            componentReduceCompute.SetTexture(_accumulateComponentPosteriorKernel,
+                RayRightId, luts.DepthRight.CenterRaySolidAngle);
+
+            componentReduceCompute.Dispatch(_prepareComponentsKernel, 1, 1, 1);
+            componentReduceCompute.Dispatch(_clearComponentProductsKernel,
+                CeilDiv(Math.Max(_filmPool.Capacity, _candidateHashCapacity), 64),
+                1, 1);
+            componentReduceCompute.DispatchIndirect(_buildComponentHashKernel,
+                _candidateDispatchArguments, 0);
+
+            // Concurrent hooks can overwrite an earlier parent relation. Revisit the
+            // complete evidence graph between shortcut waves so two local minima joined
+            // by a bridge cannot survive as false separate components. The number of
+            // waves is capacity-derived, never a room-scene magic constant.
+            int convergenceWaves = CeilLog2(_filmPool.Capacity) + 2;
+            for (int wave = 0; wave < convergenceWaves; wave++)
+            {
+                componentReduceCompute.DispatchIndirect(_hookComponentsKernel,
+                    _candidateDispatchArguments, 0);
+                componentReduceCompute.DispatchIndirect(_shortcutComponentsKernel,
+                    _candidateDispatchArguments, 0);
+            }
+
+            CompactAndFitComponents(eventFrame.EventCapacity, false, true);
+
+            // A transitive proposal that does not fit one quadratic posterior is
+            // conservatively restored to lossless leaves. Atlas half-edges reconnect
+            // those leaves; no giant low-quality chart is forced into publication.
+            componentReduceCompute.DispatchIndirect(_expandRejectedComponentsKernel,
+                _candidateDispatchArguments, 0);
+            componentReduceCompute.Dispatch(_prepareComponentsKernel, 1, 1, 1);
+            componentReduceCompute.Dispatch(_clearComponentProductsKernel,
+                CeilDiv(Math.Max(_filmPool.Capacity, _candidateHashCapacity), 64),
+                1, 1);
+            CompactAndFitComponents(eventFrame.EventCapacity, true, false);
+        }
+
+        private void CompactAndFitComponents(int eventCapacity, bool commit,
+            bool evaluate)
+        {
+            componentReduceCompute.DispatchIndirect(_compactComponentRootsKernel,
+                _candidateDispatchArguments, 0);
+            componentReduceCompute.Dispatch(_buildComponentArgumentsKernel, 1, 1, 1);
+            componentReduceCompute.DispatchIndirect(_accumulateComponentMomentsKernel,
+                _candidateDispatchArguments, 0);
+            componentReduceCompute.DispatchIndirect(_finalizeComponentFramesKernel,
+                _candidateDispatchArguments, sizeof(uint) * 3);
+            componentReduceCompute.DispatchIndirect(_accumulateComponentExtentsKernel,
+                _candidateDispatchArguments, 0);
+            componentReduceCompute.DispatchIndirect(_finalizeComponentExtentsKernel,
+                _candidateDispatchArguments, sizeof(uint) * 3);
+
+            componentReduceCompute.Dispatch(_clearComponentPosteriorKernel,
+                CeilDiv(_filmPool.Capacity, 64), 1, 1);
+            componentReduceCompute.SetInt(PosteriorPassId, 0);
+            componentReduceCompute.SetInt(CommitPosteriorId, 0);
+            componentReduceCompute.Dispatch(_accumulateComponentPosteriorKernel,
+                CeilDiv(eventCapacity, 64), 1, 1);
+            componentReduceCompute.DispatchIndirect(_solveComponentPosteriorKernel,
+                _candidateDispatchArguments, sizeof(uint) * 3);
+
+            componentReduceCompute.Dispatch(_clearComponentPosteriorKernel,
+                CeilDiv(_filmPool.Capacity, 64), 1, 1);
+            componentReduceCompute.SetInt(PosteriorPassId, 1);
+            componentReduceCompute.SetInt(CommitPosteriorId, commit ? 1 : 0);
+            componentReduceCompute.Dispatch(_accumulateComponentPosteriorKernel,
+                CeilDiv(eventCapacity, 64), 1, 1);
+            componentReduceCompute.DispatchIndirect(_solveComponentPosteriorKernel,
+                _candidateDispatchArguments, sizeof(uint) * 3);
+            if (evaluate)
+                componentReduceCompute.DispatchIndirect(_evaluateComponentModelKernel,
+                    _candidateDispatchArguments, 0);
+        }
+
         private static Matrix4x4 PoseMatrix(Pose pose) =>
             Matrix4x4.TRS(pose.position, pose.rotation, Vector3.one);
 
@@ -435,16 +619,22 @@ namespace Genesis.RoomScan.Prism
             _spawnTileDispatchArguments = new GraphicsBuffer(
                 GraphicsBuffer.Target.Structured |
                 GraphicsBuffer.Target.IndirectArguments, 1, sizeof(uint) * 3);
+            _candidateTileLeaders = UIntBuffer(checked(_spawnTileCapacity * 64));
+            _candidatePixelOwners = UIntBuffer(checked(_spawnTileCapacity * 64));
         }
 
         private void DisposeTileBuffers()
         {
-            _spawnTileIndices?.Dispose();
-            _spawnTileState?.Dispose();
-            _spawnTileDispatchArguments?.Dispose();
+            _gpuRetirement.RetireAfterCurrentGpuWork(_spawnTileIndices);
+            _gpuRetirement.RetireAfterCurrentGpuWork(_spawnTileState);
+            _gpuRetirement.RetireAfterCurrentGpuWork(_spawnTileDispatchArguments);
+            _gpuRetirement.RetireAfterCurrentGpuWork(_candidateTileLeaders);
+            _gpuRetirement.RetireAfterCurrentGpuWork(_candidatePixelOwners);
             _spawnTileIndices = null;
             _spawnTileState = null;
             _spawnTileDispatchArguments = null;
+            _candidateTileLeaders = null;
+            _candidatePixelOwners = null;
             _spawnTileCapacity = 0;
         }
 
@@ -464,14 +654,19 @@ namespace Genesis.RoomScan.Prism
             _candidateHashNext = UIntBuffer(capacity);
             _candidateHashKeys = UIntBuffer(capacity);
             _candidateRepresentatives = UIntBuffer(capacity);
-            _candidateAggregates = new GraphicsBuffer(GraphicsBuffer.Target.Structured,
-                checked(capacity * 4), sizeof(int) * 4);
             _candidateState = UIntBuffer(8);
             _candidateDispatchArguments = new GraphicsBuffer(
                 GraphicsBuffer.Target.Structured |
                 GraphicsBuffer.Target.IndirectArguments, 4, sizeof(uint) * 3);
             _candidatePublications = new GraphicsBuffer(
-                GraphicsBuffer.Target.Structured, capacity, sizeof(uint) * 5);
+                GraphicsBuffer.Target.Structured, capacity, sizeof(uint) * 4);
+            _componentMoments = new GraphicsBuffer(GraphicsBuffer.Target.Structured,
+                checked(capacity * 8), sizeof(int) * 4);
+            _componentFrames = new GraphicsBuffer(GraphicsBuffer.Target.Structured,
+                capacity, ContactFilmHeaderGpu.Stride);
+            _componentPosterior = new GraphicsBuffer(GraphicsBuffer.Target.Structured,
+                checked(capacity * 36), sizeof(int));
+            _componentModelFlags = UIntBuffer(capacity);
         }
 
         private static GraphicsBuffer UIntBuffer(int count) =>
@@ -479,17 +674,20 @@ namespace Genesis.RoomScan.Prism
 
         private void DisposeCandidateBuffers()
         {
-            _candidateHeaders?.Dispose();
-            _candidateInformation?.Dispose();
-            _candidateParents?.Dispose();
-            _candidateHashHeads?.Dispose();
-            _candidateHashNext?.Dispose();
-            _candidateHashKeys?.Dispose();
-            _candidateRepresentatives?.Dispose();
-            _candidateAggregates?.Dispose();
-            _candidateState?.Dispose();
-            _candidateDispatchArguments?.Dispose();
-            _candidatePublications?.Dispose();
+            _gpuRetirement.RetireAfterCurrentGpuWork(_candidateHeaders);
+            _gpuRetirement.RetireAfterCurrentGpuWork(_candidateInformation);
+            _gpuRetirement.RetireAfterCurrentGpuWork(_candidateParents);
+            _gpuRetirement.RetireAfterCurrentGpuWork(_candidateHashHeads);
+            _gpuRetirement.RetireAfterCurrentGpuWork(_candidateHashNext);
+            _gpuRetirement.RetireAfterCurrentGpuWork(_candidateHashKeys);
+            _gpuRetirement.RetireAfterCurrentGpuWork(_candidateRepresentatives);
+            _gpuRetirement.RetireAfterCurrentGpuWork(_candidateState);
+            _gpuRetirement.RetireAfterCurrentGpuWork(_candidateDispatchArguments);
+            _gpuRetirement.RetireAfterCurrentGpuWork(_candidatePublications);
+            _gpuRetirement.RetireAfterCurrentGpuWork(_componentMoments);
+            _gpuRetirement.RetireAfterCurrentGpuWork(_componentFrames);
+            _gpuRetirement.RetireAfterCurrentGpuWork(_componentPosterior);
+            _gpuRetirement.RetireAfterCurrentGpuWork(_componentModelFlags);
             _candidateHeaders = null;
             _candidateInformation = null;
             _candidateParents = null;
@@ -497,15 +695,30 @@ namespace Genesis.RoomScan.Prism
             _candidateHashNext = null;
             _candidateHashKeys = null;
             _candidateRepresentatives = null;
-            _candidateAggregates = null;
             _candidateState = null;
             _candidateDispatchArguments = null;
             _candidatePublications = null;
+            _componentMoments = null;
+            _componentFrames = null;
+            _componentPosterior = null;
+            _componentModelFlags = null;
             _candidateHashCapacity = 0;
         }
 
         private static int CeilDiv(int value, int divisor) =>
             Math.Max(1, (value + divisor - 1) / divisor);
+
+        private static int CeilLog2(int value)
+        {
+            int result = 0;
+            int covered = 1;
+            while (covered < Math.Max(1, value))
+            {
+                covered <<= 1;
+                result++;
+            }
+            return result;
+        }
 
         private static int NextPowerOfTwo(int value)
         {

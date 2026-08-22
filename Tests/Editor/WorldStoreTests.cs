@@ -84,8 +84,8 @@ namespace Genesis.RoomScan.Tests
             using (transaction)
             {
                 byte[] payload = { 1, 3, 3, 7 };
-                Assert.That(transaction.TryStageBytes(ChunkArtifactKind.Volume, 1,
-                    "scan.bin", payload, out ChunkArtifactRecord artifact,
+                Assert.That(transaction.TryStageBytes(ChunkArtifactKind.PrismCanonical, 6,
+                    "canonical.prism", payload, out ChunkArtifactRecord artifact,
                     out string stageError), Is.True, stageError);
 
                 ChunkRecord chunk = manifest.chunks[0];
@@ -123,8 +123,8 @@ namespace Genesis.RoomScan.Tests
             string finalDirectory = transaction.FinalDirectory;
             using (transaction)
             {
-                Assert.That(transaction.TryStageBytes(ChunkArtifactKind.Volume, 1,
-                    "scan.bin", new byte[] { 9 }, out _, out _), Is.True);
+                Assert.That(transaction.TryStageBytes(ChunkArtifactKind.PrismCanonical, 6,
+                    "canonical.prism", new byte[] { 9 }, out _, out _), Is.True);
                 Assert.That(transaction.TryCommit(manifest, out string commitError), Is.False);
                 Assert.That(commitError, Does.Contain("does not publish"));
                 Assert.That(Directory.Exists(finalDirectory), Is.False);
@@ -167,8 +167,8 @@ namespace Genesis.RoomScan.Tests
             ChunkArtifactRecord artifact;
             using (transaction)
             {
-                Assert.That(transaction.TryStageStream(ChunkArtifactKind.LiveMesh, 1,
-                    "mesh/live_mesh.bin", stream =>
+                Assert.That(transaction.TryStageStream(ChunkArtifactKind.PrismMeshlets, 1,
+                    "mesh/contact_meshlets.bin", stream =>
                     {
                         using var writer = new BinaryWriter(stream,
                             System.Text.Encoding.UTF8, true);
@@ -196,28 +196,6 @@ namespace Genesis.RoomScan.Tests
             Assert.That(store.TryResolveVerifiedArtifact(manifest.worldId, artifact,
                 out _, out string tamperError), Is.False);
             Assert.That(tamperError, Does.Contain("SHA-256"));
-        }
-
-        [Test]
-        public void LegacyV1PackageHeaderLoadsWithoutMutatingPackage()
-        {
-            string legacyRoot = Path.Combine(_testRoot, "RoomScans");
-            string packageDirectory = Path.Combine(legacyRoot, "pkg_20260819_120000");
-            Directory.CreateDirectory(packageDirectory);
-            string scanPath = Path.Combine(packageDirectory, "scan.bin");
-            WriteLegacyScan(scanPath);
-            byte[] before = File.ReadAllBytes(scanPath);
-
-            Assert.That(LegacyScanPackageReader.TryOpen(legacyRoot,
-                "pkg_20260819_120000", out LegacyScanPackageInfo package,
-                out string error), Is.True, error);
-
-            Assert.That(package.VoxelCount, Is.EqualTo(new Vector3Int(8, 6, 4)));
-            Assert.That(package.VoxelSize, Is.EqualTo(0.25f));
-            Assert.That(package.LocalBounds.extents, Is.EqualTo(new Vector3(1f, 0.75f, 0.5f)));
-            Assert.That(File.ReadAllBytes(scanPath), Is.EqualTo(before));
-            Assert.That(LegacyScanPackageReader.TryOpen(legacyRoot, "../escape",
-                out _, out _), Is.False);
         }
 
         private static WorldManifest CreateManifest()
@@ -250,27 +228,5 @@ namespace Genesis.RoomScan.Tests
             };
         }
 
-        private static void WriteLegacyScan(string path)
-        {
-            using var stream = new FileStream(path, FileMode.CreateNew, FileAccess.Write,
-                FileShare.None);
-            using var writer = new BinaryWriter(stream);
-            writer.Write(0x48534D52u);
-            writer.Write(1);
-            writer.Write(1_700_000_000L);
-            writer.Write(8);
-            writer.Write(6);
-            writer.Write(4);
-            writer.Write(0.25f);
-            writer.Write(12);
-            writer.Write(0);
-            for (int row = 0; row < 4; row++)
-            for (int column = 0; column < 4; column++)
-                writer.Write(row == column ? 1f : 0f);
-            writer.Write(2);
-            writer.Write(new byte[] { 1, 2 });
-            writer.Write(4);
-            writer.Write(new byte[] { 3, 4, 5, 6 });
-        }
     }
 }

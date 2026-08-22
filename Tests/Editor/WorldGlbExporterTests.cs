@@ -95,8 +95,9 @@ namespace Genesis.RoomScan.Tests
                 RigidPoseData.Identity, new BoundsData(Vector3.zero, Vector3.one), 1_000,
                 out WorldManifest manifest, out string createError), Is.True, createError);
             ChunkRecord chunk = manifest.chunks[0];
-            ChunkSnapshotPublishResult snapshot = await ChunkSnapshotPublisher.PublishAsync(
-                store, manifest, chunk, ChunkGlbWriterTests.CreateSnapshot(), 2_000);
+            PrismChunkPublishResult snapshot = await PrismChunkPublisher.PublishAsync(
+                store, manifest, chunk,
+                ChunkGlbWriterTests.CreateCanonicalSnapshot(), 2_000);
             Assert.That(snapshot.Success, Is.True, snapshot.Error);
             ChunkRefinedPublishResult refined = await ChunkRefinedArtifactPublisher.PublishAsync(
                 store, manifest, chunk, ChunkGlbWriterTests.CreateRefined(), 3_000);

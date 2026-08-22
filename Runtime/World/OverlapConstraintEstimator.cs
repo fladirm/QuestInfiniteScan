@@ -3,10 +3,21 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
+using Genesis.RoomScan.Prism;
 using UnityEngine;
 
 namespace Genesis.RoomScan.World
 {
+    /// <summary>
+    /// Detached measured ContactFilm meshlet vertices used only for bounded overlap
+    /// registration. This is derived data; it is not a canonical persistence format.
+    /// </summary>
+    public sealed class ContactMeshSnapshot
+    {
+        public int VertexCount { get; set; }
+        public byte[] VertexBytes { get; set; } = Array.Empty<byte>();
+    }
+
     /// <summary>
     /// Immutable chunk-local point/normal observations safe to hand to a background
     /// registration worker after GPU readback has completed.
@@ -72,13 +83,12 @@ namespace Genesis.RoomScan.World
     }
 
     /// <summary>
-    /// Converts the bounded Surface Nets readback into a small deterministic ICP input.
-    /// Only the upstream 32-byte vertex records are read; indices, colors, TSDF, and
-    /// textures never enter the registration worker.
+    /// Converts a detached ContactFilm meshlet readback into a small deterministic ICP
+    /// input. Appearance, topology and canonical posterior state never enter the worker.
     /// </summary>
     public static class OverlapPointCloudBuilder
     {
-        public static bool TryCreate(ChunkLiveMeshSnapshot snapshot,
+        public static bool TryCreate(ContactMeshSnapshot snapshot,
             int maximumSamples, out OverlapPointCloud cloud, out string error)
         {
             cloud = null;
@@ -86,7 +96,7 @@ namespace Genesis.RoomScan.World
             if (snapshot == null || snapshot.VertexCount <= 0 ||
                 maximumSamples < 16 || maximumSamples > 1_000_000 ||
                 snapshot.VertexBytes == null || snapshot.VertexBytes.Length !=
-                (long)snapshot.VertexCount * ChunkLiveMeshSnapshot.VertexStride)
+                (long)snapshot.VertexCount * ContactMeshletVertexGpu.Stride)
             {
                 error = "Live-mesh snapshot cannot be sampled for overlap registration.";
                 return false;
@@ -100,15 +110,15 @@ namespace Genesis.RoomScan.World
             {
                 int vertexIndex = (int)((long)i * snapshot.VertexCount /
                                         candidateCount);
-                int offset = vertexIndex * ChunkLiveMeshSnapshot.VertexStride;
+                int offset = vertexIndex * ContactMeshletVertexGpu.Stride;
                 var point = new Vector3(
                     BitConverter.ToSingle(snapshot.VertexBytes, offset),
                     BitConverter.ToSingle(snapshot.VertexBytes, offset + 4),
                     BitConverter.ToSingle(snapshot.VertexBytes, offset + 8));
                 var normal = new Vector3(
-                    BitConverter.ToSingle(snapshot.VertexBytes, offset + 12),
                     BitConverter.ToSingle(snapshot.VertexBytes, offset + 16),
-                    BitConverter.ToSingle(snapshot.VertexBytes, offset + 20));
+                    BitConverter.ToSingle(snapshot.VertexBytes, offset + 20),
+                    BitConverter.ToSingle(snapshot.VertexBytes, offset + 24));
                 if (!Finite(point) || !Finite(normal) || normal.sqrMagnitude < 1e-12f)
                     continue;
                 candidatePoints.Add(point);
@@ -265,7 +275,7 @@ namespace Genesis.RoomScan.World
 
     /// <summary>
     /// Pluggable boundary between realtime chunking and optional registration work.
-    /// Implementations must not touch Unity objects or the live TSDF from a worker.
+    /// Implementations must not touch Unity objects or live PRISM GPU state from a worker.
     /// </summary>
     public interface IOverlapConstraintEstimator
     {

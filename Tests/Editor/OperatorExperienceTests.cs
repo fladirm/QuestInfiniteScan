@@ -64,8 +64,8 @@ namespace Genesis.RoomScan.Tests
                 123456789, 234567890);
             Assert.That(line, Is.EqualTo(
                 "QIS_WORLD_PROFILE unixMs=1234 reason=rollover chunks=7 " +
-                "activeRevision=3 activeState=1 edges=8 residentVolumes=1 " +
-                "maxResidentVolumes=1 residentMeshes=2 residentDiffSoup=1 " +
+                "activeRevision=3 activeState=1 edges=8 residentCanonical=1 " +
+                "maxResidentCanonical=1 residentMeshlets=2 residentAppearance=1 " +
                 "backgroundPublications=0 allocatedBytes=123456789 " +
                 "reservedBytes=234567890"));
             Assert.That(InfiniteScanPerformanceTelemetry.Format(0, "free form", 0,

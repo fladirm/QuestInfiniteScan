@@ -1,0 +1,356 @@
+#pragma kernel BuildElasticDispatchArguments
+#pragma kernel InitializeElasticStates
+#pragma kernel ClearElasticAccumulators
+#pragma kernel AccumulateElasticConstraints
+#pragma kernel AccumulatePortalConstraints
+#pragma kernel SolveElasticChartCorrections
+
+#include "PressureManifoldAtlasAbi.hlsl"
+
+#define PRISM_ELASTIC_STATE_DECLARED 1
+RWStructuredBuffer<ElasticChartState> _ElasticChartStates;
+#include "SurfaceChartGeometry.hlsl"
+
+struct FilmSlotState
+{
+    uint generation; uint activeOrdinal; uint nextFree; uint flags;
+};
+
+StructuredBuffer<AtlasContactFilmHeader> _FilmHeaders;
+StructuredBuffer<float4> _FilmInformation;
+StructuredBuffer<uint> _ActiveFilmIndices;
+StructuredBuffer<SupportContourSegment> _SupportContours;
+StructuredBuffer<SurfaceHalfEdge> _HalfEdges;
+StructuredBuffer<ContinuationEvidence> _ContinuationEvidence;
+StructuredBuffer<CrossChunkTopologyPortal> _CrossChunkPortals;
+StructuredBuffer<uint> _AtlasAllocator;
+RWStructuredBuffer<int4> _ElasticGradients;
+RWStructuredBuffer<int4> _ElasticDiagonals;
+RWStructuredBuffer<FilmSlotState> _FilmSlotStates;
+RWStructuredBuffer<uint> _FilmAllocator;
+RWStructuredBuffer<uint> _DirtyFilmIndices;
+RWStructuredBuffer<uint3> _ElasticDispatchArguments;
+
+uint _FilmCapacity;
+uint _HalfEdgeCapacity;
+uint _ContourSegmentCapacity;
+uint _PortalCapacity;
+uint _CurrentChunkId;
+float _ElasticStiffnessScale;
+float _MaximumElasticStep;
+float _ElasticConvergenceFloor;
+
+static const uint FILM_ACTIVE = 1u;
+static const uint SLOT_DIRTY = 1u << 2u;
+static const uint EVIDENCE_COMMITTABLE = 1u << 8u;
+static const uint CONTOUR_ACTIVE = 1u;
+static const uint CONTOUR_MEASURED = 1u << 1u;
+static const uint ELASTIC_ACTIVE = 1u;
+static const uint ELASTIC_TOPOLOGY_DIRTY = 1u << 1u;
+static const float ELASTIC_FIXED_SCALE = 1048576.0;
+
+uint ActiveFilmCount()
+{
+    return min(_FilmAllocator[6], _FilmCapacity);
+}
+
+uint HalfEdgeDomain()
+{
+    return min(_ContourSegmentCapacity, _HalfEdgeCapacity);
+}
+
+float InformationH(uint filmIndex, uint packed)
+{
+    float4 value = _FilmInformation[filmIndex * 10u + (packed >> 2u)];
+    uint lane = packed & 3u;
+    return lane == 0u ? value.x : lane == 1u ? value.y :
+        lane == 2u ? value.z : value.w;
+}
+
+int FixedValue(float value)
+{
+    return (int)round(clamp(value * ELASTIC_FIXED_SCALE,
+        -2140000000.0, 2140000000.0));
+}
+
+void AccumulateEquation(uint filmIndex, float3 basis, float residual,
+    float weight)
+{
+    if (filmIndex >= _FilmCapacity || !(weight > 0.0)) return;
+    InterlockedAdd(_ElasticGradients[filmIndex].x,
+        FixedValue(weight * residual * basis.x));
+    InterlockedAdd(_ElasticGradients[filmIndex].y,
+        FixedValue(weight * residual * basis.y));
+    InterlockedAdd(_ElasticGradients[filmIndex].z,
+        FixedValue(weight * residual * basis.z));
+    InterlockedAdd(_ElasticGradients[filmIndex].w, FixedValue(weight));
+    InterlockedAdd(_ElasticDiagonals[filmIndex].x,
+        FixedValue(weight * basis.x * basis.x));
+    InterlockedAdd(_ElasticDiagonals[filmIndex].y,
+        FixedValue(weight * basis.y * basis.y));
+    InterlockedAdd(_ElasticDiagonals[filmIndex].z,
+        FixedValue(weight * basis.z * basis.z));
+}
+
+void AccumulateTarget(uint filmIndex, uint coefficient, float residual,
+    float weight)
+{
+    if (filmIndex >= _FilmCapacity || coefficient > 2u) return;
+    if (coefficient == 0u)
+    {
+        InterlockedAdd(_ElasticGradients[filmIndex].x,
+            FixedValue(weight * residual));
+        InterlockedAdd(_ElasticDiagonals[filmIndex].x, FixedValue(weight));
+    }
+    else if (coefficient == 1u)
+    {
+        InterlockedAdd(_ElasticGradients[filmIndex].y,
+            FixedValue(weight * residual));
+        InterlockedAdd(_ElasticDiagonals[filmIndex].y, FixedValue(weight));
+    }
+    else
+    {
+        InterlockedAdd(_ElasticGradients[filmIndex].z,
+            FixedValue(weight * residual));
+        InterlockedAdd(_ElasticDiagonals[filmIndex].z, FixedValue(weight));
+    }
+}
+
+[numthreads(1, 1, 1)]
+void BuildElasticDispatchArguments(uint3 id : SV_DispatchThreadID)
+{
+    uint active = ActiveFilmCount();
+    uint edges = HalfEdgeDomain();
+    _ElasticDispatchArguments[0] = uint3((active + 63u) / 64u, 1u, 1u);
+    _ElasticDispatchArguments[1] = uint3((edges + 63u) / 64u, 1u, 1u);
+}
+
+[numthreads(64, 1, 1)]
+void InitializeElasticStates(uint3 id : SV_DispatchThreadID)
+{
+    uint ordinal = id.x;
+    if (ordinal >= ActiveFilmCount()) return;
+    uint filmIndex = _ActiveFilmIndices[ordinal];
+    if (filmIndex >= _FilmCapacity) return;
+    AtlasContactFilmHeader film = _FilmHeaders[filmIndex];
+    ElasticChartState state = _ElasticChartStates[filmIndex];
+    if (film.id != filmIndex + 1u || (film.flags & FILM_ACTIVE) == 0u) return;
+    if (state.filmId != film.id || state.filmGeneration != film.generation)
+    {
+        state = (ElasticChartState)0;
+        state.filmId = film.id;
+        state.filmGeneration = film.generation;
+        state.revision = 1u;
+        _ElasticChartStates[filmIndex] = state;
+    }
+}
+
+[numthreads(64, 1, 1)]
+void ClearElasticAccumulators(uint3 id : SV_DispatchThreadID)
+{
+    uint ordinal = id.x;
+    if (ordinal >= ActiveFilmCount()) return;
+    uint filmIndex = _ActiveFilmIndices[ordinal];
+    if (filmIndex >= _FilmCapacity) return;
+    _ElasticGradients[filmIndex] = 0;
+    _ElasticDiagonals[filmIndex] = 0;
+}
+
+[numthreads(64, 1, 1)]
+void AccumulateElasticConstraints(uint3 id : SV_DispatchThreadID)
+{
+    uint edgeIndex = id.x;
+    if (edgeIndex >= HalfEdgeDomain()) return;
+    SurfaceHalfEdge edgeA = _HalfEdges[edgeIndex];
+    if ((edgeA.flags & (HALF_EDGE_ACTIVE | HALF_EDGE_TWIN_CONFIRMED)) !=
+            (HALF_EDGE_ACTIVE | HALF_EDGE_TWIN_CONFIRMED) ||
+        edgeA.twinId == 0u || edgeA.id >= edgeA.twinId ||
+        edgeA.relation == HALF_EDGE_OCCLUSION ||
+        edgeA.filmId == 0u || edgeA.filmId > _FilmCapacity ||
+        edgeA.twinId > _HalfEdgeCapacity) return;
+    uint twinIndex = edgeA.twinId - 1u;
+    SurfaceHalfEdge edgeB = _HalfEdges[twinIndex];
+    if (edgeB.filmId == 0u || edgeB.filmId > _FilmCapacity ||
+        edgeB.twinId != edgeA.id || edgeA.evidenceId == 0u ||
+        edgeA.evidenceId > _HalfEdgeCapacity) return;
+    ContinuationEvidence evidence =
+        _ContinuationEvidence[edgeA.evidenceId - 1u];
+    if ((evidence.flags & EVIDENCE_COMMITTABLE) == 0u ||
+        evidence.filmA != edgeA.filmId || evidence.filmB != edgeB.filmId)
+        return;
+    SupportContourSegment segmentA = _SupportContours[edgeIndex];
+    SupportContourSegment segmentB = _SupportContours[twinIndex];
+    if ((segmentA.flags & (CONTOUR_ACTIVE | CONTOUR_MEASURED)) !=
+            (CONTOUR_ACTIVE | CONTOUR_MEASURED) ||
+        (segmentB.flags & (CONTOUR_ACTIVE | CONTOUR_MEASURED)) !=
+            (CONTOUR_ACTIVE | CONTOUR_MEASURED)) return;
+    AtlasContactFilmHeader filmA = _FilmHeaders[edgeA.filmId - 1u];
+    AtlasContactFilmHeader filmB = _FilmHeaders[edgeB.filmId - 1u];
+    if (filmA.generation != edgeA.filmGeneration ||
+        filmB.generation != edgeB.filmGeneration) return;
+
+    float sigma = max(evidence.positionSigma, 0.00025);
+    float evidenceQuality = saturate(evidence.visibilityScore) *
+        saturate(evidence.poseCalibrationQuality) *
+        saturate(evidence.support / 4.0);
+    float weight = clamp(evidenceQuality * 0.000004 / (sigma * sigma),
+        0.05, 8.0);
+    [unroll]
+    for (uint sample = 0u; sample < 3u; ++sample)
+    {
+        float t = (float)sample * 0.5;
+        float2 uvA = lerp(segmentA.uv01.xy, segmentA.uv01.zw, t);
+        float2 uvB = lerp(segmentB.uv01.zw, segmentB.uv01.xy, t);
+        float3 pointA = AtlasSurfacePoint(filmA, uvA);
+        float3 pointB = AtlasSurfacePoint(filmB, uvB);
+        float3 normalA = AtlasSurfaceNormal(filmA, uvA);
+        float3 normalB = AtlasSurfaceNormal(filmB, uvB);
+        float3 couplingNormal = normalize(normalA + normalB);
+        if (!all(isfinite(couplingNormal))) couplingNormal = normalA;
+        float residual = dot(pointB - pointA, couplingNormal);
+        float2 nA = uvA * 2.0 - 1.0;
+        float2 nB = uvB * 2.0 - 1.0;
+        float projectionA = max(abs(dot(normalA, couplingNormal)), 0.25);
+        float projectionB = max(abs(dot(normalB, couplingNormal)), 0.25);
+        AccumulateEquation(edgeA.filmId - 1u,
+            projectionA * float3(1.0, nA.x, nA.y), residual, weight);
+        AccumulateEquation(edgeB.filmId - 1u,
+            projectionB * float3(1.0, nB.x, nB.y), -residual, weight);
+    }
+
+    if (edgeA.relation == HALF_EDGE_SMOOTH)
+    {
+        float2 uvA = 0.5 * (segmentA.uv01.xy + segmentA.uv01.zw);
+        float2 uvB = 0.5 * (segmentB.uv01.xy + segmentB.uv01.zw);
+        float3 normalA = AtlasSurfaceNormal(filmA, uvA);
+        float3 normalB = AtlasSurfaceNormal(filmB, uvB);
+        float3 deltaA = 0.5 * (normalB - normalA);
+        float3 deltaB = -deltaA;
+        ElasticChartState stateA = _ElasticChartStates[edgeA.filmId - 1u];
+        ElasticChartState stateB = _ElasticChartStates[edgeB.filmId - 1u];
+        float targetAu = -filmA.extentU * dot(deltaA, filmA.tangentU);
+        float targetAv = -filmA.extentV * dot(deltaA, filmA.tangentV);
+        float targetBu = -filmB.extentU * dot(deltaB, filmB.tangentU);
+        float targetBv = -filmB.extentV * dot(deltaB, filmB.tangentV);
+        float normalWeight = 0.5 * weight;
+        AccumulateTarget(edgeA.filmId - 1u, 1u,
+            targetAu - stateA.normalizedTiltU, normalWeight);
+        AccumulateTarget(edgeA.filmId - 1u, 2u,
+            targetAv - stateA.normalizedTiltV, normalWeight);
+        AccumulateTarget(edgeB.filmId - 1u, 1u,
+            targetBu - stateB.normalizedTiltU, normalWeight);
+        AccumulateTarget(edgeB.filmId - 1u, 2u,
+            targetBv - stateB.normalizedTiltV, normalWeight);
+    }
+}
+
+[numthreads(64, 1, 1)]
+void AccumulatePortalConstraints(uint3 id : SV_DispatchThreadID)
+{
+    uint portalCount = min(_AtlasAllocator[10], _PortalCapacity);
+    if (id.x >= portalCount) return;
+    CrossChunkTopologyPortal portal = _CrossChunkPortals[id.x];
+    if ((portal.flags & (PORTAL_ACTIVE | PORTAL_MATCHED |
+        PORTAL_OWNER_RESIDENT | PORTAL_REMOTE_RESIDENT)) !=
+        (PORTAL_ACTIVE | PORTAL_MATCHED | PORTAL_OWNER_RESIDENT |
+         PORTAL_REMOTE_RESIDENT) || portal.ownerChunkId != _CurrentChunkId ||
+        (portal.evidenceFlags & EVIDENCE_COMMITTABLE) == 0u ||
+        portal.halfEdgeId == 0u || portal.halfEdgeId > _HalfEdgeCapacity)
+        return;
+    SurfaceHalfEdge edge = _HalfEdges[portal.halfEdgeId - 1u];
+    if ((edge.flags & (HALF_EDGE_ACTIVE | HALF_EDGE_PORTAL)) !=
+        (HALF_EDGE_ACTIVE | HALF_EDGE_PORTAL) || edge.filmId == 0u ||
+        edge.filmId > _FilmCapacity || edge.contourSegmentId == 0u ||
+        edge.contourSegmentId > _ContourSegmentCapacity) return;
+    SupportContourSegment segment =
+        _SupportContours[edge.contourSegmentId - 1u];
+    AtlasContactFilmHeader film = _FilmHeaders[edge.filmId - 1u];
+    if (film.generation != edge.filmGeneration) return;
+    float2 uv = 0.5 * (segment.uv01.xy + segment.uv01.zw);
+    float3 point = AtlasSurfacePoint(film, uv);
+    float3 normal = AtlasSurfaceNormal(film, uv);
+    float residual = dot(portal.localEndpointAndSigma.xyz - point, normal);
+    float sigma = max(sqrt(segment.sigma * segment.sigma +
+        portal.localEndpointAndSigma.w * portal.localEndpointAndSigma.w),
+        0.00025);
+    float quality = saturate(portal.poseCalibrationQuality) *
+        saturate(portal.firstHitScore) *
+        saturate(min(segment.support,
+            portal.localTangentAndSupport.w) / 4.0);
+    float weight = clamp(quality * 0.000004 / (sigma * sigma), 0.02, 4.0);
+    float2 normalizedUv = uv * 2.0 - 1.0;
+    AccumulateEquation(edge.filmId - 1u,
+        float3(1.0, normalizedUv.x, normalizedUv.y), residual, weight);
+    if (edge.relation == HALF_EDGE_SMOOTH)
+    {
+        float3 remoteNormal = normalize(portal.localNormalAndBandwidth.xyz);
+        float3 delta = remoteNormal - normal;
+        ElasticChartState state = _ElasticChartStates[edge.filmId - 1u];
+        AccumulateTarget(edge.filmId - 1u, 1u,
+            -film.extentU * dot(delta, film.tangentU) -
+            state.normalizedTiltU, 0.25 * weight);
+        AccumulateTarget(edge.filmId - 1u, 2u,
+            -film.extentV * dot(delta, film.tangentV) -
+            state.normalizedTiltV, 0.25 * weight);
+    }
+}
+
+void MarkFilmDirty(uint filmIndex, uint generation)
+{
+    FilmSlotState slot = _FilmSlotStates[filmIndex];
+    if (slot.generation != generation) return;
+    uint previous;
+    InterlockedOr(_FilmSlotStates[filmIndex].flags, SLOT_DIRTY, previous);
+    if ((previous & SLOT_DIRTY) != 0u) return;
+    uint ordinal;
+    InterlockedAdd(_FilmAllocator[7], 1u, ordinal);
+    if (ordinal < _FilmCapacity) _DirtyFilmIndices[ordinal] = filmIndex;
+    else InterlockedAdd(_FilmAllocator[2], 1u);
+}
+
+[numthreads(64, 1, 1)]
+void SolveElasticChartCorrections(uint3 id : SV_DispatchThreadID)
+{
+    uint ordinal = id.x;
+    if (ordinal >= ActiveFilmCount()) return;
+    uint filmIndex = _ActiveFilmIndices[ordinal];
+    if (filmIndex >= _FilmCapacity) return;
+    AtlasContactFilmHeader film = _FilmHeaders[filmIndex];
+    if (film.id != filmIndex + 1u || (film.flags & FILM_ACTIVE) == 0u) return;
+    int4 fixedGradient = _ElasticGradients[filmIndex];
+    int4 fixedDiagonal = _ElasticDiagonals[filmIndex];
+    float3 gradient = (float3)fixedGradient.xyz / ELASTIC_FIXED_SCALE;
+    float3 diagonal = (float3)fixedDiagonal.xyz / ELASTIC_FIXED_SCALE;
+    if (fixedGradient.w == 0 || max(diagonal.x, max(diagonal.y,
+        diagonal.z)) <= 0.0) return;
+
+    float4 quality = _FilmInformation[filmIndex * 10u + 8u];
+    float pressureResistance = log2(1.0 + max(quality.w, 0.0));
+    float3 posterior = float3(
+        max(InformationH(filmIndex, 0u), 0.0),
+        max(InformationH(filmIndex, 6u), 0.0),
+        max(InformationH(filmIndex, 11u), 0.0));
+    float3 resistance = _ElasticStiffnessScale * posterior *
+        (1.0 + pressureResistance);
+    float3 step = gradient / max(diagonal + resistance, 1e-6);
+    float maximumStep = min(_MaximumElasticStep,
+        max(0.00005, 0.35 * film.sigmaNormal));
+    step = clamp(step, -maximumStep, maximumStep);
+    if (max(abs(step.x), max(abs(step.y), abs(step.z))) <
+        _ElasticConvergenceFloor) return;
+
+    ElasticChartState state = _ElasticChartStates[filmIndex];
+    if (state.filmId != film.id || state.filmGeneration != film.generation)
+        state = (ElasticChartState)0;
+    state.filmId = film.id; state.filmGeneration = film.generation;
+    state.normalOffset += step.x;
+    state.normalizedTiltU += step.y;
+    state.normalizedTiltV += step.z;
+    state.confidence = saturate((diagonal.x + diagonal.y + diagonal.z) /
+        max(diagonal.x + diagonal.y + diagonal.z +
+            resistance.x + resistance.y + resistance.z, 1e-6));
+    state.revision = state.revision == 0xffffffffu ? 1u : state.revision + 1u;
+    state.flags |= ELASTIC_ACTIVE | ELASTIC_TOPOLOGY_DIRTY;
+    _ElasticChartStates[filmIndex] = state;
+    MarkFilmDirty(filmIndex, film.generation);
+}

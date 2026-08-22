@@ -21,6 +21,7 @@ namespace Genesis.RoomScan.Prism
         private PrismFilmUpdater _updater;
         private PrismBoundaryGraph _boundaries;
         private PrismDisplacementTopology _displacement;
+        private PrismPressureManifoldAtlas _atlas;
         private PrismMeshletBuilder _meshlets;
         private bool _running;
         private bool _dispatching;
@@ -36,7 +37,7 @@ namespace Genesis.RoomScan.Prism
             PrismFilmSpawner spawner, PrismPhotometricRefiner photometric,
             PrismFilmUpdater updater,
             PrismBoundaryGraph boundaries, PrismDisplacementTopology displacement,
-            PrismMeshletBuilder meshlets)
+            PrismPressureManifoldAtlas atlas, PrismMeshletBuilder meshlets)
         {
             if (_running) return;
             _preprocessor = preprocessor;
@@ -47,10 +48,12 @@ namespace Genesis.RoomScan.Prism
             _updater = updater;
             _boundaries = boundaries;
             _displacement = displacement;
+            _atlas = atlas;
             _meshlets = meshlets;
             if (_preprocessor == null || _prediction == null || _classifier == null ||
                 _spawner == null || _updater == null || _boundaries == null ||
-                _photometric == null || _displacement == null || _meshlets == null)
+                _photometric == null || _displacement == null || _atlas == null ||
+                _meshlets == null)
             {
                 Logger.Error("Cone-PRISM GPU work graph is incomplete.");
                 return;
@@ -89,19 +92,18 @@ namespace Genesis.RoomScan.Prism
                     !_photometric.DispatchPhotometricPressure(events) ||
                     !_updater.DispatchUpdate(events, _photometric) ||
                     !_boundaries.DispatchBoundaries(events) ||
-                    !_displacement.DispatchDisplacement(events))
+                    !_displacement.DispatchDisplacement(events) ||
+                    !_atlas.DispatchAtlas())
                 {
                     _rejectedFrames++;
                     return;
                 }
 
-                // Spawn, solve, boundaries, displacement and topology all mutate
-                // the same manifold during this tick. Publishing here rebuilt the
-                // complete cache on the capture callback and serialized it ahead of
-                // XR presentation. Request one coalesced LateUpdate publication;
-                // the previous immutable generation remains visible/predictable
-                // until the inactive generation is complete.
-                _meshlets.RequestBuild();
+                // Geometry evidence is integrated every tick. The atlas coalesces
+                // topology into transactional batches; materialize exactly those
+                // batches instead of rebuilding an equivalent derived mesh between
+                // them. The previous immutable generation remains visible and valid.
+                if (_atlas.DispatchedThisTick) _meshlets.RequestBuild();
                 _completedFrames++;
             }
             finally

@@ -30,6 +30,11 @@ float4x4 _RgbFromDepth[2];
 float _BootstrapSigma;
 float _BootstrapSigmaSlope;
 float _SigmaEmaAlpha;
+float _PoseTranslationSigma;
+float _PoseAngularSigma;
+float _CalibrationAngularSigma;
+float _MotionTranslationSigma;
+float _MotionAngularSigma;
 
 static const uint FLAG_VALID = 1u;
 static const uint FLAG_LR_AGREE = 16u;
@@ -71,6 +76,23 @@ float BinCenter(uint bin)
     if (bin == 3u) return 2.5;
     if (bin == 4u) return 4.0;
     return 6.0;
+}
+
+float ContactRangeSigma(float sensorSigma, float rangeMeters)
+{
+    // Keep independent uncertainty sources explicit.  Angular pose/calibration
+    // uncertainty projects into metric contact uncertainty at the measured range;
+    // motion is exposure/timestamp aperture, not a fake finite-cone variance.
+    float translationVariance =
+        _PoseTranslationSigma * _PoseTranslationSigma +
+        _MotionTranslationSigma * _MotionTranslationSigma;
+    float angularVariance =
+        _PoseAngularSigma * _PoseAngularSigma +
+        _MotionAngularSigma * _MotionAngularSigma +
+        _CalibrationAngularSigma * _CalibrationAngularSigma;
+    return sqrt(max(1e-12,
+        sensorSigma * sensorSigma + translationVariance +
+        rangeMeters * rangeMeters * angularVariance));
 }
 
 bool InDepthBounds(int2 pixel)
@@ -125,7 +147,8 @@ void DepthConsensus(uint3 id : SV_DispatchThreadID)
     uint eye = id.z;
     uint otherEye = 1u - eye;
     uint rangeBin = RangeBin(metric.x);
-    float sigma = max(_RangeSigma[rangeBin], 0.0015);
+    float sensorSigma = max(_RangeSigma[rangeBin], 0.0015);
+    float sigma = ContactRangeSigma(sensorSigma, metric.x);
     float confidence = 0.45;
     float3 localContact = LoadRay(id.xy, eye) * metric.x;
     float3 otherContact = mul(_OtherDepthFromThis[eye],
@@ -144,7 +167,9 @@ void DepthConsensus(uint3 id : SV_DispatchThreadID)
             if (targetRange > 0.0)
             {
                 float predictedRange = length(otherContact);
-                float targetSigma = max(_RangeSigma[RangeBin(targetRange)], 0.0015);
+                float targetSensorSigma = max(
+                    _RangeSigma[RangeBin(targetRange)], 0.0015);
+                float targetSigma = ContactRangeSigma(targetSensorSigma, targetRange);
                 float gate = 3.0 * sqrt(sigma * sigma + targetSigma * targetSigma) + 0.002;
                 float residual = targetRange - predictedRange;
                 float absResidual = abs(residual);
@@ -227,7 +252,9 @@ void SolveRangeSigma(uint3 groupId : SV_GroupID, uint3 threadId : SV_GroupThread
         }
     }
 
-    float measured = clamp(1.4826 * (float)madBins *
+    // L/R residual contains two independent sensor samples.  Estimate the
+    // single-eye sensor term here; pose/calibration/motion remain separate above.
+    float measured = clamp(0.70710678 * 1.4826 * (float)madBins *
         HISTOGRAM_STEP_METERS, 0.0015, 0.05);
     float previous = max(_RangeSigma[rangeBin], 0.0015);
     _RangeSigma[rangeBin] = lerp(previous, measured,
@@ -252,6 +279,94 @@ float3 SolveSymmetric3x3(float a, float b, float c, float d, float e, float f,
         dot(float3(i02, i12, i22), rhs)) * invDet;
 }
 
+bool FitPlaneScale(uint2 centerPixel, uint eye, float4 center, uint radius,
+    float rejectDistance, out float3 fittedNormal, out float confidence,
+    out uint support)
+{
+    float3 sampleCentroid = 0.0;
+    float weightSum = 0.0;
+    support = 0u;
+
+    [loop]
+    for (int y = -3; y <= 3; ++y)
+    [loop]
+    for (int x = -3; x <= 3; ++x)
+    {
+        if (abs(x) > (int)radius || abs(y) > (int)radius) continue;
+        int2 pixel = (int2)centerPixel + int2(x, y);
+        if (!InDepthBounds(pixel)) continue;
+        float4 sample = _ConsensusDepth[uint3((uint2)pixel, eye)];
+        float delta = abs(sample.x - center.x);
+        if (sample.x <= 0.0 || delta > rejectDistance) continue;
+        float spatial = (float)(x * x + y * y) /
+            max(1.0, (float)(radius * radius));
+        float weight = exp2(-0.75 * spatial) /
+            (1.0 + delta * delta / max(center.z * center.z, 1e-8));
+        sampleCentroid += LoadRay((uint2)pixel, eye) * sample.x * weight;
+        weightSum += weight;
+        support++;
+    }
+
+    uint diameter = radius * 2u + 1u;
+    uint minimumSupport = max(5u, (diameter * diameter * 5u + 9u) / 10u);
+    if (support < minimumSupport || weightSum <= 0.0)
+    {
+        fittedNormal = 0.0;
+        confidence = 0.0;
+        return false;
+    }
+    sampleCentroid /= weightSum;
+
+    float a = 0.0, b = 0.0, c = 0.0, d = 0.0, e = 0.0, f = 0.0;
+    [loop]
+    for (int cy = -3; cy <= 3; ++cy)
+    [loop]
+    for (int cx = -3; cx <= 3; ++cx)
+    {
+        if (abs(cx) > (int)radius || abs(cy) > (int)radius) continue;
+        int2 pixel = (int2)centerPixel + int2(cx, cy);
+        if (!InDepthBounds(pixel)) continue;
+        float4 sample = _ConsensusDepth[uint3((uint2)pixel, eye)];
+        float delta = abs(sample.x - center.x);
+        if (sample.x <= 0.0 || delta > rejectDistance) continue;
+        float spatial = (float)(cx * cx + cy * cy) /
+            max(1.0, (float)(radius * radius));
+        float weight = exp2(-0.75 * spatial) /
+            (1.0 + delta * delta / max(center.z * center.z, 1e-8));
+        float3 q = LoadRay((uint2)pixel, eye) * sample.x - sampleCentroid;
+        a += weight * q.x * q.x;
+        b += weight * q.x * q.y;
+        c += weight * q.x * q.z;
+        d += weight * q.y * q.y;
+        e += weight * q.y * q.z;
+        f += weight * q.z * q.z;
+    }
+
+    float trace = a + d + f;
+    float regularizer = max(1e-10, trace * 1e-4);
+    a += regularizer; d += regularizer; f += regularizer;
+    fittedNormal = -normalize(LoadRay(centerPixel, eye));
+    [unroll]
+    for (uint iteration = 0u; iteration < 5u; ++iteration)
+        fittedNormal = normalize(SolveSymmetric3x3(
+            a, b, c, d, e, f, fittedNormal));
+    float3 centerPoint = LoadRay(centerPixel, eye) * center.x;
+    if (dot(fittedNormal, -centerPoint) < 0.0) fittedNormal = -fittedNormal;
+
+    float3 covarianceNormal = float3(
+        a * fittedNormal.x + b * fittedNormal.y + c * fittedNormal.z,
+        b * fittedNormal.x + d * fittedNormal.y + e * fittedNormal.z,
+        c * fittedNormal.x + e * fittedNormal.y + f * fittedNormal.z);
+    float normalVariance = max(0.0,
+        dot(fittedNormal, covarianceNormal) - regularizer);
+    float planarity = saturate(1.0 - 12.0 * normalVariance /
+        max(trace, 1e-10));
+    float supportRatio = saturate((float)support /
+        max(1.0, (float)(diameter * diameter)));
+    confidence = planarity * supportRatio * center.w;
+    return all(isfinite(fittedNormal)) && confidence > 0.0;
+}
+
 [numthreads(8, 8, 1)]
 void DepthPlaneFit(uint3 id : SV_DispatchThreadID)
 {
@@ -264,13 +379,9 @@ void DepthPlaneFit(uint3 id : SV_DispatchThreadID)
         return;
     }
 
-    float rejectDistance = max(0.012, 3.0 * center.z);
-    // `centroid` is an HLSL interpolation modifier and is rejected as an
-    // identifier by Unity's Vulkan compiler. Keep the plane-fit accumulator
-    // unambiguous across DXC/glslang backends.
-    float3 sampleCentroid = 0.0;
-    float weightSum = 0.0;
-    uint support = 0u;
+    float rejectDistance = max(0.008, 3.0 * center.z);
+    // Boundary evidence is deliberately estimated at the smallest footprint.
+    // Larger normal supports may never blur this first-contact discontinuity.
     float maxDepthDelta = 0.0;
     [unroll]
     for (int y = -1; y <= 1; ++y)
@@ -283,65 +394,52 @@ void DepthPlaneFit(uint3 id : SV_DispatchThreadID)
         float delta = abs(neighbourSample.x - center.x);
         maxDepthDelta = max(maxDepthDelta,
             neighbourSample.x > 0.0 ? delta : rejectDistance * 2.0);
-        if (neighbourSample.x <= 0.0 || delta > rejectDistance) continue;
-        float weight = rcp(1.0 + delta * delta /
-            max(center.z * center.z, 1e-8));
-        sampleCentroid += LoadRay((uint2)pixel, id.z) *
-            neighbourSample.x * weight;
-        weightSum += weight;
-        support++;
+        // The actual fit below rejects discontinuous samples independently.
     }
-    if (support < 5u || weightSum <= 0.0)
+    float depthBoundary = saturate(maxDepthDelta / rejectDistance - 0.5);
+
+    float3 normal1 = 0.0, normal2 = 0.0, normal3 = 0.0;
+    float confidence1 = 0.0, confidence2 = 0.0, confidence3 = 0.0;
+    uint support1 = 0u, support2 = 0u, support3 = 0u;
+    bool valid1 = FitPlaneScale(id.xy, id.z, center, 1u, rejectDistance,
+        normal1, confidence1, support1);
+    bool valid2 = false;
+    bool valid3 = false;
+
+    // Choose the smallest stable physical footprint.  Only smooth/non-boundary
+    // regions are allowed to request broader support, so fine close geometry is
+    // never sacrificed merely to increase sample count.
+    if ((!valid1 || confidence1 < 0.55) && depthBoundary < 0.45)
+        valid2 = FitPlaneScale(id.xy, id.z, center, 2u, rejectDistance,
+            normal2, confidence2, support2);
+    if ((!valid1 || confidence1 < 0.55) &&
+        (!valid2 || confidence2 < 0.62) && depthBoundary < 0.30)
+        valid3 = FitPlaneScale(id.xy, id.z, center, 3u, rejectDistance,
+            normal3, confidence3, support3);
+
+    float3 selectedNormal = normal1;
+    float selectedConfidence = valid1 ? confidence1 : 0.0;
+    if (valid2 && (!valid1 || confidence1 < 0.55))
+    {
+        selectedNormal = normal2;
+        selectedConfidence = confidence2;
+    }
+    if (valid3 && (!valid2 || confidence2 < 0.62) &&
+        selectedConfidence < confidence3)
+    {
+        selectedNormal = normal3;
+        selectedConfidence = confidence3;
+    }
+
+    if (selectedConfidence > 0.0)
+    {
+        _LocalNormal[id] = float4(selectedNormal, selectedConfidence);
+        _DepthFlagsRW[id] |= FLAG_NORMAL_VALID;
+    }
+    else
     {
         _LocalNormal[id] = 0.0;
-        float depthBoundary = saturate(maxDepthDelta / rejectDistance - 0.5);
-        _BoundaryEvidence[id] = float4(depthBoundary, 0.0, 0.0, depthBoundary);
-        return;
     }
-    sampleCentroid /= weightSum;
-
-    float a = 0.0, b = 0.0, c = 0.0, d = 0.0, e = 0.0, f = 0.0;
-    [unroll]
-    for (int cy = -1; cy <= 1; ++cy)
-    [unroll]
-    for (int cx = -1; cx <= 1; ++cx)
-    {
-        int2 pixel = (int2)id.xy + int2(cx, cy);
-        if (!InDepthBounds(pixel)) continue;
-        float4 neighbourSample = _ConsensusDepth[uint3((uint2)pixel, id.z)];
-        float delta = abs(neighbourSample.x - center.x);
-        if (neighbourSample.x <= 0.0 || delta > rejectDistance) continue;
-        float weight = rcp(1.0 + delta * delta /
-            max(center.z * center.z, 1e-8));
-        float3 q = LoadRay((uint2)pixel, id.z) * neighbourSample.x -
-            sampleCentroid;
-        a += weight * q.x * q.x;
-        b += weight * q.x * q.y;
-        c += weight * q.x * q.z;
-        d += weight * q.y * q.y;
-        e += weight * q.y * q.z;
-        f += weight * q.z * q.z;
-    }
-    float trace = a + d + f;
-    float regularizer = max(1e-10, trace * 1e-4);
-    a += regularizer; d += regularizer; f += regularizer;
-    float3 normal = -normalize(LoadRay(id.xy, id.z));
-    [unroll]
-    for (uint iteration = 0u; iteration < 5u; ++iteration)
-        normal = normalize(SolveSymmetric3x3(a, b, c, d, e, f, normal));
-    float3 centerPoint = LoadRay(id.xy, id.z) * center.x;
-    if (dot(normal, -centerPoint) < 0.0) normal = -normal;
-
-    float3 covarianceNormal = float3(
-        a * normal.x + b * normal.y + c * normal.z,
-        b * normal.x + d * normal.y + e * normal.z,
-        c * normal.x + e * normal.y + f * normal.z);
-    float normalVariance = max(0.0, dot(normal, covarianceNormal) - regularizer);
-    float planarity = saturate(1.0 - 12.0 * normalVariance / max(trace, 1e-10));
-    float normalConfidence = planarity * saturate((float)(support - 4u) / 5.0) * center.w;
-    _LocalNormal[id] = float4(normal, normalConfidence);
-    _DepthFlagsRW[id] |= FLAG_NORMAL_VALID;
-    float depthBoundary = saturate(maxDepthDelta / rejectDistance - 0.5);
     _BoundaryEvidence[id] = float4(depthBoundary, 0.0, 0.0, depthBoundary);
 }
 

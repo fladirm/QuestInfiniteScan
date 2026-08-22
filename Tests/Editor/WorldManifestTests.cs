@@ -125,10 +125,10 @@ namespace Genesis.RoomScan.Tests
                 {
                     new()
                     {
-                        kind = ChunkArtifactKind.Volume,
-                        formatVersion = 1,
+                        kind = ChunkArtifactKind.PrismCanonical,
+                        formatVersion = 6,
                         chunkRevision = 2,
-                        relativePath = "chunks/chunk-0000/volume.bin",
+                        relativePath = "chunks/chunk-0000/canonical.prism",
                         sha256 = Hash,
                         byteLength = 4096
                     }

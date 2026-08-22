@@ -28,7 +28,7 @@ namespace Genesis.RoomScan.World
     /// <summary>
     /// Serializes background overlap estimates, durable constraint insertion, and
     /// detached graph optimization. The caller remains responsible for refreshing
-    /// render/active-volume transforms after a successful metadata commit.
+    /// render/chunk transforms after a successful metadata commit.
     /// </summary>
     public sealed class PoseGraphRefinementCoordinator : IDisposable
     {

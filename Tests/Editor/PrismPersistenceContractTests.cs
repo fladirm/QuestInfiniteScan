@@ -1,246 +1,98 @@
+using System;
 using System.IO;
-using System.Threading.Tasks;
+using System.Reflection;
 using Genesis.RoomScan.Prism;
 using Genesis.RoomScan.World;
 using NUnit.Framework;
-using UnityEditor;
-using UnityEngine;
 
 namespace Genesis.RoomScan.Tests
 {
     public sealed class PrismPersistenceContractTests
     {
-        private const int LegacyFilmHeaderStride = 144;
-        private const int LegacyDisplacementCellStride = 32;
-        private const int LegacyMeshletVertexStride = 64;
-
         [Test]
-        public void RequiredQ313ChunkStageKernelsImport()
+        public void SchemaSixRoundTripsCanonicalAtlasWithoutFabrication()
         {
-            ComputeShader stage = AssetDatabase.LoadAssetAtPath<ComputeShader>(
-                "Packages/com.genesis.roomscan/Runtime/Resources/Prism/ChunkStage.compute");
-            Assert.That(stage, Is.Not.Null);
-            foreach (string kernel in new[]
-                     {
-                         "PrepareChunkStage", "ClearFilmRemap", "StageFilms",
-                         "InitializeStageManifold", "StageFilmMemberships",
-                         "OrderStageFilmFrontiers", "StageManifoldLinks",
-                         "CloseMissingFilmFrontiers",
-                         "FinalizeStageManifold",
-                         "StageBoundaries", "ClearPageRemap", "IndexBasePages",
-                         "IndexMicroPages", "CopyBasePages", "CopyMicroPages",
-                         "PatchFilmDisplacement", "StageMeshlets",
-                         "FinalizeChunkStage"
-                     })
-                Assert.DoesNotThrow(() => stage.FindKernel(kernel), kernel);
-
-            ComputeShader boundaries = AssetDatabase.LoadAssetAtPath<ComputeShader>(
-                "Packages/com.genesis.roomscan/Runtime/Resources/Prism/" +
-                "ContactBoundaryUpdate.compute");
-            Assert.That(boundaries, Is.Not.Null);
-            Assert.DoesNotThrow(() =>
-                boundaries.FindKernel("ClearLoadedBoundaryHash"));
-            Assert.DoesNotThrow(() =>
-                boundaries.FindKernel("RehashLoadedBoundaries"));
-            Shader preview = AssetDatabase.LoadAssetAtPath<Shader>(
-                "Packages/com.genesis.roomscan/Runtime/Resources/Prism/" +
-                "ContactFilmPreview.shader");
-            Assert.That(preview, Is.Not.Null);
-        }
-
-        [Test]
-        public void CanonicalSnapshotRoundTripsExactPosteriorBytes()
-        {
-            var source = new PrismCanonicalChunkSnapshot
-            {
-                FilmCount = 2,
-                BoundaryCount = 1,
-                FilmGeneration = 7,
-                BoundaryGeneration = 9,
-                CalibrationEpoch = 123456789,
-                FilmHeaders = Pattern(2 * ContactFilmHeaderGpu.Stride, 3),
-                FilmInformation = Pattern(2 * ContactFilmPool.InformationRecords *
-                    16, 5),
-                FilmSlotStates = Pattern(2 * ContactFilmSlotStateGpu.Stride, 61),
-                ActiveFilmIndices = Pattern(2 * sizeof(uint), 67),
-                DirtyFilmIndices = Pattern(2 * sizeof(uint), 71),
-                FilmAllocatorState = Pattern(8 * sizeof(uint), 73),
-                ManifoldCount = 1,
-                ManifoldLinkCount = 1,
-                ManifoldFrontierCount = 2,
-                PressureManifoldHeaders = Pattern(
-                    PressureManifoldHeaderGpu.Stride, 79),
-                FilmMemberships = Pattern(2 * FilmMembershipGpu.Stride, 83),
-                ManifoldLinks = Pattern(ManifoldLinkGpu.Stride, 89),
-                ManifoldLinkIncidences = Pattern(
-                    2 * ManifoldLinkIncidenceGpu.Stride, 97),
-                ManifoldFrontierIncidences = Pattern(
-                    2 * ManifoldFrontierIncidenceGpu.Stride, 99),
-                LatentFrontiers = Pattern(
-                    2 * LatentFrontierSegmentGpu.Stride, 101),
-                ManifoldAllocatorState = Pattern(
-                    PressureManifoldPool.AllocatorWords * sizeof(uint), 103),
-                CurrentManifoldState = Pattern(4 * sizeof(uint), 107),
-                BoundaryHeaders = Pattern(ContactBoundaryHeaderGpu.Stride, 7),
-                BoundaryInformation = Pattern(
-                    ContactBoundaryPool.InformationRecordsPerBoundary * 16, 11),
-                DisplacementBasePageCount = 1,
-                DisplacementMicroPageCount = 1,
-                DisplacementGeneration = 13,
-                DisplacementPageHeaders = Pattern(
-                    2 * DisplacementPageHeaderGpu.Stride, 13),
-                DisplacementBaseCells = Pattern(
-                    ContactDisplacementPool.BaseCellsPerPage *
-                    DisplacementCellGpu.Stride, 17),
-                DisplacementMicroCells = Pattern(
-                    ContactDisplacementPool.MicroCellsPerPage *
-                    DisplacementCellGpu.Stride, 19),
-                DisplacementBaseChildren = Pattern(
-                    ContactDisplacementPool.BaseCellsPerPage * sizeof(uint), 23),
-                DisplacementMicroChildren = Pattern(
-                    ContactDisplacementPool.MicroCellsPerPage * sizeof(uint), 29),
-                TopologyEvidence = Pattern(
-                    2 * ContactTopologyEvidenceGpu.Stride, 31),
-                DisplacementAllocator = Pattern(8 * sizeof(uint), 37),
-                MeshletVertexCount = 3,
-                MeshletIndexCount = 3,
-                MeshletDescriptorCount = 1,
-                MeshletGeneration = 15,
-                MeshletVertices = Pattern(3 * ContactMeshletVertexGpu.Stride, 41),
-                MeshletIndices = Pattern(3 * sizeof(uint), 43),
-                MeshletDescriptors = Pattern(
-                    ContactMeshletDescriptorGpu.Stride, 47),
-                AppearanceState = Pattern(193, 53),
-                ObservationState = Pattern(127, 59),
-                KeyframeReferences = new[]
-                {
-                    "keyframes/rgb_l_0001.ktx2", "keyframes/rgb_r_0001.ktx2"
-                }
-            };
+            PrismCanonicalChunkSnapshot source = PopulatedSnapshot();
             using var stream = new MemoryStream();
 
             Assert.That(PrismCanonicalChunkCodec.TryWrite(stream, source,
                 out string writeError), Is.True, writeError);
             stream.Position = 0;
-            Assert.That(PrismCanonicalChunkCodec.TryRead(stream, out var restored,
-                out string readError), Is.True, readError);
+            Assert.That(PrismCanonicalChunkCodec.TryRead(stream,
+                out PrismCanonicalChunkSnapshot restored, out string readError),
+                Is.True, readError);
+
             Assert.That(restored.FilmCount, Is.EqualTo(source.FilmCount));
             Assert.That(restored.BoundaryCount, Is.EqualTo(source.BoundaryCount));
-            Assert.That(restored.CalibrationEpoch, Is.EqualTo(source.CalibrationEpoch));
-            Assert.That(restored.FilmHeaders, Is.EqualTo(source.FilmHeaders));
-            Assert.That(restored.FilmInformation, Is.EqualTo(source.FilmInformation));
-            Assert.That(restored.FilmSlotStates,
-                Is.EqualTo(source.FilmSlotStates));
-            Assert.That(restored.ActiveFilmIndices,
-                Is.EqualTo(source.ActiveFilmIndices));
-            Assert.That(restored.DirtyFilmIndices,
-                Is.EqualTo(source.DirtyFilmIndices));
-            Assert.That(restored.FilmAllocatorState,
-                Is.EqualTo(source.FilmAllocatorState));
-            Assert.That(restored.PressureManifoldHeaders,
-                Is.EqualTo(source.PressureManifoldHeaders));
-            Assert.That(restored.FilmMemberships,
-                Is.EqualTo(source.FilmMemberships));
-            Assert.That(restored.ManifoldLinks,
-                Is.EqualTo(source.ManifoldLinks));
-            Assert.That(restored.ManifoldLinkIncidences,
-                Is.EqualTo(source.ManifoldLinkIncidences));
-            Assert.That(restored.ManifoldFrontierIncidences,
-                Is.EqualTo(source.ManifoldFrontierIncidences));
-            Assert.That(restored.LatentFrontiers,
-                Is.EqualTo(source.LatentFrontiers));
-            Assert.That(restored.ManifoldAllocatorState,
-                Is.EqualTo(source.ManifoldAllocatorState));
-            Assert.That(restored.CurrentManifoldState,
-                Is.EqualTo(source.CurrentManifoldState));
-            Assert.That(restored.BoundaryHeaders, Is.EqualTo(source.BoundaryHeaders));
-            Assert.That(restored.BoundaryInformation,
-                Is.EqualTo(source.BoundaryInformation));
-            Assert.That(restored.DisplacementPageHeaders,
-                Is.EqualTo(source.DisplacementPageHeaders));
-            Assert.That(restored.DisplacementBaseCells,
-                Is.EqualTo(source.DisplacementBaseCells));
-            Assert.That(restored.DisplacementMicroCells,
-                Is.EqualTo(source.DisplacementMicroCells));
-            Assert.That(restored.TopologyEvidence,
-                Is.EqualTo(source.TopologyEvidence));
-            Assert.That(restored.MeshletVertices,
-                Is.EqualTo(source.MeshletVertices));
-            Assert.That(restored.MeshletDescriptors,
-                Is.EqualTo(source.MeshletDescriptors));
-            Assert.That(restored.AppearanceState,
-                Is.EqualTo(source.AppearanceState));
-            Assert.That(restored.ObservationState,
-                Is.EqualTo(source.ObservationState));
+            Assert.That(restored.ManifoldCount, Is.EqualTo(source.ManifoldCount));
+            Assert.That(restored.SupportContourSegmentCount,
+                Is.EqualTo(source.SupportContourSegmentCount));
+            Assert.That(restored.SurfaceHalfEdgeCount,
+                Is.EqualTo(source.SurfaceHalfEdgeCount));
+            Assert.That(restored.FrontierLoopCount,
+                Is.EqualTo(source.FrontierLoopCount));
+            Assert.That(restored.CalibrationEpoch,
+                Is.EqualTo(source.CalibrationEpoch));
+            foreach (FieldInfo field in typeof(PrismCanonicalChunkSnapshot)
+                         .GetFields(BindingFlags.Instance | BindingFlags.Public))
+            {
+                if (field.FieldType != typeof(byte[])) continue;
+                Assert.That((byte[])field.GetValue(restored),
+                    Is.EqualTo((byte[])field.GetValue(source)), field.Name);
+            }
             Assert.That(restored.KeyframeReferences,
                 Is.EqualTo(source.KeyframeReferences));
         }
 
-        [Test]
-        public async Task InterruptedReplacementPreservesPriorDurableRevision()
+        [TestCase(2)]
+        [TestCase(3)]
+        [TestCase(4)]
+        [TestCase(5)]
+        public void RectangleEraSchemasAreRejectedInsteadOfInventingFrontiers(
+            int version)
         {
-            string root = Path.Combine(Path.GetTempPath(),
-                "ConePrismPersistence", System.Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(root);
-            try
-            {
-                var store = new WorldStore(root);
-                Assert.That(WorldSessionFactory.TryCreate(store, "prism-world",
-                    "PRISM", RigidPoseData.Identity,
-                    new BoundsData(Vector3.zero, Vector3.one), 1_000,
-                    out WorldManifest manifest, out string createError), Is.True,
-                    createError);
-                ChunkRecord chunk = manifest.chunks[0];
-                PrismCanonicalChunkSnapshot valid = EmptyValidSnapshot();
-                PrismChunkPublishResult first = await PrismChunkPublisher.PublishAsync(
-                    store, manifest, chunk, valid, 2_000);
-                Assert.That(first.Success, Is.True, first.Error);
-                int durableRevision = chunk.revision;
-                ChunkArtifactRecord durableArtifact = first.CanonicalArtifact;
-
-                PrismCanonicalChunkSnapshot torn = EmptyValidSnapshot();
-                torn.FilmCount = 1;
-                PrismChunkPublishResult rejected = await
-                    PrismChunkPublisher.PublishAsync(store, manifest, chunk, torn,
-                        3_000);
-
-                Assert.That(rejected.Success, Is.False);
-                Assert.That(chunk.revision, Is.EqualTo(durableRevision));
-                Assert.That(store.TryResolveVerifiedArtifact(manifest.worldId,
-                    durableArtifact, out _, out string verifyError), Is.True,
-                    verifyError);
-                chunk.state = ChunkLifecycleState.Persisted;
-                PrismChunkPublishResult revisit = await
-                    PrismChunkPublisher.PublishAsync(store, manifest, chunk, valid,
-                        4_000);
-                Assert.That(revisit.Success, Is.True, revisit.Error);
-                Assert.That(revisit.Revision, Is.EqualTo(durableRevision + 1));
-                Assert.That(chunk.artifacts.FindAll(artifact =>
-                    artifact.kind == ChunkArtifactKind.PrismCanonical),
-                    Has.Count.EqualTo(1));
-            }
-            finally
-            {
-                if (Directory.Exists(root)) Directory.Delete(root, true);
-            }
-        }
-
-        [Test]
-        public void ChunkGpuIdentityIsStableAndNonZero()
-        {
-            Assert.That(PrismChunkIdentity.ToNumericId("chunk-000000"), Is.EqualTo(1u));
-            Assert.That(PrismChunkIdentity.ToNumericId("chunk-000019"), Is.EqualTo(20u));
-            Assert.That(PrismChunkIdentity.ToNumericId("custom-wing-a"), Is.Not.Zero);
-            Assert.That(PrismChunkIdentity.ToNumericId("custom-wing-a"),
-                Is.EqualTo(PrismChunkIdentity.ToNumericId("custom-wing-a")));
-        }
-
-        [Test]
-        public void CanonicalSnapshotRejectsTrailingOrMismatchedPayload()
-        {
-            PrismCanonicalChunkSnapshot source = MinimalValidSnapshot(1);
             using var stream = new MemoryStream();
-            Assert.That(PrismCanonicalChunkCodec.TryWrite(stream, source, out _), Is.True);
+            using (var writer = new BinaryWriter(stream,
+                       System.Text.Encoding.UTF8, true))
+            {
+                writer.Write(0x33515043u);
+                writer.Write(version);
+                writer.Write(0x01020304u);
+            }
+            stream.Position = 0;
+
+            Assert.That(PrismCanonicalChunkCodec.TryRead(stream, out _,
+                out string error), Is.False);
+            Assert.That(error, Does.Contain($"schema {version}"));
+            Assert.That(error, Does.Contain("schema 6"));
+        }
+
+        [Test]
+        public void PreAtlasVersionSixLayoutIsRejected()
+        {
+            using var stream = new MemoryStream();
+            using (var writer = new BinaryWriter(stream,
+                       System.Text.Encoding.UTF8, true))
+            {
+                writer.Write(0x33515043u);
+                writer.Write(PrismCanonicalChunkCodec.FormatVersion);
+                writer.Write(0x01020304u);
+                writer.Write(ContactFilmHeaderGpu.Stride);
+            }
+            stream.Position = 0;
+
+            Assert.That(PrismCanonicalChunkCodec.TryRead(stream, out _,
+                out string error), Is.False);
+            Assert.That(error, Does.Contain("predates"));
+        }
+
+        [Test]
+        public void CanonicalSnapshotRejectsTrailingPayload()
+        {
+            PrismCanonicalChunkSnapshot source = EmptySnapshot();
+            using var stream = new MemoryStream();
+            Assert.That(PrismCanonicalChunkCodec.TryWrite(stream, source,
+                out string writeError), Is.True, writeError);
             stream.WriteByte(0x5a);
             stream.Position = 0;
 
@@ -249,111 +101,13 @@ namespace Genesis.RoomScan.Tests
             Assert.That(error, Does.Contain("trailing"));
         }
 
-        [Test]
-        public void VersionTwoArtifactUpgradesMissingHierarchyToEmptyState()
+        [TestCase("../../outside.ktx2")]
+        [TestCase("/absolute/keyframe.ktx2")]
+        [TestCase("keyframes\\windows-path.ktx2")]
+        public void CanonicalSnapshotRejectsUnsafeKeyframeReference(string path)
         {
-            using var stream = new MemoryStream();
-            using (var writer = new BinaryWriter(stream, System.Text.Encoding.UTF8,
-                       true))
-            {
-                writer.Write(0x33515043u);
-                writer.Write(2);
-                writer.Write(0x01020304u);
-                writer.Write(LegacyFilmHeaderStride);
-                writer.Write(ContactBoundaryHeaderGpu.Stride);
-                writer.Write(1);
-                writer.Write(0);
-                writer.Write(3u);
-                writer.Write(1u);
-                writer.Write(99ul);
-                WriteSection(writer, Pattern(LegacyFilmHeaderStride, 5));
-                WriteSection(writer, Pattern(9 * 16, 7));
-                WriteSection(writer, System.Array.Empty<byte>());
-                WriteSection(writer, System.Array.Empty<byte>());
-            }
-            stream.Position = 0;
-
-            Assert.That(PrismCanonicalChunkCodec.TryRead(stream, out var restored,
-                out string error), Is.True, error);
-            Assert.That(restored.FilmCount, Is.EqualTo(1));
-            Assert.That(restored.DisplacementBasePageCount, Is.Zero);
-            Assert.That(restored.MeshletDescriptorCount, Is.Zero);
-            Assert.That(restored.AppearanceState, Is.Empty);
-        }
-
-        [Test]
-        public void VersionThreeArtifactWidensContactDomainAndPressurePosterior()
-        {
-            const int baseCells = ContactDisplacementPool.BaseCellsPerPage;
-            byte[] legacyFilms = Pattern(LegacyFilmHeaderStride, 5);
-            byte[] legacyCells = Pattern(baseCells * LegacyDisplacementCellStride, 17);
-            using var stream = new MemoryStream();
-            using (var writer = new BinaryWriter(stream, System.Text.Encoding.UTF8,
-                       true))
-            {
-                writer.Write(0x33515043u);
-                writer.Write(3);
-                writer.Write(0x01020304u);
-                writer.Write(LegacyFilmHeaderStride);
-                writer.Write(ContactBoundaryHeaderGpu.Stride);
-                writer.Write(DisplacementPageHeaderGpu.Stride);
-                writer.Write(LegacyDisplacementCellStride);
-                writer.Write(ContactTopologyEvidenceGpu.Stride);
-                writer.Write(LegacyMeshletVertexStride);
-                writer.Write(ContactMeshletDescriptorGpu.Stride);
-                writer.Write(1); // films
-                writer.Write(0); // boundaries
-                writer.Write(1); // base pages
-                writer.Write(0); // micro pages
-                writer.Write(0); // vertices
-                writer.Write(0); // indices
-                writer.Write(0); // descriptors
-                writer.Write(3u);
-                writer.Write(1u);
-                writer.Write(5u);
-                writer.Write(1u);
-                writer.Write(99ul);
-                WriteSection(writer, legacyFilms);
-                WriteSection(writer, Pattern(9 * 16, 7));
-                WriteSection(writer, System.Array.Empty<byte>());
-                WriteSection(writer, System.Array.Empty<byte>());
-                WriteSection(writer, Pattern(DisplacementPageHeaderGpu.Stride, 11));
-                WriteSection(writer, legacyCells);
-                WriteSection(writer, System.Array.Empty<byte>());
-                WriteSection(writer, Pattern(baseCells * sizeof(uint), 13));
-                WriteSection(writer, System.Array.Empty<byte>());
-                WriteSection(writer, Pattern(ContactTopologyEvidenceGpu.Stride, 19));
-                WriteSection(writer, Pattern(8 * sizeof(uint), 23));
-                WriteSection(writer, System.Array.Empty<byte>());
-                WriteSection(writer, System.Array.Empty<byte>());
-                WriteSection(writer, System.Array.Empty<byte>());
-                WriteSection(writer, System.Array.Empty<byte>());
-                WriteSection(writer, System.Array.Empty<byte>());
-                writer.Write(0); // keyframe references
-            }
-            stream.Position = 0;
-
-            Assert.That(PrismCanonicalChunkCodec.TryRead(stream, out var restored,
-                out string error), Is.True, error);
-            Assert.That(restored.FilmHeaders.Length,
-                Is.EqualTo(ContactFilmHeaderGpu.Stride));
-            Assert.That(restored.FilmHeaders[132], Is.Zero);
-            Assert.That(restored.FilmHeaders[139], Is.Zero);
-            Assert.That(restored.DisplacementBaseCells.Length,
-                Is.EqualTo(baseCells * DisplacementCellGpu.Stride));
-            // The v4 free-space pressure/mask insertion is fail-closed.
-            Assert.That(restored.DisplacementBaseCells[28], Is.Zero);
-            Assert.That(restored.DisplacementBaseCells[35], Is.Zero);
-            // Legacy revision bytes move intact behind the inserted posterior.
-            Assert.That(restored.DisplacementBaseCells[36],
-                Is.EqualTo(legacyCells[28]));
-        }
-
-        [Test]
-        public void CanonicalSnapshotRejectsUnsafeKeyframeReference()
-        {
-            var source = EmptyValidSnapshot();
-            source.KeyframeReferences = new[] { "../../outside.jpg" };
+            PrismCanonicalChunkSnapshot source = EmptySnapshot();
+            source.KeyframeReferences = new[] { path };
             using var stream = new MemoryStream();
 
             Assert.That(PrismCanonicalChunkCodec.TryWrite(stream, source,
@@ -361,7 +115,102 @@ namespace Genesis.RoomScan.Tests
             Assert.That(error, Does.Contain("reference"));
         }
 
-        private static PrismCanonicalChunkSnapshot EmptyValidSnapshot() => new()
+        private static PrismCanonicalChunkSnapshot PopulatedSnapshot()
+        {
+            const int films = 2;
+            const int boundaries = 1;
+            const int contourPages = 1;
+            const int contourSegments = 3;
+            const int halfEdges = 3;
+            const int loops = 2;
+            const int evidence = 3;
+            const int portals = 1;
+            var result = EmptySnapshot();
+            result.FilmCount = films;
+            result.BoundaryCount = boundaries;
+            result.ManifoldCount = 1;
+            result.SupportContourPageCount = contourPages;
+            result.SupportContourSegmentCount = contourSegments;
+            result.SurfaceHalfEdgeCount = halfEdges;
+            result.FrontierLoopCount = loops;
+            result.ContinuationEvidenceCount = evidence;
+            result.CrossChunkPortalCount = portals;
+            result.DisplacementBasePageCount = 1;
+            result.DisplacementMicroPageCount = 1;
+            result.MeshletVertexCount = 3;
+            result.MeshletIndexCount = 3;
+            result.MeshletDescriptorCount = 1;
+            result.FilmGeneration = 7;
+            result.BoundaryGeneration = 9;
+            result.DisplacementGeneration = 11;
+            result.MeshletGeneration = 13;
+            result.CalibrationEpoch = 0x123456789abcdef0ul;
+
+            result.FilmHeaders = Pattern(films * ContactFilmHeaderGpu.Stride, 3);
+            result.FilmInformation = Pattern(films *
+                ContactFilmPool.InformationRecords * 16, 5);
+            result.FilmSlotStates = Pattern(films *
+                ContactFilmSlotStateGpu.Stride, 7);
+            result.ActiveFilmIndices = Pattern(films * sizeof(uint), 11);
+            result.DirtyFilmIndices = Pattern(films * sizeof(uint), 13);
+            result.FilmAllocatorState = Pattern(8 * sizeof(uint), 17);
+            result.PressureManifoldHeaders = Pattern(
+                PressureManifoldHeaderGpu.Stride, 19);
+            result.FilmMemberships = Pattern(films * FilmMembershipGpu.Stride, 23);
+            result.ManifoldAllocatorState = Pattern(
+                PressureManifoldPool.AllocatorWords * sizeof(uint), 29);
+            result.CurrentManifoldState = Pattern(4 * sizeof(uint), 31);
+            result.SupportContourPages = Pattern(contourPages *
+                SupportContourPageGpu.Stride, 37);
+            result.SupportContours = Pattern(contourSegments *
+                SupportContourSegmentGpu.Stride, 41);
+            result.SurfaceHalfEdges = Pattern(halfEdges *
+                SurfaceHalfEdgeGpu.Stride, 43);
+            result.FrontierLoops = Pattern(loops * FrontierLoopGpu.Stride, 47);
+            result.ContinuationEvidence = Pattern(evidence *
+                ContinuationEvidenceGpu.Stride, 53);
+            result.ElasticChartStates = Pattern(films *
+                ElasticChartStateGpu.Stride, 59);
+            result.FilmTopologyRanges = Pattern(films * sizeof(uint) * 4, 61);
+            result.AtlasAllocatorState = Pattern(16 * sizeof(uint), 67);
+            result.CrossChunkTopologyPortals = Pattern(portals *
+                CrossChunkTopologyPortalGpu.Stride, 71);
+            result.BoundaryHeaders = Pattern(boundaries *
+                ContactBoundaryHeaderGpu.Stride, 73);
+            result.BoundaryInformation = Pattern(boundaries *
+                ContactBoundaryPool.InformationRecordsPerBoundary * 16, 79);
+            result.BoundaryCurveTopology = Pattern(boundaries *
+                BoundaryCurveTopologyGpu.Stride, 83);
+            result.DisplacementPageHeaders = Pattern(2 *
+                DisplacementPageHeaderGpu.Stride, 89);
+            result.DisplacementBaseCells = Pattern(
+                ContactDisplacementPool.BaseCellsPerPage *
+                DisplacementCellGpu.Stride, 97);
+            result.DisplacementMicroCells = Pattern(
+                ContactDisplacementPool.MicroCellsPerPage *
+                DisplacementCellGpu.Stride, 101);
+            result.DisplacementBaseChildren = Pattern(
+                ContactDisplacementPool.BaseCellsPerPage * sizeof(uint), 103);
+            result.DisplacementMicroChildren = Pattern(
+                ContactDisplacementPool.MicroCellsPerPage * sizeof(uint), 107);
+            result.TopologyEvidence = Pattern(films *
+                ContactTopologyEvidenceGpu.Stride, 109);
+            result.DisplacementAllocator = Pattern(8 * sizeof(uint), 113);
+            result.MeshletVertices = Pattern(3 *
+                ContactMeshletVertexGpu.Stride, 127);
+            result.MeshletIndices = Pattern(3 * sizeof(uint), 131);
+            result.MeshletDescriptors = Pattern(
+                ContactMeshletDescriptorGpu.Stride, 137);
+            result.AppearanceState = Pattern(193, 139);
+            result.ObservationState = Pattern(127, 149);
+            result.KeyframeReferences = new[]
+            {
+                "keyframes/rgb_l_0001.ktx2", "keyframes/rgb_r_0001.ktx2"
+            };
+            return result;
+        }
+
+        private static PrismCanonicalChunkSnapshot EmptySnapshot() => new()
         {
             FilmGeneration = 1,
             BoundaryGeneration = 1,
@@ -371,38 +220,16 @@ namespace Genesis.RoomScan.Tests
             ManifoldAllocatorState = new byte[
                 PressureManifoldPool.AllocatorWords * sizeof(uint)],
             CurrentManifoldState = new byte[4 * sizeof(uint)],
+            AtlasAllocatorState = new byte[16 * sizeof(uint)],
             DisplacementAllocator = new byte[8 * sizeof(uint)]
         };
 
-        private static PrismCanonicalChunkSnapshot MinimalValidSnapshot(int films)
-        {
-            PrismCanonicalChunkSnapshot snapshot = EmptyValidSnapshot();
-            snapshot.FilmCount = films;
-            snapshot.FilmHeaders = new byte[films * ContactFilmHeaderGpu.Stride];
-            snapshot.FilmInformation = new byte[films *
-                ContactFilmPool.InformationRecords * 16];
-            snapshot.FilmSlotStates = new byte[films *
-                ContactFilmSlotStateGpu.Stride];
-            snapshot.ActiveFilmIndices = new byte[films * sizeof(uint)];
-            snapshot.DirtyFilmIndices = new byte[films * sizeof(uint)];
-            snapshot.FilmMemberships = new byte[films * FilmMembershipGpu.Stride];
-            snapshot.TopologyEvidence = new byte[films *
-                ContactTopologyEvidenceGpu.Stride];
-            return snapshot;
-        }
-
-        private static void WriteSection(BinaryWriter writer, byte[] bytes)
-        {
-            writer.Write(bytes.Length);
-            writer.Write(bytes);
-        }
-
         private static byte[] Pattern(int count, int multiplier)
         {
-            var bytes = new byte[count];
-            for (int i = 0; i < bytes.Length; i++)
-                bytes[i] = (byte)((i * multiplier + 17) & 0xff);
-            return bytes;
+            var result = new byte[count];
+            for (int index = 0; index < result.Length; index++)
+                result[index] = (byte)((index * multiplier + 17) & 0xff);
+            return result;
         }
     }
 }

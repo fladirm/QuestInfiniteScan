@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Security.Cryptography;
 using System.Text;
-using UnityEngine;
 
 namespace Genesis.RoomScan.World
 {
@@ -904,122 +903,6 @@ namespace Genesis.RoomScan.World
             try { if (Directory.Exists(path)) Directory.Delete(path, true); }
             catch (IOException) { }
             catch (UnauthorizedAccessException) { }
-        }
-    }
-
-    /// <summary>
-    /// Read-only compatibility descriptor for QRS v1 package directories. The existing
-    /// RoomScanPersistence loader remains the authority for actually restoring the volume;
-    /// this reader validates enough of scan.bin to safely expose it to a world migration UI.
-    /// </summary>
-    public sealed class LegacyScanPackageInfo
-    {
-        public string PackageId { get; internal set; }
-        public string PackageDirectory { get; internal set; }
-        public string ScanBinaryPath { get; internal set; }
-        public long TimestampUnixSeconds { get; internal set; }
-        public Vector3Int VoxelCount { get; internal set; }
-        public float VoxelSize { get; internal set; }
-        public int IntegrationCount { get; internal set; }
-        public int TriplanarResolution { get; internal set; }
-        public BoundsData LocalBounds { get; internal set; }
-    }
-
-    public static class LegacyScanPackageReader
-    {
-        private const uint Magic = 0x48534D52;
-        private const int FormatVersion = 1;
-        private const int MaximumVoxelAxis = 4096;
-
-        public static bool TryOpen(string legacyRoomScansRoot, string packageId,
-            out LegacyScanPackageInfo package, out string error)
-        {
-            package = null;
-            error = null;
-            if (string.IsNullOrWhiteSpace(legacyRoomScansRoot) ||
-                !StoragePath.IsSafeIdentifier(packageId, 96))
-            {
-                error = "Legacy package path or identifier is invalid.";
-                return false;
-            }
-
-            try
-            {
-                string root = Path.GetFullPath(legacyRoomScansRoot);
-                string packageDirectory = StoragePath.CombineContained(root, packageId);
-                string scanPath = StoragePath.CombineContained(packageDirectory, "scan.bin");
-                if (!File.Exists(scanPath))
-                {
-                    error = "Legacy package has no scan.bin.";
-                    return false;
-                }
-
-                using var stream = new FileStream(scanPath, FileMode.Open, FileAccess.Read,
-                    FileShare.Read, 65536, FileOptions.SequentialScan);
-                using var reader = new BinaryReader(stream, Encoding.UTF8, true);
-                if (reader.ReadUInt32() != Magic)
-                    throw new InvalidDataException("Legacy scan magic is invalid.");
-                if (reader.ReadInt32() != FormatVersion)
-                    throw new InvalidDataException("Legacy scan version is unsupported.");
-                long timestamp = reader.ReadInt64();
-                int x = reader.ReadInt32();
-                int y = reader.ReadInt32();
-                int z = reader.ReadInt32();
-                float voxelSize = reader.ReadSingle();
-                int integrationCount = reader.ReadInt32();
-                int triplanarResolution = reader.ReadInt32();
-
-                if (timestamp < 0 || x <= 0 || y <= 0 || z <= 0 ||
-                    x > MaximumVoxelAxis || y > MaximumVoxelAxis || z > MaximumVoxelAxis ||
-                    !IsFinite(voxelSize) || voxelSize <= 0f || voxelSize > 100f ||
-                    integrationCount < 0 || triplanarResolution < 0)
-                    throw new InvalidDataException("Legacy scan header is outside supported limits.");
-
-                for (int i = 0; i < 16; i++)
-                {
-                    if (!IsFinite(reader.ReadSingle()))
-                        throw new InvalidDataException("Legacy anchor matrix is not finite.");
-                }
-                int tsdfLength = reader.ReadInt32();
-                ValidatePayloadLength(stream, tsdfLength, "TSDF");
-                stream.Seek(tsdfLength, SeekOrigin.Current);
-                int colorLength = reader.ReadInt32();
-                ValidatePayloadLength(stream, colorLength, "color");
-                if (stream.Position + colorLength != stream.Length)
-                    throw new InvalidDataException("Legacy color payload length is inconsistent.");
-
-                package = new LegacyScanPackageInfo
-                {
-                    PackageId = packageId,
-                    PackageDirectory = packageDirectory,
-                    ScanBinaryPath = scanPath,
-                    TimestampUnixSeconds = timestamp,
-                    VoxelCount = new Vector3Int(x, y, z),
-                    VoxelSize = voxelSize,
-                    IntegrationCount = integrationCount,
-                    TriplanarResolution = triplanarResolution,
-                    LocalBounds = new BoundsData(Vector3.zero,
-                        new Vector3(x * voxelSize, y * voxelSize, z * voxelSize) * 0.5f)
-                };
-                return true;
-            }
-            catch (Exception exception)
-            {
-                error = $"Legacy package rejected: {exception.Message}";
-                return false;
-            }
-        }
-
-        private static void ValidatePayloadLength(Stream stream, int length, string label)
-        {
-            // Legacy fields are signed 32-bit, already below the world artifact byte cap.
-            if (length < 0 || stream.Position + length > stream.Length)
-                throw new InvalidDataException($"Legacy {label} payload length is invalid.");
-        }
-
-        private static bool IsFinite(float value)
-        {
-            return !float.IsNaN(value) && !float.IsInfinity(value);
         }
     }
 

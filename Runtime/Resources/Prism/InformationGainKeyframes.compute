@@ -1,0 +1,384 @@
+#pragma kernel InitializeKeyframeIngress
+#pragma kernel BeginKeyframeEvaluation
+#pragma kernel ClearActiveFilmGain
+#pragma kernel EvaluateVisibleFilmGain
+#pragma kernel ReduceFrameInformationGain
+#pragma kernel FinalizeKeyframeDecision
+#pragma kernel CommitKeyframePixels
+#pragma kernel CommitKeyframeMetadata
+
+// Q3-15.6 information-driven temporal ingress. The CPU submits the calibrated
+// current rig; only GPU-visible first-hit contact may reserve and overwrite a
+// temporal stereo slot. Motion/time is a starvation fallback, never the primary
+// capture policy. All scores are fixed-point solely for portable Vulkan atomics.
+
+struct ConeEvent
+{
+    uint pixelLinear; uint packedPixel; uint classification; uint flags;
+    float measuredRange; float predictedRange; float combinedSigma; float confidence;
+    float3 measuredNormal; float boundaryEvidence;
+    uint filmId; uint filmGeneration; float2 predictedUv;
+    float footprintArea; float incidence; float pressurePrecision;
+    uint occluderFilmId; uint occluderGeneration; float2 occluderUv;
+};
+
+struct ContactFilmHeader
+{
+    uint id; uint generation; uint chunkId; uint flags;
+    float3 origin; float supportTotal;
+    float3 normal; float sigmaNormal;
+    float3 tangentU; float extentU;
+    float3 tangentV; float extentV;
+    float4 quadratic0123; float2 quadratic45;
+    float confidence; float contradiction;
+    uint revision; uint displacementPage; uint appearancePage;
+    uint boundaryStart; uint boundaryCount;
+    uint supportMaskLow; uint supportMaskHigh;
+    uint reserved0; uint reserved1; uint reserved2;
+};
+
+struct TemporalRgbView
+{
+    float4x4 rgbFromChunk;
+    float4 intrinsics;
+    float4 cameraOriginChunk;
+    uint generation;
+    uint sourceSequence;
+    uint eye;
+    uint active;
+};
+
+StructuredBuffer<ConeEvent> _ConeEvents;
+StructuredBuffer<uint> _ClassifiedIndices;
+StructuredBuffer<uint> _ClassCounters;
+StructuredBuffer<ContactFilmHeader> _FilmHeaders;
+StructuredBuffer<float4> _FilmInformation;
+StructuredBuffer<uint> _FilmAllocator;
+StructuredBuffer<uint> _CanonicalActiveFilmIndices;
+Texture2D<float4> _DepthRayCenterLeft;
+Texture2D<float4> _DepthRayCenterRight;
+Texture2D<float4> _RgbLeft;
+Texture2D<float4> _RgbRight;
+
+RWStructuredBuffer<uint> _KeyframeFilmGain;
+RWStructuredBuffer<uint> _KeyframeState;
+RWStructuredBuffer<uint> _KeyframeSlotGenerations;
+RWStructuredBuffer<uint3> _KeyframeDispatchArguments;
+RWStructuredBuffer<uint3> _ViewSelectDispatchArguments;
+RWStructuredBuffer<TemporalRgbView> _TemporalViews;
+RWTexture2DArray<float4> _TemporalRgbWrite;
+
+uint _EventCapacity;
+uint _FilmCapacity;
+uint _TemporalViewCapacity;
+uint _CurrentSequence;
+uint _MaximumKeyframeInterval;
+uint _MinimumKeyframeSpacing;
+uint2 _RgbResolution;
+float _MinimumFilmInformationGain;
+float _MinimumFrameInformationGain;
+float _AggregateFrameInformationGain;
+float _MinimumRefineSigma;
+float4 _RgbIntrinsics[2];
+float4x4 _RgbFromChunk[2];
+float4x4 _ChunkFromDepth[2];
+float4 _CameraOriginChunk[2];
+
+static const uint CLASS_MATCH = 1u;
+static const uint CLASS_NEW_FRONT = 2u;
+static const uint CLASS_NEW_LAYER = 4u;
+static const uint CLASS_UNSEEN = 5u;
+static const uint CLASS_BOUNDARY = 6u;
+static const uint FILM_ACTIVE = 1u;
+static const uint FILM_ONE_SIDED = 2u;
+static const uint FILM_UNCERTAIN = 4u;
+static const uint GAIN_SCALE = 4096u;
+
+// Persistent state words.
+static const uint STATE_NEXT_SLOT = 0u;
+static const uint STATE_CAPTURE_COUNT = 1u;
+static const uint STATE_LAST_SEQUENCE = 2u;
+static const uint STATE_CURRENT_LEFT = 3u;
+static const uint STATE_CURRENT_RIGHT = 4u;
+static const uint STATE_CURRENT_GENERATION = 5u;
+// Per-frame state words.
+static const uint STATE_ACCEPTED = 6u;
+static const uint STATE_MAX_GAIN = 7u;
+static const uint STATE_SUM_GAIN = 8u;
+static const uint STATE_QUALIFYING = 9u;
+static const uint STATE_VISIBLE = 10u;
+static const uint STATE_NEW_CONTACTS = 11u;
+static const uint STATE_BOUNDARY_CONTACTS = 12u;
+static const uint STATE_WORDS = 16u;
+
+float3 SafeNormalize(float3 value, float3 fallback)
+{
+    float n2 = dot(value, value);
+    return n2 > 1e-12 && n2 < 1e12 ? value * rsqrt(n2) : fallback;
+}
+
+float Luma(float3 rgb)
+{
+    return dot(rgb, float3(0.2126, 0.7152, 0.0722));
+}
+
+float4 LoadRgb(int2 pixel, uint eye)
+{
+    pixel = clamp(pixel, int2(0, 0), (int2)_RgbResolution - 1);
+    return eye == 0u ? _RgbLeft.Load(int3(pixel, 0)) :
+        _RgbRight.Load(int3(pixel, 0));
+}
+
+bool ProjectRgb(float3 pointChunk, uint eye, out float2 pixel)
+{
+    float3 pointCamera = mul(_RgbFromChunk[eye], float4(pointChunk, 1.0)).xyz;
+    if (pointCamera.z <= 1e-5 || !all(isfinite(pointCamera)))
+    {
+        pixel = 0.0;
+        return false;
+    }
+    float4 intrinsics = _RgbIntrinsics[eye];
+    pixel = float2(pointCamera.x / pointCamera.z * intrinsics.x + intrinsics.z,
+        pointCamera.y / pointCamera.z * intrinsics.y + intrinsics.w);
+    return all(pixel >= 2.0) && all(pixel < (float2)_RgbResolution - 3.0);
+}
+
+float TextureQuality(float2 pixel, uint eye)
+{
+    int2 p = (int2)floor(pixel);
+    float center = Luma(LoadRgb(p, eye).rgb);
+    float gx = Luma(LoadRgb(p + int2(1, 0), eye).rgb) -
+        Luma(LoadRgb(p - int2(1, 0), eye).rgb);
+    float gy = Luma(LoadRgb(p + int2(0, 1), eye).rgb) -
+        Luma(LoadRgb(p - int2(0, 1), eye).rgb);
+    float sharpness = saturate(length(float2(gx, gy)) / 0.08);
+    // Near-black/clipped samples contain little recoverable appearance evidence.
+    float exposure = smoothstep(0.01, 0.08, center) *
+        (1.0 - smoothstep(0.92, 0.995, center));
+    return lerp(0.2, 1.0, sharpness) * exposure;
+}
+
+uint PositiveContactViewBit(ContactFilmHeader film, uint eye)
+{
+    float3 relative = _CameraOriginChunk[eye].xyz - film.origin;
+    int3 baselineCell = (int3)floor(relative / 0.04);
+    float3 direction = SafeNormalize(relative, film.normal);
+    uint angular = (direction.x >= 0.0 ? 1u : 0u) |
+        (direction.y >= 0.0 ? 2u : 0u) |
+        (direction.z >= 0.0 ? 4u : 0u);
+    uint value = asuint(baselineCell.x) * 0x8da6b343u;
+    value ^= asuint(baselineCell.y) * 0xd8163841u;
+    value ^= asuint(baselineCell.z) * 0xcb1ab31fu;
+    value ^= angular * 0x9e3779b9u ^ eye * 0x85ebca6bu;
+    value ^= value >> 16u;
+    value *= 0x7feb352du;
+    value ^= value >> 15u;
+    return 1u << (value & 31u);
+}
+
+float VisibleContactGain(ConeEvent eventData, ContactFilmHeader film,
+    uint filmIndex)
+{
+    uint eye = eventData.packedPixel >> 31u;
+    uint2 pixel = uint2(eventData.packedPixel & 0xffffu,
+        (eventData.packedPixel >> 16u) & 0x7fffu);
+    float3 ray = eye == 0u ? _DepthRayCenterLeft[pixel].xyz :
+        _DepthRayCenterRight[pixel].xyz;
+    float range = eventData.measuredRange > 0.0 ? eventData.measuredRange :
+        eventData.predictedRange;
+    float3 pointChunk = mul(_ChunkFromDepth[eye],
+        float4(ray * range, 1.0)).xyz;
+    float2 rgbPixel;
+    if (!ProjectRgb(pointChunk, eye, rgbPixel)) return 0.0;
+
+    uint filmInfo = filmIndex * 10u;
+    float4 quality = _FilmInformation[filmInfo + 8u];
+    float4 viewState = _FilmInformation[filmInfo + 9u];
+    float posteriorVariance = max(max(viewState.y, 0.0),
+        film.sigmaNormal * film.sigmaNormal);
+    // Scalar normal-direction approximation of delta log(det H). It is large only
+    // when this physically precise cone can reduce the existing posterior.
+    float posteriorGain = saturate(log2(1.0 +
+        max(eventData.pressurePrecision, 0.0) * posteriorVariance) / 4.0);
+
+    float priorFootprint = max(quality.z, 1e-12);
+    float currentFootprint = max(eventData.footprintArea, 1e-12);
+    float footprintGain = quality.z <= 0.0 || !isfinite(quality.z) ? 1.0 :
+        saturate(log2(priorFootprint / currentFootprint) / 2.0);
+    uint viewBit = PositiveContactViewBit(film, eye);
+    float angularGain = (asuint(viewState.x) & viewBit) == 0u ? 1.0 : 0.0;
+    float unresolved = max(saturate(film.sigmaNormal /
+        max(8.0 * _MinimumRefineSigma, 1e-5)), film.contradiction);
+    if ((film.flags & FILM_UNCERTAIN) != 0u) unresolved = max(unresolved, 0.7);
+    float boundaryGain = saturate(eventData.boundaryEvidence);
+    float appearanceQuality = TextureQuality(rgbPixel, eye);
+    float contactQuality = saturate(eventData.confidence) *
+        saturate(eventData.incidence * 1.25) * appearanceQuality;
+
+    float gain = (0.32 * posteriorGain + 0.23 * footprintGain +
+        0.20 * angularGain + 0.13 * boundaryGain + 0.12 * unresolved) *
+        contactQuality;
+    return saturate(gain);
+}
+
+[numthreads(64, 1, 1)]
+void InitializeKeyframeIngress(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x < _FilmCapacity) _KeyframeFilmGain[id.x] = 0u;
+    uint stereoSlots = _TemporalViewCapacity / 2u;
+    if (id.x < stereoSlots) _KeyframeSlotGenerations[id.x] = 0u;
+    if (id.x == 0u)
+    {
+        [unroll] for (uint i = 0u; i < STATE_WORDS; ++i) _KeyframeState[i] = 0u;
+        _KeyframeDispatchArguments[0] = uint3(0u, 1u, 1u);
+        _KeyframeDispatchArguments[1] = uint3(0u, 1u, 1u);
+        _ViewSelectDispatchArguments[0] = uint3(0u, 1u, 1u);
+    }
+}
+
+[numthreads(1, 1, 1)]
+void BeginKeyframeEvaluation(uint3 id : SV_DispatchThreadID)
+{
+    [unroll] for (uint i = STATE_ACCEPTED; i < STATE_WORDS; ++i)
+        _KeyframeState[i] = 0u;
+    uint active = min(_FilmAllocator[6], _FilmCapacity);
+    _KeyframeDispatchArguments[0] = uint3((active + 63u) / 64u, 1u, 1u);
+    _KeyframeDispatchArguments[1] = uint3(0u, 1u, 1u);
+    _ViewSelectDispatchArguments[0] = uint3(0u, 1u, 1u);
+}
+
+[numthreads(64, 1, 1)]
+void ClearActiveFilmGain(uint3 id : SV_DispatchThreadID)
+{
+    uint active = min(_FilmAllocator[6], _FilmCapacity);
+    if (id.x >= active) return;
+    uint filmIndex = _CanonicalActiveFilmIndices[id.x];
+    if (filmIndex < _FilmCapacity) _KeyframeFilmGain[filmIndex] = 0u;
+}
+
+[numthreads(64, 1, 1)]
+void EvaluateVisibleFilmGain(uint3 id : SV_DispatchThreadID)
+{
+    uint matchCount = min(_ClassCounters[CLASS_MATCH], _EventCapacity);
+    if (id.x >= matchCount) return;
+    uint eventIndex = _ClassifiedIndices[CLASS_MATCH * _EventCapacity + id.x];
+    ConeEvent eventData = _ConeEvents[eventIndex];
+    if (eventData.classification != CLASS_MATCH || eventData.filmId == 0u ||
+        eventData.confidence <= 0.0) return;
+    uint filmIndex = eventData.filmId - 1u;
+    if (filmIndex >= _FilmCapacity) return;
+    ContactFilmHeader film = _FilmHeaders[filmIndex];
+    if (film.id != eventData.filmId || film.generation != eventData.filmGeneration ||
+        (film.flags & (FILM_ACTIVE | FILM_ONE_SIDED)) !=
+            (FILM_ACTIVE | FILM_ONE_SIDED)) return;
+    float gain = VisibleContactGain(eventData, film, filmIndex);
+    uint fixedGain = (uint)round(saturate(gain) * (float)GAIN_SCALE);
+    if (fixedGain > 0u) InterlockedMax(_KeyframeFilmGain[filmIndex], fixedGain);
+}
+
+[numthreads(64, 1, 1)]
+void ReduceFrameInformationGain(uint3 id : SV_DispatchThreadID)
+{
+    uint active = min(_FilmAllocator[6], _FilmCapacity);
+    if (id.x >= active) return;
+    uint filmIndex = _CanonicalActiveFilmIndices[id.x];
+    if (filmIndex >= _FilmCapacity) return;
+    uint gain = min(_KeyframeFilmGain[filmIndex], GAIN_SCALE);
+    if (gain == 0u) return;
+    InterlockedMax(_KeyframeState[STATE_MAX_GAIN], gain);
+    InterlockedAdd(_KeyframeState[STATE_SUM_GAIN], gain);
+    InterlockedAdd(_KeyframeState[STATE_VISIBLE], 1u);
+    uint filmThreshold = (uint)round(saturate(_MinimumFilmInformationGain) *
+        (float)GAIN_SCALE);
+    if (gain >= filmThreshold)
+        InterlockedAdd(_KeyframeState[STATE_QUALIFYING], 1u);
+}
+
+[numthreads(1, 1, 1)]
+void FinalizeKeyframeDecision(uint3 id : SV_DispatchThreadID)
+{
+    uint newContacts = _ClassCounters[CLASS_NEW_FRONT] +
+        _ClassCounters[CLASS_NEW_LAYER] + _ClassCounters[CLASS_UNSEEN];
+    uint boundaryContacts = _ClassCounters[CLASS_BOUNDARY];
+    _KeyframeState[STATE_NEW_CONTACTS] = newContacts;
+    _KeyframeState[STATE_BOUNDARY_CONTACTS] = boundaryContacts;
+
+    uint captureCount = _KeyframeState[STATE_CAPTURE_COUNT];
+    uint lastSequence = _KeyframeState[STATE_LAST_SEQUENCE];
+    uint elapsed = _CurrentSequence - lastSequence;
+    uint active = min(_FilmAllocator[6], _FilmCapacity);
+    uint visible = _KeyframeState[STATE_VISIBLE];
+    float maxGain = (float)_KeyframeState[STATE_MAX_GAIN] / (float)GAIN_SCALE;
+    float meanGain = visible > 0u ?
+        (float)_KeyframeState[STATE_SUM_GAIN] /
+            ((float)visible * (float)GAIN_SCALE) : 0.0;
+    uint qualifying = _KeyframeState[STATE_QUALIFYING];
+
+    bool hasEvidence = visible > 0u || newContacts > 0u;
+    bool first = captureCount == 0u && hasEvidence;
+    bool newSurface = newContacts >= 8u;
+    bool highGain = maxGain >= _MinimumFrameInformationGain;
+    bool distributedGain = qualifying >= 3u &&
+        meanGain >= _AggregateFrameInformationGain;
+    bool starvation = captureCount > 0u && hasEvidence &&
+        elapsed >= max(1u, _MaximumKeyframeInterval);
+    bool spacingSatisfied = captureCount == 0u ||
+        elapsed >= max(1u, _MinimumKeyframeSpacing);
+    bool accept = spacingSatisfied &&
+        (first || newSurface || highGain || distributedGain || starvation);
+    if (!accept)
+    {
+        _KeyframeState[STATE_ACCEPTED] = 0u;
+        return;
+    }
+
+    uint stereoSlots = max(1u, _TemporalViewCapacity / 2u);
+    uint slot = _KeyframeState[STATE_NEXT_SLOT] % stereoSlots;
+    uint generation = _KeyframeSlotGenerations[slot] + 1u;
+    if (generation == 0u) generation = 1u;
+    _KeyframeSlotGenerations[slot] = generation;
+    uint left = slot * 2u;
+    _KeyframeState[STATE_NEXT_SLOT] = (slot + 1u) % stereoSlots;
+    _KeyframeState[STATE_CAPTURE_COUNT] = captureCount + 1u;
+    _KeyframeState[STATE_LAST_SEQUENCE] = _CurrentSequence;
+    _KeyframeState[STATE_CURRENT_LEFT] = left;
+    _KeyframeState[STATE_CURRENT_RIGHT] = left + 1u;
+    _KeyframeState[STATE_CURRENT_GENERATION] = generation;
+    _KeyframeState[STATE_ACCEPTED] = 1u;
+    _KeyframeDispatchArguments[1] = uint3(
+        (_RgbResolution.x + 7u) / 8u, (_RgbResolution.y + 7u) / 8u, 2u);
+    _ViewSelectDispatchArguments[0] = uint3((active + 63u) / 64u, 1u, 1u);
+}
+
+[numthreads(8, 8, 1)]
+void CommitKeyframePixels(uint3 id : SV_DispatchThreadID)
+{
+    if (_KeyframeState[STATE_ACCEPTED] == 0u ||
+        any(id.xy >= _RgbResolution) || id.z >= 2u) return;
+    uint slice = id.z == 0u ? _KeyframeState[STATE_CURRENT_LEFT] :
+        _KeyframeState[STATE_CURRENT_RIGHT];
+    float4 value = id.z == 0u ? _RgbLeft.Load(int3(id.xy, 0)) :
+        _RgbRight.Load(int3(id.xy, 0));
+    _TemporalRgbWrite[uint3(id.xy, slice)] = value;
+}
+
+[numthreads(1, 1, 1)]
+void CommitKeyframeMetadata(uint3 id : SV_DispatchThreadID)
+{
+    if (_KeyframeState[STATE_ACCEPTED] == 0u) return;
+    uint generation = _KeyframeState[STATE_CURRENT_GENERATION];
+    [unroll] for (uint eye = 0u; eye < 2u; ++eye)
+    {
+        uint viewIndex = eye == 0u ? _KeyframeState[STATE_CURRENT_LEFT] :
+            _KeyframeState[STATE_CURRENT_RIGHT];
+        TemporalRgbView view;
+        view.rgbFromChunk = _RgbFromChunk[eye];
+        view.intrinsics = _RgbIntrinsics[eye];
+        view.cameraOriginChunk = _CameraOriginChunk[eye];
+        view.generation = generation;
+        view.sourceSequence = _CurrentSequence;
+        view.eye = eye;
+        view.active = 1u;
+        _TemporalViews[viewIndex] = view;
+    }
+}

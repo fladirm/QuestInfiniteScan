@@ -98,6 +98,9 @@ StructuredBuffer<uint> _ClassifiedIndices;
 StructuredBuffer<uint> _ClassCounters;
 StructuredBuffer<ContactFilmHeader> _FilmHeaders;
 StructuredBuffer<uint> _FilmAllocator;
+StructuredBuffer<uint> _CanonicalActiveFilmIndices;
+StructuredBuffer<uint> _KeyframeIngressState;
+StructuredBuffer<uint> _KeyframeFilmGain;
 RWStructuredBuffer<PhotometricPressure> _PhotometricPressures;
 RWStructuredBuffer<uint> _PhotometricState;
 RWStructuredBuffer<uint> _RefinementClaims;
@@ -113,9 +116,6 @@ uint _FilmCapacity;
 uint _PressureCapacity;
 uint _TemporalViewCapacity;
 uint _CurrentSequence;
-uint _NewViewLeft;
-uint _NewViewRight;
-uint _NewViewGeneration;
 uint2 _RgbResolution;
 uint2 _DepthResolution;
 float4 _RgbIntrinsics[2];
@@ -135,6 +135,11 @@ static const uint VIEWS_PER_FILM = 8u;
 static const uint CLAIM_WORDS_PER_FILM = 4u;
 static const uint SOURCE_STEREO = 3u;
 static const uint SOURCE_TEMPORAL = 4u;
+static const uint KEYFRAME_CAPTURE_COUNT = 1u;
+static const uint KEYFRAME_CURRENT_LEFT = 3u;
+static const uint KEYFRAME_CURRENT_RIGHT = 4u;
+static const uint KEYFRAME_CURRENT_GENERATION = 5u;
+static const uint KEYFRAME_ACCEPTED = 6u;
 
 float Luma(float3 rgb)
 {
@@ -622,6 +627,7 @@ void NarrowStereoPressure(uint3 id : SV_DispatchThreadID)
 [numthreads(64, 1, 1)]
 void TemporalFocusPressure(uint3 id : SV_DispatchThreadID)
 {
+    if (_KeyframeIngressState[KEYFRAME_CAPTURE_COUNT] == 0u) return;
     uint matchCount = min(_ClassCounters[CLASS_MATCH], _EventCapacity);
     if (id.x >= matchCount) return;
     uint eventIndex = _ClassifiedIndices[CLASS_MATCH * _EventCapacity + id.x];
@@ -732,9 +738,9 @@ void BuildPhotometricArguments(uint3 id : SV_DispatchThreadID)
 [numthreads(1, 1, 1)]
 void BuildTemporalViewArguments(uint3 id : SV_DispatchThreadID)
 {
-    uint filmCount = min(_FilmAllocator[0], _FilmCapacity);
-    _ViewSelectDispatchArguments[0] = uint3((filmCount + 63u) / 64u,
-        1u, 1u);
+    uint filmCount = min(_FilmAllocator[6], _FilmCapacity);
+    _ViewSelectDispatchArguments[0] = _KeyframeIngressState[KEYFRAME_ACCEPTED] != 0u ?
+        uint3((filmCount + 63u) / 64u, 1u, 1u) : uint3(0u, 1u, 1u);
 }
 
 float ViewInformationScore(ContactFilmHeader film, TemporalRgbView candidate,
@@ -770,12 +776,13 @@ float ViewInformationScore(ContactFilmHeader film, TemporalRgbView candidate,
         lerp(0.25, 1.0, angularNovelty);
 }
 
-void InsertViewForFilm(uint filmIndex, ContactFilmHeader film, uint viewIndex)
+void InsertViewForFilm(uint filmIndex, ContactFilmHeader film, uint viewIndex,
+    uint acceptedGeneration)
 {
     if (viewIndex >= _TemporalViewCapacity) return;
     TemporalRgbView candidate = _TemporalViews[viewIndex];
     if (candidate.active == 0u ||
-        candidate.generation != _NewViewGeneration) return;
+        candidate.generation != acceptedGeneration) return;
     uint referenceBase = filmIndex * VIEWS_PER_FILM;
     float candidateScore = ViewInformationScore(film, candidate, referenceBase);
     if (candidateScore <= 0.0 || !isfinite(candidateScore)) return;
@@ -812,9 +819,12 @@ void InsertViewForFilm(uint filmIndex, ContactFilmHeader film, uint viewIndex)
 [numthreads(64, 1, 1)]
 void SelectTemporalViews(uint3 id : SV_DispatchThreadID)
 {
-    uint filmCount = min(_FilmAllocator[0], _FilmCapacity);
-    uint filmIndex = id.x;
-    if (filmIndex >= filmCount) return;
+    if (_KeyframeIngressState[KEYFRAME_ACCEPTED] == 0u) return;
+    uint filmCount = min(_FilmAllocator[6], _FilmCapacity);
+    uint activeOrdinal = id.x;
+    if (activeOrdinal >= filmCount) return;
+    uint filmIndex = _CanonicalActiveFilmIndices[activeOrdinal];
+    if (filmIndex >= _FilmCapacity || _KeyframeFilmGain[filmIndex] == 0u) return;
     ContactFilmHeader film = _FilmHeaders[filmIndex];
     if ((film.flags & (FILM_ACTIVE | FILM_ONE_SIDED)) !=
         (FILM_ACTIVE | FILM_ONE_SIDED) || film.id != filmIndex + 1u) return;
@@ -830,6 +840,10 @@ void SelectTemporalViews(uint3 id : SV_DispatchThreadID)
         }
         _FilmViewOwnerGeneration[filmIndex] = film.generation;
     }
-    InsertViewForFilm(filmIndex, film, _NewViewLeft);
-    InsertViewForFilm(filmIndex, film, _NewViewRight);
+    uint acceptedGeneration =
+        _KeyframeIngressState[KEYFRAME_CURRENT_GENERATION];
+    InsertViewForFilm(filmIndex, film,
+        _KeyframeIngressState[KEYFRAME_CURRENT_LEFT], acceptedGeneration);
+    InsertViewForFilm(filmIndex, film,
+        _KeyframeIngressState[KEYFRAME_CURRENT_RIGHT], acceptedGeneration);
 }

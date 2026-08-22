@@ -100,6 +100,9 @@ namespace Genesis.RoomScan.Prism
         public ContactBoundaryPool BoundaryPool => _pool;
         public int CellsPerAxis => cellsPerAxis;
         public long ProcessedFrames => _processedFrames;
+        internal GraphicsBuffer DirtyBoundaryIndices => _dirtyIndices;
+        internal GraphicsBuffer DirtyBoundaryState => _dirtyState;
+        internal GraphicsBuffer BoundaryDispatchArguments => _solveArguments;
 
         public void SetChunkFrame(Matrix4x4 worldFromChunk) =>
             _chunkFromWorld = worldFromChunk.inverse;
@@ -300,7 +303,7 @@ namespace Genesis.RoomScan.Prism
                 4, sizeof(uint));
             _solveArguments = new GraphicsBuffer(
                 GraphicsBuffer.Target.Structured | GraphicsBuffer.Target.IndirectArguments,
-                1, sizeof(uint) * 3);
+                2, sizeof(uint) * 3);
         }
 
         private void BindPersistent()

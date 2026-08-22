@@ -93,6 +93,9 @@ float _BoundaryGate;
 float2 _CoreRoiTanHalfFov;
 float2 _RevisitRoiTanHalfFov;
 float _PeripheralConfidenceFloor;
+float _ReferenceFootprintArea;
+float _FootprintNormalCoupling;
+float _MinimumBandwidthWeight;
 uint _HasCanonicalBoundaries;
 uint _CanonicalBoundaryHashMask;
 uint _CanonicalBoundaryCellsPerAxis;
@@ -285,11 +288,23 @@ void ClassifyConeEvents(uint3 id : SV_DispatchThreadID)
     {
         eventData.footprintArea = footprintArea;
         eventData.incidence = incidence;
-        // Initial information carried into Q3-08. Metric range sigma and finite
-        // surface footprint are both variances in metres; angle/contact confidence
-        // attenuate weak far or grazing observations without an arbitrary 1/r^2 law.
-        eventData.pressurePrecision = measured.w * incidence * incidence /
-            max(measured.z * measured.z + footprintArea, 1e-10);
+        // Contact localization and spatial bandwidth are different physical
+        // quantities.  The metric sigma localizes the film along its normal.  The
+        // finite cone footprint limits the detail this sample can press and only
+        // contributes normal variance when the local normal/boundary is unresolved.
+        float unresolvedContact = saturate(max(boundary,
+            1.0 - measuredNormal.w));
+        float footprintRadiusSquared = footprintArea * 0.31830988618;
+        float footprintNormalVariance = footprintRadiusSquared *
+            unresolvedContact * unresolvedContact *
+            _FootprintNormalCoupling * _FootprintNormalCoupling;
+        float localizationVariance = measured.z * measured.z +
+            footprintNormalVariance;
+        float bandwidthWeight = max(_MinimumBandwidthWeight,
+            _ReferenceFootprintArea /
+            max(_ReferenceFootprintArea + footprintArea, 1e-12));
+        eventData.pressurePrecision = measured.w * incidence * incidence *
+            bandwidthWeight / max(localizationVariance, 1e-10);
     }
 
     bool hasPrediction = film.x != 0u && film.y != 0u && predicted.x > 0.0 &&

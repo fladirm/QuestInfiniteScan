@@ -7,12 +7,52 @@ the active Cone-PRISM implementation branch. If another planning document confli
 this file wins. The specification may be improved when measurements justify it, but
 must not be simplified by removing reconstruction quality mechanisms.
 
-Reconstruction physics baseline: **`CPQ3-2026-08-21-v5` — frozen for
+Reconstruction physics baseline: **`CPQ3-2026-08-21-v6` — frozen for
 implementation.** It may be strengthened by measured evidence, but changing the
 canonical measurement primitive, first-hit/unknown semantics, ContactFilm world
 state, pressure/information solve, or non-degradation invariants requires explicit
 user authorization plus a replacement ADR and DAG re-baseline. Implementation
 convenience is not sufficient justification.
+
+### v6 topology-atlas correction
+
+`CPQ3-2026-08-21-v6` preserves every v5 measurement, first-hit, one-sided,
+information-resistance, appearance and GPU-only invariant. It corrects one
+implementation ambiguity exposed by the Q3-15.5 forensic audit:
+
+> A rectangular `SurfaceChartGeometry` extent is only a numerical coordinate and
+> bounding domain. Its four sides have zero canonical topological meaning.
+
+Canonical state is split into three non-interchangeable layers:
+
+```text
+Contact posterior
+  quadratic chart + hierarchical displacement + H/g/covariance + quality
+
+PressureManifold topology atlas
+  measured support contours + oriented half-edges + shared BoundaryCurves
+  + ordered component FrontierLoops + cross-chunk topology portals
+
+Derived materialization
+  prediction/preview/export meshlets + LOD/macrocharts + appearance caches
+```
+
+The outer frontier is extracted from the continuous measured support/information
+field, not synthesized from chart bounds. A latent return to the optical seed is
+canonical topology with no measured Euclidean surface claim, `FilmID=0`, and no
+prediction or opaque export eligibility. A harmonic/ARAP latent membrane may be
+derived for diagnostics only and can never feed association.
+
+Spawn tiles are compute work blocks only. Cross-tile/cross-eye components converge
+deterministically, choose a component frame from global weighted statistics, rebase
+every candidate's sufficient statistics into that same frame, robustly refit, and
+pass a component-level representability test before publishing one or more linked
+charts. Copying a numerically selected root candidate posterior into an enlarged
+domain is forbidden.
+
+Chunks own storage and local coordinates only. They never create a manifold, seed,
+cut, frontier, or physical discontinuity. Stable global component and half-edge
+identities cross chunk boundaries through generation-safe resident or ghost portals.
 
 ## Product invariant
 
@@ -219,7 +259,7 @@ never frontier and may not create eye-to-surface rays. Split/merge must preserve
 repartition these links, so the user sees one moulded surface rather than 8x8/16x16
 plates or disconnected pressure points.
 
-### 2.2 Canonical manifold graph and derived closure
+### 2.2 Canonical manifold topology atlas and derived closure
 
 The implementation represents the conserved sheet without storing a dense volume:
 
@@ -254,35 +294,64 @@ Topology adaptation must transfer those links on split and remap them on merge.
 Generation mismatch fails closed to latent/unlinked state; it never connects to a
 reused film slot.
 
-The canonical topology records are bounded segmented GPU pools:
+The canonical topology records are bounded segmented GPU pools. The following
+records supersede the earlier fixed-per-film frontier sketch:
 
 ```c
 struct PressureManifoldHeader {
-    uint id, generation, chunkId, flags;
+    uint id, generation, flags, topologyGeneration;
     float3 opticalSeedChunk;
-    uint firstFilm, filmCount;
-    uint firstLink, linkCount;
-    uint firstFrontier, frontierCount;
+    uint firstMembership, membershipCount;
+    uint firstFrontierLoop, frontierLoopCount;
     uint revision;
 };
 
-struct ManifoldLink {
-    uint manifoldId, generation;
-    uint filmA, generationA;
-    uint filmB, generationB;
-    uint boundaryId;              // zero for smooth weld candidates
-    uint class;                   // Smooth, Crease, OcclusionFold, Latent
-    float stiffness, sigma, support;
+struct SurfaceHalfEdge {
+    uint id, generation, manifoldId, chartId;
+    uint chartGeneration, twin, next, previous;
+    uint contourArc, boundaryCurve, relation, evidence;
+    uint ownerChunk, remotePortal;
 };
 
-struct LatentFrontierSegment {
-    uint manifoldId, generation;
-    uint filmId, filmGeneration;
-    float2 uv0, uv1;
-    uint next, previous;           // ordered loop, not unordered tile edges
-    float sigma, support;
+struct SupportContourArc {
+    uint id, generation, chartId, chartGeneration;
+    uint firstPoint, pointCount, flags, informationBand;
+};
+
+struct FrontierLoop {
+    uint id, generation, manifoldId, firstHalfEdge;
+    uint halfEdgeCount, nextLoop, flags, revision;
+};
+
+struct ContinuationEvidence {
+    float coincidencePrecision, sidednessScore;
+    float firstHitOrderScore, visibilityScore;
+    uint independentViewMask, poseCalibrationClass;
+    uint boundaryCurve, flags;
+};
+
+struct CrossChunkTopologyPortal {
+    uint halfEdge, halfEdgeGeneration;
+    uint remoteChunk, remoteHalfEdge, remoteGeneration;
+    uint flags, revision;
 };
 ```
+
+`ContactBoundary` is one shared canonical `BoundaryCurve` with one world-space
+spline posterior, covariance, left/right incident half-edges, sidedness,
+first-hit/visibility ordering and independent-view evidence. A FilmA-only edge plus
+an unrelated link is not an accepted representation of one discontinuity.
+
+Support contour extraction uses deterministic marching squares over the continuous
+Grid16 field, refined by measured microtiles and persistent BoundaryCurves. Compatible
+arcs weld/cancel across proven continuations; remaining oriented arcs form ordered
+manifold-level `FrontierLoop`s. Storage is paged by actual contour complexity and
+must never be sized or validated as `four * film count`.
+
+Smooth half-edges couple position and normal posteriors. Creases couple position
+with hinge freedom. Occlusion/discontinuity edges do not smooth across the boundary.
+Only compact dirty connected islands enter a bounded GPU block-Jacobi/PCG elastic
+solve. This coupled posterior solve is the literal elastic-sheet behavior.
 
 The initial manifold is one closed latent sheet collapsed to `opticalSeedChunk`.
 Spawning contact does not create another closed tile. It replaces a supported arc
@@ -1110,7 +1179,8 @@ workflow. It does not decide per pixel or traverse live geometry.
 | **Q3-13** | Infinite chunk paging, native PRISM persistence, restart/revisit |
 | **Q3-14** | ContactFilm-conditioned L/R narrow stereo pressure/focusing |
 | **Q3-15** | Temporal cone-bundle focusing and information-gain keyframes |
-| **Q3-15.5** | Mandatory forensic PressureManifold integrity repair: typed flag ABI, canonical manifold/link/frontier pools, cross-tile/cross-eye spawn union, measured/latent separation, link-safe topology, covariance-consistent pressure, and batched geometry acceptance |
+| **Q3-15.5** | Forensic transactional substrate checkpoint; its rectangle-edge topology is not accepted |
+| **Q3-15.6** | PressureManifold Atlas rebase: support contours, half-edges, shared curves, posterior rebase/refit, evidence topology, elastic islands and chunk-independent component identity |
 | **Q3-16** | Measured hierarchical displacement/normal refinement |
 | **Q3-17** | Immediate surface-space RGB/EWA accumulation |
 | **Q3-18** | Multi-view measured texture superresolution/virtual pages |
@@ -1222,7 +1292,7 @@ persistent boundaries, soft-to-hard capture, surface-conditioned multiview focus
 adaptive topology/displacement, measured superresolution, directional appearance,
 and resumable infinite-world state.
 
-This `CPQ3-2026-08-21-v5` physics is frozen for implementation. Do not substitute
+This `CPQ3-2026-08-21-v6` physics is frozen for implementation. Do not substitute
 an infinitesimal-ray shortcut, constant-vote averaging, scalar volume, fixed
 triangle/surfel soup, Gaussian map, neural reconstruction, or CPU geometry path
 because it is easier to implement.

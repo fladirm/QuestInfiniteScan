@@ -278,7 +278,7 @@ namespace Genesis.RoomScan.Tests
                 {
                     new()
                     {
-                        kind = ChunkArtifactKind.LiveMesh,
+                        kind = ChunkArtifactKind.PrismMeshlets,
                         formatVersion = 1,
                         chunkRevision = 2,
                         relativePath = $"chunks/{id}/mesh.bin",

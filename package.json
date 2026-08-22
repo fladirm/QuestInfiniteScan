@@ -2,7 +2,7 @@
   "name": "com.genesis.roomscan",
   "version": "0.2.0-pre.1",
   "displayName": "Quest Infinite Scan",
-  "description": "Chunked large-world reconstruction on Meta Quest 3/3S with bounded GPU residency, durable per-chunk refinement, DiffSoup LAN jobs, and GLB/PBR export.",
+  "description": "Pure-Quest Cone-PRISM reconstruction with probabilistic ContactFilms, a support-contour PressureManifold atlas, persistent refinement, and GLB/PBR export.",
   "unity": "6000.0",
   "dependencies": {
     "com.unity.xr.arfoundation": "6.5.0",
@@ -26,16 +26,15 @@
     "room-scan",
     "mesh",
     "depth",
-    "tsdf",
     "reconstruction",
     "3d-reconstruction",
     "large-world",
-    "diffsoup",
+    "cone-prism",
+    "contact-film",
+    "pressure-manifold",
+    "surface-atlas",
     "gltf",
-    "glb",
-    "gaussian-splatting",
-    "surface-nets",
-    "point-cloud"
+    "glb"
   ],
   "author": {
     "name": "QuestInfiniteScan contributors",

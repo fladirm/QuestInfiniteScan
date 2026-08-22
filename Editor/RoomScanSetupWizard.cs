@@ -56,11 +56,8 @@ namespace Genesis.RoomScan.Editor
         ControllerRayDriver _rayDriver;
         PanelInputConfiguration _panelInputConfig;
 
-        bool _depthCaptureWired;
         bool _debugOverlayWired;
         bool _boundarylessManifest;
-        bool _cleartextAllowed;
-        bool _insecureHttpAllowed;
 
         // Style
         static readonly Color COL_OK   = new(0.25f, 0.82f, 0.35f);
@@ -139,8 +136,6 @@ namespace Genesis.RoomScan.Editor
             _rayDriver = FindAny<ControllerRayDriver>();
             _panelInputConfig = FindAny<PanelInputConfiguration>();
 
-            _depthCaptureWired = _depthCapture != null && AreFieldsAssigned(_depthCapture,
-                "depthNormalCompute", "depthDilationCompute", "bilateralFilterCompute");
             _debugOverlayWired = _roomScanner != null && AreFieldsAssigned(_roomScanner,
                 "debugOverlayShader");
             RefreshAIDetection();
@@ -150,8 +145,6 @@ namespace Genesis.RoomScan.Editor
 
             RefreshBuildingBlocksState();
             _boundarylessManifest = ManifestHasAllQuestVREntries();
-            _cleartextAllowed = ManifestHasCleartextTraffic();
-            _insecureHttpAllowed = PlayerSettings.insecureHttpOption != InsecureHttpOption.NotAllowed;
         }
 
         // Partial methods implemented in RoomScanSetupWizard.AIDetection.cs when
@@ -361,8 +354,6 @@ namespace Genesis.RoomScan.Editor
 
             StatusRow("AndroidManifest Quest VR entries (features + permissions)",
                       _boundarylessManifest);
-            StatusRow("AndroidManifest cleartext HTTP (LAN)", _cleartextAllowed);
-            StatusRow("Player Settings: Allow HTTP", _insecureHttpAllowed);
 
             if (!_boundarylessManifest)
             {
@@ -377,32 +368,6 @@ namespace Genesis.RoomScan.Editor
                 EditorGUILayout.EndHorizontal();
             }
 
-            if (!_cleartextAllowed)
-            {
-                GUILayout.Space(2);
-                EditorGUILayout.BeginHorizontal();
-                GUILayout.FlexibleSpace();
-                if (GUILayout.Button("Allow Cleartext HTTP", GUILayout.Width(200)))
-                {
-                    FixCleartextTraffic();
-                    Refresh();
-                }
-                EditorGUILayout.EndHorizontal();
-            }
-
-            if (!_insecureHttpAllowed)
-            {
-                GUILayout.Space(2);
-                EditorGUILayout.BeginHorizontal();
-                GUILayout.FlexibleSpace();
-                if (GUILayout.Button("Allow HTTP in Player Settings", GUILayout.Width(200)))
-                {
-                    PlayerSettings.insecureHttpOption = InsecureHttpOption.AlwaysAllowed;
-                    Debug.Log("[RoomScan Setup] Set Player Settings > insecureHttpOption to AlwaysAllowed");
-                    Refresh();
-                }
-                EditorGUILayout.EndHorizontal();
-            }
 
             EndSection();
         }
@@ -575,18 +540,21 @@ namespace Genesis.RoomScan.Editor
                 bool dirty = false;
                 var added = new List<string>();
 
-                // Older RoomScan setup code put its own network security
-                // resource on <application>. Meta XR 205 now generates
-                // @xml/network_sec_config itself; retaining our differently
-                // named resource makes Android's manifest merger fail. Keep
-                // only usesCleartextTraffic in the RoomScan fragment and let
-                // Meta own networkSecurityConfig.
+                // Remove obsolete LAN/server permissions left by historical branches.
+                // The pure on-device scanner has no reason to weaken Android transport.
                 var ownedApplication = doc.Root.Element("application");
                 var legacyNetworkConfig = ownedApplication?
                     .Attribute(android + "networkSecurityConfig");
                 if (legacyNetworkConfig != null)
                 {
                     legacyNetworkConfig.Remove();
+                    dirty = true;
+                }
+                var legacyCleartext = ownedApplication?
+                    .Attribute(android + "usesCleartextTraffic");
+                if (legacyCleartext != null)
+                {
+                    legacyCleartext.Remove();
                     dirty = true;
                 }
 
@@ -646,109 +614,6 @@ namespace Genesis.RoomScan.Editor
             catch (System.Exception ex)
             {
                 Debug.LogError($"[RoomScan Setup] Failed to update manifest: {ex.Message}\n{ex.StackTrace}");
-            }
-        }
-
-        // -- Cleartext HTTP -----------------------------------------------
-
-        const string ANDROIDLIB_DIR = "Assets/Plugins/Android/NetworkSecurityConfig.androidlib";
-        const string ANDROIDLIB_NSC = ANDROIDLIB_DIR + "/res/xml/network_security_config.xml";
-
-        static bool ManifestHasCleartextTraffic()
-        {
-            try
-            {
-                XNamespace android = "http://schemas.android.com/apk/res/android";
-                bool manifestAllowsCleartext = LoadQuestManifestDocuments()
-                    .Any(doc => doc.Root?.Element("application")?
-                        .Attribute(android + "usesCleartextTraffic")?.Value == "true");
-                if (!manifestAllowsCleartext) return false;
-
-                string nscFull = Path.Combine(Application.dataPath, "..", ANDROIDLIB_NSC);
-                return File.Exists(nscFull);
-            }
-            catch
-            {
-                return false;
-            }
-        }
-
-        static void FixCleartextTraffic()
-        {
-            try
-            {
-                string manifestFull = EnsureOwnedQuestManifest();
-                var doc = XDocument.Load(manifestFull);
-                XNamespace android = "http://schemas.android.com/apk/res/android";
-                var app = doc.Root?.Element("application");
-                if (app == null && doc.Root != null)
-                {
-                    app = new XElement("application");
-                    doc.Root.Add(app);
-                }
-                if (app == null) return;
-
-                // android:usesCleartextTraffic="true"
-                var cleartext = app.Attribute(android + "usesCleartextTraffic");
-                if (cleartext == null)
-                    app.Add(new XAttribute(android + "usesCleartextTraffic", "true"));
-                else
-                    cleartext.Value = "true";
-
-                // Meta XR 205 owns android:networkSecurityConfig and points it
-                // at @xml/network_sec_config. Remove the legacy RoomScan value
-                // if upgrading an already-prepared project; a second value
-                // with a different resource name is a fatal merge collision.
-                var nscAttr = app.Attribute(android + "networkSecurityConfig");
-                nscAttr?.Remove();
-
-                doc.Save(manifestFull);
-                Debug.Log("[RoomScan Setup] Added cleartext HTTP attributes to AndroidManifest.xml");
-
-                // Unity 6+ requires Android resources in an .androidlib, not raw res/
-                string libRoot = Path.Combine(Application.dataPath, "..", ANDROIDLIB_DIR);
-                string nscDir = Path.Combine(libRoot, "res", "xml");
-                if (!Directory.Exists(nscDir))
-                    Directory.CreateDirectory(nscDir);
-
-                string nscFull = Path.Combine(nscDir, "network_security_config.xml");
-                if (!File.Exists(nscFull))
-                {
-                    const string nscContent =
-                        "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n" +
-                        "<network-security-config>\n" +
-                        "    <base-config cleartextTrafficPermitted=\"true\">\n" +
-                        "        <trust-anchors>\n" +
-                        "            <certificates src=\"system\" />\n" +
-                        "        </trust-anchors>\n" +
-                        "    </base-config>\n" +
-                        "</network-security-config>\n";
-                    File.WriteAllText(nscFull, nscContent);
-                }
-
-                // AndroidManifest.xml for the library module
-                string libManifest = Path.Combine(libRoot, "AndroidManifest.xml");
-                if (!File.Exists(libManifest))
-                {
-                    const string libManifestContent =
-                        "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n" +
-                        "<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\"\n" +
-                        "    package=\"com.genesis.roomscan.netsecconfig\">\n" +
-                        "</manifest>\n";
-                    File.WriteAllText(libManifest, libManifestContent);
-                }
-
-                // project.properties marks it as a library
-                string projProps = Path.Combine(libRoot, "project.properties");
-                if (!File.Exists(projProps))
-                    File.WriteAllText(projProps, "android.library=true\n");
-
-                Debug.Log($"[RoomScan Setup] Created {ANDROIDLIB_DIR} with network_security_config.xml");
-                AssetDatabase.Refresh();
-            }
-            catch (System.Exception ex)
-            {
-                Debug.LogError($"[RoomScan Setup] Failed to enable cleartext traffic: {ex.Message}");
             }
         }
 
@@ -911,6 +776,10 @@ namespace Genesis.RoomScan.Editor
                 Undo.AddComponent<PrismBoundaryGraph>(root);
             if (root.GetComponent<PrismDisplacementTopology>() == null)
                 Undo.AddComponent<PrismDisplacementTopology>(root);
+            if (root.GetComponent<PrismPressureManifoldAtlas>() == null)
+                Undo.AddComponent<PrismPressureManifoldAtlas>(root);
+            if (root.GetComponent<PrismEvidenceAlignedSplitter>() == null)
+                Undo.AddComponent<PrismEvidenceAlignedSplitter>(root);
             if (root.GetComponent<PrismMeshletBuilder>() == null)
                 Undo.AddComponent<PrismMeshletBuilder>(root);
             if (root.GetComponent<PrismWorldMeshletRenderer>() == null)
@@ -951,6 +820,10 @@ namespace Genesis.RoomScan.Editor
                 Undo.AddComponent<PrismBoundaryGraph>(root);
             if (root.GetComponent<PrismDisplacementTopology>() == null)
                 Undo.AddComponent<PrismDisplacementTopology>(root);
+            if (root.GetComponent<PrismPressureManifoldAtlas>() == null)
+                Undo.AddComponent<PrismPressureManifoldAtlas>(root);
+            if (root.GetComponent<PrismEvidenceAlignedSplitter>() == null)
+                Undo.AddComponent<PrismEvidenceAlignedSplitter>(root);
             if (root.GetComponent<PrismMeshletBuilder>() == null)
                 Undo.AddComponent<PrismMeshletBuilder>(root);
             if (root.GetComponent<PrismWorldMeshletRenderer>() == null)
@@ -1029,7 +902,7 @@ namespace Genesis.RoomScan.Editor
                 "  \u2022 Switch active build profile to Meta Quest if needed (re-click after the reload)\n" +
                 "  \u2022 URP pipeline + renderer at Assets/Settings/ with Quest-friendly defaults (4x MSAA, no HDR, single shadow cascade)\n" +
                 "  \u2022 VR project prerequisites (XR Plug-in, OpenXR features, OVRProjectConfig \u2014 Outstanding tier)\n" +
-                "  \u2022 AndroidManifest: full Quest VR feature/permission set (HEADSET_CAMERA, USE_SCENE, USE_ANCHOR_API, BOUNDARYLESS, etc.) + cleartext HTTP + insecureHttpOption\n" +
+                "  \u2022 AndroidManifest: Quest camera, scene, anchor and boundaryless permissions\n" +
                 "  \u2022 Meta XR Building Blocks: OVRCameraRig, Passthrough Underlay, PassthroughCameraAccess\n" +
                 "  \u2022 AR Session + AROcclusionManager on the camera rig\n" +
                 "  \u2022 Pure Quest Cone-PRISM world, UI, persistence and GLB export\n" +
@@ -1068,9 +941,8 @@ namespace Genesis.RoomScan.Editor
             StatusRowOptional("Passthrough scene config (OVRManager + transparent center camera + HEADSET_CAMERA on startup)",
                               _ovrPassthroughReady);
             StatusRowOptional("AR Session + AROcclusionManager", _arSession != null && _arOcclusion != null);
-            StatusRowOptional("AndroidManifest (Quest VR features + permissions + cleartext)",
-                              _boundarylessManifest && _cleartextAllowed);
-            StatusRowOptional("Player Settings: Allow HTTP", _insecureHttpAllowed);
+            StatusRowOptional("AndroidManifest (Quest VR features + permissions)",
+                              _boundarylessManifest);
             StatusRowOptional($"VR Project Bootstrap ({_vrOutstanding.Count} outstanding)", _vrOutstanding.Count == 0);
 
             bool sceneMissing   = !hasPCA || !hasPCAProvider || !hasRoomUnderstanding
@@ -1083,7 +955,7 @@ namespace Genesis.RoomScan.Editor
                                   || !_bbAllPresent
                                   || !_ovrPassthroughReady
                                   || _arSession == null || _arOcclusion == null
-                                  || !_boundarylessManifest || !_cleartextAllowed || !_insecureHttpAllowed
+                                  || !_boundarylessManifest
                                   || _vrOutstanding.Count > 0;
 
             if (sceneMissing || projectMissing)
@@ -1192,12 +1064,7 @@ namespace Genesis.RoomScan.Editor
                 EditorUtility.DisplayProgressBar("Game-Ready Setup",
                     "Updating AndroidManifest + Player Settings\u2026", 0.50f);
                 EnsureQuestVRManifest();
-                if (!ManifestHasCleartextTraffic()) FixCleartextTraffic();
-                if (PlayerSettings.insecureHttpOption == InsecureHttpOption.NotAllowed)
-                {
-                    PlayerSettings.insecureHttpOption = InsecureHttpOption.AlwaysAllowed;
-                    Debug.Log("[RoomScan Setup] Set Player Settings > insecureHttpOption to AlwaysAllowed");
-                }
+                PlayerSettings.insecureHttpOption = InsecureHttpOption.NotAllowed;
 
                 // Meta XR Building Blocks: drops in OVRCameraRig +
                 // Passthrough Underlay + PassthroughCameraAccess with
@@ -1265,6 +1132,10 @@ namespace Genesis.RoomScan.Editor
                 Undo.AddComponent<PrismBoundaryGraph>(root);
             if (root.GetComponent<PrismDisplacementTopology>() == null)
                 Undo.AddComponent<PrismDisplacementTopology>(root);
+            if (root.GetComponent<PrismPressureManifoldAtlas>() == null)
+                Undo.AddComponent<PrismPressureManifoldAtlas>(root);
+            if (root.GetComponent<PrismEvidenceAlignedSplitter>() == null)
+                Undo.AddComponent<PrismEvidenceAlignedSplitter>(root);
             if (root.GetComponent<PrismMeshletBuilder>() == null)
                 Undo.AddComponent<PrismMeshletBuilder>(root);
             if (root.GetComponent<PrismWorldMeshletRenderer>() == null)
@@ -1458,7 +1329,8 @@ namespace Genesis.RoomScan.Editor
             bool needsFix = false;
 
             // Core — always present
-            if (_depthCapture != null)   { StatusRow("DepthCapture compute shaders", _depthCaptureWired); needsFix |= !_depthCaptureWired; }
+            if (_depthCapture != null)
+                StatusRow("DepthCapture raw stereo ingress", true);
             if (_roomScanner != null)        { StatusRow("DebugOverlay shader (scene viz)", _debugOverlayWired);     needsFix |= !_debugOverlayWired; }
             DrawAIDetectionShaderStatus(ref needsFix);
 
@@ -1490,11 +1362,6 @@ namespace Genesis.RoomScan.Editor
             Refresh();
         }
 
-        static void AssignCompute(SerializedObject so, string fieldName, string assetPath)
-        {
-            AssignAsset<ComputeShader>(so, fieldName, assetPath);
-        }
-
         static void AssignAsset<T>(SerializedObject so, string fieldName, string assetPath) where T : Object
         {
             var prop = so.FindProperty(fieldName);
@@ -1506,33 +1373,6 @@ namespace Genesis.RoomScan.Editor
                 prop.objectReferenceValue = asset;
             else
                 Debug.LogWarning($"[RoomScan Setup] Could not find {assetPath}");
-        }
-
-        static Material GetOrCreateScanMaterial()
-        {
-            const string pkgMatPath = "Packages/com.genesis.roomscan/Runtime/Materials/ScanMesh.mat";
-            var pkgMat = AssetDatabase.LoadAssetAtPath<Material>(pkgMatPath);
-            if (pkgMat != null) return pkgMat;
-
-            // Fallback: create in project if package material not found
-            const string matPath = "Assets/RoomScan/ScanMesh.mat";
-            var existing = AssetDatabase.LoadAssetAtPath<Material>(matPath);
-            if (existing != null) return existing;
-
-            Shader shader = Shader.Find("Genesis/ScanMeshVertexColor");
-            if (shader == null)
-            {
-                Debug.LogWarning("[RoomScan Setup] Shader 'Genesis/ScanMeshVertexColor' not found");
-                return null;
-            }
-
-            if (!AssetDatabase.IsValidFolder("Assets/RoomScan"))
-                AssetDatabase.CreateFolder("Assets", "RoomScan");
-
-            var mat = new Material(shader) { name = "ScanMesh", enableInstancing = true };
-            AssetDatabase.CreateAsset(mat, matPath);
-            AssetDatabase.SaveAssets();
-            return mat;
         }
 
         /// <summary>
@@ -1547,16 +1387,6 @@ namespace Genesis.RoomScan.Editor
 
             switch (component)
             {
-                case DepthCapture dc:
-                {
-                    var so = new SerializedObject(dc);
-                    AssignCompute(so, "depthNormalCompute", PKG_SHADERS + "DepthNormals.compute");
-                    AssignCompute(so, "depthDilationCompute", PKG_SHADERS + "DepthDilation.compute");
-                    AssignCompute(so, "bilateralFilterCompute", PKG_SHADERS + "BilateralDepthFilter.compute");
-                    so.ApplyModifiedProperties();
-                    EditorUtility.SetDirty(dc);
-                    break;
-                }
                 case DepthDebugOverlay dd:
                 {
                     var so = new SerializedObject(dd);
@@ -1646,12 +1476,7 @@ namespace Genesis.RoomScan.Editor
                 EditorUtility.DisplayProgressBar("Setup Everything",
                     "Updating AndroidManifest + Player Settings\u2026", 0.50f);
                 EnsureQuestVRManifest();
-                if (!_cleartextAllowed) FixCleartextTraffic();
-                if (!_insecureHttpAllowed)
-                {
-                    PlayerSettings.insecureHttpOption = InsecureHttpOption.AlwaysAllowed;
-                    Debug.Log("[RoomScan Setup] Set Player Settings > insecureHttpOption to AlwaysAllowed");
-                }
+                PlayerSettings.insecureHttpOption = InsecureHttpOption.NotAllowed;
 
                 EditorUtility.DisplayProgressBar("Setup Everything",
                     "Adding all components + wiring shaders\u2026", 0.75f);
@@ -1890,33 +1715,5 @@ namespace Genesis.RoomScan.Editor
             return panel;
         }
 
-        static string GetLanIp()
-        {
-            try
-            {
-                foreach (var ni in System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces())
-                {
-                    if (ni.OperationalStatus != System.Net.NetworkInformation.OperationalStatus.Up)
-                        continue;
-                    if (ni.NetworkInterfaceType == System.Net.NetworkInformation.NetworkInterfaceType.Loopback)
-                        continue;
-
-                    var props = ni.GetIPProperties();
-                    foreach (var addr in props.UnicastAddresses)
-                    {
-                        if (addr.Address.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork)
-                            continue;
-                        string ip = addr.Address.ToString();
-                        if (ip.StartsWith("127.")) continue;
-                        return ip;
-                    }
-                }
-            }
-            catch (System.Exception e)
-            {
-                Debug.LogWarning($"[RoomScanWizard] Failed to detect LAN IP: {e.Message}");
-            }
-            return null;
-        }
     }
 }

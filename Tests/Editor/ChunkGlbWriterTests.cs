@@ -186,8 +186,8 @@ namespace Genesis.RoomScan.Tests
                 RigidPoseData.Identity, new BoundsData(Vector3.zero, Vector3.one), 1_000,
                 out WorldManifest manifest, out string createError), Is.True, createError);
             ChunkRecord chunk = manifest.chunks[0];
-            ChunkSnapshotPublishResult snapshot = await ChunkSnapshotPublisher.PublishAsync(
-                store, manifest, chunk, CreateSnapshot(), 2_000);
+            PrismChunkPublishResult snapshot = await PrismChunkPublisher.PublishAsync(
+                store, manifest, chunk, CreateCanonicalSnapshot(), 2_000);
             Assert.That(snapshot.Success, Is.True, snapshot.Error);
             ChunkRefinedPublishResult refined = await ChunkRefinedArtifactPublisher.PublishAsync(
                 store, manifest, chunk, CreateRefined(), 3_000);
@@ -290,35 +290,20 @@ namespace Genesis.RoomScan.Tests
             };
         }
 
-        internal static ChunkGpuSnapshot CreateSnapshot()
+        internal static PrismCanonicalChunkSnapshot CreateCanonicalSnapshot()
         {
-            return new ChunkGpuSnapshot
+            return new PrismCanonicalChunkSnapshot
             {
-                Volume = new ChunkVolumeSnapshot
-                {
-                    VoxelCount = new Vector3Int(2, 2, 2),
-                    VoxelSize = 0.05f,
-                    IntegrationCount = 1,
-                    WorldFromVolume = RigidPoseData.Identity,
-                    TsdfBytes = new byte[16],
-                    ColorBytes = new byte[32]
-                },
-                LiveMesh = new ChunkLiveMeshSnapshot
-                {
-                    VertexCount = 3,
-                    IndexCount = 3,
-                    LocalBounds = new BoundsData(Vector3.zero, Vector3.one),
-                    VertexBytes = new byte[3 * ChunkLiveMeshSnapshot.VertexStride],
-                    IndexBytes = UIntBytes(0, 1, 2)
-                }
+                FilmGeneration = 1,
+                BoundaryGeneration = 1,
+                DisplacementGeneration = 1,
+                MeshletGeneration = 1,
+                FilmAllocatorState = new byte[8 * sizeof(uint)],
+                ManifoldAllocatorState = new byte[8 * sizeof(uint)],
+                CurrentManifoldState = new byte[4 * sizeof(uint)],
+                AtlasAllocatorState = new byte[16 * sizeof(uint)],
+                DisplacementAllocator = new byte[8 * sizeof(uint)]
             };
-        }
-
-        private static byte[] UIntBytes(params uint[] values)
-        {
-            byte[] bytes = new byte[values.Length * sizeof(uint)];
-            Buffer.BlockCopy(values, 0, bytes, 0, bytes.Length);
-            return bytes;
         }
 
         private static GlbFixture ParseGlb(byte[] glb)

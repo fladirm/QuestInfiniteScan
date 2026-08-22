@@ -37,6 +37,11 @@ namespace Genesis.RoomScan.Prism
         [SerializeField, Min(0.001f)] private float bootstrapSigmaMeters = 0.008f;
         [SerializeField, Min(0f)] private float bootstrapSigmaSlope = 0.003f;
         [SerializeField, Range(0.001f, 1f)] private float sigmaEmaAlpha = 0.05f;
+        [Header("Independent contact uncertainty")]
+        [SerializeField, Min(0f)] private float poseTranslationSigmaMeters = 0.001f;
+        [SerializeField, Min(0f)] private float poseAngularSigmaDegrees = 0.035f;
+        [SerializeField, Min(0f)] private float calibrationAngularSigmaDegrees = 0.05f;
+        [SerializeField, Min(0f)] private float depthTemporalApertureMilliseconds = 2f;
 
         private static readonly int RawDepthId = Shader.PropertyToID("_RawDepth");
         private static readonly int RayLeftId = Shader.PropertyToID("_DepthRayCenterLeft");
@@ -63,6 +68,16 @@ namespace Genesis.RoomScan.Prism
         private static readonly int BootstrapSigmaId = Shader.PropertyToID("_BootstrapSigma");
         private static readonly int BootstrapSigmaSlopeId = Shader.PropertyToID("_BootstrapSigmaSlope");
         private static readonly int SigmaEmaAlphaId = Shader.PropertyToID("_SigmaEmaAlpha");
+        private static readonly int PoseTranslationSigmaId =
+            Shader.PropertyToID("_PoseTranslationSigma");
+        private static readonly int PoseAngularSigmaId =
+            Shader.PropertyToID("_PoseAngularSigma");
+        private static readonly int CalibrationAngularSigmaId =
+            Shader.PropertyToID("_CalibrationAngularSigma");
+        private static readonly int MotionTranslationSigmaId =
+            Shader.PropertyToID("_MotionTranslationSigma");
+        private static readonly int MotionAngularSigmaId =
+            Shader.PropertyToID("_MotionAngularSigma");
 
         private RigConeLutSet _coneLutSet;
         private NormalizedDepthRing _outputRing;
@@ -81,6 +96,10 @@ namespace Genesis.RoomScan.Prism
         private readonly Vector4[] _rgbIntrinsics = new Vector4[2];
         private readonly Matrix4x4[] _otherDepthFromThis = new Matrix4x4[2];
         private readonly Matrix4x4[] _rgbFromDepth = new Matrix4x4[2];
+        private Vector2Int _cachedRgbResolution;
+        private bool _hasPreviousDepthPose;
+        private Pose _previousDepthPose;
+        private long _previousDepthTimestampNanoseconds;
         private bool _processing;
         private long _accepted;
         private long _rejected;
@@ -162,6 +181,8 @@ namespace Genesis.RoomScan.Prism
             _residualHistogram = null;
             _rangeSigma = null;
             _rangeSigmaInitialized = false;
+            _hasPreviousDepthPose = false;
+            _previousDepthTimestampNanoseconds = 0L;
         }
 
         private void OnDestroy() => StopProcessing();
@@ -270,6 +291,8 @@ namespace Genesis.RoomScan.Prism
             _coneLutSet = replacement;
             previous?.Retire();
             _rangeSigmaInitialized = false;
+            CacheCalibrationUniforms(source);
+            _hasPreviousDepthPose = false;
             Logger.Info($"Cone-PRISM cone LUT epoch {calibration.Epoch} ready: " +
                         $"RGB={calibration.RgbLeft.Resolution.x}x{calibration.RgbLeft.Resolution.y}, " +
                         $"depth={calibration.DepthLeft.Resolution.x}x{calibration.DepthLeft.Resolution.y}");
@@ -311,28 +334,22 @@ namespace Genesis.RoomScan.Prism
         {
             EnsureStatisticsBuffers();
             ComputeShader compute = depthConsensusNormalBoundaryCompute;
-            Vector2Int rgbResolution = source.RgbLeft.Resolution;
-
-            FillIntrinsics(_depthIntrinsics, source.DepthLeft.Intrinsics,
-                source.DepthRight.Intrinsics);
-            FillIntrinsics(_rgbIntrinsics, source.RgbLeft.Intrinsics,
-                source.RgbRight.Intrinsics);
-            Matrix4x4 leftDepthFromRight = PoseMatrix(
-                source.Extrinsics.LeftDepthFromRightDepth);
-            _otherDepthFromThis[0] = leftDepthFromRight.inverse;
-            _otherDepthFromThis[1] = leftDepthFromRight;
-            _rgbFromDepth[0] = PoseMatrix(source.Extrinsics.LeftRgbFromLeftDepth);
-            _rgbFromDepth[1] = PoseMatrix(source.Extrinsics.RightRgbFromRightDepth);
+            ComputeMotionUncertainty(source, out float motionTranslationSigma,
+                out float motionAngularSigma);
 
             compute.SetInts(DepthResolutionId, depthResolution.x, depthResolution.y);
-            compute.SetInts(RgbResolutionId, rgbResolution.x, rgbResolution.y);
-            compute.SetVectorArray(DepthIntrinsicsId, _depthIntrinsics);
-            compute.SetVectorArray(RgbIntrinsicsId, _rgbIntrinsics);
-            compute.SetMatrixArray(OtherDepthFromThisId, _otherDepthFromThis);
-            compute.SetMatrixArray(RgbFromDepthId, _rgbFromDepth);
+            compute.SetInts(RgbResolutionId, _cachedRgbResolution.x,
+                _cachedRgbResolution.y);
             compute.SetFloat(BootstrapSigmaId, bootstrapSigmaMeters);
             compute.SetFloat(BootstrapSigmaSlopeId, bootstrapSigmaSlope);
             compute.SetFloat(SigmaEmaAlphaId, sigmaEmaAlpha);
+            compute.SetFloat(PoseTranslationSigmaId, poseTranslationSigmaMeters);
+            compute.SetFloat(PoseAngularSigmaId,
+                poseAngularSigmaDegrees * Mathf.Deg2Rad);
+            compute.SetFloat(CalibrationAngularSigmaId,
+                calibrationAngularSigmaDegrees * Mathf.Deg2Rad);
+            compute.SetFloat(MotionTranslationSigmaId, motionTranslationSigma);
+            compute.SetFloat(MotionAngularSigmaId, motionAngularSigma);
             compute.SetBuffer(_initializeSigmaKernel, RangeSigmaId, _rangeSigma);
             compute.SetBuffer(_clearHistogramKernel, ResidualHistogramId,
                 _residualHistogram);
@@ -392,6 +409,61 @@ namespace Genesis.RoomScan.Prism
                 left.PrincipalPoint.x, left.PrincipalPoint.y);
             destination[1] = new Vector4(right.FocalLength.x, right.FocalLength.y,
                 right.PrincipalPoint.x, right.PrincipalPoint.y);
+        }
+
+        private void CacheCalibrationUniforms(StereoRigFrameLease source)
+        {
+            _cachedRgbResolution = source.RgbLeft.Resolution;
+            FillIntrinsics(_depthIntrinsics, source.DepthLeft.Intrinsics,
+                source.DepthRight.Intrinsics);
+            FillIntrinsics(_rgbIntrinsics, source.RgbLeft.Intrinsics,
+                source.RgbRight.Intrinsics);
+            Matrix4x4 leftDepthFromRight = PoseMatrix(
+                source.Extrinsics.LeftDepthFromRightDepth);
+            _otherDepthFromThis[0] = leftDepthFromRight.inverse;
+            _otherDepthFromThis[1] = leftDepthFromRight;
+            _rgbFromDepth[0] = PoseMatrix(source.Extrinsics.LeftRgbFromLeftDepth);
+            _rgbFromDepth[1] = PoseMatrix(source.Extrinsics.RightRgbFromRightDepth);
+
+            ComputeShader compute = depthConsensusNormalBoundaryCompute;
+            compute.SetVectorArray(DepthIntrinsicsId, _depthIntrinsics);
+            compute.SetVectorArray(RgbIntrinsicsId, _rgbIntrinsics);
+            compute.SetMatrixArray(OtherDepthFromThisId, _otherDepthFromThis);
+            compute.SetMatrixArray(RgbFromDepthId, _rgbFromDepth);
+        }
+
+        private void ComputeMotionUncertainty(StereoRigFrameLease source,
+            out float translationSigma, out float angularSigma)
+        {
+            translationSigma = 0f;
+            angularSigma = 0f;
+            Pose pose = source.DepthLeft.WorldFromCamera;
+            long timestamp = source.DepthLeft.Timestamp.UnixNanoseconds;
+            if (_hasPreviousDepthPose)
+            {
+                double dt = (timestamp - _previousDepthTimestampNanoseconds) * 1e-9;
+                if (dt > 1e-4 && dt < 0.5)
+                {
+                    float linearSpeed = Vector3.Distance(
+                        pose.position, _previousDepthPose.position) / (float)dt;
+                    float angularSpeed = Quaternion.Angle(
+                        pose.rotation, _previousDepthPose.rotation) *
+                        Mathf.Deg2Rad / (float)dt;
+                    double clockSigma = Math.Max(0L,
+                        source.Health.ClockUncertaintyNanoseconds) * 1e-9;
+                    double aperture = Math.Max(0.0,
+                        depthTemporalApertureMilliseconds) * 1e-3 / Math.Sqrt(12.0);
+                    float temporalSigma = (float)Math.Sqrt(
+                        aperture * aperture + clockSigma * clockSigma);
+                    translationSigma = Mathf.Min(0.08f,
+                        linearSpeed * temporalSigma);
+                    angularSigma = Mathf.Min(5f * Mathf.Deg2Rad,
+                        angularSpeed * temporalSigma);
+                }
+            }
+            _previousDepthPose = pose;
+            _previousDepthTimestampNanoseconds = timestamp;
+            _hasPreviousDepthPose = true;
         }
 
         private static Matrix4x4 PoseMatrix(Pose pose) =>

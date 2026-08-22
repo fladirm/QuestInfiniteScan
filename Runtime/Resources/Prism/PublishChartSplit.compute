@@ -1,0 +1,174 @@
+#pragma kernel ValidateEvidenceAlignedSplits
+#pragma kernel CommitEvidenceAlignedSplits
+
+#include "PressureManifoldAtlasAbi.hlsl"
+
+struct FilmSlotState
+{
+    uint generation; uint activeOrdinal; uint nextFree; uint flags;
+};
+
+struct DisplacementPageHeader
+{
+    uint id; uint generation; uint filmId; uint filmGeneration;
+    uint level; uint parentPage; uint parentCell; uint flags;
+    float4 uvBounds;
+    uint bestFootprintBits; uint maximumVarianceBits; uint supportFixed; uint revision;
+};
+
+RWStructuredBuffer<AtlasContactFilmHeader> _FilmHeaders;
+RWStructuredBuffer<AtlasFilmMembership> _FilmMemberships;
+RWStructuredBuffer<FilmSlotState> _FilmSlotStates;
+RWStructuredBuffer<uint> _ActiveFilmIndices;
+RWStructuredBuffer<uint> _DirtyFilmIndices;
+RWStructuredBuffer<uint> _FilmAllocator;
+RWStructuredBuffer<EvidenceAlignedSplitPlan> _SplitPlans;
+RWStructuredBuffer<uint> _SplitState;
+StructuredBuffer<uint> _SplitRecordIndices;
+StructuredBuffer<uint> _SplitStateRead;
+StructuredBuffer<DisplacementPageHeader> _DisplacementPages;
+RWStructuredBuffer<uint> _DisplacementAllocator;
+
+uint _FilmCapacity;
+uint _BasePageCapacity;
+
+static const uint FILM_ACTIVE = 1u;
+static const uint FILM_SPLIT_PARENT = 1u << 6u;
+static const uint FILM_RETIRED = 1u << 7u;
+static const uint FILM_DIRTY_MESHLET = 1u << 4u;
+static const uint SLOT_ALLOCATED = 1u;
+static const uint SLOT_ACTIVE = 1u << 1u;
+static const uint SLOT_DIRTY = 1u << 2u;
+static const uint SPLIT_RESERVED = 2u;
+static const uint SPLIT_VALIDATED = 3u;
+static const uint SPLIT_COMMITTED = 4u;
+static const uint SPLIT_FAILED = 5u;
+static const uint PAGE_ACTIVE = 1u;
+
+FilmSlotState ActiveChildState(uint generation, uint ordinal)
+{
+    FilmSlotState state;
+    state.generation = generation;
+    state.activeOrdinal = ordinal;
+    state.nextFree = 0u;
+    state.flags = SLOT_ALLOCATED | SLOT_ACTIVE | SLOT_DIRTY;
+    return state;
+}
+
+void ReturnFilmSlot(uint slot)
+{
+    if (slot >= _FilmCapacity) return;
+    FilmSlotState state = _FilmSlotStates[slot];
+    state.activeOrdinal = 0xffffffffu;
+    state.nextFree = _FilmAllocator[4];
+    state.flags = 1u << 3u;
+    _FilmSlotStates[slot] = state;
+    _FilmAllocator[4] = slot + 1u;
+    _FilmAllocator[5]++;
+}
+
+[numthreads(1, 1, 1)]
+void ValidateEvidenceAlignedSplits(uint3 id : SV_DispatchThreadID)
+{
+    uint parentIndex = _SplitRecordIndices[id.x];
+    if (parentIndex >= _FilmCapacity) return;
+    EvidenceAlignedSplitPlan plan = _SplitPlans[parentIndex];
+    if (plan.transactionState != SPLIT_RESERVED ||
+        plan.childFilmIndex0 >= _FilmCapacity ||
+        plan.childFilmIndex1 >= _FilmCapacity ||
+        plan.childBasePage0 >= _BasePageCapacity ||
+        plan.childBasePage1 >= _BasePageCapacity) return;
+    AtlasContactFilmHeader parent = _FilmHeaders[parentIndex];
+    AtlasContactFilmHeader child0 = _FilmHeaders[plan.childFilmIndex0];
+    AtlasContactFilmHeader child1 = _FilmHeaders[plan.childFilmIndex1];
+    DisplacementPageHeader page0 = _DisplacementPages[plan.childBasePage0];
+    DisplacementPageHeader page1 = _DisplacementPages[plan.childBasePage1];
+    bool valid = parent.generation == plan.parentFilmGeneration &&
+        (parent.flags & FILM_ACTIVE) != 0u &&
+        child0.generation == plan.childGeneration0 &&
+        child1.generation == plan.childGeneration1 &&
+        page0.filmId == child0.id && page0.filmGeneration == child0.generation &&
+        page1.filmId == child1.id && page1.filmGeneration == child1.generation &&
+        (page0.flags & PAGE_ACTIVE) != 0u &&
+        (page1.flags & PAGE_ACTIVE) != 0u;
+    if (!valid)
+    {
+        plan.transactionState = SPLIT_FAILED;
+        _SplitPlans[parentIndex] = plan;
+        InterlockedAdd(_SplitState[1], 1u);
+        return;
+    }
+    plan.transactionState = SPLIT_VALIDATED;
+    _SplitPlans[parentIndex] = plan;
+}
+
+void CommitOne(EvidenceAlignedSplitPlan plan)
+{
+    uint parentIndex = plan.parentFilmIndex;
+    AtlasContactFilmHeader parent = _FilmHeaders[parentIndex];
+    AtlasContactFilmHeader child0 = _FilmHeaders[plan.childFilmIndex0];
+    AtlasContactFilmHeader child1 = _FilmHeaders[plan.childFilmIndex1];
+
+    _FilmSlotStates[plan.childFilmIndex0] = ActiveChildState(
+        plan.childGeneration0, plan.parentActiveOrdinal);
+    _FilmSlotStates[plan.childFilmIndex1] = ActiveChildState(
+        plan.childGeneration1, plan.newActiveOrdinal);
+    _ActiveFilmIndices[plan.parentActiveOrdinal] = plan.childFilmIndex0;
+    _ActiveFilmIndices[plan.newActiveOrdinal] = plan.childFilmIndex1;
+    _DirtyFilmIndices[plan.firstDirtyOrdinal] = plan.childFilmIndex0;
+    _DirtyFilmIndices[plan.firstDirtyOrdinal + 1u] = plan.childFilmIndex1;
+
+    FilmSlotState parentState = _FilmSlotStates[parentIndex];
+    parentState.activeOrdinal = 0xffffffffu;
+    parentState.flags = SLOT_ALLOCATED;
+    _FilmSlotStates[parentIndex] = parentState;
+    parent.flags &= ~FILM_ACTIVE;
+    parent.flags |= FILM_SPLIT_PARENT | FILM_RETIRED | FILM_DIRTY_MESHLET;
+    parent.reserved0 = child0.id;
+    parent.reserved1 = child1.id;
+    parent.revision++;
+    _FilmHeaders[parentIndex] = parent;
+    AtlasFilmMembership parentMembership = _FilmMemberships[parentIndex];
+    parentMembership.flags = 0u;
+    parentMembership.revision++;
+    _FilmMemberships[parentIndex] = parentMembership;
+    plan.transactionState = SPLIT_COMMITTED;
+    _SplitPlans[parentIndex] = plan;
+}
+
+[numthreads(1, 1, 1)]
+void CommitEvidenceAlignedSplits(uint3 id : SV_DispatchThreadID)
+{
+    uint accepted = _SplitStateRead[0];
+    if (accepted == 0u) return;
+    if (_SplitStateRead[1] != 0u)
+    {
+        [loop]
+        for (uint ordinal = 0u; ordinal < accepted; ++ordinal)
+        {
+            uint parentIndex = _SplitRecordIndices[ordinal];
+            if (parentIndex >= _FilmCapacity) continue;
+            EvidenceAlignedSplitPlan plan = _SplitPlans[parentIndex];
+            ReturnFilmSlot(plan.childFilmIndex0);
+            ReturnFilmSlot(plan.childFilmIndex1);
+            plan.transactionState = SPLIT_FAILED;
+            _SplitPlans[parentIndex] = plan;
+        }
+        _DisplacementAllocator[0] = _SplitStateRead[2];
+        InterlockedAdd(_FilmAllocator[2], accepted);
+        return;
+    }
+
+    [loop]
+    for (uint ordinal = 0u; ordinal < accepted; ++ordinal)
+    {
+        uint parentIndex = _SplitRecordIndices[ordinal];
+        if (parentIndex >= _FilmCapacity) continue;
+        EvidenceAlignedSplitPlan plan = _SplitPlans[parentIndex];
+        if (plan.transactionState != SPLIT_VALIDATED) return;
+        CommitOne(plan);
+    }
+    _FilmAllocator[6] = _SplitStateRead[3] + accepted;
+    _FilmAllocator[7] = _SplitStateRead[4] + accepted * 2u;
+    _FilmAllocator[1] = _SplitStateRead[5] + accepted;
+}

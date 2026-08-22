@@ -212,3 +212,21 @@ remain recoverable from archive commit `e9f37c1` and are not active on this bran
   cannot be joined to foreground silhouettes by a connector curtain, and a failed
   allocation cannot expose a torn prediction generation. Active/dirty indirect lists
   and reusable generation-tagged slots keep work local without lowering detail.
+
+## ADR-P020 — Q3-15.6 PressureManifold topology-atlas rebase
+
+- Decision: Q3-15.5 is retained only as a transactional GPU substrate checkpoint.
+  Its four-rectangle-edge frontier, root-candidate posterior publication, finite-wave
+  DSU, quadtree-only split, FilmA-only boundaries and chunk-local seed/cut semantics
+  are rejected. Canonical topology is a chunk-independent atlas of measured support
+  contours, oriented generation-safe half-edges, shared two-sided BoundaryCurves,
+  evidence-bearing continuation relations, ordered component FrontierLoops and
+  cross-chunk portals. Candidate components choose a global frame and exactly rebase
+  sufficient statistics before aggregate refit/model selection. Dirty connected
+  islands receive a bounded elastic posterior solve; meshlets/macrocharts remain
+  derived caches.
+- Consequence: chart rectangles lose physical meaning, UNKNOWN latent closure cannot
+  become measured geometry, storage boundaries cannot create seams, and the injected
+  sheet is implemented by topology and coupled inference rather than defensive
+  rectangle bookkeeping. `CPQ3-2026-08-21-v6` and Q3-15.6 become the active geometry
+  gate.

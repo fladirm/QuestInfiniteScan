@@ -73,23 +73,34 @@ namespace Genesis.RoomScan.World
                     snapshot.PressureManifoldHeaders);
                 Upload<FilmMembershipGpu>(manifolds.Memberships,
                     snapshot.FilmMemberships);
-                Upload<ManifoldLinkGpu>(manifolds.Links,
-                    snapshot.ManifoldLinks);
-                Upload<ManifoldLinkIncidenceGpu>(manifolds.LinkIncidences,
-                    snapshot.ManifoldLinkIncidences);
-                Upload<ManifoldFrontierIncidenceGpu>(
-                    manifolds.FrontierIncidences,
-                    snapshot.ManifoldFrontierIncidences);
-                Upload<LatentFrontierSegmentGpu>(manifolds.Frontiers,
-                    snapshot.LatentFrontiers);
                 Upload<uint>(manifolds.Allocator,
                     snapshot.ManifoldAllocatorState);
                 Upload<uint>(manifolds.Current,
                     snapshot.CurrentManifoldState);
+                Upload<SupportContourPageGpu>(manifolds.SupportContourPages,
+                    snapshot.SupportContourPages);
+                Upload<SupportContourSegmentGpu>(manifolds.SupportContours,
+                    snapshot.SupportContours);
+                Upload<SurfaceHalfEdgeGpu>(manifolds.HalfEdges,
+                    snapshot.SurfaceHalfEdges);
+                Upload<FrontierLoopGpu>(manifolds.FrontierLoops,
+                    snapshot.FrontierLoops);
+                Upload<ContinuationEvidenceGpu>(manifolds.ContinuationEvidence,
+                    snapshot.ContinuationEvidence);
+                Upload<ElasticChartStateGpu>(manifolds.ElasticStates,
+                    snapshot.ElasticChartStates);
+                Upload<Vector4>(manifolds.FilmTopologyRanges,
+                    snapshot.FilmTopologyRanges);
+                Upload<uint>(manifolds.AtlasAllocator,
+                    snapshot.AtlasAllocatorState);
+                Upload<CrossChunkTopologyPortalGpu>(manifolds.CrossChunkPortals,
+                    snapshot.CrossChunkTopologyPortals);
                 Upload<ContactBoundaryHeaderGpu>(boundaries.Headers,
                     snapshot.BoundaryHeaders);
                 Upload<Vector4>(boundaries.Information,
                     snapshot.BoundaryInformation);
+                Upload<BoundaryCurveTopologyGpu>(boundaries.Topology,
+                    snapshot.BoundaryCurveTopology);
 
                 int baseHeaderBytes = checked(snapshot.DisplacementBasePageCount *
                     DisplacementPageHeaderGpu.Stride);
@@ -161,8 +172,11 @@ namespace Genesis.RoomScan.World
                 { 0u, 0u, 0u, generation, 0u, 0u, 0u, 0u });
             if (films?.Manifolds != null)
             {
-                films.Manifolds.Allocator.SetData(new uint[
-                    PressureManifoldPool.AllocatorWords]);
+                films.Manifolds.Allocator.SetData(new[]
+                {
+                    0u, 0u, 0u, generation,
+                    0u, 0u, 0u, generation
+                });
                 films.Manifolds.Current.SetData(new uint[4]);
                 films.Manifolds.Diagnostics.SetData(new uint[
                     PressureManifoldPool.DiagnosticWords]);
@@ -198,10 +212,20 @@ namespace Genesis.RoomScan.World
                     displacement.BasePageCapacity ||
                 snapshot.DisplacementMicroPageCount >
                     displacement.MicroPageCapacity ||
-                snapshot.ManifoldCount > films.Manifolds.ManifoldCapacity ||
-                snapshot.ManifoldLinkCount > films.Manifolds.LinkCapacity ||
-                snapshot.ManifoldFrontierCount > films.Manifolds.FrontierCapacity)
+                snapshot.ManifoldCount > films.Manifolds.ManifoldCapacity)
                 return "PRISM chunk exceeds the configured resident GPU arena.";
+            if (snapshot.SupportContourPageCount >
+                    films.Manifolds.ContourPageCapacity ||
+                snapshot.SupportContourSegmentCount >
+                    films.Manifolds.ContourSegmentCapacity ||
+                snapshot.SurfaceHalfEdgeCount >
+                    films.Manifolds.HalfEdgeCapacity ||
+                snapshot.FrontierLoopCount >
+                    films.Manifolds.FrontierLoopCapacity ||
+                snapshot.ContinuationEvidenceCount >
+                    films.Manifolds.ContinuationEvidenceCapacity ||
+                snapshot.CrossChunkPortalCount > films.Manifolds.PortalCapacity)
+                return "PRISM topology atlas exceeds the resident GPU arena.";
             return null;
         }
 

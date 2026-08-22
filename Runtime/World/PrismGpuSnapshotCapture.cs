@@ -27,9 +27,8 @@ namespace Genesis.RoomScan.World
 
         /// <summary>
         /// Captures one immutable generation produced by
-        /// <see cref="PrismChunkSnapshotStager"/>. Unlike the public live-pool
-        /// compatibility overload this path cannot observe a meshlet publication swap
-        /// halfway through a detached revision.
+        /// <see cref="PrismChunkSnapshotStager"/>. This path cannot observe a
+        /// meshlet publication swap halfway through a detached revision.
         /// </summary>
         internal static Task<PrismCanonicalChunkSnapshot> CaptureStagedAsync(
             ContactFilmPool films, ContactBoundaryPool boundaries,
@@ -41,13 +40,6 @@ namespace Genesis.RoomScan.World
                 films, boundaries, displacement, meshlets, calibrationEpoch,
                 appearanceState, observationState, keyframeReferences,
                 cancellationToken);
-
-        /// <summary>Compatibility overload for pre-Q3-11 fixtures without detail pools.</summary>
-        public static Task<PrismCanonicalChunkSnapshot> CaptureAsync(
-            ContactFilmPool films, ContactBoundaryPool boundaries,
-            ulong calibrationEpoch, CancellationToken cancellationToken = default) =>
-            CaptureCoreAsync(films, boundaries, null, null, calibrationEpoch,
-                null, null, null, cancellationToken);
 
         private static async Task<PrismCanonicalChunkSnapshot> CaptureCoreAsync(
             ContactFilmPool films, ContactBoundaryPool boundaries,
@@ -89,9 +81,11 @@ namespace Genesis.RoomScan.World
                 cancellationToken);
             Task<byte[]> currentManifoldTask = RequestBytes(manifolds.Current,
                 sizeof(uint) * 4, cancellationToken);
+            Task<byte[]> atlasAllocatorTask = RequestBytes(manifolds.AtlasAllocator,
+                sizeof(uint) * 16, cancellationToken);
             await Task.WhenAll(filmAllocatorTask, boundaryAllocatorTask,
                 displacementAllocatorTask, meshletCountersTask,
-                manifoldAllocatorTask, currentManifoldTask);
+                manifoldAllocatorTask, currentManifoldTask, atlasAllocatorTask);
             cancellationToken.ThrowIfCancellationRequested();
 
             byte[] filmAllocator = filmAllocatorTask.Result;
@@ -99,6 +93,7 @@ namespace Genesis.RoomScan.World
             byte[] displacementAllocator = displacementAllocatorTask.Result;
             byte[] meshletCounters = meshletCountersTask.Result;
             byte[] manifoldAllocator = manifoldAllocatorTask.Result;
+            byte[] atlasAllocator = atlasAllocatorTask.Result;
             if (BitConverter.ToUInt32(filmAllocator, 2 * sizeof(uint)) != 0u ||
                 BitConverter.ToUInt32(boundaryAllocator, 2 * sizeof(uint)) != 0u ||
                 BitConverter.ToUInt32(displacementAllocator,
@@ -106,15 +101,12 @@ namespace Genesis.RoomScan.World
                 BitConverter.ToUInt32(displacementAllocator,
                     3 * sizeof(uint)) != 0u ||
                 BitConverter.ToUInt32(manifoldAllocator,
-                    2 * sizeof(uint)) != 0u ||
-                BitConverter.ToUInt32(manifoldAllocator,
-                    6 * sizeof(uint)) != 0u ||
-                BitConverter.ToUInt32(manifoldAllocator,
-                    10 * sizeof(uint)) != 0u ||
-                BitConverter.ToUInt32(manifoldAllocator,
-                    14 * sizeof(uint)) != 0u)
+                    2 * sizeof(uint)) != 0u)
                 throw new InvalidOperationException(
                     "PRISM snapshot refused an overflowed or unpaired canonical generation.");
+            if (BitConverter.ToUInt32(atlasAllocator, 2 * sizeof(uint)) != 0u)
+                throw new InvalidOperationException(
+                    "PRISM snapshot refused an overflowed topology-atlas generation.");
             bool meshletOverflow = BitConverter.ToUInt32(meshletCounters,
                 2 * sizeof(uint)) != 0u;
             int filmCount = Count(filmAllocator, 0, films.Capacity);
@@ -131,10 +123,14 @@ namespace Genesis.RoomScan.World
                 Count(meshletCounters, 16, published.DescriptorCapacity);
             int manifoldCount = Count(manifoldAllocator, 0,
                 manifolds.ManifoldCapacity);
-            int manifoldLinkCount = Count(manifoldAllocator, 16,
-                manifolds.LinkCapacity);
-            int manifoldFrontierCount = Count(manifoldAllocator, 32,
-                manifolds.FrontierCapacity);
+            int supportContourPageCount = Count(atlasAllocator, 0,
+                manifolds.ContourPageCapacity);
+            int supportContourSegmentCount = Math.Min(
+                checked(supportContourPageCount *
+                    PressureManifoldPool.ContourSegmentsPerPage),
+                manifolds.ContourSegmentCapacity);
+            int crossChunkPortalCount = Count(atlasAllocator, 10 * sizeof(uint),
+                manifolds.PortalCapacity);
 
             Task<byte[]> filmHeaders = RequestBytes(films.Headers,
                 checked(filmCount * ContactFilmHeaderGpu.Stride), cancellationToken);
@@ -153,20 +149,6 @@ namespace Genesis.RoomScan.World
                 cancellationToken);
             Task<byte[]> filmMemberships = RequestBytes(manifolds.Memberships,
                 checked(filmCount * FilmMembershipGpu.Stride), cancellationToken);
-            Task<byte[]> manifoldLinks = RequestBytes(manifolds.Links,
-                checked(manifoldLinkCount * ManifoldLinkGpu.Stride),
-                cancellationToken);
-            Task<byte[]> manifoldLinkIncidences = RequestBytes(
-                manifolds.LinkIncidences,
-                checked(manifoldLinkCount * 2 * ManifoldLinkIncidenceGpu.Stride),
-                cancellationToken);
-            Task<byte[]> manifoldFrontierIncidences = RequestBytes(
-                manifolds.FrontierIncidences,
-                checked(manifoldFrontierCount *
-                    ManifoldFrontierIncidenceGpu.Stride), cancellationToken);
-            Task<byte[]> latentFrontiers = RequestBytes(manifolds.Frontiers,
-                checked(manifoldFrontierCount * LatentFrontierSegmentGpu.Stride),
-                cancellationToken);
             Task<byte[]> boundaryHeaders = RequestBytes(boundaries.Headers,
                 checked(boundaryCount * ContactBoundaryHeaderGpu.Stride),
                 cancellationToken);
@@ -174,6 +156,36 @@ namespace Genesis.RoomScan.World
                 checked(boundaryCount *
                     ContactBoundaryPool.InformationRecordsPerBoundary *
                     sizeof(float) * 4), cancellationToken);
+            Task<byte[]> supportContourPages = RequestBytes(
+                manifolds.SupportContourPages,
+                checked(supportContourPageCount * SupportContourPageGpu.Stride),
+                cancellationToken);
+            Task<byte[]> supportContours = RequestBytes(manifolds.SupportContours,
+                checked(supportContourSegmentCount *
+                    SupportContourSegmentGpu.Stride), cancellationToken);
+            Task<byte[]> surfaceHalfEdges = RequestBytes(manifolds.HalfEdges,
+                checked(supportContourSegmentCount * SurfaceHalfEdgeGpu.Stride),
+                cancellationToken);
+            Task<byte[]> frontierLoops = RequestBytes(manifolds.FrontierLoops,
+                checked(supportContourSegmentCount * FrontierLoopGpu.Stride),
+                cancellationToken);
+            Task<byte[]> continuationEvidence = RequestBytes(
+                manifolds.ContinuationEvidence,
+                checked(supportContourSegmentCount *
+                    ContinuationEvidenceGpu.Stride), cancellationToken);
+            Task<byte[]> elasticChartStates = RequestBytes(manifolds.ElasticStates,
+                checked(filmCount * ElasticChartStateGpu.Stride),
+                cancellationToken);
+            Task<byte[]> filmTopologyRanges = RequestBytes(
+                manifolds.FilmTopologyRanges, checked(filmCount * sizeof(uint) * 4),
+                cancellationToken);
+            Task<byte[]> crossChunkPortals = RequestBytes(
+                manifolds.CrossChunkPortals,
+                checked(crossChunkPortalCount * CrossChunkTopologyPortalGpu.Stride),
+                cancellationToken);
+            Task<byte[]> boundaryCurveTopology = RequestBytes(boundaries.Topology,
+                checked(boundaryCount * BoundaryCurveTopologyGpu.Stride),
+                cancellationToken);
 
             Task<byte[]> basePageHeaders = displacement == null
                 ? Task.FromResult(Array.Empty<byte>())
@@ -233,9 +245,11 @@ namespace Genesis.RoomScan.World
                 microCells, baseChildren, microChildren, topologyEvidence,
                 meshletVertices, meshletIndices, meshletDescriptors,
                 filmSlotStates, activeFilmIndices, dirtyFilmIndices,
-                manifoldHeaders, filmMemberships, manifoldLinks,
-                manifoldLinkIncidences, manifoldFrontierIncidences,
-                latentFrontiers);
+                manifoldHeaders, filmMemberships,
+                supportContourPages, supportContours,
+                surfaceHalfEdges, frontierLoops, continuationEvidence,
+                elasticChartStates, filmTopologyRanges, crossChunkPortals,
+                boundaryCurveTopology);
             cancellationToken.ThrowIfCancellationRequested();
 
             return new PrismCanonicalChunkSnapshot
@@ -248,8 +262,12 @@ namespace Genesis.RoomScan.World
                 MeshletIndexCount = meshletIndexCount,
                 MeshletDescriptorCount = meshletDescriptorCount,
                 ManifoldCount = manifoldCount,
-                ManifoldLinkCount = manifoldLinkCount,
-                ManifoldFrontierCount = manifoldFrontierCount,
+                SupportContourPageCount = supportContourPageCount,
+                SupportContourSegmentCount = supportContourSegmentCount,
+                SurfaceHalfEdgeCount = supportContourSegmentCount,
+                FrontierLoopCount = supportContourSegmentCount,
+                ContinuationEvidenceCount = supportContourSegmentCount,
+                CrossChunkPortalCount = crossChunkPortalCount,
                 FilmGeneration = BitConverter.ToUInt32(filmAllocator, 12),
                 BoundaryGeneration = BitConverter.ToUInt32(boundaryAllocator, 12),
                 DisplacementGeneration = displacement == null ? 1u :
@@ -264,13 +282,18 @@ namespace Genesis.RoomScan.World
                 FilmAllocatorState = filmAllocator,
                 PressureManifoldHeaders = manifoldHeaders.Result,
                 FilmMemberships = filmMemberships.Result,
-                ManifoldLinks = manifoldLinks.Result,
-                ManifoldLinkIncidences = manifoldLinkIncidences.Result,
-                ManifoldFrontierIncidences =
-                    manifoldFrontierIncidences.Result,
-                LatentFrontiers = latentFrontiers.Result,
                 ManifoldAllocatorState = manifoldAllocator,
                 CurrentManifoldState = currentManifoldTask.Result,
+                SupportContourPages = supportContourPages.Result,
+                SupportContours = supportContours.Result,
+                SurfaceHalfEdges = surfaceHalfEdges.Result,
+                FrontierLoops = frontierLoops.Result,
+                ContinuationEvidence = continuationEvidence.Result,
+                ElasticChartStates = elasticChartStates.Result,
+                FilmTopologyRanges = filmTopologyRanges.Result,
+                AtlasAllocatorState = atlasAllocator,
+                CrossChunkTopologyPortals = crossChunkPortals.Result,
+                BoundaryCurveTopology = boundaryCurveTopology.Result,
                 BoundaryHeaders = boundaryHeaders.Result,
                 BoundaryInformation = boundaryInformation.Result,
                 DisplacementPageHeaders = Concatenate(basePageHeaders.Result,

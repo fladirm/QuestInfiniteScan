@@ -38,19 +38,21 @@ it.
 ## Product invariant
 
 The production product is a fully on-device Quest 3/3S spatial scanner named
-Cone-PRISM-Q3. Reconstruction physics `CPQ3-2026-08-21-v5` is frozen in
-`specka.md`. Canonical world state is a chunk-local graph of one-sided probabilistic
-`ContactFilm`s; `SurfaceChartGeometry` is their quadratic plus hierarchical
-displacement parameterization, `ContactBoundary` is their persistent contact
-discontinuity, and meshlets are only derived render/export caches. The product does not require a
+Cone-PRISM-Q3. Reconstruction physics `CPQ3-2026-08-21-v6` is frozen in
+`specka.md`. Canonical world state is a chunk-independent topology atlas of
+one-sided probabilistic `ContactFilm`s; chunks are storage owners only.
+`SurfaceChartGeometry` is their quadratic plus hierarchical displacement
+parameterization, support contours and half-edges define connectivity,
+`ContactBoundary` is one shared persistent contact discontinuity, and meshlets are
+only derived render/export caches. The product does not require a
 notebook, network, Python, CUDA, DiffSoup, Gaussian splatting, TSDF, or DTSDF to
 scan, refine, render, persist, revisit, or export.
 
 The retained QuestRoomScan shell supplies Meta XR permissions/session plumbing,
 tracking, Unity/Vulkan build setup, anchors, and selected reusable utilities. The
-old scalar TSDF/Surface Nets and optional LAN/DiffSoup/GS paths are migration
-fallbacks only. Remove their production wiring after the replacement passes A/B
-gates; do not leave two competing product architectures.
+old scalar TSDF/Surface Nets and LAN/DiffSoup/GS sources exist only in the archival
+Git branch. They are deleted from this production branch; never restore a second
+reconstruction architecture or compatibility fallback here.
 
 ## Mapping guardrails
 
@@ -101,11 +103,12 @@ gates; do not leave two competing product architectures.
 - Build adaptive local meshlets from ContactFilms. Publish topology with
   generation IDs and double buffering; the renderer must never consume buffers
   being mutated.
-- ContactFilms are local charts of a connected closed PressureManifold, not
-  independent plates. Compatible charts merge/weld; generation-safe FilmA/FilmB
-  boundaries materialize elastic crease/curtain connectors. Only the manifold's
-  outer LatentFrontier may return to its optical seed; internal chart/tile edges
-  never do. Coverage is information, never occupancy or a triangle-deletion mask.
+- ContactFilms are local coordinate charts of a connected closed PressureManifold,
+  not independent plates and not rectangular topology. Measured support contours,
+  oriented half-edges and shared generation-safe BoundaryCurves define connectivity.
+  Only manifold-level ordered FrontierLoops may return latent topology to an optical
+  seed; internal chart/tile edges never do. Coverage is information, never occupancy
+  or a triangle-deletion mask.
 - Materialize one dirty film cooperatively with an `8x8` GPU workgroup (or a measured
   stronger equivalent), caching its continuous support domain for parallel vertex
   and triangle work. Performance work may not lower the canonical chart/microtile
@@ -138,9 +141,9 @@ gates; do not leave two competing product architectures.
 
 ## World and persistence guardrails
 
-- Reuse the versioned world/pose-graph/store foundations, but store ContactFilm, ContactBoundary,
-  sufficient-statistic, meshlet-cache, observation, and appearance pages rather than
-  TSDF snapshots in the versioned `.prism` format.
+- Reuse the versioned world/pose-graph/store foundations, storing ContactFilm,
+  ContactBoundary, sufficient-statistic, topology, meshlet-cache, observation and
+  appearance pages in the versioned `.prism` format.
 - Chunk transition is a two-arena overlap: the source remains visible while the
   target accepts observations and dirty source pages publish incrementally.
 - Durable publication precedes eviction. A chunk cannot disappear merely because
@@ -173,11 +176,10 @@ gates; do not leave two competing product architectures.
   world, and `building.json + chunks/*.glb`; preserve pose-graph node transforms.
 - Validate output with Khronos glTF Validator and an independent importer.
 
-## Migration and safety
+## Branch and safety
 
-- Keep a buildable fallback until the new mapper passes captured-corpus A/B tests.
-  Afterwards remove TSDF/DTSDF/Surface Nets/GS/DiffSoup/server production wiring
-  and UI, while preserving the archival Git branch.
+- Historical mappers remain recoverable only from their archival Git branch. Do not
+  copy their production code, UI or shader resources back into this branch.
 - Preserve unrelated user changes. Never use destructive git recovery commands.
 - Add Unity `.meta` files for every new Unity-visible asset.
 - Never commit credentials, LAN addresses, device identifiers, room captures,

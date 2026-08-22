@@ -30,6 +30,8 @@ namespace Genesis.RoomScan.World
             _staging = new(StringComparer.Ordinal);
         private readonly Dictionary<string, PrismCanonicalChunkSnapshot> _recent =
             new(StringComparer.Ordinal);
+        private readonly Dictionary<string, PrismChunkTopologyTransition>
+            _incomingTopology = new(StringComparer.Ordinal);
         private readonly LinkedList<string> _recentLru = new();
         private Task _activationTail = Task.CompletedTask;
         private string _activationTargetKey;
@@ -80,7 +82,11 @@ namespace Genesis.RoomScan.World
         private void OnRolloverRequested(SubmapRolloverRequest request)
         {
             if (request == null || string.IsNullOrEmpty(request.SourceChunkId)) return;
-            BeginStage(request.SourceChunkId);
+            PrismChunkTopologyTransition transition =
+                PrismChunkTopologyTransition.FromRequest(request,
+                    _submaps.OverlapMeters);
+            _incomingTopology[request.TargetChunkId] = transition;
+            BeginStage(request.SourceChunkId, transition);
         }
 
         private void OnScanStopped()
@@ -110,7 +116,8 @@ namespace Genesis.RoomScan.World
                     _lastActivationError);
         }
 
-        private void BeginStage(string chunkId)
+        private void BeginStage(string chunkId,
+            PrismChunkTopologyTransition? topologyTransition = null)
         {
             if (_lifetime == null || _staging.ContainsKey(chunkId)) return;
             ContactFilmPool films = _scanner.PrismFilmSpawner?.FilmPool;
@@ -126,6 +133,7 @@ namespace Genesis.RoomScan.World
             ulong epoch = _scanner.PrismRigCapture?.CalibrationEpoch ?? 0u;
             Task<PrismCanonicalChunkSnapshot> task = _stager.StageAsync(numericId,
                 films, boundaries, displacement, meshlets, epoch,
+                topologyTransition: topologyTransition,
                 cancellationToken: _lifetime.Token);
             _staging.Add(chunkId, task);
             _ = RetainWhenReadyAsync(chunkId, task, _lifetime.Token);
@@ -204,10 +212,13 @@ namespace Genesis.RoomScan.World
         private void OnActiveChunkChanged(ChunkRecord chunk)
         {
             if (chunk == null || _lifetime == null) return;
-            _scanner.ConfigurePrismChunk(chunk);
-            _worldRenderer?.SetActive(chunk.chunkId,
-                _scanner.PrismPredictionRenderer?.Meshlets);
-            if (!_scanner.IsScanning) return;
+            if (!_scanner.IsScanning)
+            {
+                _scanner.ConfigurePrismChunk(chunk);
+                _worldRenderer?.SetActive(chunk.chunkId,
+                    _scanner.PrismPredictionRenderer?.Meshlets);
+                return;
+            }
             string activeKey = ActiveKey(chunk);
             if (string.Equals(_residentActiveKey, activeKey,
                     StringComparison.Ordinal))
@@ -261,12 +272,26 @@ namespace Genesis.RoomScan.World
                         (uint)Math.Max(1, chunk.revision + 1));
                     PrismGpuSnapshotRestore.ClearInPlace(films, boundaries,
                         displacement, meshlets, nextGeneration, worldFromChunk);
+                    _scanner.PrismPressureManifoldAtlas?.ResetEmptyResidency();
                 }
                 else if (!PrismGpuSnapshotRestore.TryRestoreInPlace(snapshot,
                              films, boundaries, displacement, meshlets,
                              worldFromChunk, out string error))
                 {
                     throw new InvalidDataException(error);
+                }
+                else
+                {
+                    _scanner.PrismPressureManifoldAtlas?.
+                        PrepareRestoredResidency();
+                }
+                if (_incomingTopology.TryGetValue(chunk.chunkId,
+                        out PrismChunkTopologyTransition transition))
+                {
+                    _stager.BootstrapTargetTopology(transition, films);
+                    _incomingTopology.Remove(chunk.chunkId);
+                    _scanner.PrismPressureManifoldAtlas?.
+                        PrepareRestoredResidency();
                 }
                 _scanner.PrismBoundaryGraph?.RebuildCanonicalIndex();
                 _scanner.ConfigurePrismChunk(chunk);

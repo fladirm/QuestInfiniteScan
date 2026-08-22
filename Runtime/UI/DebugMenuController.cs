@@ -7,7 +7,7 @@ namespace Genesis.RoomScan.UI
 {
     /// <summary>
     /// Pure Cone-PRISM operator panel. The production UI intentionally exposes no
-    /// TSDF, Surface Nets, triplanar, GSplat, DiffSoup, or legacy atlas path.
+    /// The menu controls the single Cone-PRISM scanner and its derived meshlet view.
     /// </summary>
     [RequireComponent(typeof(UIDocument), typeof(DebugMenuFollower))]
     public sealed class DebugMenuController : MonoBehaviour

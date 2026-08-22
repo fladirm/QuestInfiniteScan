@@ -74,9 +74,9 @@ namespace Genesis.RoomScan.Editor
                 wizard.FixShaderWiring();
 
                 EnsureQuestVRManifest();
-                if (!ManifestHasCleartextTraffic())
-                    FixCleartextTraffic();
-                PlayerSettings.insecureHttpOption = InsecureHttpOption.AlwaysAllowed;
+                // Cone-PRISM is a pure on-device reconstruction path. Do not revive
+                // the historical LAN/server cleartext exception in automated builds.
+                PlayerSettings.insecureHttpOption = InsecureHttpOption.NotAllowed;
                 PlayerSettings.SetUseDefaultGraphicsAPIs(BuildTarget.Android, false);
                 PlayerSettings.SetGraphicsAPIs(BuildTarget.Android,
                     new[] { GraphicsDeviceType.Vulkan });

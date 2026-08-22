@@ -143,7 +143,7 @@ static const uint BOUNDARY_PERSISTENT = 8u;
 static const uint BOUNDARY_RETIRED = 16u;
 static const uint BOUNDARY_MULTIVIEW = 32u;
 static const uint WORDS_PER_BOUNDARY = 16u;
-static const uint INFORMATION_RECORDS = 8u;
+static const uint INFORMATION_RECORDS = 9u;
 static const float MOMENT_SCALE = 65536.0;
 static const float SUPPORT_SCALE = 4096.0;
 
@@ -490,6 +490,7 @@ void InitializeBoundaryState(uint3 id : SV_DispatchThreadID)
         [unroll] for (uint state = 0u; state < 4u; ++state)
             _BoundaryDirtyState[state] = 0u;
         _BoundarySolveArguments[0] = uint3(0u, 1u, 1u);
+        _BoundarySolveArguments[1] = uint3(0u, 1u, 1u);
     }
 }
 
@@ -628,8 +629,21 @@ void AccumulateBoundaryEvents(uint3 id : SV_DispatchThreadID)
     uint viewBit = 1u << ViewBin(film, measuredChunk, eye);
     InterlockedOr(_BoundaryFrameAccumulator[baseWord + 9u], (int)viewBit);
     AtomicAddScaled(baseWord + 10u, rgbScore, SUPPORT_SCALE);
-    AtomicAddScaled(baseWord + 14u,
-        max(evidence.x, evidence.y) + evidence.z, SUPPORT_SCALE);
+    float firstHitScale = max(3.0 * eventData.combinedSigma +
+        sqrt(max(eventData.footprintArea, 1e-10)), 0.001);
+    float firstHitScore = eventData.predictedRange > 0.0 ?
+        exp(-abs(eventData.measuredRange - eventData.predictedRange) /
+            firstHitScale) : 0.5;
+    float visibilityScore = saturate(eventData.confidence * eventData.incidence);
+    float poseCalibrationQuality = saturate(max(eventData.confidence * 0.5,
+        eventData.pressurePrecision * eventData.combinedSigma *
+            eventData.combinedSigma));
+    float sidednessScore = saturate(dot(eventData.measuredNormal, film.normal));
+    AtomicAddScaled(baseWord + 12u, weight * firstHitScore, SUPPORT_SCALE);
+    AtomicAddScaled(baseWord + 13u, weight * visibilityScore, SUPPORT_SCALE);
+    AtomicAddScaled(baseWord + 14u, weight * poseCalibrationQuality,
+        SUPPORT_SCALE);
+    AtomicAddScaled(baseWord + 15u, weight * sidednessScore, SUPPORT_SCALE);
 }
 
 [numthreads(64, 1, 1)]
@@ -674,6 +688,8 @@ void BuildBoundarySolveArguments(uint3 id : SV_DispatchThreadID)
 {
     uint count = min(_BoundaryDirtyState[0], _BoundaryCapacity);
     _BoundarySolveArguments[0] = uint3((count + 63u) / 64u, 1u, 1u);
+    uint allocated = min(_BoundaryAllocator[0], _BoundaryCapacity);
+    _BoundarySolveArguments[1] = uint3((allocated + 63u) / 64u, 1u, 1u);
 }
 
 [numthreads(64, 1, 1)]
@@ -694,6 +710,7 @@ void SolveDirtyBoundaries(uint3 id : SV_DispatchThreadID)
     float4 moments0 = _BoundaryInformation[information + 0u];
     float4 moments1 = _BoundaryInformation[information + 1u];
     float4 state = _BoundaryInformation[information + 7u];
+    float4 physical = _BoundaryInformation[information + 8u];
     float frameSupport = max(0.0,
         (float)_BoundaryFrameAccumulator[baseWord + 5u] / SUPPORT_SCALE);
     float frameContradiction = max(0.0,
@@ -712,6 +729,11 @@ void SolveDirtyBoundaries(uint3 id : SV_DispatchThreadID)
     state.x += (float)_BoundaryFrameAccumulator[baseWord + 10u] / SUPPORT_SCALE;
     state.y = max(0.0, state.y * 0.995 + frameContradiction - frameSupport * 0.2);
     state.z += (float)_BoundaryFrameAccumulator[baseWord + 8u] / MOMENT_SCALE;
+    physical += float4(
+        (float)_BoundaryFrameAccumulator[baseWord + 12u] / SUPPORT_SCALE,
+        (float)_BoundaryFrameAccumulator[baseWord + 13u] / SUPPORT_SCALE,
+        (float)_BoundaryFrameAccumulator[baseWord + 14u] / SUPPORT_SCALE,
+        (float)_BoundaryFrameAccumulator[baseWord + 15u] / SUPPORT_SCALE);
     uint frameViewMask = asuint(_BoundaryFrameAccumulator[baseWord + 9u]);
     boundary.viewBinMask |= frameViewMask;
     uint distinctViews = countbits(boundary.viewBinMask);
@@ -777,15 +799,6 @@ void SolveDirtyBoundaries(uint3 id : SV_DispatchThreadID)
         }
     }
 
-    // ContactBoundary is evidence on FilmA only. Canonical physical adjacency is
-    // exclusively a generation-safe PressureManifold link proven in world space.
-    if (boundary.filmB != 0u)
-    {
-        InterlockedAdd(_ManifoldDiagnostics[13], 1u);
-        boundary.filmB = 0u;
-        boundary.filmBGeneration = 0u;
-    }
-
     float metricSigma = boundary.sigma *
         max(2.0 * film.extentU, 2.0 * film.extentV);
     _BoundaryInformation[information + 3u] =
@@ -816,6 +829,7 @@ void SolveDirtyBoundaries(uint3 id : SV_DispatchThreadID)
         boundary.confidence, majorVariance, minorVariance);
     state.w = (float)distinctViews;
     _BoundaryInformation[information + 7u] = state;
+    _BoundaryInformation[information + 8u] = physical;
 
     [unroll] for (uint word = 0u; word < WORDS_PER_BOUNDARY; ++word)
         _BoundaryFrameAccumulator[baseWord + word] = 0;

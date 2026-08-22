@@ -103,29 +103,6 @@ struct ContactBoundaryHeader
     uint lastSeenSequence;
 };
 
-struct FilmMembership
-{
-    uint filmId; uint filmGeneration; uint manifoldId; uint manifoldGeneration;
-    uint firstLink; uint linkCount; uint firstFrontier; uint frontierCount;
-    uint flags; uint revision;
-};
-
-struct ManifoldLink
-{
-    uint id; uint generation; uint manifoldId; uint manifoldGeneration;
-    uint filmA; uint filmAGeneration; uint filmB; uint filmBGeneration;
-    uint type; uint flags; uint boundaryId; uint revision;
-    float4 uvA01; float4 uvB01;
-    float sigma; float support; float confidence; float reserved;
-};
-
-struct ManifoldLinkIncidence
-{
-    uint id; uint generation; uint linkId; uint linkGeneration;
-    uint filmId; uint filmGeneration; uint nextId; uint nextGeneration;
-    uint endpoint; uint flags;
-};
-
 struct BoundaryHashEntry
 {
     uint hash;
@@ -133,6 +110,17 @@ struct BoundaryHashEntry
     uint filmGeneration;
     uint cellKey;
     uint boundaryId;
+};
+
+// Derived O(1) chart-space approximation of the one shared canonical 3D
+// BoundaryCurve. It is rebuilt only when the boundary posterior changes.
+struct BoundaryCurveCache
+{
+    uint boundaryId; uint boundaryGeneration;
+    uint filmA; uint filmAGeneration;
+    uint filmB; uint filmBGeneration; uint flags; uint revision;
+    float4 segmentA0; float4 segmentA1; float4 segmentA2; float4 segmentA3;
+    float4 segmentB0; float4 segmentB1; float4 segmentB2; float4 segmentB3;
 };
 
 struct DisplacementPageHeader
@@ -200,15 +188,21 @@ struct FilmSlotState
     uint generation; uint activeOrdinal; uint nextFree; uint flags;
 };
 
+struct ElasticChartState
+{
+    uint filmId; uint filmGeneration; uint revision; uint flags;
+    float normalOffset; float normalizedTiltU; float normalizedTiltV;
+    float confidence;
+};
+
 StructuredBuffer<ContactFilmHeader> _FilmHeaders;
 StructuredBuffer<uint> _FilmAllocator;
 StructuredBuffer<uint> _ActiveFilmIndices;
 StructuredBuffer<uint> _DirtyFilmIndices;
 StructuredBuffer<ContactBoundaryHeader> _BoundaryHeaders;
 StructuredBuffer<BoundaryHashEntry> _BoundaryHash;
-StructuredBuffer<FilmMembership> _FilmMemberships;
-StructuredBuffer<ManifoldLink> _ManifoldLinks;
-StructuredBuffer<ManifoldLinkIncidence> _ManifoldLinkIncidences;
+StructuredBuffer<BoundaryCurveCache> _BoundaryCurveCache;
+StructuredBuffer<ElasticChartState> _ElasticChartStates;
 StructuredBuffer<DisplacementPageHeader> _DisplacementPages;
 StructuredBuffer<DisplacementCell> _BaseDisplacementCells;
 StructuredBuffer<DisplacementCell> _MicroDisplacementCells;
@@ -246,7 +240,6 @@ float _MinimumTessellationError;
 uint _HasBoundaries;
 uint _BoundaryHashMask;
 uint _BoundaryCellsPerAxis;
-uint _LinkCapacity;
 uint _HasDisplacement;
 uint _BasePageCapacity;
 uint _MicroPageCapacity;
@@ -266,18 +259,13 @@ static const uint FILM_DIRTY_MESHLET = 1u << 4u;
 static const uint SLOT_DIRTY = 1u << 2u;
 static const uint BOUNDARY_ACTIVE = 1u;
 static const uint BOUNDARY_PERSISTENT = 8u;
-static const uint MEMBERSHIP_ACTIVE = 1u;
-static const uint LINK_ACTIVE = 1u;
-static const uint LINK_RETIRED = 8u;
-static const uint INCIDENCE_ACTIVE = 1u;
+static const uint BOUNDARY_CACHE_ACTIVE = 1u;
 // Derived ABI. Never alias or copy ContactFilm lifecycle bits into these values.
 static const uint VERTEX_MEASURED_CONTACT = 1u << 0u;
 static const uint VERTEX_BOUNDARY = 1u << 1u;
-static const uint VERTEX_LATENT_FRONTIER = 1u << 3u;
 static const uint MESHLET_MEASURED_SURFACE = 1u << 0u;
 static const uint MESHLET_HAS_BOUNDARY = 1u << 1u;
 static const uint MESHLET_EXACT_TOPOLOGY = 1u << 2u;
-static const uint MESHLET_LATENT_FRONTIER = 1u << 4u;
 static const uint FILM_HAS_DISPLACEMENT = 1u << 5u;
 static const uint PAGE_ACTIVE = 1u;
 static const uint BASE_GRID = 16u;
@@ -419,6 +407,74 @@ float SampleDisplacement(ContactFilmHeader film, float2 uv)
     uint pageIndex = 0u;
     DisplacementPageHeader page = (DisplacementPageHeader)0;
     if (!ResolveDisplacementPage(film, uv, micro, pageIndex, page)) return 0.0;
+    uint rootIndex = film.displacementPage - 1u;
+    DisplacementPageHeader root = _DisplacementPages[rootIndex];
+    uint selectedGrid = micro ? MICRO_GRID : BASE_GRID;
+    float2 selectedSpan = max(page.uvBounds.zw - page.uvBounds.xy, 1e-8);
+    float2 selectedUv = saturate((uv - page.uvBounds.xy) / selectedSpan);
+    uint2 selectedCell = min((uint2)(selectedUv * (float)selectedGrid),
+        selectedGrid - 1u);
+    DisplacementCell selected = LoadDisplacementCell(micro, pageIndex,
+        selectedCell.y * selectedGrid + selectedCell.x);
+    if (selected.revision == 0u && root.parentPage != 0u)
+    {
+        uint lineage = root.parentPage;
+        [loop]
+        for (uint lineageDepth = 0u; lineageDepth < 8u && lineage != 0u;
+            ++lineageDepth)
+        {
+            uint lineageRootIndex = lineage - 1u;
+            if (lineageRootIndex >= _BasePageCapacity) break;
+            DisplacementPageHeader lineageRoot =
+                _DisplacementPages[lineageRootIndex];
+            if ((lineageRoot.flags & PAGE_ACTIVE) == 0u) break;
+            bool lineageMicro = false;
+            uint lineagePageIndex = lineageRootIndex;
+            DisplacementPageHeader lineagePage = lineageRoot;
+            [loop]
+            for (uint level = 0u; level < _MaximumMicroLevels; ++level)
+            {
+                uint lineageGrid = lineageMicro ? MICRO_GRID : BASE_GRID;
+                float2 lineageSpan = max(lineagePage.uvBounds.zw -
+                    lineagePage.uvBounds.xy, 1e-8);
+                float2 lineageUv = saturate((uv - lineagePage.uvBounds.xy) /
+                    lineageSpan);
+                uint2 lineageCell = min((uint2)(lineageUv *
+                    (float)lineageGrid), lineageGrid - 1u);
+                uint childHandle = LoadDisplacementChild(lineageMicro,
+                    lineagePageIndex,
+                    lineageCell.y * lineageGrid + lineageCell.x);
+                if (childHandle == 0u || childHandle == ALLOCATION_CLAIM) break;
+                uint childIndex = childHandle - 1u;
+                if (childIndex >= _MicroPageCapacity) break;
+                DisplacementPageHeader child =
+                    _DisplacementPages[_BasePageCapacity + childIndex];
+                if ((child.flags & PAGE_ACTIVE) == 0u) break;
+                lineageMicro = true;
+                lineagePageIndex = childIndex;
+                lineagePage = child;
+            }
+            uint lineageGrid = lineageMicro ? MICRO_GRID : BASE_GRID;
+            float2 lineageSpan = max(lineagePage.uvBounds.zw -
+                lineagePage.uvBounds.xy, 1e-8);
+            float2 lineageUv = saturate((uv - lineagePage.uvBounds.xy) /
+                lineageSpan);
+            uint2 lineageCell = min((uint2)(lineageUv *
+                (float)lineageGrid), lineageGrid - 1u);
+            DisplacementCell lineageSelected = LoadDisplacementCell(
+                lineageMicro, lineagePageIndex,
+                lineageCell.y * lineageGrid + lineageCell.x);
+            if (lineageSelected.revision != 0u ||
+                lineageRoot.parentPage == 0u)
+            {
+                micro = lineageMicro;
+                pageIndex = lineagePageIndex;
+                page = lineagePage;
+                break;
+            }
+            lineage = lineageRoot.parentPage;
+        }
+    }
     uint grid = micro ? MICRO_GRID : BASE_GRID;
     float2 span = max(page.uvBounds.zw - page.uvBounds.xy, 1e-8);
     float2 localUv = saturate((uv - page.uvBounds.xy) / span);
@@ -523,13 +579,32 @@ uint BoundaryHashKey(uint filmId, uint generation, uint cellKey)
     return max(1u, value & 0x7fffffffu);
 }
 
-float2 BoundaryCubic(ContactBoundaryHeader boundary, float t)
+float4 CachedBoundarySegment(BoundaryCurveCache cache, bool sideA, uint index)
 {
-    float s = 1.0 - t;
-    return s * s * s * boundary.controlUv01.xy +
-        3.0 * s * s * t * boundary.controlUv01.zw +
-        3.0 * s * t * t * boundary.controlUv23.xy +
-        t * t * t * boundary.controlUv23.zw;
+    if (sideA)
+        return index == 0u ? cache.segmentA0 : index == 1u ? cache.segmentA1 :
+            index == 2u ? cache.segmentA2 : cache.segmentA3;
+    return index == 0u ? cache.segmentB0 : index == 1u ? cache.segmentB1 :
+        index == 2u ? cache.segmentB2 : cache.segmentB3;
+}
+
+bool CachedBoundarySide(BoundaryCurveCache cache, ContactFilmHeader film,
+    out bool sideA)
+{
+    sideA = cache.filmA == film.id && cache.filmAGeneration == film.generation;
+    bool sideB = cache.filmB == film.id &&
+        cache.filmBGeneration == film.generation;
+    return (cache.flags & BOUNDARY_CACHE_ACTIVE) != 0u && (sideA || sideB);
+}
+
+float2 ClosestPointOnUvSegment(float2 uv, float4 segment, out float distanceValue)
+{
+    float2 edge = segment.zw - segment.xy;
+    float t = saturate(dot(uv - segment.xy, edge) /
+        max(dot(edge, edge), 1e-12));
+    float2 point = lerp(segment.xy, segment.zw, t);
+    distanceValue = distance(uv, point);
+    return point;
 }
 
 bool ClosestBoundaryPoint(ContactFilmHeader film, float2 uv,
@@ -559,22 +634,24 @@ bool ClosestBoundaryPoint(ContactFilmHeader film, float2 uv,
             if (entry.hash != hash || entry.filmId != film.id ||
                 entry.filmGeneration != film.generation ||
                 entry.cellKey != cellKey || entry.boundaryId == 0u) continue;
-            ContactBoundaryHeader boundary = (ContactBoundaryHeader)0;
-            boundary = _BoundaryHeaders[entry.boundaryId - 1u];
-            if (boundary.filmA != film.id ||
-                boundary.filmAGeneration != film.generation ||
+            ContactBoundaryHeader boundary = _BoundaryHeaders[entry.boundaryId - 1u];
+            BoundaryCurveCache cache = _BoundaryCurveCache[entry.boundaryId - 1u];
+            bool sideA;
+            if (cache.boundaryId != boundary.id ||
+                cache.boundaryGeneration != boundary.generation ||
                 (boundary.flags & (BOUNDARY_ACTIVE | BOUNDARY_PERSISTENT)) !=
-                    (BOUNDARY_ACTIVE | BOUNDARY_PERSISTENT)) continue;
-            [loop]
-            for (uint sampleIndex = 0u; sampleIndex <= 16u; ++sampleIndex)
+                    (BOUNDARY_ACTIVE | BOUNDARY_PERSISTENT) ||
+                !CachedBoundarySide(cache, film, sideA)) continue;
+            [unroll]
+            for (uint segmentIndex = 0u; segmentIndex < 4u; ++segmentIndex)
             {
-                float2 candidate = uv;
-                candidate = BoundaryCubic(boundary,
-                    (float)sampleIndex / 16.0);
-                float distance = length(candidate - uv);
-                if (distance < bestDistance)
+                float distanceValue;
+                float2 candidate = ClosestPointOnUvSegment(uv,
+                    CachedBoundarySegment(cache, sideA, segmentIndex),
+                    distanceValue);
+                if (distanceValue < bestDistance)
                 {
-                    bestDistance = distance;
+                    bestDistance = distanceValue;
                     closestUv = candidate;
                 }
             }
@@ -626,21 +703,22 @@ bool BoundarySignedDistance(ContactFilmHeader film, float2 uv,
             if (entry.hash != hash || entry.filmId != film.id ||
                 entry.filmGeneration != film.generation ||
                 entry.cellKey != cellKey || entry.boundaryId == 0u) continue;
-            ContactBoundaryHeader boundary =
-                _BoundaryHeaders[entry.boundaryId - 1u];
-            if (boundary.filmA != film.id ||
-                boundary.filmAGeneration != film.generation ||
+            ContactBoundaryHeader boundary = _BoundaryHeaders[entry.boundaryId - 1u];
+            BoundaryCurveCache cache = _BoundaryCurveCache[entry.boundaryId - 1u];
+            bool sideA;
+            if (cache.boundaryId != boundary.id ||
+                cache.boundaryGeneration != boundary.generation ||
                 (boundary.flags & (BOUNDARY_ACTIVE | BOUNDARY_PERSISTENT)) !=
-                    (BOUNDARY_ACTIVE | BOUNDARY_PERSISTENT)) continue;
-            float2 previous = BoundaryCubic(boundary, 0.0);
-            [loop]
-            for (uint sample = 1u; sample <= 24u; ++sample)
+                    (BOUNDARY_ACTIVE | BOUNDARY_PERSISTENT) ||
+                !CachedBoundarySide(cache, film, sideA)) continue;
+            [unroll]
+            for (uint sample = 0u; sample < 4u; ++sample)
             {
-                float2 current = BoundaryCubic(boundary, (float)sample / 24.0);
-                float2 segment = current - previous;
-                float t = saturate(dot(uv - previous, segment) /
+                float4 cachedSegment = CachedBoundarySegment(cache, sideA, sample);
+                float2 segment = cachedSegment.zw - cachedSegment.xy;
+                float t = saturate(dot(uv - cachedSegment.xy, segment) /
                     max(dot(segment, segment), 1e-10));
-                float2 closestPoint = lerp(previous, current, t);
+                float2 closestPoint = lerp(cachedSegment.xy, cachedSegment.zw, t);
                 float distanceToCurve = distance(closestPoint, uv);
                 if (distanceToCurve < bestDistance)
                 {
@@ -649,7 +727,6 @@ bool BoundarySignedDistance(ContactFilmHeader film, float2 uv,
                     bestTangent = segment;
                     boundaryId = boundary.id;
                 }
-                previous = current;
             }
         }
     }
@@ -721,10 +798,17 @@ void ClassifyMaterialTriangle(ContactFilmHeader film, float2 uv0, float2 uv1,
 
 float Height(ContactFilmHeader film, float u, float v, float2 uv)
 {
+    ElasticChartState elastic = _ElasticChartStates[film.id - 1u];
+    bool validElastic = elastic.filmId == film.id &&
+        elastic.filmGeneration == film.generation;
+    float2 normalized = uv * 2.0 - 1.0;
+    float elasticHeight = validElastic ? elastic.normalOffset +
+        elastic.normalizedTiltU * normalized.x +
+        elastic.normalizedTiltV * normalized.y : 0.0;
     return film.quadratic0123.x + film.quadratic0123.y * u +
         film.quadratic0123.z * v + film.quadratic0123.w * u * u +
         film.quadratic45.x * u * v + film.quadratic45.y * v * v +
-        SampleDisplacement(film, uv);
+        SampleDisplacement(film, uv) + elasticHeight;
 }
 
 float3 SurfaceNormal(ContactFilmHeader film, float u, float v, float2 uv)
@@ -733,6 +817,12 @@ float3 SurfaceNormal(ContactFilmHeader film, float u, float v, float2 uv)
         film.quadratic45.x * v;
     float dhdv = film.quadratic0123.z + film.quadratic45.x * u +
         2.0 * film.quadratic45.y * v;
+    ElasticChartState elastic = _ElasticChartStates[film.id - 1u];
+    if (elastic.filmId == film.id && elastic.filmGeneration == film.generation)
+    {
+        dhdu += elastic.normalizedTiltU / max(film.extentU, 1e-6);
+        dhdv += elastic.normalizedTiltV / max(film.extentV, 1e-6);
+    }
     const float epsilon = 1.0 / 1024.0;
     float left = SampleDisplacement(film,
         float2(max(0.0, uv.x - epsilon), uv.y));
@@ -759,95 +849,6 @@ float3 SurfacePosition(ContactFilmHeader film, float2 uv)
     float v = lerp(-film.extentV, film.extentV, uv.y);
     return film.origin + u * film.tangentU + v * film.tangentV +
         Height(film, u, v, uv) * film.normal;
-}
-
-uint StableLinkSampleId(ManifoldLink link, uint quantizedT)
-{
-    uint value = link.id * 0x9e3779b9u ^
-        link.generation * 0x85ebca6bu ^ quantizedT * 0xc2b2ae35u;
-    value ^= value >> 16u;
-    value *= 0x7feb352du;
-    value ^= value >> 15u;
-    return max(1u, value);
-}
-
-bool ClosestManifoldLinkPoint(ContactFilmHeader film, float2 uv,
-    out float2 linkedUv, out float3 sharedPosition, out uint sampleId)
-{
-    linkedUv = uv;
-    sharedPosition = SurfacePosition(film, uv);
-    sampleId = 0u;
-    if (film.id == 0u || film.id > _FilmCapacity || _LinkCapacity == 0u)
-        return false;
-    FilmMembership membership = _FilmMemberships[film.id - 1u];
-    if ((membership.flags & MEMBERSHIP_ACTIVE) == 0u ||
-        membership.filmId != film.id ||
-        membership.filmGeneration != film.generation) return false;
-    uint incidenceId = membership.firstLink;
-    uint expectedGeneration = 0u;
-    float bestDistance = 1e9;
-    [loop]
-    for (uint ordinal = 0u; ordinal < min(membership.linkCount, 64u);
-        ++ordinal)
-    {
-        if (incidenceId == 0u || incidenceId > _LinkCapacity * 2u) break;
-        ManifoldLinkIncidence incidence =
-            _ManifoldLinkIncidences[incidenceId - 1u];
-        if (incidence.id != incidenceId ||
-            (expectedGeneration != 0u &&
-                incidence.generation != expectedGeneration) ||
-            (incidence.flags & INCIDENCE_ACTIVE) == 0u ||
-            incidence.filmId != film.id ||
-            incidence.filmGeneration != film.generation ||
-            incidence.linkId == 0u || incidence.linkId > _LinkCapacity) break;
-        ManifoldLink link = _ManifoldLinks[incidence.linkId - 1u];
-        bool endpointA = incidence.endpoint == 0u &&
-            link.filmA == film.id && link.filmAGeneration == film.generation;
-        bool endpointB = incidence.endpoint == 1u &&
-            link.filmB == film.id && link.filmBGeneration == film.generation;
-        if (link.id == incidence.linkId &&
-            link.generation == incidence.linkGeneration &&
-            (link.flags & (LINK_ACTIVE | LINK_RETIRED)) == LINK_ACTIVE &&
-            (endpointA || endpointB))
-        {
-            float4 ownSegment = endpointA ? link.uvA01 : link.uvB01;
-            float2 direction = ownSegment.zw - ownSegment.xy;
-            float t = saturate(dot(uv - ownSegment.xy, direction) /
-                max(dot(direction, direction), 1e-10));
-            float2 candidate = lerp(ownSegment.xy, ownSegment.zw, t);
-            float candidateDistance = distance(candidate, uv);
-            if (candidateDistance < bestDistance)
-            {
-                uint quantizedT = min((uint)round(t * 65535.0), 65535u);
-                float canonicalT = (float)quantizedT / 65535.0;
-                if (link.filmA > 0u && link.filmA <= _FilmCapacity &&
-                    link.filmB > 0u && link.filmB <= _FilmCapacity)
-                {
-                    ContactFilmHeader filmA = _FilmHeaders[link.filmA - 1u];
-                    ContactFilmHeader filmB = _FilmHeaders[link.filmB - 1u];
-                    if (filmA.id == link.filmA &&
-                        filmA.generation == link.filmAGeneration &&
-                        filmB.id == link.filmB &&
-                        filmB.generation == link.filmBGeneration)
-                    {
-                        float2 uvA = lerp(link.uvA01.xy, link.uvA01.zw,
-                            canonicalT);
-                        float2 uvB = lerp(link.uvB01.xy, link.uvB01.zw,
-                            canonicalT);
-                        linkedUv = endpointA ? uvA : uvB;
-                        sharedPosition = 0.5 * (SurfacePosition(filmA, uvA) +
-                            SurfacePosition(filmB, uvB));
-                        sampleId = StableLinkSampleId(link, quantizedT);
-                        bestDistance = candidateDistance;
-                    }
-                }
-            }
-        }
-        incidenceId = incidence.nextId;
-        expectedGeneration = incidence.nextGeneration;
-    }
-    return sampleId != 0u && bestDistance <=
-        0.75 / (float)max(_BoundaryCellsPerAxis, 1u);
 }
 
 bool Reserve(uint counter, uint amount, uint capacity, out uint baseOffset)
@@ -911,15 +912,15 @@ uint ReservedSubdivision(uint segments)
 uint ReservedVertexCount(uint segments)
 {
     uint row = segments + 1u;
-    // Two typed lattices plus the worst case of seven clipped vertices for every
-    // one of the 2*s*s source triangles.
-    return 2u * row * row + 14u * segments * segments;
+    // One measured lattice plus the worst seven vertices produced when one source
+    // triangle is cut into two separately materialized measured regions.
+    return row * row + 14u * segments * segments;
 }
 
 uint ReservedIndexCount(uint segments)
 {
-    // A clipped triangle yields at most three output triangles across the measured
-    // and latent materials.
+    // A supported BoundaryCurve can divide one source triangle into three measured
+    // output triangles (triangle + quad).
     return 18u * segments * segments;
 }
 
@@ -1036,7 +1037,6 @@ void PrepareFullMeshletRepack(uint3 id : SV_DispatchThreadID)
 
 groupshared uint sCountSegments;
 groupshared uint sCountMeasuredTriangles;
-groupshared uint sCountLatentTriangles;
 groupshared uint sCountMixedTriangles;
 groupshared uint sCountValid;
 
@@ -1052,7 +1052,6 @@ void CountMeshletBuildPlans(uint3 groupId : SV_GroupID,
     {
         sCountSegments = 0u;
         sCountMeasuredTriangles = 0u;
-        sCountLatentTriangles = 0u;
         sCountMixedTriangles = 0u;
         sCountValid = 0u;
         if (filmIndex < _FilmCapacity)
@@ -1095,10 +1094,9 @@ void CountMeshletBuildPlans(uint3 groupId : SV_GroupID,
         float2 a = triangleOrdinal & 1u ? uv01 : uv00;
         float2 b = uv10;
         float2 c = triangleOrdinal & 1u ? uv11 : uv01;
-        uint measured, latent, mixed;
-        ClassifyMaterialTriangle(film, a, b, c, measured, latent, mixed);
+        uint measured, ignoredLatent, mixed;
+        ClassifyMaterialTriangle(film, a, b, c, measured, ignoredLatent, mixed);
         InterlockedAdd(sCountMeasuredTriangles, measured);
-        InterlockedAdd(sCountLatentTriangles, latent);
         InterlockedAdd(sCountMixedTriangles, mixed);
     }
     GroupMemoryBarrierWithGroupSync();
@@ -1108,14 +1106,12 @@ void CountMeshletBuildPlans(uint3 groupId : SV_GroupID,
     plan.segments = segments;
     plan.rowVertices = segments + 1u;
     uint latticeVertices = plan.rowVertices * plan.rowVertices;
-    plan.vertexCount = latticeVertices * 2u + sCountMixedTriangles * 7u;
-    plan.triangleCount = sCountMeasuredTriangles + sCountLatentTriangles;
+    plan.vertexCount = latticeVertices + sCountMixedTriangles * 7u;
+    plan.triangleCount = sCountMeasuredTriangles;
     plan.measuredIndexCount = sCountMeasuredTriangles * 3u;
-    plan.latentIndexCount = sCountLatentTriangles * 3u;
-    plan.indexCount = plan.measuredIndexCount + plan.latentIndexCount;
-    // Two stable descriptor slots per film: measured first, latent second. A missing
-    // material is represented by a zero descriptor, never by shifting later films.
-    plan.descriptorCount = 2u;
+    plan.latentIndexCount = 0u;
+    plan.indexCount = plan.measuredIndexCount;
+    plan.descriptorCount = 1u;
     plan.reserved0 = sCountMixedTriangles;
     uint reservedSegments = ReservedSubdivision(segments);
     plan.reserved1 = ReservedVertexCount(reservedSegments);
@@ -1129,7 +1125,7 @@ void CountMeshletBuildPlans(uint3 groupId : SV_GroupID,
             range.maximumSegments >= segments &&
             plan.vertexCount <= range.vertexCapacity &&
             plan.indexCount <= range.indexCapacity &&
-            range.descriptorCapacity >= 2u;
+            range.descriptorCapacity >= 1u;
         if (compatible)
         {
             plan.vertexOffset = range.vertexOffset;
@@ -1324,7 +1320,6 @@ groupshared uint sIndexBase;
 groupshared uint sTriangleCount;
 groupshared uint sExtraVertexWrite;
 groupshared uint sMeasuredIndexWrite;
-groupshared uint sLatentIndexWrite;
 groupshared float sCoverage[289]; // maximum (16 + 1)^2 chart vertices
 
 uint StableSurfaceSampleId(ContactFilmHeader film, float2 uv)
@@ -1339,31 +1334,27 @@ uint StableSurfaceSampleId(ContactFilmHeader film, float2 uv)
 }
 
 ContactMeshletVertex BuildSurfaceVertex(ContactFilmHeader film, float2 uv,
-    bool measured, bool boundarySample)
+    bool boundarySample)
 {
     float2 surfaceUv = uv;
     float3 sharedPosition = SurfacePosition(film, uv);
-    uint linkSampleId = 0u;
-    bool onLink = ClosestManifoldLinkPoint(film, uv, surfaceUv,
-        sharedPosition, linkSampleId);
     float u = lerp(-film.extentU, film.extentU, surfaceUv.x);
     float v = lerp(-film.extentV, film.extentV, surfaceUv.y);
     ContactMeshletVertex vertex = (ContactMeshletVertex)0;
     vertex.position = sharedPosition;
-    vertex.filmId = measured ? film.id : 0u;
+    vertex.filmId = film.id;
     vertex.normal = SurfaceNormal(film, u, v, uv);
-    vertex.generation = measured ? film.generation : 0u;
+    vertex.generation = film.generation;
     vertex.uv = surfaceUv;
     vertex.sigma = film.sigmaNormal;
-    vertex.confidence = measured ? film.confidence :
-        max(0.02, 0.25 * film.confidence);
+    vertex.confidence = film.confidence;
     vertex.sidedness = 1u;
-    vertex.flags = measured ? VERTEX_MEASURED_CONTACT : VERTEX_LATENT_FRONTIER;
-    if (boundarySample || onLink) vertex.flags |= VERTEX_BOUNDARY;
-    vertex.appearancePage = measured ? film.appearancePage : 0u;
-    vertex.coverageBits = asuint(measured ? 1.0 : 0.0);
-    vertex.boundarySampleId = onLink ? linkSampleId :
-        (boundarySample ? StableSurfaceSampleId(film, surfaceUv) : 0u);
+    vertex.flags = VERTEX_MEASURED_CONTACT;
+    if (boundarySample) vertex.flags |= VERTEX_BOUNDARY;
+    vertex.appearancePage = film.appearancePage;
+    vertex.coverageBits = asuint(1.0);
+    vertex.boundarySampleId = boundarySample ?
+        StableSurfaceSampleId(film, surfaceUv) : 0u;
     vertex.reserved = 0u;
     return vertex;
 }
@@ -1396,28 +1387,24 @@ void ClipTriangle(float2 triangleUv[3], float triangleScalar[3],
 }
 
 void EmitClippedPolygon(ContactFilmHeader film, MeshletBuildPlan plan,
-    float2 polygon[4], uint polygonCount, bool measured)
+    float2 polygon[4], uint polygonCount)
 {
     if (polygonCount < 3u) return;
     uint extraBase;
     InterlockedAdd(sExtraVertexWrite, polygonCount, extraBase);
-    uint vertexBase = plan.vertexOffset + 2u * plan.rowVertices *
+    uint vertexBase = plan.vertexOffset + plan.rowVertices *
         plan.rowVertices + extraBase;
     [unroll]
     for (uint polygonVertex = 0u; polygonVertex < 4u; ++polygonVertex)
     {
         if (polygonVertex >= polygonCount) break;
         _ContactVertices[vertexBase + polygonVertex] = BuildSurfaceVertex(film,
-            polygon[polygonVertex], measured, true);
+            polygon[polygonVertex], true);
     }
     uint triangleCount = polygonCount - 2u;
     uint relativeIndex;
-    if (measured)
-        InterlockedAdd(sMeasuredIndexWrite, triangleCount * 3u, relativeIndex);
-    else
-        InterlockedAdd(sLatentIndexWrite, triangleCount * 3u, relativeIndex);
-    uint indexBase = measured ? plan.indexOffset + relativeIndex :
-        plan.indexOffset + plan.measuredIndexCount + relativeIndex;
+    InterlockedAdd(sMeasuredIndexWrite, triangleCount * 3u, relativeIndex);
+    uint indexBase = plan.indexOffset + relativeIndex;
     [unroll]
     for (uint fanTriangle = 0u; fanTriangle < 2u; ++fanTriangle)
     {
@@ -1448,7 +1435,6 @@ void BuildAdaptiveFilmMeshlets(uint3 groupId : SV_GroupID,
         sIndexBase = 0u;
         sExtraVertexWrite = 0u;
         sMeasuredIndexWrite = 0u;
-        sLatentIndexWrite = 0u;
         uint filmCount = BuildFilmCount();
         if (activeOrdinal < filmCount && filmIndex < _FilmCapacity &&
             plan.valid != 0u &&
@@ -1477,8 +1463,8 @@ void BuildAdaptiveFilmMeshlets(uint3 groupId : SV_GroupID,
     uint rowVertices = sRowVertices;
     uint vertexBase = 0u;
 
-    // Resolve observation confidence first. The complete chart remains an elastic
-    // sheet; coverage controls certainty/detail and never removes topology.
+    // Resolve measured support. Canonical latent closure is topology-only and must
+    // never become first-hit, preview, collision or export geometry.
     for (uint coverageOrdinal = groupIndex;
         coverageOrdinal < sVertexCount; coverageOrdinal += 64u)
     {
@@ -1492,9 +1478,6 @@ void BuildAdaptiveFilmMeshlets(uint3 groupId : SV_GroupID,
     uint cellCount = segments * segments;
 
     vertexBase = sVertexBase;
-    // Materialize two explicitly typed copies of the same continuous chart lattice.
-    // Coverage partitions them in the raster stages: measured fragments predict and
-    // export; latent fragments only preserve/visualize the conserved sheet.
     for (uint vertexOrdinal = groupIndex;
         vertexOrdinal < sVertexCount; vertexOrdinal += 64u)
     {
@@ -1502,18 +1485,11 @@ void BuildAdaptiveFilmMeshlets(uint3 groupId : SV_GroupID,
         uint y = vertexOrdinal / rowVertices;
         float2 uv = float2((float)x, (float)y) / (float)segments;
         float2 surfaceUv = uv;
-        float3 sharedPosition = SurfacePosition(film, uv);
-        uint linkSampleId = 0u;
-        bool onLink = ClosestManifoldLinkPoint(film, uv, surfaceUv,
-            sharedPosition, linkSampleId);
-        bool onBoundary = onLink;
-        if (!onLink)
-            onBoundary = ClosestBoundaryPoint(film, uv, surfaceUv);
+        bool onBoundary = ClosestBoundaryPoint(film, uv, surfaceUv);
         float u = lerp(-film.extentU, film.extentU, surfaceUv.x);
         float v = lerp(-film.extentV, film.extentV, surfaceUv.y);
         ContactMeshletVertex measured = (ContactMeshletVertex)0;
-        measured.position = onLink ? sharedPosition :
-            SurfacePosition(film, surfaceUv);
+        measured.position = SurfacePosition(film, surfaceUv);
         measured.filmId = film.id;
         measured.normal = SurfaceNormal(film, u, v, surfaceUv);
         measured.generation = film.generation;
@@ -1527,20 +1503,11 @@ void BuildAdaptiveFilmMeshlets(uint3 groupId : SV_GroupID,
             (onBoundary ? VERTEX_BOUNDARY : 0u);
         measured.appearancePage = film.appearancePage;
         measured.coverageBits = asuint(observedConfidence);
-        measured.boundarySampleId = onLink ? linkSampleId :
-            (onBoundary ? StableSurfaceSampleId(film, surfaceUv) : 0u);
+        measured.boundarySampleId = onBoundary ?
+            StableSurfaceSampleId(film, surfaceUv) : 0u;
         measured.reserved = 0u;
         _ContactVertices[vertexBase + vertexOrdinal] = measured;
 
-        ContactMeshletVertex latent = measured;
-        latent.filmId = 0u;
-        latent.generation = 0u;
-        latent.confidence = max(0.02, film.confidence *
-            (1.0 - observedConfidence) * 0.25);
-        latent.flags = VERTEX_LATENT_FRONTIER |
-            (onBoundary ? VERTEX_BOUNDARY : 0u);
-        latent.appearancePage = 0u;
-        _ContactVertices[vertexBase + sVertexCount + vertexOrdinal] = latent;
     }
 
     uint baseTriangleCount = cellCount * 2u;
@@ -1600,24 +1567,19 @@ void BuildAdaptiveFilmMeshlets(uint3 groupId : SV_GroupID,
                         positive, positiveCount);
                     ClipTriangle(triangleUv, triangleScalar, false,
                         negative, negativeCount);
-                    EmitClippedPolygon(film, plan, positive, positiveCount, true);
-                    EmitClippedPolygon(film, plan, negative, negativeCount, true);
+                    EmitClippedPolygon(film, plan, positive, positiveCount);
+                    EmitClippedPolygon(film, plan, negative, negativeCount);
                     InterlockedAdd(_MeshletAllocator[5], 1u);
                     continue;
                 }
             }
-            bool measuredTriangle = supportMask == 7u;
-            if (measuredTriangle && any(rawSupportScalar < -1e-5))
+            if (supportMask == 0u) continue;
+            if (any(rawSupportScalar < -1e-5))
                 InterlockedAdd(_ManifoldDiagnostics[14], 1u);
             uint relativeIndex;
-            if (measuredTriangle)
-                InterlockedAdd(sMeasuredIndexWrite, 3u, relativeIndex);
-            else
-                InterlockedAdd(sLatentIndexWrite, 3u, relativeIndex);
-            uint writeIndex = measuredTriangle ? plan.indexOffset + relativeIndex :
-                plan.indexOffset + plan.measuredIndexCount + relativeIndex;
-            uint materialVertexBase = measuredTriangle ? vertexBase :
-                vertexBase + sVertexCount;
+            InterlockedAdd(sMeasuredIndexWrite, 3u, relativeIndex);
+            uint writeIndex = plan.indexOffset + relativeIndex;
+            uint materialVertexBase = vertexBase;
             _ContactIndices[writeIndex + 0u] =
                 materialVertexBase + localVertex[0];
             _ContactIndices[writeIndex + 1u] =
@@ -1626,14 +1588,11 @@ void BuildAdaptiveFilmMeshlets(uint3 groupId : SV_GroupID,
                 materialVertexBase + localVertex[2];
             continue;
         }
-        float2 measuredPolygon[4], latentPolygon[4];
-        uint measuredCount, latentCount;
+        float2 measuredPolygon[4];
+        uint measuredCount;
         ClipTriangle(triangleUv, triangleScalar, true,
             measuredPolygon, measuredCount);
-        ClipTriangle(triangleUv, triangleScalar, false,
-            latentPolygon, latentCount);
-        EmitClippedPolygon(film, plan, measuredPolygon, measuredCount, true);
-        EmitClippedPolygon(film, plan, latentPolygon, latentCount, false);
+        EmitClippedPolygon(film, plan, measuredPolygon, measuredCount);
     }
     GroupMemoryBarrierWithGroupSync();
     if (groupIndex != 0u) return;
@@ -1671,23 +1630,8 @@ void BuildAdaptiveFilmMeshlets(uint3 groupId : SV_GroupID,
     descriptor.reserved = filmIndex;
     ContactMeshletDescriptor emptyDescriptor = (ContactMeshletDescriptor)0;
     _MeshletDescriptors[plan.descriptorOffset] = emptyDescriptor;
-    _MeshletDescriptors[plan.descriptorOffset + 1u] = emptyDescriptor;
     if (plan.measuredIndexCount > 0u)
         _MeshletDescriptors[plan.descriptorOffset] = descriptor;
-
-    ContactMeshletDescriptor latentDescriptor = descriptor;
-    latentDescriptor.filmId = 0u;
-    latentDescriptor.generation = 0u;
-    latentDescriptor.vertexBase = sVertexBase + sVertexCount;
-    latentDescriptor.confidence = max(0.02, 0.25 * film.confidence);
-    latentDescriptor.appearancePage = 0u;
-    latentDescriptor.flags = MESHLET_EXACT_TOPOLOGY | MESHLET_LATENT_FRONTIER |
-        (film.boundaryCount > 0u ? MESHLET_HAS_BOUNDARY : 0u);
-    latentDescriptor.sourceIndexBase = plan.indexOffset + plan.measuredIndexCount;
-    latentDescriptor.sourceIndexCount = plan.latentIndexCount;
-    latentDescriptor.reserved = filmIndex;
-    if (plan.latentIndexCount > 0u)
-        _MeshletDescriptors[plan.descriptorOffset + 1u] = latentDescriptor;
 
     FilmMeshletRange range = (FilmMeshletRange)0;
     range.filmId = film.id;
@@ -1699,7 +1643,7 @@ void BuildAdaptiveFilmMeshlets(uint3 groupId : SV_GroupID,
     range.indexOffset = plan.indexOffset;
     range.indexCapacity = plan.reserved2;
     range.descriptorOffset = plan.descriptorOffset;
-    range.descriptorCapacity = 2u;
+    range.descriptorCapacity = 1u;
     range.maximumSegments = ReservedSubdivision(segments);
     _FilmMeshletRanges[filmIndex] = range;
 }

@@ -64,13 +64,10 @@ namespace Genesis.RoomScan.Prism
         private static readonly int BoundaryCellsPerAxisId = Shader.PropertyToID("_BoundaryCellsPerAxis");
         private static readonly int BoundaryHeadersId = Shader.PropertyToID("_BoundaryHeaders");
         private static readonly int BoundaryHashId = Shader.PropertyToID("_BoundaryHash");
-        private static readonly int LinkCapacityId = Shader.PropertyToID("_LinkCapacity");
-        private static readonly int FilmMembershipsId =
-            Shader.PropertyToID("_FilmMemberships");
-        private static readonly int ManifoldLinksId =
-            Shader.PropertyToID("_ManifoldLinks");
-        private static readonly int ManifoldLinkIncidencesId =
-            Shader.PropertyToID("_ManifoldLinkIncidences");
+        private static readonly int BoundaryCurveCacheId =
+            Shader.PropertyToID("_BoundaryCurveCache");
+        private static readonly int ElasticChartStatesId =
+            Shader.PropertyToID("_ElasticChartStates");
         private static readonly int HasDisplacementId = Shader.PropertyToID("_HasDisplacement");
         private static readonly int BasePageCapacityId = Shader.PropertyToID("_BasePageCapacity");
         private static readonly int MicroPageCapacityId = Shader.PropertyToID("_MicroPageCapacity");
@@ -367,7 +364,10 @@ namespace Genesis.RoomScan.Prism
                 minimumTessellationError);
             meshletBuildCompute.SetInt(InPlacePublicationId, inPlace ? 1 : 0);
             PressureManifoldPool manifolds = pool.Manifolds;
-            meshletBuildCompute.SetInt(LinkCapacityId, manifolds.LinkCapacity);
+            meshletBuildCompute.SetBuffer(_countKernel, ElasticChartStatesId,
+                manifolds.ElasticStates);
+            meshletBuildCompute.SetBuffer(_buildKernel, ElasticChartStatesId,
+                manifolds.ElasticStates);
             ContactBoundaryPool boundaries = boundaryGraph?.BoundaryPool;
             bool hasBoundaries = boundaries != null && !boundaries.IsDisposed;
             meshletBuildCompute.SetInt(HasBoundariesId, hasBoundaries ? 1 : 0);
@@ -381,6 +381,8 @@ namespace Genesis.RoomScan.Prism
                     boundaries.Headers);
                 meshletBuildCompute.SetBuffer(_buildKernel, BoundaryHashId,
                     boundaries.HashEntries);
+                meshletBuildCompute.SetBuffer(_buildKernel, BoundaryCurveCacheId,
+                    boundaries.CurveCache);
             }
             ContactDisplacementPool displacement =
                 displacementTopology?.DisplacementPool;
@@ -496,12 +498,6 @@ namespace Genesis.RoomScan.Prism
                 meshlets.Descriptors);
             meshletBuildCompute.SetBuffer(_buildKernel, FilmMeshletRangesId,
                 meshlets.FilmRanges);
-            meshletBuildCompute.SetBuffer(_buildKernel, FilmMembershipsId,
-                manifolds.Memberships);
-            meshletBuildCompute.SetBuffer(_buildKernel, ManifoldLinksId,
-                manifolds.Links);
-            meshletBuildCompute.SetBuffer(_buildKernel,
-                ManifoldLinkIncidencesId, manifolds.LinkIncidences);
             meshletBuildCompute.SetBuffer(_buildKernel, ManifoldDiagnosticsId,
                 manifolds.Diagnostics);
             meshletBuildCompute.SetBuffer(_recoverKernel, VerticesId,

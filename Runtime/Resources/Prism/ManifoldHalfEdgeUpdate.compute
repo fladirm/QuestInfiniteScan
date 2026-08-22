@@ -1,0 +1,529 @@
+#pragma kernel BuildHalfEdgeArguments
+#pragma kernel ClearHalfEdgeHashState
+#pragma kernel ClearHalfEdgeDerivedState
+#pragma kernel MaterializeMeasuredHalfEdges
+#pragma kernel BuildHalfEdgeSpatialHash
+#pragma kernel ProveHalfEdgeTwins
+#pragma kernel BuildFrontierEndpointHash
+#pragma kernel OrderOuterHalfEdges
+#pragma kernel InitializeFrontierComponents
+#pragma kernel HookFrontierComponents
+#pragma kernel ShortcutFrontierComponents
+#pragma kernel CreateFrontierLoops
+#pragma kernel AssignFrontierLoops
+#pragma kernel FinalizeFrontierLoops
+
+#include "PressureManifoldAtlasAbi.hlsl"
+#include "SurfaceChartGeometry.hlsl"
+
+StructuredBuffer<AtlasContactFilmHeader> _FilmHeaders;
+StructuredBuffer<float4> _FilmInformation;
+StructuredBuffer<AtlasFilmMembership> _FilmMemberships;
+StructuredBuffer<AtlasPressureManifoldHeader> _ManifoldHeaders;
+StructuredBuffer<SupportContourPage> _SupportContourPages;
+StructuredBuffer<SupportContourSegment> _SupportContours;
+RWStructuredBuffer<SurfaceHalfEdge> _HalfEdges;
+RWStructuredBuffer<ContinuationEvidence> _ContinuationEvidence;
+RWStructuredBuffer<uint> _HalfEdgeHashHeads;
+RWStructuredBuffer<uint> _HalfEdgeHashNext;
+RWStructuredBuffer<uint> _HalfEdgeHashKeys;
+RWStructuredBuffer<uint> _EndpointHashHeads;
+RWStructuredBuffer<uint4> _EndpointHashEntries;
+RWStructuredBuffer<uint> _HalfEdgeLoopParents;
+RWStructuredBuffer<uint> _HalfEdgeLoopIds;
+RWStructuredBuffer<FrontierLoop> _FrontierLoops;
+RWStructuredBuffer<int4> _FrontierLoopMoments;
+RWStructuredBuffer<uint> _AtlasAllocator;
+RWStructuredBuffer<uint3> _AtlasDispatchArguments;
+RWStructuredBuffer<uint> _ManifoldDiagnostics;
+
+uint _FilmCapacity;
+uint _ContourPageCapacity;
+uint _ContourSegmentCapacity;
+uint _HalfEdgeCapacity;
+uint _HalfEdgeHashCapacity;
+uint _ManifoldCapacity;
+float _WeldPositionFloor;
+float _SmoothNormalCosine;
+float _CreaseNormalCosine;
+
+static const uint CONTOUR_PAGE_ACTIVE = 1u;
+static const uint CONTOUR_ACTIVE = 1u;
+static const uint CONTOUR_MEASURED = 1u << 1u;
+static const uint SEGMENTS_PER_PAGE = 64u;
+static const uint EVIDENCE_GEOMETRY = 1u << 0u;
+static const uint EVIDENCE_SIDEDNESS = 1u << 1u;
+static const uint EVIDENCE_FIRST_HIT = 1u << 2u;
+static const uint EVIDENCE_VISIBILITY = 1u << 3u;
+static const uint EVIDENCE_MULTIVIEW = 1u << 4u;
+static const uint EVIDENCE_POSE_CALIBRATION = 1u << 5u;
+static const uint EVIDENCE_BOUNDARY_EXCLUDED = 1u << 7u;
+static const uint EVIDENCE_COMMITTABLE = 1u << 8u;
+
+uint SegmentDomain()
+{
+    return min(_AtlasAllocator[0] * SEGMENTS_PER_PAGE, _ContourSegmentCapacity);
+}
+
+float3 FilmPoint(AtlasContactFilmHeader film, float2 uv)
+{
+    return AtlasSurfacePoint(film, uv);
+}
+
+bool ActiveSegment(uint index, out SupportContourSegment segment)
+{
+    segment = (SupportContourSegment)0;
+    if (index >= SegmentDomain()) return false;
+    uint pageIndex = index / SEGMENTS_PER_PAGE;
+    uint local = index % SEGMENTS_PER_PAGE;
+    if (pageIndex >= _ContourPageCapacity) return false;
+    SupportContourPage page = _SupportContourPages[pageIndex];
+    if ((page.flags & CONTOUR_PAGE_ACTIVE) == 0u || local >= page.segmentCount)
+        return false;
+    segment = _SupportContours[index];
+    return segment.id == index + 1u &&
+        (segment.flags & (CONTOUR_ACTIVE | CONTOUR_MEASURED)) ==
+        (CONTOUR_ACTIVE | CONTOUR_MEASURED) &&
+        segment.generation == page.generation;
+}
+
+uint HashCell(int3 cell)
+{
+    uint value = asuint(cell.x) * 0x8da6b343u;
+    value ^= asuint(cell.y) * 0xd8163841u;
+    value ^= asuint(cell.z) * 0xcb1ab31fu;
+    value ^= value >> 16u; value *= 0x7feb352du; value ^= value >> 15u;
+    return max(1u, value);
+}
+
+int3 WorldCell(float3 point) { return (int3)floor(point / 0.0125); }
+
+float4 ContactViewState(uint filmId)
+{
+    if (filmId == 0u || filmId > _FilmCapacity) return 0.0;
+    return _FilmInformation[(filmId - 1u) * 10u + 9u];
+}
+
+uint FindLoopRoot(uint index)
+{
+    uint parent = _HalfEdgeLoopParents[index];
+    if (parent == ATLAS_INVALID || parent >= _HalfEdgeCapacity) return ATLAS_INVALID;
+    uint grand = _HalfEdgeLoopParents[parent];
+    return grand < _HalfEdgeCapacity ? min(parent, grand) : parent;
+}
+
+[numthreads(1, 1, 1)]
+void BuildHalfEdgeArguments(uint3 id : SV_DispatchThreadID)
+{
+    uint segments = SegmentDomain();
+    bool topologyDirty = _AtlasAllocator[6] != 0u;
+    uint hashDomain = max(_HalfEdgeHashCapacity, _HalfEdgeCapacity * 2u);
+    _AtlasDispatchArguments[3] = uint3(topologyDirty ?
+        (hashDomain + 63u) / 64u : 0u, 1u, 1u);
+    _AtlasDispatchArguments[4] = uint3(topologyDirty ?
+        (segments + 63u) / 64u : 0u, 1u, 1u);
+    _AtlasDispatchArguments[5] = uint3(topologyDirty ?
+        (segments * 2u + 63u) / 64u : 0u, 1u, 1u);
+}
+
+[numthreads(64, 1, 1)]
+void ClearHalfEdgeHashState(uint3 id : SV_DispatchThreadID)
+{
+    uint index = id.x;
+    if (index < _HalfEdgeHashCapacity)
+    {
+        _HalfEdgeHashHeads[index] = ATLAS_INVALID;
+        _EndpointHashHeads[index] = ATLAS_INVALID;
+    }
+    if (index < _HalfEdgeCapacity)
+    {
+        _HalfEdgeHashNext[index] = ATLAS_INVALID;
+        _HalfEdgeHashKeys[index] = 0u;
+    }
+    if (index < _HalfEdgeCapacity * 2u)
+        _EndpointHashEntries[index] = uint4(0u, 0u, 0u, ATLAS_INVALID);
+}
+
+[numthreads(64, 1, 1)]
+void ClearHalfEdgeDerivedState(uint3 id : SV_DispatchThreadID)
+{
+    uint index = id.x;
+    if (index < _HalfEdgeCapacity)
+    {
+        _HalfEdgeLoopParents[index] = ATLAS_INVALID;
+        _HalfEdgeLoopIds[index] = 0u;
+        _HalfEdges[index] = (SurfaceHalfEdge)0;
+        _ContinuationEvidence[index] = (ContinuationEvidence)0;
+        _FrontierLoops[index] = (FrontierLoop)0;
+        _FrontierLoopMoments[index] = 0;
+    }
+}
+
+[numthreads(64, 1, 1)]
+void MaterializeMeasuredHalfEdges(uint3 id : SV_DispatchThreadID)
+{
+    uint index = id.x; SupportContourSegment segment;
+    if (!ActiveSegment(index, segment)) return;
+    SurfaceHalfEdge edge = (SurfaceHalfEdge)0;
+    edge.id = index + 1u; edge.generation = segment.generation;
+    edge.manifoldId = segment.manifoldId;
+    edge.manifoldGeneration = segment.manifoldGeneration;
+    edge.filmId = segment.filmId; edge.filmGeneration = segment.filmGeneration;
+    edge.contourSegmentId = segment.id;
+    edge.contourSegmentGeneration = segment.generation;
+    edge.relation = HALF_EDGE_OUTER_FRONTIER;
+    edge.flags = HALF_EDGE_ACTIVE | HALF_EDGE_MEASURED |
+        HALF_EDGE_OUTER | HALF_EDGE_DIRTY;
+    edge.revision = 1u;
+    _HalfEdges[index] = edge;
+}
+
+[numthreads(64, 1, 1)]
+void BuildHalfEdgeSpatialHash(uint3 id : SV_DispatchThreadID)
+{
+    uint index = id.x; SupportContourSegment segment;
+    if (!ActiveSegment(index, segment) || segment.filmId == 0u ||
+        segment.filmId > _FilmCapacity) return;
+    AtlasContactFilmHeader film = _FilmHeaders[segment.filmId - 1u];
+    float3 midpoint = 0.5 * (FilmPoint(film, segment.uv01.xy) +
+        FilmPoint(film, segment.uv01.zw));
+    uint key = HashCell(WorldCell(midpoint));
+    uint bucket = key & (_HalfEdgeHashCapacity - 1u);
+    uint previous;
+    InterlockedExchange(_HalfEdgeHashHeads[bucket], index, previous);
+    _HalfEdgeHashNext[index] = previous;
+    _HalfEdgeHashKeys[index] = key;
+}
+
+[numthreads(64, 1, 1)]
+void ProveHalfEdgeTwins(uint3 id : SV_DispatchThreadID)
+{
+    uint index = id.x; SupportContourSegment a;
+    if (!ActiveSegment(index, a) || a.filmId == 0u || a.filmId > _FilmCapacity)
+        return;
+    SurfaceHalfEdge edgeA = _HalfEdges[index];
+    // A shared BoundaryCurve owns discontinuity pairing. Generic continuation is
+    // allowed only when the measured contour arc is explicitly boundary-free.
+    if (edgeA.twinId != 0u || edgeA.boundaryId != 0u ||
+        (edgeA.flags & HALF_EDGE_PORTAL) != 0u) return;
+    AtlasContactFilmHeader filmA = _FilmHeaders[a.filmId - 1u];
+    float3 a0 = FilmPoint(filmA, a.uv01.xy);
+    float3 a1 = FilmPoint(filmA, a.uv01.zw);
+    float2 aMidUv = 0.5 * (a.uv01.xy + a.uv01.zw);
+    float3 normalA = AtlasSurfaceNormal(filmA, aMidUv);
+    float3 midpoint = 0.5 * (a0 + a1);
+    int3 centre = WorldCell(midpoint);
+    uint best = ATLAS_INVALID; float bestResidual = 3.402823466e+38;
+    [unroll] for (int z = -1; z <= 1; ++z)
+    [unroll] for (int y = -1; y <= 1; ++y)
+    [unroll] for (int x = -1; x <= 1; ++x)
+    {
+        uint key = HashCell(centre + int3(x, y, z));
+        uint other = _HalfEdgeHashHeads[key & (_HalfEdgeHashCapacity - 1u)];
+        [loop]
+        for (uint chain = 0u; chain < 128u && other != ATLAS_INVALID; ++chain)
+        {
+            SupportContourSegment b;
+            if (other > index && _HalfEdgeHashKeys[other] == key &&
+                ActiveSegment(other, b) && b.filmId != a.filmId &&
+                b.manifoldId == a.manifoldId && b.manifoldGeneration ==
+                    a.manifoldGeneration && b.filmId <= _FilmCapacity)
+            {
+                SurfaceHalfEdge candidateEdge = _HalfEdges[other];
+                if (candidateEdge.twinId != 0u || candidateEdge.boundaryId != 0u ||
+                    (candidateEdge.flags & HALF_EDGE_PORTAL) != 0u)
+                {
+                    other = other < _HalfEdgeCapacity ?
+                        _HalfEdgeHashNext[other] : ATLAS_INVALID;
+                    continue;
+                }
+                AtlasContactFilmHeader filmB = _FilmHeaders[b.filmId - 1u];
+                float2 bMidUv = 0.5 * (b.uv01.xy + b.uv01.zw);
+                float normalCosine = dot(normalA,
+                    AtlasSurfaceNormal(filmB, bMidUv));
+                if (normalCosine >= _CreaseNormalCosine)
+                {
+                    float3 b0 = FilmPoint(filmB, b.uv01.xy);
+                    float3 b1 = FilmPoint(filmB, b.uv01.zw);
+                    float residual = max(distance(a0, b1), distance(a1, b0));
+                    float gate = _WeldPositionFloor + 3.0 *
+                        sqrt(a.sigma * a.sigma + b.sigma * b.sigma) +
+                        0.5 * (a.bandwidth + b.bandwidth);
+                    if (residual <= gate && residual < bestResidual)
+                    {
+                        bestResidual = residual; best = other;
+                    }
+                }
+            }
+            other = other < _HalfEdgeCapacity ? _HalfEdgeHashNext[other] :
+                ATLAS_INVALID;
+        }
+    }
+    if (best == ATLAS_INVALID) return;
+    SupportContourSegment b = _SupportContours[best];
+    AtlasContactFilmHeader filmB = _FilmHeaders[b.filmId - 1u];
+    SurfaceHalfEdge edgeB = _HalfEdges[best];
+    if (edgeB.boundaryId != 0u || edgeB.twinId != 0u) return;
+    uint viewMask = asuint(ContactViewState(a.filmId).x) |
+        asuint(ContactViewState(b.filmId).x);
+    float normalCosine = dot(normalA, AtlasSurfaceNormal(filmB,
+        0.5 * (b.uv01.xy + b.uv01.zw)));
+    float firstHitScore = saturate(1.0 - max(filmA.contradiction,
+        filmB.contradiction));
+    float supportQuality = saturate(min(a.support, b.support) / 4.0);
+    float visibilityScore = saturate(min(filmA.confidence, filmB.confidence) *
+        sqrt(max(supportQuality, 0.0)));
+    float positionSigma = sqrt(a.sigma * a.sigma + b.sigma * b.sigma +
+        filmA.sigmaNormal * filmA.sigmaNormal +
+        filmB.sigmaNormal * filmB.sigmaNormal);
+    // This score is derived from the two accepted posterior covariances and their
+    // measured coincidence; it is intentionally not an asserted boolean label.
+    float poseCalibrationQuality = saturate(positionSigma /
+        max(positionSigma + bestResidual, 1e-6)) * visibilityScore;
+    bool geometryAccepted = bestResidual <= _WeldPositionFloor +
+        3.0 * positionSigma + 0.5 * (a.bandwidth + b.bandwidth);
+    bool sidednessAccepted = normalCosine >= _CreaseNormalCosine;
+    bool firstHitAccepted = firstHitScore >= 0.5;
+    bool visibilityAccepted = visibilityScore >= 0.2;
+    bool multiViewAccepted = countbits(viewMask) >= 2u;
+    bool poseCalibrationAccepted = poseCalibrationQuality >= 0.2;
+    uint evidenceFlags = EVIDENCE_BOUNDARY_EXCLUDED;
+    if (geometryAccepted) evidenceFlags |= EVIDENCE_GEOMETRY;
+    if (sidednessAccepted) evidenceFlags |= EVIDENCE_SIDEDNESS;
+    if (firstHitAccepted) evidenceFlags |= EVIDENCE_FIRST_HIT;
+    if (visibilityAccepted) evidenceFlags |= EVIDENCE_VISIBILITY;
+    if (multiViewAccepted) evidenceFlags |= EVIDENCE_MULTIVIEW;
+    if (poseCalibrationAccepted) evidenceFlags |= EVIDENCE_POSE_CALIBRATION;
+    if (!(geometryAccepted && sidednessAccepted && firstHitAccepted &&
+        visibilityAccepted && multiViewAccepted && poseCalibrationAccepted))
+    {
+        InterlockedAdd(_ManifoldDiagnostics[10], 1u);
+        return;
+    }
+    evidenceFlags |= EVIDENCE_COMMITTABLE;
+
+    uint observed;
+    InterlockedCompareExchange(_HalfEdges[best].twinId, 0u, edgeA.id, observed);
+    if (observed != 0u) return;
+    ContinuationEvidence evidence = (ContinuationEvidence)0;
+    evidence.id = index + 1u; evidence.generation = edgeA.generation;
+    evidence.filmA = a.filmId; evidence.filmAGeneration = a.filmGeneration;
+    evidence.filmB = b.filmId; evidence.filmBGeneration = b.filmGeneration;
+    evidence.positionResidual = bestResidual;
+    evidence.positionSigma = positionSigma;
+    evidence.normalCosine = normalCosine;
+    evidence.sidednessScore = saturate(normalCosine);
+    evidence.firstHitScore = firstHitScore;
+    evidence.visibilityScore = visibilityScore;
+    evidence.poseCalibrationQuality = poseCalibrationQuality;
+    evidence.support = min(a.support, b.support);
+    evidence.independentViewMask = viewMask;
+    evidence.flags = evidenceFlags; evidence.revision = 1u;
+    _ContinuationEvidence[index] = evidence;
+
+    edgeA.twinId = edgeB.id; edgeA.twinGeneration = edgeB.generation;
+    edgeA.evidenceId = evidence.id; edgeA.evidenceGeneration = evidence.generation;
+    edgeA.relation = normalCosine >= _SmoothNormalCosine ?
+        HALF_EDGE_SMOOTH : HALF_EDGE_CREASE;
+    edgeA.flags = (edgeA.flags & ~HALF_EDGE_OUTER) | HALF_EDGE_TWIN_CONFIRMED;
+    edgeB = _HalfEdges[best];
+    edgeB.twinGeneration = edgeA.generation;
+    edgeB.evidenceId = evidence.id; edgeB.evidenceGeneration = evidence.generation;
+    edgeB.relation = edgeA.relation;
+    edgeB.flags = (edgeB.flags & ~HALF_EDGE_OUTER) | HALF_EDGE_TWIN_CONFIRMED;
+    _HalfEdges[index] = edgeA; _HalfEdges[best] = edgeB;
+    InterlockedAdd(_ManifoldDiagnostics[6], 1u);
+}
+
+[numthreads(64, 1, 1)]
+void BuildFrontierEndpointHash(uint3 id : SV_DispatchThreadID)
+{
+    uint entryIndex = id.x; uint edgeIndex = entryIndex >> 1u;
+    uint endpoint = entryIndex & 1u; SupportContourSegment segment;
+    if (!ActiveSegment(edgeIndex, segment)) return;
+    SurfaceHalfEdge edge = _HalfEdges[edgeIndex];
+    if ((edge.flags & (HALF_EDGE_ACTIVE | HALF_EDGE_OUTER)) !=
+        (HALF_EDGE_ACTIVE | HALF_EDGE_OUTER) || segment.filmId == 0u ||
+        segment.filmId > _FilmCapacity) return;
+    AtlasContactFilmHeader film = _FilmHeaders[segment.filmId - 1u];
+    float2 uv = endpoint == 0u ? segment.uv01.xy : segment.uv01.zw;
+    uint key = HashCell(WorldCell(FilmPoint(film, uv)));
+    uint bucket = key & (_HalfEdgeHashCapacity - 1u); uint previous;
+    InterlockedExchange(_EndpointHashHeads[bucket], entryIndex, previous);
+    _EndpointHashEntries[entryIndex] = uint4(key, edge.id, endpoint, previous);
+}
+
+[numthreads(64, 1, 1)]
+void OrderOuterHalfEdges(uint3 id : SV_DispatchThreadID)
+{
+    uint index = id.x; SupportContourSegment segment;
+    if (!ActiveSegment(index, segment)) return;
+    SurfaceHalfEdge edge = _HalfEdges[index];
+    if ((edge.flags & (HALF_EDGE_ACTIVE | HALF_EDGE_OUTER)) !=
+        (HALF_EDGE_ACTIVE | HALF_EDGE_OUTER) || segment.filmId == 0u ||
+        segment.filmId > _FilmCapacity) return;
+    AtlasContactFilmHeader film = _FilmHeaders[segment.filmId - 1u];
+    float3 endPoint = FilmPoint(film, segment.uv01.zw);
+    int3 centre = WorldCell(endPoint); uint best = ATLAS_INVALID;
+    float bestDistance = 3.402823466e+38;
+    [unroll] for (int z = -1; z <= 1; ++z)
+    [unroll] for (int y = -1; y <= 1; ++y)
+    [unroll] for (int x = -1; x <= 1; ++x)
+    {
+        uint key = HashCell(centre + int3(x, y, z));
+        uint entry = _EndpointHashHeads[key & (_HalfEdgeHashCapacity - 1u)];
+        [loop]
+        for (uint chain = 0u; chain < 128u && entry != ATLAS_INVALID; ++chain)
+        {
+            uint4 candidate = _EndpointHashEntries[entry];
+            uint otherIndex = candidate.y > 0u ? candidate.y - 1u : ATLAS_INVALID;
+            if (candidate.x == key && candidate.z == 0u && otherIndex != index &&
+                otherIndex < _HalfEdgeCapacity)
+            {
+                SurfaceHalfEdge other = _HalfEdges[otherIndex];
+                if ((other.flags & (HALF_EDGE_ACTIVE | HALF_EDGE_OUTER)) ==
+                        (HALF_EDGE_ACTIVE | HALF_EDGE_OUTER) &&
+                    other.manifoldId == edge.manifoldId &&
+                    other.manifoldGeneration == edge.manifoldGeneration)
+                {
+                    SupportContourSegment otherSegment = _SupportContours[otherIndex];
+                    AtlasContactFilmHeader otherFilm =
+                        _FilmHeaders[otherSegment.filmId - 1u];
+                    float d = distance(endPoint,
+                        FilmPoint(otherFilm, otherSegment.uv01.xy));
+                    float gate = _WeldPositionFloor + 3.0 *
+                        sqrt(segment.sigma * segment.sigma +
+                            otherSegment.sigma * otherSegment.sigma) +
+                        0.5 * (segment.bandwidth + otherSegment.bandwidth);
+                    if (d <= gate && d < bestDistance)
+                    {
+                        bestDistance = d; best = otherIndex;
+                    }
+                }
+            }
+            entry = candidate.w;
+        }
+    }
+    if (best == ATLAS_INVALID) return;
+    edge.nextId = best + 1u; edge.nextGeneration = _HalfEdges[best].generation;
+    _HalfEdges[index] = edge;
+    uint observed;
+    InterlockedCompareExchange(_HalfEdges[best].previousId, 0u,
+        edge.id, observed);
+    if (observed == 0u) _HalfEdges[best].previousGeneration = edge.generation;
+}
+
+[numthreads(64, 1, 1)]
+void InitializeFrontierComponents(uint3 id : SV_DispatchThreadID)
+{
+    uint index = id.x; if (index >= SegmentDomain()) return;
+    SurfaceHalfEdge edge = _HalfEdges[index];
+    bool outer = (edge.flags & (HALF_EDGE_ACTIVE | HALF_EDGE_OUTER)) ==
+        (HALF_EDGE_ACTIVE | HALF_EDGE_OUTER);
+    _HalfEdgeLoopParents[index] = outer ? index : ATLAS_INVALID;
+}
+
+[numthreads(64, 1, 1)]
+void HookFrontierComponents(uint3 id : SV_DispatchThreadID)
+{
+    uint index = id.x; if (index >= SegmentDomain()) return;
+    SurfaceHalfEdge edge = _HalfEdges[index];
+    if (_HalfEdgeLoopParents[index] == ATLAS_INVALID || edge.nextId == 0u ||
+        edge.nextId > _HalfEdgeCapacity) return;
+    uint other = edge.nextId - 1u;
+    uint rootA = FindLoopRoot(index); uint rootB = FindLoopRoot(other);
+    if (rootA == ATLAS_INVALID || rootB == ATLAS_INVALID || rootA == rootB) return;
+    uint high = max(rootA, rootB); uint low = min(rootA, rootB); uint observed;
+    InterlockedMin(_HalfEdgeLoopParents[high], low, observed);
+}
+
+[numthreads(64, 1, 1)]
+void ShortcutFrontierComponents(uint3 id : SV_DispatchThreadID)
+{
+    uint index = id.x; if (index >= SegmentDomain()) return;
+    uint root = FindLoopRoot(index);
+    if (root != ATLAS_INVALID) _HalfEdgeLoopParents[index] = root;
+}
+
+[numthreads(64, 1, 1)]
+void CreateFrontierLoops(uint3 id : SV_DispatchThreadID)
+{
+    uint index = id.x; if (index >= SegmentDomain() ||
+        _HalfEdgeLoopParents[index] != index) return;
+    SurfaceHalfEdge edge = _HalfEdges[index];
+    if (edge.manifoldId == 0u || edge.manifoldId > _ManifoldCapacity) return;
+    AtlasPressureManifoldHeader manifold = _ManifoldHeaders[edge.manifoldId - 1u];
+    FrontierLoop loop = (FrontierLoop)0;
+    loop.id = index + 1u; loop.generation = edge.generation;
+    loop.manifoldId = edge.manifoldId;
+    loop.manifoldGeneration = edge.manifoldGeneration;
+    loop.firstHalfEdgeId = edge.id;
+    loop.firstHalfEdgeGeneration = edge.generation;
+    loop.flags = FRONTIER_LOOP_ACTIVE | FRONTIER_LOOP_ORDERED |
+        FRONTIER_LOOP_LATENT_TOPOLOGY_ONLY;
+    loop.latentAnchor = manifold.opticalSeed;
+    loop.sigma = manifold.seedSigma; loop.revision = 1u;
+    _FrontierLoops[index] = loop;
+    _HalfEdgeLoopIds[index] = loop.id;
+}
+
+[numthreads(64, 1, 1)]
+void AssignFrontierLoops(uint3 id : SV_DispatchThreadID)
+{
+    uint index = id.x; if (index >= SegmentDomain()) return;
+    uint root = FindLoopRoot(index);
+    if (root == ATLAS_INVALID || root >= _HalfEdgeCapacity) return;
+    SurfaceHalfEdge edge = _HalfEdges[index];
+    if ((edge.flags & (HALF_EDGE_ACTIVE | HALF_EDGE_OUTER)) !=
+        (HALF_EDGE_ACTIVE | HALF_EDGE_OUTER)) return;
+    FrontierLoop loop = _FrontierLoops[root];
+    edge.frontierLoopId = loop.id;
+    edge.frontierLoopGeneration = loop.generation;
+    _HalfEdges[index] = edge;
+    InterlockedAdd(_FrontierLoops[root].halfEdgeCount, 1u);
+    SupportContourSegment segment = _SupportContours[index];
+    if (segment.filmId > 0u && segment.filmId <= _FilmCapacity)
+    {
+        AtlasContactFilmHeader film = _FilmHeaders[segment.filmId - 1u];
+        float3 anchor = loop.latentAnchor;
+        float3 p0 = FilmPoint(film, segment.uv01.xy) - anchor;
+        float3 p1 = FilmPoint(film, segment.uv01.zw) - anchor;
+        int3 areaMoment = (int3)round(clamp(cross(p0, p1) * 16384.0,
+            -2147480000.0, 2147480000.0));
+        int confidenceMoment = (int)round(saturate(segment.confidence) * 4096.0);
+        InterlockedAdd(_FrontierLoopMoments[root].x, areaMoment.x);
+        InterlockedAdd(_FrontierLoopMoments[root].y, areaMoment.y);
+        InterlockedAdd(_FrontierLoopMoments[root].z, areaMoment.z);
+        InterlockedAdd(_FrontierLoopMoments[root].w, confidenceMoment);
+    }
+    if (edge.nextId == 0u || edge.previousId == 0u)
+    {
+        InterlockedAnd(_FrontierLoops[root].flags,
+            ~FRONTIER_LOOP_ORDERED);
+        InterlockedAdd(_ManifoldDiagnostics[8], 1u);
+    }
+}
+
+[numthreads(64, 1, 1)]
+void FinalizeFrontierLoops(uint3 id : SV_DispatchThreadID)
+{
+    uint root = id.x;
+    if (root >= SegmentDomain() || _HalfEdgeLoopParents[root] != root) return;
+    FrontierLoop loop = _FrontierLoops[root];
+    if ((loop.flags & FRONTIER_LOOP_ACTIVE) == 0u || loop.firstHalfEdgeId == 0u ||
+        loop.firstHalfEdgeId > _HalfEdgeCapacity) return;
+    SurfaceHalfEdge first = _HalfEdges[loop.firstHalfEdgeId - 1u];
+    if (first.filmId == 0u || first.filmId > _FilmCapacity) return;
+    AtlasContactFilmHeader film = _FilmHeaders[first.filmId - 1u];
+    int4 moment = _FrontierLoopMoments[root];
+    float3 areaVector = (float3)moment.xyz / 16384.0;
+    loop.signedArea = 0.5 * dot(areaVector, film.normal);
+    loop.flags &= ~(FRONTIER_LOOP_OUTER | FRONTIER_LOOP_INNER);
+    loop.flags |= loop.signedArea >= 0.0 ? FRONTIER_LOOP_OUTER :
+        FRONTIER_LOOP_INNER;
+    loop.support = (float)loop.halfEdgeCount;
+    loop.confidence = loop.halfEdgeCount > 0u ?
+        saturate((float)moment.w / (4096.0 * (float)loop.halfEdgeCount)) : 0.0;
+    loop.revision = max(1u, loop.revision + 1u);
+    _FrontierLoops[root] = loop;
+}

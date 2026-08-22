@@ -72,6 +72,8 @@ namespace Genesis.RoomScan
         private PrismFilmUpdater _prismFilmUpdater;
         private PrismBoundaryGraph _prismBoundaryGraph;
         private PrismDisplacementTopology _prismDisplacementTopology;
+        private PrismPressureManifoldAtlas _prismPressureManifoldAtlas;
+        private PrismEvidenceAlignedSplitter _prismEvidenceAlignedSplitter;
         private PrismMeshletBuilder _prismMeshletBuilder;
         private PrismChunkResidencyManager _prismChunkResidency;
         private PrismWorldMeshletRenderer _prismWorldRenderer;
@@ -160,6 +162,9 @@ namespace Genesis.RoomScan
         /// <summary>Sparse hierarchical micro-geometry and topology posterior.</summary>
         public PrismDisplacementTopology PrismDisplacementTopology =>
             _prismDisplacementTopology;
+        /// <summary>Support-contour/half-edge PressureManifold topology atlas.</summary>
+        public PrismPressureManifoldAtlas PrismPressureManifoldAtlas =>
+            _prismPressureManifoldAtlas;
         /// <summary>GPU ContactFilm-to-meshlet publication stage.</summary>
         public PrismMeshletBuilder PrismMeshletBuilder => _prismMeshletBuilder;
         /// <summary>Native PRISM chunk staging, paging, restart, and revisit.</summary>
@@ -245,7 +250,6 @@ namespace Genesis.RoomScan
         private void CacheComponents()
         {
             _depthCapture = GetComponent<DepthCapture>();
-            _depthCapture.RawStereoOnly = true;
             _cameraProvider = GetComponent<PassthroughCameraProvider>();
             _prismRigCapture = GetComponent<PrismRigCapture>();
             if (_prismRigCapture == null)
@@ -276,6 +280,15 @@ namespace Genesis.RoomScan
             if (_prismDisplacementTopology == null)
                 _prismDisplacementTopology =
                     gameObject.AddComponent<PrismDisplacementTopology>();
+            _prismPressureManifoldAtlas = GetComponent<PrismPressureManifoldAtlas>();
+            if (_prismPressureManifoldAtlas == null)
+                _prismPressureManifoldAtlas =
+                    gameObject.AddComponent<PrismPressureManifoldAtlas>();
+            _prismEvidenceAlignedSplitter =
+                GetComponent<PrismEvidenceAlignedSplitter>();
+            if (_prismEvidenceAlignedSplitter == null)
+                _prismEvidenceAlignedSplitter =
+                    gameObject.AddComponent<PrismEvidenceAlignedSplitter>();
             _prismMeshletBuilder = GetComponent<PrismMeshletBuilder>();
             if (_prismMeshletBuilder == null)
                 _prismMeshletBuilder = gameObject.AddComponent<PrismMeshletBuilder>();
@@ -526,6 +539,7 @@ namespace Genesis.RoomScan
             _prismFilmUpdater?.SetChunkFrame(worldFromChunk);
             _prismBoundaryGraph?.SetChunkFrame(worldFromChunk);
             _prismDisplacementTopology?.SetChunkFrame(worldFromChunk);
+            _prismPressureManifoldAtlas?.SetChunkFrame(numericId);
             _prismPredictionRenderer?.Meshlets?.SetChunkTransform(worldFromChunk);
         }
 
@@ -540,6 +554,8 @@ namespace Genesis.RoomScan
                 _prismFilmSpawner, false);
             _prismDisplacementTopology?.StartUpdating(_prismBoundaryGraph,
                 _prismFilmSpawner, false);
+            _prismPressureManifoldAtlas?.StartAtlas(_prismFilmSpawner,
+                _prismDisplacementTopology, _prismBoundaryGraph);
             _prismConeClassifier?.StartClassifying(_prismPredictionRenderer,
                 _prismBoundaryGraph, _prismFilmSpawner?.PressureManifolds, false);
             _prismPredictionRenderer?.StartRendering(_prismDepthPreprocessor,
@@ -564,7 +580,8 @@ namespace Genesis.RoomScan
                 _prismPredictionRenderer, _prismConeClassifier,
                 _prismFilmSpawner, _prismPhotometricRefiner,
                 _prismFilmUpdater, _prismBoundaryGraph,
-                _prismDisplacementTopology, _prismMeshletBuilder);
+                _prismDisplacementTopology, _prismPressureManifoldAtlas,
+                _prismMeshletBuilder);
             _prismDepthPreprocessor?.StartProcessing(_prismRigCapture);
             _prismPipelinePrepared = true;
         }

@@ -55,7 +55,7 @@ namespace Genesis.RoomScan.Tests
 
             Assert.That(controller.TryCommitPending(store, 1_300, out ChunkRecord target,
                 out string commitError), Is.True, commitError);
-            Assert.That(controller.ResidentVolumeCount, Is.EqualTo(1));
+            Assert.That(controller.ActiveChunkCount, Is.EqualTo(1));
             Assert.That(controller.Manifest.chunks[0].state,
                 Is.EqualTo(ChunkLifecycleState.Persisted));
             Assert.That(target.state, Is.EqualTo(ChunkLifecycleState.Active));
@@ -151,8 +151,7 @@ namespace Genesis.RoomScan.Tests
                     out _, out string observeError), Is.True, observeError);
                 Assert.That(controller.TryCommitPending(store, ++time, out _,
                     out string commitError), Is.True, commitError);
-                Assert.That(controller.ResidentVolumeCount,
-                    Is.LessThanOrEqualTo(controller.MaximumResidentVolumeCount));
+                Assert.That(controller.ActiveChunkCount, Is.LessThanOrEqualTo(1));
             }
 
             Assert.That(controller.Manifest.chunks.Count, Is.EqualTo(33));
@@ -190,7 +189,7 @@ namespace Genesis.RoomScan.Tests
                 Assert.That(controller.Manifest.chunks,
                     Has.None.Matches<ChunkRecord>(chunk =>
                         chunk.state == ChunkLifecycleState.Finalizing));
-                Assert.That(controller.ResidentVolumeCount, Is.EqualTo(1));
+                Assert.That(controller.ActiveChunkCount, Is.EqualTo(1));
             }
 
             Assert.That(controller.Manifest.chunks.Count, Is.EqualTo(2));
