@@ -144,47 +144,92 @@ namespace Genesis.RoomScan.UI
             Set(_renderState, scanner.CurrentRenderMode.ToString());
             Set(_pipeline, scanner.RuntimeStage);
 
+            var inverse = scanner.SigmaInverse;
+            SigmaRuntimeTelemetrySnapshot telemetry =
+                inverse?.RuntimeTelemetry;
             var gate = scanner.ExactBackendGate;
             SigmaExactBackendGateStatus gateStatus = gate?.DiagnosticStatus ??
                 SigmaExactBackendGateStatus.Disposed;
-            SetStatus(_gateState, gateStatus switch
+            SetStatus(_gateState, telemetry?.HasSample == true
+                ? telemetry.GateWord != 0u
+                    ? $"PASS · GPU witness={telemetry.GateWord}"
+                    : "FAIL-CLOSED · GPU witness=0"
+                : gateStatus switch
             {
                 SigmaExactBackendGateStatus.GpuResident =>
-                    "GPU-resident · exact kernels fail closed",
+                    "GPU-resident · awaiting witness telemetry",
                 SigmaExactBackendGateStatus.Disposed => "disposed",
                 _ => "unavailable"
-            }, gateStatus switch
+            }, telemetry?.HasSample == true
+                ? telemetry.GateWord != 0u ? StatusKind.Good : StatusKind.Error
+                : gateStatus switch
             {
-                SigmaExactBackendGateStatus.GpuResident => StatusKind.Good,
+                SigmaExactBackendGateStatus.GpuResident => StatusKind.Warning,
                 _ => StatusKind.Error
             });
 
             var carrier = scanner.Carrier;
-            SetStatus(_carrierState, carrier == null ? "missing" :
-                carrier.IsInitialized
-                    ? $"ready · pages={carrier.ResidentPageCount} · segments={carrier.SegmentCount}"
-                    : "initializing", carrier != null && carrier.IsInitialized
-                        ? StatusKind.Good : StatusKind.Warning);
+            string carrierText = carrier == null ? "missing" :
+                !carrier.IsInitialized ? "initializing" :
+                telemetry?.HasSample == true
+                    ? $"published={telemetry.SchedulerPublications} · " +
+                      $"readout={telemetry.ReadoutPageCount}p/" +
+                      $"{telemetry.DrawVertexCount}v · " +
+                      (telemetry.ReadoutVertices.HasSample
+                          ? $"support={telemetry.ReadoutVertices.SupportedCount}/" +
+                            $"{telemetry.ReadoutVertices.SampleCount}"
+                          : "support=pending")
+                    : "ready · awaiting GPU telemetry";
+            StatusKind carrierKind = carrier == null ? StatusKind.Error :
+                !carrier.IsInitialized ? StatusKind.Warning :
+                telemetry?.HasSample != true ? StatusKind.Warning :
+                telemetry.ReadoutVertices.HasSample &&
+                    telemetry.ReadoutVertices.SupportedCount != 0
+                    ? StatusKind.Good :
+                inverse != null && inverse.CommittedFrames != 0
+                    ? StatusKind.Warning : StatusKind.Neutral;
+            SetStatus(_carrierState, carrierText, carrierKind);
 
             var topology = scanner.SigmaTopology;
-            SetStatus(_topologyState, topology == null ? "missing" :
-                topology.IsInitialized
-                    ? $"ready · derived pages={topology.PublishedPageCount}"
-                    : "initializing", topology != null && topology.IsInitialized
-                        ? StatusKind.Good : StatusKind.Warning);
+            string topologyText = topology == null ? "missing" :
+                !topology.IsInitialized ? "initializing" :
+                telemetry?.HasSample == true
+                    ? $"eval={telemetry.TopologyEvaluated} · " +
+                      $"singular={telemetry.TopologySingular} · " +
+                      $"unresolved={telemetry.TopologyUnresolved} · " +
+                      $"overflow={telemetry.TopologyOverflow}"
+                    : "ready · awaiting GPU telemetry";
+            StatusKind topologyKind = topology == null ? StatusKind.Error :
+                !topology.IsInitialized || telemetry?.HasSample != true
+                    ? StatusKind.Warning :
+                telemetry.TopologyOverflow == 0u ? StatusKind.Good :
+                    StatusKind.Warning;
+            SetStatus(_topologyState, topologyText, topologyKind);
 
-            var inverse = scanner.SigmaInverse;
             if (inverse == null)
                 SetStatus(_inverseState, "missing", StatusKind.Error);
             else if (!inverse.IsInitialized)
                 SetStatus(_inverseState, "initializing", StatusKind.Warning);
+            else if (telemetry?.HasSample != true)
+                SetStatus(_inverseState,
+                    $"frames={inverse.CommittedFrames}/" +
+                    $"{inverse.SubmittedFrames} · telemetry=" +
+                    (telemetry?.Status ?? "unavailable"),
+                    StatusKind.Warning);
             else
             {
-                var diagnostics = inverse.LastDiagnostics;
-                string text = $"ready · frames={inverse.CommittedFrames}/" +
-                              $"{inverse.SubmittedFrames} · changed={diagnostics.ChangedSamples}";
+                string text = $"frames={inverse.CommittedFrames}/" +
+                    $"{inverse.SubmittedFrames} · bundles={telemetry.BundlesReady} · " +
+                    $"tx={telemetry.SchedulerActive}/{telemetry.SchedulerDormant} · " +
+                    $"proof={telemetry.ProofBlocksReduced}/" +
+                    $"{telemetry.ProofClosures} · " +
+                    $"qms={telemetry.Timing.Canonical.LastMs:F1}/" +
+                    $"{telemetry.Timing.Derived.LastMs:F1} · " +
+                    $"at={telemetry.Frontier}";
                 SetStatus(_inverseState, text,
-                    inverse.FailedFrames == 0 && diagnostics.FailedChecks == 0
+                    inverse.FailedFrames == 0 && telemetry.ErrorMask == 0u &&
+                    telemetry.SchedulerFailures == 0u &&
+                    telemetry.LifetimeFailures == 0u
                         ? StatusKind.Good : StatusKind.Warning);
             }
 

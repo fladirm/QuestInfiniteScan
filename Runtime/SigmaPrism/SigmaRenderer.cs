@@ -205,6 +205,35 @@ namespace Genesis.RoomScan.SigmaPrism
             _streamManifestCapacity = 0;
         }
 
+        internal bool TryGetStreamingReadoutDiagnostics(
+            out GraphicsBuffer drawArguments,
+            out GraphicsBuffer currentPageSlots,
+            out GraphicsBuffer vertices,
+            out int pageCapacity)
+        {
+            drawArguments = null;
+            currentPageSlots = null;
+            vertices = null;
+            pageCapacity = 0;
+            if (_streamSegmentIndex < 0 || !_initialized)
+                return false;
+            EnsureSegmentCaches();
+            int count = Math.Min(_readBatches.Count, _segmentCaches.Count);
+            for (int index = 0; index < count; ++index)
+            {
+                if (_readBatches[index].SegmentIndex != _streamSegmentIndex)
+                    continue;
+                SegmentReadoutCache cache = _segmentCaches[index];
+                drawArguments = cache.DrawArguments;
+                currentPageSlots = cache.CurrentPageSlots;
+                vertices = cache.Vertices;
+                pageCapacity = cache.Capacity;
+                return drawArguments != null && currentPageSlots != null &&
+                    vertices != null && pageCapacity > 0;
+            }
+            return false;
+        }
+
         public bool TryAcquireLatest(out SigmaPredictionFrameLease frame)
         {
             if (_latest == null || _latest.IsDisposed)

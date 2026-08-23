@@ -46,6 +46,10 @@ namespace Genesis.RoomScan.SigmaPrism
             new SigmaPackedQ48[RgbCalibrationStride * 2];
         private readonly SigmaPackedQ48[] _posePriorUpload =
             new SigmaPackedQ48[PosePriorValueCount];
+        private readonly LatencyTracker _ingressLatency = new();
+        private readonly LatencyTracker _canonicalLatency = new();
+        private readonly LatencyTracker _derivedLatency = new();
+        private readonly FrameTiming[] _frameTimings = new FrameTiming[1];
 
         private RoomScanner _scanner;
         private SigmaCarrier _carrier;
@@ -57,6 +61,7 @@ namespace Genesis.RoomScan.SigmaPrism
         private SigmaConstraintLedger _proofLedger;
         private SigmaStreamingResources _stream;
         private SigmaStreamingGraph _graph;
+        private SigmaDiagnosticTelemetry _diagnosticTelemetry;
         private RigCalibration _calibration;
         private RigConeLutSet _coneLuts;
 
@@ -102,7 +107,9 @@ namespace Genesis.RoomScan.SigmaPrism
         public int PendingCompletionTickets => CountPendingTickets() +
             SigmaGpuRetirement.PendingCount;
         public GraphicsBuffer PerformanceCounters => _stream?.Diagnostics;
-        public SigmaInverseDiagnosticSnapshot LastDiagnostics { get; private set; }
+        public SigmaRuntimeTelemetrySnapshot RuntimeTelemetry =>
+            _diagnosticTelemetry?.Snapshot ??
+            SigmaRuntimeTelemetrySnapshot.Awaiting;
 
         public void OnModuleInitialize(RoomScanner scanner)
         {
@@ -134,6 +141,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 rawTileCapacity, _backendGate,
                 SigmaGeneratedStreaming.TransactionCapacity);
             _stream = new SigmaStreamingResources(_pool.PageCapacity);
+            _diagnosticTelemetry = new SigmaDiagnosticTelemetry();
             _renderer.BindStreamingManifest(_pool.SegmentIndex,
                 _stream.PublicationManifests, _stream.PageVisibility,
                 _pool.PageCapacity);
@@ -169,6 +177,9 @@ namespace Genesis.RoomScan.SigmaPrism
             _running = true;
             _hasPreviousTrackingPose = false;
             _previousTrackingTimestampNs = 0L;
+            _ingressLatency.Reset();
+            _canonicalLatency.Reset();
+            _derivedLatency.Reset();
         }
 
         public void OnScanStopped()
@@ -197,6 +208,7 @@ namespace Genesis.RoomScan.SigmaPrism
             PollIngress();
             PollCanonical();
             PollDerived();
+            FrameTimingManager.CaptureFrameTimings();
             if (_completionFaulted || !_graphReady)
                 return;
 
@@ -220,6 +232,39 @@ namespace Genesis.RoomScan.SigmaPrism
 
             if (!_completionFaulted && _canonical == null && _derived == null)
                 SubmitCanonicalAndDerived();
+
+            float telemetryTime = Time.unscaledTime;
+            if (_diagnosticTelemetry?.IsDue(telemetryTime) == true)
+            {
+                _renderer.TryGetStreamingReadoutDiagnostics(
+                    out GraphicsBuffer drawArguments,
+                    out GraphicsBuffer currentPageSlots,
+                    out GraphicsBuffer readoutVertices,
+                    out int readoutPageCapacity);
+                _diagnosticTelemetry.Tick(telemetryTime, SubmittedFrames,
+                    CommittedFrames, unchecked(_nextRevision - 1u),
+                    _backendGate.Buffer, _stream.Diagnostics,
+                    _stream.SchedulerControl, _stream.WorkCounts,
+                    _stream.Transactions, _topology.DiagnosticCounters,
+                    drawArguments, currentPageSlots, readoutVertices,
+                    readoutPageCapacity, CaptureTimingTelemetry());
+            }
+        }
+
+        private SigmaRuntimeTimingTelemetry CaptureTimingTelemetry()
+        {
+            uint timingCount = FrameTimingManager.GetLatestTimings(1,
+                _frameTimings);
+            bool hasFrameTiming = timingCount != 0u &&
+                _frameTimings[0].cpuFrameTime > 0.0 &&
+                _frameTimings[0].gpuFrameTime > 0.0;
+            return new SigmaRuntimeTimingTelemetry(
+                _ingressLatency.Snapshot,
+                _canonicalLatency.Snapshot,
+                _derivedLatency.Snapshot,
+                hasFrameTiming ? _frameTimings[0].cpuFrameTime : 0.0,
+                hasFrameTiming ? _frameTimings[0].gpuFrameTime : 0.0,
+                hasFrameTiming);
         }
 
         private void RecordGraphInitialization()
@@ -233,7 +278,7 @@ namespace Genesis.RoomScan.SigmaPrism
                     SigmaGpuCompletion.RecordAfterAllWork(command);
                 Graphics.ExecuteCommandBuffer(command);
                 _initialization = new Submission(ticket,
-                    "stream initialization");
+                    "stream initialization", Time.realtimeSinceStartupAsDouble);
                 TrackLast(ticket);
             }
             finally
@@ -307,12 +352,10 @@ namespace Genesis.RoomScan.SigmaPrism
                     SigmaGpuCompletion.RecordAfterAllWork(command);
                 Graphics.ExecuteCommandBuffer(command);
                 slot.Begin(prediction, correctedPrediction, luts, ticket,
-                    revision);
+                    revision, Time.realtimeSinceStartupAsDouble);
                 correctedPrediction = null;
                 luts = null;
                 SubmittedFrames++;
-                LastDiagnostics = SigmaInverseDiagnosticSnapshot.GpuResident(
-                    revision);
                 TrackLast(ticket);
             }
             catch
@@ -340,7 +383,7 @@ namespace Genesis.RoomScan.SigmaPrism
                     SigmaGpuCompletion.RecordAfterAllWork(canonical);
                 Graphics.ExecuteCommandBuffer(canonical);
                 _canonical = new Submission(canonicalTicket,
-                    "canonical quantum");
+                    "canonical quantum", Time.realtimeSinceStartupAsDouble);
                 TrackLast(canonicalTicket);
             }
             catch (Exception exception)
@@ -362,7 +405,8 @@ namespace Genesis.RoomScan.SigmaPrism
                 SigmaGpuCompletionTicket derivedTicket =
                     SigmaGpuCompletion.RecordAfterAllWork(derived);
                 Graphics.ExecuteCommandBuffer(derived);
-                _derived = new Submission(derivedTicket, "derived quantum");
+                _derived = new Submission(derivedTicket, "derived quantum",
+                    Time.realtimeSinceStartupAsDouble);
                 TrackLast(derivedTicket);
             }
             catch (Exception exception)
@@ -420,6 +464,8 @@ namespace Genesis.RoomScan.SigmaPrism
                         $"closed: {error}");
                     continue;
                 }
+                _ingressLatency.Add(slot.ElapsedMilliseconds(
+                    Time.realtimeSinceStartupAsDouble));
                 slot.Complete();
                 CommittedFrames++;
             }
@@ -441,6 +487,8 @@ namespace Genesis.RoomScan.SigmaPrism
                     error);
                 return;
             }
+            _canonicalLatency.Add(_canonical.ElapsedMilliseconds(
+                Time.realtimeSinceStartupAsDouble));
             _canonical = null;
         }
 
@@ -460,6 +508,8 @@ namespace Genesis.RoomScan.SigmaPrism
                     error);
                 return;
             }
+            _derivedLatency.Add(_derived.ElapsedMilliseconds(
+                Time.realtimeSinceStartupAsDouble));
             _derived = null;
         }
 
@@ -1054,6 +1104,10 @@ namespace Genesis.RoomScan.SigmaPrism
             };
             SigmaConstraintLedger ledger = _proofLedger;
             SigmaStreamingResources stream = _stream;
+            SigmaDiagnosticTelemetry diagnosticTelemetry =
+                _diagnosticTelemetry;
+            _diagnosticTelemetry = null;
+            diagnosticTelemetry?.Dispose();
             _renderer?.UnbindStreamingManifest(
                 stream?.PublicationManifests);
             _proofLedger = null;
@@ -1106,16 +1160,55 @@ namespace Genesis.RoomScan.SigmaPrism
         private sealed class Submission
         {
             private readonly SigmaGpuCompletionTicket _ticket;
-            internal Submission(SigmaGpuCompletionTicket ticket, string label)
+            private readonly double _submittedAt;
+
+            internal Submission(SigmaGpuCompletionTicket ticket, string label,
+                double submittedAt)
             {
                 _ticket = ticket;
                 Label = label;
+                _submittedAt = submittedAt;
             }
             internal string Label { get; }
             internal long AgeFrames { get; private set; }
             internal void AdvanceAge() => AgeFrames++;
+            internal double ElapsedMilliseconds(double completedAt) =>
+                Math.Max(0.0, completedAt - _submittedAt) * 1000.0;
             internal SigmaGpuCompletionStatus Poll(out string error) =>
                 _ticket.Poll(out error);
+        }
+
+        private sealed class LatencyTracker
+        {
+            private long _sampleCount;
+            private double _lastMs;
+            private double _totalMs;
+            private double _maximumMs;
+
+            internal SigmaStageLatencyTelemetry Snapshot =>
+                new(_sampleCount, _lastMs,
+                    _sampleCount == 0 ? 0.0 : _totalMs / _sampleCount,
+                    _maximumMs);
+
+            internal void Add(double milliseconds)
+            {
+                if (double.IsNaN(milliseconds) ||
+                    double.IsInfinity(milliseconds))
+                    return;
+                milliseconds = Math.Max(0.0, milliseconds);
+                _lastMs = milliseconds;
+                _totalMs += milliseconds;
+                _maximumMs = Math.Max(_maximumMs, milliseconds);
+                _sampleCount++;
+            }
+
+            internal void Reset()
+            {
+                _sampleCount = 0L;
+                _lastMs = 0.0;
+                _totalMs = 0.0;
+                _maximumMs = 0.0;
+            }
         }
 
         private sealed class IngressSlot : IDisposable
@@ -1124,6 +1217,7 @@ namespace Genesis.RoomScan.SigmaPrism
             private SigmaPredictionFrameLease _correctedPrediction;
             private ConeLutLease _coneLuts;
             private SigmaGpuCompletionTicket _ticket;
+            private double _submittedAt;
             private readonly int _index;
             private Vector2Int _resolution;
             private int _posePartialCapacity;
@@ -1168,7 +1262,7 @@ namespace Genesis.RoomScan.SigmaPrism
             internal void Begin(SigmaPredictionFrameLease prediction,
                 SigmaPredictionFrameLease correctedPrediction,
                 ConeLutLease coneLuts, SigmaGpuCompletionTicket ticket,
-                uint revision)
+                uint revision, double submittedAt)
             {
                 if (InFlight)
                     throw new InvalidOperationException(
@@ -1177,6 +1271,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 _correctedPrediction = correctedPrediction;
                 _coneLuts = coneLuts;
                 _ticket = ticket;
+                _submittedAt = submittedAt;
                 Revision = revision;
                 AgeFrames = 0L;
                 InFlight = true;
@@ -1185,6 +1280,8 @@ namespace Genesis.RoomScan.SigmaPrism
             internal SigmaGpuCompletionStatus Poll(out string error) =>
                 _ticket.Poll(out error);
             internal void AdvanceAge() => AgeFrames++;
+            internal double ElapsedMilliseconds(double completedAt) =>
+                Math.Max(0.0, completedAt - _submittedAt) * 1000.0;
 
             internal void EnsureFrameResources(Vector2Int resolution,
                 int blockCount)
@@ -1233,6 +1330,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 _coneLuts = null;
                 InFlight = false;
                 AgeFrames = 0L;
+                _submittedAt = 0.0;
             }
 
             public void Dispose()
@@ -1258,34 +1356,9 @@ namespace Genesis.RoomScan.SigmaPrism
                 MetricDepth = null;
                 DepthFlags = null;
                 InFlight = false;
+                _submittedAt = 0.0;
             }
         }
     }
 
-    public readonly struct SigmaInverseDiagnosticSnapshot
-    {
-        private SigmaInverseDiagnosticSnapshot(uint revision)
-        {
-            ActivePages = 0u;
-            HitSamples = 0u;
-            ChangedSamples = 0u;
-            EmptyMeets = 0u;
-            Exclusions = 0u;
-            UnmatchedBlocks = 0u;
-            PromotedSamples = 0u;
-            FailedChecks = 0u;
-            EvidenceRecords = revision;
-        }
-        public uint ActivePages { get; }
-        public uint HitSamples { get; }
-        public uint ChangedSamples { get; }
-        public uint EmptyMeets { get; }
-        public uint Exclusions { get; }
-        public uint UnmatchedBlocks { get; }
-        public uint PromotedSamples { get; }
-        public uint FailedChecks { get; }
-        public uint EvidenceRecords { get; }
-        internal static SigmaInverseDiagnosticSnapshot GpuResident(
-            uint revision) => new(revision);
-    }
 }
