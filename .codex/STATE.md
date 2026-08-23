@@ -70,12 +70,17 @@ Updated: 2026-08-23 (Europe/Prague)
   in inverse, transition, historical revalidation and the same proof/derived
   variants plus one nested scheduler unroll. All six shaders were reviewed with
   their host bindings and replaced as complete files. The resulting focused
-  Vulkan streaming gate is 4/4 and UAV/diff gates remain green; a fresh Release
-  build is the next and only compiler oracle still pending.
+  Vulkan streaming gate is 4/4 and UAV/diff gates remain green.
+- The next Release compiler reached `EvaluateTransactionMicrotile` without a
+  shader error but spent over three minutes expanding its exact fixed reductions.
+  `SigmaStreamInverse.compute`, its ABI and complete host bind/dispatch path were
+  manually reviewed and the whole shader was re-emitted with identical sequential
+  Q48/validity ordering under bounded `[loop]` lowering rather than forced clone
+  expansion. Focused Vulkan streaming remains 4/4 and the UAV limit remains 8.
 
 ## Exact next action
 
-1. Commit the second complete-file Android/Vulkan portability set and current
+1. Commit the compiler-bounded complete-file inverse replacement and current
    generated code graph.
 2. Build the Android/Vulkan IL2CPP Release APK from that exact commit.
 3. Install it on the connected Quest and create a source-only `git archive` ZIP

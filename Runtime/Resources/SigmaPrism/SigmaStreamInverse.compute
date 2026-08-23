@@ -10,6 +10,9 @@
 // Bounded canonical evaluator. One group is sixteen carrier samples by sixteen
 // S16 coordinates. Complete sealed sources meet in ticket order; publication is
 // impossible until the final source and proof/transition closure have finished.
+// Fixed serial reductions remain loops so the Android compiler cannot clone the
+// exact Q48 circuit. Their source order, validity propagation and barriers are
+// canonical and unchanged by this execution lowering.
 
 StructuredBuffer<uint2> _CarrierState;
 StructuredBuffer<SigmaCarrierPageMetaGpu> _PageMetadata;
@@ -229,7 +232,7 @@ void SigmaEvalHadamard(uint flat, uint coordinate, uint sampleLocal,
     result = SIGMA_Q48_ZERO;
     valid = inputValid;
     uint base = flat - coordinate;
-    [unroll]
+    [loop]
     for (uint source = 0u; source < 16u; ++source)
     {
         uint2 term = SigmaHadamardSign(coordinate, source) < 0
@@ -248,7 +251,7 @@ void SigmaEvalReduceValidity(uint flat, uint coordinate, uint sampleLocal,
     {
         uint base = flat;
         uint valid = 1u;
-        [unroll]
+        [loop]
         for (uint lane = 0u; lane < 16u; ++lane)
             valid &= EvalLaneValid[base + lane];
         EvalSampleValid[sampleLocal] = valid;
@@ -302,12 +305,12 @@ bool SigmaEvalBuildBootstrap(SigmaDepthCell3 left, SigmaDepthCell3 right,
     uint valid = 1u;
     SigmaQ48Bounds joint[3];
     uint depthCount = 0u;
-    [unroll]
+    [loop]
     for (uint axis = 0u; axis < 3u; ++axis)
         joint[axis] = SigmaEvalFullBounds();
     if (left.valid != 0u && left.sector != SIGMA_SECTOR_PRE_HIT_EXCLUSION)
     {
-        [unroll]
+        [loop]
         for (uint axis = 0u; axis < 3u; ++axis)
         {
             joint[axis].lo = SigmaQ48Max(joint[axis].lo,
@@ -320,7 +323,7 @@ bool SigmaEvalBuildBootstrap(SigmaDepthCell3 left, SigmaDepthCell3 right,
     if (right.valid != 0u &&
         right.sector != SIGMA_SECTOR_PRE_HIT_EXCLUSION)
     {
-        [unroll]
+        [loop]
         for (uint axis = 0u; axis < 3u; ++axis)
         {
             joint[axis].lo = SigmaQ48Max(joint[axis].lo,
@@ -332,7 +335,7 @@ bool SigmaEvalBuildBootstrap(SigmaDepthCell3 left, SigmaDepthCell3 right,
     }
     uint2 maximumWidth = SIGMA_Q48_ZERO;
     geometry[0] = SIGMA_Q48_ONE;
-    [unroll]
+    [loop]
     for (uint axis = 0u; axis < 3u; ++axis)
     {
         if (SigmaQ48Less(joint[axis].hi, joint[axis].lo))
@@ -411,7 +414,7 @@ SigmaQ48Bounds SigmaEvalRgbEye(uint flat, uint coordinate, uint sampleLocal,
     {
         uint reduceValid = EvalRgbActive[sampleLocal];
         SigmaQ48Bounds denominator = SigmaQ48PointBounds(SIGMA_Q48_ZERO);
-        [unroll]
+        [loop]
         for (uint lane = 0u; lane < 16u; ++lane)
         {
             denominator.lo = SigmaQ48AddChecked(denominator.lo,
@@ -465,7 +468,7 @@ SigmaQ48Bounds SigmaEvalRgbEye(uint flat, uint coordinate, uint sampleLocal,
             {
                 uint reduceValid = EvalRgbActive[sampleLocal];
                 uint2 total = SIGMA_Q48_ZERO;
-                [unroll]
+                [loop]
                 for (uint lane = 0u; lane < 16u; ++lane)
                 {
                     total = SigmaQ48AddChecked(total,
@@ -513,7 +516,7 @@ SigmaQ48Bounds SigmaEvalRgbEye(uint flat, uint coordinate, uint sampleLocal,
     if (coordinate == 0u)
     {
         uint mask = 0u;
-        [unroll]
+        [loop]
         for (uint lane = 0u; lane < 16u; ++lane)
             mask |= (EvalLaneValid[flat + lane] & 1u) << lane;
         EvalRgbMask[sampleLocal] = mask;
@@ -679,7 +682,7 @@ void EvaluateTransactionMicrotile(uint3 groupId : SV_GroupID,
             calibrationBase, geometry, bootstrapMass);
         uint valid = bootstrap ? 1u : 0u;
         uint2 projective = SIGMA_Q48_ZERO;
-        [unroll]
+        [loop]
         for (uint rowIndex = 0u; rowIndex < 4u; ++rowIndex)
         {
             uint row = SIGMA_GEOMETRY_ROWS[rowIndex];
@@ -776,7 +779,7 @@ void EvaluateTransactionMicrotile(uint3 groupId : SV_GroupID,
     SigmaDepthCell3 depthLeft = EvalDepthLeft[sampleLocal];
     SigmaDepthCell3 depthRight = EvalDepthRight[sampleLocal];
     bool novelCandidate = gauge;
-    [unroll]
+    [loop]
     for (uint axis = 0u; axis < 3u; ++axis)
     {
         if (coordinate != SIGMA_GEOMETRY_ROWS[axis + 1u])
