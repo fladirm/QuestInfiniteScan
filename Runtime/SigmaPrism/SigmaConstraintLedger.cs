@@ -85,6 +85,8 @@ namespace Genesis.RoomScan.SigmaPrism
         internal const int RawRequestStride = 16;
         internal const int ProofSampleStride = 784;
         internal const int ProofSourceCount = 4;
+        internal const int StreamingProofSourceWindowCapacity =
+            SigmaGeneratedStreaming.ProofCandidateWindowCapacity;
         internal const int ProofSourceMetaRecords = 3;
         internal const uint InvalidSlot = uint.MaxValue;
         private const string ResourceName =
@@ -115,7 +117,6 @@ namespace Genesis.RoomScan.SigmaPrism
         private GraphicsBuffer _rawAllocator;
         private GraphicsBuffer _rawLiveWords;
         private GraphicsBuffer _frameRecords;
-        private GraphicsBuffer _frameStaging;
         private GraphicsBuffer _rawRequests;
         private GraphicsBuffer _proofSamples;
         private GraphicsBuffer _proofSourceScratchMeta;
@@ -187,15 +188,13 @@ namespace Genesis.RoomScan.SigmaPrism
             _frameRecords = CreateBuffer(rawTileCapacity,
                 RawFrameRecordStride,
                 "Sigma unresolved observation frame records");
-            _frameStaging = CreateBuffer(1, RawFrameRecordStride,
-                "Sigma current immutable frame provenance staging");
             _rawRequests = CreateBuffer(checked(gpuWorkCapacity * BlocksPerPage),
                 RawRequestStride, "Sigma raw-retention transaction requests");
             _proofSamples = CreateBuffer(checked(gpuWorkCapacity *
                 SigmaCarrier.SamplesPerPage), ProofSampleStride,
                 "Sigma compact inverse proof scratch");
             int sourceCandidates = checked(gpuWorkCapacity * BlocksPerPage *
-                ProofSourceCount);
+                StreamingProofSourceWindowCapacity);
             _proofSourceScratchMeta = CreateBuffer(checked(sourceCandidates *
                 ProofSourceMetaRecords), sizeof(uint) * 4,
                 "Sigma proof source reduction metadata");
@@ -242,7 +241,6 @@ namespace Genesis.RoomScan.SigmaPrism
         internal GraphicsBuffer RawAllocatorBuffer => _rawAllocator;
         internal GraphicsBuffer RawLiveBitmapBuffer => _rawLiveWords;
         internal GraphicsBuffer FrameRecordBuffer => _frameRecords;
-        internal GraphicsBuffer FrameStagingBuffer => _frameStaging;
         internal GraphicsBuffer RawRequestBuffer => _rawRequests;
         internal GraphicsBuffer ProofSampleBuffer => _proofSamples;
         internal GraphicsBuffer ProofSourceScratchMetaBuffer =>
@@ -267,17 +265,32 @@ namespace Genesis.RoomScan.SigmaPrism
         /// survives proof minimization, so ordinary frames consume no record slot
         /// and no readback-driven lifetime scheduler is required.
         /// </summary>
-        internal void StageGpuFrame(StereoRigFrameLease frame, uint revision,
+        internal GraphicsBuffer CreateStreamingFrameStagingBuffer(string name)
+        {
+            RequireAlive();
+            return CreateBuffer(1, RawFrameRecordStride,
+                string.IsNullOrWhiteSpace(name)
+                    ? "Sigma immutable ingress provenance staging"
+                    : name);
+        }
+
+        internal void StageGpuFrame(GraphicsBuffer staging,
+            StereoRigFrameLease frame, uint revision,
             uint depthLeftKey, uint depthRightKey, uint rgbLeftKey,
             uint rgbRightKey)
         {
             RequireAlive();
+            if (staging == null || staging.count != 1 ||
+                staging.stride != RawFrameRecordStride)
+                throw new ArgumentException(
+                    "A one-record Sigma raw-frame staging buffer is required.",
+                    nameof(staging));
             if (frame == null || !frame.IsValid)
                 throw new ArgumentException("A coherent rig frame is required.",
                     nameof(frame));
             SigmaRawFrameRecordGpu record = SigmaRawFrameRecordGpu.From(frame,
                 revision, depthLeftKey, depthRightKey, rgbLeftKey, rgbRightKey);
-            _frameStaging.SetData(new[] { record });
+            staging.SetData(new[] { record });
         }
 
         internal SigmaProofFrameLease BeginFrame(StereoRigFrameLease frame,
@@ -743,7 +756,6 @@ namespace Genesis.RoomScan.SigmaPrism
             _rawAllocator?.Dispose();
             _rawLiveWords?.Dispose();
             _frameRecords?.Dispose();
-            _frameStaging?.Dispose();
             _rawRequests?.Dispose();
             _proofSamples?.Dispose();
             _proofSourceScratchMeta?.Dispose();
@@ -760,7 +772,6 @@ namespace Genesis.RoomScan.SigmaPrism
             _rawAllocator = null;
             _rawLiveWords = null;
             _frameRecords = null;
-            _frameStaging = null;
             _rawRequests = null;
             _proofSamples = null;
             _proofSourceScratchMeta = null;

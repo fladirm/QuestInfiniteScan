@@ -19,9 +19,32 @@ HLSL_OUTPUT = (ROOT / "Runtime" / "Resources" / "SigmaPrism" / "Generated" /
                "SigmaGeneratedTables.hlsl")
 HLSL_LAYOUT_OUTPUT = (ROOT / "Runtime" / "Resources" / "SigmaPrism" /
                       "Generated" / "SigmaGeneratedLayout.hlsl")
+CS_STREAMING_OUTPUT = (ROOT / "Runtime" / "SigmaPrism" / "Generated" /
+                       "SigmaGeneratedStreaming.cs")
+HLSL_STREAMING_OUTPUT = (ROOT / "Runtime" / "Resources" / "SigmaPrism" /
+                         "SigmaStreamingAbi.hlsl")
+KERNEL_MANIFEST = ROOT / "Tools" / "sigma" / "sigma_kernel_execution_manifest.json"
 NUMERIC_ID = "num.fixed.q16_48.checked.nearest_even"
 GENERATOR_VERSION = "CPQ4-S16-GEN-1"
 LANES = 16
+
+BUDGET_CLASSES = {
+    "NONE": 0,
+    "INGRESS_ADMISSION": 1,
+    "CANONICAL_PROGRESS": 2,
+    "PROOF_TRANSITION_CLOSURE": 3,
+    "DERIVED_READOUT": 4,
+}
+
+COST_FIELDS = (
+    "xorPermutation",
+    "signedAddSub",
+    "maskSelect",
+    "q48WideMul",
+    "q48Div",
+    "intervalMulDiv",
+    "genericDenseS16Products",
+)
 
 
 @lru_cache(maxsize=None)
@@ -269,6 +292,113 @@ def validate_descriptor(descriptor: dict) -> None:
             raise RuntimeError("G z_null is non-zero")
 
 
+def build_kernel_execution_descriptor(operator_costs: dict) -> dict:
+    """Expand the checked-in execution manifest into fixed scheduler costs."""
+    manifest = json.loads(KERNEL_MANIFEST.read_text(encoding="utf-8"))
+    if manifest.get("schema") != "CPQ4-S16-KERNEL-COST-1":
+        raise RuntimeError("unexpected Sigma kernel execution manifest schema")
+    quantum = manifest.get("token_quantum")
+    weights = manifest.get("weights")
+    opcodes = manifest.get("opcodes")
+    if not isinstance(quantum, int) or quantum <= 0:
+        raise RuntimeError("kernel token quantum must be a positive integer")
+    if not isinstance(weights, dict) or not isinstance(opcodes, list):
+        raise RuntimeError("kernel execution manifest is incomplete")
+    expected_weight_names = {
+        "fixed_alu", "xor_permutation", "signed_add_sub", "mask_select",
+        "q48_wide_mul", "q48_div", "interval_mul_div",
+        "generic_dense_s16_product", "byte_transfer_divisor", "barrier",
+        "annihilator_witness",
+    }
+    if set(weights) != expected_weight_names or any(
+            not isinstance(value, int) or value <= 0 for value in weights.values()):
+        raise RuntimeError("kernel cost weights are incomplete or non-positive")
+
+    expanded = []
+    names = set()
+    for expected_id, entry in enumerate(opcodes):
+        if entry.get("id") != expected_id:
+            raise RuntimeError("kernel opcode ids must be contiguous from zero")
+        name = entry.get("name")
+        budget_name = entry.get("budget_class")
+        if not isinstance(name, str) or not name or name in names:
+            raise RuntimeError("kernel opcode names must be unique")
+        if budget_name not in BUDGET_CLASSES:
+            raise RuntimeError(f"unknown kernel budget class: {budget_name}")
+        names.add(name)
+        stages = entry.get("stages", [])
+        if (not isinstance(stages, list) or
+                any(not isinstance(stage, str) or not stage
+                    for stage in stages) or
+                len(stages) != len(set(stages))):
+            raise RuntimeError(f"invalid kernel stage list for {name}")
+        threads = entry.get("threads")
+        if (not isinstance(threads, list) or len(threads) != 3 or
+                any(not isinstance(value, int) or value <= 0 for value in threads) or
+                threads[0] * threads[1] * threads[2] > 1024):
+            raise RuntimeError(f"invalid workgroup for kernel opcode {name}")
+
+        primitive = {field: 0 for field in COST_FIELDS}
+        invocations = entry.get("operator_invocations", {})
+        if not isinstance(invocations, dict):
+            raise RuntimeError(f"invalid operator invocation map for {name}")
+        for operator_name, count in invocations.items():
+            if operator_name not in operator_costs:
+                raise RuntimeError(
+                    f"unknown generated operator {operator_name} in {name}")
+            if not isinstance(count, int) or count < 0:
+                raise RuntimeError(f"invalid operator invocation count in {name}")
+            operator = operator_costs[operator_name]
+            for field in COST_FIELDS:
+                primitive[field] += count * int(operator.get(field, 0))
+
+        scalar_names = (
+            "fixed_alu", "bytes_read", "bytes_written", "scratch_bytes",
+            "barriers", "annihilator_witnesses", "max_records",
+        )
+        scalar = {}
+        for scalar_name in scalar_names:
+            value = entry.get(scalar_name)
+            if not isinstance(value, int) or value < 0:
+                raise RuntimeError(f"invalid {scalar_name} for opcode {name}")
+            scalar[scalar_name] = value
+
+        byte_units = ((scalar["bytes_read"] + scalar["bytes_written"] +
+                       scalar["scratch_bytes"] +
+                       weights["byte_transfer_divisor"] - 1) //
+                      weights["byte_transfer_divisor"])
+        score = (
+            scalar["fixed_alu"] * weights["fixed_alu"] +
+            primitive["xorPermutation"] * weights["xor_permutation"] +
+            primitive["signedAddSub"] * weights["signed_add_sub"] +
+            primitive["maskSelect"] * weights["mask_select"] +
+            primitive["q48WideMul"] * weights["q48_wide_mul"] +
+            primitive["q48Div"] * weights["q48_div"] +
+            primitive["intervalMulDiv"] * weights["interval_mul_div"] +
+            primitive["genericDenseS16Products"] *
+            weights["generic_dense_s16_product"] +
+            byte_units + scalar["barriers"] * weights["barrier"] +
+            scalar["annihilator_witnesses"] *
+            weights["annihilator_witness"])
+        token_cost = 0 if expected_id == 0 else max(1, (score + quantum - 1) // quantum)
+        expanded.append({
+            **entry,
+            **scalar,
+            **primitive,
+            "budgetClassId": BUDGET_CLASSES[budget_name],
+            "tokenCost": token_cost,
+            "score": score,
+        })
+
+    return {
+        "schema": manifest["schema"],
+        "tokenQuantum": quantum,
+        "weights": weights,
+        "opcodes": expanded,
+        "fingerprint": sha256(manifest),
+    }
+
+
 def chunks(values: Iterable[int], width: int = 16) -> list[list[int]]:
     values = list(values)
     return [values[index:index + width] for index in range(0, len(values), width)]
@@ -458,6 +588,453 @@ int SigmaHadamardSign(uint row, uint column)
 """
 
 
+def uint_array(values: Iterable[int]) -> str:
+    return ", ".join(f"{int(value)}u" for value in values)
+
+
+def render_streaming_cs(execution: dict) -> str:
+    opcodes = execution["opcodes"]
+    enum_lines = "\n".join(
+        f"        {entry['name']} = {entry['id']}," for entry in opcodes)
+    budget_lines = "\n".join(
+        f"        {name} = {value}," for name, value in BUDGET_CLASSES.items())
+
+    def cs_values(field: str) -> str:
+        return ", ".join(f"{int(entry[field])}u" for entry in opcodes)
+
+    return f"""// <auto-generated by Tools/sigma/generate_sigma_operators.py>
+// Canonical baseline: CPQ4-2026-08-22-S16-v6. Do not edit by hand.
+
+using System.Runtime.InteropServices;
+
+namespace Genesis.RoomScan.SigmaPrism
+{{
+    internal enum SigmaStreamOpcode : uint
+    {{
+{enum_lines}
+    }}
+
+    internal enum SigmaStreamBudgetClass : uint
+    {{
+{budget_lines}
+    }}
+
+    [StructLayout(LayoutKind.Sequential, Pack = 4)]
+    internal struct SigmaStreamUInt4Gpu
+    {{
+        internal uint X;
+        internal uint Y;
+        internal uint Z;
+        internal uint W;
+    }}
+
+    [StructLayout(LayoutKind.Sequential, Pack = 4)]
+    internal struct SigmaStreamPageReferenceGpu
+    {{
+        internal SigmaStreamUInt4Gpu Coordinate;
+        internal SigmaStreamUInt4Gpu State;
+    }}
+
+    [StructLayout(LayoutKind.Sequential, Pack = 4)]
+    internal struct SigmaTransactionGpu
+    {{
+        internal SigmaStreamUInt4Gpu Identity;
+        internal SigmaStreamUInt4Gpu Ticket;
+        internal SigmaStreamUInt4Gpu DependencyTicket;
+        internal SigmaStreamUInt4Gpu Source;
+        internal SigmaStreamUInt4Gpu Publication;
+        internal SigmaStreamPageReferenceGpu Page0;
+        internal SigmaStreamPageReferenceGpu Page1;
+        internal SigmaStreamPageReferenceGpu Page2;
+        internal SigmaStreamPageReferenceGpu Page3;
+        internal SigmaStreamUInt4Gpu AffectedMaskLo;
+        internal SigmaStreamUInt4Gpu AffectedMaskHi;
+        internal SigmaStreamUInt4Gpu CompletedMaskLo;
+        internal SigmaStreamUInt4Gpu CompletedMaskHi;
+        internal SigmaStreamUInt4Gpu Progress;
+        internal SigmaStreamUInt4Gpu Scratch;
+        internal SigmaStreamUInt4Gpu Transition;
+        internal SigmaStreamUInt4Gpu Dependency0;
+        internal SigmaStreamUInt4Gpu Dependency1;
+    }}
+
+    [StructLayout(LayoutKind.Sequential, Pack = 4)]
+    internal struct SigmaSealedSourceBundleGpu
+    {{
+        internal SigmaStreamUInt4Gpu Identity;
+        internal SigmaStreamUInt4Gpu Provenance;
+        internal SigmaStreamUInt4Gpu Keys;
+        internal SigmaStreamUInt4Gpu Raw;
+        internal SigmaStreamUInt4Gpu Calibration;
+        internal SigmaStreamUInt4Gpu Probation;
+        internal SigmaStreamUInt4Gpu Dependency;
+    }}
+
+    [StructLayout(LayoutKind.Sequential, Pack = 4)]
+    internal struct SigmaProbationGpu
+    {{
+        internal SigmaStreamUInt4Gpu Identity;
+        internal SigmaStreamUInt4Gpu BundleHandles;
+        internal SigmaStreamUInt4Gpu Support;
+        internal SigmaStreamUInt4Gpu Dependency;
+    }}
+
+    [StructLayout(LayoutKind.Sequential, Pack = 4)]
+    internal struct SigmaSourceHandleSegmentGpu
+    {{
+        internal SigmaStreamUInt4Gpu Identity;
+        internal SigmaStreamUInt4Gpu Link;
+        internal SigmaStreamUInt4Gpu Handle01;
+        internal SigmaStreamUInt4Gpu Handle23;
+        internal SigmaStreamUInt4Gpu Handle45;
+        internal SigmaStreamUInt4Gpu Handle67;
+    }}
+
+    [StructLayout(LayoutKind.Sequential, Pack = 4)]
+    internal struct SigmaProofClosureGpu
+    {{
+        internal SigmaStreamUInt4Gpu Identity;
+        internal SigmaStreamUInt4Gpu SourceCursor;
+        internal SigmaStreamUInt4Gpu Journal;
+        internal SigmaStreamUInt4Gpu Ordering;
+        internal SigmaStreamUInt4Gpu Coalesce;
+        internal SigmaStreamUInt4Gpu Redundancy;
+        internal SigmaStreamUInt4Gpu Result;
+        internal SigmaStreamUInt4Gpu Reserved;
+    }}
+
+    [StructLayout(LayoutKind.Sequential, Pack = 4)]
+    internal struct SigmaProofCandidateGpu
+    {{
+        internal SigmaStreamUInt4Gpu Identity;
+        internal SigmaStreamUInt4Gpu Provenance;
+        internal SigmaStreamUInt4Gpu Mask;
+        internal SigmaStreamUInt4Gpu Source;
+    }}
+
+    [StructLayout(LayoutKind.Sequential, Pack = 4)]
+    internal struct SigmaProofPrefixGpu
+    {{
+        internal SigmaStreamUInt4Gpu CoordinateMask;
+        internal SigmaStreamUInt4Gpu Independence;
+        internal SigmaStreamUInt4Gpu Gate;
+    }}
+
+    [StructLayout(LayoutKind.Sequential, Pack = 4)]
+    internal struct SigmaAssociationSampleGpu
+    {{
+        internal SigmaStreamUInt4Gpu LeftDepthPage;
+        internal SigmaStreamUInt4Gpu LeftStateUv;
+        internal SigmaStreamUInt4Gpu LeftGeneration;
+        internal SigmaStreamUInt4Gpu RightDepthPage;
+        internal SigmaStreamUInt4Gpu RightStateUv;
+        internal SigmaStreamUInt4Gpu RightGeneration;
+    }}
+
+    [StructLayout(LayoutKind.Sequential, Pack = 4)]
+    internal struct SigmaPublicationManifestGpu
+    {{
+        internal SigmaStreamUInt4Gpu Identity;
+        internal SigmaStreamUInt4Gpu Closure;
+        internal SigmaStreamUInt4Gpu Pages;
+        internal SigmaStreamUInt4Gpu Reserved;
+    }}
+
+    [StructLayout(LayoutKind.Sequential, Pack = 4)]
+    internal struct SigmaPageVisibilityGpu
+    {{
+        internal SigmaStreamUInt4Gpu BornRetired;
+        internal SigmaStreamUInt4Gpu Pins;
+    }}
+
+    [StructLayout(LayoutKind.Sequential, Pack = 4)]
+    internal struct SigmaStreamWorkItemGpu
+    {{
+        internal SigmaStreamUInt4Gpu Identity;
+        internal SigmaStreamUInt4Gpu Cursor;
+    }}
+
+    [StructLayout(LayoutKind.Sequential, Pack = 4)]
+    internal struct SigmaStreamDiagnosticGpu
+    {{
+        internal SigmaStreamUInt4Gpu Admission;
+        internal SigmaStreamUInt4Gpu Transactions;
+        internal SigmaStreamUInt4Gpu Proof;
+        internal SigmaStreamUInt4Gpu Transition;
+        internal SigmaStreamUInt4Gpu Publication;
+        internal SigmaStreamUInt4Gpu Lifetime;
+        internal SigmaStreamUInt4Gpu Memory;
+        internal SigmaStreamUInt4Gpu Reserved;
+    }}
+
+    internal static class SigmaGeneratedStreaming
+    {{
+        internal const string KernelExecutionSchema = "{execution['schema']}";
+        internal const string KernelExecutionFingerprint =
+            "{execution['fingerprint']}";
+        internal const int OpcodeCount = {len(opcodes)};
+        internal const int TokenQuantum = {execution['tokenQuantum']};
+        internal const int TransactionCapacity = 8;
+        internal const int BundleCapacity = 64;
+        internal const int MaximumPagesPerTransaction = 4;
+        internal const int SourceHandleWindowCapacity = 8;
+        internal const int ProofCandidateWindowCapacity = 12;
+        internal const int ProofSourceClassCount = 4;
+        internal const int ProofBlocksPerPage = 64;
+        internal const int MicrotilesPerProofBlock = 4;
+        internal const int CalibrationQ48ValuesPerBundle = 88;
+        internal const int TransactionStride = 352;
+        internal const int BundleStride = 112;
+        internal const int ProbationStride = 64;
+        internal const int SourceHandleSegmentStride = 96;
+        internal const int ProofClosureStride = 128;
+        internal const int ProofCandidateStride = 64;
+        internal const int ProofPrefixStride = 48;
+        internal const int AssociationSampleStride = 96;
+        internal const int PublicationManifestStride = 64;
+        internal const int PageVisibilityStride = 32;
+        internal const int WorkItemStride = 32;
+        internal const int DiagnosticStride = 128;
+
+        internal static readonly uint[] KernelTokenCost = {{ {cs_values('tokenCost')} }};
+        internal static readonly uint[] KernelBudgetClass = {{ {cs_values('budgetClassId')} }};
+        internal static readonly uint[] KernelThreadCount = {{ {', '.join(str(entry['threads'][0] * entry['threads'][1] * entry['threads'][2]) + 'u' for entry in opcodes)} }};
+        internal static readonly uint[] KernelBytesRead = {{ {cs_values('bytes_read')} }};
+        internal static readonly uint[] KernelBytesWritten = {{ {cs_values('bytes_written')} }};
+        internal static readonly uint[] KernelScratchBytes = {{ {cs_values('scratch_bytes')} }};
+        internal static readonly uint[] KernelBarrierCount = {{ {cs_values('barriers')} }};
+        internal static readonly uint[] KernelWitnessCount = {{ {cs_values('annihilator_witnesses')} }};
+        internal static readonly uint[] KernelMaximumRecords = {{ {cs_values('max_records')} }};
+    }}
+}}
+"""
+
+
+def render_streaming_hlsl(execution: dict) -> str:
+    opcodes = execution["opcodes"]
+    opcode_lines = "\n".join(
+        f"#define SIGMA_STREAM_OPCODE_{entry['name']} {entry['id']}u"
+        for entry in opcodes)
+    budget_lines = "\n".join(
+        f"#define SIGMA_STREAM_BUDGET_{name} {value}u"
+        for name, value in BUDGET_CLASSES.items())
+
+    def values(field: str) -> str:
+        return uint_array(entry[field] for entry in opcodes)
+
+    thread_counts = [entry["threads"][0] * entry["threads"][1] *
+                     entry["threads"][2] for entry in opcodes]
+    return f"""// <auto-generated by Tools/sigma/generate_sigma_operators.py>
+// Canonical baseline: CPQ4-2026-08-22-S16-v6. Do not edit by hand.
+#ifndef SIGMA_STREAMING_ABI_INCLUDED
+#define SIGMA_STREAMING_ABI_INCLUDED
+
+#include "SigmaCarrierAbi.hlsl"
+
+#define SIGMA_STREAM_TRANSACTION_CAPACITY 8u
+#define SIGMA_STREAM_BUNDLE_CAPACITY 64u
+#define SIGMA_STREAM_MAX_PAGES 4u
+#define SIGMA_STREAM_SOURCE_HANDLE_WINDOW 8u
+#define SIGMA_STREAM_PROOF_CANDIDATE_WINDOW 12u
+#define SIGMA_STREAM_PROOF_SOURCE_CLASS_COUNT 4u
+#define SIGMA_STREAM_PROOF_BLOCKS_PER_PAGE 64u
+#define SIGMA_STREAM_MICROTILES_PER_BLOCK 4u
+#define SIGMA_STREAM_CALIBRATION_Q48_PER_BUNDLE 88u
+#define SIGMA_STREAM_OPCODE_COUNT {len(opcodes)}u
+#define SIGMA_STREAM_TOKEN_QUANTUM {execution['tokenQuantum']}u
+#define SIGMA_STREAM_INVALID 0xffffffffu
+
+#define SIGMA_STREAM_BUNDLE_FREE 0u
+#define SIGMA_STREAM_BUNDLE_EXTRACTING 1u
+#define SIGMA_STREAM_BUNDLE_READY 2u
+#define SIGMA_STREAM_BUNDLE_PROBATION 3u
+#define SIGMA_STREAM_BUNDLE_ADMISSION_PENDING 4u
+#define SIGMA_STREAM_BUNDLE_ACTIVE 5u
+#define SIGMA_STREAM_BUNDLE_ABSORBED 6u
+#define SIGMA_STREAM_BUNDLE_DORMANT 7u
+
+#define SIGMA_STREAM_TRANSACTION_FREE 0u
+#define SIGMA_STREAM_TRANSACTION_WAITING_DEPENDENCY 1u
+#define SIGMA_STREAM_TRANSACTION_EVALUATING 2u
+#define SIGMA_STREAM_TRANSACTION_PROOF_PENDING 3u
+#define SIGMA_STREAM_TRANSACTION_TRANSITION_PENDING 4u
+#define SIGMA_STREAM_TRANSACTION_REVALIDATE_PENDING 5u
+#define SIGMA_STREAM_TRANSACTION_PUBLISHABLE 6u
+#define SIGMA_STREAM_TRANSACTION_PUBLISHED 7u
+#define SIGMA_STREAM_TRANSACTION_DORMANT 8u
+#define SIGMA_STREAM_TRANSACTION_FAILED 9u
+
+#define SIGMA_STREAM_MANIFEST_FREE 0u
+#define SIGMA_STREAM_MANIFEST_PREPARING 1u
+#define SIGMA_STREAM_MANIFEST_PUBLISHED 2u
+#define SIGMA_STREAM_MANIFEST_RETIRED 3u
+
+#define SIGMA_STREAM_OUTCOME_NO_EVIDENCE 0u
+#define SIGMA_STREAM_OUTCOME_EXISTING_UPDATE 1u
+#define SIGMA_STREAM_OUTCOME_NULL_PROMOTION 2u
+#define SIGMA_STREAM_OUTCOME_EMPTY_EXACT 3u
+#define SIGMA_STREAM_OUTCOME_TRANSITION_UNRESOLVED 4u
+
+#define SIGMA_STREAM_SOURCE_SEGMENT_FREE 0u
+#define SIGMA_STREAM_SOURCE_SEGMENT_OPEN 1u
+#define SIGMA_STREAM_SOURCE_SEGMENT_SEALED 2u
+#define SIGMA_STREAM_SOURCE_SEGMENT_SPILLED 3u
+
+#define SIGMA_STREAM_PROOF_IDLE 0u
+#define SIGMA_STREAM_PROOF_JOURNAL 1u
+#define SIGMA_STREAM_PROOF_SORT_RUNS 2u
+#define SIGMA_STREAM_PROOF_MERGE_RUNS 3u
+#define SIGMA_STREAM_PROOF_COALESCE 4u
+#define SIGMA_STREAM_PROOF_PREFIX 5u
+#define SIGMA_STREAM_PROOF_REDUNDANCY 6u
+#define SIGMA_STREAM_PROOF_EMIT_CERTIFICATES 7u
+#define SIGMA_STREAM_PROOF_EMIT_RAW 8u
+#define SIGMA_STREAM_PROOF_CLOSED 9u
+
+{budget_lines}
+
+{opcode_lines}
+
+struct SigmaStreamPageReferenceGpu
+{{
+    uint4 coordinate;
+    uint4 state;
+}};
+
+struct SigmaTransactionGpu
+{{
+    uint4 identity;
+    uint4 ticket;
+    uint4 dependencyTicket;
+    uint4 source;
+    uint4 publication;
+    SigmaStreamPageReferenceGpu page0;
+    SigmaStreamPageReferenceGpu page1;
+    SigmaStreamPageReferenceGpu page2;
+    SigmaStreamPageReferenceGpu page3;
+    uint4 affectedMaskLo;
+    uint4 affectedMaskHi;
+    uint4 completedMaskLo;
+    uint4 completedMaskHi;
+    uint4 progress;
+    uint4 scratch;
+    uint4 transition;
+    uint4 dependency0;
+    uint4 dependency1;
+}};
+
+struct SigmaSealedSourceBundleGpu
+{{
+    uint4 identity;
+    uint4 provenance;
+    uint4 keys;
+    uint4 raw;
+    uint4 calibration;
+    uint4 probation;
+    uint4 dependency;
+}};
+
+struct SigmaProbationGpu
+{{
+    uint4 identity;
+    uint4 bundleHandles;
+    uint4 support;
+    uint4 dependency;
+}};
+
+struct SigmaSourceHandleSegmentGpu
+{{
+    uint4 identity;
+    uint4 link;
+    uint4 handle01;
+    uint4 handle23;
+    uint4 handle45;
+    uint4 handle67;
+}};
+
+struct SigmaProofClosureGpu
+{{
+    uint4 identity;
+    uint4 sourceCursor;
+    uint4 journal;
+    uint4 ordering;
+    uint4 coalesce;
+    uint4 redundancy;
+    uint4 result;
+    uint4 reserved;
+}};
+
+struct SigmaProofCandidateGpu
+{{
+    uint4 identity;
+    uint4 provenance;
+    uint4 mask;
+    uint4 source;
+}};
+
+struct SigmaProofPrefixGpu
+{{
+    uint4 coordinateMask;
+    uint4 independence;
+    uint4 gate;
+}};
+
+struct SigmaAssociationSampleGpu
+{{
+    uint4 leftDepthPage;
+    uint4 leftStateUv;
+    uint4 leftGeneration;
+    uint4 rightDepthPage;
+    uint4 rightStateUv;
+    uint4 rightGeneration;
+}};
+
+struct SigmaPublicationManifestGpu
+{{
+    uint4 identity;
+    uint4 closure;
+    uint4 pages;
+    uint4 reserved;
+}};
+
+struct SigmaPageVisibilityGpu
+{{
+    uint4 bornRetired;
+    uint4 pins;
+}};
+
+struct SigmaStreamWorkItemGpu
+{{
+    uint4 identity;
+    uint4 cursor;
+}};
+
+struct SigmaStreamDiagnosticGpu
+{{
+    uint4 admission;
+    uint4 transactions;
+    uint4 proof;
+    uint4 transition;
+    uint4 publication;
+    uint4 lifetime;
+    uint4 memory;
+    uint4 reserved;
+}};
+
+static const uint SIGMA_STREAM_KERNEL_TOKEN_COST[SIGMA_STREAM_OPCODE_COUNT] = {{ {values('tokenCost')} }};
+static const uint SIGMA_STREAM_KERNEL_BUDGET_CLASS[SIGMA_STREAM_OPCODE_COUNT] = {{ {values('budgetClassId')} }};
+static const uint SIGMA_STREAM_KERNEL_THREAD_COUNT[SIGMA_STREAM_OPCODE_COUNT] = {{ {uint_array(thread_counts)} }};
+static const uint SIGMA_STREAM_KERNEL_BYTES_READ[SIGMA_STREAM_OPCODE_COUNT] = {{ {values('bytes_read')} }};
+static const uint SIGMA_STREAM_KERNEL_BYTES_WRITTEN[SIGMA_STREAM_OPCODE_COUNT] = {{ {values('bytes_written')} }};
+static const uint SIGMA_STREAM_KERNEL_SCRATCH_BYTES[SIGMA_STREAM_OPCODE_COUNT] = {{ {values('scratch_bytes')} }};
+static const uint SIGMA_STREAM_KERNEL_BARRIER_COUNT[SIGMA_STREAM_OPCODE_COUNT] = {{ {values('barriers')} }};
+static const uint SIGMA_STREAM_KERNEL_WITNESS_COUNT[SIGMA_STREAM_OPCODE_COUNT] = {{ {values('annihilator_witnesses')} }};
+static const uint SIGMA_STREAM_KERNEL_MAX_RECORDS[SIGMA_STREAM_OPCODE_COUNT] = {{ {values('max_records')} }};
+
+#endif
+"""
+
+
 def check_or_write(path: Path, content: str, check: bool) -> bool:
     if check:
         if not path.is_file() or path.read_text(encoding="utf-8") != content:
@@ -478,6 +1055,8 @@ def main() -> int:
     parser.add_argument("--summary", action="store_true")
     args = parser.parse_args()
     descriptor = build_descriptor()
+    execution = build_kernel_execution_descriptor(
+        descriptor["operatorCosts"])
     if args.summary:
         print(json.dumps({
             "generator": descriptor["generatorVersion"],
@@ -486,11 +1065,17 @@ def main() -> int:
             "zNull": descriptor["annihilator"]["zNull"],
             "geometryRows": descriptor["readout"]["geometryRows"],
             "fingerprints": descriptor["fingerprints"],
+            "kernelExecutionFingerprint": execution["fingerprint"],
+            "kernelOpcodes": len(execution["opcodes"]),
         }, indent=2))
     valid = check_or_write(CS_OUTPUT, render_cs(descriptor), args.check)
     valid &= check_or_write(HLSL_LAYOUT_OUTPUT,
                             render_hlsl_layout(descriptor), args.check)
     valid &= check_or_write(HLSL_OUTPUT, render_hlsl(descriptor), args.check)
+    valid &= check_or_write(CS_STREAMING_OUTPUT,
+                            render_streaming_cs(execution), args.check)
+    valid &= check_or_write(HLSL_STREAMING_OUTPUT,
+                            render_streaming_hlsl(execution), args.check)
     return 0 if valid else 1
 
 

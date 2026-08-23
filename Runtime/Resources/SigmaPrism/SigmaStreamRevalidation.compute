@@ -1,0 +1,702 @@
+#pragma kernel PrepareHistoricalRevalidation
+#pragma kernel BuildHistoricalDrawArguments
+#pragma kernel RebuildHistoricalAssociation
+#pragma kernel FinalizeHistoricalRevalidation
+#pragma kernel CancelHistoricalRevalidation
+#pragma target 5.0
+
+#include "SigmaInverseWorkAbi.hlsl"
+#include "SigmaManifestVisibility.hlsl"
+#include "SigmaStableScan.hlsl"
+
+// Exclusive retained-source replay. A transaction is allowed to survive many
+// XR frames, but it never retains a capture/prediction lease: this pass derives
+// a disposable historical first-hit raster from bundle-owned Q48 calibration,
+// bundle-owned raw pixels and the manifest-visible carrier.
+
+StructuredBuffer<uint> _StreamWorkCounts;
+StructuredBuffer<SigmaStreamWorkItemGpu> _StreamWorkItems;
+StructuredBuffer<SigmaSourceHandleSegmentGpu> _StreamSourceSegments;
+StructuredBuffer<SigmaPublicationManifestGpu> _StreamManifests;
+StructuredBuffer<SigmaCarrierPageMetaGpu> _PageMetadata;
+StructuredBuffer<uint4> _RawWords;
+StructuredBuffer<uint> _StreamBundleRayEpoch;
+
+Texture2DArray<float2> _RevalidationDepthSupport;
+Texture2DArray<uint4> _RevalidationCarrierPage;
+Texture2DArray<float4> _RevalidationCarrierUvNormal;
+Texture2DArray<uint4> _RevalidationStateKey;
+
+RWStructuredBuffer<SigmaTransactionGpu> _StreamTransactions;
+RWStructuredBuffer<SigmaSealedSourceBundleGpu> _StreamBundles;
+RWStructuredBuffer<uint4> _StreamAssociationOwners;
+RWStructuredBuffer<SigmaAssociationSampleGpu> _StreamAssociation;
+RWStructuredBuffer<uint> _StreamSchedulerControl;
+RWStructuredBuffer<SigmaPageVisibilityGpu> _StreamPageVisibility;
+RWStructuredBuffer<uint> _RevalidationDrawArguments;
+RWStructuredBuffer<uint4> _RevalidationContext;
+RWStructuredBuffer<uint4> _RevalidationPageSnapshot;
+RWStructuredBuffer<SigmaStreamDiagnosticGpu> _StreamDiagnostics;
+
+uint _PageCapacity;
+uint _StreamManifestCapacity;
+uint _StreamSourceSegmentCapacity;
+uint2 _RevalidationTargetResolution;
+
+#define SIGMA_REVALIDATION_VERTICES_PER_PAGE 24576u
+#define SIGMA_REVALIDATION_PAGES_PER_QUANTUM 1u
+#define SIGMA_REVALIDATION_PREPARE_NONE 0u
+#define SIGMA_REVALIDATION_PREPARE_CAPTURE 1u
+#define SIGMA_REVALIDATION_PREPARE_RELEASE_STALE 2u
+
+groupshared uint RevalidationPrepareAction;
+groupshared uint RevalidationPrepareSnapshotCount;
+groupshared uint RevalidationPreparePinMarker;
+
+void SigmaRevalidationClearContext()
+{
+    _RevalidationContext[0u] = uint4(SIGMA_STREAM_INVALID, 0u, 0u, 0u);
+    _RevalidationContext[1u] = uint4(SIGMA_STREAM_INVALID, 0u, 0u, 0u);
+    _RevalidationContext[2u] = 0u;
+    _RevalidationContext[3u] = 0u;
+}
+
+uint SigmaRevalidationPinMarker(uint transactionSlot)
+{
+    // Revalidation has one exclusive GPU owner. A non-zero slot marker is
+    // therefore sufficient for pin occupancy; the context and snapshot retain
+    // the generation-safe owner and page identities used during release.
+    return transactionSlot + 1u;
+}
+
+void SigmaRevalidationReleaseSnapshotPin(uint ordinal, uint count,
+    uint marker)
+{
+    if (ordinal >= count)
+        return;
+    uint4 snapshot = _RevalidationPageSnapshot[ordinal];
+    uint pageSlot = snapshot.x;
+    if (pageSlot >= _PageCapacity)
+        return;
+    SigmaPageVisibilityGpu visibility = _StreamPageVisibility[pageSlot];
+    if (visibility.pins.w != marker ||
+        visibility.bornRetired.y != snapshot.w)
+        return;
+    visibility.pins.w = 0u;
+    _StreamPageVisibility[pageSlot] = visibility;
+}
+
+bool SigmaRevalidationPageVisible(uint slot)
+{
+    if (slot >= _PageCapacity || slot >= _StreamManifestCapacity)
+        return false;
+    SigmaPageVisibilityGpu visibility = _StreamPageVisibility[slot];
+    uint2 bornHandle = visibility.bornRetired.xy;
+    if (!SigmaManifestHandleValid(bornHandle, _StreamManifestCapacity))
+        return false;
+    SigmaPublicationManifestGpu born = _StreamManifests[bornHandle.x];
+    SigmaPublicationManifestGpu retired = (SigmaPublicationManifestGpu)0;
+    uint2 retiredHandle = visibility.bornRetired.zw;
+    if (SigmaManifestHandleValid(retiredHandle, _StreamManifestCapacity))
+        retired = _StreamManifests[retiredHandle.x];
+    return SigmaManifestPageVisible(visibility, born, retired);
+}
+
+bool SigmaRevalidationSameCoordinate(SigmaCarrierPageMetaGpu metadata,
+    uint4 coordinate)
+{
+    return metadata.pageXLo == coordinate.x &&
+        metadata.pageXHi == coordinate.y &&
+        metadata.pageYLo == coordinate.z &&
+        metadata.pageYHi == coordinate.w;
+}
+
+uint SigmaRevalidationFindVisiblePage(uint4 coordinate)
+{
+    uint selected = SIGMA_STREAM_INVALID;
+    uint selectedGeneration = 0u;
+    [loop]
+    for (uint slot = 0u; slot < _PageCapacity; ++slot)
+    {
+        if (!SigmaRevalidationPageVisible(slot))
+            continue;
+        SigmaCarrierPageMetaGpu metadata = _PageMetadata[slot];
+        if (!SigmaRevalidationSameCoordinate(metadata, coordinate))
+            continue;
+        if (selected == SIGMA_STREAM_INVALID ||
+            selectedGeneration < metadata.generation ||
+            (selectedGeneration == metadata.generation && slot < selected))
+        {
+            selected = slot;
+            selectedGeneration = metadata.generation;
+        }
+    }
+    return selected;
+}
+
+bool SigmaRevalidationLoadTransaction(out uint transactionSlot,
+    out SigmaTransactionGpu transaction)
+{
+    transactionSlot = SIGMA_STREAM_INVALID;
+    transaction = (SigmaTransactionGpu)0;
+    if (_StreamWorkCounts[SIGMA_STREAM_OPCODE_REVALIDATE] == 0u)
+        return false;
+    SigmaStreamWorkItemGpu work = _StreamWorkItems[SigmaStreamWorkAddress(
+        SIGMA_STREAM_OPCODE_REVALIDATE, 0u)];
+    transactionSlot = work.identity.y;
+    if (transactionSlot >= SIGMA_STREAM_TRANSACTION_CAPACITY)
+        return false;
+    transaction = _StreamTransactions[transactionSlot];
+    return SigmaStreamTransactionGeneration(transaction) == work.identity.z &&
+        SigmaStreamTransactionState(transaction) ==
+            SIGMA_STREAM_TRANSACTION_REVALIDATE_PENDING;
+}
+
+bool SigmaRevalidationCurrentBundle(SigmaTransactionGpu transaction,
+    out uint segmentSlot, out uint segmentGeneration, out uint segmentOffset,
+    out uint bundleSlot, out uint bundleGeneration)
+{
+    segmentSlot = transaction.scratch.x;
+    segmentGeneration = transaction.scratch.y;
+    segmentOffset = transaction.scratch.z;
+    bundleSlot = SIGMA_STREAM_INVALID;
+    bundleGeneration = 0u;
+    if (!SigmaStreamHandleValid(segmentSlot, segmentGeneration,
+            _StreamSourceSegmentCapacity) ||
+        segmentOffset >= SIGMA_STREAM_SOURCE_HANDLE_WINDOW)
+        return false;
+    SigmaSourceHandleSegmentGpu segment = _StreamSourceSegments[segmentSlot];
+    if (!SigmaStreamSourceSegmentValid(segment, segmentGeneration) ||
+        segment.identity.x != SIGMA_STREAM_SOURCE_SEGMENT_SEALED ||
+        segmentOffset >= segment.identity.z)
+        return false;
+    uint2 handle = SigmaStreamSourceHandle(segment, segmentOffset);
+    bundleSlot = handle.x;
+    bundleGeneration = handle.y;
+    return SigmaStreamHandleValid(bundleSlot, bundleGeneration,
+        SIGMA_STREAM_BUNDLE_CAPACITY);
+}
+
+bool SigmaRevalidationBundleCurrent(SigmaSealedSourceBundleGpu bundle,
+    uint visiblePage)
+{
+    if (SigmaStreamBundleState(bundle) != SIGMA_STREAM_BUNDLE_ACTIVE ||
+        (bundle.identity.w & (SIGMA_STREAM_BUNDLE_FLAG_NEEDS_REVALIDATION |
+            SIGMA_STREAM_BUNDLE_FLAG_HAS_ASSOCIATION)) !=
+            SIGMA_STREAM_BUNDLE_FLAG_HAS_ASSOCIATION)
+        return false;
+    if (bundle.dependency.x == SIGMA_STREAM_INVALID)
+        return visiblePage == SIGMA_STREAM_INVALID &&
+            bundle.dependency.w == _StreamSchedulerControl[
+                SIGMA_STREAM_CONTROL_PUBLISHED_COUNT];
+    if (visiblePage != bundle.dependency.x ||
+        !SigmaRevalidationPageVisible(bundle.dependency.x))
+        return false;
+    SigmaCarrierPageMetaGpu metadata = _PageMetadata[bundle.dependency.x];
+    return metadata.generation == bundle.dependency.y &&
+        metadata.revision == bundle.dependency.z &&
+        bundle.dependency.w == _StreamSchedulerControl[
+            SIGMA_STREAM_CONTROL_PUBLISHED_COUNT];
+}
+
+uint SigmaRevalidationReclaimAssociation(SigmaTransactionGpu transaction,
+    uint currentBundle)
+{
+    uint segmentSlot = transaction.source.x;
+    uint segmentGeneration = transaction.source.y;
+    uint remaining = min(transaction.source.z,
+        SIGMA_STREAM_BUNDLE_CAPACITY);
+    [loop]
+    for (uint visited = 0u; visited < _StreamSourceSegmentCapacity &&
+        remaining != 0u; ++visited)
+    {
+        if (!SigmaStreamHandleValid(segmentSlot, segmentGeneration,
+                _StreamSourceSegmentCapacity))
+            break;
+        SigmaSourceHandleSegmentGpu segment =
+            _StreamSourceSegments[segmentSlot];
+        if (!SigmaStreamSourceSegmentValid(segment, segmentGeneration) ||
+            segment.identity.x != SIGMA_STREAM_SOURCE_SEGMENT_SEALED)
+            break;
+        uint count = min(remaining, segment.identity.z);
+        [loop]
+        for (uint offset = 0u; offset < count; ++offset)
+        {
+            uint2 handle = SigmaStreamSourceHandle(segment, offset);
+            uint bundleSlot = handle.x;
+            uint bundleGeneration = handle.y;
+            if (!SigmaStreamHandleValid(bundleSlot, bundleGeneration,
+                    SIGMA_STREAM_BUNDLE_CAPACITY) ||
+                bundleSlot == currentBundle)
+                continue;
+            SigmaSealedSourceBundleGpu bundle = _StreamBundles[bundleSlot];
+            uint association = bundle.raw.z;
+            if (SigmaStreamBundleGeneration(bundle) != bundleGeneration ||
+                association >= SIGMA_STREAM_TRANSACTION_CAPACITY)
+                continue;
+            uint4 owner = _StreamAssociationOwners[association];
+            if (owner.x != bundleSlot || owner.y != bundleGeneration)
+                continue;
+            _StreamAssociationOwners[association] =
+                uint4(SIGMA_STREAM_INVALID, 0u, 0u, 0u);
+            bundle.raw.z = SIGMA_STREAM_INVALID;
+            bundle.identity.w &=
+                ~SIGMA_STREAM_BUNDLE_FLAG_HAS_ASSOCIATION;
+            bundle.identity.w |=
+                SIGMA_STREAM_BUNDLE_FLAG_NEEDS_REVALIDATION;
+            _StreamBundles[bundleSlot] = bundle;
+            return association;
+        }
+        remaining -= count;
+        segmentSlot = segment.link.x;
+        segmentGeneration = segment.link.y;
+    }
+    return SIGMA_STREAM_INVALID;
+}
+
+uint SigmaRevalidationClaimAssociation(SigmaTransactionGpu transaction,
+    uint bundleSlot, uint generation, uint preferred)
+{
+    if (preferred < SIGMA_STREAM_TRANSACTION_CAPACITY)
+    {
+        uint4 owner = _StreamAssociationOwners[preferred];
+        if (owner.x == SIGMA_STREAM_INVALID ||
+            (owner.x == bundleSlot && owner.y == generation))
+        {
+            _StreamAssociationOwners[preferred] = uint4(bundleSlot,
+                generation, 0u, 0u);
+            return preferred;
+        }
+    }
+    [unroll]
+    for (uint slot = 0u; slot < SIGMA_STREAM_TRANSACTION_CAPACITY; ++slot)
+    {
+        uint4 owner = _StreamAssociationOwners[slot];
+        if (owner.x == SIGMA_STREAM_INVALID ||
+            (owner.x == bundleSlot && owner.y == generation))
+        {
+            _StreamAssociationOwners[slot] = uint4(bundleSlot,
+                generation, 0u, 0u);
+            return slot;
+        }
+    }
+    uint reclaimed = SigmaRevalidationReclaimAssociation(transaction,
+        bundleSlot);
+    if (reclaimed < SIGMA_STREAM_TRANSACTION_CAPACITY)
+    {
+        _StreamAssociationOwners[reclaimed] = uint4(bundleSlot,
+            generation, 0u, 0u);
+        return reclaimed;
+    }
+    return SIGMA_STREAM_INVALID;
+}
+
+[numthreads(256, 1, 1)]
+void PrepareHistoricalRevalidation(uint3 threadId : SV_GroupThreadID)
+{
+    uint lane = threadId.x;
+    if (lane == 0u)
+    {
+        RevalidationPrepareAction = SIGMA_REVALIDATION_PREPARE_NONE;
+        RevalidationPrepareSnapshotCount = 0u;
+        RevalidationPreparePinMarker = 0u;
+
+        uint transactionSlot;
+        SigmaTransactionGpu transaction;
+        if (SigmaRevalidationLoadTransaction(transactionSlot, transaction))
+        {
+            uint4 retained = _RevalidationContext[0u];
+            uint4 retainedOwner = _RevalidationContext[1u];
+            bool retainedValid = retained.x < SIGMA_STREAM_BUNDLE_CAPACITY;
+            bool sameOwner = retainedValid &&
+                retainedOwner.x == transactionSlot &&
+                retainedOwner.y ==
+                    SigmaStreamTransactionGeneration(transaction);
+            if (!sameOwner && retainedValid)
+            {
+                RevalidationPrepareAction =
+                    SIGMA_REVALIDATION_PREPARE_RELEASE_STALE;
+                RevalidationPrepareSnapshotCount =
+                    _RevalidationContext[2u].x;
+                RevalidationPreparePinMarker =
+                    SigmaRevalidationPinMarker(retainedOwner.x);
+            }
+            else if (!sameOwner)
+            {
+                uint publicationEpoch = _StreamSchedulerControl[
+                    SIGMA_STREAM_CONTROL_PUBLISHED_COUNT];
+                uint segmentSlot;
+                uint segmentGeneration;
+                uint segmentOffset;
+                uint bundleSlot;
+                uint bundleGeneration;
+                uint visiblePage = SigmaRevalidationFindVisiblePage(
+                    transaction.page0.coordinate);
+                bool currentValid = SigmaRevalidationCurrentBundle(
+                    transaction, segmentSlot, segmentGeneration,
+                    segmentOffset, bundleSlot, bundleGeneration);
+                bool stale = !currentValid;
+                if (currentValid)
+                {
+                    SigmaSealedSourceBundleGpu currentBundle =
+                        _StreamBundles[bundleSlot];
+                    stale = SigmaStreamBundleGeneration(currentBundle) !=
+                        bundleGeneration ||
+                        !SigmaRevalidationBundleCurrent(currentBundle,
+                            visiblePage);
+                }
+                if (!stale)
+                {
+                    transaction.identity.w &=
+                        ~SIGMA_STREAM_WORK_FLAG_NEEDS_REVALIDATION;
+                    transaction.identity.x = transaction.transition.z == 2u
+                        ? SIGMA_STREAM_TRANSACTION_PUBLISHABLE
+                        : SIGMA_STREAM_TRANSACTION_EVALUATING;
+                    _StreamTransactions[transactionSlot] = transaction;
+                    _StreamSchedulerControl[
+                        SIGMA_STREAM_CONTROL_REVALIDATE_OWNER] =
+                        SIGMA_STREAM_INVALID;
+                }
+                else if (!SigmaStreamHandleValid(bundleSlot,
+                        bundleGeneration, SIGMA_STREAM_BUNDLE_CAPACITY))
+                {
+                    transaction.identity.x =
+                        SIGMA_STREAM_TRANSACTION_DORMANT;
+                    _StreamTransactions[transactionSlot] = transaction;
+                    _StreamSchedulerControl[
+                        SIGMA_STREAM_CONTROL_REVALIDATE_OWNER] =
+                        SIGMA_STREAM_INVALID;
+                    InterlockedAdd(_StreamDiagnostics[0u].lifetime.z, 1u);
+                }
+                else
+                {
+                    SigmaSealedSourceBundleGpu bundle =
+                        _StreamBundles[bundleSlot];
+                    if (SigmaStreamBundleGeneration(bundle) !=
+                            bundleGeneration ||
+                        SigmaStreamBundleState(bundle) !=
+                            SIGMA_STREAM_BUNDLE_ACTIVE)
+                    {
+                        transaction.identity.x =
+                            SIGMA_STREAM_TRANSACTION_DORMANT;
+                        _StreamTransactions[transactionSlot] = transaction;
+                        _StreamSchedulerControl[
+                            SIGMA_STREAM_CONTROL_REVALIDATE_OWNER] =
+                            SIGMA_STREAM_INVALID;
+                        InterlockedAdd(
+                            _StreamDiagnostics[0u].lifetime.z, 1u);
+                    }
+                    else
+                    {
+                        uint associationSlot =
+                            SigmaRevalidationClaimAssociation(transaction,
+                                bundleSlot, bundleGeneration, bundle.raw.z);
+                        if (associationSlot == SIGMA_STREAM_INVALID)
+                        {
+                            _StreamSchedulerControl[
+                                SIGMA_STREAM_CONTROL_REVALIDATE_OWNER] =
+                                SIGMA_STREAM_INVALID;
+                            InterlockedAdd(
+                                _StreamDiagnostics[0u].lifetime.w, 1u);
+                        }
+                        else
+                        {
+                            if (visiblePage < _PageCapacity)
+                            {
+                                SigmaCarrierPageMetaGpu metadata =
+                                    _PageMetadata[visiblePage];
+                                transaction.page0.state.x = visiblePage;
+                                transaction.page0.state.z =
+                                    metadata.generation;
+                                bundle.dependency = uint4(visiblePage,
+                                    metadata.generation, metadata.revision,
+                                    publicationEpoch);
+                            }
+                            else
+                            {
+                                transaction.page0.state.x =
+                                    SIGMA_STREAM_INVALID;
+                                transaction.page0.state.z = 0u;
+                                bundle.dependency = uint4(
+                                    SIGMA_STREAM_INVALID, 0u, 0u,
+                                    publicationEpoch);
+                            }
+                            transaction.dependency0 = bundle.dependency;
+                            transaction.scratch = uint4(segmentSlot,
+                                segmentGeneration, segmentOffset,
+                                transaction.scratch.w);
+                            transaction.publication.w = associationSlot;
+                            bundle.raw.z = associationSlot;
+                            bundle.identity.w |=
+                                SIGMA_STREAM_BUNDLE_FLAG_HAS_ASSOCIATION;
+                            bundle.identity.w |=
+                                SIGMA_STREAM_BUNDLE_FLAG_NEEDS_REVALIDATION;
+                            _StreamBundles[bundleSlot] = bundle;
+                            _StreamTransactions[transactionSlot] =
+                                transaction;
+                            _RevalidationContext[0u] = uint4(bundleSlot,
+                                bundleGeneration, bundle.calibration.x,
+                                associationSlot);
+                            _RevalidationContext[1u] = uint4(
+                                transactionSlot,
+                                SigmaStreamTransactionGeneration(
+                                    transaction), publicationEpoch, 0u);
+                            _RevalidationContext[2u] = 0u;
+                            _RevalidationContext[3u] = 0u;
+                            RevalidationPrepareAction =
+                                SIGMA_REVALIDATION_PREPARE_CAPTURE;
+                            RevalidationPreparePinMarker =
+                                SigmaRevalidationPinMarker(transactionSlot);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    uint prepareAction = RevalidationPrepareAction;
+    bool releaseStale = prepareAction ==
+        SIGMA_REVALIDATION_PREPARE_RELEASE_STALE;
+    bool capture = prepareAction == SIGMA_REVALIDATION_PREPARE_CAPTURE;
+    if (releaseStale)
+    {
+        SigmaRevalidationReleaseSnapshotPin(lane,
+            RevalidationPrepareSnapshotCount,
+            RevalidationPreparePinMarker);
+    }
+
+    bool pageVisible = capture && lane < _PageCapacity &&
+        SigmaRevalidationPageVisible(lane);
+    SigmaPageVisibilityGpu visibility;
+    visibility.bornRetired = 0u;
+    visibility.pins = 0u;
+    if (pageVisible)
+        visibility = _StreamPageVisibility[lane];
+    bool pinAvailable = !pageVisible || visibility.pins.w == 0u ||
+        visibility.pins.w == RevalidationPreparePinMarker;
+    uint append = pageVisible && pinAvailable ? 1u : 0u;
+    uint conflict = pageVisible && !pinAvailable ? 1u : 0u;
+    uint appendPrefix;
+    uint conflictPrefix;
+    uint appendTotal;
+    uint conflictTotal;
+    SigmaStableExclusiveScan256Dual(lane, append, conflict,
+        appendPrefix, conflictPrefix, appendTotal, conflictTotal);
+    if (append != 0u)
+    {
+        SigmaCarrierPageMetaGpu metadata = _PageMetadata[lane];
+        _RevalidationPageSnapshot[appendPrefix] = uint4(lane,
+            metadata.generation, metadata.revision,
+            visibility.bornRetired.y);
+        visibility.pins.w = RevalidationPreparePinMarker;
+        _StreamPageVisibility[lane] = visibility;
+    }
+    DeviceMemoryBarrierWithGroupSync();
+    bool captureConflict = capture && conflictTotal != 0u;
+    if (captureConflict)
+    {
+        SigmaRevalidationReleaseSnapshotPin(lane, appendTotal,
+            RevalidationPreparePinMarker);
+    }
+    DeviceMemoryBarrierWithGroupSync();
+    if (lane == 0u)
+    {
+        if (releaseStale)
+        {
+            SigmaRevalidationClearContext();
+        }
+        else if (captureConflict)
+        {
+            SigmaRevalidationClearContext();
+            _StreamSchedulerControl[
+                SIGMA_STREAM_CONTROL_REVALIDATE_OWNER] =
+                SIGMA_STREAM_INVALID;
+            InterlockedAdd(_StreamDiagnostics[0u].lifetime.w, 1u);
+        }
+        else if (capture)
+        {
+            _RevalidationContext[2u] = uint4(appendTotal, 0u, 0u, 0u);
+            _RevalidationContext[3u] = 0u;
+        }
+    }
+}
+
+[numthreads(1, 1, 1)]
+void BuildHistoricalDrawArguments(uint3 id : SV_DispatchThreadID)
+{
+    uint4 context = _RevalidationContext[0u];
+    uint4 owner = _RevalidationContext[1u];
+    uint4 progress = _RevalidationContext[2u];
+    uint enabled =
+        _StreamWorkCounts[SIGMA_STREAM_OPCODE_REVALIDATE] != 0u &&
+        context.x < SIGMA_STREAM_BUNDLE_CAPACITY &&
+        owner.x < SIGMA_STREAM_TRANSACTION_CAPACITY &&
+        _StreamSchedulerControl[SIGMA_STREAM_CONTROL_REVALIDATE_OWNER] ==
+            owner.x ? 1u : 0u;
+    uint snapshotCount = progress.x;
+    uint cursor = min(progress.y, snapshotCount);
+    uint batchPages = enabled != 0u
+        ? min(snapshotCount - cursor,
+            SIGMA_REVALIDATION_PAGES_PER_QUANTUM)
+        : 0u;
+    uint end = cursor + batchPages;
+    uint complete = enabled != 0u && end >= snapshotCount ? 1u : 0u;
+    uint clear = enabled != 0u && progress.w == 0u ? 1u : 0u;
+    _RevalidationDrawArguments[0u] = clear != 0u
+        ? 3u : 0u;
+    _RevalidationDrawArguments[1u] = 2u;
+    _RevalidationDrawArguments[2u] = 0u;
+    _RevalidationDrawArguments[3u] = 0u;
+    _RevalidationDrawArguments[4u] = batchPages *
+        SIGMA_REVALIDATION_VERTICES_PER_PAGE;
+    _RevalidationDrawArguments[5u] = 2u;
+    _RevalidationDrawArguments[6u] = cursor *
+        SIGMA_REVALIDATION_VERTICES_PER_PAGE;
+    _RevalidationDrawArguments[7u] = 0u;
+    progress.y = end;
+    progress.z = complete;
+    progress.w |= clear;
+    _RevalidationContext[2u] = progress;
+    _RevalidationContext[3u] = uint4(cursor, batchPages, complete, clear);
+}
+
+void SigmaRevalidationCaptureEye(uint eye, uint packedPixel,
+    uint2 sourceResolution, inout SigmaAssociationSampleGpu association)
+{
+    uint2 pixel = uint2(packedPixel & 0xffffu, packedPixel >> 16u);
+    uint4 depthPage = 0u;
+    uint4 stateUv = 0u;
+    uint4 generation = 0u;
+    if (packedPixel != SIGMA_STREAM_INVALID && all(pixel < sourceResolution) &&
+        all(pixel < _RevalidationTargetResolution))
+    {
+        float2 depthSupport = _RevalidationDepthSupport[uint3(pixel, eye)];
+        uint4 page = _RevalidationCarrierPage[uint3(pixel, eye)];
+        float2 uv = _RevalidationCarrierUvNormal[uint3(pixel, eye)].xy;
+        uint4 key = _RevalidationStateKey[uint3(pixel, eye)];
+        depthPage = uint4(asuint(depthSupport.x), asuint(depthSupport.y),
+            page.x, page.y);
+        stateUv = uint4(page.z, page.w, asuint(uv.x), asuint(uv.y));
+        generation = key;
+    }
+    if (eye == 0u)
+    {
+        association.leftDepthPage = depthPage;
+        association.leftStateUv = stateUv;
+        association.leftGeneration = generation;
+    }
+    else
+    {
+        association.rightDepthPage = depthPage;
+        association.rightStateUv = stateUv;
+        association.rightGeneration = generation;
+    }
+}
+
+[numthreads(64, 1, 1)]
+void RebuildHistoricalAssociation(uint3 groupId : SV_GroupID,
+    uint3 threadId : SV_GroupThreadID)
+{
+    uint transactionSlot;
+    SigmaTransactionGpu transaction;
+    if (!SigmaRevalidationLoadTransaction(transactionSlot, transaction) ||
+        groupId.x >= 64u || _RevalidationContext[2u].z == 0u)
+        return;
+    uint4 context = _RevalidationContext[0u];
+    uint bundleSlot = context.x;
+    uint bundleGeneration = context.y;
+    if (!SigmaStreamHandleValid(bundleSlot, bundleGeneration,
+            SIGMA_STREAM_BUNDLE_CAPACITY))
+        return;
+    SigmaSealedSourceBundleGpu bundle = _StreamBundles[bundleSlot];
+    if (SigmaStreamBundleGeneration(bundle) != bundleGeneration ||
+        bundle.raw.z != context.w ||
+        bundle.raw.z >= SIGMA_STREAM_TRANSACTION_CAPACITY)
+        return;
+    uint2 sourceResolution = uint2(
+        _StreamBundleRayEpoch[bundleSlot * 4u + 2u],
+        _StreamBundleRayEpoch[bundleSlot * 4u + 3u]);
+    uint sample = groupId.x * 64u + threadId.x;
+    uint rawBase = SigmaStreamRawWordAddress(bundle.raw.x, sample, 0u);
+    uint4 leftRaw = _RawWords[rawBase + 0u];
+    uint4 rightRaw = _RawWords[rawBase + 1u];
+    SigmaAssociationSampleGpu association = (SigmaAssociationSampleGpu)0;
+    if ((leftRaw.w & 1u) != 0u)
+        SigmaRevalidationCaptureEye(0u, leftRaw.x, sourceResolution,
+            association);
+    if ((rightRaw.w & 1u) != 0u)
+        SigmaRevalidationCaptureEye(1u, rightRaw.x, sourceResolution,
+            association);
+    _StreamAssociation[bundle.raw.z * SIGMA_PAGE_SAMPLE_COUNT + sample] =
+        association;
+}
+
+[numthreads(256, 1, 1)]
+void FinalizeHistoricalRevalidation(uint3 threadId : SV_GroupThreadID)
+{
+    uint lane = threadId.x;
+    uint transactionSlot;
+    SigmaTransactionGpu transaction;
+    if (!SigmaRevalidationLoadTransaction(transactionSlot, transaction))
+        return;
+    if (_RevalidationContext[2u].z == 0u)
+        return;
+    uint4 context = _RevalidationContext[0u];
+    uint bundleSlot = context.x;
+    if (!SigmaStreamHandleValid(bundleSlot, context.y,
+            SIGMA_STREAM_BUNDLE_CAPACITY))
+        return;
+    SigmaSealedSourceBundleGpu bundle = _StreamBundles[bundleSlot];
+    if (SigmaStreamBundleGeneration(bundle) != context.y ||
+        bundle.raw.z != context.w ||
+        bundle.raw.z >= SIGMA_STREAM_TRANSACTION_CAPACITY)
+        return;
+    uint snapshotCount = _RevalidationContext[2u].x;
+    uint marker = SigmaRevalidationPinMarker(transactionSlot);
+    SigmaRevalidationReleaseSnapshotPin(lane, snapshotCount, marker);
+    DeviceMemoryBarrierWithGroupSync();
+    if (lane == 0u)
+    {
+        bundle.identity.w &=
+            ~SIGMA_STREAM_BUNDLE_FLAG_NEEDS_REVALIDATION;
+        _StreamBundles[bundleSlot] = bundle;
+
+        // Any reraster invalidates earlier derived candidate/proof
+        // intermediates. Replay the complete immutable stream; never resume
+        // after only the stale source.
+        transaction.progress = 0u;
+        transaction.completedMaskLo = 0u;
+        transaction.completedMaskHi = 0u;
+        transaction.transition = 0u;
+        transaction.scratch.x = transaction.source.x;
+        transaction.scratch.y = transaction.source.y;
+        transaction.scratch.z = 0u;
+        transaction.identity.w &=
+            ~SIGMA_STREAM_WORK_FLAG_NEEDS_REVALIDATION;
+        transaction.identity.x = SIGMA_STREAM_TRANSACTION_EVALUATING;
+        _StreamTransactions[transactionSlot] = transaction;
+        _StreamSchedulerControl[SIGMA_STREAM_CONTROL_REVALIDATE_OWNER] =
+            SIGMA_STREAM_INVALID;
+        SigmaRevalidationClearContext();
+        InterlockedAdd(_StreamDiagnostics[0u].lifetime.y, 1u);
+    }
+}
+
+[numthreads(256, 1, 1)]
+void CancelHistoricalRevalidation(uint3 threadId : SV_GroupThreadID)
+{
+    uint lane = threadId.x;
+    uint4 owner = _RevalidationContext[1u];
+    uint snapshotCount = _RevalidationContext[2u].x;
+    uint marker = owner.x < SIGMA_STREAM_TRANSACTION_CAPACITY
+        ? SigmaRevalidationPinMarker(owner.x) : 0u;
+    SigmaRevalidationReleaseSnapshotPin(lane, snapshotCount, marker);
+    DeviceMemoryBarrierWithGroupSync();
+    if (lane == 0u)
+    {
+        SigmaRevalidationClearContext();
+        _StreamSchedulerControl[SIGMA_STREAM_CONTROL_REVALIDATE_OWNER] =
+            SIGMA_STREAM_INVALID;
+    }
+}

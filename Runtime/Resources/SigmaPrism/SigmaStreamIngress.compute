@@ -1,0 +1,195 @@
+#pragma kernel NormalizeStereoDepth
+#pragma kernel ClearIngressClassification
+#pragma kernel ClassifyIngress
+#pragma target 5.0
+
+#include "ConeMath.hlsl"
+#include "SigmaPoseConsume.hlsl"
+
+// Disposable ingress proposal only.  This file normalizes the coherent stereo
+// depth pair and compacts conservative existing-page / novel-block hints.  It
+// never accepts a carrier mutation: exact mixed-eye association and every
+// first-hit decision are rebuilt later from the owned source bundle.
+
+Texture2DArray<float> _RawDepth;
+Texture2D<float4> _DepthRayCenterLeft;
+Texture2D<float4> _DepthRayCenterRight;
+Texture2DArray<float2> _PredDepthSupport;
+Texture2DArray<uint4> _PredCarrierPage;
+Texture2DArray<uint4> _PredStateKey;
+
+RWTexture2DArray<float2> _MetricDepth;
+RWTexture2DArray<uint> _DepthFlags;
+RWStructuredBuffer<uint> _ActivePageFlags;
+RWStructuredBuffer<uint> _UnmatchedBlockFlags;
+
+uint2 _Resolution;
+uint2 _GaugeBlockResolution;
+uint _ActiveFlagCount;
+uint _BlockFlagCount;
+uint _ClearCount;
+uint _SegmentCount;
+float2 _NearFar;
+
+float4x4 _WorldFromOpticalLeft;
+float4x4 _OpticalFromWorldRight;
+float4 _DepthIntrinsicsRight;
+
+static const uint SIGMA_DEPTH_VALID = 1u;
+static const uint SIGMA_DEPTH_RAW_INVALID = 2u;
+static const uint SIGMA_DEPTH_RANGE_INVALID = 4u;
+static const uint SIGMA_DEPTH_RAY_INVALID = 8u;
+
+bool SigmaIngressPredictionContact(float2 prediction, uint4 key)
+{
+    return prediction.y > 0.0 && key.x != 0u;
+}
+
+bool SigmaIngressSameCarrier(uint4 leftPage, uint4 rightPage,
+    uint4 leftKey, uint4 rightKey)
+{
+    return all(leftPage == rightPage) && leftKey.x == rightKey.x &&
+        leftKey.y == rightKey.y && leftKey.z == rightKey.z;
+}
+
+bool SigmaIngressProjectRight(float3 correctedWorld, out uint2 pixel,
+    out float expectedRange)
+{
+    float3 rawWorld = SigmaPoseUnapplyWorld(correctedWorld);
+    float3 optical = mul(_OpticalFromWorldRight,
+        float4(rawWorld, 1.0)).xyz;
+    if (!all(isfinite(optical)) || optical.z <= 1e-6)
+    {
+        pixel = 0u;
+        expectedRange = 0.0;
+        return false;
+    }
+    float2 projected = optical.xy / optical.z * _DepthIntrinsicsRight.xy +
+        _DepthIntrinsicsRight.zw;
+    int2 integerPixel = int2(floor(projected));
+    if (any(integerPixel < 0) || any(integerPixel >= (int2)_Resolution))
+    {
+        pixel = 0u;
+        expectedRange = 0.0;
+        return false;
+    }
+    pixel = (uint2)integerPixel;
+    expectedRange = length(optical);
+    return isfinite(expectedRange) && expectedRange > 0.0;
+}
+
+[numthreads(8, 8, 1)]
+void NormalizeStereoDepth(uint3 id : SV_DispatchThreadID)
+{
+    if (any(id.xy >= _Resolution) || id.z >= 2u)
+        return;
+
+    float raw = _RawDepth[id];
+    if (!isfinite(raw) || raw <= 0.000001 || raw >= 0.999999)
+    {
+        _MetricDepth[id] = 0.0;
+        _DepthFlags[id] = SIGMA_DEPTH_RAW_INVALID;
+        return;
+    }
+
+    float viewZ = ConeProjectionDepthToViewZ(raw, _NearFar);
+    if (!isfinite(viewZ) || viewZ < _NearFar.x || viewZ > _NearFar.y)
+    {
+        _MetricDepth[id] = 0.0;
+        _DepthFlags[id] = SIGMA_DEPTH_RANGE_INVALID;
+        return;
+    }
+
+    float3 ray = id.z == 0u
+        ? _DepthRayCenterLeft[id.xy].xyz
+        : _DepthRayCenterRight[id.xy].xyz;
+    if (!all(isfinite(ray)) || ray.z <= 1e-6)
+    {
+        _MetricDepth[id] = 0.0;
+        _DepthFlags[id] = SIGMA_DEPTH_RAY_INVALID;
+        return;
+    }
+
+    float rangeMeters = viewZ / ray.z;
+    if (!isfinite(rangeMeters) || rangeMeters <= 0.0)
+    {
+        _MetricDepth[id] = 0.0;
+        _DepthFlags[id] = SIGMA_DEPTH_RANGE_INVALID;
+        return;
+    }
+
+    _MetricDepth[id] = float2(rangeMeters, viewZ);
+    _DepthFlags[id] = SIGMA_DEPTH_VALID;
+}
+
+[numthreads(64, 1, 1)]
+void ClearIngressClassification(uint3 id : SV_DispatchThreadID)
+{
+    uint index = id.x;
+    if (index < _ActiveFlagCount)
+        _ActivePageFlags[index] = 0u;
+    if (index < _BlockFlagCount)
+        _UnmatchedBlockFlags[index] = 0u;
+}
+
+[numthreads(8, 8, 1)]
+void ClassifyIngress(uint3 id : SV_DispatchThreadID)
+{
+    if (any(id.xy >= _Resolution) || id.z >= 2u)
+        return;
+
+    uint3 address = uint3(id.xy, id.z);
+    float2 prediction = _PredDepthSupport[address];
+    uint4 key = _PredStateKey[address];
+    if (SigmaIngressPredictionContact(prediction, key) &&
+        key.z < _SegmentCount && key.w < 256u)
+    {
+        uint globalPage = key.z * 256u + key.w;
+        if (globalPage < _ActiveFlagCount)
+            InterlockedOr(_ActivePageFlags[globalPage], 1u);
+    }
+
+    if (id.z != 0u || (_DepthFlags[address] & SIGMA_DEPTH_VALID) == 0u)
+        return;
+
+    float leftRange = _MetricDepth[address].x;
+    float3 leftRay = _DepthRayCenterLeft[id.xy].xyz;
+    float3 rawWorld = mul(_WorldFromOpticalLeft,
+        float4(leftRay * leftRange, 1.0)).xyz;
+    float3 correctedWorld = SigmaPoseApplyWorld(rawWorld);
+    uint2 rightPixel;
+    float expectedRightRange;
+    if (!SigmaIngressProjectRight(correctedWorld, rightPixel,
+            expectedRightRange) ||
+        (_DepthFlags[uint3(rightPixel, 1u)] & SIGMA_DEPTH_VALID) == 0u)
+        return;
+
+    float rightRange = _MetricDepth[uint3(rightPixel, 1u)].x;
+    float stereoEnvelope = 0.006 + 0.006 *
+        max(leftRange * leftRange, rightRange * rightRange);
+    if (abs(rightRange - expectedRightRange) > stereoEnvelope)
+        return;
+
+    float2 rightPrediction = _PredDepthSupport[uint3(rightPixel, 1u)];
+    uint4 leftPage = _PredCarrierPage[address];
+    uint4 rightPage = _PredCarrierPage[uint3(rightPixel, 1u)];
+    uint4 rightKey = _PredStateKey[uint3(rightPixel, 1u)];
+    bool leftContact = SigmaIngressPredictionContact(prediction, key);
+    bool rightContact = SigmaIngressPredictionContact(rightPrediction,
+        rightKey);
+    bool sameCarrier = leftContact && rightContact &&
+        SigmaIngressSameCarrier(leftPage, rightPage, key, rightKey);
+    float associationEnvelope = max(0.015, stereoEnvelope * 2.0);
+    bool sameFirstHit = sameCarrier &&
+        abs(leftRange - prediction.x) <= associationEnvelope &&
+        abs(rightRange - rightPrediction.x) <= associationEnvelope;
+    if (sameFirstHit)
+        return;
+
+    uint2 block = id.xy >> 5u;
+    if (any(block >= _GaugeBlockResolution))
+        return;
+    uint blockIndex = block.y * _GaugeBlockResolution.x + block.x;
+    if (blockIndex < _BlockFlagCount)
+        InterlockedOr(_UnmatchedBlockFlags[blockIndex], 1u);
+}

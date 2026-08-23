@@ -1,0 +1,983 @@
+#pragma kernel EvaluateTransactionMicrotile
+#pragma target 5.0
+
+#include "SigmaGeometryReadout.hlsl"
+#include "SigmaInverseMath.hlsl"
+#include "SigmaRgbInverseMath.hlsl"
+#include "SigmaConstraintLedgerAbi.hlsl"
+#include "SigmaInverseWorkAbi.hlsl"
+
+// Bounded canonical evaluator. One group is exactly sixteen carrier samples by
+// sixteen S16 coordinates. Source bundles are consumed in sealed ticket order;
+// joint bounds persist between bundles and a candidate is built only after the
+// final bundle has contributed.
+
+StructuredBuffer<uint2> _CarrierState;
+StructuredBuffer<SigmaCarrierPageMetaGpu> _PageMetadata;
+StructuredBuffer<SigmaSealedSourceBundleGpu> _StreamBundles;
+StructuredBuffer<SigmaSourceHandleSegmentGpu> _StreamSourceSegments;
+StructuredBuffer<SigmaAssociationSampleGpu> _StreamAssociation;
+StructuredBuffer<uint4> _RawWords;
+StructuredBuffer<SigmaStreamWorkItemGpu> _StreamWorkItems;
+StructuredBuffer<uint> _StreamWorkCounts;
+StructuredBuffer<uint> _StreamSchedulerControlRead;
+
+RWStructuredBuffer<SigmaTransactionGpu> _StreamTransactions;
+RWStructuredBuffer<uint2> _TargetCarrierState;
+RWStructuredBuffer<SigmaProofSampleGpu> _ProofSamples;
+RWStructuredBuffer<SigmaQ48Bounds> _StreamJointBounds;
+RWStructuredBuffer<uint4> _StreamJointProvenance;
+RWStructuredBuffer<uint4> _StreamSampleMeta;
+RWStructuredBuffer<uint> _StreamSampleOutcomes;
+RWStructuredBuffer<SigmaStreamDiagnosticGpu> _StreamDiagnostics;
+
+uint _PageCapacity;
+uint _TargetPageCapacity;
+uint _StreamSourceSegmentCapacity;
+
+#define SIGMA_STREAM_EVAL_SAMPLES 16u
+#define SIGMA_STREAM_EVAL_THREADS 256u
+
+groupshared uint2 EvalOriginal[SIGMA_STREAM_EVAL_THREADS];
+groupshared uint2 EvalA[SIGMA_STREAM_EVAL_THREADS];
+groupshared uint2 EvalB[SIGMA_STREAM_EVAL_THREADS];
+groupshared uint EvalValidA[SIGMA_STREAM_EVAL_THREADS];
+groupshared uint EvalValidB[SIGMA_STREAM_EVAL_THREADS];
+groupshared uint2 EvalCurrentY[SIGMA_STREAM_EVAL_THREADS];
+groupshared uint2 EvalContribution[SIGMA_STREAM_EVAL_THREADS];
+groupshared uint2 EvalCoefficient[SIGMA_STREAM_EVAL_THREADS];
+groupshared uint EvalLaneValid[SIGMA_STREAM_EVAL_THREADS];
+
+groupshared SigmaDepthCell3 EvalDepthLeft[SIGMA_STREAM_EVAL_SAMPLES];
+groupshared SigmaDepthCell3 EvalDepthRight[SIGMA_STREAM_EVAL_SAMPLES];
+groupshared SigmaQ48Bounds EvalRgbMeasurement[SIGMA_STREAM_EVAL_SAMPLES * 3u];
+groupshared uint2 EvalMass[SIGMA_STREAM_EVAL_SAMPLES];
+groupshared uint2 EvalPriorWidth[SIGMA_STREAM_EVAL_SAMPLES];
+groupshared uint2 EvalRgbSupportFloor[SIGMA_STREAM_EVAL_SAMPLES];
+groupshared uint2 EvalRgbTotal[SIGMA_STREAM_EVAL_SAMPLES];
+groupshared uint EvalSampleValid[SIGMA_STREAM_EVAL_SAMPLES];
+groupshared uint EvalButterflySafe[SIGMA_STREAM_EVAL_SAMPLES];
+groupshared uint EvalRgbActive[SIGMA_STREAM_EVAL_SAMPLES];
+groupshared uint EvalRgbDirection[SIGMA_STREAM_EVAL_SAMPLES];
+groupshared uint EvalRgbNegative[SIGMA_STREAM_EVAL_SAMPLES];
+groupshared uint EvalRgbMask[SIGMA_STREAM_EVAL_SAMPLES];
+groupshared uint EvalRgbUnobservable[SIGMA_STREAM_EVAL_SAMPLES];
+groupshared uint EvalConflictMask[SIGMA_STREAM_EVAL_SAMPLES];
+groupshared uint EvalSourceMask[SIGMA_STREAM_EVAL_SAMPLES];
+groupshared uint EvalConstrainedMask[SIGMA_STREAM_EVAL_SAMPLES];
+groupshared uint EvalOutcome[SIGMA_STREAM_EVAL_SAMPLES];
+groupshared uint EvalCandidateValid[SIGMA_STREAM_EVAL_SAMPLES];
+
+uint2 SigmaStreamNullLane(uint lane)
+{
+    if (lane == (uint)SIGMA_Z_NULL_DYAD.x)
+        return SIGMA_Z_NULL_DYAD.y < 0 ? uint2(0u, 0xffff0000u) :
+            uint2(0u, 0x00010000u);
+    if (lane == (uint)SIGMA_Z_NULL_DYAD.z)
+        return SIGMA_Z_NULL_DYAD.w < 0 ? uint2(0u, 0xffff0000u) :
+            uint2(0u, 0x00010000u);
+    return SIGMA_Q48_ZERO;
+}
+
+uint SigmaStreamJointAddress(uint transactionSlot, uint sample,
+    uint coordinate)
+{
+    return (transactionSlot * SIGMA_PAGE_SAMPLE_COUNT + sample) * 16u +
+        coordinate;
+}
+
+uint SigmaStreamSampleAddress(uint transactionSlot, uint sample)
+{
+    return transactionSlot * SIGMA_PAGE_SAMPLE_COUNT + sample;
+}
+
+uint4 SigmaStreamRaw(uint rawTileBase, uint sample, uint word)
+{
+    return _RawWords[SigmaStreamRawWordAddress(rawTileBase, sample, word)];
+}
+
+bool SigmaStreamLoadCurrentBundle(SigmaTransactionGpu transaction,
+    out uint bundleSlot, out uint bundleGeneration)
+{
+    bundleSlot = SIGMA_STREAM_INVALID;
+    bundleGeneration = 0u;
+    if (transaction.scratch.x >= _StreamSourceSegmentCapacity ||
+        transaction.scratch.z >= SIGMA_STREAM_SOURCE_HANDLE_WINDOW)
+        return false;
+    SigmaSourceHandleSegmentGpu segment =
+        _StreamSourceSegments[transaction.scratch.x];
+    if (!SigmaStreamSourceSegmentValid(segment, transaction.scratch.y) ||
+        segment.identity.x != SIGMA_STREAM_SOURCE_SEGMENT_SEALED ||
+        transaction.scratch.z >= segment.identity.z)
+        return false;
+    uint2 handle = SigmaStreamSourceHandle(segment, transaction.scratch.z);
+    bundleSlot = handle.x;
+    bundleGeneration = handle.y;
+    return SigmaStreamHandleValid(bundleSlot, bundleGeneration,
+        SIGMA_STREAM_BUNDLE_CAPACITY);
+}
+
+uint SigmaStreamCombineOutcome(uint previous, uint incoming)
+{
+    if (previous == SIGMA_STREAM_OUTCOME_EMPTY_EXACT ||
+        incoming == SIGMA_STREAM_OUTCOME_EMPTY_EXACT)
+        return SIGMA_STREAM_OUTCOME_EMPTY_EXACT;
+    if (previous == SIGMA_STREAM_OUTCOME_NO_EVIDENCE)
+        return incoming;
+    if (incoming == SIGMA_STREAM_OUTCOME_NO_EVIDENCE)
+        return previous;
+    if (previous == incoming)
+        return previous;
+    return SIGMA_STREAM_OUTCOME_TRANSITION_UNRESOLVED;
+}
+
+void SigmaStreamAssociationEye(SigmaAssociationSampleGpu association,
+    uint eye, out float2 depthSupport, out uint4 page, out uint4 generation)
+{
+    uint4 depthPage;
+    uint4 stateUv;
+    if (eye == 0u)
+    {
+        depthPage = association.leftDepthPage;
+        stateUv = association.leftStateUv;
+        generation = association.leftGeneration;
+    }
+    else
+    {
+        depthPage = association.rightDepthPage;
+        stateUv = association.rightStateUv;
+        generation = association.rightGeneration;
+    }
+    depthSupport = float2(asfloat(depthPage.x), asfloat(depthPage.y));
+    page = uint4(depthPage.z, depthPage.w, stateUv.x, stateUv.y);
+}
+
+bool SigmaStreamAssociationContact(float2 depthSupport, uint4 generation)
+{
+    return depthSupport.y > 0.0 && isfinite(depthSupport.x) &&
+        generation.x != 0u;
+}
+
+bool SigmaStreamAssociationSame(uint4 leftPage, uint4 leftGeneration,
+    uint4 rightPage, uint4 rightGeneration)
+{
+    return all(leftPage == rightPage) &&
+        leftGeneration.x == rightGeneration.x &&
+        leftGeneration.y == rightGeneration.y;
+}
+
+bool SigmaStreamAssociationMatchesTarget(uint4 page, uint4 generation,
+    SigmaTransactionGpu transaction)
+{
+    return all(page == transaction.page0.coordinate) &&
+        generation.x == transaction.page0.state.z &&
+        generation.y == transaction.dependency0.z;
+}
+
+void SigmaEvalButterflyStage(uint flat, uint coordinate, uint span,
+    bool sourceA)
+{
+    uint base = flat - coordinate;
+    uint lower = base + (coordinate & ~span);
+    uint upper = lower | span;
+    uint2 a = sourceA ? EvalA[lower] : EvalB[lower];
+    uint2 b = sourceA ? EvalA[upper] : EvalB[upper];
+    uint valid = (sourceA ? EvalValidA[lower] : EvalValidB[lower]) &
+        (sourceA ? EvalValidA[upper] : EvalValidB[upper]);
+    uint2 result = (coordinate & span) == 0u
+        ? SigmaQ48AddChecked(a, b, valid)
+        : SigmaQ48SubChecked(a, b, valid);
+    if (sourceA)
+    {
+        EvalB[flat] = result;
+        EvalValidB[flat] = valid;
+    }
+    else
+    {
+        EvalA[flat] = result;
+        EvalValidA[flat] = valid;
+    }
+}
+
+void SigmaEvalHadamard(uint flat, uint coordinate, uint sampleLocal,
+    out uint2 result, out uint valid)
+{
+    uint inputValid = EvalValidA[flat];
+    EvalOriginal[flat] = EvalA[flat];
+    if (coordinate == 0u)
+        EvalButterflySafe[sampleLocal] = 1u;
+    GroupMemoryBarrierWithGroupSync();
+    const uint2 limit = uint2(0xffffffffu, 0x07ffffffu);
+    if (SigmaU64Less(limit, SigmaU64AbsSigned(EvalOriginal[flat])))
+        InterlockedAnd(EvalButterflySafe[sampleLocal], 0u);
+    GroupMemoryBarrierWithGroupSync();
+
+    SigmaEvalButterflyStage(flat, coordinate, 1u, true);
+    GroupMemoryBarrierWithGroupSync();
+    SigmaEvalButterflyStage(flat, coordinate, 2u, false);
+    GroupMemoryBarrierWithGroupSync();
+    SigmaEvalButterflyStage(flat, coordinate, 4u, true);
+    GroupMemoryBarrierWithGroupSync();
+    SigmaEvalButterflyStage(flat, coordinate, 8u, false);
+    GroupMemoryBarrierWithGroupSync();
+    if (EvalButterflySafe[sampleLocal] != 0u)
+    {
+        result = EvalA[flat];
+        valid = EvalValidA[flat];
+        return;
+    }
+    result = SIGMA_Q48_ZERO;
+    valid = inputValid;
+    uint base = flat - coordinate;
+    [unroll]
+    for (uint source = 0u; source < 16u; ++source)
+    {
+        uint2 term = SigmaHadamardSign(coordinate, source) < 0
+            ? SigmaQ48NegateChecked(EvalOriginal[base + source], valid)
+            : EvalOriginal[base + source];
+        result = SigmaQ48AddChecked(result, term, valid);
+    }
+}
+
+void SigmaEvalReduceValidity(uint flat, uint coordinate, uint sampleLocal,
+    uint value)
+{
+    EvalLaneValid[flat] = value;
+    GroupMemoryBarrierWithGroupSync();
+    if (coordinate == 0u)
+    {
+        uint base = flat;
+        uint valid = 1u;
+        [unroll]
+        for (uint lane = 0u; lane < 16u; ++lane)
+            valid &= EvalLaneValid[base + lane];
+        EvalSampleValid[sampleLocal] = valid;
+    }
+    GroupMemoryBarrierWithGroupSync();
+}
+
+void SigmaEvalAccumulateKey(uint key, inout uint4 provenance)
+{
+    if (key == 0u)
+        return;
+    if (provenance.z == 0u)
+        provenance.z = key;
+    else if (provenance.z != key)
+        provenance.w = 1u;
+}
+
+void SigmaEvalMeet(SigmaQ48Bounds incoming, uint sourceOrdinal, uint key,
+    inout SigmaQ48Bounds joint, inout uint4 provenance)
+{
+    bool takeLo = SigmaQ48Less(joint.lo, incoming.lo) ||
+        (SigmaU64Equal(joint.lo, incoming.lo) &&
+            sourceOrdinal < provenance.x);
+    bool takeHi = SigmaQ48Less(incoming.hi, joint.hi) ||
+        (SigmaU64Equal(incoming.hi, joint.hi) &&
+            sourceOrdinal < provenance.y);
+    if (takeLo)
+    {
+        joint.lo = incoming.lo;
+        provenance.x = sourceOrdinal;
+    }
+    if (takeHi)
+    {
+        joint.hi = incoming.hi;
+        provenance.y = sourceOrdinal;
+    }
+    SigmaEvalAccumulateKey(key, provenance);
+}
+
+SigmaQ48Bounds SigmaEvalFullBounds()
+{
+    SigmaQ48Bounds result;
+    result.lo = uint2(0u, 0x80000000u);
+    result.hi = uint2(0xffffffffu, 0x7fffffffu);
+    return result;
+}
+
+bool SigmaEvalBuildBootstrap(SigmaDepthCell3 left, SigmaDepthCell3 right,
+    uint calibrationBase, out uint2 geometry[4], out uint2 mass)
+{
+    uint valid = 1u;
+    SigmaQ48Bounds joint[3];
+    uint depthCount = 0u;
+    [unroll]
+    for (uint axis = 0u; axis < 3u; ++axis)
+        joint[axis] = SigmaEvalFullBounds();
+    if (left.valid != 0u && left.sector != SIGMA_SECTOR_PRE_HIT_EXCLUSION)
+    {
+        [unroll]
+        for (uint axis = 0u; axis < 3u; ++axis)
+        {
+            joint[axis].lo = SigmaQ48Max(joint[axis].lo,
+                left.axis[axis].lo);
+            joint[axis].hi = SigmaQ48Min(joint[axis].hi,
+                left.axis[axis].hi);
+        }
+        depthCount++;
+    }
+    if (right.valid != 0u && right.sector != SIGMA_SECTOR_PRE_HIT_EXCLUSION)
+    {
+        [unroll]
+        for (uint axis = 0u; axis < 3u; ++axis)
+        {
+            joint[axis].lo = SigmaQ48Max(joint[axis].lo,
+                right.axis[axis].lo);
+            joint[axis].hi = SigmaQ48Min(joint[axis].hi,
+                right.axis[axis].hi);
+        }
+        depthCount++;
+    }
+    uint2 maximumWidth = SIGMA_Q48_ZERO;
+    geometry[0] = SIGMA_Q48_ONE;
+    [unroll]
+    for (uint axis = 0u; axis < 3u; ++axis)
+    {
+        if (SigmaQ48Less(joint[axis].hi, joint[axis].lo))
+            valid = 0u;
+        geometry[axis + 1u] = SigmaQ48Midpoint(joint[axis].lo,
+            joint[axis].hi, valid);
+        maximumWidth = SigmaQ48Max(maximumWidth,
+            SigmaQ48SubChecked(joint[axis].hi, joint[axis].lo, valid));
+    }
+    mass = SigmaOwnedInformationMassForWidth(calibrationBase,
+        maximumWidth, valid);
+    return depthCount != 0u && valid != 0u;
+}
+
+// Fixed two-forward/two-reverse RGB contraction over one source eye.  Every
+// coordinate lane follows the same barrier schedule; no source-dependent branch
+// can skip a synchronization point.
+SigmaQ48Bounds SigmaEvalRgbEye(uint flat, uint coordinate, uint sampleLocal,
+    uint calibrationBase, uint eye, uint4 rawFirst, uint4 rawSecond,
+    SigmaCarrierPageMetaGpu metadata, uint sample, bool supported,
+    out uint coordinateMask, out uint unobservable)
+{
+    uint valid = EvalSampleValid[sampleLocal];
+    uint2 mass = EvalMass[sampleLocal];
+    uint2 currentY = EvalCurrentY[flat];
+    uint2 width = EvalPriorWidth[sampleLocal];
+    SigmaQ48Bounds prior = SigmaQ48Widen(currentY, width, valid);
+    if (supported && valid != 0u)
+        valid &= SigmaApplyConstraintPriorLane(metadata, sample, coordinate,
+            prior) ? 1u : 0u;
+    SigmaQ48Bounds box = prior;
+    EvalLaneValid[flat] = valid;
+    if (coordinate == 0u)
+    {
+        uint setup = EvalSampleValid[sampleLocal];
+        SigmaQ48Bounds measured[3];
+        bool hasMeasurement = SigmaBuildOwnedRgbMeasurement(calibrationBase,
+            eye, rawFirst, rawSecond, measured, setup);
+        if (hasMeasurement && setup != 0u)
+        {
+            EvalRgbMeasurement[sampleLocal * 3u + 0u] = measured[0];
+            EvalRgbMeasurement[sampleLocal * 3u + 1u] = measured[1];
+            EvalRgbMeasurement[sampleLocal * 3u + 2u] = measured[2];
+            uint direction = SigmaOwnedRgbQuantizedDirection(calibrationBase,
+                EvalCurrentY[flat + SIGMA_GEOMETRY_ROWS[1]],
+                EvalCurrentY[flat + SIGMA_GEOMETRY_ROWS[2]],
+                EvalCurrentY[flat + SIGMA_GEOMETRY_ROWS[3]], eye, setup);
+            uint scale = direction < SIGMA_RGB_VIEW_COUNT
+                ? _RgbViewSupportScale[direction] : 0u;
+            if (direction == SIGMA_RGB_VIEW_NULL || scale == 0u)
+                setup = 0u;
+            uint2 scaleQ = SigmaQ48FromUnsignedInteger(scale, setup);
+            EvalRgbSupportFloor[sampleLocal] = SigmaQ48MulNearestEven(
+                SigmaOwnedRgbCalibrationValue(calibrationBase, eye,
+                    SIGMA_RGB_CAL_SUPPORT_FLOOR), scaleQ, setup);
+            EvalRgbDirection[sampleLocal] = direction;
+        }
+        EvalRgbActive[sampleLocal] = hasMeasurement ? setup : 0u;
+        EvalRgbUnobservable[sampleLocal] = hasMeasurement && setup != 0u
+            ? 0u : 1u;
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    valid &= EvalRgbActive[sampleLocal];
+    uint2 denominatorCoefficient = SIGMA_Q48_ZERO;
+    SigmaQ48Bounds contribution = SigmaQ48PointBounds(SIGMA_Q48_ZERO);
+    if (valid != 0u)
+    {
+        denominatorCoefficient = SigmaRgbOperator(
+            EvalRgbDirection[sampleLocal], 0u, coordinate);
+        contribution = SigmaQ48ScaleBounds(denominatorCoefficient, box, valid);
+    }
+    EvalContribution[flat] = contribution.lo;
+    EvalCoefficient[flat] = contribution.hi;
+    EvalLaneValid[flat] = valid;
+    GroupMemoryBarrierWithGroupSync();
+    if (coordinate == 0u)
+    {
+        uint reduceValid = EvalRgbActive[sampleLocal];
+        SigmaQ48Bounds denominator = SigmaQ48PointBounds(SIGMA_Q48_ZERO);
+        [unroll]
+        for (uint lane = 0u; lane < 16u; ++lane)
+        {
+            denominator.lo = SigmaQ48AddChecked(denominator.lo,
+                EvalContribution[flat + lane], reduceValid);
+            denominator.hi = SigmaQ48AddChecked(denominator.hi,
+                EvalCoefficient[flat + lane], reduceValid);
+            reduceValid &= EvalLaneValid[flat + lane];
+        }
+        bool positive = !SigmaQ48Less(denominator.lo,
+            EvalRgbSupportFloor[sampleLocal]);
+        uint2 negativeFloor = SigmaQ48NegateChecked(
+            EvalRgbSupportFloor[sampleLocal], reduceValid);
+        bool negative = !SigmaQ48Less(negativeFloor, denominator.hi);
+        if (!positive && !negative)
+        {
+            EvalRgbUnobservable[sampleLocal] = 1u;
+            reduceValid = 0u;
+        }
+        EvalRgbNegative[sampleLocal] = negative ? 1u : 0u;
+        EvalRgbActive[sampleLocal] = reduceValid;
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    [loop]
+    for (uint sweep = 0u; sweep < 4u; ++sweep)
+    {
+        bool reverse = sweep >= 2u;
+        [loop]
+        for (uint step = 0u; step < 7u; ++step)
+        {
+            uint constraint = reverse ? 6u - step : step;
+            valid = EvalRgbActive[sampleLocal];
+            uint2 coefficient = SIGMA_Q48_ZERO;
+            if (valid != 0u)
+                coefficient = SigmaRgbInequalityCoefficient(constraint,
+                    EvalRgbDirection[sampleLocal], coordinate,
+                    EvalRgbMeasurement[sampleLocal * 3u + 0u],
+                    EvalRgbMeasurement[sampleLocal * 3u + 1u],
+                    EvalRgbMeasurement[sampleLocal * 3u + 2u],
+                    EvalRgbNegative[sampleLocal] != 0u, valid);
+            uint2 minimum = SIGMA_Q48_ZERO;
+            if (valid != 0u)
+                minimum = SigmaQ48ScaleBounds(coefficient, box, valid).lo;
+            EvalCoefficient[flat] = coefficient;
+            EvalContribution[flat] = minimum;
+            EvalLaneValid[flat] = valid;
+            GroupMemoryBarrierWithGroupSync();
+            if (coordinate == 0u)
+            {
+                uint reduceValid = EvalRgbActive[sampleLocal];
+                uint2 total = SIGMA_Q48_ZERO;
+                [unroll]
+                for (uint lane = 0u; lane < 16u; ++lane)
+                {
+                    total = SigmaQ48AddChecked(total,
+                        EvalContribution[flat + lane], reduceValid);
+                    reduceValid &= EvalLaneValid[flat + lane];
+                }
+                EvalRgbTotal[sampleLocal] = total;
+                EvalRgbActive[sampleLocal] = reduceValid;
+            }
+            GroupMemoryBarrierWithGroupSync();
+            valid = EvalRgbActive[sampleLocal];
+            if (valid != 0u &&
+                !SigmaU64Equal(EvalCoefficient[flat], SIGMA_Q48_ZERO))
+            {
+                uint2 other = SigmaQ48SubChecked(EvalRgbTotal[sampleLocal],
+                    EvalContribution[flat], valid);
+                uint2 upper = constraint == 0u
+                    ? SigmaQ48NegateChecked(EvalRgbSupportFloor[sampleLocal],
+                        valid)
+                    : SIGMA_Q48_ZERO;
+                uint2 numerator = SigmaQ48SubChecked(upper, other, valid);
+                if ((EvalCoefficient[flat].y & 0x80000000u) == 0u)
+                    box.hi = SigmaQ48Min(box.hi,
+                        SigmaQ48DivUpper(numerator, EvalCoefficient[flat],
+                            valid));
+                else
+                    box.lo = SigmaQ48Max(box.lo,
+                        SigmaQ48DivLower(numerator, EvalCoefficient[flat],
+                            valid));
+            }
+            EvalLaneValid[flat] = valid;
+        }
+    }
+    SigmaEvalReduceValidity(flat, coordinate, sampleLocal,
+        EvalLaneValid[flat]);
+    uint changed = EvalSampleValid[sampleLocal] != 0u &&
+        (!SigmaU64Equal(box.lo, prior.lo) ||
+            !SigmaU64Equal(box.hi, prior.hi)) ? 1u : 0u;
+    EvalLaneValid[flat] = changed;
+    GroupMemoryBarrierWithGroupSync();
+    if (coordinate == 0u)
+    {
+        uint mask = 0u;
+        [unroll]
+        for (uint lane = 0u; lane < 16u; ++lane)
+            mask |= (EvalLaneValid[flat + lane] & 1u) << lane;
+        EvalRgbMask[sampleLocal] = mask;
+        if (mask == 0u)
+            EvalRgbUnobservable[sampleLocal] = 1u;
+    }
+    GroupMemoryBarrierWithGroupSync();
+    coordinateMask = EvalRgbMask[sampleLocal];
+    unobservable = EvalRgbUnobservable[sampleLocal];
+    return box;
+}
+
+[numthreads(SIGMA_STREAM_EVAL_THREADS, 1, 1)]
+void EvaluateTransactionMicrotile(uint3 groupId : SV_GroupID,
+    uint3 threadId : SV_GroupThreadID)
+{
+    uint workIndex = groupId.x;
+    uint workCount = _StreamWorkCounts[
+        SIGMA_STREAM_OPCODE_EVALUATE_MICROTILE];
+    if (workIndex >= workCount || !SigmaCanonicalMutationEnabled())
+        return;
+    SigmaStreamWorkItemGpu work = _StreamWorkItems[SigmaStreamWorkAddress(
+        SIGMA_STREAM_OPCODE_EVALUATE_MICROTILE, workIndex)];
+    uint transactionSlot = work.identity.y;
+    if (transactionSlot >= SIGMA_STREAM_TRANSACTION_CAPACITY)
+        return;
+    SigmaTransactionGpu transaction = _StreamTransactions[transactionSlot];
+    if (SigmaStreamTransactionGeneration(transaction) != work.identity.z ||
+        SigmaStreamTransactionState(transaction) !=
+            SIGMA_STREAM_TRANSACTION_EVALUATING ||
+        transaction.progress.w != 0u)
+        return;
+
+    uint flat = threadId.x;
+    uint coordinate = flat & 15u;
+    uint sampleLocal = flat >> 4u;
+    uint sourceOrdinal = transaction.progress.x;
+    uint block = transaction.progress.y;
+    uint microtile = transaction.progress.z;
+    if (sourceOrdinal >= transaction.source.z || block >= 64u ||
+        microtile >= 4u)
+        return;
+    uint bundleSlot;
+    uint bundleGeneration;
+    if (!SigmaStreamLoadCurrentBundle(transaction, bundleSlot,
+            bundleGeneration))
+        return;
+    SigmaSealedSourceBundleGpu bundle = _StreamBundles[bundleSlot];
+    if (SigmaStreamBundleGeneration(bundle) != bundleGeneration ||
+        SigmaStreamBundleState(bundle) != SIGMA_STREAM_BUNDLE_ACTIVE)
+        return;
+    bool associationCurrent =
+        bundle.raw.z < SIGMA_STREAM_TRANSACTION_CAPACITY &&
+        (bundle.identity.w &
+            SIGMA_STREAM_BUNDLE_FLAG_HAS_ASSOCIATION) != 0u &&
+        (bundle.identity.w &
+            SIGMA_STREAM_BUNDLE_FLAG_NEEDS_REVALIDATION) == 0u &&
+        bundle.dependency.w == _StreamSchedulerControlRead[
+            SIGMA_STREAM_CONTROL_PUBLISHED_COUNT];
+    if (!associationCurrent)
+    {
+        if (threadId.x == 0u)
+        {
+            SigmaTransactionGpu current =
+                _StreamTransactions[transactionSlot];
+            if (SigmaStreamTransactionGeneration(current) ==
+                    work.identity.z &&
+                SigmaStreamTransactionState(current) ==
+                    SIGMA_STREAM_TRANSACTION_EVALUATING &&
+                all(current.progress == transaction.progress))
+            {
+                current.identity.x =
+                    SIGMA_STREAM_TRANSACTION_REVALIDATE_PENDING;
+                current.identity.w |=
+                    SIGMA_STREAM_WORK_FLAG_NEEDS_REVALIDATION;
+                _StreamTransactions[transactionSlot] = current;
+            }
+        }
+        return;
+    }
+
+    uint local = microtile * 16u + sampleLocal;
+    uint sample = SigmaProofPageSample(block, local);
+    uint sourcePage = transaction.page0.state.x;
+    uint targetPage = transaction.page0.state.y;
+    if (targetPage >= _TargetPageCapacity)
+        return;
+    bool gauge = (transaction.identity.w & SIGMA_STREAM_WORK_FLAG_GAUGE) != 0u;
+    uint calibrationBase = bundle.calibration.x;
+    uint rawBase = SigmaStreamRawWordAddress(bundle.raw.x, sample, 0u);
+    uint4 raw0 = _RawWords[rawBase + 0u];
+    uint4 raw1 = _RawWords[rawBase + 1u];
+    uint4 raw2 = _RawWords[rawBase + 2u];
+    uint4 raw3 = _RawWords[rawBase + 3u];
+    uint4 raw4 = _RawWords[rawBase + 4u];
+    uint4 raw5 = _RawWords[rawBase + 5u];
+
+    SigmaAssociationSampleGpu association =
+        (SigmaAssociationSampleGpu)0;
+    if (bundle.raw.z < SIGMA_STREAM_TRANSACTION_CAPACITY)
+        association = _StreamAssociation[
+            bundle.raw.z * SIGMA_PAGE_SAMPLE_COUNT + sample];
+    float2 predictedLeft;
+    float2 predictedRight;
+    uint4 leftPage;
+    uint4 rightPage;
+    uint4 leftGeneration;
+    uint4 rightGeneration;
+    SigmaStreamAssociationEye(association, 0u, predictedLeft, leftPage,
+        leftGeneration);
+    SigmaStreamAssociationEye(association, 1u, predictedRight, rightPage,
+        rightGeneration);
+
+    if (coordinate == 0u)
+    {
+        SigmaQ48Bounds ignored;
+        SigmaBuildOwnedDepthWorldCell(calibrationBase, 0u, raw0,
+            SIGMA_SOURCE_DEPTH_LEFT, bundle.keys.x, predictedLeft,
+            EvalDepthLeft[sampleLocal], ignored);
+        SigmaBuildOwnedDepthWorldCell(calibrationBase, 1u, raw1,
+            SIGMA_SOURCE_DEPTH_RIGHT, bundle.keys.y, predictedRight,
+            EvalDepthRight[sampleLocal], ignored);
+        EvalSampleValid[sampleLocal] = 1u;
+        EvalConflictMask[sampleLocal] = 0u;
+        uint streamSample = SigmaStreamSampleAddress(transactionSlot,
+            sample);
+        uint4 priorMeta = sourceOrdinal == 0u ? 0u :
+            _StreamSampleMeta[streamSample];
+        EvalSourceMask[sampleLocal] = 0u;
+        EvalConstrainedMask[sampleLocal] = priorMeta.x;
+        EvalOutcome[sampleLocal] = sourceOrdinal == 0u
+            ? SIGMA_STREAM_OUTCOME_NO_EVIDENCE :
+                _StreamSampleOutcomes[streamSample];
+        EvalCandidateValid[sampleLocal] = 0u;
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    uint2 fallbackState = SigmaStreamNullLane(coordinate);
+    uint2 state = fallbackState;
+    SigmaCarrierPageMetaGpu metadata = (SigmaCarrierPageMetaGpu)0;
+    if (!gauge && sourcePage < _PageCapacity)
+    {
+        metadata = _PageMetadata[sourcePage];
+        state = _CarrierState[sourcePage * SIGMA_PAGE_LANE_COUNT +
+            sample * 16u + coordinate];
+        fallbackState = state;
+    }
+    if (gauge)
+    {
+        uint2 geometry[4];
+        uint2 bootstrapMass;
+        bool bootstrap = SigmaEvalBuildBootstrap(
+            EvalDepthLeft[sampleLocal], EvalDepthRight[sampleLocal],
+            calibrationBase, geometry, bootstrapMass);
+        uint valid = bootstrap ? 1u : 0u;
+        uint2 projective = SIGMA_Q48_ZERO;
+        [unroll]
+        for (uint rowIndex = 0u; rowIndex < 4u; ++rowIndex)
+        {
+            uint row = SIGMA_GEOMETRY_ROWS[rowIndex];
+            uint2 term = SigmaHadamardSign(row, coordinate) < 0
+                ? SigmaQ48NegateChecked(geometry[rowIndex], valid)
+                : geometry[rowIndex];
+            projective = SigmaQ48AddChecked(projective, term, valid);
+        }
+        projective = SigmaQ48ShiftRightNearestEven(projective, 4u, valid);
+        state = SigmaQ48MulNearestEven(bootstrapMass, projective, valid);
+        EvalLaneValid[flat] = valid;
+    }
+    else
+        EvalLaneValid[flat] = sourcePage < _PageCapacity ? 1u : 0u;
+    SigmaEvalReduceValidity(flat, coordinate, sampleLocal,
+        EvalLaneValid[flat]);
+
+    EvalA[flat] = state;
+    EvalValidA[flat] = EvalSampleValid[sampleLocal];
+    uint2 transformed;
+    uint transformValid;
+    SigmaEvalHadamard(flat, coordinate, sampleLocal, transformed,
+        transformValid);
+    if (coordinate == SIGMA_GEOMETRY_ROWS[0])
+        EvalMass[sampleLocal] = transformed;
+    EvalB[flat] = transformed;
+    EvalValidB[flat] = transformValid;
+    GroupMemoryBarrierWithGroupSync();
+
+    uint projectiveValid = transformValid;
+    if (!SigmaQ48Positive(EvalMass[sampleLocal]))
+        projectiveValid = 0u;
+    uint2 currentY = projectiveValid != 0u
+        ? SigmaQ48DivNearestEven(transformed, EvalMass[sampleLocal],
+            projectiveValid)
+        : SIGMA_Q48_ZERO;
+    EvalCurrentY[flat] = currentY;
+    if (coordinate == 0u)
+        EvalPriorWidth[sampleLocal] = SigmaOwnedPriorHalfWidth(
+            calibrationBase, EvalMass[sampleLocal], projectiveValid);
+    EvalLaneValid[flat] = projectiveValid;
+    SigmaEvalReduceValidity(flat, coordinate, sampleLocal,
+        EvalLaneValid[flat]);
+
+    uint leftRgbMask;
+    uint leftUnobservable;
+    SigmaQ48Bounds rgbLeft = SigmaEvalRgbEye(flat, coordinate, sampleLocal,
+        calibrationBase, 0u, raw2, raw3, metadata, sample, !gauge,
+        leftRgbMask, leftUnobservable);
+    uint rightRgbMask;
+    uint rightUnobservable;
+    SigmaQ48Bounds rgbRight = SigmaEvalRgbEye(flat, coordinate, sampleLocal,
+        calibrationBase, 1u, raw4, raw5, metadata, sample, !gauge,
+        rightRgbMask, rightUnobservable);
+
+    uint jointAddress = SigmaStreamJointAddress(transactionSlot, sample,
+        coordinate);
+    SigmaQ48Bounds joint;
+    uint4 provenance;
+    if (sourceOrdinal == 0u)
+    {
+        if (gauge)
+        {
+            joint = SigmaEvalFullBounds();
+            if (coordinate == SIGMA_GEOMETRY_ROWS[0])
+                joint = SigmaQ48PointBounds(SIGMA_Q48_ONE);
+            provenance = uint4(0xffu, 0xffu, 0u, 0u);
+        }
+        else
+        {
+            uint valid = EvalSampleValid[sampleLocal];
+            joint = SigmaQ48Widen(EvalCurrentY[flat],
+                EvalPriorWidth[sampleLocal], valid);
+            if (valid != 0u)
+                valid &= SigmaApplyConstraintPriorLane(metadata, sample,
+                    coordinate, joint) ? 1u : 0u;
+            if (valid == 0u)
+                joint = SigmaQ48PointBounds(SIGMA_Q48_ZERO);
+            provenance = uint4(SIGMA_SOURCE_PRIOR, SIGMA_SOURCE_PRIOR,
+                0u, 0u);
+        }
+    }
+    else
+    {
+        joint = _StreamJointBounds[jointAddress];
+        provenance = _StreamJointProvenance[jointAddress];
+    }
+
+    uint sourceBase = 1u + sourceOrdinal * 4u;
+    SigmaDepthCell3 depthLeft = EvalDepthLeft[sampleLocal];
+    SigmaDepthCell3 depthRight = EvalDepthRight[sampleLocal];
+    bool novelCandidate = gauge;
+    [unroll]
+    for (uint axis = 0u; axis < 3u; ++axis)
+    {
+        if (coordinate != SIGMA_GEOMETRY_ROWS[axis + 1u])
+            continue;
+        if (depthLeft.valid != 0u &&
+            (depthLeft.sector == SIGMA_SECTOR_HIT ||
+                (novelCandidate && depthLeft.sector ==
+                    SIGMA_SECTOR_NO_CONSTRAINT)))
+        {
+            SigmaEvalMeet(depthLeft.axis[axis], sourceBase,
+                depthLeft.independenceKey, joint, provenance);
+            EvalSourceMask[sampleLocal] |= 1u << coordinate;
+            EvalConstrainedMask[sampleLocal] |= 1u << coordinate;
+        }
+        if (depthRight.valid != 0u &&
+            (depthRight.sector == SIGMA_SECTOR_HIT ||
+                (novelCandidate && depthRight.sector ==
+                    SIGMA_SECTOR_NO_CONSTRAINT)))
+        {
+            SigmaEvalMeet(depthRight.axis[axis], sourceBase + 1u,
+                depthRight.independenceKey, joint, provenance);
+            EvalSourceMask[sampleLocal] |= 1u << coordinate;
+            EvalConstrainedMask[sampleLocal] |= 1u << coordinate;
+        }
+    }
+    if ((leftRgbMask & (1u << coordinate)) != 0u)
+    {
+        SigmaEvalMeet(rgbLeft, sourceBase + 2u, bundle.keys.z,
+            joint, provenance);
+        EvalSourceMask[sampleLocal] |= 1u << coordinate;
+        EvalConstrainedMask[sampleLocal] |= 1u << coordinate;
+    }
+    if ((rightRgbMask & (1u << coordinate)) != 0u)
+    {
+        SigmaEvalMeet(rgbRight, sourceBase + 3u, bundle.keys.w,
+            joint, provenance);
+        EvalSourceMask[sampleLocal] |= 1u << coordinate;
+        EvalConstrainedMask[sampleLocal] |= 1u << coordinate;
+    }
+    _StreamJointBounds[jointAddress] = joint;
+    _StreamJointProvenance[jointAddress] = provenance;
+    if (SigmaQ48Less(joint.hi, joint.lo))
+        InterlockedOr(EvalConflictMask[sampleLocal], 1u << coordinate);
+    GroupMemoryBarrierWithGroupSync();
+
+    uint proofIndex = transactionSlot * SIGMA_PAGE_SAMPLE_COUNT + sample;
+    _ProofSamples[proofIndex].rgbLeft.coordinate[coordinate] = rgbLeft;
+    _ProofSamples[proofIndex].rgbRight.coordinate[coordinate] = rgbRight;
+    if (coordinate == 0u)
+    {
+        bool leftContact = SigmaStreamAssociationContact(predictedLeft,
+            leftGeneration);
+        bool rightContact = SigmaStreamAssociationContact(predictedRight,
+            rightGeneration);
+        bool leftTarget = leftContact && SigmaStreamAssociationMatchesTarget(
+            leftPage, leftGeneration, transaction);
+        bool rightTarget = rightContact && SigmaStreamAssociationMatchesTarget(
+            rightPage, rightGeneration, transaction);
+        bool sameContact = leftContact && rightContact &&
+            SigmaStreamAssociationSame(leftPage, leftGeneration, rightPage,
+                rightGeneration);
+        uint outcome = SIGMA_STREAM_OUTCOME_NO_EVIDENCE;
+        if (EvalConflictMask[sampleLocal] != 0u)
+            outcome = SIGMA_STREAM_OUTCOME_EMPTY_EXACT;
+        else if (!gauge && (leftTarget || rightTarget || sameContact))
+            outcome = SIGMA_STREAM_OUTCOME_EXISTING_UPDATE;
+        else if (gauge)
+        {
+            bool leftFront = !leftContact ||
+                depthLeft.sector == SIGMA_SECTOR_NO_CONSTRAINT;
+            bool rightFront = !rightContact ||
+                depthRight.sector == SIGMA_SECTOR_NO_CONSTRAINT;
+            bool hasDepth = depthLeft.valid != 0u || depthRight.valid != 0u;
+            outcome = hasDepth && leftFront && rightFront
+                ? SIGMA_STREAM_OUTCOME_NULL_PROMOTION
+                : SIGMA_STREAM_OUTCOME_TRANSITION_UNRESOLVED;
+        }
+        else if (depthLeft.valid != 0u || depthRight.valid != 0u)
+            outcome = SIGMA_STREAM_OUTCOME_TRANSITION_UNRESOLVED;
+        EvalOutcome[sampleLocal] = SigmaStreamCombineOutcome(
+            EvalOutcome[sampleLocal], outcome);
+
+        uint status = 0u;
+        if (depthLeft.valid != 0u && depthLeft.sector == SIGMA_SECTOR_HIT)
+            status |= SIGMA_PROPOSAL_HIT_LEFT;
+        if (depthRight.valid != 0u && depthRight.sector == SIGMA_SECTOR_HIT)
+            status |= SIGMA_PROPOSAL_HIT_RIGHT;
+        if (EvalConflictMask[sampleLocal] != 0u)
+            status |= SIGMA_PROPOSAL_CONFLICT;
+        if (depthLeft.sector == SIGMA_SECTOR_PRE_HIT_EXCLUSION ||
+            depthRight.sector == SIGMA_SECTOR_PRE_HIT_EXCLUSION)
+            status |= SIGMA_PROPOSAL_EXCLUSION;
+        if (leftRgbMask != 0u)
+            status |= SIGMA_PROPOSAL_RGB_LEFT;
+        if (rightRgbMask != 0u)
+            status |= SIGMA_PROPOSAL_RGB_RIGHT;
+        if ((leftUnobservable | rightUnobservable) != 0u)
+            status |= SIGMA_PROPOSAL_RGB_UNOBSERVABLE;
+
+        _ProofSamples[proofIndex].meta = uint4(status,
+            EvalSourceMask[sampleLocal], 1u,
+            (leftUnobservable & 1u) | ((rightUnobservable & 1u) << 1u));
+        _ProofSamples[proofIndex].depthLeft = depthLeft;
+        _ProofSamples[proofIndex].depthRight = depthRight;
+        _ProofSamples[proofIndex].rgbLeft.coordinateMask = leftRgbMask;
+        _ProofSamples[proofIndex].rgbLeft.sourceClass = SIGMA_SOURCE_RGB_LEFT;
+        _ProofSamples[proofIndex].rgbLeft.independenceKey = bundle.keys.z;
+        _ProofSamples[proofIndex].rgbLeft.valid = leftRgbMask != 0u ? 1u : 0u;
+        _ProofSamples[proofIndex].rgbRight.coordinateMask = rightRgbMask;
+        _ProofSamples[proofIndex].rgbRight.sourceClass = SIGMA_SOURCE_RGB_RIGHT;
+        _ProofSamples[proofIndex].rgbRight.independenceKey = bundle.keys.w;
+        _ProofSamples[proofIndex].rgbRight.valid = rightRgbMask != 0u ? 1u : 0u;
+        _ProofSamples[proofIndex].raw[0] = raw0;
+        _ProofSamples[proofIndex].raw[1] = raw1;
+        _ProofSamples[proofIndex].raw[2] = raw2;
+        _ProofSamples[proofIndex].raw[3] = raw3;
+        _ProofSamples[proofIndex].raw[4] = raw4;
+        _ProofSamples[proofIndex].raw[5] = raw5;
+        uint streamSample = SigmaStreamSampleAddress(transactionSlot, sample);
+        uint4 cumulative = sourceOrdinal == 0u ? 0u :
+            _StreamSampleMeta[streamSample];
+        cumulative.x = EvalConstrainedMask[sampleLocal];
+        cumulative.y |= status;
+        cumulative.z |= EvalConflictMask[sampleLocal];
+        cumulative.w = sourceOrdinal;
+        _StreamSampleMeta[streamSample] = cumulative;
+        _StreamSampleOutcomes[SigmaStreamSampleAddress(transactionSlot,
+            sample)] = EvalOutcome[sampleLocal];
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    bool finalSource = sourceOrdinal + 1u == transaction.source.z;
+    uint candidateValid = finalSource &&
+        EvalConflictMask[sampleLocal] == 0u &&
+        (EvalOutcome[sampleLocal] == SIGMA_STREAM_OUTCOME_EXISTING_UPDATE ||
+         EvalOutcome[sampleLocal] == SIGMA_STREAM_OUTCOME_NULL_PROMOTION)
+        ? 1u : 0u;
+    SigmaQ48Bounds finalJoint = _StreamJointBounds[jointAddress];
+    uint2 baseY = gauge ? SIGMA_Q48_ZERO : EvalCurrentY[flat];
+    if (gauge && coordinate == SIGMA_GEOMETRY_ROWS[0])
+        baseY = SIGMA_Q48_ONE;
+    uint2 targetY = (EvalConstrainedMask[sampleLocal] &
+        (1u << coordinate)) != 0u
+        ? SigmaProjectiveClamp(baseY, finalJoint.lo, finalJoint.hi)
+        : baseY;
+
+    uint laneValid = candidateValid;
+    uint2 targetMass = gauge
+        ? SigmaOwnedCalibrationValue(calibrationBase, 0u,
+            SIGMA_CAL_CONTACT_MASS_MIN)
+        : EvalMass[sampleLocal];
+    EvalA[flat] = targetY;
+    EvalValidA[flat] = laneValid;
+    uint2 inverse;
+    uint inverseValid;
+    SigmaEvalHadamard(flat, coordinate, sampleLocal, inverse, inverseValid);
+    uint2 projective = SigmaQ48ShiftRightNearestEven(inverse, 4u,
+        inverseValid);
+    uint2 candidate = SigmaQ48MulNearestEven(targetMass, projective,
+        inverseValid);
+    EvalA[flat] = candidate;
+    EvalValidA[flat] = inverseValid;
+    uint2 check;
+    uint checkValid;
+    SigmaEvalHadamard(flat, coordinate, sampleLocal, check, checkValid);
+    if (checkValid != 0u && coordinate == SIGMA_GEOMETRY_ROWS[0])
+    {
+        uint2 oneLsb = uint2(1u, 0u);
+        if (!SigmaQ48Positive(check) || SigmaQ48Less(oneLsb,
+                SigmaQ48AbsDifference(check, targetMass, checkValid)))
+            checkValid = 0u;
+    }
+    if (checkValid != 0u &&
+        (EvalConstrainedMask[sampleLocal] & (1u << coordinate)) != 0u)
+    {
+        uint2 coordinateValue = SigmaQ48DivNearestEven(check, targetMass,
+            checkValid);
+        uint2 oneLsb = uint2(1u, 0u);
+        uint2 lo = SigmaQ48SubChecked(finalJoint.lo, oneLsb, checkValid);
+        uint2 hi = SigmaQ48AddChecked(finalJoint.hi, oneLsb, checkValid);
+        if (checkValid == 0u || SigmaQ48Less(coordinateValue, lo) ||
+            SigmaQ48Less(hi, coordinateValue))
+            checkValid = 0u;
+    }
+    SigmaEvalReduceValidity(flat, coordinate, sampleLocal, checkValid);
+    if (finalSource)
+        _TargetCarrierState[targetPage * SIGMA_PAGE_LANE_COUNT +
+            sample * 16u + coordinate] =
+            EvalSampleValid[sampleLocal] != 0u ? candidate : fallbackState;
+    if (coordinate == 0u && finalSource)
+    {
+        uint status = _ProofSamples[proofIndex].meta.x;
+        if (EvalSampleValid[sampleLocal] != 0u)
+            status |= SIGMA_PROPOSAL_ACCEPTED | SIGMA_PROPOSAL_CHANGED;
+        else if (candidateValid != 0u)
+            status |= SIGMA_PROPOSAL_INVALID;
+        uint streamSample = SigmaStreamSampleAddress(transactionSlot, sample);
+        uint4 sampleMeta = _StreamSampleMeta[streamSample];
+        sampleMeta.y = status;
+        _StreamSampleMeta[streamSample] = sampleMeta;
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    if (flat == 0u)
+    {
+        SigmaTransactionGpu current = _StreamTransactions[transactionSlot];
+        if (SigmaStreamTransactionGeneration(current) == work.identity.z &&
+            current.progress.x == sourceOrdinal &&
+            current.progress.y == block &&
+            current.progress.z == microtile && current.progress.w == 0u)
+        {
+            current.progress.z++;
+            if (current.progress.z == SIGMA_STREAM_MICROTILES_PER_BLOCK)
+            {
+                current.progress.z = 0u;
+                current.progress.w = 1u;
+            }
+            _StreamTransactions[transactionSlot] = current;
+            InterlockedAdd(_StreamDiagnostics[0u].transactions.w, 1u);
+        }
+    }
+}

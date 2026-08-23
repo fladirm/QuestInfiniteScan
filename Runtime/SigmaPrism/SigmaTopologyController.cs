@@ -192,6 +192,8 @@ namespace Genesis.RoomScan.SigmaPrism
         public bool IsInitialized => _initialized;
         public int PublishedPageCount => _latestTopology.Count;
         public GraphicsBuffer DiagnosticCounters => _counters;
+        internal int SingularShift => singularShift;
+        internal int AssociatorShift => associatorShift;
 
         public void OnModuleInitialize(RoomScanner scanner)
         {

@@ -99,6 +99,12 @@ namespace Genesis.RoomScan.Tests
                 1, Marshal.SizeOf<PageMeta>());
             using var current = new GraphicsBuffer(GraphicsBuffer.Target.Structured,
                 1, sizeof(uint));
+            using var manifests = new GraphicsBuffer(
+                GraphicsBuffer.Target.Structured, 1,
+                SigmaGeneratedStreaming.PublicationManifestStride);
+            using var pageVisibility = new GraphicsBuffer(
+                GraphicsBuffer.Target.Structured, 1,
+                SigmaGeneratedStreaming.PageVisibilityStride);
             using var readoutDirty = new GraphicsBuffer(
                 GraphicsBuffer.Target.Structured, 1, sizeof(uint));
             using var vertices = new GraphicsBuffer(GraphicsBuffer.Target.Structured,
@@ -126,6 +132,29 @@ namespace Genesis.RoomScan.Tests
             state.SetData(packed);
             meta.SetData(metadata);
             current.SetData(new uint[] { 1u });
+            manifests.SetData(new[]
+            {
+                new SigmaPublicationManifestGpu
+                {
+                    Identity = new SigmaStreamUInt4Gpu
+                    {
+                        X = 2u,
+                        Y = 1u
+                    }
+                }
+            });
+            pageVisibility.SetData(new[]
+            {
+                new SigmaPageVisibilityGpu
+                {
+                    BornRetired = new SigmaStreamUInt4Gpu
+                    {
+                        X = 0u,
+                        Y = 1u,
+                        Z = uint.MaxValue
+                    }
+                }
+            });
             readoutDirty.SetData(new uint[] { 1u });
             arguments.SetData(new uint[] { 0u, 1u, 0u, 0u });
             buildArguments.SetData(new uint[] { 64u, 0u, 1u });
@@ -141,7 +170,11 @@ namespace Genesis.RoomScan.Tests
             int compact = readout.FindKernel("CompactCurrentPages");
             int resolveHalo = readout.FindKernel("ResolveCarrierHalos");
             readout.SetInt("_PageCapacity", 1);
+            readout.SetInt("_StreamManifestCapacity", 1);
             readout.SetBuffer(compact, "_CurrentFlags", current);
+            readout.SetBuffer(compact, "_StreamManifests", manifests);
+            readout.SetBuffer(compact, "_StreamPageVisibility",
+                pageVisibility);
             readout.SetBuffer(compact, "_ReadoutDirtyFlags", readoutDirty);
             readout.SetBuffer(compact, "_CurrentPageSlots", activeSlots);
             readout.SetBuffer(compact, "_ReadoutDrawArguments", arguments);
@@ -154,12 +187,18 @@ namespace Genesis.RoomScan.Tests
             readout.SetBuffer(build, "_CarrierState", state);
             readout.SetBuffer(build, "_PageMetadata", meta);
             readout.SetBuffer(build, "_CurrentFlags", current);
+            readout.SetBuffer(build, "_StreamManifests", manifests);
+            readout.SetBuffer(build, "_StreamPageVisibility",
+                pageVisibility);
             readout.SetBuffer(build, "_ReadoutDirtyFlags", readoutDirty);
             readout.SetBuffer(build, "_ReadoutDirtyPageSlots", dirtySlots);
             readout.SetBuffer(build, "_ReadoutVertices", vertices);
             readout.DispatchIndirect(build, buildArguments);
             readout.SetBuffer(resolveHalo, "_PageMetadata", meta);
             readout.SetBuffer(resolveHalo, "_CurrentFlags", current);
+            readout.SetBuffer(resolveHalo, "_StreamManifests", manifests);
+            readout.SetBuffer(resolveHalo, "_StreamPageVisibility",
+                pageVisibility);
             readout.SetBuffer(resolveHalo, "_CurrentPageSlots", activeSlots);
             readout.SetBuffer(resolveHalo, "_ReadoutVertices", vertices);
             readout.DispatchIndirect(resolveHalo, haloArguments);

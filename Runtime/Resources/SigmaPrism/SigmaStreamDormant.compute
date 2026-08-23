@@ -1,0 +1,397 @@
+#pragma kernel PrepareDormantParking
+#pragma kernel ParkDormantSources
+#pragma kernel ParkDormantSegments
+#pragma kernel ReleaseDormantPage
+#pragma kernel FinalizeDormantParking
+#pragma kernel RecheckDormantProbations
+#pragma target 5.0
+
+#include "SigmaInverseWorkAbi.hlsl"
+
+// Dormancy is a scheduling state, never rejection. Parking is deliberately a
+// short transaction of bounded kernels so every Quest kernel stays below eight
+// storage UAVs. The complete generation-safe source chain remains lossless.
+
+StructuredBuffer<uint> _StreamWorkCounts;
+StructuredBuffer<SigmaStreamWorkItemGpu> _StreamWorkItems;
+StructuredBuffer<SigmaTransactionGpu> _StreamTransactionsRead;
+StructuredBuffer<SigmaSealedSourceBundleGpu> _StreamBundlesRead;
+StructuredBuffer<SigmaProbationGpu> _StreamProbationRead;
+StructuredBuffer<SigmaSourceHandleSegmentGpu> _StreamSourceSegmentsRead;
+StructuredBuffer<SigmaProofClosureGpu> _StreamProofClosuresRead;
+StructuredBuffer<SigmaCarrierPageMetaGpu> _PageMetadataRead;
+StructuredBuffer<uint> _CurrentFlagsRead;
+StructuredBuffer<uint> _DirtyFlagsRead;
+
+RWStructuredBuffer<SigmaTransactionGpu> _StreamTransactions;
+RWStructuredBuffer<SigmaSealedSourceBundleGpu> _StreamBundles;
+RWStructuredBuffer<SigmaProbationGpu> _StreamProbation;
+RWStructuredBuffer<SigmaSourceHandleSegmentGpu> _StreamSourceSegments;
+RWStructuredBuffer<uint4> _StreamAssociationOwners;
+RWStructuredBuffer<SigmaProofClosureGpu> _StreamProofClosures;
+RWStructuredBuffer<SigmaCarrierPageMetaGpu> _PageMetadata;
+RWStructuredBuffer<uint> _CurrentFlags;
+RWStructuredBuffer<uint> _DirtyFlags;
+RWStructuredBuffer<uint> _ReadoutDirtyFlags;
+RWStructuredBuffer<uint> _StreamSchedulerControl;
+RWStructuredBuffer<SigmaStreamDiagnosticGpu> _StreamDiagnostics;
+
+uint _PageCapacity;
+uint _StreamSourceSegmentCapacity;
+
+#define SIGMA_DORMANT_PARK_READY 0x5041524bu
+
+bool SigmaDormantLoadWork(uint workIndex, out uint transactionSlot,
+    out SigmaTransactionGpu transaction)
+{
+    transactionSlot = SIGMA_STREAM_INVALID;
+    transaction = (SigmaTransactionGpu)0;
+    uint count = _StreamWorkCounts[SIGMA_STREAM_OPCODE_DORMANT_RECHECK];
+    if (workIndex >= count)
+        return false;
+    SigmaStreamWorkItemGpu work = _StreamWorkItems[SigmaStreamWorkAddress(
+        SIGMA_STREAM_OPCODE_DORMANT_RECHECK, workIndex)];
+    transactionSlot = work.identity.y;
+    if (transactionSlot >= SIGMA_STREAM_TRANSACTION_CAPACITY)
+        return false;
+    transaction = _StreamTransactionsRead[transactionSlot];
+    return work.identity.x == SIGMA_STREAM_OPCODE_DORMANT_RECHECK &&
+        SigmaStreamTransactionGeneration(transaction) == work.identity.z &&
+        SigmaStreamTransactionState(transaction) ==
+            SIGMA_STREAM_TRANSACTION_DORMANT;
+}
+
+bool SigmaDormantLoadMutableWork(uint workIndex, out uint transactionSlot,
+    out SigmaTransactionGpu transaction)
+{
+    transactionSlot = SIGMA_STREAM_INVALID;
+    transaction = (SigmaTransactionGpu)0;
+    uint count = _StreamWorkCounts[SIGMA_STREAM_OPCODE_DORMANT_RECHECK];
+    if (workIndex >= count)
+        return false;
+    SigmaStreamWorkItemGpu work = _StreamWorkItems[SigmaStreamWorkAddress(
+        SIGMA_STREAM_OPCODE_DORMANT_RECHECK, workIndex)];
+    transactionSlot = work.identity.y;
+    if (transactionSlot >= SIGMA_STREAM_TRANSACTION_CAPACITY)
+        return false;
+    transaction = _StreamTransactions[transactionSlot];
+    return work.identity.x == SIGMA_STREAM_OPCODE_DORMANT_RECHECK &&
+        SigmaStreamTransactionGeneration(transaction) == work.identity.z &&
+        SigmaStreamTransactionState(transaction) ==
+            SIGMA_STREAM_TRANSACTION_DORMANT;
+}
+
+bool SigmaDormantSourceAt(SigmaTransactionGpu transaction, uint ordinal,
+    out uint2 handle)
+{
+    handle = uint2(SIGMA_STREAM_INVALID, 0u);
+    if (ordinal >= transaction.source.z)
+        return false;
+    uint segmentSlot = transaction.source.x;
+    uint segmentGeneration = transaction.source.y;
+    uint remaining = ordinal;
+    [loop]
+    for (uint visited = 0u; visited < _StreamSourceSegmentCapacity; ++visited)
+    {
+        if (!SigmaStreamHandleValid(segmentSlot, segmentGeneration,
+                _StreamSourceSegmentCapacity))
+            return false;
+        SigmaSourceHandleSegmentGpu segment =
+            _StreamSourceSegmentsRead[segmentSlot];
+        if (!SigmaStreamSourceSegmentValid(segment, segmentGeneration) ||
+            segment.identity.x != SIGMA_STREAM_SOURCE_SEGMENT_SEALED)
+            return false;
+        if (remaining < segment.identity.z)
+        {
+            handle = SigmaStreamSourceHandle(segment, remaining);
+            return SigmaStreamHandleValid(handle.x, handle.y,
+                SIGMA_STREAM_BUNDLE_CAPACITY);
+        }
+        remaining -= segment.identity.z;
+        segmentSlot = segment.link.x;
+        segmentGeneration = segment.link.y;
+    }
+    return false;
+}
+
+bool SigmaDormantValidateStream(SigmaTransactionGpu transaction,
+    out uint2 firstHandle, out uint tailSlot, out uint tailGeneration)
+{
+    firstHandle = uint2(SIGMA_STREAM_INVALID, 0u);
+    tailSlot = SIGMA_STREAM_INVALID;
+    tailGeneration = 0u;
+    uint segmentSlot = transaction.source.x;
+    uint segmentGeneration = transaction.source.y;
+    uint remaining = transaction.source.z;
+    uint observed = 0u;
+    [loop]
+    for (uint visited = 0u; visited < _StreamSourceSegmentCapacity &&
+        remaining > 0u; ++visited)
+    {
+        if (!SigmaStreamHandleValid(segmentSlot, segmentGeneration,
+                _StreamSourceSegmentCapacity))
+            return false;
+        SigmaSourceHandleSegmentGpu segment =
+            _StreamSourceSegmentsRead[segmentSlot];
+        if (!SigmaStreamSourceSegmentValid(segment, segmentGeneration) ||
+            segment.identity.x != SIGMA_STREAM_SOURCE_SEGMENT_SEALED)
+            return false;
+        uint count = min(remaining, segment.identity.z);
+        [loop]
+        for (uint offset = 0u; offset < count; ++offset)
+        {
+            uint2 handle = SigmaStreamSourceHandle(segment, offset);
+            if (!SigmaStreamHandleValid(handle.x, handle.y,
+                    SIGMA_STREAM_BUNDLE_CAPACITY))
+                return false;
+            SigmaSealedSourceBundleGpu bundle = _StreamBundlesRead[handle.x];
+            if (SigmaStreamBundleGeneration(bundle) != handle.y ||
+                SigmaStreamBundleState(bundle) != SIGMA_STREAM_BUNDLE_ACTIVE)
+                return false;
+            if (observed == 0u)
+                firstHandle = handle;
+            observed++;
+        }
+        remaining -= count;
+        tailSlot = segmentSlot;
+        tailGeneration = segmentGeneration;
+        segmentSlot = segment.link.x;
+        segmentGeneration = segment.link.y;
+    }
+    return remaining == 0u && observed == transaction.source.z &&
+        SigmaStreamHandleValid(firstHandle.x, firstHandle.y,
+            SIGMA_STREAM_BUNDLE_CAPACITY);
+}
+
+[numthreads(1, 1, 1)]
+void PrepareDormantParking(uint3 groupId : SV_GroupID)
+{
+    uint transactionSlot;
+    SigmaTransactionGpu transaction;
+    if (!SigmaDormantLoadWork(groupId.x, transactionSlot, transaction))
+        return;
+    uint2 firstHandle;
+    uint tailSlot;
+    uint tailGeneration;
+    uint target = transaction.page0.state.y;
+    if (!SigmaDormantValidateStream(transaction, firstHandle, tailSlot,
+            tailGeneration) || target >= _PageCapacity ||
+        _CurrentFlagsRead[target] != 0u || _DirtyFlagsRead[target] != 0u)
+    {
+        InterlockedAdd(_StreamDiagnostics[0u].lifetime.w, 1u);
+        return;
+    }
+    SigmaProbationGpu previous = _StreamProbationRead[firstHandle.x];
+    if (previous.identity.x != SIGMA_STREAM_PROBATION_FREE)
+        return;
+    uint probationGeneration = previous.identity.y + 1u;
+    if (probationGeneration == 0u)
+        return;
+
+    SigmaProofClosureGpu scratch = (SigmaProofClosureGpu)0;
+    scratch.identity = uint4(SIGMA_DORMANT_PARK_READY,
+        SigmaStreamTransactionGeneration(transaction), firstHandle.x,
+        probationGeneration);
+    scratch.sourceCursor = uint4(transaction.source.x,
+        transaction.source.y, tailSlot, tailGeneration);
+    scratch.journal = uint4(transaction.source.z, target, transactionSlot, 0u);
+    scratch.ordering = transaction.ticket;
+    scratch.coalesce = transaction.dependency0;
+    _StreamProofClosures[transactionSlot] = scratch;
+}
+
+void SigmaDormantReleaseAssociation(uint bundleSlot,
+    inout SigmaSealedSourceBundleGpu bundle)
+{
+    uint association = bundle.raw.z;
+    if (association < SIGMA_STREAM_TRANSACTION_CAPACITY)
+    {
+        uint4 owner = _StreamAssociationOwners[association];
+        if (owner.x == bundleSlot &&
+            owner.y == SigmaStreamBundleGeneration(bundle))
+            _StreamAssociationOwners[association] =
+                uint4(SIGMA_STREAM_INVALID, 0u, 0u, 0u);
+    }
+    bundle.raw.z = SIGMA_STREAM_INVALID;
+    bundle.identity.w &= ~SIGMA_STREAM_BUNDLE_FLAG_HAS_ASSOCIATION;
+    bundle.identity.w |= SIGMA_STREAM_BUNDLE_FLAG_NEEDS_REVALIDATION;
+}
+
+[numthreads(64, 1, 1)]
+void ParkDormantSources(uint3 groupId : SV_GroupID,
+    uint3 threadId : SV_GroupThreadID)
+{
+    uint transactionSlot;
+    SigmaTransactionGpu transaction;
+    if (!SigmaDormantLoadWork(groupId.x, transactionSlot, transaction))
+        return;
+    SigmaProofClosureGpu scratch =
+        _StreamProofClosuresRead[transactionSlot];
+    uint ordinal = threadId.x;
+    if (scratch.identity.x != SIGMA_DORMANT_PARK_READY ||
+        scratch.identity.y != SigmaStreamTransactionGeneration(transaction) ||
+        ordinal >= transaction.source.z)
+        return;
+    uint2 handle;
+    if (!SigmaDormantSourceAt(transaction, ordinal, handle))
+        return;
+    SigmaSealedSourceBundleGpu bundle = _StreamBundles[handle.x];
+    if (SigmaStreamBundleGeneration(bundle) != handle.y)
+        return;
+    SigmaDormantReleaseAssociation(handle.x, bundle);
+    bundle.identity.x = SIGMA_STREAM_BUNDLE_DORMANT;
+    _StreamBundles[handle.x] = bundle;
+}
+
+[numthreads(1, 1, 1)]
+void ParkDormantSegments(uint3 groupId : SV_GroupID)
+{
+    uint transactionSlot;
+    SigmaTransactionGpu transaction;
+    if (!SigmaDormantLoadWork(groupId.x, transactionSlot, transaction))
+        return;
+    SigmaProofClosureGpu scratch =
+        _StreamProofClosuresRead[transactionSlot];
+    if (scratch.identity.x != SIGMA_DORMANT_PARK_READY ||
+        scratch.identity.y != SigmaStreamTransactionGeneration(transaction))
+        return;
+    uint segmentSlot = transaction.source.x;
+    uint segmentGeneration = transaction.source.y;
+    uint remaining = transaction.source.z;
+    [loop]
+    for (uint visited = 0u; visited < _StreamSourceSegmentCapacity &&
+        remaining > 0u; ++visited)
+    {
+        SigmaSourceHandleSegmentGpu segment =
+            _StreamSourceSegments[segmentSlot];
+        uint count = min(remaining, segment.identity.z);
+        segment.identity.x = SIGMA_STREAM_SOURCE_SEGMENT_OPEN;
+        segment.identity.w = scratch.identity.z;
+        segment.link.z = scratch.identity.w;
+        _StreamSourceSegments[segmentSlot] = segment;
+        remaining -= count;
+        segmentSlot = segment.link.x;
+        segmentGeneration = segment.link.y;
+    }
+}
+
+[numthreads(1, 1, 1)]
+void ReleaseDormantPage(uint3 groupId : SV_GroupID)
+{
+    uint transactionSlot;
+    SigmaTransactionGpu transaction;
+    if (!SigmaDormantLoadWork(groupId.x, transactionSlot, transaction))
+        return;
+    SigmaProofClosureGpu scratch =
+        _StreamProofClosuresRead[transactionSlot];
+    if (scratch.identity.x != SIGMA_DORMANT_PARK_READY ||
+        scratch.identity.y != SigmaStreamTransactionGeneration(transaction))
+        return;
+    uint target = scratch.journal.y;
+    _PageMetadata[target] = (SigmaCarrierPageMetaGpu)0;
+    _CurrentFlags[target] = 0u;
+    _DirtyFlags[target] = 0u;
+    _ReadoutDirtyFlags[target] = 0u;
+}
+
+[numthreads(1, 1, 1)]
+void FinalizeDormantParking(uint3 groupId : SV_GroupID)
+{
+    uint transactionSlot;
+    SigmaTransactionGpu transaction;
+    if (!SigmaDormantLoadMutableWork(groupId.x, transactionSlot,
+            transaction))
+        return;
+    SigmaProofClosureGpu scratch =
+        _StreamProofClosures[transactionSlot];
+    if (scratch.identity.x != SIGMA_DORMANT_PARK_READY ||
+        scratch.identity.y != SigmaStreamTransactionGeneration(transaction))
+        return;
+
+    SigmaProbationGpu dormant = (SigmaProbationGpu)0;
+    dormant.identity = uint4(SIGMA_STREAM_PROBATION_SEALED,
+        scratch.identity.w, scratch.identity.z, scratch.journal.x);
+    dormant.bundleHandles = scratch.sourceCursor;
+    dormant.support = scratch.ordering;
+    dormant.dependency = scratch.coalesce;
+    _StreamProbation[scratch.identity.z] = dormant;
+
+    uint generation = SigmaStreamTransactionGeneration(transaction);
+    transaction = (SigmaTransactionGpu)0;
+    transaction.identity.y = generation;
+    _StreamTransactions[transactionSlot] = transaction;
+    _StreamProofClosures[transactionSlot] = (SigmaProofClosureGpu)0;
+    if (_StreamSchedulerControl[SIGMA_STREAM_CONTROL_PROOF_OWNER] ==
+            transactionSlot)
+        _StreamSchedulerControl[SIGMA_STREAM_CONTROL_PROOF_OWNER] =
+            SIGMA_STREAM_INVALID;
+    if (_StreamSchedulerControl[SIGMA_STREAM_CONTROL_REVALIDATE_OWNER] ==
+            transactionSlot)
+        _StreamSchedulerControl[SIGMA_STREAM_CONTROL_REVALIDATE_OWNER] =
+            SIGMA_STREAM_INVALID;
+    InterlockedAdd(_StreamDiagnostics[0u].lifetime.z, 1u);
+}
+
+bool SigmaDormantSameCoordinate(SigmaCarrierPageMetaGpu metadata,
+    uint4 coordinate)
+{
+    return metadata.pageXLo == coordinate.x &&
+        metadata.pageXHi == coordinate.y &&
+        metadata.pageYLo == coordinate.z &&
+        metadata.pageYHi == coordinate.w;
+}
+
+bool SigmaDormantDependencyChanged(SigmaProbationGpu probation,
+    SigmaSealedSourceBundleGpu first)
+{
+    uint storedSlot = probation.dependency.x;
+    if (storedSlot < _PageCapacity)
+    {
+        SigmaCarrierPageMetaGpu metadata = _PageMetadataRead[storedSlot];
+        return _CurrentFlagsRead[storedSlot] == 0u ||
+            metadata.generation != probation.dependency.y ||
+            metadata.revision != probation.dependency.z ||
+            !SigmaDormantSameCoordinate(metadata, first.probation);
+    }
+    [loop]
+    for (uint slot = 0u; slot < _PageCapacity; ++slot)
+    {
+        if (_CurrentFlagsRead[slot] != 0u &&
+            SigmaDormantSameCoordinate(_PageMetadataRead[slot],
+                first.probation))
+            return true;
+    }
+    return false;
+}
+
+[numthreads(64, 1, 1)]
+void RecheckDormantProbations(uint3 threadId : SV_GroupThreadID)
+{
+    uint probationSlot = threadId.x;
+    SigmaProbationGpu probation = _StreamProbationRead[probationSlot];
+    if (probation.identity.x != SIGMA_STREAM_PROBATION_SEALED ||
+        probation.identity.z != probationSlot || probation.identity.w == 0u)
+        return;
+    uint2 segmentHandle = probation.bundleHandles.xy;
+    if (!SigmaStreamHandleValid(segmentHandle.x, segmentHandle.y,
+            _StreamSourceSegmentCapacity))
+        return;
+    SigmaSourceHandleSegmentGpu segment =
+        _StreamSourceSegmentsRead[segmentHandle.x];
+    if (!SigmaStreamSourceSegmentValid(segment, segmentHandle.y) ||
+        segment.identity.x != SIGMA_STREAM_SOURCE_SEGMENT_OPEN ||
+        segment.identity.z == 0u)
+        return;
+    uint2 firstHandle = SigmaStreamSourceHandle(segment, 0u);
+    if (!SigmaStreamHandleValid(firstHandle.x, firstHandle.y,
+            SIGMA_STREAM_BUNDLE_CAPACITY))
+        return;
+    SigmaSealedSourceBundleGpu first = _StreamBundles[firstHandle.x];
+    if (SigmaStreamBundleGeneration(first) != firstHandle.y ||
+        SigmaStreamBundleState(first) != SIGMA_STREAM_BUNDLE_DORMANT ||
+        !SigmaDormantDependencyChanged(probation, first))
+        return;
+    first.identity.x = SIGMA_STREAM_BUNDLE_ADMISSION_PENDING;
+    first.identity.w |= SIGMA_STREAM_BUNDLE_FLAG_NEEDS_REVALIDATION;
+    _StreamBundles[firstHandle.x] = first;
+}

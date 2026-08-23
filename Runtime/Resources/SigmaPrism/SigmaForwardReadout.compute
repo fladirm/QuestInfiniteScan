@@ -6,10 +6,12 @@
 #include "SigmaCarrierAbi.hlsl"
 #include "SigmaGeometryReadout.hlsl"
 #include "SigmaStableScan.hlsl"
+#include "SigmaManifestVisibility.hlsl"
 
 StructuredBuffer<uint2> _CarrierState;
 StructuredBuffer<SigmaCarrierPageMetaGpu> _PageMetadata;
-StructuredBuffer<uint> _CurrentFlags;
+StructuredBuffer<SigmaPublicationManifestGpu> _StreamManifests;
+StructuredBuffer<SigmaPageVisibilityGpu> _StreamPageVisibility;
 RWStructuredBuffer<uint> _ReadoutDirtyFlags;
 RWStructuredBuffer<float4> _ReadoutVertices;
 
@@ -20,6 +22,7 @@ RWStructuredBuffer<uint> _ReadoutBuildArguments;
 RWStructuredBuffer<uint> _ReadoutHaloArguments;
 
 uint _PageCapacity;
+uint _StreamManifestCapacity;
 
 #define SIGMA_READOUT_EXTENT 65u
 #define SIGMA_READOUT_SAMPLES 4225u
@@ -36,6 +39,25 @@ uint SigmaReadoutIndex(uint pageSlot, uint x, uint y)
     return pageSlot * SIGMA_READOUT_SAMPLES + y * SIGMA_READOUT_EXTENT + x;
 }
 
+bool SigmaReadoutPageVisible(uint pageSlot)
+{
+    if (pageSlot >= _PageCapacity ||
+        pageSlot >= _StreamManifestCapacity)
+        return false;
+
+    SigmaPageVisibilityGpu visibility = _StreamPageVisibility[pageSlot];
+    uint2 bornHandle = visibility.bornRetired.xy;
+    if (!SigmaManifestHandleValid(bornHandle, _StreamManifestCapacity))
+        return false;
+
+    SigmaPublicationManifestGpu born = _StreamManifests[bornHandle.x];
+    uint2 retiredHandle = visibility.bornRetired.zw;
+    SigmaPublicationManifestGpu retired = (SigmaPublicationManifestGpu)0;
+    if (SigmaManifestHandleValid(retiredHandle, _StreamManifestCapacity))
+        retired = _StreamManifests[retiredHandle.x];
+    return SigmaManifestPageVisible(visibility, born, retired);
+}
+
 [numthreads(64, 1, 1)]
 void BuildCarrierReadout(uint3 groupId : SV_GroupID,
     uint3 groupThreadId : SV_GroupThreadID)
@@ -50,9 +72,9 @@ void BuildCarrierReadout(uint3 groupId : SV_GroupID,
     uint y = sample >> 6u;
     uint outputIndex = SigmaReadoutIndex(pageSlot, x, y);
     SigmaCarrierPageMetaGpu metadata = _PageMetadata[pageSlot];
-    bool current = _CurrentFlags[pageSlot] != 0u &&
+    bool visible = SigmaReadoutPageVisible(pageSlot) &&
         (metadata.flags & SIGMA_PAGE_PUBLISHED) != 0u;
-    if (!current || !SigmaCanonicalMutationEnabled())
+    if (!visible || !SigmaCanonicalMutationEnabled())
     {
         _ReadoutVertices[outputIndex] = 0.0;
         return;
@@ -75,13 +97,15 @@ void BuildCarrierReadout(uint3 groupId : SV_GroupID,
         _ReadoutDirtyFlags[pageSlot] = 0u;
 }
 
-// Current and dirty lists share one fixed barrier schedule but remain two scalar
-// integer scans. Both lists preserve ascending physical-slot order exactly.
+// Visibility is resolved exclusively through the publication manifest.  The
+// dual stable scan only chooses a deterministic execution/draw order; it has no
+// authority over canonical page publication.
 [numthreads(256, 1, 1)]
 void CompactCurrentPages(uint3 groupThreadId : SV_GroupThreadID)
 {
     uint lane = groupThreadId.x;
-    uint active = lane < _PageCapacity && _CurrentFlags[lane] != 0u ? 1u : 0u;
+    uint active = lane < _PageCapacity && SigmaReadoutPageVisible(lane)
+        ? 1u : 0u;
     uint dirty = active != 0u && _ReadoutDirtyFlags[lane] != 0u ? 1u : 0u;
 
     uint currentPrefix;
@@ -134,7 +158,7 @@ bool SigmaReadoutIncrementI64(uint2 value, out uint2 incremented)
 }
 
 // Logical adjacency comes only from exact signed-64 Sigma_2 page coordinates.
-// A storage slot, segment or CPU dictionary never creates carrier identity.
+// A physical slot, segment or publication-manifest index is never identity.
 [numthreads(64, 1, 1)]
 void ResolveCarrierHalos(uint3 groupId : SV_GroupID,
     uint3 groupThreadId : SV_GroupThreadID)
@@ -163,7 +187,7 @@ void ResolveCarrierHalos(uint3 groupId : SV_GroupID,
     for (uint candidate = lane; candidate < _PageCapacity; candidate += 64u)
     {
         SigmaCarrierPageMetaGpu neighbour = _PageMetadata[candidate];
-        if (_CurrentFlags[candidate] == 0u ||
+        if (!SigmaReadoutPageVisible(candidate) ||
             (neighbour.flags & SIGMA_PAGE_PUBLISHED) == 0u)
             continue;
         uint2 x = uint2(neighbour.pageXLo, neighbour.pageXHi);

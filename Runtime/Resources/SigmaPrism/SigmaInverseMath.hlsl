@@ -5,6 +5,7 @@
 #include "SigmaInverseAbi.hlsl"
 
 StructuredBuffer<uint2> _DepthCalibrationQ48;
+StructuredBuffer<uint2> _StreamBundleCalibration;
 Texture2D<float4> _DepthSlopeBoundsLeft;
 Texture2D<float4> _DepthSlopeBoundsRight;
 
@@ -590,6 +591,206 @@ bool SigmaLiftNullDepthMeet(SigmaDepthCell3 left, SigmaDepthCell3 right,
             return false;
     }
     return true;
+}
+
+
+// Owned-source exact rebuild.  A multi-frame transaction addresses the copied
+// calibration by base offset and never samples a later capture/calibration epoch.
+uint2 SigmaOwnedCalibrationValue(uint calibrationBase, uint eye, uint field)
+{
+    return _StreamBundleCalibration[calibrationBase +
+        eye * SIGMA_DEPTH_VIEW_STRIDE + field];
+}
+
+uint2 SigmaOwnedDepthHalfWidth(uint calibrationBase, uint eye, uint2 range,
+    inout uint valid)
+{
+    uint selected = 5u;
+    [unroll]
+    for (uint bin = 0u; bin < 6u; ++bin)
+    {
+        uint2 threshold = SigmaOwnedCalibrationValue(calibrationBase, eye,
+            SIGMA_CAL_RANGE_THRESHOLDS + bin);
+        if (selected == 5u && !SigmaQ48Less(threshold, range))
+            selected = bin;
+    }
+    uint2 width = SigmaOwnedCalibrationValue(calibrationBase, eye,
+        SIGMA_CAL_RANGE_WIDTHS + selected);
+    return SigmaQ48AddChecked(width,
+        SigmaOwnedCalibrationValue(calibrationBase, eye,
+            SIGMA_CAL_POSE_WIDTH), valid);
+}
+
+uint2 SigmaOwnedPriorHalfWidth(uint calibrationBase, uint2 mass,
+    inout uint valid)
+{
+    uint2 floorWidth = SigmaOwnedCalibrationValue(calibrationBase, 0u,
+        SIGMA_CAL_PRIOR_FLOOR);
+    uint2 ceilingWidth = SigmaOwnedCalibrationValue(calibrationBase, 0u,
+        SIGMA_CAL_PRIOR_CEILING);
+    uint2 width = floorWidth;
+    uint2 threshold = SIGMA_Q48_ONE;
+    [unroll]
+    for (uint step = 0u; step < 16u; ++step)
+    {
+        bool widen = SigmaQ48Less(mass, threshold) &&
+            SigmaQ48Less(width, ceilingWidth);
+        if (widen)
+        {
+            threshold = SigmaQ48ShiftRightNearestEven(threshold, 1u, valid);
+            width = SigmaQ48Min(ceilingWidth,
+                SigmaQ48ShiftLeftChecked(width, 1u, valid));
+        }
+    }
+    return SigmaQ48Max(floorWidth, SigmaQ48Min(width, ceilingWidth));
+}
+
+uint2 SigmaOwnedInformationMassForWidth(uint calibrationBase,
+    uint2 maximumWidth, inout uint valid)
+{
+    uint2 floorWidth = SigmaOwnedCalibrationValue(calibrationBase, 0u,
+        SIGMA_CAL_PRIOR_FLOOR);
+    uint2 massFloor = SigmaOwnedCalibrationValue(calibrationBase, 0u,
+        SIGMA_CAL_CONTACT_MASS_MIN);
+    uint2 mass = SIGMA_Q48_ONE;
+    uint2 threshold = floorWidth;
+    [unroll]
+    for (uint step = 0u; step < 16u; ++step)
+    {
+        bool weaken = SigmaQ48Less(threshold, maximumWidth) &&
+            SigmaQ48Less(massFloor, mass);
+        if (weaken)
+        {
+            threshold = SigmaQ48ShiftLeftChecked(threshold, 1u, valid);
+            mass = SigmaQ48ShiftRightNearestEven(mass, 1u, valid);
+        }
+    }
+    return SigmaQ48Max(massFloor, SigmaQ48Min(mass, SIGMA_Q48_ONE));
+}
+
+// The original cone LUT stores these analytic pixel-edge slopes.  Delayed replay
+// evaluates the identical pinhole expression from the copied Q48 intrinsics and
+// widens one LSB outward, so no LUT texture lifetime survives ingress.
+SigmaQ48Bounds SigmaOwnedPixelSlopeBounds(uint calibrationBase, uint eye,
+    uint2 pixel, bool horizontal, inout uint valid)
+{
+    uint fieldFocal = horizontal ? SIGMA_CAL_FX : SIGMA_CAL_FY;
+    uint fieldPrincipal = horizontal ? SIGMA_CAL_CX : SIGMA_CAL_CY;
+    uint coordinate = horizontal ? pixel.x : pixel.y;
+    uint2 focal = SigmaOwnedCalibrationValue(calibrationBase, eye, fieldFocal);
+    uint2 principal = SigmaOwnedCalibrationValue(calibrationBase, eye,
+        fieldPrincipal);
+    uint2 edge0 = SigmaQ48FromUnsignedInteger(coordinate, valid);
+    uint2 edge1 = SigmaQ48FromUnsignedInteger(coordinate + 1u, valid);
+    uint2 numerator0 = SigmaQ48SubChecked(edge0, principal, valid);
+    uint2 numerator1 = SigmaQ48SubChecked(edge1, principal, valid);
+    SigmaQ48Bounds result;
+    result.lo = SigmaQ48DivLower(numerator0, focal, valid);
+    result.hi = SigmaQ48DivUpper(numerator1, focal, valid);
+    uint2 oneLsb = uint2(1u, 0u);
+    result.lo = SigmaQ48SubChecked(result.lo, oneLsb, valid);
+    result.hi = SigmaQ48AddChecked(result.hi, oneLsb, valid);
+    return result;
+}
+
+uint SigmaClassifyOwnedFirstHitExact(uint calibrationBase, uint eye,
+    uint2 measuredRange, uint2 measuredHalfWidth,
+    float2 predictedDepthSupport, out SigmaQ48Bounds measuredBounds,
+    out SigmaQ48Bounds predictedBounds, inout uint valid)
+{
+    measuredBounds = SigmaQ48Widen(measuredRange, measuredHalfWidth, valid);
+    predictedBounds.lo = SIGMA_Q48_ZERO;
+    predictedBounds.hi = uint2(1u, 0u);
+    if (!(predictedDepthSupport.y > 0.0) ||
+        !isfinite(predictedDepthSupport.x))
+        return valid != 0u ? SIGMA_SECTOR_HIT : SIGMA_SECTOR_NO_CONSTRAINT;
+
+    uint2 predictedRange = SigmaQ48FromFloatNearestEven(
+        predictedDepthSupport.x, valid);
+    uint2 predictedMass = SigmaQ48FromFloatNearestEven(
+        predictedDepthSupport.y, valid);
+    uint2 massFloor = SigmaOwnedCalibrationValue(calibrationBase, 0u,
+        SIGMA_CAL_CONTACT_MASS_MIN);
+    uint2 predictedWidth = SigmaOwnedPriorHalfWidth(calibrationBase,
+        SigmaQ48Max(predictedMass, massFloor), valid);
+    predictedBounds = SigmaQ48Widen(predictedRange, predictedWidth, valid);
+    if (valid == 0u)
+        return SIGMA_SECTOR_NO_CONSTRAINT;
+    if (SigmaQ48Less(measuredBounds.hi, predictedBounds.lo))
+        return SIGMA_SECTOR_NO_CONSTRAINT;
+    if (SigmaQ48Less(predictedBounds.hi, measuredBounds.lo))
+        return SIGMA_SECTOR_PRE_HIT_EXCLUSION;
+    return SIGMA_SECTOR_HIT;
+}
+
+bool SigmaBuildOwnedDepthWorldCell(uint calibrationBase, uint eye, uint4 raw,
+    uint sourceClass, uint independenceKey, float2 predictedDepthSupport,
+    out SigmaDepthCell3 cell, out SigmaQ48Bounds measuredRangeBounds)
+{
+    cell = (SigmaDepthCell3)0;
+    measuredRangeBounds = (SigmaQ48Bounds)0;
+    if (raw.x == 0xffffffffu || (raw.w & 1u) == 0u)
+        return false;
+
+    uint2 pixel = uint2(raw.x & 0xffffu, raw.x >> 16u);
+    float rangeFloat = asfloat(raw.y);
+    float viewZFloat = asfloat(raw.z);
+    if (!(rangeFloat > 0.0) || !(viewZFloat > 0.0) ||
+        !isfinite(rangeFloat) || !isfinite(viewZFloat))
+        return false;
+
+    uint valid = 1u;
+    uint2 range = SigmaQ48FromFloatNearestEven(rangeFloat, valid);
+    uint2 viewZ = SigmaQ48FromFloatNearestEven(viewZFloat, valid);
+    uint2 halfWidth = SigmaOwnedDepthHalfWidth(calibrationBase, eye, range,
+        valid);
+    SigmaQ48Bounds predictedBounds;
+    uint sector = SigmaClassifyOwnedFirstHitExact(calibrationBase, eye,
+        range, halfWidth, predictedDepthSupport, measuredRangeBounds,
+        predictedBounds, valid);
+
+    SigmaQ48Bounds z = SigmaQ48Widen(viewZ, halfWidth, valid);
+    z.lo = SigmaQ48Max(z.lo, SigmaOwnedCalibrationValue(calibrationBase, eye,
+        SIGMA_CAL_NEAR));
+    z.hi = SigmaQ48Min(z.hi, SigmaOwnedCalibrationValue(calibrationBase, eye,
+        SIGMA_CAL_FAR));
+    if (valid == 0u || SigmaQ48Less(z.hi, z.lo))
+        return false;
+
+    SigmaQ48Bounds cameraAxis[3];
+    cameraAxis[0] = SigmaQ48IntervalProduct(
+        SigmaOwnedPixelSlopeBounds(calibrationBase, eye, pixel, true, valid),
+        z, valid);
+    cameraAxis[1] = SigmaQ48IntervalProduct(
+        SigmaOwnedPixelSlopeBounds(calibrationBase, eye, pixel, false, valid),
+        z, valid);
+    cameraAxis[2] = z;
+
+    [unroll]
+    for (uint row = 0u; row < 3u; ++row)
+    {
+        SigmaQ48Bounds world = SigmaQ48PointBounds(
+            SigmaOwnedCalibrationValue(calibrationBase, eye,
+                SIGMA_CAL_TX + row));
+        [unroll]
+        for (uint axis = 0u; axis < 3u; ++axis)
+        {
+            uint2 coefficient = SigmaOwnedCalibrationValue(calibrationBase,
+                eye, SIGMA_CAL_R00 + row * 3u + axis);
+            world = SigmaQ48IntervalAdd(world,
+                SigmaQ48ScaleBounds(coefficient, cameraAxis[axis], valid),
+                valid);
+        }
+        uint2 oneLsb = uint2(1u, 0u);
+        world.lo = SigmaQ48SubChecked(world.lo, oneLsb, valid);
+        world.hi = SigmaQ48AddChecked(world.hi, oneLsb, valid);
+        cell.axis[row] = world;
+    }
+    cell.sourceClass = sourceClass;
+    cell.independenceKey = independenceKey;
+    cell.sector = sector;
+    cell.valid = valid;
+    return valid != 0u;
 }
 
 #endif

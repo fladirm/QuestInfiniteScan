@@ -186,3 +186,60 @@ Git history and are not active on this branch.
 - Consequence: no callback, CPU scheduler, chart/mesh topology or parallel world is
   permitted to decide canonical mutation; singular structure remains an exact
   annihilator/associator readout of the same `Psi`.
+
+## ADR-S412 — Canonical transaction is independent of GPU scheduling time
+
+- Decision: ADR-S411's one proof-closed `Psi` transaction remains the semantic
+  unit, but it is no longer required to execute as one page-sized command-buffer
+  quantum. A transaction may persist across XR frames in owned GPU scratch while
+  deterministic 16-sample execution microtiles complete 64-sample proof blocks.
+  Partitioning, token budget, fair interleaving and pause/resume must reproduce the
+  one-shot semantic oracle bit-for-bit, including validity, conflicts, provenance,
+  minimal certificates and candidate transition signatures.
+- Decision: one bounded generation-safe GPU transaction arena and one generated
+  cost-token scheduler own live progress. The CPU records fixed indirect ingress,
+  canonical and derived submissions and polls completion only for resource
+  lifetime. No CPU work selection, timing readback, callback mutation authority or
+  hardware-async requirement is introduced. Admission scans a fixed source-header
+  ring before the eight active records; transactions with intersecting exact
+  logical footprint masks are dependency-chained and published in checked ticket
+  order, while disjoint work may interleave.
+- Decision: an ingress-surviving source bundle owns compact immutable sensor and
+  prediction payload plus provenance. It never retains a capture/prediction ring
+  lease. Its source set is sealed before exact evaluation; certificate
+  minimization occurs only after sealed proof closure in section-30 order. A
+  transient section-18 probation record may collect multiple immutable bundle
+  handles in source order, but it cannot begin mutation or publish geometry until
+  the independent-support rule seals that exact handle set.
+- Decision: novel association handles same-carrier, mixed-eye, no-prediction and
+  incompatible-carrier cases through exact admissible-cell and first-hit rules.
+  Prediction proposes identity but is not an existence condition. Empty exact
+  evidence is retained with a dependency fingerprint and is not retried until a
+  relevant `Psi`, pose, calibration, support or independence generation changes.
+  Dependency hashes are lookup accelerators only; exact decisions compare the full
+  generation tuple. Before publication, changed first-hit dependencies rerasterize
+  manifest-resolved `Psi` from the retained observation pose and repeat exact gates.
+- Decision: canonical candidate-transition validation evaluates candidate S16,
+  exact annihilator/associator plans and retained evidence directly before commit.
+  The generation-keyed topology cache remains derived readout only. A
+  generation-safe publication manifest exposes every page generation belonging to
+  one affected carrier footprint with one all-or-none visibility marker. New pages
+  name a `bornManifest`; replaced pages name the same `retiredByManifest`; the
+  shared visibility rule changes both sides only when that manifest atomically
+  becomes published. Per-page current flags are derived caches and page boundaries
+  retain zero physical meaning.
+- Decision: scheduler costs combine generated operator-plan counts with a fixed
+  kernel execution manifest covering workgroup shape, memory traffic, barriers,
+  scratch and witness work. Static device token profiles bound submissions;
+  Section-44 telemetry validates the profile but never changes canonical physics.
+- Decision: resident bundle headers, source scratch and twelve-candidate proof
+  arrays are execution windows, never canonical limits. A transaction owns a
+  generation-safe segmented stream of its complete sealed evidence. Exhausted
+  windows pause or losslessly spill; only after source closure may stable
+  lexicographic coalescing and reverse-order redundancy run to a fixed point.
+  Bundle partitioning, token budget and scratch capacity cannot change Psi, proof
+  bytes, validity or provenance.
+- Consequence: sensor ingress is decoupled from inverse latency, exact evidence is
+  never blurred or made scheduling-dependent, and the renderer sees only committed
+  manifest-visible `Psi`. S4-10 supplies durable lossless overflow and S4-11 later
+  replaces the temporary direct carrier readout without changing this contract.

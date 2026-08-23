@@ -1,8 +1,12 @@
-#pragma kernel ClearInverseWorkGraph
-#pragma kernel CompactInverseWork
-#pragma kernel PrepareInverseTransactions
-#pragma kernel PlanRawReservations
-#pragma kernel CommitInverseTransactions
+#pragma kernel InitializeStreamingGraph
+#pragma kernel InitializeStreamingOwnership
+#pragma kernel ClearIngressWork
+#pragma kernel CompactIngressBundles
+#pragma kernel FinalizeExtractedBundles
+#pragma kernel ScheduleSigmaTransactions
+#pragma kernel FinalizeStreamingScheduleDiagnostics
+#pragma kernel ReleaseProbationAssociations
+#pragma kernel PrepareTransactionPages
 #pragma target 5.0
 
 #include "SigmaOperatorPlan.hlsl"
@@ -16,57 +20,50 @@ RWStructuredBuffer<SigmaCarrierPageMetaGpu> _PageMetadata;
 RWStructuredBuffer<uint> _DirtyFlags;
 RWStructuredBuffer<uint> _CurrentFlags;
 RWStructuredBuffer<uint> _ReadoutDirtyFlags;
+StructuredBuffer<SigmaPageVisibilityGpu> _StreamPageVisibility;
 StructuredBuffer<uint> _ActivePageFlags;
 StructuredBuffer<uint> _UnmatchedBlockFlags;
-StructuredBuffer<uint> _UnmatchedBlockAnchors;
-RWStructuredBuffer<SigmaInverseWorkGpu> _InverseWork;
-RWStructuredBuffer<uint> _InverseWorkControl;
-StructuredBuffer<SigmaInverseWorkGpu> _InverseWorkRead;
-RWStructuredBuffer<uint> _DispatchArgs;
-RWStructuredBuffer<uint> _RawReservations;
-StructuredBuffer<uint> _RawReservationsRead;
-RWStructuredBuffer<uint> _RawAllocator;
+
+RWStructuredBuffer<SigmaTransactionGpu> _StreamTransactions;
+RWStructuredBuffer<SigmaSealedSourceBundleGpu> _StreamBundles;
+RWStructuredBuffer<SigmaProbationGpu> _StreamProbation;
+RWStructuredBuffer<SigmaSourceHandleSegmentGpu> _StreamSourceSegments;
+RWStructuredBuffer<uint4> _StreamAssociationOwners;
+RWStructuredBuffer<SigmaStreamWorkItemGpu> _StreamWorkItems;
+RWStructuredBuffer<uint> _StreamWorkCounts;
+RWStructuredBuffer<uint> _StreamDispatchArgs;
+RWStructuredBuffer<uint> _StreamSchedulerControl;
+StructuredBuffer<uint> _StreamKernelTokenCosts;
+StructuredBuffer<uint> _StreamKernelBudgetClasses;
+RWStructuredBuffer<SigmaStreamDiagnosticGpu> _StreamDiagnostics;
 RWStructuredBuffer<uint> _RawLiveWords;
-RWStructuredBuffer<SigmaConstraintBlockGpu> _ConstraintBlocks;
-StructuredBuffer<uint> _ProofPageStatus;
-StructuredBuffer<uint> _GaugePromotionCounts;
-StructuredBuffer<SigmaRawRetentionRequestGpu> _RawRequests;
 
 uint _PageCapacity;
 uint _SegmentIndex;
 uint _ActiveFlagCount;
 uint _BlockFlagCount;
 uint2 _GaugeBlockResolution;
-uint _InverseWorkCapacity;
 uint _FrameRevision;
-uint _ProofFrameSlot;
-uint _ProofCalibrationEpoch;
+uint _CalibrationEpoch;
+uint _LeftIndependenceKey;
+uint _RightIndependenceKey;
+uint _RgbLeftIndependenceKey;
+uint _RgbRightIndependenceKey;
+uint _RayEpochGeneration;
 uint _RawTileCapacity;
+uint _StreamSourceSegmentCapacity;
 
-groupshared uint MatchedCount;
-groupshared uint FreePairList[256];
-groupshared uint FreePairCount;
-groupshared uint RawReservationCount;
-groupshared uint FreeRawList[512];
-
-#define SIGMA_RGB_ARGS 0u
-#define SIGMA_SOLVE_ARGS 3u
-#define SIGMA_PROMOTE_ARGS 6u
-#define SIGMA_PROOF_ARGS 9u
-#define SIGMA_COMMIT_ARGS 12u
-#define SIGMA_PROOF_SOURCE_ARGS 15u
-#define SIGMA_GAUGE_COORD_ARGS 18u
-
-uint2 SigmaWorkNullLane(uint lane)
-{
-    if (lane == (uint)SIGMA_Z_NULL_DYAD.x)
-        return SIGMA_Z_NULL_DYAD.y < 0 ? uint2(0u, 0xffff0000u) :
-            uint2(0u, 0x00010000u);
-    if (lane == (uint)SIGMA_Z_NULL_DYAD.z)
-        return SIGMA_Z_NULL_DYAD.w < 0 ? uint2(0u, 0xffff0000u) :
-            uint2(0u, 0x00010000u);
-    return uint2(0u, 0u);
-}
+groupshared uint StreamFreeBundles[SIGMA_STREAM_BUNDLE_CAPACITY];
+groupshared uint StreamFreeBundleCount;
+groupshared uint StreamFreeAssociations[SIGMA_STREAM_TRANSACTION_CAPACITY];
+groupshared uint StreamFreeAssociationCount;
+groupshared uint StreamMatchedCount;
+groupshared uint StreamGaugeCount;
+groupshared uint StreamIngressCount;
+groupshared uint2 StreamTicketBase;
+groupshared uint StreamGaugeOrdinalBase;
+groupshared uint StreamFreePages[256];
+groupshared uint StreamFreePageCount;
 
 uint SigmaCompactMorton(uint value)
 {
@@ -83,90 +80,257 @@ uint2 SigmaSignedMortonLimb(uint ordinal, uint odd)
 {
     uint compact = SigmaCompactMorton(ordinal >> odd);
     int signedValue = (int)(compact >> 1u) ^ -((int)compact & 1);
-    return uint2(asuint(signedValue), signedValue < 0 ? 0xffffffffu : 0u);
+    return uint2(asuint(signedValue),
+        signedValue < 0 ? 0xffffffffu : 0u);
 }
 
-bool SigmaPairFree(uint pair)
+uint2 SigmaStreamAddTicket(uint2 value, uint increment, out uint valid)
 {
-    uint first = pair * 2u;
-    uint second = first + 1u;
-    if (second >= _PageCapacity)
+    uint low = value.x + increment;
+    uint carry = low < value.x ? 1u : 0u;
+    uint high = value.y + carry;
+    valid = high >= value.y ? 1u : 0u;
+    return uint2(low, high);
+}
+
+uint2 SigmaGaugeMask64(uint quadrantMask)
+{
+    uint2 result = 0u;
+    [unroll]
+    for (uint blockY = 0u; blockY < 8u; ++blockY)
+    {
+        [unroll]
+        for (uint blockX = 0u; blockX < 8u; ++blockX)
+        {
+            uint quadrant = (blockX >> 2u) | ((blockY >> 2u) << 1u);
+            if ((quadrantMask & (1u << quadrant)) == 0u)
+                continue;
+            uint block = blockY * 8u + blockX;
+            if (block < 32u)
+                result.x |= 1u << block;
+            else
+                result.y |= 1u << (block - 32u);
+        }
+    }
+    return result;
+}
+
+uint2 SigmaBundleAffectedMask(SigmaSealedSourceBundleGpu bundle)
+{
+    return (bundle.identity.w & SIGMA_STREAM_BUNDLE_FLAG_GAUGE) != 0u
+        ? SigmaGaugeMask64(bundle.raw.w)
+        : uint2(0xffffffffu, 0xffffffffu);
+}
+
+uint2 SigmaTransactionSemanticMask(SigmaTransactionGpu transaction)
+{
+    return (transaction.identity.w & SIGMA_STREAM_WORK_FLAG_GAUGE) != 0u
+        ? SigmaGaugeMask64(transaction.scratch.w)
+        : uint2(0xffffffffu, 0xffffffffu);
+}
+
+bool SigmaSameLogicalPage(uint4 left, uint4 right)
+{
+    return all(left == right);
+}
+
+bool SigmaBundleRecordsOverlap(SigmaSealedSourceBundleGpu left,
+    SigmaSealedSourceBundleGpu right)
+{
+    if (!SigmaSameLogicalPage(left.probation, right.probation))
         return false;
-    return _CurrentFlags[first] == 0u && _CurrentFlags[second] == 0u &&
-        _PageMetadata[first].flags == 0u && _PageMetadata[second].flags == 0u;
+    uint2 leftMask = SigmaBundleAffectedMask(left);
+    uint2 rightMask = SigmaBundleAffectedMask(right);
+    return ((leftMask.x & rightMask.x) | (leftMask.y & rightMask.y)) != 0u;
+}
+
+bool SigmaBundleTransactionOverlap(SigmaSealedSourceBundleGpu bundle,
+    SigmaTransactionGpu transaction)
+{
+    if (SigmaStreamTransactionState(transaction) ==
+            SIGMA_STREAM_TRANSACTION_FREE ||
+        !SigmaSameLogicalPage(bundle.probation,
+            transaction.page0.coordinate))
+        return false;
+    uint2 bundleMask = SigmaBundleAffectedMask(bundle);
+    uint2 transactionMask = SigmaTransactionSemanticMask(transaction);
+    return ((bundleMask.x & transactionMask.x) |
+        (bundleMask.y & transactionMask.y)) != 0u;
+}
+
+bool SigmaBundleHasOwnedRawRange(uint bundleSlot)
+{
+    uint begin = bundleSlot * SIGMA_STREAM_RAW_TILES_PER_BUNDLE;
+    return begin <= _RawTileCapacity &&
+        SIGMA_STREAM_RAW_TILES_PER_BUNDLE <= _RawTileCapacity - begin;
+}
+
+bool SigmaStreamPageSlotFree(uint slot)
+{
+    return slot < _PageCapacity && _PageMetadata[slot].flags == 0u &&
+        _CurrentFlags[slot] == 0u && _DirtyFlags[slot] == 0u &&
+        _StreamPageVisibility[slot].pins.w == 0u;
+}
+
+bool SigmaStreamDependencySatisfied(SigmaTransactionGpu transaction,
+    out bool requiresRevalidation)
+{
+    requiresRevalidation = false;
+    uint slot = transaction.dependencyTicket.z;
+    uint generation = transaction.dependencyTicket.w;
+    if (slot == SIGMA_STREAM_INVALID)
+        return true;
+    if (slot >= SIGMA_STREAM_TRANSACTION_CAPACITY)
+        return false;
+    SigmaTransactionGpu dependency = _StreamTransactions[slot];
+    if (SigmaStreamTransactionGeneration(dependency) != generation)
+    {
+        requiresRevalidation = true;
+        return true;
+    }
+    uint state = SigmaStreamTransactionState(dependency);
+    if (state == SIGMA_STREAM_TRANSACTION_PUBLISHED ||
+        state == SIGMA_STREAM_TRANSACTION_FREE ||
+        state == SIGMA_STREAM_TRANSACTION_DORMANT ||
+        state == SIGMA_STREAM_TRANSACTION_FAILED)
+    {
+        requiresRevalidation = true;
+        return true;
+    }
+    return false;
+}
+
+void SigmaStreamResetDispatch(uint opcode)
+{
+    _StreamWorkCounts[opcode] = 0u;
+    _StreamDispatchArgs[SigmaStreamDispatchAddress(opcode, 0u)] = 0u;
+    _StreamDispatchArgs[SigmaStreamDispatchAddress(opcode, 1u)] = 1u;
+    _StreamDispatchArgs[SigmaStreamDispatchAddress(opcode, 2u)] = 1u;
 }
 
 [numthreads(64, 1, 1)]
-void ClearInverseWorkGraph(uint3 id : SV_DispatchThreadID)
-{
-    uint index = id.x;
-    if (index < 8u)
-        _InverseWorkControl[index] = 0u;
-    if (index >= 3u)
-        return;
-
-    _DispatchArgs[SIGMA_RGB_ARGS + index] =
-        index == 0u ? 256u : index == 2u ? 1u : 0u;
-    _DispatchArgs[SIGMA_SOLVE_ARGS + index] =
-        index == 0u ? 256u : index == 2u ? 1u : 0u;
-    _DispatchArgs[SIGMA_PROMOTE_ARGS + index] = index < 2u ? 8u : 0u;
-    _DispatchArgs[SIGMA_PROOF_ARGS + index] =
-        index == 0u ? 64u : index == 2u ? 1u : 0u;
-    _DispatchArgs[SIGMA_COMMIT_ARGS + index] =
-        index == 0u || index == 2u ? 1u : 0u;
-    _DispatchArgs[SIGMA_PROOF_SOURCE_ARGS + index] =
-        index == 0u ? 64u : index == 2u ? 4u : 0u;
-    _DispatchArgs[SIGMA_GAUGE_COORD_ARGS + index] =
-        index == 0u ? 64u : index == 2u ? 16u : 0u;
-}
-
-// One bounded scheduling group compacts matched pages, reusable generation pairs
-// and unmatched gauge pages. Every list uses the same scalar stable-scan circuit;
-// sensor ingress never waits for this bounded scheduling pass.
-[numthreads(256, 1, 1)]
-void CompactInverseWork(uint3 threadId : SV_GroupThreadID)
+void InitializeStreamingGraph(uint3 threadId : SV_GroupThreadID)
 {
     uint lane = threadId.x;
-    uint globalPage = _SegmentIndex * 256u + lane;
-    uint matched = lane < _PageCapacity && globalPage < _ActiveFlagCount &&
-        _CurrentFlags[lane] != 0u && _ActivePageFlags[globalPage] != 0u ? 1u : 0u;
-    uint matchedTotal;
-    uint matchedPrefix = SigmaStableExclusiveScan256(lane, matched, matchedTotal);
-
-    if (matched != 0u && matchedPrefix < _InverseWorkCapacity)
+    if (lane < SIGMA_STREAM_BUNDLE_CAPACITY)
     {
-        uint target = lane ^ 1u;
-        SigmaCarrierPageMetaGpu source = _PageMetadata[lane];
-        SigmaInverseWorkGpu work;
-        work.slots = uint4(lane, target, lane, target);
-        work.control = uint4(SIGMA_INVERSE_WORK_MATCHED, 0u, 0u,
-            _FrameRevision);
-        work.coordinate = uint4(source.pageXLo, source.pageXHi,
-            source.pageYLo, source.pageYHi);
-        _InverseWork[matchedPrefix] = work;
+        _StreamBundles[lane] = (SigmaSealedSourceBundleGpu)0;
+        _StreamProbation[lane] = (SigmaProbationGpu)0;
     }
+    if (lane < SIGMA_STREAM_TRANSACTION_CAPACITY)
+    {
+        _StreamTransactions[lane] = (SigmaTransactionGpu)0;
+    }
+    if (lane < SIGMA_STREAM_OPCODE_COUNT)
+        SigmaStreamResetDispatch(lane);
+    if (lane < 32u)
+        _StreamSchedulerControl[lane] = 0u;
     if (lane == 0u)
-        MatchedCount = min(matchedTotal, _InverseWorkCapacity);
+    {
+        _StreamSchedulerControl[SIGMA_STREAM_CONTROL_CLASS_BUDGET +
+            SIGMA_STREAM_BUDGET_INGRESS_ADMISSION] = 32u;
+        _StreamSchedulerControl[SIGMA_STREAM_CONTROL_CLASS_BUDGET +
+            SIGMA_STREAM_BUDGET_CANONICAL_PROGRESS] = 256u;
+        _StreamSchedulerControl[SIGMA_STREAM_CONTROL_CLASS_BUDGET +
+            SIGMA_STREAM_BUDGET_PROOF_TRANSITION_CLOSURE] = 192u;
+        _StreamSchedulerControl[SIGMA_STREAM_CONTROL_CLASS_BUDGET +
+            SIGMA_STREAM_BUDGET_DERIVED_READOUT] = 64u;
+        _StreamSchedulerControl[SIGMA_STREAM_CONTROL_REVALIDATE_OWNER] =
+            SIGMA_STREAM_INVALID;
+        _StreamSchedulerControl[SIGMA_STREAM_CONTROL_PROOF_OWNER] =
+            SIGMA_STREAM_INVALID;
+        _StreamSchedulerControl[SIGMA_STREAM_CONTROL_SOURCE_SEGMENT_HINT] = 0u;
+        _StreamDiagnostics[0u] = (SigmaStreamDiagnosticGpu)0;
+    }
+}
+
+[numthreads(64, 1, 1)]
+void InitializeStreamingOwnership(uint3 threadId : SV_GroupThreadID)
+{
+    uint lane = threadId.x;
+    if (lane < SIGMA_STREAM_TRANSACTION_CAPACITY)
+        _StreamAssociationOwners[lane] =
+            uint4(SIGMA_STREAM_INVALID, 0u, 0u, 0u);
+    for (uint segment = lane; segment < _StreamSourceSegmentCapacity;
+        segment += 64u)
+    {
+        SigmaSourceHandleSegmentGpu previous = _StreamSourceSegments[segment];
+        SigmaSourceHandleSegmentGpu cleared =
+            (SigmaSourceHandleSegmentGpu)0;
+        cleared.identity.y = previous.identity.y;
+        cleared.link.x = SIGMA_STREAM_INVALID;
+        _StreamSourceSegments[segment] = cleared;
+    }
+}
+
+[numthreads(64, 1, 1)]
+void ClearIngressWork(uint3 threadId : SV_GroupThreadID)
+{
+    uint lane = threadId.x;
+    if (lane == 0u)
+    {
+        _StreamSchedulerControl[SIGMA_STREAM_CONTROL_INGRESS_COUNT] = 0u;
+        SigmaStreamResetDispatch(SIGMA_STREAM_OPCODE_EXTRACT_BUNDLE);
+    }
+}
+
+// Fixed bounded ingress: up to two complete page packets are selected in stable
+// page/image order.  The extraction pass owns every byte needed after its short
+// completion ticket; no transaction retains a sensor or prediction texture.
+[numthreads(256, 1, 1)]
+void CompactIngressBundles(uint3 threadId : SV_GroupThreadID)
+{
+    uint lane = threadId.x;
+    uint freeBundle = lane < SIGMA_STREAM_BUNDLE_CAPACITY &&
+        SigmaBundleHasOwnedRawRange(lane) &&
+        SigmaStreamBundleState(_StreamBundles[lane]) ==
+            SIGMA_STREAM_BUNDLE_FREE ? 1u : 0u;
+    uint freeBundleTotal;
+    uint freeBundlePrefix = SigmaStableExclusiveScan256(lane, freeBundle,
+        freeBundleTotal);
+    if (freeBundle != 0u)
+        StreamFreeBundles[freeBundlePrefix] = lane;
+    if (lane == 0u)
+        StreamFreeBundleCount = freeBundleTotal;
     GroupMemoryBarrierWithGroupSync();
 
-    uint freePair = lane * 2u + 1u < _PageCapacity && SigmaPairFree(lane)
-        ? 1u : 0u;
-    uint freePairTotal;
-    uint freePrefix = SigmaStableExclusiveScan256(lane, freePair, freePairTotal);
-    if (freePair != 0u)
-        FreePairList[freePrefix] = lane;
+    uint freeAssociation = lane < SIGMA_STREAM_TRANSACTION_CAPACITY &&
+        _StreamAssociationOwners[lane].x == SIGMA_STREAM_INVALID ? 1u : 0u;
+    uint freeAssociationTotal;
+    uint freeAssociationPrefix = SigmaStableExclusiveScan256(lane,
+        freeAssociation, freeAssociationTotal);
+    if (freeAssociation != 0u)
+        StreamFreeAssociations[freeAssociationPrefix] = lane;
     if (lane == 0u)
-        FreePairCount = freePairTotal;
+        StreamFreeAssociationCount = freeAssociationTotal;
+    GroupMemoryBarrierWithGroupSync();
+
+    uint cursor = _StreamSchedulerControl[
+        SIGMA_STREAM_CONTROL_INGRESS_CURSOR];
+    uint sourceSlot = _PageCapacity == 0u ? 0u :
+        (cursor + lane) % _PageCapacity;
+    uint globalPage = _SegmentIndex * 256u + sourceSlot;
+    uint matched = lane < _PageCapacity && globalPage < _ActiveFlagCount &&
+        _CurrentFlags[sourceSlot] != 0u &&
+        _ActivePageFlags[globalPage] != 0u ? 1u : 0u;
+    uint matchedTotal;
+    uint matchedPrefix = SigmaStableExclusiveScan256(lane, matched,
+        matchedTotal);
+    if (lane == 0u)
+        StreamMatchedCount = min(matchedTotal,
+            SIGMA_STREAM_INGRESS_BUNDLES_PER_FRAME);
     GroupMemoryBarrierWithGroupSync();
 
     uint gaugeWidth = (_GaugeBlockResolution.x + 1u) >> 1u;
     uint gaugeHeight = (_GaugeBlockResolution.y + 1u) >> 1u;
     uint gaugeCandidates = gaugeWidth * gaugeHeight;
-    uint gauge = 0u;
-    uint blockMask = 0u;
+    uint gaugeCandidate = gaugeCandidates == 0u ? 0u :
+        (cursor + lane) % gaugeCandidates;
+    uint quadrantMask = 0u;
     if (lane < gaugeCandidates)
     {
-        uint2 imagePage = uint2(lane % gaugeWidth, lane / gaugeWidth);
+        uint2 imagePage = uint2(gaugeCandidate % gaugeWidth,
+            gaugeCandidate / gaugeWidth);
         [unroll]
         for (uint quadrant = 0u; quadrant < 4u; ++quadrant)
         {
@@ -177,270 +341,953 @@ void CompactInverseWork(uint3 threadId : SV_GroupThreadID)
             uint blockIndex = block.y * _GaugeBlockResolution.x + block.x;
             if (blockIndex < _BlockFlagCount &&
                 _UnmatchedBlockFlags[blockIndex] != 0u)
-                blockMask |= 1u << quadrant;
+                quadrantMask |= 1u << quadrant;
         }
-        gauge = blockMask != 0u ? 1u : 0u;
     }
-
-    uint gaugeCandidateTotal;
-    uint gaugePrefix = SigmaStableExclusiveScan256(
-        lane, gauge, gaugeCandidateTotal);
-    uint available = _InverseWorkCapacity - MatchedCount;
-    uint gaugeTotal = min(min(gaugeCandidateTotal, available), FreePairCount);
-    if (gauge != 0u && gaugePrefix < gaugeTotal)
+    uint gauge = quadrantMask != 0u ? 1u : 0u;
+    uint gaugeTotal;
+    uint gaugePrefix = SigmaStableExclusiveScan256(lane, gauge, gaugeTotal);
+    if (lane == 0u)
     {
-        uint pair = FreePairList[gaugePrefix];
-        uint ordinal = _InverseWorkControl[8u] + gaugePrefix;
-        uint2 x = SigmaSignedMortonLimb(ordinal, 0u);
-        uint2 y = SigmaSignedMortonLimb(ordinal, 1u);
-        uint2 imagePage = uint2(lane % gaugeWidth, lane / gaugeWidth);
-        SigmaInverseWorkGpu work;
-        work.slots = uint4(SIGMA_INVERSE_INVALID_SLOT, pair * 2u,
-            SIGMA_INVALID_PROOF_SLOT, pair * 2u);
-        work.control = uint4(SIGMA_INVERSE_WORK_GAUGE,
-            ((imagePage.y * 64u) << 16u) | (imagePage.x * 64u),
-            blockMask, _FrameRevision);
-        work.coordinate = uint4(x, y);
-        _InverseWork[MatchedCount + gaugePrefix] = work;
+        uint capacity = min(StreamFreeBundleCount,
+            SIGMA_STREAM_INGRESS_BUNDLES_PER_FRAME);
+        StreamMatchedCount = min(StreamMatchedCount, capacity);
+        StreamGaugeCount = min(gaugeTotal, capacity - StreamMatchedCount);
+        StreamIngressCount = StreamMatchedCount + StreamGaugeCount;
+        StreamTicketBase = uint2(
+            _StreamSchedulerControl[SIGMA_STREAM_CONTROL_TICKET_LO],
+            _StreamSchedulerControl[SIGMA_STREAM_CONTROL_TICKET_HI]);
+        StreamGaugeOrdinalBase = _StreamSchedulerControl[
+            SIGMA_STREAM_CONTROL_GAUGE_ORDINAL];
+        uint ticketValid;
+        uint2 nextTicket = SigmaStreamAddTicket(StreamTicketBase,
+            StreamIngressCount, ticketValid);
+        if (ticketValid == 0u)
+        {
+            StreamIngressCount = 0u;
+            _StreamSchedulerControl[SIGMA_STREAM_CONTROL_FAILED_COUNT] += 1u;
+        }
+        else
+        {
+            _StreamSchedulerControl[SIGMA_STREAM_CONTROL_TICKET_LO] =
+                nextTicket.x;
+            _StreamSchedulerControl[SIGMA_STREAM_CONTROL_TICKET_HI] =
+                nextTicket.y;
+            _StreamSchedulerControl[SIGMA_STREAM_CONTROL_GAUGE_ORDINAL] +=
+                StreamGaugeCount;
+        }
+        uint candidateTotal = matchedTotal + gaugeTotal;
+        uint skipped = candidateTotal > StreamIngressCount
+            ? candidateTotal - StreamIngressCount : 0u;
+        _StreamSchedulerControl[SIGMA_STREAM_CONTROL_SKIPPED_ADMISSION] +=
+            skipped;
+        uint span = max(1u, max(_PageCapacity, gaugeCandidates));
+        _StreamSchedulerControl[SIGMA_STREAM_CONTROL_INGRESS_CURSOR] =
+            (cursor + max(1u, StreamIngressCount)) % span;
     }
     GroupMemoryBarrierWithGroupSync();
 
+    bool selectedMatched = matched != 0u &&
+        matchedPrefix < StreamMatchedCount;
+    bool selectedGauge = gauge != 0u && gaugePrefix < StreamGaugeCount;
+    uint rank = selectedMatched ? matchedPrefix :
+        StreamMatchedCount + gaugePrefix;
+    bool selected = (selectedMatched || selectedGauge) &&
+        rank < StreamIngressCount;
+    if (selected)
+    {
+        uint bundleSlot = StreamFreeBundles[rank];
+        SigmaSealedSourceBundleGpu oldBundle = _StreamBundles[bundleSlot];
+        uint generation = oldBundle.identity.y + 1u;
+        uint ticketValid;
+        uint2 ticket = SigmaStreamAddTicket(StreamTicketBase, rank,
+            ticketValid);
+        uint associationSlot = rank < StreamFreeAssociationCount
+            ? StreamFreeAssociations[rank] : SIGMA_STREAM_INVALID;
+        uint flags = selectedMatched ? SIGMA_STREAM_BUNDLE_FLAG_MATCHED :
+            SIGMA_STREAM_BUNDLE_FLAG_GAUGE;
+        if (associationSlot < SIGMA_STREAM_TRANSACTION_CAPACITY)
+            flags |= SIGMA_STREAM_BUNDLE_FLAG_HAS_ASSOCIATION;
+        else
+            flags |= SIGMA_STREAM_BUNDLE_FLAG_NEEDS_REVALIDATION;
+
+        SigmaStreamWorkItemGpu work = (SigmaStreamWorkItemGpu)0;
+        work.identity = uint4(SIGMA_STREAM_OPCODE_NONE, bundleSlot,
+            generation, rank);
+        if (generation != 0u && ticketValid != 0u)
+        {
+            uint4 coordinate = 0u;
+            uint imageOriginPacked = 0u;
+            uint sourceGeneration = 0u;
+            uint sourceRevision = 0u;
+            uint source = SIGMA_STREAM_INVALID;
+            uint blockMask = 0xffffffffu;
+            if (selectedMatched)
+            {
+                // CopySealedBundleMetadata owns the SRV metadata snapshot.  Keeping
+                // that read out of admission preserves the Quest eight-UAV limit.
+                source = sourceSlot;
+            }
+            else
+            {
+                uint gaugeOrdinal = StreamGaugeOrdinalBase + gaugePrefix;
+                uint2 x = SigmaSignedMortonLimb(gaugeOrdinal, 0u);
+                uint2 y = SigmaSignedMortonLimb(gaugeOrdinal, 1u);
+                coordinate = uint4(x, y);
+                uint2 imagePage = uint2(gaugeCandidate % gaugeWidth,
+                    gaugeCandidate / gaugeWidth);
+                imageOriginPacked = ((imagePage.y * 64u) << 16u) |
+                    (imagePage.x * 64u);
+                blockMask = quadrantMask;
+            }
+
+            SigmaSealedSourceBundleGpu bundle =
+                (SigmaSealedSourceBundleGpu)0;
+            bundle.identity = uint4(SIGMA_STREAM_BUNDLE_EXTRACTING,
+                generation, bundleSlot, flags);
+            bundle.provenance = uint4(ticket, _FrameRevision,
+                _CalibrationEpoch);
+            bundle.keys = uint4(_LeftIndependenceKey,
+                _RightIndependenceKey, _RgbLeftIndependenceKey,
+                _RgbRightIndependenceKey);
+            bundle.raw = uint4(
+                bundleSlot * SIGMA_STREAM_RAW_TILES_PER_BUNDLE,
+                bundleSlot, associationSlot, blockMask);
+            bundle.calibration = uint4(bundleSlot *
+                SIGMA_STREAM_CALIBRATION_Q48_PER_BUNDLE,
+                _RayEpochGeneration, flags, imageOriginPacked);
+            bundle.probation = coordinate;
+            bundle.dependency = uint4(source, sourceGeneration,
+                sourceRevision, _StreamSchedulerControl[
+                    SIGMA_STREAM_CONTROL_PUBLISHED_COUNT]);
+            _StreamBundles[bundleSlot] = bundle;
+            if (associationSlot < SIGMA_STREAM_TRANSACTION_CAPACITY)
+                _StreamAssociationOwners[associationSlot] = uint4(
+                    bundleSlot, generation, ticket);
+            uint liveWord = bundleSlot * 2u;
+            uint liveWordCount = (_RawTileCapacity + 31u) >> 5u;
+            if (liveWord + 1u < liveWordCount)
+            {
+                _RawLiveWords[liveWord] = 0xffffffffu;
+                _RawLiveWords[liveWord + 1u] = 0xffffffffu;
+            }
+            work.identity.x = SIGMA_STREAM_OPCODE_EXTRACT_BUNDLE;
+            work.cursor = uint4(source, imageOriginPacked, blockMask, flags);
+        }
+        else
+        {
+            InterlockedAdd(_StreamSchedulerControl[
+                SIGMA_STREAM_CONTROL_FAILED_COUNT], 1u);
+        }
+        _StreamWorkItems[SigmaStreamWorkAddress(
+            SIGMA_STREAM_OPCODE_EXTRACT_BUNDLE, rank)] = work;
+    }
+    GroupMemoryBarrierWithGroupSync();
     if (lane == 0u)
     {
-        uint total = MatchedCount + gaugeTotal;
-        _InverseWorkControl[0u] = MatchedCount;
-        _InverseWorkControl[1u] = gaugeTotal;
-        _InverseWorkControl[2u] = total;
-        _InverseWorkControl[8u] += gaugeTotal;
-        _DispatchArgs[SIGMA_RGB_ARGS + 1u] = MatchedCount * 2u;
-        _DispatchArgs[SIGMA_SOLVE_ARGS + 1u] = MatchedCount;
-        _DispatchArgs[SIGMA_PROMOTE_ARGS + 2u] = gaugeTotal;
-        _DispatchArgs[SIGMA_PROOF_ARGS + 1u] = total;
-        _DispatchArgs[SIGMA_COMMIT_ARGS + 1u] = total;
-        _DispatchArgs[SIGMA_PROOF_SOURCE_ARGS + 1u] = total;
-        _DispatchArgs[SIGMA_GAUGE_COORD_ARGS + 1u] = total;
+        _StreamWorkCounts[SIGMA_STREAM_OPCODE_EXTRACT_BUNDLE] =
+            StreamIngressCount;
+        _StreamDispatchArgs[SigmaStreamDispatchAddress(
+            SIGMA_STREAM_OPCODE_EXTRACT_BUNDLE, 0u)] = 64u;
+        _StreamDispatchArgs[SigmaStreamDispatchAddress(
+            SIGMA_STREAM_OPCODE_EXTRACT_BUNDLE, 1u)] = StreamIngressCount;
+        _StreamDispatchArgs[SigmaStreamDispatchAddress(
+            SIGMA_STREAM_OPCODE_EXTRACT_BUNDLE, 2u)] = 1u;
+        _StreamSchedulerControl[SIGMA_STREAM_CONTROL_INGRESS_COUNT] =
+            StreamIngressCount;
     }
 }
 
+// Extraction kernels set support flags in the immutable header.  This bounded
+// finalizer changes only ownership state after every sample/calibration write is
+// ordered before it in the same ingress command buffer.
 [numthreads(64, 1, 1)]
-void PrepareInverseTransactions(uint3 groupId : SV_GroupID,
-    uint3 threadId : SV_GroupThreadID)
+void FinalizeExtractedBundles(uint3 threadId : SV_GroupThreadID)
 {
-    uint workIndex = groupId.y;
-    uint sample = groupId.x * 64u + threadId.x;
-    if (!SigmaCanonicalMutationEnabled() ||
-        workIndex >= _InverseWorkControl[2u] ||
-        sample >= SIGMA_PAGE_SAMPLE_COUNT)
+    uint index = threadId.x;
+    uint count = _StreamWorkCounts[SIGMA_STREAM_OPCODE_EXTRACT_BUNDLE];
+    if (index >= count)
         return;
-
-    SigmaInverseWorkGpu work = _InverseWork[workIndex];
-    uint target = work.slots.y;
-    if (target >= _PageCapacity)
+    SigmaStreamWorkItemGpu work = _StreamWorkItems[SigmaStreamWorkAddress(
+        SIGMA_STREAM_OPCODE_EXTRACT_BUNDLE, index)];
+    if (work.identity.x != SIGMA_STREAM_OPCODE_EXTRACT_BUNDLE)
         return;
-    uint targetBase = target * SIGMA_PAGE_LANE_COUNT +
-        sample * SIGMA_LANE_COUNT;
+    uint bundleSlot = work.identity.y;
+    if (bundleSlot >= SIGMA_STREAM_BUNDLE_CAPACITY)
+        return;
+    SigmaSealedSourceBundleGpu bundle = _StreamBundles[bundleSlot];
+    if (SigmaStreamBundleGeneration(bundle) != work.identity.z ||
+        SigmaStreamBundleState(bundle) != SIGMA_STREAM_BUNDLE_EXTRACTING)
+        return;
+    bundle.identity.x = SIGMA_STREAM_BUNDLE_READY;
+    _StreamBundles[bundleSlot] = bundle;
+    InterlockedAdd(_StreamDiagnostics[0u].admission.x, 1u);
+}
 
-    if (work.control.x == SIGMA_INVERSE_WORK_MATCHED &&
-        work.slots.x < _PageCapacity)
+bool SigmaBundleSealsAlone(SigmaSealedSourceBundleGpu bundle)
+{
+    if ((bundle.identity.w & SIGMA_STREAM_BUNDLE_FLAG_MATCHED) != 0u)
+        return true;
+    uint closure = SIGMA_STREAM_BUNDLE_FLAG_DUAL_DEPTH |
+        SIGMA_STREAM_BUNDLE_FLAG_DEPTH_RGB;
+    return (bundle.identity.w & closure) != 0u;
+}
+
+bool SigmaBundleKeysIndependent(SigmaSealedSourceBundleGpu left,
+    SigmaSealedSourceBundleGpu right)
+{
+    return left.keys.x != right.keys.x || left.keys.y != right.keys.y ||
+        left.keys.z != right.keys.z || left.keys.w != right.keys.w;
+}
+
+bool SigmaClaimSourceSegment(uint owner, uint ownerGeneration, uint state,
+    uint2 firstHandle, out uint segmentSlot, out uint segmentGeneration)
+{
+    segmentSlot = SIGMA_STREAM_INVALID;
+    segmentGeneration = 0u;
+    if (_StreamSourceSegmentCapacity == 0u)
+        return false;
+    uint hint = _StreamSchedulerControl[
+        SIGMA_STREAM_CONTROL_SOURCE_SEGMENT_HINT] %
+        _StreamSourceSegmentCapacity;
+    [loop]
+    for (uint offset = 0u; offset < _StreamSourceSegmentCapacity; ++offset)
     {
-        uint sourceBase = work.slots.x * SIGMA_PAGE_LANE_COUNT +
-            sample * SIGMA_LANE_COUNT;
-        [unroll]
-        for (uint lane = 0u; lane < SIGMA_LANE_COUNT; ++lane)
-            _CarrierState[targetBase + lane] = _CarrierState[sourceBase + lane];
+        uint slot = (hint + offset) % _StreamSourceSegmentCapacity;
+        SigmaSourceHandleSegmentGpu previous = _StreamSourceSegments[slot];
+        if (previous.identity.x != SIGMA_STREAM_SOURCE_SEGMENT_FREE)
+            continue;
+        uint generation = previous.identity.y + 1u;
+        if (generation == 0u)
+            continue;
+        SigmaSourceHandleSegmentGpu segment =
+            (SigmaSourceHandleSegmentGpu)0;
+        segment.identity = uint4(state, generation, 1u, owner);
+        segment.link = uint4(SIGMA_STREAM_INVALID, 0u, ownerGeneration, 0u);
+        SigmaStreamSetSourceHandle(segment, 0u, firstHandle);
+        _StreamSourceSegments[slot] = segment;
+        _StreamSchedulerControl[SIGMA_STREAM_CONTROL_SOURCE_SEGMENT_HINT] =
+            (slot + 1u) % _StreamSourceSegmentCapacity;
+        segmentSlot = slot;
+        segmentGeneration = generation;
+        return true;
+    }
+    return false;
+}
+
+bool SigmaAppendSourceHandle(inout SigmaProbationGpu probation,
+    uint2 handle)
+{
+    uint tailSlot = probation.bundleHandles.z;
+    uint tailGeneration = probation.bundleHandles.w;
+    if (!SigmaStreamHandleValid(tailSlot, tailGeneration,
+            _StreamSourceSegmentCapacity))
+        return false;
+    SigmaSourceHandleSegmentGpu tail = _StreamSourceSegments[tailSlot];
+    if (!SigmaStreamSourceSegmentValid(tail, tailGeneration) ||
+        tail.identity.x != SIGMA_STREAM_SOURCE_SEGMENT_OPEN)
+        return false;
+    if (tail.identity.z < SIGMA_STREAM_SOURCE_HANDLE_WINDOW)
+    {
+        SigmaStreamSetSourceHandle(tail, tail.identity.z, handle);
+        tail.identity.z++;
+        _StreamSourceSegments[tailSlot] = tail;
     }
     else
     {
-        [unroll]
-        for (uint lane = 0u; lane < SIGMA_LANE_COUNT; ++lane)
-            _CarrierState[targetBase + lane] = SigmaWorkNullLane(lane);
+        uint nextSlot;
+        uint nextGeneration;
+        if (!SigmaClaimSourceSegment(probation.identity.z,
+                probation.identity.y, SIGMA_STREAM_SOURCE_SEGMENT_OPEN,
+                handle, nextSlot, nextGeneration))
+            return false;
+        tail.link.xy = uint2(nextSlot, nextGeneration);
+        _StreamSourceSegments[tailSlot] = tail;
+        probation.bundleHandles.zw = uint2(nextSlot, nextGeneration);
     }
-
-    if (sample != 0u)
-        return;
-
-    SigmaCarrierPageMetaGpu metadata = (SigmaCarrierPageMetaGpu)0;
-    if (work.control.x == SIGMA_INVERSE_WORK_MATCHED &&
-        work.slots.x < _PageCapacity)
-        metadata = _PageMetadata[work.slots.x];
-    metadata.pageXLo = work.coordinate.x;
-    metadata.pageXHi = work.coordinate.y;
-    metadata.pageYLo = work.coordinate.z;
-    metadata.pageYHi = work.coordinate.w;
-    metadata.generation = work.control.x == SIGMA_INVERSE_WORK_MATCHED
-        ? metadata.generation + 1u : 1u;
-    metadata.revision = _FrameRevision;
-    metadata.certificateOffsetLo = work.slots.w *
-        SIGMA_CERTIFICATES_PER_PAGE;
-    metadata.certificateOffsetHi = 0u;
-    metadata.certificateCount = SIGMA_CERTIFICATES_PER_PAGE;
-    metadata.flags = SIGMA_PAGE_ALLOCATED | SIGMA_PAGE_DIRTY;
-    metadata.reserved0 = 0u;
-    metadata.reserved1 = 0u;
-    _PageMetadata[target] = metadata;
-    _DirtyFlags[target] = 0u;
-    _CurrentFlags[target] = 0u;
-    _ReadoutDirtyFlags[target] = 0u;
+    probation.identity.w++;
+    return true;
 }
 
-// Reusable active-local raw provenance. One bit represents one live slot; stable
-// popcount/rank selects the lowest free slots in source order. Lifetime depends
-// on unresolved evidence, never on the number or duration of submitted frames.
-[numthreads(256, 1, 1)]
-void PlanRawReservations(uint3 threadId : SV_GroupThreadID)
+bool SigmaSealSourceStream(SigmaProbationGpu probation,
+    uint owner, uint ownerGeneration)
+{
+    uint slot = probation.bundleHandles.x;
+    uint generation = probation.bundleHandles.y;
+    uint remaining = probation.identity.w;
+    [loop]
+    for (uint visited = 0u; visited < _StreamSourceSegmentCapacity &&
+        remaining > 0u; ++visited)
+    {
+        if (!SigmaStreamHandleValid(slot, generation,
+                _StreamSourceSegmentCapacity))
+            return false;
+        SigmaSourceHandleSegmentGpu segment = _StreamSourceSegments[slot];
+        if (!SigmaStreamSourceSegmentValid(segment, generation) ||
+            segment.identity.x != SIGMA_STREAM_SOURCE_SEGMENT_OPEN)
+            return false;
+        segment.identity.x = SIGMA_STREAM_SOURCE_SEGMENT_SEALED;
+        segment.identity.w = owner;
+        segment.link.z = ownerGeneration;
+        _StreamSourceSegments[slot] = segment;
+        remaining -= min(remaining, segment.identity.z);
+        if (remaining == 0u)
+            return true;
+        slot = segment.link.x;
+        generation = segment.link.y;
+    }
+    return false;
+}
+
+bool SigmaProbationFirstHandle(SigmaProbationGpu probation,
+    out uint2 handle)
+{
+    handle = uint2(SIGMA_STREAM_INVALID, 0u);
+    uint slot = probation.bundleHandles.x;
+    uint generation = probation.bundleHandles.y;
+    if (!SigmaStreamHandleValid(slot, generation,
+            _StreamSourceSegmentCapacity))
+        return false;
+    SigmaSourceHandleSegmentGpu segment = _StreamSourceSegments[slot];
+    if (!SigmaStreamSourceSegmentValid(segment, generation) ||
+        segment.identity.z == 0u)
+        return false;
+    handle = SigmaStreamSourceHandle(segment, 0u);
+    return true;
+}
+
+uint SigmaFindProbation(SigmaSealedSourceBundleGpu bundle)
+{
+    uint selected = SIGMA_STREAM_INVALID;
+    uint2 selectedTicket = uint2(0xffffffffu, 0xffffffffu);
+    [loop]
+    for (uint slot = 0u; slot < SIGMA_STREAM_BUNDLE_CAPACITY; ++slot)
+    {
+        SigmaProbationGpu probation = _StreamProbation[slot];
+        bool open = probation.identity.x == SIGMA_STREAM_PROBATION_OPEN;
+        bool dormant = probation.identity.x == SIGMA_STREAM_PROBATION_SEALED;
+        if (!open && !dormant)
+            continue;
+        uint2 firstHandle;
+        if (!SigmaProbationFirstHandle(probation, firstHandle))
+            continue;
+        uint firstSlot = firstHandle.x;
+        uint firstGeneration = firstHandle.y;
+        if (!SigmaStreamHandleValid(firstSlot, firstGeneration,
+                SIGMA_STREAM_BUNDLE_CAPACITY))
+            continue;
+        SigmaSealedSourceBundleGpu first = _StreamBundles[firstSlot];
+        uint firstState = SigmaStreamBundleState(first);
+        bool dormantRoot = dormant && firstSlot == bundle.identity.z &&
+            firstGeneration == SigmaStreamBundleGeneration(bundle);
+        bool stateValid = open
+            ? firstState == SIGMA_STREAM_BUNDLE_PROBATION
+            : firstState == SIGMA_STREAM_BUNDLE_DORMANT ||
+                firstState == SIGMA_STREAM_BUNDLE_ADMISSION_PENDING;
+        if (SigmaStreamBundleGeneration(first) != firstGeneration ||
+            !stateValid ||
+            !SigmaSameLogicalPage(first.probation, bundle.probation) ||
+            !SigmaBundleRecordsOverlap(first, bundle) ||
+            (!dormantRoot && !SigmaBundleKeysIndependent(first, bundle)))
+            continue;
+        uint2 ticket = first.provenance.xy;
+        if (selected == SIGMA_STREAM_INVALID ||
+            SigmaStreamTicketLess(ticket, selectedTicket) ||
+            (SigmaStreamTicketEqual(ticket, selectedTicket) && slot < selected))
+        {
+            selected = slot;
+            selectedTicket = ticket;
+        }
+    }
+    return selected;
+}
+
+bool SigmaOpenProbation(uint bundleSlot,
+    inout SigmaSealedSourceBundleGpu bundle)
+{
+    SigmaProbationGpu old = _StreamProbation[bundleSlot];
+    uint generation = old.identity.y + 1u;
+    if (generation == 0u)
+    {
+        bundle.identity.x = SIGMA_STREAM_BUNDLE_DORMANT;
+        return false;
+    }
+    uint segmentSlot;
+    uint segmentGeneration;
+    if (!SigmaClaimSourceSegment(bundleSlot, generation,
+            SIGMA_STREAM_SOURCE_SEGMENT_OPEN,
+            uint2(bundleSlot, SigmaStreamBundleGeneration(bundle)),
+            segmentSlot, segmentGeneration))
+    {
+        bundle.identity.x = SIGMA_STREAM_BUNDLE_ADMISSION_PENDING;
+        return false;
+    }
+    SigmaProbationGpu probation = (SigmaProbationGpu)0;
+    probation.identity = uint4(SIGMA_STREAM_PROBATION_OPEN, generation,
+        bundleSlot, 1u);
+    probation.bundleHandles = uint4(segmentSlot, segmentGeneration,
+        segmentSlot, segmentGeneration);
+    probation.support = uint4(bundle.identity.w, bundle.keys.x,
+        bundle.keys.y, bundle.provenance.z);
+    probation.dependency = bundle.probation;
+    _StreamProbation[bundleSlot] = probation;
+    bundle.identity.x = SIGMA_STREAM_BUNDLE_PROBATION;
+    return true;
+}
+
+bool SigmaHasEarlierUnsealedOverlap(SigmaSealedSourceBundleGpu bundle,
+    uint allowedProbation)
+{
+    uint2 ticket = bundle.provenance.xy;
+    [loop]
+    for (uint slot = 0u; slot < SIGMA_STREAM_BUNDLE_CAPACITY; ++slot)
+    {
+        SigmaSealedSourceBundleGpu other = _StreamBundles[slot];
+        uint state = SigmaStreamBundleState(other);
+        bool pending = state == SIGMA_STREAM_BUNDLE_EXTRACTING ||
+            state == SIGMA_STREAM_BUNDLE_PROBATION ||
+            state == SIGMA_STREAM_BUNDLE_ADMISSION_PENDING;
+        if (!pending || !SigmaStreamTicketLess(other.provenance.xy, ticket) ||
+            !SigmaBundleRecordsOverlap(other, bundle))
+            continue;
+        if (allowedProbation != SIGMA_STREAM_INVALID)
+        {
+            SigmaProbationGpu probation = _StreamProbation[allowedProbation];
+            uint2 firstHandle;
+            if (SigmaProbationFirstHandle(probation, firstHandle) &&
+                firstHandle.x == slot && firstHandle.y ==
+                    SigmaStreamBundleGeneration(other))
+                continue;
+        }
+        return true;
+    }
+    return false;
+}
+
+uint SigmaTransactionOpcode(SigmaTransactionGpu transaction)
+{
+    uint state = SigmaStreamTransactionState(transaction);
+    if (state == SIGMA_STREAM_TRANSACTION_WAITING_DEPENDENCY)
+        return SIGMA_STREAM_OPCODE_ADMIT;
+    if (state == SIGMA_STREAM_TRANSACTION_EVALUATING)
+        return transaction.progress.w == 1u
+            ? SIGMA_STREAM_OPCODE_REDUCE_SOURCE_BLOCK
+            : SIGMA_STREAM_OPCODE_EVALUATE_MICROTILE;
+    if (state == SIGMA_STREAM_TRANSACTION_PROOF_PENDING)
+        return SIGMA_STREAM_OPCODE_FINALIZE_PROOF_BLOCK;
+    if (state == SIGMA_STREAM_TRANSACTION_TRANSITION_PENDING)
+        return transaction.transition.z == 0u
+            ? SIGMA_STREAM_OPCODE_TRANSITION_ANNIHILATOR
+            : SIGMA_STREAM_OPCODE_TRANSITION_ASSOCIATOR;
+    if (state == SIGMA_STREAM_TRANSACTION_REVALIDATE_PENDING)
+        return SIGMA_STREAM_OPCODE_REVALIDATE;
+    if (state == SIGMA_STREAM_TRANSACTION_PUBLISHABLE)
+        return SIGMA_STREAM_OPCODE_PUBLISH_MANIFEST;
+    if (state == SIGMA_STREAM_TRANSACTION_DORMANT)
+        return SIGMA_STREAM_OPCODE_DORMANT_RECHECK;
+    return SIGMA_STREAM_OPCODE_NONE;
+}
+
+// The only scalar work here is the fixed 64-header/eight-record control scan.
+// Exact sample, proof and topology work is emitted as cooperative opcode groups.
+[numthreads(64, 1, 1)]
+void ScheduleSigmaTransactions(uint3 threadId : SV_GroupThreadID)
 {
     uint lane = threadId.x;
-    uint workCount = _InverseWorkControl[2u];
-    uint requestCount = min(workCount, _InverseWorkCapacity) *
-        SIGMA_CERTIFICATE_BLOCKS_PER_PAGE;
-    uint first = lane;
-    uint second = lane + 256u;
-    uint firstRequested = first < requestCount &&
-        _RawRequests[first].value.x != 0u ? 1u : 0u;
-    uint secondRequested = second < requestCount &&
-        _RawRequests[second].value.x != 0u ? 1u : 0u;
-    uint requestTotal;
-    uint requestPrefix = SigmaStableExclusiveScan256(
-        lane, firstRequested + secondRequested, requestTotal);
+    if (lane < SIGMA_STREAM_OPCODE_COUNT)
+        SigmaStreamResetDispatch(lane);
+    GroupMemoryBarrierWithGroupSync();
+    if (lane != 0u || !SigmaCanonicalMutationEnabled())
+        return;
 
-    uint wordCount = (_RawTileCapacity + 31u) >> 5u;
-    uint freeMask = 0u;
-    if (lane < wordCount)
-    {
-        uint wordBase = lane << 5u;
-        uint remaining = _RawTileCapacity - wordBase;
-        uint validMask = remaining >= 32u
-            ? 0xffffffffu
-            : (1u << remaining) - 1u;
-        freeMask = (~_RawLiveWords[lane]) & validMask;
-    }
-
-    uint freeTotal;
-    uint freePrefix = SigmaStableExclusiveScan256(
-        lane, countbits(freeMask), freeTotal);
-    uint freeCursor = freePrefix;
+    uint occupiedMask = 0u;
     [unroll]
-    for (uint bit = 0u; bit < 32u; ++bit)
+    for (uint slot = 0u; slot < SIGMA_STREAM_TRANSACTION_CAPACITY; ++slot)
     {
-        if ((freeMask & (1u << bit)) == 0u)
+        if (SigmaStreamTransactionState(_StreamTransactions[slot]) !=
+            SIGMA_STREAM_TRANSACTION_FREE)
+            occupiedMask |= 1u << slot;
+    }
+
+    uint consideredBundleMaskLo = 0u;
+    uint consideredBundleMaskHi = 0u;
+    [unroll]
+    for (uint admission = 0u; admission <
+        SIGMA_STREAM_TRANSACTION_CAPACITY; ++admission)
+    {
+        uint selectedBundle = SIGMA_STREAM_INVALID;
+        uint2 selectedTicket = uint2(0xffffffffu, 0xffffffffu);
+        [loop]
+        for (uint bundleSlot = 0u; bundleSlot <
+            SIGMA_STREAM_BUNDLE_CAPACITY; ++bundleSlot)
+        {
+            bool considered = bundleSlot < 32u
+                ? (consideredBundleMaskLo & (1u << bundleSlot)) != 0u
+                : (consideredBundleMaskHi &
+                    (1u << (bundleSlot - 32u))) != 0u;
+            SigmaSealedSourceBundleGpu candidate = _StreamBundles[bundleSlot];
+            uint candidateState = SigmaStreamBundleState(candidate);
+            bool admissionReady =
+                candidateState == SIGMA_STREAM_BUNDLE_READY ||
+                candidateState == SIGMA_STREAM_BUNDLE_ADMISSION_PENDING;
+            if (considered || !admissionReady)
+                continue;
+            uint2 ticket = candidate.provenance.xy;
+            if (selectedBundle == SIGMA_STREAM_INVALID ||
+                SigmaStreamTicketLess(ticket, selectedTicket) ||
+                (SigmaStreamTicketEqual(ticket, selectedTicket) &&
+                    bundleSlot < selectedBundle))
+            {
+                selectedBundle = bundleSlot;
+                selectedTicket = ticket;
+            }
+        }
+        if (selectedBundle == SIGMA_STREAM_INVALID)
+            break;
+        if (selectedBundle < 32u)
+            consideredBundleMaskLo |= 1u << selectedBundle;
+        else
+            consideredBundleMaskHi |= 1u << (selectedBundle - 32u);
+
+        SigmaSealedSourceBundleGpu selected =
+            _StreamBundles[selectedBundle];
+        uint probationSlot = SIGMA_STREAM_INVALID;
+        uint firstBundle = selectedBundle;
+        uint firstGeneration = SigmaStreamBundleGeneration(selected);
+        SigmaProbationGpu sealedSources = (SigmaProbationGpu)0;
+        bool closesProbation = false;
+        bool resumesDormant = false;
+        uint2 transactionTicket = selectedTicket;
+        bool gaugeBundle = (selected.identity.w &
+            SIGMA_STREAM_BUNDLE_FLAG_GAUGE) != 0u;
+        uint compatibleProbation = SigmaFindProbation(selected);
+        bool dormantProbation = compatibleProbation != SIGMA_STREAM_INVALID &&
+            _StreamProbation[compatibleProbation].identity.x ==
+                SIGMA_STREAM_PROBATION_SEALED;
+        if (gaugeBundle || dormantProbation)
+        {
+            // Ticket-order closure is stronger than same-frame convenience: an
+            // older compatible probation bundle must close before a later bundle
+            // may seal alone.
+            probationSlot = compatibleProbation;
+            if (probationSlot != SIGMA_STREAM_INVALID)
+            {
+                sealedSources = _StreamProbation[probationSlot];
+                uint2 firstHandle;
+                if (!SigmaProbationFirstHandle(sealedSources, firstHandle))
+                {
+                    selected.identity.x = SIGMA_STREAM_BUNDLE_DORMANT;
+                    _StreamBundles[selectedBundle] = selected;
+                    continue;
+                }
+                firstBundle = firstHandle.x;
+                firstGeneration = firstHandle.y;
+                closesProbation = true;
+                resumesDormant = sealedSources.identity.x ==
+                    SIGMA_STREAM_PROBATION_SEALED &&
+                    firstBundle == selectedBundle &&
+                    firstGeneration ==
+                        SigmaStreamBundleGeneration(selected);
+                transactionTicket = dormantProbation
+                    ? sealedSources.support.xy
+                    : _StreamBundles[firstBundle].provenance.xy;
+            }
+            else if (gaugeBundle && !SigmaBundleSealsAlone(selected))
+            {
+                SigmaOpenProbation(selectedBundle, selected);
+                _StreamBundles[selectedBundle] = selected;
+                continue;
+            }
+        }
+        if (SigmaHasEarlierUnsealedOverlap(selected, probationSlot))
+        {
+            selected.identity.x = SIGMA_STREAM_BUNDLE_ADMISSION_PENDING;
+            _StreamBundles[selectedBundle] = selected;
             continue;
-        if (freeCursor < 512u)
-            FreeRawList[freeCursor] = (lane << 5u) + bit;
-        ++freeCursor;
-    }
-    GroupMemoryBarrierWithGroupSync();
+        }
 
-    if (lane == 0u)
-    {
-        RawReservationCount = min(requestTotal, min(freeTotal, 512u));
-        _RawAllocator[0] = _RawTileCapacity - freeTotal + RawReservationCount;
-    }
-    GroupMemoryBarrierWithGroupSync();
+        uint freeBits = (~occupiedMask) &
+            ((1u << SIGMA_STREAM_TRANSACTION_CAPACITY) - 1u);
+        uint transactionSlot = SigmaStreamFirstSetBit(freeBits);
+        if (transactionSlot == SIGMA_STREAM_INVALID)
+            break;
 
-    if (first < requestCount)
-    {
-        uint workIndex = first >> 6u;
-        uint block = first & 63u;
-        uint proofSlot = _InverseWork[workIndex].slots.w;
-        uint reservation = firstRequested != 0u &&
-            requestPrefix < RawReservationCount
-            ? FreeRawList[requestPrefix]
-            : SIGMA_INVALID_RAW_TILE;
-        if (reservation < _RawTileCapacity)
-            InterlockedOr(_RawLiveWords[reservation >> 5u],
-                1u << (reservation & 31u));
-        _RawReservations[proofSlot * SIGMA_CERTIFICATE_BLOCKS_PER_PAGE +
-            block] = reservation;
+        uint dependencySlot = SIGMA_STREAM_INVALID;
+        uint dependencyGeneration = 0u;
+        uint2 dependencyTicket = 0u;
+        [unroll]
+        for (uint predecessor = 0u; predecessor <
+            SIGMA_STREAM_TRANSACTION_CAPACITY; ++predecessor)
+        {
+            if ((occupiedMask & (1u << predecessor)) == 0u)
+                continue;
+            SigmaTransactionGpu candidate = _StreamTransactions[predecessor];
+            uint2 ticket = SigmaStreamTicket(candidate);
+            if (!SigmaStreamTicketLess(ticket, transactionTicket) ||
+                !SigmaBundleTransactionOverlap(selected, candidate))
+                continue;
+            if (dependencySlot == SIGMA_STREAM_INVALID ||
+                SigmaStreamTicketLess(dependencyTicket, ticket))
+            {
+                dependencySlot = predecessor;
+                dependencyGeneration =
+                    SigmaStreamTransactionGeneration(candidate);
+                dependencyTicket = ticket;
+            }
+        }
+
+        SigmaTransactionGpu old = _StreamTransactions[transactionSlot];
+        uint generation = old.identity.y + 1u;
+        if (generation == 0u)
+        {
+            _StreamSchedulerControl[SIGMA_STREAM_CONTROL_FAILED_COUNT] += 1u;
+            break;
+        }
+        SigmaSealedSourceBundleGpu first = _StreamBundles[firstBundle];
+        SigmaSealedSourceBundleGpu second =
+            (SigmaSealedSourceBundleGpu)0;
+        bool hasSecond = closesProbation && !resumesDormant;
+        if (hasSecond)
+            second = selected;
+
+        uint sourceHead;
+        uint sourceGeneration;
+        uint sourceTail;
+        uint sourceCount;
+        if (closesProbation)
+        {
+            bool appended = resumesDormant ||
+                SigmaAppendSourceHandle(sealedSources,
+                    uint2(selectedBundle,
+                        SigmaStreamBundleGeneration(selected)));
+            if (!appended || !SigmaSealSourceStream(sealedSources,
+                    transactionSlot, generation))
+            {
+                selected.identity.x =
+                    SIGMA_STREAM_BUNDLE_ADMISSION_PENDING;
+                _StreamBundles[selectedBundle] = selected;
+                continue;
+            }
+            sourceHead = sealedSources.bundleHandles.x;
+            sourceGeneration = sealedSources.bundleHandles.y;
+            sourceTail = sealedSources.bundleHandles.z;
+            sourceCount = sealedSources.identity.w;
+        }
+        else
+        {
+            if (!SigmaClaimSourceSegment(transactionSlot, generation,
+                    SIGMA_STREAM_SOURCE_SEGMENT_SEALED,
+                    uint2(firstBundle, firstGeneration), sourceHead,
+                    sourceGeneration))
+            {
+                selected.identity.x =
+                    SIGMA_STREAM_BUNDLE_ADMISSION_PENDING;
+                _StreamBundles[selectedBundle] = selected;
+                continue;
+            }
+            sourceTail = sourceHead;
+            sourceCount = 1u;
+        }
+        uint workFlags = 0u;
+        if ((first.identity.w & SIGMA_STREAM_BUNDLE_FLAG_GAUGE) != 0u)
+            workFlags |= SIGMA_STREAM_WORK_FLAG_GAUGE;
+        if ((first.identity.w & SIGMA_STREAM_BUNDLE_FLAG_NEEDS_REVALIDATION) != 0u ||
+            (hasSecond &&
+                (second.identity.w &
+                    SIGMA_STREAM_BUNDLE_FLAG_NEEDS_REVALIDATION) != 0u))
+            workFlags |= SIGMA_STREAM_WORK_FLAG_NEEDS_REVALIDATION;
+        if (closesProbation || resumesDormant)
+            workFlags |= SIGMA_STREAM_WORK_FLAG_NEEDS_REVALIDATION;
+        workFlags |= SIGMA_STREAM_WORK_FLAG_SOURCE_STREAM;
+        if (dependencySlot != SIGMA_STREAM_INVALID)
+            workFlags |= SIGMA_STREAM_WORK_FLAG_DEPENDENCY_WAIT;
+
+        SigmaTransactionGpu transaction = (SigmaTransactionGpu)0;
+        transaction.identity = uint4(
+            SIGMA_STREAM_TRANSACTION_WAITING_DEPENDENCY, generation,
+            transactionSlot, workFlags);
+        transaction.ticket = uint4(transactionTicket,
+            max(first.provenance.z,
+                hasSecond ? second.provenance.z : sealedSources.support.z),
+            first.provenance.w);
+        transaction.dependencyTicket = uint4(dependencyTicket,
+            dependencySlot, dependencyGeneration);
+        transaction.source = uint4(sourceHead, sourceGeneration,
+            sourceCount, sourceTail);
+        transaction.publication = uint4(SIGMA_STREAM_INVALID, 0u, 1u, 0u);
+        transaction.page0.coordinate = first.probation;
+        transaction.page0.state = uint4(first.dependency.x,
+            SIGMA_STREAM_INVALID, first.dependency.y, 0u);
+        // Every target block is materialized incrementally.  scratch.w retains
+        // the exact semantic mutation footprint for overlap/proof gates.
+        transaction.affectedMaskLo =
+            uint4(0xffffffffu, 0xffffffffu, 0u, 0u);
+        transaction.affectedMaskHi = 0u;
+        transaction.completedMaskLo = 0u;
+        transaction.completedMaskHi = 0u;
+        transaction.progress = 0u;
+        transaction.scratch = uint4(sourceHead, sourceGeneration,
+            0u, first.raw.w);
+        transaction.transition = 0u;
+        transaction.dependency0 = first.dependency;
+        transaction.dependency1 = closesProbation
+            && hasSecond ? second.dependency : uint4(first.calibration.y,
+                first.provenance.w, 0u, 0u);
+        _StreamTransactions[transactionSlot] = transaction;
+        first.identity.x = SIGMA_STREAM_BUNDLE_ACTIVE;
+        _StreamBundles[firstBundle] = first;
+        if (hasSecond)
+        {
+            second.identity.x = SIGMA_STREAM_BUNDLE_ACTIVE;
+            _StreamBundles[selectedBundle] = second;
+        }
+        if (closesProbation)
+        {
+            _StreamProbation[probationSlot] = (SigmaProbationGpu)0;
+        }
+        occupiedMask |= 1u << transactionSlot;
     }
 
-    if (second < requestCount)
+    [unroll]
+    for (uint budgetClass = 1u; budgetClass <=
+        SIGMA_STREAM_BUDGET_DERIVED_READOUT; ++budgetClass)
     {
-        uint workIndex = second >> 6u;
-        uint block = second & 63u;
-        uint proofSlot = _InverseWork[workIndex].slots.w;
-        uint rank = requestPrefix + firstRequested;
-        uint reservation = secondRequested != 0u && rank < RawReservationCount
-            ? FreeRawList[rank]
-            : SIGMA_INVALID_RAW_TILE;
-        if (reservation < _RawTileCapacity)
-            InterlockedOr(_RawLiveWords[reservation >> 5u],
-                1u << (reservation & 31u));
-        _RawReservations[proofSlot * SIGMA_CERTIFICATE_BLOCKS_PER_PAGE +
-            block] = reservation;
+        uint deficitAddress = SIGMA_STREAM_CONTROL_CLASS_DEFICIT +
+            budgetClass;
+        uint budgetAddress = SIGMA_STREAM_CONTROL_CLASS_BUDGET + budgetClass;
+        uint deficit = _StreamSchedulerControl[deficitAddress];
+        uint budget = _StreamSchedulerControl[budgetAddress];
+        deficit = min(deficit + budget,
+            SIGMA_STREAM_TOKEN_QUANTUM *
+                SIGMA_STREAM_TRANSACTION_CAPACITY);
+        uint visited = 0u;
+        [unroll]
+        for (uint order = 0u; order <
+            SIGMA_STREAM_TRANSACTION_CAPACITY; ++order)
+        {
+            uint selectedSlot = SIGMA_STREAM_INVALID;
+            uint2 selectedWorkTicket = uint2(0xffffffffu, 0xffffffffu);
+            [unroll]
+            for (uint slot = 0u; slot <
+                SIGMA_STREAM_TRANSACTION_CAPACITY; ++slot)
+            {
+                if ((visited & (1u << slot)) != 0u)
+                    continue;
+                SigmaTransactionGpu transaction = _StreamTransactions[slot];
+                uint opcode = SigmaTransactionOpcode(transaction);
+                if (opcode == SIGMA_STREAM_OPCODE_NONE ||
+                    _StreamKernelBudgetClasses[opcode] != budgetClass)
+                    continue;
+                uint2 ticket = SigmaStreamTicket(transaction);
+                if (selectedSlot == SIGMA_STREAM_INVALID ||
+                    SigmaStreamTicketLess(ticket, selectedWorkTicket) ||
+                    (SigmaStreamTicketEqual(ticket, selectedWorkTicket) &&
+                        slot < selectedSlot))
+                {
+                    selectedSlot = slot;
+                    selectedWorkTicket = ticket;
+                }
+            }
+            if (selectedSlot == SIGMA_STREAM_INVALID)
+                break;
+            visited |= 1u << selectedSlot;
+            SigmaTransactionGpu transaction =
+                _StreamTransactions[selectedSlot];
+            uint opcode = SigmaTransactionOpcode(transaction);
+            uint cost = _StreamKernelTokenCosts[opcode];
+            if (cost > deficit)
+                continue;
+            if (opcode == SIGMA_STREAM_OPCODE_REVALIDATE)
+            {
+                uint revalidationOwner = _StreamSchedulerControl[
+                    SIGMA_STREAM_CONTROL_REVALIDATE_OWNER];
+                if (revalidationOwner != SIGMA_STREAM_INVALID &&
+                    revalidationOwner != selectedSlot)
+                    continue;
+            }
+            if (opcode == SIGMA_STREAM_OPCODE_REDUCE_SOURCE_BLOCK ||
+                opcode == SIGMA_STREAM_OPCODE_FINALIZE_PROOF_BLOCK)
+            {
+                uint proofOwner = _StreamSchedulerControl[
+                    SIGMA_STREAM_CONTROL_PROOF_OWNER];
+                if (proofOwner != SIGMA_STREAM_INVALID &&
+                    proofOwner != selectedSlot)
+                    continue;
+                _StreamSchedulerControl[
+                    SIGMA_STREAM_CONTROL_PROOF_OWNER] = selectedSlot;
+            }
+            uint workIndex = _StreamWorkCounts[opcode];
+            if (workIndex >= SIGMA_STREAM_WORK_ITEMS_PER_OPCODE)
+                continue;
+            SigmaStreamWorkItemGpu work = (SigmaStreamWorkItemGpu)0;
+            work.identity = uint4(opcode, selectedSlot,
+                SigmaStreamTransactionGeneration(transaction),
+                transaction.progress.x);
+            work.cursor = uint4(transaction.progress.y,
+                transaction.progress.z, transaction.progress.w,
+                transaction.identity.w);
+            _StreamWorkItems[SigmaStreamWorkAddress(opcode, workIndex)] = work;
+            _StreamWorkCounts[opcode] = workIndex + 1u;
+            deficit -= cost;
+            if (opcode == SIGMA_STREAM_OPCODE_REVALIDATE)
+                _StreamSchedulerControl[
+                    SIGMA_STREAM_CONTROL_REVALIDATE_OWNER] = selectedSlot;
+        }
+        _StreamSchedulerControl[deficitAddress] = deficit;
+    }
+
+    [unroll]
+    for (uint opcode = 1u; opcode < SIGMA_STREAM_OPCODE_COUNT; ++opcode)
+    {
+        uint count = _StreamWorkCounts[opcode];
+        _StreamDispatchArgs[SigmaStreamDispatchAddress(opcode, 0u)] =
+            opcode == SIGMA_STREAM_OPCODE_ADMIT
+                ? (count == 0u ? 0u : 1u)
+                : count;
     }
 }
 
-[numthreads(64, 1, 1)]
-void CommitInverseTransactions(uint3 groupId : SV_GroupID,
-    uint3 groupThreadId : SV_GroupThreadID)
+[numthreads(1, 1, 1)]
+void FinalizeStreamingScheduleDiagnostics(uint3 id : SV_DispatchThreadID)
 {
-    uint workIndex = groupId.y;
-    uint local = groupThreadId.x;
-    if (!SigmaCanonicalMutationEnabled() ||
-        workIndex >= _InverseWorkControl[2u])
-        return;
-
-    SigmaInverseWorkGpu work = _InverseWorkRead[workIndex];
-    uint target = work.slots.y;
-    uint proof = work.slots.w;
-    if (target >= _PageCapacity)
-        return;
-    uint statusBase = proof * SIGMA_PROOF_STATUS_STRIDE;
-    uint completed = _ProofPageStatus[statusBase + 0u];
-    uint mutation = _ProofPageStatus[statusBase + 1u];
-    bool valid = completed == SIGMA_CERTIFICATE_BLOCKS_PER_PAGE &&
-        (mutation & SIGMA_PROOF_FAILED) == 0u &&
-        (mutation & (SIGMA_PROOF_STATE_CHANGED | SIGMA_PROOF_SET_CHANGED |
-            SIGMA_PROOF_RAW_CHANGED)) != 0u;
-    if (work.control.x == SIGMA_INVERSE_WORK_GAUGE)
-        valid = valid && _GaugePromotionCounts[workIndex] != 0u;
-
-    if (!valid)
+    uint active = 0u;
+    uint dormant = 0u;
+    uint occupiedMask = 0u;
+    uint probationCount = 0u;
+    [unroll]
+    for (uint slot = 0u; slot < SIGMA_STREAM_TRANSACTION_CAPACITY; ++slot)
     {
-        uint reservation = _RawReservationsRead[
-            proof * SIGMA_CERTIFICATE_BLOCKS_PER_PAGE + local];
-        if (reservation < _RawTileCapacity)
-            InterlockedAnd(_RawLiveWords[reservation >> 5u],
-                ~(1u << (reservation & 31u)));
-        _ConstraintBlocks[SigmaConstraintBlockAddress(proof, local)] =
-            (SigmaConstraintBlockGpu)0;
-        GroupMemoryBarrierWithGroupSync();
-        if (local == 0u)
-        {
-            _PageMetadata[target] = (SigmaCarrierPageMetaGpu)0;
-            _DirtyFlags[target] = 0u;
-            _CurrentFlags[target] = 0u;
-            _ReadoutDirtyFlags[target] = 0u;
-        }
-        return;
+        uint state = SigmaStreamTransactionState(_StreamTransactions[slot]);
+        bool occupied = state != SIGMA_STREAM_TRANSACTION_FREE;
+        occupiedMask |= occupied ? 1u << slot : 0u;
+        active += occupied && state != SIGMA_STREAM_TRANSACTION_PUBLISHED
+            ? 1u : 0u;
+        dormant += state == SIGMA_STREAM_TRANSACTION_DORMANT ? 1u : 0u;
     }
-
-    if (work.control.x == SIGMA_INVERSE_WORK_MATCHED &&
-        work.slots.x < _PageCapacity &&
-        work.slots.z != SIGMA_INVALID_PROOF_SLOT &&
-        work.slots.z != proof)
+    [loop]
+    for (uint bundleSlot = 0u; bundleSlot <
+        SIGMA_STREAM_BUNDLE_CAPACITY; ++bundleSlot)
     {
-        _ConstraintBlocks[SigmaConstraintBlockAddress(work.slots.z, local)] =
-            (SigmaConstraintBlockGpu)0;
+        SigmaProbationGpu probation = _StreamProbation[bundleSlot];
+        probationCount += probation.identity.x ==
+            SIGMA_STREAM_PROBATION_OPEN ? 1u : 0u;
+        dormant += probation.identity.x ==
+            SIGMA_STREAM_PROBATION_SEALED ? 1u : 0u;
     }
+    _StreamSchedulerControl[SIGMA_STREAM_CONTROL_ACTIVE_COUNT] = active;
+    _StreamSchedulerControl[SIGMA_STREAM_CONTROL_DORMANT_COUNT] = dormant;
+    _StreamSchedulerControl[SIGMA_STREAM_CONTROL_PROBATION_COUNT] =
+        probationCount;
+    _StreamDiagnostics[0u].transactions = uint4(active, dormant,
+        _StreamSchedulerControl[SIGMA_STREAM_CONTROL_PUBLISHED_COUNT],
+        occupiedMask);
+    _StreamDiagnostics[0u].admission.y = probationCount;
+}
+
+// Association snapshots are active-only scratch.  A probation record owns raw
+// evidence and exact provenance, so it releases its scarce association slot and
+// requests deterministic rebuild if a later bundle closes the support rule.
+[numthreads(64, 1, 1)]
+void ReleaseProbationAssociations(uint3 threadId : SV_GroupThreadID)
+{
+    uint bundleSlot = threadId.x;
+    SigmaSealedSourceBundleGpu bundle = _StreamBundles[bundleSlot];
+    if (SigmaStreamBundleState(bundle) != SIGMA_STREAM_BUNDLE_PROBATION)
+        return;
+    uint associationSlot = bundle.raw.z;
+    if (associationSlot >= SIGMA_STREAM_TRANSACTION_CAPACITY)
+        return;
+    uint4 owner = _StreamAssociationOwners[associationSlot];
+    if (owner.x == bundleSlot &&
+        owner.y == SigmaStreamBundleGeneration(bundle))
+        _StreamAssociationOwners[associationSlot] =
+            uint4(SIGMA_STREAM_INVALID, 0u, 0u, 0u);
+    bundle.raw.z = SIGMA_STREAM_INVALID;
+    bundle.identity.w &= ~SIGMA_STREAM_BUNDLE_FLAG_HAS_ASSOCIATION;
+    bundle.identity.w |= SIGMA_STREAM_BUNDLE_FLAG_NEEDS_REVALIDATION;
+    _StreamBundles[bundleSlot] = bundle;
+}
+
+// One cooperative allocator prepares every transaction selected by ADMIT.  Page
+// samples are copied/null-initialized later in four persistent microtiles per
+// proof block, so allocation itself never executes a page-sized state loop.
+[numthreads(256, 1, 1)]
+void PrepareTransactionPages(uint3 threadId : SV_GroupThreadID)
+{
+    uint lane = threadId.x;
+    uint free = SigmaStreamPageSlotFree(lane) ? 1u : 0u;
+    uint freeTotal;
+    uint freePrefix = SigmaStableExclusiveScan256(lane, free, freeTotal);
+    if (free != 0u)
+        StreamFreePages[freePrefix] = lane;
+    if (lane == 0u)
+        StreamFreePageCount = freeTotal;
     GroupMemoryBarrierWithGroupSync();
+    if (lane != 0u || !SigmaCanonicalMutationEnabled())
+        return;
 
-    if (local == 0u)
+    uint count = _StreamWorkCounts[SIGMA_STREAM_OPCODE_ADMIT];
+    uint freeCursor = 0u;
+    [loop]
+    for (uint workIndex = 0u; workIndex < count; ++workIndex)
     {
-        if (work.control.x == SIGMA_INVERSE_WORK_MATCHED &&
-            work.slots.x < _PageCapacity)
+        SigmaStreamWorkItemGpu work = _StreamWorkItems[
+            SigmaStreamWorkAddress(SIGMA_STREAM_OPCODE_ADMIT, workIndex)];
+        uint slot = work.identity.y;
+        if (slot >= SIGMA_STREAM_TRANSACTION_CAPACITY)
+            continue;
+        SigmaTransactionGpu transaction = _StreamTransactions[slot];
+        if (SigmaStreamTransactionGeneration(transaction) != work.identity.z ||
+            SigmaStreamTransactionState(transaction) !=
+                SIGMA_STREAM_TRANSACTION_WAITING_DEPENDENCY)
+            continue;
+        bool dependencyRevalidation;
+        if (!SigmaStreamDependencySatisfied(transaction,
+                dependencyRevalidation))
+            continue;
+        if (freeCursor >= StreamFreePageCount)
+            continue;
+        uint target = StreamFreePages[freeCursor++];
+        uint source = transaction.page0.state.x;
+        SigmaCarrierPageMetaGpu metadata = (SigmaCarrierPageMetaGpu)0;
+        uint targetGeneration = 1u;
+        if (source < _PageCapacity)
         {
-            _CurrentFlags[work.slots.x] = 0u;
-            _ReadoutDirtyFlags[work.slots.x] = 0u;
+            metadata = _PageMetadata[source];
+            targetGeneration = metadata.generation + 1u;
         }
-        SigmaCarrierPageMetaGpu metadata = _PageMetadata[target];
-        metadata.flags |= SIGMA_PAGE_PUBLISHED | SIGMA_PAGE_DIRTY;
+        if (targetGeneration == 0u)
+        {
+            transaction.identity.x = SIGMA_STREAM_TRANSACTION_FAILED;
+            _StreamTransactions[slot] = transaction;
+            _StreamSchedulerControl[SIGMA_STREAM_CONTROL_FAILED_COUNT] += 1u;
+            continue;
+        }
+        metadata.pageXLo = transaction.page0.coordinate.x;
+        metadata.pageXHi = transaction.page0.coordinate.y;
+        metadata.pageYLo = transaction.page0.coordinate.z;
+        metadata.pageYHi = transaction.page0.coordinate.w;
+        metadata.generation = targetGeneration;
+        metadata.revision = transaction.ticket.z;
+        metadata.certificateOffsetLo = target *
+            SIGMA_CERTIFICATES_PER_PAGE;
+        metadata.certificateOffsetHi = 0u;
+        metadata.certificateCount = SIGMA_CERTIFICATES_PER_PAGE;
+        metadata.flags = SIGMA_PAGE_ALLOCATED | SIGMA_PAGE_DIRTY;
+        metadata.reserved0 = SIGMA_STREAM_INVALID;
+        metadata.reserved1 = 0u;
         _PageMetadata[target] = metadata;
-        _DirtyFlags[target] = 1u;
-        _CurrentFlags[target] = 1u;
-        _ReadoutDirtyFlags[target] = 1u;
-        InterlockedAdd(_InverseWorkControl[3u], 1u);
-        if (work.control.x == SIGMA_INVERSE_WORK_GAUGE)
-            InterlockedAdd(_InverseWorkControl[4u], 1u);
+        _DirtyFlags[target] = 0u;
+        _CurrentFlags[target] = 0u;
+        _ReadoutDirtyFlags[target] = 0u;
+        transaction.page0.state.y = target;
+        transaction.page0.state.w = targetGeneration;
+        transaction.progress = 0u;
+        transaction.identity.x = dependencyRevalidation ||
+            (transaction.identity.w &
+                SIGMA_STREAM_WORK_FLAG_NEEDS_REVALIDATION) != 0u
+            ? SIGMA_STREAM_TRANSACTION_REVALIDATE_PENDING
+            : SIGMA_STREAM_TRANSACTION_EVALUATING;
+        _StreamTransactions[slot] = transaction;
     }
 }

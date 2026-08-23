@@ -459,4 +459,90 @@ bool SigmaSolveJointCells(uint2 state[16],
     return true;
 }
 
+
+uint2 SigmaOwnedRgbCalibrationValue(uint calibrationBase, uint eye,
+    uint field)
+{
+    uint depthCount = SIGMA_DEPTH_VIEW_STRIDE * 2u;
+    return _StreamBundleCalibration[calibrationBase + depthCount +
+        eye * SIGMA_RGB_CAL_STRIDE + field];
+}
+
+float4 SigmaRgbUnpackUnorm4x8(uint packed)
+{
+    return float4(packed & 255u, (packed >> 8u) & 255u,
+        (packed >> 16u) & 255u, (packed >> 24u) & 255u) *
+        (1.0 / 255.0);
+}
+
+bool SigmaBuildOwnedRgbMeasurement(uint calibrationBase, uint eye,
+    uint4 first, uint4 second, out SigmaQ48Bounds rgb[3],
+    inout uint valid)
+{
+    if (first.x == 0xffffffffu || first.y == 0xffffffffu ||
+        (second.z & 1u) == 0u)
+        return false;
+    float2 pixel = float2(asfloat(first.x), asfloat(first.y));
+    if (!all(isfinite(pixel)))
+        return false;
+    float2 phase = frac(pixel - 0.5);
+    float4 c00 = SigmaRgbUnpackUnorm4x8(first.z);
+    float4 c10 = SigmaRgbUnpackUnorm4x8(first.w);
+    float4 c01 = SigmaRgbUnpackUnorm4x8(second.x);
+    float4 c11 = SigmaRgbUnpackUnorm4x8(second.y);
+    float4 centre = lerp(lerp(c00, c10, phase.x),
+        lerp(c01, c11, phase.x), phase.y);
+    float4 minimum = min(min(c00, c10), min(c01, c11));
+    float4 maximum = max(max(c00, c10), max(c01, c11));
+
+    uint2 baseWidth = SigmaQ48AddChecked(
+        SigmaOwnedRgbCalibrationValue(calibrationBase, eye,
+            SIGMA_RGB_CAL_BASE_WIDTH),
+        SigmaOwnedRgbCalibrationValue(calibrationBase, eye,
+            SIGMA_RGB_CAL_POSE_WIDTH), valid);
+    baseWidth = SigmaQ48AddChecked(baseWidth,
+        SigmaOwnedRgbCalibrationValue(calibrationBase, eye,
+            SIGMA_RGB_CAL_FOOTPRINT_WIDTH), valid);
+    uint2 oneLsb = uint2(1u, 0u);
+    [unroll]
+    for (uint channel = 0u; channel < 3u; ++channel)
+    {
+        uint2 centreQ = SigmaQ48FromFloatNearestEven(
+            saturate(centre[channel]), valid);
+        float hullRadius = max(abs(centre[channel] - minimum[channel]),
+            abs(maximum[channel] - centre[channel]));
+        uint2 hullQ = SigmaQ48FromFloatNearestEven(hullRadius, valid);
+        uint2 width = SigmaQ48AddChecked(baseWidth, hullQ, valid);
+        width = SigmaQ48AddChecked(width, oneLsb, valid);
+        rgb[channel] = SigmaQ48Widen(centreQ, width, valid);
+        rgb[channel].lo = SigmaQ48Max(rgb[channel].lo, SIGMA_Q48_ZERO);
+        rgb[channel].hi = SigmaQ48Min(rgb[channel].hi, SIGMA_Q48_ONE);
+    }
+    return valid != 0u;
+}
+
+uint SigmaOwnedRgbQuantizedDirection(uint calibrationBase, uint2 worldX,
+    uint2 worldY, uint2 worldZ, uint eye, inout uint valid)
+{
+    uint2 direction[3];
+    direction[0] = SigmaQ48SubChecked(
+        SigmaOwnedRgbCalibrationValue(calibrationBase, eye,
+            SIGMA_RGB_CAL_CAMERA_X), worldX, valid);
+    direction[1] = SigmaQ48SubChecked(
+        SigmaOwnedRgbCalibrationValue(calibrationBase, eye,
+            SIGMA_RGB_CAL_CAMERA_Y), worldY, valid);
+    direction[2] = SigmaQ48SubChecked(
+        SigmaOwnedRgbCalibrationValue(calibrationBase, eye,
+            SIGMA_RGB_CAL_CAMERA_Z), worldZ, valid);
+    uint2 maximum = SigmaQ48Max(SigmaU64AbsSigned(direction[0]),
+        SigmaQ48Max(SigmaU64AbsSigned(direction[1]),
+            SigmaU64AbsSigned(direction[2])));
+    if (valid == 0u || SigmaU64Equal(maximum, SIGMA_Q48_ZERO))
+        return SIGMA_RGB_VIEW_NULL;
+    int x = SigmaRgbQuantizedComponent(direction[0], maximum, valid);
+    int y = SigmaRgbQuantizedComponent(direction[1], maximum, valid);
+    int z = SigmaRgbQuantizedComponent(direction[2], maximum, valid);
+    return (uint)((z + 1) * 9 + (y + 1) * 3 + x + 1);
+}
+
 #endif

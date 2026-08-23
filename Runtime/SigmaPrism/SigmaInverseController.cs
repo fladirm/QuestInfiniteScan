@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using UnityEngine;
 using UnityEngine.Experimental.Rendering;
@@ -7,11 +8,10 @@ using UnityEngine.Rendering;
 namespace Genesis.RoomScan.SigmaPrism
 {
     /// <summary>
-    /// GPU-resident four-stream inverse work graph. The CPU stages immutable rig
-    /// metadata and records one bounded command graph; active-page selection,
-    /// null-gauge allocation, exact inverse cells, proof reduction and immutable
-    /// generation publication remain on GPU. Completion is a fence, never a
-    /// scheduler readback.
+    /// Fixed host recorder for the bounded S4-08.3 GPU state machine.  The CPU
+    /// owns only immutable ingress uploads, resources and completion lifetimes.
+    /// Admission, scheduling, exact inverse/proof/transition decisions and
+    /// manifest publication remain GPU-resident and independent of frame timing.
     /// </summary>
     [DisallowMultipleComponent]
     [RequireComponent(typeof(SigmaCarrier))]
@@ -21,46 +21,25 @@ namespace Genesis.RoomScan.SigmaPrism
     [DefaultExecutionOrder(0)]
     public sealed class SigmaInverseController : MonoBehaviour, IRoomScanModule
     {
-        private const string NormalizeResource = "SigmaPrism/DepthNormalize";
-        private const string InverseResource = "SigmaPrism/SigmaInverse";
-        private const string RgbSourceResource =
-            "SigmaPrism/SigmaRgbSourceCells";
-        private const string WorkGraphResource =
-            "SigmaPrism/SigmaInverseWorkGraph";
-        private const string GaugeDemandResource =
-            "SigmaPrism/SigmaGaugeDemand";
+        private const string IngressResource =
+            "SigmaPrism/SigmaStreamIngress";
         private const string ConeLutResource = "SigmaPrism/ConeLut";
         private const string PoseGaugeResource = "SigmaPrism/SigmaPoseGauge";
-        private const string PerformanceResource =
-            "SigmaPrism/SigmaPerformanceCounters";
         private const int CalibrationStride = 36;
         private const int RgbCalibrationStride = 8;
-        private const int ConflictStride = 192;
-        private const int WorkStride = 48;
-        private const int WorkControlWords = 9;
-        private const int RgbPhaseSamples = 256;
         private const int PosePriorValueCount = 15;
-        private const int PerformanceCounterCount = 18;
-        private const int PerformanceTopologyHistoryCount = 8;
-        private const uint RgbDispatchOffset = 0u;
-        private const uint SolveDispatchOffset = 3u * sizeof(uint);
-        private const uint PromoteDispatchOffset = 6u * sizeof(uint);
-        private const uint ProofDispatchOffset = 9u * sizeof(uint);
-        private const uint CommitDispatchOffset = 12u * sizeof(uint);
-        private const uint ProofSourceDispatchOffset = 15u * sizeof(uint);
-        private const uint GaugeCoordinateDispatchOffset = 18u * sizeof(uint);
 
-        [Header("Bounded GPU work graph")]
-        [SerializeField, Range(1, 8)] private int inverseWorkCapacity = 8;
+        [Header("Bounded streaming graph")]
+        [SerializeField, Range(3, 8)] private int ingressSlotCount = 4;
         [SerializeField, Range(1024, 8192)] private int rawTileCapacity = 4096;
-        [SerializeField, Range(4096, 131072)] private int conflictCapacity =
-            32768;
         [SerializeField, Range(0.005f, 0.1f)]
         private float poseTranslationPriorMetres = 0.03f;
         [SerializeField, Range(0.25f, 5f)]
         private float poseRotationPriorDegrees = 2f;
         [SerializeField, Range(4, 32)] private int poseSampleStride = 16;
 
+        private readonly Queue<SigmaPredictionFrameLease> _pendingIngress =
+            new();
         private readonly SigmaPackedQ48[] _calibrationUpload =
             new SigmaPackedQ48[CalibrationStride * 2];
         private readonly SigmaPackedQ48[] _rgbCalibrationUpload =
@@ -74,86 +53,44 @@ namespace Genesis.RoomScan.SigmaPrism
         private SigmaRenderer _renderer;
         private SigmaRigBridge _rigBridge;
         private SigmaExactBackendGate _backendGate;
-        private ComputeShader _normalize;
-        private ComputeShader _inverse;
-        private ComputeShader _rgbSource;
-        private ComputeShader _workGraph;
-        private ComputeShader _ledgerShader;
-        private ComputeShader _gaugeDemandShader;
-        private ComputeShader _coneLutShader;
-        private ComputeShader _poseGaugeCompute;
-        private ComputeShader _performanceCompute;
-        private RigCalibration _calibration;
-        private RigConeLutSet _coneLuts;
         private SigmaCarrierReadBatch _pool;
         private SigmaConstraintLedger _proofLedger;
-        private SigmaPredictionFrameLease _pendingPrediction;
-        private GpuSubmission _inFlight;
+        private SigmaStreamingResources _stream;
+        private SigmaStreamingGraph _graph;
+        private RigCalibration _calibration;
+        private RigConeLutSet _coneLuts;
 
-        private RenderTexture _metricDepth;
-        private RenderTexture _depthFlags;
-        private Vector2Int _scratchResolution;
-        private GraphicsBuffer _calibrationQ48;
-        private GraphicsBuffer _rgbCalibrationQ48;
-        private GraphicsBuffer _rawCalibrationQ48;
-        private GraphicsBuffer _rawRgbCalibrationQ48;
-        private GraphicsBuffer _rgbViewOperators;
-        private GraphicsBuffer _rgbViewSupportScale;
-        private GraphicsBuffer _activePageFlags;
-        private GraphicsBuffer _unmatchedBlockFlags;
-        private GraphicsBuffer _unmatchedBlockAnchors;
-        private GraphicsBuffer _conflictRecords;
-        private GraphicsBuffer _conflictCount;
-        private GraphicsBuffer _frameCounters;
-        private GraphicsBuffer _gaugePromotionCounts;
-        private GraphicsBuffer _proposalStatus;
-        private GraphicsBuffer _proposalEpoch;
-        private GraphicsBuffer _rgbSourceBounds;
-        private GraphicsBuffer _rgbSourceMeta;
-        private GraphicsBuffer _posePrior;
-        private GraphicsBuffer _poseResult;
-        private GraphicsBuffer _posePartials;
-        private GraphicsBuffer _inverseWork;
-        private GraphicsBuffer _inverseWorkControl;
-        private GraphicsBuffer _dispatchArguments;
-        private GraphicsBuffer _performanceCounters;
-        private GraphicsBuffer _performanceTopologyHistory;
-        private int _posePartialCapacity;
-        private int _blockFlagCapacity;
-        private int _activeFlagCount;
-
+        private ComputeShader _ingressShader;
+        private ComputeShader _coneLutShader;
+        private ComputeShader _poseGaugeShader;
         private int _normalizeKernel;
-        private int _clearKernel;
+        private int _clearClassificationKernel;
         private int _classifyKernel;
-        private int _rgbSourceKernel;
-        private int _commitKernel;
-        private int _promoteKernel;
         private int _poseBuildKernel;
         private int _poseReduceKernel;
         private int _poseCalibrationKernel;
-        private int _workClearKernel;
-        private int _workCompactKernel;
-        private int _workPrepareKernel;
-        private int _workRawPlanKernel;
-        private int _workCommitKernel;
-        private int _proofClearKernel;
-        private int _proofSourceReduceKernel;
-        private int _proofFinalizeKernel;
-        private int _proofRawCommitKernel;
-        private int _gaugeCoordinateKernel;
-        private int _gaugeFinalizeKernel;
-        private int _performanceKernel;
 
-        private uint _nextRevision = 1u;
+        private GraphicsBuffer _rgbViewOperators;
+        private GraphicsBuffer _rgbViewSupportScale;
+        private IngressSlot[] _ingressSlots;
+        private int _activeFlagCount;
+
+        private Submission _initialization;
+        private Submission _canonical;
+        private Submission _derived;
+        private SigmaGpuCompletionTicket _lastCompletion;
+        private bool _hasLastCompletion;
+        private bool _graphReady;
         private bool _running;
         private bool _initialized;
         private bool _disposed;
         private bool _completionFaulted;
+        private uint _nextRevision = 1u;
         private Pose _previousTrackingPose;
         private long _previousTrackingTimestampNs;
         private bool _hasPreviousTrackingPose;
 
-        public string ModuleName => "Sigma GPU-resident joint RGB-D inverse";
+        public string ModuleName => "Sigma bounded streaming RGB-D inverse";
         public bool IsInitialized => _initialized && !_disposed;
         public long SubmittedFrames { get; private set; }
         public long CommittedFrames { get; private set; }
@@ -162,9 +99,9 @@ namespace Genesis.RoomScan.SigmaPrism
         public long CommittedPageGenerations { get; private set; }
         public long AllocatedGaugePages { get; private set; }
         public long PeakCompletionAgeFrames { get; private set; }
-        public int PendingCompletionTickets => (_inFlight != null ? 1 : 0) +
+        public int PendingCompletionTickets => CountPendingTickets() +
             SigmaGpuRetirement.PendingCount;
-        public GraphicsBuffer PerformanceCounters => _performanceCounters;
+        public GraphicsBuffer PerformanceCounters => _stream?.Diagnostics;
         public SigmaInverseDiagnosticSnapshot LastDiagnostics { get; private set; }
 
         public void OnModuleInitialize(RoomScanner scanner)
@@ -179,48 +116,54 @@ namespace Genesis.RoomScan.SigmaPrism
             _rigBridge = scanner.RigBridge ?? GetComponent<SigmaRigBridge>();
             _backendGate = scanner.ExactBackendGate ??
                 throw new InvalidOperationException(
-                    "Sigma inverse requires the GPU-resident exact backend gate.");
+                    "Sigma inverse requires the exact backend gate.");
             SigmaGpuCompletion.RequireSupported();
-            _normalize = Resources.Load<ComputeShader>(NormalizeResource);
-            _inverse = Resources.Load<ComputeShader>(InverseResource);
-            _rgbSource = Resources.Load<ComputeShader>(RgbSourceResource);
-            _workGraph = Resources.Load<ComputeShader>(WorkGraphResource);
-            _ledgerShader = Resources.Load<ComputeShader>(
-                "SigmaPrism/SigmaConstraintLedger");
-            _gaugeDemandShader = Resources.Load<ComputeShader>(
-                GaugeDemandResource);
+
+            _ingressShader = Resources.Load<ComputeShader>(IngressResource);
             _coneLutShader = Resources.Load<ComputeShader>(ConeLutResource);
-            _poseGaugeCompute = Resources.Load<ComputeShader>(PoseGaugeResource);
-            _performanceCompute = Resources.Load<ComputeShader>(
-                PerformanceResource);
+            _poseGaugeShader = Resources.Load<ComputeShader>(PoseGaugeResource);
             if (_carrier == null || _topology == null || _renderer == null ||
-                _rigBridge == null || _normalize == null || _inverse == null ||
-                _rgbSource == null || _workGraph == null ||
-                _ledgerShader == null || _gaugeDemandShader == null ||
-                _coneLutShader == null || _poseGaugeCompute == null ||
-                _performanceCompute == null)
+                _rigBridge == null || _ingressShader == null ||
+                _coneLutShader == null || _poseGaugeShader == null)
                 throw new InvalidOperationException(
-                    "Sigma GPU inverse resources are incomplete.");
+                    "Sigma streaming inverse resources are incomplete.");
 
             FindKernels();
             _pool = _carrier.AcquireGpuManagedPool();
-            inverseWorkCapacity = Math.Min(inverseWorkCapacity,
-                Math.Max(1, _pool.PageCapacity / 2));
             _proofLedger = new SigmaConstraintLedger(_pool.PageCapacity,
-                rawTileCapacity, _backendGate, inverseWorkCapacity);
+                rawTileCapacity, _backendGate,
+                SigmaGeneratedStreaming.TransactionCapacity);
+            _stream = new SigmaStreamingResources(_pool.PageCapacity);
+            _renderer.BindStreamingManifest(_pool.SegmentIndex,
+                _stream.PublicationManifests, _stream.PageVisibility,
+                _pool.PageCapacity);
             CreatePersistentResources();
+            _topology.EnsureSegmentViews();
+            if (!_topology.TryGetSegmentView(_pool.SegmentIndex,
+                    out SigmaTopologySegmentView topologyView))
+                throw new InvalidOperationException(
+                    "Streaming topology cache is unavailable.");
+            _graph = new SigmaStreamingGraph(_pool, _proofLedger, _stream,
+                _backendGate, _renderer, _rgbViewOperators,
+                _rgbViewSupportScale,
+                topologyView);
+            SigmaStreamingResources.ValidateTransientBudget(
+                _proofLedger.CertificateBytes,
+                _proofLedger.RawObservationBytes, _stream.OwnedBytes);
+            RecordGraphInitialization();
             _renderer.PredictionReady += OnPredictionReady;
             _initialized = true;
-            Logger.Info($"Sigma inverse GPU work graph ready: work={inverseWorkCapacity}, " +
-                        $"carrierPages={_pool.PageCapacity}, raw={rawTileCapacity}.");
+            Logger.Info($"Sigma bounded stream ready: ingress={ingressSlotCount}, " +
+                        $"transactions={SigmaGeneratedStreaming.TransactionCapacity}, " +
+                        $"bundles={SigmaGeneratedStreaming.BundleCapacity}.");
         }
 
         public void OnScanStarted()
         {
             if (_completionFaulted)
             {
-                Logger.Error("Sigma inverse cannot restart after a GPU completion " +
-                             "fault; restart the application to rebuild its resources.");
+                Logger.Error("Sigma inverse cannot resume after an unproven GPU " +
+                             "completion fault; restart the application.");
                 return;
             }
             _running = true;
@@ -231,91 +174,88 @@ namespace Genesis.RoomScan.SigmaPrism
         public void OnScanStopped()
         {
             _running = false;
-            _pendingPrediction?.Dispose();
-            _pendingPrediction = null;
-            if (_inFlight != null)
-                _inFlight.Discard = true;
+            ReleasePendingIngress();
+            // Sealed transactions and their GPU cursors intentionally survive a
+            // stop/resume.  In-flight short ingress is allowed to finish and then
+            // releases its capture/prediction leases at its own fence.
         }
 
         private void OnPredictionReady(SigmaPredictionFrameLease prediction)
         {
             if (!_running || !_initialized || prediction == null ||
-                prediction.IsDisposed)
+                prediction.IsDisposed || _completionFaulted)
                 return;
-            if (_pendingPrediction != null || _inFlight != null)
-            {
-                DroppedFrames++;
-                return;
-            }
-            _pendingPrediction = prediction.Retain();
+            _pendingIngress.Enqueue(prediction.Retain());
         }
 
         private void LateUpdate()
         {
             if (!_initialized || _disposed)
                 return;
-            if (_inFlight != null)
-            {
-                SigmaGpuCompletionStatus completion = _inFlight.Poll(
-                    out string completionError);
-                if (completion == SigmaGpuCompletionStatus.Complete)
-                {
-                    GpuSubmission completed = _inFlight;
-                    _inFlight = null;
-                    if (!completed.Discard)
-                        CommittedFrames++;
-                    completed.Dispose();
-                }
-                else if (completion == SigmaGpuCompletionStatus.Faulted &&
-                         !_completionFaulted)
-                {
-                    _completionFaulted = true;
-                    _running = false;
-                    _pendingPrediction?.Dispose();
-                    _pendingPrediction = null;
-                    FailedFrames++;
-                    Logger.Error("Sigma inverse GPU completion failed closed: " +
-                                 completionError);
-                }
-                else
-                {
-                    _inFlight.AdvanceAge();
-                    PeakCompletionAgeFrames = Math.Max(
-                        PeakCompletionAgeFrames, _inFlight.AgeFrames);
-                }
-            }
-            if (!_running || _inFlight != null || _pendingPrediction == null)
+
+            PollInitialization();
+            PollIngress();
+            PollCanonical();
+            PollDerived();
+            if (_completionFaulted || !_graphReady)
                 return;
 
-            SigmaPredictionFrameLease prediction = _pendingPrediction;
-            _pendingPrediction = null;
+            if (_running && _pendingIngress.Count != 0 && TryGetFreeIngressSlot(
+                    out IngressSlot slot))
+            {
+                SigmaPredictionFrameLease prediction =
+                    _pendingIngress.Dequeue();
+                try
+                {
+                    SubmitIngress(slot, prediction);
+                }
+                catch (Exception exception)
+                {
+                    prediction.Dispose();
+                    FailedFrames++;
+                    LatchCompletionFault("Sigma ingress submission failed: " +
+                        exception.Message);
+                }
+            }
+
+            if (!_completionFaulted && _canonical == null && _derived == null)
+                SubmitCanonicalAndDerived();
+        }
+
+        private void RecordGraphInitialization()
+        {
+            CommandBuffer command = CommandBufferPool.Get(
+                "Sigma-PRISM-16 Stream Initialize");
             try
             {
-                SubmitGpuGraph(prediction);
+                _graph.RecordInitialize(command);
+                SigmaGpuCompletionTicket ticket =
+                    SigmaGpuCompletion.RecordAfterAllWork(command);
+                Graphics.ExecuteCommandBuffer(command);
+                _initialization = new Submission(ticket,
+                    "stream initialization");
+                TrackLast(ticket);
             }
-            catch (Exception exception)
+            finally
             {
-                prediction.Dispose();
-                FailedFrames++;
-                Logger.Error("Sigma inverse submission failed: " +
-                    exception.Message);
+                CommandBufferPool.Release(command);
             }
         }
 
-        private void SubmitGpuGraph(SigmaPredictionFrameLease prediction)
+        private void SubmitIngress(IngressSlot slot,
+            SigmaPredictionFrameLease prediction)
         {
             StereoRigFrameLease source = prediction.Source;
             if (!source.IsValid)
-                throw new InvalidOperationException("Inverse source lease is invalid.");
+                throw new InvalidOperationException(
+                    "Inverse source lease is invalid.");
             EnsureCalibration(source);
-            EnsureFrameResources(source.DepthResolution);
-            UploadExactCalibration(source);
-
             Vector2Int blockResolution = new(
                 CeilDiv(source.DepthResolution.x, 32),
                 CeilDiv(source.DepthResolution.y, 32));
             int blockCount = checked(blockResolution.x * blockResolution.y);
-            EnsureBlockBuffers(blockCount);
+            slot.EnsureFrameResources(source.DepthResolution, blockCount);
+
             uint revision = NextRevision();
             uint leftKey = IndependenceKey(source.DepthLeft,
                 source.CalibrationEpoch);
@@ -325,675 +265,412 @@ namespace Genesis.RoomScan.SigmaPrism
                 source.CalibrationEpoch);
             uint rgbRightKey = IndependenceKey(source.RgbRight,
                 source.CalibrationEpoch);
-            _proofLedger.StageGpuFrame(source, revision,
+            UploadExactCalibration(slot, source);
+            UploadPosePrior(slot, source);
+            _proofLedger.StageGpuFrame(slot.FrameStaging, source, revision,
                 leftKey, rightKey, rgbLeftKey, rgbRightKey);
-            const int frameSlot = 0;
 
+            ConeLutLease luts = _coneLuts.Acquire();
             CommandBuffer command = CommandBufferPool.Get(
-                "Sigma-PRISM-16 GPU Inverse Transaction");
-            SigmaGpuCompletionTicket completion;
+                "Sigma-PRISM-16 Short Owned Ingress");
             SigmaPredictionFrameLease correctedPrediction = null;
             try
             {
-                command.BeginSample("Sigma.Normalize");
-                RecordNormalize(command, source);
-                command.EndSample("Sigma.Normalize");
-                command.BeginSample("Sigma.PoseGauge");
-                RecordPoseGauge(command, source, prediction, revision);
-                RecordCorrectedCalibration(command, source);
-                command.EndSample("Sigma.PoseGauge");
-                command.BeginSample("Sigma.PredictionReraster");
-                bool correctedPredictionRecorded =
-                    _renderer.TryRecordPoseGaugePrediction(command, source,
-                        _poseResult, out correctedPrediction);
-                command.EndSample("Sigma.PredictionReraster");
-                if (!correctedPredictionRecorded)
+                command.BeginSample("Sigma.Ingress.Normalize");
+                RecordNormalize(command, slot, source, luts);
+                command.EndSample("Sigma.Ingress.Normalize");
+                command.BeginSample("Sigma.Ingress.PoseGauge");
+                RecordPoseGauge(command, slot, source, prediction, revision,
+                    luts);
+                RecordCorrectedCalibration(command, slot, source);
+                command.EndSample("Sigma.Ingress.PoseGauge");
+                command.BeginSample("Sigma.Ingress.Reraster");
+                if (!_renderer.TryRecordPoseGaugePrediction(command, source,
+                        slot.PoseResult, out correctedPrediction))
                     throw new InvalidOperationException(
                         "Unable to reserve same-frame corrected prediction.");
-                command.BeginSample("Sigma.InverseClassifyCompact");
-                RecordClearAndClassify(command, source, correctedPrediction,
-                    blockResolution, blockCount, revision, leftKey, rightKey,
-                    rgbLeftKey, rgbRightKey);
-                RecordWorkCompaction(command, blockResolution, blockCount,
-                    revision, frameSlot, source.CalibrationEpoch);
-                RecordPrepareTransactions(command);
-                RecordProofClear(command, frameSlot, source.CalibrationEpoch,
-                    revision);
-                command.EndSample("Sigma.InverseClassifyCompact");
-                command.BeginSample("Sigma.RgbInverse");
-                RecordRgbSource(command, source, correctedPrediction, revision,
-                    leftKey, rightKey, rgbLeftKey, rgbRightKey);
-                command.EndSample("Sigma.RgbInverse");
-                command.BeginSample("Sigma.SolveProofCommit");
-                RecordMatchedSolve(command, source, correctedPrediction, revision,
-                    leftKey, rightKey, rgbLeftKey, rgbRightKey);
-                RecordGaugePromote(command, source, correctedPrediction, revision,
-                    leftKey, rightKey, rgbLeftKey, rgbRightKey);
-                RecordProofReduce(command, frameSlot,
-                    source.CalibrationEpoch, revision);
-                RecordRawPlan(command, frameSlot, source.CalibrationEpoch);
-                RecordProofRawCommit(command, frameSlot,
-                    source.CalibrationEpoch, revision);
-                RecordProofGaugeDemand(command, revision);
-                RecordProofCommit(command);
-                command.EndSample("Sigma.SolveProofCommit");
-                command.BeginSample("Sigma.IntrinsicTopology");
-                _topology.RecordGpuInverseTopology(command, _pool,
-                    _inverseWork, _inverseWorkControl, _proposalStatus,
-                    _proposalEpoch, inverseWorkCapacity, revision, leftKey,
-                    rightKey);
-                command.EndSample("Sigma.IntrinsicTopology");
-                command.BeginSample("Sigma.Section44Counters");
-                RecordPerformanceCounters(command);
-                command.EndSample("Sigma.Section44Counters");
-                completion = SigmaGpuCompletion.RecordAfterAllWork(command);
+                command.EndSample("Sigma.Ingress.Reraster");
+                command.BeginSample("Sigma.Ingress.Seal");
+                RecordClassification(command, slot, source,
+                    correctedPrediction, blockResolution, blockCount, luts);
+                _graph.RecordIngress(command, source, correctedPrediction,
+                    slot.MetricDepth, slot.DepthFlags,
+                    slot.CorrectedDepthCalibration,
+                    slot.CorrectedRgbCalibration, slot.PoseResult,
+                    slot.FrameStaging, slot.ActivePageFlags,
+                    slot.UnmatchedBlockFlags, blockResolution, blockCount,
+                    revision, leftKey, rightKey, rgbLeftKey, rgbRightKey,
+                    source.CalibrationEpoch,
+                    luts.DepthLeft.CenterRaySolidAngle);
+                command.EndSample("Sigma.Ingress.Seal");
+                SigmaGpuCompletionTicket ticket =
+                    SigmaGpuCompletion.RecordAfterAllWork(command);
                 Graphics.ExecuteCommandBuffer(command);
+                slot.Begin(prediction, correctedPrediction, luts, ticket,
+                    revision);
+                correctedPrediction = null;
+                luts = null;
+                SubmittedFrames++;
+                LastDiagnostics = SigmaInverseDiagnosticSnapshot.GpuResident(
+                    revision);
+                TrackLast(ticket);
             }
             catch
             {
                 correctedPrediction?.Dispose();
+                luts?.Dispose();
                 throw;
             }
             finally
             {
                 CommandBufferPool.Release(command);
             }
-            _inFlight = new GpuSubmission(prediction, correctedPrediction,
-                completion);
-            SubmittedFrames++;
-            LastDiagnostics = SigmaInverseDiagnosticSnapshot.GpuResident(
-                revision);
         }
 
-        private void RecordClearAndClassify(CommandBuffer command,
-            StereoRigFrameLease source, SigmaPredictionFrameLease prediction,
-            Vector2Int blockResolution, int blockCount, uint revision,
-            uint leftKey, uint rightKey, uint rgbLeftKey, uint rgbRightKey)
+        private void SubmitCanonicalAndDerived()
         {
-            int clearCount = Math.Max(Math.Max(_activeFlagCount, blockCount),
-                Math.Max(8, inverseWorkCapacity));
-            command.SetComputeIntParam(_inverse, "_ActiveFlagCount",
-                _activeFlagCount);
-            command.SetComputeIntParam(_inverse, "_BlockFlagCount", blockCount);
-            command.SetComputeIntParam(_inverse, "_GaugeCommitCapacity",
-                inverseWorkCapacity);
-            command.SetComputeIntParam(_inverse, "_ClearCount", clearCount);
-            command.SetComputeBufferParam(_inverse, _clearKernel,
-                "_ActivePageFlags", _activePageFlags);
-            command.SetComputeBufferParam(_inverse, _clearKernel,
-                "_UnmatchedBlockFlags", _unmatchedBlockFlags);
-            command.SetComputeBufferParam(_inverse, _clearKernel,
-                "_UnmatchedBlockAnchors", _unmatchedBlockAnchors);
-            command.SetComputeBufferParam(_inverse, _clearKernel,
-                "_ConflictCount", _conflictCount);
-            command.SetComputeBufferParam(_inverse, _clearKernel,
-                "_FrameCounters", _frameCounters);
-            command.SetComputeBufferParam(_inverse, _clearKernel,
-                "_GaugePromotionCounts", _gaugePromotionCounts);
-            command.DispatchCompute(_inverse, _clearKernel,
-                CeilDiv(clearCount, 64), 1, 1);
+            CommandBuffer canonical = CommandBufferPool.Get(
+                "Sigma-PRISM-16 Bounded Canonical Quantum");
+            try
+            {
+                _graph.RecordCanonicalQuantum(canonical,
+                    _topology.SingularShift,
+                    _topology.AssociatorShift);
+                SigmaGpuCompletionTicket canonicalTicket =
+                    SigmaGpuCompletion.RecordAfterAllWork(canonical);
+                Graphics.ExecuteCommandBuffer(canonical);
+                _canonical = new Submission(canonicalTicket,
+                    "canonical quantum");
+                TrackLast(canonicalTicket);
+            }
+            catch (Exception exception)
+            {
+                LatchCompletionFault(
+                    "Sigma canonical submission failed: " + exception.Message);
+                return;
+            }
+            finally
+            {
+                CommandBufferPool.Release(canonical);
+            }
 
-            BindFrameConstants(command, _inverse, _classifyKernel, source,
-                prediction,
-                blockResolution, leftKey, rightKey, rgbLeftKey, rgbRightKey,
-                revision);
-            command.SetComputeIntParam(_inverse, "_SegmentCount",
-                _pool.SegmentIndex + 1);
-            command.SetComputeIntParam(_inverse, "_ActiveFlagCount",
-                _activeFlagCount);
-            command.SetComputeIntParam(_inverse, "_BlockFlagCount", blockCount);
-            command.SetComputeBufferParam(_inverse, _classifyKernel,
-                "_DepthCalibrationQ48", _calibrationQ48);
-            command.SetComputeTextureParam(_inverse, _classifyKernel,
-                "_MetricDepth", _metricDepth);
-            command.SetComputeTextureParam(_inverse, _classifyKernel,
-                "_DepthFlags", _depthFlags);
-            command.SetComputeTextureParam(_inverse, _classifyKernel,
-                "_PredDepthSupport", prediction.DepthSupport);
-            command.SetComputeTextureParam(_inverse, _classifyKernel,
-                "_PredStateKey", prediction.StateKey);
-            command.SetComputeTextureParam(_inverse, _classifyKernel,
-                "_DepthRayCenterLeft", _coneLuts.DepthLeft.CenterRaySolidAngle);
-            command.SetComputeTextureParam(_inverse, _classifyKernel,
-                "_DepthRayCenterRight", _coneLuts.DepthRight.CenterRaySolidAngle);
-            command.SetComputeBufferParam(_inverse, _classifyKernel,
-                "_ActivePageFlags", _activePageFlags);
-            command.SetComputeBufferParam(_inverse, _classifyKernel,
-                "_UnmatchedBlockFlags", _unmatchedBlockFlags);
-            command.SetComputeBufferParam(_inverse, _classifyKernel,
-                "_UnmatchedBlockAnchors", _unmatchedBlockAnchors);
-            command.SetComputeBufferParam(_inverse, _classifyKernel,
-                "_FrameCounters", _frameCounters);
-            command.DispatchCompute(_inverse, _classifyKernel,
+            CommandBuffer derived = CommandBufferPool.Get(
+                "Sigma-PRISM-16 Bounded Derived Quantum");
+            try
+            {
+                _graph.RecordDerivedQuantum(derived);
+                SigmaGpuCompletionTicket derivedTicket =
+                    SigmaGpuCompletion.RecordAfterAllWork(derived);
+                Graphics.ExecuteCommandBuffer(derived);
+                _derived = new Submission(derivedTicket, "derived quantum");
+                TrackLast(derivedTicket);
+            }
+            catch (Exception exception)
+            {
+                LatchCompletionFault(
+                    "Sigma derived submission failed: " + exception.Message);
+            }
+            finally
+            {
+                CommandBufferPool.Release(derived);
+            }
+        }
+
+        private void PollInitialization()
+        {
+            if (_initialization == null)
+                return;
+            SigmaGpuCompletionStatus status = _initialization.Poll(
+                out string error);
+            if (status == SigmaGpuCompletionStatus.Pending)
+            {
+                UpdatePeak(_initialization);
+                return;
+            }
+            if (status == SigmaGpuCompletionStatus.Faulted)
+            {
+                LatchCompletionFault("Sigma stream initialization failed: " +
+                    error);
+                return;
+            }
+            _initialization = null;
+            _graphReady = true;
+        }
+
+        private void PollIngress()
+        {
+            if (_ingressSlots == null)
+                return;
+            for (int index = 0; index < _ingressSlots.Length; ++index)
+            {
+                IngressSlot slot = _ingressSlots[index];
+                if (!slot.InFlight)
+                    continue;
+                SigmaGpuCompletionStatus status = slot.Poll(out string error);
+                if (status == SigmaGpuCompletionStatus.Pending)
+                {
+                    slot.AdvanceAge();
+                    PeakCompletionAgeFrames = Math.Max(
+                        PeakCompletionAgeFrames, slot.AgeFrames);
+                    continue;
+                }
+                if (status == SigmaGpuCompletionStatus.Faulted)
+                {
+                    LatchCompletionFault($"Sigma ingress slot {index} failed " +
+                        $"closed: {error}");
+                    continue;
+                }
+                slot.Complete();
+                CommittedFrames++;
+            }
+        }
+
+        private void PollCanonical()
+        {
+            if (_canonical == null)
+                return;
+            SigmaGpuCompletionStatus status = _canonical.Poll(out string error);
+            if (status == SigmaGpuCompletionStatus.Pending)
+            {
+                UpdatePeak(_canonical);
+                return;
+            }
+            if (status == SigmaGpuCompletionStatus.Faulted)
+            {
+                LatchCompletionFault("Sigma canonical quantum failed closed: " +
+                    error);
+                return;
+            }
+            _canonical = null;
+        }
+
+        private void PollDerived()
+        {
+            if (_derived == null)
+                return;
+            SigmaGpuCompletionStatus status = _derived.Poll(out string error);
+            if (status == SigmaGpuCompletionStatus.Pending)
+            {
+                UpdatePeak(_derived);
+                return;
+            }
+            if (status == SigmaGpuCompletionStatus.Faulted)
+            {
+                LatchCompletionFault("Sigma derived quantum failed closed: " +
+                    error);
+                return;
+            }
+            _derived = null;
+        }
+
+        private void LatchCompletionFault(string message)
+        {
+            if (_completionFaulted)
+                return;
+            _completionFaulted = true;
+            _running = false;
+            FailedFrames++;
+            ReleasePendingIngress();
+            Logger.Error(message);
+        }
+
+        private void RecordNormalize(CommandBuffer command, IngressSlot slot,
+            StereoRigFrameLease source, ConeLutLease luts)
+        {
+            command.SetComputeIntParams(_ingressShader, "_Resolution",
+                source.DepthResolution.x, source.DepthResolution.y);
+            command.SetComputeVectorParam(_ingressShader, "_NearFar",
+                new Vector4(source.DepthNearFar.x, source.DepthNearFar.y,
+                    0f, 0f));
+            command.SetComputeTextureParam(_ingressShader, _normalizeKernel,
+                "_RawDepth", source.DepthLeft.Texture);
+            command.SetComputeTextureParam(_ingressShader, _normalizeKernel,
+                "_DepthRayCenterLeft",
+                luts.DepthLeft.CenterRaySolidAngle);
+            command.SetComputeTextureParam(_ingressShader, _normalizeKernel,
+                "_DepthRayCenterRight",
+                luts.DepthRight.CenterRaySolidAngle);
+            command.SetComputeTextureParam(_ingressShader, _normalizeKernel,
+                "_MetricDepth", slot.MetricDepth);
+            command.SetComputeTextureParam(_ingressShader, _normalizeKernel,
+                "_DepthFlags", slot.DepthFlags);
+            command.DispatchCompute(_ingressShader, _normalizeKernel,
                 CeilDiv(source.DepthResolution.x, 8),
                 CeilDiv(source.DepthResolution.y, 8), 2);
         }
 
-        private void RecordWorkCompaction(CommandBuffer command,
-            Vector2Int blockResolution, int blockCount, uint revision,
-            int frameSlot, uint calibrationEpoch)
+        private void RecordClassification(CommandBuffer command,
+            IngressSlot slot, StereoRigFrameLease source,
+            SigmaPredictionFrameLease prediction,
+            Vector2Int blockResolution, int blockCount, ConeLutLease luts)
         {
-            BindWorkGraph(command, _workClearKernel);
-            command.DispatchCompute(_workGraph, _workClearKernel, 1, 1, 1);
-
-            BindWorkGraph(command, _workCompactKernel);
-            command.SetComputeIntParam(_workGraph, "_SegmentIndex",
-                _pool.SegmentIndex);
-            command.SetComputeIntParam(_workGraph, "_ActiveFlagCount",
+            int clearCount = Math.Max(_activeFlagCount, blockCount);
+            command.SetComputeIntParam(_ingressShader, "_ActiveFlagCount",
                 _activeFlagCount);
-            command.SetComputeIntParam(_workGraph, "_BlockFlagCount",
+            command.SetComputeIntParam(_ingressShader, "_BlockFlagCount",
                 blockCount);
-            command.SetComputeIntParams(_workGraph, "_GaugeBlockResolution",
-                blockResolution.x, blockResolution.y);
-            command.SetComputeIntParam(_workGraph, "_FrameRevision",
+            command.SetComputeIntParam(_ingressShader, "_ClearCount",
+                clearCount);
+            command.SetComputeBufferParam(_ingressShader,
+                _clearClassificationKernel, "_ActivePageFlags",
+                slot.ActivePageFlags);
+            command.SetComputeBufferParam(_ingressShader,
+                _clearClassificationKernel, "_UnmatchedBlockFlags",
+                slot.UnmatchedBlockFlags);
+            command.DispatchCompute(_ingressShader,
+                _clearClassificationKernel, CeilDiv(clearCount, 64), 1, 1);
+
+            command.SetComputeIntParams(_ingressShader, "_Resolution",
+                source.DepthResolution.x, source.DepthResolution.y);
+            command.SetComputeIntParams(_ingressShader,
+                "_GaugeBlockResolution", blockResolution.x,
+                blockResolution.y);
+            command.SetComputeIntParam(_ingressShader, "_ActiveFlagCount",
+                _activeFlagCount);
+            command.SetComputeIntParam(_ingressShader, "_BlockFlagCount",
+                blockCount);
+            command.SetComputeIntParam(_ingressShader, "_SegmentCount",
+                _pool.SegmentIndex + 1);
+            command.SetComputeBufferParam(_ingressShader, _classifyKernel,
+                "_PoseResult", slot.PoseResult);
+            command.SetComputeBufferParam(_ingressShader, _classifyKernel,
+                "_ActivePageFlags", slot.ActivePageFlags);
+            command.SetComputeBufferParam(_ingressShader, _classifyKernel,
+                "_UnmatchedBlockFlags", slot.UnmatchedBlockFlags);
+            command.SetComputeTextureParam(_ingressShader, _classifyKernel,
+                "_MetricDepth", slot.MetricDepth);
+            command.SetComputeTextureParam(_ingressShader, _classifyKernel,
+                "_DepthFlags", slot.DepthFlags);
+            command.SetComputeTextureParam(_ingressShader, _classifyKernel,
+                "_PredDepthSupport", prediction.DepthSupport);
+            command.SetComputeTextureParam(_ingressShader, _classifyKernel,
+                "_PredCarrierPage", prediction.CarrierPage);
+            command.SetComputeTextureParam(_ingressShader, _classifyKernel,
+                "_PredStateKey", prediction.StateKey);
+            command.SetComputeTextureParam(_ingressShader, _classifyKernel,
+                "_DepthRayCenterLeft",
+                luts.DepthLeft.CenterRaySolidAngle);
+            Matrix4x4 leftWorld = PoseMatrix(
+                source.DepthLeft.WorldFromCamera);
+            command.SetComputeMatrixParam(_ingressShader,
+                "_WorldFromOpticalLeft", leftWorld);
+            command.SetComputeMatrixParam(_ingressShader,
+                "_OpticalFromWorldRight", PoseMatrix(
+                    source.DepthRight.WorldFromCamera).inverse);
+            command.SetComputeVectorParam(_ingressShader,
+                "_DepthIntrinsicsRight",
+                IntrinsicsVector(source.DepthRight.Intrinsics));
+            command.SetComputeMatrixParam(_ingressShader,
+                "_PoseConsumeReferenceFromWorld", leftWorld.inverse);
+            command.SetComputeMatrixParam(_ingressShader,
+                "_PoseConsumeWorldFromReference", leftWorld);
+            command.DispatchCompute(_ingressShader, _classifyKernel,
+                CeilDiv(source.DepthResolution.x, 8),
+                CeilDiv(source.DepthResolution.y, 8), 2);
+        }
+
+        private void RecordPoseGauge(CommandBuffer command, IngressSlot slot,
+            StereoRigFrameLease source, SigmaPredictionFrameLease prediction,
+            uint revision, ConeLutLease luts)
+        {
+            int sampleWidth = CeilDiv(source.DepthResolution.x,
+                poseSampleStride);
+            int sampleHeight = CeilDiv(source.DepthResolution.y,
+                poseSampleStride);
+            int partialCount = CeilDiv(checked(sampleWidth * sampleHeight * 2),
+                64);
+            slot.EnsurePosePartials(partialCount);
+            command.SetComputeBufferParam(_poseGaugeShader, _poseBuildKernel,
+                "_SigmaExactBackendGate", _backendGate.Buffer);
+            command.SetComputeBufferParam(_poseGaugeShader, _poseBuildKernel,
+                "_DepthCalibrationQ48", slot.RawDepthCalibration);
+            command.SetComputeBufferParam(_poseGaugeShader, _poseBuildKernel,
+                "_PosePrior", slot.PosePrior);
+            command.SetComputeBufferParam(_poseGaugeShader, _poseBuildKernel,
+                "_PosePartials", slot.PosePartials);
+            command.SetComputeTextureParam(_poseGaugeShader, _poseBuildKernel,
+                "_PoseMetricDepth", slot.MetricDepth);
+            command.SetComputeTextureParam(_poseGaugeShader, _poseBuildKernel,
+                "_PoseDepthFlags", slot.DepthFlags);
+            command.SetComputeTextureParam(_poseGaugeShader, _poseBuildKernel,
+                "_PosePredDepthSupport", prediction.DepthSupport);
+            command.SetComputeTextureParam(_poseGaugeShader, _poseBuildKernel,
+                "_PosePredCarrierUvNormal", prediction.CarrierUvNormal);
+            command.SetComputeTextureParam(_poseGaugeShader, _poseBuildKernel,
+                "_PoseRayLeft", luts.DepthLeft.CenterRaySolidAngle);
+            command.SetComputeTextureParam(_poseGaugeShader, _poseBuildKernel,
+                "_PoseRayRight", luts.DepthRight.CenterRaySolidAngle);
+            command.SetComputeIntParams(_poseGaugeShader, "_PoseResolution",
+                source.DepthResolution.x, source.DepthResolution.y);
+            command.SetComputeIntParam(_poseGaugeShader, "_PoseSampleStride",
+                poseSampleStride);
+            command.SetComputeIntParam(_poseGaugeShader, "_PoseRevision",
                 unchecked((int)revision));
-            command.SetComputeIntParam(_workGraph, "_ProofFrameSlot", frameSlot);
-            command.SetComputeIntParam(_workGraph, "_ProofCalibrationEpoch",
-                unchecked((int)calibrationEpoch));
-            command.DispatchCompute(_workGraph, _workCompactKernel, 1, 1, 1);
-        }
+            command.SetComputeIntParam(_poseGaugeShader, "_PosePartialCount",
+                partialCount);
+            command.DispatchCompute(_poseGaugeShader, _poseBuildKernel,
+                partialCount, 1, 1);
 
-        private void RecordPrepareTransactions(CommandBuffer command)
-        {
-            BindWorkGraph(command, _workPrepareKernel);
-            command.DispatchCompute(_workGraph, _workPrepareKernel,
-                _dispatchArguments, ProofDispatchOffset);
-        }
-
-        private void RecordProofClear(CommandBuffer command, int frameSlot,
-            uint calibrationEpoch, uint revision)
-        {
-            BindLedger(command, _proofClearKernel, frameSlot,
-                calibrationEpoch, revision);
-            command.SetComputeBufferParam(_proofLedgerShader, _proofClearKernel,
-                "_ProofSamples", _proofLedger.ProofSampleBuffer);
-            command.SetComputeBufferParam(_proofLedgerShader, _proofClearKernel,
-                "_ProofPageStatus", _proofLedger.StatusBuffer);
-            command.SetComputeBufferParam(_proofLedgerShader, _proofClearKernel,
-                "_RawRequests", _proofLedger.RawRequestBuffer);
-            command.DispatchCompute(_proofLedgerShader, _proofClearKernel,
-                _dispatchArguments, ProofDispatchOffset);
-        }
-
-        private ComputeShader _proofLedgerShader => _ledgerShader;
-
-        private void RecordRgbSource(CommandBuffer command,
-            StereoRigFrameLease source, SigmaPredictionFrameLease prediction,
-            uint revision, uint leftKey, uint rightKey, uint rgbLeftKey,
-            uint rgbRightKey)
-        {
-            BindExactCommon(command, _rgbSource, _rgbSourceKernel, source,
-                prediction, revision, leftKey, rightKey, rgbLeftKey,
-                rgbRightKey);
-            command.SetComputeIntParam(_rgbSource, "_UseInverseWorkList", 1);
-            command.SetComputeIntParam(_rgbSource, "_PageCapacity",
-                _pool.PageCapacity);
-            command.SetComputeBufferParam(_rgbSource, _rgbSourceKernel,
-                "_CarrierState", _pool.State);
-            command.SetComputeBufferParam(_rgbSource, _rgbSourceKernel,
-                "_PageMetadata", _pool.Metadata);
-            command.SetComputeBufferParam(_rgbSource, _rgbSourceKernel,
-                "_RgbSourceBounds", _rgbSourceBounds);
-            command.SetComputeBufferParam(_rgbSource, _rgbSourceKernel,
-                "_RgbSourceMeta", _rgbSourceMeta);
-            BindInverseWork(command, _rgbSource, _rgbSourceKernel);
-            command.DispatchCompute(_rgbSource, _rgbSourceKernel,
-                _dispatchArguments, RgbDispatchOffset);
-        }
-
-        private void RecordMatchedSolve(CommandBuffer command,
-            StereoRigFrameLease source, SigmaPredictionFrameLease prediction,
-            uint revision, uint leftKey, uint rightKey, uint rgbLeftKey,
-            uint rgbRightKey)
-        {
-            BindInverseMutation(command, _commitKernel, source, prediction,
-                revision, leftKey, rightKey, rgbLeftKey, rgbRightKey);
-            command.DispatchCompute(_inverse, _commitKernel,
-                _dispatchArguments, SolveDispatchOffset);
-        }
-
-        private void RecordGaugePromote(CommandBuffer command,
-            StereoRigFrameLease source, SigmaPredictionFrameLease prediction,
-            uint revision, uint leftKey, uint rightKey, uint rgbLeftKey,
-            uint rgbRightKey)
-        {
-            BindInverseMutation(command, _promoteKernel, source, prediction,
-                revision, leftKey, rightKey, rgbLeftKey, rgbRightKey);
-            command.DispatchCompute(_inverse, _promoteKernel,
-                _dispatchArguments, PromoteDispatchOffset);
-        }
-
-        private void RecordRawPlan(CommandBuffer command, int frameSlot,
-            uint calibrationEpoch)
-        {
-            BindWorkGraph(command, _workRawPlanKernel);
-            command.SetComputeIntParam(_workGraph, "_ProofFrameSlot", frameSlot);
-            command.SetComputeIntParam(_workGraph, "_ProofCalibrationEpoch",
-                unchecked((int)calibrationEpoch));
-            command.SetComputeIntParam(_workGraph, "_RawTileCapacity",
-                _proofLedger.RawTileCapacity);
-            command.SetComputeBufferParam(_workGraph, _workRawPlanKernel,
-                "_RawReservations", _proofLedger.RawReservationBuffer);
-            command.SetComputeBufferParam(_workGraph, _workRawPlanKernel,
-                "_RawAllocator", _proofLedger.RawAllocatorBuffer);
-            command.SetComputeBufferParam(_workGraph, _workRawPlanKernel,
-                "_RawLiveWords", _proofLedger.RawLiveBitmapBuffer);
-            command.SetComputeBufferParam(_workGraph, _workRawPlanKernel,
-                "_RawRequests", _proofLedger.RawRequestBuffer);
-            command.DispatchCompute(_workGraph, _workRawPlanKernel, 1, 1, 1);
-        }
-
-        private void RecordProofReduce(CommandBuffer command, int frameSlot,
-            uint calibrationEpoch, uint revision)
-        {
-            ComputeShader shader = _proofLedgerShader;
-
-            BindLedger(command, _proofSourceReduceKernel, frameSlot,
-                calibrationEpoch, revision);
-            command.SetComputeBufferParam(shader, _proofSourceReduceKernel,
-                "_ProofSamples", _proofLedger.ProofSampleBuffer);
-            command.SetComputeBufferParam(shader, _proofSourceReduceKernel,
-                "_ProofSourceScratchMeta",
-                _proofLedger.ProofSourceScratchMetaBuffer);
-            command.SetComputeBufferParam(shader, _proofSourceReduceKernel,
-                "_ProofSourceScratchBounds",
-                _proofLedger.ProofSourceScratchBoundsBuffer);
-            command.DispatchCompute(shader, _proofSourceReduceKernel,
-                _dispatchArguments, ProofSourceDispatchOffset);
-
-            BindLedger(command, _proofFinalizeKernel, frameSlot,
-                calibrationEpoch, revision);
-            command.SetComputeBufferParam(shader, _proofFinalizeKernel,
-                "_ProofSamples", _proofLedger.ProofSampleBuffer);
-            command.SetComputeBufferParam(shader, _proofFinalizeKernel,
-                "_ProofSourceScratchMetaRead",
-                _proofLedger.ProofSourceScratchMetaBuffer);
-            command.SetComputeBufferParam(shader, _proofFinalizeKernel,
-                "_ProofSourceScratchBoundsRead",
-                _proofLedger.ProofSourceScratchBoundsBuffer);
-            command.SetComputeBufferParam(shader, _proofFinalizeKernel,
-                "_Certificates", _proofLedger.CertificateBuffer);
-            command.SetComputeBufferParam(shader, _proofFinalizeKernel,
-                "_CertificateBounds", _proofLedger.CertificateBoundsBuffer);
-            command.SetComputeBufferParam(shader, _proofFinalizeKernel,
-                "_ConstraintBlocks", _proofLedger.ConstraintBlockBuffer);
-            command.SetComputeBufferParam(shader, _proofFinalizeKernel,
-                "_RawTiles", _proofLedger.RawHeaderBuffer);
-            command.SetComputeBufferParam(shader, _proofFinalizeKernel,
-                "_RawTileWords", _proofLedger.RawWordsBuffer);
-            command.SetComputeBufferParam(shader, _proofFinalizeKernel,
-                "_RawReservations", _proofLedger.RawReservationBuffer);
-            command.SetComputeBufferParam(shader, _proofFinalizeKernel,
-                "_RawRequests", _proofLedger.RawRequestBuffer);
-            command.SetComputeBufferParam(shader, _proofFinalizeKernel,
-                "_ProofPageStatus", _proofLedger.StatusBuffer);
-            command.DispatchCompute(shader, _proofFinalizeKernel,
-                _dispatchArguments, ProofDispatchOffset);
-        }
-
-        private void RecordProofRawCommit(CommandBuffer command, int frameSlot,
-            uint calibrationEpoch, uint revision)
-        {
-            BindLedger(command, _proofRawCommitKernel, frameSlot,
-                calibrationEpoch, revision);
-            ComputeShader shader = _proofLedgerShader;
-            command.SetComputeBufferParam(shader, _proofRawCommitKernel,
-                "_ProofSamples", _proofLedger.ProofSampleBuffer);
-            command.SetComputeBufferParam(shader, _proofRawCommitKernel,
-                "_ConstraintBlocks", _proofLedger.ConstraintBlockBuffer);
-            command.SetComputeBufferParam(shader, _proofRawCommitKernel,
-                "_RawTiles", _proofLedger.RawHeaderBuffer);
-            command.SetComputeBufferParam(shader, _proofRawCommitKernel,
-                "_RawTileWords", _proofLedger.RawWordsBuffer);
-            command.SetComputeBufferParam(shader, _proofRawCommitKernel,
-                "_RawReservations", _proofLedger.RawReservationBuffer);
-            command.SetComputeBufferParam(shader, _proofRawCommitKernel,
-                "_RawRequests", _proofLedger.RawRequestBuffer);
-            command.SetComputeBufferParam(shader, _proofRawCommitKernel,
-                "_RawFrameStaging", _proofLedger.FrameStagingBuffer);
-            command.SetComputeBufferParam(shader, _proofRawCommitKernel,
-                "_RawFrameRecords", _proofLedger.FrameRecordBuffer);
-            command.SetComputeBufferParam(shader, _proofRawCommitKernel,
-                "_PoseResult", _poseResult);
-            command.SetComputeBufferParam(shader, _proofRawCommitKernel,
-                "_ProofPageStatus", _proofLedger.StatusBuffer);
-            command.DispatchCompute(shader, _proofRawCommitKernel,
-                _dispatchArguments, ProofDispatchOffset);
-        }
-
-        private void RecordProofGaugeDemand(CommandBuffer command,
-            uint revision)
-        {
-            BindGaugeDemand(command, _gaugeCoordinateKernel, revision);
-            command.SetComputeBufferParam(_gaugeDemandShader,
-                _gaugeCoordinateKernel, "_ProofSamples",
-                _proofLedger.ProofSampleBuffer);
-            command.SetComputeBufferParam(_gaugeDemandShader,
-                _gaugeCoordinateKernel, "_GaugeCoordinateCandidates",
-                _proofLedger.GaugeCoordinateScratchBuffer);
-            command.DispatchCompute(_gaugeDemandShader,
-                _gaugeCoordinateKernel, _dispatchArguments,
-                GaugeCoordinateDispatchOffset);
-
-            BindGaugeDemand(command, _gaugeFinalizeKernel, revision);
-            command.SetComputeBufferParam(_gaugeDemandShader,
-                _gaugeFinalizeKernel, "_GaugeCoordinateCandidatesRead",
-                _proofLedger.GaugeCoordinateScratchBuffer);
-            command.SetComputeBufferParam(_gaugeDemandShader,
-                _gaugeFinalizeKernel, "_GaugeDemand",
-                _proofLedger.GaugeDemandBuffer);
-            command.DispatchCompute(_gaugeDemandShader,
-                _gaugeFinalizeKernel, _dispatchArguments,
-                ProofDispatchOffset);
-        }
-
-        private void RecordProofCommit(CommandBuffer command)
-        {
-            BindWorkGraph(command, _workCommitKernel);
-            command.SetComputeIntParam(_workGraph, "_RawTileCapacity",
-                _proofLedger.RawTileCapacity);
-            command.SetComputeBufferParam(_workGraph, _workCommitKernel,
-                "_ProofPageStatus", _proofLedger.StatusBuffer);
-            command.SetComputeBufferParam(_workGraph, _workCommitKernel,
-                "_GaugePromotionCounts", _gaugePromotionCounts);
-            command.SetComputeBufferParam(_workGraph, _workCommitKernel,
-                "_RawReservationsRead", _proofLedger.RawReservationBuffer);
-            command.SetComputeBufferParam(_workGraph, _workCommitKernel,
-                "_RawLiveWords", _proofLedger.RawLiveBitmapBuffer);
-            command.SetComputeBufferParam(_workGraph, _workCommitKernel,
-                "_ConstraintBlocks", _proofLedger.ConstraintBlockBuffer);
-            command.SetComputeBufferParam(_workGraph, _workCommitKernel,
-                "_InverseWorkRead", _inverseWork);
-            command.DispatchCompute(_workGraph, _workCommitKernel,
-                _dispatchArguments, CommitDispatchOffset);
-        }
-
-        private void RecordPerformanceCounters(CommandBuffer command)
-        {
-            command.SetComputeBufferParam(_performanceCompute,
-                _performanceKernel, "_FrameCounters", _frameCounters);
-            command.SetComputeBufferParam(_performanceCompute,
-                _performanceKernel, "_InverseWorkControl",
-                _inverseWorkControl);
-            command.SetComputeBufferParam(_performanceCompute,
-                _performanceKernel, "_TopologyCounters",
-                _topology.DiagnosticCounters);
-            command.SetComputeBufferParam(_performanceCompute,
-                _performanceKernel, "_PerformanceCounters",
-                _performanceCounters);
-            command.SetComputeBufferParam(_performanceCompute,
-                _performanceKernel, "_PerformanceTopologyHistory",
-                _performanceTopologyHistory);
-            command.DispatchCompute(_performanceCompute, _performanceKernel,
+            command.SetComputeBufferParam(_poseGaugeShader, _poseReduceKernel,
+                "_SigmaExactBackendGate", _backendGate.Buffer);
+            command.SetComputeBufferParam(_poseGaugeShader, _poseReduceKernel,
+                "_PosePrior", slot.PosePrior);
+            command.SetComputeBufferParam(_poseGaugeShader, _poseReduceKernel,
+                "_PosePartials", slot.PosePartials);
+            command.SetComputeBufferParam(_poseGaugeShader, _poseReduceKernel,
+                "_PoseResult", slot.PoseResult);
+            command.DispatchCompute(_poseGaugeShader, _poseReduceKernel,
                 1, 1, 1);
         }
 
-        private void BindWorkGraph(CommandBuffer command, int kernel)
+        private void RecordCorrectedCalibration(CommandBuffer command,
+            IngressSlot slot, StereoRigFrameLease source)
         {
-            command.SetComputeIntParam(_workGraph, "_PageCapacity",
-                _pool.PageCapacity);
-            command.SetComputeIntParam(_workGraph, "_InverseWorkCapacity",
-                inverseWorkCapacity);
-            command.SetComputeBufferParam(_workGraph, kernel,
-                "_SigmaExactBackendGate", _backendGate.Buffer);
-            command.SetComputeBufferParam(_workGraph, kernel,
-                "_CarrierState", _pool.State);
-            command.SetComputeBufferParam(_workGraph, kernel,
-                "_PageMetadata", _pool.Metadata);
-            command.SetComputeBufferParam(_workGraph, kernel,
-                "_DirtyFlags", _pool.DirtyFlags);
-            command.SetComputeBufferParam(_workGraph, kernel,
-                "_CurrentFlags", _pool.CurrentFlags);
-            command.SetComputeBufferParam(_workGraph, kernel,
-                "_ReadoutDirtyFlags", _pool.ReadoutDirtyFlags);
-            command.SetComputeBufferParam(_workGraph, kernel,
-                "_ActivePageFlags", _activePageFlags);
-            command.SetComputeBufferParam(_workGraph, kernel,
-                "_UnmatchedBlockFlags", _unmatchedBlockFlags);
-            command.SetComputeBufferParam(_workGraph, kernel,
-                "_UnmatchedBlockAnchors", _unmatchedBlockAnchors);
-            command.SetComputeBufferParam(_workGraph, kernel,
-                "_InverseWork", _inverseWork);
-            command.SetComputeBufferParam(_workGraph, kernel,
-                "_InverseWorkControl", _inverseWorkControl);
-            command.SetComputeBufferParam(_workGraph, kernel,
-                "_DispatchArgs", _dispatchArguments);
-        }
-
-        private void BindLedger(CommandBuffer command, int kernel,
-            int frameSlot, uint calibrationEpoch, uint revision)
-        {
-            ComputeShader shader = _proofLedgerShader;
-            command.SetComputeIntParam(shader, "_UseInverseWorkList", 1);
-            command.SetComputeIntParam(shader, "_ProofFrameSlot", frameSlot);
-            command.SetComputeIntParam(shader, "_ProofCalibrationEpoch",
-                unchecked((int)calibrationEpoch));
-            command.SetComputeIntParam(shader, "_ProofRevision",
-                unchecked((int)revision));
-            command.SetComputeIntParam(shader, "_RawTileCapacity",
-                _proofLedger.RawTileCapacity);
-            command.SetComputeIntParam(shader, "_ProofCarrierPageCapacity",
-                _pool.PageCapacity);
-            command.SetComputeBufferParam(shader, kernel,
-                "_SigmaExactBackendGate", _backendGate.Buffer);
-            command.SetComputeBufferParam(shader, kernel,
-                "_InverseWork", _inverseWork);
-            command.SetComputeBufferParam(shader, kernel,
-                "_InverseWorkControl", _inverseWorkControl);
-            command.SetComputeBufferParam(shader, kernel,
-                "_ProofCarrierState", _pool.State);
-        }
-
-        private void BindGaugeDemand(CommandBuffer command, int kernel,
-            uint revision)
-        {
-            command.SetComputeIntParam(_gaugeDemandShader,
-                "_UseInverseWorkList", 1);
-            command.SetComputeIntParam(_gaugeDemandShader, "_ProofRevision",
-                unchecked((int)revision));
-            command.SetComputeIntParam(_gaugeDemandShader,
-                "_ProofCarrierPageCapacity", _pool.PageCapacity);
-            command.SetComputeBufferParam(_gaugeDemandShader, kernel,
-                "_SigmaExactBackendGate", _backendGate.Buffer);
-            command.SetComputeBufferParam(_gaugeDemandShader, kernel,
-                "_InverseWork", _inverseWork);
-            command.SetComputeBufferParam(_gaugeDemandShader, kernel,
-                "_InverseWorkControl", _inverseWorkControl);
-            command.SetComputeBufferParam(_gaugeDemandShader, kernel,
-                "_ProofCarrierState", _pool.State);
-        }
-
-        private void BindInverseMutation(CommandBuffer command, int kernel,
-            StereoRigFrameLease source, SigmaPredictionFrameLease prediction,
-            uint revision, uint leftKey, uint rightKey, uint rgbLeftKey,
-            uint rgbRightKey)
-        {
-            BindExactCommon(command, _inverse, kernel, source, prediction,
-                revision, leftKey, rightKey, rgbLeftKey, rgbRightKey);
-            command.SetComputeIntParam(_inverse, "_UseInverseWorkList", 1);
-            command.SetComputeIntParam(_inverse, "_SegmentIndex",
-                _pool.SegmentIndex);
-            command.SetComputeIntParam(_inverse, "_PageCapacity",
-                _pool.PageCapacity);
-            command.SetComputeIntParam(_inverse, "_TargetPageCapacity",
-                _pool.PageCapacity);
-            command.SetComputeIntParam(_inverse, "_GaugeCommitCapacity",
-                inverseWorkCapacity);
-            command.SetComputeIntParam(_inverse, "_ConflictCapacity",
-                conflictCapacity);
-            command.SetComputeIntParam(_inverse, "_ProposalFrameSerial",
-                unchecked((int)revision));
-            command.SetComputeBufferParam(_inverse, kernel,
-                "_CarrierState", _pool.State);
-            command.SetComputeBufferParam(_inverse, kernel,
-                "_TargetCarrierState", _pool.State);
-            command.SetComputeBufferParam(_inverse, kernel,
-                "_PageMetadata", _pool.Metadata);
-            command.SetComputeBufferParam(_inverse, kernel,
-                "_CurrentFlags", _pool.CurrentFlags);
-            command.SetComputeBufferParam(_inverse, kernel,
-                "_ProposalStatus", _proposalStatus);
-            command.SetComputeBufferParam(_inverse, kernel,
-                "_ProposalEpoch", _proposalEpoch);
-            command.SetComputeBufferParam(_inverse, kernel,
-                "_RgbSourceBoundsRead", _rgbSourceBounds);
-            command.SetComputeBufferParam(_inverse, kernel,
-                "_RgbSourceMetaRead", _rgbSourceMeta);
-            command.SetComputeBufferParam(_inverse, kernel,
-                "_ConflictRecords", _conflictRecords);
-            command.SetComputeBufferParam(_inverse, kernel,
-                "_ConflictCount", _conflictCount);
-            command.SetComputeBufferParam(_inverse, kernel,
-                "_FrameCounters", _frameCounters);
-            command.SetComputeBufferParam(_inverse, kernel,
-                "_GaugePromotionCounts", _gaugePromotionCounts);
-            command.SetComputeBufferParam(_inverse, kernel,
-                "_ProofSamples", _proofLedger.ProofSampleBuffer);
-            command.SetComputeBufferParam(_inverse, kernel,
-                "_ProofPageStatus", _proofLedger.StatusBuffer);
-            BindInverseWork(command, _inverse, kernel);
-        }
-
-        private void BindInverseWork(CommandBuffer command,
-            ComputeShader shader, int kernel)
-        {
-            command.SetComputeBufferParam(shader, kernel, "_InverseWork",
-                _inverseWork);
-            command.SetComputeBufferParam(shader, kernel,
-                "_InverseWorkControl", _inverseWorkControl);
-        }
-
-        private void BindExactCommon(CommandBuffer command,
-            ComputeShader shader, int kernel, StereoRigFrameLease source,
-            SigmaPredictionFrameLease prediction, uint revision,
-            uint leftKey, uint rightKey, uint rgbLeftKey, uint rgbRightKey)
-        {
-            command.SetComputeBufferParam(shader, kernel,
-                "_SigmaExactBackendGate", _backendGate.Buffer);
-            command.SetComputeBufferParam(shader, kernel,
-                "_DepthCalibrationQ48", _calibrationQ48);
-            command.SetComputeBufferParam(shader, kernel,
-                "_RgbCalibrationQ48", _rgbCalibrationQ48);
-            command.SetComputeBufferParam(shader, kernel,
-                "_RgbViewOperators", _rgbViewOperators);
-            command.SetComputeBufferParam(shader, kernel,
-                "_RgbViewSupportScale", _rgbViewSupportScale);
-            command.SetComputeBufferParam(shader, kernel, "_PoseResult",
-                _poseResult);
-            _proofLedger.BindReadOnly(command, shader, kernel);
-            command.SetComputeTextureParam(shader, kernel, "_MetricDepth",
-                _metricDepth);
-            command.SetComputeTextureParam(shader, kernel, "_DepthFlags",
-                _depthFlags);
-            command.SetComputeTextureParam(shader, kernel, "_PredDepthSupport",
-                prediction.DepthSupport);
-            command.SetComputeTextureParam(shader, kernel, "_PredCarrierPage",
-                prediction.CarrierPage);
-            command.SetComputeTextureParam(shader, kernel,
-                "_PredCarrierUvNormal", prediction.CarrierUvNormal);
-            command.SetComputeTextureParam(shader, kernel, "_PredStateKey",
-                prediction.StateKey);
-            command.SetComputeTextureParam(shader, kernel,
-                "_DepthRayCenterLeft", _coneLuts.DepthLeft.CenterRaySolidAngle);
-            command.SetComputeTextureParam(shader, kernel,
-                "_DepthRayCenterRight", _coneLuts.DepthRight.CenterRaySolidAngle);
-            command.SetComputeTextureParam(shader, kernel,
-                "_DepthSlopeBoundsLeft", _coneLuts.DepthLeft.SlopeBounds);
-            command.SetComputeTextureParam(shader, kernel,
-                "_DepthSlopeBoundsRight", _coneLuts.DepthRight.SlopeBounds);
-            command.SetComputeTextureParam(shader, kernel, "_RgbLeft",
-                source.RgbLeft.Texture);
-            command.SetComputeTextureParam(shader, kernel, "_RgbRight",
-                source.RgbRight.Texture);
-            command.SetComputeIntParams(shader, "_Resolution",
-                source.DepthResolution.x, source.DepthResolution.y);
-            command.SetComputeIntParams(shader, "_RgbResolutionLeft",
-                source.RgbLeft.Resolution.x, source.RgbLeft.Resolution.y);
-            command.SetComputeIntParams(shader, "_RgbResolutionRight",
-                source.RgbRight.Resolution.x, source.RgbRight.Resolution.y);
-            command.SetComputeIntParam(shader, "_LeftIndependenceKey",
-                unchecked((int)leftKey));
-            command.SetComputeIntParam(shader, "_RightIndependenceKey",
-                unchecked((int)rightKey));
-            command.SetComputeIntParam(shader, "_RgbLeftIndependenceKey",
-                unchecked((int)rgbLeftKey));
-            command.SetComputeIntParam(shader, "_RgbRightIndependenceKey",
-                unchecked((int)rgbRightKey));
-            command.SetComputeIntParam(shader, "_RgbPhase",
-                unchecked((int)(revision & 15u)));
-            Matrix4x4 poseReference = PoseMatrix(
+            Matrix4x4 referenceWorld = PoseMatrix(
                 source.DepthLeft.WorldFromCamera);
-            command.SetComputeMatrixParam(shader,
-                "_PoseConsumeReferenceFromWorld", poseReference.inverse);
-            command.SetComputeMatrixParam(shader,
-                "_PoseConsumeWorldFromReference", poseReference);
-            SetFrameMatrices(command, shader, source);
+            command.SetComputeBufferParam(_poseGaugeShader,
+                _poseCalibrationKernel, "_DepthCalibrationQ48",
+                slot.RawDepthCalibration);
+            command.SetComputeBufferParam(_poseGaugeShader,
+                _poseCalibrationKernel, "_PoseRgbCalibrationQ48",
+                slot.RawRgbCalibration);
+            command.SetComputeBufferParam(_poseGaugeShader,
+                _poseCalibrationKernel, "_CorrectedDepthCalibrationQ48",
+                slot.CorrectedDepthCalibration);
+            command.SetComputeBufferParam(_poseGaugeShader,
+                _poseCalibrationKernel, "_CorrectedRgbCalibrationQ48",
+                slot.CorrectedRgbCalibration);
+            command.SetComputeBufferParam(_poseGaugeShader,
+                _poseCalibrationKernel, "_PoseResult", slot.PoseResult);
+            command.SetComputeMatrixParam(_poseGaugeShader,
+                "_PoseConsumeReferenceFromWorld", referenceWorld.inverse);
+            command.SetComputeMatrixParam(_poseGaugeShader,
+                "_PoseConsumeWorldFromReference", referenceWorld);
+            command.DispatchCompute(_poseGaugeShader,
+                _poseCalibrationKernel, 2, 1, 1);
         }
 
-        private void BindFrameConstants(CommandBuffer command,
-            ComputeShader shader, int kernel, StereoRigFrameLease source,
-            SigmaPredictionFrameLease prediction, Vector2Int blockResolution,
-            uint leftKey, uint rightKey, uint rgbLeftKey, uint rgbRightKey,
-            uint revision)
-        {
-            command.SetComputeIntParams(shader, "_Resolution",
-                source.DepthResolution.x, source.DepthResolution.y);
-            command.SetComputeIntParams(shader, "_GaugeBlockResolution",
-                blockResolution.x, blockResolution.y);
-            command.SetComputeIntParam(shader, "_LeftIndependenceKey",
-                unchecked((int)leftKey));
-            command.SetComputeIntParam(shader, "_RightIndependenceKey",
-                unchecked((int)rightKey));
-            command.SetComputeIntParam(shader, "_RgbLeftIndependenceKey",
-                unchecked((int)rgbLeftKey));
-            command.SetComputeIntParam(shader, "_RgbRightIndependenceKey",
-                unchecked((int)rgbRightKey));
-            command.SetComputeIntParam(shader, "_RgbPhase",
-                unchecked((int)(revision & 15u)));
-            command.SetComputeBufferParam(shader, kernel, "_PoseResult",
-                _poseResult);
-            Matrix4x4 poseReference = PoseMatrix(
-                source.DepthLeft.WorldFromCamera);
-            command.SetComputeMatrixParam(shader,
-                "_PoseConsumeReferenceFromWorld", poseReference.inverse);
-            command.SetComputeMatrixParam(shader,
-                "_PoseConsumeWorldFromReference", poseReference);
-            SetFrameMatrices(command, shader, source);
-        }
-
-        private void RecordNormalize(CommandBuffer command,
+        private void UploadExactCalibration(IngressSlot slot,
             StereoRigFrameLease source)
         {
-            command.SetComputeIntParams(_normalize, "_Resolution",
-                source.DepthResolution.x, source.DepthResolution.y);
-            command.SetComputeVectorParam(_normalize, "_NearFar",
-                new Vector4(source.DepthNearFar.x, source.DepthNearFar.y, 0f, 0f));
-            command.SetComputeTextureParam(_normalize, _normalizeKernel,
-                "_RawDepth", source.DepthLeft.Texture);
-            command.SetComputeTextureParam(_normalize, _normalizeKernel,
-                "_DepthRayCenterLeft", _coneLuts.DepthLeft.CenterRaySolidAngle);
-            command.SetComputeTextureParam(_normalize, _normalizeKernel,
-                "_DepthRayCenterRight", _coneLuts.DepthRight.CenterRaySolidAngle);
-            command.SetComputeTextureParam(_normalize, _normalizeKernel,
-                "_MetricDepth", _metricDepth);
-            command.SetComputeTextureParam(_normalize, _normalizeKernel,
-                "_DepthFlags", _depthFlags);
-            command.DispatchCompute(_normalize, _normalizeKernel,
-                CeilDiv(source.DepthResolution.x, 8),
-                CeilDiv(source.DepthResolution.y, 8), 2);
+            FillCalibration(0, source.DepthLeft, source.Health);
+            FillCalibration(1, source.DepthRight, source.Health);
+            slot.RawDepthCalibration.SetData(_calibrationUpload);
+            FillRgbCalibration(0, source.RgbLeft.WorldFromCamera,
+                source.Health);
+            FillRgbCalibration(1, source.RgbRight.WorldFromCamera,
+                source.Health);
+            slot.RawRgbCalibration.SetData(_rgbCalibrationUpload);
         }
 
-        private void RecordPoseGauge(CommandBuffer command,
-            StereoRigFrameLease source, SigmaPredictionFrameLease prediction,
-            uint revision)
+        private void UploadPosePrior(IngressSlot slot,
+            StereoRigFrameLease source)
         {
             for (int component = 0; component < 6; ++component)
                 _posePriorUpload[component] = SigmaPackedQ48.FromRaw(0L);
-            Vector2 trackingEnvelope = BuildTrackingPriorEnvelope(source);
-            long translationWidth = SigmaNumericDomain.Quantize(
-                trackingEnvelope.x);
-            long rotationWidth = SigmaNumericDomain.Quantize(
-                trackingEnvelope.y);
+            Vector2 envelope = BuildTrackingPriorEnvelope(source);
+            long translationWidth = SigmaNumericDomain.Quantize(envelope.x);
+            long rotationWidth = SigmaNumericDomain.Quantize(envelope.y);
             for (int component = 0; component < 6; ++component)
                 _posePriorUpload[6 + component] = SigmaPackedQ48.FromRaw(
                     component < 3 ? translationWidth : rotationWidth);
@@ -1003,80 +680,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 SigmaNumericDomain.Quantize(0.15));
             _posePriorUpload[14] = SigmaPackedQ48.FromRaw(
                 SigmaNumericDomain.Quantize(0.03));
-            _posePrior.SetData(_posePriorUpload);
-            int sampleWidth = CeilDiv(source.DepthResolution.x,
-                poseSampleStride);
-            int sampleHeight = CeilDiv(source.DepthResolution.y,
-                poseSampleStride);
-            int partialCount = CeilDiv(checked(sampleWidth * sampleHeight * 2),
-                64);
-            EnsurePosePartials(partialCount);
-            command.SetComputeBufferParam(_poseGaugeCompute, _poseBuildKernel,
-                "_SigmaExactBackendGate", _backendGate.Buffer);
-            command.SetComputeBufferParam(_poseGaugeCompute, _poseBuildKernel,
-                "_DepthCalibrationQ48", _rawCalibrationQ48);
-            command.SetComputeBufferParam(_poseGaugeCompute, _poseBuildKernel,
-                "_PosePrior", _posePrior);
-            command.SetComputeBufferParam(_poseGaugeCompute, _poseBuildKernel,
-                "_PosePartials", _posePartials);
-            command.SetComputeTextureParam(_poseGaugeCompute, _poseBuildKernel,
-                "_PoseMetricDepth", _metricDepth);
-            command.SetComputeTextureParam(_poseGaugeCompute, _poseBuildKernel,
-                "_PoseDepthFlags", _depthFlags);
-            command.SetComputeTextureParam(_poseGaugeCompute, _poseBuildKernel,
-                "_PosePredDepthSupport", prediction.DepthSupport);
-            command.SetComputeTextureParam(_poseGaugeCompute, _poseBuildKernel,
-                "_PosePredCarrierUvNormal", prediction.CarrierUvNormal);
-            command.SetComputeTextureParam(_poseGaugeCompute, _poseBuildKernel,
-                "_PoseRayLeft", _coneLuts.DepthLeft.CenterRaySolidAngle);
-            command.SetComputeTextureParam(_poseGaugeCompute, _poseBuildKernel,
-                "_PoseRayRight", _coneLuts.DepthRight.CenterRaySolidAngle);
-            command.SetComputeIntParams(_poseGaugeCompute, "_PoseResolution",
-                source.DepthResolution.x, source.DepthResolution.y);
-            command.SetComputeIntParam(_poseGaugeCompute, "_PoseSampleStride",
-                poseSampleStride);
-            command.SetComputeIntParam(_poseGaugeCompute, "_PoseRevision",
-                unchecked((int)revision));
-            command.SetComputeIntParam(_poseGaugeCompute, "_PosePartialCount",
-                partialCount);
-            command.DispatchCompute(_poseGaugeCompute, _poseBuildKernel,
-                partialCount, 1, 1);
-            command.SetComputeBufferParam(_poseGaugeCompute, _poseReduceKernel,
-                "_SigmaExactBackendGate", _backendGate.Buffer);
-            command.SetComputeBufferParam(_poseGaugeCompute, _poseReduceKernel,
-                "_PosePrior", _posePrior);
-            command.SetComputeBufferParam(_poseGaugeCompute, _poseReduceKernel,
-                "_PosePartials", _posePartials);
-            command.SetComputeBufferParam(_poseGaugeCompute, _poseReduceKernel,
-                "_PoseResult", _poseResult);
-            command.DispatchCompute(_poseGaugeCompute, _poseReduceKernel, 1, 1, 1);
-        }
-
-        private void RecordCorrectedCalibration(CommandBuffer command,
-            StereoRigFrameLease source)
-        {
-            Matrix4x4 referenceWorld = PoseMatrix(
-                source.DepthLeft.WorldFromCamera);
-            command.SetComputeBufferParam(_poseGaugeCompute,
-                _poseCalibrationKernel, "_DepthCalibrationQ48",
-                _rawCalibrationQ48);
-            command.SetComputeBufferParam(_poseGaugeCompute,
-                _poseCalibrationKernel, "_PoseRgbCalibrationQ48",
-                _rawRgbCalibrationQ48);
-            command.SetComputeBufferParam(_poseGaugeCompute,
-                _poseCalibrationKernel, "_CorrectedDepthCalibrationQ48",
-                _calibrationQ48);
-            command.SetComputeBufferParam(_poseGaugeCompute,
-                _poseCalibrationKernel, "_CorrectedRgbCalibrationQ48",
-                _rgbCalibrationQ48);
-            command.SetComputeBufferParam(_poseGaugeCompute,
-                _poseCalibrationKernel, "_PoseResult", _poseResult);
-            command.SetComputeMatrixParam(_poseGaugeCompute,
-                "_PoseConsumeReferenceFromWorld", referenceWorld.inverse);
-            command.SetComputeMatrixParam(_poseGaugeCompute,
-                "_PoseConsumeWorldFromReference", referenceWorld);
-            command.DispatchCompute(_poseGaugeCompute, _poseCalibrationKernel,
-                2, 1, 1);
+            slot.PosePrior.SetData(_posePriorUpload);
         }
 
         private Vector2 BuildTrackingPriorEnvelope(StereoRigFrameLease source)
@@ -1085,38 +689,36 @@ namespace Genesis.RoomScan.SigmaPrism
             long timestamp = source.DepthLeft.Timestamp.UnixNanoseconds;
             float translation = poseTranslationPriorMetres;
             float rotation = poseRotationPriorDegrees * Mathf.Deg2Rad;
-            if (_hasPreviousTrackingPose && timestamp > _previousTrackingTimestampNs)
+            if (_hasPreviousTrackingPose &&
+                timestamp > _previousTrackingTimestampNs)
             {
-                double deltaSeconds = (timestamp - _previousTrackingTimestampNs) *
-                    1e-9;
-                // Build the deterministic prior envelope from every uncertainty
-                // quantity carried by the coherent Meta frame: timestamp mapping,
-                // stereo RGB skew, RGB/depth skew, observed tracking velocity and
-                // the fixed-rig residual against this immutable calibration epoch.
-                // The final bounds are quantized before canonical pose acceptance.
+                double deltaSeconds =
+                    (timestamp - _previousTrackingTimestampNs) * 1e-9;
                 long timingNanoseconds = SaturatingAdd(
-                    Math.Max(0L, source.Health.ClockUncertaintyNanoseconds),
+                    Math.Max(0L,
+                        source.Health.ClockUncertaintyNanoseconds),
                     SaturatingAdd(AbsNanoseconds(
                             source.Health.RgbDepthDeltaNanoseconds),
-                        AbsNanoseconds(source.Health.RgbDeltaNanoseconds) / 2L));
+                        AbsNanoseconds(
+                            source.Health.RgbDeltaNanoseconds) / 2L));
                 double uncertaintySeconds = timingNanoseconds * 1e-9;
-                float distance = Vector3.Distance(_previousTrackingPose.position,
-                    current.position);
-                float angle = Quaternion.Angle(_previousTrackingPose.rotation,
-                    current.rotation) * Mathf.Deg2Rad;
+                float distance = Vector3.Distance(
+                    _previousTrackingPose.position, current.position);
+                float angle = Quaternion.Angle(
+                    _previousTrackingPose.rotation, current.rotation) *
+                    Mathf.Deg2Rad;
                 float linearRate = distance /
                     (float)Math.Max(deltaSeconds, 1e-6);
                 float angularRate = angle /
                     (float)Math.Max(deltaSeconds, 1e-6);
-                float rigTranslationResidual = MaxRigTranslationResidual(source);
-                float rigRotationResidual = MaxRigRotationResidual(source);
-                translation = Mathf.Clamp(0.003f +
-                    linearRate * (float)uncertaintySeconds * 2f +
-                    rigTranslationResidual,
+                translation = Mathf.Clamp(0.003f + linearRate *
+                        (float)uncertaintySeconds * 2f +
+                        MaxRigTranslationResidual(source),
                     0.003f, poseTranslationPriorMetres);
                 rotation = Mathf.Clamp(0.25f * Mathf.Deg2Rad +
-                    angularRate * (float)uncertaintySeconds * 2f +
-                    rigRotationResidual, 0.25f * Mathf.Deg2Rad,
+                        angularRate * (float)uncertaintySeconds * 2f +
+                        MaxRigRotationResidual(source),
+                    0.25f * Mathf.Deg2Rad,
                     poseRotationPriorDegrees * Mathf.Deg2Rad);
             }
             _previousTrackingPose = current;
@@ -1151,17 +753,12 @@ namespace Genesis.RoomScan.SigmaPrism
                     current.RightRgbFromRightDepth.rotation));
         }
 
-        private static long AbsNanoseconds(long value) => value == long.MinValue
-            ? long.MaxValue : Math.Abs(value);
-
-        private static long SaturatingAdd(long left, long right) =>
-            left > long.MaxValue - right ? long.MaxValue : left + right;
-
         private void EnsureCalibration(StereoRigFrameLease source)
         {
             if (_calibration != null && _calibration.IsCompatible(source))
                 return;
-            if (!RigCalibration.TryCreate(source, out RigCalibration calibration))
+            if (!RigCalibration.TryCreate(source,
+                    out RigCalibration calibration))
                 throw new InvalidOperationException(
                     "Unable to freeze inverse rig calibration.");
             _coneLuts?.Retire();
@@ -1169,51 +766,66 @@ namespace Genesis.RoomScan.SigmaPrism
             _coneLuts = RigConeLutSet.Create(_coneLutShader, calibration);
         }
 
-        private void EnsureFrameResources(Vector2Int resolution)
+        private void FindKernels()
         {
-            if (_scratchResolution == resolution && _metricDepth != null &&
-                _depthFlags != null)
-                return;
-            DestroyTexture(_metricDepth);
-            DestroyTexture(_depthFlags);
-            _metricDepth = CreateArrayTexture("Sigma metric depth", resolution,
-                GraphicsFormat.R32G32_SFloat);
-            _depthFlags = CreateArrayTexture("Sigma depth flags", resolution,
-                GraphicsFormat.R32_UInt);
-            _scratchResolution = resolution;
+            _normalizeKernel = _ingressShader.FindKernel(
+                "NormalizeStereoDepth");
+            _clearClassificationKernel = _ingressShader.FindKernel(
+                "ClearIngressClassification");
+            _classifyKernel = _ingressShader.FindKernel("ClassifyIngress");
+            _poseBuildKernel = _poseGaugeShader.FindKernel(
+                "BuildPoseGaugePartials");
+            _poseReduceKernel = _poseGaugeShader.FindKernel(
+                "ReducePoseGauge");
+            _poseCalibrationKernel = _poseGaugeShader.FindKernel(
+                "BuildCorrectedCalibration");
         }
 
-        private void EnsureBlockBuffers(int blockCount)
+        private void CreatePersistentResources()
         {
-            if (_blockFlagCapacity >= blockCount)
-                return;
-            _unmatchedBlockFlags?.Dispose();
-            _unmatchedBlockAnchors?.Dispose();
-            _blockFlagCapacity = NextPowerOfTwo(blockCount);
-            _unmatchedBlockFlags = CreateBuffer(_blockFlagCapacity,
-                sizeof(uint), "Sigma unmatched inverse blocks");
-            _unmatchedBlockAnchors = CreateBuffer(_blockFlagCapacity,
-                sizeof(uint), "Sigma unmatched inverse anchors");
-        }
+            int packedStride = Marshal.SizeOf<SigmaPackedQ48>();
+            SigmaRgbViewCatalog catalog = SigmaRgbViewCatalog.CreateCanonical();
+            var operators = new SigmaPackedQ48[catalog.OperatorRaw.Count];
+            for (int index = 0; index < operators.Length; ++index)
+                operators[index] = SigmaPackedQ48.FromRaw(
+                    catalog.OperatorRaw[index]);
+            _rgbViewOperators = CreateBuffer(operators.Length, packedStride,
+                "Sigma RGB view operators");
+            _rgbViewOperators.SetData(operators);
+            var scales = new uint[catalog.SupportScale.Count];
+            for (int index = 0; index < scales.Length; ++index)
+                scales[index] = catalog.SupportScale[index];
+            _rgbViewSupportScale = CreateBuffer(scales.Length, sizeof(uint),
+                "Sigma RGB view support scales");
+            _rgbViewSupportScale.SetData(scales);
 
-        private void EnsurePosePartials(int partialCount)
-        {
-            if (_posePartials != null && _posePartialCapacity >= partialCount)
-                return;
-            _posePartials?.Dispose();
-            _posePartialCapacity = Math.Max(1, partialCount);
-            _posePartials = CreateBuffer(checked(_posePartialCapacity * 7),
-                sizeof(uint) * 4, "Sigma pose partial meets");
-        }
-
-        private void UploadExactCalibration(StereoRigFrameLease source)
-        {
-            FillCalibration(0, source.DepthLeft, source.Health);
-            FillCalibration(1, source.DepthRight, source.Health);
-            _rawCalibrationQ48.SetData(_calibrationUpload);
-            FillRgbCalibration(0, source.RgbLeft.WorldFromCamera, source.Health);
-            FillRgbCalibration(1, source.RgbRight.WorldFromCamera, source.Health);
-            _rawRgbCalibrationQ48.SetData(_rgbCalibrationUpload);
+            _activeFlagCount = Math.Max(1,
+                (_pool.SegmentIndex + 1) *
+                SigmaCarrier.MaximumPagesPerSegment);
+            ingressSlotCount = Mathf.Clamp(ingressSlotCount, 3, 8);
+            _ingressSlots = new IngressSlot[ingressSlotCount];
+            for (int index = 0; index < _ingressSlots.Length; ++index)
+            {
+                _ingressSlots[index] = new IngressSlot(
+                    CreateBuffer(CalibrationStride * 2, packedStride,
+                        $"Sigma ingress {index} raw depth calibration"),
+                    CreateBuffer(RgbCalibrationStride * 2, packedStride,
+                        $"Sigma ingress {index} raw RGB calibration"),
+                    CreateBuffer(CalibrationStride * 2, packedStride,
+                        $"Sigma ingress {index} corrected depth calibration"),
+                    CreateBuffer(RgbCalibrationStride * 2, packedStride,
+                        $"Sigma ingress {index} corrected RGB calibration"),
+                    CreateBuffer(PosePriorValueCount, packedStride,
+                        $"Sigma ingress {index} pose prior"),
+                    CreateBuffer(4, sizeof(uint) * 4,
+                        $"Sigma ingress {index} pose result"),
+                    _proofLedger.CreateStreamingFrameStagingBuffer(
+                        $"Sigma ingress {index} provenance"),
+                    CreateBuffer(_activeFlagCount, sizeof(uint),
+                        $"Sigma ingress {index} active carrier pages"),
+                    CreateBuffer(1, sizeof(uint),
+                        $"Sigma ingress {index} unmatched blocks"), index);
+            }
         }
 
         private void FillCalibration(int eye, GpuImageView view,
@@ -1268,141 +880,52 @@ namespace Genesis.RoomScan.SigmaPrism
             SetRgbQRaw(offset + 7, 0L);
         }
 
-        private void SetFrameMatrices(CommandBuffer command,
-            ComputeShader shader, StereoRigFrameLease source)
+        private bool TryGetFreeIngressSlot(out IngressSlot result)
         {
-            Matrix4x4 leftWorld = PoseMatrix(source.DepthLeft.WorldFromCamera);
-            Matrix4x4 rightWorld = PoseMatrix(source.DepthRight.WorldFromCamera);
-            command.SetComputeMatrixParam(shader, "_WorldFromOpticalLeft",
-                leftWorld);
-            command.SetComputeMatrixParam(shader, "_WorldFromOpticalRight",
-                rightWorld);
-            command.SetComputeMatrixParam(shader, "_OpticalFromWorldLeft",
-                leftWorld.inverse);
-            command.SetComputeMatrixParam(shader, "_OpticalFromWorldRight",
-                rightWorld.inverse);
-            command.SetComputeVectorParam(shader, "_DepthIntrinsicsLeft",
-                IntrinsicsVector(source.DepthLeft.Intrinsics));
-            command.SetComputeVectorParam(shader, "_DepthIntrinsicsRight",
-                IntrinsicsVector(source.DepthRight.Intrinsics));
-            command.SetComputeMatrixParam(shader, "_RgbOpticalFromWorldLeft",
-                PoseMatrix(source.RgbLeft.WorldFromCamera).inverse);
-            command.SetComputeMatrixParam(shader, "_RgbOpticalFromWorldRight",
-                PoseMatrix(source.RgbRight.WorldFromCamera).inverse);
-            command.SetComputeVectorParam(shader, "_RgbIntrinsicsLeft",
-                IntrinsicsVector(source.RgbLeft.Intrinsics));
-            command.SetComputeVectorParam(shader, "_RgbIntrinsicsRight",
-                IntrinsicsVector(source.RgbRight.Intrinsics));
-        }
-
-        private void FindKernels()
-        {
-            _normalizeKernel = _normalize.FindKernel("NormalizeStereoDepth");
-            _clearKernel = _inverse.FindKernel("ClearInverseFrame");
-            _classifyKernel = _inverse.FindKernel("ClassifyDepthFrame");
-            _rgbSourceKernel = _rgbSource.FindKernel("BuildRgbSourceCells");
-            _commitKernel = _inverse.FindKernel("SolveAndCommitPage");
-            _promoteKernel = _inverse.FindKernel("PromoteGaugePage");
-            _poseBuildKernel = _poseGaugeCompute.FindKernel(
-                "BuildPoseGaugePartials");
-            _poseReduceKernel = _poseGaugeCompute.FindKernel("ReducePoseGauge");
-            _poseCalibrationKernel = _poseGaugeCompute.FindKernel(
-                "BuildCorrectedCalibration");
-            _workClearKernel = _workGraph.FindKernel("ClearInverseWorkGraph");
-            _workCompactKernel = _workGraph.FindKernel("CompactInverseWork");
-            _workPrepareKernel = _workGraph.FindKernel(
-                "PrepareInverseTransactions");
-            _workRawPlanKernel = _workGraph.FindKernel("PlanRawReservations");
-            _workCommitKernel = _workGraph.FindKernel(
-                "CommitInverseTransactions");
-            ComputeShader ledger = _proofLedgerShader;
-            _proofClearKernel = ledger.FindKernel("ClearProofTransaction");
-            _proofSourceReduceKernel = ledger.FindKernel("ReduceProofSources");
-            _proofFinalizeKernel = ledger.FindKernel("FinalizeProofPage");
-            _proofRawCommitKernel = ledger.FindKernel("CommitRawProof");
-            _gaugeCoordinateKernel = _gaugeDemandShader.FindKernel(
-                "BuildGaugeCoordinateCandidates");
-            _gaugeFinalizeKernel = _gaugeDemandShader.FindKernel(
-                "FinalizeGaugeDemand");
-            _performanceKernel = _performanceCompute.FindKernel(
-                "AccumulateSigmaPerformanceCounters");
-        }
-
-        private void CreatePersistentResources()
-        {
-            _calibrationQ48 = CreateBuffer(CalibrationStride * 2,
-                Marshal.SizeOf<SigmaPackedQ48>(), "Sigma depth calibration Q48");
-            _rgbCalibrationQ48 = CreateBuffer(RgbCalibrationStride * 2,
-                Marshal.SizeOf<SigmaPackedQ48>(), "Sigma RGB calibration Q48");
-            _rawCalibrationQ48 = CreateBuffer(CalibrationStride * 2,
-                Marshal.SizeOf<SigmaPackedQ48>(),
-                "Sigma raw Meta depth calibration Q48");
-            _rawRgbCalibrationQ48 = CreateBuffer(RgbCalibrationStride * 2,
-                Marshal.SizeOf<SigmaPackedQ48>(),
-                "Sigma raw Meta RGB calibration Q48");
-            SigmaRgbViewCatalog catalog = SigmaRgbViewCatalog.CreateCanonical();
-            var operators = new SigmaPackedQ48[catalog.OperatorRaw.Count];
-            for (int index = 0; index < operators.Length; ++index)
-                operators[index] = SigmaPackedQ48.FromRaw(
-                    catalog.OperatorRaw[index]);
-            _rgbViewOperators = CreateBuffer(operators.Length,
-                Marshal.SizeOf<SigmaPackedQ48>(), "Sigma RGB view operators");
-            _rgbViewOperators.SetData(operators);
-            var scales = new uint[catalog.SupportScale.Count];
-            for (int index = 0; index < scales.Length; ++index)
-                scales[index] = catalog.SupportScale[index];
-            _rgbViewSupportScale = CreateBuffer(scales.Length, sizeof(uint),
-                "Sigma RGB view support scales");
-            _rgbViewSupportScale.SetData(scales);
-
-            _activeFlagCount = Math.Max(1, (_pool.SegmentIndex + 1) * 256);
-            _activePageFlags = CreateBuffer(_activeFlagCount, sizeof(uint),
-                "Sigma active page flags");
-            _conflictRecords = CreateBuffer(conflictCapacity, ConflictStride,
-                "Sigma inverse conflict records");
-            _conflictCount = CreateBuffer(1, sizeof(uint),
-                "Sigma inverse conflict count");
-            _frameCounters = CreateBuffer(8, sizeof(uint),
-                "Sigma inverse GPU counters");
-            _gaugePromotionCounts = CreateBuffer(inverseWorkCapacity,
-                sizeof(uint), "Sigma gauge promotion counts");
-            _proposalStatus = CreateBuffer(checked(_pool.PageCapacity *
-                SigmaCarrier.SamplesPerPage), sizeof(uint),
-                "Sigma inverse proposal status");
-            _proposalEpoch = CreateBuffer(_pool.PageCapacity, sizeof(uint),
-                "Sigma inverse proposal epoch");
-            _rgbSourceBounds = CreateBuffer(checked(inverseWorkCapacity * 2 *
-                RgbPhaseSamples * 16), sizeof(uint) * 4,
-                "Sigma compact RGB source bounds");
-            _rgbSourceMeta = CreateBuffer(checked(inverseWorkCapacity * 2 *
-                RgbPhaseSamples), sizeof(uint) * 4,
-                "Sigma compact RGB source metadata");
-            _posePrior = CreateBuffer(PosePriorValueCount,
-                Marshal.SizeOf<SigmaPackedQ48>(),
-                "Sigma exact pose prior");
-            _poseResult = CreateBuffer(4, sizeof(uint) * 4,
-                "Sigma GPU-resident exact pose meet");
-            _inverseWork = CreateBuffer(inverseWorkCapacity, WorkStride,
-                "Sigma compact inverse work");
-            _inverseWorkControl = CreateBuffer(WorkControlWords, sizeof(uint),
-                "Sigma inverse work control");
-            _inverseWorkControl.SetData(new uint[WorkControlWords]);
-            _dispatchArguments = new GraphicsBuffer(
-                GraphicsBuffer.Target.Structured |
-                GraphicsBuffer.Target.IndirectArguments,
-                21, sizeof(uint))
+            for (int index = 0; index < _ingressSlots.Length; ++index)
             {
-                name = "Sigma inverse graph indirect argument arena"
-            };
-            _dispatchArguments.SetData(new uint[21]);
-            _performanceCounters = CreateBuffer(PerformanceCounterCount,
-                sizeof(uint), "Sigma Section 44 performance counters");
-            _performanceTopologyHistory = CreateBuffer(
-                PerformanceTopologyHistoryCount, sizeof(uint),
-                "Sigma topology counter history");
-            _performanceCounters.SetData(new uint[PerformanceCounterCount]);
-            _performanceTopologyHistory.SetData(
-                new uint[PerformanceTopologyHistoryCount]);
+                if (_ingressSlots[index].InFlight)
+                    continue;
+                result = _ingressSlots[index];
+                return true;
+            }
+            result = null;
+            return false;
+        }
+
+        private int CountPendingTickets()
+        {
+            int count = _initialization != null ? 1 : 0;
+            if (_canonical != null)
+                count++;
+            if (_derived != null)
+                count++;
+            if (_ingressSlots != null)
+            {
+                for (int index = 0; index < _ingressSlots.Length; ++index)
+                    if (_ingressSlots[index].InFlight)
+                        count++;
+            }
+            return count;
+        }
+
+        private void ReleasePendingIngress()
+        {
+            while (_pendingIngress.Count != 0)
+                _pendingIngress.Dequeue().Dispose();
+        }
+
+        private void TrackLast(SigmaGpuCompletionTicket ticket)
+        {
+            _lastCompletion = ticket;
+            _hasLastCompletion = true;
+        }
+
+        private void UpdatePeak(Submission submission)
+        {
+            submission.AdvanceAge();
+            PeakCompletionAgeFrames = Math.Max(PeakCompletionAgeFrames,
+                submission.AgeFrames);
         }
 
         private uint NextRevision()
@@ -1422,6 +945,10 @@ namespace Genesis.RoomScan.SigmaPrism
         private void SetRgbQRaw(int index, long raw) =>
             _rgbCalibrationUpload[index] = SigmaPackedQ48.FromRaw(raw);
 
+        private static long AbsNanoseconds(long value) => value == long.MinValue
+            ? long.MaxValue : Math.Abs(value);
+        private static long SaturatingAdd(long left, long right) =>
+            left > long.MaxValue - right ? long.MaxValue : left + right;
         private static Matrix4x4 PoseMatrix(Pose pose) => Matrix4x4.TRS(
             pose.position, pose.rotation, Vector3.one);
         private static Vector4 IntrinsicsVector(RigIntrinsics intrinsics) => new(
@@ -1466,9 +993,6 @@ namespace Genesis.RoomScan.SigmaPrism
         private static GraphicsBuffer CreateBuffer(int count, int stride,
             string name) => new(GraphicsBuffer.Target.Structured,
                 Math.Max(1, count), stride) { name = name };
-        private static GraphicsBuffer CreateIndirectBuffer(string name) =>
-            new(GraphicsBuffer.Target.IndirectArguments, 3, sizeof(uint))
-            { name = name };
 
         private static RenderTexture CreateArrayTexture(string name,
             Vector2Int resolution, GraphicsFormat format)
@@ -1519,48 +1043,50 @@ namespace Genesis.RoomScan.SigmaPrism
             _running = false;
             if (_renderer != null)
                 _renderer.PredictionReady -= OnPredictionReady;
-            _pendingPrediction?.Dispose();
-            _pendingPrediction = null;
-            GpuSubmission submission = _inFlight;
-            _inFlight = null;
+            ReleasePendingIngress();
+
+            IngressSlot[] slots = _ingressSlots;
+            _ingressSlots = null;
             RigConeLutSet coneLuts = _coneLuts;
             _coneLuts = null;
-            RenderTexture metricDepth = _metricDepth;
-            RenderTexture depthFlags = _depthFlags;
-            _metricDepth = null;
-            _depthFlags = null;
             GraphicsBuffer[] buffers = {
-                _calibrationQ48, _rgbCalibrationQ48, _rawCalibrationQ48,
-                _rawRgbCalibrationQ48, _rgbViewOperators,
-                _rgbViewSupportScale, _activePageFlags, _unmatchedBlockFlags,
-                _unmatchedBlockAnchors, _conflictRecords, _conflictCount,
-                _frameCounters, _gaugePromotionCounts, _proposalStatus,
-                _proposalEpoch, _rgbSourceBounds, _rgbSourceMeta, _posePrior,
-                _poseResult, _posePartials, _inverseWork,
-                _inverseWorkControl, _dispatchArguments,
-                _performanceCounters, _performanceTopologyHistory
+                _rgbViewOperators, _rgbViewSupportScale
             };
-            SigmaConstraintLedger proofLedger = _proofLedger;
+            SigmaConstraintLedger ledger = _proofLedger;
+            SigmaStreamingResources stream = _stream;
+            _renderer?.UnbindStreamingManifest(
+                stream?.PublicationManifests);
             _proofLedger = null;
+            _stream = null;
+            _graph = null;
             _initialized = false;
 
             void ReleaseOwnedResources()
             {
-                submission?.Dispose();
+                if (slots != null)
+                    for (int index = 0; index < slots.Length; ++index)
+                        slots[index]?.Dispose();
                 coneLuts?.Retire();
-                DestroyTexture(metricDepth);
-                DestroyTexture(depthFlags);
                 for (int index = 0; index < buffers.Length; ++index)
                     buffers[index]?.Dispose();
-                proofLedger?.Dispose();
+                stream?.Dispose();
+                ledger?.Dispose();
             }
 
-            if (submission == null)
-                ReleaseOwnedResources();
-            else
-                SigmaGpuRetirement.Retire(submission.Completion,
+            if (_completionFaulted)
+            {
+                SigmaGpuRetirement.Quarantine(ReleaseOwnedResources,
+                    "Sigma streaming controller resources",
+                    "A completion fault left GPU ownership unproven.");
+            }
+            else if (_hasLastCompletion)
+            {
+                SigmaGpuRetirement.Retire(_lastCompletion,
                     ReleaseOwnedResources,
-                    "Sigma inverse controller teardown");
+                    "Sigma streaming controller teardown");
+            }
+            else
+                ReleaseOwnedResources();
         }
 
         [StructLayout(LayoutKind.Sequential)]
@@ -1577,31 +1103,161 @@ namespace Genesis.RoomScan.SigmaPrism
                 unchecked((uint)raw), unchecked((uint)(raw >> 32)));
         }
 
-        private sealed class GpuSubmission : IDisposable
+        private sealed class Submission
+        {
+            private readonly SigmaGpuCompletionTicket _ticket;
+            internal Submission(SigmaGpuCompletionTicket ticket, string label)
+            {
+                _ticket = ticket;
+                Label = label;
+            }
+            internal string Label { get; }
+            internal long AgeFrames { get; private set; }
+            internal void AdvanceAge() => AgeFrames++;
+            internal SigmaGpuCompletionStatus Poll(out string error) =>
+                _ticket.Poll(out error);
+        }
+
+        private sealed class IngressSlot : IDisposable
         {
             private SigmaPredictionFrameLease _prediction;
             private SigmaPredictionFrameLease _correctedPrediction;
-            private readonly SigmaGpuCompletionTicket _completion;
-            internal GpuSubmission(SigmaPredictionFrameLease prediction,
-                SigmaPredictionFrameLease correctedPrediction,
-                SigmaGpuCompletionTicket completion)
+            private ConeLutLease _coneLuts;
+            private SigmaGpuCompletionTicket _ticket;
+            private readonly int _index;
+            private Vector2Int _resolution;
+            private int _posePartialCapacity;
+            private int _blockFlagCapacity = 1;
+
+            internal IngressSlot(GraphicsBuffer rawDepthCalibration,
+                GraphicsBuffer rawRgbCalibration,
+                GraphicsBuffer correctedDepthCalibration,
+                GraphicsBuffer correctedRgbCalibration,
+                GraphicsBuffer posePrior, GraphicsBuffer poseResult,
+                GraphicsBuffer frameStaging, GraphicsBuffer activePageFlags,
+                GraphicsBuffer unmatchedBlockFlags, int index)
             {
+                RawDepthCalibration = rawDepthCalibration;
+                RawRgbCalibration = rawRgbCalibration;
+                CorrectedDepthCalibration = correctedDepthCalibration;
+                CorrectedRgbCalibration = correctedRgbCalibration;
+                PosePrior = posePrior;
+                PoseResult = poseResult;
+                FrameStaging = frameStaging;
+                ActivePageFlags = activePageFlags;
+                UnmatchedBlockFlags = unmatchedBlockFlags;
+                _index = index;
+            }
+
+            internal GraphicsBuffer RawDepthCalibration { get; }
+            internal GraphicsBuffer RawRgbCalibration { get; }
+            internal GraphicsBuffer CorrectedDepthCalibration { get; }
+            internal GraphicsBuffer CorrectedRgbCalibration { get; }
+            internal GraphicsBuffer PosePrior { get; }
+            internal GraphicsBuffer PoseResult { get; }
+            internal GraphicsBuffer FrameStaging { get; }
+            internal GraphicsBuffer ActivePageFlags { get; }
+            internal GraphicsBuffer UnmatchedBlockFlags { get; private set; }
+            internal GraphicsBuffer PosePartials { get; private set; }
+            internal RenderTexture MetricDepth { get; private set; }
+            internal RenderTexture DepthFlags { get; private set; }
+            internal bool InFlight { get; private set; }
+            internal long AgeFrames { get; private set; }
+            internal uint Revision { get; private set; }
+
+            internal void Begin(SigmaPredictionFrameLease prediction,
+                SigmaPredictionFrameLease correctedPrediction,
+                ConeLutLease coneLuts, SigmaGpuCompletionTicket ticket,
+                uint revision)
+            {
+                if (InFlight)
+                    throw new InvalidOperationException(
+                        "Sigma ingress slot is already in flight.");
                 _prediction = prediction;
                 _correctedPrediction = correctedPrediction;
-                _completion = completion;
+                _coneLuts = coneLuts;
+                _ticket = ticket;
+                Revision = revision;
+                AgeFrames = 0L;
+                InFlight = true;
             }
-            internal bool Discard { get; set; }
-            internal long AgeFrames { get; private set; }
-            internal SigmaGpuCompletionTicket Completion => _completion;
-            internal void AdvanceAge() => AgeFrames++;
+
             internal SigmaGpuCompletionStatus Poll(out string error) =>
-                _completion.Poll(out error);
+                _ticket.Poll(out error);
+            internal void AdvanceAge() => AgeFrames++;
+
+            internal void EnsureFrameResources(Vector2Int resolution,
+                int blockCount)
+            {
+                if (_resolution != resolution || MetricDepth == null ||
+                    DepthFlags == null)
+                {
+                    DestroyTexture(MetricDepth);
+                    DestroyTexture(DepthFlags);
+                    MetricDepth = CreateArrayTexture(
+                        $"Sigma ingress {_index} metric depth", resolution,
+                        GraphicsFormat.R32G32_SFloat);
+                    DepthFlags = CreateArrayTexture(
+                        $"Sigma ingress {_index} depth flags", resolution,
+                        GraphicsFormat.R32_UInt);
+                    _resolution = resolution;
+                }
+                if (_blockFlagCapacity >= blockCount)
+                    return;
+                UnmatchedBlockFlags?.Dispose();
+                _blockFlagCapacity = NextPowerOfTwo(blockCount);
+                UnmatchedBlockFlags = CreateBuffer(_blockFlagCapacity,
+                    sizeof(uint),
+                    $"Sigma ingress {_index} unmatched blocks");
+            }
+
+            internal void EnsurePosePartials(int partialCount)
+            {
+                if (PosePartials != null &&
+                    _posePartialCapacity >= partialCount)
+                    return;
+                PosePartials?.Dispose();
+                _posePartialCapacity = Math.Max(1, partialCount);
+                PosePartials = CreateBuffer(
+                    checked(_posePartialCapacity * 7), sizeof(uint) * 4,
+                    $"Sigma ingress {_index} pose partial meets");
+            }
+
+            internal void Complete()
+            {
+                _prediction?.Dispose();
+                _prediction = null;
+                _correctedPrediction?.Dispose();
+                _correctedPrediction = null;
+                _coneLuts?.Dispose();
+                _coneLuts = null;
+                InFlight = false;
+                AgeFrames = 0L;
+            }
+
             public void Dispose()
             {
                 _prediction?.Dispose();
                 _prediction = null;
                 _correctedPrediction?.Dispose();
                 _correctedPrediction = null;
+                _coneLuts?.Dispose();
+                _coneLuts = null;
+                RawDepthCalibration?.Dispose();
+                RawRgbCalibration?.Dispose();
+                CorrectedDepthCalibration?.Dispose();
+                CorrectedRgbCalibration?.Dispose();
+                PosePrior?.Dispose();
+                PoseResult?.Dispose();
+                PosePartials?.Dispose();
+                FrameStaging?.Dispose();
+                ActivePageFlags?.Dispose();
+                UnmatchedBlockFlags?.Dispose();
+                DestroyTexture(MetricDepth);
+                DestroyTexture(DepthFlags);
+                MetricDepth = null;
+                DepthFlags = null;
+                InFlight = false;
             }
         }
     }

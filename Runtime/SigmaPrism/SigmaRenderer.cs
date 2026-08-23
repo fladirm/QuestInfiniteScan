@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Experimental.Rendering;
 using UnityEngine.Rendering;
 
 namespace Genesis.RoomScan.SigmaPrism
@@ -26,6 +27,10 @@ namespace Genesis.RoomScan.SigmaPrism
         private const string PredictionResource = "SigmaPrism/SigmaPredict";
         private const string PreviewResource =
             "SigmaPrism/SigmaDirectCarrierPreview";
+        private const string RevalidationComputeResource =
+            "SigmaPrism/SigmaStreamRevalidation";
+        private const string RevalidationShaderResource =
+            "SigmaPrism/SigmaStreamRevalidation";
 
         [SerializeField, Range(3, 12)] private int targetRingSlots = 4;
 
@@ -35,8 +40,12 @@ namespace Genesis.RoomScan.SigmaPrism
             "_CarrierState");
         private static readonly int PageMetadataId = Shader.PropertyToID(
             "_PageMetadata");
-        private static readonly int CurrentFlagsId = Shader.PropertyToID(
-            "_CurrentFlags");
+        private static readonly int StreamManifestsId = Shader.PropertyToID(
+            "_StreamManifests");
+        private static readonly int StreamPageVisibilityId =
+            Shader.PropertyToID("_StreamPageVisibility");
+        private static readonly int StreamManifestCapacityId =
+            Shader.PropertyToID("_StreamManifestCapacity");
         private static readonly int ReadoutDirtyFlagsId = Shader.PropertyToID(
             "_ReadoutDirtyFlags");
         private static readonly int ReadoutVerticesId = Shader.PropertyToID(
@@ -75,11 +84,58 @@ namespace Genesis.RoomScan.SigmaPrism
             "_PreviewAlpha");
         private static readonly int PreviewWireThicknessId = Shader.PropertyToID(
             "_PreviewWireThickness");
+        private static readonly int StreamTransactionsId = Shader.PropertyToID(
+            "_StreamTransactions");
+        private static readonly int StreamBundlesId = Shader.PropertyToID(
+            "_StreamBundles");
+        private static readonly int StreamSourceSegmentsId = Shader.PropertyToID(
+            "_StreamSourceSegments");
+        private static readonly int StreamWorkItemsId = Shader.PropertyToID(
+            "_StreamWorkItems");
+        private static readonly int StreamWorkCountsId = Shader.PropertyToID(
+            "_StreamWorkCounts");
+        private static readonly int StreamAssociationOwnersId =
+            Shader.PropertyToID("_StreamAssociationOwners");
+        private static readonly int StreamAssociationId = Shader.PropertyToID(
+            "_StreamAssociation");
+        private static readonly int StreamSchedulerControlId =
+            Shader.PropertyToID("_StreamSchedulerControl");
+        private static readonly int StreamDiagnosticsId = Shader.PropertyToID(
+            "_StreamDiagnostics");
+        private static readonly int StreamBundleCalibrationId =
+            Shader.PropertyToID("_StreamBundleCalibration");
+        private static readonly int StreamBundleRayEpochId =
+            Shader.PropertyToID("_StreamBundleRayEpoch");
+        private static readonly int StreamSourceSegmentCapacityId =
+            Shader.PropertyToID("_StreamSourceSegmentCapacity");
+        private static readonly int RawWordsId = Shader.PropertyToID("_RawWords");
+        private static readonly int RevalidationContextId =
+            Shader.PropertyToID("_RevalidationContext");
+        private static readonly int RevalidationPageSnapshotId =
+            Shader.PropertyToID("_RevalidationPageSnapshot");
+        private static readonly int RevalidationDrawArgumentsId =
+            Shader.PropertyToID("_RevalidationDrawArguments");
+        private static readonly int RevalidationTargetResolutionId =
+            Shader.PropertyToID("_RevalidationTargetResolution");
+        private static readonly int RevalidationDepthSupportId =
+            Shader.PropertyToID("_RevalidationDepthSupport");
+        private static readonly int RevalidationCarrierPageId =
+            Shader.PropertyToID("_RevalidationCarrierPage");
+        private static readonly int RevalidationCarrierUvNormalId =
+            Shader.PropertyToID("_RevalidationCarrierUvNormal");
+        private static readonly int RevalidationStateKeyId =
+            Shader.PropertyToID("_RevalidationStateKey");
 
         private readonly List<SigmaCarrierReadBatch> _readBatches = new();
         private readonly List<SegmentReadoutCache> _segmentCaches = new();
         private readonly RenderTargetIdentifier[] _mrt =
             new RenderTargetIdentifier[4];
+        private readonly RenderTargetIdentifier[] _revalidationMrt =
+            new RenderTargetIdentifier[4];
+        private readonly List<HistoricalRevalidationTargets>
+            _retiredRevalidationTargets = new();
+        private readonly List<GraphicsBuffer> _retiredRevalidationSnapshots =
+            new();
 
         private RoomScanner _scanner;
         private SigmaCarrier _carrier;
@@ -87,16 +143,31 @@ namespace Genesis.RoomScan.SigmaPrism
         private SigmaRigBridge _rigBridge;
         private SigmaExactBackendGate _backendGate;
         private ComputeShader _readoutCompute;
+        private ComputeShader _revalidationCompute;
         private Material _predictionMaterial;
         private Material _previewMaterial;
+        private Material _revalidationMaterial;
         private MaterialPropertyBlock _properties;
         private SigmaPredictionTargetRing _targets;
         private GraphicsBuffer _identityPoseResult;
+        private GraphicsBuffer _streamManifests;
+        private GraphicsBuffer _streamPageVisibility;
+        private GraphicsBuffer _revalidationContext;
+        private GraphicsBuffer _revalidationDrawArguments;
+        private GraphicsBuffer _revalidationPageSnapshot;
+        private HistoricalRevalidationTargets _revalidationTargets;
         private SigmaPredictionFrameLease _latest;
         private RigCalibration _calibration;
         private int _buildKernel;
         private int _compactKernel;
         private int _resolveHaloKernel;
+        private int _prepareRevalidationKernel;
+        private int _buildRevalidationArgsKernel;
+        private int _rebuildRevalidationAssociationKernel;
+        private int _finalizeRevalidationKernel;
+        private int _cancelRevalidationKernel;
+        private int _streamManifestCapacity;
+        private int _streamSegmentIndex = -1;
         private long _lastSourceSequence;
         private bool _running;
         private bool _initialized;
@@ -107,6 +178,32 @@ namespace Genesis.RoomScan.SigmaPrism
         public long BackpressureFrames { get; private set; }
 
         public event Action<SigmaPredictionFrameLease> PredictionReady;
+
+        internal void BindStreamingManifest(int segmentIndex,
+            GraphicsBuffer manifests, GraphicsBuffer pageVisibility,
+            int capacity)
+        {
+            if (segmentIndex < 0 || manifests == null ||
+                pageVisibility == null || capacity <= 0 ||
+                manifests.count < capacity || pageVisibility.count < capacity)
+                throw new ArgumentException(
+                    "Forward readout requires a complete manifest view.");
+            _streamSegmentIndex = segmentIndex;
+            _streamManifests = manifests;
+            _streamPageVisibility = pageVisibility;
+            _streamManifestCapacity = capacity;
+            EnsureHistoricalRevalidationPageSnapshot(capacity);
+        }
+
+        internal void UnbindStreamingManifest(GraphicsBuffer manifests)
+        {
+            if (!ReferenceEquals(_streamManifests, manifests))
+                return;
+            _streamSegmentIndex = -1;
+            _streamManifests = null;
+            _streamPageVisibility = null;
+            _streamManifestCapacity = 0;
+        }
 
         public bool TryAcquireLatest(out SigmaPredictionFrameLease frame)
         {
@@ -132,10 +229,15 @@ namespace Genesis.RoomScan.SigmaPrism
                 throw new InvalidOperationException(
                     "Sigma renderer requires the exact backend gate.");
             _readoutCompute = Resources.Load<ComputeShader>(ReadoutResource);
+            _revalidationCompute = Resources.Load<ComputeShader>(
+                RevalidationComputeResource);
             Shader prediction = Resources.Load<Shader>(PredictionResource);
             Shader preview = Resources.Load<Shader>(PreviewResource);
+            Shader revalidation = Resources.Load<Shader>(
+                RevalidationShaderResource);
             if (_carrier == null || _topology == null || _rigBridge == null ||
-                _readoutCompute == null || prediction == null || preview == null)
+                _readoutCompute == null || _revalidationCompute == null ||
+                prediction == null || preview == null || revalidation == null)
                 throw new InvalidOperationException(
                     "Sigma forward-readout resources are incomplete.");
 
@@ -143,6 +245,17 @@ namespace Genesis.RoomScan.SigmaPrism
             _compactKernel = _readoutCompute.FindKernel("CompactCurrentPages");
             _resolveHaloKernel = _readoutCompute.FindKernel(
                 "ResolveCarrierHalos");
+            _prepareRevalidationKernel = _revalidationCompute.FindKernel(
+                "PrepareHistoricalRevalidation");
+            _buildRevalidationArgsKernel = _revalidationCompute.FindKernel(
+                "BuildHistoricalDrawArguments");
+            _rebuildRevalidationAssociationKernel =
+                _revalidationCompute.FindKernel(
+                    "RebuildHistoricalAssociation");
+            _finalizeRevalidationKernel = _revalidationCompute.FindKernel(
+                "FinalizeHistoricalRevalidation");
+            _cancelRevalidationKernel = _revalidationCompute.FindKernel(
+                "CancelHistoricalRevalidation");
             _predictionMaterial = new Material(prediction)
             {
                 name = "[Sigma-PRISM-16] Prediction Material",
@@ -153,6 +266,11 @@ namespace Genesis.RoomScan.SigmaPrism
                 name = "[Sigma-PRISM-16] Temporary Direct Carrier Preview",
                 hideFlags = HideFlags.HideAndDontSave
             };
+            _revalidationMaterial = new Material(revalidation)
+            {
+                name = "[Sigma-PRISM-16] Historical Revalidation",
+                hideFlags = HideFlags.HideAndDontSave
+            };
             _properties = new MaterialPropertyBlock();
             _targets = new SigmaPredictionTargetRing(targetRingSlots);
             _identityPoseResult = new GraphicsBuffer(
@@ -161,6 +279,26 @@ namespace Genesis.RoomScan.SigmaPrism
                 name = "Sigma identity pose-gauge readout"
             };
             _identityPoseResult.SetData(new uint[16]);
+            _revalidationContext = new GraphicsBuffer(
+                GraphicsBuffer.Target.Structured, 4, sizeof(uint) * 4)
+            {
+                name = "Sigma historical revalidation context"
+            };
+            _revalidationContext.SetData(new uint[] {
+                uint.MaxValue, 0u, 0u, 0u,
+                uint.MaxValue, 0u, 0u, 0u,
+                0u, 0u, 0u, 0u,
+                0u, 0u, 0u, 0u
+            });
+            _revalidationDrawArguments = new GraphicsBuffer(
+                GraphicsBuffer.Target.Structured |
+                GraphicsBuffer.Target.IndirectArguments, 8, sizeof(uint))
+            {
+                name = "Sigma historical revalidation draw args"
+            };
+            _revalidationDrawArguments.SetData(new uint[] {
+                0u, 2u, 0u, 0u, 0u, 2u, 0u, 0u
+            });
             RenderPipelineManager.endCameraRendering += OnEndCameraRendering;
             _initialized = true;
         }
@@ -270,6 +408,282 @@ namespace Genesis.RoomScan.SigmaPrism
             }
         }
 
+        internal void EnsureHistoricalRevalidationTargets(
+            Vector2Int sourceResolution)
+        {
+            if (sourceResolution.x <= 0 || sourceResolution.y <= 0)
+                throw new ArgumentOutOfRangeException(nameof(sourceResolution));
+            if (_revalidationTargets != null &&
+                _revalidationTargets.Resolution.x >= sourceResolution.x &&
+                _revalidationTargets.Resolution.y >= sourceResolution.y)
+                return;
+            Vector2Int resolution = _revalidationTargets == null
+                ? sourceResolution
+                : new Vector2Int(
+                    Math.Max(sourceResolution.x,
+                        _revalidationTargets.Resolution.x),
+                    Math.Max(sourceResolution.y,
+                        _revalidationTargets.Resolution.y));
+            if (_revalidationTargets != null)
+                _retiredRevalidationTargets.Add(_revalidationTargets);
+            _revalidationTargets = new HistoricalRevalidationTargets(
+                resolution);
+        }
+
+        /// <summary>
+        /// Rebuilds one stale retained-source association entirely on GPU. The
+        /// current carrier cache is disposable geometry; bundle-owned Q48
+        /// calibration and raw pixels remain the immutable source authority.
+        /// </summary>
+        internal void RecordHistoricalRevalidation(CommandBuffer command,
+            SigmaStreamingResources stream, SigmaConstraintLedger ledger)
+        {
+            if (command == null)
+                throw new ArgumentNullException(nameof(command));
+            if (stream == null)
+                throw new ArgumentNullException(nameof(stream));
+            if (ledger == null)
+                throw new ArgumentNullException(nameof(ledger));
+
+            SigmaCarrierReadBatch batch = default;
+            SegmentReadoutCache cache = null;
+            SigmaTopologySegmentView topologyView = default;
+            bool cacheReady = _revalidationTargets != null &&
+                PrepareReadoutCaches(command) &&
+                TryGetStreamingReadout(out batch, out cache,
+                    out topologyView);
+            if (!cacheReady)
+            {
+                BindCancelHistoricalRevalidation(command, stream);
+                command.DispatchCompute(_revalidationCompute,
+                    _cancelRevalidationKernel, 1, 1, 1);
+                return;
+            }
+
+            BindPrepareHistoricalRevalidation(command, stream, batch);
+            command.DispatchCompute(_revalidationCompute,
+                _prepareRevalidationKernel, 1, 1, 1);
+            BindHistoricalDrawArguments(command, stream);
+            command.DispatchCompute(_revalidationCompute,
+                _buildRevalidationArgsKernel, 1, 1, 1);
+
+            _revalidationTargets.SetMrt(_revalidationMrt);
+            command.SetRenderTarget(_revalidationMrt,
+                new RenderTargetIdentifier(_revalidationTargets.HardwareDepth),
+                0, CubemapFace.Unknown, -1);
+            command.DrawProceduralIndirect(Matrix4x4.identity,
+                _revalidationMaterial, 0, MeshTopology.Triangles,
+                _revalidationDrawArguments, 0);
+            _properties.Clear();
+            _properties.SetInt(SegmentIndexId, batch.SegmentIndex);
+            _properties.SetBuffer(ReadoutVerticesId, cache.Vertices);
+            _properties.SetBuffer(RevalidationPageSnapshotId,
+                _revalidationPageSnapshot);
+            _properties.SetBuffer(StreamPageVisibilityId,
+                stream.PageVisibility);
+            _properties.SetBuffer(PageMetadataId, batch.Metadata);
+            _properties.SetBuffer(TopologyCellFlagsId, topologyView.CellFlags);
+            _properties.SetBuffer(TopologyPageKeysId, topologyView.PageKeys);
+            _properties.SetBuffer(RevalidationContextId,
+                _revalidationContext);
+            _properties.SetBuffer(StreamBundleCalibrationId,
+                stream.BundleCalibration);
+            _properties.SetBuffer(StreamBundleRayEpochId,
+                stream.BundleRayEpoch);
+            command.DrawProceduralIndirect(Matrix4x4.identity,
+                _revalidationMaterial, 1, MeshTopology.Triangles,
+                _revalidationDrawArguments, sizeof(uint) * 4, _properties);
+
+            BindRebuildHistoricalAssociation(command, stream, ledger);
+            command.DispatchCompute(_revalidationCompute,
+                _rebuildRevalidationAssociationKernel, 64, 1, 1);
+            BindFinalizeHistoricalRevalidation(command, stream);
+            command.DispatchCompute(_revalidationCompute,
+                _finalizeRevalidationKernel, 1, 1, 1);
+        }
+
+        private bool TryGetStreamingReadout(out SigmaCarrierReadBatch batch,
+            out SegmentReadoutCache cache,
+            out SigmaTopologySegmentView topologyView)
+        {
+            for (int index = 0; index < _readBatches.Count; ++index)
+            {
+                SigmaCarrierReadBatch candidate = _readBatches[index];
+                if (candidate.SegmentIndex != _streamSegmentIndex ||
+                    !_topology.TryGetSegmentView(candidate.SegmentIndex,
+                        out topologyView))
+                    continue;
+                batch = candidate;
+                cache = _segmentCaches[index];
+                return true;
+            }
+            batch = default;
+            cache = null;
+            topologyView = default;
+            return false;
+        }
+
+        private void BindPrepareHistoricalRevalidation(CommandBuffer command,
+            SigmaStreamingResources stream, SigmaCarrierReadBatch batch)
+        {
+            int kernel = _prepareRevalidationKernel;
+            SetRevalidationBuffer(command, kernel, StreamWorkCountsId,
+                stream.WorkCounts);
+            SetRevalidationBuffer(command, kernel, StreamWorkItemsId,
+                stream.WorkItems);
+            SetRevalidationBuffer(command, kernel, StreamSourceSegmentsId,
+                stream.SourceHandleSegments);
+            SetRevalidationBuffer(command, kernel, StreamManifestsId,
+                stream.PublicationManifests);
+            SetRevalidationBuffer(command, kernel, StreamPageVisibilityId,
+                stream.PageVisibility);
+            SetRevalidationBuffer(command, kernel, PageMetadataId,
+                batch.Metadata);
+            SetRevalidationBuffer(command, kernel, StreamTransactionsId,
+                stream.Transactions);
+            SetRevalidationBuffer(command, kernel, StreamBundlesId,
+                stream.Bundles);
+            SetRevalidationBuffer(command, kernel, StreamAssociationOwnersId,
+                stream.AssociationOwners);
+            SetRevalidationBuffer(command, kernel, StreamSchedulerControlId,
+                stream.SchedulerControl);
+            SetRevalidationBuffer(command, kernel, RevalidationContextId,
+                _revalidationContext);
+            SetRevalidationBuffer(command, kernel,
+                RevalidationPageSnapshotId, _revalidationPageSnapshot);
+            SetRevalidationBuffer(command, kernel, StreamDiagnosticsId,
+                stream.Diagnostics);
+            command.SetComputeIntParam(_revalidationCompute, PageCapacityId,
+                batch.PageCapacity);
+            command.SetComputeIntParam(_revalidationCompute,
+                StreamManifestCapacityId, stream.PageVisibility.count);
+            command.SetComputeIntParam(_revalidationCompute,
+                StreamSourceSegmentCapacityId,
+                stream.SourceHandleSegments.count);
+        }
+
+        private void BindHistoricalDrawArguments(CommandBuffer command,
+            SigmaStreamingResources stream)
+        {
+            int kernel = _buildRevalidationArgsKernel;
+            SetRevalidationBuffer(command, kernel, StreamWorkCountsId,
+                stream.WorkCounts);
+            SetRevalidationBuffer(command, kernel, StreamSchedulerControlId,
+                stream.SchedulerControl);
+            SetRevalidationBuffer(command, kernel, RevalidationContextId,
+                _revalidationContext);
+            SetRevalidationBuffer(command, kernel,
+                RevalidationDrawArgumentsId, _revalidationDrawArguments);
+        }
+
+        private void BindRebuildHistoricalAssociation(CommandBuffer command,
+            SigmaStreamingResources stream, SigmaConstraintLedger ledger)
+        {
+            int kernel = _rebuildRevalidationAssociationKernel;
+            SetRevalidationBuffer(command, kernel, StreamWorkCountsId,
+                stream.WorkCounts);
+            SetRevalidationBuffer(command, kernel, StreamWorkItemsId,
+                stream.WorkItems);
+            SetRevalidationBuffer(command, kernel, StreamTransactionsId,
+                stream.Transactions);
+            SetRevalidationBuffer(command, kernel, StreamBundlesId,
+                stream.Bundles);
+            SetRevalidationBuffer(command, kernel, StreamBundleRayEpochId,
+                stream.BundleRayEpoch);
+            SetRevalidationBuffer(command, kernel, RawWordsId,
+                ledger.RawWordsBuffer);
+            SetRevalidationBuffer(command, kernel, StreamAssociationId,
+                stream.Association);
+            SetRevalidationBuffer(command, kernel, RevalidationContextId,
+                _revalidationContext);
+            SetRevalidationBuffer(command, kernel, StreamPageVisibilityId,
+                stream.PageVisibility);
+            SetRevalidationBuffer(command, kernel,
+                RevalidationPageSnapshotId, _revalidationPageSnapshot);
+            command.SetComputeIntParam(_revalidationCompute, PageCapacityId,
+                stream.PageVisibility.count);
+            command.SetComputeTextureParam(_revalidationCompute, kernel,
+                RevalidationDepthSupportId,
+                _revalidationTargets.DepthSupport);
+            command.SetComputeTextureParam(_revalidationCompute, kernel,
+                RevalidationCarrierPageId,
+                _revalidationTargets.CarrierPage);
+            command.SetComputeTextureParam(_revalidationCompute, kernel,
+                RevalidationCarrierUvNormalId,
+                _revalidationTargets.CarrierUvNormal);
+            command.SetComputeTextureParam(_revalidationCompute, kernel,
+                RevalidationStateKeyId, _revalidationTargets.StateKey);
+            command.SetComputeVectorParam(_revalidationCompute,
+                RevalidationTargetResolutionId,
+                new Vector4(_revalidationTargets.Resolution.x,
+                    _revalidationTargets.Resolution.y, 0f, 0f));
+        }
+
+        private void BindFinalizeHistoricalRevalidation(CommandBuffer command,
+            SigmaStreamingResources stream)
+        {
+            int kernel = _finalizeRevalidationKernel;
+            SetRevalidationBuffer(command, kernel, StreamWorkCountsId,
+                stream.WorkCounts);
+            SetRevalidationBuffer(command, kernel, StreamWorkItemsId,
+                stream.WorkItems);
+            SetRevalidationBuffer(command, kernel, StreamTransactionsId,
+                stream.Transactions);
+            SetRevalidationBuffer(command, kernel, StreamBundlesId,
+                stream.Bundles);
+            SetRevalidationBuffer(command, kernel, StreamSchedulerControlId,
+                stream.SchedulerControl);
+            SetRevalidationBuffer(command, kernel, RevalidationContextId,
+                _revalidationContext);
+            SetRevalidationBuffer(command, kernel, StreamPageVisibilityId,
+                stream.PageVisibility);
+            SetRevalidationBuffer(command, kernel,
+                RevalidationPageSnapshotId, _revalidationPageSnapshot);
+            SetRevalidationBuffer(command, kernel, StreamDiagnosticsId,
+                stream.Diagnostics);
+            command.SetComputeIntParam(_revalidationCompute, PageCapacityId,
+                stream.PageVisibility.count);
+        }
+
+        private void BindCancelHistoricalRevalidation(CommandBuffer command,
+            SigmaStreamingResources stream)
+        {
+            int kernel = _cancelRevalidationKernel;
+            SetRevalidationBuffer(command, kernel, StreamSchedulerControlId,
+                stream.SchedulerControl);
+            SetRevalidationBuffer(command, kernel, RevalidationContextId,
+                _revalidationContext);
+            SetRevalidationBuffer(command, kernel, StreamPageVisibilityId,
+                stream.PageVisibility);
+            SetRevalidationBuffer(command, kernel,
+                RevalidationPageSnapshotId, _revalidationPageSnapshot);
+            command.SetComputeIntParam(_revalidationCompute, PageCapacityId,
+                stream.PageVisibility.count);
+        }
+
+        private void EnsureHistoricalRevalidationPageSnapshot(int capacity)
+        {
+            if (_revalidationPageSnapshot != null &&
+                _revalidationPageSnapshot.count >= capacity)
+                return;
+            if (_revalidationPageSnapshot != null)
+                _retiredRevalidationSnapshots.Add(
+                    _revalidationPageSnapshot);
+            _revalidationPageSnapshot = new GraphicsBuffer(
+                GraphicsBuffer.Target.Structured, capacity,
+                sizeof(uint) * 4)
+            {
+                name = "Sigma sealed historical page snapshot"
+            };
+        }
+
+        private void SetRevalidationBuffer(CommandBuffer command, int kernel,
+            int property, GraphicsBuffer buffer)
+        {
+            command.SetComputeBufferParam(_revalidationCompute, kernel,
+                property, buffer);
+        }
+
         private bool RenderPrediction(StereoRigFrameLease source,
             SigmaPoseGaugeState gauge, bool publish,
             out SigmaPredictionFrameLease result)
@@ -293,7 +707,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 "Sigma-PRISM-16 Forward Readout");
             try
             {
-                bool cacheChanged = PrepareReadoutCaches(command);
+                PrepareReadoutCaches(command);
                 for (int eye = 0; eye < 2; ++eye)
                 {
                     GpuImageView view = eye == 0
@@ -348,11 +762,16 @@ namespace Genesis.RoomScan.SigmaPrism
 
         private bool PrepareReadoutCaches(CommandBuffer command)
         {
+            if (_streamManifests == null || _streamPageVisibility == null ||
+                _streamManifestCapacity <= 0)
+                return false;
             _carrier.CollectReadableSegments(_readBatches);
             EnsureSegmentCaches();
             for (int index = 0; index < _readBatches.Count; ++index)
             {
                 SigmaCarrierReadBatch batch = _readBatches[index];
+                if (batch.SegmentIndex != _streamSegmentIndex)
+                    continue;
                 SegmentReadoutCache cache = _segmentCaches[index];
                 BindCompaction(command, batch, cache);
                 command.DispatchCompute(_readoutCompute, _compactKernel, 1, 1, 1);
@@ -378,7 +797,11 @@ namespace Genesis.RoomScan.SigmaPrism
             command.SetComputeBufferParam(_readoutCompute, _buildKernel,
                 PageMetadataId, batch.Metadata);
             command.SetComputeBufferParam(_readoutCompute, _buildKernel,
-                CurrentFlagsId, batch.CurrentFlags);
+                StreamManifestsId, _streamManifests);
+            command.SetComputeBufferParam(_readoutCompute, _buildKernel,
+                StreamPageVisibilityId, _streamPageVisibility);
+            command.SetComputeIntParam(_readoutCompute,
+                StreamManifestCapacityId, _streamManifestCapacity);
             command.SetComputeBufferParam(_readoutCompute, _buildKernel,
                 ReadoutDirtyFlagsId, batch.ReadoutDirtyFlags);
             command.SetComputeBufferParam(_readoutCompute, _buildKernel,
@@ -393,7 +816,11 @@ namespace Genesis.RoomScan.SigmaPrism
             command.SetComputeIntParam(_readoutCompute, PageCapacityId,
                 batch.PageCapacity);
             command.SetComputeBufferParam(_readoutCompute, _compactKernel,
-                CurrentFlagsId, batch.CurrentFlags);
+                StreamManifestsId, _streamManifests);
+            command.SetComputeBufferParam(_readoutCompute, _compactKernel,
+                StreamPageVisibilityId, _streamPageVisibility);
+            command.SetComputeIntParam(_readoutCompute,
+                StreamManifestCapacityId, _streamManifestCapacity);
             command.SetComputeBufferParam(_readoutCompute, _compactKernel,
                 ReadoutDirtyFlagsId, batch.ReadoutDirtyFlags);
             command.SetComputeBufferParam(_readoutCompute, _compactKernel,
@@ -416,7 +843,11 @@ namespace Genesis.RoomScan.SigmaPrism
             command.SetComputeBufferParam(_readoutCompute, _resolveHaloKernel,
                 PageMetadataId, batch.Metadata);
             command.SetComputeBufferParam(_readoutCompute, _resolveHaloKernel,
-                CurrentFlagsId, batch.CurrentFlags);
+                StreamManifestsId, _streamManifests);
+            command.SetComputeBufferParam(_readoutCompute, _resolveHaloKernel,
+                StreamPageVisibilityId, _streamPageVisibility);
+            command.SetComputeIntParam(_readoutCompute,
+                StreamManifestCapacityId, _streamManifestCapacity);
             command.SetComputeBufferParam(_readoutCompute, _resolveHaloKernel,
                 CurrentPageSlotsId, cache.CurrentPageSlots);
             command.SetComputeBufferParam(_readoutCompute, _resolveHaloKernel,
@@ -430,6 +861,8 @@ namespace Genesis.RoomScan.SigmaPrism
             for (int index = 0; index < _readBatches.Count; ++index)
             {
                 SigmaCarrierReadBatch batch = _readBatches[index];
+                if (batch.SegmentIndex != _streamSegmentIndex)
+                    continue;
                 SegmentReadoutCache cache = _segmentCaches[index];
                 if (!_topology.TryGetSegmentView(batch.SegmentIndex,
                         out SigmaTopologySegmentView topologyView))
@@ -549,6 +982,8 @@ namespace Genesis.RoomScan.SigmaPrism
             for (int index = 0; index < _readBatches.Count; ++index)
             {
                 SigmaCarrierReadBatch batch = _readBatches[index];
+                if (batch.SegmentIndex != _streamSegmentIndex)
+                    continue;
                 SegmentReadoutCache cache = _segmentCaches[index];
                 if (!_topology.TryGetSegmentView(batch.SegmentIndex,
                         out SigmaTopologySegmentView topologyView))
@@ -579,36 +1014,190 @@ namespace Genesis.RoomScan.SigmaPrism
             _running = false;
             _latest?.Dispose();
             _latest = null;
-            _targets?.Dispose();
+            SigmaPredictionTargetRing targets = _targets;
             _targets = null;
-            _identityPoseResult?.Dispose();
+            GraphicsBuffer identityPoseResult = _identityPoseResult;
             _identityPoseResult = null;
-            for (int index = 0; index < _segmentCaches.Count; ++index)
-                _segmentCaches[index].Dispose();
+            GraphicsBuffer revalidationContext = _revalidationContext;
+            _revalidationContext = null;
+            GraphicsBuffer revalidationDrawArguments =
+                _revalidationDrawArguments;
+            _revalidationDrawArguments = null;
+            GraphicsBuffer revalidationPageSnapshot =
+                _revalidationPageSnapshot;
+            _revalidationPageSnapshot = null;
+            GraphicsBuffer[] retiredRevalidationSnapshots =
+                _retiredRevalidationSnapshots.ToArray();
+            _retiredRevalidationSnapshots.Clear();
+            HistoricalRevalidationTargets revalidationTargets =
+                _revalidationTargets;
+            _revalidationTargets = null;
+            HistoricalRevalidationTargets[] retiredTargets =
+                _retiredRevalidationTargets.ToArray();
+            _retiredRevalidationTargets.Clear();
+            SegmentReadoutCache[] segmentCaches = _segmentCaches.ToArray();
             _segmentCaches.Clear();
-            if (_predictionMaterial != null)
-            {
-                if (Application.isPlaying)
-                    Destroy(_predictionMaterial);
-                else
-                    DestroyImmediate(_predictionMaterial);
-            }
+            Material predictionMaterial = _predictionMaterial;
             _predictionMaterial = null;
-            if (_previewMaterial != null)
-            {
-                if (Application.isPlaying)
-                    Destroy(_previewMaterial);
-                else
-                    DestroyImmediate(_previewMaterial);
-            }
+            Material previewMaterial = _previewMaterial;
             _previewMaterial = null;
+            Material revalidationMaterial = _revalidationMaterial;
+            _revalidationMaterial = null;
+
+            void ReleaseOwnedResources()
+            {
+                targets?.Dispose();
+                identityPoseResult?.Dispose();
+                revalidationContext?.Dispose();
+                revalidationDrawArguments?.Dispose();
+                revalidationPageSnapshot?.Dispose();
+                for (int index = 0;
+                    index < retiredRevalidationSnapshots.Length; ++index)
+                    retiredRevalidationSnapshots[index]?.Dispose();
+                revalidationTargets?.Dispose();
+                for (int index = 0; index < retiredTargets.Length; ++index)
+                    retiredTargets[index]?.Dispose();
+                for (int index = 0; index < segmentCaches.Length; ++index)
+                    segmentCaches[index]?.Dispose();
+                DestroyMaterial(predictionMaterial);
+                DestroyMaterial(previewMaterial);
+                DestroyMaterial(revalidationMaterial);
+            }
+
+            try
+            {
+                SigmaGpuCompletionTicket fence =
+                    SigmaGpuCompletion.InsertAfterGraphicsWork();
+                SigmaGpuRetirement.Retire(fence, ReleaseOwnedResources,
+                    "Sigma renderer teardown");
+            }
+            catch (Exception exception)
+            {
+                SigmaGpuRetirement.Quarantine(ReleaseOwnedResources,
+                    "Sigma renderer resources", exception.Message);
+            }
             _readoutCompute = null;
+            _revalidationCompute = null;
+            _streamManifests = null;
+            _streamPageVisibility = null;
+            _streamManifestCapacity = 0;
+            _streamSegmentIndex = -1;
             _backendGate = null;
             _topology = null;
             _carrier = null;
             _rigBridge = null;
             _scanner = null;
             _initialized = false;
+        }
+
+        private static void DestroyMaterial(Material material)
+        {
+            if (material == null)
+                return;
+            if (Application.isPlaying)
+                UnityEngine.Object.Destroy(material);
+            else
+                UnityEngine.Object.DestroyImmediate(material);
+        }
+
+        private sealed class HistoricalRevalidationTargets : IDisposable
+        {
+            public HistoricalRevalidationTargets(Vector2Int resolution)
+            {
+                Resolution = resolution;
+                DepthSupport = CreateColor(resolution,
+                    GraphicsFormat.R32G32_SFloat,
+                    "Sigma historical depth/support");
+                CarrierPage = CreateColor(resolution,
+                    GraphicsFormat.R32G32B32A32_UInt,
+                    "Sigma historical carrier page");
+                CarrierUvNormal = CreateColor(resolution,
+                    GraphicsFormat.R32G32B32A32_SFloat,
+                    "Sigma historical carrier UV/normal");
+                StateKey = CreateColor(resolution,
+                    GraphicsFormat.R32G32B32A32_UInt,
+                    "Sigma historical state key");
+                RenderTextureDescriptor depthDescriptor =
+                    new(resolution.x, resolution.y)
+                    {
+                        dimension = TextureDimension.Tex2DArray,
+                        volumeDepth = 2,
+                        msaaSamples = 1,
+                        graphicsFormat = GraphicsFormat.None,
+                        depthStencilFormat = GraphicsFormat.D32_SFloat,
+                        sRGB = false
+                    };
+                HardwareDepth = new RenderTexture(depthDescriptor)
+                {
+                    name = "Sigma historical hardware depth",
+                    filterMode = FilterMode.Point,
+                    wrapMode = TextureWrapMode.Clamp
+                };
+                if (!HardwareDepth.Create())
+                    throw new InvalidOperationException(
+                        "Unable to allocate historical depth target.");
+            }
+
+            public Vector2Int Resolution { get; }
+            public RenderTexture DepthSupport { get; }
+            public RenderTexture CarrierPage { get; }
+            public RenderTexture CarrierUvNormal { get; }
+            public RenderTexture StateKey { get; }
+            public RenderTexture HardwareDepth { get; }
+
+            public void SetMrt(RenderTargetIdentifier[] targets)
+            {
+                targets[0] = new RenderTargetIdentifier(DepthSupport);
+                targets[1] = new RenderTargetIdentifier(CarrierPage);
+                targets[2] = new RenderTargetIdentifier(CarrierUvNormal);
+                targets[3] = new RenderTargetIdentifier(StateKey);
+            }
+
+            public void Dispose()
+            {
+                DestroyTexture(DepthSupport);
+                DestroyTexture(CarrierPage);
+                DestroyTexture(CarrierUvNormal);
+                DestroyTexture(StateKey);
+                DestroyTexture(HardwareDepth);
+            }
+
+            private static RenderTexture CreateColor(Vector2Int resolution,
+                GraphicsFormat format, string name)
+            {
+                RenderTextureDescriptor descriptor =
+                    new(resolution.x, resolution.y)
+                    {
+                        dimension = TextureDimension.Tex2DArray,
+                        volumeDepth = 2,
+                        msaaSamples = 1,
+                        graphicsFormat = format,
+                        depthStencilFormat = GraphicsFormat.None,
+                        sRGB = false,
+                        enableRandomWrite = false
+                    };
+                RenderTexture texture = new(descriptor)
+                {
+                    name = name,
+                    filterMode = FilterMode.Point,
+                    wrapMode = TextureWrapMode.Clamp
+                };
+                if (!texture.Create())
+                    throw new InvalidOperationException(
+                        $"Unable to allocate {name}.");
+                return texture;
+            }
+
+            private static void DestroyTexture(RenderTexture texture)
+            {
+                if (texture == null)
+                    return;
+                texture.Release();
+                if (Application.isPlaying)
+                    UnityEngine.Object.Destroy(texture);
+                else
+                    UnityEngine.Object.DestroyImmediate(texture);
+            }
         }
 
         private sealed class SegmentReadoutCache : IDisposable
