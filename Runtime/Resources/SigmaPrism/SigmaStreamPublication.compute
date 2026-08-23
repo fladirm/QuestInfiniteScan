@@ -108,13 +108,25 @@ SigmaStreamPageReferenceGpu SigmaPublicationPage(
 
 uint SigmaPublicationPageCount(SigmaTransactionGpu transaction)
 {
-    uint count = 0u;
+    uint count = transaction.publication.z;
+    if (count == 0u || count > SIGMA_STREAM_MAX_PAGES)
+        return 0u;
     [unroll]
     for (uint index = 0u; index < SIGMA_STREAM_MAX_PAGES; ++index)
     {
+        if (index >= count)
+            continue;
         SigmaStreamPageReferenceGpu page = SigmaPublicationPage(transaction,
             index);
-        count += page.state.y < _PageCapacity ? 1u : 0u;
+        if (page.state.y >= _PageCapacity)
+            return 0u;
+        [unroll]
+        for (uint prior = 0u; prior < index; ++prior)
+        {
+            if (SigmaPublicationPage(transaction, prior).state.y ==
+                    page.state.y)
+                return 0u;
+        }
     }
     return count;
 }

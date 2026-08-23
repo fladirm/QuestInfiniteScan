@@ -180,9 +180,13 @@
       "id": "S4-08",
       "title": "Implement bounded pose-gauge intersection",
       "status": "in_progress",
-      "active_repair_run": "S4-08.3 bounded streaming exact transactions",
-      "repair_plan": ".codex/S4-08.3_PLAN.md",
+      "active_repair_run": "S4-08.3C audited execution/publication closure",
+      "repair_plan": ".codex/S4-08.3C_PLAN.md",
       "reopen_reason": [
+        "The installed S4-08.3 device run had coherent ingress but every streaming inverse kernel missed the complete constraint-ledger bind, schedule diagnostics missed probation and bundle extraction missed pose-consume matrices",
+        "The five-stage inverse has no generation-owned phase completion contract, so a skipped/faulted stage can leave stale transaction scratch while Final still advances into proof and transition",
+        "Zero accepted evidence can currently close as unsupported and become publishable; unused zero-filled page references are inferred as live pages despite the existing explicit publication page count, aliasing slot zero and delaying readout visibility",
+        "Ingress applies an artificial two-bundle cap without lossless sealing of unselected current-frame evidence, while one dependent opcode per host submission causes about 36.6 seconds to first publication on the audited Quest run",
         "Installed Release device audit proves the first inverse transaction creates an AsyncQueueSynchronisation fence on a Quest runtime that reports async compute unsupported; polling GraphicsFence.passed throws every frame, leaves _inFlight permanently occupied and drops all later prediction work",
         "Capture and prediction rings use the same unsupported fence type and currently treat a polling exception as completion, which can recycle GPU resources before proven completion",
         "The exact live hot path still contains reference-style serial arithmetic, lane-zero reducers, per-thread 16D state, repeated invariant work, full-arena scans and excessive barriers that violate the generated-operator and section 44 Quest lowering contract",
@@ -190,6 +194,13 @@
         "The current controller equates a complete page transaction with one submission, retains capture/prediction leases for that entire submission, requires leftNovel && rightNovel for gauge promotion, publishes visibility through per-page CurrentFlags and runs only derived topology after commit"
       ],
       "repair_acceptance": [
+        "One transient generation-owned transaction execution word-set records the current source/block/microtile owner, all five inverse phase completions, existing exact proposal/outcome masks and execution failure; only a fully completed Final may advance progress",
+        "The live production bind helpers provide the full constraint ledger, probation and pose-consume contract to every active kernel, and a Vulkan fixture exercises those exact helpers rather than a parallel test bind table",
+        "Revalidation fails closed on execution failure or zero accepted evidence; a novel page requires accepted NULL_PROMOTION and an existing carrier requires accepted EXISTING_UPDATE before proof/transition closure can authorize publication",
+        "Publication uses only the existing explicit publication.z page count, unused page handles are invalid, and one accepted manifest immediately exposes its matching visible and ReadoutDirty generation without a second publication",
+        "Eight deterministic canonical rounds share one budget refill and preserve exact ordering/parity; publication is emitted only in the final round so the existing derived handoff remains intact",
+        "Ingress has no artificial per-frame two-bundle cap while resident capacity is available; resident exhaustion is explicit and fail-closed, never silent partial publication, and remains zero throughout the S4-08 physical acceptance run",
+        "The existing asynchronous diagnostic readback exposes owner/phase/outcome, fail-closed counters, scheduler load and wall latency without adding a readback request or influencing GPU scheduling/canonical decisions",
         "Every shader/include changed by S4-08.2 is rewritten as one clean whole-file implementation from the canonical operator/ABI contract; no incremental hotfix body, compatibility switch or legacy shader branch remains",
         "Owning C# recorders/controllers are rewritten to the new per-kernel dispatch and binding manifests in the same phase, with complete explicit bindings and no stale kernel/property/buffer path",
         "Capture, prediction and inverse use one supported nonblocking completion-ticket contract; unsupported capabilities fail closed, no exception is treated as completion and no in-flight lease is recycled early",
@@ -239,6 +250,8 @@
         "The monolithic inverse entrypoint was then replaced as one manually audited five-stage shader pipeline over one immutable work item: depth/projective preparation, independent RGB contractions, source-ordered exact meet and final checked lift/cursor advance. Only the final stage advances progress, none publishes Psi, transaction-owned scratch is budgeted and reclaimed, generated token cost covers all stages, Vulkan streaming passes 4/4, full EditMode passes 69/69, and the Quest UAV limit remains 8",
         "Release commit 3924c6e compiled the five-stage inverse and scheduler, then exposed one proof-only barrier defect repeated as 45 build diagnostics. The complete proof file and its ABI/host graph were manually audited; all 64 lanes now remain through lane-zero canonical source publication and close each of four source reductions with the same uniform barrier schedule. Exact reduction/provenance ordering is unchanged, generated barrier cost is current and focused Vulkan proof/streaming passes 4/4",
         "Release commit d006686 confirmed the closing sync alone was insufficient because two entrypoint returns still made the four reducer calls potentially varying. The complete proof shader was reviewed again and its source-block entrypoint now executes one unconditional 64-lane barrier schedule, masks invalid/spilled work to zero without publishing, and performs lane-zero cursor/closure publication only after the final sync; focused Vulkan streaming/proof passes 4/4 with exact source/Q48/provenance order unchanged"
+        ,"Device forensic closure at 082eda09 is recorded in s4-083-audit.md: coherent ingress reached a fail-open null publication through missing inverse bindings and unowned scratch; page-handle aliasing, admission loss and 36.6-second scheduling latency were independently traced without changing runtime source",
+        "S4-08.3C candidate closes the audited production binds, owns every five-stage inverse quantum by transaction generation/source/block/microtile and completion mask, fails closed before publication without accepted compatible exact evidence, uses explicit page count and same-generation readout visibility, records eight dependency rounds over one token refill, removes the two-bundle ingress cap, and exposes diagnostic-only execution/load telemetry. Generated outputs, git diff, Quest eight-UAV and Unity Vulkan EditMode 71/71 gates pass; Release/device acceptance remains pending"
       ]
     },
     {

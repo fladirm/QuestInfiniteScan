@@ -2,122 +2,113 @@
 
 Updated: 2026-08-23 (Europe/Prague)
 
-## Authority and repository
+## Authority and active work
 
 - Canonical product: `new_spec.md`, `CPQ4-2026-08-22-S16-v6`.
 - Branch: `feat/sigma-prism-16-cpq4-20260822`.
-- S4-08.3 base: `8087a6ef1688af760642bb953eb2f2dd51509610`.
-- Active node: `S4-08`, repair run `S4-08.3 bounded streaming exact
-  transactions`. `S4-09` remains pending and unopened.
 - Accepted predecessors: S4-00 through S4-07.
-- User archives, device forensics, captures and old APK/source archives remain
-  untouched and uncommitted.
+- Active node: S4-08, repair run **S4-08.3C audited execution/publication
+  closure**. S4-09 is pending and unopened.
+- Forensic closure: `s4-083-audit.md`.
+- Frozen deterministic implementation contract: `.codex/S4-08.3C_PLAN.md`.
+- Sole routine resume checkpoint: `.codex/S4-08.3_RESUME.md`.
 
-## Frozen S4-08.3 contract
+## Frozen ontology
 
-- `Psi : Sigma_2 -> S16` is the only canonical physical world.
-- Canonical Q16.48 value and validity results are independent of scheduling,
-  partitioning, token budget, pause/resume and source interleaving.
-- A page transaction may span frames but publishes only through one completed
-  revision manifest; partial Psi is never visible.
-- Sixteen-sample microtiles, 64-sample proof blocks, eight-source scratch and
-  twelve-candidate arrays are bounded execution windows, never canonical caps.
-- Complete sealed evidence and proof candidates remain lossless. Coalescing and
-  reverse-order redundancy close to a fixed point before publication.
-- Multi-frame transactions own copied GPU payload and never retain capture or
-  prediction leases.
-- Exact candidate transition validation is canonical; topology/readout caches are
-  disposable and cannot authorize mutation.
-- CPU owns resources, command recording and nonblocking completion tickets only.
-  No readback, CPU canonical scheduler, fallback or hardware-async queue exists.
+- `Psi : Sigma_2 -> S16` is the only canonical physical state.
+- Exact Q16.48 values, validity, gaps, source provenance, minimal proof and
+  transition signatures are invariant under partitioning/scheduling.
+- Bundle/page/block/microtile/candidate limits are execution/storage bounds, never
+  physical or canonical evidence limits.
+- Derived topology, direct XR carrier preview and later meshlets are disposable
+  readouts and never authorize mutation.
+- GPU owns inverse/proof/transition/publication. Existing async telemetry remains
+  diagnostic-only and cannot control scheduling or canonical state.
 
-## S4-08.3 implementation closure
+## Preserved completed implementation
 
-- Persistent generation-safe source, transaction, proof, transition, revision and
-  derived-work arenas are driven by generated deterministic token costs.
-- Ingress copies immutable RGB-D/calibration/pose/provenance payload before sensor
-  leases are released. Exact mixed-eye inverse runs in 16-sample GPU microtiles.
-- Proof uses stable ordering/coalescing, persistent exclusive prefix/suffix meets,
-  bounded pair/removal windows and one reverse-order candidate decision per
-  quantum. Resident exhaustion fails closed and never publishes truncated proof.
-- Historical revalidation pins one sealed manifest generation, rasterizes one page
-  per quantum and replays association/proof only after the snapshot completes.
-- Dormant evidence retains complete owned sources and reactivates only when an
-  exact dependency capable of changing the result changes.
-- Publication exposes all shadow generations through one revision indirection;
-  derived topology/readout starts only from the published revision.
-- Active compute bindings stay within Quest's eight-UAV range. Work-graph page
-  visibility is read-only SRV state.
-- Renderer/inverse teardown keeps GPU ownership behind the final graphics-queue
-  completion ticket; polling faults quarantine instead of recycling resources.
+- S4-08.2 exact pose gauge, corrected calibration/reraster, rigid GPU SE(3), pose
+  provenance, reusable raw records and fail-closed graphics completion.
+- S4-08.3 persistent sealed source/transaction/proof/transition/dormant/publication
+  arenas, deterministic generated token costs and indirect worklists.
+- Coordinate-major five-stage inverse, proof fixed point with lossless windows,
+  generation-sealed historical revalidation and revision-manifest publication.
+- Separate nonblocking ingress/canonical/derived submissions and temporary stereo
+  carrier readout without a second world.
+- Previous gates: focused Vulkan streaming 4/4, full EditMode 69/69, generated
+  outputs current and Quest UAV limit 8.
 
-## Green evidence
+## Closed device forensic result
 
-- Generated Sigma operators and streaming ABI/cost outputs are current.
-- `git diff --check` is green.
-- Quest static compute validation is green at the eight-UAV limit.
-- Vulkan streaming contract suite is 4/4 green.
-- The GPU proof fixture closes 30 candidates to the same canonical 16-certificate
-  essential set; CPU 1/2/7/max partition and three-interleaving parity is green.
-- Unity 6000.5.9f1 Vulkan EditMode is 69/69 green with no shader error.
-- The first S4-08.3 Release attempt reached Android/Vulkan shader compilation and
-  exposed four portability defects that EditMode variants did not compile. The
-  affected work-graph, proof, publication and derived shaders were manually
-  reviewed with their ABI and host dispatch/bind graph and replaced as complete
-  files. The focused Vulkan streaming suite is 4/4 green, the Quest eight-UAV
-  gate and `git diff --check` are green; the repaired Release is not yet claimed.
-- The complete Android compiler inventory then exposed uniformity/dataflow issues
-  in inverse, transition, historical revalidation and the same proof/derived
-  variants plus one nested scheduler unroll. All six shaders were reviewed with
-  their host bindings and replaced as complete files. The resulting focused
-  Vulkan streaming gate is 4/4 and UAV/diff gates remain green.
-- The next Release compiler reached `EvaluateTransactionMicrotile` without a
-  shader error but spent over three minutes expanding its exact fixed reductions.
-  `SigmaStreamInverse.compute`, its ABI and complete host bind/dispatch path were
-  manually reviewed and the whole shader was re-emitted with identical sequential
-  Q48/validity ordering under bounded `[loop]` lowering rather than forced clone
-  expansion. Focused Vulkan streaming remains 4/4 and the UAV limit remains 8.
-- The remaining Android compiler stall was the still-monolithic inverse entrypoint,
-  not an ABI error. After a complete-file/manual dataflow audit it is now one
-  compiler-bounded five-stage dispatch chain: exact depth/projective preparation,
-  RGB-left contraction, RGB-right contraction, source-ordered exact meet, then
-  checked final lift/cursor advance. The stages share only transaction-owned
-  projective scratch; no intermediate stage advances progress or publishes `Psi`.
-  The split preserves source order, Q16.48 validity, L/R provenance masks and the
-  final candidate round-trip, and removes the prior non-atomic shared-mask race.
-  Generated cost metadata accounts for all five stages. Vulkan streaming is 4/4,
-  full EditMode is 69/69, the UAV limit is 8 and `git diff --check` is green.
-- Release build `3924c6e4447a613cabe3388e38dce67198b725be` compiled the
-  five-stage inverse and scheduler successfully, then the player gate rejected 45
-  repeated diagnostics from one unique proof defect: nonzero lanes returned from
-  `SigmaProofReduceSource` before lane zero finished canonical metadata reduction,
-  so the following source call reached its barrier through varying flow. The full
-  proof shader/ABI/host sequence was manually audited and the reducer re-emitted as
-  one uniform 64-lane schedule with a closing sync after lane-zero publication.
-  Exact reduction order and proof bytes are unchanged; generated costs account for
-  the four added source-closing barriers and focused Vulkan proof/streaming is 4/4.
-- Release build `d006686d39335368b9117c58967dfe9746dd7f9c` proved that the
-  closing sync alone was insufficient: two entrypoint returns still made all four
-  reducer calls potentially varying to the Android compiler. The complete proof
-  shader was reviewed again. `ReduceTransactionSourceBlock` now has one unconditional
-  barrier schedule for every lane and work validity only masks reads/writes; inactive
-  and spilled groups execute zero-valued reductions and cannot publish. Lane-zero
-  cursor/closure publication is isolated after the last sync. Exact source order,
-  candidate addresses, Q48 bounds, validity and provenance are unchanged. The
-  focused Vulkan streaming/proof suite passes 4/4.
+The installed S4-08.3 Release received coherent frames but produced an empty scan.
+The complete report and evidence are in `s4-083-audit.md`. Confirmed contract breaks:
+
+1. all three streaming inverse kernels missed the complete constraint-ledger bind;
+2. schedule diagnostics missed `_StreamProbation`, and bundle extraction silently
+   missed the two pose-consume matrices;
+3. the split inverse had no transaction-generation/current-work phase completion,
+   so skipped/faulted work could advance through stale scratch;
+4. zero accepted evidence could close proof/transition and become PUBLISHABLE;
+5. publication inferred page count by scanning zero-filled unused references,
+   aliasing page slot zero despite the existing explicit `publication.z` count;
+6. ingress discarded candidates beyond an artificial two-bundle cap;
+7. one dependent opcode per host submission caused about 36.6 seconds to first
+   publication; the first visible readout appeared only with the next publication.
+
+The audit did not find a second world or a failure of the 16D ontology. The defect
+class is execution ownership, binding, fail-closed state progression and scheduling
+granularity.
+
+## S4-08.3C minimal closure
+
+- Add one transient 16-byte `execution` field to the existing transaction: exact
+  owner tuple, five phase-completion bits, accumulated existing proposal/outcome
+  bits and one execution-fault bit.
+- Reuse the existing ledger binder, outcome classes, transaction states,
+  `publication.z`, revision manifest, resident bundle arena and async telemetry.
+- Require generation+owner+phase completion at every inverse stage; only successful
+  Final advances. Faults fail closed and zero accepted evidence becomes dormant.
+- New UNKNOWN pages require accepted `NULL_PROMOTION`; existing pages require
+  accepted `EXISTING_UPDATE`; proof-only accepted updates need not set CHANGED.
+- Record eight fixed canonical rounds over one budget refill. Only the last round
+  emits publication so its worklist remains the existing CB3 derived handoff.
+- Remove only the artificial ingress cap; report resident exhaustion explicitly.
+- Extend the current ~3 KiB/1 Hz diagnostic readback with transaction owner/phase,
+  exact outcomes, counters and generated-cost load. It remains observational.
+
+## Implemented S4-08.3C candidate
+
+- Generated transaction ABI is 368 bytes and owns the exact source/block/microtile
+  execution tuple, issued/five-phase completion and accumulated proposal/outcome/
+  fault bits; existing canonical records are unchanged.
+- Production graph binds the full constraint ledger, probation and both pose-consume
+  matrices. Only a current fully completed Final advances transaction progress.
+- Revalidation now rejects execution failure, zero accepted evidence and an
+  outcome incompatible with novel/existing page identity before PUBLISHABLE.
+- Publication consumes only explicit `publication.z`; unused page handles are
+  invalid and visible/readout-dirty caches resolve in the same publication list.
+- One canonical submission records eight dependency rounds over one refill and
+  publishes only in the final round; host recording allocates no per-round arrays.
+- Ingress seals every candidate fitting the resident arena and reports exhaustion.
+- Existing telemetry decodes execution/page ownership and generated last-round
+  load. Work-graph counters stage through its existing scheduler UAV so every
+  Quest kernel remains at or below eight UAVs.
 
 ## Exact next action
 
-1. Commit the Release-uniform complete proof reducer and current generated code
-   graph.
-2. Build the Android/Vulkan IL2CPP Release APK from that exact commit.
-3. Install it on the connected Quest and create a source-only `git archive` ZIP
-   from the same commit.
-4. Stop before S4-09 for the user's physical device audit.
+Finish C6: rerun the full Vulkan suite after the eight-UAV counter staging change,
+regenerate/validate controls and manually close the changed-file audit. Then commit
+the exact candidate, create its source archive, build one Release APK and install it
+on the connected Quest. Do not reopen proof or transition mathematics.
 
-## Unresolved until device audit / later DAG nodes
+## Acceptance still required
 
-- Release build, installation and physical scan behavior are not yet run for this
-  dirty tree and must not be claimed before execution.
-- Resident exhaustion is explicit unresolved/spill state; S4-10 supplies durable
-  arbitrarily long overload storage. S4-08.3 never truncates or partially commits.
+- Physical phase/slot-reuse/publication/readout and ingress-exhaustion evidence on
+  the installed Release; source contract and telemetry ABI regressions are present.
+- Generated outputs, code graph, control validation, Quest UAV gate, full Vulkan
+  EditMode and clean Android/Vulkan Release.
+- Fresh Quest install: first accepted publication/readout within five seconds,
+  non-zero support/information/draw, no missing binding/fault/exhaustion and three
+  minutes continuous scan.
+- Commit, source-only `git archive` and APK must be the same accepted revision;
+  then stop before S4-09.

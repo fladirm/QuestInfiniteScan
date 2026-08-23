@@ -37,7 +37,6 @@ uint SigmaInverseWorkImageY(SigmaInverseWorkGpu work)
     (64u * SIGMA_STREAM_RAW_WORD4_PER_SAMPLE)
 #define SIGMA_STREAM_RAW_WORD4_PER_BUNDLE \
     (SIGMA_PAGE_SAMPLE_COUNT * SIGMA_STREAM_RAW_WORD4_PER_SAMPLE)
-#define SIGMA_STREAM_INGRESS_BUNDLES_PER_FRAME 2u
 
 // GPU-owned scheduler words. Host code records fixed submissions and never
 // chooses a transaction or interprets these words as mutation authority.
@@ -58,6 +57,9 @@ uint SigmaInverseWorkImageY(SigmaInverseWorkGpu work)
 #define SIGMA_STREAM_CONTROL_PROOF_OWNER 22u
 #define SIGMA_STREAM_CONTROL_SOURCE_SEGMENT_HINT 23u
 #define SIGMA_STREAM_CONTROL_PROOF_SPILL_COUNT 24u
+#define SIGMA_STREAM_CONTROL_PENDING_PHASE_FAULTS 25u
+#define SIGMA_STREAM_CONTROL_PENDING_OWNER_MISMATCH 26u
+#define SIGMA_STREAM_CONTROL_PENDING_INGRESS_EXHAUSTION 27u
 
 #define SIGMA_STREAM_PROBATION_FREE 0u
 #define SIGMA_STREAM_PROBATION_OPEN 1u

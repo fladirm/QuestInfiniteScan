@@ -87,6 +87,8 @@ groupshared uint EvalOutcome[SIGMA_STREAM_EVAL_SAMPLES];
 groupshared uint EvalGroupActive;
 groupshared uint EvalGroupTransactionSlot;
 groupshared uint EvalGroupTransactionGeneration;
+groupshared uint EvalGroupProposalFlags;
+groupshared uint EvalGroupOutcomeMask;
 groupshared SigmaTransactionGpu EvalGroupTransaction;
 groupshared SigmaSealedSourceBundleGpu EvalGroupBundle;
 
@@ -147,7 +149,30 @@ bool SigmaStreamLoadCurrentBundle(SigmaTransactionGpu transaction,
         SIGMA_STREAM_BUNDLE_CAPACITY);
 }
 
-void SigmaEvalPrepareGroup(uint workIndex)
+uint SigmaEvalOwnerY(SigmaTransactionGpu transaction)
+{
+    return (transaction.progress.y << 2u) | transaction.progress.z;
+}
+
+void SigmaEvalFailWork(uint transactionSlot, uint transactionGeneration,
+    bool ownerMismatch)
+{
+    if (transactionSlot >= SIGMA_STREAM_TRANSACTION_CAPACITY)
+        return;
+    SigmaTransactionGpu current = _StreamTransactions[transactionSlot];
+    if (SigmaStreamTransactionGeneration(current) != transactionGeneration ||
+        SigmaStreamTransactionState(current) !=
+            SIGMA_STREAM_TRANSACTION_EVALUATING)
+        return;
+    current.execution.w |= SIGMA_STREAM_EXECUTION_FAULT;
+    current.identity.x = SIGMA_STREAM_TRANSACTION_FAILED;
+    _StreamTransactions[transactionSlot] = current;
+    InterlockedAdd(_StreamDiagnostics[0u].memory.x, 1u);
+    if (ownerMismatch)
+        InterlockedAdd(_StreamDiagnostics[0u].memory.y, 1u);
+}
+
+void SigmaEvalPrepareGroup(uint workIndex, uint expectedPhases)
 {
     EvalGroupActive = 0u;
     EvalGroupTransactionSlot = SIGMA_STREAM_INVALID;
@@ -173,6 +198,21 @@ void SigmaEvalPrepareGroup(uint workIndex)
         transaction.progress.y >= 64u || transaction.progress.z >= 4u ||
         transaction.page0.state.y >= _TargetPageCapacity)
         return;
+    bool workOwner = work.identity.w == transaction.progress.x &&
+        work.cursor.x == transaction.progress.y &&
+        work.cursor.y == transaction.progress.z &&
+        work.cursor.z == transaction.progress.w;
+    bool executionOwner = transaction.execution.x ==
+            transaction.progress.x &&
+        transaction.execution.y == SigmaEvalOwnerY(transaction);
+    bool phaseCurrent = transaction.execution.z == expectedPhases &&
+        (transaction.execution.w & SIGMA_STREAM_EXECUTION_FAULT) == 0u;
+    if (!workOwner || !executionOwner || !phaseCurrent)
+    {
+        SigmaEvalFailWork(transactionSlot, work.identity.z,
+            !workOwner || !executionOwner);
+        return;
+    }
     uint bundleSlot;
     uint bundleGeneration;
     if (!SigmaStreamLoadCurrentBundle(transaction, bundleSlot,
@@ -203,6 +243,38 @@ void SigmaEvalPrepareGroup(uint workIndex)
     EvalGroupTransaction = transaction;
     EvalGroupBundle = bundle;
     EvalGroupActive = 1u;
+}
+
+void SigmaEvalCompletePhase(uint transactionSlot,
+    uint transactionGeneration, SigmaTransactionGpu transaction,
+    uint expectedPhases, uint completedPhase)
+{
+    SigmaTransactionGpu current = _StreamTransactions[transactionSlot];
+    bool progressCurrent =
+        SigmaStreamTransactionGeneration(current) == transactionGeneration &&
+        SigmaStreamTransactionState(current) ==
+            SIGMA_STREAM_TRANSACTION_EVALUATING &&
+        current.progress.x == transaction.progress.x &&
+        current.progress.y == transaction.progress.y &&
+        current.progress.z == transaction.progress.z &&
+        current.progress.w == transaction.progress.w;
+    bool ownerCurrent = current.execution.x == transaction.progress.x &&
+        current.execution.y == SigmaEvalOwnerY(transaction);
+    if (!progressCurrent || !ownerCurrent ||
+        current.execution.z != expectedPhases)
+    {
+        if (SigmaStreamTransactionGeneration(current) ==
+                transactionGeneration &&
+            SigmaStreamTransactionState(current) ==
+                SIGMA_STREAM_TRANSACTION_EVALUATING)
+        {
+            SigmaEvalFailWork(transactionSlot, transactionGeneration,
+                !ownerCurrent || !progressCurrent);
+        }
+        return;
+    }
+    current.execution.z = expectedPhases | completedPhase;
+    _StreamTransactions[transactionSlot] = current;
 }
 
 void SigmaStreamAssociationEye(SigmaAssociationSampleGpu association,
@@ -717,15 +789,35 @@ void SigmaEvalLoadPreparedProjective(uint flat, uint sampleLocal,
 }
 
 void SigmaEvalAdvanceTransaction(uint transactionSlot,
-    uint transactionGeneration, SigmaTransactionGpu transaction)
+    uint transactionGeneration, SigmaTransactionGpu transaction,
+    uint expectedPhases, uint proposalFlags, uint outcomeMask)
 {
     SigmaTransactionGpu current = _StreamTransactions[transactionSlot];
-    if (SigmaStreamTransactionGeneration(current) != transactionGeneration ||
-        current.progress.x != transaction.progress.x ||
-        current.progress.y != transaction.progress.y ||
-        current.progress.z != transaction.progress.z ||
-        current.progress.w != 0u)
+    bool progressCurrent =
+        SigmaStreamTransactionGeneration(current) == transactionGeneration &&
+        SigmaStreamTransactionState(current) ==
+            SIGMA_STREAM_TRANSACTION_EVALUATING &&
+        current.progress.x == transaction.progress.x &&
+        current.progress.y == transaction.progress.y &&
+        current.progress.z == transaction.progress.z &&
+        current.progress.w == transaction.progress.w;
+    bool ownerCurrent = current.execution.x == transaction.progress.x &&
+        current.execution.y == SigmaEvalOwnerY(transaction);
+    if (!progressCurrent || !ownerCurrent ||
+        current.execution.z != expectedPhases)
+    {
+        if (SigmaStreamTransactionGeneration(current) ==
+                transactionGeneration &&
+            SigmaStreamTransactionState(current) ==
+                SIGMA_STREAM_TRANSACTION_EVALUATING)
+        {
+            SigmaEvalFailWork(transactionSlot, transactionGeneration,
+                !ownerCurrent || !progressCurrent);
+        }
         return;
+    }
+    current.execution.z = expectedPhases | SIGMA_STREAM_PHASE_FINAL;
+    current.execution.w |= proposalFlags | outcomeMask;
     current.progress.z++;
     if (current.progress.z == SIGMA_STREAM_MICROTILES_PER_BLOCK)
     {
@@ -733,6 +825,8 @@ void SigmaEvalAdvanceTransaction(uint transactionSlot,
         current.progress.w = 1u;
     }
     _StreamTransactions[transactionSlot] = current;
+    if ((proposalFlags & SIGMA_PROPOSAL_ACCEPTED) != 0u)
+        InterlockedAdd(_StreamDiagnostics[0u].memory.z, 1u);
     InterlockedAdd(_StreamDiagnostics[0u].transactions.w, 1u);
 }
 
@@ -742,7 +836,7 @@ void PrepareTransactionMicrotile(uint3 groupId : SV_GroupID,
 {
     uint flat = threadId.x;
     if (flat == 0u)
-        SigmaEvalPrepareGroup(groupId.x);
+        SigmaEvalPrepareGroup(groupId.x, SIGMA_STREAM_EXECUTION_ISSUED);
     GroupMemoryBarrierWithGroupSync();
     if (EvalGroupActive == 0u)
         return;
@@ -809,14 +903,22 @@ void PrepareTransactionMicrotile(uint3 groupId : SV_GroupID,
         _StreamEvalProjective[SigmaStreamEvalAddress(transactionSlot, sample,
             17u)] = EvalPriorWidth[sampleLocal];
     }
+    GroupMemoryBarrierWithGroupSync();
+    if (flat == 0u)
+    {
+        SigmaEvalCompletePhase(transactionSlot,
+            EvalGroupTransactionGeneration, transaction,
+            SIGMA_STREAM_EXECUTION_ISSUED,
+            SIGMA_STREAM_PHASE_PREPARED);
+    }
 }
 
-void SigmaEvaluateTransactionRgb(uint eye, uint3 groupId,
-    uint3 threadId)
+void SigmaEvaluateTransactionRgb(uint eye, uint expectedPhases,
+    uint completedPhase, uint3 groupId, uint3 threadId)
 {
     uint flat = threadId.x;
     if (flat == 0u)
-        SigmaEvalPrepareGroup(groupId.x);
+        SigmaEvalPrepareGroup(groupId.x, expectedPhases);
     GroupMemoryBarrierWithGroupSync();
     if (EvalGroupActive == 0u)
         return;
@@ -866,20 +968,32 @@ void SigmaEvaluateTransactionRgb(uint eye, uint3 groupId,
                 ((unobservable & 1u) << 1u);
         }
     }
+    GroupMemoryBarrierWithGroupSync();
+    if (flat == 0u)
+    {
+        SigmaEvalCompletePhase(transactionSlot,
+            EvalGroupTransactionGeneration, transaction, expectedPhases,
+            completedPhase);
+    }
 }
 
 [numthreads(SIGMA_STREAM_EVAL_THREADS, 1, 1)]
 void EvaluateTransactionRgbLeft(uint3 groupId : SV_GroupID,
     uint3 threadId : SV_GroupThreadID)
 {
-    SigmaEvaluateTransactionRgb(0u, groupId, threadId);
+    SigmaEvaluateTransactionRgb(0u,
+        SIGMA_STREAM_EXECUTION_ISSUED | SIGMA_STREAM_PHASE_PREPARED,
+        SIGMA_STREAM_PHASE_RGB_LEFT, groupId, threadId);
 }
 
 [numthreads(SIGMA_STREAM_EVAL_THREADS, 1, 1)]
 void EvaluateTransactionRgbRight(uint3 groupId : SV_GroupID,
     uint3 threadId : SV_GroupThreadID)
 {
-    SigmaEvaluateTransactionRgb(1u, groupId, threadId);
+    SigmaEvaluateTransactionRgb(1u,
+        SIGMA_STREAM_EXECUTION_ISSUED | SIGMA_STREAM_PHASE_PREPARED |
+            SIGMA_STREAM_PHASE_RGB_LEFT,
+        SIGMA_STREAM_PHASE_RGB_RIGHT, groupId, threadId);
 }
 
 [numthreads(SIGMA_STREAM_EVAL_THREADS, 1, 1)]
@@ -888,7 +1002,11 @@ void MeetTransactionMicrotile(uint3 groupId : SV_GroupID,
 {
     uint flat = threadId.x;
     if (flat == 0u)
-        SigmaEvalPrepareGroup(groupId.x);
+        SigmaEvalPrepareGroup(groupId.x,
+            SIGMA_STREAM_EXECUTION_ISSUED |
+            SIGMA_STREAM_PHASE_PREPARED |
+            SIGMA_STREAM_PHASE_RGB_LEFT |
+            SIGMA_STREAM_PHASE_RGB_RIGHT);
     GroupMemoryBarrierWithGroupSync();
     if (EvalGroupActive == 0u)
         return;
@@ -1091,6 +1209,17 @@ void MeetTransactionMicrotile(uint3 groupId : SV_GroupID,
         _StreamSampleMeta[streamSample] = cumulative;
         _StreamSampleOutcomes[streamSample] = EvalOutcome[sampleLocal];
     }
+    GroupMemoryBarrierWithGroupSync();
+    if (flat == 0u)
+    {
+        SigmaEvalCompletePhase(transactionSlot,
+            EvalGroupTransactionGeneration, transaction,
+            SIGMA_STREAM_EXECUTION_ISSUED |
+                SIGMA_STREAM_PHASE_PREPARED |
+                SIGMA_STREAM_PHASE_RGB_LEFT |
+                SIGMA_STREAM_PHASE_RGB_RIGHT,
+            SIGMA_STREAM_PHASE_MET);
+    }
 }
 
 [numthreads(SIGMA_STREAM_EVAL_THREADS, 1, 1)]
@@ -1099,10 +1228,22 @@ void EvaluateTransactionMicrotile(uint3 groupId : SV_GroupID,
 {
     uint flat = threadId.x;
     if (flat == 0u)
-        SigmaEvalPrepareGroup(groupId.x);
+        SigmaEvalPrepareGroup(groupId.x,
+            SIGMA_STREAM_EXECUTION_ISSUED |
+            SIGMA_STREAM_PHASE_PREPARED |
+            SIGMA_STREAM_PHASE_RGB_LEFT |
+            SIGMA_STREAM_PHASE_RGB_RIGHT |
+            SIGMA_STREAM_PHASE_MET);
     GroupMemoryBarrierWithGroupSync();
     if (EvalGroupActive == 0u)
         return;
+
+    if (flat == 0u)
+    {
+        EvalGroupProposalFlags = 0u;
+        EvalGroupOutcomeMask = 0u;
+    }
+    GroupMemoryBarrierWithGroupSync();
 
     uint transactionSlot = EvalGroupTransactionSlot;
     uint transactionGeneration = EvalGroupTransactionGeneration;
@@ -1113,7 +1254,13 @@ void EvaluateTransactionMicrotile(uint3 groupId : SV_GroupID,
     {
         if (flat == 0u)
             SigmaEvalAdvanceTransaction(transactionSlot,
-                transactionGeneration, transaction);
+                transactionGeneration, transaction,
+                SIGMA_STREAM_EXECUTION_ISSUED |
+                    SIGMA_STREAM_PHASE_PREPARED |
+                    SIGMA_STREAM_PHASE_RGB_LEFT |
+                    SIGMA_STREAM_PHASE_RGB_RIGHT |
+                    SIGMA_STREAM_PHASE_MET,
+                0u, 0u);
         return;
     }
 
@@ -1199,11 +1346,21 @@ void EvaluateTransactionMicrotile(uint3 groupId : SV_GroupID,
         else if (candidateValid != 0u)
             status |= SIGMA_PROPOSAL_INVALID;
         _ProofSamples[proofIndex].meta.x = status;
-        sampleMeta.y = status;
+        sampleMeta.y |= status;
         _StreamSampleMeta[streamSample] = sampleMeta;
+        InterlockedOr(EvalGroupProposalFlags, sampleMeta.y);
+        InterlockedOr(EvalGroupOutcomeMask,
+            SigmaStreamOutcomeBit(outcome));
     }
     GroupMemoryBarrierWithGroupSync();
     if (flat == 0u)
+    {
         SigmaEvalAdvanceTransaction(transactionSlot, transactionGeneration,
-            transaction);
+            transaction, SIGMA_STREAM_EXECUTION_ISSUED |
+                SIGMA_STREAM_PHASE_PREPARED |
+                SIGMA_STREAM_PHASE_RGB_LEFT |
+                SIGMA_STREAM_PHASE_RGB_RIGHT |
+                SIGMA_STREAM_PHASE_MET,
+            EvalGroupProposalFlags, EvalGroupOutcomeMask);
+    }
 }

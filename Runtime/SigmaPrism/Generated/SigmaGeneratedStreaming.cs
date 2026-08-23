@@ -64,6 +64,7 @@ namespace Genesis.RoomScan.SigmaPrism
         internal SigmaStreamUInt4Gpu CompletedMaskLo;
         internal SigmaStreamUInt4Gpu CompletedMaskHi;
         internal SigmaStreamUInt4Gpu Progress;
+        internal SigmaStreamUInt4Gpu Execution;
         internal SigmaStreamUInt4Gpu Scratch;
         internal SigmaStreamUInt4Gpu Transition;
         internal SigmaStreamUInt4Gpu Dependency0;
@@ -195,7 +196,7 @@ namespace Genesis.RoomScan.SigmaPrism
         internal const int ProofBlocksPerPage = 64;
         internal const int MicrotilesPerProofBlock = 4;
         internal const int CalibrationQ48ValuesPerBundle = 88;
-        internal const int TransactionStride = 352;
+        internal const int TransactionStride = 368;
         internal const int BundleStride = 112;
         internal const int ProbationStride = 64;
         internal const int SourceHandleSegmentStride = 96;
@@ -207,6 +208,18 @@ namespace Genesis.RoomScan.SigmaPrism
         internal const int PageVisibilityStride = 32;
         internal const int WorkItemStride = 32;
         internal const int DiagnosticStride = 128;
+        internal const uint ExecutionPhasePrepared = 1u << 0;
+        internal const uint ExecutionPhaseRgbLeft = 1u << 1;
+        internal const uint ExecutionPhaseRgbRight = 1u << 2;
+        internal const uint ExecutionPhaseMet = 1u << 3;
+        internal const uint ExecutionPhaseFinal = 1u << 4;
+        internal const uint ExecutionIssued = 1u << 5;
+        internal const uint ExecutionPhaseAll = (1u << 6) - 1u;
+        internal const uint ExecutionProposalMask = (1u << 10) - 1u;
+        internal const int ExecutionOutcomeShift = 16;
+        internal const uint ExecutionOutcomeMask = 0x1fu <<
+            ExecutionOutcomeShift;
+        internal const uint ExecutionFault = 1u << 31;
 
         internal static readonly uint[] KernelTokenCost = { 0u, 5u, 10u, 88u, 21u, 26u, 46u, 7u, 578u, 4u, 46u, 18u, 23u };
         internal static readonly uint[] KernelBudgetClass = { 0u, 1u, 1u, 2u, 3u, 3u, 3u, 3u, 3u, 3u, 4u, 4u, 1u };

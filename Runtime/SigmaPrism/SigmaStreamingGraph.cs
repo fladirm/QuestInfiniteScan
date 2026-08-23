@@ -11,6 +11,7 @@ namespace Genesis.RoomScan.SigmaPrism
     /// </summary>
     internal sealed class SigmaStreamingGraph
     {
+        private const int CanonicalRoundsPerSubmission = 8;
         private const string WorkResource =
             "SigmaPrism/SigmaInverseWorkGraph";
         private const string SourceResource = "SigmaPrism/SigmaSourceBundle";
@@ -266,6 +267,27 @@ namespace Genesis.RoomScan.SigmaPrism
             command.DispatchCompute(_publication, _initializeVisibility,
                 CeilDiv(_pool.PageCapacity, 64), 1, 1);
 
+            for (int round = 0; round < CanonicalRoundsPerSubmission;
+                ++round)
+            {
+                RecordCanonicalRound(command, singularShift, associatorShift,
+                    round == 0,
+                    round + 1 == CanonicalRoundsPerSubmission);
+            }
+
+            BindScheduleDiagnostics(command, _scheduleDiagnostics);
+            command.DispatchCompute(_work, _scheduleDiagnostics, 1, 1, 1);
+        }
+
+        private void RecordCanonicalRound(CommandBuffer command,
+            int singularShift, int associatorShift, bool refillBudgets,
+            bool emitPublication)
+        {
+            SetInt(command, _work, "_RefillBudgets",
+                refillBudgets ? 1 : 0);
+            SetInt(command, _work, "_EmitPublication",
+                emitPublication ? 1 : 0);
+
             BindSchedule(command, _schedule);
             command.DispatchCompute(_work, _schedule, 1, 1, 1);
 
@@ -276,16 +298,11 @@ namespace Genesis.RoomScan.SigmaPrism
             BindReleaseProbation(command, _releaseProbation);
             command.DispatchCompute(_work, _releaseProbation, 1, 1, 1);
 
-            int[] dormantParking = { _prepareDormant, _parkDormantSources,
-                _parkDormantSegments, _releaseDormantPage,
-                _finalizeDormant };
-            for (int index = 0; index < dormantParking.Length; ++index)
-            {
-                int kernel = dormantParking[index];
-                BindDormant(command, kernel);
-                DispatchIndirect(command, _dormant, kernel,
-                    SigmaStreamOpcode.DORMANT_RECHECK);
-            }
+            RecordDormantStage(command, _prepareDormant);
+            RecordDormantStage(command, _parkDormantSources);
+            RecordDormantStage(command, _parkDormantSegments);
+            RecordDormantStage(command, _releaseDormantPage);
+            RecordDormantStage(command, _finalizeDormant);
             BindDormant(command, _recheckDormant);
             command.DispatchCompute(_dormant, _recheckDormant, 1, 1, 1);
 
@@ -301,18 +318,14 @@ namespace Genesis.RoomScan.SigmaPrism
             DispatchIndirect(command, _proof, _reduceSourceBlock,
                 SigmaStreamOpcode.REDUCE_SOURCE_BLOCK);
 
-            int[] proofClosure = {
-                _prepareProofOrder, _mergeProofRuns, _coalesceProof,
-                _prepareRedundancy, _evaluateRedundancy, _emitCertificates,
-                _retainRaw, _completeProofBlock
-            };
-            for (int index = 0; index < proofClosure.Length; ++index)
-            {
-                int kernel = proofClosure[index];
-                BindProof(command, kernel);
-                DispatchIndirect(command, _proof, kernel,
-                    SigmaStreamOpcode.FINALIZE_PROOF_BLOCK);
-            }
+            RecordProofClosureStage(command, _prepareProofOrder);
+            RecordProofClosureStage(command, _mergeProofRuns);
+            RecordProofClosureStage(command, _coalesceProof);
+            RecordProofClosureStage(command, _prepareRedundancy);
+            RecordProofClosureStage(command, _evaluateRedundancy);
+            RecordProofClosureStage(command, _emitCertificates);
+            RecordProofClosureStage(command, _retainRaw);
+            RecordProofClosureStage(command, _completeProofBlock);
 
             BindTransition(command, _validateTransition, singularShift,
                 associatorShift);
@@ -322,18 +335,33 @@ namespace Genesis.RoomScan.SigmaPrism
                 associatorShift);
             DispatchIndirect(command, _transition, _validateAssociator,
                 SigmaStreamOpcode.TRANSITION_ASSOCIATOR);
-            int[] publication = { _prepareManifest, _publishManifest,
-                _resolvePageCaches };
-            for (int index = 0; index < publication.Length; ++index)
+            if (emitPublication)
             {
-                int kernel = publication[index];
-                BindPublication(command, kernel);
-                DispatchIndirect(command, _publication, kernel,
-                    SigmaStreamOpcode.PUBLISH_MANIFEST);
+                RecordPublicationStage(command, _prepareManifest);
+                RecordPublicationStage(command, _publishManifest);
+                RecordPublicationStage(command, _resolvePageCaches);
             }
+        }
 
-            BindScheduleDiagnostics(command, _scheduleDiagnostics);
-            command.DispatchCompute(_work, _scheduleDiagnostics, 1, 1, 1);
+        private void RecordDormantStage(CommandBuffer command, int kernel)
+        {
+            BindDormant(command, kernel);
+            DispatchIndirect(command, _dormant, kernel,
+                SigmaStreamOpcode.DORMANT_RECHECK);
+        }
+
+        private void RecordProofClosureStage(CommandBuffer command, int kernel)
+        {
+            BindProof(command, kernel);
+            DispatchIndirect(command, _proof, kernel,
+                SigmaStreamOpcode.FINALIZE_PROOF_BLOCK);
+        }
+
+        private void RecordPublicationStage(CommandBuffer command, int kernel)
+        {
+            BindPublication(command, kernel);
+            DispatchIndirect(command, _publication, kernel,
+                SigmaStreamOpcode.PUBLISH_MANIFEST);
         }
 
         internal void RecordDerivedQuantum(CommandBuffer command)
@@ -460,6 +488,8 @@ namespace Genesis.RoomScan.SigmaPrism
             Set(command, _work, kernel, "_StreamTransactions",
                 _stream.Transactions);
             Set(command, _work, kernel, "_StreamBundles", _stream.Bundles);
+            Set(command, _work, kernel, "_StreamProbation",
+                _stream.Probation);
             Set(command, _work, kernel, "_StreamSchedulerControl",
                 _stream.SchedulerControl);
             Set(command, _work, kernel, "_StreamDiagnostics",
@@ -550,6 +580,7 @@ namespace Genesis.RoomScan.SigmaPrism
         {
             Set(command, _inverse, kernel, "_SigmaExactBackendGate",
                 _backendGate.Buffer);
+            _ledger.BindReadOnly(command, _inverse, kernel);
             Set(command, _inverse, kernel, "_CarrierState", _pool.State);
             Set(command, _inverse, kernel, "_TargetCarrierState", _pool.State);
             Set(command, _inverse, kernel, "_PageMetadata", _pool.Metadata);
@@ -869,6 +900,10 @@ namespace Genesis.RoomScan.SigmaPrism
                 leftWorld.inverse);
             command.SetComputeMatrixParam(shader, "_OpticalFromWorldRight",
                 rightWorld.inverse);
+            command.SetComputeMatrixParam(shader,
+                "_PoseConsumeReferenceFromWorld", leftWorld.inverse);
+            command.SetComputeMatrixParam(shader,
+                "_PoseConsumeWorldFromReference", leftWorld);
             command.SetComputeVectorParam(shader, "_DepthIntrinsicsLeft",
                 Intrinsics(source.DepthLeft.Intrinsics));
             command.SetComputeVectorParam(shader, "_DepthIntrinsicsRight",

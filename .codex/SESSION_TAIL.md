@@ -1,34 +1,30 @@
-# Session tail — S4-08.3 Release closure
+# Session tail — S4-08.3C audited closure
 
 ## Exchange 1
 
-User required every shader/kernel change to come from a complete manual model of
-the whole file, ABI, resources, C# bindings and dispatch order, then be emitted as
-one coherent replacement rather than a layered hotfix.
+User required a deterministic, low-code closure run over the device-forensic audit,
+with no ontology change, no fallback, no CPU control and no new subsystem. Existing
+diagnostic readback could be extended only as temporary observation. The run had to
+continue through a fresh Release APK installed on Quest.
 
-Assistant manually audited and replaced the monolithic streaming inverse with a
-five-stage compiler-bounded pipeline over one immutable work item. Only the final
-stage advances the transaction, no stage publishes `Psi`, Q16.48/value-validity
-and source/provenance ordering are preserved, generated cost metadata includes all
-stages, Vulkan streaming passes 4/4 and full EditMode passes 69/69.
+Assistant froze `.codex/S4-08.3C_PLAN.md` and implemented C1-C5: a 16-byte transient
+execution owner/phase record in the existing transaction; complete live ledger,
+probation and pose binds; fail-closed five-stage inverse/revalidation/publication;
+explicit page count; eight dependency rounds over one budget refill; removal of the
+two-bundle cap; and expanded diagnostic-only telemetry. No proof/transition math or
+canonical type was added.
 
 ## Exchange 2
 
-Release commit `3924c6e4447a613cabe3388e38dce67198b725be` compiled the
-new inverse and scheduler but the player gate rejected 45 diagnostics, all repeats
-of one `SigmaStreamProof` defect across nine variants. Nonzero lanes left the
-source reducer before lane zero completed canonical metadata, making the following
-source barrier appear under varying control.
+User asked to finish the plan and deliver the new APK on Quest.
 
-Assistant manually read the complete proof shader plus already-audited ABI/host
-binding path and first added a closing uniform sync. Release `d006686` proved that
-two entrypoint returns still guarded all four reducer calls. The complete shader
-was reviewed again and the entrypoint was replaced with one unconditional 64-lane
-barrier schedule: invalid/spilled work is zero-masked and cannot publish, while
-lane-zero cursor/closure publication happens only after the final sync. Exact
-source/Q48/provenance order is unchanged and focused Vulkan proof/streaming is 4/4.
+Assistant completed C6 source gates. Generated output and diff checks pass, the
+Quest eight-UAV gate passes, and Unity 6000.5.9f1 Vulkan EditMode passes 71/71 after
+new production-contract and 368-byte telemetry ABI regressions. The final UAV issue
+was resolved without a new binding by staging work-graph counters through its
+existing scheduler-control UAV and copying them in the diagnostic finalizer.
 
-Current exact action: regenerate code graph, validate controls, commit the
-unconditional proof replacement, run one Release build, inspect all diagnostics,
-install a fresh APK only if clean, archive that exact commit, then stop before
-S4-09.
+Current exact action: regenerate/validate final controls, manually verify the
+changed-file set, commit the exact S4-08.3C candidate, create its source-only archive,
+run one Android/Vulkan Release build, install it on the connected Quest and perform
+the three-minute device acceptance. S4-09 remains unopened.

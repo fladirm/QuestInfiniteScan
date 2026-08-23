@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Runtime.InteropServices;
 using Genesis.RoomScan.SigmaPrism;
 using NUnit.Framework;
+using UnityEditor;
 using UnityEngine;
 
 namespace Genesis.RoomScan.Tests
@@ -131,6 +133,102 @@ namespace Genesis.RoomScan.Tests
             {
                 UnityEngine.Object.DestroyImmediate(material);
             }
+        }
+
+        [Test]
+        public void StreamingRepairContractUsesProductionBindingsAndClosure()
+        {
+            Assert.That(Marshal.SizeOf<SigmaTransactionGpu>(),
+                Is.EqualTo(SigmaGeneratedStreaming.TransactionStride));
+            Assert.That(SigmaGeneratedStreaming.TransactionStride,
+                Is.EqualTo(368));
+            Assert.That(SigmaGeneratedStreaming.ExecutionPhaseAll,
+                Is.EqualTo(0x3fu));
+
+            string graph = ReadScript("SigmaStreamingGraph.cs");
+            StringAssert.Contains(
+                "_ledger.BindReadOnly(command, _inverse, kernel);", graph);
+            StringAssert.IsMatch(
+                @"BindScheduleDiagnostics[\s\S]*?_StreamProbation",
+                graph);
+            StringAssert.Contains("_PoseConsumeReferenceFromWorld", graph);
+            StringAssert.Contains("_PoseConsumeWorldFromReference", graph);
+            StringAssert.Contains(
+                "private const int CanonicalRoundsPerSubmission = 8;", graph);
+            StringAssert.Contains("round == 0", graph);
+            StringAssert.Contains(
+                "round + 1 == CanonicalRoundsPerSubmission", graph);
+
+            string work = ReadCompute("SigmaPrism/SigmaInverseWorkGraph");
+            StringAssert.Contains("_RefillBudgets", work);
+            StringAssert.Contains("_EmitPublication", work);
+            StringAssert.Contains("transaction.execution.z = " +
+                "SIGMA_STREAM_EXECUTION_ISSUED", work);
+            StringAssert.Contains("transaction.page1.coordinate = " +
+                "SIGMA_STREAM_INVALID", work);
+
+            string inverse = ReadCompute("SigmaPrism/SigmaStreamInverse");
+            StringAssert.Contains("SigmaEvalFailWork", inverse);
+            StringAssert.Contains("SigmaEvalCompletePhase", inverse);
+            StringAssert.Contains("SIGMA_STREAM_PHASE_RGB_LEFT", inverse);
+            StringAssert.Contains("SIGMA_STREAM_PHASE_RGB_RIGHT", inverse);
+            StringAssert.Contains("SIGMA_STREAM_PHASE_MET", inverse);
+
+            string revalidation = ReadCompute(
+                "SigmaPrism/SigmaStreamRevalidation");
+            StringAssert.Contains("SigmaRevalidationClosedState",
+                revalidation);
+            StringAssert.Contains("SIGMA_PROPOSAL_ACCEPTED", revalidation);
+            StringAssert.Contains("SIGMA_STREAM_OUTCOME_NULL_PROMOTION",
+                revalidation);
+            StringAssert.Contains("SIGMA_STREAM_OUTCOME_EXISTING_UPDATE",
+                revalidation);
+
+            string publication = ReadCompute(
+                "SigmaPrism/SigmaStreamPublication");
+            StringAssert.Contains("transaction.publication.z", publication);
+            StringAssert.Contains("if (count == 0u || count > " +
+                "SIGMA_STREAM_MAX_PAGES)", publication);
+        }
+
+        [Test]
+        public void TransactionTelemetryDecodesExecutionGeneration()
+        {
+            var words = new uint[
+                SigmaGeneratedStreaming.TransactionStride / sizeof(uint)];
+            words[0] = 2u;
+            words[1] = 7u;
+            words[18] = 1u;
+            words[24] = 11u;
+            words[25] = 13u;
+            words[26] = 17u;
+            words[27] = 19u;
+            words[72] = 3u;
+            words[73] = 9u;
+            words[74] = SigmaGeneratedStreaming.ExecutionPhaseAll;
+            words[75] = 1u |
+                (1u << SigmaGeneratedStreaming.ExecutionOutcomeShift) |
+                SigmaGeneratedStreaming.ExecutionFault;
+            words[76] = 23u;
+            words[80] = 29u;
+
+            var telemetry = new SigmaTransactionTelemetry(0, words, 0);
+            Assert.That(telemetry.Generation, Is.EqualTo(7u));
+            Assert.That(telemetry.PublicationPageCount, Is.EqualTo(1u));
+            Assert.That(telemetry.Page0Source, Is.EqualTo(11u));
+            Assert.That(telemetry.Page0Target, Is.EqualTo(13u));
+            Assert.That(telemetry.Page0SourceGeneration, Is.EqualTo(17u));
+            Assert.That(telemetry.Page0TargetGeneration, Is.EqualTo(19u));
+            Assert.That(telemetry.ExecutionSource, Is.EqualTo(3u));
+            Assert.That(telemetry.ExecutionBlockMicrotile, Is.EqualTo(9u));
+            Assert.That(telemetry.ExecutionPhaseMask, Is.EqualTo(0x3fu));
+            Assert.That(telemetry.ExecutionProposalMask, Is.EqualTo(1u));
+            Assert.That(telemetry.ExecutionOutcomeMask,
+                Is.EqualTo(1u <<
+                    SigmaGeneratedStreaming.ExecutionOutcomeShift));
+            Assert.That(telemetry.ExecutionFaulted, Is.True);
+            Assert.That(telemetry.ScratchSegment, Is.EqualTo(23u));
+            Assert.That(telemetry.TransitionEdge, Is.EqualTo(29u));
         }
 
         [Test]
@@ -647,6 +745,27 @@ namespace Genesis.RoomScan.Tests
             string property, GraphicsBuffer buffer)
         {
             shader.SetBuffer(kernel, property, buffer);
+        }
+
+        private static string ReadCompute(string resource)
+        {
+            ComputeShader shader = Resources.Load<ComputeShader>(resource);
+            Assert.That(shader, Is.Not.Null, resource);
+            return File.ReadAllText(AssetDatabase.GetAssetPath(shader));
+        }
+
+        private static string ReadScript(string fileName)
+        {
+            foreach (string guid in AssetDatabase.FindAssets(
+                Path.GetFileNameWithoutExtension(fileName) + " t:MonoScript"))
+            {
+                string path = AssetDatabase.GUIDToAssetPath(guid);
+                if (path.EndsWith('/' + fileName,
+                        StringComparison.Ordinal))
+                    return File.ReadAllText(path);
+            }
+            Assert.Fail("Missing script asset " + fileName);
+            return string.Empty;
         }
     }
 }

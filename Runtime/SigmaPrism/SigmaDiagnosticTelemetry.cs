@@ -355,18 +355,18 @@ namespace Genesis.RoomScan.SigmaPrism
 
         internal void AppendTo(StringBuilder text)
         {
-            text.Append("frame=");
+            text.Append("wall.frame=");
             if (HasFrameTiming)
                 text.Append(CpuFrameMs.ToString("F2")).Append('/')
                     .Append(GpuFrameMs.ToString("F2")).Append("ms");
             else
                 text.Append("unavailable");
             text.Append(' ');
-            Ingress.AppendTo(text, "ingress");
+            Ingress.AppendTo(text, "wall.ingress");
             text.Append(' ');
-            Canonical.AppendTo(text, "canonical");
+            Canonical.AppendTo(text, "wall.canonical");
             text.Append(' ');
-            Derived.AppendTo(text, "derived");
+            Derived.AppendTo(text, "wall.derived");
         }
     }
 
@@ -387,18 +387,31 @@ namespace Genesis.RoomScan.SigmaPrism
             SourceFlags = Word(words, offset + 15);
             PublicationRevision = Word(words, offset + 16);
             PublicationState = Word(words, offset + 17);
+            PublicationPageCount = Word(words, offset + 18);
+            Page0XLo = Word(words, offset + 20);
+            Page0XHi = Word(words, offset + 21);
+            Page0YLo = Word(words, offset + 22);
+            Page0YHi = Word(words, offset + 23);
+            Page0Source = Word(words, offset + 24);
+            Page0Target = Word(words, offset + 25);
+            Page0SourceGeneration = Word(words, offset + 26);
+            Page0TargetGeneration = Word(words, offset + 27);
             ProgressSource = Word(words, offset + 68);
             ProgressBlock = Word(words, offset + 69);
             ProgressMicrotile = Word(words, offset + 70);
             ProgressPhase = Word(words, offset + 71);
-            ScratchSegment = Word(words, offset + 72);
-            ScratchGeneration = Word(words, offset + 73);
-            ScratchOffset = Word(words, offset + 74);
-            ScratchFlags = Word(words, offset + 75);
-            TransitionEdge = Word(words, offset + 76);
-            TransitionCell = Word(words, offset + 77);
-            TransitionPhase = Word(words, offset + 78);
-            TransitionFailure = Word(words, offset + 79);
+            ExecutionSource = Word(words, offset + 72);
+            ExecutionBlockMicrotile = Word(words, offset + 73);
+            ExecutionPhase = Word(words, offset + 74);
+            ExecutionFlags = Word(words, offset + 75);
+            ScratchSegment = Word(words, offset + 76);
+            ScratchGeneration = Word(words, offset + 77);
+            ScratchOffset = Word(words, offset + 78);
+            ScratchFlags = Word(words, offset + 79);
+            TransitionEdge = Word(words, offset + 80);
+            TransitionCell = Word(words, offset + 81);
+            TransitionPhase = Word(words, offset + 82);
+            TransitionFailure = Word(words, offset + 83);
         }
 
         public int Slot { get; }
@@ -414,10 +427,31 @@ namespace Genesis.RoomScan.SigmaPrism
         public uint SourceFlags { get; }
         public uint PublicationRevision { get; }
         public uint PublicationState { get; }
+        public uint PublicationPageCount { get; }
+        public uint Page0XLo { get; }
+        public uint Page0XHi { get; }
+        public uint Page0YLo { get; }
+        public uint Page0YHi { get; }
+        public uint Page0Source { get; }
+        public uint Page0Target { get; }
+        public uint Page0SourceGeneration { get; }
+        public uint Page0TargetGeneration { get; }
         public uint ProgressSource { get; }
         public uint ProgressBlock { get; }
         public uint ProgressMicrotile { get; }
         public uint ProgressPhase { get; }
+        public uint ExecutionSource { get; }
+        public uint ExecutionBlockMicrotile { get; }
+        public uint ExecutionPhase { get; }
+        public uint ExecutionFlags { get; }
+        public uint ExecutionPhaseMask => ExecutionPhase &
+            SigmaGeneratedStreaming.ExecutionPhaseAll;
+        public uint ExecutionProposalMask => ExecutionFlags &
+            SigmaGeneratedStreaming.ExecutionProposalMask;
+        public uint ExecutionOutcomeMask => ExecutionFlags &
+            SigmaGeneratedStreaming.ExecutionOutcomeMask;
+        public bool ExecutionFaulted => (ExecutionFlags &
+            SigmaGeneratedStreaming.ExecutionFault) != 0u;
         public uint ScratchSegment { get; }
         public uint ScratchGeneration { get; }
         public uint ScratchOffset { get; }
@@ -453,10 +487,24 @@ namespace Genesis.RoomScan.SigmaPrism
                 .Append("/src=").Append(SourceHead).Append(':')
                 .Append(SourceGeneration).Append('+').Append(SourceCount)
                 .Append("/pub=").Append(PublicationRevision).Append(':')
-                .Append(PublicationState)
+                .Append(PublicationState).Append('x')
+                .Append(PublicationPageCount)
+                .Append("/page0=").Append(Page0Source).Append(':')
+                .Append(Page0SourceGeneration).Append("->")
+                .Append(Page0Target).Append(':').Append(Page0TargetGeneration)
+                .Append('@').Append(Page0XLo).Append(':').Append(Page0XHi)
+                .Append(',').Append(Page0YLo).Append(':').Append(Page0YHi)
                 .Append("/p=").Append(ProgressSource).Append(',')
                 .Append(ProgressBlock).Append(',').Append(ProgressMicrotile)
                 .Append(',').Append(ProgressPhase)
+                .Append("/exec=").Append(ExecutionSource).Append(',')
+                .Append(ExecutionBlockMicrotile)
+                .Append(" phase=0x").Append(ExecutionPhaseMask.ToString("X"))
+                .Append(" proposal=0x")
+                .Append(ExecutionProposalMask.ToString("X"))
+                .Append(" outcome=0x")
+                .Append(ExecutionOutcomeMask.ToString("X"))
+                .Append(" fault=").Append(ExecutionFaulted ? 1 : 0)
                 .Append("/scratch=").Append(ScratchSegment).Append(':')
                 .Append(ScratchGeneration).Append('+').Append(ScratchOffset)
                 .Append("/tr=").Append(TransitionEdge).Append(',')
@@ -657,6 +705,13 @@ namespace Genesis.RoomScan.SigmaPrism
         public uint RevalidationsCompleted => Word(Diagnostics, 21);
         public uint DormantEvents => Word(Diagnostics, 22);
         public uint LifetimeFailures => Word(Diagnostics, 23);
+        public uint PhaseIncompleteFaults => Word(Diagnostics, 24);
+        public uint OwnerMismatchFaults => Word(Diagnostics, 25);
+        public uint AcceptedFinals => Word(Diagnostics, 26);
+        public uint ZeroAcceptedClosures => Word(Diagnostics, 27);
+        public uint PublicationGateRejects => Word(Diagnostics, 28);
+        public uint IngressResidentExhaustions => Word(Diagnostics, 29);
+        public uint NovelNullPageRejects => Word(Diagnostics, 30);
 
         public uint IngressCursor => Word(Scheduler, 3);
         public uint IngressCount => Word(Scheduler, 4);
@@ -682,6 +737,17 @@ namespace Genesis.RoomScan.SigmaPrism
         public uint DrawInstanceCount => Word(DrawArguments, 1);
         public uint ReadoutPageCount => SigmaRenderer.VerticesPerCarrierPage == 0
             ? 0u : DrawVertexCount / (uint)SigmaRenderer.VerticesPerCarrierPage;
+
+        public ulong ScheduledTokenLoad => WeightedLoad(
+            SigmaGeneratedStreaming.KernelTokenCost);
+        public ulong ScheduledBytesRead => WeightedLoad(
+            SigmaGeneratedStreaming.KernelBytesRead);
+        public ulong ScheduledBytesWritten => WeightedLoad(
+            SigmaGeneratedStreaming.KernelBytesWritten);
+        public ulong ScheduledBarrierLoad => WeightedLoad(
+            SigmaGeneratedStreaming.KernelBarrierCount);
+        public ulong ScheduledWitnessLoad => WeightedLoad(
+            SigmaGeneratedStreaming.KernelWitnessCount);
 
         public string Frontier
         {
@@ -738,6 +804,10 @@ namespace Genesis.RoomScan.SigmaPrism
             AppendRange(text, Diagnostics, 16, 4);
             text.Append(" diag.lifetime=");
             AppendRange(text, Diagnostics, 20, 4);
+            text.Append(" diag.memory=");
+            AppendRange(text, Diagnostics, 24, 4);
+            text.Append(" diag.reserved=");
+            AppendRange(text, Diagnostics, 28, 4);
             text.Append(" scheduler=");
             AppendRange(text, Scheduler, 0, Scheduler.Length);
             text.Append(" work={");
@@ -748,7 +818,13 @@ namespace Genesis.RoomScan.SigmaPrism
                 text.Append(index < OpcodeNames.Length ? OpcodeNames[index] :
                     index.ToString()).Append(':').Append(WorkCounts[index]);
             }
-            text.Append("} topology=");
+            text.Append("} last-round-load={tokens=")
+                .Append(ScheduledTokenLoad)
+                .Append(" read=").Append(ScheduledBytesRead)
+                .Append("B write=").Append(ScheduledBytesWritten)
+                .Append("B barriers=").Append(ScheduledBarrierLoad)
+                .Append(" witnesses=").Append(ScheduledWitnessLoad)
+                .Append("} topology=");
             AppendRange(text, Topology, 0, Topology.Length);
             text.Append(" draw=");
             AppendRange(text, DrawArguments, 0, DrawArguments.Length);
@@ -779,6 +855,16 @@ namespace Genesis.RoomScan.SigmaPrism
             if (source != null)
                 Array.Copy(source, result, Math.Min(source.Length, count));
             return result;
+        }
+
+        private ulong WeightedLoad(uint[] unitCost)
+        {
+            int count = Math.Min(WorkCounts?.Length ?? 0,
+                unitCost?.Length ?? 0);
+            ulong total = 0;
+            for (int index = 0; index < count; ++index)
+                total += (ulong)WorkCounts[index] * unitCost[index];
+            return total;
         }
 
         private static uint Word(uint[] words, int index) =>

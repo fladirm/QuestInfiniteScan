@@ -52,6 +52,8 @@ uint _RgbRightIndependenceKey;
 uint _RayEpochGeneration;
 uint _RawTileCapacity;
 uint _StreamSourceSegmentCapacity;
+uint _RefillBudgets;
+uint _EmitPublication;
 
 groupshared uint StreamFreeBundles[SIGMA_STREAM_BUNDLE_CAPACITY];
 groupshared uint StreamFreeBundleCount;
@@ -272,8 +274,9 @@ void ClearIngressWork(uint3 threadId : SV_GroupThreadID)
     }
 }
 
-// Ingress admits at most two complete page packets in stable source order. It
-// reserves owned raw storage before capture leases can be released.
+// Ingress seals every candidate for which the existing resident bundle/raw arena
+// has storage, in stable source order. Resident exhaustion is explicit telemetry;
+// it is never disguised as a successful partial canonical publication.
 [numthreads(256, 1, 1)]
 void CompactIngressBundles(uint3 threadId : SV_GroupThreadID)
 {
@@ -314,8 +317,7 @@ void CompactIngressBundles(uint3 threadId : SV_GroupThreadID)
     uint matchedPrefix = SigmaStableExclusiveScan256(lane, matched,
         matchedTotal);
     if (lane == 0u)
-        StreamMatchedCount = min(matchedTotal,
-            SIGMA_STREAM_INGRESS_BUNDLES_PER_FRAME);
+        StreamMatchedCount = matchedTotal;
     GroupMemoryBarrierWithGroupSync();
 
     uint gaugeWidth = (_GaugeBlockResolution.x + 1u) >> 1u;
@@ -346,8 +348,7 @@ void CompactIngressBundles(uint3 threadId : SV_GroupThreadID)
     uint gaugePrefix = SigmaStableExclusiveScan256(lane, gauge, gaugeTotal);
     if (lane == 0u)
     {
-        uint capacity = min(StreamFreeBundleCount,
-            SIGMA_STREAM_INGRESS_BUNDLES_PER_FRAME);
+        uint capacity = StreamFreeBundleCount;
         StreamMatchedCount = min(StreamMatchedCount, capacity);
         StreamGaugeCount = min(gaugeTotal, capacity - StreamMatchedCount);
         StreamIngressCount = StreamMatchedCount + StreamGaugeCount;
@@ -378,6 +379,12 @@ void CompactIngressBundles(uint3 threadId : SV_GroupThreadID)
             ? candidateTotal - StreamIngressCount : 0u;
         _StreamSchedulerControl[SIGMA_STREAM_CONTROL_SKIPPED_ADMISSION] +=
             skipped;
+        uint exhausted = candidateTotal > StreamFreeBundleCount
+            ? candidateTotal - StreamFreeBundleCount : 0u;
+        if (exhausted != 0u)
+            InterlockedAdd(_StreamSchedulerControl[
+                SIGMA_STREAM_CONTROL_PENDING_INGRESS_EXHAUSTION],
+                exhausted);
         uint span = max(1u, max(_PageCapacity, gaugeCandidates));
         _StreamSchedulerControl[SIGMA_STREAM_CONTROL_INGRESS_CURSOR] =
             (cursor + max(1u, StreamIngressCount)) % span;
@@ -1008,6 +1015,7 @@ void ScheduleSigmaTransactions(uint3 threadId : SV_GroupThreadID)
         transaction.completedMaskLo = 0u;
         transaction.completedMaskHi = 0u;
         transaction.progress = 0u;
+        transaction.execution = 0u;
         transaction.scratch = uint4(sourceHead, sourceGeneration,
             0u, first.raw.w);
         transaction.transition = 0u;
@@ -1015,6 +1023,12 @@ void ScheduleSigmaTransactions(uint3 threadId : SV_GroupThreadID)
         transaction.dependency1 = closesProbation && hasSecond
             ? second.dependency : uint4(first.calibration.y,
                 first.provenance.w, 0u, 0u);
+        transaction.page1.coordinate = SIGMA_STREAM_INVALID;
+        transaction.page1.state = SIGMA_STREAM_INVALID;
+        transaction.page2.coordinate = SIGMA_STREAM_INVALID;
+        transaction.page2.state = SIGMA_STREAM_INVALID;
+        transaction.page3.coordinate = SIGMA_STREAM_INVALID;
+        transaction.page3.state = SIGMA_STREAM_INVALID;
         _StreamTransactions[transactionSlot] = transaction;
         first.identity.x = SIGMA_STREAM_BUNDLE_ACTIVE;
         _StreamBundles[firstBundle] = first;
@@ -1037,9 +1051,12 @@ void ScheduleSigmaTransactions(uint3 threadId : SV_GroupThreadID)
         uint budgetAddress = SIGMA_STREAM_CONTROL_CLASS_BUDGET + budgetClass;
         uint deficit = _StreamSchedulerControl[deficitAddress];
         uint budget = _StreamSchedulerControl[budgetAddress];
-        deficit = min(deficit + budget,
-            SIGMA_STREAM_TOKEN_QUANTUM *
-                SIGMA_STREAM_TRANSACTION_CAPACITY);
+        if (_RefillBudgets != 0u)
+        {
+            deficit = min(deficit + budget,
+                SIGMA_STREAM_TOKEN_QUANTUM *
+                    SIGMA_STREAM_TRANSACTION_CAPACITY);
+        }
         uint visited = 0u;
         [loop]
         for (uint order = 0u; order <
@@ -1056,6 +1073,8 @@ void ScheduleSigmaTransactions(uint3 threadId : SV_GroupThreadID)
                 SigmaTransactionGpu transaction = _StreamTransactions[slot];
                 uint opcode = SigmaTransactionOpcode(transaction);
                 if (opcode == SIGMA_STREAM_OPCODE_NONE ||
+                    (opcode == SIGMA_STREAM_OPCODE_PUBLISH_MANIFEST &&
+                        _EmitPublication == 0u) ||
                     _StreamKernelBudgetClasses[opcode] != budgetClass)
                     continue;
                 uint2 ticket = SigmaStreamTicket(transaction);
@@ -1097,6 +1116,36 @@ void ScheduleSigmaTransactions(uint3 threadId : SV_GroupThreadID)
             uint workIndex = _StreamWorkCounts[opcode];
             if (workIndex >= SIGMA_STREAM_WORK_ITEMS_PER_OPCODE)
                 continue;
+            if (opcode == SIGMA_STREAM_OPCODE_EVALUATE_MICROTILE)
+            {
+                uint ownerY = (transaction.progress.y << 2u) |
+                    transaction.progress.z;
+                bool sameOwner = transaction.execution.x ==
+                        transaction.progress.x &&
+                    transaction.execution.y == ownerY;
+                bool outstanding = sameOwner &&
+                    transaction.execution.z != 0u;
+                if ((transaction.execution.w &
+                        SIGMA_STREAM_EXECUTION_FAULT) != 0u || outstanding)
+                {
+                    transaction.execution.w |=
+                        SIGMA_STREAM_EXECUTION_FAULT;
+                    transaction.identity.x = SIGMA_STREAM_TRANSACTION_FAILED;
+                    _StreamTransactions[selectedSlot] = transaction;
+                    _StreamSchedulerControl[
+                        SIGMA_STREAM_CONTROL_FAILED_COUNT] += 1u;
+                    InterlockedAdd(_StreamSchedulerControl[
+                        SIGMA_STREAM_CONTROL_PENDING_PHASE_FAULTS], 1u);
+                    if (sameOwner)
+                        InterlockedAdd(_StreamSchedulerControl[
+                            SIGMA_STREAM_CONTROL_PENDING_OWNER_MISMATCH], 1u);
+                    continue;
+                }
+                transaction.execution.x = transaction.progress.x;
+                transaction.execution.y = ownerY;
+                transaction.execution.z = SIGMA_STREAM_EXECUTION_ISSUED;
+                _StreamTransactions[selectedSlot] = transaction;
+            }
             SigmaStreamWorkItemGpu work = (SigmaStreamWorkItemGpu)0;
             work.identity = uint4(opcode, selectedSlot,
                 SigmaStreamTransactionGeneration(transaction),
@@ -1159,6 +1208,20 @@ void FinalizeStreamingScheduleDiagnostics(uint3 id : SV_DispatchThreadID)
         _StreamSchedulerControl[SIGMA_STREAM_CONTROL_PUBLISHED_COUNT],
         occupiedMask);
     _StreamDiagnostics[0u].admission.y = probationCount;
+    uint pendingPhaseFaults = _StreamSchedulerControl[
+        SIGMA_STREAM_CONTROL_PENDING_PHASE_FAULTS];
+    uint pendingOwnerMismatch = _StreamSchedulerControl[
+        SIGMA_STREAM_CONTROL_PENDING_OWNER_MISMATCH];
+    uint pendingIngressExhaustion = _StreamSchedulerControl[
+        SIGMA_STREAM_CONTROL_PENDING_INGRESS_EXHAUSTION];
+    _StreamDiagnostics[0u].memory.x += pendingPhaseFaults;
+    _StreamDiagnostics[0u].memory.y += pendingOwnerMismatch;
+    _StreamDiagnostics[0u].reserved.y += pendingIngressExhaustion;
+    _StreamSchedulerControl[SIGMA_STREAM_CONTROL_PENDING_PHASE_FAULTS] = 0u;
+    _StreamSchedulerControl[
+        SIGMA_STREAM_CONTROL_PENDING_OWNER_MISMATCH] = 0u;
+    _StreamSchedulerControl[
+        SIGMA_STREAM_CONTROL_PENDING_INGRESS_EXHAUSTION] = 0u;
 }
 
 [numthreads(64, 1, 1)]
@@ -1256,6 +1319,7 @@ void PrepareTransactionPages(uint3 threadId : SV_GroupThreadID)
         transaction.page0.state.y = target;
         transaction.page0.state.w = targetGeneration;
         transaction.progress = 0u;
+        transaction.execution = 0u;
         transaction.identity.x = dependencyRevalidation ||
             (transaction.identity.w &
                 SIGMA_STREAM_WORK_FLAG_NEEDS_REVALIDATION) != 0u

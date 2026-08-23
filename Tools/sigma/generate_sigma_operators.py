@@ -652,6 +652,7 @@ namespace Genesis.RoomScan.SigmaPrism
         internal SigmaStreamUInt4Gpu CompletedMaskLo;
         internal SigmaStreamUInt4Gpu CompletedMaskHi;
         internal SigmaStreamUInt4Gpu Progress;
+        internal SigmaStreamUInt4Gpu Execution;
         internal SigmaStreamUInt4Gpu Scratch;
         internal SigmaStreamUInt4Gpu Transition;
         internal SigmaStreamUInt4Gpu Dependency0;
@@ -783,7 +784,7 @@ namespace Genesis.RoomScan.SigmaPrism
         internal const int ProofBlocksPerPage = 64;
         internal const int MicrotilesPerProofBlock = 4;
         internal const int CalibrationQ48ValuesPerBundle = 88;
-        internal const int TransactionStride = 352;
+        internal const int TransactionStride = 368;
         internal const int BundleStride = 112;
         internal const int ProbationStride = 64;
         internal const int SourceHandleSegmentStride = 96;
@@ -795,6 +796,18 @@ namespace Genesis.RoomScan.SigmaPrism
         internal const int PageVisibilityStride = 32;
         internal const int WorkItemStride = 32;
         internal const int DiagnosticStride = 128;
+        internal const uint ExecutionPhasePrepared = 1u << 0;
+        internal const uint ExecutionPhaseRgbLeft = 1u << 1;
+        internal const uint ExecutionPhaseRgbRight = 1u << 2;
+        internal const uint ExecutionPhaseMet = 1u << 3;
+        internal const uint ExecutionPhaseFinal = 1u << 4;
+        internal const uint ExecutionIssued = 1u << 5;
+        internal const uint ExecutionPhaseAll = (1u << 6) - 1u;
+        internal const uint ExecutionProposalMask = (1u << 10) - 1u;
+        internal const int ExecutionOutcomeShift = 16;
+        internal const uint ExecutionOutcomeMask = 0x1fu <<
+            ExecutionOutcomeShift;
+        internal const uint ExecutionFault = 1u << 31;
 
         internal static readonly uint[] KernelTokenCost = {{ {cs_values('tokenCost')} }};
         internal static readonly uint[] KernelBudgetClass = {{ {cs_values('budgetClassId')} }};
@@ -891,6 +904,28 @@ def render_streaming_hlsl(execution: dict) -> str:
 #define SIGMA_STREAM_PROOF_EMIT_RAW 8u
 #define SIGMA_STREAM_PROOF_CLOSED 9u
 
+// Transient execution ownership. These bits never become canonical state.
+#define SIGMA_STREAM_PHASE_PREPARED (1u << 0u)
+#define SIGMA_STREAM_PHASE_RGB_LEFT (1u << 1u)
+#define SIGMA_STREAM_PHASE_RGB_RIGHT (1u << 2u)
+#define SIGMA_STREAM_PHASE_MET (1u << 3u)
+#define SIGMA_STREAM_PHASE_FINAL (1u << 4u)
+#define SIGMA_STREAM_EXECUTION_ISSUED (1u << 5u)
+#define SIGMA_STREAM_PHASE_ALL (SIGMA_STREAM_PHASE_PREPARED | \
+    SIGMA_STREAM_PHASE_RGB_LEFT | SIGMA_STREAM_PHASE_RGB_RIGHT | \
+    SIGMA_STREAM_PHASE_MET | SIGMA_STREAM_PHASE_FINAL | \
+    SIGMA_STREAM_EXECUTION_ISSUED)
+#define SIGMA_STREAM_EXECUTION_OUTCOME_SHIFT 16u
+#define SIGMA_STREAM_EXECUTION_OUTCOME_MASK (0x1fu << \
+    SIGMA_STREAM_EXECUTION_OUTCOME_SHIFT)
+#define SIGMA_STREAM_EXECUTION_FAULT (1u << 31u)
+
+uint SigmaStreamOutcomeBit(uint outcome)
+{{
+    return outcome <= SIGMA_STREAM_OUTCOME_TRANSITION_UNRESOLVED
+        ? 1u << (SIGMA_STREAM_EXECUTION_OUTCOME_SHIFT + outcome) : 0u;
+}}
+
 {budget_lines}
 
 {opcode_lines}
@@ -917,6 +952,7 @@ struct SigmaTransactionGpu
     uint4 completedMaskLo;
     uint4 completedMaskHi;
     uint4 progress;
+    uint4 execution;
     uint4 scratch;
     uint4 transition;
     uint4 dependency0;

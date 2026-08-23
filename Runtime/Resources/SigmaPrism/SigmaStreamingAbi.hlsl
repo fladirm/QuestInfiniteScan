@@ -65,6 +65,24 @@
 #define SIGMA_STREAM_PROOF_EMIT_RAW 8u
 #define SIGMA_STREAM_PROOF_CLOSED 9u
 
+// Transient execution ownership. These bits never become canonical state.
+#define SIGMA_STREAM_PHASE_PREPARED (1u << 0u)
+#define SIGMA_STREAM_PHASE_RGB_LEFT (1u << 1u)
+#define SIGMA_STREAM_PHASE_RGB_RIGHT (1u << 2u)
+#define SIGMA_STREAM_PHASE_MET (1u << 3u)
+#define SIGMA_STREAM_PHASE_FINAL (1u << 4u)
+#define SIGMA_STREAM_EXECUTION_ISSUED (1u << 5u)
+#define SIGMA_STREAM_PHASE_ALL (SIGMA_STREAM_PHASE_PREPARED |     SIGMA_STREAM_PHASE_RGB_LEFT | SIGMA_STREAM_PHASE_RGB_RIGHT |     SIGMA_STREAM_PHASE_MET | SIGMA_STREAM_PHASE_FINAL |     SIGMA_STREAM_EXECUTION_ISSUED)
+#define SIGMA_STREAM_EXECUTION_OUTCOME_SHIFT 16u
+#define SIGMA_STREAM_EXECUTION_OUTCOME_MASK (0x1fu <<     SIGMA_STREAM_EXECUTION_OUTCOME_SHIFT)
+#define SIGMA_STREAM_EXECUTION_FAULT (1u << 31u)
+
+uint SigmaStreamOutcomeBit(uint outcome)
+{
+    return outcome <= SIGMA_STREAM_OUTCOME_TRANSITION_UNRESOLVED
+        ? 1u << (SIGMA_STREAM_EXECUTION_OUTCOME_SHIFT + outcome) : 0u;
+}
+
 #define SIGMA_STREAM_BUDGET_NONE 0u
 #define SIGMA_STREAM_BUDGET_INGRESS_ADMISSION 1u
 #define SIGMA_STREAM_BUDGET_CANONICAL_PROGRESS 2u
@@ -107,6 +125,7 @@ struct SigmaTransactionGpu
     uint4 completedMaskLo;
     uint4 completedMaskHi;
     uint4 progress;
+    uint4 execution;
     uint4 scratch;
     uint4 transition;
     uint4 dependency0;

@@ -6,6 +6,7 @@
 #pragma target 5.0
 
 #include "SigmaInverseWorkAbi.hlsl"
+#include "SigmaInverseAbi.hlsl"
 #include "SigmaManifestVisibility.hlsl"
 #include "SigmaStableScan.hlsl"
 
@@ -59,6 +60,52 @@ groupshared uint RevalidationFinalizeBundleGeneration;
 groupshared uint RevalidationFinalizeAssociationSlot;
 groupshared uint RevalidationFinalizeSnapshotCount;
 groupshared uint RevalidationFinalizePinMarker;
+
+void SigmaRevalidationResetEvaluation(inout SigmaTransactionGpu transaction)
+{
+    transaction.progress = 0u;
+    transaction.execution = 0u;
+    transaction.completedMaskLo = 0u;
+    transaction.completedMaskHi = 0u;
+    transaction.transition = 0u;
+    transaction.scratch.x = transaction.source.x;
+    transaction.scratch.y = transaction.source.y;
+    transaction.scratch.z = 0u;
+    transaction.identity.w &=
+        ~SIGMA_STREAM_WORK_FLAG_NEEDS_REVALIDATION;
+    transaction.identity.x = SIGMA_STREAM_TRANSACTION_EVALUATING;
+}
+
+uint SigmaRevalidationClosedState(SigmaTransactionGpu transaction)
+{
+    if ((transaction.execution.w & SIGMA_STREAM_EXECUTION_FAULT) != 0u)
+    {
+        InterlockedAdd(_StreamDiagnostics[0u].reserved.x, 1u);
+        return SIGMA_STREAM_TRANSACTION_FAILED;
+    }
+    bool accepted = (transaction.execution.w &
+        SIGMA_PROPOSAL_ACCEPTED) != 0u;
+    if (!accepted)
+    {
+        InterlockedAdd(_StreamDiagnostics[0u].memory.w, 1u);
+        InterlockedAdd(_StreamDiagnostics[0u].reserved.x, 1u);
+        return SIGMA_STREAM_TRANSACTION_DORMANT;
+    }
+    bool novel = transaction.page0.state.x >= _PageCapacity;
+    uint requiredOutcome = novel
+        ? SIGMA_STREAM_OUTCOME_NULL_PROMOTION
+        : SIGMA_STREAM_OUTCOME_EXISTING_UPDATE;
+    bool exactOutcome = (transaction.execution.w &
+        SigmaStreamOutcomeBit(requiredOutcome)) != 0u;
+    if (!exactOutcome)
+    {
+        InterlockedAdd(_StreamDiagnostics[0u].reserved.x, 1u);
+        if (novel)
+            InterlockedAdd(_StreamDiagnostics[0u].reserved.z, 1u);
+        return SIGMA_STREAM_TRANSACTION_DORMANT;
+    }
+    return SIGMA_STREAM_TRANSACTION_PUBLISHABLE;
+}
 
 void SigmaRevalidationClearContext()
 {
@@ -351,11 +398,11 @@ void PrepareHistoricalRevalidation(uint3 threadId : SV_GroupThreadID)
                 }
                 if (!stale)
                 {
-                    transaction.identity.w &=
-                        ~SIGMA_STREAM_WORK_FLAG_NEEDS_REVALIDATION;
-                    transaction.identity.x = transaction.transition.z == 2u
-                        ? SIGMA_STREAM_TRANSACTION_PUBLISHABLE
-                        : SIGMA_STREAM_TRANSACTION_EVALUATING;
+                    if (transaction.transition.z == 2u)
+                        transaction.identity.x =
+                            SigmaRevalidationClosedState(transaction);
+                    else
+                        SigmaRevalidationResetEvaluation(transaction);
                     _StreamTransactions[transactionSlot] = transaction;
                     _StreamSchedulerControl[
                         SIGMA_STREAM_CONTROL_REVALIDATE_OWNER] =
@@ -708,16 +755,7 @@ void FinalizeHistoricalRevalidation(uint3 threadId : SV_GroupThreadID)
                 ~SIGMA_STREAM_BUNDLE_FLAG_NEEDS_REVALIDATION;
             _StreamBundles[bundleSlot] = bundle;
 
-            transaction.progress = 0u;
-            transaction.completedMaskLo = 0u;
-            transaction.completedMaskHi = 0u;
-            transaction.transition = 0u;
-            transaction.scratch.x = transaction.source.x;
-            transaction.scratch.y = transaction.source.y;
-            transaction.scratch.z = 0u;
-            transaction.identity.w &=
-                ~SIGMA_STREAM_WORK_FLAG_NEEDS_REVALIDATION;
-            transaction.identity.x = SIGMA_STREAM_TRANSACTION_EVALUATING;
+            SigmaRevalidationResetEvaluation(transaction);
             _StreamTransactions[transactionSlot] = transaction;
             InterlockedAdd(_StreamDiagnostics[0u].lifetime.y, 1u);
         }
