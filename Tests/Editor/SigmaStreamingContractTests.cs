@@ -44,6 +44,12 @@ namespace Genesis.RoomScan.Tests
             public UInt2Gpu Hi;
         }
 
+        [StructLayout(LayoutKind.Explicit, Pack = 4, Size = 784)]
+        private struct ProofSampleGpu
+        {
+            [FieldOffset(0)] public SigmaStreamUInt4Gpu Meta;
+        }
+
         [Test]
         public void StreamingWorkGraphKernelsAndHistoricalRasterCompile()
         {
@@ -202,6 +208,243 @@ namespace Genesis.RoomScan.Tests
             StringAssert.Contains("transaction.publication.z", publication);
             StringAssert.Contains("if (count == 0u || count > " +
                 "SIGMA_STREAM_MAX_PAGES)", publication);
+        }
+
+        [Test]
+        public void NullPromotionLiftUsesCompleteMeetAndExactMass()
+        {
+            ComputeShader shader = Resources.Load<ComputeShader>(
+                "SigmaPrism/SigmaStreamInverse");
+            Assert.That(shader, Is.Not.Null);
+            int kernel = shader.FindKernel("EvaluateTransactionMicrotile");
+
+            for (int row = 0; row < SigmaS16.LaneCount; ++row)
+            {
+                Assert.That(SigmaGeneratedAlgebra.HadamardSigns[
+                    row * SigmaS16.LaneCount], Is.EqualTo(1),
+                    $"row {row}: exact residual correction requires H[row,0]=1");
+            }
+
+            const int pageSamples = 4096;
+            const int lanes = 16;
+            const int workCapacity = 64;
+            const uint evaluating = 2u;
+            const uint bundleActive = 5u;
+            const uint sourceSegmentSealed = 2u;
+            const uint gauge = 1u << 1;
+            const uint hasAssociation = 1u << 2;
+            const uint nullPromotion = 2u;
+            const uint hitLeft = 1u << 2;
+            const uint hitRight = 1u << 3;
+            const uint executionBeforeFinal = 0x2fu;
+            int[] geometryRows = { 1, 2, 5, 6 };
+            double[] widths = { 0.006, 0.012, 0.024, 0.048 };
+            long[] expectedMass =
+            {
+                SigmaNumericDomain.One >> 3,
+                SigmaNumericDomain.One >> 4,
+                SigmaNumericDomain.One >> 5,
+                SigmaNumericDomain.One >> 6,
+            };
+
+            var workCountsData = new uint[SigmaGeneratedStreaming.OpcodeCount];
+            workCountsData[(int)SigmaStreamOpcode.EVALUATE_MICROTILE] = 1u;
+            var workItemsData = new SigmaStreamWorkItemGpu[
+                SigmaGeneratedStreaming.OpcodeCount * workCapacity];
+            workItemsData[(int)SigmaStreamOpcode.EVALUATE_MICROTILE *
+                workCapacity].Identity = U4(
+                    (uint)SigmaStreamOpcode.EVALUATE_MICROTILE, 0u, 1u, 0u);
+            workItemsData[(int)SigmaStreamOpcode.EVALUATE_MICROTILE *
+                workCapacity].Cursor = U4(0u, 0u, 0u, 0u);
+
+            var transactionsData = new SigmaTransactionGpu[
+                SigmaGeneratedStreaming.TransactionCapacity];
+            transactionsData[0].Identity = U4(evaluating, 1u, 0u, gauge);
+            transactionsData[0].Source = U4(0u, 0u, 1u, 0u);
+            transactionsData[0].Page0.State = U4(Invalid, 0u, 0u, 0u);
+            transactionsData[0].Progress = U4(0u, 0u, 0u, 0u);
+            transactionsData[0].Execution = U4(0u, 0u,
+                executionBeforeFinal, 0u);
+            transactionsData[0].Scratch = U4(0u, 1u, 0u, 0u);
+
+            var bundlesData = new SigmaSealedSourceBundleGpu[
+                SigmaGeneratedStreaming.BundleCapacity];
+            bundlesData[0].Identity = U4(bundleActive, 1u, 0u,
+                hasAssociation);
+            bundlesData[0].Keys = U4(11u, 17u, 23u, 29u);
+            bundlesData[0].Raw = U4(0u, 0u, 0u, 0u);
+            bundlesData[0].Calibration = U4(0u, 0u, 0u, 0u);
+            bundlesData[0].Dependency = U4(0u, 0u, 0u, 0u);
+
+            var segmentsData = new SigmaSourceHandleSegmentGpu[1];
+            segmentsData[0].Identity = U4(sourceSegmentSealed, 1u, 1u, 0u);
+            segmentsData[0].Link = U4(Invalid, 0u, 0u, 0u);
+            segmentsData[0].Handle01 = U4(0u, 1u, Invalid, 0u);
+
+            var calibrationData = new UInt2Gpu[
+                SigmaGeneratedStreaming.CalibrationQ48ValuesPerBundle];
+            calibrationData[31] = Q48(0.001); // prior-width floor
+            calibrationData[33] = Q48(1.0 / 64.0); // contact-mass floor
+            var evalData = new UInt2Gpu[pageSamples * 18];
+            var jointData = new BoundsGpu[pageSamples * lanes];
+            var provenanceData = new SigmaStreamUInt4Gpu[
+                pageSamples * lanes];
+            var sampleMetaData = new SigmaStreamUInt4Gpu[pageSamples];
+            var outcomesData = new uint[pageSamples];
+            var proofData = new ProofSampleGpu[pageSamples];
+            var expectedBounds = new BoundsGpu[16 * 3];
+
+            for (int local = 0; local < 16; ++local)
+            {
+                int sample = local < 8 ? local : 56 + local;
+                evalData[sample * 18 + 16] = Q48(1.0 / 64.0);
+                int widthIndex = (local >> 1) & 3;
+                double x = 0.31 + widthIndex * 0.01;
+                double y = -0.27 - widthIndex * 0.01;
+                double z = 2.10 + widthIndex * 0.02;
+                double[] center = { x, y, z };
+                for (int axis = 0; axis < 3; ++axis)
+                {
+                    long lo = SigmaNumericDomain.Quantize(center[axis] -
+                        widths[widthIndex] * 0.5);
+                    long hi = SigmaNumericDomain.Quantize(center[axis] +
+                        widths[widthIndex] * 0.5);
+                    int address = sample * lanes + geometryRows[axis + 1];
+                    jointData[address] = Bounds(lo, hi);
+                    provenanceData[address] = local == 15
+                        ? U4(1u, 1u, 11u, 0u)
+                        : (local & 1) == 0
+                            ? U4(1u, 2u, 11u, 1u)
+                            : U4(2u, 1u, 17u, 1u);
+                    expectedBounds[local * 3 + axis] = Bounds(lo, hi);
+                }
+                uint geometryMask = (1u << geometryRows[1]) |
+                    (1u << geometryRows[2]) |
+                    (1u << geometryRows[3]);
+                uint hits = local == 15 ? hitLeft : hitLeft | hitRight;
+                uint independentMask = local == 15 ? 0u : geometryMask;
+                sampleMetaData[sample] = U4(geometryMask |
+                    (independentMask << 16), hits, 0u, 0u);
+                outcomesData[sample] = nullPromotion;
+                proofData[sample].Meta = U4(hits, geometryMask, 1u, 0u);
+            }
+
+            var owned = new List<GraphicsBuffer>();
+            GraphicsBuffer Buffer<T>(T[] data, int stride) where T : struct
+            {
+                var result = new GraphicsBuffer(
+                    GraphicsBuffer.Target.Structured, data.Length, stride);
+                result.SetData(data);
+                owned.Add(result);
+                return result;
+            }
+
+            GraphicsBuffer workCounts = Buffer(workCountsData, sizeof(uint));
+            GraphicsBuffer workItems = Buffer(workItemsData,
+                SigmaGeneratedStreaming.WorkItemStride);
+            GraphicsBuffer transactions = Buffer(transactionsData,
+                SigmaGeneratedStreaming.TransactionStride);
+            GraphicsBuffer bundles = Buffer(bundlesData,
+                SigmaGeneratedStreaming.BundleStride);
+            GraphicsBuffer segments = Buffer(segmentsData,
+                SigmaGeneratedStreaming.SourceHandleSegmentStride);
+            GraphicsBuffer carrier = Buffer(new[] { new UInt2Gpu() }, 8);
+            GraphicsBuffer metadata = Buffer(new[] { new PageMetadataGpu() },
+                Marshal.SizeOf<PageMetadataGpu>());
+            GraphicsBuffer target = Buffer(
+                new UInt2Gpu[pageSamples * lanes], 8);
+            GraphicsBuffer proof = Buffer(proofData, 784);
+            GraphicsBuffer eval = Buffer(evalData, 8);
+            GraphicsBuffer joint = Buffer(jointData,
+                Marshal.SizeOf<BoundsGpu>());
+            GraphicsBuffer provenance = Buffer(provenanceData, 16);
+            GraphicsBuffer sampleMeta = Buffer(sampleMetaData, 16);
+            GraphicsBuffer outcomes = Buffer(outcomesData, sizeof(uint));
+            GraphicsBuffer diagnostics = Buffer(
+                new SigmaStreamDiagnosticGpu[1],
+                SigmaGeneratedStreaming.DiagnosticStride);
+            GraphicsBuffer scheduler = Buffer(new uint[32], sizeof(uint));
+            GraphicsBuffer calibration = Buffer(calibrationData, 8);
+
+            try
+            {
+                using SigmaExactBackendGate backend =
+                    SigmaExactBackendGate.Dispatch();
+                backend.Bind(shader, kernel);
+                Bind(shader, kernel, "_StreamWorkCounts", workCounts);
+                Bind(shader, kernel, "_StreamWorkItems", workItems);
+                Bind(shader, kernel, "_StreamTransactions", transactions);
+                Bind(shader, kernel, "_StreamBundles", bundles);
+                Bind(shader, kernel, "_StreamSourceSegments", segments);
+                Bind(shader, kernel, "_CarrierState", carrier);
+                Bind(shader, kernel, "_PageMetadata", metadata);
+                Bind(shader, kernel, "_TargetCarrierState", target);
+                Bind(shader, kernel, "_ProofSamples", proof);
+                Bind(shader, kernel, "_StreamEvalProjective", eval);
+                Bind(shader, kernel, "_StreamJointBounds", joint);
+                Bind(shader, kernel, "_StreamJointProvenance", provenance);
+                Bind(shader, kernel, "_StreamSampleMeta", sampleMeta);
+                Bind(shader, kernel, "_StreamSampleOutcomes", outcomes);
+                Bind(shader, kernel, "_StreamDiagnostics", diagnostics);
+                Bind(shader, kernel, "_StreamSchedulerControlRead", scheduler);
+                Bind(shader, kernel, "_StreamBundleCalibration", calibration);
+                shader.SetInt("_PageCapacity", 1);
+                shader.SetInt("_TargetPageCapacity", 1);
+                shader.SetInt("_StreamSourceSegmentCapacity", 1);
+                shader.Dispatch(kernel, 1, 1, 1);
+
+                var targetData = new UInt2Gpu[pageSamples * lanes];
+                target.GetData(targetData);
+                proof.GetData(proofData);
+                for (int local = 0; local < 16; ++local)
+                {
+                    int sample = local < 8 ? local : 56 + local;
+                    var stateRaw = new long[lanes];
+                    for (int lane = 0; lane < lanes; ++lane)
+                        stateRaw[lane] = Signed(targetData[
+                            sample * lanes + lane]);
+                    var state = SigmaS16.FromArray(stateRaw);
+                    if (local == 15)
+                    {
+                        Assert.That(SigmaGeometryReadout.TryRead(state,
+                            out _), Is.False,
+                            "one-eye evidence may not durably promote null");
+                        Assert.That((proofData[sample].Meta.X & 1u), Is.Zero);
+                        continue;
+                    }
+
+                    Assert.That(SigmaGeometryReadout.TryRead(state,
+                        out SigmaGeometrySample readout), Is.True);
+                    Assert.That(readout.InformationMassRaw,
+                        Is.EqualTo(expectedMass[(local >> 1) & 3]));
+                    long[] transformed = SigmaS16Operators.HadamardB(state)
+                        .ToArray();
+                    for (int axis = 0; axis < 3; ++axis)
+                    {
+                        long coordinate = SigmaNumericDomain.QDiv(
+                            transformed[geometryRows[axis + 1]],
+                            transformed[geometryRows[0]]);
+                        BoundsGpu bounds = expectedBounds[local * 3 + axis];
+                        Assert.That(coordinate,
+                            Is.InRange(Signed(bounds.Lo), Signed(bounds.Hi)));
+                    }
+                    Assert.That((proofData[sample].Meta.X & 3u),
+                        Is.EqualTo(3u));
+                }
+                for (int lane = 0; lane < lanes; ++lane)
+                {
+                    Assert.That(targetData[lane].X,
+                        Is.EqualTo(targetData[lanes + lane].X));
+                    Assert.That(targetData[lane].Y,
+                        Is.EqualTo(targetData[lanes + lane].Y),
+                        $"lane {lane}: source-order permutation changed lift");
+                }
+            }
+            finally
+            {
+                for (int index = owned.Count - 1; index >= 0; --index)
+                    owned[index].Dispose();
+            }
         }
 
         [Test]
@@ -768,6 +1011,19 @@ namespace Genesis.RoomScan.Tests
                 Hi = new UInt2Gpu { X = (uint)upper, Y = (uint)(upper >> 32) }
             };
         }
+
+        private static UInt2Gpu Q48(double value)
+        {
+            long raw = SigmaNumericDomain.Quantize(value);
+            return new UInt2Gpu
+            {
+                X = unchecked((uint)raw),
+                Y = unchecked((uint)((ulong)raw >> 32))
+            };
+        }
+
+        private static long Signed(UInt2Gpu value) => unchecked((long)(
+            ((ulong)value.Y << 32) | value.X));
 
         private static void Bind(ComputeShader shader, int kernel,
             string property, GraphicsBuffer buffer)

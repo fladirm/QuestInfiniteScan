@@ -1,21 +1,18 @@
-# Session tail — S4-08.3D transition/residency closure
+# Session tail — S4-08.3D exact bootstrap lift
 
 ## Exchange 1
 
-User approved the frozen low-code S4-08.3D repair and required implementation without
-new ontology/subsystem, regressions or repeated audit: absence is not physical
-`z_null`, page borders are not topology and residency is not durable ownership.
+User rejected another downstream patch and required the actual inverse geometry
+decision to be audited holistically in the 16D ontology. Device evidence showed
+accepted support repeating at sparse levels while the scanner remained effectively
+empty; the repair had to be surgical, exact and free of new subsystems.
 
 ## Exchange 2
 
-User required one low-code synergistic repair with full ontology preservation, not
-a new safe subsystem. Dormant ownership must reuse the existing ConstraintLedger:
-retain minimal certificates plus only unresolved raw residue, transfer ownership
-before reclaiming bundle residency, and keep exact viability authoritative.
-
-Assistant completed the repair: no-claim/candidate-first transition resolution,
-ledger-owned irreducible raw transfer, generation-safe dormant anchor/proposal,
-transient bundle reclamation and no zero-admission cursor advance. Inverse lift,
-proof minimization, publication ontology and renderer were preserved. Focused
-Vulkan passed 6/6, full Vulkan EditMode 71/71, generated output/diff/eight-UAV are
-green. Next is codegraph/commit/archive/Release install; S4-09 remains unopened.
+Assistant isolated the remaining lift contract: gauge coordinates used a zero clamp,
+all accepted candidates used the 1/64 mass floor and the quantized inverse/lift was
+then required to reproduce that mass within one LSB. The production kernel now uses
+the complete exact meet centre, width-derived independently supported mass and an
+exact lane-zero Hadamard residual correction. Its real Vulkan fixture and full 72/72
+suite pass with eight UAVs. Next is codegraph/commit/archive/Release install; S4-09
+remains unopened.

@@ -71,7 +71,11 @@ groupshared uint2 EvalRgbSupportFloor[SIGMA_STREAM_EVAL_SAMPLES];
 groupshared uint2 EvalRgbTotal[SIGMA_STREAM_EVAL_SAMPLES];
 groupshared uint2 EvalBootstrapGeometry[SIGMA_STREAM_EVAL_SAMPLES * 4u];
 groupshared uint2 EvalBootstrapMass[SIGMA_STREAM_EVAL_SAMPLES];
+groupshared uint2 EvalTargetMass[SIGMA_STREAM_EVAL_SAMPLES];
+groupshared uint2 EvalLiftResidual[SIGMA_STREAM_EVAL_SAMPLES];
 groupshared uint EvalBootstrapValid[SIGMA_STREAM_EVAL_SAMPLES];
+groupshared uint EvalTargetValid[SIGMA_STREAM_EVAL_SAMPLES];
+groupshared uint EvalLiftResidualValid[SIGMA_STREAM_EVAL_SAMPLES];
 groupshared uint EvalSampleValid[SIGMA_STREAM_EVAL_SAMPLES];
 groupshared uint EvalButterflySafe[SIGMA_STREAM_EVAL_SAMPLES];
 groupshared uint EvalRgbActive[SIGMA_STREAM_EVAL_SAMPLES];
@@ -82,6 +86,7 @@ groupshared uint EvalRgbUnobservable[SIGMA_STREAM_EVAL_SAMPLES];
 groupshared uint EvalConflictMask[SIGMA_STREAM_EVAL_SAMPLES];
 groupshared uint EvalSourceMask[SIGMA_STREAM_EVAL_SAMPLES];
 groupshared uint EvalConstrainedMask[SIGMA_STREAM_EVAL_SAMPLES];
+groupshared uint EvalIndependentMask[SIGMA_STREAM_EVAL_SAMPLES];
 groupshared uint EvalOutcome[SIGMA_STREAM_EVAL_SAMPLES];
 
 groupshared uint EvalGroupActive;
@@ -830,6 +835,76 @@ void SigmaEvalAdvanceTransaction(uint transactionSlot,
     InterlockedAdd(_StreamDiagnostics[0u].transactions.w, 1u);
 }
 
+void SigmaEvalBuildLiftContract(uint transactionSlot, uint sample,
+    uint4 sampleMeta, bool gauge, uint calibrationBase, uint2 priorMass,
+    uint candidateValid, out uint2 targetMass, out uint liftValid)
+{
+    liftValid = candidateValid;
+    uint constrainedMask = sampleMeta.x & 0xffffu;
+    uint independentMask = sampleMeta.x >> 16u;
+    uint2 maximumWidth = SIGMA_Q48_ZERO;
+    bool anyRequired = false;
+    bool everyRequiredIndependent = true;
+
+    [unroll]
+    for (uint coordinate = 0u; coordinate < 16u; ++coordinate)
+    {
+        if ((constrainedMask & (1u << coordinate)) == 0u)
+            continue;
+        anyRequired = true;
+        uint address = SigmaStreamJointAddress(transactionSlot, sample,
+            coordinate);
+        SigmaQ48Bounds bounds = _StreamJointBounds[address];
+        if (SigmaQ48Less(bounds.hi, bounds.lo))
+        {
+            liftValid = 0u;
+            continue;
+        }
+        maximumWidth = SigmaQ48Max(maximumWidth,
+            SigmaQ48SubChecked(bounds.hi, bounds.lo, liftValid));
+        everyRequiredIndependent = everyRequiredIndependent &&
+            (independentMask & (1u << coordinate)) != 0u;
+    }
+
+    bool stereoHits = (sampleMeta.y &
+        (SIGMA_PROPOSAL_HIT_LEFT | SIGMA_PROPOSAL_HIT_RIGHT)) ==
+        (SIGMA_PROPOSAL_HIT_LEFT | SIGMA_PROPOSAL_HIT_RIGHT);
+    bool geometryIndependent = stereoHits;
+    [unroll]
+    for (uint axis = 0u; axis < 3u; ++axis)
+    {
+        uint coordinate = SIGMA_GEOMETRY_ROWS[axis + 1u];
+        uint address = SigmaStreamJointAddress(transactionSlot, sample,
+            coordinate);
+        geometryIndependent = geometryIndependent &&
+            (constrainedMask & (1u << coordinate)) != 0u &&
+            (independentMask & (1u << coordinate)) != 0u;
+    }
+
+    uint2 massFloor = SigmaOwnedCalibrationValue(calibrationBase, 0u,
+        SIGMA_CAL_CONTACT_MASS_MIN);
+    uint2 justifiedMass = massFloor;
+    if (anyRequired && everyRequiredIndependent && liftValid != 0u)
+    {
+        justifiedMass = SigmaOwnedInformationMassForWidth(calibrationBase,
+            maximumWidth, liftValid);
+    }
+
+    if (gauge)
+    {
+        liftValid &= geometryIndependent ? 1u : 0u;
+        targetMass = justifiedMass;
+    }
+    else
+    {
+        targetMass = priorMass;
+        if (anyRequired && everyRequiredIndependent)
+            targetMass = SigmaQ48Max(targetMass, justifiedMass);
+    }
+    if (!SigmaQ48Positive(targetMass))
+        liftValid = 0u;
+}
+
 [numthreads(SIGMA_STREAM_EVAL_THREADS, 1, 1)]
 void PrepareTransactionMicrotile(uint3 groupId : SV_GroupID,
     uint3 threadId : SV_GroupThreadID)
@@ -1029,7 +1104,8 @@ void MeetTransactionMicrotile(uint3 groupId : SV_GroupID,
             _StreamSampleMeta[streamSample];
         EvalConflictMask[sampleLocal] = 0u;
         EvalSourceMask[sampleLocal] = 0u;
-        EvalConstrainedMask[sampleLocal] = priorMeta.x;
+        EvalConstrainedMask[sampleLocal] = priorMeta.x & 0xffffu;
+        EvalIndependentMask[sampleLocal] = priorMeta.x >> 16u;
         EvalOutcome[sampleLocal] = transaction.progress.x == 0u
             ? SIGMA_STREAM_OUTCOME_NO_EVIDENCE
             : _StreamSampleOutcomes[streamSample];
@@ -1125,6 +1201,8 @@ void MeetTransactionMicrotile(uint3 groupId : SV_GroupID,
     }
     _StreamJointBounds[jointAddress] = joint;
     _StreamJointProvenance[jointAddress] = provenance;
+    if (provenance.w != 0u)
+        InterlockedOr(EvalIndependentMask[sampleLocal], 1u << coordinate);
     if (SigmaQ48Less(joint.hi, joint.lo))
         InterlockedOr(EvalConflictMask[sampleLocal], 1u << coordinate);
     GroupMemoryBarrierWithGroupSync();
@@ -1202,7 +1280,8 @@ void MeetTransactionMicrotile(uint3 groupId : SV_GroupID,
 
         uint4 cumulative = transaction.progress.x == 0u ? 0u :
             _StreamSampleMeta[streamSample];
-        cumulative.x = EvalConstrainedMask[sampleLocal];
+        cumulative.x = (EvalConstrainedMask[sampleLocal] & 0xffffu) |
+            ((EvalIndependentMask[sampleLocal] & 0xffffu) << 16u);
         cumulative.y |= status;
         cumulative.z |= EvalConflictMask[sampleLocal];
         cumulative.w = transaction.progress.x;
@@ -1281,18 +1360,29 @@ void EvaluateTransactionMicrotile(uint3 groupId : SV_GroupID,
     SigmaQ48Bounds finalJoint = _StreamJointBounds[jointAddress];
     bool gauge = (transaction.identity.w &
         SIGMA_STREAM_WORK_FLAG_GAUGE) != 0u;
+    if (coordinate == 0u)
+    {
+        SigmaEvalBuildLiftContract(transactionSlot, sample, sampleMeta,
+            gauge, bundle.calibration.x, EvalMass[sampleLocal],
+            candidateValid, EvalTargetMass[sampleLocal],
+            EvalTargetValid[sampleLocal]);
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    uint laneValid = EvalTargetValid[sampleLocal];
+    bool constrained = (sampleMeta.x & (1u << coordinate)) != 0u;
     uint2 baseY = gauge ? SIGMA_Q48_ZERO : EvalCurrentY[flat];
     if (gauge && coordinate == SIGMA_GEOMETRY_ROWS[0])
         baseY = SIGMA_Q48_ONE;
-    uint2 targetY = (sampleMeta.x & (1u << coordinate)) != 0u
-        ? SigmaProjectiveClamp(baseY, finalJoint.lo, finalJoint.hi)
-        : baseY;
+    uint2 targetY = baseY;
+    if (constrained)
+    {
+        targetY = gauge
+            ? SigmaQ48Midpoint(finalJoint.lo, finalJoint.hi, laneValid)
+            : SigmaProjectiveClamp(baseY, finalJoint.lo, finalJoint.hi);
+    }
 
-    uint laneValid = candidateValid;
-    uint2 targetMass = gauge
-        ? SigmaOwnedCalibrationValue(bundle.calibration.x, 0u,
-            SIGMA_CAL_CONTACT_MASS_MIN)
-        : EvalMass[sampleLocal];
+    uint2 targetMass = EvalTargetMass[sampleLocal];
     EvalA[flat] = targetY;
     EvalValidA[flat] = laneValid;
     uint2 inverse;
@@ -1307,14 +1397,24 @@ void EvaluateTransactionMicrotile(uint3 groupId : SV_GroupID,
     uint2 check;
     uint checkValid;
     SigmaEvalHadamard(flat, coordinate, sampleLocal, check, checkValid);
-    if (checkValid != 0u && coordinate == SIGMA_GEOMETRY_ROWS[0])
+    if (coordinate == SIGMA_GEOMETRY_ROWS[0])
     {
-        uint2 oneLsb = uint2(1u, 0u);
-        if (!SigmaQ48Positive(check) || SigmaQ48Less(oneLsb,
-                SigmaQ48AbsDifference(check, targetMass, checkValid)))
-            checkValid = 0u;
+        uint residualValid = checkValid;
+        EvalLiftResidual[sampleLocal] = SigmaQ48SubChecked(targetMass,
+            check, residualValid);
+        EvalLiftResidualValid[sampleLocal] = residualValid;
     }
-    if (checkValid != 0u && (sampleMeta.x & (1u << coordinate)) != 0u)
+    GroupMemoryBarrierWithGroupSync();
+
+    checkValid &= EvalLiftResidualValid[sampleLocal];
+    uint2 residual = EvalLiftResidual[sampleLocal];
+    if (coordinate == 0u)
+        candidate = SigmaQ48AddChecked(candidate, residual, checkValid);
+    check = SigmaQ48AddChecked(check, residual, checkValid);
+    if (checkValid != 0u && coordinate == SIGMA_GEOMETRY_ROWS[0] &&
+        (!SigmaQ48Positive(check) || !SigmaU64Equal(check, targetMass)))
+        checkValid = 0u;
+    if (checkValid != 0u && constrained)
     {
         uint2 coordinateValue = SigmaQ48DivNearestEven(check, targetMass,
             checkValid);

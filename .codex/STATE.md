@@ -126,10 +126,23 @@ revalidation now deterministically revokes association caches owned by non-activ
 bundles before allowing them to block a live canonical transaction. Null promotion,
 proof, manifest publication and derived readout contracts are unchanged.
 
-Full Unity Vulkan EditMode passes 71/71 including the 8/8 association priority-
-inversion fixture; `git diff --check` and the Quest eight-UAV gate pass. Exact next
-action: regenerate/validate the code graph, commit, archive, build that exact commit
-as Android/Vulkan Release and install it on the Quest. Do not open S4-09.
+The final device audit then isolated the remaining canonical bootstrap defect in the
+lift itself: constrained gauge coordinates were clamped from zero and every accepted
+candidate used the minimum 1/64 information mass, while the inverse/Hadamard round
+trip was required to reproduce that mass within one LSB. The repaired production
+kernel now centres constrained coordinates in the complete final exact meet, derives
+mass from the maximum independently supported Q48 width, requires independent dual-
+eye geometry for null promotion and applies the exact post-quantization residual
+through state lane zero (the generated Hadamard column zero is uniformly +1). No
+buffer, scheduler, topology state or second world was added; the independence mask
+reuses the unused high half of transaction-owned sample metadata.
+
+The actual production `EvaluateTransactionMicrotile` Vulkan fixture proves four
+width-dependent masses, exact joint-cell containment, bit-identical source-order
+permutation and one-eye fail-closed promotion. Full Unity Vulkan EditMode passes
+72/72; generated output, `git diff --check` and the Quest eight-UAV gate pass. Exact
+next action: regenerate/validate the code graph, commit, archive, build that exact
+commit as Android/Vulkan Release and install it on the Quest. Do not open S4-09.
 
 ## Acceptance still required
 
