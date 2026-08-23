@@ -18,6 +18,7 @@ namespace Genesis.RoomScan.SigmaPrism
         internal const int SamplesPerAssociation = SigmaCarrier.SamplesPerPage;
         internal const int WorkItemsPerOpcode = 64;
         internal const int SchedulerControlWords = 32;
+        internal const int ForensicCounterWords = 128;
         internal const int RayEpochWordsPerBundle = 4;
         internal const int OutcomeWordsPerSample = 1;
         internal const int CoordinatesPerSample = SigmaS16.LaneCount;
@@ -162,6 +163,9 @@ namespace Genesis.RoomScan.SigmaPrism
             Diagnostics = CreateStructured(1,
                 SigmaGeneratedStreaming.DiagnosticStride,
                 "Sigma streaming diagnostics", bindingLimit);
+            ForensicCounters = CreateStructured(ForensicCounterWords,
+                sizeof(uint), "Sigma read-only forensic counters",
+                bindingLimit);
 
             Transactions.SetData(new SigmaTransactionGpu[
                 SigmaGeneratedStreaming.TransactionCapacity]);
@@ -181,6 +185,7 @@ namespace Genesis.RoomScan.SigmaPrism
             KernelBudgetClasses.SetData(
                 SigmaGeneratedStreaming.KernelBudgetClass);
             Diagnostics.SetData(new SigmaStreamDiagnosticGpu[1]);
+            ForensicCounters.SetData(new uint[ForensicCounterWords]);
             ProofClosures.SetData(new SigmaProofClosureGpu[
                 SigmaGeneratedStreaming.TransactionCapacity]);
             PublicationManifests.SetData(new SigmaPublicationManifestGpu[
@@ -208,7 +213,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 CandidateTransitions, CandidateNeighbours,
                 WorkItems, WorkCounts,
                 DispatchArguments, SchedulerControl, KernelTokenCosts,
-                KernelBudgetClasses, Diagnostics);
+                KernelBudgetClasses, Diagnostics, ForensicCounters);
         }
 
         internal GraphicsBuffer Transactions { get; private set; }
@@ -244,6 +249,7 @@ namespace Genesis.RoomScan.SigmaPrism
         internal GraphicsBuffer KernelTokenCosts { get; private set; }
         internal GraphicsBuffer KernelBudgetClasses { get; private set; }
         internal GraphicsBuffer Diagnostics { get; private set; }
+        internal GraphicsBuffer ForensicCounters { get; private set; }
         internal long OwnedBytes { get; }
 
         internal long ActiveAssociationBytes => BufferBytes(Association);
@@ -381,6 +387,7 @@ namespace Genesis.RoomScan.SigmaPrism
             DisposeBuffer(KernelTokenCosts);
             DisposeBuffer(KernelBudgetClasses);
             DisposeBuffer(Diagnostics);
+            DisposeBuffer(ForensicCounters);
             Transactions = null;
             Bundles = null;
             Probation = null;
@@ -414,6 +421,7 @@ namespace Genesis.RoomScan.SigmaPrism
             KernelTokenCosts = null;
             KernelBudgetClasses = null;
             Diagnostics = null;
+            ForensicCounters = null;
         }
 
         private static void DisposeBuffer(GraphicsBuffer buffer) =>

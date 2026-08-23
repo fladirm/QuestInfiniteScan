@@ -21,6 +21,11 @@ namespace Genesis.RoomScan.SigmaPrism
             SigmaGeneratedStreaming.TransactionStride / sizeof(uint);
         private const int TransactionCount =
             SigmaGeneratedStreaming.TransactionCapacity;
+        private const int ProofClosureWords =
+            SigmaGeneratedStreaming.ProofClosureStride / sizeof(uint) *
+            SigmaGeneratedStreaming.TransactionCapacity;
+        private const int ForensicWords =
+            SigmaStreamingResources.ForensicCounterWords;
         private const int TopologyWords = 8;
         private const int DrawArgumentWords = 4;
         private const int ReadoutVertexWords =
@@ -45,6 +50,7 @@ namespace Genesis.RoomScan.SigmaPrism
             long committedFrames, uint hostRevision, GraphicsBuffer gate,
             GraphicsBuffer diagnostics, GraphicsBuffer scheduler,
             GraphicsBuffer workCounts, GraphicsBuffer transactions,
+            GraphicsBuffer proofClosures, GraphicsBuffer forensicCounters,
             GraphicsBuffer topologyCounters, GraphicsBuffer drawArguments,
             GraphicsBuffer currentPageSlots, GraphicsBuffer readoutVertices,
             int readoutPageCapacity, SigmaRuntimeTimingTelemetry timing)
@@ -68,6 +74,7 @@ namespace Genesis.RoomScan.SigmaPrism
 
             if (gate == null || diagnostics == null || scheduler == null ||
                 workCounts == null || transactions == null ||
+                proofClosures == null || forensicCounters == null ||
                 topologyCounters == null || drawArguments == null ||
                 currentPageSlots == null || readoutVertices == null ||
                 readoutPageCapacity <= 0)
@@ -92,6 +99,10 @@ namespace Genesis.RoomScan.SigmaPrism
                 Request(batch, BufferKind.Work, workCounts, WorkWords);
                 Request(batch, BufferKind.Transactions, transactions,
                     TransactionWords * TransactionCount);
+                Request(batch, BufferKind.ProofClosures, proofClosures,
+                    ProofClosureWords);
+                Request(batch, BufferKind.ForensicCounters, forensicCounters,
+                    ForensicWords);
                 Request(batch, BufferKind.Topology, topologyCounters,
                     TopologyWords);
                 Request(batch, BufferKind.DrawArguments, drawArguments,
@@ -171,9 +182,15 @@ namespace Genesis.RoomScan.SigmaPrism
             SelectNextReadoutPage(batch);
             Snapshot = SigmaRuntimeTelemetrySnapshot.From(batch);
             if (batch.ErrorMask != 0u)
+            {
                 Logger.Warning(Snapshot.FormatLogLine());
+                Logger.Warning(Snapshot.FormatForensicLogLine());
+            }
             else
+            {
                 Logger.Info(Snapshot.FormatLogLine());
+                Logger.Info(Snapshot.FormatForensicLogLine());
+            }
         }
 
         private void SelectNextReadoutPage(Batch batch)
@@ -223,7 +240,9 @@ namespace Genesis.RoomScan.SigmaPrism
             Topology = 5,
             DrawArguments = 6,
             CurrentPageSlots = 7,
-            ReadoutVertices = 8
+            ReadoutVertices = 8,
+            ProofClosures = 9,
+            ForensicCounters = 10
         }
 
         internal sealed class Batch
@@ -240,7 +259,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 ReadoutPageCapacity = readoutPageCapacity;
                 SampledReadoutPageSlot = sampledReadoutPageSlot;
                 Timing = timing;
-                Remaining = sampledReadoutPageSlot == InvalidPageSlot ? 8 : 9;
+                Remaining = sampledReadoutPageSlot == InvalidPageSlot ? 10 : 11;
             }
 
             internal uint Sequence { get; }
@@ -258,6 +277,8 @@ namespace Genesis.RoomScan.SigmaPrism
             internal uint[] Scheduler { get; private set; }
             internal uint[] Work { get; private set; }
             internal uint[] Transactions { get; private set; }
+            internal uint[] ProofClosures { get; private set; }
+            internal uint[] ForensicCounters { get; private set; }
             internal uint[] Topology { get; private set; }
             internal uint[] DrawArguments { get; private set; }
             internal uint[] CurrentPageSlots { get; private set; }
@@ -293,6 +314,12 @@ namespace Genesis.RoomScan.SigmaPrism
                         break;
                     case BufferKind.ReadoutVertices:
                         ReadoutVertices = words;
+                        break;
+                    case BufferKind.ProofClosures:
+                        ProofClosures = words;
+                        break;
+                    case BufferKind.ForensicCounters:
+                        ForensicCounters = words;
                         break;
                 }
             }
@@ -620,6 +647,8 @@ namespace Genesis.RoomScan.SigmaPrism
             Status = status ?? string.Empty;
             WorkCounts = Array.Empty<uint>();
             Transactions = Array.Empty<SigmaTransactionTelemetry>();
+            ProofClosureWords = Array.Empty<uint>();
+            ForensicCounters = Array.Empty<uint>();
             Diagnostics = Array.Empty<uint>();
             Scheduler = Array.Empty<uint>();
             Topology = Array.Empty<uint>();
@@ -643,6 +672,11 @@ namespace Genesis.RoomScan.SigmaPrism
             GateWord = Word(batch.Gate, 0);
             Diagnostics = Copy(batch.Diagnostics, 32);
             Scheduler = Copy(batch.Scheduler, 32);
+            ProofClosureWords = Copy(batch.ProofClosures,
+                SigmaGeneratedStreaming.ProofClosureStride / sizeof(uint) *
+                SigmaGeneratedStreaming.TransactionCapacity);
+            ForensicCounters = Copy(batch.ForensicCounters,
+                SigmaStreamingResources.ForensicCounterWords);
             WorkCounts = Copy(batch.Work,
                 SigmaGeneratedStreaming.OpcodeCount);
             Topology = Copy(batch.Topology, 8);
@@ -683,6 +717,8 @@ namespace Genesis.RoomScan.SigmaPrism
         public uint[] Scheduler { get; }
         public uint[] WorkCounts { get; }
         public SigmaTransactionTelemetry[] Transactions { get; }
+        public uint[] ProofClosureWords { get; }
+        public uint[] ForensicCounters { get; }
         public uint[] Topology { get; }
         public uint[] DrawArguments { get; }
         public uint[] CurrentPageSlots { get; }
@@ -848,6 +884,128 @@ namespace Genesis.RoomScan.SigmaPrism
                 text.Append("none");
             return text.Append('}').ToString();
         }
+
+        public string FormatForensicLogLine()
+        {
+            var text = new StringBuilder(1900);
+            text.Append("Sigma forensic #").Append(Sequence)
+                .Append(" epoch=").Append(Word(ForensicCounters, 79))
+                .Append(" samples={current=")
+                .Append(Word(ForensicCounters, 0))
+                .Append(" inspected=").Append(Word(ForensicCounters, 30))
+                .Append(" stale=").Append(Word(ForensicCounters, 28))
+                .Append(" noEvidence=").Append(Word(ForensicCounters, 1))
+                .Append(" existing=").Append(Word(ForensicCounters, 2))
+                .Append(" promote=").Append(Word(ForensicCounters, 3))
+                .Append(" empty=").Append(Word(ForensicCounters, 4))
+                .Append(" unresolved=").Append(Word(ForensicCounters, 5))
+                .Append(" other=").Append(Word(ForensicCounters, 6))
+                .Append(" accepted=").Append(Word(ForensicCounters, 7))
+                .Append(" changed=").Append(Word(ForensicCounters, 8))
+                .Append(" candidateRejected=")
+                .Append(Word(ForensicCounters, 27)).Append('}')
+                .Append(" evidence={hitL=")
+                .Append(Word(ForensicCounters, 9))
+                .Append(" hitR=").Append(Word(ForensicCounters, 10))
+                .Append(" both=").Append(Word(ForensicCounters, 11))
+                .Append(" one=").Append(Word(ForensicCounters, 12))
+                .Append(" none=").Append(Word(ForensicCounters, 13))
+                .Append(" conflict=").Append(Word(ForensicCounters, 14))
+                .Append(" exclusion=").Append(Word(ForensicCounters, 15))
+                .Append(" invalid=").Append(Word(ForensicCounters, 16))
+                .Append(" rgbL=").Append(Word(ForensicCounters, 17))
+                .Append(" rgbR=").Append(Word(ForensicCounters, 18))
+                .Append(" rgbBoth=").Append(Word(ForensicCounters, 19))
+                .Append(" rgbUnobs=").Append(Word(ForensicCounters, 20))
+                .Append(" constrained=").Append(Word(ForensicCounters, 21))
+                .Append('}');
+            text.Append(" bundles=");
+            AppendRange(text, ForensicCounters, 32, 8);
+            text.Append(" bundleFlags=");
+            AppendRange(text, ForensicCounters, 40, 9);
+            text.Append(" txStates=");
+            AppendRange(text, ForensicCounters, 49, 10);
+            text.Append(" proofPhases=");
+            AppendRange(text, ForensicCounters, 60, 10);
+            text.Append(" integrity={occupied=")
+                .Append(Word(ForensicCounters, 59))
+                .Append(" closureInvalid=").Append(Word(ForensicCounters, 70))
+                .Append(" closureOwnerMismatch=")
+                .Append(Word(ForensicCounters, 71))
+                .Append(" zeroSource=").Append(Word(ForensicCounters, 72))
+                .Append(" executionFault=").Append(Word(ForensicCounters, 73))
+                .Append('}');
+
+            text.Append(" slotFunnel={");
+            bool first = true;
+            for (int slot = 0; slot <
+                SigmaGeneratedStreaming.TransactionCapacity; ++slot)
+            {
+                int offset = 80 + slot * 6;
+                if (!Transactions[slot].Occupied &&
+                    Word(ForensicCounters, offset) == 0u)
+                    continue;
+                if (!first)
+                    text.Append(" | ");
+                text.Append(slot).Append(':');
+                AppendRange(text, ForensicCounters, offset, 6);
+                first = false;
+            }
+            if (first)
+                text.Append("none");
+            text.Append('}');
+
+            text.Append(" closures={");
+            first = true;
+            int closureStride = SigmaGeneratedStreaming.ProofClosureStride /
+                sizeof(uint);
+            for (int slot = 0; slot <
+                SigmaGeneratedStreaming.TransactionCapacity; ++slot)
+            {
+                int offset = slot * closureStride;
+                uint phase = Word(ProofClosureWords, offset);
+                if (!Transactions[slot].Occupied && phase == 0u)
+                    continue;
+                if (!first)
+                    text.Append(" | ");
+                text.Append(slot).Append(':').Append(ProofPhaseName(phase))
+                    .Append(" id=");
+                AppendRange(text, ProofClosureWords, offset, 4);
+                text.Append(" src=");
+                AppendRange(text, ProofClosureWords, offset + 4, 4);
+                text.Append(" journal=");
+                AppendRange(text, ProofClosureWords, offset + 8, 4);
+                text.Append(" order=");
+                AppendRange(text, ProofClosureWords, offset + 12, 4);
+                text.Append(" coalesce=");
+                AppendRange(text, ProofClosureWords, offset + 16, 4);
+                text.Append(" redundancy=");
+                AppendRange(text, ProofClosureWords, offset + 20, 4);
+                text.Append(" result=");
+                AppendRange(text, ProofClosureWords, offset + 24, 4);
+                text.Append(" reserved=");
+                AppendRange(text, ProofClosureWords, offset + 28, 4);
+                first = false;
+            }
+            if (first)
+                text.Append("none");
+            return text.Append('}').ToString();
+        }
+
+        private static string ProofPhaseName(uint phase) => phase switch
+        {
+            0u => "IDLE",
+            1u => "JOURNAL",
+            2u => "SORT",
+            3u => "MERGE",
+            4u => "COALESCE",
+            5u => "PREFIX",
+            6u => "REDUNDANCY",
+            7u => "EMIT_CERT",
+            8u => "EMIT_RAW",
+            9u => "CLOSED",
+            _ => "UNKNOWN_" + phase
+        };
 
         private static uint[] Copy(uint[] source, int count)
         {

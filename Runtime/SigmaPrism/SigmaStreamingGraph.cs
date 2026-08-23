@@ -25,6 +25,8 @@ namespace Genesis.RoomScan.SigmaPrism
             "SigmaPrism/SigmaStreamDerived";
         private const string DormantResource =
             "SigmaPrism/SigmaStreamDormant";
+        private const string ForensicResource =
+            "SigmaPrism/SigmaForensicTelemetry";
 
         private readonly SigmaCarrierReadBatch _pool;
         private readonly SigmaConstraintLedger _ledger;
@@ -43,6 +45,7 @@ namespace Genesis.RoomScan.SigmaPrism
         private readonly ComputeShader _publication;
         private readonly ComputeShader _derived;
         private readonly ComputeShader _dormant;
+        private readonly ComputeShader _forensic;
 
         private readonly int _initializeGraph;
         private readonly int _initializeOwnership;
@@ -87,6 +90,9 @@ namespace Genesis.RoomScan.SigmaPrism
         private readonly int _releaseDormantPage;
         private readonly int _finalizeDormant;
         private readonly int _recheckDormant;
+        private readonly int _collectForensics;
+
+        private uint _forensicEpoch;
 
         internal SigmaStreamingGraph(SigmaCarrierReadBatch pool,
             SigmaConstraintLedger ledger, SigmaStreamingResources stream,
@@ -122,6 +128,7 @@ namespace Genesis.RoomScan.SigmaPrism
             _publication = RequireShader(PublicationResource);
             _derived = RequireShader(DerivedResource);
             _dormant = RequireShader(DormantResource);
+            _forensic = RequireShader(ForensicResource);
 
             _initializeGraph = _work.FindKernel("InitializeStreamingGraph");
             _initializeOwnership = _work.FindKernel(
@@ -193,6 +200,8 @@ namespace Genesis.RoomScan.SigmaPrism
                 "FinalizeDormantParking");
             _recheckDormant = _dormant.FindKernel(
                 "RecheckDormantProbations");
+            _collectForensics = _forensic.FindKernel(
+                "CollectSigmaForensics");
         }
 
         internal SigmaStreamingResources Resources => _stream;
@@ -277,6 +286,9 @@ namespace Genesis.RoomScan.SigmaPrism
 
             BindScheduleDiagnostics(command, _scheduleDiagnostics);
             command.DispatchCompute(_work, _scheduleDiagnostics, 1, 1, 1);
+
+            BindForensics(command, _collectForensics);
+            command.DispatchCompute(_forensic, _collectForensics, 1, 1, 1);
         }
 
         private void RecordCanonicalRound(CommandBuffer command,
@@ -754,6 +766,23 @@ namespace Genesis.RoomScan.SigmaPrism
                 SigmaStreamingResources.SourceHandleSegmentCapacity);
             SetInt(command, _transition, "_SingularShift", singularShift);
             SetInt(command, _transition, "_AssociatorShift", associatorShift);
+        }
+
+        private void BindForensics(CommandBuffer command, int kernel)
+        {
+            Set(command, _forensic, kernel, "_StreamTransactionsRead",
+                _stream.Transactions);
+            Set(command, _forensic, kernel, "_StreamProofClosuresRead",
+                _stream.ProofClosures);
+            Set(command, _forensic, kernel, "_StreamBundlesRead",
+                _stream.Bundles);
+            Set(command, _forensic, kernel, "_StreamSampleMetaRead",
+                _stream.SampleMetadata);
+            Set(command, _forensic, kernel, "_StreamSampleOutcomesRead",
+                _stream.SampleOutcomes);
+            Set(command, _forensic, kernel, "_ForensicCounters",
+                _stream.ForensicCounters);
+            SetUInt(command, _forensic, "_ForensicEpoch", ++_forensicEpoch);
         }
 
         private void BindInitializeVisibility(CommandBuffer command, int kernel)

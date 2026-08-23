@@ -249,7 +249,9 @@ namespace Genesis.RoomScan.SigmaPrism
                     CommittedFrames, unchecked(_nextRevision - 1u),
                     _backendGate.Buffer, _stream.Diagnostics,
                     _stream.SchedulerControl, _stream.WorkCounts,
-                    _stream.Transactions, _topology.DiagnosticCounters,
+                    _stream.Transactions, _stream.ProofClosures,
+                    _stream.ForensicCounters,
+                    _topology.DiagnosticCounters,
                     drawArguments, currentPageSlots, readoutVertices,
                     readoutPageCapacity, CaptureTimingTelemetry());
             }
