@@ -47,6 +47,14 @@ uint _AssociatorShift;
 #define SIGMA_CANDIDATE_BOTH_NULL (1u << 4u)
 #define SIGMA_CANDIDATE_CLOSED (1u << 5u)
 #define SIGMA_CANDIDATE_FAILED (1u << 6u)
+#define SIGMA_CANDIDATE_NO_CLAIM (1u << 7u)
+#define SIGMA_CANDIDATE_EXPLICIT_NULL (1u << 8u)
+#define SIGMA_CANDIDATE_EVIDENCE_FAULT (1u << 9u)
+
+#define SIGMA_CANDIDATE_ENDPOINT_UNOBSERVED 0u
+#define SIGMA_CANDIDATE_ENDPOINT_CURRENT 1u
+#define SIGMA_CANDIDATE_ENDPOINT_SHADOW 2u
+#define SIGMA_CANDIDATE_ENDPOINT_PUBLISHED 3u
 
 groupshared uint2 CandidateTau[SIGMA_CANDIDATE_EDGE_CHUNK * 16u];
 groupshared uint4 CandidateBestError[256];
@@ -55,7 +63,10 @@ groupshared uint CandidateEdgeInfo[SIGMA_CANDIDATE_EDGE_CHUNK];
 groupshared uint CandidateChunkFailure[SIGMA_CANDIDATE_EDGE_CHUNK];
 groupshared uint CandidateRightSlot;
 groupshared uint CandidateDownSlot;
-groupshared uint CandidateDiagonalSlot;
+groupshared uint CandidateRightPublishedSlot;
+groupshared uint CandidateDownPublishedSlot;
+groupshared uint CandidateRightOwner;
+groupshared uint CandidateDownOwner;
 groupshared uint CandidateGroupActive;
 groupshared uint CandidateGroupTransactionSlot;
 groupshared uint CandidateGroupChunk;
@@ -131,6 +142,23 @@ bool SigmaCandidateTransactionPage(SigmaTransactionGpu transaction,
     return false;
 }
 
+bool SigmaCandidateWorksetReady(SigmaTransactionGpu transaction)
+{
+    uint state = SigmaStreamTransactionState(transaction);
+    return state >= SIGMA_STREAM_TRANSACTION_TRANSITION_PENDING &&
+        state <= SIGMA_STREAM_TRANSACTION_PUBLISHED &&
+        transaction.page0.state.y < _TargetPageCapacity &&
+        transaction.page0.state.w != 0u;
+}
+
+bool SigmaCandidateSameWorkset(SigmaTransactionGpu left,
+    SigmaTransactionGpu right)
+{
+    return left.ticket.z == right.ticket.z &&
+        left.ticket.w == right.ticket.w &&
+        left.dependency0.w == right.dependency0.w;
+}
+
 uint2 SigmaCandidateNullLane(uint lane)
 {
     if (lane == (uint)SIGMA_Z_NULL_DYAD.x)
@@ -181,7 +209,10 @@ void SigmaCandidateResolveNeighbours(uint lane, uint transactionSlot,
     {
         CandidateRightSlot = SIGMA_STREAM_INVALID;
         CandidateDownSlot = SIGMA_STREAM_INVALID;
-        CandidateDiagonalSlot = SIGMA_STREAM_INVALID;
+        CandidateRightPublishedSlot = SIGMA_STREAM_INVALID;
+        CandidateDownPublishedSlot = SIGMA_STREAM_INVALID;
+        CandidateRightOwner = SIGMA_STREAM_INVALID;
+        CandidateDownOwner = SIGMA_STREAM_INVALID;
     }
     GroupMemoryBarrierWithGroupSync();
 
@@ -193,6 +224,25 @@ void SigmaCandidateResolveNeighbours(uint lane, uint transactionSlot,
         uint2 nextY;
         bool hasNextX = SigmaCandidateIncrementI64(targetX, nextX);
         bool hasNextY = SigmaCandidateIncrementI64(targetY, nextY);
+        uint4 rightCoordinate = uint4(nextX, targetY);
+        uint4 downCoordinate = uint4(targetX, nextY);
+
+        if (lane < SIGMA_STREAM_TRANSACTION_CAPACITY &&
+            lane != transactionSlot)
+        {
+            SigmaTransactionGpu other = _StreamTransactions[lane];
+            if (SigmaCandidateWorksetReady(other) &&
+                SigmaCandidateSameWorkset(transaction, other))
+            {
+                uint shadowSlot;
+                if (hasNextX && SigmaCandidateTransactionPage(other,
+                        rightCoordinate, shadowSlot))
+                    InterlockedMin(CandidateRightOwner, lane);
+                if (hasNextY && SigmaCandidateTransactionPage(other,
+                        downCoordinate, shadowSlot))
+                    InterlockedMin(CandidateDownOwner, lane);
+            }
+        }
         for (uint candidate = lane; candidate < _PageCapacity;
             candidate += 256u)
         {
@@ -203,22 +253,46 @@ void SigmaCandidateResolveNeighbours(uint lane, uint transactionSlot,
             uint2 y = uint2(metadata.pageYLo, metadata.pageYHi);
             if (hasNextX && SigmaCandidateI64Equal(x, nextX) &&
                 SigmaCandidateI64Equal(y, targetY))
-                InterlockedMin(CandidateRightSlot, candidate);
+                InterlockedMin(CandidateRightPublishedSlot, candidate);
             if (hasNextY && SigmaCandidateI64Equal(x, targetX) &&
                 SigmaCandidateI64Equal(y, nextY))
-                InterlockedMin(CandidateDownSlot, candidate);
-            if (hasNextX && hasNextY && SigmaCandidateI64Equal(x, nextX) &&
-                SigmaCandidateI64Equal(y, nextY))
-                InterlockedMin(CandidateDiagonalSlot, candidate);
+                InterlockedMin(CandidateDownPublishedSlot, candidate);
         }
     }
     GroupMemoryBarrierWithGroupSync();
     if (lane == 0u && resolve)
     {
+        if (CandidateRightOwner < SIGMA_STREAM_TRANSACTION_CAPACITY)
+        {
+            SigmaTransactionGpu owner =
+                _StreamTransactions[CandidateRightOwner];
+            uint2 nextX;
+            if (SigmaCandidateIncrementI64(transaction.page0.coordinate.xy,
+                    nextX))
+                SigmaCandidateTransactionPage(owner, uint4(nextX,
+                    transaction.page0.coordinate.zw), CandidateRightSlot);
+        }
+        else
+            CandidateRightSlot = CandidateRightPublishedSlot;
+        if (CandidateDownOwner < SIGMA_STREAM_TRANSACTION_CAPACITY)
+        {
+            SigmaTransactionGpu owner =
+                _StreamTransactions[CandidateDownOwner];
+            uint2 nextY;
+            if (SigmaCandidateIncrementI64(transaction.page0.coordinate.zw,
+                    nextY))
+                SigmaCandidateTransactionPage(owner, uint4(
+                    transaction.page0.coordinate.xy, nextY), CandidateDownSlot);
+        }
+        else
+            CandidateDownSlot = CandidateDownPublishedSlot;
+        uint packedOwners = (min(CandidateRightOwner, 255u) & 255u) |
+            ((min(CandidateDownOwner, 255u) & 255u) << 8u);
         _StreamCandidateNeighbours[transactionSlot] = uint4(
             SigmaStreamTransactionGeneration(transaction),
-            CandidateRightSlot, CandidateDownSlot, CandidateDiagonalSlot);
+            CandidateRightSlot, CandidateDownSlot, packedOwners);
     }
+    DeviceMemoryBarrierWithGroupSync();
 }
 
 uint SigmaCandidateOutsideSlot(uint transactionSlot, uint direction)
@@ -227,74 +301,123 @@ uint SigmaCandidateOutsideSlot(uint transactionSlot, uint direction)
     return direction == 0u ? neighbours.y : neighbours.z;
 }
 
-uint2 SigmaCandidateEndpointLane(SigmaTransactionGpu transaction,
-    uint transactionSlot, uint transition, bool rightEndpoint, uint lane)
+uint SigmaCandidateOutsideOwner(uint transactionSlot, uint direction)
+{
+    uint packed = _StreamCandidateNeighbours[transactionSlot].w;
+    uint owner = direction == 0u ? packed & 255u : (packed >> 8u) & 255u;
+    return owner < SIGMA_STREAM_TRANSACTION_CAPACITY
+        ? owner : SIGMA_STREAM_INVALID;
+}
+
+void SigmaCandidateResolveEndpoint(SigmaTransactionGpu transaction,
+    uint transactionSlot, uint transition, bool rightEndpoint,
+    out uint source, out uint slot, out uint sample, out uint owner)
 {
     uint direction = transition / SIGMA_PAGE_SAMPLE_COUNT;
-    uint sample = transition & (SIGMA_PAGE_SAMPLE_COUNT - 1u);
+    sample = transition & (SIGMA_PAGE_SAMPLE_COUNT - 1u);
     uint x = sample & 63u;
     uint y = sample >> 6u;
-    uint targetSlot = transaction.page0.state.y;
+    slot = transaction.page0.state.y;
+    owner = transactionSlot;
+    source = SIGMA_CANDIDATE_ENDPOINT_CURRENT;
     if (!rightEndpoint)
-        return _TargetCarrierState[targetSlot * SIGMA_PAGE_LANE_COUNT +
-            sample * 16u + lane];
+        return;
     if (direction == 0u && x < 63u)
-        return _TargetCarrierState[targetSlot * SIGMA_PAGE_LANE_COUNT +
-            (sample + 1u) * 16u + lane];
+    {
+        sample++;
+        return;
+    }
     if (direction != 0u && y < 63u)
-        return _TargetCarrierState[targetSlot * SIGMA_PAGE_LANE_COUNT +
-            (sample + 64u) * 16u + lane];
+    {
+        sample += 64u;
+        return;
+    }
 
     uint4 neighbourCoordinate = transaction.page0.coordinate;
-    uint neighbourSample;
     if (direction == 0u)
     {
         uint2 incremented;
         if (!SigmaCandidateIncrementI64(neighbourCoordinate.xy, incremented))
-            return SigmaCandidateNullLane(lane);
+        {
+            source = SIGMA_CANDIDATE_ENDPOINT_UNOBSERVED;
+            slot = SIGMA_STREAM_INVALID;
+            owner = SIGMA_STREAM_INVALID;
+            return;
+        }
         neighbourCoordinate.xy = incremented;
-        neighbourSample = y * 64u;
+        sample = y * 64u;
     }
     else
     {
         uint2 incremented;
         if (!SigmaCandidateIncrementI64(neighbourCoordinate.zw, incremented))
-            return SigmaCandidateNullLane(lane);
+        {
+            source = SIGMA_CANDIDATE_ENDPOINT_UNOBSERVED;
+            slot = SIGMA_STREAM_INVALID;
+            owner = SIGMA_STREAM_INVALID;
+            return;
+        }
         neighbourCoordinate.zw = incremented;
-        neighbourSample = x;
+        sample = x;
     }
-    uint candidateSlot;
     if (SigmaCandidateTransactionPage(transaction, neighbourCoordinate,
-            candidateSlot))
+            slot))
     {
-        return _TargetCarrierState[candidateSlot * SIGMA_PAGE_LANE_COUNT +
-            neighbourSample * 16u + lane];
+        source = SIGMA_CANDIDATE_ENDPOINT_SHADOW;
+        return;
     }
-    uint outsideSlot = SigmaCandidateOutsideSlot(transactionSlot, direction);
-    if (outsideSlot < _PageCapacity && SigmaCandidatePageVisible(outsideSlot))
+    slot = SigmaCandidateOutsideSlot(transactionSlot, direction);
+    owner = SigmaCandidateOutsideOwner(transactionSlot, direction);
+    if (slot < _TargetPageCapacity &&
+        owner < SIGMA_STREAM_TRANSACTION_CAPACITY)
     {
-        return _CarrierState[outsideSlot * SIGMA_PAGE_LANE_COUNT +
-            neighbourSample * 16u + lane];
+        source = SIGMA_CANDIDATE_ENDPOINT_SHADOW;
+        return;
     }
+    if (slot < _PageCapacity && SigmaCandidatePageVisible(slot))
+    {
+        source = SIGMA_CANDIDATE_ENDPOINT_PUBLISHED;
+        owner = SIGMA_STREAM_INVALID;
+        return;
+    }
+    source = SIGMA_CANDIDATE_ENDPOINT_UNOBSERVED;
+    slot = SIGMA_STREAM_INVALID;
+    owner = SIGMA_STREAM_INVALID;
+}
+
+uint2 SigmaCandidateEndpointLane(SigmaTransactionGpu transaction,
+    uint transactionSlot, uint transition, bool rightEndpoint, uint lane)
+{
+    uint source;
+    uint slot;
+    uint sample;
+    uint owner;
+    SigmaCandidateResolveEndpoint(transaction, transactionSlot, transition,
+        rightEndpoint, source, slot, sample, owner);
+    if (source == SIGMA_CANDIDATE_ENDPOINT_CURRENT ||
+        source == SIGMA_CANDIDATE_ENDPOINT_SHADOW)
+        return _TargetCarrierState[slot * SIGMA_PAGE_LANE_COUNT +
+            sample * 16u + lane];
+    if (source == SIGMA_CANDIDATE_ENDPOINT_PUBLISHED)
+        return _CarrierState[slot * SIGMA_PAGE_LANE_COUNT +
+            sample * 16u + lane];
     return SigmaCandidateNullLane(lane);
 }
 
-uint SigmaCandidateEndpointStatus(uint transactionSlot, uint transition,
-    bool rightEndpoint)
+uint SigmaCandidateEndpointStatus(SigmaTransactionGpu transaction,
+    uint transactionSlot, uint transition, bool rightEndpoint,
+    out uint source)
 {
-    uint direction = transition / SIGMA_PAGE_SAMPLE_COUNT;
-    uint sample = transition & (SIGMA_PAGE_SAMPLE_COUNT - 1u);
-    uint x = sample & 63u;
-    uint y = sample >> 6u;
-    if (!rightEndpoint)
-        return _StreamSampleMeta[SigmaCandidateSampleAddress(
-            transactionSlot, sample)].y;
-    if (direction == 0u && x < 63u)
-        return _StreamSampleMeta[SigmaCandidateSampleAddress(
-            transactionSlot, sample + 1u)].y;
-    if (direction != 0u && y < 63u)
-        return _StreamSampleMeta[SigmaCandidateSampleAddress(
-            transactionSlot, sample + 64u)].y;
+    uint slot;
+    uint sample;
+    uint owner;
+    SigmaCandidateResolveEndpoint(transaction, transactionSlot, transition,
+        rightEndpoint, source, slot, sample, owner);
+    if ((source == SIGMA_CANDIDATE_ENDPOINT_CURRENT ||
+            source == SIGMA_CANDIDATE_ENDPOINT_SHADOW) &&
+        owner < SIGMA_STREAM_TRANSACTION_CAPACITY)
+        return _StreamSampleMeta[SigmaCandidateSampleAddress(owner,
+            sample)].y;
     return 0u;
 }
 
@@ -380,10 +503,12 @@ void ValidateCandidateTransitionChunk(uint3 groupId : SV_GroupID,
     uint witnessLane = lane & 3u;
     uint transition = chunk * SIGMA_CANDIDATE_EDGE_CHUNK + edgeLocal;
     uint tauBase = edgeLocal * 16u;
-    uint statusLeft = SigmaCandidateEndpointStatus(transactionSlot,
-        transition, false);
-    uint statusRight = SigmaCandidateEndpointStatus(transactionSlot,
-        transition, true);
+    uint sourceLeft;
+    uint sourceRight;
+    uint statusLeft = SigmaCandidateEndpointStatus(transaction,
+        transactionSlot, transition, false, sourceLeft);
+    uint statusRight = SigmaCandidateEndpointStatus(transaction,
+        transactionSlot, transition, true, sourceRight);
     uint evidenceStatus = statusLeft | statusRight;
     bool changed = (evidenceStatus & SIGMA_PROPOSAL_CHANGED) != 0u;
 
@@ -403,10 +528,23 @@ void ValidateCandidateTransitionChunk(uint3 groupId : SV_GroupID,
         uint rightValid;
         bool leftContact = SigmaStateHasContact(left, leftValid);
         bool rightContact = SigmaStateHasContact(right, rightValid);
-        bool independent = (evidenceStatus &
+        bool stereoContactEvidence = (evidenceStatus &
             (SIGMA_PROPOSAL_HIT_LEFT | SIGMA_PROPOSAL_HIT_RIGHT)) ==
             (SIGMA_PROPOSAL_HIT_LEFT | SIGMA_PROPOSAL_HIT_RIGHT);
-        bool discontinuity = (leftContact != rightContact && independent) ||
+        bool contactNull = leftContact != rightContact;
+        bool leftExplicitNull = !leftContact &&
+            (statusLeft & SIGMA_PROPOSAL_EXCLUSION) != 0u;
+        bool rightExplicitNull = !rightContact &&
+            (statusRight & SIGMA_PROPOSAL_EXCLUSION) != 0u;
+        bool explicitNull = contactNull &&
+            (leftExplicitNull || rightExplicitNull);
+        bool noClaim = contactNull && !explicitNull;
+        bool evidenceFault = (evidenceStatus &
+            (SIGMA_PROPOSAL_INVALID | SIGMA_PROPOSAL_CONFLICT)) != 0u;
+        // Current S4-08 evidence has no two-sided pass-through bit. Stereo hits
+        // on the contact endpoint therefore cannot prove the null endpoint.
+        bool independent = !contactNull && stereoContactEvidence;
+        bool discontinuity = explicitNull ||
             (evidenceStatus & (SIGMA_PROPOSAL_CONFLICT |
                 SIGMA_PROPOSAL_EXCLUSION)) != 0u;
         uint info = changed ? SIGMA_CANDIDATE_CHANGED : 0u;
@@ -414,6 +552,9 @@ void ValidateCandidateTransitionChunk(uint3 groupId : SV_GroupID,
             ? SIGMA_CANDIDATE_VALID : 0u;
         info |= independent ? SIGMA_CANDIDATE_INDEPENDENT : 0u;
         info |= discontinuity ? SIGMA_CANDIDATE_DISCONTINUITY : 0u;
+        info |= noClaim ? SIGMA_CANDIDATE_NO_CLAIM : 0u;
+        info |= explicitNull ? SIGMA_CANDIDATE_EXPLICIT_NULL : 0u;
+        info |= evidenceFault ? SIGMA_CANDIDATE_EVIDENCE_FAULT : 0u;
         info |= !leftContact && !rightContact
             ? SIGMA_CANDIDATE_BOTH_NULL : 0u;
         info |= leftContact ? (1u << 16u) : 0u;
@@ -438,7 +579,9 @@ void ValidateCandidateTransitionChunk(uint3 groupId : SV_GroupID,
     bool evaluate = (edgeInfo & (SIGMA_CANDIDATE_CHANGED |
         SIGMA_CANDIDATE_VALID)) ==
         (SIGMA_CANDIDATE_CHANGED | SIGMA_CANDIDATE_VALID) &&
-        (edgeInfo & SIGMA_CANDIDATE_BOTH_NULL) == 0u;
+        (edgeInfo & (SIGMA_CANDIDATE_BOTH_NULL |
+            SIGMA_CANDIDATE_NO_CLAIM |
+            SIGMA_CANDIDATE_EVIDENCE_FAULT)) == 0u;
     uint4 bestError = SIGMA_U128_MAX;
     uint bestId = SIGMA_ANNIHILATOR_ACTION_COUNT + witnessLane;
     if (evaluate && valid != 0u)
@@ -483,6 +626,9 @@ void ValidateCandidateTransitionChunk(uint3 groupId : SV_GroupID,
         uint topologyFlags = 0u;
         bool edgeValid = (edgeInfo & SIGMA_CANDIDATE_VALID) != 0u;
         bool bothNull = (edgeInfo & SIGMA_CANDIDATE_BOTH_NULL) != 0u;
+        bool noClaim = (edgeInfo & SIGMA_CANDIDATE_NO_CLAIM) != 0u;
+        bool evidenceFault = (edgeInfo &
+            SIGMA_CANDIDATE_EVIDENCE_FAULT) != 0u;
         bool leftContact = (edgeInfo & (1u << 16u)) != 0u;
         bool rightContact = (edgeInfo & (1u << 17u)) != 0u;
         bool validTransition = evaluate && bestId <
@@ -497,14 +643,15 @@ void ValidateCandidateTransitionChunk(uint3 groupId : SV_GroupID,
             scale, _SingularShift);
         bool exact = validTransition && SigmaU128Equal(bestError,
             SIGMA_U128_ZERO);
-        bool contactNull = edgeValid && leftContact != rightContact;
-        if (bothNull)
-            classification = SIGMA_TOPOLOGY_UNSUPPORTED;
-        else if (!edgeValid || (evaluate && !validTransition))
+        bool contactNull = edgeValid && !noClaim &&
+            leftContact != rightContact;
+        if (!edgeValid || evidenceFault || (evaluate && !validTransition))
         {
             classification = SIGMA_TOPOLOGY_UNRESOLVED;
             topologyFlags |= SIGMA_TOPOLOGY_INVALID;
         }
+        else if (bothNull || noClaim)
+            classification = SIGMA_TOPOLOGY_UNSUPPORTED;
         else if (near || contactNull)
             classification = SIGMA_TOPOLOGY_UNRESOLVED;
         if (near) topologyFlags |= SIGMA_TOPOLOGY_NEAR_ANNIHILATOR;

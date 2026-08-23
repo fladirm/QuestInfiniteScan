@@ -79,6 +79,7 @@ uint SigmaInverseWorkImageY(SigmaInverseWorkGpu work)
 #define SIGMA_STREAM_BUNDLE_FLAG_DEPTH_RGB (1u << 5u)
 #define SIGMA_STREAM_BUNDLE_FLAG_TEMPORAL_DEPTH (1u << 6u)
 #define SIGMA_STREAM_BUNDLE_FLAG_STREAMED (1u << 7u)
+#define SIGMA_STREAM_BUNDLE_FLAG_DORMANT_PROPOSAL (1u << 8u)
 
 uint SigmaStreamWorkAddress(uint opcode, uint item)
 {

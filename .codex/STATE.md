@@ -7,10 +7,10 @@ Updated: 2026-08-23 (Europe/Prague)
 - Canonical product: `new_spec.md`, `CPQ4-2026-08-22-S16-v6`.
 - Branch: `feat/sigma-prism-16-cpq4-20260822`.
 - Accepted predecessors: S4-00 through S4-07.
-- Active node: S4-08, repair run **S4-08.3C audited execution/publication
-  closure**. S4-09 is pending and unopened.
+- Active node: S4-08, repair run **S4-08.3D transition/residency closure**.
+  S4-09 is pending and unopened.
 - Forensic closure: `s4-083-audit.md`.
-- Frozen deterministic implementation contract: `.codex/S4-08.3C_PLAN.md`.
+- Frozen deterministic implementation contract: `.codex/S4-08.3D_PLAN.md`.
 - Sole routine resume checkpoint: `.codex/S4-08.3_RESUME.md`.
 
 ## Frozen ontology
@@ -94,17 +94,49 @@ granularity.
   load. Work-graph counters stage through its existing scheduler UAV so every
   Quest kernel remains at or below eight UAVs.
 
+## S4-08.3D device root cause and frozen repair
+
+- The installed `3430929` graph now reaches exact inverse and closes 1024/1024
+  proof blocks, but all 16 bootstrap pages fail candidate transition closure:
+  131072 directed edges run the complete 168-action catalog (22020096 witnesses)
+  with no accepted transition and no publication.
+- Missing/unpublished neighbours are currently materialized as physical `z_null`.
+  Contact-side eye provenance is OR-ed across the edge and can falsely support a
+  contact/null discontinuity although the null endpoint was never observed.
+- Candidate scope is page-local, so storage edges manufacture the same false null
+  transition inside one measured footprint. Generic inverse correctly does not
+  manufacture a singular perimeter at the edge of current evidence.
+- Failed candidates park whole bundle-owned raw/calibration ranges. At 64/64
+  resident bundles, new evidence receives a fresh Morton allocation address,
+  cannot join the dormant probation and ingress advances despite zero admission.
+- `.codex/S4-08.3D_PLAN.md` freezes the low-code repair: evidence-qualified
+  endpoint/no-claim semantics; Morton only as allocator; exact probation proposal;
+  transfer only unresolved residue into the existing ConstraintLedger; reclaim
+  execution residency only after successful ownership transfer; never advance
+  unowned ingress.
+
 ## Exact next action
 
-Finish C6: rerun the full Vulkan suite after the eight-UAV counter staging change,
-regenerate/validate controls and manually close the changed-file audit. Then commit
-the exact candidate, create its source archive, build one Release APK and install it
-on the connected Quest. Do not reopen proof or transition mathematics.
+S4-08.3D source implementation is complete. Evidence-qualified transition
+resolution now treats unobserved endpoints as no claim, resolves same sealed-workset
+candidate neighbours before published Psi, and never promotes contact-side support
+into null-side evidence. Proof closure transfers irreducible raw residue into the
+existing ConstraintLedger tail before dormant parking reclaims transient bundles,
+associations and source segments. Dormant probation retains only a generation-safe
+candidate/proof anchor; a later sealed observation is a disposable proposal against
+that anchor and exact inverse remains the only join authority. Morton remains an
+allocation address. Zero admission no longer advances the ingress cursor.
+
+Focused Vulkan streaming passed 6/6, full Unity Vulkan EditMode passed 71/71,
+generated output is current, `git diff --check` is clean and the Quest eight-UAV
+gate passes. Exact next action: regenerate/validate the code graph, commit the
+source closure, create its git archive, build the same revision as Android/Vulkan
+Release and install it on the connected Quest. Do not open S4-09.
 
 ## Acceptance still required
 
-- Physical phase/slot-reuse/publication/readout and ingress-exhaustion evidence on
-  the installed Release; source contract and telemetry ABI regressions are present.
+- Physical no-claim/page-invariance, dormant replay/reclaim, publication/readout and
+  ingress-ownership evidence on the installed Release.
 - Generated outputs, code graph, control validation, Quest UAV gate, full Vulkan
   EditMode and clean Android/Vulkan Release.
 - Fresh Quest install: first accepted publication/readout within five seconds,

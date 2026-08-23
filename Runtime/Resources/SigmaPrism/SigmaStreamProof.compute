@@ -50,6 +50,10 @@ RWStructuredBuffer<SigmaConstraintCertificateGpu> _Certificates;
 RWStructuredBuffer<SigmaQ48Bounds> _CertificateBounds;
 RWStructuredBuffer<SigmaConstraintBlockGpu> _ConstraintBlocks;
 RWStructuredBuffer<SigmaRawObservationTileGpu> _RawTiles;
+RWStructuredBuffer<uint4> _RawTileWords;
+RWStructuredBuffer<SigmaRawFrameRecordGpu> _RawFrameRecords;
+RWStructuredBuffer<uint> _RawAllocator;
+RWStructuredBuffer<uint> _RawLiveWords;
 RWStructuredBuffer<uint> _StreamSchedulerControl;
 RWStructuredBuffer<SigmaStreamDiagnosticGpu> _StreamDiagnostics;
 
@@ -82,6 +86,14 @@ groupshared uint ReduceGroupTransactionGeneration;
 groupshared uint ReduceGroupRequired;
 groupshared SigmaTransactionGpu ReduceGroupTransaction;
 groupshared SigmaSealedSourceBundleGpu ReduceGroupBundle;
+groupshared uint RawCopyActive;
+groupshared uint RawCopySource;
+groupshared uint RawCopyDestination;
+groupshared uint RawCopyFrameSource;
+groupshared uint RawCopyProvenanceEpoch;
+groupshared uint RawCopyTransactionSlot;
+groupshared uint RawCopyTransactionGeneration;
+groupshared SigmaProofClosureGpu RawCopyClosure;
 
 SigmaQ48Bounds SigmaProofFullBounds()
 {
@@ -1634,70 +1646,144 @@ void EmitProofCertificates(uint3 groupId : SV_GroupID,
 void RetainProofRawWindow(uint3 groupId : SV_GroupID,
     uint3 threadId : SV_GroupThreadID)
 {
-    uint transactionSlot = SIGMA_STREAM_INVALID;
-    SigmaTransactionGpu transaction = (SigmaTransactionGpu)0;
-    SigmaProofClosureGpu closure = (SigmaProofClosureGpu)0;
-    bool loaded = SigmaProofLoadReadWork(
-        SIGMA_STREAM_OPCODE_FINALIZE_PROOF_BLOCK, groupId.x,
-        transactionSlot, transaction, closure);
-    if (!loaded || closure.identity.x != SIGMA_STREAM_PROOF_EMIT_RAW ||
-        threadId.x != 0u)
-        return;
-    uint rawReasons = closure.reserved.w;
-    uint2 rawSamples = closure.coalesce.xy;
-    uint segmentSlot = closure.sourceCursor.x;
-    uint segmentGeneration = closure.sourceCursor.y;
-    uint offset = closure.sourceCursor.z;
-    uint ordinal = closure.sourceCursor.w;
-    uint processed = 0u;
-    [loop]
-    while (processed < SIGMA_STREAM_SOURCE_HANDLE_WINDOW &&
-        ordinal < transaction.source.z)
+    uint lane = threadId.x;
+    if (lane == 0u)
     {
-        if (segmentSlot >= _StreamSourceSegmentCapacity)
-            return;
-        SigmaSourceHandleSegmentGpu segment =
-            _StreamSourceSegments[segmentSlot];
-        if (!SigmaStreamSourceSegmentValid(segment, segmentGeneration) ||
-            offset >= segment.identity.z)
-            return;
-        uint2 handle = SigmaStreamSourceHandle(segment, offset);
-        if (!SigmaStreamHandleValid(handle.x, handle.y,
-                SIGMA_STREAM_BUNDLE_CAPACITY))
-            return;
-        SigmaSealedSourceBundleGpu bundle = _StreamBundles[handle.x];
-        if (SigmaStreamBundleGeneration(bundle) != handle.y)
-            return;
-        if (rawReasons != 0u)
+        RawCopyActive = 0u;
+        RawCopySource = SIGMA_INVALID_RAW_TILE;
+        RawCopyDestination = SIGMA_INVALID_RAW_TILE;
+        RawCopyFrameSource = SIGMA_INVALID_RAW_TILE;
+        RawCopyProvenanceEpoch = 0u;
+        RawCopyTransactionSlot = SIGMA_STREAM_INVALID;
+        RawCopyTransactionGeneration = 0u;
+        RawCopyClosure = (SigmaProofClosureGpu)0;
+
+        uint transactionSlot = SIGMA_STREAM_INVALID;
+        SigmaTransactionGpu transaction = (SigmaTransactionGpu)0;
+        SigmaProofClosureGpu closure = (SigmaProofClosureGpu)0;
+        bool loaded = SigmaProofLoadReadWork(
+            SIGMA_STREAM_OPCODE_FINALIZE_PROOF_BLOCK, groupId.x,
+            transactionSlot, transaction, closure);
+        if (loaded && closure.identity.x == SIGMA_STREAM_PROOF_EMIT_RAW &&
+            closure.sourceCursor.w < transaction.source.z)
         {
-            uint raw = SigmaStreamRawTileAddress(bundle.raw.x,
-                transaction.progress.y);
-            if (raw >= _RawTileCapacity)
-                return;
+            uint segmentSlot = closure.sourceCursor.x;
+            uint segmentGeneration = closure.sourceCursor.y;
+            uint offset = closure.sourceCursor.z;
+            if (segmentSlot < _StreamSourceSegmentCapacity)
+            {
+                SigmaSourceHandleSegmentGpu segment =
+                    _StreamSourceSegments[segmentSlot];
+                if (SigmaStreamSourceSegmentValid(segment,
+                        segmentGeneration) && offset < segment.identity.z)
+                {
+                    uint2 handle = SigmaStreamSourceHandle(segment, offset);
+                    if (SigmaStreamHandleValid(handle.x, handle.y,
+                            SIGMA_STREAM_BUNDLE_CAPACITY))
+                    {
+                        SigmaSealedSourceBundleGpu bundle =
+                            _StreamBundles[handle.x];
+                        if (SigmaStreamBundleGeneration(bundle) == handle.y)
+                        {
+                            uint destination = SIGMA_INVALID_RAW_TILE;
+                            if (closure.reserved.w != 0u)
+                            {
+                                uint cursor = _RawAllocator[0u];
+                                if (cursor < _RawTileCapacity)
+                                {
+                                    destination = cursor;
+                                    _RawAllocator[0u] = cursor + 1u;
+                                }
+                                else
+                                {
+                                    InterlockedAdd(
+                                        _StreamDiagnostics[0u].memory.z, 1u);
+                                }
+                            }
+                            if (closure.reserved.w == 0u ||
+                                destination != SIGMA_INVALID_RAW_TILE)
+                            {
+                                RawCopyActive = 1u;
+                                RawCopySource = SigmaStreamRawTileAddress(
+                                    bundle.raw.x, transaction.progress.y);
+                                RawCopyDestination = destination;
+                                RawCopyFrameSource = bundle.raw.y;
+                                RawCopyProvenanceEpoch = bundle.provenance.w;
+                                RawCopyTransactionSlot = transactionSlot;
+                                RawCopyTransactionGeneration =
+                                    SigmaStreamTransactionGeneration(
+                                        transaction);
+                                RawCopyClosure = closure;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    GroupMemoryBarrierWithGroupSync();
+    if (RawCopyActive == 0u)
+        return;
+
+    if (RawCopyDestination != SIGMA_INVALID_RAW_TILE)
+    {
+        [unroll]
+        for (uint word = lane; word < SIGMA_RAW_WORD4_PER_TILE; word += 64u)
+        {
+            _RawTileWords[RawCopyDestination * SIGMA_RAW_WORD4_PER_TILE +
+                word] = _RawTileWords[RawCopySource *
+                SIGMA_RAW_WORD4_PER_TILE + word];
+        }
+        if (lane < SIGMA_RAW_FRAME_WORD4_COUNT)
+        {
+            _RawFrameRecords[RawCopyDestination].word[lane] =
+                _RawFrameRecords[RawCopyFrameSource].word[lane];
+        }
+    }
+    DeviceMemoryBarrierWithGroupSync();
+
+    if (lane == 0u)
+    {
+        SigmaProofClosureGpu closure = RawCopyClosure;
+        SigmaTransactionGpu transaction =
+            _StreamTransactionsRead[RawCopyTransactionSlot];
+        if (SigmaStreamTransactionGeneration(transaction) !=
+                RawCopyTransactionGeneration ||
+            closure.identity.x != SIGMA_STREAM_PROOF_EMIT_RAW)
+            return;
+        if (RawCopyDestination != SIGMA_INVALID_RAW_TILE)
+        {
             SigmaRawObservationTileGpu tile;
-            tile.identity = uint4(closure.reserved.z, bundle.raw.y,
+            tile.identity = uint4(closure.reserved.z,
+                RawCopyDestination,
                 (transaction.page0.state.y << 6u) |
                     transaction.progress.y, transaction.ticket.z);
-            tile.provenance = uint4(rawReasons, bundle.provenance.w,
-                rawSamples);
-            _RawTiles[raw] = tile;
-            closure.reserved.z = raw;
+            tile.provenance = uint4(closure.reserved.w,
+                RawCopyProvenanceEpoch, closure.coalesce.xy);
+            _RawTiles[RawCopyDestination] = tile;
+            uint liveMask = 1u << (RawCopyDestination & 31u);
+            InterlockedOr(_RawLiveWords[RawCopyDestination >> 5u], liveMask);
+            closure.reserved.z = RawCopyDestination;
         }
-        ordinal++;
-        processed++;
-        offset++;
+
+        uint segmentSlot = closure.sourceCursor.x;
+        uint segmentGeneration = closure.sourceCursor.y;
+        uint offset = closure.sourceCursor.z + 1u;
+        uint ordinal = closure.sourceCursor.w + 1u;
+        SigmaSourceHandleSegmentGpu segment =
+            _StreamSourceSegments[segmentSlot];
         if (offset == segment.identity.z)
         {
             segmentSlot = segment.link.x;
             segmentGeneration = segment.link.y;
             offset = 0u;
         }
+        closure.sourceCursor = uint4(segmentSlot, segmentGeneration,
+            offset, ordinal);
+        if (ordinal == transaction.source.z)
+            closure.identity.x = SIGMA_STREAM_PROOF_CLOSED;
+        _StreamProofClosures[RawCopyTransactionSlot] = closure;
     }
-    closure.sourceCursor = uint4(segmentSlot, segmentGeneration,
-        offset, ordinal);
-    if (ordinal == transaction.source.z)
-        closure.identity.x = SIGMA_STREAM_PROOF_CLOSED;
-    _StreamProofClosures[transactionSlot] = closure;
 }
 
 [numthreads(64, 1, 1)]

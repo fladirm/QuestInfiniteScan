@@ -290,18 +290,6 @@ void ResolvePublishedPageCaches(uint3 groupId : SV_GroupID,
         _CurrentFlags[source] = 0u;
 }
 
-bool SigmaPublicationRetainsRaw(uint proofSlot)
-{
-    if (proofSlot >= _PageCapacity)
-        return true;
-    [unroll]
-    for (uint block = 0u; block < SIGMA_CERTIFICATE_BLOCKS_PER_PAGE; ++block)
-        if (_ConstraintBlocks[SigmaConstraintBlockAddress(proofSlot,
-                block)].counts.w != 0u)
-            return true;
-    return false;
-}
-
 void SigmaPublicationReleaseAssociation(uint bundleSlot,
     SigmaSealedSourceBundleGpu bundle)
 {
@@ -315,9 +303,9 @@ void SigmaPublicationReleaseAssociation(uint bundleSlot,
             uint4(SIGMA_STREAM_INVALID, 0u, 0u, 0u);
 }
 
-// Retirement walks the complete sealed source chain. Raw payload is kept when
-// any certificate block still depends on replay; otherwise its owned bitmap and
-// bundle record are reclaimed without changing the published carrier bytes.
+// Retirement walks the complete sealed source chain. Irreducible raw residue was
+// transferred to ledger-owned slots during proof closure, so this pass reclaims
+// only transient ingress ownership without changing published carrier bytes.
 [numthreads(1, 1, 1)]
 void RetirePublishedTransaction(uint3 groupId : SV_GroupID)
 {
@@ -332,7 +320,6 @@ void RetirePublishedTransaction(uint3 groupId : SV_GroupID)
         !SigmaManifestHandlePublished(handle, _StreamManifests[handle.x]))
         return;
 
-    bool retainRaw = SigmaPublicationRetainsRaw(transaction.page0.state.y);
     uint segmentSlot = transaction.source.x;
     uint segmentGeneration = transaction.source.y;
     uint remaining = transaction.source.z;
@@ -361,27 +348,16 @@ void RetirePublishedTransaction(uint3 groupId : SV_GroupID)
             if (SigmaStreamBundleGeneration(bundle) != sourceHandle.y)
                 return;
             SigmaPublicationReleaseAssociation(sourceHandle.x, bundle);
-            if (retainRaw)
+            uint generation = bundle.identity.y;
+            uint liveWord = bundle.raw.x >> 5u;
+            if (liveWord + 1u < (_RawTileCapacity + 31u) / 32u)
             {
-                bundle.identity.x = SIGMA_STREAM_BUNDLE_DORMANT;
-                bundle.identity.w &=
-                    ~SIGMA_STREAM_BUNDLE_FLAG_HAS_ASSOCIATION;
-                bundle.raw.z = SIGMA_STREAM_INVALID;
-                _StreamBundles[sourceHandle.x] = bundle;
+                _RawLiveWords[liveWord] = 0u;
+                _RawLiveWords[liveWord + 1u] = 0u;
             }
-            else
-            {
-                uint generation = bundle.identity.y;
-                uint liveWord = bundle.raw.x >> 5u;
-                if (liveWord + 1u < (_RawTileCapacity + 31u) / 32u)
-                {
-                    _RawLiveWords[liveWord] = 0u;
-                    _RawLiveWords[liveWord + 1u] = 0u;
-                }
-                bundle = (SigmaSealedSourceBundleGpu)0;
-                bundle.identity.y = generation;
-                _StreamBundles[sourceHandle.x] = bundle;
-            }
+            bundle = (SigmaSealedSourceBundleGpu)0;
+            bundle.identity.y = generation;
+            _StreamBundles[sourceHandle.x] = bundle;
         }
         remaining -= count;
         uint nextSlot = segment.link.x;

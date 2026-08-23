@@ -388,6 +388,8 @@ namespace Genesis.RoomScan.SigmaPrism
                 _stream.SchedulerControl);
             Set(command, _work, kernel, "_StreamDiagnostics",
                 _stream.Diagnostics);
+            Set(command, _work, kernel, "_RawAllocator",
+                _ledger.RawAllocatorBuffer);
         }
 
         private void BindInitializeOwnership(CommandBuffer command, int kernel)
@@ -539,6 +541,8 @@ namespace Genesis.RoomScan.SigmaPrism
             Set(command, _source, kernel, "_RawFrameStaging", frameStaging);
             Set(command, _source, kernel, "_StreamWorkItems", _stream.WorkItems);
             Set(command, _source, kernel, "_StreamWorkCounts", _stream.WorkCounts);
+            Set(command, _source, kernel, "_StreamProbation",
+                _stream.Probation);
             Set(command, _source, kernel, "_StreamBundles", _stream.Bundles);
             Set(command, _source, kernel, "_StreamBundleCalibration",
                 _stream.BundleCalibration);
@@ -687,6 +691,14 @@ namespace Genesis.RoomScan.SigmaPrism
                 _ledger.ConstraintBlockBuffer);
             Set(command, _proof, kernel, "_RawTiles",
                 _ledger.RawHeaderBuffer);
+            Set(command, _proof, kernel, "_RawTileWords",
+                _ledger.RawWordsBuffer);
+            Set(command, _proof, kernel, "_RawFrameRecords",
+                _ledger.FrameRecordBuffer);
+            Set(command, _proof, kernel, "_RawAllocator",
+                _ledger.RawAllocatorBuffer);
+            Set(command, _proof, kernel, "_RawLiveWords",
+                _ledger.RawLiveBitmapBuffer);
             Set(command, _proof, kernel, "_StreamSchedulerControl",
                 _stream.SchedulerControl);
             Set(command, _proof, kernel, "_StreamDiagnostics",
@@ -830,11 +842,15 @@ namespace Genesis.RoomScan.SigmaPrism
                 _pool.DirtyFlags);
             Set(command, _dormant, kernel, "_ReadoutDirtyFlags",
                 _pool.ReadoutDirtyFlags);
+            Set(command, _dormant, kernel, "_RawLiveWords",
+                _ledger.RawLiveBitmapBuffer);
             Set(command, _dormant, kernel, "_StreamSchedulerControl",
                 _stream.SchedulerControl);
             Set(command, _dormant, kernel, "_StreamDiagnostics",
                 _stream.Diagnostics);
             SetInt(command, _dormant, "_PageCapacity", _pool.PageCapacity);
+            SetInt(command, _dormant, "_RawTileCapacity",
+                _ledger.RawTileCapacity);
             SetInt(command, _dormant, "_StreamSourceSegmentCapacity",
                 SigmaStreamingResources.SourceHandleSegmentCapacity);
         }

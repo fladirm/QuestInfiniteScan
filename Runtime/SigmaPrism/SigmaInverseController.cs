@@ -31,7 +31,7 @@ namespace Genesis.RoomScan.SigmaPrism
 
         [Header("Bounded streaming graph")]
         [SerializeField, Range(3, 8)] private int ingressSlotCount = 4;
-        [SerializeField, Range(1024, 8192)] private int rawTileCapacity = 4096;
+        [SerializeField, Range(8192, 16384)] private int rawTileCapacity = 8192;
         [SerializeField, Range(0.005f, 0.1f)]
         private float poseTranslationPriorMetres = 0.03f;
         [SerializeField, Range(0.25f, 5f)]
@@ -137,8 +137,12 @@ namespace Genesis.RoomScan.SigmaPrism
 
             FindKernels();
             _pool = _carrier.AcquireGpuManagedPool();
+            int rawStagingCapacity = SigmaGeneratedStreaming.BundleCapacity *
+                SigmaConstraintLedger.BlocksPerPage;
+            int resolvedRawTileCapacity = Math.Max(rawTileCapacity,
+                rawStagingCapacity * 2);
             _proofLedger = new SigmaConstraintLedger(_pool.PageCapacity,
-                rawTileCapacity, _backendGate,
+                resolvedRawTileCapacity, _backendGate,
                 SigmaGeneratedStreaming.TransactionCapacity);
             _stream = new SigmaStreamingResources(_pool.PageCapacity);
             _diagnosticTelemetry = new SigmaDiagnosticTelemetry();

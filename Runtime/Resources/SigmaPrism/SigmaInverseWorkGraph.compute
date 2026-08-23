@@ -37,6 +37,7 @@ StructuredBuffer<uint> _StreamKernelTokenCosts;
 StructuredBuffer<uint> _StreamKernelBudgetClasses;
 RWStructuredBuffer<SigmaStreamDiagnosticGpu> _StreamDiagnostics;
 RWStructuredBuffer<uint> _RawLiveWords;
+RWStructuredBuffer<uint> _RawAllocator;
 
 uint _PageCapacity;
 uint _SegmentIndex;
@@ -241,6 +242,8 @@ void InitializeStreamingGraph(uint3 threadId : SV_GroupThreadID)
         _StreamSchedulerControl[SIGMA_STREAM_CONTROL_PROOF_OWNER] =
             SIGMA_STREAM_INVALID;
         _StreamSchedulerControl[SIGMA_STREAM_CONTROL_SOURCE_SEGMENT_HINT] = 0u;
+        _RawAllocator[0u] = SIGMA_STREAM_BUNDLE_CAPACITY *
+            SIGMA_STREAM_RAW_TILES_PER_BUNDLE;
         _StreamDiagnostics[0u] = (SigmaStreamDiagnosticGpu)0;
     }
 }
@@ -387,7 +390,7 @@ void CompactIngressBundles(uint3 threadId : SV_GroupThreadID)
                 exhausted);
         uint span = max(1u, max(_PageCapacity, gaugeCandidates));
         _StreamSchedulerControl[SIGMA_STREAM_CONTROL_INGRESS_CURSOR] =
-            (cursor + max(1u, StreamIngressCount)) % span;
+            (cursor + StreamIngressCount) % span;
     }
     GroupMemoryBarrierWithGroupSync();
 
@@ -660,8 +663,7 @@ uint SigmaFindProbation(SigmaSealedSourceBundleGpu bundle)
     {
         SigmaProbationGpu probation = _StreamProbation[slot];
         bool open = probation.identity.x == SIGMA_STREAM_PROBATION_OPEN;
-        bool dormant = probation.identity.x == SIGMA_STREAM_PROBATION_SEALED;
-        if (!open && !dormant)
+        if (!open)
             continue;
         uint2 firstHandle;
         if (!SigmaProbationFirstHandle(probation, firstHandle))
@@ -673,17 +675,12 @@ uint SigmaFindProbation(SigmaSealedSourceBundleGpu bundle)
             continue;
         SigmaSealedSourceBundleGpu first = _StreamBundles[firstSlot];
         uint firstState = SigmaStreamBundleState(first);
-        bool dormantRoot = dormant && firstSlot == bundle.identity.z &&
-            firstGeneration == SigmaStreamBundleGeneration(bundle);
-        bool stateValid = open
-            ? firstState == SIGMA_STREAM_BUNDLE_PROBATION
-            : firstState == SIGMA_STREAM_BUNDLE_DORMANT ||
-                firstState == SIGMA_STREAM_BUNDLE_ADMISSION_PENDING;
+        bool stateValid = firstState == SIGMA_STREAM_BUNDLE_PROBATION;
         if (SigmaStreamBundleGeneration(first) != firstGeneration ||
             !stateValid ||
-            !SigmaSameLogicalPage(first.probation, bundle.probation) ||
-            !SigmaBundleRecordsOverlap(first, bundle) ||
-            (!dormantRoot && !SigmaBundleKeysIndependent(first, bundle)))
+            first.calibration.w != bundle.calibration.w ||
+            (first.raw.w & bundle.raw.w) == 0u ||
+            !SigmaBundleKeysIndependent(first, bundle))
             continue;
         uint2 ticket = first.provenance.xy;
         if (selected == SIGMA_STREAM_INVALID ||
@@ -700,7 +697,22 @@ uint SigmaFindProbation(SigmaSealedSourceBundleGpu bundle)
 bool SigmaOpenProbation(uint bundleSlot,
     inout SigmaSealedSourceBundleGpu bundle)
 {
-    SigmaProbationGpu old = _StreamProbation[bundleSlot];
+    uint probationSlot = SIGMA_STREAM_INVALID;
+    [loop]
+    for (uint slot = 0u; slot < SIGMA_STREAM_BUNDLE_CAPACITY; ++slot)
+    {
+        if (_StreamProbation[slot].identity.x == SIGMA_STREAM_PROBATION_FREE)
+        {
+            probationSlot = slot;
+            break;
+        }
+    }
+    if (probationSlot == SIGMA_STREAM_INVALID)
+    {
+        bundle.identity.x = SIGMA_STREAM_BUNDLE_ADMISSION_PENDING;
+        return false;
+    }
+    SigmaProbationGpu old = _StreamProbation[probationSlot];
     uint generation = old.identity.y + 1u;
     if (generation == 0u)
     {
@@ -709,7 +721,7 @@ bool SigmaOpenProbation(uint bundleSlot,
     }
     uint segmentSlot;
     uint segmentGeneration;
-    if (!SigmaClaimSourceSegment(bundleSlot, generation,
+    if (!SigmaClaimSourceSegment(probationSlot, generation,
             SIGMA_STREAM_SOURCE_SEGMENT_OPEN,
             uint2(bundleSlot, SigmaStreamBundleGeneration(bundle)),
             segmentSlot, segmentGeneration))
@@ -719,13 +731,13 @@ bool SigmaOpenProbation(uint bundleSlot,
     }
     SigmaProbationGpu probation = (SigmaProbationGpu)0;
     probation.identity = uint4(SIGMA_STREAM_PROBATION_OPEN, generation,
-        bundleSlot, 1u);
+        probationSlot, 1u);
     probation.bundleHandles = uint4(segmentSlot, segmentGeneration,
         segmentSlot, segmentGeneration);
     probation.support = uint4(bundle.identity.w, bundle.keys.x,
         bundle.keys.y, bundle.provenance.z);
     probation.dependency = bundle.probation;
-    _StreamProbation[bundleSlot] = probation;
+    _StreamProbation[probationSlot] = probation;
     bundle.identity.x = SIGMA_STREAM_BUNDLE_PROBATION;
     return true;
 }
@@ -851,14 +863,50 @@ void ScheduleSigmaTransactions(uint3 threadId : SV_GroupThreadID)
         SigmaProbationGpu sealedSources = (SigmaProbationGpu)0;
         bool closesProbation = false;
         bool resumesDormant = false;
+        uint dormantAnchor = SIGMA_STREAM_INVALID;
         uint2 transactionTicket = selectedTicket;
         bool gaugeBundle = (selected.identity.w &
             SIGMA_STREAM_BUNDLE_FLAG_GAUGE) != 0u;
+        bool dormantProposal = (selected.identity.w &
+            SIGMA_STREAM_BUNDLE_FLAG_DORMANT_PROPOSAL) != 0u;
         uint compatibleProbation = SigmaFindProbation(selected);
-        bool dormantProbation = compatibleProbation != SIGMA_STREAM_INVALID &&
-            _StreamProbation[compatibleProbation].identity.x ==
-                SIGMA_STREAM_PROBATION_SEALED;
-        if (gaugeBundle || dormantProbation)
+        if (dormantProposal)
+        {
+            resumesDormant = true;
+            dormantAnchor = selected.dependency.x;
+            if (dormantAnchor >= _PageCapacity)
+            {
+                selected.identity.x = SIGMA_STREAM_BUNDLE_ADMISSION_PENDING;
+                _StreamBundles[selectedBundle] = selected;
+                continue;
+            }
+            uint encodedProbation = selected.calibration.z;
+            if (encodedProbation == 0u)
+            {
+                selected.identity.x = SIGMA_STREAM_BUNDLE_ADMISSION_PENDING;
+                _StreamBundles[selectedBundle] = selected;
+                continue;
+            }
+            uint candidateProbation = encodedProbation - 1u;
+            if (candidateProbation >= SIGMA_STREAM_BUNDLE_CAPACITY)
+            {
+                selected.identity.x = SIGMA_STREAM_BUNDLE_ADMISSION_PENDING;
+                _StreamBundles[selectedBundle] = selected;
+                continue;
+            }
+            SigmaProbationGpu candidate = _StreamProbation[candidateProbation];
+            if (candidate.identity.x != SIGMA_STREAM_PROBATION_SEALED ||
+                candidate.bundleHandles.x != dormantAnchor ||
+                candidate.bundleHandles.y != selected.dependency.y)
+            {
+                selected.identity.x = SIGMA_STREAM_BUNDLE_ADMISSION_PENDING;
+                _StreamBundles[selectedBundle] = selected;
+                continue;
+            }
+            probationSlot = candidateProbation;
+            closesProbation = true;
+        }
+        else if (gaugeBundle)
         {
             probationSlot = compatibleProbation;
             if (probationSlot != SIGMA_STREAM_INVALID)
@@ -867,22 +915,22 @@ void ScheduleSigmaTransactions(uint3 threadId : SV_GroupThreadID)
                 uint2 firstHandle;
                 if (!SigmaProbationFirstHandle(sealedSources, firstHandle))
                 {
-                    selected.identity.x = SIGMA_STREAM_BUNDLE_DORMANT;
+                    selected.identity.x =
+                        SIGMA_STREAM_BUNDLE_ADMISSION_PENDING;
                     _StreamBundles[selectedBundle] = selected;
                     continue;
                 }
                 firstBundle = firstHandle.x;
                 firstGeneration = firstHandle.y;
+                SigmaSealedSourceBundleGpu probationFirst =
+                    _StreamBundles[firstBundle];
+                selected.probation = probationFirst.probation;
+                selected.dependency = probationFirst.dependency;
+                _StreamBundles[selectedBundle] = selected;
                 closesProbation = true;
-                resumesDormant = sealedSources.identity.x ==
-                    SIGMA_STREAM_PROBATION_SEALED &&
-                    firstBundle == selectedBundle && firstGeneration ==
-                        SigmaStreamBundleGeneration(selected);
-                transactionTicket = dormantProbation
-                    ? sealedSources.support.xy
-                    : _StreamBundles[firstBundle].provenance.xy;
+                transactionTicket = probationFirst.provenance.xy;
             }
-            else if (gaugeBundle && !SigmaBundleSealsAlone(selected))
+            else if (!SigmaBundleSealsAlone(selected))
             {
                 SigmaOpenProbation(selectedBundle, selected);
                 _StreamBundles[selectedBundle] = selected;
@@ -944,12 +992,10 @@ void ScheduleSigmaTransactions(uint3 threadId : SV_GroupThreadID)
         uint sourceGeneration;
         uint sourceTail;
         uint sourceCount;
-        if (closesProbation)
+        if (closesProbation && !resumesDormant)
         {
-            bool appended = resumesDormant ||
-                SigmaAppendSourceHandle(sealedSources,
-                    uint2(selectedBundle,
-                        SigmaStreamBundleGeneration(selected)));
+            bool appended = SigmaAppendSourceHandle(sealedSources,
+                uint2(selectedBundle, SigmaStreamBundleGeneration(selected)));
             if (!appended || !SigmaSealSourceStream(sealedSources,
                     transactionSlot, generation))
             {
@@ -980,14 +1026,15 @@ void ScheduleSigmaTransactions(uint3 threadId : SV_GroupThreadID)
         }
 
         uint workFlags = 0u;
-        if ((first.identity.w & SIGMA_STREAM_BUNDLE_FLAG_GAUGE) != 0u)
+        if (!resumesDormant &&
+            (first.identity.w & SIGMA_STREAM_BUNDLE_FLAG_GAUGE) != 0u)
             workFlags |= SIGMA_STREAM_WORK_FLAG_GAUGE;
         if ((first.identity.w &
                 SIGMA_STREAM_BUNDLE_FLAG_NEEDS_REVALIDATION) != 0u ||
             (hasSecond && (second.identity.w &
                 SIGMA_STREAM_BUNDLE_FLAG_NEEDS_REVALIDATION) != 0u))
             workFlags |= SIGMA_STREAM_WORK_FLAG_NEEDS_REVALIDATION;
-        if (closesProbation || resumesDormant)
+        if (closesProbation && !resumesDormant)
             workFlags |= SIGMA_STREAM_WORK_FLAG_NEEDS_REVALIDATION;
         workFlags |= SIGMA_STREAM_WORK_FLAG_SOURCE_STREAM;
         if (dependencySlot != SIGMA_STREAM_INVALID)
@@ -1007,8 +1054,9 @@ void ScheduleSigmaTransactions(uint3 threadId : SV_GroupThreadID)
             sourceCount, sourceTail);
         transaction.publication = uint4(SIGMA_STREAM_INVALID, 0u, 1u, 0u);
         transaction.page0.coordinate = first.probation;
-        transaction.page0.state = uint4(first.dependency.x,
-            SIGMA_STREAM_INVALID, first.dependency.y, 0u);
+        transaction.page0.state = uint4(resumesDormant ? dormantAnchor :
+                first.dependency.x, SIGMA_STREAM_INVALID,
+            first.dependency.y, 0u);
         transaction.affectedMaskLo =
             uint4(0xffffffffu, 0xffffffffu, 0u, 0u);
         transaction.affectedMaskHi = 0u;
@@ -1038,7 +1086,11 @@ void ScheduleSigmaTransactions(uint3 threadId : SV_GroupThreadID)
             _StreamBundles[selectedBundle] = second;
         }
         if (closesProbation)
-            _StreamProbation[probationSlot] = (SigmaProbationGpu)0;
+        {
+            SigmaProbationGpu released = (SigmaProbationGpu)0;
+            released.identity.y = _StreamProbation[probationSlot].identity.y;
+            _StreamProbation[probationSlot] = released;
+        }
         occupiedMask |= 1u << transactionSlot;
     }
 

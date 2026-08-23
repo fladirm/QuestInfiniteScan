@@ -180,9 +180,11 @@
       "id": "S4-08",
       "title": "Implement bounded pose-gauge intersection",
       "status": "in_progress",
-      "active_repair_run": "S4-08.3C audited execution/publication closure",
-      "repair_plan": ".codex/S4-08.3C_PLAN.md",
+      "active_repair_run": "S4-08.3D transition/residency closure",
+      "repair_plan": ".codex/S4-08.3D_PLAN.md",
       "reopen_reason": [
+        "The installed 3430929 Release reaches accepted/changed inverse and 1024/1024 proof closure, but all 16 bootstrap pages fail transition closure because an absent or unpublished endpoint is fabricated as physical z_null and contact-side eye provenance can falsely support the whole contact/null edge",
+        "Page-local candidate visibility gives storage boundaries physical meaning; failed candidates then retain all 64 bundle-owned raw ranges, fresh Morton allocation addresses cannot join dormant probation, and zero-admission ingress advances without lossless ownership",
         "The installed S4-08.3 device run had coherent ingress but every streaming inverse kernel missed the complete constraint-ledger bind, schedule diagnostics missed probation and bundle extraction missed pose-consume matrices",
         "The five-stage inverse has no generation-owned phase completion contract, so a skipped/faulted stage can leave stale transaction scratch while Final still advances into proof and transition",
         "Zero accepted evidence can currently close as unsupported and become publishable; unused zero-filled page references are inferred as live pages despite the existing explicit publication page count, aliasing slot zero and delaying readout visibility",
@@ -194,6 +196,11 @@
         "The current controller equates a complete page transaction with one submission, retains capture/prediction leases for that entire submission, requires leftNovel && rightNovel for gauge promotion, publishes visibility through per-page CurrentFlags and runs only derived topology after commit"
       ],
       "repair_acceptance": [
+        "Unobserved or missing endpoints create no topology claim; physical contact-to-null validation runs only when the null side has its own exact independent pass-through evidence",
+        "The same sealed footprint partitioned across one, two, four or N carrier pages produces bit-identical Psi, validity, proof and provenance under deterministic interleavings",
+        "Dormant transition evidence is reduced to minimal certificates plus only required raw residue, transferred into the existing ConstraintLedger ownership before its ingress bundle/calibration execution residency is reclaimed",
+        "Morton ordinals remain allocation addresses only; dormant association is a disposable proposal and exact Q16.48 admissible-cell viability remains the sole authority for joining evidence",
+        "Ingress cursor advances only after immutable payload ownership is sealed on GPU; capacity exhaustion cannot silently drop source evidence or publish partial state",
         "One transient generation-owned transaction execution word-set records the current source/block/microtile owner, all five inverse phase completions, existing exact proposal/outcome masks and execution failure; only a fully completed Final may advance progress",
         "The live production bind helpers provide the full constraint ledger, probation and pose-consume contract to every active kernel, and a Vulkan fixture exercises those exact helpers rather than a parallel test bind table",
         "Revalidation fails closed on execution failure or zero accepted evidence; a novel page requires accepted NULL_PROMOTION and an existing carrier requires accepted EXISTING_UPDATE before proof/transition closure can authorize publication",
@@ -252,6 +259,7 @@
         "Release commit d006686 confirmed the closing sync alone was insufficient because two entrypoint returns still made the four reducer calls potentially varying. The complete proof shader was reviewed again and its source-block entrypoint now executes one unconditional 64-lane barrier schedule, masks invalid/spilled work to zero without publishing, and performs lane-zero cursor/closure publication only after the final sync; focused Vulkan streaming/proof passes 4/4 with exact source/Q48/provenance order unchanged"
         ,"Device forensic closure at 082eda09 is recorded in s4-083-audit.md: coherent ingress reached a fail-open null publication through missing inverse bindings and unowned scratch; page-handle aliasing, admission loss and 36.6-second scheduling latency were independently traced without changing runtime source",
         "S4-08.3C candidate closes the audited production binds, owns every five-stage inverse quantum by transaction generation/source/block/microtile and completion mask, fails closed before publication without accepted compatible exact evidence, uses explicit page count and same-generation readout visibility, records eight dependency rounds over one token refill, removes the two-bundle ingress cap, and exposes diagnostic-only execution/load telemetry. Generated outputs, git diff, Quest eight-UAV and Unity Vulkan EditMode 71/71 gates pass; Release/device acceptance remains pending"
+        ,"S4-08.3D source closure distinguishes unobserved endpoints from exact null evidence, resolves candidate neighbours before published Psi within a sealed workset, transfers irreducible dormant raw residue into existing ConstraintLedger ownership, reclaims only transient bundle residency, reattaches new observations as proposals to generation-safe dormant anchors and never advances zero-admission ingress. Focused Vulkan streaming passes 6/6, full EditMode passes 71/71, generated output/diff/eight-UAV gates pass; Release/device acceptance remains pending"
       ]
     },
     {
