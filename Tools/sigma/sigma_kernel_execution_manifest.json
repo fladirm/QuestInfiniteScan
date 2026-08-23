@@ -94,7 +94,7 @@
       "bytes_read": 50176,
       "bytes_written": 12288,
       "scratch_bytes": 4096,
-      "barriers": 12,
+      "barriers": 16,
       "annihilator_witnesses": 0,
       "max_records": 64
     },

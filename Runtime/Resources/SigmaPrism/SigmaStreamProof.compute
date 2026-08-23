@@ -367,8 +367,12 @@ void SigmaProofReduceSource(uint transactionSlot, uint block,
         incomingKey, incomingRole);
     ReduceState[lane] = uint4(incomingMask, incomingRole, 0u, 0u);
     [unroll]
-    for (uint coordinate = 0u; coordinate < 16u; ++coordinate)
-        ReduceBounds[lane * 16u + coordinate] = incoming[coordinate];
+    for (uint proofCoordinate = 0u; proofCoordinate < 16u;
+        ++proofCoordinate)
+    {
+        ReduceBounds[lane * 16u + proofCoordinate] =
+            incoming[proofCoordinate];
+    }
 
     uint reason = 0u;
     uint status = proof.meta.x;
@@ -396,26 +400,29 @@ void SigmaProofReduceSource(uint transactionSlot, uint block,
             uint4 right = ReduceState[other];
             uint mismatch = left.z | right.z;
             [unroll]
-            for (uint coordinate = 0u; coordinate < 16u; ++coordinate)
+            for (uint proofCoordinate = 0u; proofCoordinate < 16u;
+                ++proofCoordinate)
             {
-                uint bit = 1u << coordinate;
+                uint bit = 1u << proofCoordinate;
                 bool hasLeft = (left.x & bit) != 0u;
                 bool hasRight = (right.x & bit) != 0u;
                 if (!hasRight)
                     continue;
                 SigmaQ48Bounds rightBound = ReduceBounds[
-                    other * 16u + coordinate];
+                    other * 16u + proofCoordinate];
                 if (!hasLeft)
-                    ReduceBounds[lane * 16u + coordinate] = rightBound;
+                {
+                    ReduceBounds[lane * 16u + proofCoordinate] = rightBound;
+                }
                 else
                 {
                     SigmaQ48Bounds leftBound = ReduceBounds[
-                        lane * 16u + coordinate];
+                        lane * 16u + proofCoordinate];
                     mismatch |= !SigmaU64Equal(leftBound.lo, rightBound.lo) ||
                         !SigmaU64Equal(leftBound.hi, rightBound.hi) ? 1u : 0u;
                     leftBound.lo = SigmaQ48Min(leftBound.lo, rightBound.lo);
                     leftBound.hi = SigmaQ48Max(leftBound.hi, rightBound.hi);
-                    ReduceBounds[lane * 16u + coordinate] = leftBound;
+                    ReduceBounds[lane * 16u + proofCoordinate] = leftBound;
                 }
             }
             ReduceState[lane] = uint4(left.x | right.x,
@@ -433,52 +440,74 @@ void SigmaProofReduceSource(uint transactionSlot, uint block,
         SigmaProofSetCandidateBound(candidate, lane, bound);
     }
     GroupMemoryBarrierWithGroupSync();
-    if (lane != 0u)
-        return;
 
-    uint2 sourceSamples = 0u;
-    uint2 coordinateSamples[16];
-    [unroll]
-    for (uint coordinate = 0u; coordinate < 16u; ++coordinate)
-        coordinateSamples[coordinate] = 0u;
-    bool requiresRaw = ReduceState[0u].z != 0u;
-    uint sourceClass = 0u;
-    uint key = 0u;
-    [loop]
-    for (uint local = 0u; local < 64u; ++local)
+    // Lane zero canonicalizes the reduced source after all 64 lanes have
+    // contributed. Every lane remains in this function and reaches the final
+    // sync, so the four sequential source reductions form one uniform barrier
+    // schedule even though only lane zero publishes candidate metadata.
+    if (lane == 0u)
     {
-        uint4 identity = ReduceIdentity[local];
-        if (identity.x == 0u)
-            continue;
-        if (key != 0u && (key != identity.z ||
-                sourceClass != identity.y))
-            requiresRaw = true;
-        key = key == 0u ? identity.z : key;
-        sourceClass = sourceClass == 0u ? identity.y : sourceClass;
-        SigmaProofSetSampleBit(sourceSamples, local);
+        uint2 sourceSamples = 0u;
+        uint2 coordinateSamples[16];
         [unroll]
-        for (uint coordinate = 0u; coordinate < 16u; ++coordinate)
-            if ((identity.x & (1u << coordinate)) != 0u)
-                SigmaProofSetSampleBit(coordinateSamples[coordinate], local);
-    }
-    [unroll]
-    for (uint coordinate = 0u; coordinate < 16u; ++coordinate)
-        if ((ReduceState[0u].x & (1u << coordinate)) != 0u &&
-            any(coordinateSamples[coordinate] != sourceSamples))
-            requiresRaw = true;
+        for (uint proofCoordinate = 0u; proofCoordinate < 16u;
+            ++proofCoordinate)
+        {
+            coordinateSamples[proofCoordinate] = 0u;
+        }
+        bool requiresRaw = ReduceState[0u].z != 0u;
+        uint sourceClass = 0u;
+        uint key = 0u;
+        [loop]
+        for (uint proofLocal = 0u; proofLocal < 64u; ++proofLocal)
+        {
+            uint4 identity = ReduceIdentity[proofLocal];
+            if (identity.x == 0u)
+                continue;
+            if (key != 0u && (key != identity.z ||
+                    sourceClass != identity.y))
+            {
+                requiresRaw = true;
+            }
+            key = key == 0u ? identity.z : key;
+            sourceClass = sourceClass == 0u ? identity.y : sourceClass;
+            SigmaProofSetSampleBit(sourceSamples, proofLocal);
+            [unroll]
+            for (uint proofCoordinate = 0u; proofCoordinate < 16u;
+                ++proofCoordinate)
+            {
+                if ((identity.x & (1u << proofCoordinate)) != 0u)
+                {
+                    SigmaProofSetSampleBit(
+                        coordinateSamples[proofCoordinate], proofLocal);
+                }
+            }
+        }
+        [unroll]
+        for (uint proofCoordinate = 0u; proofCoordinate < 16u;
+            ++proofCoordinate)
+        {
+            if ((ReduceState[0u].x & (1u << proofCoordinate)) != 0u &&
+                any(coordinateSamples[proofCoordinate] != sourceSamples))
+            {
+                requiresRaw = true;
+            }
+        }
 
-    SigmaProofCandidateGpu output = (SigmaProofCandidateGpu)0;
-    output.identity = uint4(ReduceState[0u].x, sourceClass, key,
-        bundle.provenance.w);
-    output.provenance = uint4(ReduceState[0u].y, sourceSamples,
-        requiresRaw ? SIGMA_CERTIFICATE_UNRESOLVED :
-            SIGMA_CERTIFICATE_ACTIVE);
-    output.mask = uint4(ReduceRaw[0u].x |
-            (requiresRaw ? SIGMA_RAW_REASON_NONUNIFORM_CELL : 0u),
-        ReduceRaw[0u].y, ReduceRaw[0u].z, bundle.raw.x);
-    output.source = uint4(bundle.provenance.x, bundle.provenance.y,
-        sourceOrdinal, source);
-    _StreamProofCandidates[candidate] = output;
+        SigmaProofCandidateGpu output = (SigmaProofCandidateGpu)0;
+        output.identity = uint4(ReduceState[0u].x, sourceClass, key,
+            bundle.provenance.w);
+        output.provenance = uint4(ReduceState[0u].y, sourceSamples,
+            requiresRaw ? SIGMA_CERTIFICATE_UNRESOLVED :
+                SIGMA_CERTIFICATE_ACTIVE);
+        output.mask = uint4(ReduceRaw[0u].x |
+                (requiresRaw ? SIGMA_RAW_REASON_NONUNIFORM_CELL : 0u),
+            ReduceRaw[0u].y, ReduceRaw[0u].z, bundle.raw.x);
+        output.source = uint4(bundle.provenance.x, bundle.provenance.y,
+            sourceOrdinal, source);
+        _StreamProofCandidates[candidate] = output;
+    }
+    GroupMemoryBarrierWithGroupSync();
 }
 
 void SigmaProofPrepareReduceGroup(uint workIndex)

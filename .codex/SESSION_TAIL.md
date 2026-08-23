@@ -2,32 +2,31 @@
 
 ## Exchange 1
 
-User required shader/kernel work to be performed from a complete manual model of
-the whole file plus ABI, resources, C# bindings and dispatch ordering—not as local
-hotfixes. Completed work must not be reopened after compaction.
+User required every shader/kernel change to come from a complete manual model of
+the whole file, ABI, resources, C# bindings and dispatch order, then be emitted as
+one coherent replacement rather than a layered hotfix.
 
-Assistant manually audited the full replacement `SigmaStreamInverse.compute`,
-the complete `SigmaStreamingGraph` and `SigmaStreamingResources` paths, generated
-streaming ABI/cost metadata and Vulkan contract. The monolithic inverse entrypoint
-is now one coherent five-stage direct replacement over one immutable work item:
-prepare depth/projective state, contract RGB-L, contract RGB-R, source-ordered
-exact meet, then checked final lift/cursor advance. Only the final stage advances
-the transaction and none publishes `Psi`.
+Assistant manually audited and replaced the monolithic streaming inverse with a
+five-stage compiler-bounded pipeline over one immutable work item. Only the final
+stage advances the transaction, no stage publishes `Psi`, Q16.48/value-validity
+and source/provenance ordering are preserved, generated cost metadata includes all
+stages, Vulkan streaming passes 4/4 and full EditMode passes 69/69.
 
 ## Exchange 2
 
-User reiterated that manual comprehension of the complete file and relationships
-is mandatory.
+Release commit `3924c6e4447a613cabe3388e38dce67198b725be` compiled the
+new inverse and scheduler but the player gate rejected 45 diagnostics, all repeats
+of one `SigmaStreamProof` defect across nine variants. Nonzero lanes left the
+source reducer before lane zero completed canonical metadata, making the following
+source barrier appear under varying control.
 
-Assistant verified Q16.48/value-validity ordering, two-bit L/R provenance,
-cumulative source/conflict state, final candidate round-trip, transaction-owned
-scratch lifetime and explicit per-kernel bindings. The replacement also removes a
-lost-update race by using atomic set semantics for shared coordinate masks.
-Generated costs cover all five stages. Actual gates: Vulkan streaming 4/4, full
-Unity Vulkan EditMode 69/69, generated-output check green, Quest UAV limit 8 and
-`git diff --check` green. Release build/install/archive are not yet claimed.
+Assistant manually read the complete 1686-line proof shader plus already-audited
+ABI/host binding path and re-emitted the reducer as one uniform 64-lane schedule.
+All lanes now close each of four source reductions after lane-zero publication;
+exact reduction/provenance order is unchanged. Generated barrier cost is updated,
+focused Vulkan proof/streaming is 4/4, UAV and diff gates are green. This corrected
+dirty source has not yet passed Release or device validation.
 
-Current exact action: regenerate code graph, validate controls, commit this exact
-source, run one Android/Vulkan IL2CPP Release build, inspect the full log, install
-the fresh APK if clean, create a source-only `git archive` from the same commit,
-then stop before S4-09.
+Current exact action: regenerate code graph, validate controls, commit the proof
+replacement, run one Release build, inspect all diagnostics, install a fresh APK
+only if clean, archive that exact commit, then stop before S4-09.

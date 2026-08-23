@@ -87,6 +87,15 @@ Updated: 2026-08-23 (Europe/Prague)
   final candidate round-trip, and removes the prior non-atomic shared-mask race.
   Generated cost metadata accounts for all five stages. Vulkan streaming is 4/4,
   full EditMode is 69/69, the UAV limit is 8 and `git diff --check` is green.
+- Release build `3924c6e4447a613cabe3388e38dce67198b725be` compiled the
+  five-stage inverse and scheduler successfully, then the player gate rejected 45
+  repeated diagnostics from one unique proof defect: nonzero lanes returned from
+  `SigmaProofReduceSource` before lane zero finished canonical metadata reduction,
+  so the following source call reached its barrier through varying flow. The full
+  proof shader/ABI/host sequence was manually audited and the reducer re-emitted as
+  one uniform 64-lane schedule with a closing sync after lane-zero publication.
+  Exact reduction order and proof bytes are unchanged; generated costs account for
+  the four added source-closing barriers and focused Vulkan proof/streaming is 4/4.
 
 ## Exact next action
 
