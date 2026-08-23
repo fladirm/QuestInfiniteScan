@@ -11,7 +11,7 @@ Shader "Hidden/Genesis/SigmaPrism/DirectCarrierPreview"
 
         Pass
         {
-            Name "DirectCarrierSurface"
+            Name "DirectCarrierContacts"
             Cull Off
             ZWrite Off
             ZTest LEqual
@@ -20,8 +20,8 @@ Shader "Hidden/Genesis/SigmaPrism/DirectCarrierPreview"
             HLSLPROGRAM
             #pragma target 4.5
             #pragma multi_compile_instancing
-            #pragma vertex PreviewSurfaceVert
-            #pragma fragment PreviewSurfaceColour
+            #pragma vertex PreviewContactVert
+            #pragma fragment PreviewContactColour
 
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
             #include "SigmaCarrierAbi.hlsl"
@@ -29,15 +29,15 @@ Shader "Hidden/Genesis/SigmaPrism/DirectCarrierPreview"
             StructuredBuffer<float4> _ReadoutVertices;
             StructuredBuffer<uint> _CurrentPageSlots;
             StructuredBuffer<SigmaCarrierPageMetaGpu> _PageMetadata;
-            float4x4 _WorldFromReadout;
             uint _SegmentIndex;
             float _PreviewWireframe;
             float _PreviewContactPixels;
-            float _PreviewMaxEdgeMeters;
 
             #define SIGMA_READOUT_EXTENT 65u
             #define SIGMA_READOUT_SAMPLES 4225u
             #define SIGMA_READOUT_VERTICES_PER_PAGE 24576u
+            #define SIGMA_CONTACT_SAMPLES_PER_PAGE 4096u
+            #define SIGMA_CONTACT_VERTICES_PER_SAMPLE 6u
 
             uint SigmaPreviewReadoutIndex(uint pageSlot, uint x, uint y)
             {
@@ -45,31 +45,39 @@ Shader "Hidden/Genesis/SigmaPrism/DirectCarrierPreview"
                     y * SIGMA_READOUT_EXTENT + x;
             }
 
-            uint2 SigmaPreviewTriangleCorner(uint triangleIndex, uint corner)
+            uint SigmaPreviewHash(uint value)
             {
-                if (triangleIndex == 0u)
-                {
-                    if (corner == 0u) return uint2(0u, 0u);
-                    if (corner == 1u) return uint2(1u, 0u);
-                    return uint2(0u, 1u);
-                }
-                if (corner == 0u) return uint2(1u, 0u);
-                if (corner == 1u) return uint2(1u, 1u);
-                return uint2(0u, 1u);
+                value ^= value >> 16u;
+                value *= 0x7feb352du;
+                value ^= value >> 15u;
+                value *= 0x846ca68bu;
+                return value ^ (value >> 16u);
             }
 
-            float3 SigmaPreviewBarycentric(uint corner)
+            uint SigmaPreviewPageHash(SigmaCarrierPageMetaGpu metadata)
             {
-                if (corner == 0u) return float3(1.0, 0.0, 0.0);
-                if (corner == 1u) return float3(0.0, 1.0, 0.0);
-                return float3(0.0, 0.0, 1.0);
+                uint value = SigmaPreviewHash(metadata.pageXLo ^
+                    SigmaPreviewHash(metadata.pageXHi));
+                value ^= SigmaPreviewHash(metadata.pageYLo ^
+                    SigmaPreviewHash(metadata.pageYHi));
+                return SigmaPreviewHash(value ^
+                    SigmaPreviewHash(_SegmentIndex));
             }
 
-            float2 SigmaPreviewFallbackCorner(uint corner)
+            float2 SigmaPreviewBillboardCorner(uint corner)
             {
-                if (corner == 0u) return float2(-0.8660254, -0.5);
-                if (corner == 1u) return float2(0.0, 1.0);
-                return float2(0.8660254, -0.5);
+                if (corner == 0u) return float2(-1.0, -1.0);
+                if (corner == 1u) return float2(-1.0, 1.0);
+                if (corner == 2u) return float2(1.0, -1.0);
+                if (corner == 3u) return float2(1.0, -1.0);
+                if (corner == 4u) return float2(-1.0, 1.0);
+                return float2(1.0, 1.0);
+            }
+
+            float3 SigmaPreviewHue(float hue)
+            {
+                float3 phase = frac(hue + float3(0.0, 0.6666667, 0.3333333));
+                return saturate(abs(phase * 6.0 - 3.0) - 1.0);
             }
 
             struct Attributes
@@ -81,15 +89,14 @@ Shader "Hidden/Genesis/SigmaPrism/DirectCarrierPreview"
             struct Varyings
             {
                 float4 positionCS : SV_POSITION;
-                float3 barycentric : TEXCOORD0;
-                float2 fallbackCorner : TEXCOORD1;
-                nointerpolation float support : TEXCOORD2;
-                nointerpolation float surface : TEXCOORD3;
-                nointerpolation uint pageHash : TEXCOORD4;
+                float2 billboard : TEXCOORD0;
+                nointerpolation float support : TEXCOORD1;
+                nointerpolation float generationTone : TEXCOORD2;
+                nointerpolation uint pageHash : TEXCOORD3;
                 UNITY_VERTEX_OUTPUT_STEREO
             };
 
-            Varyings PreviewSurfaceVert(Attributes input)
+            Varyings PreviewContactVert(Attributes input)
             {
                 Varyings output;
                 UNITY_SETUP_INSTANCE_ID(input);
@@ -99,99 +106,72 @@ Shader "Hidden/Genesis/SigmaPrism/DirectCarrierPreview"
                     SIGMA_READOUT_VERTICES_PER_PAGE;
                 uint pageVertex = input.vertexId -
                     activePage * SIGMA_READOUT_VERTICES_PER_PAGE;
-                uint primitive = pageVertex / 3u;
-                uint corner = pageVertex - primitive * 3u;
-                uint triangleIndex = primitive & 1u;
-                uint cell = primitive >> 1u;
-                uint cellX = cell & 63u;
-                uint cellY = cell >> 6u;
                 uint pageSlot = _CurrentPageSlots[activePage];
-
-                uint2 c0 = SigmaPreviewTriangleCorner(triangleIndex, 0u);
-                uint2 c1 = SigmaPreviewTriangleCorner(triangleIndex, 1u);
-                uint2 c2 = SigmaPreviewTriangleCorner(triangleIndex, 2u);
-                float4 r0 = _ReadoutVertices[SigmaPreviewReadoutIndex(pageSlot,
-                    cellX + c0.x, cellY + c0.y)];
-                float4 r1 = _ReadoutVertices[SigmaPreviewReadoutIndex(pageSlot,
-                    cellX + c1.x, cellY + c1.y)];
-                float4 r2 = _ReadoutVertices[SigmaPreviewReadoutIndex(pageSlot,
-                    cellX + c2.x, cellY + c2.y)];
-
-                float support = min(r0.w, min(r1.w, r2.w));
-                float3 edge01 = r1.xyz - r0.xyz;
-                float3 edge02 = r2.xyz - r0.xyz;
-                float3 edge12 = r2.xyz - r1.xyz;
-                float areaSquared = dot(cross(edge01, edge02),
-                    cross(edge01, edge02));
-                float maxEdgeSquared = _PreviewMaxEdgeMeters *
-                    _PreviewMaxEdgeMeters;
-                bool surface = support > 0.0 && areaSquared > 1e-20 &&
-                    dot(edge01, edge01) <= maxEdgeSquared &&
-                    dot(edge02, edge02) <= maxEdgeSquared &&
-                    dot(edge12, edge12) <= maxEdgeSquared;
-
-                float4 selected = corner == 0u ? r0 :
-                    corner == 1u ? r1 : r2;
-                float4 fallback = r0.w > 0.0 ? r0 :
-                    r1.w > 0.0 ? r1 : r2;
-                bool fallbackValid = fallback.w > 0.0;
-                float3 readoutPosition = surface ? selected.xyz : fallback.xyz;
-                float3 worldPosition = mul(_WorldFromReadout,
-                    float4(readoutPosition, 1.0)).xyz;
-                float4 clip = (surface || fallbackValid)
-                    ? TransformWorldToHClip(worldPosition)
-                    : float4(0.0, 0.0, 2.0, 1.0);
-                float2 fallbackCorner = SigmaPreviewFallbackCorner(corner);
-                if (!surface && fallbackValid)
-                {
-                    float2 screenSize = max(_ScreenParams.xy,
-                        float2(1.0, 1.0));
-                    clip.xy += fallbackCorner *
-                        (2.0 * max(_PreviewContactPixels, 1.0) / screenSize) *
-                        clip.w;
-                }
+                uint sample = pageVertex / SIGMA_CONTACT_VERTICES_PER_SAMPLE;
+                uint corner = pageVertex -
+                    sample * SIGMA_CONTACT_VERTICES_PER_SAMPLE;
+                uint x = sample & 63u;
+                uint y = sample >> 6u;
+                float4 readout = _ReadoutVertices[
+                    SigmaPreviewReadoutIndex(pageSlot, x, y)];
+                bool valid = sample < SIGMA_CONTACT_SAMPLES_PER_PAGE &&
+                    readout.w > 0.0;
 
                 SigmaCarrierPageMetaGpu metadata = _PageMetadata[pageSlot];
+                uint pageHash = SigmaPreviewPageHash(metadata);
+                float generationTone = 0.62 + 0.38 *
+                    frac((float)metadata.generation * 0.38196601125);
+                float generationSize = 0.88 + 0.12 *
+                    (float)(metadata.generation & 3u);
+                float2 billboard = SigmaPreviewBillboardCorner(corner);
+                float4 clip = valid
+                    ? TransformWorldToHClip(readout.xyz)
+                    : float4(0.0, 0.0, 2.0, 1.0);
+                float2 screenSize = max(_ScreenParams.xy,
+                    float2(1.0, 1.0));
+                clip.xy += billboard *
+                    (2.0 * max(_PreviewContactPixels, 1.0) *
+                        generationSize / screenSize) * clip.w;
+
                 output.positionCS = clip;
-                output.barycentric = SigmaPreviewBarycentric(corner);
-                output.fallbackCorner = fallbackCorner;
-                output.support = surface ? support :
-                    fallbackValid ? fallback.w : 0.0;
-                output.surface = surface ? 1.0 : 0.0;
-                output.pageHash = metadata.pageXLo * 1664525u ^
-                    metadata.pageYLo * 1013904223u ^
-                    _SegmentIndex * 2246822519u;
+                output.billboard = billboard;
+                output.support = valid ? readout.w : 0.0;
+                output.generationTone = generationTone;
+                output.pageHash = pageHash;
                 return output;
             }
 
-            half4 PreviewSurfaceColour(Varyings input) : SV_Target
+            half4 PreviewContactColour(Varyings input) : SV_Target
             {
                 UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(input);
                 if (input.support <= 0.0)
                     discard;
 
-                float hashPhase = (input.pageHash & 255u) / 255.0;
-                half3 carrierColour = lerp(half3(1.0, 0.02, 0.72),
-                    half3(0.62, 0.08, 1.0), hashPhase * 0.35);
-                if (input.surface < 0.5)
-                    return half4(carrierColour, 0.82h);
+                float radius = length(input.billboard);
+                if (radius > 1.0)
+                    discard;
 
-                float edgeDistance = min(input.barycentric.x,
-                    min(input.barycentric.y, input.barycentric.z));
-                float edgeWidth = max(fwidth(edgeDistance), 1e-5);
-                float edge = 1.0 - smoothstep(edgeWidth, edgeWidth * 2.25,
-                    edgeDistance);
+                float hue = (float)(input.pageHash & 1023u) / 1024.0;
+                float3 pageColour = SigmaPreviewHue(hue);
+                pageColour = lerp(float3(0.08, 0.08, 0.08), pageColour,
+                    input.generationTone);
+
+                float feather = max(fwidth(radius), 0.015);
+                float outer = 1.0 - smoothstep(1.0 - feather, 1.0, radius);
                 if (_PreviewWireframe > 0.5)
                 {
-                    if (edge <= 0.01)
+                    float inner = smoothstep(0.58 - feather,
+                        0.58 + feather, radius);
+                    float ring = outer * inner;
+                    if (ring <= 0.01)
                         discard;
-                    return half4(half3(1.0, 0.72, 0.04),
-                        (half)(0.28 + edge * 0.67));
+                    return half4((half3)pageColour, (half)(0.92 * ring));
                 }
 
-                half3 colour = lerp(carrierColour,
-                    half3(1.0, 0.42, 0.88), (half)(edge * 0.35));
-                return half4(colour, (half)(0.24 + edge * 0.18));
+                float centre = 1.0 - smoothstep(0.0, 0.34, radius);
+                float3 colour = lerp(pageColour, float3(1.0, 1.0, 1.0),
+                    centre * 0.45);
+                return half4((half3)colour, (half)(0.86 * outer));
             }
             ENDHLSL
         }
