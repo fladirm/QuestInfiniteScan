@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "source_digest": "558d8dd7db2c4b025c6678e75237ba9a86d4f24a4f6a11bbc4980ea918f2f76a",
+  "source_digest": "36c3c7a31bf2c9229af68cc01e8b0716ba7012053965becbb571dda2d05e23c4",
   "scope": [
     "Runtime/**/*.cs",
     "Runtime/Resources/SigmaPrism/**/*.*",
@@ -11,8 +11,8 @@
   ],
   "summary": {
     "files": 132,
-    "symbols": 2077,
-    "methods_and_functions": 1668,
+    "symbols": 2080,
+    "methods_and_functions": 1671,
     "gpu_kernels": 108,
     "event_links": 6
   },
@@ -5482,67 +5482,74 @@
       "line": 13
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute::MaterializePublishedTopology@114",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute::MaterializePublishedTopology@144",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute",
       "name": "MaterializePublishedTopology",
       "kind": "gpu_function",
-      "line": 114
+      "line": 144
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute::SigmaDerivedCellAddress@32",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute::SigmaDerivedCellAddress@41",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute",
       "name": "SigmaDerivedCellAddress",
       "kind": "gpu_function",
-      "line": 32
+      "line": 41
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute::SigmaDerivedLoad@84",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute::SigmaDerivedManifestPublished@46",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute",
-      "name": "SigmaDerivedLoad",
+      "name": "SigmaDerivedManifestPublished",
       "kind": "gpu_function",
-      "line": 84
+      "line": 46
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute::SigmaDerivedNeighbourRecord@71",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute::SigmaDerivedNeighbourRecord@86",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute",
       "name": "SigmaDerivedNeighbourRecord",
       "kind": "gpu_function",
-      "line": 71
+      "line": 86
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute::SigmaDerivedRecordCuts@79",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute::SigmaDerivedPageVisible@55",
+      "file": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute",
+      "name": "SigmaDerivedPageVisible",
+      "kind": "gpu_function",
+      "line": 55
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute::SigmaDerivedPrepareGroup@99",
+      "file": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute",
+      "name": "SigmaDerivedPrepareGroup",
+      "kind": "gpu_function",
+      "line": 99
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute::SigmaDerivedRecordCuts@94",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute",
       "name": "SigmaDerivedRecordCuts",
       "kind": "gpu_function",
-      "line": 79
+      "line": 94
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute::SigmaDerivedTopologyCurrent@54",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute::SigmaDerivedTopologyCurrent@69",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute",
       "name": "SigmaDerivedTopologyCurrent",
       "kind": "gpu_function",
-      "line": 54
+      "line": 69
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute::SigmaDerivedTransitionAddress@27",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute::SigmaDerivedTransitionAddress@36",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute",
       "name": "SigmaDerivedTransitionAddress",
       "kind": "gpu_function",
-      "line": 27
+      "line": 36
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute::SigmaDerivedUnresolvedRecord@65",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute::SigmaDerivedUnresolvedRecord@80",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute",
       "name": "SigmaDerivedUnresolvedRecord",
       "kind": "gpu_function",
-      "line": 65
-    },
-    {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute::SigmaDerivedVisible@37",
-      "file": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute",
-      "name": "SigmaDerivedVisible",
-      "kind": "gpu_function",
-      "line": 37
+      "line": 80
     },
     {
       "id": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute::kernel:MaterializePublishedTopology",
@@ -5748,11 +5755,11 @@
       "line": 1
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@523",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@586",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute",
       "name": "EvaluateTransactionMicrotile",
       "kind": "gpu_function",
-      "line": 523
+      "line": 586
     },
     {
       "id": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaEvalAccumulateKey@258",
@@ -5797,6 +5804,13 @@
       "line": 268
     },
     {
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaEvalPrepareGroup@528",
+      "file": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute",
+      "name": "SigmaEvalPrepareGroup",
+      "kind": "gpu_function",
+      "line": 528
+    },
+    {
       "id": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaEvalReduceValidity@241",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute",
       "name": "SigmaEvalReduceValidity",
@@ -5804,11 +5818,11 @@
       "line": 241
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaEvalRgbEye@352",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaEvalRgbEye@349",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute",
       "name": "SigmaEvalRgbEye",
       "kind": "gpu_function",
-      "line": 352
+      "line": 349
     },
     {
       "id": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaStreamAssociationContact@154",
@@ -5846,11 +5860,11 @@
       "line": 119
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaStreamJointAddress@81",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaStreamJointAddress@86",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute",
       "name": "SigmaStreamJointAddress",
       "kind": "gpu_function",
-      "line": 81
+      "line": 86
     },
     {
       "id": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaStreamLoadCurrentBundle@98",
@@ -5860,32 +5874,25 @@
       "line": 98
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaStreamNullLane@70",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaStreamNullLane@75",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute",
       "name": "SigmaStreamNullLane",
       "kind": "gpu_function",
-      "line": 70
+      "line": 75
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaStreamRaw@93",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaStreamSampleAddress@93",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute",
-      "name": "SigmaStreamRaw",
+      "name": "SigmaStreamSampleAddress",
       "kind": "gpu_function",
       "line": 93
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaStreamSampleAddress@88",
-      "file": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute",
-      "name": "SigmaStreamSampleAddress",
-      "kind": "gpu_function",
-      "line": 88
-    },
-    {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::if@828",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::if@846",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute",
       "name": "if",
       "kind": "gpu_function",
-      "line": 828
+      "line": 846
     },
     {
       "id": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::kernel:EvaluateTransactionMicrotile",
@@ -5895,298 +5902,305 @@
       "line": 1
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::CoalesceProofWindow@927",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::CoalesceProofWindow@965",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute",
       "name": "CoalesceProofWindow",
       "kind": "gpu_function",
-      "line": 927
+      "line": 965
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::CompleteProofBlock@1604",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::CompleteProofBlock@1642",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute",
       "name": "CompleteProofBlock",
       "kind": "gpu_function",
-      "line": 1604
+      "line": 1642
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::EmitProofCertificates@1448",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::EmitProofCertificates@1486",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute",
       "name": "EmitProofCertificates",
       "kind": "gpu_function",
-      "line": 1448
+      "line": 1486
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::EvaluateProofRedundancyWindow@1272",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::EvaluateProofRedundancyWindow@1310",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute",
       "name": "EvaluateProofRedundancyWindow",
       "kind": "gpu_function",
-      "line": 1272
+      "line": 1310
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::MergeProofRuns@834",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::MergeProofRuns@872",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute",
       "name": "MergeProofRuns",
       "kind": "gpu_function",
-      "line": 834
+      "line": 872
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::PrepareProofOrder@774",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::PrepareProofOrder@812",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute",
       "name": "PrepareProofOrder",
       "kind": "gpu_function",
-      "line": 774
+      "line": 812
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::PrepareProofRedundancy@1037",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::PrepareProofRedundancy@1075",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute",
       "name": "PrepareProofRedundancy",
       "kind": "gpu_function",
-      "line": 1037
+      "line": 1075
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::ReduceTransactionSourceBlock@476",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::ReduceTransactionSourceBlock@529",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute",
       "name": "ReduceTransactionSourceBlock",
       "kind": "gpu_function",
-      "line": 476
+      "line": 529
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::RetainProofRawWindow@1534",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::RetainProofRawWindow@1572",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute",
       "name": "RetainProofRawWindow",
       "kind": "gpu_function",
-      "line": 1534
+      "line": 1572
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofAdvanceSourceCursor@197",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofAdvanceSourceCursor@204",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute",
       "name": "SigmaProofAdvanceSourceCursor",
       "kind": "gpu_function",
-      "line": 197
+      "line": 204
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofAtomicAddDegree@152",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofAtomicAddDegree@159",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute",
       "name": "SigmaProofAtomicAddDegree",
       "kind": "gpu_function",
-      "line": 152
+      "line": 159
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofCandidateBound@96",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofCandidateBound@103",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute",
       "name": "SigmaProofCandidateBound",
       "kind": "gpu_function",
-      "line": 96
+      "line": 103
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofCandidateBoundAddress@86",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofCandidateBoundAddress@93",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute",
       "name": "SigmaProofCandidateBoundAddress",
       "kind": "gpu_function",
-      "line": 86
+      "line": 93
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofCandidateBoundRead@102",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofCandidateBoundRead@109",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute",
       "name": "SigmaProofCandidateBoundRead",
       "kind": "gpu_function",
-      "line": 102
+      "line": 109
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofCandidateLess@618",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofCandidateLess@656",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute",
       "name": "SigmaProofCandidateLess",
       "kind": "gpu_function",
-      "line": 618
+      "line": 656
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofDegree@128",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofDegree@135",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute",
       "name": "SigmaProofDegree",
       "kind": "gpu_function",
-      "line": 128
+      "line": 135
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofFailTransaction@1007",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofFailTransaction@1045",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute",
       "name": "SigmaProofFailTransaction",
       "kind": "gpu_function",
-      "line": 1007
+      "line": 1045
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofFinishRedundancyRank@1016",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofFinishRedundancyRank@1054",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute",
       "name": "SigmaProofFinishRedundancyRank",
       "kind": "gpu_function",
-      "line": 1016
+      "line": 1054
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofFullBounds@78",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofFullBounds@85",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute",
       "name": "SigmaProofFullBounds",
       "kind": "gpu_function",
-      "line": 78
+      "line": 85
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofIndependentEdge@706",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofIndependentEdge@744",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute",
       "name": "SigmaProofIndependentEdge",
-      "kind": "gpu_function",
-      "line": 706
-    },
-    {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofKept@684",
-      "file": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute",
-      "name": "SigmaProofKept",
-      "kind": "gpu_function",
-      "line": 684
-    },
-    {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofKeptRead@690",
-      "file": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute",
-      "name": "SigmaProofKeptRead",
-      "kind": "gpu_function",
-      "line": 690
-    },
-    {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofLoadCurrentSource@175",
-      "file": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute",
-      "name": "SigmaProofLoadCurrentSource",
-      "kind": "gpu_function",
-      "line": 175
-    },
-    {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofLoadPrior@298",
-      "file": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute",
-      "name": "SigmaProofLoadPrior",
-      "kind": "gpu_function",
-      "line": 298
-    },
-    {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofLoadReadWork@744",
-      "file": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute",
-      "name": "SigmaProofLoadReadWork",
       "kind": "gpu_function",
       "line": 744
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofLoadWork@718",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofKept@722",
+      "file": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute",
+      "name": "SigmaProofKept",
+      "kind": "gpu_function",
+      "line": 722
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofKeptRead@728",
+      "file": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute",
+      "name": "SigmaProofKeptRead",
+      "kind": "gpu_function",
+      "line": 728
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofLoadCurrentSource@182",
+      "file": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute",
+      "name": "SigmaProofLoadCurrentSource",
+      "kind": "gpu_function",
+      "line": 182
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofLoadPrior@305",
+      "file": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute",
+      "name": "SigmaProofLoadPrior",
+      "kind": "gpu_function",
+      "line": 305
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofLoadReadWork@782",
+      "file": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute",
+      "name": "SigmaProofLoadReadWork",
+      "kind": "gpu_function",
+      "line": 782
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofLoadWork@756",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute",
       "name": "SigmaProofLoadWork",
       "kind": "gpu_function",
-      "line": 718
+      "line": 756
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofMergeCandidate@886",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofMergeCandidate@924",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute",
       "name": "SigmaProofMergeCandidate",
       "kind": "gpu_function",
-      "line": 886
+      "line": 924
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofPrefixBound@115",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofPrefixBound@122",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute",
       "name": "SigmaProofPrefixBound",
+      "kind": "gpu_function",
+      "line": 122
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofPrefixBoundAddress@98",
+      "file": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute",
+      "name": "SigmaProofPrefixBoundAddress",
+      "kind": "gpu_function",
+      "line": 98
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofPrepareReduceGroup@483",
+      "file": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute",
+      "name": "SigmaProofPrepareReduceGroup",
+      "kind": "gpu_function",
+      "line": 483
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofReduceSource@344",
+      "file": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute",
+      "name": "SigmaProofReduceSource",
+      "kind": "gpu_function",
+      "line": 344
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofResetSweepScratch@1018",
+      "file": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute",
+      "name": "SigmaProofResetSweepScratch",
+      "kind": "gpu_function",
+      "line": 1018
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofSameKey@693",
+      "file": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute",
+      "name": "SigmaProofSameKey",
+      "kind": "gpu_function",
+      "line": 693
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofSetCandidateBound@115",
+      "file": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute",
+      "name": "SigmaProofSetCandidateBound",
       "kind": "gpu_function",
       "line": 115
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofPrefixBoundAddress@91",
-      "file": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute",
-      "name": "SigmaProofPrefixBoundAddress",
-      "kind": "gpu_function",
-      "line": 91
-    },
-    {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofReduceSource@337",
-      "file": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute",
-      "name": "SigmaProofReduceSource",
-      "kind": "gpu_function",
-      "line": 337
-    },
-    {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofResetSweepScratch@980",
-      "file": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute",
-      "name": "SigmaProofResetSweepScratch",
-      "kind": "gpu_function",
-      "line": 980
-    },
-    {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofSameKey@655",
-      "file": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute",
-      "name": "SigmaProofSameKey",
-      "kind": "gpu_function",
-      "line": 655
-    },
-    {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofSetCandidateBound@108",
-      "file": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute",
-      "name": "SigmaProofSetCandidateBound",
-      "kind": "gpu_function",
-      "line": 108
-    },
-    {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofSetKept@696",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofSetKept@734",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute",
       "name": "SigmaProofSetKept",
       "kind": "gpu_function",
-      "line": 696
+      "line": 734
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofSetPrefixBound@121",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofSetPrefixBound@128",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute",
       "name": "SigmaProofSetPrefixBound",
       "kind": "gpu_function",
-      "line": 121
+      "line": 128
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofSetSampleBit@227",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofSetSampleBit@234",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute",
       "name": "SigmaProofSetSampleBit",
       "kind": "gpu_function",
-      "line": 227
+      "line": 234
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofSetSortedIndex@676",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofSetSortedIndex@714",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute",
       "name": "SigmaProofSetSortedIndex",
       "kind": "gpu_function",
-      "line": 676
+      "line": 714
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofSortedIndex@664",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofSortedIndex@702",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute",
       "name": "SigmaProofSortedIndex",
       "kind": "gpu_function",
-      "line": 664
+      "line": 702
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofSortedIndexRead@670",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofSortedIndexRead@708",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute",
       "name": "SigmaProofSortedIndexRead",
       "kind": "gpu_function",
-      "line": 670
+      "line": 708
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofSourceCell@235",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofSourceCell@242",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute",
       "name": "SigmaProofSourceCell",
       "kind": "gpu_function",
-      "line": 235
+      "line": 242
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofSourceSlot@284",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofSourceSlot@291",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute",
       "name": "SigmaProofSourceSlot",
       "kind": "gpu_function",
-      "line": 284
+      "line": 291
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::if@1247",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::if@1285",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute",
       "name": "if",
       "kind": "gpu_function",
-      "line": 1247
+      "line": 1285
     },
     {
       "id": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::kernel:CoalesceProofWindow",
@@ -6357,151 +6371,158 @@
       "line": 4
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::BuildHistoricalDrawArguments@524",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::BuildHistoricalDrawArguments@526",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute",
       "name": "BuildHistoricalDrawArguments",
       "kind": "gpu_function",
-      "line": 524
+      "line": 526
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::CancelHistoricalRevalidation@685",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::CancelHistoricalRevalidation@729",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute",
       "name": "CancelHistoricalRevalidation",
       "kind": "gpu_function",
-      "line": 685
+      "line": 729
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::FinalizeHistoricalRevalidation@634",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::FinalizeHistoricalRevalidation@675",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute",
       "name": "FinalizeHistoricalRevalidation",
       "kind": "gpu_function",
-      "line": 634
+      "line": 675
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::PrepareHistoricalRevalidation@293",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::PrepareHistoricalRevalidation@297",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute",
       "name": "PrepareHistoricalRevalidation",
       "kind": "gpu_function",
-      "line": 293
+      "line": 297
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::RebuildHistoricalAssociation@596",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::RebuildHistoricalAssociation@597",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute",
       "name": "RebuildHistoricalAssociation",
       "kind": "gpu_function",
-      "line": 596
+      "line": 597
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationBundleCurrent@179",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationBundleCurrent@183",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute",
       "name": "SigmaRevalidationBundleCurrent",
       "kind": "gpu_function",
-      "line": 179
+      "line": 183
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationCaptureEye@563",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationCaptureEye@564",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute",
       "name": "SigmaRevalidationCaptureEye",
       "kind": "gpu_function",
-      "line": 563
+      "line": 564
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationClaimAssociation@256",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationClaimAssociation@260",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute",
       "name": "SigmaRevalidationClaimAssociation",
       "kind": "gpu_function",
-      "line": 256
+      "line": 260
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationClearContext@55",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationClearContext@62",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute",
       "name": "SigmaRevalidationClearContext",
       "kind": "gpu_function",
-      "line": 55
+      "line": 62
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationCurrentBundle@154",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationCurrentBundle@158",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute",
       "name": "SigmaRevalidationCurrentBundle",
       "kind": "gpu_function",
-      "line": 154
+      "line": 158
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationFindVisiblePage@113",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationFindVisiblePage@117",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute",
       "name": "SigmaRevalidationFindVisiblePage",
       "kind": "gpu_function",
-      "line": 113
+      "line": 117
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationLoadTransaction@136",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationLoadTransaction@140",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute",
       "name": "SigmaRevalidationLoadTransaction",
       "kind": "gpu_function",
-      "line": 136
+      "line": 140
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationPageVisible@88",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationPageVisible@92",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute",
       "name": "SigmaRevalidationPageVisible",
       "kind": "gpu_function",
-      "line": 88
+      "line": 92
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationPinMarker@63",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationPinMarker@70",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute",
       "name": "SigmaRevalidationPinMarker",
       "kind": "gpu_function",
-      "line": 63
+      "line": 70
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationReclaimAssociation@201",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationPrepareFinalize@635",
+      "file": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute",
+      "name": "SigmaRevalidationPrepareFinalize",
+      "kind": "gpu_function",
+      "line": 635
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationReclaimAssociation@207",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute",
       "name": "SigmaRevalidationReclaimAssociation",
       "kind": "gpu_function",
-      "line": 201
+      "line": 207
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationReleaseSnapshotPin@71",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationReleaseSnapshotPin@75",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute",
       "name": "SigmaRevalidationReleaseSnapshotPin",
       "kind": "gpu_function",
-      "line": 71
+      "line": 75
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationSameCoordinate@104",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationSameCoordinate@108",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute",
       "name": "SigmaRevalidationSameCoordinate",
       "kind": "gpu_function",
-      "line": 104
+      "line": 108
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::if@324",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::if@328",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute",
       "name": "if",
       "kind": "gpu_function",
-      "line": 324
+      "line": 328
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::if@360",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::if@364",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute",
       "name": "if",
       "kind": "gpu_function",
-      "line": 360
+      "line": 364
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::if@509",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::if@511",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute",
       "name": "if",
       "kind": "gpu_function",
-      "line": 509
+      "line": 511
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::if@517",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::if@519",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute",
       "name": "if",
       "kind": "gpu_function",
-      "line": 517
+      "line": 519
     },
     {
       "id": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::kernel:BuildHistoricalDrawArguments",
@@ -6644,151 +6665,151 @@
       "line": 94
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateCloseRecord@533",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateCloseRecord@564",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute",
       "name": "SigmaCandidateCloseRecord",
       "kind": "gpu_function",
-      "line": 533
+      "line": 564
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateDyadL1@299",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateDyadL1@322",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute",
       "name": "SigmaCandidateDyadL1",
       "kind": "gpu_function",
-      "line": 299
+      "line": 322
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateEndpointLane@210",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateEndpointLane@229",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute",
       "name": "SigmaCandidateEndpointLane",
       "kind": "gpu_function",
-      "line": 210
+      "line": 229
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateEndpointStatus@258",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateEndpointStatus@281",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute",
       "name": "SigmaCandidateEndpointStatus",
       "kind": "gpu_function",
-      "line": 258
+      "line": 281
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateI64Equal@70",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateI64Equal@73",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute",
       "name": "SigmaCandidateI64Equal",
       "kind": "gpu_function",
-      "line": 70
+      "line": 73
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateIncrementI64@75",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateIncrementI64@78",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute",
       "name": "SigmaCandidateIncrementI64",
       "kind": "gpu_function",
-      "line": 75
+      "line": 78
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateLoadCell@517",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateLoadCell@548",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute",
       "name": "SigmaCandidateLoadCell",
       "kind": "gpu_function",
-      "line": 517
+      "line": 548
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateLoadWork@142",
-      "file": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute",
-      "name": "SigmaCandidateLoadWork",
-      "kind": "gpu_function",
-      "line": 142
-    },
-    {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateNullLane@131",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateNullLane@133",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute",
       "name": "SigmaCandidateNullLane",
       "kind": "gpu_function",
-      "line": 131
+      "line": 133
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateOutsideSlot@204",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateOutsideSlot@223",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute",
       "name": "SigmaCandidateOutsideSlot",
       "kind": "gpu_function",
-      "line": 204
+      "line": 223
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidatePageReference@102",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidatePageReference@104",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute",
       "name": "SigmaCandidatePageReference",
       "kind": "gpu_function",
-      "line": 102
+      "line": 104
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidatePageVisible@85",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidatePageVisible@88",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute",
       "name": "SigmaCandidatePageVisible",
       "kind": "gpu_function",
-      "line": 85
+      "line": 88
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateRecordAddress@60",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidatePrepareGroup@144",
+      "file": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute",
+      "name": "SigmaCandidatePrepareGroup",
+      "kind": "gpu_function",
+      "line": 144
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateRecordAddress@63",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute",
       "name": "SigmaCandidateRecordAddress",
       "kind": "gpu_function",
-      "line": 60
+      "line": 63
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateResolveNeighbours@162",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateResolveNeighbours@176",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute",
       "name": "SigmaCandidateResolveNeighbours",
       "kind": "gpu_function",
-      "line": 162
+      "line": 176
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateSampleAddress@65",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateSampleAddress@68",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute",
       "name": "SigmaCandidateSampleAddress",
       "kind": "gpu_function",
-      "line": 65
+      "line": 68
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateTauL1@323",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateTauL1@346",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute",
       "name": "SigmaCandidateTauL1",
       "kind": "gpu_function",
-      "line": 323
+      "line": 346
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateTransactionPage@111",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateTransactionPage@113",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute",
       "name": "SigmaCandidateTransactionPage",
       "kind": "gpu_function",
-      "line": 111
+      "line": 113
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateTransitionLane@277",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateTransitionLane@300",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute",
       "name": "SigmaCandidateTransitionLane",
       "kind": "gpu_function",
-      "line": 277
+      "line": 300
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateAssociatorChunk@570",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateAssociatorChunk@601",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute",
       "name": "ValidateCandidateAssociatorChunk",
       "kind": "gpu_function",
-      "line": 570
+      "line": 601
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateTransitionChunk@334",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateTransitionChunk@357",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute",
       "name": "ValidateCandidateTransitionChunk",
       "kind": "gpu_function",
-      "line": 334
+      "line": 357
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::if@475",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::if@503",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute",
       "name": "if",
       "kind": "gpu_function",
-      "line": 475
+      "line": 503
     },
     {
       "id": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::kernel:ValidateCandidateAssociatorChunk",
@@ -21270,93 +21291,78 @@
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute::MaterializePublishedTopology@114",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute::MaterializePublishedTopology@144",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute::SigmaDerivedCellAddress@41",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute::MaterializePublishedTopology@144",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute::SigmaDerivedNeighbourRecord@86",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute::MaterializePublishedTopology@144",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute::SigmaDerivedPrepareGroup@99",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute::MaterializePublishedTopology@144",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute::SigmaDerivedRecordCuts@94",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute::SigmaDerivedNeighbourRecord@86",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute::SigmaDerivedTopologyCurrent@69",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute::SigmaDerivedNeighbourRecord@86",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute::SigmaDerivedTransitionAddress@36",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute::SigmaDerivedNeighbourRecord@86",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute::SigmaDerivedUnresolvedRecord@80",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute::SigmaDerivedPageVisible@55",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute::SigmaDerivedManifestPublished@46",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute::SigmaDerivedPrepareGroup@99",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamTransactionGeneration@116",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute::MaterializePublishedTopology@114",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute::SigmaDerivedCellAddress@32",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute::MaterializePublishedTopology@114",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute::SigmaDerivedLoad@84",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute::MaterializePublishedTopology@114",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute::SigmaDerivedNeighbourRecord@71",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute::MaterializePublishedTopology@114",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute::SigmaDerivedRecordCuts@79",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute::MaterializePublishedTopology@114",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute::SigmaDerivedVisible@37",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute::SigmaDerivedLoad@84",
-      "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamTransactionGeneration@116",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute::SigmaDerivedLoad@84",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute::SigmaDerivedPrepareGroup@99",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamTransactionState@111",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute::SigmaDerivedLoad@84",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute::SigmaDerivedPrepareGroup@99",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamWorkAddress@80",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute::SigmaDerivedLoad@84",
-      "target": "Runtime/Resources/SigmaPrism/SigmaManifestVisibility.hlsl::SigmaManifestHandlePublished@12",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute::SigmaDerivedPrepareGroup@99",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute::SigmaDerivedManifestPublished@46",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute::SigmaDerivedLoad@84",
-      "target": "Runtime/Resources/SigmaPrism/SigmaManifestVisibility.hlsl::SigmaManifestHandleValid@8",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute::SigmaDerivedPrepareGroup@99",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute::SigmaDerivedPageVisible@55",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute::SigmaDerivedNeighbourRecord@71",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute::SigmaDerivedTopologyCurrent@54",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute::SigmaDerivedTopologyCurrent@69",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute::SigmaDerivedPageVisible@55",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute::SigmaDerivedNeighbourRecord@71",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute::SigmaDerivedTransitionAddress@27",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute::SigmaDerivedNeighbourRecord@71",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute::SigmaDerivedUnresolvedRecord@65",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute::SigmaDerivedTopologyCurrent@54",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute::SigmaDerivedVisible@37",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute::SigmaDerivedUnresolvedRecord@65",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute::SigmaDerivedUnresolvedRecord@80",
       "target": "Runtime/Resources/SigmaPrism/SigmaTopologyAbi.hlsl::SigmaTopologyPack@51",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute::SigmaDerivedVisible@37",
-      "target": "Runtime/Resources/SigmaPrism/SigmaManifestVisibility.hlsl::SigmaManifestHandleValid@8",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamDerived.compute::SigmaDerivedVisible@37",
-      "target": "Runtime/Resources/SigmaPrism/SigmaManifestVisibility.hlsl::SigmaManifestPageVisible@19",
       "kind": "calls"
     },
     {
@@ -21570,203 +21576,178 @@
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@523",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@586",
       "target": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedTables.hlsl::SigmaHadamardSign@197",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@523",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@586",
       "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48AddChecked@140",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@523",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@586",
       "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48DivNearestEven@618",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@523",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@586",
       "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48MulNearestEven@304",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@523",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@586",
       "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48NegateChecked@152",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@523",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@586",
       "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48ShiftRightNearestEven@184",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@523",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@586",
       "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48SubChecked@159",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@523",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@586",
       "target": "Runtime/Resources/SigmaPrism/SigmaConstraintLedgerAbi.hlsl::SigmaProofPageSample@140",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@523",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@586",
       "target": "Runtime/Resources/SigmaPrism/SigmaConstraintPrior.hlsl::SigmaApplyConstraintPriorLane@20",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@523",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@586",
       "target": "Runtime/Resources/SigmaPrism/SigmaExactCompare.hlsl::SigmaQ48Less@25",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@523",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@586",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseMath.hlsl::SigmaBuildOwnedDepthWorldCell@725",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@523",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@586",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseMath.hlsl::SigmaOwnedCalibrationValue@599",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@523",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@586",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseMath.hlsl::SigmaOwnedPriorHalfWidth@623",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@523",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@586",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseMath.hlsl::SigmaQ48AbsDifference@60",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@523",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@586",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseMath.hlsl::SigmaQ48PointBounds@74",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@523",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@586",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseMath.hlsl::SigmaQ48Positive@19",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@523",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@586",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseMath.hlsl::SigmaQ48Widen@82",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@523",
-      "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamBundleGeneration@101",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@523",
-      "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamBundleState@106",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@523",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@586",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamRawWordAddress@90",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@523",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@586",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamTransactionGeneration@116",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@523",
-      "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamTransactionState@111",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@523",
-      "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamWorkAddress@80",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@523",
-      "target": "Runtime/Resources/SigmaPrism/SigmaOperatorPlan.hlsl::SigmaCanonicalMutationEnabled@7",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@523",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@586",
       "target": "Runtime/Resources/SigmaPrism/SigmaOperatorPlan.hlsl::SigmaProjectiveClamp@118",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@523",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@586",
       "target": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaEvalBuildBootstrap@298",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@523",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@586",
       "target": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaEvalFullBounds@290",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@523",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@586",
       "target": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaEvalHadamard@201",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@523",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@586",
       "target": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaEvalMeet@268",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@523",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@586",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaEvalPrepareGroup@528",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@586",
       "target": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaEvalReduceValidity@241",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@523",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaEvalRgbEye@352",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@586",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaEvalRgbEye@349",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@523",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@586",
       "target": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaStreamAssociationContact@154",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@523",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@586",
       "target": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaStreamAssociationEye@133",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@523",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@586",
       "target": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaStreamAssociationMatchesTarget@168",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@523",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@586",
       "target": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaStreamAssociationSame@160",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@523",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@586",
       "target": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaStreamCombineOutcome@119",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@523",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaStreamJointAddress@81",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@586",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaStreamJointAddress@86",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@523",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaStreamLoadCurrentBundle@98",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@586",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaStreamNullLane@75",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@523",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaStreamNullLane@70",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@523",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaStreamSampleAddress@88",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@586",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaStreamSampleAddress@93",
       "kind": "calls"
     },
     {
@@ -21860,107 +21841,142 @@
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaEvalRgbEye@352",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaEvalPrepareGroup@528",
+      "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamBundleGeneration@101",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaEvalPrepareGroup@528",
+      "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamBundleState@106",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaEvalPrepareGroup@528",
+      "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamTransactionGeneration@116",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaEvalPrepareGroup@528",
+      "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamTransactionState@111",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaEvalPrepareGroup@528",
+      "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamWorkAddress@80",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaEvalPrepareGroup@528",
+      "target": "Runtime/Resources/SigmaPrism/SigmaOperatorPlan.hlsl::SigmaCanonicalMutationEnabled@7",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaEvalPrepareGroup@528",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaStreamLoadCurrentBundle@98",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaEvalRgbEye@349",
       "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48AddChecked@140",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaEvalRgbEye@352",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaEvalRgbEye@349",
       "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48DivLower@623",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaEvalRgbEye@352",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaEvalRgbEye@349",
       "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48DivUpper@628",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaEvalRgbEye@352",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaEvalRgbEye@349",
       "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48MulNearestEven@304",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaEvalRgbEye@352",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaEvalRgbEye@349",
       "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48NegateChecked@152",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaEvalRgbEye@352",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaEvalRgbEye@349",
       "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48SubChecked@159",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaEvalRgbEye@352",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaEvalRgbEye@349",
       "target": "Runtime/Resources/SigmaPrism/SigmaConstraintPrior.hlsl::SigmaApplyConstraintPriorLane@20",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaEvalRgbEye@352",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaEvalRgbEye@349",
       "target": "Runtime/Resources/SigmaPrism/SigmaExactCompare.hlsl::SigmaQ48Less@25",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaEvalRgbEye@352",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaEvalRgbEye@349",
       "target": "Runtime/Resources/SigmaPrism/SigmaExactCompare.hlsl::SigmaQ48Max@35",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaEvalRgbEye@352",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaEvalRgbEye@349",
       "target": "Runtime/Resources/SigmaPrism/SigmaExactCompare.hlsl::SigmaQ48Min@30",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaEvalRgbEye@352",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaEvalRgbEye@349",
       "target": "Runtime/Resources/SigmaPrism/SigmaExactCompare.hlsl::SigmaU64Equal@7",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaEvalRgbEye@352",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaEvalRgbEye@349",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseMath.hlsl::SigmaQ48FromUnsignedInteger@25",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaEvalRgbEye@352",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaEvalRgbEye@349",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseMath.hlsl::SigmaQ48PointBounds@74",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaEvalRgbEye@352",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaEvalRgbEye@349",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseMath.hlsl::SigmaQ48ScaleBounds@118",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaEvalRgbEye@352",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaEvalRgbEye@349",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseMath.hlsl::SigmaQ48Widen@82",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaEvalRgbEye@352",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaEvalRgbEye@349",
       "target": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaBuildOwnedRgbMeasurement@477",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaEvalRgbEye@352",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaEvalRgbEye@349",
       "target": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaOwnedRgbCalibrationValue@461",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaEvalRgbEye@352",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaEvalRgbEye@349",
       "target": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaOwnedRgbQuantizedDirection@523",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaEvalRgbEye@352",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaEvalRgbEye@349",
       "target": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaRgbInequalityCoefficient@169",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaEvalRgbEye@352",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaEvalRgbEye@349",
       "target": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaRgbOperator@48",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaEvalRgbEye@352",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaEvalRgbEye@349",
       "target": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaEvalReduceValidity@241",
       "kind": "calls"
     },
@@ -21980,593 +21996,613 @@
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::SigmaStreamRaw@93",
-      "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamRawWordAddress@90",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::CoalesceProofWindow@965",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofLoadWork@756",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::CoalesceProofWindow@927",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofLoadWork@718",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::CoalesceProofWindow@965",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofMergeCandidate@924",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::CoalesceProofWindow@927",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofMergeCandidate@886",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::CoalesceProofWindow@965",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofSameKey@693",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::CoalesceProofWindow@927",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofSameKey@655",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::CoalesceProofWindow@965",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofSetSortedIndex@714",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::CoalesceProofWindow@927",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofSetSortedIndex@676",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::CoalesceProofWindow@965",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofSortedIndex@702",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::CoalesceProofWindow@927",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofSortedIndex@664",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::CompleteProofBlock@1604",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::CompleteProofBlock@1642",
       "target": "Runtime/Resources/SigmaPrism/SigmaConstraintLedgerAbi.hlsl::SigmaConstraintBlockAddress@121",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::CompleteProofBlock@1604",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofLoadWork@718",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::CompleteProofBlock@1642",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofLoadWork@756",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::EmitProofCertificates@1448",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::EmitProofCertificates@1486",
       "target": "Runtime/Resources/SigmaPrism/SigmaConstraintLedgerAbi.hlsl::SigmaCertificateAddress@109",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::EmitProofCertificates@1448",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::EmitProofCertificates@1486",
       "target": "Runtime/Resources/SigmaPrism/SigmaConstraintLedgerAbi.hlsl::SigmaCertificateBoundAddress@115",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::EmitProofCertificates@1448",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::EmitProofCertificates@1486",
       "target": "Runtime/Resources/SigmaPrism/SigmaConstraintLedgerAbi.hlsl::SigmaConstraintBlockAddress@121",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::EmitProofCertificates@1448",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofCandidateBoundRead@102",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::EmitProofCertificates@1486",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofCandidateBoundRead@109",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::EmitProofCertificates@1448",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofKeptRead@690",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::EmitProofCertificates@1486",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofKeptRead@728",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::EmitProofCertificates@1448",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofLoadReadWork@744",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::EmitProofCertificates@1486",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofLoadReadWork@782",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::EmitProofCertificates@1448",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofSortedIndexRead@670",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::EmitProofCertificates@1486",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofSortedIndexRead@708",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::EmitProofCertificates@1448",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofSourceSlot@284",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::EmitProofCertificates@1486",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofSourceSlot@291",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::EvaluateProofRedundancyWindow@1272",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::EvaluateProofRedundancyWindow@1310",
       "target": "Runtime/Resources/SigmaPrism/SigmaExactCompare.hlsl::SigmaQ48Max@35",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::EvaluateProofRedundancyWindow@1272",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::EvaluateProofRedundancyWindow@1310",
       "target": "Runtime/Resources/SigmaPrism/SigmaExactCompare.hlsl::SigmaQ48Min@30",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::EvaluateProofRedundancyWindow@1272",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::EvaluateProofRedundancyWindow@1310",
       "target": "Runtime/Resources/SigmaPrism/SigmaExactCompare.hlsl::SigmaU64Equal@7",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::EvaluateProofRedundancyWindow@1272",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::EvaluateProofRedundancyWindow@1310",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamTransactionGeneration@116",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::EvaluateProofRedundancyWindow@1272",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::EvaluateProofRedundancyWindow@1310",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamTransactionState@111",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::EvaluateProofRedundancyWindow@1272",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::EvaluateProofRedundancyWindow@1310",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamWorkAddress@80",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::EvaluateProofRedundancyWindow@1272",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::EvaluateProofRedundancyWindow@1310",
       "target": "Runtime/Resources/SigmaPrism/SigmaOperatorPlan.hlsl::SigmaCanonicalMutationEnabled@7",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::EvaluateProofRedundancyWindow@1272",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofAtomicAddDegree@152",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::EvaluateProofRedundancyWindow@1310",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofAtomicAddDegree@159",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::EvaluateProofRedundancyWindow@1272",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofCandidateBoundRead@102",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::EvaluateProofRedundancyWindow@1310",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofCandidateBoundRead@109",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::EvaluateProofRedundancyWindow@1272",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofDegree@128",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::EvaluateProofRedundancyWindow@1310",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofDegree@135",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::EvaluateProofRedundancyWindow@1272",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofFinishRedundancyRank@1016",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::EvaluateProofRedundancyWindow@1310",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofFinishRedundancyRank@1054",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::EvaluateProofRedundancyWindow@1272",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofIndependentEdge@706",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::EvaluateProofRedundancyWindow@1310",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofIndependentEdge@744",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::EvaluateProofRedundancyWindow@1272",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofKeptRead@690",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::EvaluateProofRedundancyWindow@1310",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofKeptRead@728",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::EvaluateProofRedundancyWindow@1272",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofPrefixBound@115",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::EvaluateProofRedundancyWindow@1310",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofPrefixBound@122",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::EvaluateProofRedundancyWindow@1272",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofSetKept@696",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::EvaluateProofRedundancyWindow@1310",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofSetKept@734",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::EvaluateProofRedundancyWindow@1272",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofSetPrefixBound@121",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::EvaluateProofRedundancyWindow@1310",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofSetPrefixBound@128",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::EvaluateProofRedundancyWindow@1272",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofSortedIndexRead@670",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::EvaluateProofRedundancyWindow@1310",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofSortedIndexRead@708",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::MergeProofRuns@834",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofCandidateLess@618",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::MergeProofRuns@872",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofCandidateLess@656",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::MergeProofRuns@834",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofLoadWork@718",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::MergeProofRuns@872",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofLoadWork@756",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::MergeProofRuns@834",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofSetSortedIndex@676",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::MergeProofRuns@872",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofSetSortedIndex@714",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::MergeProofRuns@834",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofSortedIndex@664",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::MergeProofRuns@872",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofSortedIndex@702",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::PrepareProofOrder@774",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofCandidateLess@618",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::PrepareProofOrder@812",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofCandidateLess@656",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::PrepareProofOrder@774",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofLoadReadWork@744",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::PrepareProofOrder@812",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofLoadReadWork@782",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::PrepareProofRedundancy@1037",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::PrepareProofRedundancy@1075",
       "target": "Runtime/Resources/SigmaPrism/SigmaExactCompare.hlsl::SigmaQ48Max@35",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::PrepareProofRedundancy@1037",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::PrepareProofRedundancy@1075",
       "target": "Runtime/Resources/SigmaPrism/SigmaExactCompare.hlsl::SigmaQ48Min@30",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::PrepareProofRedundancy@1037",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::PrepareProofRedundancy@1075",
       "target": "Runtime/Resources/SigmaPrism/SigmaExactCompare.hlsl::SigmaU64Equal@7",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::PrepareProofRedundancy@1037",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::PrepareProofRedundancy@1075",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamTransactionGeneration@116",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::PrepareProofRedundancy@1037",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::PrepareProofRedundancy@1075",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamTransactionState@111",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::PrepareProofRedundancy@1037",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::PrepareProofRedundancy@1075",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamWorkAddress@80",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::PrepareProofRedundancy@1037",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::PrepareProofRedundancy@1075",
       "target": "Runtime/Resources/SigmaPrism/SigmaOperatorPlan.hlsl::SigmaCanonicalMutationEnabled@7",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::PrepareProofRedundancy@1037",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofAtomicAddDegree@152",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::PrepareProofRedundancy@1075",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofAtomicAddDegree@159",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::PrepareProofRedundancy@1037",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofCandidateBoundRead@102",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::PrepareProofRedundancy@1075",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofCandidateBoundRead@109",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::PrepareProofRedundancy@1037",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofDegree@128",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::PrepareProofRedundancy@1075",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofDegree@135",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::PrepareProofRedundancy@1037",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofFailTransaction@1007",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::PrepareProofRedundancy@1075",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofFailTransaction@1045",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::PrepareProofRedundancy@1037",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofFullBounds@78",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::PrepareProofRedundancy@1075",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofFullBounds@85",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::PrepareProofRedundancy@1037",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofIndependentEdge@706",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::PrepareProofRedundancy@1075",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofIndependentEdge@744",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::PrepareProofRedundancy@1037",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofKeptRead@690",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::PrepareProofRedundancy@1075",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofKeptRead@728",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::PrepareProofRedundancy@1037",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofPrefixBound@115",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::PrepareProofRedundancy@1075",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofPrefixBound@122",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::PrepareProofRedundancy@1037",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofResetSweepScratch@980",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::PrepareProofRedundancy@1075",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofResetSweepScratch@1018",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::PrepareProofRedundancy@1037",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofSetCandidateBound@108",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::PrepareProofRedundancy@1075",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofSetCandidateBound@115",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::PrepareProofRedundancy@1037",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofSetPrefixBound@121",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::PrepareProofRedundancy@1075",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofSetPrefixBound@128",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::PrepareProofRedundancy@1037",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofSortedIndexRead@670",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::PrepareProofRedundancy@1075",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofSortedIndexRead@708",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::ReduceTransactionSourceBlock@476",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::ReduceTransactionSourceBlock@529",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamBundleGeneration@101",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::ReduceTransactionSourceBlock@476",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::ReduceTransactionSourceBlock@529",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamBundleState@106",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::ReduceTransactionSourceBlock@476",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::ReduceTransactionSourceBlock@529",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamTransactionGeneration@116",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::ReduceTransactionSourceBlock@476",
-      "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamTransactionState@111",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::ReduceTransactionSourceBlock@529",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofAdvanceSourceCursor@204",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::ReduceTransactionSourceBlock@476",
-      "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamWorkAddress@80",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::ReduceTransactionSourceBlock@529",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofLoadCurrentSource@182",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::ReduceTransactionSourceBlock@476",
-      "target": "Runtime/Resources/SigmaPrism/SigmaOperatorPlan.hlsl::SigmaCanonicalMutationEnabled@7",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::ReduceTransactionSourceBlock@529",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofLoadPrior@305",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::ReduceTransactionSourceBlock@476",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofAdvanceSourceCursor@197",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::ReduceTransactionSourceBlock@529",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofPrepareReduceGroup@483",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::ReduceTransactionSourceBlock@476",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofLoadCurrentSource@175",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::ReduceTransactionSourceBlock@529",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofReduceSource@344",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::ReduceTransactionSourceBlock@476",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofLoadPrior@298",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::ReduceTransactionSourceBlock@476",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofReduceSource@337",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::RetainProofRawWindow@1534",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::RetainProofRawWindow@1572",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamBundleGeneration@101",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::RetainProofRawWindow@1534",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::RetainProofRawWindow@1572",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamHandleValid@136",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::RetainProofRawWindow@1534",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::RetainProofRawWindow@1572",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamRawTileAddress@96",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::RetainProofRawWindow@1534",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::RetainProofRawWindow@1572",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamSourceHandle@141",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::RetainProofRawWindow@1534",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::RetainProofRawWindow@1572",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamSourceSegmentValid@183",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::RetainProofRawWindow@1534",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofLoadReadWork@744",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::RetainProofRawWindow@1572",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofLoadReadWork@782",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofAdvanceSourceCursor@197",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofAdvanceSourceCursor@204",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamHandleValid@136",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofAdvanceSourceCursor@197",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofAdvanceSourceCursor@204",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamSourceSegmentValid@183",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofCandidateBound@96",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofCandidateBoundAddress@86",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofCandidateBound@103",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofCandidateBoundAddress@93",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofCandidateBoundRead@102",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofCandidateBoundAddress@86",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofCandidateBoundRead@109",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofCandidateBoundAddress@93",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofCandidateLess@618",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofCandidateLess@656",
       "target": "Runtime/Resources/SigmaPrism/SigmaExactCompare.hlsl::SigmaQ48Less@25",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofCandidateLess@618",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofCandidateLess@656",
       "target": "Runtime/Resources/SigmaPrism/SigmaExactCompare.hlsl::SigmaU64Equal@7",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofCandidateLess@618",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofCandidateBound@96",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofCandidateLess@656",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofCandidateBound@103",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofLoadCurrentSource@175",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofLoadCurrentSource@182",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamHandleValid@136",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofLoadCurrentSource@175",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofLoadCurrentSource@182",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamSourceHandle@141",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofLoadCurrentSource@175",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofLoadCurrentSource@182",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamSourceSegmentValid@183",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofLoadPrior@298",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofLoadPrior@305",
       "target": "Runtime/Resources/SigmaPrism/SigmaConstraintLedgerAbi.hlsl::SigmaCertificateAddress@109",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofLoadPrior@298",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofLoadPrior@305",
       "target": "Runtime/Resources/SigmaPrism/SigmaConstraintLedgerAbi.hlsl::SigmaCertificateBoundAddress@115",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofLoadPrior@298",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofLoadPrior@305",
       "target": "Runtime/Resources/SigmaPrism/SigmaConstraintLedgerAbi.hlsl::SigmaConstraintBlockAddress@121",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofLoadPrior@298",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofFullBounds@78",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofLoadPrior@305",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofFullBounds@85",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofLoadPrior@298",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofSetCandidateBound@108",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofLoadPrior@305",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofSetCandidateBound@115",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofLoadPrior@298",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofSourceSlot@284",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofLoadPrior@305",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofSourceSlot@291",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofLoadReadWork@744",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofLoadReadWork@782",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamTransactionGeneration@116",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofLoadReadWork@744",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofLoadReadWork@782",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamTransactionState@111",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofLoadReadWork@744",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofLoadReadWork@782",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamWorkAddress@80",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofLoadReadWork@744",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofLoadReadWork@782",
       "target": "Runtime/Resources/SigmaPrism/SigmaOperatorPlan.hlsl::SigmaCanonicalMutationEnabled@7",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofLoadWork@718",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofLoadWork@756",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamTransactionGeneration@116",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofLoadWork@718",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofLoadWork@756",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamTransactionState@111",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofLoadWork@718",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofLoadWork@756",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamWorkAddress@80",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofLoadWork@718",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofLoadWork@756",
       "target": "Runtime/Resources/SigmaPrism/SigmaOperatorPlan.hlsl::SigmaCanonicalMutationEnabled@7",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofMergeCandidate@886",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofMergeCandidate@924",
       "target": "Runtime/Resources/SigmaPrism/SigmaExactCompare.hlsl::SigmaQ48Less@25",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofMergeCandidate@886",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofMergeCandidate@924",
       "target": "Runtime/Resources/SigmaPrism/SigmaExactCompare.hlsl::SigmaQ48Max@35",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofMergeCandidate@886",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofMergeCandidate@924",
       "target": "Runtime/Resources/SigmaPrism/SigmaExactCompare.hlsl::SigmaQ48Min@30",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofMergeCandidate@886",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofCandidateBound@96",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofMergeCandidate@924",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofCandidateBound@103",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofMergeCandidate@886",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofSetCandidateBound@108",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofMergeCandidate@924",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofSetCandidateBound@115",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofPrefixBound@115",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofPrefixBoundAddress@91",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofPrefixBound@122",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofPrefixBoundAddress@98",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofReduceSource@337",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofPrepareReduceGroup@483",
+      "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamBundleGeneration@101",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofPrepareReduceGroup@483",
+      "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamBundleState@106",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofPrepareReduceGroup@483",
+      "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamTransactionGeneration@116",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofPrepareReduceGroup@483",
+      "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamTransactionState@111",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofPrepareReduceGroup@483",
+      "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamWorkAddress@80",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofPrepareReduceGroup@483",
+      "target": "Runtime/Resources/SigmaPrism/SigmaOperatorPlan.hlsl::SigmaCanonicalMutationEnabled@7",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofPrepareReduceGroup@483",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofLoadCurrentSource@182",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofReduceSource@344",
       "target": "Runtime/Resources/SigmaPrism/SigmaConstraintLedgerAbi.hlsl::SigmaProofPageSample@140",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofReduceSource@337",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofReduceSource@344",
       "target": "Runtime/Resources/SigmaPrism/SigmaExactCompare.hlsl::SigmaQ48Max@35",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofReduceSource@337",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofReduceSource@344",
       "target": "Runtime/Resources/SigmaPrism/SigmaExactCompare.hlsl::SigmaQ48Min@30",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofReduceSource@337",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofReduceSource@344",
       "target": "Runtime/Resources/SigmaPrism/SigmaExactCompare.hlsl::SigmaU64Equal@7",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofReduceSource@337",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofFullBounds@78",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofReduceSource@344",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofFullBounds@85",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofReduceSource@337",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofSetCandidateBound@108",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofReduceSource@344",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofSetCandidateBound@115",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofReduceSource@337",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofSetSampleBit@227",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofReduceSource@344",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofSetSampleBit@234",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofReduceSource@337",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofSourceCell@235",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofReduceSource@344",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofSourceCell@242",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofResetSweepScratch@980",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofFullBounds@78",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofResetSweepScratch@1018",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofFullBounds@85",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofResetSweepScratch@980",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofSetPrefixBound@121",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofResetSweepScratch@1018",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofSetPrefixBound@128",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofSetCandidateBound@108",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofCandidateBoundAddress@86",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofSetCandidateBound@115",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofCandidateBoundAddress@93",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofSetPrefixBound@121",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofPrefixBoundAddress@91",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofSetPrefixBound@128",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofPrefixBoundAddress@98",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofSourceCell@235",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofFullBounds@78",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofSourceCell@242",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofFullBounds@85",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::if@1247",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofFailTransaction@1007",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::if@1285",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamProof.compute::SigmaProofFailTransaction@1045",
       "kind": "calls"
     },
     {
@@ -22710,278 +22746,303 @@
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::CancelHistoricalRevalidation@685",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationClearContext@55",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::CancelHistoricalRevalidation@729",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationClearContext@62",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::CancelHistoricalRevalidation@685",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationPinMarker@63",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::CancelHistoricalRevalidation@729",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationPinMarker@70",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::CancelHistoricalRevalidation@685",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationReleaseSnapshotPin@71",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::CancelHistoricalRevalidation@729",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationReleaseSnapshotPin@75",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::FinalizeHistoricalRevalidation@634",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::FinalizeHistoricalRevalidation@675",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamBundleGeneration@101",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::FinalizeHistoricalRevalidation@634",
-      "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamHandleValid@136",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::FinalizeHistoricalRevalidation@634",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationClearContext@55",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::FinalizeHistoricalRevalidation@634",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationLoadTransaction@136",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::FinalizeHistoricalRevalidation@634",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationPinMarker@63",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::FinalizeHistoricalRevalidation@634",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationReleaseSnapshotPin@71",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::PrepareHistoricalRevalidation@293",
-      "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamBundleGeneration@101",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::PrepareHistoricalRevalidation@293",
-      "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamBundleState@106",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::PrepareHistoricalRevalidation@293",
-      "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamHandleValid@136",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::PrepareHistoricalRevalidation@293",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::FinalizeHistoricalRevalidation@675",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamTransactionGeneration@116",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::PrepareHistoricalRevalidation@293",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStableScan.hlsl::SigmaStableExclusiveScan256Dual@13",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::PrepareHistoricalRevalidation@293",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationBundleCurrent@179",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::PrepareHistoricalRevalidation@293",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationClaimAssociation@256",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::PrepareHistoricalRevalidation@293",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationClearContext@55",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::PrepareHistoricalRevalidation@293",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationCurrentBundle@154",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::PrepareHistoricalRevalidation@293",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationFindVisiblePage@113",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::PrepareHistoricalRevalidation@293",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationLoadTransaction@136",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::PrepareHistoricalRevalidation@293",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationPageVisible@88",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::PrepareHistoricalRevalidation@293",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationPinMarker@63",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::PrepareHistoricalRevalidation@293",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationReleaseSnapshotPin@71",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::RebuildHistoricalAssociation@596",
-      "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamBundleGeneration@101",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::RebuildHistoricalAssociation@596",
-      "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamHandleValid@136",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::RebuildHistoricalAssociation@596",
-      "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamRawWordAddress@90",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::RebuildHistoricalAssociation@596",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationCaptureEye@563",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::RebuildHistoricalAssociation@596",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationLoadTransaction@136",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationBundleCurrent@179",
-      "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamBundleState@106",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationBundleCurrent@179",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationPageVisible@88",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationClaimAssociation@256",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationReclaimAssociation@201",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationCurrentBundle@154",
-      "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamHandleValid@136",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationCurrentBundle@154",
-      "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamSourceHandle@141",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationCurrentBundle@154",
-      "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamSourceSegmentValid@183",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationFindVisiblePage@113",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationPageVisible@88",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationFindVisiblePage@113",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationSameCoordinate@104",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationLoadTransaction@136",
-      "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamTransactionGeneration@116",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationLoadTransaction@136",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::FinalizeHistoricalRevalidation@675",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamTransactionState@111",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationLoadTransaction@136",
-      "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamWorkAddress@80",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::FinalizeHistoricalRevalidation@675",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationClearContext@62",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationPageVisible@88",
-      "target": "Runtime/Resources/SigmaPrism/SigmaManifestVisibility.hlsl::SigmaManifestHandleValid@8",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::FinalizeHistoricalRevalidation@675",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationPrepareFinalize@635",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationPageVisible@88",
-      "target": "Runtime/Resources/SigmaPrism/SigmaManifestVisibility.hlsl::SigmaManifestPageVisible@19",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::FinalizeHistoricalRevalidation@675",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationReleaseSnapshotPin@75",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationReclaimAssociation@201",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::PrepareHistoricalRevalidation@297",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamBundleGeneration@101",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationReclaimAssociation@201",
-      "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamHandleValid@136",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationReclaimAssociation@201",
-      "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamSourceHandle@141",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationReclaimAssociation@201",
-      "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamSourceSegmentValid@183",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::if@324",
-      "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamBundleGeneration@101",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::if@324",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::PrepareHistoricalRevalidation@297",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamBundleState@106",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::if@324",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::PrepareHistoricalRevalidation@297",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamHandleValid@136",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::if@324",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::PrepareHistoricalRevalidation@297",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamTransactionGeneration@116",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::if@324",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationBundleCurrent@179",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::PrepareHistoricalRevalidation@297",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStableScan.hlsl::SigmaStableExclusiveScan256Dual@13",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::if@324",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationClaimAssociation@256",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::PrepareHistoricalRevalidation@297",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationBundleCurrent@183",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::if@324",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationCurrentBundle@154",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::PrepareHistoricalRevalidation@297",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationClaimAssociation@260",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::if@324",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationFindVisiblePage@113",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::PrepareHistoricalRevalidation@297",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationClearContext@62",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::if@324",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationPinMarker@63",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::PrepareHistoricalRevalidation@297",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationCurrentBundle@158",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::if@509",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationClearContext@55",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::PrepareHistoricalRevalidation@297",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationFindVisiblePage@117",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::PrepareHistoricalRevalidation@297",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationLoadTransaction@140",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::PrepareHistoricalRevalidation@297",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationPageVisible@92",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::PrepareHistoricalRevalidation@297",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationPinMarker@70",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::PrepareHistoricalRevalidation@297",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationReleaseSnapshotPin@75",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::RebuildHistoricalAssociation@597",
+      "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamBundleGeneration@101",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::RebuildHistoricalAssociation@597",
+      "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamHandleValid@136",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::RebuildHistoricalAssociation@597",
+      "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamRawWordAddress@90",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::RebuildHistoricalAssociation@597",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationCaptureEye@564",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::RebuildHistoricalAssociation@597",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationLoadTransaction@140",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationBundleCurrent@183",
+      "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamBundleState@106",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationBundleCurrent@183",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationPageVisible@92",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationClaimAssociation@260",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationReclaimAssociation@207",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationCurrentBundle@158",
+      "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamHandleValid@136",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationCurrentBundle@158",
+      "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamSourceHandle@141",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationCurrentBundle@158",
+      "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamSourceSegmentValid@183",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationFindVisiblePage@117",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationPageVisible@92",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationFindVisiblePage@117",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationSameCoordinate@108",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationLoadTransaction@140",
+      "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamTransactionGeneration@116",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationLoadTransaction@140",
+      "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamTransactionState@111",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationLoadTransaction@140",
+      "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamWorkAddress@80",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationPageVisible@92",
+      "target": "Runtime/Resources/SigmaPrism/SigmaManifestVisibility.hlsl::SigmaManifestHandleValid@8",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationPageVisible@92",
+      "target": "Runtime/Resources/SigmaPrism/SigmaManifestVisibility.hlsl::SigmaManifestPageVisible@19",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationPrepareFinalize@635",
+      "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamBundleGeneration@101",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationPrepareFinalize@635",
+      "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamHandleValid@136",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationPrepareFinalize@635",
+      "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamTransactionGeneration@116",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationPrepareFinalize@635",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationLoadTransaction@140",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationPrepareFinalize@635",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationPinMarker@70",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationReclaimAssociation@207",
+      "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamBundleGeneration@101",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationReclaimAssociation@207",
+      "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamHandleValid@136",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationReclaimAssociation@207",
+      "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamSourceHandle@141",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationReclaimAssociation@207",
+      "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamSourceSegmentValid@183",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::if@328",
+      "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamBundleGeneration@101",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::if@328",
+      "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamBundleState@106",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::if@328",
+      "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamHandleValid@136",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::if@328",
+      "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamTransactionGeneration@116",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::if@328",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationBundleCurrent@183",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::if@328",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationClaimAssociation@260",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::if@328",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationCurrentBundle@158",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::if@328",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationFindVisiblePage@117",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::if@328",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationPinMarker@70",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::if@511",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationClearContext@62",
       "kind": "calls"
     },
     {
@@ -23020,287 +23081,287 @@
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateDyadL1@299",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateDyadL1@322",
       "target": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedTables.hlsl::SigmaMulBasisSign@192",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateDyadL1@299",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateDyadL1@322",
       "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48AddChecked@140",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateDyadL1@299",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateDyadL1@322",
       "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48NegateChecked@152",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateDyadL1@299",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateDyadL1@322",
       "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU64AbsSigned@48",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateDyadL1@299",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateDyadL1@322",
       "target": "Runtime/Resources/SigmaPrism/SigmaTopologyMath.hlsl::SigmaU128Add64@24",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateEndpointLane@210",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateIncrementI64@75",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateEndpointLane@229",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateIncrementI64@78",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateEndpointLane@210",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateNullLane@131",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateEndpointLane@229",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateNullLane@133",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateEndpointLane@210",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateOutsideSlot@204",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateEndpointLane@229",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateOutsideSlot@223",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateEndpointLane@210",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidatePageVisible@85",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateEndpointLane@229",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidatePageVisible@88",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateEndpointLane@210",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateTransactionPage@111",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateEndpointLane@229",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateTransactionPage@113",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateEndpointStatus@258",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateSampleAddress@65",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateEndpointStatus@281",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateSampleAddress@68",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateLoadCell@517",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateEndpointLane@210",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateLoadCell@548",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateEndpointLane@229",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateLoadWork@142",
-      "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamTransactionGeneration@116",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateLoadWork@142",
-      "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamTransactionState@111",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateLoadWork@142",
-      "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamWorkAddress@80",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateLoadWork@142",
-      "target": "Runtime/Resources/SigmaPrism/SigmaOperatorPlan.hlsl::SigmaCanonicalMutationEnabled@7",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidatePageVisible@85",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidatePageVisible@88",
       "target": "Runtime/Resources/SigmaPrism/SigmaManifestVisibility.hlsl::SigmaManifestHandleValid@8",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidatePageVisible@85",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidatePageVisible@88",
       "target": "Runtime/Resources/SigmaPrism/SigmaManifestVisibility.hlsl::SigmaManifestPageVisible@19",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateResolveNeighbours@162",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidatePrepareGroup@144",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamTransactionGeneration@116",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateResolveNeighbours@162",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateI64Equal@70",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidatePrepareGroup@144",
+      "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamTransactionState@111",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateResolveNeighbours@162",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateIncrementI64@75",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidatePrepareGroup@144",
+      "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamWorkAddress@80",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateResolveNeighbours@162",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidatePageVisible@85",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidatePrepareGroup@144",
+      "target": "Runtime/Resources/SigmaPrism/SigmaOperatorPlan.hlsl::SigmaCanonicalMutationEnabled@7",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateTauL1@323",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateResolveNeighbours@176",
+      "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamTransactionGeneration@116",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateResolveNeighbours@176",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateI64Equal@73",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateResolveNeighbours@176",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateIncrementI64@78",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateResolveNeighbours@176",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidatePageVisible@88",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateTauL1@346",
       "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaU64AbsSigned@48",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateTauL1@323",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateTauL1@346",
       "target": "Runtime/Resources/SigmaPrism/SigmaTopologyMath.hlsl::SigmaU128Add64@24",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateTauL1@323",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateTauL1@346",
       "target": "Runtime/Resources/SigmaPrism/SigmaTopologyMath.hlsl::SigmaU128Equal@11",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateTransactionPage@111",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidatePageReference@102",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateTransactionPage@113",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidatePageReference@104",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateTransitionLane@277",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateTransitionLane@300",
       "target": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedTables.hlsl::SigmaMulBasisSign@192",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateTransitionLane@277",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateTransitionLane@300",
       "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48AddChecked@140",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateTransitionLane@277",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateTransitionLane@300",
       "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48MulNearestEven@304",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateTransitionLane@277",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateTransitionLane@300",
       "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48NegateChecked@152",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateTransitionLane@277",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateEndpointLane@210",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateTransitionLane@300",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateEndpointLane@229",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateAssociatorChunk@570",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateAssociatorChunk@601",
       "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48SubChecked@159",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateAssociatorChunk@570",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateAssociatorChunk@601",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamTransactionGeneration@116",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateAssociatorChunk@570",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateCloseRecord@533",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateAssociatorChunk@601",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateCloseRecord@564",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateAssociatorChunk@570",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateLoadCell@517",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateAssociatorChunk@601",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateLoadCell@548",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateAssociatorChunk@570",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateLoadWork@142",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateAssociatorChunk@601",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidatePrepareGroup@144",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateAssociatorChunk@570",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateRecordAddress@60",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateAssociatorChunk@601",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateRecordAddress@63",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateAssociatorChunk@570",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateAssociatorChunk@601",
       "target": "Runtime/Resources/SigmaPrism/SigmaTopologyMath.hlsl::SigmaAssociatorPlan@118",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateAssociatorChunk@570",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateAssociatorChunk@601",
       "target": "Runtime/Resources/SigmaPrism/SigmaTopologyMath.hlsl::SigmaRelativeAssociatorGate@164",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateAssociatorChunk@570",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateAssociatorChunk@601",
       "target": "Runtime/Resources/SigmaPrism/SigmaTopologyMath.hlsl::SigmaS16L1@73",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateAssociatorChunk@570",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateAssociatorChunk@601",
       "target": "Runtime/Resources/SigmaPrism/SigmaTopologyMath.hlsl::SigmaStateHasContact@187",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateAssociatorChunk@570",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateAssociatorChunk@601",
       "target": "Runtime/Resources/SigmaPrism/SigmaTopologyMath.hlsl::SigmaU128Add@45",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateAssociatorChunk@570",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateAssociatorChunk@601",
       "target": "Runtime/Resources/SigmaPrism/SigmaTopologyMath.hlsl::SigmaU128Equal@11",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateTransitionChunk@334",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateTransitionChunk@357",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamTransactionGeneration@116",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateTransitionChunk@334",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateDyadL1@299",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateTransitionChunk@357",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateDyadL1@322",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateTransitionChunk@334",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateEndpointLane@210",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateTransitionChunk@357",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateEndpointLane@229",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateTransitionChunk@334",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateEndpointStatus@258",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateTransitionChunk@357",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateEndpointStatus@281",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateTransitionChunk@334",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateLoadWork@142",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateTransitionChunk@357",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidatePrepareGroup@144",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateTransitionChunk@334",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateRecordAddress@60",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateTransitionChunk@357",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateRecordAddress@63",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateTransitionChunk@334",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateResolveNeighbours@162",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateTransitionChunk@357",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateResolveNeighbours@176",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateTransitionChunk@334",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateTauL1@323",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateTransitionChunk@357",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateTauL1@346",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateTransitionChunk@334",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateTransitionLane@277",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateTransitionChunk@357",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateTransitionLane@300",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateTransitionChunk@334",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateTransitionChunk@357",
       "target": "Runtime/Resources/SigmaPrism/SigmaTopologyAbi.hlsl::SigmaTopologyPack@51",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateTransitionChunk@334",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateTransitionChunk@357",
       "target": "Runtime/Resources/SigmaPrism/SigmaTopologyMath.hlsl::SigmaRelativeNearGate@157",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateTransitionChunk@334",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateTransitionChunk@357",
       "target": "Runtime/Resources/SigmaPrism/SigmaTopologyMath.hlsl::SigmaStateHasContact@187",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateTransitionChunk@334",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateTransitionChunk@357",
       "target": "Runtime/Resources/SigmaPrism/SigmaTopologyMath.hlsl::SigmaU128Equal@11",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateTransitionChunk@334",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateTransitionChunk@357",
       "target": "Runtime/Resources/SigmaPrism/SigmaTopologyMath.hlsl::SigmaU128Less@16",
       "kind": "calls"
     },

@@ -1028,7 +1028,7 @@ void ScheduleSigmaTransactions(uint3 threadId : SV_GroupThreadID)
         occupiedMask |= 1u << transactionSlot;
     }
 
-    [unroll]
+    [loop]
     for (uint budgetClass = 1u; budgetClass <=
         SIGMA_STREAM_BUDGET_DERIVED_READOUT; ++budgetClass)
     {
@@ -1041,13 +1041,13 @@ void ScheduleSigmaTransactions(uint3 threadId : SV_GroupThreadID)
             SIGMA_STREAM_TOKEN_QUANTUM *
                 SIGMA_STREAM_TRANSACTION_CAPACITY);
         uint visited = 0u;
-        [unroll]
+        [loop]
         for (uint order = 0u; order <
             SIGMA_STREAM_TRANSACTION_CAPACITY; ++order)
         {
             uint selectedSlot = SIGMA_STREAM_INVALID;
             uint2 selectedWorkTicket = uint2(0xffffffffu, 0xffffffffu);
-            [unroll]
+            [loop]
             for (uint slot = 0u; slot <
                 SIGMA_STREAM_TRANSACTION_CAPACITY; ++slot)
             {

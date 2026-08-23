@@ -3,7 +3,9 @@
 
 #include "SigmaInverseWorkAbi.hlsl"
 #include "SigmaTopologyAbi.hlsl"
-#include "SigmaManifestVisibility.hlsl"
+
+// Disposable topology/readout materialization. Canonical transition closure is
+// already complete in CB2; this pass can neither evaluate nor authorize Psi.
 
 StructuredBuffer<SigmaStreamWorkItemGpu> _StreamWorkItems;
 StructuredBuffer<uint> _StreamWorkCounts;
@@ -25,6 +27,13 @@ uint _StreamManifestCapacity;
 
 #define SIGMA_DERIVED_INVALID 0xffffffffu
 
+groupshared uint DerivedActive;
+groupshared uint DerivedTransactionSlot;
+groupshared uint DerivedTargetPage;
+groupshared uint DerivedTransactionGeneration;
+groupshared uint DerivedRightPage;
+groupshared uint DerivedDownPage;
+
 uint SigmaDerivedTransitionAddress(uint pageSlot, uint transition)
 {
     return pageSlot * SIGMA_TRANSITIONS_PER_PAGE + transition;
@@ -35,27 +44,33 @@ uint SigmaDerivedCellAddress(uint pageSlot, uint sample)
     return pageSlot * SIGMA_PAGE_SAMPLE_COUNT + sample;
 }
 
-bool SigmaDerivedVisible(uint pageSlot)
+bool SigmaDerivedManifestPublished(uint2 handle)
+{
+    if (handle.x >= _StreamManifestCapacity || handle.y == 0u)
+        return false;
+    uint4 identity = _StreamManifests[handle.x].identity;
+    return identity.x == SIGMA_STREAM_MANIFEST_PUBLISHED &&
+        identity.y == handle.y;
+}
+
+bool SigmaDerivedPageVisible(uint pageSlot)
 {
     if (pageSlot >= _PageCapacity ||
         pageSlot >= _StreamManifestCapacity)
         return false;
     SigmaPageVisibilityGpu visibility = _StreamPageVisibility[pageSlot];
     uint2 bornHandle = visibility.bornRetired.xy;
-    if (!SigmaManifestHandleValid(bornHandle, _StreamManifestCapacity))
+    if (!SigmaDerivedManifestPublished(bornHandle))
         return false;
-    SigmaPublicationManifestGpu born = _StreamManifests[bornHandle.x];
     uint2 retiredHandle = visibility.bornRetired.zw;
-    SigmaPublicationManifestGpu retired = (SigmaPublicationManifestGpu)0;
-    if (SigmaManifestHandleValid(retiredHandle, _StreamManifestCapacity))
-        retired = _StreamManifests[retiredHandle.x];
-    return SigmaManifestPageVisible(visibility, born, retired);
+    return retiredHandle.x == SIGMA_STREAM_INVALID ||
+        !SigmaDerivedManifestPublished(retiredHandle);
 }
 
 bool SigmaDerivedTopologyCurrent(uint pageSlot)
 {
     if (pageSlot >= _TopologyPageCapacity ||
-        !SigmaDerivedVisible(pageSlot))
+        !SigmaDerivedPageVisible(pageSlot))
         return false;
     SigmaCarrierPageMetaGpu metadata = _PageMetadata[pageSlot];
     uint4 key = _TopologyPageKeys[pageSlot];
@@ -71,10 +86,10 @@ uint4 SigmaDerivedUnresolvedRecord()
 
 uint4 SigmaDerivedNeighbourRecord(uint pageSlot, uint transition)
 {
-    return SigmaDerivedTopologyCurrent(pageSlot)
-        ? _TopologyTransitionRecords[SigmaDerivedTransitionAddress(
-            pageSlot, transition)]
-        : SigmaDerivedUnresolvedRecord();
+    if (!SigmaDerivedTopologyCurrent(pageSlot))
+        return SigmaDerivedUnresolvedRecord();
+    return _TopologyTransitionRecords[SigmaDerivedTransitionAddress(
+        pageSlot, transition)];
 }
 
 bool SigmaDerivedRecordCuts(uint4 record)
@@ -82,64 +97,73 @@ bool SigmaDerivedRecordCuts(uint4 record)
     return SigmaTopologyClass(record.x) != SIGMA_TOPOLOGY_REGULAR;
 }
 
-bool SigmaDerivedLoad(uint workIndex, out uint transactionSlot,
-    out SigmaTransactionGpu transaction)
+void SigmaDerivedPrepareGroup(uint workIndex)
 {
-    transactionSlot = SIGMA_DERIVED_INVALID;
-    transaction = (SigmaTransactionGpu)0;
-    if (workIndex >= _StreamWorkCounts[
-            SIGMA_STREAM_OPCODE_PUBLISH_MANIFEST])
-        return false;
-    SigmaStreamWorkItemGpu work = _StreamWorkItems[SigmaStreamWorkAddress(
-        SIGMA_STREAM_OPCODE_PUBLISH_MANIFEST, workIndex)];
-    transactionSlot = work.identity.y;
+    DerivedActive = 0u;
+    DerivedTransactionSlot = SIGMA_DERIVED_INVALID;
+    DerivedTargetPage = SIGMA_DERIVED_INVALID;
+    DerivedTransactionGeneration = 0u;
+    DerivedRightPage = SIGMA_DERIVED_INVALID;
+    DerivedDownPage = SIGMA_DERIVED_INVALID;
+
+    uint workCount = _StreamWorkCounts[
+        SIGMA_STREAM_OPCODE_PUBLISH_MANIFEST];
+    if (workIndex >= workCount)
+        return;
+    SigmaStreamWorkItemGpu work = _StreamWorkItems[
+        SigmaStreamWorkAddress(SIGMA_STREAM_OPCODE_PUBLISH_MANIFEST,
+            workIndex)];
+    uint transactionSlot = work.identity.y;
     if (work.identity.x != SIGMA_STREAM_OPCODE_PUBLISH_MANIFEST ||
         transactionSlot >= SIGMA_STREAM_TRANSACTION_CAPACITY)
-        return false;
-    transaction = _StreamTransactions[transactionSlot];
-    if (SigmaStreamTransactionGeneration(transaction) != work.identity.z ||
+        return;
+    SigmaTransactionGpu transaction = _StreamTransactions[transactionSlot];
+    uint generation = SigmaStreamTransactionGeneration(transaction);
+    if (generation != work.identity.z ||
         SigmaStreamTransactionState(transaction) !=
-            SIGMA_STREAM_TRANSACTION_PUBLISHED)
-        return false;
-    uint2 manifestHandle = transaction.publication.xy;
-    return SigmaManifestHandleValid(manifestHandle,
-            _StreamManifestCapacity) &&
-        SigmaManifestHandlePublished(manifestHandle,
-            _StreamManifests[manifestHandle.x]);
+            SIGMA_STREAM_TRANSACTION_PUBLISHED ||
+        !SigmaDerivedManifestPublished(transaction.publication.xy))
+        return;
+
+    uint target = transaction.page0.state.y;
+    if (target >= _PageCapacity || target >= _TopologyPageCapacity ||
+        !SigmaDerivedPageVisible(target))
+        return;
+
+    uint4 neighbours = _StreamCandidateNeighbours[transactionSlot];
+    DerivedTransactionSlot = transactionSlot;
+    DerivedTargetPage = target;
+    DerivedTransactionGeneration = generation;
+    if (neighbours.x == generation)
+    {
+        DerivedRightPage = neighbours.y;
+        DerivedDownPage = neighbours.z;
+    }
+    DerivedActive = 1u;
 }
 
-// CB2 has already closed the exact candidate transition. This bounded derived
-// pass copies that result into disposable topology/readout storage. It never
-// evaluates a transition and cannot authorize canonical carrier publication.
 [numthreads(256, 1, 1)]
 void MaterializePublishedTopology(uint3 groupId : SV_GroupID,
     uint3 threadId : SV_GroupThreadID)
 {
-    uint transactionSlot = SIGMA_DERIVED_INVALID;
-    SigmaTransactionGpu transaction = (SigmaTransactionGpu)0;
-    if (!SigmaDerivedLoad(groupId.x, transactionSlot, transaction))
-        return;
-
     uint lane = threadId.x;
-    uint target = transaction.page0.state.y;
-    if (target >= _PageCapacity || target >= _TopologyPageCapacity ||
-        !SigmaDerivedVisible(target))
+    if (lane == 0u)
+        SigmaDerivedPrepareGroup(groupId.x);
+    GroupMemoryBarrierWithGroupSync();
+    if (DerivedActive == 0u)
         return;
 
+    uint transactionSlot = DerivedTransactionSlot;
+    uint target = DerivedTargetPage;
     uint candidateBase = transactionSlot * SIGMA_TRANSITIONS_PER_PAGE;
     uint targetBase = target * SIGMA_TRANSITIONS_PER_PAGE;
     for (uint transition = lane; transition < SIGMA_TRANSITIONS_PER_PAGE;
         transition += 256u)
+    {
         _TopologyTransitionRecords[targetBase + transition] =
             _StreamCandidateTransitions[candidateBase + transition];
+    }
     DeviceMemoryBarrierWithGroupSync();
-
-    uint4 neighbours = _StreamCandidateNeighbours[transactionSlot];
-    uint generation = SigmaStreamTransactionGeneration(transaction);
-    uint rightSlot = neighbours.x == generation
-        ? neighbours.y : SIGMA_DERIVED_INVALID;
-    uint downSlot = neighbours.x == generation
-        ? neighbours.z : SIGMA_DERIVED_INVALID;
 
     for (uint sample = lane; sample < SIGMA_PAGE_SAMPLE_COUNT;
         sample += 256u)
@@ -149,14 +173,22 @@ void MaterializePublishedTopology(uint3 groupId : SV_GroupID,
         uint4 top = _TopologyTransitionRecords[targetBase + sample];
         uint4 left = _TopologyTransitionRecords[targetBase +
             SIGMA_PAGE_SAMPLE_COUNT + sample];
-        uint4 right = x < 63u
-            ? _TopologyTransitionRecords[targetBase +
-                SIGMA_PAGE_SAMPLE_COUNT + sample + 1u]
-            : SigmaDerivedNeighbourRecord(rightSlot,
+        uint4 right;
+        if (x < 63u)
+        {
+            right = _TopologyTransitionRecords[targetBase +
+                SIGMA_PAGE_SAMPLE_COUNT + sample + 1u];
+        }
+        else
+        {
+            right = SigmaDerivedNeighbourRecord(DerivedRightPage,
                 SIGMA_PAGE_SAMPLE_COUNT + y * 64u);
-        uint4 bottom = y < 63u
-            ? _TopologyTransitionRecords[targetBase + sample + 64u]
-            : SigmaDerivedNeighbourRecord(downSlot, x);
+        }
+        uint4 bottom;
+        if (y < 63u)
+            bottom = _TopologyTransitionRecords[targetBase + sample + 64u];
+        else
+            bottom = SigmaDerivedNeighbourRecord(DerivedDownPage, x);
 
         uint flags = 0u;
         if (SigmaDerivedRecordCuts(top) || SigmaDerivedRecordCuts(left))

@@ -7,10 +7,9 @@
 #include "SigmaConstraintLedgerAbi.hlsl"
 #include "SigmaInverseWorkAbi.hlsl"
 
-// Bounded canonical evaluator. One group is exactly sixteen carrier samples by
-// sixteen S16 coordinates. Source bundles are consumed in sealed ticket order;
-// joint bounds persist between bundles and a candidate is built only after the
-// final bundle has contributed.
+// Bounded canonical evaluator. One group is sixteen carrier samples by sixteen
+// S16 coordinates. Complete sealed sources meet in ticket order; publication is
+// impossible until the final source and proof/transition closure have finished.
 
 StructuredBuffer<uint2> _CarrierState;
 StructuredBuffer<SigmaCarrierPageMetaGpu> _PageMetadata;
@@ -68,6 +67,12 @@ groupshared uint EvalConstrainedMask[SIGMA_STREAM_EVAL_SAMPLES];
 groupshared uint EvalOutcome[SIGMA_STREAM_EVAL_SAMPLES];
 groupshared uint EvalCandidateValid[SIGMA_STREAM_EVAL_SAMPLES];
 
+groupshared uint EvalGroupActive;
+groupshared uint EvalGroupTransactionSlot;
+groupshared uint EvalGroupTransactionGeneration;
+groupshared SigmaTransactionGpu EvalGroupTransaction;
+groupshared SigmaSealedSourceBundleGpu EvalGroupBundle;
+
 uint2 SigmaStreamNullLane(uint lane)
 {
     if (lane == (uint)SIGMA_Z_NULL_DYAD.x)
@@ -89,11 +94,6 @@ uint SigmaStreamJointAddress(uint transactionSlot, uint sample,
 uint SigmaStreamSampleAddress(uint transactionSlot, uint sample)
 {
     return transactionSlot * SIGMA_PAGE_SAMPLE_COUNT + sample;
-}
-
-uint4 SigmaStreamRaw(uint rawTileBase, uint sample, uint word)
-{
-    return _RawWords[SigmaStreamRawWordAddress(rawTileBase, sample, word)];
 }
 
 bool SigmaStreamLoadCurrentBundle(SigmaTransactionGpu transaction,
@@ -317,7 +317,8 @@ bool SigmaEvalBuildBootstrap(SigmaDepthCell3 left, SigmaDepthCell3 right,
         }
         depthCount++;
     }
-    if (right.valid != 0u && right.sector != SIGMA_SECTOR_PRE_HIT_EXCLUSION)
+    if (right.valid != 0u &&
+        right.sector != SIGMA_SECTOR_PRE_HIT_EXCLUSION)
     {
         [unroll]
         for (uint axis = 0u; axis < 3u; ++axis)
@@ -346,9 +347,6 @@ bool SigmaEvalBuildBootstrap(SigmaDepthCell3 left, SigmaDepthCell3 right,
     return depthCount != 0u && valid != 0u;
 }
 
-// Fixed two-forward/two-reverse RGB contraction over one source eye.  Every
-// coordinate lane follows the same barrier schedule; no source-dependent branch
-// can skip a synchronization point.
 SigmaQ48Bounds SigmaEvalRgbEye(uint flat, uint coordinate, uint sampleLocal,
     uint calibrationBase, uint eye, uint4 rawFirst, uint4 rawSecond,
     SigmaCarrierPageMetaGpu metadata, uint sample, bool supported,
@@ -402,7 +400,8 @@ SigmaQ48Bounds SigmaEvalRgbEye(uint flat, uint coordinate, uint sampleLocal,
     {
         denominatorCoefficient = SigmaRgbOperator(
             EvalRgbDirection[sampleLocal], 0u, coordinate);
-        contribution = SigmaQ48ScaleBounds(denominatorCoefficient, box, valid);
+        contribution = SigmaQ48ScaleBounds(denominatorCoefficient, box,
+            valid);
     }
     EvalContribution[flat] = contribution.lo;
     EvalCoefficient[flat] = contribution.hi;
@@ -447,12 +446,14 @@ SigmaQ48Bounds SigmaEvalRgbEye(uint flat, uint coordinate, uint sampleLocal,
             valid = EvalRgbActive[sampleLocal];
             uint2 coefficient = SIGMA_Q48_ZERO;
             if (valid != 0u)
+            {
                 coefficient = SigmaRgbInequalityCoefficient(constraint,
                     EvalRgbDirection[sampleLocal], coordinate,
                     EvalRgbMeasurement[sampleLocal * 3u + 0u],
                     EvalRgbMeasurement[sampleLocal * 3u + 1u],
                     EvalRgbMeasurement[sampleLocal * 3u + 2u],
                     EvalRgbNegative[sampleLocal] != 0u, valid);
+            }
             uint2 minimum = SIGMA_Q48_ZERO;
             if (valid != 0u)
                 minimum = SigmaQ48ScaleBounds(coefficient, box, valid).lo;
@@ -479,21 +480,25 @@ SigmaQ48Bounds SigmaEvalRgbEye(uint flat, uint coordinate, uint sampleLocal,
             if (valid != 0u &&
                 !SigmaU64Equal(EvalCoefficient[flat], SIGMA_Q48_ZERO))
             {
-                uint2 other = SigmaQ48SubChecked(EvalRgbTotal[sampleLocal],
-                    EvalContribution[flat], valid);
+                uint2 other = SigmaQ48SubChecked(
+                    EvalRgbTotal[sampleLocal], EvalContribution[flat], valid);
                 uint2 upper = constraint == 0u
-                    ? SigmaQ48NegateChecked(EvalRgbSupportFloor[sampleLocal],
-                        valid)
+                    ? SigmaQ48NegateChecked(
+                        EvalRgbSupportFloor[sampleLocal], valid)
                     : SIGMA_Q48_ZERO;
                 uint2 numerator = SigmaQ48SubChecked(upper, other, valid);
                 if ((EvalCoefficient[flat].y & 0x80000000u) == 0u)
+                {
                     box.hi = SigmaQ48Min(box.hi,
                         SigmaQ48DivUpper(numerator, EvalCoefficient[flat],
                             valid));
+                }
                 else
+                {
                     box.lo = SigmaQ48Max(box.lo,
                         SigmaQ48DivLower(numerator, EvalCoefficient[flat],
                             valid));
+                }
             }
             EvalLaneValid[flat] = valid;
         }
@@ -521,11 +526,13 @@ SigmaQ48Bounds SigmaEvalRgbEye(uint flat, uint coordinate, uint sampleLocal,
     return box;
 }
 
-[numthreads(SIGMA_STREAM_EVAL_THREADS, 1, 1)]
-void EvaluateTransactionMicrotile(uint3 groupId : SV_GroupID,
-    uint3 threadId : SV_GroupThreadID)
+void SigmaEvalPrepareGroup(uint workIndex)
 {
-    uint workIndex = groupId.x;
+    EvalGroupActive = 0u;
+    EvalGroupTransactionSlot = SIGMA_STREAM_INVALID;
+    EvalGroupTransactionGeneration = 0u;
+    EvalGroupTransaction = (SigmaTransactionGpu)0;
+    EvalGroupBundle = (SigmaSealedSourceBundleGpu)0;
     uint workCount = _StreamWorkCounts[
         SIGMA_STREAM_OPCODE_EVALUATE_MICROTILE];
     if (workIndex >= workCount || !SigmaCanonicalMutationEnabled())
@@ -533,23 +540,17 @@ void EvaluateTransactionMicrotile(uint3 groupId : SV_GroupID,
     SigmaStreamWorkItemGpu work = _StreamWorkItems[SigmaStreamWorkAddress(
         SIGMA_STREAM_OPCODE_EVALUATE_MICROTILE, workIndex)];
     uint transactionSlot = work.identity.y;
-    if (transactionSlot >= SIGMA_STREAM_TRANSACTION_CAPACITY)
+    if (work.identity.x != SIGMA_STREAM_OPCODE_EVALUATE_MICROTILE ||
+        transactionSlot >= SIGMA_STREAM_TRANSACTION_CAPACITY)
         return;
     SigmaTransactionGpu transaction = _StreamTransactions[transactionSlot];
     if (SigmaStreamTransactionGeneration(transaction) != work.identity.z ||
         SigmaStreamTransactionState(transaction) !=
             SIGMA_STREAM_TRANSACTION_EVALUATING ||
-        transaction.progress.w != 0u)
-        return;
-
-    uint flat = threadId.x;
-    uint coordinate = flat & 15u;
-    uint sampleLocal = flat >> 4u;
-    uint sourceOrdinal = transaction.progress.x;
-    uint block = transaction.progress.y;
-    uint microtile = transaction.progress.z;
-    if (sourceOrdinal >= transaction.source.z || block >= 64u ||
-        microtile >= 4u)
+        transaction.progress.w != 0u ||
+        transaction.progress.x >= transaction.source.z ||
+        transaction.progress.y >= 64u || transaction.progress.z >= 4u ||
+        transaction.page0.state.y >= _TargetPageCapacity)
         return;
     uint bundleSlot;
     uint bundleGeneration;
@@ -570,33 +571,45 @@ void EvaluateTransactionMicrotile(uint3 groupId : SV_GroupID,
             SIGMA_STREAM_CONTROL_PUBLISHED_COUNT];
     if (!associationCurrent)
     {
-        if (threadId.x == 0u)
-        {
-            SigmaTransactionGpu current =
-                _StreamTransactions[transactionSlot];
-            if (SigmaStreamTransactionGeneration(current) ==
-                    work.identity.z &&
-                SigmaStreamTransactionState(current) ==
-                    SIGMA_STREAM_TRANSACTION_EVALUATING &&
-                all(current.progress == transaction.progress))
-            {
-                current.identity.x =
-                    SIGMA_STREAM_TRANSACTION_REVALIDATE_PENDING;
-                current.identity.w |=
-                    SIGMA_STREAM_WORK_FLAG_NEEDS_REVALIDATION;
-                _StreamTransactions[transactionSlot] = current;
-            }
-        }
+        transaction.identity.x =
+            SIGMA_STREAM_TRANSACTION_REVALIDATE_PENDING;
+        transaction.identity.w |= SIGMA_STREAM_WORK_FLAG_NEEDS_REVALIDATION;
+        _StreamTransactions[transactionSlot] = transaction;
         return;
     }
+    EvalGroupTransactionSlot = transactionSlot;
+    EvalGroupTransactionGeneration = work.identity.z;
+    EvalGroupTransaction = transaction;
+    EvalGroupBundle = bundle;
+    EvalGroupActive = 1u;
+}
 
+[numthreads(SIGMA_STREAM_EVAL_THREADS, 1, 1)]
+void EvaluateTransactionMicrotile(uint3 groupId : SV_GroupID,
+    uint3 threadId : SV_GroupThreadID)
+{
+    uint flat = threadId.x;
+    if (flat == 0u)
+        SigmaEvalPrepareGroup(groupId.x);
+    GroupMemoryBarrierWithGroupSync();
+    if (EvalGroupActive == 0u)
+        return;
+
+    uint transactionSlot = EvalGroupTransactionSlot;
+    uint transactionGeneration = EvalGroupTransactionGeneration;
+    SigmaTransactionGpu transaction = EvalGroupTransaction;
+    SigmaSealedSourceBundleGpu bundle = EvalGroupBundle;
+    uint coordinate = flat & 15u;
+    uint sampleLocal = flat >> 4u;
+    uint sourceOrdinal = transaction.progress.x;
+    uint block = transaction.progress.y;
+    uint microtile = transaction.progress.z;
     uint local = microtile * 16u + sampleLocal;
     uint sample = SigmaProofPageSample(block, local);
     uint sourcePage = transaction.page0.state.x;
     uint targetPage = transaction.page0.state.y;
-    if (targetPage >= _TargetPageCapacity)
-        return;
-    bool gauge = (transaction.identity.w & SIGMA_STREAM_WORK_FLAG_GAUGE) != 0u;
+    bool gauge = (transaction.identity.w &
+        SIGMA_STREAM_WORK_FLAG_GAUGE) != 0u;
     uint calibrationBase = bundle.calibration.x;
     uint rawBase = SigmaStreamRawWordAddress(bundle.raw.x, sample, 0u);
     uint4 raw0 = _RawWords[rawBase + 0u];
@@ -606,11 +619,12 @@ void EvaluateTransactionMicrotile(uint3 groupId : SV_GroupID,
     uint4 raw4 = _RawWords[rawBase + 4u];
     uint4 raw5 = _RawWords[rawBase + 5u];
 
-    SigmaAssociationSampleGpu association =
-        (SigmaAssociationSampleGpu)0;
+    SigmaAssociationSampleGpu association = (SigmaAssociationSampleGpu)0;
     if (bundle.raw.z < SIGMA_STREAM_TRANSACTION_CAPACITY)
+    {
         association = _StreamAssociation[
             bundle.raw.z * SIGMA_PAGE_SAMPLE_COUNT + sample];
+    }
     float2 predictedLeft;
     float2 predictedRight;
     uint4 leftPage;
@@ -640,8 +654,8 @@ void EvaluateTransactionMicrotile(uint3 groupId : SV_GroupID,
         EvalSourceMask[sampleLocal] = 0u;
         EvalConstrainedMask[sampleLocal] = priorMeta.x;
         EvalOutcome[sampleLocal] = sourceOrdinal == 0u
-            ? SIGMA_STREAM_OUTCOME_NO_EVIDENCE :
-                _StreamSampleOutcomes[streamSample];
+            ? SIGMA_STREAM_OUTCOME_NO_EVIDENCE
+            : _StreamSampleOutcomes[streamSample];
         EvalCandidateValid[sampleLocal] = 0u;
     }
     GroupMemoryBarrierWithGroupSync();
@@ -704,8 +718,10 @@ void EvaluateTransactionMicrotile(uint3 groupId : SV_GroupID,
         : SIGMA_Q48_ZERO;
     EvalCurrentY[flat] = currentY;
     if (coordinate == 0u)
+    {
         EvalPriorWidth[sampleLocal] = SigmaOwnedPriorHalfWidth(
             calibrationBase, EvalMass[sampleLocal], projectiveValid);
+    }
     EvalLaneValid[flat] = projectiveValid;
     SigmaEvalReduceValidity(flat, coordinate, sampleLocal,
         EvalLaneValid[flat]);
@@ -740,8 +756,10 @@ void EvaluateTransactionMicrotile(uint3 groupId : SV_GroupID,
             joint = SigmaQ48Widen(EvalCurrentY[flat],
                 EvalPriorWidth[sampleLocal], valid);
             if (valid != 0u)
+            {
                 valid &= SigmaApplyConstraintPriorLane(metadata, sample,
                     coordinate, joint) ? 1u : 0u;
+            }
             if (valid == 0u)
                 joint = SigmaQ48PointBounds(SIGMA_Q48_ZERO);
             provenance = uint4(SIGMA_SOURCE_PRIOR, SIGMA_SOURCE_PRIOR,
@@ -842,9 +860,11 @@ void EvaluateTransactionMicrotile(uint3 groupId : SV_GroupID,
             EvalOutcome[sampleLocal], outcome);
 
         uint status = 0u;
-        if (depthLeft.valid != 0u && depthLeft.sector == SIGMA_SECTOR_HIT)
+        if (depthLeft.valid != 0u &&
+            depthLeft.sector == SIGMA_SECTOR_HIT)
             status |= SIGMA_PROPOSAL_HIT_LEFT;
-        if (depthRight.valid != 0u && depthRight.sector == SIGMA_SECTOR_HIT)
+        if (depthRight.valid != 0u &&
+            depthRight.sector == SIGMA_SECTOR_HIT)
             status |= SIGMA_PROPOSAL_HIT_RIGHT;
         if (EvalConflictMask[sampleLocal] != 0u)
             status |= SIGMA_PROPOSAL_CONFLICT;
@@ -864,13 +884,16 @@ void EvaluateTransactionMicrotile(uint3 groupId : SV_GroupID,
         _ProofSamples[proofIndex].depthLeft = depthLeft;
         _ProofSamples[proofIndex].depthRight = depthRight;
         _ProofSamples[proofIndex].rgbLeft.coordinateMask = leftRgbMask;
-        _ProofSamples[proofIndex].rgbLeft.sourceClass = SIGMA_SOURCE_RGB_LEFT;
+        _ProofSamples[proofIndex].rgbLeft.sourceClass =
+            SIGMA_SOURCE_RGB_LEFT;
         _ProofSamples[proofIndex].rgbLeft.independenceKey = bundle.keys.z;
         _ProofSamples[proofIndex].rgbLeft.valid = leftRgbMask != 0u ? 1u : 0u;
         _ProofSamples[proofIndex].rgbRight.coordinateMask = rightRgbMask;
-        _ProofSamples[proofIndex].rgbRight.sourceClass = SIGMA_SOURCE_RGB_RIGHT;
+        _ProofSamples[proofIndex].rgbRight.sourceClass =
+            SIGMA_SOURCE_RGB_RIGHT;
         _ProofSamples[proofIndex].rgbRight.independenceKey = bundle.keys.w;
-        _ProofSamples[proofIndex].rgbRight.valid = rightRgbMask != 0u ? 1u : 0u;
+        _ProofSamples[proofIndex].rgbRight.valid =
+            rightRgbMask != 0u ? 1u : 0u;
         _ProofSamples[proofIndex].raw[0] = raw0;
         _ProofSamples[proofIndex].raw[1] = raw1;
         _ProofSamples[proofIndex].raw[2] = raw2;
@@ -885,8 +908,7 @@ void EvaluateTransactionMicrotile(uint3 groupId : SV_GroupID,
         cumulative.z |= EvalConflictMask[sampleLocal];
         cumulative.w = sourceOrdinal;
         _StreamSampleMeta[streamSample] = cumulative;
-        _StreamSampleOutcomes[SigmaStreamSampleAddress(transactionSlot,
-            sample)] = EvalOutcome[sampleLocal];
+        _StreamSampleOutcomes[streamSample] = EvalOutcome[sampleLocal];
     }
     GroupMemoryBarrierWithGroupSync();
 
@@ -945,9 +967,11 @@ void EvaluateTransactionMicrotile(uint3 groupId : SV_GroupID,
     }
     SigmaEvalReduceValidity(flat, coordinate, sampleLocal, checkValid);
     if (finalSource)
+    {
         _TargetCarrierState[targetPage * SIGMA_PAGE_LANE_COUNT +
             sample * 16u + coordinate] =
             EvalSampleValid[sampleLocal] != 0u ? candidate : fallbackState;
+    }
     if (coordinate == 0u && finalSource)
     {
         uint status = _ProofSamples[proofIndex].meta.x;
@@ -965,7 +989,8 @@ void EvaluateTransactionMicrotile(uint3 groupId : SV_GroupID,
     if (flat == 0u)
     {
         SigmaTransactionGpu current = _StreamTransactions[transactionSlot];
-        if (SigmaStreamTransactionGeneration(current) == work.identity.z &&
+        if (SigmaStreamTransactionGeneration(current) ==
+                transactionGeneration &&
             current.progress.x == sourceOrdinal &&
             current.progress.y == block &&
             current.progress.z == microtile && current.progress.w == 0u)

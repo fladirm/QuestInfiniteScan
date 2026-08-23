@@ -75,6 +75,13 @@ groupshared uint4 ReduceIdentity[64u];
 groupshared uint4 ReduceState[64u];
 groupshared uint4 ReduceRaw[64u];
 groupshared SigmaQ48Bounds ReduceBounds[64u * 16u];
+groupshared uint ReduceGroupActive;
+groupshared uint ReduceGroupProceed;
+groupshared uint ReduceGroupTransactionSlot;
+groupshared uint ReduceGroupTransactionGeneration;
+groupshared uint ReduceGroupRequired;
+groupshared SigmaTransactionGpu ReduceGroupTransaction;
+groupshared SigmaSealedSourceBundleGpu ReduceGroupBundle;
 
 SigmaQ48Bounds SigmaProofFullBounds()
 {
@@ -474,19 +481,24 @@ void SigmaProofReduceSource(uint transactionSlot, uint block,
     _StreamProofCandidates[candidate] = output;
 }
 
-[numthreads(64, 1, 1)]
-void ReduceTransactionSourceBlock(uint3 groupId : SV_GroupID,
-    uint3 threadId : SV_GroupThreadID)
+void SigmaProofPrepareReduceGroup(uint workIndex)
 {
-    uint workIndex = groupId.x;
-    uint workCount = _StreamWorkCounts[
-        SIGMA_STREAM_OPCODE_REDUCE_SOURCE_BLOCK];
-    if (workIndex >= workCount || !SigmaCanonicalMutationEnabled())
+    ReduceGroupActive = 0u;
+    ReduceGroupProceed = 0u;
+    ReduceGroupTransactionSlot = SIGMA_STREAM_INVALID;
+    ReduceGroupTransactionGeneration = 0u;
+    ReduceGroupRequired = 0u;
+    ReduceGroupTransaction = (SigmaTransactionGpu)0;
+    ReduceGroupBundle = (SigmaSealedSourceBundleGpu)0;
+    if (workIndex >= _StreamWorkCounts[
+            SIGMA_STREAM_OPCODE_REDUCE_SOURCE_BLOCK] ||
+        !SigmaCanonicalMutationEnabled())
         return;
     SigmaStreamWorkItemGpu work = _StreamWorkItems[SigmaStreamWorkAddress(
         SIGMA_STREAM_OPCODE_REDUCE_SOURCE_BLOCK, workIndex)];
     uint transactionSlot = work.identity.y;
-    if (transactionSlot >= SIGMA_STREAM_TRANSACTION_CAPACITY ||
+    if (work.identity.x != SIGMA_STREAM_OPCODE_REDUCE_SOURCE_BLOCK ||
+        transactionSlot >= SIGMA_STREAM_TRANSACTION_CAPACITY ||
         _StreamSchedulerControl[SIGMA_STREAM_CONTROL_PROOF_OWNER] !=
             transactionSlot)
         return;
@@ -494,12 +506,9 @@ void ReduceTransactionSourceBlock(uint3 groupId : SV_GroupID,
     if (SigmaStreamTransactionGeneration(transaction) != work.identity.z ||
         SigmaStreamTransactionState(transaction) !=
             SIGMA_STREAM_TRANSACTION_EVALUATING ||
-        transaction.progress.w != 1u)
-        return;
-    uint sourceOrdinal = transaction.progress.x;
-    uint block = transaction.progress.y;
-    if (sourceOrdinal >= transaction.source.z ||
-        block >= SIGMA_CERTIFICATE_BLOCKS_PER_PAGE ||
+        transaction.progress.w != 1u ||
+        transaction.progress.x >= transaction.source.z ||
+        transaction.progress.y >= SIGMA_CERTIFICATE_BLOCKS_PER_PAGE ||
         _StreamProofCandidateCapacity <= 1u)
         return;
     uint bundleSlot;
@@ -511,8 +520,30 @@ void ReduceTransactionSourceBlock(uint3 groupId : SV_GroupID,
     if (SigmaStreamBundleGeneration(bundle) != bundleGeneration ||
         SigmaStreamBundleState(bundle) != SIGMA_STREAM_BUNDLE_ACTIVE)
         return;
+    ReduceGroupTransactionSlot = transactionSlot;
+    ReduceGroupTransactionGeneration = work.identity.z;
+    ReduceGroupTransaction = transaction;
+    ReduceGroupBundle = bundle;
+    ReduceGroupActive = 1u;
+}
 
+[numthreads(64, 1, 1)]
+void ReduceTransactionSourceBlock(uint3 groupId : SV_GroupID,
+    uint3 threadId : SV_GroupThreadID)
+{
     uint lane = threadId.x;
+    if (lane == 0u)
+        SigmaProofPrepareReduceGroup(groupId.x);
+    GroupMemoryBarrierWithGroupSync();
+    if (ReduceGroupActive == 0u)
+        return;
+
+    uint transactionSlot = ReduceGroupTransactionSlot;
+    uint transactionGeneration = ReduceGroupTransactionGeneration;
+    SigmaTransactionGpu transaction = ReduceGroupTransaction;
+    SigmaSealedSourceBundleGpu bundle = ReduceGroupBundle;
+    uint sourceOrdinal = transaction.progress.x;
+    uint block = transaction.progress.y;
     SigmaProofClosureGpu closure = _StreamProofClosures[transactionSlot];
     uint priorCount = closure.journal.z;
     if (sourceOrdinal == 0u && closure.identity.x == SIGMA_STREAM_PROOF_IDLE)
@@ -527,14 +558,15 @@ void ReduceTransactionSourceBlock(uint3 groupId : SV_GroupID,
             _StreamProofClosures[transactionSlot] = closure;
         }
     }
-    GroupMemoryBarrierWithGroupSync();
+    DeviceMemoryBarrierWithGroupSync();
     closure = _StreamProofClosures[transactionSlot];
     priorCount = closure.journal.z;
-    uint required = priorCount + (sourceOrdinal + 1u) *
-        SIGMA_STREAM_PROOF_SOURCE_CLASS_COUNT;
-    if (required >= _StreamProofCandidateCapacity)
+    if (lane == 0u)
     {
-        if (lane == 0u)
+        uint required = priorCount + (sourceOrdinal + 1u) *
+            SIGMA_STREAM_PROOF_SOURCE_CLASS_COUNT;
+        ReduceGroupRequired = required;
+        if (required >= _StreamProofCandidateCapacity)
         {
             closure.identity.w = SIGMA_STREAM_SOURCE_SEGMENT_SPILLED;
             _StreamProofClosures[transactionSlot] = closure;
@@ -543,8 +575,12 @@ void ReduceTransactionSourceBlock(uint3 groupId : SV_GroupID,
             InterlockedAdd(_StreamSchedulerControl[
                 SIGMA_STREAM_CONTROL_PROOF_SPILL_COUNT], 1u);
         }
-        return;
+        else
+            ReduceGroupProceed = 1u;
     }
+    DeviceMemoryBarrierWithGroupSync();
+    if (ReduceGroupProceed == 0u)
+        return;
 
     uint candidateBase = priorCount + sourceOrdinal *
         SIGMA_STREAM_PROOF_SOURCE_CLASS_COUNT;
@@ -559,11 +595,13 @@ void ReduceTransactionSourceBlock(uint3 groupId : SV_GroupID,
     if (lane != 0u)
         return;
 
+    uint required = ReduceGroupRequired;
     closure = _StreamProofClosures[transactionSlot];
     closure.journal.x = required;
     _StreamProofClosures[transactionSlot] = closure;
     SigmaTransactionGpu current = _StreamTransactions[transactionSlot];
-    if (SigmaStreamTransactionGeneration(current) != work.identity.z ||
+    if (SigmaStreamTransactionGeneration(current) !=
+            transactionGeneration ||
         current.progress.x != sourceOrdinal || current.progress.y != block ||
         current.progress.w != 1u)
         return;

@@ -7,9 +7,8 @@
 #include "SigmaInverseWorkAbi.hlsl"
 #include "SigmaManifestVisibility.hlsl"
 
-// Canonical candidate-transition closure.  This shader never consumes the
-// disposable derived topology cache.  It evaluates candidate Psi directly in
-// fixed 64-edge windows and preserves its cursors in SigmaTransactionGpu.
+// Canonical candidate-transition closure. Candidate Psi is evaluated directly
+// in bounded windows; the disposable topology cache is never an authority.
 
 StructuredBuffer<SigmaStreamWorkItemGpu> _StreamWorkItems;
 StructuredBuffer<uint> _StreamWorkCounts;
@@ -57,6 +56,10 @@ groupshared uint CandidateChunkFailure[SIGMA_CANDIDATE_EDGE_CHUNK];
 groupshared uint CandidateRightSlot;
 groupshared uint CandidateDownSlot;
 groupshared uint CandidateDiagonalSlot;
+groupshared uint CandidateGroupActive;
+groupshared uint CandidateGroupTransactionSlot;
+groupshared uint CandidateGroupChunk;
+groupshared SigmaTransactionGpu CandidateGroupTransaction;
 
 uint SigmaCandidateRecordAddress(uint transactionSlot, uint transition)
 {
@@ -93,8 +96,7 @@ bool SigmaCandidatePageVisible(uint slot)
     if (!SigmaManifestHandleValid(bornHandle, _StreamManifestCapacity))
         return false;
     SigmaPublicationManifestGpu born = _StreamManifests[bornHandle.x];
-    SigmaPublicationManifestGpu retired =
-        (SigmaPublicationManifestGpu)0;
+    SigmaPublicationManifestGpu retired = (SigmaPublicationManifestGpu)0;
     if (SigmaManifestHandleValid(retiredHandle, _StreamManifestCapacity))
         retired = _StreamManifests[retiredHandle.x];
     return SigmaManifestPageVisible(visibility, born, retired);
@@ -140,30 +142,42 @@ uint2 SigmaCandidateNullLane(uint lane)
     return uint2(0u, 0u);
 }
 
-bool SigmaCandidateLoadWork(uint opcode, uint workIndex,
-    uint requiredState, out uint transactionSlot,
-    out SigmaTransactionGpu transaction)
+void SigmaCandidatePrepareGroup(uint opcode, uint workIndex,
+    uint requiredPhase, uint chunkLimit)
 {
-    transactionSlot = SIGMA_STREAM_INVALID;
-    transaction = (SigmaTransactionGpu)0;
-    if (workIndex >= _StreamWorkCounts[opcode] ||
-        !SigmaCanonicalMutationEnabled())
-        return false;
+    CandidateGroupActive = 0u;
+    CandidateGroupTransactionSlot = SIGMA_STREAM_INVALID;
+    CandidateGroupChunk = 0u;
+    CandidateGroupTransaction = (SigmaTransactionGpu)0;
+    if (!SigmaCanonicalMutationEnabled() ||
+        workIndex >= _StreamWorkCounts[opcode])
+        return;
     SigmaStreamWorkItemGpu work = _StreamWorkItems[
         SigmaStreamWorkAddress(opcode, workIndex)];
-    transactionSlot = work.identity.y;
+    uint transactionSlot = work.identity.y;
     if (work.identity.x != opcode ||
         transactionSlot >= SIGMA_STREAM_TRANSACTION_CAPACITY)
-        return false;
-    transaction = _StreamTransactions[transactionSlot];
-    return SigmaStreamTransactionGeneration(transaction) == work.identity.z &&
-        SigmaStreamTransactionState(transaction) == requiredState;
+        return;
+    SigmaTransactionGpu transaction = _StreamTransactions[transactionSlot];
+    if (SigmaStreamTransactionGeneration(transaction) != work.identity.z ||
+        SigmaStreamTransactionState(transaction) !=
+            SIGMA_STREAM_TRANSACTION_TRANSITION_PENDING ||
+        transaction.transition.z != requiredPhase)
+        return;
+    uint chunk = requiredPhase == 0u
+        ? transaction.transition.x : transaction.transition.y;
+    if (chunk >= chunkLimit)
+        return;
+    CandidateGroupTransactionSlot = transactionSlot;
+    CandidateGroupChunk = chunk;
+    CandidateGroupTransaction = transaction;
+    CandidateGroupActive = 1u;
 }
 
 void SigmaCandidateResolveNeighbours(uint lane, uint transactionSlot,
-    SigmaTransactionGpu transaction)
+    SigmaTransactionGpu transaction, bool resolve)
 {
-    if (lane == 0u)
+    if (lane == 0u && resolve)
     {
         CandidateRightSlot = SIGMA_STREAM_INVALID;
         CandidateDownSlot = SIGMA_STREAM_INVALID;
@@ -171,35 +185,40 @@ void SigmaCandidateResolveNeighbours(uint lane, uint transactionSlot,
     }
     GroupMemoryBarrierWithGroupSync();
 
-    uint2 targetX = transaction.page0.coordinate.xy;
-    uint2 targetY = transaction.page0.coordinate.zw;
-    uint2 nextX;
-    uint2 nextY;
-    bool hasNextX = SigmaCandidateIncrementI64(targetX, nextX);
-    bool hasNextY = SigmaCandidateIncrementI64(targetY, nextY);
-    for (uint candidate = lane; candidate < _PageCapacity;
-        candidate += 256u)
+    if (resolve)
     {
-        if (!SigmaCandidatePageVisible(candidate))
-            continue;
-        SigmaCarrierPageMetaGpu metadata = _PageMetadata[candidate];
-        uint2 x = uint2(metadata.pageXLo, metadata.pageXHi);
-        uint2 y = uint2(metadata.pageYLo, metadata.pageYHi);
-        if (hasNextX && SigmaCandidateI64Equal(x, nextX) &&
-            SigmaCandidateI64Equal(y, targetY))
-            InterlockedMin(CandidateRightSlot, candidate);
-        if (hasNextY && SigmaCandidateI64Equal(x, targetX) &&
-            SigmaCandidateI64Equal(y, nextY))
-            InterlockedMin(CandidateDownSlot, candidate);
-        if (hasNextX && hasNextY && SigmaCandidateI64Equal(x, nextX) &&
-            SigmaCandidateI64Equal(y, nextY))
-            InterlockedMin(CandidateDiagonalSlot, candidate);
+        uint2 targetX = transaction.page0.coordinate.xy;
+        uint2 targetY = transaction.page0.coordinate.zw;
+        uint2 nextX;
+        uint2 nextY;
+        bool hasNextX = SigmaCandidateIncrementI64(targetX, nextX);
+        bool hasNextY = SigmaCandidateIncrementI64(targetY, nextY);
+        for (uint candidate = lane; candidate < _PageCapacity;
+            candidate += 256u)
+        {
+            if (!SigmaCandidatePageVisible(candidate))
+                continue;
+            SigmaCarrierPageMetaGpu metadata = _PageMetadata[candidate];
+            uint2 x = uint2(metadata.pageXLo, metadata.pageXHi);
+            uint2 y = uint2(metadata.pageYLo, metadata.pageYHi);
+            if (hasNextX && SigmaCandidateI64Equal(x, nextX) &&
+                SigmaCandidateI64Equal(y, targetY))
+                InterlockedMin(CandidateRightSlot, candidate);
+            if (hasNextY && SigmaCandidateI64Equal(x, targetX) &&
+                SigmaCandidateI64Equal(y, nextY))
+                InterlockedMin(CandidateDownSlot, candidate);
+            if (hasNextX && hasNextY && SigmaCandidateI64Equal(x, nextX) &&
+                SigmaCandidateI64Equal(y, nextY))
+                InterlockedMin(CandidateDiagonalSlot, candidate);
+        }
     }
     GroupMemoryBarrierWithGroupSync();
-    if (lane == 0u)
+    if (lane == 0u && resolve)
+    {
         _StreamCandidateNeighbours[transactionSlot] = uint4(
             SigmaStreamTransactionGeneration(transaction),
             CandidateRightSlot, CandidateDownSlot, CandidateDiagonalSlot);
+    }
 }
 
 uint SigmaCandidateOutsideSlot(uint transactionSlot, uint direction)
@@ -247,12 +266,16 @@ uint2 SigmaCandidateEndpointLane(SigmaTransactionGpu transaction,
     uint candidateSlot;
     if (SigmaCandidateTransactionPage(transaction, neighbourCoordinate,
             candidateSlot))
+    {
         return _TargetCarrierState[candidateSlot * SIGMA_PAGE_LANE_COUNT +
             neighbourSample * 16u + lane];
+    }
     uint outsideSlot = SigmaCandidateOutsideSlot(transactionSlot, direction);
     if (outsideSlot < _PageCapacity && SigmaCandidatePageVisible(outsideSlot))
+    {
         return _CarrierState[outsideSlot * SIGMA_PAGE_LANE_COUNT +
             neighbourSample * 16u + lane];
+    }
     return SigmaCandidateNullLane(lane);
 }
 
@@ -336,23 +359,25 @@ uint4 SigmaCandidateTauL1(uint tauBase, inout uint valid)
 void ValidateCandidateTransitionChunk(uint3 groupId : SV_GroupID,
     uint3 threadId : SV_GroupThreadID)
 {
-    uint transactionSlot;
-    SigmaTransactionGpu transaction;
-    if (!SigmaCandidateLoadWork(SIGMA_STREAM_OPCODE_TRANSITION_ANNIHILATOR,
-            groupId.x, SIGMA_STREAM_TRANSACTION_TRANSITION_PENDING,
-            transactionSlot, transaction) || transaction.transition.z != 0u)
-        return;
     uint lane = threadId.x;
+    if (lane == 0u)
+    {
+        SigmaCandidatePrepareGroup(
+            SIGMA_STREAM_OPCODE_TRANSITION_ANNIHILATOR, groupId.x, 0u,
+            SIGMA_CANDIDATE_EDGE_CHUNKS);
+    }
+    GroupMemoryBarrierWithGroupSync();
+    if (CandidateGroupActive == 0u)
+        return;
+
+    uint transactionSlot = CandidateGroupTransactionSlot;
+    uint chunk = CandidateGroupChunk;
+    SigmaTransactionGpu transaction = CandidateGroupTransaction;
+    SigmaCandidateResolveNeighbours(lane, transactionSlot, transaction,
+        chunk == 0u);
+
     uint edgeLocal = lane >> 2u;
     uint witnessLane = lane & 3u;
-    uint chunk = transaction.transition.x;
-    if (chunk >= SIGMA_CANDIDATE_EDGE_CHUNKS)
-        return;
-    if (chunk == 0u)
-        SigmaCandidateResolveNeighbours(lane, transactionSlot, transaction);
-    else
-        GroupMemoryBarrierWithGroupSync();
-
     uint transition = chunk * SIGMA_CANDIDATE_EDGE_CHUNK + edgeLocal;
     uint tauBase = edgeLocal * 16u;
     uint statusLeft = SigmaCandidateEndpointStatus(transactionSlot,
@@ -400,9 +425,11 @@ void ValidateCandidateTransitionChunk(uint3 groupId : SV_GroupID,
     [unroll]
     for (uint outputLane = witnessLane; outputLane < 16u;
         outputLane += 4u)
+    {
         CandidateTau[tauBase + outputLane] =
             SigmaCandidateTransitionLane(transaction, transactionSlot,
                 transition, outputLane, valid);
+    }
     CandidateBestError[lane] = SIGMA_U128_MAX;
     CandidateBestId[lane] = SIGMA_ANNIHILATOR_ACTION_COUNT + witnessLane;
     GroupMemoryBarrierWithGroupSync();
@@ -462,11 +489,12 @@ void ValidateCandidateTransitionChunk(uint3 groupId : SV_GroupID,
             SIGMA_ANNIHILATOR_ACTION_COUNT &&
             !SigmaU128Equal(bestError, SIGMA_U128_MAX);
         uint scaleValid = validTransition ? 1u : 0u;
-        uint4 scale = validTransition ? SigmaCandidateTauL1(tauBase,
-            scaleValid) : SIGMA_U128_ONE;
+        uint4 scale = validTransition
+            ? SigmaCandidateTauL1(tauBase, scaleValid)
+            : SIGMA_U128_ONE;
         validTransition = validTransition && scaleValid != 0u;
-        bool near = validTransition && SigmaRelativeNearGate(bestError, scale,
-            _SingularShift);
+        bool near = validTransition && SigmaRelativeNearGate(bestError,
+            scale, _SingularShift);
         bool exact = validTransition && SigmaU128Equal(bestError,
             SIGMA_U128_ZERO);
         bool contactNull = edgeValid && leftContact != rightContact;
@@ -496,22 +524,25 @@ void ValidateCandidateTransitionChunk(uint3 groupId : SV_GroupID,
     if (lane == 0u)
     {
         SigmaTransactionGpu current = _StreamTransactions[transactionSlot];
-        if (SigmaStreamTransactionGeneration(current) !=
-                SigmaStreamTransactionGeneration(transaction) ||
-            current.transition.z != 0u || current.transition.x != chunk)
-            return;
-        current.transition.x++;
-        if (current.transition.x == SIGMA_CANDIDATE_EDGE_CHUNKS)
+        bool currentWork = SigmaStreamTransactionGeneration(current) ==
+                SigmaStreamTransactionGeneration(transaction) &&
+            current.transition.z == 0u &&
+            current.transition.x == chunk;
+        if (currentWork)
         {
-            current.transition.y = 0u;
-            current.transition.z = 1u;
+            current.transition.x++;
+            if (current.transition.x == SIGMA_CANDIDATE_EDGE_CHUNKS)
+            {
+                current.transition.y = 0u;
+                current.transition.z = 1u;
+            }
+            _StreamTransactions[transactionSlot] = current;
+            InterlockedAdd(_StreamDiagnostics[0u].transition.x,
+                SIGMA_CANDIDATE_EDGE_CHUNK);
+            InterlockedAdd(_StreamDiagnostics[0u].transition.y,
+                SIGMA_CANDIDATE_EDGE_CHUNK *
+                    SIGMA_ANNIHILATOR_ACTION_COUNT);
         }
-        _StreamTransactions[transactionSlot] = current;
-        InterlockedAdd(_StreamDiagnostics[0u].transition.x,
-            SIGMA_CANDIDATE_EDGE_CHUNK);
-        InterlockedAdd(_StreamDiagnostics[0u].transition.y,
-            SIGMA_CANDIDATE_EDGE_CHUNK *
-                SIGMA_ANNIHILATOR_ACTION_COUNT);
     }
 }
 
@@ -572,16 +603,20 @@ bool SigmaCandidateCloseRecord(inout uint4 record, bool associatorStrong)
 void ValidateCandidateAssociatorChunk(uint3 groupId : SV_GroupID,
     uint3 threadId : SV_GroupThreadID)
 {
-    uint transactionSlot;
-    SigmaTransactionGpu transaction;
-    if (!SigmaCandidateLoadWork(SIGMA_STREAM_OPCODE_TRANSITION_ASSOCIATOR,
-            groupId.x, SIGMA_STREAM_TRANSACTION_TRANSITION_PENDING,
-            transactionSlot, transaction) || transaction.transition.z != 1u)
-        return;
     uint lane = threadId.x;
-    uint chunk = transaction.transition.y;
-    if (chunk >= SIGMA_CANDIDATE_CELL_CHUNKS)
+    if (lane == 0u)
+    {
+        SigmaCandidatePrepareGroup(
+            SIGMA_STREAM_OPCODE_TRANSITION_ASSOCIATOR, groupId.x, 1u,
+            SIGMA_CANDIDATE_CELL_CHUNKS);
+    }
+    GroupMemoryBarrierWithGroupSync();
+    if (CandidateGroupActive == 0u)
         return;
+
+    uint transactionSlot = CandidateGroupTransactionSlot;
+    uint chunk = CandidateGroupChunk;
+    SigmaTransactionGpu transaction = CandidateGroupTransaction;
     uint sample = chunk * SIGMA_CANDIDATE_EDGE_CHUNK + lane;
     uint horizontalAddress = SigmaCandidateRecordAddress(transactionSlot,
         sample);
@@ -652,25 +687,29 @@ void ValidateCandidateAssociatorChunk(uint3 groupId : SV_GroupID,
                 CandidateChunkFailure[lane + offset];
         GroupMemoryBarrierWithGroupSync();
     }
-    if (lane != 0u)
-        return;
-    SigmaTransactionGpu current = _StreamTransactions[transactionSlot];
-    if (SigmaStreamTransactionGeneration(current) !=
-            SigmaStreamTransactionGeneration(transaction) ||
-        current.transition.z != 1u || current.transition.y != chunk)
-        return;
-    current.transition.w |= CandidateChunkFailure[0u];
-    current.transition.y++;
-    if (current.transition.y == SIGMA_CANDIDATE_CELL_CHUNKS)
+    if (lane == 0u)
     {
-        current.transition.z = 2u;
-        current.identity.x = current.transition.w == 0u
-            ? SIGMA_STREAM_TRANSACTION_REVALIDATE_PENDING
-            : SIGMA_STREAM_TRANSACTION_DORMANT;
-        if (current.transition.w != 0u)
-            InterlockedAdd(_StreamDiagnostics[0u].transition.w, 1u);
+        SigmaTransactionGpu current = _StreamTransactions[transactionSlot];
+        bool currentWork = SigmaStreamTransactionGeneration(current) ==
+                SigmaStreamTransactionGeneration(transaction) &&
+            current.transition.z == 1u &&
+            current.transition.y == chunk;
+        if (currentWork)
+        {
+            current.transition.w |= CandidateChunkFailure[0u];
+            current.transition.y++;
+            if (current.transition.y == SIGMA_CANDIDATE_CELL_CHUNKS)
+            {
+                current.transition.z = 2u;
+                current.identity.x = current.transition.w == 0u
+                    ? SIGMA_STREAM_TRANSACTION_REVALIDATE_PENDING
+                    : SIGMA_STREAM_TRANSACTION_DORMANT;
+                if (current.transition.w != 0u)
+                    InterlockedAdd(_StreamDiagnostics[0u].transition.w, 1u);
+            }
+            _StreamTransactions[transactionSlot] = current;
+            InterlockedAdd(_StreamDiagnostics[0u].transition.z,
+                needsAssociator ? 1u : 0u);
+        }
     }
-    _StreamTransactions[transactionSlot] = current;
-    InterlockedAdd(_StreamDiagnostics[0u].transition.z,
-        needsAssociator ? 1u : 0u);
 }
