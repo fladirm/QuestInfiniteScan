@@ -84,6 +84,10 @@ namespace Genesis.RoomScan.SigmaPrism
             "_PreviewAlpha");
         private static readonly int PreviewWireThicknessId = Shader.PropertyToID(
             "_PreviewWireThickness");
+        private static readonly int PreviewContactPixelsId = Shader.PropertyToID(
+            "_PreviewContactPixels");
+        private static readonly int ContactFootprintPixelsId = Shader.PropertyToID(
+            "_ContactFootprintPixels");
         private static readonly int StreamTransactionsId = Shader.PropertyToID(
             "_StreamTransactions");
         private static readonly int StreamBundlesId = Shader.PropertyToID(
@@ -904,6 +908,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 _properties.SetMatrix(PoseWorldFromReferenceId,
                     worldFromReference);
                 _properties.SetInt(SegmentIndexId, batch.SegmentIndex);
+                _properties.SetFloat(ContactFootprintPixelsId, 1.35f);
                 _properties.SetBuffer(PoseResultId, poseResult);
                 _properties.SetBuffer(ReadoutVerticesId, cache.Vertices);
                 _properties.SetBuffer(CurrentPageSlotsId, cache.CurrentPageSlots);
@@ -914,6 +919,9 @@ namespace Genesis.RoomScan.SigmaPrism
                     topologyView.PageKeys);
                 command.DrawProceduralIndirect(Matrix4x4.identity,
                     _predictionMaterial, 0, MeshTopology.Triangles,
+                    cache.DrawArguments, 0, _properties);
+                command.DrawProceduralIndirect(Matrix4x4.identity,
+                    _predictionMaterial, 1, MeshTopology.Triangles,
                     cache.DrawArguments, 0, _properties);
             }
         }
@@ -997,6 +1005,8 @@ namespace Genesis.RoomScan.SigmaPrism
                     BuiltinRenderTextureType.Depth);
                 RecordDirectPreview(command, _scanner.CurrentRenderMode, 0);
                 RecordDirectPreview(command, _scanner.CurrentRenderMode, 1);
+                RecordDirectContactPreview(command,
+                    _scanner.CurrentRenderMode);
                 context.ExecuteCommandBuffer(command);
             }
             finally
@@ -1033,6 +1043,31 @@ namespace Genesis.RoomScan.SigmaPrism
                     topologyView.PageKeys);
                 command.DrawProceduralIndirect(Matrix4x4.identity,
                     _previewMaterial, pass, MeshTopology.Triangles,
+                    cache.DrawArguments, 0, _properties);
+            }
+        }
+
+        private void RecordDirectContactPreview(CommandBuffer command,
+            ScanRenderMode mode)
+        {
+            for (int index = 0; index < _readBatches.Count; ++index)
+            {
+                SigmaCarrierReadBatch batch = _readBatches[index];
+                if (batch.SegmentIndex != _streamSegmentIndex)
+                    continue;
+                SegmentReadoutCache cache = _segmentCaches[index];
+                _properties.Clear();
+                _properties.SetInt(SegmentIndexId, batch.SegmentIndex);
+                _properties.SetFloat(PreviewWireframeId,
+                    mode == ScanRenderMode.Wireframe ? 1f : 0f);
+                _properties.SetFloat(PreviewContactPixelsId,
+                    mode == ScanRenderMode.Wireframe ? 3.5f : 2.5f);
+                _properties.SetBuffer(ReadoutVerticesId, cache.Vertices);
+                _properties.SetBuffer(CurrentPageSlotsId,
+                    cache.CurrentPageSlots);
+                _properties.SetBuffer(PageMetadataId, batch.Metadata);
+                command.DrawProceduralIndirect(Matrix4x4.identity,
+                    _previewMaterial, 2, MeshTopology.Triangles,
                     cache.DrawArguments, 0, _properties);
             }
         }

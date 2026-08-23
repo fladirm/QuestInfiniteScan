@@ -307,6 +307,14 @@ namespace Genesis.RoomScan.Tests
                 depth = Readback<float>(depthSupport);
                 Assert.That(depth[pixel * 2], Is.Zero,
                     "a supported intrinsic singular cut must not be interpolated");
+
+                properties.SetFloat("_ContactFootprintPixels", 1.35f);
+                DrawPrediction(material, arguments, properties, depthSupport,
+                    carrierPage, carrierUvNormal, stateKey, hardwareDepth, 1);
+                depth = Readback<float>(depthSupport);
+                Assert.That(MinPositiveDepth(depth), Is.InRange(0.28f, 0.70f),
+                    "disposable contact footprints must expose supported Psi " +
+                    "without weakening the topology-gated surface pass");
             }
             finally
             {
@@ -418,7 +426,7 @@ namespace Genesis.RoomScan.Tests
             GraphicsBuffer arguments, MaterialPropertyBlock properties,
             RenderTexture depthSupport, RenderTexture carrierPage,
             RenderTexture carrierUvNormal, RenderTexture stateKey,
-            RenderTexture hardwareDepth)
+            RenderTexture hardwareDepth, int pass = 0)
         {
             var command = new CommandBuffer
             {
@@ -432,7 +440,7 @@ namespace Genesis.RoomScan.Tests
                 };
                 command.SetRenderTarget(mrt, hardwareDepth);
                 command.ClearRenderTarget(true, true, Color.clear, 1f);
-                command.DrawProceduralIndirect(Matrix4x4.identity, material, 0,
+                command.DrawProceduralIndirect(Matrix4x4.identity, material, pass,
                     MeshTopology.Triangles, arguments, 0, properties);
                 Graphics.ExecuteCommandBuffer(command);
             }

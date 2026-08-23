@@ -26,10 +26,13 @@ Shader "Hidden/Genesis/SigmaPrism/DirectCarrierPreview"
         float _PreviewWireframe;
         float _PreviewAlpha;
         float _PreviewWireThickness;
+        float _PreviewContactPixels;
 
         #define SIGMA_READOUT_EXTENT 65u
         #define SIGMA_READOUT_SAMPLES 4225u
         #define SIGMA_READOUT_VERTICES_PER_PAGE 24576u
+        #define SIGMA_CONTACT_SAMPLES_PER_PAGE 4096u
+        #define SIGMA_CONTACT_VERTICES_PER_SAMPLE 6u
 
         uint SigmaPreviewReadoutIndex(uint pageSlot, uint x, uint y)
         {
@@ -50,13 +53,23 @@ Shader "Hidden/Genesis/SigmaPrism/DirectCarrierPreview"
             return uint2(0u, 1u);
         }
 
+        float2 SigmaPreviewBillboardCorner(uint corner)
+        {
+            if (corner == 0u) return float2(-1.0, -1.0);
+            if (corner == 1u) return float2(-1.0, 1.0);
+            if (corner == 2u) return float2(1.0, -1.0);
+            if (corner == 3u) return float2(1.0, -1.0);
+            if (corner == 4u) return float2(-1.0, 1.0);
+            return float2(1.0, 1.0);
+        }
+
         struct Attributes
         {
             uint vertexId : SV_VertexID;
             UNITY_VERTEX_INPUT_INSTANCE_ID
         };
 
-        struct Varyings
+        struct SurfaceVaryings
         {
             float4 positionCS : SV_POSITION;
             float3 barycentric : TEXCOORD0;
@@ -65,9 +78,18 @@ Shader "Hidden/Genesis/SigmaPrism/DirectCarrierPreview"
             UNITY_VERTEX_OUTPUT_STEREO
         };
 
-        Varyings PreviewVert(Attributes input)
+        struct ContactVaryings
         {
-            Varyings output;
+            float4 positionCS : SV_POSITION;
+            float2 billboard : TEXCOORD0;
+            nointerpolation float support : TEXCOORD1;
+            nointerpolation uint pageHash : TEXCOORD2;
+            UNITY_VERTEX_OUTPUT_STEREO
+        };
+
+        SurfaceVaryings PreviewSurfaceVert(Attributes input)
+        {
+            SurfaceVaryings output;
             UNITY_SETUP_INSTANCE_ID(input);
             UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(output);
 
@@ -122,14 +144,51 @@ Shader "Hidden/Genesis/SigmaPrism/DirectCarrierPreview"
             return output;
         }
 
-        void PreviewDepth(Varyings input)
+        ContactVaryings PreviewContactVert(Attributes input)
+        {
+            ContactVaryings output;
+            UNITY_SETUP_INSTANCE_ID(input);
+            UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(output);
+
+            uint activePage = input.vertexId /
+                SIGMA_READOUT_VERTICES_PER_PAGE;
+            uint pageVertex = input.vertexId -
+                activePage * SIGMA_READOUT_VERTICES_PER_PAGE;
+            uint pageSlot = _CurrentPageSlots[activePage];
+            uint sample = pageVertex / SIGMA_CONTACT_VERTICES_PER_SAMPLE;
+            uint corner = pageVertex -
+                sample * SIGMA_CONTACT_VERTICES_PER_SAMPLE;
+            uint x = sample & 63u;
+            uint y = sample >> 6u;
+            float4 readout = _ReadoutVertices[
+                SigmaPreviewReadoutIndex(pageSlot, x, y)];
+            bool valid = sample < SIGMA_CONTACT_SAMPLES_PER_PAGE &&
+                readout.w > 0.0;
+            float2 billboard = SigmaPreviewBillboardCorner(corner);
+            float4 clip = valid
+                ? TransformWorldToHClip(readout.xyz)
+                : float4(0.0, 0.0, 2.0, 1.0);
+            float2 screenSize = max(_ScreenParams.xy, float2(1.0, 1.0));
+            clip.xy += billboard * (2.0 * max(_PreviewContactPixels, 1.0) /
+                screenSize) * clip.w;
+
+            SigmaCarrierPageMetaGpu metadata = _PageMetadata[pageSlot];
+            output.positionCS = clip;
+            output.billboard = billboard;
+            output.support = valid ? readout.w : 0.0;
+            output.pageHash = metadata.pageXLo * 1664525u ^
+                metadata.pageYLo * 1013904223u ^ _SegmentIndex * 2246822519u;
+            return output;
+        }
+
+        void PreviewDepth(SurfaceVaryings input)
         {
             UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(input);
             if (input.support <= 0.0)
                 discard;
         }
 
-        half4 PreviewColour(Varyings input) : SV_Target
+        half4 PreviewSurfaceColour(SurfaceVaryings input) : SV_Target
         {
             UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(input);
             if (input.support <= 0.0)
@@ -148,6 +207,19 @@ Shader "Hidden/Genesis/SigmaPrism/DirectCarrierPreview"
                 : (half)_PreviewAlpha;
             return half4(carrierColour, alpha);
         }
+
+        half4 PreviewContactColour(ContactVaryings input) : SV_Target
+        {
+            UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(input);
+            if (input.support <= 0.0 || dot(input.billboard, input.billboard) > 1.8)
+                discard;
+            float hashPhase = (input.pageHash & 255u) / 255.0;
+            half3 diagnostic = _PreviewWireframe > 0.5
+                ? half3(1.0, 0.72, 0.04)
+                : lerp(half3(1.0, 0.02, 0.72), half3(0.72, 0.05, 1.0),
+                    hashPhase * 0.35);
+            return half4(diagnostic, 0.92h);
+        }
         ENDHLSL
 
         Pass
@@ -160,7 +232,7 @@ Shader "Hidden/Genesis/SigmaPrism/DirectCarrierPreview"
             Blend Off
 
             HLSLPROGRAM
-            #pragma vertex PreviewVert
+            #pragma vertex PreviewSurfaceVert
             #pragma fragment PreviewDepth
             ENDHLSL
         }
@@ -174,8 +246,22 @@ Shader "Hidden/Genesis/SigmaPrism/DirectCarrierPreview"
             Blend SrcAlpha OneMinusSrcAlpha
 
             HLSLPROGRAM
-            #pragma vertex PreviewVert
-            #pragma fragment PreviewColour
+            #pragma vertex PreviewSurfaceVert
+            #pragma fragment PreviewSurfaceColour
+            ENDHLSL
+        }
+
+        Pass
+        {
+            Name "DirectCarrierContacts"
+            Cull Off
+            ZWrite Off
+            ZTest LEqual
+            Blend SrcAlpha OneMinusSrcAlpha
+
+            HLSLPROGRAM
+            #pragma vertex PreviewContactVert
+            #pragma fragment PreviewContactColour
             ENDHLSL
         }
     }
