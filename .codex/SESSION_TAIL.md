@@ -1,18 +1,16 @@
-# Session tail — S4-08.3D exact bootstrap lift
+# Session tail — S4-08 temporary human readout closure
 
 ## Exchange 1
 
-User rejected another downstream patch and required the actual inverse geometry
-decision to be audited holistically in the 16D ontology. Device evidence showed
-accepted support repeating at sparse levels while the scanner remained effectively
-empty; the repair had to be surgical, exact and free of new subsystems.
+User separated two concerns: incomplete/slow scanning remains an S4-08 issue, but
+the immediate task is to make the temporary pre-S4-11 carrier readout visibly and
+correctly world-locked in the headset before returning to scan throughput.
 
 ## Exchange 2
 
-Assistant isolated the remaining lift contract: gauge coordinates used a zero clamp,
-all accepted candidates used the 1/64 mass floor and the quantized inverse/lift was
-then required to reproduce that mass within one LSB. The production kernel now uses
-the complete exact meet centre, width-derived independently supported mass and an
-exact lane-zero Hadamard residual correction. Its real Vulkan fixture and full 72/72
-suite pass with eight UAVs. Next is codegraph/commit/archive/Release install; S4-09
-remains unopened.
+Assistant replaced the complete direct-preview shader with one disposable
+tracking-space-to-Unity-world surface readout: adjacent supported samples form
+transparent triangles, Wireframe exposes barycentric edges and isolated support
+keeps a small point fallback. The canonical carrier, prediction and scan pipeline
+are unchanged. Vulkan EditMode passes 72/72; next is same-commit Release install and
+device screenshots, then the separate scan/proof audit resumes.

@@ -140,9 +140,16 @@ reuses the unused high half of transaction-owned sample metadata.
 The actual production `EvaluateTransactionMicrotile` Vulkan fixture proves four
 width-dependent masses, exact joint-cell containment, bit-identical source-order
 permutation and one-eye fail-closed promotion. Full Unity Vulkan EditMode passes
-72/72; generated output, `git diff --check` and the Quest eight-UAV gate pass. Exact
-next action: regenerate/validate the code graph, commit, archive, build that exact
-commit as Android/Vulkan Release and install it on the Quest. Do not open S4-09.
+72/72; generated output, `git diff --check` and the Quest eight-UAV gate pass.
+
+The temporary pre-S4-11 human readout now explicitly maps capture tracking space
+through Unity XR `TrackingSpace`, emits conservative adjacent-sample triangles,
+shows their barycentric edges in Wireframe mode and retains point fallback only for
+isolated support. It is one disposable readout of existing Psi and does not alter
+prediction, topology or canonical state. Vulkan EditMode remains 72/72 with no new
+shader diagnostic. Exact next action: commit this visualization closure, build the
+same revision as Android/Vulkan Release and install it for world-lock inspection.
+Do not open S4-09.
 
 ## Acceptance still required
 

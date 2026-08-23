@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "source_digest": "c223b3cdc7a50ac5e6ae6d192e5d38111f5640d73418b743f94dd1a39bd093c8",
+  "source_digest": "e7245750ae43e9fab1feb62846c8cf018dd1f4c1d8babe192e08e94f68dc1c75",
   "scope": [
     "Runtime/**/*.cs",
     "Runtime/Resources/SigmaPrism/**/*.*",
@@ -11,10 +11,10 @@
   ],
   "summary": {
     "files": 134,
-    "symbols": 2165,
-    "methods_and_functions": 1741,
+    "symbols": 2171,
+    "methods_and_functions": 1747,
     "gpu_kernels": 113,
-    "event_links": 6
+    "event_links": 5
   },
   "files": [
     {
@@ -2801,49 +2801,56 @@
       "file": "Runtime/Resources/SigmaPrism/SigmaDirectCarrierPreview.shader",
       "name": "Attributes",
       "kind": "struct",
-      "line": 52
+      "line": 74
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaDirectCarrierPreview.shader::PreviewColour@131",
+      "id": "Runtime/Resources/SigmaPrism/SigmaDirectCarrierPreview.shader::PreviewSurfaceColour@166",
       "file": "Runtime/Resources/SigmaPrism/SigmaDirectCarrierPreview.shader",
-      "name": "PreviewColour",
+      "name": "PreviewSurfaceColour",
       "kind": "gpu_function",
-      "line": 131
+      "line": 166
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaDirectCarrierPreview.shader::PreviewDepth@124",
+      "id": "Runtime/Resources/SigmaPrism/SigmaDirectCarrierPreview.shader::PreviewSurfaceVert@91",
       "file": "Runtime/Resources/SigmaPrism/SigmaDirectCarrierPreview.shader",
-      "name": "PreviewDepth",
+      "name": "PreviewSurfaceVert",
       "kind": "gpu_function",
-      "line": 124
+      "line": 91
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaDirectCarrierPreview.shader::PreviewVert@67",
+      "id": "Runtime/Resources/SigmaPrism/SigmaDirectCarrierPreview.shader::SigmaPreviewBarycentric@60",
       "file": "Runtime/Resources/SigmaPrism/SigmaDirectCarrierPreview.shader",
-      "name": "PreviewVert",
+      "name": "SigmaPreviewBarycentric",
+      "kind": "gpu_function",
+      "line": 60
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaDirectCarrierPreview.shader::SigmaPreviewFallbackCorner@67",
+      "file": "Runtime/Resources/SigmaPrism/SigmaDirectCarrierPreview.shader",
+      "name": "SigmaPreviewFallbackCorner",
       "kind": "gpu_function",
       "line": 67
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaDirectCarrierPreview.shader::SigmaPreviewReadoutIndex@33",
+      "id": "Runtime/Resources/SigmaPrism/SigmaDirectCarrierPreview.shader::SigmaPreviewReadoutIndex@41",
       "file": "Runtime/Resources/SigmaPrism/SigmaDirectCarrierPreview.shader",
       "name": "SigmaPreviewReadoutIndex",
       "kind": "gpu_function",
-      "line": 33
+      "line": 41
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaDirectCarrierPreview.shader::SigmaPreviewTriangleCorner@39",
+      "id": "Runtime/Resources/SigmaPrism/SigmaDirectCarrierPreview.shader::SigmaPreviewTriangleCorner@47",
       "file": "Runtime/Resources/SigmaPrism/SigmaDirectCarrierPreview.shader",
       "name": "SigmaPreviewTriangleCorner",
       "kind": "gpu_function",
-      "line": 39
+      "line": 47
     },
     {
       "id": "Runtime/Resources/SigmaPrism/SigmaDirectCarrierPreview.shader::Varyings",
       "file": "Runtime/Resources/SigmaPrism/SigmaDirectCarrierPreview.shader",
       "name": "Varyings",
       "kind": "struct",
-      "line": 58
+      "line": 80
     },
     {
       "id": "Runtime/Resources/SigmaPrism/SigmaExactCompare.hlsl::SigmaI64Less@18",
@@ -5205,53 +5212,88 @@
       "line": 2
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaPredict.shader::Frag@152",
+      "id": "Runtime/Resources/SigmaPrism/SigmaPredict.shader::ContactVert@187",
       "file": "Runtime/Resources/SigmaPrism/SigmaPredict.shader",
-      "name": "Frag",
+      "name": "ContactVert",
       "kind": "gpu_function",
-      "line": 152
+      "line": 187
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaPredict.shader::PredictionFrag@230",
+      "file": "Runtime/Resources/SigmaPrism/SigmaPredict.shader",
+      "name": "PredictionFrag",
+      "kind": "gpu_function",
+      "line": 230
     },
     {
       "id": "Runtime/Resources/SigmaPrism/SigmaPredict.shader::PredictionOutput",
       "file": "Runtime/Resources/SigmaPrism/SigmaPredict.shader",
       "name": "PredictionOutput",
       "kind": "struct",
-      "line": 144
+      "line": 222
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaPredict.shader::SigmaEncodeOctahedral@54",
+      "id": "Runtime/Resources/SigmaPrism/SigmaPredict.shader::PredictionVaryings",
+      "file": "Runtime/Resources/SigmaPrism/SigmaPredict.shader",
+      "name": "PredictionVaryings",
+      "kind": "struct",
+      "line": 71
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaPredict.shader::SigmaContactBillboardCorner@49",
+      "file": "Runtime/Resources/SigmaPrism/SigmaPredict.shader",
+      "name": "SigmaContactBillboardCorner",
+      "kind": "gpu_function",
+      "line": 49
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaPredict.shader::SigmaContactNormalOptical@166",
+      "file": "Runtime/Resources/SigmaPrism/SigmaPredict.shader",
+      "name": "SigmaContactNormalOptical",
+      "kind": "gpu_function",
+      "line": 166
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaPredict.shader::SigmaEmptyPrediction@82",
+      "file": "Runtime/Resources/SigmaPrism/SigmaPredict.shader",
+      "name": "SigmaEmptyPrediction",
+      "kind": "gpu_function",
+      "line": 82
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaPredict.shader::SigmaEncodeOctahedral@59",
       "file": "Runtime/Resources/SigmaPrism/SigmaPredict.shader",
       "name": "SigmaEncodeOctahedral",
       "kind": "gpu_function",
-      "line": 54
+      "line": 59
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaPredict.shader::SigmaReadoutIndex@35",
+      "id": "Runtime/Resources/SigmaPrism/SigmaPredict.shader::SigmaReadoutIndex@30",
       "file": "Runtime/Resources/SigmaPrism/SigmaPredict.shader",
       "name": "SigmaReadoutIndex",
       "kind": "gpu_function",
-      "line": 35
+      "line": 30
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaPredict.shader::SigmaTriangleCorner@41",
+      "id": "Runtime/Resources/SigmaPrism/SigmaPredict.shader::SigmaStorePredictionIdentity@95",
+      "file": "Runtime/Resources/SigmaPrism/SigmaPredict.shader",
+      "name": "SigmaStorePredictionIdentity",
+      "kind": "gpu_function",
+      "line": 95
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaPredict.shader::SigmaTriangleCorner@36",
       "file": "Runtime/Resources/SigmaPrism/SigmaPredict.shader",
       "name": "SigmaTriangleCorner",
       "kind": "gpu_function",
-      "line": 41
+      "line": 36
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaPredict.shader::Varyings",
+      "id": "Runtime/Resources/SigmaPrism/SigmaPredict.shader::SurfaceVert@107",
       "file": "Runtime/Resources/SigmaPrism/SigmaPredict.shader",
-      "name": "Varyings",
-      "kind": "struct",
-      "line": 66
-    },
-    {
-      "id": "Runtime/Resources/SigmaPrism/SigmaPredict.shader::Vert@77",
-      "file": "Runtime/Resources/SigmaPrism/SigmaPredict.shader",
-      "name": "Vert",
+      "name": "SurfaceVert",
       "kind": "gpu_function",
-      "line": 77
+      "line": 107
     },
     {
       "id": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaAccumulateIndependentKey@216",
@@ -11995,249 +12037,249 @@
       "line": 319
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::BindBuild@816",
+      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::BindBuild@823",
       "file": "Runtime/SigmaPrism/SigmaRenderer.cs",
       "name": "BindBuild",
       "kind": "method",
-      "line": 816
+      "line": 823
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::BindCancelHistoricalRevalidation@676",
+      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::BindCancelHistoricalRevalidation@683",
       "file": "Runtime/SigmaPrism/SigmaRenderer.cs",
       "name": "BindCancelHistoricalRevalidation",
       "kind": "method",
-      "line": 676
+      "line": 683
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::BindCompaction@841",
+      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::BindCompaction@848",
       "file": "Runtime/SigmaPrism/SigmaRenderer.cs",
       "name": "BindCompaction",
       "kind": "method",
-      "line": 841
+      "line": 848
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::BindFinalizeHistoricalRevalidation@650",
+      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::BindFinalizeHistoricalRevalidation@657",
       "file": "Runtime/SigmaPrism/SigmaRenderer.cs",
       "name": "BindFinalizeHistoricalRevalidation",
       "kind": "method",
-      "line": 650
+      "line": 657
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::BindHaloResolve@866",
+      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::BindHaloResolve@873",
       "file": "Runtime/SigmaPrism/SigmaRenderer.cs",
       "name": "BindHaloResolve",
       "kind": "method",
-      "line": 866
+      "line": 873
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::BindHistoricalDrawArguments@593",
+      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::BindHistoricalDrawArguments@600",
       "file": "Runtime/SigmaPrism/SigmaRenderer.cs",
       "name": "BindHistoricalDrawArguments",
       "kind": "method",
-      "line": 593
+      "line": 600
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::BindPrepareHistoricalRevalidation@554",
+      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::BindPrepareHistoricalRevalidation@561",
       "file": "Runtime/SigmaPrism/SigmaRenderer.cs",
       "name": "BindPrepareHistoricalRevalidation",
       "kind": "method",
-      "line": 554
+      "line": 561
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::BindRebuildHistoricalAssociation@607",
+      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::BindRebuildHistoricalAssociation@614",
       "file": "Runtime/SigmaPrism/SigmaRenderer.cs",
       "name": "BindRebuildHistoricalAssociation",
       "kind": "method",
-      "line": 607
+      "line": 614
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::BindStreamingManifest@181",
+      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::BindStreamingManifest@187",
       "file": "Runtime/SigmaPrism/SigmaRenderer.cs",
       "name": "BindStreamingManifest",
       "kind": "method",
-      "line": 181
+      "line": 187
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::BuildClipFromWorld@952",
+      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::BuildClipFromWorld@963",
       "file": "Runtime/SigmaPrism/SigmaRenderer.cs",
       "name": "BuildClipFromWorld",
       "kind": "method",
-      "line": 952
+      "line": 963
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::CreateColor@1193",
+      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::CreateColor@1210",
       "file": "Runtime/SigmaPrism/SigmaRenderer.cs",
       "name": "CreateColor",
       "kind": "method",
-      "line": 1193
+      "line": 1210
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::DestroyMaterial@1121",
+      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::DestroyMaterial@1138",
       "file": "Runtime/SigmaPrism/SigmaRenderer.cs",
       "name": "DestroyMaterial",
       "kind": "method",
-      "line": 1121
+      "line": 1138
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::DestroyTexture@1219",
+      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::DestroyTexture@1236",
       "file": "Runtime/SigmaPrism/SigmaRenderer.cs",
       "name": "DestroyTexture",
       "kind": "method",
-      "line": 1219
+      "line": 1236
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::Dispose@1184",
+      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::Dispose@1201",
       "file": "Runtime/SigmaPrism/SigmaRenderer.cs",
       "name": "Dispose",
       "kind": "method",
-      "line": 1184
+      "line": 1201
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::Dispose@1299",
+      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::Dispose@1316",
       "file": "Runtime/SigmaPrism/SigmaRenderer.cs",
       "name": "Dispose",
       "kind": "method",
-      "line": 1299
+      "line": 1316
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::DrawSegments@885",
+      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::DrawSegments@892",
       "file": "Runtime/SigmaPrism/SigmaRenderer.cs",
       "name": "DrawSegments",
       "kind": "method",
-      "line": 885
+      "line": 892
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::EnsureHistoricalRevalidationPageSnapshot@692",
+      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::EnsureHistoricalRevalidationPageSnapshot@699",
       "file": "Runtime/SigmaPrism/SigmaRenderer.cs",
       "name": "EnsureHistoricalRevalidationPageSnapshot",
       "kind": "method",
-      "line": 692
+      "line": 699
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::EnsureHistoricalRevalidationTargets@439",
+      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::EnsureHistoricalRevalidationTargets@446",
       "file": "Runtime/SigmaPrism/SigmaRenderer.cs",
       "name": "EnsureHistoricalRevalidationTargets",
       "kind": "method",
-      "line": 439
+      "line": 446
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::EnsureSegmentCaches@920",
+      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::EnsureSegmentCaches@931",
       "file": "Runtime/SigmaPrism/SigmaRenderer.cs",
       "name": "EnsureSegmentCaches",
       "kind": "method",
-      "line": 920
+      "line": 931
     },
     {
       "id": "Runtime/SigmaPrism/SigmaRenderer.cs::HistoricalRevalidationTargets",
       "file": "Runtime/SigmaPrism/SigmaRenderer.cs",
       "name": "HistoricalRevalidationTargets",
       "kind": "class",
-      "line": 1131
+      "line": 1148
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::LateUpdate@347",
+      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::LateUpdate@352",
       "file": "Runtime/SigmaPrism/SigmaRenderer.cs",
       "name": "LateUpdate",
       "kind": "method",
-      "line": 347
+      "line": 352
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::Matches@1293",
+      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::Matches@1310",
       "file": "Runtime/SigmaPrism/SigmaRenderer.cs",
       "name": "Matches",
       "kind": "method",
-      "line": 1293
+      "line": 1310
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::OnDestroy@1039",
+      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::OnDestroy@1056",
       "file": "Runtime/SigmaPrism/SigmaRenderer.cs",
       "name": "OnDestroy",
       "kind": "method",
-      "line": 1039
+      "line": 1056
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::OnEndCameraRendering@980",
-      "file": "Runtime/SigmaPrism/SigmaRenderer.cs",
-      "name": "OnEndCameraRendering",
-      "kind": "method",
-      "line": 980
-    },
-    {
-      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::OnModuleInitialize@247",
+      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::OnModuleInitialize@253",
       "file": "Runtime/SigmaPrism/SigmaRenderer.cs",
       "name": "OnModuleInitialize",
       "kind": "method",
-      "line": 247
+      "line": 253
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::OnScanStarted@334",
+      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::OnScanStarted@339",
       "file": "Runtime/SigmaPrism/SigmaRenderer.cs",
       "name": "OnScanStarted",
       "kind": "method",
-      "line": 334
+      "line": 339
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::OnScanStopped@340",
+      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::OnScanStopped@345",
       "file": "Runtime/SigmaPrism/SigmaRenderer.cs",
       "name": "OnScanStopped",
       "kind": "method",
-      "line": 340
+      "line": 345
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::PrepareReadoutCaches@791",
+      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::PrepareReadoutCaches@798",
       "file": "Runtime/SigmaPrism/SigmaRenderer.cs",
       "name": "PrepareReadoutCaches",
       "kind": "method",
-      "line": 791
+      "line": 798
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::RecordDirectPreview@1007",
-      "file": "Runtime/SigmaPrism/SigmaRenderer.cs",
-      "name": "RecordDirectPreview",
-      "kind": "method",
-      "line": 1007
-    },
-    {
-      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::RecordHistoricalRevalidation@467",
+      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::RecordHistoricalRevalidation@474",
       "file": "Runtime/SigmaPrism/SigmaRenderer.cs",
       "name": "RecordHistoricalRevalidation",
       "kind": "method",
-      "line": 467
+      "line": 474
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::RenderPrediction@715",
+      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::RenderDirectCarrierPreview@991",
+      "file": "Runtime/SigmaPrism/SigmaRenderer.cs",
+      "name": "RenderDirectCarrierPreview",
+      "kind": "method",
+      "line": 991
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::RenderPrediction@722",
       "file": "Runtime/SigmaPrism/SigmaRenderer.cs",
       "name": "RenderPrediction",
       "kind": "method",
-      "line": 715
+      "line": 722
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::ResolveWorldFromReadout@1035",
+      "file": "Runtime/SigmaPrism/SigmaRenderer.cs",
+      "name": "ResolveWorldFromReadout",
+      "kind": "method",
+      "line": 1035
     },
     {
       "id": "Runtime/SigmaPrism/SigmaRenderer.cs::SegmentReadoutCache",
       "file": "Runtime/SigmaPrism/SigmaRenderer.cs",
       "name": "SegmentReadoutCache",
       "kind": "class",
-      "line": 1231
+      "line": 1248
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::SetMrt@1176",
+      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::SetMrt@1193",
       "file": "Runtime/SigmaPrism/SigmaRenderer.cs",
       "name": "SetMrt",
       "kind": "method",
-      "line": 1176
+      "line": 1193
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::SetMrt@944",
+      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::SetMrt@955",
       "file": "Runtime/SigmaPrism/SigmaRenderer.cs",
       "name": "SetMrt",
       "kind": "method",
-      "line": 944
+      "line": 955
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::SetRevalidationBuffer@708",
+      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::SetRevalidationBuffer@715",
       "file": "Runtime/SigmaPrism/SigmaRenderer.cs",
       "name": "SetRevalidationBuffer",
       "kind": "method",
-      "line": 708
+      "line": 715
     },
     {
       "id": "Runtime/SigmaPrism/SigmaRenderer.cs::SigmaRenderer",
@@ -12247,53 +12289,53 @@
       "line": 19
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::TryAcquireLatest@236",
+      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::TryAcquireLatest@242",
       "file": "Runtime/SigmaPrism/SigmaRenderer.cs",
       "name": "TryAcquireLatest",
       "kind": "method",
-      "line": 236
+      "line": 242
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::TryGetStreamingReadout@533",
+      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::TryGetStreamingReadout@540",
       "file": "Runtime/SigmaPrism/SigmaRenderer.cs",
       "name": "TryGetStreamingReadout",
       "kind": "method",
-      "line": 533
+      "line": 540
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::TryGetStreamingReadoutDiagnostics@207",
+      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::TryGetStreamingReadoutDiagnostics@213",
       "file": "Runtime/SigmaPrism/SigmaRenderer.cs",
       "name": "TryGetStreamingReadoutDiagnostics",
       "kind": "method",
-      "line": 207
+      "line": 213
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::TryRecordPoseGaugePrediction@393",
+      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::TryRecordPoseGaugePrediction@400",
       "file": "Runtime/SigmaPrism/SigmaRenderer.cs",
       "name": "TryRecordPoseGaugePrediction",
       "kind": "method",
-      "line": 393
+      "line": 400
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::TryRender@366",
+      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::TryRender@373",
       "file": "Runtime/SigmaPrism/SigmaRenderer.cs",
       "name": "TryRender",
       "kind": "method",
-      "line": 366
+      "line": 373
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::TryRenderPoseGauge@375",
+      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::TryRenderPoseGauge@382",
       "file": "Runtime/SigmaPrism/SigmaRenderer.cs",
       "name": "TryRenderPoseGauge",
       "kind": "method",
-      "line": 375
+      "line": 382
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::UnbindStreamingManifest@197",
+      "id": "Runtime/SigmaPrism/SigmaRenderer.cs::UnbindStreamingManifest@203",
       "file": "Runtime/SigmaPrism/SigmaRenderer.cs",
       "name": "UnbindStreamingManifest",
       "kind": "method",
-      "line": 197
+      "line": 203
     },
     {
       "id": "Runtime/SigmaPrism/SigmaRgbInverse.cs::BuildGeneratedViewMatrix@115",
@@ -14417,39 +14459,39 @@
       "line": 354
     },
     {
-      "id": "Tests/Editor/SigmaForwardReadoutTests.cs::BuildFoldedPage@321",
+      "id": "Tests/Editor/SigmaForwardReadoutTests.cs::BuildFoldedPage@329",
       "file": "Tests/Editor/SigmaForwardReadoutTests.cs",
       "name": "BuildFoldedPage",
       "kind": "method",
-      "line": 321
+      "line": 329
     },
     {
-      "id": "Tests/Editor/SigmaForwardReadoutTests.cs::CreateColor@367",
+      "id": "Tests/Editor/SigmaForwardReadoutTests.cs::CreateColor@375",
       "file": "Tests/Editor/SigmaForwardReadoutTests.cs",
       "name": "CreateColor",
       "kind": "method",
-      "line": 367
+      "line": 375
     },
     {
-      "id": "Tests/Editor/SigmaForwardReadoutTests.cs::CreateDepth@381",
+      "id": "Tests/Editor/SigmaForwardReadoutTests.cs::CreateDepth@389",
       "file": "Tests/Editor/SigmaForwardReadoutTests.cs",
       "name": "CreateDepth",
       "kind": "method",
-      "line": 381
+      "line": 389
     },
     {
-      "id": "Tests/Editor/SigmaForwardReadoutTests.cs::Destroy@444",
+      "id": "Tests/Editor/SigmaForwardReadoutTests.cs::Destroy@452",
       "file": "Tests/Editor/SigmaForwardReadoutTests.cs",
       "name": "Destroy",
       "kind": "method",
-      "line": 444
+      "line": 452
     },
     {
-      "id": "Tests/Editor/SigmaForwardReadoutTests.cs::DrawPrediction@416",
+      "id": "Tests/Editor/SigmaForwardReadoutTests.cs::DrawPrediction@424",
       "file": "Tests/Editor/SigmaForwardReadoutTests.cs",
       "name": "DrawPrediction",
       "kind": "method",
-      "line": 416
+      "line": 424
     },
     {
       "id": "Tests/Editor/SigmaForwardReadoutTests.cs::ExactLiftReadoutRoundTripsAndNullHasNoContact@52",
@@ -14459,11 +14501,11 @@
       "line": 52
     },
     {
-      "id": "Tests/Editor/SigmaForwardReadoutTests.cs::FillPatch@331",
+      "id": "Tests/Editor/SigmaForwardReadoutTests.cs::FillPatch@339",
       "file": "Tests/Editor/SigmaForwardReadoutTests.cs",
       "name": "FillPatch",
       "kind": "method",
-      "line": 331
+      "line": 339
     },
     {
       "id": "Tests/Editor/SigmaForwardReadoutTests.cs::GpuReadoutAndRasterSelectNearFoldWhileNullStaysEmpty@70",
@@ -14473,18 +14515,18 @@
       "line": 70
     },
     {
-      "id": "Tests/Editor/SigmaForwardReadoutTests.cs::MinPositiveDepth@402",
+      "id": "Tests/Editor/SigmaForwardReadoutTests.cs::MinPositiveDepth@410",
       "file": "Tests/Editor/SigmaForwardReadoutTests.cs",
       "name": "MinPositiveDepth",
       "kind": "method",
-      "line": 402
+      "line": 410
     },
     {
-      "id": "Tests/Editor/SigmaForwardReadoutTests.cs::Pack@349",
+      "id": "Tests/Editor/SigmaForwardReadoutTests.cs::Pack@357",
       "file": "Tests/Editor/SigmaForwardReadoutTests.cs",
       "name": "Pack",
       "kind": "method",
-      "line": 349
+      "line": 357
     },
     {
       "id": "Tests/Editor/SigmaForwardReadoutTests.cs::PageMeta",
@@ -15877,14 +15919,6 @@
       "event": "PredictionReady",
       "handler": "OnPredictionReady",
       "line": 166
-    },
-    {
-      "file": "Runtime/SigmaPrism/SigmaRenderer.cs",
-      "source_variable": "RenderPipelineManager",
-      "source_type": null,
-      "event": "endCameraRendering",
-      "handler": "OnEndCameraRendering",
-      "line": 331
     },
     {
       "file": "Runtime/SigmaPrism/SigmaRigBridge.cs",
@@ -17794,13 +17828,23 @@
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaDirectCarrierPreview.shader::PreviewVert@67",
-      "target": "Runtime/Resources/SigmaPrism/SigmaDirectCarrierPreview.shader::SigmaPreviewReadoutIndex@33",
+      "source": "Runtime/Resources/SigmaPrism/SigmaDirectCarrierPreview.shader::PreviewSurfaceVert@91",
+      "target": "Runtime/Resources/SigmaPrism/SigmaDirectCarrierPreview.shader::SigmaPreviewBarycentric@60",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaDirectCarrierPreview.shader::PreviewVert@67",
-      "target": "Runtime/Resources/SigmaPrism/SigmaDirectCarrierPreview.shader::SigmaPreviewTriangleCorner@39",
+      "source": "Runtime/Resources/SigmaPrism/SigmaDirectCarrierPreview.shader::PreviewSurfaceVert@91",
+      "target": "Runtime/Resources/SigmaPrism/SigmaDirectCarrierPreview.shader::SigmaPreviewFallbackCorner@67",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaDirectCarrierPreview.shader::PreviewSurfaceVert@91",
+      "target": "Runtime/Resources/SigmaPrism/SigmaDirectCarrierPreview.shader::SigmaPreviewReadoutIndex@41",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaDirectCarrierPreview.shader::PreviewSurfaceVert@91",
+      "target": "Runtime/Resources/SigmaPrism/SigmaDirectCarrierPreview.shader::SigmaPreviewTriangleCorner@47",
       "kind": "calls"
     },
     {
@@ -21304,13 +21348,53 @@
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaPredict.shader::Vert@77",
+      "source": "Runtime/Resources/SigmaPrism/SigmaPredict.shader::ContactVert@187",
+      "target": "Runtime/Resources/SigmaPrism/SigmaPoseConsume.hlsl::SigmaPoseUnapplyWorld@109",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaPredict.shader::ContactVert@187",
+      "target": "Runtime/Resources/SigmaPrism/SigmaPredict.shader::SigmaContactBillboardCorner@49",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaPredict.shader::ContactVert@187",
+      "target": "Runtime/Resources/SigmaPrism/SigmaPredict.shader::SigmaContactNormalOptical@166",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaPredict.shader::ContactVert@187",
+      "target": "Runtime/Resources/SigmaPrism/SigmaPredict.shader::SigmaEmptyPrediction@82",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaPredict.shader::ContactVert@187",
+      "target": "Runtime/Resources/SigmaPrism/SigmaPredict.shader::SigmaStorePredictionIdentity@95",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaPredict.shader::SigmaContactNormalOptical@166",
       "target": "Runtime/Resources/SigmaPrism/SigmaPoseConsume.hlsl::SigmaPoseUnapplyVectorWorld@82",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaPredict.shader::Vert@77",
+      "source": "Runtime/Resources/SigmaPrism/SigmaPredict.shader::SurfaceVert@107",
+      "target": "Runtime/Resources/SigmaPrism/SigmaPoseConsume.hlsl::SigmaPoseUnapplyVectorWorld@82",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaPredict.shader::SurfaceVert@107",
       "target": "Runtime/Resources/SigmaPrism/SigmaPoseConsume.hlsl::SigmaPoseUnapplyWorld@109",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaPredict.shader::SurfaceVert@107",
+      "target": "Runtime/Resources/SigmaPrism/SigmaPredict.shader::SigmaEmptyPrediction@82",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaPredict.shader::SurfaceVert@107",
+      "target": "Runtime/Resources/SigmaPrism/SigmaPredict.shader::SigmaStorePredictionIdentity@95",
       "kind": "calls"
     },
     {
@@ -26675,7 +26759,7 @@
     },
     {
       "source": "Runtime/SigmaPrism/SigmaInverseController.cs::LateUpdate@205",
-      "target": "Runtime/SigmaPrism/SigmaRenderer.cs::TryGetStreamingReadoutDiagnostics@207",
+      "target": "Runtime/SigmaPrism/SigmaRenderer.cs::TryGetStreamingReadoutDiagnostics@213",
       "kind": "calls"
     },
     {
@@ -26695,7 +26779,7 @@
     },
     {
       "source": "Runtime/SigmaPrism/SigmaInverseController.cs::OnDestroy@1093",
-      "target": "Runtime/SigmaPrism/SigmaRenderer.cs::UnbindStreamingManifest@197",
+      "target": "Runtime/SigmaPrism/SigmaRenderer.cs::UnbindStreamingManifest@203",
       "kind": "calls"
     },
     {
@@ -26740,7 +26824,7 @@
     },
     {
       "source": "Runtime/SigmaPrism/SigmaInverseController.cs::OnModuleInitialize@113",
-      "target": "Runtime/SigmaPrism/SigmaRenderer.cs::BindStreamingManifest@181",
+      "target": "Runtime/SigmaPrism/SigmaRenderer.cs::BindStreamingManifest@187",
       "kind": "calls"
     },
     {
@@ -26945,7 +27029,7 @@
     },
     {
       "source": "Runtime/SigmaPrism/SigmaInverseController.cs::SubmitIngress@295",
-      "target": "Runtime/SigmaPrism/SigmaRenderer.cs::TryRecordPoseGaugePrediction@393",
+      "target": "Runtime/SigmaPrism/SigmaRenderer.cs::TryRecordPoseGaugePrediction@400",
       "kind": "calls"
     },
     {
@@ -27509,217 +27593,222 @@
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::BindCancelHistoricalRevalidation@676",
-      "target": "Runtime/SigmaPrism/SigmaRenderer.cs::SetRevalidationBuffer@708",
+      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::BindCancelHistoricalRevalidation@683",
+      "target": "Runtime/SigmaPrism/SigmaRenderer.cs::SetRevalidationBuffer@715",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::BindFinalizeHistoricalRevalidation@650",
-      "target": "Runtime/SigmaPrism/SigmaRenderer.cs::SetRevalidationBuffer@708",
+      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::BindFinalizeHistoricalRevalidation@657",
+      "target": "Runtime/SigmaPrism/SigmaRenderer.cs::SetRevalidationBuffer@715",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::BindHistoricalDrawArguments@593",
-      "target": "Runtime/SigmaPrism/SigmaRenderer.cs::SetRevalidationBuffer@708",
+      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::BindHistoricalDrawArguments@600",
+      "target": "Runtime/SigmaPrism/SigmaRenderer.cs::SetRevalidationBuffer@715",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::BindPrepareHistoricalRevalidation@554",
-      "target": "Runtime/SigmaPrism/SigmaRenderer.cs::SetRevalidationBuffer@708",
+      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::BindPrepareHistoricalRevalidation@561",
+      "target": "Runtime/SigmaPrism/SigmaRenderer.cs::SetRevalidationBuffer@715",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::BindRebuildHistoricalAssociation@607",
-      "target": "Runtime/SigmaPrism/SigmaRenderer.cs::SetRevalidationBuffer@708",
+      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::BindRebuildHistoricalAssociation@614",
+      "target": "Runtime/SigmaPrism/SigmaRenderer.cs::SetRevalidationBuffer@715",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::BindStreamingManifest@181",
-      "target": "Runtime/SigmaPrism/SigmaRenderer.cs::EnsureHistoricalRevalidationPageSnapshot@692",
+      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::BindStreamingManifest@187",
+      "target": "Runtime/SigmaPrism/SigmaRenderer.cs::EnsureHistoricalRevalidationPageSnapshot@699",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::BuildClipFromWorld@952",
+      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::BuildClipFromWorld@963",
       "target": "Runtime/SigmaPrism/Capture/RigCaptureContracts.cs::FiniteRasterFar@246",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::DrawSegments@885",
+      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::DrawSegments@892",
       "target": "Runtime/SigmaPrism/SigmaStreamingGraph.cs::SetInt@995",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::DrawSegments@885",
+      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::DrawSegments@892",
       "target": "Runtime/SigmaPrism/SigmaTopologyController.cs::TryGetSegmentView@297",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::DrawSegments@885",
+      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::DrawSegments@892",
       "target": "Runtime/SigmaPrism/SigmaTransitionCache.cs::Clear@104",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::EnsureHistoricalRevalidationTargets@439",
+      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::EnsureHistoricalRevalidationTargets@446",
       "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Max@172",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::EnsureHistoricalRevalidationTargets@439",
+      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::EnsureHistoricalRevalidationTargets@446",
       "target": "Runtime/SigmaPrism/SigmaRenderer.cs::HistoricalRevalidationTargets",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::EnsureSegmentCaches@920",
+      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::EnsureSegmentCaches@931",
       "target": "Runtime/SigmaPrism/SigmaRenderer.cs::SegmentReadoutCache",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::LateUpdate@347",
-      "target": "Runtime/SigmaPrism/SigmaRenderer.cs::TryRender@366",
+      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::LateUpdate@352",
+      "target": "Runtime/SigmaPrism/SigmaRenderer.cs::RenderDirectCarrierPreview@991",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::OnDestroy@1039",
+      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::LateUpdate@352",
+      "target": "Runtime/SigmaPrism/SigmaRenderer.cs::TryRender@373",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::OnDestroy@1056",
       "target": "Runtime/SigmaPrism/SigmaGpuCompletion.cs::InsertAfterGraphicsWork@63",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::OnDestroy@1039",
-      "target": "Runtime/SigmaPrism/SigmaRenderer.cs::DestroyMaterial@1121",
+      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::OnDestroy@1056",
+      "target": "Runtime/SigmaPrism/SigmaRenderer.cs::DestroyMaterial@1138",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::OnDestroy@1039",
+      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::OnDestroy@1056",
       "target": "Runtime/SigmaPrism/SigmaTransitionCache.cs::Clear@104",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::OnEndCameraRendering@980",
-      "target": "Runtime/SigmaPrism/SigmaRenderer.cs::RecordDirectPreview@1007",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::OnModuleInitialize@247",
+      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::OnModuleInitialize@253",
       "target": "Runtime/SigmaPrism/SigmaPredictionFrame.cs::SigmaPredictionTargetRing",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::PrepareReadoutCaches@791",
+      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::PrepareReadoutCaches@798",
       "target": "Runtime/SigmaPrism/SigmaCarrier.cs::CollectReadableSegments@447",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::PrepareReadoutCaches@791",
-      "target": "Runtime/SigmaPrism/SigmaRenderer.cs::BindBuild@816",
+      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::PrepareReadoutCaches@798",
+      "target": "Runtime/SigmaPrism/SigmaRenderer.cs::BindBuild@823",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::PrepareReadoutCaches@791",
-      "target": "Runtime/SigmaPrism/SigmaRenderer.cs::BindCompaction@841",
+      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::PrepareReadoutCaches@798",
+      "target": "Runtime/SigmaPrism/SigmaRenderer.cs::BindCompaction@848",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::PrepareReadoutCaches@791",
-      "target": "Runtime/SigmaPrism/SigmaRenderer.cs::BindHaloResolve@866",
+      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::PrepareReadoutCaches@798",
+      "target": "Runtime/SigmaPrism/SigmaRenderer.cs::BindHaloResolve@873",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::PrepareReadoutCaches@791",
-      "target": "Runtime/SigmaPrism/SigmaRenderer.cs::EnsureSegmentCaches@920",
+      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::PrepareReadoutCaches@798",
+      "target": "Runtime/SigmaPrism/SigmaRenderer.cs::EnsureSegmentCaches@931",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::RecordDirectPreview@1007",
+      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::RecordHistoricalRevalidation@474",
+      "target": "Runtime/SigmaPrism/SigmaRenderer.cs::BindCancelHistoricalRevalidation@683",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::RecordHistoricalRevalidation@474",
+      "target": "Runtime/SigmaPrism/SigmaRenderer.cs::BindFinalizeHistoricalRevalidation@657",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::RecordHistoricalRevalidation@474",
+      "target": "Runtime/SigmaPrism/SigmaRenderer.cs::BindHistoricalDrawArguments@600",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::RecordHistoricalRevalidation@474",
+      "target": "Runtime/SigmaPrism/SigmaRenderer.cs::BindPrepareHistoricalRevalidation@561",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::RecordHistoricalRevalidation@474",
+      "target": "Runtime/SigmaPrism/SigmaRenderer.cs::BindRebuildHistoricalAssociation@614",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::RecordHistoricalRevalidation@474",
+      "target": "Runtime/SigmaPrism/SigmaRenderer.cs::PrepareReadoutCaches@798",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::RecordHistoricalRevalidation@474",
+      "target": "Runtime/SigmaPrism/SigmaRenderer.cs::TryGetStreamingReadout@540",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::RecordHistoricalRevalidation@474",
       "target": "Runtime/SigmaPrism/SigmaStreamingGraph.cs::SetInt@995",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::RecordDirectPreview@1007",
-      "target": "Runtime/SigmaPrism/SigmaTopologyController.cs::TryGetSegmentView@297",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::RecordDirectPreview@1007",
+      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::RecordHistoricalRevalidation@474",
       "target": "Runtime/SigmaPrism/SigmaTransitionCache.cs::Clear@104",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::RecordHistoricalRevalidation@467",
-      "target": "Runtime/SigmaPrism/SigmaRenderer.cs::BindCancelHistoricalRevalidation@676",
+      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::RenderDirectCarrierPreview@991",
+      "target": "Runtime/SigmaPrism/SigmaRenderer.cs::ResolveWorldFromReadout@1035",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::RecordHistoricalRevalidation@467",
-      "target": "Runtime/SigmaPrism/SigmaRenderer.cs::BindFinalizeHistoricalRevalidation@650",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::RecordHistoricalRevalidation@467",
-      "target": "Runtime/SigmaPrism/SigmaRenderer.cs::BindHistoricalDrawArguments@593",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::RecordHistoricalRevalidation@467",
-      "target": "Runtime/SigmaPrism/SigmaRenderer.cs::BindPrepareHistoricalRevalidation@554",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::RecordHistoricalRevalidation@467",
-      "target": "Runtime/SigmaPrism/SigmaRenderer.cs::BindRebuildHistoricalAssociation@607",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::RecordHistoricalRevalidation@467",
-      "target": "Runtime/SigmaPrism/SigmaRenderer.cs::PrepareReadoutCaches@791",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::RecordHistoricalRevalidation@467",
-      "target": "Runtime/SigmaPrism/SigmaRenderer.cs::TryGetStreamingReadout@533",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::RecordHistoricalRevalidation@467",
+      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::RenderDirectCarrierPreview@991",
       "target": "Runtime/SigmaPrism/SigmaStreamingGraph.cs::SetInt@995",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::RecordHistoricalRevalidation@467",
+      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::RenderDirectCarrierPreview@991",
       "target": "Runtime/SigmaPrism/SigmaTransitionCache.cs::Clear@104",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::RenderPrediction@715",
+      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::RenderDirectCarrierPreview@991",
+      "target": "Tests/Editor/SigmaStreamingContractTests.cs::Bounds@1003",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::RenderPrediction@722",
       "target": "Runtime/SigmaPrism/Calibration/RigCalibration.cs::IsCompatible@82",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::RenderPrediction@715",
+      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::RenderPrediction@722",
       "target": "Runtime/SigmaPrism/Calibration/RigCalibration.cs::TryCreate@94",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::RenderPrediction@715",
+      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::RenderPrediction@722",
       "target": "Runtime/SigmaPrism/SigmaPredictionFrame.cs::TryBegin@101",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::RenderPrediction@715",
-      "target": "Runtime/SigmaPrism/SigmaRenderer.cs::BuildClipFromWorld@952",
+      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::RenderPrediction@722",
+      "target": "Runtime/SigmaPrism/SigmaRenderer.cs::BuildClipFromWorld@963",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::RenderPrediction@715",
-      "target": "Runtime/SigmaPrism/SigmaRenderer.cs::DrawSegments@885",
+      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::RenderPrediction@722",
+      "target": "Runtime/SigmaPrism/SigmaRenderer.cs::DrawSegments@892",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::RenderPrediction@715",
-      "target": "Runtime/SigmaPrism/SigmaRenderer.cs::PrepareReadoutCaches@791",
+      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::RenderPrediction@722",
+      "target": "Runtime/SigmaPrism/SigmaRenderer.cs::PrepareReadoutCaches@798",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::RenderPrediction@715",
+      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::RenderPrediction@722",
       "target": "Runtime/Utils/Logger.cs::Error@42",
       "kind": "calls"
     },
@@ -27729,53 +27818,53 @@
       "kind": "event:PredictionReady"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::TryGetStreamingReadout@533",
+      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::TryGetStreamingReadout@540",
       "target": "Runtime/SigmaPrism/SigmaTopologyController.cs::TryGetSegmentView@297",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::TryGetStreamingReadoutDiagnostics@207",
+      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::TryGetStreamingReadoutDiagnostics@213",
       "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Min@170",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::TryGetStreamingReadoutDiagnostics@207",
-      "target": "Runtime/SigmaPrism/SigmaRenderer.cs::EnsureSegmentCaches@920",
+      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::TryGetStreamingReadoutDiagnostics@213",
+      "target": "Runtime/SigmaPrism/SigmaRenderer.cs::EnsureSegmentCaches@931",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::TryRecordPoseGaugePrediction@393",
+      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::TryRecordPoseGaugePrediction@400",
       "target": "Runtime/SigmaPrism/SigmaPoseGauge.cs::Identity@37",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::TryRecordPoseGaugePrediction@393",
+      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::TryRecordPoseGaugePrediction@400",
       "target": "Runtime/SigmaPrism/SigmaPredictionFrame.cs::TryBegin@101",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::TryRecordPoseGaugePrediction@393",
-      "target": "Runtime/SigmaPrism/SigmaRenderer.cs::BuildClipFromWorld@952",
+      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::TryRecordPoseGaugePrediction@400",
+      "target": "Runtime/SigmaPrism/SigmaRenderer.cs::BuildClipFromWorld@963",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::TryRecordPoseGaugePrediction@393",
-      "target": "Runtime/SigmaPrism/SigmaRenderer.cs::DrawSegments@885",
+      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::TryRecordPoseGaugePrediction@400",
+      "target": "Runtime/SigmaPrism/SigmaRenderer.cs::DrawSegments@892",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::TryRender@366",
+      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::TryRender@373",
       "target": "Runtime/SigmaPrism/SigmaPoseGauge.cs::Identity@37",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::TryRender@366",
-      "target": "Runtime/SigmaPrism/SigmaRenderer.cs::RenderPrediction@715",
+      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::TryRender@373",
+      "target": "Runtime/SigmaPrism/SigmaRenderer.cs::RenderPrediction@722",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::TryRenderPoseGauge@375",
-      "target": "Runtime/SigmaPrism/SigmaRenderer.cs::RenderPrediction@715",
+      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::TryRenderPoseGauge@382",
+      "target": "Runtime/SigmaPrism/SigmaRenderer.cs::RenderPrediction@722",
       "kind": "calls"
     },
     {
@@ -28455,7 +28544,7 @@
     },
     {
       "source": "Runtime/SigmaPrism/SigmaStreamingGraph.cs::RecordCanonicalRound@293",
-      "target": "Runtime/SigmaPrism/SigmaRenderer.cs::RecordHistoricalRevalidation@467",
+      "target": "Runtime/SigmaPrism/SigmaRenderer.cs::RecordHistoricalRevalidation@474",
       "kind": "calls"
     },
     {
@@ -28545,7 +28634,7 @@
     },
     {
       "source": "Runtime/SigmaPrism/SigmaStreamingGraph.cs::RecordIngress@220",
-      "target": "Runtime/SigmaPrism/SigmaRenderer.cs::EnsureHistoricalRevalidationTargets@439",
+      "target": "Runtime/SigmaPrism/SigmaRenderer.cs::EnsureHistoricalRevalidationTargets@446",
       "kind": "calls"
     },
     {
@@ -29919,8 +30008,8 @@
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaForwardReadoutTests.cs::BuildFoldedPage@321",
-      "target": "Tests/Editor/SigmaForwardReadoutTests.cs::FillPatch@331",
+      "source": "Tests/Editor/SigmaForwardReadoutTests.cs::BuildFoldedPage@329",
+      "target": "Tests/Editor/SigmaForwardReadoutTests.cs::FillPatch@339",
       "kind": "calls"
     },
     {
@@ -29939,12 +30028,12 @@
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaForwardReadoutTests.cs::FillPatch@331",
+      "source": "Tests/Editor/SigmaForwardReadoutTests.cs::FillPatch@339",
       "target": "Runtime/SigmaPrism/SigmaGeometryReadout.cs::LiftFixture@61",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaForwardReadoutTests.cs::FillPatch@331",
+      "source": "Tests/Editor/SigmaForwardReadoutTests.cs::FillPatch@339",
       "target": "Runtime/SigmaPrism/SigmaNumericDomain.cs::FromInteger@193",
       "kind": "calls"
     },
@@ -29965,21 +30054,21 @@
     },
     {
       "source": "Tests/Editor/SigmaForwardReadoutTests.cs::GpuReadoutAndRasterSelectNearFoldWhileNullStaysEmpty@70",
-      "target": "Tests/Editor/SigmaForwardReadoutTests.cs::BuildFoldedPage@321",
+      "target": "Tests/Editor/SigmaForwardReadoutTests.cs::BuildFoldedPage@329",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaForwardReadoutTests.cs::GpuReadoutAndRasterSelectNearFoldWhileNullStaysEmpty@70",
-      "target": "Tests/Editor/SigmaForwardReadoutTests.cs::DrawPrediction@416",
+      "target": "Tests/Editor/SigmaForwardReadoutTests.cs::DrawPrediction@424",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaForwardReadoutTests.cs::GpuReadoutAndRasterSelectNearFoldWhileNullStaysEmpty@70",
-      "target": "Tests/Editor/SigmaForwardReadoutTests.cs::MinPositiveDepth@402",
+      "target": "Tests/Editor/SigmaForwardReadoutTests.cs::MinPositiveDepth@410",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaForwardReadoutTests.cs::MinPositiveDepth@402",
+      "source": "Tests/Editor/SigmaForwardReadoutTests.cs::MinPositiveDepth@410",
       "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Min@170",
       "kind": "calls"
     },

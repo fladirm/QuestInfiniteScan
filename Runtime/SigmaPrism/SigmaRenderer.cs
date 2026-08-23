@@ -83,6 +83,10 @@ namespace Genesis.RoomScan.SigmaPrism
             "_PreviewWireframe");
         private static readonly int PreviewContactPixelsId = Shader.PropertyToID(
             "_PreviewContactPixels");
+        private static readonly int WorldFromReadoutId = Shader.PropertyToID(
+            "_WorldFromReadout");
+        private static readonly int PreviewMaxEdgeMetersId = Shader.PropertyToID(
+            "_PreviewMaxEdgeMeters");
         private static readonly int ContactFootprintPixelsId = Shader.PropertyToID(
             "_ContactFootprintPixels");
         private static readonly int StreamTransactionsId = Shader.PropertyToID(
@@ -169,6 +173,7 @@ namespace Genesis.RoomScan.SigmaPrism
         private int _cancelRevalidationKernel;
         private int _streamManifestCapacity;
         private int _streamSegmentIndex = -1;
+        private Transform _xrTrackingSpace;
         private long _lastSourceSequence;
         private bool _running;
         private bool _initialized;
@@ -1007,6 +1012,9 @@ namespace Genesis.RoomScan.SigmaPrism
                 _properties.SetFloat(PreviewContactPixelsId,
                     _scanner.CurrentRenderMode == ScanRenderMode.Wireframe
                         ? 3.5f : 2.5f);
+                _properties.SetMatrix(WorldFromReadoutId,
+                    ResolveWorldFromReadout(main));
+                _properties.SetFloat(PreviewMaxEdgeMetersId, 0.25f);
                 _properties.SetBuffer(ReadoutVerticesId, cache.Vertices);
                 _properties.SetBuffer(CurrentPageSlotsId,
                     cache.CurrentPageSlots);
@@ -1023,6 +1031,27 @@ namespace Genesis.RoomScan.SigmaPrism
                 Graphics.RenderPrimitivesIndirect(renderParams,
                     MeshTopology.Triangles, cache.DrawArguments, 1);
             }
+        }
+
+        private Matrix4x4 ResolveWorldFromReadout(Camera renderCamera)
+        {
+            if (_xrTrackingSpace == null && renderCamera != null)
+            {
+                Transform node = renderCamera.transform;
+                while (node != null)
+                {
+                    if (string.Equals(node.name, "TrackingSpace",
+                            StringComparison.Ordinal))
+                    {
+                        _xrTrackingSpace = node;
+                        break;
+                    }
+                    node = node.parent;
+                }
+            }
+            return _xrTrackingSpace != null
+                ? _xrTrackingSpace.localToWorldMatrix
+                : Matrix4x4.identity;
         }
 
         private void OnDestroy()
@@ -1098,6 +1127,7 @@ namespace Genesis.RoomScan.SigmaPrism
             _streamPageVisibility = null;
             _streamManifestCapacity = 0;
             _streamSegmentIndex = -1;
+            _xrTrackingSpace = null;
             _backendGate = null;
             _topology = null;
             _carrier = null;
