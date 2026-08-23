@@ -305,6 +305,43 @@ uint SigmaRevalidationReclaimAssociation(SigmaTransactionGpu transaction,
     return SIGMA_STREAM_INVALID;
 }
 
+uint SigmaRevalidationReclaimInactiveAssociation(uint currentBundle)
+{
+    [unroll]
+    for (uint association = 0u;
+        association < SIGMA_STREAM_TRANSACTION_CAPACITY; ++association)
+    {
+        uint4 owner = _StreamAssociationOwners[association];
+        if (owner.x == SIGMA_STREAM_INVALID)
+            return association;
+        if (!SigmaStreamHandleValid(owner.x, owner.y,
+                SIGMA_STREAM_BUNDLE_CAPACITY))
+        {
+            _StreamAssociationOwners[association] =
+                uint4(SIGMA_STREAM_INVALID, 0u, 0u, 0u);
+            return association;
+        }
+        SigmaSealedSourceBundleGpu victim = _StreamBundles[owner.x];
+        if (SigmaStreamBundleGeneration(victim) != owner.y)
+        {
+            _StreamAssociationOwners[association] =
+                uint4(SIGMA_STREAM_INVALID, 0u, 0u, 0u);
+            return association;
+        }
+        if (owner.x == currentBundle ||
+            SigmaStreamBundleState(victim) == SIGMA_STREAM_BUNDLE_ACTIVE)
+            continue;
+        victim.raw.z = SIGMA_STREAM_INVALID;
+        victim.identity.w &= ~SIGMA_STREAM_BUNDLE_FLAG_HAS_ASSOCIATION;
+        victim.identity.w |= SIGMA_STREAM_BUNDLE_FLAG_NEEDS_REVALIDATION;
+        _StreamBundles[owner.x] = victim;
+        _StreamAssociationOwners[association] =
+            uint4(SIGMA_STREAM_INVALID, 0u, 0u, 0u);
+        return association;
+    }
+    return SIGMA_STREAM_INVALID;
+}
+
 uint SigmaRevalidationClaimAssociation(SigmaTransactionGpu transaction,
     uint bundleSlot, uint generation, uint preferred)
 {
@@ -333,6 +370,13 @@ uint SigmaRevalidationClaimAssociation(SigmaTransactionGpu transaction,
     }
     uint reclaimed = SigmaRevalidationReclaimAssociation(transaction,
         bundleSlot);
+    if (reclaimed < SIGMA_STREAM_TRANSACTION_CAPACITY)
+    {
+        _StreamAssociationOwners[reclaimed] = uint4(bundleSlot,
+            generation, 0u, 0u);
+        return reclaimed;
+    }
+    reclaimed = SigmaRevalidationReclaimInactiveAssociation(bundleSlot);
     if (reclaimed < SIGMA_STREAM_TRANSACTION_CAPACITY)
     {
         _StreamAssociationOwners[reclaimed] = uint4(bundleSlot,

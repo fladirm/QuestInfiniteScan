@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "source_digest": "d7cf710cf6f4f1af1fedf868b427136e4efef08fc0050bdd1385d4f1e0665bb5",
+  "source_digest": "8d93e5b1143d7153b82f5611f1daf1893065dd00ef4b14faf2f95f01a17fa9db",
   "scope": [
     "Runtime/**/*.cs",
     "Runtime/Resources/SigmaPrism/**/*.*",
@@ -11,8 +11,8 @@
   ],
   "summary": {
     "files": 133,
-    "symbols": 2151,
-    "methods_and_functions": 1729,
+    "symbols": 2152,
+    "methods_and_functions": 1730,
     "gpu_kernels": 112,
     "event_links": 6
   },
@@ -6516,39 +6516,39 @@
       "line": 4
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::BuildHistoricalDrawArguments@573",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::BuildHistoricalDrawArguments@617",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute",
       "name": "BuildHistoricalDrawArguments",
       "kind": "gpu_function",
-      "line": 573
+      "line": 617
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::CancelHistoricalRevalidation@767",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::CancelHistoricalRevalidation@811",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute",
       "name": "CancelHistoricalRevalidation",
       "kind": "gpu_function",
-      "line": 767
+      "line": 811
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::FinalizeHistoricalRevalidation@722",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::FinalizeHistoricalRevalidation@766",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute",
       "name": "FinalizeHistoricalRevalidation",
       "kind": "gpu_function",
-      "line": 722
+      "line": 766
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::PrepareHistoricalRevalidation@344",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::PrepareHistoricalRevalidation@388",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute",
       "name": "PrepareHistoricalRevalidation",
       "kind": "gpu_function",
-      "line": 344
+      "line": 388
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::RebuildHistoricalAssociation@644",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::RebuildHistoricalAssociation@688",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute",
       "name": "RebuildHistoricalAssociation",
       "kind": "gpu_function",
-      "line": 644
+      "line": 688
     },
     {
       "id": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationBundleCurrent@230",
@@ -6558,18 +6558,18 @@
       "line": 230
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationCaptureEye@611",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationCaptureEye@655",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute",
       "name": "SigmaRevalidationCaptureEye",
       "kind": "gpu_function",
-      "line": 611
+      "line": 655
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationClaimAssociation@307",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationClaimAssociation@344",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute",
       "name": "SigmaRevalidationClaimAssociation",
       "kind": "gpu_function",
-      "line": 307
+      "line": 344
     },
     {
       "id": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationClearContext@109",
@@ -6621,11 +6621,11 @@
       "line": 117
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationPrepareFinalize@682",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationPrepareFinalize@726",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute",
       "name": "SigmaRevalidationPrepareFinalize",
       "kind": "gpu_function",
-      "line": 682
+      "line": 726
     },
     {
       "id": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationReclaimAssociation@254",
@@ -6633,6 +6633,13 @@
       "name": "SigmaRevalidationReclaimAssociation",
       "kind": "gpu_function",
       "line": 254
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationReclaimInactiveAssociation@307",
+      "file": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute",
+      "name": "SigmaRevalidationReclaimInactiveAssociation",
+      "kind": "gpu_function",
+      "line": 307
     },
     {
       "id": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationReleaseSnapshotPin@122",
@@ -6656,32 +6663,32 @@
       "line": 155
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::if@375",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::if@419",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute",
       "name": "if",
       "kind": "gpu_function",
-      "line": 375
+      "line": 419
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::if@411",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::if@455",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute",
       "name": "if",
       "kind": "gpu_function",
-      "line": 411
+      "line": 455
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::if@558",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::if@602",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute",
       "name": "if",
       "kind": "gpu_function",
-      "line": 558
+      "line": 602
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::if@566",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::if@610",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute",
       "name": "if",
       "kind": "gpu_function",
-      "line": 566
+      "line": 610
     },
     {
       "id": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::kernel:BuildHistoricalDrawArguments",
@@ -6824,11 +6831,11 @@
       "line": 94
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateCloseRecord@711",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateCloseRecord@709",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute",
       "name": "SigmaCandidateCloseRecord",
       "kind": "gpu_function",
-      "line": 711
+      "line": 709
     },
     {
       "id": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateDyadL1@445",
@@ -6866,11 +6873,11 @@
       "line": 89
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateLoadCell@695",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateLoadCell@693",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute",
       "name": "SigmaCandidateLoadCell",
       "kind": "gpu_function",
-      "line": 695
+      "line": 693
     },
     {
       "id": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateNullLane@161",
@@ -6978,11 +6985,11 @@
       "line": 144
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateAssociatorChunk@748",
+      "id": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateAssociatorChunk@743",
       "file": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute",
       "name": "ValidateCandidateAssociatorChunk",
       "kind": "gpu_function",
-      "line": 748
+      "line": 743
     },
     {
       "id": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateTransitionChunk@480",
@@ -15091,32 +15098,32 @@
       "line": 26
     },
     {
-      "id": "Tests/Editor/SigmaStreamingContractTests.cs::AssertProofEqual@712",
+      "id": "Tests/Editor/SigmaStreamingContractTests.cs::AssertProofEqual@740",
       "file": "Tests/Editor/SigmaStreamingContractTests.cs",
       "name": "AssertProofEqual",
       "kind": "method",
-      "line": 712
+      "line": 740
     },
     {
-      "id": "Tests/Editor/SigmaStreamingContractTests.cs::Bind@743",
+      "id": "Tests/Editor/SigmaStreamingContractTests.cs::Bind@771",
       "file": "Tests/Editor/SigmaStreamingContractTests.cs",
       "name": "Bind",
       "kind": "method",
-      "line": 743
+      "line": 771
     },
     {
-      "id": "Tests/Editor/SigmaStreamingContractTests.cs::Bounds@732",
+      "id": "Tests/Editor/SigmaStreamingContractTests.cs::Bounds@760",
       "file": "Tests/Editor/SigmaStreamingContractTests.cs",
       "name": "Bounds",
       "kind": "method",
-      "line": 732
+      "line": 760
     },
     {
-      "id": "Tests/Editor/SigmaStreamingContractTests.cs::BoundsEqual@698",
+      "id": "Tests/Editor/SigmaStreamingContractTests.cs::BoundsEqual@726",
       "file": "Tests/Editor/SigmaStreamingContractTests.cs",
       "name": "BoundsEqual",
       "kind": "method",
-      "line": 698
+      "line": 726
     },
     {
       "id": "Tests/Editor/SigmaStreamingContractTests.cs::BoundsGpu",
@@ -15126,32 +15133,32 @@
       "line": 41
     },
     {
-      "id": "Tests/Editor/SigmaStreamingContractTests.cs::BuildPartitionedProofEvidence@599",
+      "id": "Tests/Editor/SigmaStreamingContractTests.cs::BuildPartitionedProofEvidence@627",
       "file": "Tests/Editor/SigmaStreamingContractTests.cs",
       "name": "BuildPartitionedProofEvidence",
       "kind": "method",
-      "line": 599
+      "line": 627
     },
     {
-      "id": "Tests/Editor/SigmaStreamingContractTests.cs::CloseProof@651",
+      "id": "Tests/Editor/SigmaStreamingContractTests.cs::CloseProof@679",
       "file": "Tests/Editor/SigmaStreamingContractTests.cs",
       "name": "CloseProof",
       "kind": "method",
-      "line": 651
+      "line": 679
     },
     {
-      "id": "Tests/Editor/SigmaStreamingContractTests.cs::HistoricalSnapshotIsPinnedAndNeverUpgradesInFlight@235",
+      "id": "Tests/Editor/SigmaStreamingContractTests.cs::HistoricalSnapshotIsPinnedAndNeverUpgradesInFlight@248",
       "file": "Tests/Editor/SigmaStreamingContractTests.cs",
       "name": "HistoricalSnapshotIsPinnedAndNeverUpgradesInFlight",
       "kind": "method",
-      "line": 235
+      "line": 248
     },
     {
-      "id": "Tests/Editor/SigmaStreamingContractTests.cs::MeetCertificates@657",
+      "id": "Tests/Editor/SigmaStreamingContractTests.cs::MeetCertificates@685",
       "file": "Tests/Editor/SigmaStreamingContractTests.cs",
       "name": "MeetCertificates",
       "kind": "method",
-      "line": 657
+      "line": 685
     },
     {
       "id": "Tests/Editor/SigmaStreamingContractTests.cs::PageMetadataGpu",
@@ -15161,46 +15168,46 @@
       "line": 17
     },
     {
-      "id": "Tests/Editor/SigmaStreamingContractTests.cs::ProofCertificate@639",
+      "id": "Tests/Editor/SigmaStreamingContractTests.cs::ProofCertificate@667",
       "file": "Tests/Editor/SigmaStreamingContractTests.cs",
       "name": "ProofCertificate",
       "kind": "method",
-      "line": 639
+      "line": 667
     },
     {
-      "id": "Tests/Editor/SigmaStreamingContractTests.cs::ProofClosureIsIndependentOfWindowsAndInterleaving@405",
+      "id": "Tests/Editor/SigmaStreamingContractTests.cs::ProofClosureIsIndependentOfWindowsAndInterleaving@433",
       "file": "Tests/Editor/SigmaStreamingContractTests.cs",
       "name": "ProofClosureIsIndependentOfWindowsAndInterleaving",
       "kind": "method",
-      "line": 405
+      "line": 433
     },
     {
-      "id": "Tests/Editor/SigmaStreamingContractTests.cs::ProofGpuReverseSweepMatchesCanonicalEssentialSet@431",
+      "id": "Tests/Editor/SigmaStreamingContractTests.cs::ProofGpuReverseSweepMatchesCanonicalEssentialSet@459",
       "file": "Tests/Editor/SigmaStreamingContractTests.cs",
       "name": "ProofGpuReverseSweepMatchesCanonicalEssentialSet",
       "kind": "method",
-      "line": 431
+      "line": 459
     },
     {
-      "id": "Tests/Editor/SigmaStreamingContractTests.cs::ReadCompute@749",
+      "id": "Tests/Editor/SigmaStreamingContractTests.cs::ReadCompute@777",
       "file": "Tests/Editor/SigmaStreamingContractTests.cs",
       "name": "ReadCompute",
       "kind": "method",
-      "line": 749
+      "line": 777
     },
     {
-      "id": "Tests/Editor/SigmaStreamingContractTests.cs::ReadScript@756",
+      "id": "Tests/Editor/SigmaStreamingContractTests.cs::ReadScript@784",
       "file": "Tests/Editor/SigmaStreamingContractTests.cs",
       "name": "ReadScript",
       "kind": "method",
-      "line": 756
+      "line": 784
     },
     {
-      "id": "Tests/Editor/SigmaStreamingContractTests.cs::ReplayWindows@670",
+      "id": "Tests/Editor/SigmaStreamingContractTests.cs::ReplayWindows@698",
       "file": "Tests/Editor/SigmaStreamingContractTests.cs",
       "name": "ReplayWindows",
       "kind": "method",
-      "line": 670
+      "line": 698
     },
     {
       "id": "Tests/Editor/SigmaStreamingContractTests.cs::SigmaStreamingContractTests",
@@ -15224,18 +15231,18 @@
       "line": 48
     },
     {
-      "id": "Tests/Editor/SigmaStreamingContractTests.cs::TransactionTelemetryDecodesExecutionGeneration@195",
+      "id": "Tests/Editor/SigmaStreamingContractTests.cs::TransactionTelemetryDecodesExecutionGeneration@208",
       "file": "Tests/Editor/SigmaStreamingContractTests.cs",
       "name": "TransactionTelemetryDecodesExecutionGeneration",
       "kind": "method",
-      "line": 195
+      "line": 208
     },
     {
-      "id": "Tests/Editor/SigmaStreamingContractTests.cs::U4@727",
+      "id": "Tests/Editor/SigmaStreamingContractTests.cs::U4@755",
       "file": "Tests/Editor/SigmaStreamingContractTests.cs",
       "name": "U4",
       "kind": "method",
-      "line": 727
+      "line": 755
     },
     {
       "id": "Tests/Editor/SigmaStreamingContractTests.cs::UInt2Gpu",
@@ -22116,6 +22123,11 @@
     },
     {
       "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@1224",
+      "target": "Runtime/Resources/SigmaPrism/SigmaExactCompare.hlsl::SigmaU64Equal@7",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamInverse.compute::EvaluateTransactionMicrotile@1224",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseMath.hlsl::SigmaOwnedCalibrationValue@599",
       "kind": "calls"
     },
@@ -23480,157 +23492,157 @@
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::CancelHistoricalRevalidation@767",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::CancelHistoricalRevalidation@811",
       "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationClearContext@109",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::CancelHistoricalRevalidation@767",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::CancelHistoricalRevalidation@811",
       "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationPinMarker@117",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::CancelHistoricalRevalidation@767",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::CancelHistoricalRevalidation@811",
       "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationReleaseSnapshotPin@122",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::FinalizeHistoricalRevalidation@722",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::FinalizeHistoricalRevalidation@766",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamBundleGeneration@104",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::FinalizeHistoricalRevalidation@722",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::FinalizeHistoricalRevalidation@766",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamTransactionGeneration@119",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::FinalizeHistoricalRevalidation@722",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::FinalizeHistoricalRevalidation@766",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamTransactionState@114",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::FinalizeHistoricalRevalidation@722",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::FinalizeHistoricalRevalidation@766",
       "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationClearContext@109",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::FinalizeHistoricalRevalidation@722",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationPrepareFinalize@682",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::FinalizeHistoricalRevalidation@766",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationPrepareFinalize@726",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::FinalizeHistoricalRevalidation@722",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::FinalizeHistoricalRevalidation@766",
       "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationReleaseSnapshotPin@122",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::FinalizeHistoricalRevalidation@722",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::FinalizeHistoricalRevalidation@766",
       "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationResetEvaluation@63",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::PrepareHistoricalRevalidation@344",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::PrepareHistoricalRevalidation@388",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamBundleGeneration@104",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::PrepareHistoricalRevalidation@344",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::PrepareHistoricalRevalidation@388",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamBundleState@109",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::PrepareHistoricalRevalidation@344",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::PrepareHistoricalRevalidation@388",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamHandleValid@139",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::PrepareHistoricalRevalidation@344",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::PrepareHistoricalRevalidation@388",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamTransactionGeneration@119",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::PrepareHistoricalRevalidation@344",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::PrepareHistoricalRevalidation@388",
       "target": "Runtime/Resources/SigmaPrism/SigmaStableScan.hlsl::SigmaStableExclusiveScan256Dual@13",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::PrepareHistoricalRevalidation@344",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::PrepareHistoricalRevalidation@388",
       "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationBundleCurrent@230",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::PrepareHistoricalRevalidation@344",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationClaimAssociation@307",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::PrepareHistoricalRevalidation@388",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationClaimAssociation@344",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::PrepareHistoricalRevalidation@344",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::PrepareHistoricalRevalidation@388",
       "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationClearContext@109",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::PrepareHistoricalRevalidation@344",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::PrepareHistoricalRevalidation@388",
       "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationClosedState@78",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::PrepareHistoricalRevalidation@344",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::PrepareHistoricalRevalidation@388",
       "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationCurrentBundle@205",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::PrepareHistoricalRevalidation@344",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::PrepareHistoricalRevalidation@388",
       "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationFindVisiblePage@164",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::PrepareHistoricalRevalidation@344",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::PrepareHistoricalRevalidation@388",
       "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationLoadTransaction@187",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::PrepareHistoricalRevalidation@344",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::PrepareHistoricalRevalidation@388",
       "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationPageVisible@139",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::PrepareHistoricalRevalidation@344",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::PrepareHistoricalRevalidation@388",
       "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationPinMarker@117",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::PrepareHistoricalRevalidation@344",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::PrepareHistoricalRevalidation@388",
       "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationReleaseSnapshotPin@122",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::PrepareHistoricalRevalidation@344",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::PrepareHistoricalRevalidation@388",
       "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationResetEvaluation@63",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::RebuildHistoricalAssociation@644",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::RebuildHistoricalAssociation@688",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamBundleGeneration@104",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::RebuildHistoricalAssociation@644",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::RebuildHistoricalAssociation@688",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamHandleValid@139",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::RebuildHistoricalAssociation@644",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::RebuildHistoricalAssociation@688",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamRawWordAddress@93",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::RebuildHistoricalAssociation@644",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationCaptureEye@611",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::RebuildHistoricalAssociation@688",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationCaptureEye@655",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::RebuildHistoricalAssociation@644",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::RebuildHistoricalAssociation@688",
       "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationLoadTransaction@187",
       "kind": "calls"
     },
@@ -23645,8 +23657,13 @@
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationClaimAssociation@307",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationClaimAssociation@344",
       "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationReclaimAssociation@254",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationClaimAssociation@344",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationReclaimInactiveAssociation@307",
       "kind": "calls"
     },
     {
@@ -23705,27 +23722,27 @@
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationPrepareFinalize@682",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationPrepareFinalize@726",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamBundleGeneration@104",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationPrepareFinalize@682",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationPrepareFinalize@726",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamHandleValid@139",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationPrepareFinalize@682",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationPrepareFinalize@726",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamTransactionGeneration@119",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationPrepareFinalize@682",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationPrepareFinalize@726",
       "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationLoadTransaction@187",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationPrepareFinalize@682",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationPrepareFinalize@726",
       "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationPinMarker@117",
       "kind": "calls"
     },
@@ -23750,62 +23767,77 @@
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::if@375",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationReclaimInactiveAssociation@307",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamBundleGeneration@104",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::if@375",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationReclaimInactiveAssociation@307",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamBundleState@109",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::if@375",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationReclaimInactiveAssociation@307",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamHandleValid@139",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::if@375",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::if@419",
+      "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamBundleGeneration@104",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::if@419",
+      "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamBundleState@109",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::if@419",
+      "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamHandleValid@139",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::if@419",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamTransactionGeneration@119",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::if@375",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::if@419",
       "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationBundleCurrent@230",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::if@375",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationClaimAssociation@307",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::if@419",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationClaimAssociation@344",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::if@375",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::if@419",
       "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationClosedState@78",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::if@375",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::if@419",
       "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationCurrentBundle@205",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::if@375",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::if@419",
       "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationFindVisiblePage@164",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::if@375",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::if@419",
       "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationPinMarker@117",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::if@375",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::if@419",
       "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationResetEvaluation@63",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::if@558",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::if@602",
       "target": "Runtime/Resources/SigmaPrism/SigmaStreamRevalidation.compute::SigmaRevalidationClearContext@109",
       "kind": "calls"
     },
@@ -23890,7 +23922,7 @@
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateLoadCell@695",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateLoadCell@693",
       "target": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateEndpointLane@387",
       "kind": "calls"
     },
@@ -24035,62 +24067,62 @@
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateAssociatorChunk@748",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateAssociatorChunk@743",
       "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48SubChecked@159",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateAssociatorChunk@748",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateAssociatorChunk@743",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseWorkAbi.hlsl::SigmaStreamTransactionGeneration@119",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateAssociatorChunk@748",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateCloseRecord@711",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateAssociatorChunk@743",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateCloseRecord@709",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateAssociatorChunk@748",
-      "target": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateLoadCell@695",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateAssociatorChunk@743",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateLoadCell@693",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateAssociatorChunk@748",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateAssociatorChunk@743",
       "target": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidatePrepareGroup@172",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateAssociatorChunk@748",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateAssociatorChunk@743",
       "target": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::SigmaCandidateRecordAddress@74",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateAssociatorChunk@748",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateAssociatorChunk@743",
       "target": "Runtime/Resources/SigmaPrism/SigmaTopologyMath.hlsl::SigmaAssociatorPlan@118",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateAssociatorChunk@748",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateAssociatorChunk@743",
       "target": "Runtime/Resources/SigmaPrism/SigmaTopologyMath.hlsl::SigmaRelativeAssociatorGate@164",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateAssociatorChunk@748",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateAssociatorChunk@743",
       "target": "Runtime/Resources/SigmaPrism/SigmaTopologyMath.hlsl::SigmaS16L1@73",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateAssociatorChunk@748",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateAssociatorChunk@743",
       "target": "Runtime/Resources/SigmaPrism/SigmaTopologyMath.hlsl::SigmaStateHasContact@187",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateAssociatorChunk@748",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateAssociatorChunk@743",
       "target": "Runtime/Resources/SigmaPrism/SigmaTopologyMath.hlsl::SigmaU128Add@45",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateAssociatorChunk@748",
+      "source": "Runtime/Resources/SigmaPrism/SigmaStreamTransition.compute::ValidateCandidateAssociatorChunk@743",
       "target": "Runtime/Resources/SigmaPrism/SigmaTopologyMath.hlsl::SigmaU128Equal@11",
       "kind": "calls"
     },
@@ -30450,117 +30482,117 @@
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaStreamingContractTests.cs::AssertProofEqual@712",
-      "target": "Tests/Editor/SigmaStreamingContractTests.cs::BoundsEqual@698",
+      "source": "Tests/Editor/SigmaStreamingContractTests.cs::AssertProofEqual@740",
+      "target": "Tests/Editor/SigmaStreamingContractTests.cs::BoundsEqual@726",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaStreamingContractTests.cs::BuildPartitionedProofEvidence@599",
+      "source": "Tests/Editor/SigmaStreamingContractTests.cs::BuildPartitionedProofEvidence@627",
       "target": "Runtime/SigmaPrism/SigmaNumericDomain.cs::SigmaQ48Interval",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaStreamingContractTests.cs::BuildPartitionedProofEvidence@599",
-      "target": "Tests/Editor/SigmaStreamingContractTests.cs::ProofCertificate@639",
+      "source": "Tests/Editor/SigmaStreamingContractTests.cs::BuildPartitionedProofEvidence@627",
+      "target": "Tests/Editor/SigmaStreamingContractTests.cs::ProofCertificate@667",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaStreamingContractTests.cs::HistoricalSnapshotIsPinnedAndNeverUpgradesInFlight@235",
+      "source": "Tests/Editor/SigmaStreamingContractTests.cs::HistoricalSnapshotIsPinnedAndNeverUpgradesInFlight@248",
       "target": "Runtime/SigmaPrism/SigmaExactBackendGate.cs::Dispatch@45",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaStreamingContractTests.cs::HistoricalSnapshotIsPinnedAndNeverUpgradesInFlight@235",
+      "source": "Tests/Editor/SigmaStreamingContractTests.cs::HistoricalSnapshotIsPinnedAndNeverUpgradesInFlight@248",
       "target": "Runtime/SigmaPrism/SigmaGaugeController.cs::Buffer@538",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaStreamingContractTests.cs::HistoricalSnapshotIsPinnedAndNeverUpgradesInFlight@235",
+      "source": "Tests/Editor/SigmaStreamingContractTests.cs::HistoricalSnapshotIsPinnedAndNeverUpgradesInFlight@248",
       "target": "Runtime/SigmaPrism/SigmaStreamingGraph.cs::SetInt@966",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaStreamingContractTests.cs::HistoricalSnapshotIsPinnedAndNeverUpgradesInFlight@235",
-      "target": "Tests/Editor/SigmaStreamingContractTests.cs::U4@727",
+      "source": "Tests/Editor/SigmaStreamingContractTests.cs::HistoricalSnapshotIsPinnedAndNeverUpgradesInFlight@248",
+      "target": "Tests/Editor/SigmaStreamingContractTests.cs::U4@755",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaStreamingContractTests.cs::MeetCertificates@657",
+      "source": "Tests/Editor/SigmaStreamingContractTests.cs::MeetCertificates@685",
       "target": "Runtime/SigmaPrism/SigmaNumericDomain.cs::Intersect@288",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaStreamingContractTests.cs::ProofCertificate@639",
+      "source": "Tests/Editor/SigmaStreamingContractTests.cs::ProofCertificate@667",
       "target": "Runtime/SigmaPrism/SigmaRgbInverse.cs::SigmaConstraintCertificate",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaStreamingContractTests.cs::ProofClosureIsIndependentOfWindowsAndInterleaving@405",
-      "target": "Tests/Editor/SigmaStreamingContractTests.cs::AssertProofEqual@712",
+      "source": "Tests/Editor/SigmaStreamingContractTests.cs::ProofClosureIsIndependentOfWindowsAndInterleaving@433",
+      "target": "Tests/Editor/SigmaStreamingContractTests.cs::AssertProofEqual@740",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaStreamingContractTests.cs::ProofClosureIsIndependentOfWindowsAndInterleaving@405",
-      "target": "Tests/Editor/SigmaStreamingContractTests.cs::BuildPartitionedProofEvidence@599",
+      "source": "Tests/Editor/SigmaStreamingContractTests.cs::ProofClosureIsIndependentOfWindowsAndInterleaving@433",
+      "target": "Tests/Editor/SigmaStreamingContractTests.cs::BuildPartitionedProofEvidence@627",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaStreamingContractTests.cs::ProofClosureIsIndependentOfWindowsAndInterleaving@405",
-      "target": "Tests/Editor/SigmaStreamingContractTests.cs::CloseProof@651",
+      "source": "Tests/Editor/SigmaStreamingContractTests.cs::ProofClosureIsIndependentOfWindowsAndInterleaving@433",
+      "target": "Tests/Editor/SigmaStreamingContractTests.cs::CloseProof@679",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaStreamingContractTests.cs::ProofClosureIsIndependentOfWindowsAndInterleaving@405",
-      "target": "Tests/Editor/SigmaStreamingContractTests.cs::MeetCertificates@657",
+      "source": "Tests/Editor/SigmaStreamingContractTests.cs::ProofClosureIsIndependentOfWindowsAndInterleaving@433",
+      "target": "Tests/Editor/SigmaStreamingContractTests.cs::MeetCertificates@685",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaStreamingContractTests.cs::ProofClosureIsIndependentOfWindowsAndInterleaving@405",
-      "target": "Tests/Editor/SigmaStreamingContractTests.cs::ReplayWindows@670",
+      "source": "Tests/Editor/SigmaStreamingContractTests.cs::ProofClosureIsIndependentOfWindowsAndInterleaving@433",
+      "target": "Tests/Editor/SigmaStreamingContractTests.cs::ReplayWindows@698",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaStreamingContractTests.cs::ProofGpuReverseSweepMatchesCanonicalEssentialSet@431",
+      "source": "Tests/Editor/SigmaStreamingContractTests.cs::ProofGpuReverseSweepMatchesCanonicalEssentialSet@459",
       "target": "Runtime/SigmaPrism/SigmaExactBackendGate.cs::Dispatch@45",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaStreamingContractTests.cs::ProofGpuReverseSweepMatchesCanonicalEssentialSet@431",
+      "source": "Tests/Editor/SigmaStreamingContractTests.cs::ProofGpuReverseSweepMatchesCanonicalEssentialSet@459",
       "target": "Runtime/SigmaPrism/SigmaGaugeController.cs::Buffer@538",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaStreamingContractTests.cs::ProofGpuReverseSweepMatchesCanonicalEssentialSet@431",
+      "source": "Tests/Editor/SigmaStreamingContractTests.cs::ProofGpuReverseSweepMatchesCanonicalEssentialSet@459",
       "target": "Runtime/SigmaPrism/SigmaStreamingGraph.cs::SetInt@966",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaStreamingContractTests.cs::ProofGpuReverseSweepMatchesCanonicalEssentialSet@431",
-      "target": "Tests/Editor/SigmaStreamingContractTests.cs::Bounds@732",
+      "source": "Tests/Editor/SigmaStreamingContractTests.cs::ProofGpuReverseSweepMatchesCanonicalEssentialSet@459",
+      "target": "Tests/Editor/SigmaStreamingContractTests.cs::Bounds@760",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaStreamingContractTests.cs::ProofGpuReverseSweepMatchesCanonicalEssentialSet@431",
-      "target": "Tests/Editor/SigmaStreamingContractTests.cs::U4@727",
+      "source": "Tests/Editor/SigmaStreamingContractTests.cs::ProofGpuReverseSweepMatchesCanonicalEssentialSet@459",
+      "target": "Tests/Editor/SigmaStreamingContractTests.cs::U4@755",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaStreamingContractTests.cs::ReplayWindows@670",
+      "source": "Tests/Editor/SigmaStreamingContractTests.cs::ReplayWindows@698",
       "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Min@170",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaStreamingContractTests.cs::StreamingRepairContractUsesProductionBindingsAndClosure@139",
-      "target": "Tests/Editor/SigmaStreamingContractTests.cs::ReadCompute@749",
+      "target": "Tests/Editor/SigmaStreamingContractTests.cs::ReadCompute@777",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaStreamingContractTests.cs::StreamingRepairContractUsesProductionBindingsAndClosure@139",
-      "target": "Tests/Editor/SigmaStreamingContractTests.cs::ReadScript@756",
+      "target": "Tests/Editor/SigmaStreamingContractTests.cs::ReadScript@784",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaStreamingContractTests.cs::TransactionTelemetryDecodesExecutionGeneration@195",
+      "source": "Tests/Editor/SigmaStreamingContractTests.cs::TransactionTelemetryDecodesExecutionGeneration@208",
       "target": "Runtime/SigmaPrism/SigmaDiagnosticTelemetry.cs::SigmaTransactionTelemetry",
       "kind": "calls"
     },

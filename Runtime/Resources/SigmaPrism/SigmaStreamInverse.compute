@@ -1334,18 +1334,33 @@ void EvaluateTransactionMicrotile(uint3 groupId : SV_GroupID,
             transaction.page0.state.x * SIGMA_PAGE_LANE_COUNT +
             sample * 16u + coordinate];
     }
+    uint2 emittedState = EvalSampleValid[sampleLocal] != 0u
+        ? candidate : fallbackState;
     _TargetCarrierState[
         transaction.page0.state.y * SIGMA_PAGE_LANE_COUNT +
-        sample * 16u + coordinate] =
-        EvalSampleValid[sampleLocal] != 0u ? candidate : fallbackState;
+        sample * 16u + coordinate] = emittedState;
+    EvalLaneValid[flat] = EvalSampleValid[sampleLocal] != 0u &&
+        !SigmaU64Equal(emittedState, fallbackState) ? 1u : 0u;
+    GroupMemoryBarrierWithGroupSync();
     if (coordinate == 0u)
     {
-        uint status = _ProofSamples[proofIndex].meta.x;
+        uint stateChanged = 0u;
+        [unroll]
+        for (uint lane = 0u; lane < 16u; ++lane)
+            stateChanged |= EvalLaneValid[flat + lane];
+        uint status = _ProofSamples[proofIndex].meta.x &
+            ~(SIGMA_PROPOSAL_ACCEPTED | SIGMA_PROPOSAL_CHANGED);
         if (EvalSampleValid[sampleLocal] != 0u)
-            status |= SIGMA_PROPOSAL_ACCEPTED | SIGMA_PROPOSAL_CHANGED;
+        {
+            status |= SIGMA_PROPOSAL_ACCEPTED;
+            if (stateChanged != 0u)
+                status |= SIGMA_PROPOSAL_CHANGED;
+        }
         else if (candidateValid != 0u)
             status |= SIGMA_PROPOSAL_INVALID;
         _ProofSamples[proofIndex].meta.x = status;
+        sampleMeta.y &= ~(SIGMA_PROPOSAL_ACCEPTED |
+            SIGMA_PROPOSAL_CHANGED);
         sampleMeta.y |= status;
         _StreamSampleMeta[streamSample] = sampleMeta;
         InterlockedOr(EvalGroupProposalFlags, sampleMeta.y);

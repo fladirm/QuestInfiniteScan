@@ -117,21 +117,19 @@ granularity.
 
 ## Exact next action
 
-S4-08.3D source implementation is complete. Evidence-qualified transition
-resolution now treats unobserved endpoints as no claim, resolves same sealed-workset
-candidate neighbours before published Psi, and never promotes contact-side support
-into null-side evidence. Proof closure transfers irreducible raw residue into the
-existing ConstraintLedger tail before dormant parking reclaims transient bundles,
-associations and source segments. Dormant probation retains only a generation-safe
-candidate/proof anchor; a later sealed observation is a disposable proposal against
-that anchor and exact inverse remains the only join authority. Morton remains an
-allocation address. Zero admission no longer advances the ingress cursor.
+The post-D device run exposed two remaining wiring errors, now repaired without a
+new subsystem: streaming `CHANGED` is the bit-exact final candidate/prior delta;
+source conflict/invalid flags remain retained evidence but no longer invalidate a
+valid fallback endpoint; and valid unresolved transitions close conservatively as
+required by section 22 while derived readout keeps cutting them. Historical
+revalidation now deterministically revokes association caches owned by non-active
+bundles before allowing them to block a live canonical transaction. Null promotion,
+proof, manifest publication and derived readout contracts are unchanged.
 
-Focused Vulkan streaming passed 6/6, full Unity Vulkan EditMode passed 71/71,
-generated output is current, `git diff --check` is clean and the Quest eight-UAV
-gate passes. Exact next action: regenerate/validate the code graph, commit the
-source closure, create its git archive, build the same revision as Android/Vulkan
-Release and install it on the connected Quest. Do not open S4-09.
+Full Unity Vulkan EditMode passes 71/71 including the 8/8 association priority-
+inversion fixture; `git diff --check` and the Quest eight-UAV gate pass. Exact next
+action: regenerate/validate the code graph, commit, archive, build that exact commit
+as Android/Vulkan Release and install it on the Quest. Do not open S4-09.
 
 ## Acceptance still required
 

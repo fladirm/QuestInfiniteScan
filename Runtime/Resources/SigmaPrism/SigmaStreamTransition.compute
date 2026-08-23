@@ -49,7 +49,7 @@ uint _AssociatorShift;
 #define SIGMA_CANDIDATE_FAILED (1u << 6u)
 #define SIGMA_CANDIDATE_NO_CLAIM (1u << 7u)
 #define SIGMA_CANDIDATE_EXPLICIT_NULL (1u << 8u)
-#define SIGMA_CANDIDATE_EVIDENCE_FAULT (1u << 9u)
+#define SIGMA_CANDIDATE_PENDING_EVIDENCE (1u << 9u)
 
 #define SIGMA_CANDIDATE_ENDPOINT_UNOBSERVED 0u
 #define SIGMA_CANDIDATE_ENDPOINT_CURRENT 1u
@@ -532,19 +532,16 @@ void ValidateCandidateTransitionChunk(uint3 groupId : SV_GroupID,
             (SIGMA_PROPOSAL_HIT_LEFT | SIGMA_PROPOSAL_HIT_RIGHT)) ==
             (SIGMA_PROPOSAL_HIT_LEFT | SIGMA_PROPOSAL_HIT_RIGHT);
         bool contactNull = leftContact != rightContact;
-        bool leftExplicitNull = !leftContact &&
-            (statusLeft & SIGMA_PROPOSAL_EXCLUSION) != 0u;
-        bool rightExplicitNull = !rightContact &&
-            (statusRight & SIGMA_PROPOSAL_EXCLUSION) != 0u;
-        bool explicitNull = contactNull &&
-            (leftExplicitNull || rightExplicitNull);
-        bool noClaim = contactNull && !explicitNull;
-        bool evidenceFault = (evidenceStatus &
+        // S4-08 has no persisted multi-view pass-through certificate. A
+        // single exclusion is pending evidence, never canonical PROVEN_NULL.
+        bool explicitNull = false;
+        bool noClaim = contactNull;
+        bool pendingEvidence = (evidenceStatus &
             (SIGMA_PROPOSAL_INVALID | SIGMA_PROPOSAL_CONFLICT)) != 0u;
         // Current S4-08 evidence has no two-sided pass-through bit. Stereo hits
         // on the contact endpoint therefore cannot prove the null endpoint.
         bool independent = !contactNull && stereoContactEvidence;
-        bool discontinuity = explicitNull ||
+        bool discontinuity =
             (evidenceStatus & (SIGMA_PROPOSAL_CONFLICT |
                 SIGMA_PROPOSAL_EXCLUSION)) != 0u;
         uint info = changed ? SIGMA_CANDIDATE_CHANGED : 0u;
@@ -554,7 +551,7 @@ void ValidateCandidateTransitionChunk(uint3 groupId : SV_GroupID,
         info |= discontinuity ? SIGMA_CANDIDATE_DISCONTINUITY : 0u;
         info |= noClaim ? SIGMA_CANDIDATE_NO_CLAIM : 0u;
         info |= explicitNull ? SIGMA_CANDIDATE_EXPLICIT_NULL : 0u;
-        info |= evidenceFault ? SIGMA_CANDIDATE_EVIDENCE_FAULT : 0u;
+        info |= pendingEvidence ? SIGMA_CANDIDATE_PENDING_EVIDENCE : 0u;
         info |= !leftContact && !rightContact
             ? SIGMA_CANDIDATE_BOTH_NULL : 0u;
         info |= leftContact ? (1u << 16u) : 0u;
@@ -580,8 +577,7 @@ void ValidateCandidateTransitionChunk(uint3 groupId : SV_GroupID,
         SIGMA_CANDIDATE_VALID)) ==
         (SIGMA_CANDIDATE_CHANGED | SIGMA_CANDIDATE_VALID) &&
         (edgeInfo & (SIGMA_CANDIDATE_BOTH_NULL |
-            SIGMA_CANDIDATE_NO_CLAIM |
-            SIGMA_CANDIDATE_EVIDENCE_FAULT)) == 0u;
+            SIGMA_CANDIDATE_NO_CLAIM)) == 0u;
     uint4 bestError = SIGMA_U128_MAX;
     uint bestId = SIGMA_ANNIHILATOR_ACTION_COUNT + witnessLane;
     if (evaluate && valid != 0u)
@@ -627,8 +623,8 @@ void ValidateCandidateTransitionChunk(uint3 groupId : SV_GroupID,
         bool edgeValid = (edgeInfo & SIGMA_CANDIDATE_VALID) != 0u;
         bool bothNull = (edgeInfo & SIGMA_CANDIDATE_BOTH_NULL) != 0u;
         bool noClaim = (edgeInfo & SIGMA_CANDIDATE_NO_CLAIM) != 0u;
-        bool evidenceFault = (edgeInfo &
-            SIGMA_CANDIDATE_EVIDENCE_FAULT) != 0u;
+        bool pendingEvidence = (edgeInfo &
+            SIGMA_CANDIDATE_PENDING_EVIDENCE) != 0u;
         bool leftContact = (edgeInfo & (1u << 16u)) != 0u;
         bool rightContact = (edgeInfo & (1u << 17u)) != 0u;
         bool validTransition = evaluate && bestId <
@@ -645,14 +641,16 @@ void ValidateCandidateTransitionChunk(uint3 groupId : SV_GroupID,
             SIGMA_U128_ZERO);
         bool contactNull = edgeValid && !noClaim &&
             leftContact != rightContact;
-        if (!edgeValid || evidenceFault || (evaluate && !validTransition))
+        bool operationFault = !edgeValid ||
+            (evaluate && !validTransition);
+        if (operationFault)
         {
             classification = SIGMA_TOPOLOGY_UNRESOLVED;
             topologyFlags |= SIGMA_TOPOLOGY_INVALID;
         }
         else if (bothNull || noClaim)
             classification = SIGMA_TOPOLOGY_UNSUPPORTED;
-        else if (near || contactNull)
+        else if (near || contactNull || pendingEvidence)
             classification = SIGMA_TOPOLOGY_UNRESOLVED;
         if (near) topologyFlags |= SIGMA_TOPOLOGY_NEAR_ANNIHILATOR;
         if (exact) topologyFlags |= SIGMA_TOPOLOGY_EXACT_ANNIHILATOR;
@@ -723,14 +721,10 @@ bool SigmaCandidateCloseRecord(inout uint4 record, bool associatorStrong)
     bool contactNull = (record.x & SIGMA_TOPOLOGY_CONTACT_NULL) != 0u;
     bool discontinuity = (record.x &
         SIGMA_TOPOLOGY_DISCONTINUITY_EVIDENCE) != 0u;
-    bool independent = (info & SIGMA_CANDIDATE_INDEPENDENT) != 0u;
     if (classification == SIGMA_TOPOLOGY_UNSUPPORTED)
         classification = SIGMA_TOPOLOGY_UNSUPPORTED;
     else if (invalid)
         classification = SIGMA_TOPOLOGY_UNRESOLVED;
-    else if (near && independent &&
-        (contactNull || associatorStrong || discontinuity))
-        classification = SIGMA_TOPOLOGY_SINGULAR;
     else if (near || contactNull || associatorStrong || discontinuity)
         classification = SIGMA_TOPOLOGY_UNRESOLVED;
     else
@@ -739,9 +733,10 @@ bool SigmaCandidateCloseRecord(inout uint4 record, bool associatorStrong)
         SIGMA_TOPOLOGY_ASSOCIATOR)) | classification;
     if (associatorStrong)
         record.x |= SIGMA_TOPOLOGY_ASSOCIATOR;
-    bool closed = classification == SIGMA_TOPOLOGY_REGULAR ||
-        classification == SIGMA_TOPOLOGY_SINGULAR ||
-        classification == SIGMA_TOPOLOGY_UNSUPPORTED;
+    // Unresolved is a complete conservative result, not a failed Psi
+    // transaction. Derived readout already cuts every non-regular edge and
+    // retained proof/raw evidence remains available for later stabilization.
+    bool closed = !invalid;
     record.y |= closed ? SIGMA_CANDIDATE_CLOSED : SIGMA_CANDIDATE_FAILED;
     return closed;
 }

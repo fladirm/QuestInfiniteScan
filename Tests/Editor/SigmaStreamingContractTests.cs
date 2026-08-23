@@ -170,13 +170,26 @@ namespace Genesis.RoomScan.Tests
             string inverse = ReadCompute("SigmaPrism/SigmaStreamInverse");
             StringAssert.Contains("SigmaEvalFailWork", inverse);
             StringAssert.Contains("SigmaEvalCompletePhase", inverse);
+            StringAssert.Contains("stateChanged |= EvalLaneValid", inverse);
+            StringAssert.Contains("~(SIGMA_PROPOSAL_ACCEPTED |", inverse);
             StringAssert.Contains("SIGMA_STREAM_PHASE_RGB_LEFT", inverse);
             StringAssert.Contains("SIGMA_STREAM_PHASE_RGB_RIGHT", inverse);
             StringAssert.Contains("SIGMA_STREAM_PHASE_MET", inverse);
 
+            string transition = ReadCompute(
+                "SigmaPrism/SigmaStreamTransition");
+            StringAssert.Contains("bool explicitNull = false", transition);
+            StringAssert.Contains("bool operationFault = !edgeValid",
+                transition);
+            StringAssert.Contains("bool closed = !invalid", transition);
+            StringAssert.DoesNotContain("near && independent", transition);
+
             string revalidation = ReadCompute(
                 "SigmaPrism/SigmaStreamRevalidation");
             StringAssert.Contains("SigmaRevalidationClosedState",
+                revalidation);
+            StringAssert.Contains(
+                "SigmaRevalidationReclaimInactiveAssociation",
                 revalidation);
             StringAssert.Contains("SIGMA_PROPOSAL_ACCEPTED", revalidation);
             StringAssert.Contains("SIGMA_STREAM_OUTCOME_NULL_PROMOTION",
@@ -257,9 +270,16 @@ namespace Genesis.RoomScan.Tests
 
             var bundlesData = new SigmaSealedSourceBundleGpu[
                 SigmaGeneratedStreaming.BundleCapacity];
-            bundlesData[0].Identity = U4(5u, 1u, 0u, 4u);
-            bundlesData[0].Raw = U4(0u, 0u, 0u, 0u);
+            bundlesData[0].Identity = U4(5u, 1u, 0u, 8u);
+            bundlesData[0].Raw = U4(0u, 0u, Invalid, 0u);
             bundlesData[0].Dependency = U4(0u, 1u, 1u, 2u);
+            for (int index = 0;
+                index < SigmaGeneratedStreaming.TransactionCapacity; ++index)
+            {
+                int victim = index + 1;
+                bundlesData[victim].Identity = U4(2u, 1u, 0u, 4u);
+                bundlesData[victim].Raw = U4(0u, 0u, (uint)index, 0u);
+            }
             var segmentsData = new SigmaSourceHandleSegmentGpu[1];
             segmentsData[0].Identity = U4(2u, 1u, 1u, 0u);
             segmentsData[0].Link = U4(Invalid, 0u, 0u, 0u);
@@ -283,8 +303,8 @@ namespace Genesis.RoomScan.Tests
             var associationOwnersData = new SigmaStreamUInt4Gpu[
                 SigmaGeneratedStreaming.TransactionCapacity];
             for (int index = 0; index < associationOwnersData.Length; ++index)
-                associationOwnersData[index] = U4(Invalid, 0u, 0u, 0u);
-            associationOwnersData[0] = U4(0u, 1u, 0u, 0u);
+                associationOwnersData[index] = U4((uint)(index + 1), 1u,
+                    0u, 0u);
             var schedulerData = new uint[32];
             schedulerData[6] = 3u;
             schedulerData[9] = 0u;
@@ -352,12 +372,20 @@ namespace Genesis.RoomScan.Tests
                 visibility.GetData(visibilityData);
                 context.GetData(contextData);
                 bundles.GetData(bundlesData);
+                associationOwners.GetData(associationOwnersData);
                 var snapshotData = new SigmaStreamUInt4Gpu[1];
                 snapshot.GetData(snapshotData);
                 Assert.That(visibilityData[0].Pins.W, Is.EqualTo(1u));
                 Assert.That(contextData[1].Z, Is.EqualTo(3u));
                 Assert.That(contextData[2].X, Is.EqualTo(1u));
                 Assert.That(bundlesData[0].Dependency.W, Is.EqualTo(3u));
+                Assert.That(bundlesData[0].Raw.Z, Is.Zero);
+                Assert.That((bundlesData[0].Identity.W & 4u) != 0u,
+                    Is.True);
+                Assert.That(associationOwnersData[0].X, Is.Zero);
+                Assert.That(bundlesData[1].Raw.Z, Is.EqualTo(Invalid));
+                Assert.That((bundlesData[1].Identity.W & 8u) != 0u,
+                    Is.True);
                 Assert.That(snapshotData[0].X, Is.EqualTo(0u));
                 Assert.That(snapshotData[0].Y, Is.EqualTo(1u));
                 Assert.That(snapshotData[0].Z, Is.EqualTo(1u));
