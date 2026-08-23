@@ -141,7 +141,8 @@ bool SigmaBundleRecordsOverlap(SigmaSealedSourceBundleGpu left,
         return false;
     uint2 leftMask = SigmaBundleAffectedMask(left);
     uint2 rightMask = SigmaBundleAffectedMask(right);
-    return ((leftMask.x & rightMask.x) | (leftMask.y & rightMask.y)) != 0u;
+    return ((leftMask.x & rightMask.x) |
+        (leftMask.y & rightMask.y)) != 0u;
 }
 
 bool SigmaBundleTransactionOverlap(SigmaSealedSourceBundleGpu bundle,
@@ -218,9 +219,7 @@ void InitializeStreamingGraph(uint3 threadId : SV_GroupThreadID)
         _StreamProbation[lane] = (SigmaProbationGpu)0;
     }
     if (lane < SIGMA_STREAM_TRANSACTION_CAPACITY)
-    {
         _StreamTransactions[lane] = (SigmaTransactionGpu)0;
-    }
     if (lane < SIGMA_STREAM_OPCODE_COUNT)
         SigmaStreamResetDispatch(lane);
     if (lane < 32u)
@@ -266,17 +265,15 @@ void InitializeStreamingOwnership(uint3 threadId : SV_GroupThreadID)
 [numthreads(64, 1, 1)]
 void ClearIngressWork(uint3 threadId : SV_GroupThreadID)
 {
-    uint lane = threadId.x;
-    if (lane == 0u)
+    if (threadId.x == 0u)
     {
         _StreamSchedulerControl[SIGMA_STREAM_CONTROL_INGRESS_COUNT] = 0u;
         SigmaStreamResetDispatch(SIGMA_STREAM_OPCODE_EXTRACT_BUNDLE);
     }
 }
 
-// Fixed bounded ingress: up to two complete page packets are selected in stable
-// page/image order.  The extraction pass owns every byte needed after its short
-// completion ticket; no transaction retains a sensor or prediction texture.
+// Ingress admits at most two complete page packets in stable source order. It
+// reserves owned raw storage before capture leases can be released.
 [numthreads(256, 1, 1)]
 void CompactIngressBundles(uint3 threadId : SV_GroupThreadID)
 {
@@ -417,17 +414,13 @@ void CompactIngressBundles(uint3 threadId : SV_GroupThreadID)
         if (generation != 0u && ticketValid != 0u)
         {
             uint4 coordinate = 0u;
-            uint imageOriginPacked = 0u;
             uint sourceGeneration = 0u;
             uint sourceRevision = 0u;
             uint source = SIGMA_STREAM_INVALID;
+            uint imageOriginPacked = 0u;
             uint blockMask = 0xffffffffu;
             if (selectedMatched)
-            {
-                // CopySealedBundleMetadata owns the SRV metadata snapshot.  Keeping
-                // that read out of admission preserves the Quest eight-UAV limit.
                 source = sourceSlot;
-            }
             else
             {
                 uint gaugeOrdinal = StreamGaugeOrdinalBase + gaugePrefix;
@@ -475,10 +468,8 @@ void CompactIngressBundles(uint3 threadId : SV_GroupThreadID)
             work.cursor = uint4(source, imageOriginPacked, blockMask, flags);
         }
         else
-        {
             InterlockedAdd(_StreamSchedulerControl[
                 SIGMA_STREAM_CONTROL_FAILED_COUNT], 1u);
-        }
         _StreamWorkItems[SigmaStreamWorkAddress(
             SIGMA_STREAM_OPCODE_EXTRACT_BUNDLE, rank)] = work;
     }
@@ -498,9 +489,6 @@ void CompactIngressBundles(uint3 threadId : SV_GroupThreadID)
     }
 }
 
-// Extraction kernels set support flags in the immutable header.  This bounded
-// finalizer changes only ownership state after every sample/calibration write is
-// ordered before it in the same ingress command buffer.
 [numthreads(64, 1, 1)]
 void FinalizeExtractedBundles(uint3 threadId : SV_GroupThreadID)
 {
@@ -788,8 +776,10 @@ uint SigmaTransactionOpcode(SigmaTransactionGpu transaction)
     return SIGMA_STREAM_OPCODE_NONE;
 }
 
-// The only scalar work here is the fixed 64-header/eight-record control scan.
-// Exact sample, proof and topology work is emitted as cooperative opcode groups.
+// The scheduler is the only scalar control scan. Its eight transaction records
+// and 64 bundle headers are fixed control-plane bounds, not evidence bounds.
+// Dynamic loops prevent the Android compiler from cloning the full admission
+// body while preserving stable ticket and slot order exactly.
 [numthreads(64, 1, 1)]
 void ScheduleSigmaTransactions(uint3 threadId : SV_GroupThreadID)
 {
@@ -803,15 +793,13 @@ void ScheduleSigmaTransactions(uint3 threadId : SV_GroupThreadID)
     uint occupiedMask = 0u;
     [unroll]
     for (uint slot = 0u; slot < SIGMA_STREAM_TRANSACTION_CAPACITY; ++slot)
-    {
         if (SigmaStreamTransactionState(_StreamTransactions[slot]) !=
-            SIGMA_STREAM_TRANSACTION_FREE)
+                SIGMA_STREAM_TRANSACTION_FREE)
             occupiedMask |= 1u << slot;
-    }
 
     uint consideredBundleMaskLo = 0u;
     uint consideredBundleMaskHi = 0u;
-    [unroll]
+    [loop]
     for (uint admission = 0u; admission <
         SIGMA_STREAM_TRANSACTION_CAPACITY; ++admission)
     {
@@ -849,8 +837,7 @@ void ScheduleSigmaTransactions(uint3 threadId : SV_GroupThreadID)
         else
             consideredBundleMaskHi |= 1u << (selectedBundle - 32u);
 
-        SigmaSealedSourceBundleGpu selected =
-            _StreamBundles[selectedBundle];
+        SigmaSealedSourceBundleGpu selected = _StreamBundles[selectedBundle];
         uint probationSlot = SIGMA_STREAM_INVALID;
         uint firstBundle = selectedBundle;
         uint firstGeneration = SigmaStreamBundleGeneration(selected);
@@ -866,9 +853,6 @@ void ScheduleSigmaTransactions(uint3 threadId : SV_GroupThreadID)
                 SIGMA_STREAM_PROBATION_SEALED;
         if (gaugeBundle || dormantProbation)
         {
-            // Ticket-order closure is stronger than same-frame convenience: an
-            // older compatible probation bundle must close before a later bundle
-            // may seal alone.
             probationSlot = compatibleProbation;
             if (probationSlot != SIGMA_STREAM_INVALID)
             {
@@ -885,8 +869,7 @@ void ScheduleSigmaTransactions(uint3 threadId : SV_GroupThreadID)
                 closesProbation = true;
                 resumesDormant = sealedSources.identity.x ==
                     SIGMA_STREAM_PROBATION_SEALED &&
-                    firstBundle == selectedBundle &&
-                    firstGeneration ==
+                    firstBundle == selectedBundle && firstGeneration ==
                         SigmaStreamBundleGeneration(selected);
                 transactionTicket = dormantProbation
                     ? sealedSources.support.xy
@@ -915,7 +898,7 @@ void ScheduleSigmaTransactions(uint3 threadId : SV_GroupThreadID)
         uint dependencySlot = SIGMA_STREAM_INVALID;
         uint dependencyGeneration = 0u;
         uint2 dependencyTicket = 0u;
-        [unroll]
+        [loop]
         for (uint predecessor = 0u; predecessor <
             SIGMA_STREAM_TRANSACTION_CAPACITY; ++predecessor)
         {
@@ -988,13 +971,14 @@ void ScheduleSigmaTransactions(uint3 threadId : SV_GroupThreadID)
             sourceTail = sourceHead;
             sourceCount = 1u;
         }
+
         uint workFlags = 0u;
         if ((first.identity.w & SIGMA_STREAM_BUNDLE_FLAG_GAUGE) != 0u)
             workFlags |= SIGMA_STREAM_WORK_FLAG_GAUGE;
-        if ((first.identity.w & SIGMA_STREAM_BUNDLE_FLAG_NEEDS_REVALIDATION) != 0u ||
-            (hasSecond &&
-                (second.identity.w &
-                    SIGMA_STREAM_BUNDLE_FLAG_NEEDS_REVALIDATION) != 0u))
+        if ((first.identity.w &
+                SIGMA_STREAM_BUNDLE_FLAG_NEEDS_REVALIDATION) != 0u ||
+            (hasSecond && (second.identity.w &
+                SIGMA_STREAM_BUNDLE_FLAG_NEEDS_REVALIDATION) != 0u))
             workFlags |= SIGMA_STREAM_WORK_FLAG_NEEDS_REVALIDATION;
         if (closesProbation || resumesDormant)
             workFlags |= SIGMA_STREAM_WORK_FLAG_NEEDS_REVALIDATION;
@@ -1018,8 +1002,6 @@ void ScheduleSigmaTransactions(uint3 threadId : SV_GroupThreadID)
         transaction.page0.coordinate = first.probation;
         transaction.page0.state = uint4(first.dependency.x,
             SIGMA_STREAM_INVALID, first.dependency.y, 0u);
-        // Every target block is materialized incrementally.  scratch.w retains
-        // the exact semantic mutation footprint for overlap/proof gates.
         transaction.affectedMaskLo =
             uint4(0xffffffffu, 0xffffffffu, 0u, 0u);
         transaction.affectedMaskHi = 0u;
@@ -1030,8 +1012,8 @@ void ScheduleSigmaTransactions(uint3 threadId : SV_GroupThreadID)
             0u, first.raw.w);
         transaction.transition = 0u;
         transaction.dependency0 = first.dependency;
-        transaction.dependency1 = closesProbation
-            && hasSecond ? second.dependency : uint4(first.calibration.y,
+        transaction.dependency1 = closesProbation && hasSecond
+            ? second.dependency : uint4(first.calibration.y,
                 first.provenance.w, 0u, 0u);
         _StreamTransactions[transactionSlot] = transaction;
         first.identity.x = SIGMA_STREAM_BUNDLE_ACTIVE;
@@ -1042,9 +1024,7 @@ void ScheduleSigmaTransactions(uint3 threadId : SV_GroupThreadID)
             _StreamBundles[selectedBundle] = second;
         }
         if (closesProbation)
-        {
             _StreamProbation[probationSlot] = (SigmaProbationGpu)0;
-        }
         occupiedMask |= 1u << transactionSlot;
     }
 
@@ -1099,22 +1079,20 @@ void ScheduleSigmaTransactions(uint3 threadId : SV_GroupThreadID)
                 continue;
             if (opcode == SIGMA_STREAM_OPCODE_REVALIDATE)
             {
-                uint revalidationOwner = _StreamSchedulerControl[
+                uint owner = _StreamSchedulerControl[
                     SIGMA_STREAM_CONTROL_REVALIDATE_OWNER];
-                if (revalidationOwner != SIGMA_STREAM_INVALID &&
-                    revalidationOwner != selectedSlot)
+                if (owner != SIGMA_STREAM_INVALID && owner != selectedSlot)
                     continue;
             }
             if (opcode == SIGMA_STREAM_OPCODE_REDUCE_SOURCE_BLOCK ||
                 opcode == SIGMA_STREAM_OPCODE_FINALIZE_PROOF_BLOCK)
             {
-                uint proofOwner = _StreamSchedulerControl[
+                uint owner = _StreamSchedulerControl[
                     SIGMA_STREAM_CONTROL_PROOF_OWNER];
-                if (proofOwner != SIGMA_STREAM_INVALID &&
-                    proofOwner != selectedSlot)
+                if (owner != SIGMA_STREAM_INVALID && owner != selectedSlot)
                     continue;
-                _StreamSchedulerControl[
-                    SIGMA_STREAM_CONTROL_PROOF_OWNER] = selectedSlot;
+                _StreamSchedulerControl[SIGMA_STREAM_CONTROL_PROOF_OWNER] =
+                    selectedSlot;
             }
             uint workIndex = _StreamWorkCounts[opcode];
             if (workIndex >= SIGMA_STREAM_WORK_ITEMS_PER_OPCODE)
@@ -1142,8 +1120,7 @@ void ScheduleSigmaTransactions(uint3 threadId : SV_GroupThreadID)
         uint count = _StreamWorkCounts[opcode];
         _StreamDispatchArgs[SigmaStreamDispatchAddress(opcode, 0u)] =
             opcode == SIGMA_STREAM_OPCODE_ADMIT
-                ? (count == 0u ? 0u : 1u)
-                : count;
+                ? (count == 0u ? 0u : 1u) : count;
     }
 }
 
@@ -1184,9 +1161,6 @@ void FinalizeStreamingScheduleDiagnostics(uint3 id : SV_DispatchThreadID)
     _StreamDiagnostics[0u].admission.y = probationCount;
 }
 
-// Association snapshots are active-only scratch.  A probation record owns raw
-// evidence and exact provenance, so it releases its scarce association slot and
-// requests deterministic rebuild if a later bundle closes the support rule.
 [numthreads(64, 1, 1)]
 void ReleaseProbationAssociations(uint3 threadId : SV_GroupThreadID)
 {
@@ -1208,9 +1182,8 @@ void ReleaseProbationAssociations(uint3 threadId : SV_GroupThreadID)
     _StreamBundles[bundleSlot] = bundle;
 }
 
-// One cooperative allocator prepares every transaction selected by ADMIT.  Page
-// samples are copied/null-initialized later in four persistent microtiles per
-// proof block, so allocation itself never executes a page-sized state loop.
+// Allocation is cooperative; sample state is materialized later in persistent
+// microtiles. Page visibility is observed as an SRV to retain the eight-UAV gate.
 [numthreads(256, 1, 1)]
 void PrepareTransactionPages(uint3 threadId : SV_GroupThreadID)
 {

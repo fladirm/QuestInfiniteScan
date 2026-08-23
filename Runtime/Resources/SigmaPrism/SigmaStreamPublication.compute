@@ -33,9 +33,15 @@ uint _StreamManifestCapacity;
 uint _StreamSourceSegmentCapacity;
 uint _RawTileCapacity;
 
+groupshared uint PublicationReady;
+groupshared uint PublicationTransactionSlot;
+groupshared uint PublicationManifestSlot;
+groupshared uint PublicationManifestGeneration;
+groupshared uint PublicationPageCount;
+
 // Existing S4-02 single-page publications enter the same visibility contract
-// once.  This is a GPU-only bridge for representation-neutral carrier lifetime,
-// not a second publication authority; every later reader resolves this handle.
+// once. This bridge creates manifest visibility only; it is never a second
+// publication authority and every later reader resolves the same handle.
 [numthreads(64, 1, 1)]
 void InitializeManifestVisibility(uint3 id : SV_DispatchThreadID)
 {
@@ -54,6 +60,7 @@ void InitializeManifestVisibility(uint3 id : SV_DispatchThreadID)
     uint generation = previous.identity.y + 1u;
     if (generation == 0u)
         return;
+
     SigmaPublicationManifestGpu manifest =
         (SigmaPublicationManifestGpu)0;
     manifest.identity = uint4(SIGMA_STREAM_MANIFEST_PUBLISHED, generation,
@@ -112,61 +119,82 @@ uint SigmaPublicationPageCount(SigmaTransactionGpu transaction)
     return count;
 }
 
+// Lane zero constructs the immutable manifest header and broadcasts only its
+// generation-safe handle. Every lane reaches the single barrier; page writes
+// are then independent and become visible before the later publish dispatch.
 [numthreads(4, 1, 1)]
 void PreparePublicationManifest(uint3 groupId : SV_GroupID,
     uint3 threadId : SV_GroupThreadID)
 {
-    uint transactionSlot;
-    SigmaTransactionGpu transaction;
-    if (!SigmaPublicationWork(groupId.x,
-            SIGMA_STREAM_TRANSACTION_PUBLISHABLE, transactionSlot,
-            transaction))
-        return;
-
     uint lane = threadId.x;
-    uint pageCount = SigmaPublicationPageCount(transaction);
-    if (pageCount == 0u)
-        return;
-    uint manifestSlot = transaction.page0.state.y;
-    if (manifestSlot >= _StreamManifestCapacity)
-        return;
     if (lane == 0u)
     {
-        SigmaPublicationManifestGpu previous =
-            _StreamManifests[manifestSlot];
-        uint generation = previous.identity.y + 1u;
-        if (generation == 0u)
+        PublicationReady = 0u;
+        PublicationTransactionSlot = SIGMA_STREAM_INVALID;
+        PublicationManifestSlot = SIGMA_STREAM_INVALID;
+        PublicationManifestGeneration = 0u;
+        PublicationPageCount = 0u;
+
+        uint transactionSlot = SIGMA_STREAM_INVALID;
+        SigmaTransactionGpu transaction = (SigmaTransactionGpu)0;
+        bool validWork = SigmaPublicationWork(groupId.x,
+            SIGMA_STREAM_TRANSACTION_PUBLISHABLE, transactionSlot,
+            transaction);
+        uint pageCount = validWork
+            ? SigmaPublicationPageCount(transaction) : 0u;
+        uint manifestSlot = validWork
+            ? transaction.page0.state.y : SIGMA_STREAM_INVALID;
+        if (validWork && pageCount != 0u &&
+            manifestSlot < _StreamManifestCapacity)
         {
-            transaction.identity.x = SIGMA_STREAM_TRANSACTION_FAILED;
-            _StreamTransactions[transactionSlot] = transaction;
-            return;
+            SigmaPublicationManifestGpu previous =
+                _StreamManifests[manifestSlot];
+            uint generation = previous.identity.y + 1u;
+            if (generation == 0u)
+            {
+                transaction.identity.x = SIGMA_STREAM_TRANSACTION_FAILED;
+                _StreamTransactions[transactionSlot] = transaction;
+            }
+            else
+            {
+                SigmaPublicationManifestGpu manifest =
+                    (SigmaPublicationManifestGpu)0;
+                manifest.identity = uint4(
+                    SIGMA_STREAM_MANIFEST_PREPARING, generation,
+                    transaction.ticket.z, transactionSlot);
+                manifest.closure = uint4(pageCount, pageCount, 1u, 1u);
+                manifest.pages = uint4(transaction.page0.state.y,
+                    transaction.page1.state.y, transaction.page2.state.y,
+                    transaction.page3.state.y);
+                _StreamManifests[manifestSlot] = manifest;
+                transaction.publication = uint4(manifestSlot, generation,
+                    pageCount, 0u);
+                _StreamTransactions[transactionSlot] = transaction;
+
+                PublicationTransactionSlot = transactionSlot;
+                PublicationManifestSlot = manifestSlot;
+                PublicationManifestGeneration = generation;
+                PublicationPageCount = pageCount;
+                PublicationReady = 1u;
+            }
         }
-        SigmaPublicationManifestGpu manifest =
-            (SigmaPublicationManifestGpu)0;
-        manifest.identity = uint4(SIGMA_STREAM_MANIFEST_PREPARING,
-            generation, transaction.ticket.z, transactionSlot);
-        manifest.closure = uint4(pageCount, pageCount, 1u, 1u);
-        manifest.pages = uint4(transaction.page0.state.y,
-            transaction.page1.state.y, transaction.page2.state.y,
-            transaction.page3.state.y);
-        _StreamManifests[manifestSlot] = manifest;
-        transaction.publication = uint4(manifestSlot, generation,
-            pageCount, 0u);
-        _StreamTransactions[transactionSlot] = transaction;
     }
     DeviceMemoryBarrierWithGroupSync();
-    transaction = _StreamTransactions[transactionSlot];
-    uint2 manifestHandle = transaction.publication.xy;
-    if (!SigmaManifestHandleValid(manifestHandle,
-            _StreamManifestCapacity) || lane >= pageCount)
+    if (PublicationReady == 0u || lane >= PublicationPageCount)
         return;
 
+    uint transactionSlot = PublicationTransactionSlot;
+    SigmaTransactionGpu transaction =
+        _StreamTransactions[transactionSlot];
+    uint2 manifestHandle = uint2(PublicationManifestSlot,
+        PublicationManifestGeneration);
     SigmaStreamPageReferenceGpu page = SigmaPublicationPage(transaction,
         lane);
     uint target = page.state.y;
     uint source = page.state.x;
     if (target >= _PageCapacity)
         return;
+
     SigmaPageVisibilityGpu targetVisibility =
         (SigmaPageVisibilityGpu)0;
     targetVisibility.bornRetired = uint4(manifestHandle,
@@ -181,6 +209,7 @@ void PreparePublicationManifest(uint3 groupId : SV_GroupID,
         sourceVisibility.bornRetired.zw = manifestHandle;
         _StreamPageVisibility[source] = sourceVisibility;
     }
+
     SigmaCarrierPageMetaGpu metadata = _PageMetadata[target];
     metadata.flags |= SIGMA_PAGE_ALLOCATED | SIGMA_PAGE_PUBLISHED |
         SIGMA_PAGE_DIRTY;
@@ -188,11 +217,13 @@ void PreparePublicationManifest(uint3 groupId : SV_GroupID,
     _PageMetadata[target] = metadata;
 }
 
+// This scalar marker is the visibility linearization point. Every shadow page
+// and its born/retired handles were completed by the preceding dispatch.
 [numthreads(1, 1, 1)]
 void PublishPublicationManifest(uint3 groupId : SV_GroupID)
 {
-    uint transactionSlot;
-    SigmaTransactionGpu transaction;
+    uint transactionSlot = SIGMA_STREAM_INVALID;
+    SigmaTransactionGpu transaction = (SigmaTransactionGpu)0;
     if (!SigmaPublicationWork(groupId.x,
             SIGMA_STREAM_TRANSACTION_PUBLISHABLE, transactionSlot,
             transaction))
@@ -217,8 +248,8 @@ void PublishPublicationManifest(uint3 groupId : SV_GroupID)
 void ResolvePublishedPageCaches(uint3 groupId : SV_GroupID,
     uint3 threadId : SV_GroupThreadID)
 {
-    uint transactionSlot;
-    SigmaTransactionGpu transaction;
+    uint transactionSlot = SIGMA_STREAM_INVALID;
+    SigmaTransactionGpu transaction = (SigmaTransactionGpu)0;
     if (!SigmaPublicationWork(groupId.x,
             SIGMA_STREAM_TRANSACTION_PUBLISHED, transactionSlot,
             transaction))
@@ -229,6 +260,7 @@ void ResolvePublishedPageCaches(uint3 groupId : SV_GroupID,
     SigmaPublicationManifestGpu manifest = _StreamManifests[handle.x];
     if (!SigmaManifestHandlePublished(handle, manifest))
         return;
+
     uint lane = threadId.x;
     uint pageCount = transaction.publication.z;
     if (lane >= pageCount)
@@ -271,11 +303,14 @@ void SigmaPublicationReleaseAssociation(uint bundleSlot,
             uint4(SIGMA_STREAM_INVALID, 0u, 0u, 0u);
 }
 
+// Retirement walks the complete sealed source chain. Raw payload is kept when
+// any certificate block still depends on replay; otherwise its owned bitmap and
+// bundle record are reclaimed without changing the published carrier bytes.
 [numthreads(1, 1, 1)]
 void RetirePublishedTransaction(uint3 groupId : SV_GroupID)
 {
-    uint transactionSlot;
-    SigmaTransactionGpu transaction;
+    uint transactionSlot = SIGMA_STREAM_INVALID;
+    SigmaTransactionGpu transaction = (SigmaTransactionGpu)0;
     if (!SigmaPublicationWork(groupId.x,
             SIGMA_STREAM_TRANSACTION_PUBLISHED, transactionSlot,
             transaction))

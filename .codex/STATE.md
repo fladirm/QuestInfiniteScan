@@ -60,15 +60,21 @@ Updated: 2026-08-23 (Europe/Prague)
 - The GPU proof fixture closes 30 candidates to the same canonical 16-certificate
   essential set; CPU 1/2/7/max partition and three-interleaving parity is green.
 - Unity 6000.5.9f1 Vulkan EditMode is 69/69 green with no shader error.
+- The first S4-08.3 Release attempt reached Android/Vulkan shader compilation and
+  exposed four portability defects that EditMode variants did not compile. The
+  affected work-graph, proof, publication and derived shaders were manually
+  reviewed with their ABI and host dispatch/bind graph and replaced as complete
+  files. The focused Vulkan streaming suite is 4/4 green, the Quest eight-UAV
+  gate and `git diff --check` are green; the repaired Release is not yet claimed.
 
 ## Exact next action
 
-1. Regenerate the code graph and validate the control plane.
-2. Commit only the S4-08.3 source/control set.
-3. Build the Android/Vulkan IL2CPP Release APK from that exact commit.
-4. Install it on the connected Quest and create a source-only `git archive` ZIP
+1. Commit the complete-file Android/Vulkan portability replacements and current
+   generated code graph.
+2. Build the Android/Vulkan IL2CPP Release APK from that exact commit.
+3. Install it on the connected Quest and create a source-only `git archive` ZIP
    from the same commit.
-5. Stop before S4-09 for the user's physical device audit.
+4. Stop before S4-09 for the user's physical device audit.
 
 ## Unresolved until device audit / later DAG nodes
 

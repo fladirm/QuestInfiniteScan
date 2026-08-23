@@ -15,11 +15,10 @@
 #include "SigmaConstraintLedgerAbi.hlsl"
 #include "SigmaInverseWorkAbi.hlsl"
 
-// Section-30 closure over the complete sealed source stream. The resident journal
-// is execution storage, never a canonical evidence cap. Ordering and coalescing
-// close before redundancy. Each redundancy sweep uses exclusive prefix meets plus
-// a running suffix, and exact independence-edge degrees, so reverse-order removal
-// is identical to the sequential reference while every dispatch remains bounded.
+// Section-30 proof closure consumes the complete sealed source stream. Resident
+// arrays are execution storage only: ordering and coalescing close before a
+// persistent reverse-order redundancy fixed point. Each dispatch performs one
+// bounded window while preserving the canonical sequential decision order.
 
 StructuredBuffer<SigmaProofSampleGpu> _ProofSamples;
 StructuredBuffer<SigmaStreamWorkItemGpu> _StreamWorkItems;
@@ -76,9 +75,6 @@ groupshared uint4 ReduceIdentity[64u];
 groupshared uint4 ReduceState[64u];
 groupshared uint4 ReduceRaw[64u];
 groupshared SigmaQ48Bounds ReduceBounds[64u * 16u];
-groupshared SigmaQ48Bounds TrialBounds[16u];
-groupshared uint TrialSame;
-groupshared uint RedundancyChanged;
 
 SigmaQ48Bounds SigmaProofFullBounds()
 {
@@ -366,6 +362,7 @@ void SigmaProofReduceSource(uint transactionSlot, uint block,
     [unroll]
     for (uint coordinate = 0u; coordinate < 16u; ++coordinate)
         ReduceBounds[lane * 16u + coordinate] = incoming[coordinate];
+
     uint reason = 0u;
     uint status = proof.meta.x;
     if ((status & SIGMA_PROPOSAL_CONFLICT) != 0u)
@@ -549,15 +546,16 @@ void ReduceTransactionSourceBlock(uint3 groupId : SV_GroupID,
         return;
     }
 
-    [unroll]
-    for (uint source = 0u; source <
-        SIGMA_STREAM_PROOF_SOURCE_CLASS_COUNT; ++source)
-    {
-        uint candidate = priorCount + sourceOrdinal *
-            SIGMA_STREAM_PROOF_SOURCE_CLASS_COUNT + source;
-        SigmaProofReduceSource(transactionSlot, block, sourceOrdinal,
-            source, lane, candidate, bundle);
-    }
+    uint candidateBase = priorCount + sourceOrdinal *
+        SIGMA_STREAM_PROOF_SOURCE_CLASS_COUNT;
+    SigmaProofReduceSource(transactionSlot, block, sourceOrdinal,
+        0u, lane, candidateBase + 0u, bundle);
+    SigmaProofReduceSource(transactionSlot, block, sourceOrdinal,
+        1u, lane, candidateBase + 1u, bundle);
+    SigmaProofReduceSource(transactionSlot, block, sourceOrdinal,
+        2u, lane, candidateBase + 2u, bundle);
+    SigmaProofReduceSource(transactionSlot, block, sourceOrdinal,
+        3u, lane, candidateBase + 3u, bundle);
     if (lane != 0u)
         return;
 
@@ -770,31 +768,39 @@ bool SigmaProofLoadReadWork(uint opcode, uint workIndex,
         closure.identity.z == transaction.progress.y;
 }
 
+// Initialization and local-run sorting intentionally occupy distinct dispatches.
+// Their persistent phase flag removes divergent group barriers while preserving
+// the exact lexicographic order consumed by all later proof stages.
 [numthreads(64, 1, 1)]
 void PrepareProofOrder(uint3 groupId : SV_GroupID,
     uint3 threadId : SV_GroupThreadID)
 {
-    uint transactionSlot;
-    SigmaTransactionGpu transaction;
-    SigmaProofClosureGpu closure;
-    if (!SigmaProofLoadReadWork(SIGMA_STREAM_OPCODE_FINALIZE_PROOF_BLOCK,
-            groupId.x, transactionSlot, transaction, closure) ||
-        closure.identity.x != SIGMA_STREAM_PROOF_SORT_RUNS)
+    uint transactionSlot = SIGMA_STREAM_INVALID;
+    SigmaTransactionGpu transaction = (SigmaTransactionGpu)0;
+    SigmaProofClosureGpu closure = (SigmaProofClosureGpu)0;
+    bool loaded = SigmaProofLoadReadWork(
+        SIGMA_STREAM_OPCODE_FINALIZE_PROOF_BLOCK, groupId.x,
+        transactionSlot, transaction, closure);
+    if (!loaded || closure.identity.x != SIGMA_STREAM_PROOF_SORT_RUNS)
         return;
+
     uint lane = threadId.x;
-    if (closure.ordering.w == 0u && lane == 0u)
+    if (closure.ordering.w == 0u)
     {
-        uint active = 0u;
-        [loop]
-        for (uint index = 0u; index < closure.journal.x; ++index)
-            if (_StreamProofCandidates[index].identity.x != 0u)
-                _StreamProofSortIndicesA[active++] = index;
-        closure.journal.y = active;
-        closure.ordering.w = 1u;
-        _StreamProofClosures[transactionSlot] = closure;
+        if (lane == 0u)
+        {
+            uint active = 0u;
+            [loop]
+            for (uint index = 0u; index < closure.journal.x; ++index)
+                if (_StreamProofCandidates[index].identity.x != 0u)
+                    _StreamProofSortIndicesA[active++] = index;
+            closure.journal.y = active;
+            closure.ordering.w = 1u;
+            _StreamProofClosures[transactionSlot] = closure;
+        }
+        return;
     }
-    DeviceMemoryBarrierWithGroupSync();
-    closure = _StreamProofClosures[transactionSlot];
+
     uint count = closure.journal.y;
     uint begin = lane * SIGMA_STREAM_PROOF_CANDIDATE_WINDOW;
     uint end = min(begin + SIGMA_STREAM_PROOF_CANDIDATE_WINDOW, count);
@@ -815,10 +821,8 @@ void PrepareProofOrder(uint3 groupId : SV_GroupID,
             _StreamProofSortIndicesA[cursor] = value;
         }
     }
-    DeviceMemoryBarrierWithGroupSync();
     if (lane == 0u)
     {
-        closure = _StreamProofClosures[transactionSlot];
         closure.ordering = uint4(SIGMA_STREAM_PROOF_CANDIDATE_WINDOW,
             0u, 0u, 0u);
         closure.identity.x = count <= SIGMA_STREAM_PROOF_CANDIDATE_WINDOW
@@ -832,13 +836,15 @@ void PrepareProofOrder(uint3 groupId : SV_GroupID,
 void MergeProofRuns(uint3 groupId : SV_GroupID,
     uint3 threadId : SV_GroupThreadID)
 {
-    uint transactionSlot;
-    SigmaTransactionGpu transaction;
-    SigmaProofClosureGpu closure;
-    if (!SigmaProofLoadWork(SIGMA_STREAM_OPCODE_FINALIZE_PROOF_BLOCK,
-            groupId.x, transactionSlot, transaction, closure) ||
-        closure.identity.x != SIGMA_STREAM_PROOF_MERGE_RUNS)
+    uint transactionSlot = SIGMA_STREAM_INVALID;
+    SigmaTransactionGpu transaction = (SigmaTransactionGpu)0;
+    SigmaProofClosureGpu closure = (SigmaProofClosureGpu)0;
+    bool loaded = SigmaProofLoadWork(
+        SIGMA_STREAM_OPCODE_FINALIZE_PROOF_BLOCK, groupId.x,
+        transactionSlot, transaction, closure);
+    if (!loaded || closure.identity.x != SIGMA_STREAM_PROOF_MERGE_RUNS)
         return;
+
     uint width = closure.ordering.x;
     uint inputPing = closure.ordering.y;
     uint count = closure.journal.y;
@@ -864,7 +870,6 @@ void MergeProofRuns(uint3 groupId : SV_GroupID,
             SigmaProofSetSortedIndex(1u - inputPing, output++, selected);
         }
     }
-    DeviceMemoryBarrierWithGroupSync();
     if (lane == 0u)
     {
         uint nextWidth = width * 2u;
@@ -924,14 +929,16 @@ bool SigmaProofMergeCandidate(uint target, uint incoming)
 void CoalesceProofWindow(uint3 groupId : SV_GroupID,
     uint3 threadId : SV_GroupThreadID)
 {
-    uint transactionSlot;
-    SigmaTransactionGpu transaction;
-    SigmaProofClosureGpu closure;
-    if (!SigmaProofLoadWork(SIGMA_STREAM_OPCODE_FINALIZE_PROOF_BLOCK,
-            groupId.x, transactionSlot, transaction, closure) ||
-        closure.identity.x != SIGMA_STREAM_PROOF_COALESCE ||
+    uint transactionSlot = SIGMA_STREAM_INVALID;
+    SigmaTransactionGpu transaction = (SigmaTransactionGpu)0;
+    SigmaProofClosureGpu closure = (SigmaProofClosureGpu)0;
+    bool loaded = SigmaProofLoadWork(
+        SIGMA_STREAM_OPCODE_FINALIZE_PROOF_BLOCK, groupId.x,
+        transactionSlot, transaction, closure);
+    if (!loaded || closure.identity.x != SIGMA_STREAM_PROOF_COALESCE ||
         threadId.x != 0u)
         return;
+
     uint count = closure.journal.y;
     uint input = closure.coalesce.x;
     uint output = closure.coalesce.y;
@@ -980,17 +987,17 @@ void SigmaProofResetSweepScratch(uint lane, uint count,
     for (uint rank = lane; rank < count; rank += 64u)
     {
         SigmaProofPrefixGpu prefix = _StreamProofPrefix[rank];
-        prefix.independence = uint4(0u, 0u, 0u, 0u);
-        prefix.gate = uint4(0u, 0u, 0u, 0u);
+        prefix.independence = 0u;
+        prefix.gate = 0u;
         _StreamProofPrefix[rank] = prefix;
     }
     if (lane == 0u)
     {
         SigmaProofPrefixGpu target =
             _StreamProofPrefix[SIGMA_STREAM_PROOF_TARGET_SLOT];
-        target.coordinateMask = uint4(0u, 0u, 0u, 0u);
-        target.independence = uint4(0u, 0u, 0u, 0u);
-        target.gate = uint4(0u, 0u, 0u, 0u);
+        target.coordinateMask = 0u;
+        target.independence = 0u;
+        target.gate = 0u;
         _StreamProofPrefix[SIGMA_STREAM_PROOF_TARGET_SLOT] = target;
     }
     if (lane < 16u)
@@ -1045,10 +1052,8 @@ void PrepareProofRedundancy(uint3 groupId : SV_GroupID,
         _StreamSchedulerControl[SIGMA_STREAM_CONTROL_PROOF_OWNER] !=
             transactionSlot)
         return;
-    SigmaTransactionGpu transaction =
-        _StreamTransactions[transactionSlot];
-    SigmaProofClosureGpu closure =
-        _StreamProofClosures[transactionSlot];
+    SigmaTransactionGpu transaction = _StreamTransactions[transactionSlot];
+    SigmaProofClosureGpu closure = _StreamProofClosures[transactionSlot];
     if (SigmaStreamTransactionGeneration(transaction) != work.identity.z ||
         SigmaStreamTransactionState(transaction) !=
             SIGMA_STREAM_TRANSACTION_PROOF_PENDING ||
@@ -1061,7 +1066,6 @@ void PrepareProofRedundancy(uint3 groupId : SV_GroupID,
     uint count = closure.journal.y;
     uint phase = closure.redundancy.y;
     uint sweep = closure.redundancy.w;
-
     if (phase == SIGMA_PROOF_PREFIX_INITIALIZE ||
         phase == SIGMA_PROOF_PREFIX_RESTART)
     {
@@ -1102,7 +1106,8 @@ void PrepareProofRedundancy(uint3 groupId : SV_GroupID,
             }
             if (!SigmaProofKeptRead(rank))
                 continue;
-            uint candidate = SigmaProofSortedIndexRead(closure.ordering.y, rank);
+            uint candidate = SigmaProofSortedIndexRead(closure.ordering.y,
+                rank);
             SigmaProofCandidateGpu item =
                 _StreamProofCandidatesRead[candidate];
             if (lane < 16u &&
@@ -1131,8 +1136,7 @@ void PrepareProofRedundancy(uint3 groupId : SV_GroupID,
         {
             accumulator.coordinateMask =
                 uint4(presentMask, roleMask, 0u, 0u);
-            _StreamProofPrefix[SIGMA_STREAM_PROOF_TARGET_SLOT] =
-                accumulator;
+            _StreamProofPrefix[SIGMA_STREAM_PROOF_TARGET_SLOT] = accumulator;
             closure.redundancy.x = end;
             if (end == count)
                 closure.redundancy.y = SIGMA_PROOF_PREFIX_VALIDATE;
@@ -1161,8 +1165,7 @@ void PrepareProofRedundancy(uint3 groupId : SV_GroupID,
                     SIGMA_STREAM_PROOF_TARGET_SLOT, coordinate);
                 SigmaQ48Bounds target = SigmaProofCandidateBoundRead(
                     SIGMA_STREAM_PROOF_TARGET_SLOT, coordinate);
-                valid = valid &&
-                    SigmaU64Equal(actual.lo, target.lo) &&
+                valid = valid && SigmaU64Equal(actual.lo, target.lo) &&
                     SigmaU64Equal(actual.hi, target.hi);
             }
         }
@@ -1171,8 +1174,7 @@ void PrepareProofRedundancy(uint3 groupId : SV_GroupID,
             SigmaProofFailTransaction(transactionSlot, transaction);
             return;
         }
-        closure.redundancy = uint4(0u, SIGMA_PROOF_EDGE_BUILD, 0u,
-            sweep);
+        closure.redundancy = uint4(0u, SIGMA_PROOF_EDGE_BUILD, 0u, sweep);
         closure.ordering.z = count > 1u ? 1u : 0u;
         _StreamProofClosures[transactionSlot] = closure;
         return;
@@ -1234,7 +1236,6 @@ void PrepareProofRedundancy(uint3 groupId : SV_GroupID,
 
     if (phase != SIGMA_PROOF_EDGE_VALIDATE || lane != 0u)
         return;
-
     uint independentMask = 0u;
     [unroll]
     for (uint coordinate = 0u; coordinate < 16u; ++coordinate)
@@ -1251,7 +1252,7 @@ void PrepareProofRedundancy(uint3 groupId : SV_GroupID,
 
     SigmaProofPrefixGpu suffix =
         _StreamProofPrefix[SIGMA_STREAM_PROOF_TARGET_SLOT];
-    suffix.coordinateMask = uint4(0u, 0u, 0u, 0u);
+    suffix.coordinateMask = 0u;
     _StreamProofPrefix[SIGMA_STREAM_PROOF_TARGET_SLOT] = suffix;
     [unroll]
     for (uint coordinate = 0u; coordinate < 16u; ++coordinate)
@@ -1288,8 +1289,7 @@ void EvaluateProofRedundancyWindow(uint3 groupId : SV_GroupID,
         return;
     SigmaTransactionGpu transaction =
         _StreamTransactionsRead[transactionSlot];
-    SigmaProofClosureGpu closure =
-        _StreamProofClosures[transactionSlot];
+    SigmaProofClosureGpu closure = _StreamProofClosures[transactionSlot];
     if (SigmaStreamTransactionGeneration(transaction) != work.identity.z ||
         SigmaStreamTransactionState(transaction) !=
             SIGMA_STREAM_TRANSACTION_PROOF_PENDING ||
@@ -1307,7 +1307,6 @@ void EvaluateProofRedundancyWindow(uint3 groupId : SV_GroupID,
     uint candidate = SigmaProofSortedIndexRead(ping, rank);
     SigmaProofCandidateGpu item = _StreamProofCandidatesRead[candidate];
     uint phase = closure.redundancy.y;
-
     if (!SigmaProofKeptRead(rank))
     {
         if (lane == 0u)
@@ -1322,8 +1321,7 @@ void EvaluateProofRedundancyWindow(uint3 groupId : SV_GroupID,
     {
         if (coordinate < 16u)
         {
-            SigmaQ48Bounds left =
-                SigmaProofPrefixBound(rank, coordinate);
+            SigmaQ48Bounds left = SigmaProofPrefixBound(rank, coordinate);
             SigmaQ48Bounds right = SigmaProofPrefixBound(
                 SIGMA_STREAM_PROOF_TARGET_SLOT, coordinate);
             SigmaQ48Bounds meet;
@@ -1346,10 +1344,8 @@ void EvaluateProofRedundancyWindow(uint3 groupId : SV_GroupID,
         SigmaProofPrefixGpu prefix = _StreamProofPrefix[rank];
         SigmaProofPrefixGpu suffix =
             _StreamProofPrefix[SIGMA_STREAM_PROOF_TARGET_SLOT];
-        uint mask = prefix.coordinateMask.x |
-            suffix.coordinateMask.x;
-        uint role = prefix.coordinateMask.y |
-            suffix.coordinateMask.y;
+        uint mask = prefix.coordinateMask.x | suffix.coordinateMask.x;
+        uint role = prefix.coordinateMask.y | suffix.coordinateMask.y;
         uint independentMask = 0u;
         [unroll]
         for (uint c = 0u; c < 16u; ++c)
@@ -1362,8 +1358,7 @@ void EvaluateProofRedundancyWindow(uint3 groupId : SV_GroupID,
         }
         bool same = (item.provenance.w &
                 SIGMA_CERTIFICATE_UNRESOLVED) == 0u &&
-            mask == closure.result.x &&
-            role == closure.result.y &&
+            mask == closure.result.x && role == closure.result.y &&
             independentMask == closure.result.z;
         [unroll]
         for (uint c = 0u; c < 16u && same; ++c)
@@ -1418,7 +1413,6 @@ void EvaluateProofRedundancyWindow(uint3 groupId : SV_GroupID,
 
     if (phase != SIGMA_PROOF_REDUNDANCY_REMOVE)
         return;
-
     uint begin = closure.ordering.z;
     uint end = min(begin + SIGMA_STREAM_PROOF_CANDIDATE_WINDOW, count);
     if (coordinate < 16u)
@@ -1456,11 +1450,13 @@ void EvaluateProofRedundancyWindow(uint3 groupId : SV_GroupID,
 void EmitProofCertificates(uint3 groupId : SV_GroupID,
     uint3 threadId : SV_GroupThreadID)
 {
-    uint transactionSlot;
-    SigmaTransactionGpu transaction;
-    SigmaProofClosureGpu closure;
-    if (!SigmaProofLoadReadWork(SIGMA_STREAM_OPCODE_FINALIZE_PROOF_BLOCK,
-            groupId.x, transactionSlot, transaction, closure) ||
+    uint transactionSlot = SIGMA_STREAM_INVALID;
+    SigmaTransactionGpu transaction = (SigmaTransactionGpu)0;
+    SigmaProofClosureGpu closure = (SigmaProofClosureGpu)0;
+    bool loaded = SigmaProofLoadReadWork(
+        SIGMA_STREAM_OPCODE_FINALIZE_PROOF_BLOCK, groupId.x,
+        transactionSlot, transaction, closure);
+    if (!loaded ||
         closure.identity.x != SIGMA_STREAM_PROOF_EMIT_CERTIFICATES ||
         threadId.x != 0u)
         return;
@@ -1468,6 +1464,7 @@ void EmitProofCertificates(uint3 groupId : SV_GroupID,
     uint block = transaction.progress.y;
     if (targetProofSlot >= _PageCapacity)
         return;
+
     uint count = closure.journal.y;
     uint ping = closure.ordering.y;
     uint storedCount = 0u;
@@ -1511,10 +1508,11 @@ void EmitProofCertificates(uint3 groupId : SV_GroupID,
             storedCount++)] = output;
     }
     [unroll]
-    for (uint certificate = storedCount; certificate <
+    for (uint certificate = 0u; certificate <
         SIGMA_CERTIFICATES_PER_BLOCK; ++certificate)
-        _Certificates[SigmaCertificateAddress(targetProofSlot, block,
-            certificate)] = (SigmaConstraintCertificateGpu)0;
+        if (certificate >= storedCount)
+            _Certificates[SigmaCertificateAddress(targetProofSlot, block,
+                certificate)] = (SigmaConstraintCertificateGpu)0;
     [loop]
     for (uint bound = boundCount; bound <
         SIGMA_CERTIFICATE_BOUNDS_PER_BLOCK; ++bound)
@@ -1538,12 +1536,13 @@ void EmitProofCertificates(uint3 groupId : SV_GroupID,
 void RetainProofRawWindow(uint3 groupId : SV_GroupID,
     uint3 threadId : SV_GroupThreadID)
 {
-    uint transactionSlot;
-    SigmaTransactionGpu transaction;
-    SigmaProofClosureGpu closure;
-    if (!SigmaProofLoadReadWork(SIGMA_STREAM_OPCODE_FINALIZE_PROOF_BLOCK,
-            groupId.x, transactionSlot, transaction, closure) ||
-        closure.identity.x != SIGMA_STREAM_PROOF_EMIT_RAW ||
+    uint transactionSlot = SIGMA_STREAM_INVALID;
+    SigmaTransactionGpu transaction = (SigmaTransactionGpu)0;
+    SigmaProofClosureGpu closure = (SigmaProofClosureGpu)0;
+    bool loaded = SigmaProofLoadReadWork(
+        SIGMA_STREAM_OPCODE_FINALIZE_PROOF_BLOCK, groupId.x,
+        transactionSlot, transaction, closure);
+    if (!loaded || closure.identity.x != SIGMA_STREAM_PROOF_EMIT_RAW ||
         threadId.x != 0u)
         return;
     uint rawReasons = closure.reserved.w;
@@ -1607,12 +1606,13 @@ void RetainProofRawWindow(uint3 groupId : SV_GroupID,
 void CompleteProofBlock(uint3 groupId : SV_GroupID,
     uint3 threadId : SV_GroupThreadID)
 {
-    uint transactionSlot;
-    SigmaTransactionGpu transaction;
-    SigmaProofClosureGpu closure;
-    if (!SigmaProofLoadWork(SIGMA_STREAM_OPCODE_FINALIZE_PROOF_BLOCK,
-            groupId.x, transactionSlot, transaction, closure) ||
-        closure.identity.x != SIGMA_STREAM_PROOF_CLOSED ||
+    uint transactionSlot = SIGMA_STREAM_INVALID;
+    SigmaTransactionGpu transaction = (SigmaTransactionGpu)0;
+    SigmaProofClosureGpu closure = (SigmaProofClosureGpu)0;
+    bool loaded = SigmaProofLoadWork(
+        SIGMA_STREAM_OPCODE_FINALIZE_PROOF_BLOCK, groupId.x,
+        transactionSlot, transaction, closure);
+    if (!loaded || closure.identity.x != SIGMA_STREAM_PROOF_CLOSED ||
         threadId.x != 0u)
         return;
     uint block = transaction.progress.y;

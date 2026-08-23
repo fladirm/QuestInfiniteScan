@@ -1,7 +1,7 @@
 #pragma kernel MaterializePublishedTopology
 #pragma target 5.0
 
-#include "SigmaStreamingAbi.hlsl"
+#include "SigmaInverseWorkAbi.hlsl"
 #include "SigmaTopologyAbi.hlsl"
 #include "SigmaManifestVisibility.hlsl"
 
@@ -108,15 +108,15 @@ bool SigmaDerivedLoad(uint workIndex, out uint transactionSlot,
             _StreamManifests[manifestHandle.x]);
 }
 
-// One bounded workgroup consumes the exact candidate-transition closure already
-// proven by CB2.  It only materializes a disposable topology/readout cache; it
-// neither evaluates nor authorizes canonical carrier mutation.
+// CB2 has already closed the exact candidate transition. This bounded derived
+// pass copies that result into disposable topology/readout storage. It never
+// evaluates a transition and cannot authorize canonical carrier publication.
 [numthreads(256, 1, 1)]
 void MaterializePublishedTopology(uint3 groupId : SV_GroupID,
     uint3 threadId : SV_GroupThreadID)
 {
-    uint transactionSlot;
-    SigmaTransactionGpu transaction;
+    uint transactionSlot = SIGMA_DERIVED_INVALID;
+    SigmaTransactionGpu transaction = (SigmaTransactionGpu)0;
     if (!SigmaDerivedLoad(groupId.x, transactionSlot, transaction))
         return;
 
@@ -135,11 +135,10 @@ void MaterializePublishedTopology(uint3 groupId : SV_GroupID,
     DeviceMemoryBarrierWithGroupSync();
 
     uint4 neighbours = _StreamCandidateNeighbours[transactionSlot];
-    uint rightSlot = neighbours.x ==
-            SigmaStreamTransactionGeneration(transaction)
+    uint generation = SigmaStreamTransactionGeneration(transaction);
+    uint rightSlot = neighbours.x == generation
         ? neighbours.y : SIGMA_DERIVED_INVALID;
-    uint downSlot = neighbours.x ==
-            SigmaStreamTransactionGeneration(transaction)
+    uint downSlot = neighbours.x == generation
         ? neighbours.z : SIGMA_DERIVED_INVALID;
 
     for (uint sample = lane; sample < SIGMA_PAGE_SAMPLE_COUNT;
@@ -164,6 +163,7 @@ void MaterializePublishedTopology(uint3 groupId : SV_GroupID,
             flags |= SIGMA_TOPOLOGY_TRIANGLE_0_CUT;
         if (SigmaDerivedRecordCuts(right) || SigmaDerivedRecordCuts(bottom))
             flags |= SIGMA_TOPOLOGY_TRIANGLE_1_CUT;
+
         uint classes[4] = {
             SigmaTopologyClass(top.x), SigmaTopologyClass(left.x),
             SigmaTopologyClass(right.x), SigmaTopologyClass(bottom.x)
