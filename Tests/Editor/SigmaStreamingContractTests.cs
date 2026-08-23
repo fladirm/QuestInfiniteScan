@@ -61,6 +61,10 @@ namespace Genesis.RoomScan.Tests
                 },
                 ["SigmaPrism/SigmaStreamInverse"] = new[]
                 {
+                    "PrepareTransactionMicrotile",
+                    "EvaluateTransactionRgbLeft",
+                    "EvaluateTransactionRgbRight",
+                    "MeetTransactionMicrotile",
                     "EvaluateTransactionMicrotile"
                 },
                 ["SigmaPrism/SigmaStreamProof"] = new[]

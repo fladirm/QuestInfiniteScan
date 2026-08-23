@@ -61,17 +61,24 @@
       "id": 3,
       "name": "EVALUATE_MICROTILE",
       "budget_class": "CANONICAL_PROGRESS",
+      "stages": [
+        "PrepareTransactionMicrotile",
+        "EvaluateTransactionRgbLeft",
+        "EvaluateTransactionRgbRight",
+        "MeetTransactionMicrotile",
+        "EvaluateTransactionMicrotile"
+      ],
       "threads": [256, 1, 1],
       "operator_invocations": {
         "jointSourceCell": 16,
         "projectiveMeet16": 16,
-        "hadamard16": 16
+        "hadamard16": 48
       },
-      "fixed_alu": 4096,
-      "bytes_read": 25088,
-      "bytes_written": 12544,
-      "scratch_bytes": 4096,
-      "barriers": 12,
+      "fixed_alu": 6144,
+      "bytes_read": 40960,
+      "bytes_written": 16384,
+      "scratch_bytes": 24576,
+      "barriers": 158,
       "annihilator_witnesses": 0,
       "max_records": 16
     },

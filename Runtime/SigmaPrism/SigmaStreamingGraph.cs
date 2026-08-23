@@ -55,6 +55,10 @@ namespace Genesis.RoomScan.SigmaPrism
 
         private readonly int _copyBundleMetadata;
         private readonly int _extractBundleSamples;
+        private readonly int _prepareMicrotile;
+        private readonly int _evaluateRgbLeft;
+        private readonly int _evaluateRgbRight;
+        private readonly int _meetMicrotile;
         private readonly int _evaluateMicrotile;
 
         private readonly int _reduceSourceBlock;
@@ -135,6 +139,14 @@ namespace Genesis.RoomScan.SigmaPrism
                 "CopySealedBundleMetadata");
             _extractBundleSamples = _source.FindKernel(
                 "ExtractSealedBundleSamples");
+            _prepareMicrotile = _inverse.FindKernel(
+                "PrepareTransactionMicrotile");
+            _evaluateRgbLeft = _inverse.FindKernel(
+                "EvaluateTransactionRgbLeft");
+            _evaluateRgbRight = _inverse.FindKernel(
+                "EvaluateTransactionRgbRight");
+            _meetMicrotile = _inverse.FindKernel(
+                "MeetTransactionMicrotile");
             _evaluateMicrotile = _inverse.FindKernel(
                 "EvaluateTransactionMicrotile");
 
@@ -279,9 +291,11 @@ namespace Genesis.RoomScan.SigmaPrism
 
             _renderer.RecordHistoricalRevalidation(command, _stream, _ledger);
 
-            BindInverse(command, _evaluateMicrotile);
-            DispatchIndirect(command, _inverse, _evaluateMicrotile,
-                SigmaStreamOpcode.EVALUATE_MICROTILE);
+            RecordInverseStage(command, _prepareMicrotile);
+            RecordInverseStage(command, _evaluateRgbLeft);
+            RecordInverseStage(command, _evaluateRgbRight);
+            RecordInverseStage(command, _meetMicrotile);
+            RecordInverseStage(command, _evaluateMicrotile);
 
             BindProof(command, _reduceSourceBlock);
             DispatchIndirect(command, _proof, _reduceSourceBlock,
@@ -555,6 +569,8 @@ namespace Genesis.RoomScan.SigmaPrism
                 _ledger.ProofSampleBuffer);
             Set(command, _inverse, kernel, "_StreamJointBounds",
                 _stream.JointBounds);
+            Set(command, _inverse, kernel, "_StreamEvalProjective",
+                _stream.EvalProjective);
             Set(command, _inverse, kernel, "_StreamJointProvenance",
                 _stream.JointProvenance);
             Set(command, _inverse, kernel, "_StreamSampleMeta",
@@ -573,6 +589,13 @@ namespace Genesis.RoomScan.SigmaPrism
             SetInt(command, _inverse, "_TargetPageCapacity", _pool.PageCapacity);
             SetInt(command, _inverse, "_StreamSourceSegmentCapacity",
                 SigmaStreamingResources.SourceHandleSegmentCapacity);
+        }
+
+        private void RecordInverseStage(CommandBuffer command, int kernel)
+        {
+            BindInverse(command, kernel);
+            DispatchIndirect(command, _inverse, kernel,
+                SigmaStreamOpcode.EVALUATE_MICROTILE);
         }
 
         private void BindProof(CommandBuffer command, int kernel)

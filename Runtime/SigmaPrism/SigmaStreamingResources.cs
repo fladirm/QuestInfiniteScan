@@ -21,6 +21,8 @@ namespace Genesis.RoomScan.SigmaPrism
         internal const int RayEpochWordsPerBundle = 4;
         internal const int OutcomeWordsPerSample = 1;
         internal const int CoordinatesPerSample = SigmaS16.LaneCount;
+        internal const int EvalProjectiveValuesPerSample =
+            SigmaS16.LaneCount + 2;
         internal const int SourceHandleSegmentCapacity =
             (SigmaGeneratedStreaming.BundleCapacity +
                 SigmaGeneratedStreaming.SourceHandleWindowCapacity - 1) /
@@ -82,6 +84,10 @@ namespace Genesis.RoomScan.SigmaPrism
                     SamplesPerAssociation * CoordinatesPerSample),
                 sizeof(uint) * 4, "Sigma streaming joint Q48 bounds",
                 bindingLimit);
+            EvalProjective = CreateStructured(checked(AssociationSlots *
+                    SamplesPerAssociation * EvalProjectiveValuesPerSample),
+                sizeof(uint) * 2,
+                "Sigma prepared projective evaluation scratch", bindingLimit);
             JointProvenance = CreateStructured(checked(AssociationSlots *
                     SamplesPerAssociation * CoordinatesPerSample),
                 sizeof(uint) * 4, "Sigma streaming joint provenance",
@@ -195,7 +201,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 SourceHandleSegments, SourceHandleFreeWords,
                 BundleCalibration, BundleRayEpoch, Association,
                 AssociationOwners, SampleOutcomes, JointBounds,
-                JointProvenance, SampleMetadata, ProofClosures,
+                EvalProjective, JointProvenance, SampleMetadata, ProofClosures,
                 ProofCandidates, ProofCandidateBounds, ProofSortIndicesA,
                 ProofSortIndicesB, ProofPrefix, ProofPrefixBounds,
                 ProofKeepWords, PublicationManifests, PageVisibility,
@@ -216,6 +222,7 @@ namespace Genesis.RoomScan.SigmaPrism
         internal GraphicsBuffer AssociationOwners { get; private set; }
         internal GraphicsBuffer SampleOutcomes { get; private set; }
         internal GraphicsBuffer JointBounds { get; private set; }
+        internal GraphicsBuffer EvalProjective { get; private set; }
         internal GraphicsBuffer JointProvenance { get; private set; }
         internal GraphicsBuffer SampleMetadata { get; private set; }
         internal GraphicsBuffer ProofClosures { get; private set; }
@@ -352,6 +359,7 @@ namespace Genesis.RoomScan.SigmaPrism
             DisposeBuffer(AssociationOwners);
             DisposeBuffer(SampleOutcomes);
             DisposeBuffer(JointBounds);
+            DisposeBuffer(EvalProjective);
             DisposeBuffer(JointProvenance);
             DisposeBuffer(SampleMetadata);
             DisposeBuffer(ProofClosures);
@@ -384,6 +392,7 @@ namespace Genesis.RoomScan.SigmaPrism
             AssociationOwners = null;
             SampleOutcomes = null;
             JointBounds = null;
+            EvalProjective = null;
             JointProvenance = null;
             SampleMetadata = null;
             ProofClosures = null;

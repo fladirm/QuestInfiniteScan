@@ -77,11 +77,21 @@ Updated: 2026-08-23 (Europe/Prague)
   manually reviewed and the whole shader was re-emitted with identical sequential
   Q48/validity ordering under bounded `[loop]` lowering rather than forced clone
   expansion. Focused Vulkan streaming remains 4/4 and the UAV limit remains 8.
+- The remaining Android compiler stall was the still-monolithic inverse entrypoint,
+  not an ABI error. After a complete-file/manual dataflow audit it is now one
+  compiler-bounded five-stage dispatch chain: exact depth/projective preparation,
+  RGB-left contraction, RGB-right contraction, source-ordered exact meet, then
+  checked final lift/cursor advance. The stages share only transaction-owned
+  projective scratch; no intermediate stage advances progress or publishes `Psi`.
+  The split preserves source order, Q16.48 validity, L/R provenance masks and the
+  final candidate round-trip, and removes the prior non-atomic shared-mask race.
+  Generated cost metadata accounts for all five stages. Vulkan streaming is 4/4,
+  full EditMode is 69/69, the UAV limit is 8 and `git diff --check` is green.
 
 ## Exact next action
 
-1. Commit the compiler-bounded complete-file inverse replacement and current
-   generated code graph.
+1. Commit the compiler-bounded five-stage complete-file inverse replacement and
+   current generated code graph.
 2. Build the Android/Vulkan IL2CPP Release APK from that exact commit.
 3. Install it on the connected Quest and create a source-only `git archive` ZIP
    from the same commit.

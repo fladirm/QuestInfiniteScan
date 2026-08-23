@@ -1,25 +1,33 @@
-# Session tail — S4-08.3 closure
+# Session tail — S4-08.3 Release closure
 
-The user required the frozen S4-08.3 streaming repair to finish without reopening
-completed work, without shader hotfix layering and without 8/12 execution windows
-becoming canonical evidence/proof caps. Any shader correction was re-emitted as a
-complete direct-replacement file.
+## Exchange 1
 
-The last implementation issue was an unbounded reverse-proof quantum. The final
-`SigmaStreamProof.compute` now uses persistent exclusive prefix/suffix meets,
-bounded lexicographic independence-pair/removal windows and one canonical
-reverse-order candidate decision per quantum. Vulkan executes the real kernels;
-30 candidates close to the expected 16 essential certificates, while the CPU
-1/2/7/max partition and three-interleaving oracle is bit-identical.
+User required shader/kernel work to be performed from a complete manual model of
+the whole file plus ABI, resources, C# bindings and dispatch ordering—not as local
+hotfixes. Completed work must not be reopened after compaction.
 
-All implementation gates are green: generated operator/cost outputs current,
-`git diff --check`, Quest eight-UAV validation, streaming Vulkan contracts 4/4 and
-full Unity Vulkan EditMode 69/69. `SigmaInverseWorkGraph.compute` was last re-emitted
-whole-file with page visibility as an SRV, removing its ninth UAV without changing
-ownership or mutation.
+Assistant manually audited the full replacement `SigmaStreamInverse.compute`,
+the complete `SigmaStreamingGraph` and `SigmaStreamingResources` paths, generated
+streaming ABI/cost metadata and Vulkan contract. The monolithic inverse entrypoint
+is now one coherent five-stage direct replacement over one immutable work item:
+prepare depth/projective state, contract RGB-L, contract RGB-R, source-ordered
+exact meet, then checked final lift/cursor advance. Only the final stage advances
+the transaction and none publishes `Psi`.
 
-Current exact action: commit only the S4-08.3 source/control set, build the
-Android/Vulkan IL2CPP Release APK from that exact commit, install it on the
-connected Quest, create a source-only `git archive` ZIP from the same commit, and
-stop before S4-09 for physical audit. Do not reopen implementation unless build
-reports a concrete compiler/backend error.
+## Exchange 2
+
+User reiterated that manual comprehension of the complete file and relationships
+is mandatory.
+
+Assistant verified Q16.48/value-validity ordering, two-bit L/R provenance,
+cumulative source/conflict state, final candidate round-trip, transaction-owned
+scratch lifetime and explicit per-kernel bindings. The replacement also removes a
+lost-update race by using atomic set semantics for shared coordinate masks.
+Generated costs cover all five stages. Actual gates: Vulkan streaming 4/4, full
+Unity Vulkan EditMode 69/69, generated-output check green, Quest UAV limit 8 and
+`git diff --check` green. Release build/install/archive are not yet claimed.
+
+Current exact action: regenerate code graph, validate controls, commit this exact
+source, run one Android/Vulkan IL2CPP Release build, inspect the full log, install
+the fresh APK if clean, create a source-only `git archive` from the same commit,
+then stop before S4-09.

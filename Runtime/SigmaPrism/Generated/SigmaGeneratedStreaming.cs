@@ -183,7 +183,7 @@ namespace Genesis.RoomScan.SigmaPrism
     {
         internal const string KernelExecutionSchema = "CPQ4-S16-KERNEL-COST-1";
         internal const string KernelExecutionFingerprint =
-            "58dab1d517e57cd2d8372e167cfc1c2bb8df1bd53f7fd5ac876813ee583c70d5";
+            "100431c4f58a25cc4f7de1f7e81c57d403e28f377f1b60c7df0050bf981c853d";
         internal const int OpcodeCount = 13;
         internal const int TokenQuantum = 512;
         internal const int TransactionCapacity = 8;
@@ -208,13 +208,13 @@ namespace Genesis.RoomScan.SigmaPrism
         internal const int WorkItemStride = 32;
         internal const int DiagnosticStride = 128;
 
-        internal static readonly uint[] KernelTokenCost = { 0u, 5u, 10u, 56u, 20u, 26u, 46u, 7u, 578u, 4u, 46u, 18u, 23u };
+        internal static readonly uint[] KernelTokenCost = { 0u, 5u, 10u, 88u, 20u, 26u, 46u, 7u, 578u, 4u, 46u, 18u, 23u };
         internal static readonly uint[] KernelBudgetClass = { 0u, 1u, 1u, 2u, 3u, 3u, 3u, 3u, 3u, 3u, 4u, 4u, 1u };
         internal static readonly uint[] KernelThreadCount = { 1u, 64u, 64u, 256u, 64u, 64u, 256u, 64u, 256u, 64u, 256u, 64u, 64u };
-        internal static readonly uint[] KernelBytesRead = { 0u, 8192u, 24576u, 25088u, 50176u, 32768u, 4096u, 1024u, 3145728u, 2048u, 4096u, 16384u, 32768u };
-        internal static readonly uint[] KernelBytesWritten = { 0u, 1024u, 12288u, 12544u, 12288u, 16384u, 128u, 128u, 1048576u, 2048u, 1024u, 8192u, 16384u };
-        internal static readonly uint[] KernelScratchBytes = { 0u, 1024u, 2048u, 4096u, 4096u, 16384u, 4096u, 2048u, 256u, 512u, 4096u, 2048u, 128u };
-        internal static readonly uint[] KernelBarrierCount = { 0u, 8u, 4u, 12u, 12u, 4u, 9u, 8u, 13u, 4u, 9u, 4u, 0u };
+        internal static readonly uint[] KernelBytesRead = { 0u, 8192u, 24576u, 40960u, 50176u, 32768u, 4096u, 1024u, 3145728u, 2048u, 4096u, 16384u, 32768u };
+        internal static readonly uint[] KernelBytesWritten = { 0u, 1024u, 12288u, 16384u, 12288u, 16384u, 128u, 128u, 1048576u, 2048u, 1024u, 8192u, 16384u };
+        internal static readonly uint[] KernelScratchBytes = { 0u, 1024u, 2048u, 24576u, 4096u, 16384u, 4096u, 2048u, 256u, 512u, 4096u, 2048u, 128u };
+        internal static readonly uint[] KernelBarrierCount = { 0u, 8u, 4u, 158u, 12u, 4u, 9u, 8u, 13u, 4u, 9u, 4u, 0u };
         internal static readonly uint[] KernelWitnessCount = { 0u, 0u, 0u, 0u, 0u, 0u, 168u, 0u, 0u, 0u, 168u, 0u, 0u };
         internal static readonly uint[] KernelMaximumRecords = { 0u, 64u, 64u, 16u, 64u, 12u, 1u, 1u, 64u, 4u, 1u, 64u, 64u };
     }
