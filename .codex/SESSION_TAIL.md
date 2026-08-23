@@ -20,13 +20,15 @@ of one `SigmaStreamProof` defect across nine variants. Nonzero lanes left the
 source reducer before lane zero completed canonical metadata, making the following
 source barrier appear under varying control.
 
-Assistant manually read the complete 1686-line proof shader plus already-audited
-ABI/host binding path and re-emitted the reducer as one uniform 64-lane schedule.
-All lanes now close each of four source reductions after lane-zero publication;
-exact reduction/provenance order is unchanged. Generated barrier cost is updated,
-focused Vulkan proof/streaming is 4/4, UAV and diff gates are green. This corrected
-dirty source has not yet passed Release or device validation.
+Assistant manually read the complete proof shader plus already-audited ABI/host
+binding path and first added a closing uniform sync. Release `d006686` proved that
+two entrypoint returns still guarded all four reducer calls. The complete shader
+was reviewed again and the entrypoint was replaced with one unconditional 64-lane
+barrier schedule: invalid/spilled work is zero-masked and cannot publish, while
+lane-zero cursor/closure publication happens only after the final sync. Exact
+source/Q48/provenance order is unchanged and focused Vulkan proof/streaming is 4/4.
 
-Current exact action: regenerate code graph, validate controls, commit the proof
-replacement, run one Release build, inspect all diagnostics, install a fresh APK
-only if clean, archive that exact commit, then stop before S4-09.
+Current exact action: regenerate code graph, validate controls, commit the
+unconditional proof replacement, run one Release build, inspect all diagnostics,
+install a fresh APK only if clean, archive that exact commit, then stop before
+S4-09.

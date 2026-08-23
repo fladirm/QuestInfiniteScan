@@ -96,11 +96,20 @@ Updated: 2026-08-23 (Europe/Prague)
   one uniform 64-lane schedule with a closing sync after lane-zero publication.
   Exact reduction order and proof bytes are unchanged; generated costs account for
   the four added source-closing barriers and focused Vulkan proof/streaming is 4/4.
+- Release build `d006686d39335368b9117c58967dfe9746dd7f9c` proved that the
+  closing sync alone was insufficient: two entrypoint returns still made all four
+  reducer calls potentially varying to the Android compiler. The complete proof
+  shader was reviewed again. `ReduceTransactionSourceBlock` now has one unconditional
+  barrier schedule for every lane and work validity only masks reads/writes; inactive
+  and spilled groups execute zero-valued reductions and cannot publish. Lane-zero
+  cursor/closure publication is isolated after the last sync. Exact source order,
+  candidate addresses, Q48 bounds, validity and provenance are unchanged. The
+  focused Vulkan streaming/proof suite passes 4/4.
 
 ## Exact next action
 
-1. Commit the compiler-bounded five-stage complete-file inverse replacement and
-   current generated code graph.
+1. Commit the Release-uniform complete proof reducer and current generated code
+   graph.
 2. Build the Android/Vulkan IL2CPP Release APK from that exact commit.
 3. Install it on the connected Quest and create a source-only `git archive` ZIP
    from the same commit.

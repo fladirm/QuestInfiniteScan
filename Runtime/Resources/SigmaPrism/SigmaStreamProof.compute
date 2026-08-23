@@ -342,20 +342,31 @@ uint SigmaProofLoadPrior(SigmaTransactionGpu transaction, uint block,
     return count;
 }
 
-void SigmaProofReduceSource(uint transactionSlot, uint block,
-    uint sourceOrdinal, uint source, uint lane, uint candidate,
+void SigmaProofReduceSource(uint reduceEnabled, uint transactionSlot,
+    uint block, uint sourceOrdinal, uint source, uint lane, uint candidate,
     SigmaSealedSourceBundleGpu bundle)
 {
-    SigmaProofSampleGpu proof = _ProofSamples[
-        transactionSlot * SIGMA_PAGE_SAMPLE_COUNT +
-        SigmaProofPageSample(block, lane)];
+    SigmaProofSampleGpu proof = (SigmaProofSampleGpu)0;
     SigmaQ48Bounds incoming[16];
-    uint incomingMask;
-    uint incomingSource;
-    uint incomingKey;
-    uint incomingRole;
-    bool present = SigmaProofSourceCell(source, proof, incomingMask,
-        incomingSource, incomingKey, incomingRole, incoming);
+    [unroll]
+    for (uint proofCoordinate = 0u; proofCoordinate < 16u;
+        ++proofCoordinate)
+    {
+        incoming[proofCoordinate] = SigmaProofFullBounds();
+    }
+    uint incomingMask = 0u;
+    uint incomingSource = 0u;
+    uint incomingKey = 0u;
+    uint incomingRole = 0u;
+    bool present = false;
+    if (reduceEnabled != 0u)
+    {
+        proof = _ProofSamples[
+            transactionSlot * SIGMA_PAGE_SAMPLE_COUNT +
+            SigmaProofPageSample(block, lane)];
+        present = SigmaProofSourceCell(source, proof, incomingMask,
+            incomingSource, incomingKey, incomingRole, incoming);
+    }
     if (!present)
     {
         incomingMask = 0u;
@@ -384,7 +395,7 @@ void SigmaProofReduceSource(uint transactionSlot, uint block,
         proof.meta.z != 0u)
         reason |= SIGMA_RAW_REASON_UNOBSERVABLE;
     ReduceRaw[lane] = 0u;
-    if (source == 0u)
+    if (reduceEnabled != 0u && source == 0u)
         ReduceRaw[lane] = uint4(reason,
             lane < 32u && reason != 0u ? 1u << lane : 0u,
             lane >= 32u && reason != 0u ? 1u << (lane - 32u) : 0u, 0u);
@@ -432,7 +443,7 @@ void SigmaProofReduceSource(uint transactionSlot, uint block,
         GroupMemoryBarrierWithGroupSync();
     }
 
-    if (lane < 16u)
+    if (reduceEnabled != 0u && lane < 16u)
     {
         SigmaQ48Bounds bound = SigmaProofFullBounds();
         if ((ReduceState[0u].x & (1u << lane)) != 0u)
@@ -445,7 +456,7 @@ void SigmaProofReduceSource(uint transactionSlot, uint block,
     // contributed. Every lane remains in this function and reaches the final
     // sync, so the four sequential source reductions form one uniform barrier
     // schedule even though only lane zero publishes candidate metadata.
-    if (lane == 0u)
+    if (reduceEnabled != 0u && lane == 0u)
     {
         uint2 sourceSamples = 0u;
         uint2 coordinateSamples[16];
@@ -556,76 +567,11 @@ void SigmaProofPrepareReduceGroup(uint workIndex)
     ReduceGroupActive = 1u;
 }
 
-[numthreads(64, 1, 1)]
-void ReduceTransactionSourceBlock(uint3 groupId : SV_GroupID,
-    uint3 threadId : SV_GroupThreadID)
+void SigmaProofCommitReducedBlock(uint transactionSlot,
+    uint transactionGeneration, uint sourceOrdinal, uint block,
+    uint required)
 {
-    uint lane = threadId.x;
-    if (lane == 0u)
-        SigmaProofPrepareReduceGroup(groupId.x);
-    GroupMemoryBarrierWithGroupSync();
-    if (ReduceGroupActive == 0u)
-        return;
-
-    uint transactionSlot = ReduceGroupTransactionSlot;
-    uint transactionGeneration = ReduceGroupTransactionGeneration;
-    SigmaTransactionGpu transaction = ReduceGroupTransaction;
-    SigmaSealedSourceBundleGpu bundle = ReduceGroupBundle;
-    uint sourceOrdinal = transaction.progress.x;
-    uint block = transaction.progress.y;
     SigmaProofClosureGpu closure = _StreamProofClosures[transactionSlot];
-    uint priorCount = closure.journal.z;
-    if (sourceOrdinal == 0u && closure.identity.x == SIGMA_STREAM_PROOF_IDLE)
-    {
-        priorCount = SigmaProofLoadPrior(transaction, block, lane);
-        if (lane == 0u)
-        {
-            closure = (SigmaProofClosureGpu)0;
-            closure.identity = uint4(SIGMA_STREAM_PROOF_JOURNAL,
-                SigmaStreamTransactionGeneration(transaction), block, 0u);
-            closure.journal = uint4(priorCount, 0u, priorCount, 0u);
-            _StreamProofClosures[transactionSlot] = closure;
-        }
-    }
-    DeviceMemoryBarrierWithGroupSync();
-    closure = _StreamProofClosures[transactionSlot];
-    priorCount = closure.journal.z;
-    if (lane == 0u)
-    {
-        uint required = priorCount + (sourceOrdinal + 1u) *
-            SIGMA_STREAM_PROOF_SOURCE_CLASS_COUNT;
-        ReduceGroupRequired = required;
-        if (required >= _StreamProofCandidateCapacity)
-        {
-            closure.identity.w = SIGMA_STREAM_SOURCE_SEGMENT_SPILLED;
-            _StreamProofClosures[transactionSlot] = closure;
-            transaction.identity.w |= SIGMA_STREAM_WORK_FLAG_PROOF_SPILLED;
-            _StreamTransactions[transactionSlot] = transaction;
-            InterlockedAdd(_StreamSchedulerControl[
-                SIGMA_STREAM_CONTROL_PROOF_SPILL_COUNT], 1u);
-        }
-        else
-            ReduceGroupProceed = 1u;
-    }
-    DeviceMemoryBarrierWithGroupSync();
-    if (ReduceGroupProceed == 0u)
-        return;
-
-    uint candidateBase = priorCount + sourceOrdinal *
-        SIGMA_STREAM_PROOF_SOURCE_CLASS_COUNT;
-    SigmaProofReduceSource(transactionSlot, block, sourceOrdinal,
-        0u, lane, candidateBase + 0u, bundle);
-    SigmaProofReduceSource(transactionSlot, block, sourceOrdinal,
-        1u, lane, candidateBase + 1u, bundle);
-    SigmaProofReduceSource(transactionSlot, block, sourceOrdinal,
-        2u, lane, candidateBase + 2u, bundle);
-    SigmaProofReduceSource(transactionSlot, block, sourceOrdinal,
-        3u, lane, candidateBase + 3u, bundle);
-    if (lane != 0u)
-        return;
-
-    uint required = ReduceGroupRequired;
-    closure = _StreamProofClosures[transactionSlot];
     closure.journal.x = required;
     _StreamProofClosures[transactionSlot] = closure;
     SigmaTransactionGpu current = _StreamTransactions[transactionSlot];
@@ -681,6 +627,91 @@ void ReduceTransactionSourceBlock(uint3 groupId : SV_GroupID,
     }
     _StreamTransactions[transactionSlot] = current;
     InterlockedAdd(_StreamDiagnostics[0u].proof.x, 1u);
+}
+
+[numthreads(64, 1, 1)]
+void ReduceTransactionSourceBlock(uint3 groupId : SV_GroupID,
+    uint3 threadId : SV_GroupThreadID)
+{
+    uint lane = threadId.x;
+    if (lane == 0u)
+        SigmaProofPrepareReduceGroup(groupId.x);
+    GroupMemoryBarrierWithGroupSync();
+
+    uint reduceActive = ReduceGroupActive;
+    uint transactionSlot = reduceActive != 0u
+        ? ReduceGroupTransactionSlot : 0u;
+    uint transactionGeneration = ReduceGroupTransactionGeneration;
+    SigmaTransactionGpu transaction = ReduceGroupTransaction;
+    SigmaSealedSourceBundleGpu bundle = ReduceGroupBundle;
+    uint sourceOrdinal = transaction.progress.x;
+    uint block = transaction.progress.y;
+    SigmaProofClosureGpu closure = (SigmaProofClosureGpu)0;
+    uint priorCount = 0u;
+    if (reduceActive != 0u)
+    {
+        closure = _StreamProofClosures[transactionSlot];
+        priorCount = closure.journal.z;
+    }
+    bool initializePrior = reduceActive != 0u && sourceOrdinal == 0u &&
+        closure.identity.x == SIGMA_STREAM_PROOF_IDLE;
+    if (initializePrior)
+    {
+        priorCount = SigmaProofLoadPrior(transaction, block, lane);
+        if (lane == 0u)
+        {
+            closure = (SigmaProofClosureGpu)0;
+            closure.identity = uint4(SIGMA_STREAM_PROOF_JOURNAL,
+                SigmaStreamTransactionGeneration(transaction), block, 0u);
+            closure.journal = uint4(priorCount, 0u, priorCount, 0u);
+            _StreamProofClosures[transactionSlot] = closure;
+        }
+    }
+    DeviceMemoryBarrierWithGroupSync();
+    if (reduceActive != 0u)
+    {
+        closure = _StreamProofClosures[transactionSlot];
+        priorCount = closure.journal.z;
+    }
+    if (lane == 0u)
+    {
+        if (reduceActive != 0u)
+        {
+            uint required = priorCount + (sourceOrdinal + 1u) *
+                SIGMA_STREAM_PROOF_SOURCE_CLASS_COUNT;
+            ReduceGroupRequired = required;
+            if (required >= _StreamProofCandidateCapacity)
+            {
+                closure.identity.w = SIGMA_STREAM_SOURCE_SEGMENT_SPILLED;
+                _StreamProofClosures[transactionSlot] = closure;
+                transaction.identity.w |=
+                    SIGMA_STREAM_WORK_FLAG_PROOF_SPILLED;
+                _StreamTransactions[transactionSlot] = transaction;
+                InterlockedAdd(_StreamSchedulerControl[
+                    SIGMA_STREAM_CONTROL_PROOF_SPILL_COUNT], 1u);
+            }
+            else
+                ReduceGroupProceed = 1u;
+        }
+    }
+    DeviceMemoryBarrierWithGroupSync();
+
+    uint reduceEnabled = ReduceGroupProceed;
+    uint candidateBase = reduceEnabled != 0u
+        ? priorCount + sourceOrdinal * SIGMA_STREAM_PROOF_SOURCE_CLASS_COUNT
+        : 0u;
+    SigmaProofReduceSource(reduceEnabled, transactionSlot, block,
+        sourceOrdinal, 0u, lane, candidateBase + 0u, bundle);
+    SigmaProofReduceSource(reduceEnabled, transactionSlot, block,
+        sourceOrdinal, 1u, lane, candidateBase + 1u, bundle);
+    SigmaProofReduceSource(reduceEnabled, transactionSlot, block,
+        sourceOrdinal, 2u, lane, candidateBase + 2u, bundle);
+    SigmaProofReduceSource(reduceEnabled, transactionSlot, block,
+        sourceOrdinal, 3u, lane, candidateBase + 3u, bundle);
+    if (lane == 0u && reduceEnabled != 0u)
+        SigmaProofCommitReducedBlock(transactionSlot,
+            transactionGeneration, sourceOrdinal, block,
+            ReduceGroupRequired);
 }
 
 bool SigmaProofCandidateLess(uint left, uint right)
