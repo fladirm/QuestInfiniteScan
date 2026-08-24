@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using Genesis.RoomScan.SigmaPrism;
 using NUnit.Framework;
@@ -291,6 +292,53 @@ namespace Genesis.RoomScan.Tests
             using var fixture = new FrameFixture(320, 320, largeBinding);
             Assert.That(fixture.ExecutionWindowCount, Is.EqualTo(1));
             fixture.RecordProductionGraphOnly();
+        }
+
+        [Test]
+        public void ProfilingDisabledPreservesProductionDispatchContract()
+        {
+            const long largeBinding = 512L * 1024L * 1024L;
+            try
+            {
+                SigmaGpuKernelTelemetry.SetProfilingEnabledForTests(false);
+                var unprofiled = new List<(ulong Entity, int Kernel,
+                    int X, int Y, int Z)>();
+                SigmaGpuKernelTelemetry.DirectDispatchObservedForTests =
+                    (entity, kernel, x, y, z) =>
+                        unprofiled.Add((entity, kernel, x, y, z));
+                using (var fixture = new FrameFixture(320, 320, largeBinding))
+                {
+                    Assert.That(fixture.ExecutionWindowCount, Is.EqualTo(1));
+                    fixture.RecordProductionGraphOnly();
+                }
+                Assert.That(unprofiled, Is.Not.Empty);
+                Assert.That(SigmaGpuKernelTelemetry
+                    .RegisteredKernelCountForTests, Is.Zero);
+                Assert.That(unprofiled.Exists(record =>
+                    record.X == 51200 && record.Y == 2 && record.Z == 1),
+                    Is.True);
+                Assert.That(unprofiled.Exists(record =>
+                    record.X == 51200 && record.Y == 4 && record.Z == 1),
+                    Is.True);
+
+                SigmaGpuKernelTelemetry.SetProfilingEnabledForTests(true);
+                var profiled = new List<(ulong Entity, int Kernel,
+                    int X, int Y, int Z)>();
+                SigmaGpuKernelTelemetry.DirectDispatchObservedForTests =
+                    (entity, kernel, x, y, z) =>
+                        profiled.Add((entity, kernel, x, y, z));
+                using (var fixture = new FrameFixture(320, 320, largeBinding))
+                {
+                    fixture.RecordProductionGraphOnly();
+                }
+                Assert.That(profiled, Is.EqualTo(unprofiled));
+                Assert.That(SigmaGpuKernelTelemetry
+                    .RegisteredKernelCountForTests, Is.GreaterThan(0));
+            }
+            finally
+            {
+                SigmaGpuKernelTelemetry.SetProfilingEnabledForTests(null);
+            }
         }
 
         [Test]

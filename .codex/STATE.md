@@ -179,6 +179,11 @@ S4-08 implementation is allowed until a new Quest run proves
   now uses one execution window and exact grids 51200x2, 51200x4 and 51200x2;
   one-window/four-window reduction is bit-identical and Vulkan EditMode passes
   66/66 with the Quest eight-UAV and generated-output gates green.
+- Production non-development builds no longer register per-kernel GPU samplers,
+  enable Unity Profiler or emit BeginSample/EndSample around direct-frame
+  dispatches. All direct/indirect wrappers retain identical calls and fail-closed
+  dimension validation; an Editor production-graph trace proves identical kernel
+  IDs, order and 320x320 grids with profiling off. Vulkan EditMode passes 67/67.
 
 ## Completion protocol
 

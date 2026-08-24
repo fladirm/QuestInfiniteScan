@@ -8,9 +8,8 @@ using UnityEngine.Rendering;
 namespace Genesis.RoomScan.SigmaPrism
 {
     /// <summary>
-    /// Read-only GPU timestamp instrumentation for every production compute
-    /// dispatch. Unity inserts Vulkan GPU markers around the dispatch and exposes
-    /// their accumulated duration after its documented three-frame delay. The
+    /// Optional read-only GPU timestamp instrumentation for compute dispatches.
+    /// Production Release dispatches remain unprofiled unless explicitly enabled;
     /// measurements never participate in scheduling or canonical decisions.
     /// </summary>
     internal static class SigmaGpuKernelTelemetry
@@ -41,6 +40,27 @@ namespace Genesis.RoomScan.SigmaPrism
         private static int _lastCapturedFrame = -1;
         private static bool _gpuUnavailableReported;
         private static bool _registrationUnavailableReported;
+#if UNITY_EDITOR
+        private static bool? _profilingOverrideForTests;
+        internal static Action<ulong, int, int, int, int>
+            DirectDispatchObservedForTests;
+#endif
+
+        private static bool ProfilingEnabled
+        {
+            get
+            {
+#if UNITY_EDITOR
+                if (_profilingOverrideForTests.HasValue)
+                    return _profilingOverrideForTests.Value;
+#endif
+#if UNITY_EDITOR || DEVELOPMENT_BUILD || SIGMA_GPU_KERNEL_PROFILING
+                return true;
+#else
+                return false;
+#endif
+            }
+        }
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
         private static void Reset()
@@ -56,6 +76,9 @@ namespace Genesis.RoomScan.SigmaPrism
             _lastCapturedFrame = -1;
             _gpuUnavailableReported = false;
             _registrationUnavailableReported = false;
+#if UNITY_EDITOR
+            DirectDispatchObservedForTests = null;
+#endif
         }
 
         internal static int FindProfiledKernel(this ComputeShader shader,
@@ -67,7 +90,8 @@ namespace Genesis.RoomScan.SigmaPrism
                 throw new ArgumentException("Kernel name is required.",
                     nameof(kernelName));
             int kernel = shader.FindKernel(kernelName);
-            Register(shader, kernel, kernelName);
+            if (ProfilingEnabled)
+                Register(shader, kernel, kernelName);
             return kernel;
         }
 
@@ -79,8 +103,13 @@ namespace Genesis.RoomScan.SigmaPrism
                 throw new ArgumentNullException(nameof(command));
             ValidateDirectDispatchDimensions(threadGroupsX, threadGroupsY,
                 threadGroupsZ);
-            Entry entry = RequireEntry(shader, kernel);
-            if (entry.Sampler == null)
+#if UNITY_EDITOR
+            DirectDispatchObservedForTests?.Invoke(
+                shader.GetEntityId().GetRawData(), kernel, threadGroupsX,
+                threadGroupsY, threadGroupsZ);
+#endif
+            Entry entry = OptionalEntry(shader, kernel);
+            if (entry?.Sampler == null)
             {
                 command.DispatchCompute(shader, kernel, threadGroupsX,
                     threadGroupsY, threadGroupsZ);
@@ -100,8 +129,8 @@ namespace Genesis.RoomScan.SigmaPrism
                 throw new ArgumentNullException(nameof(command));
             if (indirectArguments == null)
                 throw new ArgumentNullException(nameof(indirectArguments));
-            Entry entry = RequireEntry(shader, kernel);
-            if (entry.Sampler == null)
+            Entry entry = OptionalEntry(shader, kernel);
+            if (entry?.Sampler == null)
             {
                 command.DispatchCompute(shader, kernel, indirectArguments,
                     argumentsOffset);
@@ -119,8 +148,8 @@ namespace Genesis.RoomScan.SigmaPrism
         {
             ValidateDirectDispatchDimensions(threadGroupsX, threadGroupsY,
                 threadGroupsZ);
-            Entry entry = RequireEntry(shader, kernel);
-            if (entry.Sampler == null)
+            Entry entry = OptionalEntry(shader, kernel);
+            if (entry?.Sampler == null)
             {
                 shader.Dispatch(kernel, threadGroupsX, threadGroupsY,
                     threadGroupsZ);
@@ -166,8 +195,8 @@ namespace Genesis.RoomScan.SigmaPrism
         {
             if (indirectArguments == null)
                 throw new ArgumentNullException(nameof(indirectArguments));
-            Entry entry = RequireEntry(shader, kernel);
-            if (entry.Sampler == null)
+            Entry entry = OptionalEntry(shader, kernel);
+            if (entry?.Sampler == null)
             {
                 shader.DispatchIndirect(kernel, indirectArguments,
                     argumentsOffset);
@@ -183,8 +212,8 @@ namespace Genesis.RoomScan.SigmaPrism
         {
             if (indirectArguments == null)
                 throw new ArgumentNullException(nameof(indirectArguments));
-            Entry entry = RequireEntry(shader, kernel);
-            if (entry.Sampler == null)
+            Entry entry = OptionalEntry(shader, kernel);
+            if (entry?.Sampler == null)
             {
                 shader.DispatchIndirect(kernel, indirectArguments,
                     argumentsOffset);
@@ -197,6 +226,8 @@ namespace Genesis.RoomScan.SigmaPrism
 
         internal static void CaptureAndLogFrame()
         {
+            if (!ProfilingEnabled)
+                return;
             int frame = Time.frameCount;
             if (frame == _lastCapturedFrame)
                 return;
@@ -348,6 +379,13 @@ namespace Genesis.RoomScan.SigmaPrism
                 "without FindProfiledKernel registration.");
         }
 
+        private static Entry OptionalEntry(ComputeShader shader, int kernel)
+        {
+            if (shader == null)
+                throw new ArgumentNullException(nameof(shader));
+            return ProfilingEnabled ? RequireEntry(shader, kernel) : null;
+        }
+
         private static (ulong Entity, int Kernel) Key(ComputeShader shader,
             int kernel) => (shader.GetEntityId().GetRawData(), kernel);
 
@@ -393,5 +431,15 @@ namespace Genesis.RoomScan.SigmaPrism
 
         private static double NanosecondsToMilliseconds(long nanoseconds) =>
             nanoseconds / 1_000_000.0;
+
+#if UNITY_EDITOR
+        internal static void SetProfilingEnabledForTests(bool? enabled)
+        {
+            Reset();
+            _profilingOverrideForTests = enabled;
+        }
+
+        internal static int RegisteredKernelCountForTests => Entries.Count;
+#endif
     }
 }

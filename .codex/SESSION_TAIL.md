@@ -2,16 +2,16 @@
 
 ## User
 
-Implement only the four-point dispatch-grid slice: restore binding-derived storage
-windows, add one legal two-dimensional dispatch helper, flatten only
-`ReduceTargetWindow`, `ClosePendingEdges` and `PersistPendingTargets`, then run only
-targeted legality/parity tests. No further R3/R4 redesign or audit.
+Remove only production GPU profiler instrumentation from the direct scan hot path.
+Keep dispatch validation, 2D grid lowering, kernel order and all R3/R4/S16 semantics
+unchanged; prove the disabled path records the same production dispatch contract,
+then commit, build/install and stop for a physical wall.direct comparison.
 
 ## Assistant
 
-The slice is implemented. Production 320x320 now records one storage window and
-exact legal grids 51200x2, 51200x4 and 51200x2. Complete target reduction is
-bit-identical across one/four binding windows; the production legality fixtures and
-full Vulkan EditMode pass 66/66, generated output, diff and Quest eight-UAV gates
-are green. Current cursor is exact commit, push, archive, Release APK and install,
-then stop for device evidence.
+Normal non-development Release now performs FindKernel and direct validated
+dispatches without CustomSampler/Recorder registration, Profiler enablement or
+BeginSample/EndSample. Editor/Development/explicit diagnostic builds retain timing.
+The 320x320 production graph trace is identical with profiling on/off and the OFF
+path registers no samplers; Vulkan EditMode passes 67/67. Current cursor is exact
+commit, push, archive, Release APK and install, then stop for device comparison.
