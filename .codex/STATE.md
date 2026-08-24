@@ -6,9 +6,9 @@ Updated: 2026-08-24 (Europe/Prague)
 
 - Canonical product: `new_spec.md`, `CPQ4-2026-08-24-S16-v7`.
 - Branch: `feat/sigma-prism-16-cpq4-20260822`.
-- Accepted predecessors: S4-00 through S4-07.
-- Active DAG node: S4-08; S4-09 remains pending and unopened.
-- Active repair: **S4-08.4 direct whole-frame S16 inverse cutover**.
+- Accepted source milestones: S4-00 through S4-08.
+- Active DAG node: none; S4-09 remains pending and unopened.
+- Completed repair: **S4-08.4 direct whole-frame S16 inverse cutover**.
 - Frozen implementation contract: `.codex/S4-08.4_DIRECT_FRAME_PLAN.md`.
 - Sole routine resume cursor: `.codex/S4-08.4_RESUME.md`.
 - Forensic evidence: `s4-083-audit.md` and archived device captures.
@@ -73,9 +73,9 @@ extent allocation, proof/raw ownership and milestone gates are frozen in the pla
 
 ## Current exact action
 
-M6: run final generated/control/source gates, commit accepted S4-08, archive that
-exact commit, then build and install the Quest Android/Vulkan Release. Production
-source changes are allowed only for a concrete Release compiler blocker.
+M6 handoff: freeze this accepted S4-08 commit, archive it source-only, then build
+and install the Quest Android/Vulkan Release from that exact commit. Stop before
+S4-09 and wait for device audit.
 
 ## Required end state
 
@@ -121,6 +121,9 @@ source changes are allowed only for a concrete Release compiler blocker.
   room transform snapshot and only temporary XR presentation maps back to current
   Unity world. Focused rigid-anchor parity and full Unity Vulkan EditMode pass
   54/54; generated/diff gates are green.
+- M6 pre-freeze Release compiler gate is green on the accepted runtime: Quest
+  eight-UAV validation passes and the Android/Vulkan Release APK builds with zero
+  shader/C# errors. Compiler warnings remain reported rather than hidden.
 
 ## Completion protocol
 

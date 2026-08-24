@@ -14,6 +14,7 @@ coordinates from one retained coherent-frame transform snapshot; temporary XR
 preview alone maps back to current Unity world.
 
 Focused anchor-relocation parity and full Unity Vulkan EditMode are green (54/54).
-Generated/diff gates are green. Current exact task is M6: final control/source
-gates, accepted commit, source-only archive, Release APK build/install, then stop
-before S4-09.
+Generated/control/diff and Quest eight-UAV gates are green; the Release compiler
+builds with zero shader/C# errors while retaining visible warnings. S4-08 source is
+accepted. Current exact action is the accepted commit, source-only archive and
+same-commit Release build/install, then stop before S4-09.
