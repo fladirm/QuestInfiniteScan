@@ -73,10 +73,11 @@ extent allocation, proof/raw ownership and milestone gates are frozen in the pla
 
 ## Current exact action
 
-S4-08.5 R3: replace image-neighbour/page closure with persistent pending reuse,
-exact continuation proposals and intrinsic edge closure over the R2 reduced target
-stream. Claimed unresolved edges defer only incident CHANGED targets to fixed
-point; storage boundaries and optical adjacency have no canonical authority.
+S4-08.5 R4: consume only R3 accepted changed non-deferred targets, transfer their
+complete immutable exact evidence and scatter them into generation-safe segmented
+carrier backing. CURRENT retains its source segment identity, UNCHANGED emits no
+generation, and one variable-length revision root atomically exposes all changed
+pages without a fixed allocation/session cliff.
 
 ## Required end state
 
@@ -143,6 +144,11 @@ point; storage boundaries and optical adjacency have no canonical authority.
   targets across every execution window before one final S16 reconstruction. A
   Vulkan two-window duplicate-target fixture is bit-identical under reversed source
   order; focused inverse passes 5/5 and resource ownership remains 3/3.
+- S4-08.5 R3 retains unresolved exact S16 evidence under persistent handles and
+  reuses it before NOVEL on later frames. Exact intrinsic closure is invariant over
+  one/two/seven Vulkan windows and regular/thin edges crossing a physical segment
+  boundary; all 11 applicable focused inverse tests pass with no missing bind,
+  shader or C# error. Atomic publication remains intentionally red for R4.
 
 ## Completion protocol
 

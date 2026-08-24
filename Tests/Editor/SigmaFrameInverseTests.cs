@@ -89,6 +89,40 @@ namespace Genesis.RoomScan.Tests
             internal uint FaultStage;
         }
 
+        private readonly struct ClosureTarget
+        {
+            internal ClosureTarget(int footprint, SigmaFrameProposalKind kind,
+                long[] state, uint sourceMask, bool changed = true,
+                bool pending = false)
+            {
+                Footprint = footprint;
+                Kind = kind;
+                State = state;
+                SourceMask = sourceMask;
+                Changed = changed;
+                Pending = pending;
+            }
+
+            internal int Footprint { get; }
+            internal SigmaFrameProposalKind Kind { get; }
+            internal long[] State { get; }
+            internal uint SourceMask { get; }
+            internal bool Changed { get; }
+            internal bool Pending { get; }
+        }
+
+        private sealed class ClosureSnapshot
+        {
+            internal SigmaFrameDeltaGpu[] Targets;
+            internal uint[] Labels;
+            internal uint[] Links;
+            internal uint[] Deferred;
+            internal SigmaPendingGaugeGpu[] Gauges;
+            internal SigmaDirtyEdgeGpu[] Edges;
+            internal UInt4[] Counters;
+            internal UInt4 Control;
+        }
+
         [Test]
         public void RoomFrameKeepsCanonicalPoseStableAcrossAnchorCorrection()
         {
@@ -252,7 +286,9 @@ namespace Genesis.RoomScan.Tests
 
             Assert.That(forward.TargetCount, Is.EqualTo(1u));
             Assert.That(reverse.TargetCount, Is.EqualTo(1u));
-            Assert.That(reverse.Target, Is.EqualTo(forward.Target));
+            AssertUInt4(reverse.Target.Coordinate, forward.Target.Coordinate);
+            AssertUInt4(reverse.Target.Candidate, forward.Target.Candidate);
+            AssertUInt4(reverse.Target.Evidence, forward.Target.Evidence);
             Assert.That(reverse.Lower, Is.EqualTo(forward.Lower));
             Assert.That(reverse.Upper, Is.EqualTo(forward.Upper));
             Assert.That(reverse.Gap, Is.EqualTo(forward.Gap));
@@ -283,6 +319,192 @@ namespace Genesis.RoomScan.Tests
                 (uint)SigmaFrameOutcomeFlags.Unchanged, Is.EqualTo(0u));
         }
 
+        [Test]
+        public void UnobservedAdjacencyMakesNoTransitionClaim()
+        {
+            using var fixture = new FrameFixture();
+            ClosureSnapshot snapshot = fixture.RunExactClosure(
+                new ClosureTarget(0, SigmaFrameProposalKind.Novel,
+                    ScalarState(1), 0x3u),
+                new ClosureTarget(1, SigmaFrameProposalKind.Novel,
+                    ScalarState(2), 0u));
+
+            Assert.That(snapshot.Edges[0].Closure.X,
+                Is.EqualTo((uint)SigmaFrameClaimKind.None));
+            Assert.That(snapshot.Edges[0].Closure.Y & 3u,
+                Is.EqualTo((uint)SigmaTopologyClass.Unsupported));
+            Assert.That(snapshot.Deferred[0], Is.Zero);
+            Assert.That(snapshot.Deferred[1], Is.Zero);
+            Assert.That(snapshot.Labels[0], Is.Not.EqualTo(snapshot.Labels[1]));
+        }
+
+        [Test]
+        public void ExactRegularEdgesJoinPendingAndAnchorContinuation()
+        {
+            using var fixture = new FrameFixture();
+            ClosureSnapshot pending = fixture.RunExactClosure(
+                new ClosureTarget(0, SigmaFrameProposalKind.Novel,
+                    ScalarState(1), 0x3u),
+                new ClosureTarget(1, SigmaFrameProposalKind.Novel,
+                    ScalarState(2), 0x3u));
+
+            Assert.That(pending.Edges[0].Closure.Y & 3u,
+                Is.EqualTo((uint)SigmaTopologyClass.Regular));
+            Assert.That(pending.Labels[0], Is.EqualTo(pending.Labels[1]));
+            Assert.That(pending.Targets[0].Evidence.Z,
+                Is.EqualTo((uint)SigmaFrameProposalKind.Novel));
+            Assert.That(pending.Targets[1].Evidence.Z,
+                Is.EqualTo((uint)SigmaFrameProposalKind.Novel));
+
+            ClosureSnapshot continuation = fixture.RunExactClosure(
+                new ClosureTarget(0, SigmaFrameProposalKind.Current,
+                    ScalarState(1), 0x3u, false),
+                new ClosureTarget(1, SigmaFrameProposalKind.Novel,
+                    ScalarState(2), 0x3u));
+            Assert.That(continuation.Edges[0].Closure.Y & 3u,
+                Is.EqualTo((uint)SigmaTopologyClass.Regular));
+            Assert.That(continuation.Targets[1].Evidence.Z,
+                Is.EqualTo((uint)SigmaFrameProposalKind.Continuation));
+            Assert.That(continuation.Links[1], Is.EqualTo(0u));
+            Assert.That(continuation.Gauges[1].Identity.W, Is.EqualTo(0u));
+        }
+
+        [Test]
+        public void ClaimedUnresolvedEdgeDefersOnlyIncidentChanges()
+        {
+            using var fixture = new FrameFixture();
+            ClosureSnapshot snapshot = fixture.RunExactClosure(
+                new ClosureTarget(0, SigmaFrameProposalKind.Novel,
+                    ScalarState(1), 0x1u),
+                new ClosureTarget(1, SigmaFrameProposalKind.Novel,
+                    ContactZeroDivisorState(), 0x1u),
+                new ClosureTarget(Footprints - 1,
+                    SigmaFrameProposalKind.Novel, ScalarState(3), 0x3u));
+
+            Assert.That(snapshot.Edges[0].Closure.X,
+                Is.EqualTo((uint)SigmaFrameClaimKind.Contact));
+            Assert.That(snapshot.Edges[0].Closure.Y & 3u,
+                Is.EqualTo((uint)SigmaTopologyClass.Unresolved));
+            Assert.That(snapshot.Deferred[0], Is.EqualTo(1u));
+            Assert.That(snapshot.Deferred[1], Is.EqualTo(1u));
+            Assert.That(snapshot.Deferred[2], Is.Zero);
+            Assert.That(snapshot.Targets[0].Evidence.Y &
+                (uint)SigmaFrameOutcomeFlags.Accepted, Is.Zero);
+            Assert.That(snapshot.Targets[0].Evidence.Y &
+                (uint)SigmaFrameOutcomeFlags.Deferred, Is.Not.Zero);
+            Assert.That(snapshot.Targets[2].Evidence.Y &
+                (uint)SigmaFrameOutcomeFlags.Accepted, Is.Not.Zero);
+        }
+
+        [Test]
+        public void AdjacentThinStatesRequireExactSingularClosure()
+        {
+            using var fixture = new FrameFixture();
+            long mass = SigmaNumericDomain.FromInteger(8);
+            long[] front = SigmaGeometryReadout.LiftFixture(mass,
+                0L, 0L,
+                SigmaNumericDomain.Quantize(0.500)).ToArray();
+            long[] back = SigmaGeometryReadout.LiftFixture(mass,
+                0L, 0L,
+                SigmaNumericDomain.Quantize(0.505)).ToArray();
+            ClosureSnapshot snapshot = fixture.RunExactClosure(
+                new ClosureTarget(0, SigmaFrameProposalKind.Novel,
+                    front, 0x3u),
+                new ClosureTarget(1, SigmaFrameProposalKind.Novel,
+                    back, 0x3u));
+
+            Assert.That(snapshot.Edges[0].Closure.Y & 3u,
+                Is.EqualTo((uint)SigmaTopologyClass.Unresolved));
+            Assert.That(snapshot.Labels[0], Is.Not.EqualTo(snapshot.Labels[1]));
+            Assert.That(snapshot.Deferred[0], Is.EqualTo(1u));
+            Assert.That(snapshot.Deferred[1], Is.EqualTo(1u));
+        }
+
+        [Test]
+        public void PendingEvidenceSurvivesAndReusesItsExactHandle()
+        {
+            using var fixture = new FrameFixture();
+            ClosureSnapshot retained = fixture.RunExactClosure(
+                new ClosureTarget(0, SigmaFrameProposalKind.Novel,
+                    BuildCarrierPrior(), 0x1u, true, true));
+
+            Assert.That(retained.Control.X, Is.EqualTo(1u));
+            Assert.That(retained.Targets[0].Evidence.Y &
+                (uint)SigmaFrameOutcomeFlags.Pending, Is.Not.Zero);
+            Assert.That(retained.Targets[0].Evidence.Z,
+                Is.EqualTo((uint)SigmaFrameProposalKind.Pending));
+            Assert.That(retained.Targets[0].Candidate.Y, Is.EqualTo(0u));
+            Assert.That(retained.Gauges[0].Identity.X, Is.Not.Zero);
+
+            Snapshot revisit = fixture.Run(int.MaxValue, 3u);
+            SigmaFrameCandidateGpu[] pending = PendingCandidates(revisit);
+            Assert.That(pending, Is.Not.Empty,
+                "the next coherent frame did not propose retained evidence");
+            for (int index = 0; index < pending.Length; ++index)
+            {
+                Assert.That(pending[index].Handle.Y, Is.EqualTo(0u));
+                Assert.That(pending[index].Handle.Z,
+                    Is.EqualTo(retained.Gauges[0].Identity.X));
+            }
+
+            fixture.CloseCurrentFrame(3u);
+            SigmaPendingGaugeGpu updated = fixture.ReadPendingGauge(0);
+            Assert.That(updated.Identity.X,
+                Is.EqualTo(retained.Gauges[0].Identity.X));
+            Assert.That(updated.Identity.Z,
+                Is.GreaterThanOrEqualTo(retained.Gauges[0].Identity.Z),
+                "the retained handle was replaced instead of reused");
+        }
+
+        [Test]
+        public void PendingProjectionIsInvariantAcrossOneTwoAndSevenWindows()
+        {
+            SigmaFrameCandidateGpu[] one = RunPendingProjectionLayout(0L,
+                out int oneWindows);
+            SigmaFrameCandidateGpu[] two = RunPendingProjectionLayout(
+                520L * 1024L, out int twoWindows);
+            SigmaFrameCandidateGpu[] seven = RunPendingProjectionLayout(
+                160L * 1024L, out int sevenWindows);
+
+            Assert.That(oneWindows, Is.EqualTo(1));
+            Assert.That(twoWindows, Is.EqualTo(2));
+            Assert.That(sevenWindows, Is.EqualTo(7));
+            AssertCandidates(two, one);
+            AssertCandidates(seven, one);
+        }
+
+        [Test]
+        public void PendingEdgesCrossExecutionWindowsWithoutChangingPhysics()
+        {
+            ClosureSnapshot regularWhole = RunBoundaryClosure(0L, false,
+                out int regularWholeWindows);
+            ClosureSnapshot regularSplit = RunBoundaryClosure(160L * 1024L,
+                false, out int regularSplitWindows);
+            ClosureSnapshot thinWhole = RunBoundaryClosure(0L, true,
+                out _);
+            ClosureSnapshot thinSplit = RunBoundaryClosure(160L * 1024L,
+                true, out _);
+            const int boundaryEdge = 255 * 2;
+
+            Assert.That(regularWholeWindows, Is.EqualTo(1));
+            Assert.That(regularSplitWindows, Is.EqualTo(2));
+            AssertUInt4(regularSplit.Edges[boundaryEdge].Closure,
+                regularWhole.Edges[boundaryEdge].Closure);
+            Assert.That(regularSplit.Edges[boundaryEdge].Closure.Y & 3u,
+                Is.EqualTo((uint)SigmaTopologyClass.Regular));
+            Assert.That(regularSplit.Labels[255],
+                Is.EqualTo(regularSplit.Labels[256]));
+            Assert.That(regularSplit.Deferred[255], Is.Zero);
+            Assert.That(regularSplit.Deferred[256], Is.Zero);
+
+            AssertUInt4(thinSplit.Edges[boundaryEdge].Closure,
+                thinWhole.Edges[boundaryEdge].Closure);
+            Assert.That(thinSplit.Edges[boundaryEdge].Closure.Y & 3u,
+                Is.EqualTo((uint)SigmaTopologyClass.Unresolved));
+            Assert.That(thinSplit.Deferred[255], Is.EqualTo(1u));
+            Assert.That(thinSplit.Deferred[256], Is.EqualTo(1u));
+        }
+
         private static void AssertPublished(PublicationSnapshot snapshot)
         {
             Assert.That(snapshot.Root, Is.EqualTo(1u),
@@ -294,6 +516,63 @@ namespace Genesis.RoomScan.Tests
             PageMeta page = CurrentPage(snapshot, out int slot);
             Assert.That(page.Revision, Is.EqualTo(1u));
             Assert.That(snapshot.ReadoutDirty[slot], Is.EqualTo(1u));
+        }
+
+        private static void AssertUInt4(SigmaFrameUInt4Gpu actual,
+            SigmaFrameUInt4Gpu expected)
+        {
+            Assert.That(actual.X, Is.EqualTo(expected.X));
+            Assert.That(actual.Y, Is.EqualTo(expected.Y));
+            Assert.That(actual.Z, Is.EqualTo(expected.Z));
+            Assert.That(actual.W, Is.EqualTo(expected.W));
+        }
+
+        private static SigmaFrameCandidateGpu[] RunPendingProjectionLayout(
+            long bindingLimit, out int windowCount)
+        {
+            using var fixture = new FrameFixture(1792, 1, bindingLimit);
+            fixture.SeedPending(BuildCarrierPrior(), 17u);
+            windowCount = fixture.ExecutionWindowCount;
+            return PendingCandidates(fixture.Run(int.MaxValue, 2u));
+        }
+
+        private static ClosureSnapshot RunBoundaryClosure(long bindingLimit,
+            bool thin, out int windowCount)
+        {
+            const int count = 257;
+            using var fixture = new FrameFixture(count, 1, bindingLimit);
+            windowCount = fixture.ExecutionWindowCount;
+            long mass = SigmaNumericDomain.FromInteger(8);
+            long[] front = SigmaGeometryReadout.LiftFixture(mass, 0L, 0L,
+                SigmaNumericDomain.Quantize(0.500)).ToArray();
+            long[] back = SigmaGeometryReadout.LiftFixture(mass, 0L, 0L,
+                SigmaNumericDomain.Quantize(0.505)).ToArray();
+            var targets = new ClosureTarget[count];
+            for (int index = 0; index < targets.Length; ++index)
+            {
+                targets[index] = new ClosureTarget(index,
+                    SigmaFrameProposalKind.Novel,
+                    thin && index == targets.Length - 1 ? back : front, 0x3u);
+            }
+            return fixture.RunExactClosure(targets);
+        }
+
+        private static SigmaFrameCandidateGpu[] PendingCandidates(
+            Snapshot snapshot) => Array.FindAll(snapshot.Candidates,
+                candidate => candidate.Identity.Z ==
+                    (uint)SigmaFrameProposalKind.Pending);
+
+        private static void AssertCandidates(SigmaFrameCandidateGpu[] actual,
+            SigmaFrameCandidateGpu[] expected)
+        {
+            Assert.That(actual, Has.Length.EqualTo(expected.Length));
+            for (int index = 0; index < expected.Length; ++index)
+            {
+                AssertUInt4(actual[index].Identity, expected[index].Identity);
+                AssertUInt4(actual[index].Handle, expected[index].Handle);
+                AssertUInt4(actual[index].Coordinate,
+                    expected[index].Coordinate);
+            }
         }
 
         private static PageMeta CurrentPage(PublicationSnapshot snapshot,
@@ -576,18 +855,80 @@ namespace Genesis.RoomScan.Tests
                     Is.True);
             }
 
-            internal Snapshot Run(int footprintWindow)
+            internal Snapshot Run(int footprintWindow, uint revision = 1u)
             {
                 using var command = new CommandBuffer
                     { name = "Sigma M2 whole-frame fixture" };
                 try
                 {
-                    _graph.RecordSourceAndResolve(command, _owned, 1u, _input,
+                    _graph.RecordSourceAndResolve(command, _owned, revision,
+                        _input,
                         footprintWindow);
                     Graphics.ExecuteCommandBuffer(command);
                 }
                 finally { command.Clear(); }
                 return ReadSnapshot();
+            }
+
+            internal void CloseCurrentFrame(uint revision)
+            {
+                using var command = new CommandBuffer
+                    { name = "Sigma R3 cross-frame pending closure" };
+                try
+                {
+                    _graph.RecordExactClosure(command, _owned, revision, _input);
+                    Graphics.ExecuteCommandBuffer(command);
+                }
+                finally { command.Clear(); }
+            }
+
+            internal SigmaPendingGaugeGpu ReadPendingGauge(int handle) =>
+                ReadAt<SigmaPendingGaugeGpu>(
+                    _graph.Resources.PendingGauges.Segment(
+                        handle / _graph.Resources.FootprintsPerWindow).Buffer,
+                    handle % _graph.Resources.FootprintsPerWindow);
+
+            internal void SeedPending(long[] state, uint generation)
+            {
+                Assert.That(state, Has.Length.EqualTo(Lanes));
+                var packedState = new UInt2[Lanes];
+                var lower = new UInt2[Lanes];
+                var upper = new UInt2[Lanes];
+                var validity = new uint[Lanes];
+                long[] transformed = SigmaS16Operators.HadamardB(
+                    SigmaS16.FromArray(state)).ToArray();
+                long mass = transformed[
+                    SigmaGeneratedAlgebra.GeometryRows[0]];
+                for (int lane = 0; lane < Lanes; ++lane)
+                {
+                    packedState[lane] = Packed(state[lane]);
+                    long projective = SigmaNumericDomain.QDiv(
+                        transformed[lane], mass);
+                    lower[lane] = Packed(projective);
+                    upper[lane] = Packed(projective);
+                    validity[lane] = (uint)(SigmaFrameCellFlags.Constrained |
+                        SigmaFrameCellFlags.Observed) |
+                        (1u << SigmaGeneratedFrame.SourceMaskShift);
+                }
+                var gauge = new SigmaPendingGaugeGpu
+                {
+                    Identity = Gpu4(generation,
+                        (uint)SigmaPendingGaugeState.Open, 1u, 0u),
+                    Provenance = Gpu4(1u, DepthLeftKey, 0u, 1u),
+                    LocalExtent = Gpu4(0u, 0u, 0u, 0u),
+                };
+                _graph.Resources.PendingGauges.Segment(0).Buffer.SetData(
+                    new[] { gauge }, 0, 0, 1);
+                _graph.Resources.PendingStates.Segment(0).Buffer.SetData(
+                    packedState, 0, 0, Lanes);
+                _graph.Resources.PendingLower.Segment(0).Buffer.SetData(
+                    lower, 0, 0, Lanes);
+                _graph.Resources.PendingUpper.Segment(0).Buffer.SetData(
+                    upper, 0, 0, Lanes);
+                _graph.Resources.PendingValidity.Segment(0).Buffer.SetData(
+                    validity, 0, 0, Lanes);
+                _graph.Resources.PendingControl.Segment(0).Buffer.SetData(
+                    new[] { Gpu4(1u, unchecked((uint)_footprints), 1u, 0u) });
             }
 
             internal void RunSegmentedTargetFixture()
@@ -790,7 +1131,7 @@ namespace Genesis.RoomScan.Tests
                 {
                     TargetCount = counters[0].X,
                     Target = ReadAt<SigmaFrameDeltaGpu>(
-                        _graph.Resources.DirtyEdges.Segment(0).Buffer, 0),
+                        _graph.Resources.TargetScratch.Segment(0).Buffer, 0),
                     Lower = Read<UInt2>(_graph.Resources.ReducedLower, Lanes),
                     Upper = Read<UInt2>(_graph.Resources.ReducedUpper, Lanes),
                     Gap = Read<UInt2>(_graph.Resources.ReducedGap, Lanes),
@@ -798,6 +1139,110 @@ namespace Genesis.RoomScan.Tests
                         Lanes),
                     State = Read<UInt2>(_graph.Resources.ReducedStates, Lanes),
                     FaultStage = counters[3].X,
+                };
+            }
+
+            internal ClosureSnapshot RunExactClosure(
+                params ClosureTarget[] targets)
+            {
+                if (targets == null || targets.Length == 0)
+                    throw new ArgumentException("Closure targets are required.",
+                        nameof(targets));
+                int targetCount = targets.Length;
+                Assert.That(targetCount, Is.LessThanOrEqualTo(_footprints));
+
+                SigmaFrameBufferSegment targetScratch =
+                    _graph.Resources.TargetScratch.Segment(0);
+                targetScratch.Buffer.SetData(
+                    new SigmaFrameDeltaGpu[targetScratch.RecordCount]);
+                var mapping = new uint[_footprints];
+                Array.Fill(mapping, SigmaGeneratedFrame.Invalid);
+                var states = new UInt2[_footprints * Lanes];
+                var lower = new UInt2[_footprints * Lanes];
+                var upper = new UInt2[_footprints * Lanes];
+                var validity = new uint[_footprints * Lanes];
+                var records = new SigmaFrameDeltaGpu[targetCount];
+                for (int ordinal = 0; ordinal < targetCount; ++ordinal)
+                {
+                    ClosureTarget target = targets[ordinal];
+                    Assert.That(target.Footprint,
+                        Is.InRange(0, _footprints - 1));
+                    Assert.That(target.State, Has.Length.EqualTo(Lanes));
+                    mapping[target.Footprint] = unchecked((uint)ordinal);
+                    uint flags = target.Pending
+                        ? (uint)SigmaFrameOutcomeFlags.Pending
+                        : (uint)SigmaFrameOutcomeFlags.Accepted;
+                    if (!target.Pending && !target.Changed)
+                        flags |= (uint)SigmaFrameOutcomeFlags.Unchanged;
+                    records[ordinal] = new SigmaFrameDeltaGpu
+                    {
+                        Coordinate = Gpu4(unchecked((uint)(ordinal + 1)), 0u,
+                            unchecked((uint)(ordinal + 17)), 0u),
+                        Candidate = Gpu4(0u, 0u, 1u,
+                            unchecked((uint)ordinal)),
+                        Evidence = Gpu4(unchecked((uint)target.Footprint),
+                            flags, (uint)target.Kind, unchecked((uint)ordinal)),
+                    };
+                    uint cellFlags = target.SourceMask == 0u ? 0u :
+                        (uint)(SigmaFrameCellFlags.Constrained |
+                            SigmaFrameCellFlags.Observed) |
+                        (target.Pending ? 0u :
+                            (uint)SigmaFrameCellFlags.Accepted) |
+                        (target.SourceMask <<
+                            SigmaGeneratedFrame.SourceMaskShift);
+                    long[] transformed = SigmaS16Operators.HadamardB(
+                        SigmaS16.FromArray(target.State)).ToArray();
+                    long mass = transformed[
+                        SigmaGeneratedAlgebra.GeometryRows[0]];
+                    for (int lane = 0; lane < Lanes; ++lane)
+                    {
+                        int address = ordinal * Lanes + lane;
+                        states[address] = Packed(target.State[lane]);
+                        long projective = target.SourceMask == 0u ? 0L :
+                            SigmaNumericDomain.QDiv(transformed[lane], mass);
+                        lower[address] = Packed(projective);
+                        upper[address] = Packed(projective);
+                        validity[address] = cellFlags;
+                    }
+                }
+                targetScratch.Buffer.SetData(records, 0, 0, records.Length);
+                _graph.Resources.ResolvedIndices.Segment(0).Buffer.SetData(
+                    mapping);
+                SetSegmented(_graph.Resources.ReducedStates, states);
+                SetSegmented(_graph.Resources.ReducedLower, lower);
+                SetSegmented(_graph.Resources.ReducedUpper, upper);
+                SetSegmented(_graph.Resources.ReducedValidity, validity);
+                var counters = new UInt4[4];
+                counters[0].X = unchecked((uint)targetCount);
+                _graph.Resources.ClosureCounters.Segment(0).Buffer.SetData(
+                    counters);
+
+                using var command = new CommandBuffer
+                    { name = "Sigma R3 exact pending closure fixture" };
+                try
+                {
+                    _graph.RecordExactClosureOnly(command, _owned, 2u, _input);
+                    Graphics.ExecuteCommandBuffer(command);
+                }
+                finally { command.Clear(); }
+
+                return new ClosureSnapshot
+                {
+                    Targets = Read<SigmaFrameDeltaGpu>(
+                        _graph.Resources.TargetScratch, targetCount),
+                    Labels = Read<uint>(_graph.Resources.PendingLabels,
+                        targetCount),
+                    Links = Read<uint>(_graph.Resources.PendingLinks,
+                        targetCount),
+                    Deferred = Read<uint>(_graph.Resources.DeferredFlags,
+                        targetCount),
+                    Gauges = Read<SigmaPendingGaugeGpu>(
+                        _graph.Resources.PendingGauges, targetCount),
+                    Edges = Read<SigmaDirtyEdgeGpu>(
+                        _graph.Resources.DirtyEdges, _footprints * 2),
+                    Counters = Read<UInt4>(_graph.Resources.ClosureCounters, 4),
+                    Control = Read<UInt4>(
+                        _graph.Resources.PendingControl, 1)[0],
                 };
             }
 
@@ -841,7 +1286,7 @@ namespace Genesis.RoomScan.Tests
                 {
                     _graph.RecordSourceAndResolve(command, _owned, 1u, _input,
                         footprintWindow);
-                    _graph.RecordClosureAndPublish(command, _owned, 1u, target);
+                    _graph.RecordExactClosure(command, _owned, 1u, _input);
                     Graphics.ExecuteCommandBuffer(command);
                 }
                 finally { command.Clear(); }
@@ -1073,6 +1518,22 @@ namespace Genesis.RoomScan.Tests
             return state;
         }
 
+        private static long[] ScalarState(int value) =>
+            SigmaS16.Basis(0, SigmaNumericDomain.FromInteger(value)).ToArray();
+
+        private static long[] ContactZeroDivisorState()
+        {
+            for (int index = 0; index < 1344; ++index)
+            {
+                SigmaS16 state = SigmaS16Operators.GetZeroDivisorEntry(index)
+                    .Witness.ToS16();
+                if (SigmaGeometryReadout.TryRead(state, out _))
+                    return state.ToArray();
+            }
+            throw new InvalidOperationException(
+                "Generated catalog has no contact-readable zero divisor.");
+        }
+
         private static UInt2 Packed(long value)
         {
             ulong raw = unchecked((ulong)value);
@@ -1129,6 +1590,23 @@ namespace Genesis.RoomScan.Tests
                 SigmaFrameBufferSegment segment = buffer.Segment(index);
                 segment.Buffer.SetData(new T[segment.RecordCount]);
             }
+        }
+
+        private static void SetSegmented<T>(SigmaFrameSegmentedBuffer buffer,
+            T[] values) where T : struct
+        {
+            int source = 0;
+            for (int index = 0;
+                index < buffer.Segments.Count && source < values.Length;
+                ++index)
+            {
+                SigmaFrameBufferSegment segment = buffer.Segment(index);
+                int copy = Math.Min(segment.RecordCount,
+                    values.Length - source);
+                segment.Buffer.SetData(values, source, 0, copy);
+                source += copy;
+            }
+            Assert.That(source, Is.EqualTo(values.Length));
         }
 
         private static T ReadAt<T>(GraphicsBuffer buffer, int index)

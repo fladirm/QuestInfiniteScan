@@ -339,8 +339,9 @@ namespace Genesis.RoomScan.SigmaPrism
 
             long initialCandidates = checked((long)FootprintCount *
                 InitialProposalKinds);
-            long initialEdges = checked((long)TargetSortCapacity +
+            long initialTargets = checked((long)TargetSortCapacity +
                 FootprintCount);
+            long initialEdges = checked((long)FootprintCount * 2L);
             Candidates = Buffer<SigmaFrameCandidateGpu>(
                 SigmaGeneratedFrame.FrameCandidateStride,
                 "Sigma direct frame candidates", InitialProposalKinds);
@@ -364,13 +365,39 @@ namespace Genesis.RoomScan.SigmaPrism
                 InitialProposalKinds * SigmaGeneratedFrame.LaneCount);
             PendingGauges = Buffer<SigmaPendingGaugeGpu>(
                 SigmaGeneratedFrame.PendingGaugeStride,
-                "Sigma pending latent gauges", 1);
+                "Sigma persistent pending gauges", 1);
+            PendingStates = Buffer<SigmaFrameUInt2Gpu>(
+                SigmaGeneratedFrame.PackedQ48Stride,
+                "Sigma persistent pending S16 states",
+                SigmaGeneratedFrame.LaneCount);
+            PendingLower = Buffer<SigmaFrameUInt2Gpu>(
+                SigmaGeneratedFrame.PackedQ48Stride,
+                "Sigma persistent pending lower cells",
+                SigmaGeneratedFrame.LaneCount);
+            PendingUpper = Buffer<SigmaFrameUInt2Gpu>(
+                SigmaGeneratedFrame.PackedQ48Stride,
+                "Sigma persistent pending upper cells",
+                SigmaGeneratedFrame.LaneCount);
+            PendingValidity = Buffer<uint>(sizeof(uint),
+                "Sigma persistent pending validity",
+                SigmaGeneratedFrame.LaneCount);
+            PendingProjectionDepth = Buffer<uint>(sizeof(uint),
+                "Sigma pending proposal depth", 2);
+            PendingProjectionHandles = Buffer<SigmaFrameUInt2Gpu>(
+                SigmaGeneratedFrame.PackedQ48Stride,
+                "Sigma pending proposal handles", 2);
+            PendingControl = Buffer<SigmaFrameUInt4Gpu>(
+                SigmaGeneratedFrame.ProvenanceStride,
+                "Sigma pending journal control");
             Deltas = Buffer<SigmaFrameDeltaGpu>(
                 SigmaGeneratedFrame.FrameDeltaStride,
                 "Sigma direct target stream");
+            TargetScratch = Buffer<SigmaFrameDeltaGpu>(
+                SigmaGeneratedFrame.FrameDeltaStride,
+                "Sigma direct ordered target scratch");
             DirtyEdges = Buffer<SigmaDirtyEdgeGpu>(
                 SigmaGeneratedFrame.DirtyEdgeStride,
-                "Sigma direct target scratch and dirty intrinsic edges");
+                "Sigma direct exact intrinsic edges", 2);
             Revisions = Buffer<SigmaFrameRevisionGpu>(
                 SigmaGeneratedFrame.FrameRevisionStride,
                 "Sigma direct frame revisions");
@@ -395,11 +422,11 @@ namespace Genesis.RoomScan.SigmaPrism
                 SigmaGeneratedFrame.PackedQ48Stride,
                 "Sigma reduced final S16 states", SigmaGeneratedFrame.LaneCount);
             PendingLabels = Buffer<uint>(sizeof(uint),
-                "Sigma direct pending component labels", 1);
+                "Sigma direct pending component labels");
             PendingLinks = Buffer<uint>(sizeof(uint),
-                "Sigma direct pending exact links", 1);
+                "Sigma direct pending exact links");
             DeferredFlags = Buffer<uint>(sizeof(uint),
-                "Sigma direct deferred mutation flags", 1);
+                "Sigma direct deferred mutation flags");
             RootLocalOffsets = Buffer<SigmaFrameUInt2Gpu>(
                 SigmaGeneratedFrame.PackedQ48Stride,
                 "Sigma direct pending root local offsets");
@@ -423,7 +450,8 @@ namespace Genesis.RoomScan.SigmaPrism
                 "Sigma direct published revision root");
 
             if (!TryEnsureCandidateCapacity(initialCandidates) ||
-                !TryEnsurePendingGaugeCapacity(FootprintCount) ||
+                !TryEnsurePendingCapacity(FootprintCount) ||
+                !TryEnsureTargetScratchCapacity(initialTargets) ||
                 !TryEnsureDirtyEdgeCapacity(initialEdges) ||
                 !TryEnsureRevisionCapacity(InitialRevisionRecords) ||
                 !TryEnsureClosureCapacity(SigmaCarrier.MaximumPagesPerSegment))
@@ -449,6 +477,10 @@ namespace Genesis.RoomScan.SigmaPrism
             OwnedFrames.SetData(new SigmaOwnedFrameGpu[frameCapacity]);
             ClosureCounters.Segments[0].Buffer.SetData(
                 new SigmaFrameUInt4Gpu[ClosureCounterRecords]);
+            PendingControl.Segments[0].Buffer.SetData(new[]
+            {
+                UInt4(0u, unchecked((uint)FootprintCount), 1u, 0u),
+            });
             ExtentAllocator.Segments[0].Buffer.SetData(
                 new SigmaFrameUInt4Gpu[1]);
             RevisionRoot.Segments[0].Buffer.SetData(new uint[1]);
@@ -476,7 +508,15 @@ namespace Genesis.RoomScan.SigmaPrism
         internal SigmaFrameSegmentedBuffer CandidateUpper { get; }
         internal SigmaFrameSegmentedBuffer CandidateValidity { get; }
         internal SigmaFrameSegmentedBuffer PendingGauges { get; }
+        internal SigmaFrameSegmentedBuffer PendingStates { get; }
+        internal SigmaFrameSegmentedBuffer PendingLower { get; }
+        internal SigmaFrameSegmentedBuffer PendingUpper { get; }
+        internal SigmaFrameSegmentedBuffer PendingValidity { get; }
+        internal SigmaFrameSegmentedBuffer PendingProjectionDepth { get; }
+        internal SigmaFrameSegmentedBuffer PendingProjectionHandles { get; }
+        internal SigmaFrameSegmentedBuffer PendingControl { get; }
         internal SigmaFrameSegmentedBuffer Deltas { get; }
+        internal SigmaFrameSegmentedBuffer TargetScratch { get; }
         internal SigmaFrameSegmentedBuffer DirtyEdges { get; }
         internal SigmaFrameSegmentedBuffer Revisions { get; }
         internal SigmaFrameSegmentedBuffer ResolvedBlockCounts { get; }
@@ -613,8 +653,44 @@ namespace Genesis.RoomScan.SigmaPrism
             return true;
         }
 
-        internal bool TryEnsurePendingGaugeCapacity(long records) =>
-            TryGrow(PendingGauges, records);
+        internal bool TryEnsurePendingCapacity(long records)
+        {
+            RequireAlive();
+            if (records < 0L)
+                throw new ArgumentOutOfRangeException(nameof(records));
+            long coordinates = checked(records * SigmaGeneratedFrame.LaneCount);
+            long projections = checked(records * 2L);
+            long additional = PendingGauges.AdditionalBytesFor(records);
+            additional = checked(additional +
+                PendingStates.AdditionalBytesFor(coordinates));
+            additional = checked(additional +
+                PendingLower.AdditionalBytesFor(coordinates));
+            additional = checked(additional +
+                PendingUpper.AdditionalBytesFor(coordinates));
+            additional = checked(additional +
+                PendingValidity.AdditionalBytesFor(coordinates));
+            additional = checked(additional +
+                PendingProjectionDepth.AdditionalBytesFor(projections));
+            additional = checked(additional +
+                PendingProjectionHandles.AdditionalBytesFor(projections));
+            additional = checked(additional +
+                PendingControl.AdditionalBytesFor(1));
+            if (!TryReserve(additional))
+                return false;
+            PendingGauges.GrowTo(records);
+            PendingStates.GrowTo(coordinates);
+            PendingLower.GrowTo(coordinates);
+            PendingUpper.GrowTo(coordinates);
+            PendingValidity.GrowTo(coordinates);
+            PendingProjectionDepth.GrowTo(projections);
+            PendingProjectionHandles.GrowTo(projections);
+            PendingControl.GrowTo(1);
+            _allocatedBytes = checked(_allocatedBytes + additional);
+            return true;
+        }
+
+        internal bool TryEnsureTargetScratchCapacity(long records) =>
+            TryGrow(TargetScratch, records);
 
         internal bool TryEnsureDirtyEdgeCapacity(long records) =>
             TryGrow(DirtyEdges, records);
@@ -793,7 +869,15 @@ namespace Genesis.RoomScan.SigmaPrism
             CandidateUpper.Dispose();
             CandidateValidity.Dispose();
             PendingGauges.Dispose();
+            PendingStates.Dispose();
+            PendingLower.Dispose();
+            PendingUpper.Dispose();
+            PendingValidity.Dispose();
+            PendingProjectionDepth.Dispose();
+            PendingProjectionHandles.Dispose();
+            PendingControl.Dispose();
             Deltas.Dispose();
+            TargetScratch.Dispose();
             DirtyEdges.Dispose();
             Revisions.Dispose();
             ResolvedBlockCounts.Dispose();

@@ -1,4 +1,7 @@
 #pragma kernel ClearFrameState
+#pragma kernel ClearPendingProjection
+#pragma kernel ProjectPendingDepth
+#pragma kernel ResolvePendingProjection
 #pragma kernel BuildFrameProposals
 #pragma kernel BuildDepthSourceCells
 #pragma kernel BuildRgbSourceCells
@@ -33,6 +36,15 @@ RWStructuredBuffer<uint> _FrameCandidateValidity;
 RWStructuredBuffer<SigmaFrameDeltaGpu> _FrameDeltas;
 RWStructuredBuffer<uint4> _FrameResolvedBlockCounts;
 RWStructuredBuffer<uint> _FrameResolvedIndices;
+
+StructuredBuffer<SigmaPendingGaugeGpu> _PendingGauges;
+StructuredBuffer<uint2> _PendingStates;
+StructuredBuffer<uint2> _PendingLower;
+StructuredBuffer<uint2> _PendingUpper;
+StructuredBuffer<uint> _PendingValidity;
+StructuredBuffer<uint4> _PendingControl;
+RWStructuredBuffer<uint> _PendingProjectionDepth;
+RWStructuredBuffer<uint2> _PendingProjectionHandles;
 
 RWStructuredBuffer<uint2> _SourceLowerOut;
 RWStructuredBuffer<uint2> _SourceUpperOut;
@@ -90,6 +102,10 @@ uint _FrameSourceOrdinal;
 uint _ResolveProposalKind;
 uint _CarrierSegmentIndex;
 uint _PageCapacity;
+uint _PendingFirst;
+uint _PendingCount;
+uint _ProjectionFirstFootprint;
+uint _ProjectionFootprintCount;
 
 groupshared uint2 FrameAxisLower[SIGMA_FRAME_FOOTPRINTS_PER_GROUP * 3u];
 groupshared uint2 FrameAxisUpper[SIGMA_FRAME_FOOTPRINTS_PER_GROUP * 3u];
@@ -201,6 +217,35 @@ bool SigmaFrameProjectDepth(float3 correctedWorld, uint eye,
     return true;
 }
 
+bool SigmaFrameProjectPending(float3 correctedWorld, uint eye,
+    out uint2 pixel, out uint depthKey)
+{
+    float4x4 opticalFromWorld = eye == 0u
+        ? _OpticalFromWorldLeft : _OpticalFromWorldRight;
+    float4 intrinsics = eye == 0u
+        ? _DepthIntrinsicsLeft : _DepthIntrinsicsRight;
+    float3 rawWorld = SigmaPoseUnapplyWorld(correctedWorld);
+    float3 optical = mul(opticalFromWorld, float4(rawWorld, 1.0)).xyz;
+    if (!all(isfinite(optical)) || optical.z <= 1e-6)
+    {
+        pixel = 0u;
+        depthKey = 0xffffffffu;
+        return false;
+    }
+    float2 projected = optical.xy / optical.z * intrinsics.xy +
+        intrinsics.zw;
+    int2 integerPixel = int2(floor(projected));
+    if (any(integerPixel < 0) || any(integerPixel >= (int2)_FrameResolution))
+    {
+        pixel = 0u;
+        depthKey = 0xffffffffu;
+        return false;
+    }
+    pixel = (uint2)integerPixel;
+    depthKey = asuint(optical.z);
+    return depthKey < 0x7f800000u;
+}
+
 SigmaFrameCandidateGpu SigmaFrameEmptyCandidate(uint footprint)
 {
     SigmaFrameCandidateGpu candidate;
@@ -263,6 +308,128 @@ bool SigmaFrameSameCandidate(SigmaFrameCandidateGpu left,
         left.Handle.z == right.Handle.z &&
         (left.Identity.w & SIGMA_FRAME_PROPOSAL_SAMPLE_MASK) ==
             (right.Identity.w & SIGMA_FRAME_PROPOSAL_SAMPLE_MASK);
+}
+
+bool SigmaFramePendingCandidate(uint footprint, uint eye,
+    out SigmaFrameCandidateGpu candidate)
+{
+    candidate = SigmaFrameEmptyCandidate(footprint);
+    uint localFootprint = footprint - _FrameBufferFootprintBase;
+    uint2 projected = _PendingProjectionHandles[localFootprint * 2u + eye];
+    uint handle = projected.x;
+    uint4 control = _PendingControl[0u];
+    if (handle >= control.x || handle >= control.y)
+        return false;
+    if (projected.y == 0u)
+        return false;
+    candidate.Identity = uint4(_FrameRevision, footprint,
+        SIGMA_FRAME_PROPOSAL_KIND_PENDING, handle);
+    candidate.Handle = uint4(SIGMA_FRAME_TARGET_KIND_PENDING, handle,
+        projected.y, 0u);
+    candidate.Coordinate = uint4(handle, 0u, projected.y, 0u);
+    return true;
+}
+
+[numthreads(256, 1, 1)]
+void ClearPendingProjection(uint3 id : SV_DispatchThreadID)
+{
+    uint index = id.x;
+    uint projectionCount = _ProjectionFootprintCount * 2u;
+    if (index >= projectionCount)
+        return;
+    _PendingProjectionDepth[index] = 0xffffffffu;
+    _PendingProjectionHandles[index] = uint2(SIGMA_FRAME_INVALID, 0u);
+}
+
+[numthreads(64, 1, 1)]
+void ProjectPendingDepth(uint3 id : SV_DispatchThreadID)
+{
+    uint localHandle = id.x;
+    uint handle = _PendingFirst + localHandle;
+    uint4 control = _PendingControl[0u];
+    if (localHandle >= _PendingCount || handle >= control.x ||
+        handle >= control.y)
+        return;
+    SigmaPendingGaugeGpu gauge = _PendingGauges[localHandle];
+    if ((gauge.Identity.y != SIGMA_PENDING_GAUGE_STATE_OPEN &&
+            gauge.Identity.y != SIGMA_PENDING_GAUGE_STATE_SUPPORTED) ||
+        gauge.Identity.x == 0u)
+        return;
+    uint2 state[SIGMA_FRAME_LANE_COUNT];
+    [unroll]
+    for (uint coordinate = 0u; coordinate < SIGMA_FRAME_LANE_COUNT;
+        ++coordinate)
+    {
+        state[coordinate] = _PendingStates[
+            localHandle * SIGMA_FRAME_LANE_COUNT + coordinate];
+    }
+    float3 world;
+    float mass;
+    if (!SigmaGeometryReadoutPlan(state, world, mass))
+        return;
+    [unroll]
+    for (uint eye = 0u; eye < 2u; ++eye)
+    {
+        uint2 pixel;
+        uint depthKey;
+        if (!SigmaFrameProjectPending(world, eye, pixel, depthKey))
+            continue;
+        uint footprint = pixel.y * _FrameResolution.x + pixel.x;
+        if (footprint < _ProjectionFirstFootprint ||
+            footprint >= _ProjectionFirstFootprint +
+                _ProjectionFootprintCount)
+            continue;
+        uint projection = (footprint - _ProjectionFirstFootprint) * 2u + eye;
+        InterlockedMin(_PendingProjectionDepth[projection], depthKey);
+    }
+}
+
+[numthreads(64, 1, 1)]
+void ResolvePendingProjection(uint3 id : SV_DispatchThreadID)
+{
+    uint localHandle = id.x;
+    uint handle = _PendingFirst + localHandle;
+    uint4 control = _PendingControl[0u];
+    if (localHandle >= _PendingCount || handle >= control.x ||
+        handle >= control.y)
+        return;
+    SigmaPendingGaugeGpu gauge = _PendingGauges[localHandle];
+    if ((gauge.Identity.y != SIGMA_PENDING_GAUGE_STATE_OPEN &&
+            gauge.Identity.y != SIGMA_PENDING_GAUGE_STATE_SUPPORTED) ||
+        gauge.Identity.x == 0u)
+        return;
+    uint2 state[SIGMA_FRAME_LANE_COUNT];
+    [unroll]
+    for (uint coordinate = 0u; coordinate < SIGMA_FRAME_LANE_COUNT;
+        ++coordinate)
+    {
+        state[coordinate] = _PendingStates[
+            localHandle * SIGMA_FRAME_LANE_COUNT + coordinate];
+    }
+    float3 world;
+    float mass;
+    if (!SigmaGeometryReadoutPlan(state, world, mass))
+        return;
+    [unroll]
+    for (uint eye = 0u; eye < 2u; ++eye)
+    {
+        uint2 pixel;
+        uint depthKey;
+        if (!SigmaFrameProjectPending(world, eye, pixel, depthKey))
+            continue;
+        uint footprint = pixel.y * _FrameResolution.x + pixel.x;
+        if (footprint < _ProjectionFirstFootprint ||
+            footprint >= _ProjectionFirstFootprint +
+                _ProjectionFootprintCount)
+            continue;
+        uint projection = (footprint - _ProjectionFirstFootprint) * 2u + eye;
+        if (_PendingProjectionDepth[projection] == depthKey)
+        {
+            InterlockedMin(_PendingProjectionHandles[projection].x, handle);
+            if (_PendingProjectionHandles[projection].x == handle)
+                _PendingProjectionHandles[projection].y = gauge.Identity.x;
+        }
+    }
 }
 
 [numthreads(256, 1, 1)]
@@ -335,9 +502,27 @@ void BuildFrameProposals(uint3 id : SV_DispatchThreadID)
         primary = second;
     if (hasFirst && hasSecond)
         secondary = second;
+    SigmaFrameCandidateGpu pendingLeft;
+    SigmaFrameCandidateGpu pendingRight;
+    bool hasPendingLeft = SigmaFramePendingCandidate(footprint, 0u,
+        pendingLeft);
+    bool hasPendingRight = SigmaFramePendingCandidate(footprint, 1u,
+        pendingRight);
+    SigmaFrameCandidateGpu pending = SigmaFrameEmptyCandidate(footprint);
+    if (hasPendingLeft && hasPendingRight)
+    {
+        if (SigmaFrameCandidateLess(pendingRight, pendingLeft))
+            pending = pendingRight;
+        else
+            pending = pendingLeft;
+    }
+    else if (hasPendingLeft)
+        pending = pendingLeft;
+    else if (hasPendingRight)
+        pending = pendingRight;
     _FrameCandidates[base + 0u] = primary;
     _FrameCandidates[base + 1u] = secondary;
-    _FrameCandidates[base + 2u] = SigmaFrameEmptyCandidate(footprint);
+    _FrameCandidates[base + 2u] = pending;
     SigmaFrameCandidateGpu novel = SigmaFrameEmptyCandidate(footprint);
     novel.Identity.z = SIGMA_FRAME_PROPOSAL_KIND_NOVEL;
     novel.Handle = SIGMA_FRAME_INVALID;
@@ -848,6 +1033,23 @@ void EvaluateCandidateMeets(uint3 groupId : SV_GroupID,
     if (kind == SIGMA_FRAME_PROPOSAL_KIND_CURRENT)
         process = process && candidate.Handle.x == _CarrierSegmentIndex &&
             candidate.Handle.y < _PageCapacity;
+    else if (kind == SIGMA_FRAME_PROPOSAL_KIND_PENDING)
+    {
+        uint4 pendingControl = _PendingControl[0u];
+        uint pendingHandle = candidate.Handle.y;
+        process = process &&
+            candidate.Handle.x == SIGMA_FRAME_TARGET_KIND_PENDING &&
+            pendingHandle >= _PendingFirst &&
+            pendingHandle < _PendingFirst + _PendingCount &&
+            pendingHandle < pendingControl.x &&
+            pendingHandle < pendingControl.y &&
+            _PendingGauges[pendingHandle - _PendingFirst].Identity.x ==
+                candidate.Handle.z &&
+            (_PendingGauges[pendingHandle - _PendingFirst].Identity.y ==
+                SIGMA_PENDING_GAUGE_STATE_OPEN ||
+             _PendingGauges[pendingHandle - _PendingFirst].Identity.y ==
+                SIGMA_PENDING_GAUGE_STATE_SUPPORTED);
+    }
 
     if (coordinate == 0u)
     {
@@ -886,6 +1088,12 @@ void EvaluateCandidateMeets(uint3 groupId : SV_GroupID,
         valid &= SigmaFrameBuildNovelState(sourceFootprint, local, coordinate,
             state) ? 1u : 0u;
     }
+    else if (valid != 0u && kind == SIGMA_FRAME_PROPOSAL_KIND_PENDING)
+    {
+        uint pendingLocal = candidate.Handle.y - _PendingFirst;
+        state = _PendingStates[pendingLocal * SIGMA_FRAME_LANE_COUNT +
+            coordinate];
+    }
     else
         valid = 0u;
     FrameValueA[flat] = state;
@@ -916,11 +1124,27 @@ void EvaluateCandidateMeets(uint3 groupId : SV_GroupID,
 
     valid = FrameLaneValid[flat];
     SigmaQ48Bounds joint = SigmaFrameFullBounds();
-    if (valid != 0u)
+    uint retainedFlags = 0u;
+    SigmaPendingGaugeGpu pendingGauge = (SigmaPendingGaugeGpu)0;
+    if (valid != 0u && kind == SIGMA_FRAME_PROPOSAL_KIND_PENDING)
+    {
+        uint pendingLocal = candidate.Handle.y - _PendingFirst;
+        uint pendingAddress = pendingLocal * SIGMA_FRAME_LANE_COUNT +
+            coordinate;
+        joint.lo = _PendingLower[pendingAddress];
+        joint.hi = _PendingUpper[pendingAddress];
+        retainedFlags = _PendingValidity[pendingAddress];
+        pendingGauge = _PendingGauges[pendingLocal];
+    }
+    else if (valid != 0u)
         joint = SigmaQ48Widen(currentY, FramePriorWidth[local], valid);
-    uint firstKey = 0u;
-    bool independent = false;
-    uint sourceMask = 0u;
+    uint firstKey = kind == SIGMA_FRAME_PROPOSAL_KIND_PENDING
+        ? pendingGauge.Provenance.y : 0u;
+    bool independent = kind == SIGMA_FRAME_PROPOSAL_KIND_PENDING &&
+        pendingGauge.Provenance.y != 0u && pendingGauge.Provenance.z != 0u &&
+        pendingGauge.Provenance.y != pendingGauge.Provenance.z;
+    uint sourceMask = kind == SIGMA_FRAME_PROPOSAL_KIND_PENDING
+        ? pendingGauge.Provenance.x : 0u;
     [unroll]
     for (uint source = 0u; source < SIGMA_FRAME_SOURCE_COUNT; ++source)
     {
@@ -946,9 +1170,9 @@ void EvaluateCandidateMeets(uint3 groupId : SV_GroupID,
     if (process)
     {
         uint address = candidateIndex * SIGMA_FRAME_LANE_COUNT + coordinate;
-        uint cellFlags = sourceMask != 0u
+        uint cellFlags = retainedFlags | (sourceMask != 0u
             ? SIGMA_FRAME_CELL_CONSTRAINED | SIGMA_FRAME_CELL_OBSERVED
-            : 0u;
+            : 0u);
         if (independent)
             cellFlags |= SIGMA_FRAME_CELL_INDEPENDENT;
         if (SigmaQ48Less(joint.hi, joint.lo))
@@ -994,8 +1218,12 @@ void EvaluateCandidateMeets(uint3 groupId : SV_GroupID,
             SIGMA_FRAME_SOURCE_RGB_LEFT, sourceFootprint);
         uint4 rr = SigmaFrameSourceProvenance(
             SIGMA_FRAME_SOURCE_RGB_RIGHT, sourceFootprint);
-        uint first = 0u;
-        bool supportIndependent = false;
+        uint first = kind == SIGMA_FRAME_PROPOSAL_KIND_PENDING
+            ? pendingGauge.Provenance.y : 0u;
+        bool supportIndependent = kind == SIGMA_FRAME_PROPOSAL_KIND_PENDING &&
+            pendingGauge.Provenance.y != 0u &&
+            pendingGauge.Provenance.z != 0u &&
+            pendingGauge.Provenance.y != pendingGauge.Provenance.z;
         uint4 keys = uint4(dl.z, dr.z, rl.z, rr.z);
         uint sourcePresence = FrameSourceMask[local];
         [unroll]
@@ -1010,7 +1238,8 @@ void EvaluateCandidateMeets(uint3 groupId : SV_GroupID,
         }
         bool hasDepth = (sourcePresence & 3u) != 0u;
         FrameActive[local] &= reduceValid;
-        if (kind == SIGMA_FRAME_PROPOSAL_KIND_NOVEL &&
+        if ((kind == SIGMA_FRAME_PROPOSAL_KIND_NOVEL ||
+                kind == SIGMA_FRAME_PROPOSAL_KIND_PENDING) &&
             (!hasDepth || !supportIndependent))
             FrameActive[local] = 0u;
     }
@@ -1163,8 +1392,11 @@ void CompactResolvedTargets(uint3 groupId : SV_GroupID,
         uint proposal = selected - storageFootprint *
             SIGMA_FRAME_PROPOSALS_PER_FOOTPRINT;
         delta.Coordinate = candidate.Coordinate;
-        delta.Candidate = uint4(candidate.Handle.xyz,
-            candidate.Identity.w & SIGMA_FRAME_PROPOSAL_SAMPLE_MASK);
+        delta.Candidate = candidate.Identity.z ==
+            SIGMA_FRAME_PROPOSAL_KIND_PENDING
+            ? candidate.Handle
+            : uint4(candidate.Handle.xyz,
+                candidate.Identity.w & SIGMA_FRAME_PROPOSAL_SAMPLE_MASK);
         delta.Evidence = uint4(footprint, flags,
             candidate.Identity.z, proposal);
         _FrameDeltas[footprint] = delta;

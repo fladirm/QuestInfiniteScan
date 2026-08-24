@@ -309,11 +309,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 command.BeginSample("Sigma.Frame.InversePublish");
                 _graph.RecordSourceAndResolve(command, ownedFrame, revision,
                     input);
-                _graph.RecordClosureAndPublish(command, ownedFrame, revision,
-                    new SigmaFramePublicationTarget(_pool.SegmentIndex,
-                        _pool.PageCapacity, _pool.State, _pool.Metadata,
-                        _pool.DirtyFlags, _pool.CurrentFlags,
-                        _pool.ReadoutDirtyFlags));
+                _graph.RecordExactClosure(command, ownedFrame, revision, input);
                 command.EndSample("Sigma.Frame.InversePublish");
                 SigmaGpuCompletionTicket ticket =
                     SigmaGpuCompletion.RecordAfterAllWork(command);

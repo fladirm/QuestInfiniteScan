@@ -8,6 +8,9 @@ static const uint4 SIGMA_U128_ZERO = uint4(0u, 0u, 0u, 0u);
 static const uint4 SIGMA_U128_ONE = uint4(1u, 0u, 0u, 0u);
 static const uint4 SIGMA_U128_MAX =
     uint4(0xffffffffu, 0xffffffffu, 0xffffffffu, 0xffffffffu);
+static const uint SIGMA_TOPOLOGY_CLAIM_NONE = 0u;
+static const uint SIGMA_TOPOLOGY_CLAIM_PROVEN_NULL = 2u;
+static const uint SIGMA_TOPOLOGY_CLAIM_CONFLICT = 3u;
 
 bool SigmaU128Equal(uint4 a, uint4 b)
 {
@@ -83,13 +86,8 @@ uint4 SigmaS16L1(uint2 state[16], inout uint valid)
 void SigmaDenseProductPlan(uint2 left[16], uint2 right[16],
     out uint2 output[16], inout uint valid)
 {
-    // The transition/associator descriptors genuinely require dense arbitrary
-    // coefficient products. This is the explicitly selected generated fallback;
-    // annihilator scanning below never enters it.
-    // Arbitrary coefficient products are the explicitly selected dense fallback.
-    // Keep the fixed 16x16 schedule as compact loops: forcing the compiler to
-    // clone every widened Q16.48 primitive produces enormous Vulkan kernels with
-    // no algebraic or runtime benefit.
+    // Arbitrary S16 operands use the generated complete product plan. Compact
+    // fixed loops avoid cloning widened Q16.48 primitives in Vulkan.
     [loop]
     for (uint outputLane = 0u; outputLane < 16u; ++outputLane)
     {
@@ -191,6 +189,50 @@ bool SigmaStateHasContact(uint2 state[16], out uint readoutValid)
     uint2 projectivePosition[3];
     return SigmaGeometryReadoutExact(state, geometry, projectivePosition,
         readoutValid);
+}
+
+uint4 SigmaClassifyClaimedPair(bool leftContact, bool rightContact,
+    uint claimKind, uint key0, uint key1, uint bestId, uint4 bestError,
+    uint4 scale, uint singularShift, bool discontinuityEvidence, uint valid)
+{
+    if (claimKind == SIGMA_TOPOLOGY_CLAIM_NONE)
+        return uint4(SigmaTopologyPack(SIGMA_TOPOLOGY_UNSUPPORTED, 255u, 0u),
+            0u, 0u, 0u);
+    if (valid == 0u || claimKind == SIGMA_TOPOLOGY_CLAIM_CONFLICT ||
+        bestId >= SIGMA_ANNIHILATOR_ACTION_COUNT ||
+        SigmaU128Equal(bestError, SIGMA_U128_MAX))
+        return uint4(SigmaTopologyPack(SIGMA_TOPOLOGY_UNRESOLVED, 255u,
+            SIGMA_TOPOLOGY_INVALID), key0, key1, 0u);
+    if (!leftContact && !rightContact)
+        return uint4(SigmaTopologyPack(SIGMA_TOPOLOGY_UNSUPPORTED, 255u, 0u),
+            key0, key1, 0u);
+
+    bool contactNull = leftContact != rightContact;
+    if (contactNull && claimKind != SIGMA_TOPOLOGY_CLAIM_PROVEN_NULL)
+        return uint4(SigmaTopologyPack(SIGMA_TOPOLOGY_UNSUPPORTED, 255u, 0u),
+            key0, key1, 0u);
+    bool near = SigmaRelativeNearGate(bestError, scale, singularShift);
+    bool exact = SigmaU128Equal(bestError, SIGMA_U128_ZERO);
+    bool independent = key0 != 0u && key1 != 0u && key0 != key1;
+    uint flags = 0u;
+    if (near) flags |= SIGMA_TOPOLOGY_NEAR_ANNIHILATOR;
+    if (exact) flags |= SIGMA_TOPOLOGY_EXACT_ANNIHILATOR;
+    if (contactNull) flags |= SIGMA_TOPOLOGY_CONTACT_NULL;
+    if (discontinuityEvidence)
+        flags |= SIGMA_TOPOLOGY_DISCONTINUITY_EVIDENCE;
+    if (leftContact) flags |= SIGMA_TOPOLOGY_LEFT_CONTACT;
+    if (rightContact) flags |= SIGMA_TOPOLOGY_RIGHT_CONTACT;
+
+    uint classification;
+    bool requiresSingularity = contactNull || discontinuityEvidence;
+    if (!near && !requiresSingularity)
+        classification = SIGMA_TOPOLOGY_REGULAR;
+    else if (near && independent && requiresSingularity)
+        classification = SIGMA_TOPOLOGY_SINGULAR;
+    else
+        classification = SIGMA_TOPOLOGY_UNRESOLVED;
+    return uint4(SigmaTopologyPack(classification, bestId, flags), key0, key1,
+        bestError.x);
 }
 
 #endif
