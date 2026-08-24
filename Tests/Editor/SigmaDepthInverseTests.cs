@@ -1,29 +1,10 @@
-using System;
-using System.Runtime.InteropServices;
 using Genesis.RoomScan.SigmaPrism;
 using NUnit.Framework;
-using UnityEngine;
 
 namespace Genesis.RoomScan.Tests
 {
     public sealed class SigmaDepthInverseTests
     {
-        [StructLayout(LayoutKind.Sequential)]
-        private struct UInt2
-        {
-            public uint X;
-            public uint Y;
-        }
-
-        [StructLayout(LayoutKind.Sequential)]
-        private struct UInt4
-        {
-            public uint X;
-            public uint Y;
-            public uint Z;
-            public uint W;
-        }
-
         [Test]
         public void FirstHitSectorsHaveExactCausalPartition()
         {
@@ -152,129 +133,6 @@ namespace Genesis.RoomScan.Tests
                 "replaying the same independent stereo cells cannot add count-based hardness");
             Assert.That(repeatedPair.State, Is.EqualTo(strengthened.State));
         }
-
-        [Test]
-        public void GpuDepthMeetMatchesCpuProjectiveCommitBitForBit()
-        {
-            ComputeShader shader = Resources.Load<ComputeShader>(
-                "SigmaPrism/SigmaInverse");
-            Assert.That(shader, Is.Not.Null);
-            int kernel = shader.FindKernel("EvaluateDepthMeetFixture");
-
-            SigmaS16 state = SupportedState(8, 0.0, 0.0, 1.0);
-            SigmaDepthAdmissibleCell left = Cell(0.0010, 0.0, 1.0, 0.0005,
-                SigmaDepthSourceClass.DepthLeft);
-            SigmaDepthAdmissibleCell right = Cell(0.0009, 0.0, 1.0, 0.0006,
-                SigmaDepthSourceClass.DepthRight);
-            SigmaDepthCommitResult expected = SigmaDepthInverse.MeetAndCommitSupported(
-                state, new[] { left, right });
-            Assert.That(expected.Accepted && expected.Changed, Is.True);
-
-            UInt2[] packedState = Pack(state);
-            UInt2[] bounds = PackCells(left, right);
-            UInt4[] metadata =
-            {
-                PackCellMetadata(left),
-                PackCellMetadata(right)
-            };
-            UInt2[] calibration = BuildFixtureCalibration();
-            var output = new UInt2[SigmaS16.LaneCount];
-            var result = new UInt4[3];
-
-            using var stateBuffer = Buffer(packedState.Length,
-                Marshal.SizeOf<UInt2>(), packedState);
-            using var boundsBuffer = Buffer(bounds.Length,
-                Marshal.SizeOf<UInt2>(), bounds);
-            using var metadataBuffer = Buffer(metadata.Length,
-                Marshal.SizeOf<UInt4>(), metadata);
-            using var calibrationBuffer = Buffer(calibration.Length,
-                Marshal.SizeOf<UInt2>(), calibration);
-            using var outputBuffer = new GraphicsBuffer(
-                GraphicsBuffer.Target.Structured, output.Length,
-                Marshal.SizeOf<UInt2>());
-            using var resultBuffer = new GraphicsBuffer(
-                GraphicsBuffer.Target.Structured, result.Length,
-                Marshal.SizeOf<UInt4>());
-
-            shader.SetBuffer(kernel, "_DepthCalibrationQ48", calibrationBuffer);
-            shader.SetBuffer(kernel, "_FixtureState", stateBuffer);
-            shader.SetBuffer(kernel, "_FixtureCellBounds", boundsBuffer);
-            shader.SetBuffer(kernel, "_FixtureCellMeta", metadataBuffer);
-            shader.SetBuffer(kernel, "_FixtureStateOut", outputBuffer);
-            shader.SetBuffer(kernel, "_FixtureResult", resultBuffer);
-            shader.Dispatch(kernel, 1, 1, 1);
-            outputBuffer.GetData(output);
-            resultBuffer.GetData(result);
-
-            Assert.That(result[0].X & 3u, Is.EqualTo(3u),
-                $"accepted + changed proposal bits; status=0x{result[0].X:x8}, " +
-                $"conflict=0x{result[0].Y:x8}, valid={result[2].Z}");
-            Assert.That(result[0].Y, Is.Zero);
-            Assert.That(result[2].Z, Is.EqualTo(1u),
-                "GPU revalidation must pass before the candidate is writable");
-            CollectionAssert.AreEqual(expected.State.ToArray(), Unpack(output));
-        }
-
-        [Test]
-        public void NullPromotionRequiresIndependentNonEmptyStereoMeet()
-        {
-            ComputeShader shader = Resources.Load<ComputeShader>(
-                "SigmaPrism/SigmaInverse");
-            Assert.That(shader, Is.Not.Null);
-            int kernel = shader.FindKernel("EvaluateNullDepthMeetFixture");
-            SigmaDepthAdmissibleCell left = Cell(0.2, -0.1, 1.25, 0.002,
-                SigmaDepthSourceClass.DepthLeft);
-            SigmaDepthAdmissibleCell right = Cell(0.201, -0.099, 1.249, 0.002,
-                SigmaDepthSourceClass.DepthRight);
-            UInt2[] bounds = PackCells(left, right);
-            UInt4[] metadata = { PackCellMetadata(left), PackCellMetadata(right) };
-            UInt2[] calibration = BuildFixtureCalibration();
-            var output = new UInt2[SigmaS16.LaneCount];
-            var result = new UInt4[3];
-
-            using var boundsBuffer = Buffer(bounds.Length,
-                Marshal.SizeOf<UInt2>(), bounds);
-            using var metadataBuffer = Buffer(metadata.Length,
-                Marshal.SizeOf<UInt4>(), metadata);
-            using var calibrationBuffer = Buffer(calibration.Length,
-                Marshal.SizeOf<UInt2>(), calibration);
-            using var outputBuffer = new GraphicsBuffer(
-                GraphicsBuffer.Target.Structured, output.Length,
-                Marshal.SizeOf<UInt2>());
-            using var resultBuffer = new GraphicsBuffer(
-                GraphicsBuffer.Target.Structured, result.Length,
-                Marshal.SizeOf<UInt4>());
-            shader.SetBuffer(kernel, "_DepthCalibrationQ48", calibrationBuffer);
-            shader.SetBuffer(kernel, "_FixtureCellBounds", boundsBuffer);
-            shader.SetBuffer(kernel, "_FixtureCellMeta", metadataBuffer);
-            shader.SetBuffer(kernel, "_FixtureStateOut", outputBuffer);
-            shader.SetBuffer(kernel, "_FixtureResult", resultBuffer);
-
-            shader.Dispatch(kernel, 1, 1, 1);
-            resultBuffer.GetData(result);
-            Assert.That(result[0].X, Is.EqualTo(1u));
-            Assert.That(((ulong)result[0].W << 32) | result[0].Z,
-                Is.GreaterThan(0UL));
-
-            metadata[1].Y = metadata[0].Y;
-            metadataBuffer.SetData(metadata);
-            shader.Dispatch(kernel, 1, 1, 1);
-            resultBuffer.GetData(result);
-            Assert.That(result[0].X, Is.Zero,
-                "reusing one independence key cannot promote latent carrier");
-
-            metadata[1] = PackCellMetadata(right);
-            metadataBuffer.SetData(metadata);
-            SigmaDepthAdmissibleCell disjoint = Cell(0.3, -0.1, 1.25, 0.002,
-                SigmaDepthSourceClass.DepthRight);
-            bounds = PackCells(left, disjoint);
-            boundsBuffer.SetData(bounds);
-            shader.Dispatch(kernel, 1, 1, 1);
-            resultBuffer.GetData(result);
-            Assert.That(result[0].X, Is.Zero,
-                "an empty stereo meet remains unresolved and cannot promote");
-        }
-
         private static SigmaS16 SupportedState(long mass, double x, double y,
             double z) => SigmaGeometryReadout.LiftFixture(
                 SigmaNumericDomain.FromInteger(mass), Q(x), Q(y), Q(z));
@@ -291,74 +149,5 @@ namespace Genesis.RoomScan.Tests
             new(Q(lower), Q(upper));
 
         private static long Q(double value) => SigmaNumericDomain.Quantize(value);
-
-        private static UInt2[] Pack(SigmaS16 value)
-        {
-            var result = new UInt2[SigmaS16.LaneCount];
-            for (int lane = 0; lane < result.Length; ++lane)
-                result[lane] = Pack(value[lane]);
-            return result;
-        }
-
-        private static UInt2[] PackCells(params SigmaDepthAdmissibleCell[] cells)
-        {
-            var result = new UInt2[cells.Length * 6];
-            for (int source = 0; source < cells.Length; ++source)
-            {
-                for (int axis = 0; axis < 3; ++axis)
-                {
-                    result[source * 6 + axis * 2] = Pack(cells[source][axis].Lower);
-                    result[source * 6 + axis * 2 + 1] =
-                        Pack(cells[source][axis].Upper);
-                }
-            }
-            return result;
-        }
-
-        private static UInt4 PackCellMetadata(SigmaDepthAdmissibleCell cell) => new()
-        {
-            X = (uint)cell.Source,
-            Y = cell.IndependenceKey,
-            Z = (uint)cell.Sector,
-            W = 1u
-        };
-
-        private static UInt2[] BuildFixtureCalibration()
-        {
-            const int stride = 36;
-            var result = new UInt2[stride * 2];
-            for (int eye = 0; eye < 2; ++eye)
-            {
-                int offset = eye * stride;
-                result[offset + 31] = Pack(Q(0.001));
-                result[offset + 32] = Pack(Q(0.050));
-                result[offset + 33] = Pack(SigmaNumericDomain.FromRatio(1, 64));
-            }
-            return result;
-        }
-
-        private static GraphicsBuffer Buffer<T>(int count, int stride, T[] data)
-            where T : struct
-        {
-            var result = new GraphicsBuffer(GraphicsBuffer.Target.Structured,
-                count, stride);
-            result.SetData(data);
-            return result;
-        }
-
-        private static UInt2 Pack(long raw) => new()
-        {
-            X = unchecked((uint)raw),
-            Y = unchecked((uint)(raw >> 32))
-        };
-
-        private static long[] Unpack(UInt2[] values)
-        {
-            var result = new long[values.Length];
-            for (int index = 0; index < values.Length; ++index)
-                result[index] = unchecked((long)(((ulong)values[index].Y << 32) |
-                    values[index].X));
-            return result;
-        }
     }
 }

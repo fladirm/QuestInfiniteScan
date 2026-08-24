@@ -6,12 +6,10 @@
 #include "SigmaCarrierAbi.hlsl"
 #include "SigmaGeometryReadout.hlsl"
 #include "SigmaStableScan.hlsl"
-#include "SigmaManifestVisibility.hlsl"
 
 StructuredBuffer<uint2> _CarrierState;
 StructuredBuffer<SigmaCarrierPageMetaGpu> _PageMetadata;
-StructuredBuffer<SigmaPublicationManifestGpu> _StreamManifests;
-StructuredBuffer<SigmaPageVisibilityGpu> _StreamPageVisibility;
+StructuredBuffer<uint> _CurrentFlags;
 RWStructuredBuffer<uint> _ReadoutDirtyFlags;
 RWStructuredBuffer<float4> _ReadoutVertices;
 
@@ -22,7 +20,6 @@ RWStructuredBuffer<uint> _ReadoutBuildArguments;
 RWStructuredBuffer<uint> _ReadoutHaloArguments;
 
 uint _PageCapacity;
-uint _StreamManifestCapacity;
 
 #define SIGMA_READOUT_EXTENT 65u
 #define SIGMA_READOUT_SAMPLES 4225u
@@ -41,21 +38,10 @@ uint SigmaReadoutIndex(uint pageSlot, uint x, uint y)
 
 bool SigmaReadoutPageVisible(uint pageSlot)
 {
-    if (pageSlot >= _PageCapacity ||
-        pageSlot >= _StreamManifestCapacity)
+    if (pageSlot >= _PageCapacity || _CurrentFlags[pageSlot] == 0u)
         return false;
-
-    SigmaPageVisibilityGpu visibility = _StreamPageVisibility[pageSlot];
-    uint2 bornHandle = visibility.bornRetired.xy;
-    if (!SigmaManifestHandleValid(bornHandle, _StreamManifestCapacity))
-        return false;
-
-    SigmaPublicationManifestGpu born = _StreamManifests[bornHandle.x];
-    uint2 retiredHandle = visibility.bornRetired.zw;
-    SigmaPublicationManifestGpu retired = (SigmaPublicationManifestGpu)0;
-    if (SigmaManifestHandleValid(retiredHandle, _StreamManifestCapacity))
-        retired = _StreamManifests[retiredHandle.x];
-    return SigmaManifestPageVisible(visibility, born, retired);
+    SigmaCarrierPageMetaGpu metadata = _PageMetadata[pageSlot];
+    return (metadata.flags & SIGMA_PAGE_PUBLISHED) != 0u;
 }
 
 [numthreads(64, 1, 1)]
@@ -71,10 +57,8 @@ void BuildCarrierReadout(uint3 groupId : SV_GroupID,
     uint x = sample & 63u;
     uint y = sample >> 6u;
     uint outputIndex = SigmaReadoutIndex(pageSlot, x, y);
-    SigmaCarrierPageMetaGpu metadata = _PageMetadata[pageSlot];
-    bool visible = SigmaReadoutPageVisible(pageSlot) &&
-        (metadata.flags & SIGMA_PAGE_PUBLISHED) != 0u;
-    if (!visible || !SigmaCanonicalMutationEnabled())
+    if (!SigmaReadoutPageVisible(pageSlot) ||
+        !SigmaCanonicalMutationEnabled())
     {
         _ReadoutVertices[outputIndex] = 0.0;
         return;
@@ -97,9 +81,8 @@ void BuildCarrierReadout(uint3 groupId : SV_GroupID,
         _ReadoutDirtyFlags[pageSlot] = 0u;
 }
 
-// Visibility is resolved exclusively through the publication manifest.  The
-// dual stable scan only chooses a deterministic execution/draw order; it has no
-// authority over canonical page publication.
+// The immutable current-generation mask is the only publication visibility
+// authority. Stable scans choose execution order and have no physical meaning.
 [numthreads(256, 1, 1)]
 void CompactCurrentPages(uint3 groupThreadId : SV_GroupThreadID)
 {
@@ -112,14 +95,8 @@ void CompactCurrentPages(uint3 groupThreadId : SV_GroupThreadID)
     uint dirtyPrefix;
     uint currentCount;
     uint dirtyCount;
-    SigmaStableExclusiveScan256Dual(
-        lane,
-        active,
-        dirty,
-        currentPrefix,
-        dirtyPrefix,
-        currentCount,
-        dirtyCount);
+    SigmaStableExclusiveScan256Dual(lane, active, dirty,
+        currentPrefix, dirtyPrefix, currentCount, dirtyCount);
 
     if (active != 0u)
         _CurrentPageSlots[currentPrefix] = lane;
@@ -157,8 +134,7 @@ bool SigmaReadoutIncrementI64(uint2 value, out uint2 incremented)
     return true;
 }
 
-// Logical adjacency comes only from exact signed-64 Sigma_2 page coordinates.
-// A physical slot, segment or publication-manifest index is never identity.
+// Logical adjacency comes only from exact signed-64 Sigma_2 coordinates.
 [numthreads(64, 1, 1)]
 void ResolveCarrierHalos(uint3 groupId : SV_GroupID,
     uint3 groupThreadId : SV_GroupThreadID)
@@ -186,10 +162,9 @@ void ResolveCarrierHalos(uint3 groupId : SV_GroupID,
 
     for (uint candidate = lane; candidate < _PageCapacity; candidate += 64u)
     {
-        SigmaCarrierPageMetaGpu neighbour = _PageMetadata[candidate];
-        if (!SigmaReadoutPageVisible(candidate) ||
-            (neighbour.flags & SIGMA_PAGE_PUBLISHED) == 0u)
+        if (!SigmaReadoutPageVisible(candidate))
             continue;
+        SigmaCarrierPageMetaGpu neighbour = _PageMetadata[candidate];
         uint2 x = uint2(neighbour.pageXLo, neighbour.pageXHi);
         uint2 y = uint2(neighbour.pageYLo, neighbour.pageYHi);
         if (hasNextX && SigmaReadoutI64Equal(x, nextX) &&

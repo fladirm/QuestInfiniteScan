@@ -13,12 +13,10 @@
 #pragma kernel FinalizeTransitionClasses
 #pragma kernel BuildCellCutFlags
 #pragma kernel PublishTopologyPage
-#pragma kernel ResolveLiveTopologyNeighbours
 #pragma target 5.0
 
 #include "SigmaInverseAbi.hlsl"
 #include "SigmaTopologyMath.hlsl"
-#include "SigmaInverseWorkAbi.hlsl"
 #include "SigmaStableScan.hlsl"
 
 StructuredBuffer<uint2> _TargetState;
@@ -33,12 +31,6 @@ StructuredBuffer<uint> _DownEvidenceProposalStatus;
 StructuredBuffer<uint> _TargetEvidenceEpoch;
 StructuredBuffer<uint> _RightEvidenceEpoch;
 StructuredBuffer<uint> _DownEvidenceEpoch;
-StructuredBuffer<SigmaInverseWorkGpu> _LiveInverseWork;
-StructuredBuffer<uint> _LiveInverseWorkControl;
-StructuredBuffer<SigmaCarrierPageMetaGpu> _LivePageMetadata;
-StructuredBuffer<uint> _LiveCurrentFlags;
-RWStructuredBuffer<uint4> _LiveTopologyNeighbours;
-
 RWStructuredBuffer<uint2> _TransitionTau;
 RWStructuredBuffer<uint4> _TransitionScale;
 RWStructuredBuffer<uint4> _TransitionMeta;
@@ -82,139 +74,41 @@ uint _TargetRevision;
 uint _ClearTransitionCount;
 uint _ClearCellCount;
 uint _ClearPageCount;
-uint _UseInverseWorkList;
-uint _LiveWorkIndex;
 uint _TopologyCandidateCapacity;
 
 groupshared uint2 SigmaTopologySharedTau[16];
 groupshared uint4 SigmaTopologySharedError[256];
 groupshared uint SigmaTopologySharedId[256];
-groupshared uint SigmaTopologyRightSlotShared;
-groupshared uint SigmaTopologyDownSlotShared;
-groupshared uint SigmaTopologyDiagonalSlotShared;
-
 #define SIGMA_TOPOLOGY_INVALID_PAGE 0xffffffffu
 
 uint SigmaTopologyTargetPageSlot()
 {
-    return _UseInverseWorkList != 0u
-        ? _LiveInverseWork[_LiveWorkIndex].slots.y : _TargetPageSlot;
-}
-
-uint4 SigmaTopologyLiveNeighbourSlots()
-{
-    return _LiveTopologyNeighbours[_LiveWorkIndex];
+    return _TargetPageSlot;
 }
 
 uint SigmaTopologyRightPageSlot()
 {
-    return _UseInverseWorkList != 0u
-        ? SigmaTopologyLiveNeighbourSlots().y : _RightPageSlot;
+    return _RightPageSlot;
 }
 
 uint SigmaTopologyDownPageSlot()
 {
-    return _UseInverseWorkList != 0u
-        ? SigmaTopologyLiveNeighbourSlots().z : _DownPageSlot;
+    return _DownPageSlot;
 }
 
 bool SigmaTopologyRightPageValid()
 {
-    return _UseInverseWorkList != 0u
-        ? SigmaTopologyRightPageSlot() != SIGMA_TOPOLOGY_INVALID_PAGE
-        : _RightPageValid != 0u;
+    return _RightPageValid != 0u;
 }
 
 bool SigmaTopologyDownPageValid()
 {
-    return _UseInverseWorkList != 0u
-        ? SigmaTopologyDownPageSlot() != SIGMA_TOPOLOGY_INVALID_PAGE
-        : _DownPageValid != 0u;
+    return _DownPageValid != 0u;
 }
 
-bool SigmaTopologyLiveWorkValid()
+bool SigmaTopologyWorkValid()
 {
-    if (_UseInverseWorkList == 0u)
-        return true;
-    if (_LiveWorkIndex >= _LiveInverseWorkControl[2u])
-        return false;
-    uint pageSlot = SigmaTopologyTargetPageSlot();
-    return pageSlot < _TargetPageCapacity &&
-        _LiveCurrentFlags[pageSlot] != 0u;
-}
-
-bool SigmaTopologyI64Equal(uint2 a, uint2 b)
-{
-    return all(a == b);
-}
-
-bool SigmaTopologyIncrementI64(uint2 value, out uint2 incremented)
-{
-    incremented = value;
-    if (value.x == 0xffffffffu && value.y == 0x7fffffffu)
-        return false;
-    incremented.x = value.x + 1u;
-    incremented.y = value.y + (incremented.x == 0u ? 1u : 0u);
-    return true;
-}
-
-// Storage page identity is resolved from the exact signed-64 carrier address.
-// This pass creates only disposable execution adjacency; singular topology is
-// still decided later by the annihilator/associator algebra of Psi.
-[numthreads(256, 1, 1)]
-void ResolveLiveTopologyNeighbours(uint3 groupId : SV_GroupID,
-    uint3 groupThreadId : SV_GroupThreadID)
-{
-    uint workIndex = groupId.x;
-    uint lane = groupThreadId.x;
-    bool workValid = workIndex < _LiveInverseWorkControl[2u];
-    SigmaInverseWorkGpu work = _LiveInverseWork[workIndex];
-    uint targetSlot = workValid ? work.slots.y : 0u;
-    workValid = workValid && targetSlot < _TargetPageCapacity;
-    if (lane == 0u)
-    {
-        SigmaTopologyRightSlotShared = SIGMA_TOPOLOGY_INVALID_PAGE;
-        SigmaTopologyDownSlotShared = SIGMA_TOPOLOGY_INVALID_PAGE;
-        SigmaTopologyDiagonalSlotShared = SIGMA_TOPOLOGY_INVALID_PAGE;
-    }
-    GroupMemoryBarrierWithGroupSync();
-
-    uint2 targetX = 0u;
-    uint2 targetY = 0u;
-    if (workValid)
-    {
-        SigmaCarrierPageMetaGpu target = _LivePageMetadata[targetSlot];
-        targetX = uint2(target.pageXLo, target.pageXHi);
-        targetY = uint2(target.pageYLo, target.pageYHi);
-    }
-    uint2 nextX;
-    uint2 nextY;
-    bool hasNextX = SigmaTopologyIncrementI64(targetX, nextX);
-    bool hasNextY = SigmaTopologyIncrementI64(targetY, nextY);
-    for (uint candidate = lane; candidate < _TargetPageCapacity;
-        candidate += 256u)
-    {
-        SigmaCarrierPageMetaGpu neighbour = _LivePageMetadata[candidate];
-        if (!workValid || _LiveCurrentFlags[candidate] == 0u ||
-            (neighbour.flags & SIGMA_PAGE_PUBLISHED) == 0u)
-            continue;
-        uint2 x = uint2(neighbour.pageXLo, neighbour.pageXHi);
-        uint2 y = uint2(neighbour.pageYLo, neighbour.pageYHi);
-        if (hasNextX && SigmaTopologyI64Equal(x, nextX) &&
-            SigmaTopologyI64Equal(y, targetY))
-            InterlockedMin(SigmaTopologyRightSlotShared, candidate);
-        if (hasNextY && SigmaTopologyI64Equal(x, targetX) &&
-            SigmaTopologyI64Equal(y, nextY))
-            InterlockedMin(SigmaTopologyDownSlotShared, candidate);
-        if (hasNextX && hasNextY && SigmaTopologyI64Equal(x, nextX) &&
-            SigmaTopologyI64Equal(y, nextY))
-            InterlockedMin(SigmaTopologyDiagonalSlotShared, candidate);
-    }
-    GroupMemoryBarrierWithGroupSync();
-    if (lane == 0u && workValid)
-        _LiveTopologyNeighbours[workIndex] = uint4(targetSlot,
-            SigmaTopologyRightSlotShared, SigmaTopologyDownSlotShared,
-            SigmaTopologyDiagonalSlotShared);
+    return _TargetPageSlot < _TargetPageCapacity;
 }
 
 uint SigmaTopologyTransitionIndex(uint direction, uint sample)
@@ -271,11 +165,6 @@ bool SigmaReadProposalEvidence(uint source, uint sample, out uint status)
         source == 1u ? _RightEvidencePageSlot : _DownEvidencePageSlot;
     uint pageCapacity = source == 0u ? _TargetEvidencePageCapacity :
         source == 1u ? _RightEvidencePageCapacity : _DownEvidencePageCapacity;
-    if (_UseInverseWorkList != 0u && source == 0u)
-    {
-        pageSlot = SigmaTopologyTargetPageSlot();
-        pageCapacity = _TargetPageCapacity;
-    }
     if (pageSlot >= pageCapacity)
     {
         status = 0u;
@@ -395,7 +284,7 @@ void ClearTopologyPage(uint3 id : SV_DispatchThreadID)
 {
     uint index = id.x;
     uint targetPageSlot = SigmaTopologyTargetPageSlot();
-    if (!SigmaTopologyLiveWorkValid())
+    if (!SigmaTopologyWorkValid())
         return;
     if (index < SIGMA_TRANSITIONS_PER_PAGE)
         _TransitionCache[SigmaTopologyCacheIndex(targetPageSlot, index)] =
@@ -504,7 +393,7 @@ void BuildSampleSupport(uint3 id : SV_DispatchThreadID)
     uint sample = id.x;
     if (!SigmaCanonicalMutationEnabled() ||
         sample >= SIGMA_PAGE_SAMPLE_COUNT ||
-        !SigmaTopologyLiveWorkValid())
+        !SigmaTopologyWorkValid())
         return;
     uint2 state[16];
     SigmaLoadTargetState(sample, state);
@@ -520,7 +409,7 @@ void BuildTransitionMeta(uint3 id : SV_DispatchThreadID)
     uint transitionIndex = id.x;
     if (!SigmaCanonicalMutationEnabled() ||
         transitionIndex >= SIGMA_TRANSITIONS_PER_PAGE ||
-        !SigmaTopologyLiveWorkValid())
+        !SigmaTopologyWorkValid())
         return;
 
     uint direction = transitionIndex / SIGMA_PAGE_SAMPLE_COUNT;
@@ -647,7 +536,7 @@ void BuildTransitionTau(uint3 id : SV_DispatchThreadID)
     uint candidateCount = min(_TopologyCandidateCount[0],
         min(_TopologyCandidateCapacity, SIGMA_TRANSITIONS_PER_PAGE));
     if (!SigmaCanonicalMutationEnabled() || candidateIndex >= candidateCount ||
-        !SigmaTopologyLiveWorkValid())
+        !SigmaTopologyWorkValid())
         return;
     uint transitionIndex = _TopologyCandidates[candidateIndex];
     if (transitionIndex >= SIGMA_TRANSITIONS_PER_PAGE)
@@ -706,7 +595,7 @@ void MarkTopologyCandidates(uint3 groupThreadId : SV_GroupThreadID)
     uint candidateStart = (_EvidenceFrameSerial * candidateCapacity) &
         (SIGMA_TRANSITIONS_PER_PAGE - 1u);
     bool graphValid = SigmaCanonicalMutationEnabled() &&
-        SigmaTopologyLiveWorkValid();
+        SigmaTopologyWorkValid();
     uint localCount = 0u;
     [unroll]
     for (uint offset = 0u; offset < transitionsPerLane; ++offset)
@@ -782,7 +671,7 @@ void ScanAnnihilatorCatalog(uint3 groupId : SV_GroupID,
         SIGMA_TRANSITIONS_PER_PAGE - 1u);
     uint candidateValid = candidateIndex < candidateCount &&
         rawTransitionIndex < SIGMA_TRANSITIONS_PER_PAGE &&
-        SigmaTopologyLiveWorkValid() ? 1u : 0u;
+        SigmaTopologyWorkValid() ? 1u : 0u;
 
     if (lane < 16u)
         SigmaTopologySharedTau[lane] =
@@ -890,7 +779,7 @@ void AccumulateTopologyEvidence(uint3 id : SV_DispatchThreadID)
     uint transitionIndex = id.x;
     if (!SigmaCanonicalMutationEnabled() ||
         transitionIndex >= SIGMA_TRANSITIONS_PER_PAGE ||
-        !SigmaTopologyLiveWorkValid())
+        !SigmaTopologyWorkValid())
         return;
     uint cacheIndex = SigmaTopologyCacheIndex(SigmaTopologyTargetPageSlot(),
         transitionIndex);
@@ -965,7 +854,7 @@ void EvaluateAssociatorCells(uint3 id : SV_DispatchThreadID)
     uint candidateCount = min(_TopologyCandidateCount[0],
         min(_TopologyCandidateCapacity, SIGMA_TRANSITIONS_PER_PAGE));
     if (!SigmaCanonicalMutationEnabled() || candidateIndex >= candidateCount ||
-        !SigmaTopologyLiveWorkValid())
+        !SigmaTopologyWorkValid())
         return;
     uint transitionIndex = _TopologyCandidates[candidateIndex];
     if (transitionIndex >= SIGMA_TRANSITIONS_PER_PAGE)
@@ -1061,7 +950,7 @@ void FinalizeTransitionClasses(uint3 id : SV_DispatchThreadID)
     uint transitionIndex = id.x;
     if (!SigmaCanonicalMutationEnabled() ||
         transitionIndex >= SIGMA_TRANSITIONS_PER_PAGE ||
-        !SigmaTopologyLiveWorkValid())
+        !SigmaTopologyWorkValid())
         return;
     uint cacheIndex = SigmaTopologyCacheIndex(SigmaTopologyTargetPageSlot(),
         transitionIndex);
@@ -1135,7 +1024,7 @@ void BuildCellCutFlags(uint3 id : SV_DispatchThreadID)
 {
     uint sample = id.x;
     if (sample >= SIGMA_PAGE_SAMPLE_COUNT ||
-        !SigmaTopologyLiveWorkValid())
+        !SigmaTopologyWorkValid())
         return;
     if (!SigmaCanonicalMutationEnabled())
     {
@@ -1180,21 +1069,13 @@ void BuildCellCutFlags(uint3 id : SV_DispatchThreadID)
 void PublishTopologyPage(uint3 id : SV_DispatchThreadID)
 {
     uint targetPageSlot = SigmaTopologyTargetPageSlot();
-    if (!SigmaTopologyLiveWorkValid())
+    if (!SigmaTopologyWorkValid())
         return;
     if (!SigmaCanonicalMutationEnabled())
     {
         _TopologyPageKeys[targetPageSlot] = 0u;
         return;
     }
-    uint generation = _TargetGeneration;
-    uint revision = _TargetRevision;
-    if (_UseInverseWorkList != 0u)
-    {
-        SigmaCarrierPageMetaGpu metadata = _LivePageMetadata[targetPageSlot];
-        generation = metadata.generation;
-        revision = metadata.revision;
-    }
-    _TopologyPageKeys[targetPageSlot] = uint4(generation,
-        revision, 1u, 0u);
+    _TopologyPageKeys[targetPageSlot] = uint4(_TargetGeneration,
+        _TargetRevision, 1u, 0u);
 }

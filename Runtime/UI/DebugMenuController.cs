@@ -172,7 +172,7 @@ namespace Genesis.RoomScan.UI
             string carrierText = carrier == null ? "missing" :
                 !carrier.IsInitialized ? "initializing" :
                 telemetry?.HasSample == true
-                    ? $"published={telemetry.SchedulerPublications} · " +
+                    ? $"revision={telemetry.PublishedRevision} · " +
                       $"readout={telemetry.ReadoutPageCount}p/" +
                       $"{telemetry.DrawVertexCount}v · " +
                       (telemetry.ReadoutVertices.HasSample
@@ -219,17 +219,15 @@ namespace Genesis.RoomScan.UI
             else
             {
                 string text = $"frames={inverse.CommittedFrames}/" +
-                    $"{inverse.SubmittedFrames} · bundles={telemetry.BundlesReady} · " +
-                    $"tx={telemetry.SchedulerActive}/{telemetry.SchedulerDormant} · " +
-                    $"proof={telemetry.ProofBlocksReduced}/" +
-                    $"{telemetry.ProofClosures} · " +
-                    $"qms={telemetry.Timing.Canonical.LastMs:F1}/" +
-                    $"{telemetry.Timing.Derived.LastMs:F1} · " +
+                    $"{inverse.SubmittedFrames} · rev=" +
+                    $"{telemetry.PublishedRevision} · changed=" +
+                    $"{telemetry.RevisionChangedPages} · edges=" +
+                    $"{telemetry.WitnessDirtyEdges} · " +
+                    $"ms={telemetry.Timing.Frame.LastMs:F1} · " +
                     $"at={telemetry.Frontier}";
                 SetStatus(_inverseState, text,
                     inverse.FailedFrames == 0 && telemetry.ErrorMask == 0u &&
-                    telemetry.SchedulerFailures == 0u &&
-                    telemetry.LifetimeFailures == 0u
+                    telemetry.FaultMask == 0u
                         ? StatusKind.Good : StatusKind.Warning);
             }
 

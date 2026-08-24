@@ -73,9 +73,9 @@ extent allocation, proof/raw ownership and milestone gates are frozen in the pla
 
 ## Current exact action
 
-M4: cut the live controller over to the fixed direct-frame graph, bind carrier
-shadow publication, expose read-only direct-stage profiling, delete the complete
-superseded stream lifecycle and pass the no-reference plus negative-LOC oracle.
+M5: close direct world readout and lifecycle over the committed M4 fixed-frame
+graph. Only direct preview/prediction visibility, world anchoring and safe
+pause/resume retirement remain in scope before the final M6 gates/build/install.
 
 ## Required end state
 
@@ -110,6 +110,11 @@ superseded stream lifecycle and pass the no-reference plus negative-LOC oracle.
   accepted S16 deltas to shadow pages and publishes one root-visible revision with
   bit-identical state/proof/provenance across tested decompositions. Incident edges
   remain fail-closed unresolved. Full Unity Vulkan EditMode passes 78/78; generated,
+  bind/UAV and diff gates are green.
+- M4 direct live cutover gate is green: only `SigmaFrameGraph` is instantiated;
+  the old stream lifecycle, ABI, scheduler, proof owner, Morton allocation and
+  associated tests are absent; direct readout/telemetry compile and Vulkan EditMode
+  passes 53/53. The code graph is current and the net diff is -22,715 LOC.
   diff, shader bind/UAV and manual changed-file gates are green.
 
 ## Completion protocol
