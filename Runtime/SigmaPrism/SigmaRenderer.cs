@@ -75,6 +75,8 @@ namespace Genesis.RoomScan.SigmaPrism
             "_PreviewWireframe");
         private static readonly int PreviewContactPixelsId = Shader.PropertyToID(
             "_PreviewContactPixels");
+        private static readonly int RoomToWorldId = Shader.PropertyToID(
+            "_RoomToWorld");
         private static readonly int ContactFootprintPixelsId = Shader.PropertyToID(
             "_ContactFootprintPixels");
 
@@ -256,6 +258,7 @@ namespace Genesis.RoomScan.SigmaPrism
 
         internal bool TryRecordPoseGaugePrediction(CommandBuffer command,
             StereoRigFrameLease source, GraphicsBuffer poseResult,
+            Matrix4x4 worldToRoom,
             out SigmaPredictionFrameLease prediction)
         {
             prediction = null;
@@ -266,6 +269,7 @@ namespace Genesis.RoomScan.SigmaPrism
             EnsureSegmentCaches();
             if (!_targets.TryBegin(source,
                     SigmaPoseGaugeState.Identity(source.CalibrationEpoch),
+                    worldToRoom,
                     out prediction))
             {
                 BackpressureFrames++;
@@ -273,16 +277,15 @@ namespace Genesis.RoomScan.SigmaPrism
             }
             try
             {
-                Matrix4x4 referenceWorld = Matrix4x4.TRS(
-                    source.DepthLeft.WorldFromCamera.position,
-                    source.DepthLeft.WorldFromCamera.rotation, Vector3.one);
+                Matrix4x4 referenceWorld = SigmaRoomFrame.FromCamera(
+                    worldToRoom,
+                    source.DepthLeft.WorldFromCamera);
                 for (int eye = 0; eye < 2; ++eye)
                 {
                     GpuImageView view = eye == 0 ? source.DepthLeft :
                         source.DepthRight;
-                    Matrix4x4 rawWorld = Matrix4x4.TRS(
-                        view.WorldFromCamera.position,
-                        view.WorldFromCamera.rotation, Vector3.one);
+                    Matrix4x4 rawWorld = SigmaRoomFrame.FromCamera(worldToRoom,
+                        view.WorldFromCamera);
                     Matrix4x4 opticalFromWorld = rawWorld.inverse;
                     SetMrt(prediction);
                     command.SetRenderTarget(_mrt,
@@ -315,7 +318,8 @@ namespace Genesis.RoomScan.SigmaPrism
                 if (!RigCalibration.TryCreate(source, out _calibration))
                     return false;
             }
-            if (!_targets.TryBegin(source, gauge,
+            Matrix4x4 worldToRoom = RoomSpaceRoot.WorldToRoom;
+            if (!_targets.TryBegin(source, gauge, worldToRoom,
                     out SigmaPredictionFrameLease prediction))
             {
                 BackpressureFrames++;
@@ -331,9 +335,12 @@ namespace Genesis.RoomScan.SigmaPrism
                 {
                     GpuImageView view = eye == 0 ? source.DepthLeft :
                         source.DepthRight;
-                    Pose correctedPose = gauge.Apply(
-                        source.DepthLeft.WorldFromCamera,
+                    Pose referencePose = SigmaRoomFrame.CameraPose(worldToRoom,
+                        source.DepthLeft.WorldFromCamera);
+                    Pose viewPose = SigmaRoomFrame.CameraPose(worldToRoom,
                         view.WorldFromCamera);
+                    Pose correctedPose = gauge.Apply(
+                        referencePose, viewPose);
                     Matrix4x4 opticalFromWorld = Matrix4x4.TRS(
                         correctedPose.position, correctedPose.rotation,
                         Vector3.one).inverse;
@@ -343,8 +350,8 @@ namespace Genesis.RoomScan.SigmaPrism
                         CubemapFace.Unknown, eye);
                     command.ClearRenderTarget(true, true, Color.clear, 1f);
                     Matrix4x4 referenceWorld = Matrix4x4.TRS(
-                        source.DepthLeft.WorldFromCamera.position,
-                        source.DepthLeft.WorldFromCamera.rotation, Vector3.one);
+                        referencePose.position, referencePose.rotation,
+                        Vector3.one);
                     DrawSegments(command, BuildClipFromWorld(view,
                             opticalFromWorld), opticalFromWorld,
                         _identityPoseResult, referenceWorld.inverse,
@@ -576,6 +583,8 @@ namespace Genesis.RoomScan.SigmaPrism
                 _properties.SetFloat(PreviewContactPixelsId,
                     _scanner.CurrentRenderMode == ScanRenderMode.Wireframe
                         ? 3.5f : 2.5f);
+                _properties.SetMatrix(RoomToWorldId,
+                    SigmaRoomFrame.ToUnityWorld);
                 _properties.SetBuffer(ReadoutVerticesId, cache.Vertices);
                 _properties.SetBuffer(CurrentPageSlotsId,
                     cache.CurrentPageSlots);

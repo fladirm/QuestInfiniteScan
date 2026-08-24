@@ -6,6 +6,30 @@ using UnityEngine.Rendering;
 namespace Genesis.RoomScan.SigmaPrism
 {
     /// <summary>
+    /// The rigid I/O frame of the canonical carrier. Sensor poses enter room
+    /// space before exact inverse work; readout leaves it only at presentation.
+    /// </summary>
+    internal static class SigmaRoomFrame
+    {
+        internal static Matrix4x4 FromCamera(Matrix4x4 worldToRoom,
+            Pose worldFromCamera) => worldToRoom * Matrix4x4.TRS(
+                worldFromCamera.position, worldFromCamera.rotation,
+                Vector3.one);
+
+        internal static Pose CameraPose(Matrix4x4 worldToRoom,
+            Pose worldFromCamera)
+        {
+            Matrix4x4 roomFromCamera = FromCamera(worldToRoom,
+                worldFromCamera);
+            return new Pose(new Vector3(roomFromCamera.m03,
+                    roomFromCamera.m13, roomFromCamera.m23),
+                roomFromCamera.rotation);
+        }
+
+        internal static Matrix4x4 ToUnityWorld => RoomSpaceRoot.RoomToWorld;
+    }
+
+    /// <summary>
     /// Immutable inputs consumed while recording one whole coherent frame. The
     /// caller keeps every lease alive until the completion fence closes.
     /// </summary>
@@ -595,7 +619,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 unchecked((int)input.RgbLeftKey));
             command.SetComputeIntParam(_inverse, "_RgbRightIndependenceKey",
                 unchecked((int)input.RgbRightKey));
-            SetFrameMatrices(command, source);
+            SetFrameMatrices(command, source, input.Prediction.WorldToRoom);
         }
 
         private void BindProposal(CommandBuffer command,
@@ -788,10 +812,12 @@ namespace Genesis.RoomScan.SigmaPrism
         }
 
         private void SetFrameMatrices(CommandBuffer command,
-            StereoRigFrameLease source)
+            StereoRigFrameLease source, Matrix4x4 worldToRoom)
         {
-            Matrix4x4 leftWorld = PoseMatrix(source.DepthLeft.WorldFromCamera);
-            Matrix4x4 rightWorld = PoseMatrix(source.DepthRight.WorldFromCamera);
+            Matrix4x4 leftWorld = SigmaRoomFrame.FromCamera(worldToRoom,
+                source.DepthLeft.WorldFromCamera);
+            Matrix4x4 rightWorld = SigmaRoomFrame.FromCamera(worldToRoom,
+                source.DepthRight.WorldFromCamera);
             command.SetComputeMatrixParam(_inverse, "_WorldFromOpticalLeft",
                 leftWorld);
             command.SetComputeMatrixParam(_inverse, "_WorldFromOpticalRight",
@@ -809,10 +835,12 @@ namespace Genesis.RoomScan.SigmaPrism
             command.SetComputeVectorParam(_inverse, "_DepthIntrinsicsRight",
                 Intrinsics(source.DepthRight.Intrinsics));
             command.SetComputeMatrixParam(_inverse, "_RgbOpticalFromWorldLeft",
-                PoseMatrix(source.RgbLeft.WorldFromCamera).inverse);
+                SigmaRoomFrame.FromCamera(worldToRoom,
+                    source.RgbLeft.WorldFromCamera).inverse);
             command.SetComputeMatrixParam(_inverse,
                 "_RgbOpticalFromWorldRight",
-                PoseMatrix(source.RgbRight.WorldFromCamera).inverse);
+                SigmaRoomFrame.FromCamera(worldToRoom,
+                    source.RgbRight.WorldFromCamera).inverse);
             command.SetComputeVectorParam(_inverse, "_RgbIntrinsicsLeft",
                 Intrinsics(source.RgbLeft.Intrinsics));
             command.SetComputeVectorParam(_inverse, "_RgbIntrinsicsRight",
@@ -858,9 +886,6 @@ namespace Genesis.RoomScan.SigmaPrism
                 kernels[index] = shader.FindProfiledKernel(names[index]);
             return kernels;
         }
-
-        private static Matrix4x4 PoseMatrix(Pose pose) => Matrix4x4.TRS(
-            pose.position, pose.rotation, Vector3.one);
 
         private static Vector4 Intrinsics(RigIntrinsics intrinsics) => new(
             intrinsics.FocalLength.x, intrinsics.FocalLength.y,

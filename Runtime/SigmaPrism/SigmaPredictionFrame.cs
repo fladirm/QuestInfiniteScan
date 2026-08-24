@@ -15,17 +15,19 @@ namespace Genesis.RoomScan.SigmaPrism
         private readonly int _slot;
         private readonly uint _generation;
         private readonly SigmaPoseGaugeState _poseGauge;
+        private readonly Matrix4x4 _worldToRoom;
         private StereoRigFrameLease _source;
 
         internal SigmaPredictionFrameLease(SigmaPredictionTargetRing owner,
             int slot, uint generation, StereoRigFrameLease source,
-            SigmaPoseGaugeState poseGauge)
+            SigmaPoseGaugeState poseGauge, Matrix4x4 worldToRoom)
         {
             _owner = owner;
             _slot = slot;
             _generation = generation;
             _source = source;
             _poseGauge = poseGauge;
+            _worldToRoom = worldToRoom;
         }
 
         public StereoRigFrameLease Source => _source ??
@@ -37,6 +39,7 @@ namespace Genesis.RoomScan.SigmaPrism
         public RenderTexture HardwareDepth => Slot.HardwareDepth;
         public uint TargetGeneration => _generation;
         public SigmaPoseGaugeState PoseGauge => _poseGauge;
+        internal Matrix4x4 WorldToRoom => _worldToRoom;
         public bool IsDisposed => _owner == null;
 
         public SigmaPredictionFrameLease Retain()
@@ -44,7 +47,7 @@ namespace Genesis.RoomScan.SigmaPrism
             SigmaPredictionTargetRing owner = Owner;
             owner.Retain(_slot, _generation);
             return new SigmaPredictionFrameLease(owner, _slot, _generation,
-                Source.Retain(), _poseGauge);
+                Source.Retain(), _poseGauge, _worldToRoom);
         }
 
         internal void CommitGpuWrite() => Owner.CommitGpuWrite(_slot, _generation);
@@ -100,7 +103,7 @@ namespace Genesis.RoomScan.SigmaPrism
         }
 
         internal bool TryBegin(StereoRigFrameLease source,
-            SigmaPoseGaugeState poseGauge,
+            SigmaPoseGaugeState poseGauge, Matrix4x4 worldToRoom,
             out SigmaPredictionFrameLease frame)
         {
             frame = null;
@@ -138,7 +141,7 @@ namespace Genesis.RoomScan.SigmaPrism
             slot.CompletionFaulted = false;
             _cursor = (selected + 1) % _slots.Length;
             frame = new SigmaPredictionFrameLease(this, selected,
-                slot.Generation, source.Retain(), poseGauge);
+                slot.Generation, source.Retain(), poseGauge, worldToRoom);
             return true;
         }
 

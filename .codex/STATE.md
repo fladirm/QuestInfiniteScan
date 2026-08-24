@@ -73,9 +73,9 @@ extent allocation, proof/raw ownership and milestone gates are frozen in the pla
 
 ## Current exact action
 
-M5: close direct world readout and lifecycle over the committed M4 fixed-frame
-graph. Only direct preview/prediction visibility, world anchoring and safe
-pause/resume retirement remain in scope before the final M6 gates/build/install.
+M6: run final generated/control/source gates, commit accepted S4-08, archive that
+exact commit, then build and install the Quest Android/Vulkan Release. Production
+source changes are allowed only for a concrete Release compiler blocker.
 
 ## Required end state
 
@@ -116,6 +116,11 @@ pause/resume retirement remain in scope before the final M6 gates/build/install.
   associated tests are absent; direct readout/telemetry compile and Vulkan EditMode
   passes 53/53. The code graph is current and the net diff is -22,715 LOC.
   diff, shader bind/UAV and manual changed-file gates are green.
+- M5 stable room-frame gate is green: scan ingress waits for a localized spatial
+  anchor; all canonical calibration/prediction/pose inputs retain one coherent-frame
+  room transform snapshot and only temporary XR presentation maps back to current
+  Unity world. Focused rigid-anchor parity and full Unity Vulkan EditMode pass
+  54/54; generated/diff gates are green.
 
 ## Completion protocol
 

@@ -190,6 +190,18 @@ namespace Genesis.RoomScan
                     ScanLifecycle != ScanLifecycleState.Starting)
                     return;
 
+                if (!await EnsureScanAnchorAsync())
+                    throw new InvalidOperationException(
+                        "A localized spatial anchor is required before canonical scan ingress.");
+                if (RoomSpaceRoot.Instance == null ||
+                    !await RoomSpaceRoot.WaitForBindAsync())
+                    throw new InvalidOperationException(
+                        "RoomSpaceRoot did not bind to the localized scan anchor.");
+
+                if (generation != _lifecycleGeneration ||
+                    ScanLifecycle != ScanLifecycleState.Starting)
+                    return;
+
                 _depthCapture.StartDepthCapture();
                 _rigBridge.StartCapture();
                 if (!_rigBridge.IsCapturing)
@@ -203,7 +215,6 @@ namespace Genesis.RoomScan
                 Logger.Info("StartScanning — Σ-PRISM-16 synchronized capture, exact " +
                             "dual-eye inverse and intrinsic singular topology active.");
                 ScanStarted?.Invoke();
-                _ = CreateScanAnchorAsync();
             }
             catch (Exception exception)
             {
@@ -304,17 +315,21 @@ namespace Genesis.RoomScan
 
         public void ToggleDebugMenu() => _debugMenu?.Toggle();
 
-        private async Task CreateScanAnchorAsync()
+        private async Task<bool> EnsureScanAnchorAsync()
         {
             if (_roomAnchor == null || !_roomAnchor.IsRoomLoaded)
-                return;
+                return false;
+            if (_roomAnchor.HasSpatialAnchor)
+                return true;
             Vector3 position = Camera.main != null
                 ? Camera.main.transform.position
                 : Vector3.zero;
             var result = await _roomAnchor.CreateAndSaveSpatialAnchorAsync(
                 position, Quaternion.identity);
-            if (result.HasValue)
-                ScanAnchorCreated?.Invoke(result.Value.uuid, result.Value.matrix);
+            if (!result.HasValue)
+                return false;
+            ScanAnchorCreated?.Invoke(result.Value.uuid, result.Value.matrix);
+            return true;
         }
     }
 }

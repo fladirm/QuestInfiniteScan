@@ -1,14 +1,19 @@
-# Session tail — S4-08.4 direct-frame cutover
+# Latest execution tail
 
-## Exchange 1
+## User
 
-User required the S4-08.4 plan to be deterministic, control-linked, protected by a
-small compaction cursor, committed per milestone, net-negative in LOC and strictly
-free of legacy/fallback paths, then authorized immediate implementation.
+After compaction, do not reread the same specification/control history or restart
+analysis. Resume exactly at the frozen implementation cursor and continue.
 
-## Exchange 2
+## Assistant
 
-Assistant committed M0 as `89188a0` and completed M1: one generated C#/HLSL frame
-ABI, complete segmented four-source SoA journals, generation-safe owned-frame
-lifecycle and profile-backed non-truncating arenas. Unity Vulkan passed 76/76,
-including a real dispatch binding all seven records through exactly eight UAVs.
+Resumed directly at S4-08.4 M5 without reopening M4. Closed the concrete room-frame
+gap: a localized spatial anchor now binds before capture; exact depth/RGB
+calibration, pose gauge, independence keys and prediction use stable room-local
+coordinates from one retained coherent-frame transform snapshot; temporary XR
+preview alone maps back to current Unity world.
+
+Focused anchor-relocation parity and full Unity Vulkan EditMode are green (54/54).
+Generated/diff gates are green. Current exact task is M6: final control/source
+gates, accepted commit, source-only archive, Release APK build/install, then stop
+before S4-09.

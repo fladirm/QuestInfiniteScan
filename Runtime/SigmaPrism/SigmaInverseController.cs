@@ -259,16 +259,17 @@ namespace Genesis.RoomScan.SigmaPrism
             slot.EnsureFrameResources(source.DepthResolution);
 
             uint revision = NextRevision();
+            Matrix4x4 worldToRoom = prediction.WorldToRoom;
             uint leftKey = IndependenceKey(source.DepthLeft,
-                source.CalibrationEpoch);
+                source.CalibrationEpoch, worldToRoom);
             uint rightKey = IndependenceKey(source.DepthRight,
-                source.CalibrationEpoch);
+                source.CalibrationEpoch, worldToRoom);
             uint rgbLeftKey = IndependenceKey(source.RgbLeft,
-                source.CalibrationEpoch);
+                source.CalibrationEpoch, worldToRoom);
             uint rgbRightKey = IndependenceKey(source.RgbRight,
-                source.CalibrationEpoch);
-            UploadExactCalibration(slot, source);
-            UploadPosePrior(slot, source);
+                source.CalibrationEpoch, worldToRoom);
+            UploadExactCalibration(slot, source, worldToRoom);
+            UploadPosePrior(slot, source, worldToRoom);
 
             ConeLutLease luts = _coneLuts.Acquire();
             CommandBuffer command = CommandBufferPool.Get(
@@ -283,11 +284,13 @@ namespace Genesis.RoomScan.SigmaPrism
                 command.BeginSample("Sigma.Frame.PoseGauge");
                 RecordPoseGauge(command, slot, source, prediction, revision,
                     luts);
-                RecordCorrectedCalibration(command, slot, source);
+                RecordCorrectedCalibration(command, slot, source,
+                    worldToRoom);
                 command.EndSample("Sigma.Frame.PoseGauge");
                 command.BeginSample("Sigma.Frame.Reraster");
                 if (!_renderer.TryRecordPoseGaugePrediction(command, source,
-                        slot.PoseResult, out correctedPrediction))
+                        slot.PoseResult, worldToRoom,
+                        out correctedPrediction))
                     throw new InvalidOperationException(
                         "Unable to reserve same-frame corrected prediction.");
                 command.EndSample("Sigma.Frame.Reraster");
@@ -458,9 +461,10 @@ namespace Genesis.RoomScan.SigmaPrism
         }
 
         private void RecordCorrectedCalibration(CommandBuffer command,
-            IngressSlot slot, StereoRigFrameLease source)
+            IngressSlot slot, StereoRigFrameLease source,
+            Matrix4x4 worldToRoom)
         {
-            Matrix4x4 referenceWorld = PoseMatrix(
+            Matrix4x4 referenceWorld = SigmaRoomFrame.FromCamera(worldToRoom,
                 source.DepthLeft.WorldFromCamera);
             command.SetComputeBufferParam(_poseGaugeShader,
                 _poseCalibrationKernel, "_DepthCalibrationQ48",
@@ -485,24 +489,24 @@ namespace Genesis.RoomScan.SigmaPrism
         }
 
         private void UploadExactCalibration(IngressSlot slot,
-            StereoRigFrameLease source)
+            StereoRigFrameLease source, Matrix4x4 worldToRoom)
         {
-            FillCalibration(0, source.DepthLeft, source.Health);
-            FillCalibration(1, source.DepthRight, source.Health);
+            FillCalibration(0, source.DepthLeft, source.Health, worldToRoom);
+            FillCalibration(1, source.DepthRight, source.Health, worldToRoom);
             slot.RawDepthCalibration.SetData(_calibrationUpload);
             FillRgbCalibration(0, source.RgbLeft.WorldFromCamera,
-                source.Health);
+                source.Health, worldToRoom);
             FillRgbCalibration(1, source.RgbRight.WorldFromCamera,
-                source.Health);
+                source.Health, worldToRoom);
             slot.RawRgbCalibration.SetData(_rgbCalibrationUpload);
         }
 
         private void UploadPosePrior(IngressSlot slot,
-            StereoRigFrameLease source)
+            StereoRigFrameLease source, Matrix4x4 worldToRoom)
         {
             for (int component = 0; component < 6; ++component)
                 _posePriorUpload[component] = SigmaPackedQ48.FromRaw(0L);
-            Vector2 envelope = BuildTrackingPriorEnvelope(source);
+            Vector2 envelope = BuildTrackingPriorEnvelope(source, worldToRoom);
             long translationWidth = SigmaNumericDomain.Quantize(envelope.x);
             long rotationWidth = SigmaNumericDomain.Quantize(envelope.y);
             for (int component = 0; component < 6; ++component)
@@ -517,9 +521,11 @@ namespace Genesis.RoomScan.SigmaPrism
             slot.PosePrior.SetData(_posePriorUpload);
         }
 
-        private Vector2 BuildTrackingPriorEnvelope(StereoRigFrameLease source)
+        private Vector2 BuildTrackingPriorEnvelope(StereoRigFrameLease source,
+            Matrix4x4 worldToRoom)
         {
-            Pose current = source.DepthLeft.WorldFromCamera;
+            Pose current = SigmaRoomFrame.CameraPose(worldToRoom,
+                source.DepthLeft.WorldFromCamera);
             long timestamp = source.DepthLeft.Timestamp.UnixNanoseconds;
             float translation = poseTranslationPriorMetres;
             float rotation = poseRotationPriorDegrees * Mathf.Deg2Rad;
@@ -637,14 +643,15 @@ namespace Genesis.RoomScan.SigmaPrism
         }
 
         private void FillCalibration(int eye, GpuImageView view,
-            RigPairingHealth health)
+            RigPairingHealth health, Matrix4x4 worldToRoom)
         {
             int offset = eye * CalibrationStride;
             SetQ(offset + 0, view.Intrinsics.FocalLength.x);
             SetQ(offset + 1, view.Intrinsics.FocalLength.y);
             SetQ(offset + 2, view.Intrinsics.PrincipalPoint.x);
             SetQ(offset + 3, view.Intrinsics.PrincipalPoint.y);
-            Matrix4x4 world = PoseMatrix(view.WorldFromCamera);
+            Matrix4x4 world = SigmaRoomFrame.FromCamera(worldToRoom,
+                view.WorldFromCamera);
             int cursor = offset + 4;
             for (int row = 0; row < 3; ++row)
             for (int column = 0; column < 3; ++column)
@@ -673,12 +680,14 @@ namespace Genesis.RoomScan.SigmaPrism
         }
 
         private void FillRgbCalibration(int eye, Pose pose,
-            RigPairingHealth health)
+            RigPairingHealth health, Matrix4x4 worldToRoom)
         {
             int offset = eye * RgbCalibrationStride;
-            SetRgbQ(offset + 0, pose.position.x);
-            SetRgbQ(offset + 1, pose.position.y);
-            SetRgbQ(offset + 2, pose.position.z);
+            Matrix4x4 roomFromCamera = SigmaRoomFrame.FromCamera(worldToRoom,
+                pose);
+            SetRgbQ(offset + 0, roomFromCamera.m03);
+            SetRgbQ(offset + 1, roomFromCamera.m13);
+            SetRgbQ(offset + 2, roomFromCamera.m23);
             SetRgbQRaw(offset + 3, SigmaNumericDomain.FromRatio(2, 255));
             SetRgbQRaw(offset + 4, SigmaNumericDomain.FromRatio(1, 64));
             double clockWidth = Math.Min(0.01,
@@ -751,17 +760,18 @@ namespace Genesis.RoomScan.SigmaPrism
             ? long.MaxValue : Math.Abs(value);
         private static long SaturatingAdd(long left, long right) =>
             left > long.MaxValue - right ? long.MaxValue : left + right;
-        private static Matrix4x4 PoseMatrix(Pose pose) => Matrix4x4.TRS(
-            pose.position, pose.rotation, Vector3.one);
-        private static uint IndependenceKey(GpuImageView view, uint epoch)
+        private static uint IndependenceKey(GpuImageView view, uint epoch,
+            Matrix4x4 worldToRoom)
         {
             unchecked
             {
                 uint hash = 2166136261u;
                 Mix(ref hash, epoch);
                 Mix(ref hash, (uint)view.Eye + 1u);
-                Vector3 p = view.WorldFromCamera.position;
-                Quaternion q = view.WorldFromCamera.rotation;
+                Pose roomPose = SigmaRoomFrame.CameraPose(worldToRoom,
+                    view.WorldFromCamera);
+                Vector3 p = roomPose.position;
+                Quaternion q = roomPose.rotation;
                 Mix(ref hash, (uint)Mathf.RoundToInt(p.x * 25f));
                 Mix(ref hash, (uint)Mathf.RoundToInt(p.y * 25f));
                 Mix(ref hash, (uint)Mathf.RoundToInt(p.z * 25f));

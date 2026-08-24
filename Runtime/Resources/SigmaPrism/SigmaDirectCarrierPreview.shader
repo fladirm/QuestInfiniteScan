@@ -29,6 +29,7 @@ Shader "Hidden/Genesis/SigmaPrism/DirectCarrierPreview"
             StructuredBuffer<float4> _ReadoutVertices;
             StructuredBuffer<uint> _CurrentPageSlots;
             StructuredBuffer<SigmaCarrierPageMetaGpu> _PageMetadata;
+            float4x4 _RoomToWorld;
             uint _SegmentIndex;
             float _PreviewWireframe;
             float _PreviewContactPixels;
@@ -124,8 +125,10 @@ Shader "Hidden/Genesis/SigmaPrism/DirectCarrierPreview"
                 float generationSize = 0.88 + 0.12 *
                     (float)(metadata.generation & 3u);
                 float2 billboard = SigmaPreviewBillboardCorner(corner);
+                float3 worldPosition = mul(_RoomToWorld,
+                    float4(readout.xyz, 1.0)).xyz;
                 float4 clip = valid
-                    ? TransformWorldToHClip(readout.xyz)
+                    ? TransformWorldToHClip(worldPosition)
                     : float4(0.0, 0.0, 2.0, 1.0);
                 float2 screenSize = max(_ScreenParams.xy,
                     float2(1.0, 1.0));

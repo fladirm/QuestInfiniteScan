@@ -78,6 +78,37 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
+        public void RoomFrameKeepsCanonicalPoseStableAcrossAnchorCorrection()
+        {
+            Vector3 roomPosition = new(1.25f, -0.4f, 2.1f);
+            Quaternion roomRotation = Quaternion.Euler(8f, 32f, -4f);
+            Matrix4x4 roomFromCamera = Matrix4x4.TRS(roomPosition,
+                roomRotation, Vector3.one);
+            Matrix4x4 firstAnchor = Matrix4x4.TRS(
+                new Vector3(3f, 1f, -2f),
+                Quaternion.Euler(0f, 47f, 0f), Vector3.one);
+            Matrix4x4 correctedAnchor = Matrix4x4.TRS(
+                new Vector3(2.7f, 1.15f, -1.8f),
+                Quaternion.Euler(0f, 41f, 0f), Vector3.one);
+            Pose firstWorldPose = ComposePose(firstAnchor, roomPosition,
+                roomRotation);
+            Pose correctedWorldPose = ComposePose(correctedAnchor,
+                roomPosition, roomRotation);
+
+            Matrix4x4 firstRoom = SigmaRoomFrame.FromCamera(
+                firstAnchor.inverse, firstWorldPose);
+            Matrix4x4 correctedRoom = SigmaRoomFrame.FromCamera(
+                correctedAnchor.inverse, correctedWorldPose);
+            Matrix4x4 presentedWorld = correctedAnchor * correctedRoom;
+
+            AssertMatrix(firstRoom, roomFromCamera, 2e-5f);
+            AssertMatrix(correctedRoom, roomFromCamera, 2e-5f);
+            AssertMatrix(presentedWorld,
+                Matrix4x4.TRS(correctedWorldPose.position,
+                    correctedWorldPose.rotation, Vector3.one), 2e-5f);
+        }
+
+        [Test]
         public void WholeFrameFourSourceInverseIsExactAndPartitionInvariant()
         {
             using var fixture = new FrameFixture();
@@ -449,7 +480,8 @@ namespace Genesis.RoomScan.Tests
 
                 _predictionRing = new SigmaPredictionTargetRing(3);
                 Assert.That(_predictionRing.TryBegin(_frame,
-                    SigmaPoseGaugeState.Identity(1u, 1u), out _prediction),
+                    SigmaPoseGaugeState.Identity(1u, 1u), Matrix4x4.identity,
+                    out _prediction),
                     Is.True);
                 ClearPrediction(_prediction);
                 _prediction.CommitGpuWrite();
@@ -746,5 +778,20 @@ namespace Genesis.RoomScan.Tests
             if (value != null)
                 UnityEngine.Object.DestroyImmediate(value);
         }
+
+        private static void AssertMatrix(Matrix4x4 actual,
+            Matrix4x4 expected, float tolerance)
+        {
+            for (int row = 0; row < 4; ++row)
+            for (int column = 0; column < 4; ++column)
+                Assert.That(actual[row, column],
+                    Is.EqualTo(expected[row, column]).Within(tolerance),
+                    $"matrix[{row},{column}]");
+        }
+
+        private static Pose ComposePose(Matrix4x4 worldFromRoom,
+            Vector3 roomPosition, Quaternion roomRotation) => new(
+            worldFromRoom.MultiplyPoint3x4(roomPosition),
+            worldFromRoom.rotation * roomRotation);
     }
 }
