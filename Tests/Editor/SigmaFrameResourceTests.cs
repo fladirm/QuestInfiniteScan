@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using Genesis.RoomScan.SigmaPrism;
@@ -54,6 +55,31 @@ namespace Genesis.RoomScan.Tests
             Assert.That((long)records * SigmaGeneratedFrame.PackedQ48Stride,
                 Is.LessThan(binding));
             Assert.That(records % 256, Is.EqualTo(0));
+        }
+
+        [Test]
+        public void ExecutionWindowsAndDirectDispatchesRespectVulkanDimensions()
+        {
+            const long largeBinding = 512L * 1024L * 1024L;
+            int footprints = SigmaFrameResources.ComputeExecutionWindowFootprints(
+                largeBinding);
+            Assert.That(footprints,
+                Is.EqualTo(SigmaFrameResources
+                    .MaximumDispatchSafeFootprintsPerWindow));
+            Assert.That(footprints, Is.EqualTo(32512));
+            Assert.That(footprints *
+                SigmaFrameResources.MaximumDispatchGroupsPerFootprint,
+                Is.LessThanOrEqualTo(
+                    SigmaGpuKernelTelemetry.MaximumThreadGroupsPerDimension));
+            Assert.DoesNotThrow(() =>
+                SigmaGpuKernelTelemetry.ValidateDirectDispatchDimensions(
+                    65535, 1, 1));
+            Assert.Throws<InvalidOperationException>(() =>
+                SigmaGpuKernelTelemetry.ValidateDirectDispatchDimensions(
+                    65536, 1, 1));
+            Assert.Throws<InvalidOperationException>(() =>
+                SigmaGpuKernelTelemetry.ValidateDirectDispatchDimensions(
+                    0, 1, 1));
         }
 
         [Test]

@@ -2,19 +2,16 @@
 
 ## User
 
-Finish S4-08.5, including the forensic corrections. Keep R1/R2, replace R3 and R4
-as coherent whole-file cuts, retain complete evidence once per observation, release
-frame slots after generation-safe transfer rather than proof minimization, keep
-negative production LOC, no legacy/fallback, then build/archive/install the exact
-accepted commit and stop before S4-09.
+Stop S4-08.5 closure claims. Fix only the proven 320x320 illegal direct dispatches:
+cap/partition every execution window, add a production large-binding test, fail
+closed before command execution, then commit/build/install the exact candidate.
+Require device root, publication, changed page and draw all above zero.
 
 ## Assistant
 
-R3 is accepted: the complete closure shader was manually read and replaced so
-image/XYZ only proposes, exact first-hit cells qualify claims, generated S16
-annihilator/associator closure decides transitions, and only incident changed
-mutations defer before union. Vulkan/EditMode is 64/64 with no shader/bind error.
-The exact cursor is now R4: replace the rejected page-owned evidence/publication
-cut with one observation-owned segmented journal, CHANGED-only shadows, immutable
-root-selected visibility and root-last publication; proof minimization cannot gate
-frame-slot release.
+The host-only repair partitions 320x320 into 32512/32512/32512/4864 footprints,
+limits the worst direct dispatch to 65024 groups and validates all direct dimensions
+before command recording. The actual whole production graph records successfully;
+Vulkan EditMode is 65/65 and the eight-UAV gate passes. Current cursor is exact
+commit, push, archive, Release APK and Quest install; device acceptance stays red
+until the four requested nonzero counters are captured.

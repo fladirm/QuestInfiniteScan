@@ -285,6 +285,15 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
+        public void Production320FrameLargeBindingRecordsOnlyLegalDispatches()
+        {
+            const long largeBinding = 512L * 1024L * 1024L;
+            using var fixture = new FrameFixture(320, 320, largeBinding);
+            Assert.That(fixture.ExecutionWindowCount, Is.EqualTo(4));
+            fixture.RecordProductionGraphOnly();
+        }
+
+        [Test]
         public void TargetReductionIsExactPermutationAndWindowInvariant()
         {
             const long bindingLimit = 160L * 1024L;
@@ -1095,6 +1104,30 @@ namespace Genesis.RoomScan.Tests
                     Assert.That(novel.Classification.X, Is.Not.EqualTo(0u),
                         $"window {index} inverse did not execute");
                 }
+            }
+
+            internal void RecordProductionGraphOnly()
+            {
+                const int pageCapacity = 2;
+                using var state = Buffer<UInt2>(pageCapacity *
+                    SigmaCarrier.PageLaneCount);
+                using var metadata = Buffer<PageMeta>(pageCapacity);
+                using var dirty = Buffer<uint>(pageCapacity);
+                using var readoutDirty = Buffer<uint>(pageCapacity);
+                using var publicationRoot = Buffer<uint>(1);
+                var batch = new SigmaCarrierReadBatch(0, pageCapacity, 0,
+                    state, metadata, dirty, readoutDirty, publicationRoot);
+                var input = new SigmaFrameInverseInput(_input.Prediction,
+                    _input.MetricDepth, _input.DepthFlags,
+                    _input.DepthCalibration, _input.RgbCalibration,
+                    _input.PoseResult, _input.ConeLuts, _input.DepthLeftKey,
+                    _input.DepthRightKey, _input.RgbLeftKey, _input.RgbRightKey,
+                    new[] { batch });
+                using var command = new CommandBuffer
+                    { name = "Sigma 320 production dispatch contract" };
+                _graph.RecordSourceAndResolve(command, _owned, 1u, input);
+                _graph.RecordExactClosure(command, _owned, 1u, input);
+                _graph.RecordPublication(command, _owned, 1u, input);
             }
 
             internal ReductionSnapshot RunTargetReduction(bool reverse)

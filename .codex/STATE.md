@@ -16,6 +16,14 @@ Updated: 2026-08-24 (Europe/Prague)
 
 ## Active replacement cursor — 2026-08-24
 
+- Commit `87d33f2` is not a device candidate: a 320x320 frame emitted illegal
+  direct dispatch dimensions (`102400`, `204800`, `102400`) and stayed at
+  root/publication/readout zero. This is an execution-lowering failure, never an
+  exact-inverse no-change result.
+- The narrow repair caps every binding-derived execution window at 32,512
+  footprints, so the worst two-groups-per-footprint dispatch is 65,024. All direct
+  dispatch wrappers reject dimensions outside `1..65535` before command recording.
+  The 320x320 production recorder and full Vulkan EditMode suite pass 65/65.
 - The forensic audit in `refact.md` is closed and implementation is authorized.
 - R3 replacement is accepted: image/XYZ only proposes work; physical claims and
   incident-only mutation deferral come solely from exact first-hit/four-source/S16
@@ -87,8 +95,9 @@ extent allocation, proof/raw ownership and milestone gates are frozen in the pla
 
 ## Current exact action
 
-Replace the rejected dirty R4 journal/allocation/root publication and its consumers
-exactly as named in `.codex/S4-08.5_RESUME.md`; do not reopen R1-R3.
+Commit the dispatch-legality repair, archive/build/install that exact commit, then
+stop. No further S4-08 implementation is allowed until a new Quest run proves
+`root>0`, published revision `>0`, changed page `>0` and draw `>0`.
 
 ## Required end state
 

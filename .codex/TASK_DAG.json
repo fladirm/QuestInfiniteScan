@@ -180,7 +180,7 @@
       "id": "S4-08",
       "title": "Implement bounded pose-gauge intersection",
       "status": "in_progress",
-      "active_repair_run": "S4-08.5 negative-LOC R3/R4 replacement; R3 accepted, R4 in progress",
+      "active_repair_run": "S4-08.5 dispatch-legality device repair; physical acceptance pending",
       "repair_plan": ".codex/S4-08.5_DIRECT_FRAME_CLOSURE_PLAN.md",
       "repair_resume": ".codex/S4-08.5_RESUME.md",
       "repair_audit": "refact.md",
@@ -261,7 +261,8 @@
         "The temporary pre-S4-11 human readout now maps capture tracking space through Unity XR TrackingSpace, renders conservative adjacent-sample triangles, exposes barycentric Wireframe edges and retains point fallback only for isolated support without changing Psi or prediction; Vulkan EditMode remains 72/72 and the Quest UAV gate remains green; device world-lock acceptance is pending",
         "The throughput diagnostic checkpoint preserves the eight bounded canonical rounds while refilling their existing deterministic deficits per round, wraps every production compute dispatch in read-only Unity Vulkan GPU timestamps and reports deficit/owner/work-cap pressure through diagnostic-only async telemetry. No shader, token cost or canonical decision changed; full Vulkan EditMode passes 73/73 and generated/diff/eight-UAV gates are green; device timing remains pending",
         "The c2720b5 device forensic closure proves that the visible 5 x 5 board is 25 fresh logical gauge pages derived from the 320 x 320 image grid, followed by duplicate fresh Morton identities over the same footprint; later directional evidence is lost when 64 resident bundle slots fill, and publication then hard-stalls after exactly 4096 durable raw-retention blocks because the monotonic allocator has no reuse/segmentation. The renderer draws every current page; the failure is canonical acquisition, identity and proof-retention ownership, documented in s4-083-audit.md.",
-        "S4-08.4 M0 promotes CPQ4-2026-08-24-S16-v7, rewrites section 18 around pending gauges and promoted extents, records ADR-S413, freezes the direct-frame deletion/implementation plan and installs a compact sole resume cursor. DAG JSON, git diff, generated code graph and control validation are green; runtime source is intentionally unchanged before M1."
+        "S4-08.4 M0 promotes CPQ4-2026-08-24-S16-v7, rewrites section 18 around pending gauges and promoted extents, records ADR-S413, freezes the direct-frame deletion/implementation plan and installs a compact sole resume cursor. DAG JSON, git diff, generated code graph and control validation are green; runtime source is intentionally unchanged before M1.",
+        "Quest evidence rejects 87d33f2 before inverse interpretation: one 320x320 frame recorded direct groupCountX values 102400, 204800 and 102400 above Vulkan's 65535 limit, leaving root, R4 publication and draw at zero. The narrow host repair caps execution windows at 32512 footprints, validates every direct dimension fail-closed before command recording, and passes the actual 320x320 large-binding production recorder plus full Vulkan EditMode 65/65; exact-commit APK/device evidence remains pending."
       ]
     },
     {

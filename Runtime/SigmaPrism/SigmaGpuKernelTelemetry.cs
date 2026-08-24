@@ -15,6 +15,7 @@ namespace Genesis.RoomScan.SigmaPrism
     /// </summary>
     internal static class SigmaGpuKernelTelemetry
     {
+        internal const int MaximumThreadGroupsPerDimension = 65535;
         private const int GpuTimestampDelayFrames = 3;
         private const int LogLineLimit = 3000;
 
@@ -76,6 +77,8 @@ namespace Genesis.RoomScan.SigmaPrism
         {
             if (command == null)
                 throw new ArgumentNullException(nameof(command));
+            ValidateDirectDispatchDimensions(threadGroupsX, threadGroupsY,
+                threadGroupsZ);
             Entry entry = RequireEntry(shader, kernel);
             if (entry.Sampler == null)
             {
@@ -114,6 +117,8 @@ namespace Genesis.RoomScan.SigmaPrism
             int kernel, int threadGroupsX, int threadGroupsY,
             int threadGroupsZ)
         {
+            ValidateDirectDispatchDimensions(threadGroupsX, threadGroupsY,
+                threadGroupsZ);
             Entry entry = RequireEntry(shader, kernel);
             if (entry.Sampler == null)
             {
@@ -125,6 +130,20 @@ namespace Genesis.RoomScan.SigmaPrism
             shader.Dispatch(kernel, threadGroupsX, threadGroupsY,
                 threadGroupsZ);
             entry.Sampler.End();
+        }
+
+        internal static void ValidateDirectDispatchDimensions(int threadGroupsX,
+            int threadGroupsY, int threadGroupsZ)
+        {
+            if (threadGroupsX <= 0 || threadGroupsY <= 0 ||
+                threadGroupsZ <= 0 ||
+                threadGroupsX > MaximumThreadGroupsPerDimension ||
+                threadGroupsY > MaximumThreadGroupsPerDimension ||
+                threadGroupsZ > MaximumThreadGroupsPerDimension)
+                throw new InvalidOperationException(
+                    $"Illegal direct compute dispatch ({threadGroupsX}, " +
+                    $"{threadGroupsY}, {threadGroupsZ}); every dimension must " +
+                    $"be in [1,{MaximumThreadGroupsPerDimension}].");
         }
 
         internal static void DispatchIndirectProfiled(this ComputeShader shader,

@@ -301,6 +301,12 @@ namespace Genesis.RoomScan.SigmaPrism
         private const long PreferredSegmentBytes = 64L * MiB;
         private const int InitialProposalKinds = 4;
         private const int InitialRevisionRecords = 2;
+        private const int ExecutionWindowAlignment = 256;
+        internal const int MaximumDispatchGroupsPerFootprint = 2;
+        internal const int MaximumDispatchSafeFootprintsPerWindow =
+            SigmaGpuKernelTelemetry.MaximumThreadGroupsPerDimension /
+            MaximumDispatchGroupsPerFootprint / ExecutionWindowAlignment *
+            ExecutionWindowAlignment;
         internal const int ClosureCounterRecords = 8;
 
         private readonly long _bindingLimit;
@@ -812,8 +818,11 @@ namespace Genesis.RoomScan.SigmaPrism
                 SigmaGeneratedFrame.ValidityStride) / SigmaGeneratedFrame.LaneCount);
             capacity = Math.Min(capacity, ComputeSegmentRecordCapacity(bindingLimit,
                 SigmaGeneratedFrame.ProvenanceStride));
-            capacity = capacity / 256 * 256;
-            if (capacity < 256)
+            capacity = Math.Min(capacity,
+                MaximumDispatchSafeFootprintsPerWindow);
+            capacity = capacity / ExecutionWindowAlignment *
+                ExecutionWindowAlignment;
+            if (capacity < ExecutionWindowAlignment)
                 throw new InvalidOperationException(
                     "Vulkan binding range cannot hold one 256-footprint Sigma window.");
             return capacity;
