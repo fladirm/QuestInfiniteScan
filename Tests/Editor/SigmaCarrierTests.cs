@@ -155,11 +155,27 @@ namespace Genesis.RoomScan.Tests
         public void SegmentSizingRespectsBindingLimitAndGenerationPairs()
         {
             Assert.That(SigmaCarrier.DecodedPageBytes, Is.EqualTo(524288));
-            Assert.That(SigmaCarrier.ComputeSegmentPageCapacity(128L * 1024 * 1024,
-                64), Is.EqualTo(128));
+            Assert.That(SigmaCarrier.DefaultDecodedBudgetMegabytes,
+                Is.EqualTo(1024));
+            long decodedPages = (long)SigmaCarrier.DefaultDecodedBudgetMegabytes *
+                1024L * 1024L / SigmaCarrier.DecodedPageBytes;
+            Assert.That(decodedPages, Is.EqualTo(2048));
+            Assert.That(decodedPages / 2L, Is.EqualTo(1024));
+
+            int wideSegment = SigmaCarrier.ComputeSegmentPageCapacity(
+                1024L * 1024L * 1024L);
+            int exact128MiBSegment = SigmaCarrier.ComputeSegmentPageCapacity(
+                128L * 1024L * 1024L);
+            Assert.That(wideSegment,
+                Is.EqualTo(SigmaCarrier.MaximumPagesPerSegment));
+            Assert.That(exact128MiBSegment, Is.EqualTo(254));
+            Assert.That((decodedPages + wideSegment - 1L) / wideSegment,
+                Is.EqualTo(8));
+            Assert.That((decodedPages + exact128MiBSegment - 1L) /
+                exact128MiBSegment, Is.EqualTo(9));
             Assert.Throws<InvalidOperationException>(() =>
                 SigmaCarrier.ComputeSegmentPageCapacity(
-                    SigmaCarrier.DecodedPageBytes, 64));
+                    SigmaCarrier.DecodedPageBytes));
         }
 
         private static void AssertAddress(long x, long y, long pageX, long pageY,

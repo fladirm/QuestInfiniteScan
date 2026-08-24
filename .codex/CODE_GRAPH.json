@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "source_digest": "4db2d9a540c51f1d6c8fda12db5e1f27e880224eb265df4180bd29dc03ea9d7e",
+  "source_digest": "c3faa1e9108b6dfd0a262dae09a85df0e0067be3a3feb61cd971f1cde334b8e3",
   "scope": [
     "Runtime/**/*.cs",
     "Runtime/Resources/SigmaPrism/**/*.*",
@@ -5802,7 +5802,7 @@
       "file": "Runtime/SigmaPrism/SigmaCarrier.cs",
       "name": "CarrierSegment",
       "kind": "class",
-      "line": 228
+      "line": 226
     },
     {
       "id": "Runtime/SigmaPrism/SigmaCarrier.cs::CollectReadableSegments@141",
@@ -5819,53 +5819,53 @@
       "line": 158
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaCarrier.cs::Create@261",
+      "id": "Runtime/SigmaPrism/SigmaCarrier.cs::Create@259",
       "file": "Runtime/SigmaPrism/SigmaCarrier.cs",
       "name": "Create",
       "kind": "method",
-      "line": 261
+      "line": 259
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaCarrier.cs::CreateReadBatch@211",
+      "id": "Runtime/SigmaPrism/SigmaCarrier.cs::CreateReadBatch@209",
       "file": "Runtime/SigmaPrism/SigmaCarrier.cs",
       "name": "CreateReadBatch",
       "kind": "method",
-      "line": 211
+      "line": 209
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaCarrier.cs::Dispose@177",
+      "id": "Runtime/SigmaPrism/SigmaCarrier.cs::Dispose@175",
       "file": "Runtime/SigmaPrism/SigmaCarrier.cs",
       "name": "Dispose",
       "kind": "method",
-      "line": 177
+      "line": 175
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaCarrier.cs::Dispose@253",
+      "id": "Runtime/SigmaPrism/SigmaCarrier.cs::Dispose@251",
       "file": "Runtime/SigmaPrism/SigmaCarrier.cs",
       "name": "Dispose",
       "kind": "method",
-      "line": 253
+      "line": 251
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaCarrier.cs::Initialize@194",
+      "id": "Runtime/SigmaPrism/SigmaCarrier.cs::Initialize@192",
       "file": "Runtime/SigmaPrism/SigmaCarrier.cs",
       "name": "Initialize",
-      "kind": "method",
-      "line": 194
-    },
-    {
-      "id": "Runtime/SigmaPrism/SigmaCarrier.cs::OnDestroy@192",
-      "file": "Runtime/SigmaPrism/SigmaCarrier.cs",
-      "name": "OnDestroy",
       "kind": "method",
       "line": 192
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaCarrier.cs::OnModuleInitialize@87",
+      "id": "Runtime/SigmaPrism/SigmaCarrier.cs::OnDestroy@190",
+      "file": "Runtime/SigmaPrism/SigmaCarrier.cs",
+      "name": "OnDestroy",
+      "kind": "method",
+      "line": 190
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaCarrier.cs::OnModuleInitialize@88",
       "file": "Runtime/SigmaPrism/SigmaCarrier.cs",
       "name": "OnModuleInitialize",
       "kind": "method",
-      "line": 87
+      "line": 88
     },
     {
       "id": "Runtime/SigmaPrism/SigmaCarrier.cs::OnScanStarted@120",
@@ -5882,11 +5882,11 @@
       "line": 122
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaCarrier.cs::RequireInitialized@222",
+      "id": "Runtime/SigmaPrism/SigmaCarrier.cs::RequireInitialized@220",
       "file": "Runtime/SigmaPrism/SigmaCarrier.cs",
       "name": "RequireInitialized",
       "kind": "method",
-      "line": 222
+      "line": 220
     },
     {
       "id": "Runtime/SigmaPrism/SigmaCarrier.cs::SigmaCarrier",
@@ -10089,18 +10089,18 @@
       "line": 162
     },
     {
-      "id": "Tests/Editor/SigmaCarrierTests.cs::AssertAddress@164",
+      "id": "Tests/Editor/SigmaCarrierTests.cs::AssertAddress@180",
       "file": "Tests/Editor/SigmaCarrierTests.cs",
       "name": "AssertAddress",
       "kind": "method",
-      "line": 164
+      "line": 180
     },
     {
-      "id": "Tests/Editor/SigmaCarrierTests.cs::BindCodec@312",
+      "id": "Tests/Editor/SigmaCarrierTests.cs::BindCodec@328",
       "file": "Tests/Editor/SigmaCarrierTests.cs",
       "name": "BindCodec",
       "kind": "method",
-      "line": 312
+      "line": 328
     },
     {
       "id": "Tests/Editor/SigmaCarrierTests.cs::EveryExactBlockModeIsCanonicalAndRoundTripsBitForBit@42",
@@ -10110,53 +10110,53 @@
       "line": 42
     },
     {
-      "id": "Tests/Editor/SigmaCarrierTests.cs::MakeAffineBlock@198",
+      "id": "Tests/Editor/SigmaCarrierTests.cs::MakeAffineBlock@214",
       "file": "Tests/Editor/SigmaCarrierTests.cs",
       "name": "MakeAffineBlock",
       "kind": "method",
-      "line": 198
+      "line": 214
     },
     {
-      "id": "Tests/Editor/SigmaCarrierTests.cs::MakeConstantBlock@185",
+      "id": "Tests/Editor/SigmaCarrierTests.cs::MakeConstantBlock@201",
       "file": "Tests/Editor/SigmaCarrierTests.cs",
       "name": "MakeConstantBlock",
       "kind": "method",
-      "line": 185
+      "line": 201
     },
     {
-      "id": "Tests/Editor/SigmaCarrierTests.cs::MakeDeltaBlock@219",
+      "id": "Tests/Editor/SigmaCarrierTests.cs::MakeDeltaBlock@235",
       "file": "Tests/Editor/SigmaCarrierTests.cs",
       "name": "MakeDeltaBlock",
       "kind": "method",
-      "line": 219
+      "line": 235
     },
     {
-      "id": "Tests/Editor/SigmaCarrierTests.cs::MakeMixedPage@251",
+      "id": "Tests/Editor/SigmaCarrierTests.cs::MakeMixedPage@267",
       "file": "Tests/Editor/SigmaCarrierTests.cs",
       "name": "MakeMixedPage",
       "kind": "method",
-      "line": 251
+      "line": 267
     },
     {
-      "id": "Tests/Editor/SigmaCarrierTests.cs::MakeNullBlock@177",
+      "id": "Tests/Editor/SigmaCarrierTests.cs::MakeNullBlock@193",
       "file": "Tests/Editor/SigmaCarrierTests.cs",
       "name": "MakeNullBlock",
       "kind": "method",
-      "line": 177
+      "line": 193
     },
     {
-      "id": "Tests/Editor/SigmaCarrierTests.cs::MakeRawBlock@232",
+      "id": "Tests/Editor/SigmaCarrierTests.cs::MakeRawBlock@248",
       "file": "Tests/Editor/SigmaCarrierTests.cs",
       "name": "MakeRawBlock",
       "kind": "method",
-      "line": 232
+      "line": 248
     },
     {
-      "id": "Tests/Editor/SigmaCarrierTests.cs::PackPage@279",
+      "id": "Tests/Editor/SigmaCarrierTests.cs::PackPage@295",
       "file": "Tests/Editor/SigmaCarrierTests.cs",
       "name": "PackPage",
       "kind": "method",
-      "line": 279
+      "line": 295
     },
     {
       "id": "Tests/Editor/SigmaCarrierTests.cs::PackedGpuCodecMatchesCanonicalCpuBytesAndDecodedState@88",
@@ -10194,11 +10194,11 @@
       "line": 29
     },
     {
-      "id": "Tests/Editor/SigmaCarrierTests.cs::StoreBlock@267",
+      "id": "Tests/Editor/SigmaCarrierTests.cs::StoreBlock@283",
       "file": "Tests/Editor/SigmaCarrierTests.cs",
       "name": "StoreBlock",
       "kind": "method",
-      "line": 267
+      "line": 283
     },
     {
       "id": "Tests/Editor/SigmaCarrierTests.cs::UInt2",
@@ -10215,11 +10215,11 @@
       "line": 20
     },
     {
-      "id": "Tests/Editor/SigmaCarrierTests.cs::WordsToLittleEndian@297",
+      "id": "Tests/Editor/SigmaCarrierTests.cs::WordsToLittleEndian@313",
       "file": "Tests/Editor/SigmaCarrierTests.cs",
       "name": "WordsToLittleEndian",
       "kind": "method",
-      "line": 297
+      "line": 313
     },
     {
       "id": "Tests/Editor/SigmaDepthInverseTests.cs::Cell@139",
@@ -16343,17 +16343,17 @@
     },
     {
       "source": "Runtime/SigmaPrism/SigmaCarrier.cs::AcquireGpuManagedPool@123",
-      "target": "Runtime/SigmaPrism/SigmaCarrier.cs::CreateReadBatch@211",
+      "target": "Runtime/SigmaPrism/SigmaCarrier.cs::CreateReadBatch@209",
       "kind": "calls"
     },
     {
       "source": "Runtime/SigmaPrism/SigmaCarrier.cs::AcquireGpuManagedPool@123",
-      "target": "Runtime/SigmaPrism/SigmaCarrier.cs::Initialize@194",
+      "target": "Runtime/SigmaPrism/SigmaCarrier.cs::Initialize@192",
       "kind": "calls"
     },
     {
       "source": "Runtime/SigmaPrism/SigmaCarrier.cs::AcquireGpuManagedPool@123",
-      "target": "Runtime/SigmaPrism/SigmaCarrier.cs::RequireInitialized@222",
+      "target": "Runtime/SigmaPrism/SigmaCarrier.cs::RequireInitialized@220",
       "kind": "calls"
     },
     {
@@ -16363,12 +16363,12 @@
     },
     {
       "source": "Runtime/SigmaPrism/SigmaCarrier.cs::CollectReadableSegments@141",
-      "target": "Runtime/SigmaPrism/SigmaCarrier.cs::CreateReadBatch@211",
+      "target": "Runtime/SigmaPrism/SigmaCarrier.cs::CreateReadBatch@209",
       "kind": "calls"
     },
     {
       "source": "Runtime/SigmaPrism/SigmaCarrier.cs::CollectReadableSegments@141",
-      "target": "Runtime/SigmaPrism/SigmaCarrier.cs::RequireInitialized@222",
+      "target": "Runtime/SigmaPrism/SigmaCarrier.cs::RequireInitialized@220",
       "kind": "calls"
     },
     {
@@ -16382,32 +16382,32 @@
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaCarrier.cs::CreateReadBatch@211",
+      "source": "Runtime/SigmaPrism/SigmaCarrier.cs::CreateReadBatch@209",
       "target": "Runtime/SigmaPrism/SigmaCarrier.cs::SigmaCarrierReadBatch",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaCarrier.cs::Initialize@194",
+      "source": "Runtime/SigmaPrism/SigmaCarrier.cs::Initialize@192",
       "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::DispatchProfiled@144",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaCarrier.cs::OnModuleInitialize@87",
+      "source": "Runtime/SigmaPrism/SigmaCarrier.cs::OnModuleInitialize@88",
       "target": "Runtime/SigmaPrism/SigmaCarrier.cs::ComputeSegmentPageCapacity@158",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaCarrier.cs::OnModuleInitialize@87",
+      "source": "Runtime/SigmaPrism/SigmaCarrier.cs::OnModuleInitialize@88",
       "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::FindProfiledKernel@83",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaCarrier.cs::OnModuleInitialize@87",
+      "source": "Runtime/SigmaPrism/SigmaCarrier.cs::OnModuleInitialize@88",
       "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Max@172",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaCarrier.cs::OnModuleInitialize@87",
+      "source": "Runtime/SigmaPrism/SigmaCarrier.cs::OnModuleInitialize@88",
       "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Min@170",
       "kind": "calls"
     },
@@ -20077,12 +20077,12 @@
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaCarrierTests.cs::AssertAddress@164",
+      "source": "Tests/Editor/SigmaCarrierTests.cs::AssertAddress@180",
       "target": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::ResolveAddress@148",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaCarrierTests.cs::AssertAddress@164",
+      "source": "Tests/Editor/SigmaCarrierTests.cs::AssertAddress@180",
       "target": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::SigmaCarrierPageCoordinate",
       "kind": "calls"
     },
@@ -20098,76 +20098,76 @@
     },
     {
       "source": "Tests/Editor/SigmaCarrierTests.cs::EveryExactBlockModeIsCanonicalAndRoundTripsBitForBit@42",
-      "target": "Tests/Editor/SigmaCarrierTests.cs::MakeAffineBlock@198",
+      "target": "Tests/Editor/SigmaCarrierTests.cs::MakeAffineBlock@214",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaCarrierTests.cs::EveryExactBlockModeIsCanonicalAndRoundTripsBitForBit@42",
-      "target": "Tests/Editor/SigmaCarrierTests.cs::MakeConstantBlock@185",
+      "target": "Tests/Editor/SigmaCarrierTests.cs::MakeConstantBlock@201",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaCarrierTests.cs::EveryExactBlockModeIsCanonicalAndRoundTripsBitForBit@42",
-      "target": "Tests/Editor/SigmaCarrierTests.cs::MakeDeltaBlock@219",
+      "target": "Tests/Editor/SigmaCarrierTests.cs::MakeDeltaBlock@235",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaCarrierTests.cs::EveryExactBlockModeIsCanonicalAndRoundTripsBitForBit@42",
-      "target": "Tests/Editor/SigmaCarrierTests.cs::MakeNullBlock@177",
+      "target": "Tests/Editor/SigmaCarrierTests.cs::MakeNullBlock@193",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaCarrierTests.cs::EveryExactBlockModeIsCanonicalAndRoundTripsBitForBit@42",
-      "target": "Tests/Editor/SigmaCarrierTests.cs::MakeRawBlock@232",
+      "target": "Tests/Editor/SigmaCarrierTests.cs::MakeRawBlock@248",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaCarrierTests.cs::MakeAffineBlock@198",
+      "source": "Tests/Editor/SigmaCarrierTests.cs::MakeAffineBlock@214",
       "target": "Runtime/SigmaPrism/SigmaS16.cs::FromArray@82",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaCarrierTests.cs::MakeConstantBlock@185",
+      "source": "Tests/Editor/SigmaCarrierTests.cs::MakeConstantBlock@201",
       "target": "Runtime/SigmaPrism/SigmaS16.cs::FromArray@82",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaCarrierTests.cs::MakeDeltaBlock@219",
+      "source": "Tests/Editor/SigmaCarrierTests.cs::MakeDeltaBlock@235",
       "target": "Runtime/SigmaPrism/SigmaS16.cs::FromArray@82",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaCarrierTests.cs::MakeMixedPage@251",
+      "source": "Tests/Editor/SigmaCarrierTests.cs::MakeMixedPage@267",
       "target": "Runtime/SigmaPrism/SigmaCarrierCodec.cs::SigmaDecodedPage",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaCarrierTests.cs::MakeMixedPage@251",
-      "target": "Tests/Editor/SigmaCarrierTests.cs::MakeAffineBlock@198",
+      "source": "Tests/Editor/SigmaCarrierTests.cs::MakeMixedPage@267",
+      "target": "Tests/Editor/SigmaCarrierTests.cs::MakeAffineBlock@214",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaCarrierTests.cs::MakeMixedPage@251",
-      "target": "Tests/Editor/SigmaCarrierTests.cs::MakeConstantBlock@185",
+      "source": "Tests/Editor/SigmaCarrierTests.cs::MakeMixedPage@267",
+      "target": "Tests/Editor/SigmaCarrierTests.cs::MakeConstantBlock@201",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaCarrierTests.cs::MakeMixedPage@251",
-      "target": "Tests/Editor/SigmaCarrierTests.cs::MakeDeltaBlock@219",
+      "source": "Tests/Editor/SigmaCarrierTests.cs::MakeMixedPage@267",
+      "target": "Tests/Editor/SigmaCarrierTests.cs::MakeDeltaBlock@235",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaCarrierTests.cs::MakeMixedPage@251",
-      "target": "Tests/Editor/SigmaCarrierTests.cs::MakeNullBlock@177",
+      "source": "Tests/Editor/SigmaCarrierTests.cs::MakeMixedPage@267",
+      "target": "Tests/Editor/SigmaCarrierTests.cs::MakeNullBlock@193",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaCarrierTests.cs::MakeMixedPage@251",
-      "target": "Tests/Editor/SigmaCarrierTests.cs::MakeRawBlock@232",
+      "source": "Tests/Editor/SigmaCarrierTests.cs::MakeMixedPage@267",
+      "target": "Tests/Editor/SigmaCarrierTests.cs::MakeRawBlock@248",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaCarrierTests.cs::MakeRawBlock@232",
+      "source": "Tests/Editor/SigmaCarrierTests.cs::MakeRawBlock@248",
       "target": "Runtime/SigmaPrism/SigmaS16.cs::FromArray@82",
       "kind": "calls"
     },
@@ -20198,22 +20198,22 @@
     },
     {
       "source": "Tests/Editor/SigmaCarrierTests.cs::PackedGpuCodecMatchesCanonicalCpuBytesAndDecodedState@88",
-      "target": "Tests/Editor/SigmaCarrierTests.cs::BindCodec@312",
+      "target": "Tests/Editor/SigmaCarrierTests.cs::BindCodec@328",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaCarrierTests.cs::PackedGpuCodecMatchesCanonicalCpuBytesAndDecodedState@88",
-      "target": "Tests/Editor/SigmaCarrierTests.cs::MakeMixedPage@251",
+      "target": "Tests/Editor/SigmaCarrierTests.cs::MakeMixedPage@267",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaCarrierTests.cs::PackedGpuCodecMatchesCanonicalCpuBytesAndDecodedState@88",
-      "target": "Tests/Editor/SigmaCarrierTests.cs::PackPage@279",
+      "target": "Tests/Editor/SigmaCarrierTests.cs::PackPage@295",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaCarrierTests.cs::PackedGpuCodecMatchesCanonicalCpuBytesAndDecodedState@88",
-      "target": "Tests/Editor/SigmaCarrierTests.cs::WordsToLittleEndian@297",
+      "target": "Tests/Editor/SigmaCarrierTests.cs::WordsToLittleEndian@313",
       "kind": "calls"
     },
     {
@@ -20248,7 +20248,7 @@
     },
     {
       "source": "Tests/Editor/SigmaCarrierTests.cs::PageAndSortedSnapshotRestartAreByteIdentical@67",
-      "target": "Tests/Editor/SigmaCarrierTests.cs::MakeMixedPage@251",
+      "target": "Tests/Editor/SigmaCarrierTests.cs::MakeMixedPage@267",
       "kind": "calls"
     },
     {
@@ -20258,7 +20258,7 @@
     },
     {
       "source": "Tests/Editor/SigmaCarrierTests.cs::SignedCarrierAddressingUsesMathematicalFloorAcrossZero@29",
-      "target": "Tests/Editor/SigmaCarrierTests.cs::AssertAddress@164",
+      "target": "Tests/Editor/SigmaCarrierTests.cs::AssertAddress@180",
       "kind": "calls"
     },
     {

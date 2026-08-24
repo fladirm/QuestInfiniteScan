@@ -99,9 +99,11 @@ extent allocation, proof/raw ownership and milestone gates are frozen in the pla
 
 ## Current exact action
 
-Commit/archive/build/install the truthful-completion slice, then stop. No further
-S4-08 implementation is allowed until a new Quest run proves
-`root>0`, published revision `>0`, changed page `>0` and draw `>0`.
+Commit/archive/build/install the narrow 1 GiB decoded-carrier residency slice,
+then stop. Commit `63ca337` already proved root/publication/draw through root 7 and
+removed `0x104`; its next revision exhausted the artificial 240-pair pool as
+`0x120`. The next Quest gate is continued root progress well beyond 7 without
+`0x20/0x120`. No R3/R4, S16, paging or publication change is authorized.
 
 ## Required end state
 

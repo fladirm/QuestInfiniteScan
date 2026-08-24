@@ -65,12 +65,13 @@ namespace Genesis.RoomScan.SigmaPrism
         public const int DecodedPageBytes = PageLaneCount * PackedLaneBytes;
         public const int PageMetadataStride = 12 * sizeof(uint);
         public const int MaximumPagesPerSegment = 256;
+        public const int DefaultDecodedBudgetMegabytes = 1024;
 
         private const string CarrierResource = "SigmaPrism/SigmaCarrier";
         private const long MiB = 1024L * 1024L;
 
-        [SerializeField, Range(8, 64)] private int segmentMegabytes = 32;
-        [SerializeField, Range(64, 240)] private int decodedBudgetMegabytes = 240;
+        [SerializeField, Min(64)] private int decodedBudgetMegabytes =
+            DefaultDecodedBudgetMegabytes;
 
         private readonly List<CarrierSegment> _segments = new();
         private SigmaExactBackendGate _backendGate;
@@ -107,8 +108,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 throw new InvalidOperationException(
                     $"Vulkan storage-buffer range {bindingLimit} cannot hold one " +
                     $"{DecodedPageBytes}-byte Sigma page.");
-            _pagesPerSegment = ComputeSegmentPageCapacity(bindingLimit,
-                segmentMegabytes);
+            _pagesPerSegment = ComputeSegmentPageCapacity(bindingLimit);
             _decodedBudgetPages = Math.Max(2,
                 checked((int)Math.Min(int.MaxValue,
                     decodedBudgetMegabytes * MiB / DecodedPageBytes))) & ~1;
@@ -156,18 +156,16 @@ namespace Genesis.RoomScan.SigmaPrism
             return false;
         }
 
-        public static int ComputeSegmentPageCapacity(long bindingLimit,
-            int requestedMegabytes)
+        public static int ComputeSegmentPageCapacity(long bindingLimit)
         {
             if (bindingLimit < DecodedPageBytes)
                 throw new ArgumentOutOfRangeException(nameof(bindingLimit));
-            if (requestedMegabytes <= 0)
-                throw new ArgumentOutOfRangeException(nameof(requestedMegabytes));
             long aligned = bindingLimit / DecodedPageBytes * DecodedPageBytes;
             if (aligned == bindingLimit && aligned >= 2L * DecodedPageBytes)
                 aligned -= DecodedPageBytes;
-            long requested = checked((long)requestedMegabytes * MiB);
-            int pages = checked((int)(Math.Min(requested, aligned) /
+            long maximum = checked((long)MaximumPagesPerSegment *
+                DecodedPageBytes);
+            int pages = checked((int)(Math.Min(maximum, aligned) /
                 DecodedPageBytes));
             if (pages < 2)
                 throw new InvalidOperationException(
