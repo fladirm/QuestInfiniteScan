@@ -73,9 +73,9 @@ extent allocation, proof/raw ownership and milestone gates are frozen in the pla
 
 ## Current exact action
 
-M1: implement only the generated direct-frame ABI and owned resource layer named in
-`.codex/S4-08.4_RESUME.md`. Do not edit production shader bodies or cut over the
-controller until the M2/M3 vertical direct inverse exists.
+M2: implement the complete direct-frame source/proposal/resolve shader and host
+recorder named in `.codex/S4-08.4_RESUME.md`. It must produce exact four-source
+frame outcomes without carrier mutation; controller cutover waits for M3 closure.
 
 ## Required end state
 
@@ -99,6 +99,8 @@ controller until the M2/M3 vertical direct inverse exists.
 - Device evidence remains negative acceptance and must not be restated as success.
 - S4-08.4 M0 control gate is green: DAG JSON parses, generated code graph is
   current, control validation names active S4-08 and diff whitespace is clean.
+- M1 generated ABI/resource gate is green: generated outputs are current and Unity
+  Vulkan EditMode passes 76/76 including the eight-UAV frame ABI dispatch.
 
 ## Completion protocol
 

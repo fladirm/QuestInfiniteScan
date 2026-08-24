@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "source_digest": "cc8c571e99d230e4b3fa91c1f314ce4510b8bdf9deeb5be2374d61dde9bbaa10",
+  "source_digest": "df0cb10bf0bcf881cc3d6dd72eb675cac9b1f5718983d50cf0db3185a74a5ff0",
   "scope": [
     "Runtime/**/*.cs",
     "Runtime/Resources/SigmaPrism/**/*.*",
@@ -10,9 +10,9 @@
     "Tests/Editor/*.cs"
   ],
   "summary": {
-    "files": 135,
-    "symbols": 2190,
-    "methods_and_functions": 1765,
+    "files": 139,
+    "symbols": 2266,
+    "methods_and_functions": 1804,
     "gpu_kernels": 113,
     "event_links": 5
   },
@@ -211,6 +211,11 @@
       "id": "file:Runtime/Resources/SigmaPrism/SigmaForwardReadout.compute",
       "path": "Runtime/Resources/SigmaPrism/SigmaForwardReadout.compute",
       "language": "compute"
+    },
+    {
+      "id": "file:Runtime/Resources/SigmaPrism/SigmaFrameAbi.hlsl",
+      "path": "Runtime/Resources/SigmaPrism/SigmaFrameAbi.hlsl",
+      "language": "hlsl"
     },
     {
       "id": "file:Runtime/Resources/SigmaPrism/SigmaGaugeAbi.hlsl",
@@ -438,6 +443,11 @@
       "language": "cs"
     },
     {
+      "id": "file:Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs",
+      "path": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs",
+      "language": "cs"
+    },
+    {
       "id": "file:Runtime/SigmaPrism/Generated/SigmaGeneratedStreaming.cs",
       "path": "Runtime/SigmaPrism/Generated/SigmaGeneratedStreaming.cs",
       "language": "cs"
@@ -475,6 +485,11 @@
     {
       "id": "file:Runtime/SigmaPrism/SigmaExactBackendGate.cs",
       "path": "Runtime/SigmaPrism/SigmaExactBackendGate.cs",
+      "language": "cs"
+    },
+    {
+      "id": "file:Runtime/SigmaPrism/SigmaFrameResources.cs",
+      "path": "Runtime/SigmaPrism/SigmaFrameResources.cs",
       "language": "cs"
     },
     {
@@ -630,6 +645,11 @@
     {
       "id": "file:Tests/Editor/SigmaForwardReadoutTests.cs",
       "path": "Tests/Editor/SigmaForwardReadoutTests.cs",
+      "language": "cs"
+    },
+    {
+      "id": "file:Tests/Editor/SigmaFrameResourceTests.cs",
+      "path": "Tests/Editor/SigmaFrameResourceTests.cs",
       "language": "cs"
     },
     {
@@ -3003,6 +3023,55 @@
       "name": "ResolveCarrierHalos",
       "kind": "gpu_kernel",
       "line": 3
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaFrameAbi.hlsl::SigmaDirtyEdgeGpu",
+      "file": "Runtime/Resources/SigmaPrism/SigmaFrameAbi.hlsl",
+      "name": "SigmaDirtyEdgeGpu",
+      "kind": "struct",
+      "line": 81
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaFrameAbi.hlsl::SigmaFrameCandidateGpu",
+      "file": "Runtime/Resources/SigmaPrism/SigmaFrameAbi.hlsl",
+      "name": "SigmaFrameCandidateGpu",
+      "kind": "struct",
+      "line": 58
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaFrameAbi.hlsl::SigmaFrameDeltaGpu",
+      "file": "Runtime/Resources/SigmaPrism/SigmaFrameAbi.hlsl",
+      "name": "SigmaFrameDeltaGpu",
+      "kind": "struct",
+      "line": 75
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaFrameAbi.hlsl::SigmaFrameOutcomeGpu",
+      "file": "Runtime/Resources/SigmaPrism/SigmaFrameAbi.hlsl",
+      "name": "SigmaFrameOutcomeGpu",
+      "kind": "struct",
+      "line": 64
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaFrameAbi.hlsl::SigmaFrameRevisionGpu",
+      "file": "Runtime/Resources/SigmaPrism/SigmaFrameAbi.hlsl",
+      "name": "SigmaFrameRevisionGpu",
+      "kind": "struct",
+      "line": 87
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaFrameAbi.hlsl::SigmaOwnedFrameGpu",
+      "file": "Runtime/Resources/SigmaPrism/SigmaFrameAbi.hlsl",
+      "name": "SigmaOwnedFrameGpu",
+      "kind": "struct",
+      "line": 51
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaFrameAbi.hlsl::SigmaPendingGaugeGpu",
+      "file": "Runtime/Resources/SigmaPrism/SigmaFrameAbi.hlsl",
+      "name": "SigmaPendingGaugeGpu",
+      "kind": "struct",
+      "line": 69
     },
     {
       "id": "Runtime/Resources/SigmaPrism/SigmaGaugeAbi.hlsl::SigmaGaugeBlock@32",
@@ -8388,6 +8457,132 @@
       "line": 6
     },
     {
+      "id": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs::SigmaDirtyEdgeGpu",
+      "file": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs",
+      "name": "SigmaDirtyEdgeGpu",
+      "kind": "struct",
+      "line": 124
+    },
+    {
+      "id": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs::SigmaFrameCandidateGpu",
+      "file": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs",
+      "name": "SigmaFrameCandidateGpu",
+      "kind": "struct",
+      "line": 97
+    },
+    {
+      "id": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs::SigmaFrameClaimKind",
+      "file": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs",
+      "name": "SigmaFrameClaimKind",
+      "kind": "enum",
+      "line": 45
+    },
+    {
+      "id": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs::SigmaFrameDeltaGpu",
+      "file": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs",
+      "name": "SigmaFrameDeltaGpu",
+      "kind": "struct",
+      "line": 117
+    },
+    {
+      "id": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs::SigmaFrameOutcomeFlags",
+      "file": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs",
+      "name": "SigmaFrameOutcomeFlags",
+      "kind": "enum",
+      "line": 77
+    },
+    {
+      "id": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs::SigmaFrameOutcomeGpu",
+      "file": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs",
+      "name": "SigmaFrameOutcomeGpu",
+      "kind": "struct",
+      "line": 104
+    },
+    {
+      "id": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs::SigmaFrameProposalKind",
+      "file": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs",
+      "name": "SigmaFrameProposalKind",
+      "kind": "enum",
+      "line": 31
+    },
+    {
+      "id": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs::SigmaFrameRevisionGpu",
+      "file": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs",
+      "name": "SigmaFrameRevisionGpu",
+      "kind": "struct",
+      "line": 131
+    },
+    {
+      "id": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs::SigmaFrameRevisionState",
+      "file": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs",
+      "name": "SigmaFrameRevisionState",
+      "kind": "enum",
+      "line": 69
+    },
+    {
+      "id": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs::SigmaFrameSource",
+      "file": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs",
+      "name": "SigmaFrameSource",
+      "kind": "enum",
+      "line": 23
+    },
+    {
+      "id": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs::SigmaFrameTargetKind",
+      "file": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs",
+      "name": "SigmaFrameTargetKind",
+      "kind": "enum",
+      "line": 39
+    },
+    {
+      "id": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs::SigmaFrameUInt2Gpu",
+      "file": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs",
+      "name": "SigmaFrameUInt2Gpu",
+      "kind": "struct",
+      "line": 9
+    },
+    {
+      "id": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs::SigmaFrameUInt4Gpu",
+      "file": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs",
+      "name": "SigmaFrameUInt4Gpu",
+      "kind": "struct",
+      "line": 16
+    },
+    {
+      "id": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs::SigmaGeneratedFrame",
+      "file": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs",
+      "name": "SigmaGeneratedFrame",
+      "kind": "class",
+      "line": 137
+    },
+    {
+      "id": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs::SigmaOwnedFrameGpu",
+      "file": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs",
+      "name": "SigmaOwnedFrameGpu",
+      "kind": "struct",
+      "line": 90
+    },
+    {
+      "id": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs::SigmaOwnedFrameState",
+      "file": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs",
+      "name": "SigmaOwnedFrameState",
+      "kind": "enum",
+      "line": 52
+    },
+    {
+      "id": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs::SigmaPendingGaugeGpu",
+      "file": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs",
+      "name": "SigmaPendingGaugeGpu",
+      "kind": "struct",
+      "line": 110
+    },
+    {
+      "id": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs::SigmaPendingGaugeState",
+      "file": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs",
+      "name": "SigmaPendingGaugeState",
+      "kind": "enum",
+      "line": 61
+    },
+    {
       "id": "Runtime/SigmaPrism/Generated/SigmaGeneratedStreaming.cs::SigmaAssociationSampleGpu",
       "file": "Runtime/SigmaPrism/Generated/SigmaGeneratedStreaming.cs",
       "name": "SigmaAssociationSampleGpu",
@@ -10080,6 +10275,279 @@
       "name": "SigmaExactBackendGateStatus",
       "kind": "enum",
       "line": 6
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::AdditionalBytesFor@62",
+      "file": "Runtime/SigmaPrism/SigmaFrameResources.cs",
+      "name": "AdditionalBytesFor",
+      "kind": "method",
+      "line": 62
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::BufferBytes@622",
+      "file": "Runtime/SigmaPrism/SigmaFrameResources.cs",
+      "name": "BufferBytes",
+      "kind": "method",
+      "line": 622
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::ComputeSegmentRecordCapacity@504",
+      "file": "Runtime/SigmaPrism/SigmaFrameResources.cs",
+      "name": "ComputeSegmentRecordCapacity",
+      "kind": "method",
+      "line": 504
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::CreateBuffer@613",
+      "file": "Runtime/SigmaPrism/SigmaFrameResources.cs",
+      "name": "CreateBuffer",
+      "kind": "method",
+      "line": 613
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::Dispose@211",
+      "file": "Runtime/SigmaPrism/SigmaFrameResources.cs",
+      "name": "Dispose",
+      "kind": "method",
+      "line": 211
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::Dispose@232",
+      "file": "Runtime/SigmaPrism/SigmaFrameResources.cs",
+      "name": "Dispose",
+      "kind": "method",
+      "line": 232
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::Dispose@267",
+      "file": "Runtime/SigmaPrism/SigmaFrameResources.cs",
+      "name": "Dispose",
+      "kind": "method",
+      "line": 267
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::Dispose@550",
+      "file": "Runtime/SigmaPrism/SigmaFrameResources.cs",
+      "name": "Dispose",
+      "kind": "method",
+      "line": 550
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::Dispose@98",
+      "file": "Runtime/SigmaPrism/SigmaFrameResources.cs",
+      "name": "Dispose",
+      "kind": "method",
+      "line": 98
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::EstimateSourceBytes@489",
+      "file": "Runtime/SigmaPrism/SigmaFrameResources.cs",
+      "name": "EstimateSourceBytes",
+      "kind": "method",
+      "line": 489
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::FrameSlot",
+      "file": "Runtime/SigmaPrism/SigmaFrameResources.cs",
+      "name": "FrameSlot",
+      "kind": "struct",
+      "line": 659
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::Get@222",
+      "file": "Runtime/SigmaPrism/SigmaFrameResources.cs",
+      "name": "Get",
+      "kind": "method",
+      "line": 222
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::GetSources@517",
+      "file": "Runtime/SigmaPrism/SigmaFrameResources.cs",
+      "name": "GetSources",
+      "kind": "method",
+      "line": 517
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::GrowTo@71",
+      "file": "Runtime/SigmaPrism/SigmaFrameResources.cs",
+      "name": "GrowTo",
+      "kind": "method",
+      "line": 71
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::Lower@202",
+      "file": "Runtime/SigmaPrism/SigmaFrameResources.cs",
+      "name": "Lower",
+      "kind": "method",
+      "line": 202
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::Provenance@209",
+      "file": "Runtime/SigmaPrism/SigmaFrameResources.cs",
+      "name": "Provenance",
+      "kind": "method",
+      "line": 209
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::Release@530",
+      "file": "Runtime/SigmaPrism/SigmaFrameResources.cs",
+      "name": "Release",
+      "kind": "method",
+      "line": 530
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::RequireAlive@109",
+      "file": "Runtime/SigmaPrism/SigmaFrameResources.cs",
+      "name": "RequireAlive",
+      "kind": "method",
+      "line": 109
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::RequireAlive@607",
+      "file": "Runtime/SigmaPrism/SigmaFrameResources.cs",
+      "name": "RequireAlive",
+      "kind": "method",
+      "line": 607
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::RequireSlot@596",
+      "file": "Runtime/SigmaPrism/SigmaFrameResources.cs",
+      "name": "RequireSlot",
+      "kind": "method",
+      "line": 596
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::Retain@260",
+      "file": "Runtime/SigmaPrism/SigmaFrameResources.cs",
+      "name": "Retain",
+      "kind": "method",
+      "line": 260
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::Retain@523",
+      "file": "Runtime/SigmaPrism/SigmaFrameResources.cs",
+      "name": "Retain",
+      "kind": "method",
+      "line": 523
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::SigmaFrameBufferSegment",
+      "file": "Runtime/SigmaPrism/SigmaFrameResources.cs",
+      "name": "SigmaFrameBufferSegment",
+      "kind": "struct",
+      "line": 14
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::SigmaFrameMemoryProfile",
+      "file": "Runtime/SigmaPrism/SigmaFrameResources.cs",
+      "name": "SigmaFrameMemoryProfile",
+      "kind": "enum",
+      "line": 8
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::SigmaFrameResources",
+      "file": "Runtime/SigmaPrism/SigmaFrameResources.cs",
+      "name": "SigmaFrameResources",
+      "kind": "class",
+      "line": 286
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::SigmaFrameSegmentedBuffer",
+      "file": "Runtime/SigmaPrism/SigmaFrameResources.cs",
+      "name": "SigmaFrameSegmentedBuffer",
+      "kind": "class",
+      "line": 35
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::SigmaFrameSourceStorage",
+      "file": "Runtime/SigmaPrism/SigmaFrameResources.cs",
+      "name": "SigmaFrameSourceStorage",
+      "kind": "class",
+      "line": 121
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::SigmaOwnedFrameLease",
+      "file": "Runtime/SigmaPrism/SigmaFrameResources.cs",
+      "name": "SigmaOwnedFrameLease",
+      "kind": "class",
+      "line": 241
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::TryAcquireFrame@398",
+      "file": "Runtime/SigmaPrism/SigmaFrameResources.cs",
+      "name": "TryAcquireFrame",
+      "kind": "method",
+      "line": 398
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::TryEnsureCandidateCapacity@457",
+      "file": "Runtime/SigmaPrism/SigmaFrameResources.cs",
+      "name": "TryEnsureCandidateCapacity",
+      "kind": "method",
+      "line": 457
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::TryEnsureDirtyEdgeCapacity@483",
+      "file": "Runtime/SigmaPrism/SigmaFrameResources.cs",
+      "name": "TryEnsureDirtyEdgeCapacity",
+      "kind": "method",
+      "line": 483
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::TryEnsurePendingGaugeCapacity@480",
+      "file": "Runtime/SigmaPrism/SigmaFrameResources.cs",
+      "name": "TryEnsurePendingGaugeCapacity",
+      "kind": "method",
+      "line": 480
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::TryEnsureRevisionCapacity@486",
+      "file": "Runtime/SigmaPrism/SigmaFrameResources.cs",
+      "name": "TryEnsureRevisionCapacity",
+      "kind": "method",
+      "line": 486
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::TryGrow@582",
+      "file": "Runtime/SigmaPrism/SigmaFrameResources.cs",
+      "name": "TryGrow",
+      "kind": "method",
+      "line": 582
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::TryReserve@593",
+      "file": "Runtime/SigmaPrism/SigmaFrameResources.cs",
+      "name": "TryReserve",
+      "kind": "method",
+      "line": 593
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::UInt4@625",
+      "file": "Runtime/SigmaPrism/SigmaFrameResources.cs",
+      "name": "UInt4",
+      "kind": "method",
+      "line": 625
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::Upper@205",
+      "file": "Runtime/SigmaPrism/SigmaFrameResources.cs",
+      "name": "Upper",
+      "kind": "method",
+      "line": 205
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::ValidateGeneratedAbi@628",
+      "file": "Runtime/SigmaPrism/SigmaFrameResources.cs",
+      "name": "ValidateGeneratedAbi",
+      "kind": "method",
+      "line": 628
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::Validity@207",
+      "file": "Runtime/SigmaPrism/SigmaFrameResources.cs",
+      "name": "Validity",
+      "kind": "method",
+      "line": 207
     },
     {
       "id": "Runtime/SigmaPrism/SigmaGaugeController.cs::BeginTransform@308",
@@ -14688,6 +15156,41 @@
       "line": 26
     },
     {
+      "id": "Tests/Editor/SigmaFrameResourceTests.cs::GeneratedFrameAbiHasExactManagedStrides@21",
+      "file": "Tests/Editor/SigmaFrameResourceTests.cs",
+      "name": "GeneratedFrameAbiHasExactManagedStrides",
+      "kind": "method",
+      "line": 21
+    },
+    {
+      "id": "Tests/Editor/SigmaFrameResourceTests.cs::SigmaFrameResourceTests",
+      "file": "Tests/Editor/SigmaFrameResourceTests.cs",
+      "name": "SigmaFrameResourceTests",
+      "kind": "class",
+      "line": 9
+    },
+    {
+      "id": "Tests/Editor/SigmaFrameResourceTests.cs::SourceStorageIsCompleteAndSegmentRangeNeverExceedsBinding@42",
+      "file": "Tests/Editor/SigmaFrameResourceTests.cs",
+      "name": "SourceStorageIsCompleteAndSegmentRangeNeverExceedsBinding",
+      "kind": "method",
+      "line": 42
+    },
+    {
+      "id": "Tests/Editor/SigmaFrameResourceTests.cs::UInt4",
+      "file": "Tests/Editor/SigmaFrameResourceTests.cs",
+      "name": "UInt4",
+      "kind": "struct",
+      "line": 12
+    },
+    {
+      "id": "Tests/Editor/SigmaFrameResourceTests.cs::VulkanFixtureCompilesAllRecordsWithinEightUavs@59",
+      "file": "Tests/Editor/SigmaFrameResourceTests.cs",
+      "name": "VulkanFixtureCompilesAllRecordsWithinEightUavs",
+      "kind": "method",
+      "line": 59
+    },
+    {
       "id": "Tests/Editor/SigmaGaugeRefinementTests.cs::AssertPackedPage@399",
       "file": "Tests/Editor/SigmaGaugeRefinementTests.cs",
       "name": "AssertPackedPage",
@@ -15595,371 +16098,420 @@
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaAssociationSampleGpu",
       "kind": "struct",
-      "line": 725
+      "line": 798
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaAssociationSampleGpu",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaAssociationSampleGpu",
       "kind": "struct",
-      "line": 1017
+      "line": 1090
+    },
+    {
+      "id": "Tools/sigma/generate_sigma_operators.py::SigmaFrameUInt2Gpu",
+      "file": "Tools/sigma/generate_sigma_operators.py",
+      "name": "SigmaFrameUInt2Gpu",
+      "kind": "struct",
+      "line": 1221
+    },
+    {
+      "id": "Tools/sigma/generate_sigma_operators.py::SigmaFrameUInt4Gpu",
+      "file": "Tools/sigma/generate_sigma_operators.py",
+      "name": "SigmaFrameUInt4Gpu",
+      "kind": "struct",
+      "line": 1228
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaGeneratedAlgebra",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaGeneratedAlgebra",
       "kind": "class",
-      "line": 429
+      "line": 502
+    },
+    {
+      "id": "Tools/sigma/generate_sigma_operators.py::SigmaGeneratedFrame",
+      "file": "Tools/sigma/generate_sigma_operators.py",
+      "name": "SigmaGeneratedFrame",
+      "kind": "class",
+      "line": 1239
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaGeneratedStreaming",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaGeneratedStreaming",
       "kind": "class",
-      "line": 770
+      "line": 843
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaPageVisibilityGpu",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaPageVisibilityGpu",
       "kind": "struct",
-      "line": 745
+      "line": 818
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaPageVisibilityGpu",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaPageVisibilityGpu",
       "kind": "struct",
-      "line": 1035
+      "line": 1108
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaProbationGpu",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaProbationGpu",
       "kind": "struct",
-      "line": 675
+      "line": 748
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaProbationGpu",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaProbationGpu",
       "kind": "struct",
-      "line": 972
+      "line": 1045
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaProofCandidateGpu",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaProofCandidateGpu",
       "kind": "struct",
-      "line": 708
+      "line": 781
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaProofCandidateGpu",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaProofCandidateGpu",
       "kind": "struct",
-      "line": 1002
+      "line": 1075
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaProofClosureGpu",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaProofClosureGpu",
       "kind": "struct",
-      "line": 695
+      "line": 768
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaProofClosureGpu",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaProofClosureGpu",
       "kind": "struct",
-      "line": 990
+      "line": 1063
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaProofPrefixGpu",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaProofPrefixGpu",
       "kind": "struct",
-      "line": 717
+      "line": 790
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaProofPrefixGpu",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaProofPrefixGpu",
       "kind": "struct",
-      "line": 1010
+      "line": 1083
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaPublicationManifestGpu",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaPublicationManifestGpu",
+      "kind": "struct",
+      "line": 809
+    },
+    {
+      "id": "Tools/sigma/generate_sigma_operators.py::SigmaPublicationManifestGpu",
+      "file": "Tools/sigma/generate_sigma_operators.py",
+      "name": "SigmaPublicationManifestGpu",
+      "kind": "struct",
+      "line": 1100
+    },
+    {
+      "id": "Tools/sigma/generate_sigma_operators.py::SigmaSealedSourceBundleGpu",
+      "file": "Tools/sigma/generate_sigma_operators.py",
+      "name": "SigmaSealedSourceBundleGpu",
       "kind": "struct",
       "line": 736
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::SigmaPublicationManifestGpu",
-      "file": "Tools/sigma/generate_sigma_operators.py",
-      "name": "SigmaPublicationManifestGpu",
-      "kind": "struct",
-      "line": 1027
-    },
-    {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaSealedSourceBundleGpu",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaSealedSourceBundleGpu",
       "kind": "struct",
-      "line": 663
-    },
-    {
-      "id": "Tools/sigma/generate_sigma_operators.py::SigmaSealedSourceBundleGpu",
-      "file": "Tools/sigma/generate_sigma_operators.py",
-      "name": "SigmaSealedSourceBundleGpu",
-      "kind": "struct",
-      "line": 961
+      "line": 1034
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaSourceHandleSegmentGpu",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaSourceHandleSegmentGpu",
       "kind": "struct",
-      "line": 684
+      "line": 757
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaSourceHandleSegmentGpu",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaSourceHandleSegmentGpu",
       "kind": "struct",
-      "line": 980
+      "line": 1053
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaStreamBudgetClass",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaStreamBudgetClass",
       "kind": "enum",
-      "line": 616
+      "line": 689
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaStreamDiagnosticGpu",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaStreamDiagnosticGpu",
       "kind": "struct",
-      "line": 759
+      "line": 832
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaStreamDiagnosticGpu",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaStreamDiagnosticGpu",
       "kind": "struct",
-      "line": 1047
+      "line": 1120
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaStreamOpcode",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaStreamOpcode",
       "kind": "enum",
-      "line": 612
+      "line": 685
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaStreamPageReferenceGpu",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaStreamPageReferenceGpu",
       "kind": "struct",
-      "line": 632
+      "line": 705
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaStreamPageReferenceGpu",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaStreamPageReferenceGpu",
       "kind": "struct",
-      "line": 932
+      "line": 1005
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaStreamUInt4Gpu",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaStreamUInt4Gpu",
       "kind": "struct",
-      "line": 623
+      "line": 696
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaStreamWorkItemGpu",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaStreamWorkItemGpu",
       "kind": "struct",
-      "line": 752
+      "line": 825
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaStreamWorkItemGpu",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaStreamWorkItemGpu",
       "kind": "struct",
-      "line": 1041
+      "line": 1114
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaTransactionGpu",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaTransactionGpu",
       "kind": "struct",
-      "line": 639
+      "line": 712
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaTransactionGpu",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaTransactionGpu",
       "kind": "struct",
-      "line": 938
+      "line": 1011
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::basis_product@51",
+      "id": "Tools/sigma/generate_sigma_operators.py::basis_product@124",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "basis_product",
       "kind": "function",
-      "line": 51
+      "line": 124
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::build_descriptor@101",
+      "id": "Tools/sigma/generate_sigma_operators.py::build_descriptor@174",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "build_descriptor",
       "kind": "function",
-      "line": 101
+      "line": 174
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::build_kernel_execution_descriptor@293",
+      "id": "Tools/sigma/generate_sigma_operators.py::build_kernel_execution_descriptor@366",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "build_kernel_execution_descriptor",
       "kind": "function",
-      "line": 293
+      "line": 366
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::check_or_write@1072",
+      "id": "Tools/sigma/generate_sigma_operators.py::check_or_write@1294",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "check_or_write",
       "kind": "function",
-      "line": 1072
+      "line": 1294
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::chunks@400",
+      "id": "Tools/sigma/generate_sigma_operators.py::chunks@473",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "chunks",
       "kind": "function",
-      "line": 400
+      "line": 473
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::conjugate_sign@68",
+      "id": "Tools/sigma/generate_sigma_operators.py::conjugate_sign@141",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "conjugate_sign",
       "kind": "function",
-      "line": 68
+      "line": 141
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::cs_array@405",
+      "id": "Tools/sigma/generate_sigma_operators.py::cs_array@478",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "cs_array",
       "kind": "function",
-      "line": 405
+      "line": 478
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::cs_values@601",
+      "id": "Tools/sigma/generate_sigma_operators.py::cs_values@674",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "cs_values",
       "kind": "function",
-      "line": 601
+      "line": 674
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::dyads@76",
+      "id": "Tools/sigma/generate_sigma_operators.py::dyads@149",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "dyads",
       "kind": "function",
-      "line": 76
+      "line": 149
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::fingerprint_words@489",
+      "id": "Tools/sigma/generate_sigma_operators.py::fingerprint_words@562",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "fingerprint_words",
       "kind": "function",
-      "line": 489
+      "line": 562
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::hadamard_sign@72",
+      "id": "Tools/sigma/generate_sigma_operators.py::frame_abi_descriptor@1156",
+      "file": "Tools/sigma/generate_sigma_operators.py",
+      "name": "frame_abi_descriptor",
+      "kind": "function",
+      "line": 1156
+    },
+    {
+      "id": "Tools/sigma/generate_sigma_operators.py::hadamard_sign@145",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "hadamard_sign",
       "kind": "function",
-      "line": 72
+      "line": 145
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::main@1085",
+      "id": "Tools/sigma/generate_sigma_operators.py::main@1307",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "main",
       "kind": "function",
-      "line": 1085
+      "line": 1307
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::multiply_dyads@84",
+      "id": "Tools/sigma/generate_sigma_operators.py::multiply_dyads@157",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "multiply_dyads",
       "kind": "function",
-      "line": 84
+      "line": 157
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::render_cs@414",
+      "id": "Tools/sigma/generate_sigma_operators.py::render_cs@487",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "render_cs",
       "kind": "function",
-      "line": 414
+      "line": 487
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::render_hlsl@532",
+      "id": "Tools/sigma/generate_sigma_operators.py::render_frame_cs@1179",
+      "file": "Tools/sigma/generate_sigma_operators.py",
+      "name": "render_frame_cs",
+      "kind": "function",
+      "line": 1179
+    },
+    {
+      "id": "Tools/sigma/generate_sigma_operators.py::render_frame_hlsl@1254",
+      "file": "Tools/sigma/generate_sigma_operators.py",
+      "name": "render_frame_hlsl",
+      "kind": "function",
+      "line": 1254
+    },
+    {
+      "id": "Tools/sigma/generate_sigma_operators.py::render_hlsl@605",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "render_hlsl",
       "kind": "function",
-      "line": 532
+      "line": 605
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::render_hlsl_layout@493",
+      "id": "Tools/sigma/generate_sigma_operators.py::render_hlsl_layout@566",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "render_hlsl_layout",
       "kind": "function",
-      "line": 493
+      "line": 566
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::render_streaming_cs@593",
+      "id": "Tools/sigma/generate_sigma_operators.py::render_streaming_cs@666",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "render_streaming_cs",
       "kind": "function",
-      "line": 593
+      "line": 666
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::render_streaming_hlsl@824",
+      "id": "Tools/sigma/generate_sigma_operators.py::render_streaming_hlsl@897",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "render_streaming_hlsl",
       "kind": "function",
-      "line": 824
+      "line": 897
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::sha256@96",
+      "id": "Tools/sigma/generate_sigma_operators.py::sha256@169",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "sha256",
       "kind": "function",
-      "line": 96
+      "line": 169
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::uint_array@589",
+      "id": "Tools/sigma/generate_sigma_operators.py::uint_array@662",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "uint_array",
       "kind": "function",
-      "line": 589
+      "line": 662
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::validate_descriptor@267",
+      "id": "Tools/sigma/generate_sigma_operators.py::upper_snake@1145",
+      "file": "Tools/sigma/generate_sigma_operators.py",
+      "name": "upper_snake",
+      "kind": "function",
+      "line": 1145
+    },
+    {
+      "id": "Tools/sigma/generate_sigma_operators.py::validate_descriptor@340",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "validate_descriptor",
       "kind": "function",
-      "line": 267
+      "line": 340
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::values@834",
+      "id": "Tools/sigma/generate_sigma_operators.py::values@907",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "values",
       "kind": "function",
-      "line": 834
+      "line": 907
     },
     {
       "id": "Tools/unity/validate_sigma_compute_uav.py::function_bodies@46",
@@ -26267,6 +26819,101 @@
       "kind": "calls"
     },
     {
+      "source": "Runtime/SigmaPrism/SigmaFrameResources.cs::AdditionalBytesFor@62",
+      "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Max@172",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaFrameResources.cs::ComputeSegmentRecordCapacity@504",
+      "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Max@172",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaFrameResources.cs::ComputeSegmentRecordCapacity@504",
+      "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Min@170",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaFrameResources.cs::Dispose@550",
+      "target": "Runtime/SigmaPrism/SigmaTransitionCache.cs::Clear@104",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaFrameResources.cs::Dispose@98",
+      "target": "Runtime/SigmaPrism/SigmaTransitionCache.cs::Clear@104",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaFrameResources.cs::GetSources@517",
+      "target": "Runtime/SigmaPrism/SigmaFrameResources.cs::RequireSlot@596",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaFrameResources.cs::GrowTo@71",
+      "target": "Runtime/SigmaPrism/SigmaFrameResources.cs::SigmaFrameBufferSegment",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaFrameResources.cs::GrowTo@71",
+      "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Min@170",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaFrameResources.cs::Release@530",
+      "target": "Runtime/SigmaPrism/SigmaFrameResources.cs::RequireSlot@596",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaFrameResources.cs::Retain@260",
+      "target": "Runtime/SigmaPrism/SigmaFrameResources.cs::SigmaOwnedFrameLease",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaFrameResources.cs::Retain@523",
+      "target": "Runtime/SigmaPrism/SigmaFrameResources.cs::RequireSlot@596",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaFrameResources.cs::TryAcquireFrame@398",
+      "target": "Runtime/SigmaPrism/SigmaFrameResources.cs::SigmaFrameSourceStorage",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaFrameResources.cs::TryAcquireFrame@398",
+      "target": "Runtime/SigmaPrism/SigmaFrameResources.cs::SigmaOwnedFrameLease",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaFrameResources.cs::TryEnsureCandidateCapacity@457",
+      "target": "Runtime/SigmaPrism/SigmaFrameResources.cs::AdditionalBytesFor@62",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaFrameResources.cs::TryEnsureCandidateCapacity@457",
+      "target": "Runtime/SigmaPrism/SigmaFrameResources.cs::GrowTo@71",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaFrameResources.cs::TryEnsureCandidateCapacity@457",
+      "target": "Runtime/SigmaPrism/SigmaFrameResources.cs::TryReserve@593",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaFrameResources.cs::TryGrow@582",
+      "target": "Runtime/SigmaPrism/SigmaFrameResources.cs::AdditionalBytesFor@62",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaFrameResources.cs::TryGrow@582",
+      "target": "Runtime/SigmaPrism/SigmaFrameResources.cs::GrowTo@71",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaFrameResources.cs::TryGrow@582",
+      "target": "Runtime/SigmaPrism/SigmaFrameResources.cs::TryReserve@593",
+      "kind": "calls"
+    },
+    {
       "source": "Runtime/SigmaPrism/SigmaGaugeController.cs::BeginTransform@308",
       "target": "Runtime/SigmaPrism/SigmaCarrier.cs::BeginNextGeneration@384",
       "kind": "calls"
@@ -29032,11 +29679,6 @@
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaStreamingResources.cs::SumBytes@343",
-      "target": "Runtime/SigmaPrism/SigmaStreamingResources.cs::BufferBytes@340",
-      "kind": "calls"
-    },
-    {
       "source": "Runtime/SigmaPrism/SigmaTopologyController.cs::AccumulateEvidencePage@663",
       "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::DispatchProfiled@112",
       "kind": "calls"
@@ -29558,11 +30200,6 @@
     },
     {
       "source": "Tests/Editor/SigmaAlgebraOperatorTests.cs::CseMaskSelectAndCapabilityRefusalPreserveExactSemantics@261",
-      "target": "Runtime/SigmaPrism/SigmaBackendCapabilities.cs::Lower@104",
-      "kind": "calls"
-    },
-    {
-      "source": "Tests/Editor/SigmaAlgebraOperatorTests.cs::CseMaskSelectAndCapabilityRefusalPreserveExactSemantics@261",
       "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Evaluate@263",
       "kind": "calls"
     },
@@ -29779,11 +30416,6 @@
     {
       "source": "Tests/Editor/SigmaAlgebraOperatorTests.cs::OutwardIntervalArithmeticNeverExcludesExactValue@57",
       "target": "Runtime/SigmaPrism/SigmaNumericDomain.cs::SigmaQ48Interval",
-      "kind": "calls"
-    },
-    {
-      "source": "Tests/Editor/SigmaAlgebraOperatorTests.cs::SignedDyadPlanUsesOnlyPermutationSignAndAddition@162",
-      "target": "Runtime/SigmaPrism/SigmaBackendCapabilities.cs::Lower@104",
       "kind": "calls"
     },
     {
@@ -30379,6 +31011,21 @@
     {
       "source": "Tests/Editor/SigmaForwardReadoutTests.cs::MinPositiveDepth@410",
       "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Min@170",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaFrameResourceTests.cs::SourceStorageIsCompleteAndSegmentRangeNeverExceedsBinding@42",
+      "target": "Runtime/SigmaPrism/SigmaFrameResources.cs::ComputeSegmentRecordCapacity@504",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaFrameResourceTests.cs::SourceStorageIsCompleteAndSegmentRangeNeverExceedsBinding@42",
+      "target": "Runtime/SigmaPrism/SigmaFrameResources.cs::EstimateSourceBytes@489",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaFrameResourceTests.cs::VulkanFixtureCompilesAllRecordsWithinEightUavs@59",
+      "target": "Runtime/SigmaPrism/SigmaExactBackendGate.cs::Dispatch@45",
       "kind": "calls"
     },
     {
@@ -31298,7 +31945,7 @@
     },
     {
       "source": "Tools/generate_code_graph.py::is_hlsl_definition@110",
-      "target": "Tools/sigma/generate_sigma_operators.py::sha256@96",
+      "target": "Tools/sigma/generate_sigma_operators.py::sha256@169",
       "kind": "calls"
     },
     {
@@ -31307,8 +31954,8 @@
       "kind": "calls"
     },
     {
-      "source": "Tools/sigma/generate_sigma_operators.py::render_cs@414",
-      "target": "Tools/sigma/generate_sigma_operators.py::cs_array@405",
+      "source": "Tools/sigma/generate_sigma_operators.py::render_cs@487",
+      "target": "Tools/sigma/generate_sigma_operators.py::cs_array@478",
       "kind": "calls"
     },
     {

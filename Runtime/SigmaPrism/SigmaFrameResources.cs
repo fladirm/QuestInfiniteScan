@@ -1,0 +1,667 @@
+using System;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+using UnityEngine;
+
+namespace Genesis.RoomScan.SigmaPrism
+{
+    internal enum SigmaFrameMemoryProfile
+    {
+        Minimum = 1024,
+        HighThroughput = 2048,
+        AuditedMaximum = 3072,
+    }
+
+    internal readonly struct SigmaFrameBufferSegment
+    {
+        internal SigmaFrameBufferSegment(long firstRecord, int recordCount,
+            GraphicsBuffer buffer)
+        {
+            FirstRecord = firstRecord;
+            RecordCount = recordCount;
+            Buffer = buffer ?? throw new ArgumentNullException(nameof(buffer));
+        }
+
+        internal long FirstRecord { get; }
+        internal int RecordCount { get; }
+        internal GraphicsBuffer Buffer { get; }
+    }
+
+    /// <summary>
+    /// One logical SoA buffer split only to respect the Vulkan storage-buffer
+    /// range. Segment boundaries are execution metadata and never truncate the
+    /// logical record stream.
+    /// </summary>
+    internal sealed class SigmaFrameSegmentedBuffer : IDisposable
+    {
+        private readonly List<SigmaFrameBufferSegment> _segments = new();
+        private readonly int _recordsPerSegment;
+        private readonly int _stride;
+        private readonly string _name;
+        private bool _disposed;
+
+        internal SigmaFrameSegmentedBuffer(int stride, int recordsPerSegment,
+            string name)
+        {
+            if (stride <= 0 || (stride & 3) != 0)
+                throw new ArgumentOutOfRangeException(nameof(stride));
+            if (recordsPerSegment <= 0)
+                throw new ArgumentOutOfRangeException(nameof(recordsPerSegment));
+            _stride = stride;
+            _recordsPerSegment = recordsPerSegment;
+            _name = string.IsNullOrWhiteSpace(name)
+                ? throw new ArgumentException("A Sigma buffer name is required.",
+                    nameof(name))
+                : name;
+        }
+
+        internal int Stride => _stride;
+        internal long RecordCapacity { get; private set; }
+        internal long OwnedBytes => checked(RecordCapacity * _stride);
+        internal IReadOnlyList<SigmaFrameBufferSegment> Segments => _segments;
+
+        internal long AdditionalBytesFor(long requiredRecords)
+        {
+            RequireAlive();
+            if (requiredRecords < 0L)
+                throw new ArgumentOutOfRangeException(nameof(requiredRecords));
+            long missing = Math.Max(0L, requiredRecords - RecordCapacity);
+            return checked(missing * _stride);
+        }
+
+        internal void GrowTo(long requiredRecords)
+        {
+            RequireAlive();
+            if (requiredRecords < 0L)
+                throw new ArgumentOutOfRangeException(nameof(requiredRecords));
+            while (RecordCapacity < requiredRecords)
+            {
+                int count = checked((int)Math.Min(
+                    requiredRecords - RecordCapacity, _recordsPerSegment));
+                long bytes = checked((long)count * _stride);
+                var buffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured,
+                    count, _stride)
+                {
+                    name = $"{_name} [{_segments.Count}]"
+                };
+                if ((long)buffer.count * buffer.stride != bytes)
+                {
+                    buffer.Dispose();
+                    throw new InvalidOperationException(
+                        $"Sigma segment allocation mismatch for {_name}.");
+                }
+                _segments.Add(new SigmaFrameBufferSegment(RecordCapacity, count,
+                    buffer));
+                RecordCapacity = checked(RecordCapacity + count);
+            }
+        }
+
+        public void Dispose()
+        {
+            if (_disposed)
+                return;
+            _disposed = true;
+            for (int index = 0; index < _segments.Count; ++index)
+                _segments[index].Buffer.Dispose();
+            _segments.Clear();
+            RecordCapacity = 0L;
+        }
+
+        private void RequireAlive()
+        {
+            if (_disposed)
+                throw new ObjectDisposedException(nameof(SigmaFrameSegmentedBuffer));
+        }
+    }
+
+    /// <summary>
+    /// Complete exact four-source cell journal for one owned coherent frame.
+    /// Layout is coordinate-major: coordinate * footprintCount + footprint.
+    /// </summary>
+    internal sealed class SigmaFrameSourceStorage : IDisposable
+    {
+        private readonly SigmaFrameSegmentedBuffer[] _lo;
+        private readonly SigmaFrameSegmentedBuffer[] _hi;
+        private readonly SigmaFrameSegmentedBuffer[] _validity;
+        private readonly SigmaFrameSegmentedBuffer[] _provenance;
+        private bool _disposed;
+
+        internal SigmaFrameSourceStorage(int slot, int footprintCount,
+            long bindingLimit)
+        {
+            if (slot < 0)
+                throw new ArgumentOutOfRangeException(nameof(slot));
+            if (footprintCount <= 0)
+                throw new ArgumentOutOfRangeException(nameof(footprintCount));
+            FootprintCount = footprintCount;
+            long coordinateRecords = checked((long)footprintCount *
+                SigmaGeneratedFrame.LaneCount);
+            int coordinateSegmentRecords =
+                SigmaFrameResources.ComputeSegmentRecordCapacity(bindingLimit,
+                    SigmaGeneratedFrame.PackedQ48Stride);
+            int provenanceSegmentRecords =
+                SigmaFrameResources.ComputeSegmentRecordCapacity(bindingLimit,
+                    SigmaGeneratedFrame.ProvenanceStride);
+
+            _lo = new SigmaFrameSegmentedBuffer[SigmaGeneratedFrame.SourceCount];
+            _hi = new SigmaFrameSegmentedBuffer[SigmaGeneratedFrame.SourceCount];
+            _validity = new SigmaFrameSegmentedBuffer[
+                SigmaGeneratedFrame.SourceCount];
+            _provenance = new SigmaFrameSegmentedBuffer[
+                SigmaGeneratedFrame.SourceCount];
+            try
+            {
+                for (int source = 0; source < SigmaGeneratedFrame.SourceCount;
+                    ++source)
+                {
+                    string prefix = $"Sigma frame {slot} source {source}";
+                    _lo[source] = new SigmaFrameSegmentedBuffer(
+                        SigmaGeneratedFrame.PackedQ48Stride,
+                        coordinateSegmentRecords, $"{prefix} lower Q48");
+                    _hi[source] = new SigmaFrameSegmentedBuffer(
+                        SigmaGeneratedFrame.PackedQ48Stride,
+                        coordinateSegmentRecords, $"{prefix} upper Q48");
+                    _validity[source] = new SigmaFrameSegmentedBuffer(
+                        SigmaGeneratedFrame.ValidityStride,
+                        coordinateSegmentRecords, $"{prefix} validity");
+                    _provenance[source] = new SigmaFrameSegmentedBuffer(
+                        SigmaGeneratedFrame.ProvenanceStride,
+                        provenanceSegmentRecords, $"{prefix} provenance");
+                    _lo[source].GrowTo(coordinateRecords);
+                    _hi[source].GrowTo(coordinateRecords);
+                    _validity[source].GrowTo(coordinateRecords);
+                    _provenance[source].GrowTo(footprintCount);
+                }
+            }
+            catch
+            {
+                Dispose();
+                throw;
+            }
+        }
+
+        internal int FootprintCount { get; }
+        internal long OwnedBytes
+        {
+            get
+            {
+                long bytes = 0L;
+                for (int source = 0; source < SigmaGeneratedFrame.SourceCount;
+                    ++source)
+                {
+                    bytes = checked(bytes + (_lo[source]?.OwnedBytes ?? 0L));
+                    bytes = checked(bytes + (_hi[source]?.OwnedBytes ?? 0L));
+                    bytes = checked(bytes +
+                        (_validity[source]?.OwnedBytes ?? 0L));
+                    bytes = checked(bytes +
+                        (_provenance[source]?.OwnedBytes ?? 0L));
+                }
+                return bytes;
+            }
+        }
+
+        internal SigmaFrameSegmentedBuffer Lower(SigmaFrameSource source) =>
+            Get(_lo, source);
+        internal SigmaFrameSegmentedBuffer Upper(SigmaFrameSource source) =>
+            Get(_hi, source);
+        internal SigmaFrameSegmentedBuffer Validity(SigmaFrameSource source) =>
+            Get(_validity, source);
+        internal SigmaFrameSegmentedBuffer Provenance(SigmaFrameSource source) =>
+            Get(_provenance, source);
+
+        public void Dispose()
+        {
+            if (_disposed)
+                return;
+            _disposed = true;
+            Dispose(_lo);
+            Dispose(_hi);
+            Dispose(_validity);
+            Dispose(_provenance);
+        }
+
+        private static SigmaFrameSegmentedBuffer Get(
+            SigmaFrameSegmentedBuffer[] buffers, SigmaFrameSource source)
+        {
+            int index = checked((int)source);
+            if ((uint)index >= SigmaGeneratedFrame.SourceCount)
+                throw new ArgumentOutOfRangeException(nameof(source));
+            return buffers[index] ?? throw new ObjectDisposedException(
+                nameof(SigmaFrameSourceStorage));
+        }
+
+        private static void Dispose(SigmaFrameSegmentedBuffer[] buffers)
+        {
+            if (buffers == null)
+                return;
+            for (int index = 0; index < buffers.Length; ++index)
+                buffers[index]?.Dispose();
+        }
+    }
+
+    internal sealed class SigmaOwnedFrameLease : IDisposable
+    {
+        private SigmaFrameResources _owner;
+        private readonly int _slot;
+        private readonly uint _generation;
+
+        internal SigmaOwnedFrameLease(SigmaFrameResources owner, int slot,
+            uint generation)
+        {
+            _owner = owner ?? throw new ArgumentNullException(nameof(owner));
+            _slot = slot;
+            _generation = generation;
+        }
+
+        internal int Slot => _slot;
+        internal uint Generation => _generation;
+        internal SigmaFrameSourceStorage Sources => Owner.GetSources(_slot,
+            _generation);
+
+        internal SigmaOwnedFrameLease Retain()
+        {
+            SigmaFrameResources owner = Owner;
+            owner.Retain(_slot, _generation);
+            return new SigmaOwnedFrameLease(owner, _slot, _generation);
+        }
+
+        public void Dispose()
+        {
+            SigmaFrameResources owner = _owner;
+            if (owner == null)
+                return;
+            _owner = null;
+            owner.Release(_slot, _generation);
+        }
+
+        private SigmaFrameResources Owner => _owner ??
+            throw new ObjectDisposedException(nameof(SigmaOwnedFrameLease));
+    }
+
+    /// <summary>
+    /// Owned execution resources for the direct whole-frame inverse. Capacities
+    /// bound residency only. Failed growth returns backpressure before admission;
+    /// it never truncates an accepted source, candidate, proof or revision.
+    /// </summary>
+    internal sealed class SigmaFrameResources : IDisposable
+    {
+        private const long MiB = 1024L * 1024L;
+        private const long PreferredSegmentBytes = 64L * MiB;
+        private const int InitialProposalKinds = 4;
+        private const int InitialEdgesPerCandidate = 4;
+        private const int InitialRevisionRecords = 256;
+
+        private readonly long _bindingLimit;
+        private readonly long _budgetBytes;
+        private readonly FrameSlot[] _frameSlots;
+        private readonly Stack<int> _freeAllocated = new();
+        private readonly Stack<int> _unallocated = new();
+        private long _allocatedBytes;
+        private bool _disposed;
+
+        internal SigmaFrameResources(Vector2Int resolution,
+            SigmaFrameMemoryProfile profile = SigmaFrameMemoryProfile.HighThroughput)
+            : this(resolution, profile, SystemInfo.maxGraphicsBufferSize)
+        {
+        }
+
+        internal SigmaFrameResources(Vector2Int resolution,
+            SigmaFrameMemoryProfile profile, long bindingLimit)
+        {
+            if (resolution.x <= 0 || resolution.y <= 0)
+                throw new ArgumentOutOfRangeException(nameof(resolution));
+            if (bindingLimit <= SigmaGeneratedFrame.ProvenanceStride)
+                throw new ArgumentOutOfRangeException(nameof(bindingLimit));
+            int profileMiB = checked((int)profile);
+            if (profileMiB != (int)SigmaFrameMemoryProfile.Minimum &&
+                profileMiB != (int)SigmaFrameMemoryProfile.HighThroughput &&
+                profileMiB != (int)SigmaFrameMemoryProfile.AuditedMaximum)
+                throw new ArgumentOutOfRangeException(nameof(profile));
+
+            ValidateGeneratedAbi();
+            Resolution = resolution;
+            FootprintCount = checked(resolution.x * resolution.y);
+            Profile = profile;
+            _bindingLimit = bindingLimit;
+            _budgetBytes = checked((long)profileMiB * MiB);
+
+            long initialCandidates = checked((long)FootprintCount *
+                InitialProposalKinds);
+            long initialEdges = checked(initialCandidates *
+                InitialEdgesPerCandidate);
+            Candidates = Buffer<SigmaFrameCandidateGpu>(
+                SigmaGeneratedFrame.FrameCandidateStride,
+                "Sigma direct frame candidates");
+            Outcomes = Buffer<SigmaFrameOutcomeGpu>(
+                SigmaGeneratedFrame.FrameOutcomeStride,
+                "Sigma direct frame outcomes");
+            CandidateStates = Buffer<SigmaFrameUInt2Gpu>(
+                SigmaGeneratedFrame.PackedQ48Stride,
+                "Sigma direct candidate S16 states");
+            PendingGauges = Buffer<SigmaPendingGaugeGpu>(
+                SigmaGeneratedFrame.PendingGaugeStride,
+                "Sigma pending latent gauges");
+            Deltas = Buffer<SigmaFrameDeltaGpu>(
+                SigmaGeneratedFrame.FrameDeltaStride,
+                "Sigma direct frame deltas");
+            DirtyEdges = Buffer<SigmaDirtyEdgeGpu>(
+                SigmaGeneratedFrame.DirtyEdgeStride,
+                "Sigma direct dirty intrinsic edges");
+            Revisions = Buffer<SigmaFrameRevisionGpu>(
+                SigmaGeneratedFrame.FrameRevisionStride,
+                "Sigma direct frame revisions");
+
+            if (!TryEnsureCandidateCapacity(initialCandidates) ||
+                !TryEnsurePendingGaugeCapacity(FootprintCount) ||
+                !TryEnsureDirtyEdgeCapacity(initialEdges) ||
+                !TryEnsureRevisionCapacity(InitialRevisionRecords))
+                throw new InvalidOperationException(
+                    "The selected Sigma frame memory profile cannot hold one " +
+                    "complete direct-frame execution window.");
+
+            long sourceBytes = EstimateSourceBytes(FootprintCount);
+            long remaining = Math.Max(0L, _budgetBytes - _allocatedBytes);
+            int frameCapacity = checked((int)Math.Min(int.MaxValue,
+                remaining / Math.Max(1L, sourceBytes)));
+            if (frameCapacity < 2)
+                throw new InvalidOperationException(
+                    "The selected Sigma frame memory profile cannot own two " +
+                    "complete coherent source-cell journals.");
+
+            _frameSlots = new FrameSlot[frameCapacity];
+            OwnedFrames = CreateBuffer(frameCapacity,
+                SigmaGeneratedFrame.OwnedFrameStride,
+                "Sigma owned coherent frames");
+            _allocatedBytes = checked(_allocatedBytes +
+                BufferBytes(OwnedFrames));
+            OwnedFrames.SetData(new SigmaOwnedFrameGpu[frameCapacity]);
+            for (int slot = frameCapacity - 1; slot >= 0; --slot)
+                _unallocated.Push(slot);
+        }
+
+        internal Vector2Int Resolution { get; }
+        internal int FootprintCount { get; }
+        internal SigmaFrameMemoryProfile Profile { get; }
+        internal int FrameCapacity => _frameSlots.Length;
+        internal long BudgetBytes => _budgetBytes;
+        internal long OwnedBytes => _allocatedBytes;
+        internal long SourceBytesPerFrame => EstimateSourceBytes(FootprintCount);
+
+        internal GraphicsBuffer OwnedFrames { get; private set; }
+        internal SigmaFrameSegmentedBuffer Candidates { get; }
+        internal SigmaFrameSegmentedBuffer Outcomes { get; }
+        internal SigmaFrameSegmentedBuffer CandidateStates { get; }
+        internal SigmaFrameSegmentedBuffer PendingGauges { get; }
+        internal SigmaFrameSegmentedBuffer Deltas { get; }
+        internal SigmaFrameSegmentedBuffer DirtyEdges { get; }
+        internal SigmaFrameSegmentedBuffer Revisions { get; }
+
+        internal bool TryAcquireFrame(uint revision, uint calibrationEpoch,
+            uint depthLeftKey, uint depthRightKey, uint rgbLeftKey,
+            uint rgbRightKey, uint poseGeneration,
+            uint correctedCalibrationGeneration,
+            out SigmaOwnedFrameLease lease)
+        {
+            RequireAlive();
+            if (revision == 0u || calibrationEpoch == 0u)
+                throw new ArgumentOutOfRangeException(nameof(revision));
+
+            int slot;
+            if (_freeAllocated.Count != 0)
+            {
+                slot = _freeAllocated.Pop();
+            }
+            else
+            {
+                if (_unallocated.Count == 0 ||
+                    _allocatedBytes + SourceBytesPerFrame > _budgetBytes)
+                {
+                    lease = null;
+                    return false;
+                }
+                slot = _unallocated.Pop();
+                try
+                {
+                    var sources = new SigmaFrameSourceStorage(slot,
+                        FootprintCount, _bindingLimit);
+                    _frameSlots[slot].Sources = sources;
+                    _allocatedBytes = checked(_allocatedBytes + sources.OwnedBytes);
+                }
+                catch
+                {
+                    _unallocated.Push(slot);
+                    throw;
+                }
+            }
+
+            ref FrameSlot frame = ref _frameSlots[slot];
+            uint generation = frame.Generation == uint.MaxValue
+                ? 1u
+                : frame.Generation + 1u;
+            frame.Generation = generation;
+            frame.References = 1;
+            var record = new SigmaOwnedFrameGpu
+            {
+                Identity = UInt4(revision, calibrationEpoch,
+                    unchecked((uint)Resolution.x), unchecked((uint)Resolution.y)),
+                Keys = UInt4(depthLeftKey, depthRightKey, rgbLeftKey,
+                    rgbRightKey),
+                PoseSource = UInt4(poseGeneration,
+                    correctedCalibrationGeneration,
+                    (uint)SigmaOwnedFrameState.Sealed, 0u),
+            };
+            OwnedFrames.SetData(new[] { record }, 0, slot, 1);
+            lease = new SigmaOwnedFrameLease(this, slot, generation);
+            return true;
+        }
+
+        internal bool TryEnsureCandidateCapacity(long candidateRecords)
+        {
+            RequireAlive();
+            if (candidateRecords < 0L)
+                throw new ArgumentOutOfRangeException(nameof(candidateRecords));
+            long stateRecords = checked(candidateRecords *
+                SigmaGeneratedFrame.LaneCount);
+            long additional = checked(Candidates.AdditionalBytesFor(candidateRecords) +
+                Outcomes.AdditionalBytesFor(candidateRecords));
+            additional = checked(additional +
+                CandidateStates.AdditionalBytesFor(stateRecords));
+            additional = checked(additional +
+                Deltas.AdditionalBytesFor(candidateRecords));
+            if (!TryReserve(additional))
+                return false;
+            Candidates.GrowTo(candidateRecords);
+            Outcomes.GrowTo(candidateRecords);
+            CandidateStates.GrowTo(stateRecords);
+            Deltas.GrowTo(candidateRecords);
+            _allocatedBytes = checked(_allocatedBytes + additional);
+            return true;
+        }
+
+        internal bool TryEnsurePendingGaugeCapacity(long records) =>
+            TryGrow(PendingGauges, records);
+
+        internal bool TryEnsureDirtyEdgeCapacity(long records) =>
+            TryGrow(DirtyEdges, records);
+
+        internal bool TryEnsureRevisionCapacity(long records) =>
+            TryGrow(Revisions, records);
+
+        internal static long EstimateSourceBytes(int footprintCount)
+        {
+            if (footprintCount <= 0)
+                throw new ArgumentOutOfRangeException(nameof(footprintCount));
+            long coordinates = checked((long)footprintCount *
+                SigmaGeneratedFrame.LaneCount);
+            long coordinateBytes = checked(coordinates *
+                (SigmaGeneratedFrame.PackedQ48Stride * 2L +
+                 SigmaGeneratedFrame.ValidityStride));
+            long provenanceBytes = checked((long)footprintCount *
+                SigmaGeneratedFrame.ProvenanceStride);
+            return checked((coordinateBytes + provenanceBytes) *
+                SigmaGeneratedFrame.SourceCount);
+        }
+
+        internal static int ComputeSegmentRecordCapacity(long bindingLimit,
+            int stride)
+        {
+            if (bindingLimit <= stride || stride <= 0)
+                throw new ArgumentOutOfRangeException(nameof(bindingLimit));
+            long targetBytes = Math.Min(PreferredSegmentBytes,
+                bindingLimit - stride);
+            long records = targetBytes / stride;
+            if (records >= 256L)
+                records = records / 256L * 256L;
+            return checked((int)Math.Max(1L, Math.Min(int.MaxValue, records)));
+        }
+
+        internal SigmaFrameSourceStorage GetSources(int slot, uint generation)
+        {
+            RequireSlot(slot, generation);
+            return _frameSlots[slot].Sources;
+        }
+
+        internal void Retain(int slot, uint generation)
+        {
+            RequireSlot(slot, generation);
+            _frameSlots[slot].References = checked(
+                _frameSlots[slot].References + 1);
+        }
+
+        internal void Release(int slot, uint generation)
+        {
+            if (_disposed)
+                return;
+            RequireSlot(slot, generation);
+            ref FrameSlot frame = ref _frameSlots[slot];
+            frame.References--;
+            if (frame.References != 0)
+                return;
+            var cleared = new SigmaOwnedFrameGpu
+            {
+                Identity = UInt4(0u, 0u, unchecked((uint)Resolution.x),
+                    unchecked((uint)Resolution.y)),
+                PoseSource = UInt4(0u, 0u,
+                    (uint)SigmaOwnedFrameState.Free, 0u),
+            };
+            OwnedFrames.SetData(new[] { cleared }, 0, slot, 1);
+            _freeAllocated.Push(slot);
+        }
+
+        public void Dispose()
+        {
+            if (_disposed)
+                return;
+            _disposed = true;
+            for (int slot = 0; slot < _frameSlots.Length; ++slot)
+                _frameSlots[slot].Sources?.Dispose();
+            Candidates.Dispose();
+            Outcomes.Dispose();
+            CandidateStates.Dispose();
+            PendingGauges.Dispose();
+            Deltas.Dispose();
+            DirtyEdges.Dispose();
+            Revisions.Dispose();
+            OwnedFrames?.Dispose();
+            OwnedFrames = null;
+            _freeAllocated.Clear();
+            _unallocated.Clear();
+            _allocatedBytes = 0L;
+        }
+
+        private SigmaFrameSegmentedBuffer Buffer<T>(int stride, string name)
+            where T : struct
+        {
+            if (Marshal.SizeOf<T>() != stride)
+                throw new InvalidOperationException(
+                    $"Sigma frame ABI stride mismatch for {typeof(T).Name}: " +
+                    $"C#={Marshal.SizeOf<T>()}, generated={stride}.");
+            return new SigmaFrameSegmentedBuffer(stride,
+                ComputeSegmentRecordCapacity(_bindingLimit, stride), name);
+        }
+
+        private bool TryGrow(SigmaFrameSegmentedBuffer buffer, long records)
+        {
+            RequireAlive();
+            long additional = buffer.AdditionalBytesFor(records);
+            if (!TryReserve(additional))
+                return false;
+            buffer.GrowTo(records);
+            _allocatedBytes = checked(_allocatedBytes + additional);
+            return true;
+        }
+
+        private bool TryReserve(long additionalBytes) => additionalBytes >= 0L &&
+            _allocatedBytes <= _budgetBytes - additionalBytes;
+
+        private void RequireSlot(int slot, uint generation)
+        {
+            RequireAlive();
+            if ((uint)slot >= (uint)_frameSlots.Length || generation == 0u ||
+                _frameSlots[slot].Generation != generation ||
+                _frameSlots[slot].References <= 0 ||
+                _frameSlots[slot].Sources == null)
+                throw new InvalidOperationException(
+                    "Sigma owned-frame lease is stale or not resident.");
+        }
+
+        private void RequireAlive()
+        {
+            if (_disposed)
+                throw new ObjectDisposedException(nameof(SigmaFrameResources));
+        }
+
+        private static GraphicsBuffer CreateBuffer(int count, int stride,
+            string name)
+        {
+            if (count <= 0 || stride <= 0)
+                throw new ArgumentOutOfRangeException(nameof(count));
+            return new GraphicsBuffer(GraphicsBuffer.Target.Structured, count,
+                stride) { name = name };
+        }
+
+        private static long BufferBytes(GraphicsBuffer buffer) =>
+            checked((long)buffer.count * buffer.stride);
+
+        private static SigmaFrameUInt4Gpu UInt4(uint x, uint y, uint z, uint w) =>
+            new() { X = x, Y = y, Z = z, W = w };
+
+        private static void ValidateGeneratedAbi()
+        {
+            ValidateStride<SigmaOwnedFrameGpu>(
+                SigmaGeneratedFrame.OwnedFrameStride);
+            ValidateStride<SigmaFrameCandidateGpu>(
+                SigmaGeneratedFrame.FrameCandidateStride);
+            ValidateStride<SigmaFrameOutcomeGpu>(
+                SigmaGeneratedFrame.FrameOutcomeStride);
+            ValidateStride<SigmaPendingGaugeGpu>(
+                SigmaGeneratedFrame.PendingGaugeStride);
+            ValidateStride<SigmaFrameDeltaGpu>(
+                SigmaGeneratedFrame.FrameDeltaStride);
+            ValidateStride<SigmaDirtyEdgeGpu>(
+                SigmaGeneratedFrame.DirtyEdgeStride);
+            ValidateStride<SigmaFrameRevisionGpu>(
+                SigmaGeneratedFrame.FrameRevisionStride);
+            ValidateStride<SigmaFrameUInt2Gpu>(
+                SigmaGeneratedFrame.PackedQ48Stride);
+            ValidateStride<SigmaFrameUInt4Gpu>(
+                SigmaGeneratedFrame.ProvenanceStride);
+        }
+
+        private static void ValidateStride<T>(int expected) where T : struct
+        {
+            int actual = Marshal.SizeOf<T>();
+            if (actual != expected)
+                throw new InvalidOperationException(
+                    $"Sigma frame ABI stride mismatch for {typeof(T).Name}: " +
+                    $"C#={actual}, generated={expected}.");
+        }
+
+        private struct FrameSlot
+        {
+            internal uint Generation;
+            internal int References;
+            internal SigmaFrameSourceStorage Sources;
+        }
+    }
+}
