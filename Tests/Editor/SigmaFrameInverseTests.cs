@@ -289,7 +289,7 @@ namespace Genesis.RoomScan.Tests
         {
             const long largeBinding = 512L * 1024L * 1024L;
             using var fixture = new FrameFixture(320, 320, largeBinding);
-            Assert.That(fixture.ExecutionWindowCount, Is.EqualTo(4));
+            Assert.That(fixture.ExecutionWindowCount, Is.EqualTo(1));
             fixture.RecordProductionGraphOnly();
         }
 
@@ -297,13 +297,33 @@ namespace Genesis.RoomScan.Tests
         public void TargetReductionIsExactPermutationAndWindowInvariant()
         {
             const long bindingLimit = 160L * 1024L;
-            using var fixture = new FrameFixture(512, 1, bindingLimit);
-            Assert.That(fixture.ExecutionWindowCount, Is.EqualTo(2));
-            ReductionSnapshot forward = fixture.RunTargetReduction(false);
-            ReductionSnapshot reverse = fixture.RunTargetReduction(true);
+            const long largeBinding = 512L * 1024L * 1024L;
+            ReductionSnapshot whole;
+            using (var fixture = new FrameFixture(1024, 1, largeBinding))
+            {
+                Assert.That(fixture.ExecutionWindowCount, Is.EqualTo(1));
+                whole = fixture.RunTargetReduction(false);
+            }
+            ReductionSnapshot forward;
+            ReductionSnapshot reverse;
+            using (var fixture = new FrameFixture(1024, 1, bindingLimit))
+            {
+                Assert.That(fixture.ExecutionWindowCount, Is.EqualTo(4));
+                forward = fixture.RunTargetReduction(false);
+                reverse = fixture.RunTargetReduction(true);
+            }
 
             Assert.That(forward.TargetCount, Is.EqualTo(1u));
             Assert.That(reverse.TargetCount, Is.EqualTo(1u));
+            Assert.That(forward.TargetCount, Is.EqualTo(whole.TargetCount));
+            AssertUInt4(forward.Target.Coordinate, whole.Target.Coordinate);
+            AssertUInt4(forward.Target.Candidate, whole.Target.Candidate);
+            AssertUInt4(forward.Target.Evidence, whole.Target.Evidence);
+            Assert.That(forward.Lower, Is.EqualTo(whole.Lower));
+            Assert.That(forward.Upper, Is.EqualTo(whole.Upper));
+            Assert.That(forward.Gap, Is.EqualTo(whole.Gap));
+            Assert.That(forward.Validity, Is.EqualTo(whole.Validity));
+            Assert.That(forward.State, Is.EqualTo(whole.State));
             AssertUInt4(reverse.Target.Coordinate, forward.Target.Coordinate);
             AssertUInt4(reverse.Target.Candidate, forward.Target.Candidate);
             AssertUInt4(reverse.Target.Evidence, forward.Target.Evidence);

@@ -481,6 +481,11 @@ namespace Genesis.RoomScan.SigmaPrism
                 SigmaFrameExecutionWindow targetWindow =
                     Resources.ExecutionWindow(targetWindowIndex);
                 BindTargetWindow(command, _reductionKernels[10], targetWindow);
+                Vector2Int reductionGrid =
+                    SigmaGpuKernelTelemetry.ComputeLinearDispatchGrid(
+                        targetWindow.FootprintCount);
+                command.SetComputeIntParam(_closure,
+                    "_LinearDispatchGroupsX", reductionGrid.x);
                 for (int sourceWindowIndex = 0;
                     sourceWindowIndex < Resources.ExecutionWindowCount;
                     ++sourceWindowIndex)
@@ -492,7 +497,8 @@ namespace Genesis.RoomScan.SigmaPrism
                     command.SetComputeIntParam(_closure,
                         "_ReductionFirstWindow", sourceWindowIndex == 0 ? 1 : 0);
                     command.DispatchComputeProfiled(_closure,
-                        _reductionKernels[10], targetWindow.FootprintCount, 1, 1);
+                        _reductionKernels[10], reductionGrid.x,
+                        reductionGrid.y, 1);
                 }
             }
 
@@ -613,8 +619,13 @@ namespace Genesis.RoomScan.SigmaPrism
                         CeilDiv(edgeWindow.FootprintCount, 16), 1, 1);
                 }
                 BindExactEdgeWindow(command, _closureKernels[3], edgeWindow);
+                Vector2Int closureGrid =
+                    SigmaGpuKernelTelemetry.ComputeLinearDispatchGrid(
+                        checked(edgeWindow.FootprintCount * 2));
+                command.SetComputeIntParam(_closure,
+                    "_LinearDispatchGroupsX", closureGrid.x);
                 command.DispatchComputeProfiled(_closure, _closureKernels[3],
-                    checked(edgeWindow.FootprintCount * 2), 1, 1);
+                    closureGrid.x, closureGrid.y, 1);
             }
 
             // Classification is immutable for the pass. Mark every unresolved
@@ -674,6 +685,11 @@ namespace Genesis.RoomScan.SigmaPrism
                     Resources.ExecutionWindow(targetWindowIndex);
                 BindExactTargetWindow(command, _closureKernels[11],
                     targetWindow);
+                Vector2Int persistenceGrid =
+                    SigmaGpuKernelTelemetry.ComputeLinearDispatchGrid(
+                        targetWindow.FootprintCount);
+                command.SetComputeIntParam(_closure,
+                    "_LinearDispatchGroupsX", persistenceGrid.x);
                 for (int pendingWindowIndex = 0;
                     pendingWindowIndex < Resources.ExecutionWindowCount;
                     ++pendingWindowIndex)
@@ -682,7 +698,8 @@ namespace Genesis.RoomScan.SigmaPrism
                         _closureKernels[11],
                         Resources.ExecutionWindow(pendingWindowIndex));
                     command.DispatchComputeProfiled(_closure,
-                        _closureKernels[11], targetWindow.FootprintCount, 1, 1);
+                        _closureKernels[11], persistenceGrid.x,
+                        persistenceGrid.y, 1);
                 }
             }
             command.DispatchComputeProfiled(_closure, _closureKernels[12],

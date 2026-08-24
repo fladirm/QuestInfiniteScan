@@ -302,11 +302,6 @@ namespace Genesis.RoomScan.SigmaPrism
         private const int InitialProposalKinds = 4;
         private const int InitialRevisionRecords = 2;
         private const int ExecutionWindowAlignment = 256;
-        internal const int MaximumDispatchGroupsPerFootprint = 2;
-        internal const int MaximumDispatchSafeFootprintsPerWindow =
-            SigmaGpuKernelTelemetry.MaximumThreadGroupsPerDimension /
-            MaximumDispatchGroupsPerFootprint / ExecutionWindowAlignment *
-            ExecutionWindowAlignment;
         internal const int ClosureCounterRecords = 8;
 
         private readonly long _bindingLimit;
@@ -818,8 +813,6 @@ namespace Genesis.RoomScan.SigmaPrism
                 SigmaGeneratedFrame.ValidityStride) / SigmaGeneratedFrame.LaneCount);
             capacity = Math.Min(capacity, ComputeSegmentRecordCapacity(bindingLimit,
                 SigmaGeneratedFrame.ProvenanceStride));
-            capacity = Math.Min(capacity,
-                MaximumDispatchSafeFootprintsPerWindow);
             capacity = capacity / ExecutionWindowAlignment *
                 ExecutionWindowAlignment;
             if (capacity < ExecutionWindowAlignment)

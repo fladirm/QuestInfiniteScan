@@ -173,6 +173,12 @@ S4-08 implementation is allowed until a new Quest run proves
   one/two/seven Vulkan windows and regular/thin edges crossing a physical segment
   boundary; all 11 applicable focused inverse tests pass with no missing bind,
   shader or C# error. Atomic publication remains intentionally red for R4.
+- The dispatch-grid performance slice restores binding-derived storage windows and
+  lowers only `ReduceTargetWindow`, `ClosePendingEdges` and
+  `PersistPendingTargets` onto legal two-dimensional Vulkan grids. A 320x320 frame
+  now uses one execution window and exact grids 51200x2, 51200x4 and 51200x2;
+  one-window/four-window reduction is bit-identical and Vulkan EditMode passes
+  66/66 with the Quest eight-UAV and generated-output gates green.
 
 ## Completion protocol
 

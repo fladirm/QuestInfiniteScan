@@ -63,23 +63,35 @@ namespace Genesis.RoomScan.Tests
             const long largeBinding = 512L * 1024L * 1024L;
             int footprints = SigmaFrameResources.ComputeExecutionWindowFootprints(
                 largeBinding);
-            Assert.That(footprints,
-                Is.EqualTo(SigmaFrameResources
-                    .MaximumDispatchSafeFootprintsPerWindow));
-            Assert.That(footprints, Is.EqualTo(32512));
-            Assert.That(footprints *
-                SigmaFrameResources.MaximumDispatchGroupsPerFootprint,
-                Is.LessThanOrEqualTo(
-                    SigmaGpuKernelTelemetry.MaximumThreadGroupsPerDimension));
+            Assert.That(footprints, Is.EqualTo(131072));
+
+            Vector2Int targetGrid =
+                SigmaGpuKernelTelemetry.ComputeLinearDispatchGrid(320 * 320);
+            Vector2Int edgeGrid =
+                SigmaGpuKernelTelemetry.ComputeLinearDispatchGrid(
+                    320 * 320 * 2);
+            Assert.That(targetGrid, Is.EqualTo(new Vector2Int(51200, 2)));
+            Assert.That(edgeGrid, Is.EqualTo(new Vector2Int(51200, 4)));
+            Assert.That(targetGrid.x * targetGrid.y, Is.EqualTo(320 * 320));
+            Assert.That(edgeGrid.x * edgeGrid.y,
+                Is.EqualTo(320 * 320 * 2));
             Assert.DoesNotThrow(() =>
                 SigmaGpuKernelTelemetry.ValidateDirectDispatchDimensions(
                     65535, 1, 1));
+            Assert.DoesNotThrow(() =>
+                SigmaGpuKernelTelemetry.ValidateDirectDispatchDimensions(
+                    targetGrid.x, targetGrid.y, 1));
+            Assert.DoesNotThrow(() =>
+                SigmaGpuKernelTelemetry.ValidateDirectDispatchDimensions(
+                    edgeGrid.x, edgeGrid.y, 1));
             Assert.Throws<InvalidOperationException>(() =>
                 SigmaGpuKernelTelemetry.ValidateDirectDispatchDimensions(
                     65536, 1, 1));
             Assert.Throws<InvalidOperationException>(() =>
                 SigmaGpuKernelTelemetry.ValidateDirectDispatchDimensions(
                     0, 1, 1));
+            Assert.Throws<ArgumentOutOfRangeException>(() =>
+                SigmaGpuKernelTelemetry.ComputeLinearDispatchGrid(0));
         }
 
         [Test]

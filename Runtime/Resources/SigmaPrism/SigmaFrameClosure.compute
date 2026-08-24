@@ -109,6 +109,7 @@ uint _ScanOutputMode;
 uint _PendingCapacity;
 uint _PendingFirst;
 uint _PendingCount;
+uint _LinearDispatchGroupsX;
 
 groupshared SigmaFrameDeltaGpu FrameTargetSort[256];
 groupshared uint2 FrameTargetValueA[256];
@@ -486,7 +487,8 @@ void ReduceTargetWindow(uint3 groupId : SV_GroupID,
     uint3 threadId : SV_GroupThreadID)
 {
     uint coordinate = threadId.x;
-    uint ordinal = _TargetWindowFirst + groupId.x;
+    uint linearGroup = groupId.y * _LinearDispatchGroupsX + groupId.x;
+    uint ordinal = _TargetWindowFirst + linearGroup;
     uint targetCount = _FrameClosureCounters[0].x;
     if (ordinal >= targetCount ||
         ordinal >= _TargetWindowFirst + _TargetWindowCount)
@@ -1059,7 +1061,7 @@ void GatherEdgeEndpoints(uint3 groupId : SV_GroupID,
 void ClosePendingEdges(uint3 groupId : SV_GroupID,
     uint3 threadId : SV_GroupThreadID)
 {
-    uint edgeIndex = groupId.x;
+    uint edgeIndex = groupId.y * _LinearDispatchGroupsX + groupId.x;
     uint lane = threadId.x;
     uint localFootprint = edgeIndex >> 1u;
     uint direction = edgeIndex & 1u;
@@ -1588,7 +1590,8 @@ void PersistPendingTargets(uint3 groupId : SV_GroupID,
     uint3 threadId : SV_GroupThreadID)
 {
     uint coordinate = threadId.x;
-    uint ordinal = _TargetWindowFirst + groupId.x;
+    uint linearGroup = groupId.y * _LinearDispatchGroupsX + groupId.x;
+    uint ordinal = _TargetWindowFirst + linearGroup;
     uint targetCount = _FrameClosureCountersRead[0].x;
     if (ordinal >= targetCount ||
         ordinal >= _TargetWindowFirst + _TargetWindowCount)

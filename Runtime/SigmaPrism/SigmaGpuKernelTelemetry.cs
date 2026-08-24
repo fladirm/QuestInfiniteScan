@@ -146,6 +146,21 @@ namespace Genesis.RoomScan.SigmaPrism
                     $"be in [1,{MaximumThreadGroupsPerDimension}].");
         }
 
+        internal static Vector2Int ComputeLinearDispatchGrid(
+            int logicalGroupCount)
+        {
+            if (logicalGroupCount <= 0)
+                throw new ArgumentOutOfRangeException(
+                    nameof(logicalGroupCount));
+            int groupsY = checked((int)(((long)logicalGroupCount +
+                MaximumThreadGroupsPerDimension - 1L) /
+                MaximumThreadGroupsPerDimension));
+            int groupsX = checked((int)(((long)logicalGroupCount +
+                groupsY - 1L) / groupsY));
+            ValidateDirectDispatchDimensions(groupsX, groupsY, 1);
+            return new Vector2Int(groupsX, groupsY);
+        }
+
         internal static void DispatchIndirectProfiled(this ComputeShader shader,
             int kernel, ComputeBuffer indirectArguments, uint argumentsOffset)
         {
