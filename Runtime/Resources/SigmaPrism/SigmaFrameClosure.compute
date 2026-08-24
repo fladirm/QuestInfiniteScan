@@ -1499,6 +1499,8 @@ void FinalizeExactClosure(uint3 id : SV_DispatchThreadID)
                     ? SIGMA_FRAME_PROPOSAL_KIND_CONTINUATION
                     : SIGMA_FRAME_PROPOSAL_KIND_NOVEL)
                 : SIGMA_FRAME_PROPOSAL_KIND_PENDING;
+            if (accepted && anchor != SIGMA_FRAME_INVALID)
+                target.Candidate.x = anchor;
         }
     }
     target.Evidence.y = flags;

@@ -133,6 +133,13 @@ namespace Genesis.RoomScan.Tests
             internal UInt4 Control;
         }
 
+        private sealed class ContinuationPublicationSnapshot
+        {
+            internal uint Root;
+            internal UInt4[] Counters;
+            internal SigmaFrameDeltaGpu[] Mapped;
+        }
+
         [Test]
         public void RoomFrameKeepsCanonicalPoseStableAcrossAnchorCorrection()
         {
@@ -452,6 +459,46 @@ namespace Genesis.RoomScan.Tests
             Assert.That(continuation.Targets[1].Evidence.Z,
                 Is.EqualTo((uint)SigmaFrameProposalKind.Continuation));
             Assert.That(continuation.Links[1], Is.EqualTo(0u));
+        }
+
+        [Test]
+        public void PendingRetentionCannotOverwriteContinuationAnchor()
+        {
+            using var fixture = new FrameFixture();
+            ClosureSnapshot seed = fixture.RunExactClosure(
+                new ClosureTarget(0, SigmaFrameProposalKind.Novel,
+                    BuildCarrierPrior(), 0x1u, true, true));
+            Assert.That(seed.Control.X, Is.EqualTo(1u));
+
+            ClosureSnapshot closure = fixture.RunExactClosure(
+                new ClosureTarget(0, SigmaFrameProposalKind.Current,
+                    ScalarState(1), 0x3u, false),
+                new ClosureTarget(2, SigmaFrameProposalKind.Novel,
+                    ScalarState(3), 0x3u, true, true),
+                new ClosureTarget(1, SigmaFrameProposalKind.Novel,
+                    ScalarState(2), 0x3u));
+
+            Assert.That(closure.Labels[2], Is.EqualTo(1u));
+            Assert.That(closure.Targets[2].Evidence.Z,
+                Is.EqualTo((uint)SigmaFrameProposalKind.Continuation));
+            Assert.That(closure.Targets[2].Candidate.X, Is.Zero,
+                "continuation did not retain the CURRENT target ordinal");
+            Assert.That(closure.Links[1], Is.EqualTo(1u),
+                "fixture did not overwrite the component link with retention");
+
+            ContinuationPublicationSnapshot published =
+                fixture.PublishCurrentClosure(2u, 16);
+            Assert.That(published.Root, Is.EqualTo(2u));
+            Assert.That(published.Counters[6].X & 0x104u, Is.Zero);
+            SigmaFrameDeltaGpu mapped = Array.Find(published.Mapped,
+                record => record.Evidence.X == 2u &&
+                    record.Evidence.Y ==
+                        (uint)SigmaFrameProposalKind.Continuation);
+            AssertUInt4(mapped.Coordinate,
+                closure.Targets[0].Coordinate);
+            Assert.That(mapped.Candidate.W, Is.EqualTo(1u));
+            Assert.That(mapped.Evidence.Y,
+                Is.EqualTo((uint)SigmaFrameProposalKind.Continuation));
         }
 
         [Test]
@@ -1426,6 +1473,43 @@ namespace Genesis.RoomScan.Tests
                     Counters = Read<UInt4>(_graph.Resources.ClosureCounters, 4),
                     Control = Read<UInt4>(
                         _graph.Resources.PendingControl, 1)[0],
+                };
+            }
+
+            internal ContinuationPublicationSnapshot PublishCurrentClosure(
+                uint revision, int pageCapacity)
+            {
+                using var state = Buffer<UInt2>(checked(pageCapacity *
+                    SigmaCarrier.PageLaneCount));
+                using var metadata = Buffer<PageMeta>(pageCapacity);
+                using var dirty = Buffer<uint>(pageCapacity);
+                using var readoutDirty = Buffer<uint>(pageCapacity);
+                using var publicationRoot = Buffer<uint>(1);
+                state.SetData(new UInt2[state.count]);
+                metadata.SetData(new PageMeta[pageCapacity]);
+                dirty.SetData(new uint[pageCapacity]);
+                readoutDirty.SetData(new uint[pageCapacity]);
+                publicationRoot.SetData(new uint[1]);
+                var batch = new SigmaCarrierReadBatch(0, pageCapacity, 0,
+                    state, metadata, dirty, readoutDirty, publicationRoot);
+                var input = new SigmaFrameInverseInput(_input.Prediction,
+                    _input.MetricDepth, _input.DepthFlags,
+                    _input.DepthCalibration, _input.RgbCalibration,
+                    _input.PoseResult, _input.ConeLuts, _input.DepthLeftKey,
+                    _input.DepthRightKey, _input.RgbLeftKey,
+                    _input.RgbRightKey, new[] { batch });
+                using var command = new CommandBuffer
+                    { name = "Sigma continuation retention alias fixture" };
+                _graph.RecordPublication(command, _owned, revision, input);
+                Graphics.ExecuteCommandBuffer(command);
+                return new ContinuationPublicationSnapshot
+                {
+                    Root = Read<uint>(publicationRoot, 1)[0],
+                    Counters = Read<UInt4>(
+                        _graph.Resources.ClosureCounters,
+                        SigmaFrameResources.ClosureCounterRecords),
+                    Mapped = Read<SigmaFrameDeltaGpu>(
+                        _graph.Resources.Deltas, _footprints),
                 };
             }
 

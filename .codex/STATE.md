@@ -184,6 +184,11 @@ S4-08 implementation is allowed until a new Quest run proves
   dispatches. All direct/indirect wrappers retain identical calls and fail-closed
   dimension validation; an Editor production-graph trace proves identical kernel
   IDs, order and 320x320 grids with profiling off. Vulkan EditMode passes 67/67.
+- Continuation closure now snapshots its resolved CURRENT target ordinal into the
+  accepted target before `_PendingLinks` is repurposed for retention slots;
+  publication consumes only that immutable snapshot. A fixture forces root link
+  `0 -> 1` aliasing, then publishes root 2 with bit-correct mapping and no
+  `0x004/0x100` fault; Vulkan EditMode passes 68/68.
 
 ## Completion protocol
 

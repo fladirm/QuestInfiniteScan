@@ -369,9 +369,7 @@ void MapFrameTargets(uint3 id : SV_DispatchThreadID)
     }
     else
     {
-        uint root = _PendingLabels[ordinal];
-        uint anchorOrdinal = root < SigmaTargetCount()
-            ? _PendingLinks[root] : SIGMA_FRAME_INVALID;
+        uint anchorOrdinal = target.Candidate.x;
         if (anchorOrdinal >= SigmaTargetCount())
             valid = 0u;
         else
