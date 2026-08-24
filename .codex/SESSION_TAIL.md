@@ -2,16 +2,16 @@
 
 ## User
 
-Stop S4-08.5 closure claims. Fix only the proven 320x320 illegal direct dispatches:
-cap/partition every execution window, add a production large-binding test, fail
-closed before command execution, then commit/build/install the exact candidate.
-Require device root, publication, changed page and draw all above zero.
+After installing the dispatch repair, fix only host completion truthfulness. Treat
+PUBLISHED, legal NO_CHANGE, shader FAULT, incomplete post-fence state and stale
+revision distinctly; only PUBLISHED retains evidence and increments committed.
+No shader/R3/R4 change, then build/install and stop.
 
 ## Assistant
 
-The host-only repair partitions 320x320 into 32512/32512/32512/4864 footprints,
-limits the worst direct dispatch to 65024 groups and validates all direct dimensions
-before command recording. The actual whole production graph records successfully;
-Vulkan EditMode is 65/65 and the eight-UAV gate passes. Current cursor is exact
-commit, push, archive, Release APK and Quest install; device acceptance stays red
-until the four requested nonzero counters are captured.
+The host disposition classifier now returns PUBLISHED only for zero-fault retained
+evidence at root>=revision, NO_CHANGE only for zero-fault RESOLVED, and Faulted for
+GPU fault, incomplete state or revision mismatch. Completion transfers evidence and
+increments committed only for PUBLISHED. Vulkan EditMode is 66/66; current cursor is
+exact commit, push, archive, Release APK and install, then device acceptance remains
+red until all four requested counters are nonzero.

@@ -145,6 +145,53 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
+        public void FrameCompletionDispositionIsTruthfulAndFailClosed()
+        {
+            const uint revision = 7u;
+            var frame = new SigmaOwnedFrameGpu
+            {
+                Identity = new SigmaFrameUInt4Gpu { X = revision },
+                PoseSource = new SigmaFrameUInt4Gpu
+                {
+                    Z = (uint)SigmaOwnedFrameState.EvidenceRetained,
+                },
+            };
+            Assert.That(SigmaInverseController.ClassifyFrameCompletion(frame,
+                revision + 2u, revision, out string error),
+                Is.EqualTo(SigmaFrameCompletionDisposition.Published));
+            Assert.That(error, Is.Null);
+
+            Assert.That(SigmaInverseController.ClassifyFrameCompletion(frame,
+                revision - 1u, revision, out error),
+                Is.EqualTo(SigmaFrameCompletionDisposition.Faulted));
+
+            frame.PoseSource.Z = (uint)SigmaOwnedFrameState.Resolved;
+            Assert.That(SigmaInverseController.ClassifyFrameCompletion(frame, 0u,
+                revision, out error),
+                Is.EqualTo(SigmaFrameCompletionDisposition.NoChange));
+            Assert.That(error, Is.Null);
+
+            frame.PoseSource.W = 0x10u;
+            Assert.That(SigmaInverseController.ClassifyFrameCompletion(frame, 0u,
+                revision, out error),
+                Is.EqualTo(SigmaFrameCompletionDisposition.Faulted));
+            Assert.That(error, Does.Contain("0x00000010"));
+
+            frame.PoseSource.W = 0u;
+            frame.PoseSource.Z = (uint)SigmaOwnedFrameState.Closed;
+            Assert.That(SigmaInverseController.ClassifyFrameCompletion(frame, 0u,
+                revision, out error),
+                Is.EqualTo(SigmaFrameCompletionDisposition.Faulted));
+
+            frame.PoseSource.Z =
+                (uint)SigmaOwnedFrameState.EvidenceRetained;
+            frame.Identity.X = revision - 1u;
+            Assert.That(SigmaInverseController.ClassifyFrameCompletion(frame,
+                revision, revision, out error),
+                Is.EqualTo(SigmaFrameCompletionDisposition.Faulted));
+        }
+
+        [Test]
         public void VulkanFixtureCompilesAllRecordsWithinEightUavs()
         {
             string[] guids = AssetDatabase.FindAssets(

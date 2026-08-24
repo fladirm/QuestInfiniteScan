@@ -7,6 +7,13 @@ using UnityEngine.Rendering;
 
 namespace Genesis.RoomScan.SigmaPrism
 {
+    internal enum SigmaFrameCompletionDisposition : byte
+    {
+        Faulted = 0,
+        NoChange = 1,
+        Published = 2,
+    }
+
     /// <summary>
     /// Fixed host recorder for the direct whole-frame inverse. The CPU owns only
     /// immutable calibration uploads, complete-frame resource leases and fences.
@@ -357,8 +364,8 @@ namespace Genesis.RoomScan.SigmaPrism
                 }
                 _frameLatency.Add(slot.ElapsedMilliseconds(
                     Time.realtimeSinceStartupAsDouble));
-                slot.Complete();
-                CommittedFrames++;
+                if (slot.Complete())
+                    CommittedFrames++;
             }
         }
 
@@ -933,7 +940,7 @@ namespace Genesis.RoomScan.SigmaPrism
             private AsyncGPUReadbackRequest _frameDispositionReadback;
             private AsyncGPUReadbackRequest _publicationRootReadback;
             private bool _completionReadbackPending;
-            private bool _retainPublishedEvidence;
+            private SigmaFrameCompletionDisposition _completionDisposition;
             private double _submittedAt;
             private readonly int _index;
             private Vector2Int _resolution;
@@ -990,7 +997,8 @@ namespace Genesis.RoomScan.SigmaPrism
                 _submittedAt = submittedAt;
                 Revision = revision;
                 _completionReadbackPending = false;
-                _retainPublishedEvidence = false;
+                _completionDisposition =
+                    SigmaFrameCompletionDisposition.Faulted;
                 AgeFrames = 0L;
                 InFlight = true;
             }
@@ -1043,11 +1051,12 @@ namespace Genesis.RoomScan.SigmaPrism
                         "an invalid record count.";
                     return SigmaGpuCompletionStatus.Faulted;
                 }
-                _retainPublishedEvidence =
-                    SigmaFrameResources.IsPublishedEvidence(
-                        frames[0], roots[0], Revision);
-                error = null;
-                return SigmaGpuCompletionStatus.Complete;
+                _completionDisposition = ClassifyFrameCompletion(frames[0],
+                    roots[0], Revision, out error);
+                return _completionDisposition ==
+                    SigmaFrameCompletionDisposition.Faulted
+                    ? SigmaGpuCompletionStatus.Faulted
+                    : SigmaGpuCompletionStatus.Complete;
             }
             internal void AdvanceAge() => AgeFrames++;
             internal double ElapsedMilliseconds(double completedAt) =>
@@ -1082,20 +1091,24 @@ namespace Genesis.RoomScan.SigmaPrism
                     $"Sigma ingress {_index} pose partial meets");
             }
 
-            internal void Complete()
+            internal bool Complete()
             {
                 ReleaseTransientInputs();
-                if (_retainPublishedEvidence)
+                bool published = _completionDisposition ==
+                    SigmaFrameCompletionDisposition.Published;
+                if (published)
                     _ownedFrame?.TransferEvidence(Revision);
                 _ownedFrame?.Dispose();
                 _ownedFrame = null;
                 _ownedFrames = null;
                 _publicationRoot = null;
                 _completionReadbackPending = false;
-                _retainPublishedEvidence = false;
+                _completionDisposition =
+                    SigmaFrameCompletionDisposition.Faulted;
                 InFlight = false;
                 AgeFrames = 0L;
                 _submittedAt = 0.0;
+                return published;
             }
 
             public void Dispose()
@@ -1129,6 +1142,48 @@ namespace Genesis.RoomScan.SigmaPrism
                 _coneLuts?.Dispose();
                 _coneLuts = null;
             }
+        }
+
+        internal static SigmaFrameCompletionDisposition ClassifyFrameCompletion(
+            SigmaOwnedFrameGpu frame, uint publishedRoot, uint revision,
+            out string error)
+        {
+            if (revision == 0u || frame.Identity.X != revision)
+            {
+                error = $"Sigma frame disposition revision mismatch: expected " +
+                    $"{revision}, received {frame.Identity.X}.";
+                return SigmaFrameCompletionDisposition.Faulted;
+            }
+            if (frame.PoseSource.W != 0u)
+            {
+                error = $"Sigma frame revision {revision} reported publication " +
+                    $"fault 0x{frame.PoseSource.W:x8}.";
+                return SigmaFrameCompletionDisposition.Faulted;
+            }
+
+            SigmaOwnedFrameState state =
+                (SigmaOwnedFrameState)frame.PoseSource.Z;
+            if (state == SigmaOwnedFrameState.EvidenceRetained)
+            {
+                if (!SigmaFrameResources.IsPublishedEvidence(frame,
+                        publishedRoot, revision))
+                {
+                    error = $"Sigma frame revision {revision} reported retained " +
+                        $"evidence before publication root {publishedRoot}.";
+                    return SigmaFrameCompletionDisposition.Faulted;
+                }
+                error = null;
+                return SigmaFrameCompletionDisposition.Published;
+            }
+            if (state == SigmaOwnedFrameState.Resolved)
+            {
+                error = null;
+                return SigmaFrameCompletionDisposition.NoChange;
+            }
+
+            error = $"Sigma frame revision {revision} ended at illegal post-fence " +
+                $"state {state}.";
+            return SigmaFrameCompletionDisposition.Faulted;
         }
     }
 

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "source_digest": "c42a93604f1dd098753f667e7d217ab6fe86c067bc0e384cac3452edb9ad0a13",
+  "source_digest": "beae3def3f6fd60440c6d8df3cd7f60015e1de34ec7eb339517f9a780deb4e89",
   "scope": [
     "Runtime/**/*.cs",
     "Runtime/Resources/SigmaPrism/**/*.*",
@@ -11,8 +11,8 @@
   ],
   "summary": {
     "files": 107,
-    "symbols": 1588,
-    "methods_and_functions": 1290,
+    "symbols": 1591,
+    "methods_and_functions": 1292,
     "gpu_kernels": 73,
     "event_links": 4
   },
@@ -7653,403 +7653,417 @@
       "line": 6
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::AbsNanoseconds@750",
+      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::AbsNanoseconds@757",
       "file": "Runtime/SigmaPrism/SigmaInverseController.cs",
       "name": "AbsNanoseconds",
       "kind": "method",
-      "line": 750
+      "line": 757
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::Add@902",
+      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::Add@909",
       "file": "Runtime/SigmaPrism/SigmaInverseController.cs",
       "name": "Add",
       "kind": "method",
-      "line": 902
+      "line": 909
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::AdvanceAge@1052",
+      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::AdvanceAge@1061",
       "file": "Runtime/SigmaPrism/SigmaInverseController.cs",
       "name": "AdvanceAge",
       "kind": "method",
-      "line": 1052
+      "line": 1061
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::Begin@969",
+      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::Begin@976",
       "file": "Runtime/SigmaPrism/SigmaInverseController.cs",
       "name": "Begin",
       "kind": "method",
-      "line": 969
+      "line": 976
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::BuildTrackingPriorEnvelope@515",
+      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::BuildTrackingPriorEnvelope@522",
       "file": "Runtime/SigmaPrism/SigmaInverseController.cs",
       "name": "BuildTrackingPriorEnvelope",
       "kind": "method",
-      "line": 515
+      "line": 522
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::CaptureTimingTelemetry@212",
+      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::CaptureTimingTelemetry@219",
       "file": "Runtime/SigmaPrism/SigmaInverseController.cs",
       "name": "CaptureTimingTelemetry",
       "kind": "method",
-      "line": 212
+      "line": 219
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::CeilDiv@782",
+      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::CeilDiv@789",
       "file": "Runtime/SigmaPrism/SigmaInverseController.cs",
       "name": "CeilDiv",
       "kind": "method",
-      "line": 782
+      "line": 789
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::Complete@1084",
+      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::ClassifyFrameCompletion@1146",
+      "file": "Runtime/SigmaPrism/SigmaInverseController.cs",
+      "name": "ClassifyFrameCompletion",
+      "kind": "method",
+      "line": 1146
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::Complete@1093",
       "file": "Runtime/SigmaPrism/SigmaInverseController.cs",
       "name": "Complete",
       "kind": "method",
-      "line": 1084
+      "line": 1093
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::CountPendingTickets@709",
+      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::CountPendingTickets@716",
       "file": "Runtime/SigmaPrism/SigmaInverseController.cs",
       "name": "CountPendingTickets",
       "kind": "method",
-      "line": 709
+      "line": 716
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::CreateArrayTexture@788",
+      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::CreateArrayTexture@795",
       "file": "Runtime/SigmaPrism/SigmaInverseController.cs",
       "name": "CreateArrayTexture",
       "kind": "method",
-      "line": 788
+      "line": 795
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::CreateBuffer@785",
+      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::CreateBuffer@792",
       "file": "Runtime/SigmaPrism/SigmaInverseController.cs",
       "name": "CreateBuffer",
       "kind": "method",
-      "line": 785
+      "line": 792
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::CreatePersistentResources@612",
+      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::CreatePersistentResources@619",
       "file": "Runtime/SigmaPrism/SigmaInverseController.cs",
       "name": "CreatePersistentResources",
       "kind": "method",
-      "line": 612
+      "line": 619
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::DestroyTexture@818",
+      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::DestroyTexture@825",
       "file": "Runtime/SigmaPrism/SigmaInverseController.cs",
       "name": "DestroyTexture",
       "kind": "method",
-      "line": 818
+      "line": 825
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::Dispose@1100",
+      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::Dispose@1113",
       "file": "Runtime/SigmaPrism/SigmaInverseController.cs",
       "name": "Dispose",
       "kind": "method",
-      "line": 1100
+      "line": 1113
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::ElapsedMilliseconds@1053",
+      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::ElapsedMilliseconds@1062",
       "file": "Runtime/SigmaPrism/SigmaInverseController.cs",
       "name": "ElapsedMilliseconds",
       "kind": "method",
-      "line": 1053
+      "line": 1062
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::EnsureCalibration@587",
+      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::EnsureCalibration@594",
       "file": "Runtime/SigmaPrism/SigmaInverseController.cs",
       "name": "EnsureCalibration",
       "kind": "method",
-      "line": 587
+      "line": 594
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::EnsureDirectGraph@226",
+      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::EnsureDirectGraph@233",
       "file": "Runtime/SigmaPrism/SigmaInverseController.cs",
       "name": "EnsureDirectGraph",
       "kind": "method",
-      "line": 226
+      "line": 233
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::EnsureFrameResources@1055",
+      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::EnsureFrameResources@1064",
       "file": "Runtime/SigmaPrism/SigmaInverseController.cs",
       "name": "EnsureFrameResources",
       "kind": "method",
-      "line": 1055
+      "line": 1064
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::EnsurePosePartials@1072",
+      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::EnsurePosePartials@1081",
       "file": "Runtime/SigmaPrism/SigmaInverseController.cs",
       "name": "EnsurePosePartials",
       "kind": "method",
-      "line": 1072
+      "line": 1081
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::FillCalibration@636",
+      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::FillCalibration@643",
       "file": "Runtime/SigmaPrism/SigmaInverseController.cs",
       "name": "FillCalibration",
       "kind": "method",
-      "line": 636
+      "line": 643
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::FillRgbCalibration@673",
+      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::FillRgbCalibration@680",
       "file": "Runtime/SigmaPrism/SigmaInverseController.cs",
       "name": "FillRgbCalibration",
       "kind": "method",
-      "line": 673
+      "line": 680
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::FindKernels@600",
+      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::FindKernels@607",
       "file": "Runtime/SigmaPrism/SigmaInverseController.cs",
       "name": "FindKernels",
       "kind": "method",
-      "line": 600
+      "line": 607
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::FromRaw@887",
+      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::FromRaw@894",
       "file": "Runtime/SigmaPrism/SigmaInverseController.cs",
       "name": "FromRaw",
       "kind": "method",
-      "line": 887
+      "line": 894
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::IndependenceKey@755",
+      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::IndependenceKey@762",
       "file": "Runtime/SigmaPrism/SigmaInverseController.cs",
       "name": "IndependenceKey",
       "kind": "method",
-      "line": 755
+      "line": 762
     },
     {
       "id": "Runtime/SigmaPrism/SigmaInverseController.cs::IngressSlot",
       "file": "Runtime/SigmaPrism/SigmaInverseController.cs",
       "name": "IngressSlot",
       "kind": "class",
-      "line": 923
+      "line": 930
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::LatchCompletionFault@364",
+      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::LatchCompletionFault@371",
       "file": "Runtime/SigmaPrism/SigmaInverseController.cs",
       "name": "LatchCompletionFault",
       "kind": "method",
-      "line": 364
+      "line": 371
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::LateUpdate@161",
+      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::LateUpdate@168",
       "file": "Runtime/SigmaPrism/SigmaInverseController.cs",
       "name": "LateUpdate",
       "kind": "method",
-      "line": 161
+      "line": 168
     },
     {
       "id": "Runtime/SigmaPrism/SigmaInverseController.cs::LatencyTracker",
       "file": "Runtime/SigmaPrism/SigmaInverseController.cs",
       "name": "LatencyTracker",
       "kind": "class",
-      "line": 890
+      "line": 897
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::MaxRigRotationResidual@574",
+      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::MaxRigRotationResidual@581",
       "file": "Runtime/SigmaPrism/SigmaInverseController.cs",
       "name": "MaxRigRotationResidual",
       "kind": "method",
-      "line": 574
+      "line": 581
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::MaxRigTranslationResidual@561",
+      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::MaxRigTranslationResidual@568",
       "file": "Runtime/SigmaPrism/SigmaInverseController.cs",
       "name": "MaxRigTranslationResidual",
       "kind": "method",
-      "line": 561
+      "line": 568
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::Mix@777",
+      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::Mix@784",
       "file": "Runtime/SigmaPrism/SigmaInverseController.cs",
       "name": "Mix",
       "kind": "method",
-      "line": 777
+      "line": 784
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::NextRevision@733",
+      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::NextRevision@740",
       "file": "Runtime/SigmaPrism/SigmaInverseController.cs",
       "name": "NextRevision",
       "kind": "method",
-      "line": 733
+      "line": 740
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::OnDestroy@829",
+      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::OnDestroy@836",
       "file": "Runtime/SigmaPrism/SigmaInverseController.cs",
       "name": "OnDestroy",
       "kind": "method",
-      "line": 829
+      "line": 836
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::OnModuleInitialize@99",
+      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::OnModuleInitialize@106",
       "file": "Runtime/SigmaPrism/SigmaInverseController.cs",
       "name": "OnModuleInitialize",
       "kind": "method",
-      "line": 99
+      "line": 106
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::OnPredictionReady@153",
+      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::OnPredictionReady@160",
       "file": "Runtime/SigmaPrism/SigmaInverseController.cs",
       "name": "OnPredictionReady",
       "kind": "method",
-      "line": 153
+      "line": 160
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::OnScanStarted@131",
+      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::OnScanStarted@138",
       "file": "Runtime/SigmaPrism/SigmaInverseController.cs",
       "name": "OnScanStarted",
       "kind": "method",
-      "line": 131
+      "line": 138
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::OnScanStopped@145",
+      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::OnScanStopped@152",
       "file": "Runtime/SigmaPrism/SigmaInverseController.cs",
       "name": "OnScanStopped",
       "kind": "method",
-      "line": 145
+      "line": 152
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::Poll@997",
+      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::Poll@1005",
       "file": "Runtime/SigmaPrism/SigmaInverseController.cs",
       "name": "Poll",
       "kind": "method",
-      "line": 997
+      "line": 1005
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::PollIngress@334",
+      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::PollIngress@341",
       "file": "Runtime/SigmaPrism/SigmaInverseController.cs",
       "name": "PollIngress",
       "kind": "method",
-      "line": 334
+      "line": 341
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::RecordCorrectedCalibration@454",
+      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::RecordCorrectedCalibration@461",
       "file": "Runtime/SigmaPrism/SigmaInverseController.cs",
       "name": "RecordCorrectedCalibration",
       "kind": "method",
-      "line": 454
+      "line": 461
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::RecordNormalize@375",
+      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::RecordNormalize@382",
       "file": "Runtime/SigmaPrism/SigmaInverseController.cs",
       "name": "RecordNormalize",
       "kind": "method",
-      "line": 375
+      "line": 382
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::RecordPoseGauge@400",
+      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::RecordPoseGauge@407",
       "file": "Runtime/SigmaPrism/SigmaInverseController.cs",
       "name": "RecordPoseGauge",
       "kind": "method",
-      "line": 400
+      "line": 407
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::ReleasePendingIngress@721",
+      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::ReleasePendingIngress@728",
       "file": "Runtime/SigmaPrism/SigmaInverseController.cs",
       "name": "ReleasePendingIngress",
       "kind": "method",
-      "line": 721
+      "line": 728
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::ReleaseTransientInputs@1122",
+      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::ReleaseTransientInputs@1135",
       "file": "Runtime/SigmaPrism/SigmaInverseController.cs",
       "name": "ReleaseTransientInputs",
       "kind": "method",
-      "line": 1122
+      "line": 1135
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::Reset@914",
+      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::Reset@921",
       "file": "Runtime/SigmaPrism/SigmaInverseController.cs",
       "name": "Reset",
       "kind": "method",
-      "line": 914
+      "line": 921
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::SaturatingAdd@753",
+      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::SaturatingAdd@760",
       "file": "Runtime/SigmaPrism/SigmaInverseController.cs",
       "name": "SaturatingAdd",
+      "kind": "method",
+      "line": 760
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::SetQ@748",
+      "file": "Runtime/SigmaPrism/SigmaInverseController.cs",
+      "name": "SetQ",
+      "kind": "method",
+      "line": 748
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::SetQRaw@751",
+      "file": "Runtime/SigmaPrism/SigmaInverseController.cs",
+      "name": "SetQRaw",
+      "kind": "method",
+      "line": 751
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::SetRgbQ@753",
+      "file": "Runtime/SigmaPrism/SigmaInverseController.cs",
+      "name": "SetRgbQ",
       "kind": "method",
       "line": 753
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::SetQ@741",
-      "file": "Runtime/SigmaPrism/SigmaInverseController.cs",
-      "name": "SetQ",
-      "kind": "method",
-      "line": 741
-    },
-    {
-      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::SetQRaw@744",
-      "file": "Runtime/SigmaPrism/SigmaInverseController.cs",
-      "name": "SetQRaw",
-      "kind": "method",
-      "line": 744
-    },
-    {
-      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::SetRgbQ@746",
-      "file": "Runtime/SigmaPrism/SigmaInverseController.cs",
-      "name": "SetRgbQ",
-      "kind": "method",
-      "line": 746
-    },
-    {
-      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::SetRgbQRaw@748",
+      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::SetRgbQRaw@755",
       "file": "Runtime/SigmaPrism/SigmaInverseController.cs",
       "name": "SetRgbQRaw",
       "kind": "method",
-      "line": 748
+      "line": 755
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::SigmaFrameCompletionDisposition",
+      "file": "Runtime/SigmaPrism/SigmaInverseController.cs",
+      "name": "SigmaFrameCompletionDisposition",
+      "kind": "enum",
+      "line": 10
     },
     {
       "id": "Runtime/SigmaPrism/SigmaInverseController.cs::SigmaInverseController",
       "file": "Runtime/SigmaPrism/SigmaInverseController.cs",
       "name": "SigmaInverseController",
       "kind": "class",
-      "line": 21
+      "line": 28
     },
     {
       "id": "Runtime/SigmaPrism/SigmaInverseController.cs::SigmaPackedQ48",
       "file": "Runtime/SigmaPrism/SigmaInverseController.cs",
       "name": "SigmaPackedQ48",
       "kind": "struct",
-      "line": 878
+      "line": 885
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::SubmitIngress@244",
+      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::SubmitIngress@251",
       "file": "Runtime/SigmaPrism/SigmaInverseController.cs",
       "name": "SubmitIngress",
       "kind": "method",
-      "line": 244
+      "line": 251
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::TrackLast@727",
+      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::TrackLast@734",
       "file": "Runtime/SigmaPrism/SigmaInverseController.cs",
       "name": "TrackLast",
       "kind": "method",
-      "line": 727
+      "line": 734
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::TryGetFreeIngressSlot@691",
+      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::TryGetFreeIngressSlot@698",
       "file": "Runtime/SigmaPrism/SigmaInverseController.cs",
       "name": "TryGetFreeIngressSlot",
       "kind": "method",
-      "line": 691
+      "line": 698
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::UploadExactCalibration@482",
+      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::UploadExactCalibration@489",
       "file": "Runtime/SigmaPrism/SigmaInverseController.cs",
       "name": "UploadExactCalibration",
       "kind": "method",
-      "line": 482
+      "line": 489
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::UploadPosePrior@495",
+      "id": "Runtime/SigmaPrism/SigmaInverseController.cs::UploadPosePrior@502",
       "file": "Runtime/SigmaPrism/SigmaInverseController.cs",
       "name": "UploadPosePrior",
       "kind": "method",
-      "line": 495
+      "line": 502
     },
     {
       "id": "Runtime/SigmaPrism/SigmaNumericDomain.cs::Clamp@291",
@@ -10845,6 +10859,13 @@
       "line": 61
     },
     {
+      "id": "Tests/Editor/SigmaFrameResourceTests.cs::FrameCompletionDispositionIsTruthfulAndFailClosed@148",
+      "file": "Tests/Editor/SigmaFrameResourceTests.cs",
+      "name": "FrameCompletionDispositionIsTruthfulAndFailClosed",
+      "kind": "method",
+      "line": 148
+    },
+    {
       "id": "Tests/Editor/SigmaFrameResourceTests.cs::GeneratedFrameAbiHasExactManagedStrides@23",
       "file": "Tests/Editor/SigmaFrameResourceTests.cs",
       "name": "GeneratedFrameAbiHasExactManagedStrides",
@@ -10873,11 +10894,11 @@
       "line": 14
     },
     {
-      "id": "Tests/Editor/SigmaFrameResourceTests.cs::VulkanFixtureCompilesAllRecordsWithinEightUavs@148",
+      "id": "Tests/Editor/SigmaFrameResourceTests.cs::VulkanFixtureCompilesAllRecordsWithinEightUavs@195",
       "file": "Tests/Editor/SigmaFrameResourceTests.cs",
       "name": "VulkanFixtureCompilesAllRecordsWithinEightUavs",
       "kind": "method",
-      "line": 148
+      "line": 195
     },
     {
       "id": "Tests/Editor/SigmaGpuLoweringTests.cs::AssertPacked@212",
@@ -11694,7 +11715,7 @@
       "source_type": "SigmaRenderer",
       "event": "PredictionReady",
       "handler": "OnPredictionReady",
-      "line": 126
+      "line": 133
     },
     {
       "file": "Runtime/SigmaPrism/SigmaRigBridge.cs",
@@ -17688,7 +17709,7 @@
     },
     {
       "source": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::DispatchIndirectProfiled@148",
-      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::Begin@969",
+      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::Begin@976",
       "kind": "calls"
     },
     {
@@ -17698,7 +17719,7 @@
     },
     {
       "source": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::DispatchIndirectProfiled@165",
-      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::Begin@969",
+      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::Begin@976",
       "kind": "calls"
     },
     {
@@ -17718,7 +17739,7 @@
     },
     {
       "source": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::DispatchProfiled@115",
-      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::Begin@969",
+      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::Begin@976",
       "kind": "calls"
     },
     {
@@ -17802,443 +17823,448 @@
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::Add@902",
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::Add@909",
       "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Max@172",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::BuildTrackingPriorEnvelope@515",
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::BuildTrackingPriorEnvelope@522",
       "target": "Runtime/SigmaPrism/SigmaFrameGraph.cs::CameraPose@18",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::BuildTrackingPriorEnvelope@515",
-      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::AbsNanoseconds@750",
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::BuildTrackingPriorEnvelope@522",
+      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::AbsNanoseconds@757",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::BuildTrackingPriorEnvelope@515",
-      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::MaxRigRotationResidual@574",
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::BuildTrackingPriorEnvelope@522",
+      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::MaxRigRotationResidual@581",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::BuildTrackingPriorEnvelope@515",
-      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::MaxRigTranslationResidual@561",
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::BuildTrackingPriorEnvelope@522",
+      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::MaxRigTranslationResidual@568",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::BuildTrackingPriorEnvelope@515",
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::BuildTrackingPriorEnvelope@522",
       "target": "Runtime/SigmaPrism/SigmaNumericDomain.cs::Clamp@291",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::BuildTrackingPriorEnvelope@515",
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::BuildTrackingPriorEnvelope@522",
       "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Max@172",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::CaptureTimingTelemetry@212",
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::CaptureTimingTelemetry@219",
       "target": "Runtime/SigmaPrism/SigmaDiagnosticTelemetry.cs::SigmaRuntimeTimingTelemetry",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::Complete@1084",
-      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::ReleaseTransientInputs@1122",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::CreatePersistentResources@612",
-      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::IngressSlot",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::CreatePersistentResources@612",
-      "target": "Runtime/SigmaPrism/SigmaNumericDomain.cs::Clamp@291",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::CreatePersistentResources@612",
-      "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Min@170",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::Dispose@1100",
-      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::ReleaseTransientInputs@1122",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::EnsureCalibration@587",
-      "target": "Runtime/SigmaPrism/Calibration/RigCalibration.cs::IsCompatible@82",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::EnsureCalibration@587",
-      "target": "Runtime/SigmaPrism/Calibration/RigCalibration.cs::TryCreate@94",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::EnsureDirectGraph@226",
-      "target": "Runtime/SigmaPrism/SigmaFrameGraph.cs::SigmaFrameGraph",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::EnsureDirectGraph@226",
-      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::CreatePersistentResources@612",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::EnsureDirectGraph@226",
-      "target": "Runtime/Utils/Logger.cs::Info@30",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::EnsureFrameResources@1055",
-      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::CreateArrayTexture@788",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::EnsurePosePartials@1072",
-      "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Max@172",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::FillCalibration@636",
-      "target": "Runtime/SigmaPrism/Capture/RigCaptureContracts.cs::FiniteRasterFar@246",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::FillCalibration@636",
-      "target": "Runtime/SigmaPrism/SigmaFrameGraph.cs::FromCamera@14",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::FillCalibration@636",
-      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::SetQ@741",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::FillCalibration@636",
-      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::SetQRaw@744",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::FillCalibration@636",
-      "target": "Runtime/SigmaPrism/SigmaNumericDomain.cs::FromRatio@196",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::FillCalibration@636",
-      "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Max@172",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::FillCalibration@636",
-      "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Min@170",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::FillRgbCalibration@673",
-      "target": "Runtime/SigmaPrism/SigmaFrameGraph.cs::FromCamera@14",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::FillRgbCalibration@673",
-      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::SetRgbQ@746",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::FillRgbCalibration@673",
-      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::SetRgbQRaw@748",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::FillRgbCalibration@673",
-      "target": "Runtime/SigmaPrism/SigmaNumericDomain.cs::FromRatio@196",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::FillRgbCalibration@673",
-      "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Max@172",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::FillRgbCalibration@673",
-      "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Min@170",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::FindKernels@600",
-      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::FindProfiledKernel@60",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::IndependenceKey@755",
-      "target": "Runtime/SigmaPrism/SigmaFrameGraph.cs::CameraPose@18",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::IndependenceKey@755",
-      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::Mix@777",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::LatchCompletionFault@364",
-      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::ReleasePendingIngress@721",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::LatchCompletionFault@364",
-      "target": "Runtime/Utils/Logger.cs::Error@42",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::LateUpdate@161",
-      "target": "Runtime/SigmaPrism/SigmaDiagnosticTelemetry.cs::IsDue@36",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::LateUpdate@161",
-      "target": "Runtime/SigmaPrism/SigmaDiagnosticTelemetry.cs::Tick@39",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::LateUpdate@161",
-      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::CaptureAndLogFrame@182",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::LateUpdate@161",
-      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::CaptureTimingTelemetry@212",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::LateUpdate@161",
-      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::EnsureDirectGraph@226",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::LateUpdate@161",
-      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::PollIngress@334",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::LateUpdate@161",
-      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::SubmitIngress@244",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::LateUpdate@161",
-      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::TryGetFreeIngressSlot@691",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::LateUpdate@161",
-      "target": "Runtime/SigmaPrism/SigmaRenderer.cs::TryGetReadoutDiagnostics@108",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::MaxRigRotationResidual@574",
-      "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Max@172",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::MaxRigTranslationResidual@561",
-      "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Max@172",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::OnDestroy@829",
-      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::ReleasePendingIngress@721",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::OnModuleInitialize@99",
-      "target": "Runtime/SigmaPrism/SigmaCarrier.cs::AcquireGpuManagedPool@123",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::OnModuleInitialize@99",
-      "target": "Runtime/SigmaPrism/SigmaDiagnosticTelemetry.cs::SigmaDiagnosticTelemetry",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::OnModuleInitialize@99",
-      "target": "Runtime/SigmaPrism/SigmaGpuCompletion.cs::RequireSupported@57",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::OnModuleInitialize@99",
-      "target": "Runtime/Utils/Logger.cs::Info@30",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::OnScanStarted@131",
-      "target": "Runtime/Utils/Logger.cs::Error@42",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::OnScanStopped@145",
-      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::ReleasePendingIngress@721",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::Poll@997",
-      "target": "Runtime/SigmaPrism/SigmaDiagnosticTelemetry.cs::Request@112",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::Poll@997",
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::ClassifyFrameCompletion@1146",
       "target": "Runtime/SigmaPrism/SigmaFrameResources.cs::IsPublishedEvidence@883",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::Poll@997",
-      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::ReleaseTransientInputs@1122",
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::Complete@1093",
+      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::ReleaseTransientInputs@1135",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::PollIngress@334",
-      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::AdvanceAge@1052",
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::CreatePersistentResources@619",
+      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::IngressSlot",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::PollIngress@334",
-      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::ElapsedMilliseconds@1053",
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::CreatePersistentResources@619",
+      "target": "Runtime/SigmaPrism/SigmaNumericDomain.cs::Clamp@291",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::PollIngress@334",
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::CreatePersistentResources@619",
+      "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Min@170",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::Dispose@1113",
+      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::ReleaseTransientInputs@1135",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::EnsureCalibration@594",
+      "target": "Runtime/SigmaPrism/Calibration/RigCalibration.cs::IsCompatible@82",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::EnsureCalibration@594",
+      "target": "Runtime/SigmaPrism/Calibration/RigCalibration.cs::TryCreate@94",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::EnsureDirectGraph@233",
+      "target": "Runtime/SigmaPrism/SigmaFrameGraph.cs::SigmaFrameGraph",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::EnsureDirectGraph@233",
+      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::CreatePersistentResources@619",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::EnsureDirectGraph@233",
+      "target": "Runtime/Utils/Logger.cs::Info@30",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::EnsureFrameResources@1064",
+      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::CreateArrayTexture@795",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::EnsurePosePartials@1081",
       "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Max@172",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::RecordCorrectedCalibration@454",
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::FillCalibration@643",
+      "target": "Runtime/SigmaPrism/Capture/RigCaptureContracts.cs::FiniteRasterFar@246",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::FillCalibration@643",
       "target": "Runtime/SigmaPrism/SigmaFrameGraph.cs::FromCamera@14",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::RecordPoseGauge@400",
-      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::EnsurePosePartials@1072",
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::FillCalibration@643",
+      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::SetQ@748",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::SubmitIngress@244",
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::FillCalibration@643",
+      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::SetQRaw@751",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::FillCalibration@643",
+      "target": "Runtime/SigmaPrism/SigmaNumericDomain.cs::FromRatio@196",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::FillCalibration@643",
+      "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Max@172",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::FillCalibration@643",
+      "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Min@170",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::FillRgbCalibration@680",
+      "target": "Runtime/SigmaPrism/SigmaFrameGraph.cs::FromCamera@14",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::FillRgbCalibration@680",
+      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::SetRgbQ@753",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::FillRgbCalibration@680",
+      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::SetRgbQRaw@755",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::FillRgbCalibration@680",
+      "target": "Runtime/SigmaPrism/SigmaNumericDomain.cs::FromRatio@196",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::FillRgbCalibration@680",
+      "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Max@172",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::FillRgbCalibration@680",
+      "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Min@170",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::FindKernels@607",
+      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::FindProfiledKernel@60",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::IndependenceKey@762",
+      "target": "Runtime/SigmaPrism/SigmaFrameGraph.cs::CameraPose@18",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::IndependenceKey@762",
+      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::Mix@784",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::LatchCompletionFault@371",
+      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::ReleasePendingIngress@728",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::LatchCompletionFault@371",
+      "target": "Runtime/Utils/Logger.cs::Error@42",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::LateUpdate@168",
+      "target": "Runtime/SigmaPrism/SigmaDiagnosticTelemetry.cs::IsDue@36",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::LateUpdate@168",
+      "target": "Runtime/SigmaPrism/SigmaDiagnosticTelemetry.cs::Tick@39",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::LateUpdate@168",
+      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::CaptureAndLogFrame@182",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::LateUpdate@168",
+      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::CaptureTimingTelemetry@219",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::LateUpdate@168",
+      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::EnsureDirectGraph@233",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::LateUpdate@168",
+      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::PollIngress@341",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::LateUpdate@168",
+      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::SubmitIngress@251",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::LateUpdate@168",
+      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::TryGetFreeIngressSlot@698",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::LateUpdate@168",
+      "target": "Runtime/SigmaPrism/SigmaRenderer.cs::TryGetReadoutDiagnostics@108",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::MaxRigRotationResidual@581",
+      "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Max@172",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::MaxRigTranslationResidual@568",
+      "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Max@172",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::OnDestroy@836",
+      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::ReleasePendingIngress@728",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::OnModuleInitialize@106",
+      "target": "Runtime/SigmaPrism/SigmaCarrier.cs::AcquireGpuManagedPool@123",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::OnModuleInitialize@106",
+      "target": "Runtime/SigmaPrism/SigmaDiagnosticTelemetry.cs::SigmaDiagnosticTelemetry",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::OnModuleInitialize@106",
+      "target": "Runtime/SigmaPrism/SigmaGpuCompletion.cs::RequireSupported@57",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::OnModuleInitialize@106",
+      "target": "Runtime/Utils/Logger.cs::Info@30",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::OnScanStarted@138",
+      "target": "Runtime/Utils/Logger.cs::Error@42",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::OnScanStopped@152",
+      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::ReleasePendingIngress@728",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::Poll@1005",
+      "target": "Runtime/SigmaPrism/SigmaDiagnosticTelemetry.cs::Request@112",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::Poll@1005",
+      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::ClassifyFrameCompletion@1146",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::Poll@1005",
+      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::ReleaseTransientInputs@1135",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::PollIngress@341",
+      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::AdvanceAge@1061",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::PollIngress@341",
+      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::ElapsedMilliseconds@1062",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::PollIngress@341",
+      "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Max@172",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::RecordCorrectedCalibration@461",
+      "target": "Runtime/SigmaPrism/SigmaFrameGraph.cs::FromCamera@14",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::RecordPoseGauge@407",
+      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::EnsurePosePartials@1081",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::SubmitIngress@251",
       "target": "Runtime/SigmaPrism/Calibration/ConeLutResources.cs::Acquire@122",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::SubmitIngress@244",
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::SubmitIngress@251",
       "target": "Runtime/SigmaPrism/SigmaCarrier.cs::CollectReadableSegments@141",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::SubmitIngress@244",
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::SubmitIngress@251",
       "target": "Runtime/SigmaPrism/SigmaFrameGraph.cs::RecordExactClosure@553",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::SubmitIngress@244",
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::SubmitIngress@251",
       "target": "Runtime/SigmaPrism/SigmaFrameGraph.cs::RecordPublication@692",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::SubmitIngress@244",
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::SubmitIngress@251",
       "target": "Runtime/SigmaPrism/SigmaFrameGraph.cs::RecordSourceAndResolve@238",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::SubmitIngress@244",
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::SubmitIngress@251",
       "target": "Runtime/SigmaPrism/SigmaFrameGraph.cs::SigmaFrameInverseInput",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::SubmitIngress@244",
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::SubmitIngress@251",
       "target": "Runtime/SigmaPrism/SigmaFrameGraph.cs::TryAcquire@219",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::SubmitIngress@244",
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::SubmitIngress@251",
       "target": "Runtime/SigmaPrism/SigmaGpuCompletion.cs::RecordAfterAllWork@71",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::SubmitIngress@244",
-      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::Begin@969",
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::SubmitIngress@251",
+      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::Begin@976",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::SubmitIngress@244",
-      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::EnsureCalibration@587",
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::SubmitIngress@251",
+      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::EnsureCalibration@594",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::SubmitIngress@244",
-      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::EnsureFrameResources@1055",
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::SubmitIngress@251",
+      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::EnsureFrameResources@1064",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::SubmitIngress@244",
-      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::IndependenceKey@755",
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::SubmitIngress@251",
+      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::IndependenceKey@762",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::SubmitIngress@244",
-      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::NextRevision@733",
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::SubmitIngress@251",
+      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::NextRevision@740",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::SubmitIngress@244",
-      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::RecordCorrectedCalibration@454",
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::SubmitIngress@251",
+      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::RecordCorrectedCalibration@461",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::SubmitIngress@244",
-      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::RecordNormalize@375",
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::SubmitIngress@251",
+      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::RecordNormalize@382",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::SubmitIngress@244",
-      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::RecordPoseGauge@400",
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::SubmitIngress@251",
+      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::RecordPoseGauge@407",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::SubmitIngress@244",
-      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::TrackLast@727",
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::SubmitIngress@251",
+      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::TrackLast@734",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::SubmitIngress@244",
-      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::UploadExactCalibration@482",
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::SubmitIngress@251",
+      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::UploadExactCalibration@489",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::SubmitIngress@244",
-      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::UploadPosePrior@495",
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::SubmitIngress@251",
+      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::UploadPosePrior@502",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::SubmitIngress@244",
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::SubmitIngress@251",
       "target": "Runtime/SigmaPrism/SigmaRenderer.cs::TryRecordPoseGaugePrediction@249",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::UploadExactCalibration@482",
-      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::FillCalibration@636",
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::UploadExactCalibration@489",
+      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::FillCalibration@643",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::UploadExactCalibration@482",
-      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::FillRgbCalibration@673",
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::UploadExactCalibration@489",
+      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::FillRgbCalibration@680",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::UploadPosePrior@495",
-      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::BuildTrackingPriorEnvelope@515",
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::UploadPosePrior@502",
+      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::BuildTrackingPriorEnvelope@522",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::UploadPosePrior@495",
-      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::FromRaw@887",
+      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::UploadPosePrior@502",
+      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::FromRaw@894",
       "kind": "calls"
     },
     {
@@ -18908,7 +18934,7 @@
     },
     {
       "source": "Runtime/SigmaPrism/SigmaRenderer.cs::SigmaRenderer",
-      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::OnPredictionReady@153",
+      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::OnPredictionReady@160",
       "kind": "event:PredictionReady"
     },
     {
@@ -21062,6 +21088,11 @@
       "kind": "calls"
     },
     {
+      "source": "Tests/Editor/SigmaFrameResourceTests.cs::FrameCompletionDispositionIsTruthfulAndFailClosed@148",
+      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::ClassifyFrameCompletion@1146",
+      "kind": "calls"
+    },
+    {
       "source": "Tests/Editor/SigmaFrameResourceTests.cs::SourceStorageIsCompleteAndSegmentRangeNeverExceedsBinding@44",
       "target": "Runtime/SigmaPrism/SigmaFrameResources.cs::ComputeSegmentRecordCapacity@789",
       "kind": "calls"
@@ -21072,7 +21103,7 @@
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaFrameResourceTests.cs::VulkanFixtureCompilesAllRecordsWithinEightUavs@148",
+      "source": "Tests/Editor/SigmaFrameResourceTests.cs::VulkanFixtureCompilesAllRecordsWithinEightUavs@195",
       "target": "Runtime/SigmaPrism/SigmaExactBackendGate.cs::Dispatch@45",
       "kind": "calls"
     },
@@ -21298,7 +21329,7 @@
     },
     {
       "source": "Tests/Editor/SigmaPoseGaugeTests.cs::VulkanPoseKernelsSolveAndCorrectTheSameRigGauge@124",
-      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::CreateArrayTexture@788",
+      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::CreateArrayTexture@795",
       "kind": "calls"
     },
     {

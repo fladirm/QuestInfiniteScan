@@ -24,6 +24,10 @@ Updated: 2026-08-24 (Europe/Prague)
   footprints, so the worst two-groups-per-footprint dispatch is 65,024. All direct
   dispatch wrappers reject dimensions outside `1..65535` before command recording.
   The 320x320 production recorder and full Vulkan EditMode suite pass 65/65.
+- Completion accounting is now truthful: only `EVIDENCE_RETAINED`, zero fault and
+  `root>=revision` is PUBLISHED and may retain evidence/increment `CommittedFrames`;
+  `RESOLVED+0` is NO_CHANGE, while shader faults, incomplete post-fence states and
+  stale revisions fail closed. Full Vulkan EditMode passes 66/66.
 - The forensic audit in `refact.md` is closed and implementation is authorized.
 - R3 replacement is accepted: image/XYZ only proposes work; physical claims and
   incident-only mutation deferral come solely from exact first-hit/four-source/S16
@@ -95,8 +99,8 @@ extent allocation, proof/raw ownership and milestone gates are frozen in the pla
 
 ## Current exact action
 
-Commit the dispatch-legality repair, archive/build/install that exact commit, then
-stop. No further S4-08 implementation is allowed until a new Quest run proves
+Commit/archive/build/install the truthful-completion slice, then stop. No further
+S4-08 implementation is allowed until a new Quest run proves
 `root>0`, published revision `>0`, changed page `>0` and draw `>0`.
 
 ## Required end state
