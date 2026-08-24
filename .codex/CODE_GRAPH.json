@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "source_digest": "2da8ae1299fa88fa98136da49a8219ddc3beb912ef6729c9fc4a9b9826d78b8a",
+  "source_digest": "883d9e07bcd996dc476fb824ab68c2b32fadad16a30aff006b6fdea6c0aa93ad",
   "scope": [
     "Runtime/**/*.cs",
     "Runtime/Resources/SigmaPrism/**/*.*",
@@ -699,7 +699,7 @@
       "file": ".codex/STATE.md",
       "name": "is",
       "kind": "class",
-      "line": 59
+      "line": 60
     },
     {
       "id": "Editor/MetaVrManifestPostprocessor.cs::FindVersion@75",
@@ -10614,11 +10614,11 @@
       "line": 174
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::BeginLine@323",
+      "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::BeginLine@332",
       "file": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs",
       "name": "BeginLine",
       "kind": "method",
-      "line": 323
+      "line": 332
     },
     {
       "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::CaptureAndLogFrame@163",
@@ -10628,11 +10628,11 @@
       "line": 163
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::CountSamples@337",
+      "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::CountSamples@346",
       "file": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs",
       "name": "CountSamples",
       "kind": "method",
-      "line": 337
+      "line": 346
     },
     {
       "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::DispatchComputeProfiled@72",
@@ -10684,46 +10684,46 @@
       "line": 59
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::FormatSample@326",
+      "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::FormatSample@335",
       "file": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs",
       "name": "FormatSample",
       "kind": "method",
-      "line": 326
+      "line": 335
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::FullName@310",
+      "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::FullName@319",
       "file": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs",
       "name": "FullName",
       "kind": "method",
-      "line": 310
+      "line": 319
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::NanosecondsToMilliseconds@350",
+      "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::NanosecondsToMilliseconds@359",
       "file": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs",
       "name": "NanosecondsToMilliseconds",
       "kind": "method",
-      "line": 350
+      "line": 359
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::Register@243",
+      "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::Register@240",
       "file": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs",
       "name": "Register",
       "kind": "method",
-      "line": 243
+      "line": 240
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::ReportRegistrationUnavailable@313",
+      "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::ReportRegistrationUnavailable@322",
       "file": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs",
       "name": "ReportRegistrationUnavailable",
       "kind": "method",
-      "line": 313
+      "line": 322
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::RequireEntry@295",
+      "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::RequireEntry@304",
       "file": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs",
       "name": "RequireEntry",
       "kind": "method",
-      "line": 295
+      "line": 304
     },
     {
       "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::Reset@45",
@@ -15346,32 +15346,32 @@
       "line": 26
     },
     {
-      "id": "Tests/Editor/SigmaStreamingContractTests.cs::AssertProofEqual@1012",
+      "id": "Tests/Editor/SigmaStreamingContractTests.cs::AssertProofEqual@1013",
       "file": "Tests/Editor/SigmaStreamingContractTests.cs",
       "name": "AssertProofEqual",
       "kind": "method",
-      "line": 1012
+      "line": 1013
     },
     {
-      "id": "Tests/Editor/SigmaStreamingContractTests.cs::Bind@1056",
+      "id": "Tests/Editor/SigmaStreamingContractTests.cs::Bind@1057",
       "file": "Tests/Editor/SigmaStreamingContractTests.cs",
       "name": "Bind",
       "kind": "method",
-      "line": 1056
+      "line": 1057
     },
     {
-      "id": "Tests/Editor/SigmaStreamingContractTests.cs::Bounds@1032",
+      "id": "Tests/Editor/SigmaStreamingContractTests.cs::Bounds@1033",
       "file": "Tests/Editor/SigmaStreamingContractTests.cs",
       "name": "Bounds",
       "kind": "method",
-      "line": 1032
+      "line": 1033
     },
     {
-      "id": "Tests/Editor/SigmaStreamingContractTests.cs::BoundsEqual@998",
+      "id": "Tests/Editor/SigmaStreamingContractTests.cs::BoundsEqual@999",
       "file": "Tests/Editor/SigmaStreamingContractTests.cs",
       "name": "BoundsEqual",
       "kind": "method",
-      "line": 998
+      "line": 999
     },
     {
       "id": "Tests/Editor/SigmaStreamingContractTests.cs::BoundsGpu",
@@ -15381,39 +15381,39 @@
       "line": 41
     },
     {
-      "id": "Tests/Editor/SigmaStreamingContractTests.cs::BuildPartitionedProofEvidence@899",
+      "id": "Tests/Editor/SigmaStreamingContractTests.cs::BuildPartitionedProofEvidence@900",
       "file": "Tests/Editor/SigmaStreamingContractTests.cs",
       "name": "BuildPartitionedProofEvidence",
       "kind": "method",
-      "line": 899
+      "line": 900
     },
     {
-      "id": "Tests/Editor/SigmaStreamingContractTests.cs::CloseProof@951",
+      "id": "Tests/Editor/SigmaStreamingContractTests.cs::CloseProof@952",
       "file": "Tests/Editor/SigmaStreamingContractTests.cs",
       "name": "CloseProof",
       "kind": "method",
-      "line": 951
+      "line": 952
     },
     {
-      "id": "Tests/Editor/SigmaStreamingContractTests.cs::HistoricalSnapshotIsPinnedAndNeverUpgradesInFlight@520",
+      "id": "Tests/Editor/SigmaStreamingContractTests.cs::HistoricalSnapshotIsPinnedAndNeverUpgradesInFlight@521",
       "file": "Tests/Editor/SigmaStreamingContractTests.cs",
       "name": "HistoricalSnapshotIsPinnedAndNeverUpgradesInFlight",
       "kind": "method",
-      "line": 520
+      "line": 521
     },
     {
-      "id": "Tests/Editor/SigmaStreamingContractTests.cs::MeetCertificates@957",
+      "id": "Tests/Editor/SigmaStreamingContractTests.cs::MeetCertificates@958",
       "file": "Tests/Editor/SigmaStreamingContractTests.cs",
       "name": "MeetCertificates",
       "kind": "method",
-      "line": 957
+      "line": 958
     },
     {
-      "id": "Tests/Editor/SigmaStreamingContractTests.cs::NullPromotionLiftUsesCompleteMeetAndExactMass@243",
+      "id": "Tests/Editor/SigmaStreamingContractTests.cs::NullPromotionLiftUsesCompleteMeetAndExactMass@244",
       "file": "Tests/Editor/SigmaStreamingContractTests.cs",
       "name": "NullPromotionLiftUsesCompleteMeetAndExactMass",
       "kind": "method",
-      "line": 243
+      "line": 244
     },
     {
       "id": "Tests/Editor/SigmaStreamingContractTests.cs::PageMetadataGpu",
@@ -15430,25 +15430,25 @@
       "line": 217
     },
     {
-      "id": "Tests/Editor/SigmaStreamingContractTests.cs::ProofCertificate@939",
+      "id": "Tests/Editor/SigmaStreamingContractTests.cs::ProofCertificate@940",
       "file": "Tests/Editor/SigmaStreamingContractTests.cs",
       "name": "ProofCertificate",
       "kind": "method",
-      "line": 939
+      "line": 940
     },
     {
-      "id": "Tests/Editor/SigmaStreamingContractTests.cs::ProofClosureIsIndependentOfWindowsAndInterleaving@705",
+      "id": "Tests/Editor/SigmaStreamingContractTests.cs::ProofClosureIsIndependentOfWindowsAndInterleaving@706",
       "file": "Tests/Editor/SigmaStreamingContractTests.cs",
       "name": "ProofClosureIsIndependentOfWindowsAndInterleaving",
       "kind": "method",
-      "line": 705
+      "line": 706
     },
     {
-      "id": "Tests/Editor/SigmaStreamingContractTests.cs::ProofGpuReverseSweepMatchesCanonicalEssentialSet@731",
+      "id": "Tests/Editor/SigmaStreamingContractTests.cs::ProofGpuReverseSweepMatchesCanonicalEssentialSet@732",
       "file": "Tests/Editor/SigmaStreamingContractTests.cs",
       "name": "ProofGpuReverseSweepMatchesCanonicalEssentialSet",
       "kind": "method",
-      "line": 731
+      "line": 732
     },
     {
       "id": "Tests/Editor/SigmaStreamingContractTests.cs::ProofSampleGpu",
@@ -15458,32 +15458,32 @@
       "line": 48
     },
     {
-      "id": "Tests/Editor/SigmaStreamingContractTests.cs::Q48@1043",
+      "id": "Tests/Editor/SigmaStreamingContractTests.cs::Q48@1044",
       "file": "Tests/Editor/SigmaStreamingContractTests.cs",
       "name": "Q48",
       "kind": "method",
-      "line": 1043
+      "line": 1044
     },
     {
-      "id": "Tests/Editor/SigmaStreamingContractTests.cs::ReadCompute@1062",
+      "id": "Tests/Editor/SigmaStreamingContractTests.cs::ReadCompute@1063",
       "file": "Tests/Editor/SigmaStreamingContractTests.cs",
       "name": "ReadCompute",
       "kind": "method",
-      "line": 1062
+      "line": 1063
     },
     {
-      "id": "Tests/Editor/SigmaStreamingContractTests.cs::ReadScript@1069",
+      "id": "Tests/Editor/SigmaStreamingContractTests.cs::ReadScript@1070",
       "file": "Tests/Editor/SigmaStreamingContractTests.cs",
       "name": "ReadScript",
       "kind": "method",
-      "line": 1069
+      "line": 1070
     },
     {
-      "id": "Tests/Editor/SigmaStreamingContractTests.cs::ReplayWindows@970",
+      "id": "Tests/Editor/SigmaStreamingContractTests.cs::ReplayWindows@971",
       "file": "Tests/Editor/SigmaStreamingContractTests.cs",
       "name": "ReplayWindows",
       "kind": "method",
-      "line": 970
+      "line": 971
     },
     {
       "id": "Tests/Editor/SigmaStreamingContractTests.cs::SigmaStreamingContractTests",
@@ -15493,11 +15493,11 @@
       "line": 12
     },
     {
-      "id": "Tests/Editor/SigmaStreamingContractTests.cs::Signed@1053",
+      "id": "Tests/Editor/SigmaStreamingContractTests.cs::Signed@1054",
       "file": "Tests/Editor/SigmaStreamingContractTests.cs",
       "name": "Signed",
       "kind": "method",
-      "line": 1053
+      "line": 1054
     },
     {
       "id": "Tests/Editor/SigmaStreamingContractTests.cs::StreamingRepairContractUsesProductionBindingsAndClosure@145",
@@ -15514,18 +15514,18 @@
       "line": 54
     },
     {
-      "id": "Tests/Editor/SigmaStreamingContractTests.cs::TransactionTelemetryDecodesExecutionGeneration@480",
+      "id": "Tests/Editor/SigmaStreamingContractTests.cs::TransactionTelemetryDecodesExecutionGeneration@481",
       "file": "Tests/Editor/SigmaStreamingContractTests.cs",
       "name": "TransactionTelemetryDecodesExecutionGeneration",
       "kind": "method",
-      "line": 480
+      "line": 481
     },
     {
-      "id": "Tests/Editor/SigmaStreamingContractTests.cs::U4@1027",
+      "id": "Tests/Editor/SigmaStreamingContractTests.cs::U4@1028",
       "file": "Tests/Editor/SigmaStreamingContractTests.cs",
       "name": "U4",
       "kind": "method",
-      "line": 1027
+      "line": 1028
     },
     {
       "id": "Tests/Editor/SigmaStreamingContractTests.cs::UInt2Gpu",
@@ -26665,42 +26665,42 @@
     },
     {
       "source": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::CaptureAndLogFrame@163",
-      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::BeginLine@323",
+      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::BeginLine@332",
       "kind": "calls"
     },
     {
       "source": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::CaptureAndLogFrame@163",
-      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::CountSamples@337",
+      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::CountSamples@346",
       "kind": "calls"
     },
     {
       "source": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::CaptureAndLogFrame@163",
-      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::FormatSample@326",
+      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::FormatSample@335",
       "kind": "calls"
     },
     {
       "source": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::CaptureAndLogFrame@163",
-      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::FullName@310",
+      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::FullName@319",
       "kind": "calls"
     },
     {
       "source": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::CaptureAndLogFrame@163",
-      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::NanosecondsToMilliseconds@350",
+      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::NanosecondsToMilliseconds@359",
       "kind": "calls"
     },
     {
       "source": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::CaptureAndLogFrame@163",
-      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::Register@243",
+      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::Register@240",
       "kind": "calls"
     },
     {
       "source": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::CaptureAndLogFrame@163",
-      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::ReportRegistrationUnavailable@313",
+      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::ReportRegistrationUnavailable@322",
       "kind": "calls"
     },
     {
       "source": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::CaptureAndLogFrame@163",
-      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::RequireEntry@295",
+      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::RequireEntry@304",
       "kind": "calls"
     },
     {
@@ -26720,17 +26720,17 @@
     },
     {
       "source": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::DispatchComputeProfiled@72",
-      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::RequireEntry@295",
+      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::RequireEntry@304",
       "kind": "calls"
     },
     {
       "source": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::DispatchComputeProfiled@91",
-      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::RequireEntry@295",
+      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::RequireEntry@304",
       "kind": "calls"
     },
     {
       "source": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::DispatchIndirectProfiled@129",
-      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::RequireEntry@295",
+      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::RequireEntry@304",
       "kind": "calls"
     },
     {
@@ -26745,7 +26745,7 @@
     },
     {
       "source": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::DispatchIndirectProfiled@146",
-      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::RequireEntry@295",
+      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::RequireEntry@304",
       "kind": "calls"
     },
     {
@@ -26765,7 +26765,7 @@
     },
     {
       "source": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::DispatchProfiled@112",
-      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::RequireEntry@295",
+      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::RequireEntry@304",
       "kind": "calls"
     },
     {
@@ -26775,26 +26775,26 @@
     },
     {
       "source": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::FindProfiledKernel@59",
-      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::Register@243",
+      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::Register@240",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::FormatSample@326",
+      "source": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::FormatSample@335",
       "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Max@172",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::Register@243",
-      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::FullName@310",
+      "source": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::Register@240",
+      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::FullName@319",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::Register@243",
-      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::ReportRegistrationUnavailable@313",
+      "source": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::Register@240",
+      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::ReportRegistrationUnavailable@322",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::ReportRegistrationUnavailable@313",
+      "source": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::ReportRegistrationUnavailable@322",
       "target": "Runtime/Utils/Logger.cs::Warning@36",
       "kind": "calls"
     },
@@ -28090,7 +28090,7 @@
     },
     {
       "source": "Runtime/SigmaPrism/SigmaRenderer.cs::RenderDirectCarrierPreview@986",
-      "target": "Tests/Editor/SigmaStreamingContractTests.cs::Bounds@1032",
+      "target": "Tests/Editor/SigmaStreamingContractTests.cs::Bounds@1033",
       "kind": "calls"
     },
     {
@@ -31079,102 +31079,102 @@
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaStreamingContractTests.cs::AssertProofEqual@1012",
-      "target": "Tests/Editor/SigmaStreamingContractTests.cs::BoundsEqual@998",
+      "source": "Tests/Editor/SigmaStreamingContractTests.cs::AssertProofEqual@1013",
+      "target": "Tests/Editor/SigmaStreamingContractTests.cs::BoundsEqual@999",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaStreamingContractTests.cs::BuildPartitionedProofEvidence@899",
+      "source": "Tests/Editor/SigmaStreamingContractTests.cs::BuildPartitionedProofEvidence@900",
       "target": "Runtime/SigmaPrism/SigmaNumericDomain.cs::SigmaQ48Interval",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaStreamingContractTests.cs::BuildPartitionedProofEvidence@899",
-      "target": "Tests/Editor/SigmaStreamingContractTests.cs::ProofCertificate@939",
+      "source": "Tests/Editor/SigmaStreamingContractTests.cs::BuildPartitionedProofEvidence@900",
+      "target": "Tests/Editor/SigmaStreamingContractTests.cs::ProofCertificate@940",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaStreamingContractTests.cs::HistoricalSnapshotIsPinnedAndNeverUpgradesInFlight@520",
+      "source": "Tests/Editor/SigmaStreamingContractTests.cs::HistoricalSnapshotIsPinnedAndNeverUpgradesInFlight@521",
       "target": "Runtime/SigmaPrism/SigmaExactBackendGate.cs::Dispatch@45",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaStreamingContractTests.cs::HistoricalSnapshotIsPinnedAndNeverUpgradesInFlight@520",
+      "source": "Tests/Editor/SigmaStreamingContractTests.cs::HistoricalSnapshotIsPinnedAndNeverUpgradesInFlight@521",
       "target": "Runtime/SigmaPrism/SigmaGaugeController.cs::Buffer@538",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaStreamingContractTests.cs::HistoricalSnapshotIsPinnedAndNeverUpgradesInFlight@520",
+      "source": "Tests/Editor/SigmaStreamingContractTests.cs::HistoricalSnapshotIsPinnedAndNeverUpgradesInFlight@521",
       "target": "Runtime/SigmaPrism/SigmaStreamingGraph.cs::SetInt@995",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaStreamingContractTests.cs::HistoricalSnapshotIsPinnedAndNeverUpgradesInFlight@520",
-      "target": "Tests/Editor/SigmaStreamingContractTests.cs::U4@1027",
+      "source": "Tests/Editor/SigmaStreamingContractTests.cs::HistoricalSnapshotIsPinnedAndNeverUpgradesInFlight@521",
+      "target": "Tests/Editor/SigmaStreamingContractTests.cs::U4@1028",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaStreamingContractTests.cs::MeetCertificates@957",
+      "source": "Tests/Editor/SigmaStreamingContractTests.cs::MeetCertificates@958",
       "target": "Runtime/SigmaPrism/SigmaNumericDomain.cs::Intersect@288",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaStreamingContractTests.cs::NullPromotionLiftUsesCompleteMeetAndExactMass@243",
+      "source": "Tests/Editor/SigmaStreamingContractTests.cs::NullPromotionLiftUsesCompleteMeetAndExactMass@244",
       "target": "Runtime/SigmaPrism/SigmaExactBackendGate.cs::Dispatch@45",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaStreamingContractTests.cs::NullPromotionLiftUsesCompleteMeetAndExactMass@243",
+      "source": "Tests/Editor/SigmaStreamingContractTests.cs::NullPromotionLiftUsesCompleteMeetAndExactMass@244",
       "target": "Runtime/SigmaPrism/SigmaGaugeController.cs::Buffer@538",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaStreamingContractTests.cs::NullPromotionLiftUsesCompleteMeetAndExactMass@243",
+      "source": "Tests/Editor/SigmaStreamingContractTests.cs::NullPromotionLiftUsesCompleteMeetAndExactMass@244",
       "target": "Runtime/SigmaPrism/SigmaGeometryReadout.cs::TryRead@25",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaStreamingContractTests.cs::NullPromotionLiftUsesCompleteMeetAndExactMass@243",
+      "source": "Tests/Editor/SigmaStreamingContractTests.cs::NullPromotionLiftUsesCompleteMeetAndExactMass@244",
       "target": "Runtime/SigmaPrism/SigmaS16.cs::FromArray@82",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaStreamingContractTests.cs::NullPromotionLiftUsesCompleteMeetAndExactMass@243",
+      "source": "Tests/Editor/SigmaStreamingContractTests.cs::NullPromotionLiftUsesCompleteMeetAndExactMass@244",
       "target": "Runtime/SigmaPrism/SigmaS16.cs::HadamardB@290",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaStreamingContractTests.cs::NullPromotionLiftUsesCompleteMeetAndExactMass@243",
+      "source": "Tests/Editor/SigmaStreamingContractTests.cs::NullPromotionLiftUsesCompleteMeetAndExactMass@244",
       "target": "Runtime/SigmaPrism/SigmaStreamingGraph.cs::SetInt@995",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaStreamingContractTests.cs::NullPromotionLiftUsesCompleteMeetAndExactMass@243",
-      "target": "Tests/Editor/SigmaStreamingContractTests.cs::Bounds@1032",
+      "source": "Tests/Editor/SigmaStreamingContractTests.cs::NullPromotionLiftUsesCompleteMeetAndExactMass@244",
+      "target": "Tests/Editor/SigmaStreamingContractTests.cs::Bounds@1033",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaStreamingContractTests.cs::NullPromotionLiftUsesCompleteMeetAndExactMass@243",
+      "source": "Tests/Editor/SigmaStreamingContractTests.cs::NullPromotionLiftUsesCompleteMeetAndExactMass@244",
       "target": "Tests/Editor/SigmaStreamingContractTests.cs::PageMetadataGpu",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaStreamingContractTests.cs::NullPromotionLiftUsesCompleteMeetAndExactMass@243",
-      "target": "Tests/Editor/SigmaStreamingContractTests.cs::Q48@1043",
+      "source": "Tests/Editor/SigmaStreamingContractTests.cs::NullPromotionLiftUsesCompleteMeetAndExactMass@244",
+      "target": "Tests/Editor/SigmaStreamingContractTests.cs::Q48@1044",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaStreamingContractTests.cs::NullPromotionLiftUsesCompleteMeetAndExactMass@243",
-      "target": "Tests/Editor/SigmaStreamingContractTests.cs::Signed@1053",
+      "source": "Tests/Editor/SigmaStreamingContractTests.cs::NullPromotionLiftUsesCompleteMeetAndExactMass@244",
+      "target": "Tests/Editor/SigmaStreamingContractTests.cs::Signed@1054",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaStreamingContractTests.cs::NullPromotionLiftUsesCompleteMeetAndExactMass@243",
-      "target": "Tests/Editor/SigmaStreamingContractTests.cs::U4@1027",
+      "source": "Tests/Editor/SigmaStreamingContractTests.cs::NullPromotionLiftUsesCompleteMeetAndExactMass@244",
+      "target": "Tests/Editor/SigmaStreamingContractTests.cs::U4@1028",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaStreamingContractTests.cs::NullPromotionLiftUsesCompleteMeetAndExactMass@243",
+      "source": "Tests/Editor/SigmaStreamingContractTests.cs::NullPromotionLiftUsesCompleteMeetAndExactMass@244",
       "target": "Tests/Editor/SigmaStreamingContractTests.cs::UInt2Gpu",
       "kind": "calls"
     },
@@ -31190,81 +31190,81 @@
     },
     {
       "source": "Tests/Editor/SigmaStreamingContractTests.cs::ProductionComputeDispatchesUseGpuTimestampWrapper@217",
-      "target": "Tests/Editor/SigmaStreamingContractTests.cs::ReadScript@1069",
+      "target": "Tests/Editor/SigmaStreamingContractTests.cs::ReadScript@1070",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaStreamingContractTests.cs::ProofCertificate@939",
+      "source": "Tests/Editor/SigmaStreamingContractTests.cs::ProofCertificate@940",
       "target": "Runtime/SigmaPrism/SigmaRgbInverse.cs::SigmaConstraintCertificate",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaStreamingContractTests.cs::ProofClosureIsIndependentOfWindowsAndInterleaving@705",
-      "target": "Tests/Editor/SigmaStreamingContractTests.cs::AssertProofEqual@1012",
+      "source": "Tests/Editor/SigmaStreamingContractTests.cs::ProofClosureIsIndependentOfWindowsAndInterleaving@706",
+      "target": "Tests/Editor/SigmaStreamingContractTests.cs::AssertProofEqual@1013",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaStreamingContractTests.cs::ProofClosureIsIndependentOfWindowsAndInterleaving@705",
-      "target": "Tests/Editor/SigmaStreamingContractTests.cs::BuildPartitionedProofEvidence@899",
+      "source": "Tests/Editor/SigmaStreamingContractTests.cs::ProofClosureIsIndependentOfWindowsAndInterleaving@706",
+      "target": "Tests/Editor/SigmaStreamingContractTests.cs::BuildPartitionedProofEvidence@900",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaStreamingContractTests.cs::ProofClosureIsIndependentOfWindowsAndInterleaving@705",
-      "target": "Tests/Editor/SigmaStreamingContractTests.cs::CloseProof@951",
+      "source": "Tests/Editor/SigmaStreamingContractTests.cs::ProofClosureIsIndependentOfWindowsAndInterleaving@706",
+      "target": "Tests/Editor/SigmaStreamingContractTests.cs::CloseProof@952",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaStreamingContractTests.cs::ProofClosureIsIndependentOfWindowsAndInterleaving@705",
-      "target": "Tests/Editor/SigmaStreamingContractTests.cs::MeetCertificates@957",
+      "source": "Tests/Editor/SigmaStreamingContractTests.cs::ProofClosureIsIndependentOfWindowsAndInterleaving@706",
+      "target": "Tests/Editor/SigmaStreamingContractTests.cs::MeetCertificates@958",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaStreamingContractTests.cs::ProofClosureIsIndependentOfWindowsAndInterleaving@705",
-      "target": "Tests/Editor/SigmaStreamingContractTests.cs::ReplayWindows@970",
+      "source": "Tests/Editor/SigmaStreamingContractTests.cs::ProofClosureIsIndependentOfWindowsAndInterleaving@706",
+      "target": "Tests/Editor/SigmaStreamingContractTests.cs::ReplayWindows@971",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaStreamingContractTests.cs::ProofGpuReverseSweepMatchesCanonicalEssentialSet@731",
+      "source": "Tests/Editor/SigmaStreamingContractTests.cs::ProofGpuReverseSweepMatchesCanonicalEssentialSet@732",
       "target": "Runtime/SigmaPrism/SigmaExactBackendGate.cs::Dispatch@45",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaStreamingContractTests.cs::ProofGpuReverseSweepMatchesCanonicalEssentialSet@731",
+      "source": "Tests/Editor/SigmaStreamingContractTests.cs::ProofGpuReverseSweepMatchesCanonicalEssentialSet@732",
       "target": "Runtime/SigmaPrism/SigmaGaugeController.cs::Buffer@538",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaStreamingContractTests.cs::ProofGpuReverseSweepMatchesCanonicalEssentialSet@731",
+      "source": "Tests/Editor/SigmaStreamingContractTests.cs::ProofGpuReverseSweepMatchesCanonicalEssentialSet@732",
       "target": "Runtime/SigmaPrism/SigmaStreamingGraph.cs::SetInt@995",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaStreamingContractTests.cs::ProofGpuReverseSweepMatchesCanonicalEssentialSet@731",
-      "target": "Tests/Editor/SigmaStreamingContractTests.cs::Bounds@1032",
+      "source": "Tests/Editor/SigmaStreamingContractTests.cs::ProofGpuReverseSweepMatchesCanonicalEssentialSet@732",
+      "target": "Tests/Editor/SigmaStreamingContractTests.cs::Bounds@1033",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaStreamingContractTests.cs::ProofGpuReverseSweepMatchesCanonicalEssentialSet@731",
-      "target": "Tests/Editor/SigmaStreamingContractTests.cs::U4@1027",
+      "source": "Tests/Editor/SigmaStreamingContractTests.cs::ProofGpuReverseSweepMatchesCanonicalEssentialSet@732",
+      "target": "Tests/Editor/SigmaStreamingContractTests.cs::U4@1028",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaStreamingContractTests.cs::ReplayWindows@970",
+      "source": "Tests/Editor/SigmaStreamingContractTests.cs::ReplayWindows@971",
       "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Min@170",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaStreamingContractTests.cs::StreamingRepairContractUsesProductionBindingsAndClosure@145",
-      "target": "Tests/Editor/SigmaStreamingContractTests.cs::ReadCompute@1062",
+      "target": "Tests/Editor/SigmaStreamingContractTests.cs::ReadCompute@1063",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaStreamingContractTests.cs::StreamingRepairContractUsesProductionBindingsAndClosure@145",
-      "target": "Tests/Editor/SigmaStreamingContractTests.cs::ReadScript@1069",
+      "target": "Tests/Editor/SigmaStreamingContractTests.cs::ReadScript@1070",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaStreamingContractTests.cs::TransactionTelemetryDecodesExecutionGeneration@480",
+      "source": "Tests/Editor/SigmaStreamingContractTests.cs::TransactionTelemetryDecodesExecutionGeneration@481",
       "target": "Runtime/SigmaPrism/SigmaDiagnosticTelemetry.cs::SigmaTransactionTelemetry",
       "kind": "calls"
     },

@@ -218,6 +218,7 @@ namespace Genesis.RoomScan.Tests
         {
             string telemetry = ReadScript("SigmaGpuKernelTelemetry.cs");
             StringAssert.Contains("CustomSampler.Create", telemetry);
+            StringAssert.Contains("Profiler.enabled = true", telemetry);
             StringAssert.Contains("gpuElapsedNanoseconds", telemetry);
             StringAssert.Contains("gpuSampleBlockCount", telemetry);
 

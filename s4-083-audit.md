@@ -1,413 +1,466 @@
-# S4-08.3 device forensic closure audit
+# S4-08.3 current-device forensic closure
 
-Date: 2026-08-23 (Europe/Prague)
-Audited source: `082eda09e16d6dea3e00a00d3c61540ce94effba`
-Device evidence: `/home/wraith/Stažené/newlog.log`
+Date: 2026-08-24 (Europe/Prague)
+Audited/deployed commit: `c2720b51637643bb04eef16894d7dd9bf9702720`
+Package: `com.questinfinitescan.smoke`
 
-## Scope and invariants
+## Scope
 
-This is a read-only forensic closure of the empty-scan Quest run. It does not
-authorize a new reconstruction model. The only canonical physical world remains:
+This report closes the current tilted 5 x 5 carrier-board, duplicate-page,
+missing-side-coverage and eventual hard-stall device run. It is source- and
+device-evidence based. It does not authorize a second geometry world or a weaker
+canonical decision path.
+
+The only canonical world remains:
 
 ```text
 Psi : Sigma_2 -> S16
 ```
 
-The repair may not introduce a side mesh, point cloud, topology world, FP
-canonical decision, CPU readback scheduler, dropped evidence, or a monolithic
-frame-blocking inverse batch. Q16.48 value and validity semantics, complete sealed
-evidence, proof/provenance, first-hit causality and atomic publication remain
-unchanged.
-
-No source file was modified while producing this audit.
+Page layout, image blocks, prediction targets, association slots, proof windows,
+raw residency and the temporary XR preview are execution/readout mechanisms only.
 
 ## Verdict
 
-The empty scan is not caused by the preview shader or by insufficient Quest
-memory. It fails earlier in the exact transaction path:
+The renderer is not hiding a completed room scan. It faithfully draws every
+manifest-current page, and the canonical stream itself contains only a slowly
+published, repeatedly allocated initial-view footprint.
+
+The visible failure is the composition of three confirmed P0 defects:
+
+1. A 320 x 320 frame is deterministically compacted into a 5 x 5 array of 64 px
+   gauge candidates. Every unmatched frame can assign those same image origins
+   fresh Morton logical coordinates before the previous candidates become visible
+   to prediction. The second 5 x 5 pass therefore overlays new logical pages rather
+   than advancing the first set.
+2. The 64-slot resident bundle arena is used as acquisition capacity. It fills in
+   roughly three all-unmatched frames. Candidates from later head directions are
+   counted as skipped but are not sealed anywhere before the capture frame is
+   released.
+3. After 4096 completed proof blocks the durable raw allocator reaches the end of
+   its second 4096-tile half. It never reuses, segments or spills. One proof owner
+   then repeats the same failed `EMIT_RAW` quantum forever, stopping all further
+   publication.
+
+This explains the complete device observation:
 
 ```text
-incomplete inverse bindings
-    -> missing/stale joint-evidence scratch
-    -> fail-open transaction progression
-    -> proof/transition closure without accepted evidence
-    -> publication of an all-null Psi page
-    -> zero support and zero visible geometry
+exact 5 x 5 initial-view board
+    -> restart at tile 1 with different page colours
+    -> overlap and increasing preview cost
+    -> no newly turned side/behind coverage
+    -> permanent publication stall
 ```
 
-An independent publication-handle defect then makes the first publication
-invisible, so a non-zero draw plan appears only after the second publication.
+## Evidence
+
+### Second-run visual oracle
+
+The Quest gallery frames at 03:30 show exactly five equal page domains across the
+top row and subsequent equal rows below it:
+
+- `com.questinfinitescan.smoke-20260824-033007.jpg`
+- `com.questinfinitescan.smoke-20260824-033037.jpg`
+- `com.questinfinitescan.smoke-20260824-033046.jpg`
+
+The screenshots are retained under `/tmp/sigma-second-run-gallery/Screenshots/`
+and in the final evidence archive.
+
+The matching device telemetry is:
+
+```text
+diag.publication = 27
+draw             = 663552 vertices
+663552 / 24576   = 27 current pages
+```
+
+Thus the exact 25-page first footprint plus two pages from the next pass are all
+manifest-current simultaneously. They are not retired generations of the same
+logical pages and they are not a preview-only duplicate.
+
+The first device run supplies the same equality at 28 pages:
+
+```text
+diag.publication = 28
+draw             = 688128
+688128 / 24576   = 28
+```
+
+### Discrete 5 x 5 derivation
+
+`SigmaInverseController.cs:305-308` computes the gauge block resolution as:
+
+```text
+ceil(depthWidth / 32), ceil(depthHeight / 32)
+```
+
+For the live 320 x 320 depth stream this is 10 x 10 blocks.
+
+`SigmaInverseWorkGraph.compute:326-340` groups 2 x 2 blocks into one candidate:
+
+```text
+gaugeWidth  = (10 + 1) >> 1 = 5
+gaugeHeight = (10 + 1) >> 1 = 5
+```
+
+The visual 5 x 5 board is therefore a direct image-domain fingerprint of the
+canonical gauge admission path.
 
 ## Confirmed root causes
 
-| Priority | Defect | Direct consequence |
-| --- | --- | --- |
-| P0 | Streaming inverse omits the complete constraint-ledger binding contract | RGB/meet stages cannot produce a valid joint constraint |
-| P0 | Pre-proof scratch has no transaction-generation/phase-completion ownership | A skipped or faulted stage can be consumed as null, undefined or old evidence |
-| P0 | Proof, transition, revalidation and publication do not require accepted/changed evidence | Execution failure can publish a novel all-null Psi generation |
-| P0 | Zero-initialized unused page references alias physical page slot 0 | The first publication retires its own real page |
-| P0 | `SKIPPED_ADMISSION` evidence is not sealed before the ingress cursor advances | Sensor evidence is dropped because of scheduling capacity |
-| P1 | One small microtile/chunk is advanced per host canonical submission | First exact publication takes 36.57 seconds |
-| P1 | Bundle extraction binds `_PoseResult` but not its pose-consume matrices | A non-zero accepted pose has a latent source-extraction correctness defect |
+### P0-1 — fresh logical gauge allocation repeats the pending camera footprint
 
-### P0-1: incomplete inverse constraint-ledger binding
+`SigmaStreamIngress.compute:135-194` first marks any predicted current page active,
+then independently marks each 32 x 32 block unmatched when stereo does not prove
+the same predicted first hit.
 
-The device reports:
+`SigmaInverseWorkGraph.compute:320-351` compacts those blocks into the 5 x 5 gauge
+candidate grid. For each admitted gauge candidate, `:436-443` performs:
 
 ```text
-newlog.log:416  SigmaStreamInverse kernel 1: _ConstraintBlocks is not set
-newlog.log:422  SigmaStreamInverse kernel 2: _ConstraintBlocks is not set
-newlog.log:428  SigmaStreamInverse kernel 3: _ConstraintBlocks is not set
+gaugeOrdinal = StreamGaugeOrdinalBase + gaugePrefix
+coordinate   = SignedMorton(gaugeOrdinal)
+imageOrigin  = imagePage * 64
 ```
 
-The kernel map is:
+The image origin repeats on the next frame, but the logical coordinate does not.
+
+The existing probation path does not prevent this initial duplication.
+`SigmaBundleSealsAlone()` at `:525-531` lets any dual-depth or depth+RGB bundle seal
+alone. Consequently the first all-unmatched frame can immediately create 25
+independent gauge transactions; subsequent frames can create another 25 while the
+first set is still invisible to published-carrier prediction.
+
+After pages do become visible, one frame may still generate both:
 
 ```text
-0 PrepareTransactionMicrotile
-1 EvaluateTransactionRgbLeft
-2 EvaluateTransactionRgbRight
-3 MeetTransactionMicrotile
-4 EvaluateTransactionMicrotile
+MATCHED work for pixels with a proven same first hit
++
+fresh GAUGE work for other 32 x 32 blocks that missed that association
 ```
 
-`Runtime/SigmaPrism/SigmaStreamingGraph.cs:549-592`, `BindInverse()`, omits:
+The captured arena contains both classes (37 MATCHED, 27 GAUGE), but the active
+forensic samples are older GAUGE promotions. Therefore the current feedback loop is:
 
 ```text
-_ConstraintCertificates
-_ConstraintCertificateBounds
-_ConstraintBlocks
-_ConstraintProofCapacity
+slow pending/publication path
+    -> published Psi remains incomplete/stale
+    -> same-first-hit misses remain common
+    -> new unmatched blocks receive new Morton identities
+    -> old gauge tickets and duplicate pages increase backlog
+    -> compatible MATCHED updates wait
+    -> published Psi remains incomplete/stale
 ```
 
-The complete existing read contract is implemented by
-`Runtime/SigmaPrism/SigmaConstraintLedger.cs:372-388`, `BindReadOnly()`.
-`Runtime/Resources/SigmaPrism/SigmaConstraintPrior.hlsl:21-73` also consumes
-`_ConstraintProofCapacity`; binding only `_ConstraintBlocks` would still leave the
-prior invalid.
+This is not S4-07 gauge refinement. Different preview hues identify different
+logical page coordinates; generation changes only tone/point size.
 
-### P0-2: a failed evidence phase does not stop transaction progress
+### P0-2 — resident bundle exhaustion drops later directions
 
-Unity's public API does not normatively specify every internal dispatch action
-after a missing-property error. This audit therefore does not assume that a whole
-shader or command buffer is skipped. The device evidence proves the narrower and
-sufficient facts:
-
-1. kernels 1-3 emit binding errors;
-2. their required writes are not available as valid current-generation evidence;
-3. later dispatches execute and transaction/proof/transition/publication counters
-   advance.
-
-Scratch ownership in `SigmaStreamInverse.compute` is:
-
-| Scratch | Writer | Reader | Current fault/generation protection |
-| --- | --- | --- | --- |
-| `EvalProjective` | Prepare | RGB, Meet, Final | none |
-| `ProofSamples.rgbLeft/right` | RGB-L/R | Proof | expected overwrite only |
-| `JointBounds` | Meet | Final, Proof | no per-record generation |
-| `JointProvenance` | Meet | Final, Proof | no per-record generation |
-| `SampleMetadata` | Meet | Final | no per-record generation |
-| `SampleOutcomes` | Meet | Final, Proof, Transition | no per-record generation |
-
-Prepare starts at `SigmaStreamInverse.compute:740`; RGB entrypoints start at
-`:872/:879`; Meet starts at `:886`; Final starts at `:1097`. Final validates the
-work/transaction identity but not a same-generation completion receipt for
-Prepare/RGB-L/R/Meet. It then advances progress.
-
-Consequences:
-
-- first use can consume undefined/zero scratch after a skipped phase;
-- reused transaction slots can consume a previous generation's scratch;
-- normal-path overwrite is not a correctness guarantee for fault or skipped
-  execution.
-
-### P0-3: the canonical state machine is fail-open
-
-The currently possible path is:
+`SigmaInverseWorkGraph.compute:354-390` clamps admitted work to
+`StreamFreeBundleCount`. Anything else only increments:
 
 ```text
-no valid accepted source evidence
-    -> PROOF_PENDING
-    -> TRANSITION_PENDING
-    -> NULL <-> NULL classified UNSUPPORTED but CLOSED
-    -> REVALIDATE_PENDING
-    -> PUBLISHABLE
-    -> PUBLISHED
+SKIPPED_ADMISSION
+PENDING_INGRESS_EXHAUSTION
 ```
 
-`SigmaStreamTransition.compute:565-599`, `SigmaCandidateCloseRecord()`, closes an
-unchanged/unsupported transition. `SigmaStreamRevalidation.compute:356-358` makes
-the transaction publishable when transition phase is closed, without requiring a
-completed evidence phase or accepted canonical change. `SigmaStreamPublication`
-checks structural closure but not accepted/changed/non-null evidence.
+Only selected lanes at `:397-475` receive a bundle slot and owned raw range. The
+unselected candidate has no immutable sealed payload when the ingress command and
+capture lease finish.
 
-The live state machine therefore does not distinguish:
+The current run reached:
 
 ```text
-VALID_NO_CHANGE_EXISTING
-NOVEL_CONTACT_ACCEPTED
-CONTRADICTION_OR_UNRESOLVED
-EXECUTION_FAILED_OR_INCOMPLETE
+56 READY + 8 ACTIVE = 64/64 resident bundles
+lifetime admission  = 91 = 27 completed + 64 resident
 ```
 
-A valid no-change observation of an existing carrier must not create a novel
-generation. UNKNOWN-to-contact requires exact accepted promotion evidence.
-Contradiction remains unresolved/dormant. Missing execution must fail closed.
+After saturation the headset continued producing thousands of coherent frames, but
+observations from side and rear head directions could not enter canonical work.
+Re-observing something similar later is not retention of the original evidence.
 
-### P0-4: unused page references corrupt publication visibility
+The current ingress cursor no longer advances when admission is exactly zero; that
+older defect is fixed. Evidence is still lost because the transient capture frame
+is released without an owned seal for unselected candidates.
 
-`SigmaInverseWorkGraph.compute:989-1018` zero-initializes a transaction and only
-initializes `page0`. `page1`, `page2` and `page3` remain all-zero records.
+### P0-3 — deterministic 4096-block raw-retention hard stall
 
-`SigmaStreamPublication.compute:109-119` infers page validity only from:
+The live raw capacity is 8192 tiles. Graph initialization reserves tiles 0..4095
+for 64 bundle slots x 64 transient proof blocks and sets `_RawAllocator[0] = 4096`
+at `SigmaInverseWorkGraph.compute:245-246`.
+
+`SigmaStreamProof.compute:1645-1786` is the durable retention path. At `:1691-1701`
+it only performs:
 
 ```text
-page.state.y < _PageCapacity
+cursor = RawAllocator[0]
+if cursor < RawTileCapacity:
+    destination = cursor
+    RawAllocator[0] = cursor + 1
+else:
+    memory.z++
 ```
 
-An all-zero unused page therefore names valid physical slot 0. Publication runs
-four lanes:
+It never searches `_RawLiveWords`, selects another segment or persists a residue.
+When allocation fails, `RawCopyActive` stays zero (`:1725`) and neither
+`closure.sourceCursor` nor transaction state advances. `CompleteProofBlock` cannot
+run because closure never reaches `CLOSED`; the singleton proof owner remains held.
+
+Device fingerprint:
 
 ```text
-lane 0    real page0
-lanes 1-3 fake zero pages, also targeting slot 0
+diag.proof       = [4097 reduced, 4096 closed, 0, 0]
+proofOwner       = one fixed transaction
+work             = FINALIZE_PROOF_BLOCK repeatedly
+diag.memory.z    = monotonically increasing
+diag.publication = frozen (27 or 28 by run)
 ```
 
-During the first publication the real target is slot 0. The fake lanes write
-visibility/retirement metadata for the same slot, producing a page whose born and
-retired manifests coincide. The publication counter advances, but the page is not
-visible.
+This is a hard session ceiling, not a renderer problem and not association
+deadlock.
 
-During the second publication the real page uses another slot. The fake lanes
-still corrupt slot 0, while the real second slot survives and produces a non-zero
-draw plan.
+### P0-4 — the 12-candidate proof window still has no continuation
 
-Observed chronology:
+`SigmaStreamProof.compute:692-704` marks `PROOF_SPILLED` when the next source-class
+records would reach the bounded candidate capacity. No production opcode consumes
+that flag or continues the journal in another window.
+
+It did not trigger the captured device stall, but it remains a canonical-cap bug:
+12 records may be an execution window only. Complete sealed evidence must be
+accumulated losslessly, then stable coalescing and reverse-order redundancy must run
+to fixed point independently of partitioning.
+
+## Latency and load
+
+### What is proven
+
+- Publications in captured windows arrive roughly one every 8-19 seconds; the
+  initial result was observed only after tens of seconds.
+- One page requires 256 16-sample inverse microtiles, 64 source reductions, 64
+  proof closures, 8192 intrinsic edge records, the 168-action annihilator catalog,
+  associator closure, revalidation and atomic publication.
+- The scheduler has eight transaction slots and one proof owner. The run ends with
+  seven transactions waiting behind the owner stalled in raw retention.
+- At 27 pages the temporary preview submits 27 x 4096 point billboards = 110592
+  points / 663552 vertices every XR frame. Duplicate pages therefore increase
+  preview cost linearly and explain the observed progressive FPS degradation.
+- KGSL sampling during the run showed approximately 91% gpubusy at 456 MHz. The
+  device must not be treated as idle and budgets must not be multiplied blindly.
+
+### Current scheduler facts
+
+Current `c2720b5` records eight canonical rounds and, unlike the prior `c887ad5`
+audit, refills static deficits in every round (`SigmaStreamingGraph.cs:279-285`).
+Therefore the older claim that REVALIDATE must wait three whole submissions is no
+longer true.
+
+The generated profile nevertheless exposes expensive work:
 
 ```text
-Start Scan             13:17:48.710
-first publication      13:18:25.280  draw=0
-second publication     13:19:03.531  draw=24576
-publication->draw lag  38.251 s
+EVALUATE_MICROTILE       88 tokens, 158 barriers
+REDUCE_SOURCE_BLOCK      21 tokens
+FINALIZE_PROOF_BLOCK     26 tokens
+TRANSITION_ANNIHILATOR   46 tokens, 168 witnesses
+TRANSITION_ASSOCIATOR     7 tokens
+REVALIDATE              578 tokens, modelled 3 MiB read + 1 MiB write
 ```
 
-The readout does not require a second publication. The earlier stable-scan/lane-0
-hypothesis is falsified. This is a page-handle validity defect.
+Every round records scheduler, dormant stages, historical revalidation, five
+inverse stages, reduction, eight proof stages and transition stages. Indirect zero
+work may make many of these no-ops, but command/marker cost and actual GPU cost must
+be measured rather than inferred from the final-round `work={...}` snapshot.
 
-The non-zero draw plan is not proof of non-null geometry: published telemetry
-still reports `supported=0`, `nonzero=0`, `information=0` and a zero AABB.
+### Timing instrumentation gap
 
-### P0-5: ingress is not lossless
-
-`SigmaInverseWorkGraph.compute:275-490`, `CompactIngressBundles`, admits at most
-two page packets from one coherent frame. Unselected candidates only increment
-`SKIPPED_ADMISSION`; no owned sealed source/raw payload has been created for them
-when the ingress cursor advances.
-
-The original observation is therefore lost. Seeing a similar region in a future
-frame is not lossless retention of the original evidence.
-
-## Exact empty-scan causal graph
+The deployed Release APK reports:
 
 ```text
-coherent RGB-D ingress
-    -> transaction admission
-    -> inverse kernels 1-3 lack full constraint-ledger bindings
-    -> current RGB/Meet scratch is not validly completed
-    -> Final has no phase receipt or scratch generation guard
-    -> transaction progress advances
-    -> proof closes null/stale evidence
-    -> NULL<->NULL transition becomes UNSUPPORTED but CLOSED
-    -> revalidation sets PUBLISHABLE without accepted-evidence gate
-    -> publication creates an all-null Psi generation
-    -> support=0, information=0, zero AABB
-    -> temporary carrier preview correctly has no physical geometry to show
+Sigma gpu-kernels ... total=0.000ms blocks=0 kernels=0
 ```
 
-In parallel:
+This is not proof of idle kernels. Ninety-eight production compute entrypoints are
+registered through the profiled dispatch wrappers, but Unity profiling was disabled
+when the recorders were created. Raster work is also absent from the current kernel
+registry: prediction surface/contact, historical revalidation raster and direct XR
+preview draw.
+
+The next diagnostic APK must produce non-zero per-stage GPU timestamps or explicitly
+report instrumentation failure. Timings may validate a static Quest execution
+profile; they must never decide canonical mutation.
+
+## Preview and tracking findings
+
+- The preview draws all manifest-current pages. There is no hidden surrounding
+  carrier clipped to two pages.
+- Local point geometry tracks recognizable room contours, so a gross head-locked
+  transform is not the primary scan failure. The finite tilted board is the actual
+  early-view canonical coverage.
+- After sleep/wake the disposable preview is temporarily displaced, then re-aligns
+  while publication count remains unchanged. That transient follows Meta tracking
+  recovery. Psi must not be mutated to chase it; preview should be hidden/marked
+  until tracking is stable.
+- The temporary preview is diagnostic only and will be replaced by S4-11 meshlets.
+  It must not be used to conceal duplicate logical pages.
+
+## Falsified or corrected hypotheses
+
+- **Renderer cap/head-lock is the primary defect:** falsified. Draw count exactly
+  equals all current pages and local parallax is world-consistent.
+- **Prediction is triangle-only:** falsified. The live renderer executes the
+  contact-footprint prediction pass as well as the surface pass.
+- **The coloured layers are merely newer generations:** falsified for these runs.
+  Current-page count rises one-for-one with publication count and no replacement is
+  observed.
+- **The captured hard stall is the 12-candidate spill:** falsified. It is the raw
+  allocator at 4096 durable blocks. The 12-window gap remains latent.
+- **The current build refills only scheduler round zero:** outdated. `c2720b5`
+  refills all eight rounds.
+- **Quest is obviously under-loaded:** not supported. KGSL reports high gpubusy;
+  per-kernel timings are unavailable.
+
+## Exact causal graph
 
 ```text
-first publication
-    -> unused page1..3 alias page slot 0
-    -> real slot 0 is retired by its own manifest
-    -> no visible page and draw=0
-    -> second publication uses a different real slot
-    -> draw plan becomes non-zero, but canonical payload remains all-null
+coherent 320 x 320 stereo depth
+    -> no/partial current prediction
+    -> 10 x 10 unmatched 32 px flags
+    -> 5 x 5 candidate 64 px pages
+    -> dual-depth bundle seals alone
+    -> each candidate receives fresh Morton logical coordinate
+    -> 25 first-frame pages enter slow exact work
+    -> later frames repeat the same image origins with new coordinates
+    -> 64 resident bundles fill before current Psi catches up
+    -> side/rear observations are not sealed
+    -> old GAUGE work publishes slowly; MATCHED updates wait
+    -> preview faithfully shows a duplicated initial-view board
+    -> retained raw cursor consumes slots 4096..8191
+    -> block closure 4097 cannot allocate
+    -> proof owner repeats forever
+    -> no more publication or directional coverage
 ```
 
-## 36.57-second first-result latency
+## Minimal ontology-preserving repair contract
 
-Measured:
+This is one closure run, not a new mapper. Reuse the existing probation,
+association, source-handle, raw-ledger, manifest and scheduler structures.
+
+### P0-A — exact pending-or-published association before fresh gauge allocation
+
+Fresh Morton allocation is legal only after exact association has failed against:
+
+1. a compatible manifest-current Psi page; and
+2. a compatible pending candidate/probation handle from the same sealed dependency
+   domain.
+
+Image origin may propose a lookup but may not become canonical identity. The exact
+Q16.48 admissible-cell/first-hit path decides compatibility. A compatible source is
+attached as a dependent source/MATCHED update using the existing logical coordinate;
+it does not receive another gauge ordinal.
+
+Do not solve this by XYZ proximity, colour-key deduplication, hiding layers or
+raising the bundle capacity.
+
+### P0-B — seal evidence before resident admission
+
+The 64 bundle records are execution residency, not evidence ownership. Before the
+capture/prediction leases are released, every coherent candidate must have an owned
+source/raw handle. Admission may decide when that handle receives a resident bundle,
+never whether it survives.
+
+Reuse the existing source-handle segments and constraint-ledger raw payload. Do not
+add a parallel frame/world database. If durable capacity is unavailable, retain the
+owned handle and expose backpressure; do not increment a skip counter and discard
+the observation.
+
+### P0-C — make raw retention segmented/reclaimable and fail closed
+
+Replace the monotonic raw cursor with deterministic generation-safe allocation over
+the existing live bitmap/segments. Retired residues become reusable. When no
+resident slot exists, the transaction enters a residency/persistence wait state,
+releases the singleton proof owner and preserves its source cursor. It must not
+spin, advance or publish partially.
+
+S4-10 persistence provides lossless overflow for truly long sessions; the live
+contract must already treat GPU raw slots as a cache, never as a 4096-block
+canonical/session cap.
+
+### P0-D — continue proof beyond the 12-record window
+
+`PROOF_SPILLED` must schedule the next bounded journal window. Only after the entire
+sealed source stream is accumulated may stable ordering, coalescing and reverse
+redundancy reach fixed point. Window size, token budget and interleaving must not
+change Psi, validity, proof order or provenance.
+
+### P1 — service profile and preview
+
+After P0 correctness, use measured GPU timestamps to establish one static Quest
+profile that prioritizes completion of old/commit-ready work and prevents compatible
+MATCHED updates from starving behind repeated GAUGE allocations. Preserve ticket
+dependencies and bounded submissions; do not use runtime timings as canonical
+decision input.
+
+The disposable preview should colour logical coordinate, generation and
+MATCHED/GAUGE path distinctly and suppress presentation during invalid wake
+tracking. This is diagnostics, not a second reconstruction.
+
+## Expected implementation size
+
+Because the necessary records and ownership paths already exist, this should remain
+a focused closure rather than a subsystem rewrite:
 
 ```text
-Start Scan          13:17:48.710
-first publication   13:18:25.280
-latency             36.570 s
-canonical quanta    1663
-effective rate      approximately 45.5 quanta/s
+pending/published association and gauge reuse      80-150 production LOC
+raw allocation/wait/reclaim contract               80-140 production LOC
+lossless ingress ownership handoff                100-200 production LOC
+proof-window continuation                          80-160 production LOC
+diagnostics/binds/tests                            150-250 LOC
 ```
 
-Generated constants currently decompose one isolated single-source page roughly
-as follows:
+Estimated production change: roughly 340-650 LOC plus focused tests. A smaller
+hotfix can make the current room appear to work, but cannot satisfy the no-drop,
+no-cap and week/city-session invariants.
 
-```text
-1 admission
-64 proof blocks * (
-    4 16-sample evaluation microtiles
-  + 1 source reduction
-  + 1 proof scheduling/finalization step)
-128 annihilator chunks
-64 associator chunks
-1 revalidation
-1 publication
------------------------------------------
-approximately 579 scheduler quanta
-```
+## Required gates before another Quest build
 
-At the observed rate, even the isolated floor is about 12.7 seconds. The observed
-36.57 seconds results from breadth-first co-progress of multiple transactions,
-completion of at least two complete 64-block proof pages, serialized proof-owner
-progress, and the host issuing only a small opcode step per canonical submission.
-Canonical and derived submissions also complete as a pair before the next pair is
-issued.
+1. A stationary scene over hundreds of frames produces at most one logical 5 x 5
+   footprint; later evidence advances/replaces those logical pages instead of
+   allocating another coloured grid.
+2. Start, +90 degrees, -90 degrees and 180 degrees all become owned sealed work and
+   eventually manifest-current Psi despite a full resident arena.
+3. `SKIPPED_ADMISSION` cannot represent discarded evidence; capture lease release
+   requires proof of owned sealing.
+4. More than 4096 retained proof blocks complete without a fixed cursor stall;
+   raw pressure releases proof ownership and resumes after reclaim/spill.
+5. More than 12 canonical proof candidates across arbitrary partitions yields the
+   same bits, validity, minimal proof and provenance as one-shot reference.
+6. Compatible MATCHED evidence is serviced and creates a generation replacement;
+   `new gauge while compatible visible/pending page existed` remains zero.
+7. Draw current-page count equals manifest-current pages and retired generations do
+   not remain visible.
+8. Vulkan timings report every production compute and raster stage with non-zero
+   executed samples; timing failure is explicit.
+9. Wake invalid/recovering tracking does not mutate Psi and does not present a
+   misleading displaced preview.
 
-The expensive exact algebra is not the sole cause. Storage page, execution
-microtile and XR-frame scheduling are still coupled through a one-opcode-per-host-
-quantum handshake.
+## Evidence inventory
 
-The systemic repair must retain bounded work. A suitable execution unit is one
-complete 64-sample proof block composed of four fixed 16-sample coordinate
-microtiles, plus a fixed number of ordered transition chunks per token quantum.
-Persistent cursors and proof order remain exact; this is not a return to a
-page-sized monster batch.
+Primary logs:
 
-## Lease ownership and backpressure
+- `/tmp/sigma-c2720b5-live.log`
+- `/tmp/sigma-c2720b5-window.log`
+- `/tmp/sigma-current-tail2.log`
+- `/tmp/sigma-second-run-evidence/device-full.log`
+- `/tmp/sigma-second-run-evidence/device-filtered.log`
 
-`_pendingIngress` has no explicit count cap, but it is not unbounded safe storage:
+Primary images/video:
 
-- the prediction target ring has four slots;
-- one ingress retains its original prediction lease;
-- it also reserves a corrected prediction target until completion;
-- practical concurrency is therefore about two original/corrected pairs;
-- retained prediction leases pin their capture sources;
-- each capture stream has eight ring slots;
-- the synchronizer can retain up to six unpaired samples and drops oldest entries
-  on overflow.
+- `/tmp/sigma-second-run-gallery/Screenshots/com.questinfinitescan.smoke-20260824-032834.jpg`
+- `/tmp/sigma-second-run-gallery/Screenshots/com.questinfinitescan.smoke-20260824-032846.jpg`
+- `/tmp/sigma-second-run-gallery/Screenshots/com.questinfinitescan.smoke-20260824-033007.jpg`
+- `/tmp/sigma-second-run-gallery/Screenshots/com.questinfinitescan.smoke-20260824-033037.jpg`
+- `/tmp/sigma-second-run-gallery/Screenshots/com.questinfinitescan.smoke-20260824-033046.jpg`
+- `/tmp/sigma-live-angle/current-motion.mp4`
+- `/tmp/sigma-wake-evidence/`
 
-An unbounded CPU queue merely moves backpressure into the prediction/capture
-rings. A transaction that survives short ingress must own copied immutable GPU
-payload and release all capture/prediction leases.
-
-## Additional confirmed gaps
-
-### Diagnostics probation binding
-
-`newlog.log:434` reports `_StreamProbation is not set` for
-`SigmaInverseWorkGraph`, kernel 6 (`FinalizeStreamingScheduleDiagnostics`).
-`SigmaStreamingGraph.cs:458-467`, `BindScheduleDiagnostics()`, omits that buffer.
-Active/dormant/probation scheduling fields and related admission telemetry can
-therefore be stale or unwritten. Proof, transition and publication counters
-written independently remain useful.
-
-### Non-zero pose source extraction
-
-`SigmaSourceBundle.compute::ExtractSealedBundleSamples` consumes
-`SigmaPoseApplyWorld`/`SigmaPoseUnapplyWorld`. `BindBundleSource()` at
-`SigmaStreamingGraph.cs:497-547` binds `_PoseResult` but not
-`_PoseConsumeReferenceFromWorld` and `_PoseConsumeWorldFromReference`.
-This is latent when the accepted twist is zero and incorrect when it is non-zero.
-
-### Misleading UI and timing
-
-- UI topology reads the old `SigmaTopologyController` diagnostics, not streaming
-  transition counters, so it can display zeros while the streaming graph performs
-  millions of evaluations.
-- `GPU witness=1` is the exact backend capability/parity witness, not proof of
-  topology or scan progress.
-- Section-44 ingress/canonical/derived milliseconds are submission-to-completion
-  wall latency, including queueing, not per-kernel GPU duration.
-- Diagnostic readback is non-authoritative telemetry, not a CPU scheduler, and
-  counters read from multiple buffers do not form one atomic snapshot.
-
-## Memory closure
-
-Memory pressure is not the root cause of this empty scan, but the current footprint
-is already a future long-session risk.
-
-Exactly attributable persistent Sigma buffers:
-
-| Allocation group | MiB |
-| --- | ---: |
-| Streaming arena and scratch | 25.374 |
-| Constraint ledger total | 57.182 |
-| Topology caches | 10.001 |
-| Direct readout buffers | 4.127 |
-| Decoded carrier | 32.000 |
-| **Known exact Sigma buffers** | **128.684** |
-
-The device reported approximately 1.069 GiB of GL allocations, 1.65 GiB total PSS
-and 1113.7 MiB allocated GPU telemetry. The remainder is dominated by per-pixel
-MRT/LUT/ring textures, XR swapchains, camera/passthrough buffers, driver caches and
-alignment.
-
-Known depth-dependent textures scale as approximately:
-
-```text
-856 * depthPixelsPerEye bytes
-```
-
-The device log does not state the exact depth resolution, so no exact total may be
-derived from it. Memory scales independently with page capacity, transaction
-capacity, raw-evidence capacity, capture resolution/ring depth and historical
-revalidation targets.
-
-## Falsified or refined claims
-
-- **Falsified:** stable scan loses active lane 0.
-- **Falsified:** readout inherently needs a second publication.
-- **Falsified:** all UI topology counters reflect the streaming transition graph.
-- **Falsified:** `_pendingIngress` is unlimited safe retention.
-- **Falsified:** `SKIPPED_ADMISSION` is harmless telemetry.
-- **Refined:** the audited live graph has two descriptor binding holes and one
-  silent pose-matrix contract hole; no additional descriptor omissions were found
-  across the production streaming kernels.
-- **Refined:** Unity's exact internal missing-binding dispatch behavior is not
-  assumed. The conclusion relies on the device errors, unavailable required
-  writes, later dispatch execution and observed state progression.
-- **Refined:** this capture remained near 72 compositor FPS. The proven failure is
-  36-second canonical-result latency and empty state, not the 12-15 FPS behavior
-  observed in an earlier run.
-
-## Required regression gates before another Quest build
-
-The binding test must execute production code, not maintain a parallel test bind
-table:
-
-1. instantiate a real `SigmaStreamingGraph` with minimal valid production
-   resources;
-2. invoke its actual initialize, ingress, canonical and derived recorders;
-3. seed real indirect counts so every live kernel executes at least one minimal
-   group;
-4. complete through the production nonblocking completion ticket on Vulkan;
-5. fail on any `Compute shader ... Property ... is not set` message.
-
-Required regressions:
-
-1. complete inverse constraint-ledger binding;
-2. complete scheduler/probation binding;
-3. skipped or faulted Meet cannot advance or publish;
-4. transaction-slot reuse cannot consume old-generation scratch;
-5. zero accepted evidence cannot create a novel published Psi generation;
-6. unused page references cannot alias slot 0;
-7. publication creates the matching visible/ReadoutDirty generation immediately;
-8. non-zero pose extraction has both pose-consume matrices;
-9. admission pressure preserves every coherent source losslessly;
-10. proof partition/interleaving remains bit- and validity-identical;
-11. full Vulkan EditMode and Android Release shader inventory compile cleanly;
-12. only then perform the next Quest install and physical scan.
-
-## Closure state
-
-S4-08.3 is not device-acceptable at this audited revision. The 16D ontology and
-exact carrier model survived the audit. The failures are in execution ownership,
-state progression, page-handle validity, ingress retention and scheduling
-granularity.
+Legacy `com.fladirmacht.voxelscanner-*` captures are explicitly excluded.

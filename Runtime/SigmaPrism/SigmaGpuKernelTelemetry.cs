@@ -225,9 +225,6 @@ namespace Genesis.RoomScan.SigmaPrism
                     Logger.Warning("Sigma GPU kernel timestamps contain no " +
                         "executed samples for this delayed GPU frame.");
                 }
-                Logger.Info($"Sigma gpu-kernels sourceFrame=" +
-                    $"{frame - GpuTimestampDelayFrames} total=0.000ms " +
-                    $"blocks=0 kernels=0 {{idle}}");
                 return;
             }
 
@@ -257,6 +254,18 @@ namespace Genesis.RoomScan.SigmaPrism
             }
 
             string name = FullName(shader, kernelName);
+            if (Entries.Count == 0 && !Profiler.enabled)
+            {
+                try
+                {
+                    Profiler.enabled = true;
+                }
+                catch (Exception exception)
+                {
+                    ReportRegistrationUnavailable(name,
+                        "Profiler could not be enabled: " + exception.Message);
+                }
+            }
             CustomSampler sampler = null;
             Recorder recorder = null;
             try

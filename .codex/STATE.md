@@ -1,17 +1,18 @@
 # Sigma-PRISM-16 implementation state
 
-Updated: 2026-08-23 (Europe/Prague)
+Updated: 2026-08-24 (Europe/Prague)
 
 ## Authority and active work
 
 - Canonical product: `new_spec.md`, `CPQ4-2026-08-22-S16-v6`.
 - Branch: `feat/sigma-prism-16-cpq4-20260822`.
 - Accepted predecessors: S4-00 through S4-07.
-- Active node: S4-08, repair run **S4-08.3D transition/residency closure**.
+- Active node: S4-08, current-device forensic closure after the
+  **S4-08.3D transition/residency** implementation.
   S4-09 is pending and unopened.
 - Forensic closure: `s4-083-audit.md`.
 - Frozen deterministic implementation contract: `.codex/S4-08.3D_PLAN.md`.
-- Sole routine resume checkpoint: `.codex/S4-08.3_RESUME.md`.
+- Current audit execution checkpoint: `.codex/S4-08.3_PREVIEW_AUDIT.md`.
 
 ## Frozen ontology
 
@@ -115,56 +116,53 @@ granularity.
   execution residency only after successful ownership transfer; never advance
   unowned ingress.
 
+## Current deployed-device forensic closure
+
+- Audited/deployed commit is `c2720b51637643bb04eef16894d7dd9bf9702720`.
+- The 320 x 320 capture grid deterministically yields 10 x 10 ingress blocks and
+  therefore 5 x 5 gauge pages. Device screenshots show exactly this 25-page board.
+- After page 25 the runtime allocates fresh Morton logical coordinates at the same
+  image origins. At publication 27 the draw plan contains exactly 27 current pages,
+  proving that the second pass overlays new canonical pages rather than advancing
+  the first generation or merely redrawing it.
+- The 64 resident bundle slots fill in roughly three unmatched frames. Candidates
+  that do not obtain a slot are counted as skipped but are not immutably sealed
+  before the capture frame is released, so later side/rear observations never reach
+  canonical processing.
+- Durable raw retention has a deterministic session ceiling: transient tiles own
+  0..4095 and the monotonic proof allocator consumes 4096..8191. After exactly 4096
+  closed proof blocks the next `EMIT_RAW` allocation fails, the proof owner repeats
+  forever and publication stops. Device telemetry freezes at
+  `diag.proof=[4097,4096,0,0]`.
+- The 12-candidate spill flag has no production continuation reader. It did not
+  cause this captured stall but remains a separate losslessness violation.
+- The renderer draws every manifest-current page and the prediction graph includes
+  contact footprints. The tilted 5 x 5 board is therefore canonical acquisition and
+  identity failure, not a hidden completed room or a triangle-only preview defect.
+- Current Release kernel timing is unavailable: profiler recorders returned zero
+  blocks. KGSL was roughly 91 percent busy at 456 MHz, so no budget increase is
+  authorized without the next diagnostic build.
+- Complete causal proof, file/line evidence and the minimal ontology-preserving
+  repair contract are in `s4-083-audit.md`; execution notes are in
+  `.codex/S4-08.3_PREVIEW_AUDIT.md`.
+- The diagnostic-only telemetry follow-up compiles and the complete Unity Vulkan
+  EditMode suite passes 73/73; generated operators, diff, code graph/control and
+  Quest eight-UAV gates are green.
+
 ## Exact next action
 
-The post-D device run exposed two remaining wiring errors, now repaired without a
-new subsystem: streaming `CHANGED` is the bit-exact final candidate/prior delta;
-source conflict/invalid flags remain retained evidence but no longer invalidate a
-valid fallback endpoint; and valid unresolved transitions close conservatively as
-required by section 22 while derived readout keeps cutting them. Historical
-revalidation now deterministically revokes association caches owned by non-active
-bundles before allowing them to block a live canonical transaction. Null promotion,
-proof, manifest publication and derived readout contracts are unchanged.
-
-The final device audit then isolated the remaining canonical bootstrap defect in the
-lift itself: constrained gauge coordinates were clamped from zero and every accepted
-candidate used the minimum 1/64 information mass, while the inverse/Hadamard round
-trip was required to reproduce that mass within one LSB. The repaired production
-kernel now centres constrained coordinates in the complete final exact meet, derives
-mass from the maximum independently supported Q48 width, requires independent dual-
-eye geometry for null promotion and applies the exact post-quantization residual
-through state lane zero (the generated Hadamard column zero is uniformly +1). No
-buffer, scheduler, topology state or second world was added; the independence mask
-reuses the unused high half of transaction-owned sample metadata.
-
-The actual production `EvaluateTransactionMicrotile` Vulkan fixture proves four
-width-dependent masses, exact joint-cell containment, bit-identical source-order
-permutation and one-eye fail-closed promotion. Full Unity Vulkan EditMode passes
-72/72; generated output, `git diff --check` and the Quest eight-UAV gate pass.
-
-The temporary pre-S4-11 human readout now explicitly maps capture tracking space
-through Unity XR `TrackingSpace`, emits conservative adjacent-sample triangles,
-shows their barycentric edges in Wireframe mode and retains point fallback only for
-isolated support. It is one disposable readout of existing Psi and does not alter
-prediction, topology or canonical state. Vulkan EditMode remains 72/72 with no new
-shader diagnostic.
-
-The throughput diagnostic checkpoint keeps the same eight bounded canonical rounds
-but refills their existing deterministic deficits in every recorded round instead
-of only the first. No token weight, opcode, shader, exact operation or canonical
-decision changed. Every production compute dispatch now carries a read-only Unity
-Vulkan GPU timestamp marker; the existing async telemetry reports end-of-quantum
-deficit/owner/work-cap pressure as fast as one prior sample completes. Profiler
-failure cannot suppress a dispatch. Full Unity Vulkan EditMode passes 73/73,
-generated output and `git diff --check` are current, and the Quest UAV limit remains
-8. Exact next action: commit, build the same revision as Android/Vulkan Release,
-install it and use the device log to measure real per-kernel load versus artificial
-scheduler delay. Do not tune costs or open S4-09 before that evidence.
+Commit the audit plus diagnostic-only profiler visibility follow-up, regenerate and
+validate controls, create an exact source-only archive and forensic evidence bundle,
+and push that checkpoint to `origin/prism`. Do not modify reconstruction runtime or
+open S4-09 until this evidence checkpoint is delivered and the next repair is
+explicitly started.
 
 ## Acceptance still required
 
-- Physical no-claim/page-invariance, dormant replay/reclaim, publication/readout and
-  ingress-ownership evidence on the installed Release.
+- Lossless ingress ownership, stable pending-or-published association, reclaimable
+  segmented raw retention and proof continuation beyond bounded execution windows.
+- Page-layout and scheduling partition invariance, including no duplicate logical
+  gauge allocation for the same compatible sealed footprint.
 - Generated outputs, code graph, control validation, Quest UAV gate, full Vulkan
   EditMode and clean Android/Vulkan Release.
 - Fresh Quest install: first accepted publication/readout within five seconds,

@@ -839,7 +839,9 @@ namespace Genesis.RoomScan.SigmaPrism
                 .Append(" gate=").Append(GateWord)
                 .Append(" host=").Append(CommittedFrames).Append('/')
                 .Append(SubmittedFrames).Append(" rev=").Append(HostRevision)
-                .Append(" diag.admission=");
+                .Append(" timing={");
+            Timing.AppendTo(text);
+            text.Append("} diag.admission=");
             AppendRange(text, Diagnostics, 0, 4);
             text.Append(" diag.tx=");
             AppendRange(text, Diagnostics, 4, 4);
@@ -879,8 +881,6 @@ namespace Genesis.RoomScan.SigmaPrism
             AppendRange(text, DrawArguments, 0, DrawArguments.Length);
             text.Append(" vertices={");
             ReadoutVertices.AppendTo(text);
-            text.Append("} timing={");
-            Timing.AppendTo(text);
             text.Append('}');
             text.Append(" slots={");
             bool first = true;
