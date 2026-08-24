@@ -1,7 +1,7 @@
 # Goal
 
 [`new_spec.md`](../new_spec.md) is the sole canonical product and reconstruction
-specification. Its baseline is `CPQ4-2026-08-22-S16-v6`; this file and the DAG may
+specification. Its baseline is `CPQ4-2026-08-24-S16-v7`; this file and the DAG may
 sequence implementation but may not reinterpret or weaken it.
 
 Build Σ-PRISM-16 as a fully on-device Quest 3 scanner whose only durable physical
@@ -37,6 +37,11 @@ Everything else is implemented from `new_spec.md` under `Runtime/SigmaPrism` and
 `Runtime/Resources/SigmaPrism`. No TSDF/DTSDF, ContactFilm, explicit topology graph,
 surfel/triangle world, Gaussian map, server/notebook, compatibility fallback, CPU
 meshing, synchronous readback or independent texture world is permitted.
+
+The active S4-08 closure uses one direct whole-observation GPU inverse. Image tiles,
+source bundles, storage pages, proof windows and scheduling quanta cannot allocate
+carrier identity or define canonical publication. The retired S4-08.3 transaction
+graph may not remain as a fallback or be recreated under new names.
 
 Completion is section 50 of `new_spec.md`, including the section 43 physical Quest
 corpus. Compilation and synthetic tests alone are never the final acceptance.

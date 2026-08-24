@@ -37,7 +37,7 @@ marked `done` unless its evidence is absent or a later change regressed it.
 
 ## Canonical product
 
-`new_spec.md`, baseline `CPQ4-2026-08-22-S16-v6`, is frozen. The product is a fully
+`new_spec.md`, baseline `CPQ4-2026-08-24-S16-v7`, is frozen. The product is a fully
 on-device Quest 3 scanner whose only durable physical world is:
 
 ```text
@@ -113,6 +113,18 @@ history only. It is not an implementation donor. The only retained donor surface
   detail or accepted sensor resolution.
 - Sensor ingress never waits for reconstruction. Stage work by active visible,
   inverse-active, dirty and unresolved locality.
+
+### Active S4-08.4 compaction cursor
+
+While `.codex/STATE.md` names S4-08.4 active, routine post-compaction resume is an
+explicit exception to the broad resume order: read
+`.codex/S4-08.4_RESUME.md`, run `git status --short && git diff --stat`, open only
+its CURRENT files/functions and continue. Do not reread old S4-08 plans/audits or
+reconstruct the retired graph unless the checkpoint names one unresolved contract.
+
+S4-08.4 is a hard direct-frame cutover. Do not patch, rename, wrap or retain the
+page/bundle/transaction/token scheduler; do not add an old/new fallback. Every new
+or changed shader remains a complete-file implementation after full ABI/bind review.
 
 ## Persistence and export
 

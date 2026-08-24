@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "source_digest": "883d9e07bcd996dc476fb824ab68c2b32fadad16a30aff006b6fdea6c0aa93ad",
+  "source_digest": "cc8c571e99d230e4b3fa91c1f314ce4510b8bdf9deeb5be2374d61dde9bbaa10",
   "scope": [
     "Runtime/**/*.cs",
     "Runtime/Resources/SigmaPrism/**/*.*",
@@ -11,7 +11,7 @@
   ],
   "summary": {
     "files": 135,
-    "symbols": 2191,
+    "symbols": 2190,
     "methods_and_functions": 1765,
     "gpu_kernels": 113,
     "event_links": 5
@@ -694,13 +694,6 @@
     }
   ],
   "symbols": [
-    {
-      "id": ".codex/STATE.md::is",
-      "file": ".codex/STATE.md",
-      "name": "is",
-      "kind": "class",
-      "line": 60
-    },
     {
       "id": "Editor/MetaVrManifestPostprocessor.cs::FindVersion@75",
       "file": "Editor/MetaVrManifestPostprocessor.cs",

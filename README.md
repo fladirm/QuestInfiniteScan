@@ -1,7 +1,7 @@
 # Σ-PRISM-16
 
 Σ-PRISM-16 is a pure on-device Quest 3/3S spatial scanner. Its canonical
-reconstruction baseline is `CPQ4-2026-08-22-S16-v6`, defined exclusively by
+reconstruction baseline is `CPQ4-2026-08-24-S16-v7`, defined exclusively by
 [`new_spec.md`](new_spec.md).
 
 The only durable physical world is one sparse exact carrier:

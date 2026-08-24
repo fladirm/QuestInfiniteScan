@@ -4,169 +4,104 @@ Updated: 2026-08-24 (Europe/Prague)
 
 ## Authority and active work
 
-- Canonical product: `new_spec.md`, `CPQ4-2026-08-22-S16-v6`.
+- Canonical product: `new_spec.md`, `CPQ4-2026-08-24-S16-v7`.
 - Branch: `feat/sigma-prism-16-cpq4-20260822`.
 - Accepted predecessors: S4-00 through S4-07.
-- Active node: S4-08, current-device forensic closure after the
-  **S4-08.3D transition/residency** implementation.
-  S4-09 is pending and unopened.
-- Forensic closure: `s4-083-audit.md`.
-- Frozen deterministic implementation contract: `.codex/S4-08.3D_PLAN.md`.
-- Current audit execution checkpoint: `.codex/S4-08.3_PREVIEW_AUDIT.md`.
+- Active DAG node: S4-08; S4-09 remains pending and unopened.
+- Active repair: **S4-08.4 direct whole-frame S16 inverse cutover**.
+- Frozen implementation contract: `.codex/S4-08.4_DIRECT_FRAME_PLAN.md`.
+- Sole routine resume cursor: `.codex/S4-08.4_RESUME.md`.
+- Forensic evidence: `s4-083-audit.md` and archived device captures.
 
 ## Frozen ontology
 
 - `Psi : Sigma_2 -> S16` is the only canonical physical state.
-- Exact Q16.48 values, validity, gaps, source provenance, minimal proof and
-  transition signatures are invariant under partitioning/scheduling.
-- Bundle/page/block/microtile/candidate limits are execution/storage bounds, never
-  physical or canonical evidence limits.
-- Derived topology, direct XR carrier preview and later meshlets are disposable
-  readouts and never authorize mutation.
-- GPU owns inverse/proof/transition/publication. Existing async telemetry remains
-  diagnostic-only and cannot control scheduling or canonical state.
+- Canonical Q16.48 values, validity, gaps, provenance, proof and intrinsic
+  transition results are invariant under execution/storage decomposition.
+- The complete coherent `RGB_L/R + DEPTH_L/R` frame is one observation and one
+  sparse revision boundary.
+- Page/block/workgroup/proof-window dimensions have no identity or physical meaning.
+- Pending gauges are transient local parameterizations/evidence, not canonical
+  addresses, prediction authority or a second world.
+- GPU owns source-cell construction, exact meet/lift, pending closure, transition,
+  scatter, publication and readout. CPU owns resources, calibration and fences.
+- Async telemetry is diagnostic-only and cannot schedule or mutate.
 
-## Preserved completed implementation
+## Why S4-08.3 is superseded
 
-- S4-08.2 exact pose gauge, corrected calibration/reraster, rigid GPU SE(3), pose
-  provenance, reusable raw records and fail-closed graphics completion.
-- S4-08.3 persistent sealed source/transaction/proof/transition/dormant/publication
-  arenas, deterministic generated token costs and indirect worklists.
-- Coordinate-major five-stage inverse, proof fixed point with lossless windows,
-  generation-sealed historical revalidation and revision-manifest publication.
-- Separate nonblocking ingress/canonical/derived submissions and temporary stereo
-  carrier readout without a second world.
-- Previous gates: focused Vulkan streaming 4/4, full EditMode 69/69, generated
-  outputs current and Quest UAV limit 8.
+The Quest device audit proved the old execution model itself violates the ontology:
 
-## Closed device forensic result
+- 320x320 input becomes a visible 5x5 set of 25 fresh logical page identities;
+- subsequent frames allocate duplicate Morton gauges over the same footprint;
+- the 64-bundle arena loses later side/rear evidence before immutable ownership;
+- raw retention hard-stalls after exactly 4096 closed blocks;
+- the 12-record proof spill has no continuation;
+- page/transaction/token closure delays visibility by tens of seconds;
+- Release profiler recorders return no usable GPU samples.
 
-The installed S4-08.3 Release received coherent frames but produced an empty scan.
-The complete report and evidence are in `s4-083-audit.md`. Confirmed contract breaks:
+These are not repaired by larger pools, altered token costs or renamed transactions.
+ADR-S413 retires the page/bundle/transaction/token foreground graph.
 
-1. all three streaming inverse kernels missed the complete constraint-ledger bind;
-2. schedule diagnostics missed `_StreamProbation`, and bundle extraction silently
-   missed the two pose-consume matrices;
-3. the split inverse had no transaction-generation/current-work phase completion,
-   so skipped/faulted work could advance through stale scratch;
-4. zero accepted evidence could close proof/transition and become PUBLISHABLE;
-5. publication inferred page count by scanning zero-filled unused references,
-   aliasing page slot zero despite the existing explicit `publication.z` count;
-6. ingress discarded candidates beyond an artificial two-bundle cap;
-7. one dependent opcode per host submission caused about 36.6 seconds to first
-   publication; the first visible readout appeared only with the next publication.
+## Preserved implementation
 
-The audit did not find a second world or a failure of the 16D ontology. The defect
-class is execution ownership, binding, fail-closed state progression and scheduling
-granularity.
+- Exact NumericDomain and generated signed-XOR/bracketed S16 operator plans.
+- Sparse signed-64 carrier, immutable generations and exact lossless codec.
+- Exact geometry/readout, four independent depth/RGB source-cell mathematics,
+  first-hit rules, conflict/gap/provenance and width-derived information mass.
+- Exact topology/annihilator/associator and gauge-refinement mathematics.
+- S4-08 pose-gauge interval solve, corrected same-frame reraster/calibration, rigid
+  GPU SE(3), pose provenance and fail-closed graphics completion.
+- Capture/sync, forward raster prediction, XR/UI and deployment/toolchain.
 
-## S4-08.3C minimal closure
+## Active direct-frame contract
 
-- Add one transient 16-byte `execution` field to the existing transaction: exact
-  owner tuple, five phase-completion bits, accumulated existing proposal/outcome
-  bits and one execution-fault bit.
-- Reuse the existing ledger binder, outcome classes, transaction states,
-  `publication.z`, revision manifest, resident bundle arena and async telemetry.
-- Require generation+owner+phase completion at every inverse stage; only successful
-  Final advances. Faults fail closed and zero accepted evidence becomes dormant.
-- New UNKNOWN pages require accepted `NULL_PROMOTION`; existing pages require
-  accepted `EXISTING_UPDATE`; proof-only accepted updates need not set CHANGED.
-- Record eight fixed canonical rounds over one budget refill. Only the last round
-  emits publication so its worklist remains the existing CB3 derived handoff.
-- Remove only the artificial ingress cap; report resident exhaustion explicitly.
-- Extend the current ~3 KiB/1 Hz diagnostic readback with transaction owner/phase,
-  exact outcomes, counters and generated-cost load. It remains observational.
+```text
+owned coherent frame
+ -> current/pending/continuation/novel proposals
+ -> materialized independent D_L/D_R/RGB_L/R 16D cells
+ -> exact target grouping and meet/lift
+ -> pending reuse/closure/promotion
+ -> complete immutable evidence journal
+ -> incident claimed-edge transition closure
+ -> shadow carrier scatter
+ -> atomic frame-revision root flip
+ -> immediate disposable world-space readout
+```
 
-## Implemented S4-08.3C candidate
+The complete run, file deletion boundary, fixed kernels/resources, deterministic
+extent allocation, proof/raw ownership and milestone gates are frozen in the plan.
 
-- Generated transaction ABI is 368 bytes and owns the exact source/block/microtile
-  execution tuple, issued/five-phase completion and accumulated proposal/outcome/
-  fault bits; existing canonical records are unchanged.
-- Production graph binds the full constraint ledger, probation and both pose-consume
-  matrices. Only a current fully completed Final advances transaction progress.
-- Revalidation now rejects execution failure, zero accepted evidence and an
-  outcome incompatible with novel/existing page identity before PUBLISHABLE.
-- Publication consumes only explicit `publication.z`; unused page handles are
-  invalid and visible/readout-dirty caches resolve in the same publication list.
-- One canonical submission records eight dependency rounds over one refill and
-  publishes only in the final round; host recording allocates no per-round arrays.
-- Ingress seals every candidate fitting the resident arena and reports exhaustion.
-- Existing telemetry decodes execution/page ownership and generated last-round
-  load. Work-graph counters stage through its existing scheduler UAV so every
-  Quest kernel remains at or below eight UAVs.
+## Current exact action
 
-## S4-08.3D device root cause and frozen repair
+M1: implement only the generated direct-frame ABI and owned resource layer named in
+`.codex/S4-08.4_RESUME.md`. Do not edit production shader bodies or cut over the
+controller until the M2/M3 vertical direct inverse exists.
 
-- The installed `3430929` graph now reaches exact inverse and closes 1024/1024
-  proof blocks, but all 16 bootstrap pages fail candidate transition closure:
-  131072 directed edges run the complete 168-action catalog (22020096 witnesses)
-  with no accepted transition and no publication.
-- Missing/unpublished neighbours are currently materialized as physical `z_null`.
-  Contact-side eye provenance is OR-ed across the edge and can falsely support a
-  contact/null discontinuity although the null endpoint was never observed.
-- Candidate scope is page-local, so storage edges manufacture the same false null
-  transition inside one measured footprint. Generic inverse correctly does not
-  manufacture a singular perimeter at the edge of current evidence.
-- Failed candidates park whole bundle-owned raw/calibration ranges. At 64/64
-  resident bundles, new evidence receives a fresh Morton allocation address,
-  cannot join the dormant probation and ingress advances despite zero admission.
-- `.codex/S4-08.3D_PLAN.md` freezes the low-code repair: evidence-qualified
-  endpoint/no-claim semantics; Morton only as allocator; exact probation proposal;
-  transfer only unresolved residue into the existing ConstraintLedger; reclaim
-  execution residency only after successful ownership transfer; never advance
-  unowned ingress.
+## Required end state
 
-## Current deployed-device forensic closure
+- Old streaming lifecycle files and compiled references are absent, not disabled.
+- New production additions stay <= 4,200 LOC and net runtime/resource deletion is
+  >= 5,500 LOC unless a stop-and-simplify review proves otherwise.
+- Same observation yields byte-identical state/proof/provenance under legal
+  workgroup, proof-window and backing-page decompositions.
+- Complete frames/evidence are owned losslessly; no fixed scratch/raw capacity is a
+  canonical cap.
+- First exact support becomes visible without page completion or proof minimization.
+- Release profiler reports actual per-kernel GPU time or explicit unsupported state.
+- Three-minute Quest scan has continuous directional coverage/progress, no 5x5
+  board, duplicate-gauge loop, lost frames, capacity cliff or stale/faulted work.
 
-- Audited/deployed commit is `c2720b51637643bb04eef16894d7dd9bf9702720`.
-- The 320 x 320 capture grid deterministically yields 10 x 10 ingress blocks and
-  therefore 5 x 5 gauge pages. Device screenshots show exactly this 25-page board.
-- After page 25 the runtime allocates fresh Morton logical coordinates at the same
-  image origins. At publication 27 the draw plan contains exactly 27 current pages,
-  proving that the second pass overlays new canonical pages rather than advancing
-  the first generation or merely redrawing it.
-- The 64 resident bundle slots fill in roughly three unmatched frames. Candidates
-  that do not obtain a slot are counted as skipped but are not immutably sealed
-  before the capture frame is released, so later side/rear observations never reach
-  canonical processing.
-- Durable raw retention has a deterministic session ceiling: transient tiles own
-  0..4095 and the monotonic proof allocator consumes 4096..8191. After exactly 4096
-  closed proof blocks the next `EMIT_RAW` allocation fails, the proof owner repeats
-  forever and publication stops. Device telemetry freezes at
-  `diag.proof=[4097,4096,0,0]`.
-- The 12-candidate spill flag has no production continuation reader. It did not
-  cause this captured stall but remains a separate losslessness violation.
-- The renderer draws every manifest-current page and the prediction graph includes
-  contact footprints. The tilted 5 x 5 board is therefore canonical acquisition and
-  identity failure, not a hidden completed room or a triangle-only preview defect.
-- Current Release kernel timing is unavailable: profiler recorders returned zero
-  blocks. KGSL was roughly 91 percent busy at 456 MHz, so no budget increase is
-  authorized without the next diagnostic build.
-- Complete causal proof, file/line evidence and the minimal ontology-preserving
-  repair contract are in `s4-083-audit.md`; execution notes are in
-  `.codex/S4-08.3_PREVIEW_AUDIT.md`.
-- The diagnostic-only telemetry follow-up compiles and the complete Unity Vulkan
-  EditMode suite passes 73/73; generated operators, diff, code graph/control and
-  Quest eight-UAV gates are green.
+## Last green evidence before cutover
 
-## Exact next action
+- Source HEAD entering M0: `dc75700469c26d932afed5b486783c3e40585db4`.
+- Unity Vulkan EditMode 73/73, generated operators, code graph/control,
+  `git diff --check` and Quest eight-UAV validation were green.
+- Device evidence remains negative acceptance and must not be restated as success.
+- S4-08.4 M0 control gate is green: DAG JSON parses, generated code graph is
+  current, control validation names active S4-08 and diff whitespace is clean.
 
-Commit the audit plus diagnostic-only profiler visibility follow-up, regenerate and
-validate controls, create an exact source-only archive and forensic evidence bundle,
-and push that checkpoint to `origin/prism`. Do not modify reconstruction runtime or
-open S4-09 until this evidence checkpoint is delivered and the next repair is
-explicitly started.
+## Completion protocol
 
-## Acceptance still required
-
-- Lossless ingress ownership, stable pending-or-published association, reclaimable
-  segmented raw retention and proof continuation beyond bounded execution windows.
-- Page-layout and scheduling partition invariance, including no duplicate logical
-  gauge allocation for the same compatible sealed footprint.
-- Generated outputs, code graph, control validation, Quest UAV gate, full Vulkan
-  EditMode and clean Android/Vulkan Release.
-- Fresh Quest install: first accepted publication/readout within five seconds,
-  non-zero support/information/draw, no missing binding/fault/exhaustion and three
-  minutes continuous scan.
-- Commit, source-only `git archive` and APK must be the same accepted revision;
-  then stop before S4-09.
+After M6 gates: regenerate code graph, validate controls, commit accepted S4-08,
+create a source-only `git archive`, build/install Release APK from the same commit,
+run and capture the Quest acceptance. Stop before S4-09.

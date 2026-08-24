@@ -3,10 +3,14 @@
 ## Pure-Quest 3 holistic sedenion carrier reconstruction
 
 **Canonical replacement specification**  
-**Canonical reconstruction baseline:** `CPQ4-2026-08-22-S16-v6`  
+**Canonical reconstruction baseline:** `CPQ4-2026-08-24-S16-v7`
 **Target device:** Meta Quest 3  
 **Implementation target:** Unity / Vulkan / GPU-first, no server reconstruction  
-**Status:** canonical implementation specification; v6 folds in the already-established FLUID/T-language deterministic NumericDomain and hyperlinearized operator-lowering contract so the Quest implementation does not reinvent fixed-point semantics or lower algebra as branch-heavy schoolbook code; consistency-audited after the v6 rewrite.
+**Status:** canonical implementation specification; v7 retains the v6 exact
+NumericDomain/operator contract and replaces image-tile/page transaction semantics
+with one direct whole-observation inverse lowering. Execution partition, storage
+pages, proof windows and scheduling never allocate physical identity or define a
+canonical publication boundary.
 
 ---
 
@@ -375,7 +379,7 @@ This is the required implementation model. Codex must not reinterpret Σ-PRISM a
 
 ## 5.8 Inherited implementation provenance — no external dependency
 
-The rules in sections 5.1, 5.2, 5.7 and 35.1 are not an invitation to redesign the numeric/runtime substrate. They restate the already-used project doctrine in Σ-PRISM terms:
+The rules in sections 5.1, 5.2, 5.7 and 35.2 are not an invitation to redesign the numeric/runtime substrate. They restate the already-used project doctrine in Σ-PRISM terms:
 
 ```text
 FLUID / T-language:
@@ -1148,48 +1152,115 @@ This removes a large repeated preprocessing cost and makes depth/RGB evidence up
 
 ---
 
-# 18. Novel contact and gauge allocation
+# 18. Novel contact and latent gauge placement
 
-Carrier coordinates are gauge, not physical identity. The inverse readout must therefore decide where an unmatched measurement enters the latent carrier.
+Carrier coordinates are gauge, not physical identity. An unmatched physical
+observation therefore does not immediately receive a canonical `Sigma_2` address.
+The whole synchronized rig frame is one observation; execution tiling cannot divide
+it into physical identities.
 
-## 18.1 Existing readout
+## 18.1 Existing carrier compatibility
 
-When prediction supplies valid `PredCarrierUV`, update that carrier neighborhood directly.
+Forward readout supplies one or more candidate carrier preimages for a measured
+first hit. Each candidate is tested by the same exact four-source inverse
+admissibility rules used for state mutation. A candidate is accepted only when the
+joint source cell and current prior `Psi` have a legal non-empty meet satisfying
+first-hit semantics and every required exact gate.
 
-## 18.2 Unmatched supported measurement
+Prediction is a candidate generator, never allocation or acceptance authority.
 
-When no compatible carrier readout exists, allocate a latent gauge region.
+## 18.2 Pending latent gauge
 
-The allocation rule is deterministic:
+If no compatible current carrier preimage exists, supported observation enters one
+or more transient pending gauges. A pending gauge:
 
-1. the left depth/RGB optical domain is the reference **gauge only**; this does not make left-eye evidence physically privileged;
-2. unmatched valid pixels are compacted into 32x32 gauge blocks;
-3. each block requests logical carrier pages in ascending `(frameSerial, blockY, blockX)` order;
-4. allocation first searches free implicit-null pages adjacent in carrier coordinates to already matched neighbours of the same image block;
-5. if none exist, allocate from the global signed Morton spiral around carrier origin;
-6. initialize the new region by the joint L/R inverse readout; right-eye and RGB constraints participate in the same state update before publication;
-7. page/block borders have zero physical meaning and may never appear as geometry/frontier.
+- has only a temporary local `(u,v)` parameterization;
+- owns the complete exact source/provenance evidence required for promotion;
+- may be proposed to later observations before canonical promotion;
+- participates in the same exact compatibility tests as current carrier proposals;
+- has no canonical `Sigma_2` coordinate;
+- is not canonical prediction state or a second physical world.
 
-The 32x32 unit exists only to allocate gauge address space and bound GPU work. It has no physical identity.
+Execution tiles, image blocks, pages, workgroups and scratch windows may partition
+pending work but cannot alter pending identity, physical meaning, accepted support,
+topology, proof or final carrier allocation.
 
-## 18.3 Transient probation
+## 18.3 Exact local connectivity
 
-A newly allocated region is initially transient unless it has strong coherent multi-sensor support in the same synchronized frame.
+Optical-domain or disposable-readout adjacency may only propose connectivity inside
+a pending gauge. A proposed edge is retained only when exact admissible-cell,
+first-hit and S16 transition closure support a regular or stable singular relation.
+Unobserved separation creates no physical transition claim. Consequently one whole
+frame may produce multiple exact pending components, but no component boundary may
+come from image tiling, a storage page or a GPU workgroup.
 
-Transient state lives in a short-lived delta cache over `Ψ` and is promoted to canonical carrier state only after meeting the deterministic support rule:
+## 18.4 Continuation into existing latent carrier
+
+Before creating an independent pending gauge, an unmatched observation adjacent in
+the inverse readout to a compatible supported carrier region shall test whether it
+can continue into that region's implicit-unobserved carrier neighbourhood.
+Continuation is accepted only when the exact source cells, first-hit semantics and
+required transition constraints admit the same carrier parameterization.
+
+Image adjacency and Euclidean 3D proximity may propose work but never force
+continuation or identity.
+
+## 18.5 Pending-gauge reuse
+
+A later observation having no compatible canonical carrier shall test existing
+pending gauges whose disposable readout can explain the measured first hit. Reuse
+is decided by exact admissible-cell overlap, independence/provenance and first-hit
+compatibility. Repeated observations of one not-yet-promoted surface refine the same
+pending gauge instead of allocating another carrier identity.
+
+## 18.6 Null-to-contact promotion
+
+A pending gauge may enter canonical `Psi` only after the persisted independent
+support rule is satisfied:
 
 ```text
-same null->contact readout supported by:
-    both depth eyes in one coherent frame
+coherent independent left/right depth support
 OR
-    one depth eye + persistent calibrated RGB silhouette/photometric support
+depth plus independently informative calibrated RGB support
 OR
-    two temporally separated valid poses with sufficient baseline
+sufficiently independent temporal pose/baseline observations
 ```
 
-The exact sufficient-support tests use calibrated admissible-cell overlap and independence gates, not object-class heuristics.
+Promotion performs one deterministic exact lift of the complete accepted joint
+admissible set into S16. Execution windows cannot truncate that set.
 
-Moving people/noise remain transient unless they become genuinely static and satisfy the same independent-support rule.
+## 18.7 Canonical carrier-extent allocation
+
+Only promotion lacking compatible existing-carrier continuation allocates canonical
+`Sigma_2` address space. Promotion events are ordered by canonical source revision,
+then by their complete provenance key, then by the lexicographically first accepted
+local coordinate. The promoted-extent allocator appends one collision-free local
+extent plus the persisted latent deformation guard while preserving the pending
+local parameterization.
+
+The guard is implicit-unobserved carrier and makes no contact/null claim. Allocation
+is independent of image tiles, page boundaries, execution partition, backing-store
+placement and 3D position. No Morton ordering, image-block ordering or storage-page
+identity is part of physical or canonical semantics.
+
+## 18.8 Execution-decomposition invariance
+
+For the same accepted finite-footprint observation sequence, changing GPU workgroup
+shape, execution tile dimensions, storage-page dimensions, proof scratch-window
+size, dispatch partition or backing placement may alter cost but may not alter
+`Psi`, validity, gaps, topology, information strength, provenance, proof or gauge
+allocation.
+
+Changing the actual calibrated sensor footprint or observation content is new
+evidence and is not an execution-decomposition change.
+
+## 18.9 Aborted probation
+
+A pending gauge that fails promotion or is superseded by a compatible canonical
+carrier loses its transient identity and disposable candidate state without a
+canonical mutation. Exact conflict/provenance/raw evidence still required by
+section 30 remains retained; discarding a pending identity never discards required
+evidence.
 
 ---
 
@@ -1671,6 +1742,18 @@ Only constrained coordinates are stored. Bounds are Q16.48. A certificate is evi
 
 ## 30.2 Deterministic minimal proof set
 
+Every visible candidate revision must first own a complete immutable exact evidence
+journal sufficient to reproduce its state meet, validity, gaps, promotion and
+required transition gates. That complete journal is the foreground commit witness;
+it has no fixed record cap. A workgroup-local certificate array is only a scratch
+window with a persisted continuation cursor.
+
+Live revision visibility may follow exact journal closure without waiting for proof
+minimization. The complete journal and every required raw reference remain owned
+until the following minimization finishes. Durable persistence or eviction of that
+revision requires the deterministic minimal proof set below; interruption before
+durable publication restores the preceding complete durable revision.
+
 Before minimization, certificates with identical `(carrier block, roleMask, independenceKey, sourceClass, calibrationEpoch)` are coalesced by exact admissible-set intersection whenever that intersection is non-empty. An empty intersection remains explicit unresolved evidence rather than being coalesced away.
 
 For each dirty carrier block, collect the resulting certificates in lexicographic order `(roleMask, independenceKey, sourceClass, bounds)`. Compute the admissible meet they justify. Then perform one deterministic redundancy sweep in reverse lexicographic order:
@@ -1788,21 +1871,32 @@ Carrier decode and certificate lookup are GPU-local for resident pages. Dirty in
 
 No individual storage-buffer binding may exceed the runtime-reported Vulkan storage-buffer range. Page pools are segmented below that limit. Native-I64 and packed-32 execution are interchangeable exact lowerings when their capability/parity gates pass; neither representation is canonical physics.
 
-# 34. GPU memory target
+# 34. GPU memory execution profiles
 
-Default high-quality Quest 3 live budget:
+Memory capacity is an execution profile, never a reconstruction or evidence limit.
+The Quest implementation deliberately materializes complete whole-observation
+source cells when this avoids repeated exact ALU work. At 320x320, four full 16D
+lo/hi Q16.48 streams require approximately 100 MiB before validity/provenance
+metadata and are therefore not split into physical-looking tiles to satisfy an
+arbitrary scratch cap.
+
+Initial Quest 3 profiles are:
 
 ```text
-canonical decoded carrier pages        <= 240 MiB
-constraint certificates / page metadata  <=  32 MiB
-inverse/state transient scratch          <= 112 MiB
-prediction/render/meshlet caches         <= 160 MiB
-capture/calibration rings                <=  96 MiB
---------------------------------------------------
-target live reconstruction allocation   <= 640 MiB
+conservative resident target       1024 MiB
+high-throughput resident target    2048 MiB
+audited resident ceiling           3072 MiB
 ```
 
-Allocation pressure is handled by staging/evicting clean carrier pages and disposable readout caches. It may reduce publication residency/cadence, never accepted sensor resolution or canonical Q16.48 state.
+The high-throughput profile is the default during S4-08 physical closure. The
+ceiling is not a required reservation: allocation remains segmented below the
+runtime Vulkan binding range and leaves device-validated process/system headroom.
+Changing profile may alter residency, staging and cadence but may not alter source
+resolution, accepted evidence, `Psi`, proof or allocation order.
+
+Allocation pressure first releases disposable prediction/readout caches, stages
+clean immutable carrier generations and spills owned evidence journals. It never
+truncates a coherent frame or a canonical evidence set.
 
 # 35. Quest 3 work graph
 
@@ -1834,7 +1928,35 @@ The conceptual reconstruction hot path has only six physics stages.
 
 Implementation may split a stage into clear/compact/dispatch/finalize kernels, but it must not create parallel canonical geometry/topology systems.
 
-## 35.1 Hyperlinearized Quest execution contract
+## 35.1 Direct whole-observation lowering
+
+The foreground implementation records one fixed GPU dataflow for each owned
+synchronized observation:
+
+```text
+SEAL WHOLE FRAME
+  -> current/pending candidate proposal
+  -> materialize independent D_L/D_R/RGB_L/R source cells once
+  -> exact stable target grouping and four-source meet
+  -> existing update or exact pending-gauge closure/promotion
+  -> complete immutable evidence journal
+  -> exact closure of only incident claimed intrinsic transitions
+  -> shadow scatter into affected backing pages
+  -> one atomic frame-revision root publication
+  -> dirty prediction/XR readout
+```
+
+Storage pages are allocated only while scattering resolved carrier addresses. A
+page, image block, source bundle, proof block or microtile cannot own observation
+identity, gauge identity, proof closure, topology closure or publication.
+
+GPU workgroups remain bounded. If one fixed dataflow stage must span command
+buffers, one generation-owned linear cursor continues its compact record stream;
+it never restarts a page workflow and never changes canonical ordering. No token
+scheduler, persistent per-page transaction arena or singleton proof owner exists in
+the foreground path.
+
+## 35.2 Hyperlinearized Quest execution contract
 
 The six stages are semantic regions, not a mandate for branch-heavy procedural kernels. Within each pure bounded GPU region, execution follows the established T-language lowering pattern:
 
@@ -1924,7 +2046,9 @@ C# does **not**:
 7. Explicit sedenion product bracketing is preserved in semantic descriptors even when execution fuses the operator.
 8. Backend capability/legality is checked before exact lowering; unsupported exact primitives cannot silently fall back to FP.
 9. Stable GPU compaction order is required wherever output identity changes canonical addressing.
-10. Gauge allocation order is exactly section 18.2.
+10. Canonical gauge allocation follows the promoted-extent order of section 18.7;
+    execution partition, source-lane order, storage-page order and GPU scheduling
+    cannot affect it.
 11. Codec mode selection is deterministic for identical decoded state.
 12. Persistence writes logical pages sorted by `(pageY,pageX,generation)`.
 13. Randomized canonical algorithms are forbidden.
@@ -1935,6 +2059,9 @@ C# does **not**:
 18. Temporal-transition candidate ordering and accepted transport selection are lexicographically deterministic.
 19. Derived transition/operator caches are non-authoritative and keyed by canonical generation/fingerprint; deleting them cannot change a replay result.
 20. A generated optimized operator that disagrees with its semantic reference by one bit is disabled for canonical mutation.
+21. The same accepted observation sequence produces byte-identical `Psi`, validity,
+    gaps, provenance and proof certificates under every legal workgroup, execution
+    tile, proof-window and backing-page decomposition.
 
 # 39. Runtime calibration quantities
 
@@ -2208,6 +2335,10 @@ sourceCellsBuilt / sourceCellsMet
 emptyMeets
 bytesRead / bytesWritten
 GPU time per stage
+GPU time per production kernel
+dispatches / records / coordinates processed per kernel
+owned-frame backlog and oldest-frame age
+resident carrier / source-cell / evidence / raw / readout bytes
 ```
 
 The counters are diagnostic/readout state only and never influence canonical physics.
@@ -2216,19 +2347,16 @@ The counters are diagnostic/readout state only and never influence canonical phy
 
 Performance acceptance compares whole-frame/stage work against the contract; multiplying the theoretical cost of a slow reference primitive by all pixels/edges is not an implementation model. Conversely, a slow generated lowering may not hide behind architectural claims: profiler evidence on Quest is required before final acceptance.
 
-Default active-memory budget:
+Release profiling uses actual GPU timestamp markers around every production
+compute/raster stage. An unavailable platform recorder is reported explicitly and
+cannot be represented as a zero-duration sample. Timestamp results and asynchronous
+diagnostic readback never control canonical work selection or mutation.
 
-```text
-canonical decoded carrier pages         <= 240 MiB
-constraint certificates / page metadata  <=  32 MiB
-inverse/state transient scratch          <= 112 MiB
-prediction/render/meshlet caches         <= 160 MiB
-capture/calibration rings                <=  96 MiB
---------------------------------------------------
-target live reconstruction allocation    <= 640 MiB
-```
-
-When active allocation approaches the budget, evict/stage clean carrier pages or reduce derived publication residency. Never alter accepted canonical Q16.48 state or sensor resolution.
+The active-memory profiles and pressure rules are section 34. No per-category
+scratch capacity is a correctness limit. When pressure approaches the selected
+profile, reclaim disposable caches, stage clean carrier generations or spill the
+complete owned evidence stream. Never alter accepted Q16.48 state, sensor
+resolution, proof contents or source order.
 
 # 45. Persistence
 
@@ -2237,7 +2365,7 @@ Persist exactly the information required to recreate the same carrier state:
 ```text
 world/
     manifest
-        schema = CPQ4-S16-v6
+        schema = CPQ4-S16-v7
         numericDomainId = num.fixed.q16_48.checked.nearest_even
         multiplicationTableFingerprint
         annihilatorCatalogFingerprint
@@ -2397,7 +2525,8 @@ Gate: synthetic folded/null carrier fixtures produce deterministic expected dept
 - fuse only by the exact section 12 meet;
 - preserve empty intersections with source provenance;
 - enforce exact behind-hit no-constraint rule;
-- unmatched supported measurements allocate null carrier gauge.
+- unmatched supported measurements enter exact pending gauges and allocate
+  canonical carrier extent only at promotion under section 18.
 
 Gate: static room fixture converges without a second geometry representation.
 

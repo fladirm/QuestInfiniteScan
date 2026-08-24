@@ -243,3 +243,44 @@ Git history and are not active on this branch.
   never blurred or made scheduling-dependent, and the renderer sees only committed
   manifest-visible `Psi`. S4-10 supplies durable lossless overflow and S4-11 later
   replaces the temporary direct carrier readout without changing this contract.
+
+## ADR-S413 — Direct whole-observation inverse supersedes page transactions
+
+- Decision: `CPQ4-2026-08-24-S16-v7` replaces section-18 image-block/Morton gauge
+  allocation. One synchronized four-stream rig frame is one observation and one
+  sparse revision boundary. Execution tiles, source cells, proof windows and pages
+  may lower its work but may not create identity, ownership or publication units.
+- Decision: the live foreground path is one fixed GPU frame dataflow: owned-frame
+  seal, current/pending proposals, four independent exact source-cell streams,
+  stable exact target reduction, pending continuation/reuse/promotion, complete
+  evidence journal, incident-edge transition closure, shadow scatter and one atomic
+  revision-root flip. Persistent bundle/page transactions, token scheduling,
+  singleton proof ownership and per-page publication are removed rather than fixed.
+- Decision: pending gauges are transient local parameterizations plus exact
+  evidence. They have no canonical `Sigma_2` coordinate and cannot be canonical
+  prediction sources. Canonical extent allocation occurs only at promotion in the
+  deterministic section-18.7 order and is independent of Morton, tiles, pages, GPU
+  order and 3D position.
+- Decision: a visible revision owns its complete immutable exact evidence journal
+  before publication. Deterministic minimal-certificate reduction may follow as
+  background compaction, but durable persistence/eviction waits for that result.
+  Fixed scratch windows and raw pools always continue, reclaim or spill; they never
+  truncate evidence or stop a session.
+- Decision: transition validation evaluates only intrinsic edges incident to
+  changed candidate samples. Unobserved endpoints make no physical null claim;
+  unresolved claimed edges defer only incident mutations. Backing-page boundaries
+  are absent from the transition operator.
+- Decision: the 112 MiB transient hard gate is retired. Memory is a segmented
+  execution profile with initial 1024/2048/3072 MiB Quest targets. Profiles change
+  residency/cadence only and never state, proof, source resolution or allocation.
+- Decision: Release diagnostics use actual GPU timestamp markers plus exact
+  operation/memory counters. Timing and async readback are observation only and an
+  unsupported recorder is explicit rather than a zero sample.
+- Supersession: ADR-S411 remains authoritative only for GPU residency, exact
+  publication and no CPU/second-world control. ADR-S412's transaction arena,
+  bundle ownership, token scheduler, microtile/proof-block lifecycle and manifest
+  footprint transaction are retired and must not be renamed or retained as a
+  fallback.
+- Consequence: S4-08 acceptance is the direct-frame cutover defined in
+  `.codex/S4-08.4_DIRECT_FRAME_PLAN.md`. S4-09 remains unopened until that exact
+  revision is archived, built, installed and physically accepted on Quest.
