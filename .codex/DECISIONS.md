@@ -284,3 +284,25 @@ Git history and are not active on this branch.
 - Consequence: S4-08 acceptance is the direct-frame cutover defined in
   `.codex/S4-08.4_DIRECT_FRAME_PLAN.md`. S4-09 remains unopened until that exact
   revision is archived, built, installed and physically accepted on Quest.
+
+## ADR-S414 — One reduced target stream owns direct-frame closure
+
+- Decision: binding-safe footprint windows are fixed slices of one coherent frame,
+  not persistent work records. They feed one transient target stream; all records
+  with the same complete carrier/pending key are reduced by exact meet before one
+  final S16 state is constructed. Window, dispatch and writer order cannot select a
+  canonical result.
+- Decision: the reduced target record is reused as final-state input, exact live
+  certificate source, dirty-edge input and shadow-scatter input. Existing frame
+  records, constraint-ledger ownership, carrier segments and revision handles are
+  reused; no new scheduler, manager, ABI family or publication authority exists.
+- Decision: pending and continuation proposals persist only as generation-safe
+  exact evidence/parameterization handles. Exact S16 pending/transition closure
+  decides joins and incident deferral. Image/XYZ adjacency only proposes work.
+- Decision: carrier and revision allocation are binding-safe segmented paired
+  arenas with generation-safe reclaim. One manifest root is authoritative to
+  prediction, topology, readout and persistence; CPU metadata may mirror it but
+  cannot establish an independent current generation.
+- Consequence: S4-08.5 closes the incomplete ADR-S413 lowering without reviving
+  ADR-S412's transaction/token graph. The final production LOC must be lower than
+  baseline `d3b83e1`, and only a same-commit Quest gate may close S4-08.

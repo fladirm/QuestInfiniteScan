@@ -6,11 +6,11 @@ Updated: 2026-08-24 (Europe/Prague)
 
 - Canonical product: `new_spec.md`, `CPQ4-2026-08-24-S16-v7`.
 - Branch: `feat/sigma-prism-16-cpq4-20260822`.
-- Accepted source milestones: S4-00 through S4-08.
-- Active DAG node: none; S4-09 remains pending and unopened.
-- Completed repair: **S4-08.4 direct whole-frame S16 inverse cutover**.
-- Frozen implementation contract: `.codex/S4-08.4_DIRECT_FRAME_PLAN.md`.
-- Sole routine resume cursor: `.codex/S4-08.4_RESUME.md`.
+- Accepted source milestones: S4-00 through S4-07; S4-08 is reopened.
+- Active DAG node: **S4-08**; S4-09 remains pending and unopened.
+- Active repair: **S4-08.5 direct-frame closure repair**.
+- Frozen delta contract: `.codex/S4-08.5_DIRECT_FRAME_CLOSURE_PLAN.md`.
+- Sole routine resume cursor: `.codex/S4-08.5_RESUME.md`.
 - Forensic evidence: `s4-083-audit.md` and archived device captures.
 
 ## Frozen ontology
@@ -73,9 +73,10 @@ extent allocation, proof/raw ownership and milestone gates are frozen in the pla
 
 ## Current exact action
 
-M6 device-repair handoff: rebuild and install the exact post-audit S4-08 commit
-whose scan-space anchor is created directly from tracking space without an MRUK
-room-scene prerequisite. Stop before S4-09 and verify Start Scan on Quest.
+S4-08.5 R0 control-only reopen: freeze the verified G1-G14 closure contract,
+validate controls and commit it. R1 then replaces the single-window source path
+with aligned lossless windows and normalized target records; no carrier mutation is
+accepted until R2-R4 close exact reduction, transition, evidence and publication.
 
 ## Required end state
 
@@ -121,18 +122,22 @@ room-scene prerequisite. Stop before S4-09 and verify Start Scan on Quest.
   room transform snapshot and only temporary XR presentation maps back to current
   Unity world. Focused rigid-anchor parity and full Unity Vulkan EditMode pass
   54/54; generated/diff gates are green.
-- M6 pre-freeze Release compiler gate is green on the accepted runtime: Quest
+- M6 pre-freeze Release compiler gate is green on the source candidate: Quest
   eight-UAV validation passes and the Android/Vulkan Release APK builds with zero
   shader/C# errors. Compiler warnings remain reported rather than hidden.
 - First post-freeze device launch exposed a pre-ingress lifecycle regression: M5
   retained the donor MRUK `IsRoomLoaded` gate and assumed a scene-authored
   `RoomSpaceRoot`. The repair deletes MRUK room-scene loading/fallback, creates the
   root at runtime and retains OVR spatial-anchor create/save/load/localization.
-  Unity Vulkan EditMode remains green at 54/54 and the Quest eight-UAV gate passes;
-  device revalidation is pending.
+  Unity Vulkan EditMode remains green at 54/54 and the Quest eight-UAV gate passes.
+- Device revalidation is negative: coherent capture starts, but the first 320x320
+  direct submission throws `Direct-frame execution window is incomplete or
+  segmented`; the fail-closed controller then stops inverse work and revision,
+  carrier, topology and readout remain zero. Source audit confirms G1-G14 in the
+  S4-08.5 plan; S4-08.4 M3/M6 were not physically closed.
 
 ## Completion protocol
 
-After M6 gates: regenerate code graph, validate controls, commit accepted S4-08,
-create a source-only `git archive`, build/install Release APK from the same commit,
-run and capture the Quest acceptance. Stop before S4-09.
+After S4-08.5 R1-R5 gates: regenerate code graph, validate controls and commit the
+exact candidate. Archive/build/install that commit and run R6 Quest acceptance.
+Only a passing physical gate may mark S4-08 done. Stop before S4-09.

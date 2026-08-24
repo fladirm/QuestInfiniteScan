@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "source_digest": "e7a18925253412d9165f300d8449d9cda689e44ee5a4dec6bbd72bafe83a0151",
+  "source_digest": "7a0b8ffbdcfe496205370a31eeb19e940f1a58d0ac431cab504fdcf0073528ba",
   "scope": [
     "Runtime/**/*.cs",
     "Runtime/Resources/SigmaPrism/**/*.*",
@@ -12003,7 +12003,7 @@
     {
       "id": "S4-08",
       "title": "Implement bounded pose-gauge intersection",
-      "status": "done",
+      "status": "in_progress",
       "depends_on": [
         "S4-07"
       ],

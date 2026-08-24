@@ -179,16 +179,17 @@
     {
       "id": "S4-08",
       "title": "Implement bounded pose-gauge intersection",
-      "status": "done",
-      "active_repair_run": "S4-08.4 direct whole-frame S16 inverse cutover",
-      "repair_plan": ".codex/S4-08.4_DIRECT_FRAME_PLAN.md",
-      "repair_resume": ".codex/S4-08.4_RESUME.md",
+      "status": "in_progress",
+      "active_repair_run": "S4-08.5 direct-frame closure repair",
+      "repair_plan": ".codex/S4-08.5_DIRECT_FRAME_CLOSURE_PLAN.md",
+      "repair_resume": ".codex/S4-08.5_RESUME.md",
       "reopen_reason": [
         "Device evidence proves the page/bundle/transaction execution partition became canonical identity: a 320x320 frame creates a 5x5 board of 25 fresh logical pages and subsequent frames allocate duplicate Morton gauges over the same footprint",
         "The 64-bundle arena releases coherent capture before all evidence is owned, so side/rear observations are lost; raw retention then hard-stalls after 4096 closed blocks and the 12-record proof spill has no continuation",
         "Page transactions, token scheduling, singleton proof ownership and per-page transition/publication create tens-of-seconds visibility latency and cannot satisfy whole-frame, page-invariant section-11/12/35 semantics",
         "Release profiler recorders produced zero samples, so the replacement must expose actual per-kernel GPU timing before performance acceptance",
-        "ADR-S413 and specification v7 therefore retire the streaming lifecycle rather than expanding capacities, tuning tokens or renaming its objects"
+        "ADR-S413 and specification v7 therefore retire the streaming lifecycle rather than expanding capacities, tuning tokens or renaming its objects",
+        "The first post-MRUK Quest scan reaches coherent 320x320 capture but SigmaFrameGraph rejects its legal segmented buffers before the first inverse dispatch; source audit then proves missing target reduction, right-eye and segment address loss, absent pending/continuation and exact transition closure, recycled evidence witnesses, a single finite carrier pool, unchanged-page churn and unsafe revision reuse"
       ],
       "repair_acceptance": [
         "The live controller records only the fixed direct whole-frame graph; all page/bundle/transaction/token scheduler files, ABIs, serialized references and tests are absent with no old/new fallback",
@@ -220,7 +221,8 @@
         "S4-08.4 M3 closes one coherent-frame candidate without page lifecycle authority: exact pending components allocate deterministic promoted extents, accepted S16 deltas scatter to paired shadow pages, incident transitions remain fail-closed unresolved, and one revision root exposes the complete result. Vulkan fixtures prove state/proof/provenance parity across execution windows and page capacities; full EditMode passes 78/78 with generated, bind/UAV and diff gates green",
         "S4-08.4 M4 hard-cuts the live runtime to SigmaFrameGraph and direct carrier publication/readout/telemetry, deletes the complete stream transaction/bundle/Morton/token/proof-owner lifecycle with no fallback, and removes 22,715 net LOC. Generated, whitespace, no-reference and Unity Vulkan EditMode 53/53 gates pass",
         "S4-08.4 M5 binds a localized room anchor before scan ingress and retains one coherent-frame room transform snapshot across exact depth/RGB calibration, pose gauge, independence identity, prediction and canonical readout; only disposable XR presentation maps room coordinates back into current Unity world. Focused anchor-relocation parity and full Unity Vulkan EditMode 54/54 pass with generated/diff gates green",
-        "S4-08.4 M6 source acceptance passes generated/control/diff gates, Unity Vulkan EditMode 54/54, Quest eight-UAV validation and an Android/Vulkan Release compiler build with zero shader/C# errors; the accepted commit is frozen before archive and same-commit install, while S4-09 remains pending",
+        "S4-08.4 M6 source candidate passes generated/control/diff gates, Unity Vulkan EditMode 54/54, Quest eight-UAV validation and an Android/Vulkan Release compiler build with zero shader/C# errors, but physical acceptance is negative and the node is reopened",
+        "S4-08.5 device/source audit at d3b83e1 proves the empty scan is an immediate legal-segmentation rejection followed by a latched fail-closed controller, and maps all G1-G14 closure gaps to the direct-frame implementation without restoring any retired transaction/bundle/Morton/token path",
         "The first post-freeze Quest launch exposed a pre-ingress lifecycle regression: M5 retained the donor MRUK IsRoomLoaded gate and assumed a scene-authored RoomSpaceRoot. The repair removes MRUK room-scene loading/fallback, creates scan space at runtime, retains OVR spatial-anchor create/save/load/localization, and keeps Unity Vulkan EditMode 54/54 plus the eight-UAV gate green; device revalidation remains pending",
         "S4-08.2 closure source uses one fail-closed graphics completion/retirement contract, fixed packed-limb ExactALU division, coordinate-major inverse work, scalar shared stable compaction, generated-plan Section 44 GPU diagnostics and coherent whole-file shader replacements; generated-output, git diff and Quest eight-UAV gates pass while Release/device acceptance remains pending",
         "S4-08.2 implementation candidate replaces unsupported async-queue fences with one fail-closed graphics-queue completion ticket, rewrites the exact GPU hot path into bounded cooperative schedules, adds a temporary direct stereo carrier preview without a second world, and passes generated-operator, diff, Quest eight-UAV and Unity Vulkan 65/65 gates; Release/device acceptance remains pending",
