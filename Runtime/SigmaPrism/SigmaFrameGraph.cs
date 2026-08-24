@@ -150,6 +150,7 @@ namespace Genesis.RoomScan.SigmaPrism
         private readonly int _evaluateKernel;
         private readonly int _compactKernel;
         private readonly int[] _closureKernels;
+        private readonly int[] _reductionKernels;
         private readonly int[] _publishKernels;
         private bool _disposed;
 
@@ -191,6 +192,13 @@ namespace Genesis.RoomScan.SigmaPrism
                 "ScanPendingRootSupers", "ReserveFrameAllocation",
                 "AllocatePendingRoots", "ResolveFrameTargets",
                 "BuildDirtyEdges");
+            _reductionKernels = FindKernels(_closure,
+                "ClearTargetReduction", "SortTargetBlocks",
+                "MergeTargetStage", "MergeTargetTails",
+                "MarkTargetHeads", "ScanTargetHeads",
+                "ScanTargetHeadBlocks", "ScanTargetHeadSupers",
+                "CompactTargetHeads", "ReduceTargetWindow",
+                "FinalizeReducedTargets");
             _publishKernels = FindKernels(_publish,
                 "PrepareFramePages", "ScatterFrameDeltas",
                 "CompactChangedPages", "CloseFrameRevision",
@@ -290,9 +298,9 @@ namespace Genesis.RoomScan.SigmaPrism
                     ProposalsPerFootprint);
                 GraphicsBuffer candidateStates = Window(Resources.CandidateStates,
                     window, ProposalsPerFootprint * SigmaGeneratedFrame.LaneCount);
-                GraphicsBuffer deltas = Window(Resources.Deltas, window, 1);
-                GraphicsBuffer resolvedIndices = Window(Resources.ResolvedIndices,
-                    window, 1);
+                GraphicsBuffer deltas = Resources.Deltas.Segment(0).Buffer;
+                GraphicsBuffer resolvedIndices =
+                    Resources.ResolvedIndices.Segment(0).Buffer;
 
                 BindFrameConstants(command, source, revision, ownedFrame.Slot,
                     input, windowCandidates, resolvedBlockCount);
@@ -363,6 +371,113 @@ namespace Genesis.RoomScan.SigmaPrism
                 throw new ArgumentOutOfRangeException(nameof(revision));
             RecordCompactWindow(command,
                 Resources.ExecutionWindow(windowIndex), revision);
+        }
+
+        internal void RecordTargetReduction(CommandBuffer command,
+            SigmaOwnedFrameLease ownedFrame, SigmaFrameInverseInput input)
+        {
+            RequireAlive();
+            if (command == null)
+                throw new ArgumentNullException(nameof(command));
+            if (ownedFrame == null)
+                throw new ArgumentNullException(nameof(ownedFrame));
+            _ = ownedFrame.Sources;
+
+            int footprints = Resources.FootprintCount;
+            int sortCapacity = Resources.TargetSortCapacity;
+            int headBlocks = CeilDiv(footprints, 256);
+            int headSupers = CeilDiv(headBlocks, 256);
+            if (headSupers > 256)
+                throw new InvalidOperationException(
+                    "Direct target-head scan exceeds its exact fixed circuit.");
+
+            for (int index = 0; index < _reductionKernels.Length; ++index)
+                BindTargetReductionBase(command, _reductionKernels[index], input,
+                    sortCapacity, headBlocks, headSupers);
+
+            command.DispatchComputeProfiled(_closure, _reductionKernels[0],
+                CeilDiv(sortCapacity, 256), 1, 1);
+
+            // One global fixed bitonic circuit is the R2 correctness lowering.
+            // R3's complete-file closure replacement may fuse its local stages;
+            // dispatch partition has no authority over the ordered target stream.
+            for (int width = 2; ; width <<= 1)
+            {
+                command.SetComputeIntParam(_closure, "_SortK", width);
+                for (int stride = width >> 1; stride != 0; stride >>= 1)
+                {
+                    command.SetComputeIntParam(_closure, "_SortJ", stride);
+                    command.DispatchComputeProfiled(_closure,
+                        _reductionKernels[2], CeilDiv(sortCapacity, 256), 1, 1);
+                }
+                if (width == sortCapacity)
+                    break;
+            }
+
+            command.DispatchComputeProfiled(_closure, _reductionKernels[4],
+                headBlocks, 1, 1);
+            command.DispatchComputeProfiled(_closure, _reductionKernels[5],
+                headBlocks, 1, 1);
+            command.DispatchComputeProfiled(_closure, _reductionKernels[6],
+                headSupers, 1, 1);
+            command.DispatchComputeProfiled(_closure, _reductionKernels[7],
+                1, 1, 1);
+            command.DispatchComputeProfiled(_closure, _reductionKernels[8],
+                headBlocks, 1, 1);
+
+            for (int targetWindowIndex = 0;
+                targetWindowIndex < Resources.ExecutionWindowCount;
+                ++targetWindowIndex)
+            {
+                SigmaFrameExecutionWindow targetWindow =
+                    Resources.ExecutionWindow(targetWindowIndex);
+                BindTargetWindow(command, _reductionKernels[9], targetWindow);
+                for (int sourceWindowIndex = 0;
+                    sourceWindowIndex < Resources.ExecutionWindowCount;
+                    ++sourceWindowIndex)
+                {
+                    SigmaFrameExecutionWindow sourceWindow =
+                        Resources.ExecutionWindow(sourceWindowIndex);
+                    BindReductionSourceWindow(command, _reductionKernels[9],
+                        sourceWindow);
+                    command.SetComputeIntParam(_closure,
+                        "_ReductionFirstWindow", sourceWindowIndex == 0 ? 1 : 0);
+                    command.DispatchComputeProfiled(_closure,
+                        _reductionKernels[9], targetWindow.FootprintCount, 1, 1);
+                }
+            }
+
+            IReadOnlyList<SigmaCarrierReadBatch> readable =
+                input.CarrierSegments;
+            for (int targetWindowIndex = 0;
+                targetWindowIndex < Resources.ExecutionWindowCount;
+                ++targetWindowIndex)
+            {
+                SigmaFrameExecutionWindow targetWindow =
+                    Resources.ExecutionWindow(targetWindowIndex);
+                BindTargetWindow(command, _reductionKernels[10], targetWindow);
+                command.SetComputeIntParam(_closure, "_FinalizeProposalKind",
+                    (int)SigmaFrameProposalKind.Current);
+                if (readable != null)
+                {
+                    for (int index = 0; index < readable.Count; ++index)
+                    {
+                        BindReductionCarrier(command, _reductionKernels[10],
+                            readable[index]);
+                        command.DispatchComputeProfiled(_closure,
+                            _reductionKernels[10],
+                            CeilDiv(targetWindow.FootprintCount, 16), 1, 1);
+                    }
+                }
+                command.SetComputeIntParam(_closure, "_FinalizeProposalKind",
+                    (int)SigmaFrameProposalKind.Novel);
+                BindReductionCarrier(command, _reductionKernels[10],
+                    _nullCarrierState, _nullPageMetadata, _nullCurrentFlags,
+                    -1, 1);
+                command.DispatchComputeProfiled(_closure,
+                    _reductionKernels[10],
+                    CeilDiv(targetWindow.FootprintCount, 16), 1, 1);
+            }
         }
 
         internal void RecordClosureAndPublish(CommandBuffer command,
@@ -596,6 +711,120 @@ namespace Genesis.RoomScan.SigmaPrism
                     coordinates));
         }
 
+        private void BindTargetReductionBase(CommandBuffer command, int kernel,
+            SigmaFrameInverseInput input, int sortCapacity, int headBlocks,
+            int headSupers)
+        {
+            command.SetComputeIntParam(_closure, "_FrameFootprintCount",
+                Resources.FootprintCount);
+            command.SetComputeIntParam(_closure, "_TargetSortCapacity",
+                sortCapacity);
+            command.SetComputeIntParam(_closure, "_TargetHeadBlockCount",
+                headBlocks);
+            command.SetComputeIntParam(_closure, "_TargetHeadSuperCount",
+                headSupers);
+            command.SetComputeIntParams(_closure, "_FrameSourceKeys",
+                unchecked((int)input.DepthLeftKey),
+                unchecked((int)input.DepthRightKey),
+                unchecked((int)input.RgbLeftKey),
+                unchecked((int)input.RgbRightKey));
+            command.SetComputeBufferParam(_closure, kernel,
+                "_SigmaExactBackendGate", _backendGate.Buffer);
+            command.SetComputeBufferParam(_closure, kernel,
+                "_DepthCalibrationQ48", input.DepthCalibration);
+            command.SetComputeBufferParam(_closure, kernel, "_FrameDeltas",
+                FirstSegment(Resources.Deltas, sortCapacity,
+                    "_FrameDeltas"));
+            command.SetComputeBufferParam(_closure, kernel,
+                "_FrameTargetScratch",
+                FirstSegment(Resources.DirtyEdges,
+                    checked(sortCapacity + Resources.FootprintCount),
+                    "_FrameTargetScratch"));
+            command.SetComputeBufferParam(_closure, kernel,
+                "_FrameResolvedIndices",
+                FirstSegment(Resources.ResolvedIndices,
+                    Resources.FootprintCount, "_FrameResolvedIndices"));
+            command.SetComputeBufferParam(_closure, kernel,
+                "_RootLocalOffsets", FirstSegment(Resources.RootLocalOffsets,
+                    Resources.FootprintCount, "_RootLocalOffsets"));
+            command.SetComputeBufferParam(_closure, kernel,
+                "_RootBlockOffsets", FirstSegment(Resources.RootBlockOffsets,
+                    headBlocks, "_RootBlockOffsets"));
+            command.SetComputeBufferParam(_closure, kernel,
+                "_RootSuperOffsets", FirstSegment(Resources.RootSuperOffsets,
+                    headSupers, "_RootSuperOffsets"));
+            command.SetComputeBufferParam(_closure, kernel,
+                "_FrameClosureCounters",
+                FirstSegment(Resources.ClosureCounters, 4,
+                    "_FrameClosureCounters"));
+        }
+
+        private void BindReductionSourceWindow(CommandBuffer command, int kernel,
+            SigmaFrameExecutionWindow window)
+        {
+            command.SetComputeIntParam(_closure, "_CandidateWindowFirst",
+                window.FirstFootprint);
+            command.SetComputeIntParam(_closure, "_CandidateWindowCount",
+                window.FootprintCount);
+            command.SetComputeBufferParam(_closure, kernel,
+                "_FrameCandidateLower", Window(Resources.CandidateLower, window,
+                    ProposalsPerFootprint * SigmaGeneratedFrame.LaneCount));
+            command.SetComputeBufferParam(_closure, kernel,
+                "_FrameCandidateUpper", Window(Resources.CandidateUpper, window,
+                    ProposalsPerFootprint * SigmaGeneratedFrame.LaneCount));
+            command.SetComputeBufferParam(_closure, kernel,
+                "_FrameCandidateValidity", Window(Resources.CandidateValidity,
+                    window, ProposalsPerFootprint *
+                        SigmaGeneratedFrame.LaneCount));
+            command.SetComputeBufferParam(_closure, kernel,
+                "_FrameCandidateStates", Window(Resources.CandidateStates, window,
+                    ProposalsPerFootprint * SigmaGeneratedFrame.LaneCount));
+        }
+
+        private void BindTargetWindow(CommandBuffer command, int kernel,
+            SigmaFrameExecutionWindow window)
+        {
+            command.SetComputeIntParam(_closure, "_TargetWindowFirst",
+                window.FirstFootprint);
+            command.SetComputeIntParam(_closure, "_TargetWindowCount",
+                window.FootprintCount);
+            command.SetComputeBufferParam(_closure, kernel,
+                "_ReducedTargetLower", Window(Resources.ReducedLower, window,
+                    SigmaGeneratedFrame.LaneCount));
+            command.SetComputeBufferParam(_closure, kernel,
+                "_ReducedTargetUpper", Window(Resources.ReducedUpper, window,
+                    SigmaGeneratedFrame.LaneCount));
+            command.SetComputeBufferParam(_closure, kernel,
+                "_ReducedTargetGap", Window(Resources.ReducedGap, window,
+                    SigmaGeneratedFrame.LaneCount));
+            command.SetComputeBufferParam(_closure, kernel,
+                "_ReducedTargetValidity", Window(Resources.ReducedValidity,
+                    window, SigmaGeneratedFrame.LaneCount));
+            command.SetComputeBufferParam(_closure, kernel,
+                "_ReducedTargetStates", Window(Resources.ReducedStates, window,
+                    SigmaGeneratedFrame.LaneCount));
+        }
+
+        private void BindReductionCarrier(CommandBuffer command, int kernel,
+            SigmaCarrierReadBatch batch) => BindReductionCarrier(command, kernel,
+            batch.State, batch.Metadata, batch.CurrentFlags, batch.SegmentIndex,
+            batch.PageCapacity);
+
+        private void BindReductionCarrier(CommandBuffer command, int kernel,
+            GraphicsBuffer state, GraphicsBuffer metadata,
+            GraphicsBuffer currentFlags, int segmentIndex, int pageCapacity)
+        {
+            command.SetComputeBufferParam(_closure, kernel, "_CarrierState",
+                state);
+            command.SetComputeBufferParam(_closure, kernel, "_PageMetadata",
+                metadata);
+            command.SetComputeBufferParam(_closure, kernel, "_CurrentFlags",
+                currentFlags);
+            command.SetComputeIntParam(_closure, "_CarrierSegmentIndex",
+                segmentIndex);
+            command.SetComputeIntParam(_closure, "_PageCapacity", pageCapacity);
+        }
+
         private void BindFrameConstants(CommandBuffer command,
             StereoRigFrameLease source, uint revision, int frameSlot,
             SigmaFrameInverseInput input, int candidateCount,
@@ -737,6 +966,16 @@ namespace Genesis.RoomScan.SigmaPrism
                 "_FrameOutcomes", outcomes);
             command.SetComputeBufferParam(_inverse, _evaluateKernel,
                 "_FrameCandidateStates", candidateStates);
+            command.SetComputeBufferParam(_inverse, _evaluateKernel,
+                "_FrameCandidateLower", Window(Resources.CandidateLower, window,
+                    ProposalsPerFootprint * SigmaGeneratedFrame.LaneCount));
+            command.SetComputeBufferParam(_inverse, _evaluateKernel,
+                "_FrameCandidateUpper", Window(Resources.CandidateUpper, window,
+                    ProposalsPerFootprint * SigmaGeneratedFrame.LaneCount));
+            command.SetComputeBufferParam(_inverse, _evaluateKernel,
+                "_FrameCandidateValidity", Window(Resources.CandidateValidity,
+                    window, ProposalsPerFootprint *
+                        SigmaGeneratedFrame.LaneCount));
             BindSourceReads(command, _evaluateKernel, sources, window);
         }
 
@@ -870,6 +1109,20 @@ namespace Genesis.RoomScan.SigmaPrism
             return buffer.Segments[0].Buffer;
         }
 
+        private static GraphicsBuffer FirstSegment(
+            SigmaFrameSegmentedBuffer buffer, int requiredRecords,
+            string propertyName)
+        {
+            if (buffer == null || requiredRecords <= 0 ||
+                buffer.Segments.Count == 0 ||
+                buffer.Segment(0).RecordCount < requiredRecords)
+                throw new InvalidOperationException(
+                    $"Direct target circuit binding {propertyName} has " +
+                    $"{(buffer?.Segments.Count > 0 ? buffer.Segment(0).RecordCount : 0)} " +
+                    $"records, requires {requiredRecords}.");
+            return buffer.Segment(0).Buffer;
+        }
+
         private static GraphicsBuffer CreateBuffer(int count, int stride,
             string name) => new(GraphicsBuffer.Target.Structured, count, stride)
             { name = name };
@@ -923,13 +1176,13 @@ namespace Genesis.RoomScan.SigmaPrism
                 "_FrameOutcomes", Window(Resources.Outcomes, window,
                     ProposalsPerFootprint));
             command.SetComputeBufferParam(_inverse, _compactKernel,
-                "_FrameDeltas", Window(Resources.Deltas, window, 1));
+                "_FrameDeltas", Resources.Deltas.Segment(0).Buffer);
             command.SetComputeBufferParam(_inverse, _compactKernel,
                 "_FrameResolvedBlockCounts",
                 Resources.ResolvedBlockCounts.Segment(0).Buffer);
             command.SetComputeBufferParam(_inverse, _compactKernel,
-                "_FrameResolvedIndices", Window(Resources.ResolvedIndices,
-                    window, 1));
+                "_FrameResolvedIndices",
+                Resources.ResolvedIndices.Segment(0).Buffer);
             command.DispatchComputeProfiled(_inverse, _compactKernel,
                 resolvedBlockCount, 1, 1);
         }

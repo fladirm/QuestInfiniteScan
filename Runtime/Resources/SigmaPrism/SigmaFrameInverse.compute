@@ -27,6 +27,9 @@ RWStructuredBuffer<SigmaOwnedFrameGpu> _OwnedFrames;
 RWStructuredBuffer<SigmaFrameCandidateGpu> _FrameCandidates;
 RWStructuredBuffer<SigmaFrameOutcomeGpu> _FrameOutcomes;
 RWStructuredBuffer<uint2> _FrameCandidateStates;
+RWStructuredBuffer<uint2> _FrameCandidateLower;
+RWStructuredBuffer<uint2> _FrameCandidateUpper;
+RWStructuredBuffer<uint> _FrameCandidateValidity;
 RWStructuredBuffer<SigmaFrameDeltaGpu> _FrameDeltas;
 RWStructuredBuffer<uint4> _FrameResolvedBlockCounts;
 RWStructuredBuffer<uint> _FrameResolvedIndices;
@@ -279,8 +282,9 @@ void ClearFrameState(uint3 id : SV_DispatchThreadID)
         delta.Coordinate = SIGMA_FRAME_INVALID;
         delta.Candidate = SIGMA_FRAME_INVALID;
         delta.Evidence = 0u;
-        _FrameDeltas[index] = delta;
-        _FrameResolvedIndices[index] = SIGMA_FRAME_INVALID;
+        uint footprint = _FrameBufferFootprintBase + index;
+        _FrameDeltas[footprint] = delta;
+        _FrameResolvedIndices[footprint] = SIGMA_FRAME_INVALID;
     }
     if (index < _FrameResolvedBlockCount)
         _FrameResolvedBlockCounts[index] = 0u;
@@ -459,14 +463,15 @@ uint2 SigmaFrameBootstrapCoordinate(uint sampleLocal, uint coordinate,
 {
     if (coordinate == SIGMA_GEOMETRY_ROWS[0])
         return SIGMA_Q48_ONE;
-    [unroll]
-    for (uint axis = 0u; axis < 3u; ++axis)
-    {
-        if (coordinate == SIGMA_GEOMETRY_ROWS[axis + 1u])
-            return SigmaQ48Midpoint(
-                FrameAxisLower[sampleLocal * 3u + axis],
-                FrameAxisUpper[sampleLocal * 3u + axis], valid);
-    }
+    if (coordinate == SIGMA_GEOMETRY_ROWS[1])
+        return SigmaQ48Midpoint(FrameAxisLower[sampleLocal * 3u],
+            FrameAxisUpper[sampleLocal * 3u], valid);
+    if (coordinate == SIGMA_GEOMETRY_ROWS[2])
+        return SigmaQ48Midpoint(FrameAxisLower[sampleLocal * 3u + 1u],
+            FrameAxisUpper[sampleLocal * 3u + 1u], valid);
+    if (coordinate == SIGMA_GEOMETRY_ROWS[3])
+        return SigmaQ48Midpoint(FrameAxisLower[sampleLocal * 3u + 2u],
+            FrameAxisUpper[sampleLocal * 3u + 2u], valid);
     return SIGMA_Q48_ZERO;
 }
 
@@ -747,13 +752,16 @@ SigmaQ48Bounds SigmaFrameSourceBounds(uint source, uint address,
 
 uint4 SigmaFrameSourceProvenance(uint source, uint footprint)
 {
+    uint4 result = 0u;
     if (source == SIGMA_FRAME_SOURCE_DEPTH_LEFT)
-        return _DepthLeftProvenance[footprint];
-    if (source == SIGMA_FRAME_SOURCE_DEPTH_RIGHT)
-        return _DepthRightProvenance[footprint];
-    if (source == SIGMA_FRAME_SOURCE_RGB_LEFT)
-        return _RgbLeftProvenance[footprint];
-    return _RgbRightProvenance[footprint];
+        result = _DepthLeftProvenance[footprint];
+    else if (source == SIGMA_FRAME_SOURCE_DEPTH_RIGHT)
+        result = _DepthRightProvenance[footprint];
+    else if (source == SIGMA_FRAME_SOURCE_RGB_LEFT)
+        result = _RgbLeftProvenance[footprint];
+    else
+        result = _RgbRightProvenance[footprint];
+    return result;
 }
 
 uint2 SigmaFrameTransformRow(uint base, uint row, inout uint valid)
@@ -935,6 +943,23 @@ void EvaluateCandidateMeets(uint3 groupId : SV_GroupID,
     }
     FrameLower[flat] = joint.lo;
     FrameUpper[flat] = joint.hi;
+    if (process)
+    {
+        uint address = candidateIndex * SIGMA_FRAME_LANE_COUNT + coordinate;
+        uint cellFlags = sourceMask != 0u
+            ? SIGMA_FRAME_CELL_CONSTRAINED | SIGMA_FRAME_CELL_OBSERVED
+            : 0u;
+        if (independent)
+            cellFlags |= SIGMA_FRAME_CELL_INDEPENDENT;
+        if (SigmaQ48Less(joint.hi, joint.lo))
+            cellFlags |= SIGMA_FRAME_CELL_CONFLICT;
+        if (valid == 0u)
+            cellFlags |= SIGMA_FRAME_CELL_FAULT;
+        cellFlags |= sourceMask << SIGMA_FRAME_SOURCE_MASK_SHIFT;
+        _FrameCandidateLower[address] = joint.lo;
+        _FrameCandidateUpper[address] = joint.hi;
+        _FrameCandidateValidity[address] = cellFlags;
+    }
     if (sourceMask != 0u)
         InterlockedOr(FrameConstrained[local], 1u << coordinate);
     if (independent)
@@ -1111,6 +1136,22 @@ void CompactResolvedTargets(uint3 groupId : SV_GroupID,
                 flags = candidateFlags;
             }
         }
+        if (selected == SIGMA_FRAME_INVALID)
+        {
+            [unroll]
+            for (uint proposal = 0u; proposal <
+                SIGMA_FRAME_PROPOSALS_PER_FOOTPRINT; ++proposal)
+            {
+                uint candidate = base + proposal;
+                uint candidateFlags =
+                    _FrameOutcomes[candidate].Classification.x;
+                if (selected == SIGMA_FRAME_INVALID && candidateFlags != 0u)
+                {
+                    selected = candidate;
+                    flags = candidateFlags;
+                }
+            }
+        }
     }
     uint accepted = selected != SIGMA_FRAME_INVALID ? 1u : 0u;
     uint total;
@@ -1126,8 +1167,8 @@ void CompactResolvedTargets(uint3 groupId : SV_GroupID,
             candidate.Identity.w & SIGMA_FRAME_PROPOSAL_SAMPLE_MASK);
         delta.Evidence = uint4(footprint, flags,
             candidate.Identity.z, proposal);
-        _FrameDeltas[storageFootprint] = delta;
-        _FrameResolvedIndices[storageFootprint] = selected;
+        _FrameDeltas[footprint] = delta;
+        _FrameResolvedIndices[footprint] = selected;
     }
     if (lane == 0u)
         _FrameResolvedBlockCounts[groupId.x] = uint4(total,

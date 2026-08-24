@@ -73,10 +73,10 @@ extent allocation, proof/raw ownership and milestone gates are frozen in the pla
 
 ## Current exact action
 
-S4-08.5 R2: reduce the complete normalized target stream before constructing any
-final S16 candidate. Stable target/source ordering, exact joint-cell reduction,
-minimum-change finalization and retained certificate ownership replace the old
-direct-writer closure. Only CHANGED records may proceed toward scatter.
+S4-08.5 R3: replace image-neighbour/page closure with persistent pending reuse,
+exact continuation proposals and intrinsic edge closure over the R2 reduced target
+stream. Claimed unresolved edges defer only incident CHANGED targets to fixed
+point; storage boundaries and optical adjacency have no canonical authority.
 
 ## Required end state
 
@@ -139,6 +139,10 @@ direct-writer closure. Only CHANGED records may proceed toward scatter.
   segmented`; the fail-closed controller then stops inverse work and revision,
   carrier, topology and readout remain zero. Source audit confirms G1-G14 in the
   S4-08.5 plan; S4-08.4 M3/M6 were not physically closed.
+- S4-08.5 R2 stable-orders complete target/source keys and exact-reduces duplicate
+  targets across every execution window before one final S16 reconstruction. A
+  Vulkan two-window duplicate-target fixture is bit-identical under reversed source
+  order; focused inverse passes 5/5 and resource ownership remains 3/3.
 
 ## Completion protocol
 

@@ -330,6 +330,8 @@ namespace Genesis.RoomScan.SigmaPrism
             ValidateGeneratedAbi();
             Resolution = resolution;
             FootprintCount = checked(resolution.x * resolution.y);
+            TargetSortCapacity = Math.Max(256,
+                NextPowerOfTwo(FootprintCount));
             Profile = profile;
             _bindingLimit = bindingLimit;
             _budgetBytes = checked((long)profileMiB * MiB);
@@ -337,7 +339,8 @@ namespace Genesis.RoomScan.SigmaPrism
 
             long initialCandidates = checked((long)FootprintCount *
                 InitialProposalKinds);
-            long initialEdges = checked((long)FootprintCount * 2L);
+            long initialEdges = checked((long)TargetSortCapacity +
+                FootprintCount);
             Candidates = Buffer<SigmaFrameCandidateGpu>(
                 SigmaGeneratedFrame.FrameCandidateStride,
                 "Sigma direct frame candidates", InitialProposalKinds);
@@ -348,15 +351,26 @@ namespace Genesis.RoomScan.SigmaPrism
                 SigmaGeneratedFrame.PackedQ48Stride,
                 "Sigma direct candidate S16 states",
                 InitialProposalKinds * SigmaGeneratedFrame.LaneCount);
+            CandidateLower = Buffer<SigmaFrameUInt2Gpu>(
+                SigmaGeneratedFrame.PackedQ48Stride,
+                "Sigma direct candidate lower cells",
+                InitialProposalKinds * SigmaGeneratedFrame.LaneCount);
+            CandidateUpper = Buffer<SigmaFrameUInt2Gpu>(
+                SigmaGeneratedFrame.PackedQ48Stride,
+                "Sigma direct candidate upper cells",
+                InitialProposalKinds * SigmaGeneratedFrame.LaneCount);
+            CandidateValidity = Buffer<uint>(sizeof(uint),
+                "Sigma direct candidate cell validity",
+                InitialProposalKinds * SigmaGeneratedFrame.LaneCount);
             PendingGauges = Buffer<SigmaPendingGaugeGpu>(
                 SigmaGeneratedFrame.PendingGaugeStride,
                 "Sigma pending latent gauges", 1);
             Deltas = Buffer<SigmaFrameDeltaGpu>(
                 SigmaGeneratedFrame.FrameDeltaStride,
-                "Sigma direct frame deltas", 1);
+                "Sigma direct target stream");
             DirtyEdges = Buffer<SigmaDirtyEdgeGpu>(
                 SigmaGeneratedFrame.DirtyEdgeStride,
-                "Sigma direct dirty intrinsic edges", 2);
+                "Sigma direct target scratch and dirty intrinsic edges");
             Revisions = Buffer<SigmaFrameRevisionGpu>(
                 SigmaGeneratedFrame.FrameRevisionStride,
                 "Sigma direct frame revisions");
@@ -364,7 +378,22 @@ namespace Genesis.RoomScan.SigmaPrism
                 SigmaGeneratedFrame.ProvenanceStride,
                 "Sigma direct resolved block counts");
             ResolvedIndices = Buffer<uint>(sizeof(uint),
-                "Sigma direct resolved candidate indices", 1);
+                "Sigma direct resolved target indices");
+            ReducedLower = Buffer<SigmaFrameUInt2Gpu>(
+                SigmaGeneratedFrame.PackedQ48Stride,
+                "Sigma reduced target lower cells", SigmaGeneratedFrame.LaneCount);
+            ReducedUpper = Buffer<SigmaFrameUInt2Gpu>(
+                SigmaGeneratedFrame.PackedQ48Stride,
+                "Sigma reduced target upper cells", SigmaGeneratedFrame.LaneCount);
+            ReducedGap = Buffer<SigmaFrameUInt2Gpu>(
+                SigmaGeneratedFrame.PackedQ48Stride,
+                "Sigma reduced target exact gaps", SigmaGeneratedFrame.LaneCount);
+            ReducedValidity = Buffer<uint>(sizeof(uint),
+                "Sigma reduced target cell validity",
+                SigmaGeneratedFrame.LaneCount);
+            ReducedStates = Buffer<SigmaFrameUInt2Gpu>(
+                SigmaGeneratedFrame.PackedQ48Stride,
+                "Sigma reduced final S16 states", SigmaGeneratedFrame.LaneCount);
             PendingLabels = Buffer<uint>(sizeof(uint),
                 "Sigma direct pending component labels", 1);
             PendingLinks = Buffer<uint>(sizeof(uint),
@@ -373,7 +402,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 "Sigma direct deferred mutation flags", 1);
             RootLocalOffsets = Buffer<SigmaFrameUInt2Gpu>(
                 SigmaGeneratedFrame.PackedQ48Stride,
-                "Sigma direct pending root local offsets", 1);
+                "Sigma direct pending root local offsets");
             RootBlockOffsets = Buffer<SigmaFrameUInt2Gpu>(
                 SigmaGeneratedFrame.PackedQ48Stride,
                 "Sigma direct pending root block offsets");
@@ -429,6 +458,7 @@ namespace Genesis.RoomScan.SigmaPrism
 
         internal Vector2Int Resolution { get; }
         internal int FootprintCount { get; }
+        internal int TargetSortCapacity { get; }
         internal int FootprintsPerWindow { get; }
         internal int ExecutionWindowCount => checked((FootprintCount +
             FootprintsPerWindow - 1) / FootprintsPerWindow);
@@ -442,12 +472,20 @@ namespace Genesis.RoomScan.SigmaPrism
         internal SigmaFrameSegmentedBuffer Candidates { get; }
         internal SigmaFrameSegmentedBuffer Outcomes { get; }
         internal SigmaFrameSegmentedBuffer CandidateStates { get; }
+        internal SigmaFrameSegmentedBuffer CandidateLower { get; }
+        internal SigmaFrameSegmentedBuffer CandidateUpper { get; }
+        internal SigmaFrameSegmentedBuffer CandidateValidity { get; }
         internal SigmaFrameSegmentedBuffer PendingGauges { get; }
         internal SigmaFrameSegmentedBuffer Deltas { get; }
         internal SigmaFrameSegmentedBuffer DirtyEdges { get; }
         internal SigmaFrameSegmentedBuffer Revisions { get; }
         internal SigmaFrameSegmentedBuffer ResolvedBlockCounts { get; }
         internal SigmaFrameSegmentedBuffer ResolvedIndices { get; }
+        internal SigmaFrameSegmentedBuffer ReducedLower { get; }
+        internal SigmaFrameSegmentedBuffer ReducedUpper { get; }
+        internal SigmaFrameSegmentedBuffer ReducedGap { get; }
+        internal SigmaFrameSegmentedBuffer ReducedValidity { get; }
+        internal SigmaFrameSegmentedBuffer ReducedStates { get; }
         internal SigmaFrameSegmentedBuffer PendingLabels { get; }
         internal SigmaFrameSegmentedBuffer PendingLinks { get; }
         internal SigmaFrameSegmentedBuffer DeferredFlags { get; }
@@ -531,20 +569,46 @@ namespace Genesis.RoomScan.SigmaPrism
             additional = checked(additional +
                 CandidateStates.AdditionalBytesFor(stateRecords));
             additional = checked(additional +
-                Deltas.AdditionalBytesFor(FootprintCount));
+                CandidateLower.AdditionalBytesFor(stateRecords));
+            additional = checked(additional +
+                CandidateUpper.AdditionalBytesFor(stateRecords));
+            additional = checked(additional +
+                CandidateValidity.AdditionalBytesFor(stateRecords));
+            additional = checked(additional +
+                Deltas.AdditionalBytesFor(TargetSortCapacity));
             long resolvedBlocks = checked((candidateRecords + 1023L) / 1024L);
             additional = checked(additional +
                 ResolvedBlockCounts.AdditionalBytesFor(resolvedBlocks));
             additional = checked(additional +
                 ResolvedIndices.AdditionalBytesFor(FootprintCount));
+            long reducedCoordinates = checked((long)FootprintCount *
+                SigmaGeneratedFrame.LaneCount);
+            additional = checked(additional +
+                ReducedLower.AdditionalBytesFor(reducedCoordinates));
+            additional = checked(additional +
+                ReducedUpper.AdditionalBytesFor(reducedCoordinates));
+            additional = checked(additional +
+                ReducedGap.AdditionalBytesFor(reducedCoordinates));
+            additional = checked(additional +
+                ReducedValidity.AdditionalBytesFor(reducedCoordinates));
+            additional = checked(additional +
+                ReducedStates.AdditionalBytesFor(reducedCoordinates));
             if (!TryReserve(additional))
                 return false;
             Candidates.GrowTo(candidateRecords);
             Outcomes.GrowTo(candidateRecords);
             CandidateStates.GrowTo(stateRecords);
-            Deltas.GrowTo(FootprintCount);
+            CandidateLower.GrowTo(stateRecords);
+            CandidateUpper.GrowTo(stateRecords);
+            CandidateValidity.GrowTo(stateRecords);
+            Deltas.GrowTo(TargetSortCapacity);
             ResolvedBlockCounts.GrowTo(resolvedBlocks);
             ResolvedIndices.GrowTo(FootprintCount);
+            ReducedLower.GrowTo(reducedCoordinates);
+            ReducedUpper.GrowTo(reducedCoordinates);
+            ReducedGap.GrowTo(reducedCoordinates);
+            ReducedValidity.GrowTo(reducedCoordinates);
+            ReducedStates.GrowTo(reducedCoordinates);
             _allocatedBytes = checked(_allocatedBytes + additional);
             return true;
         }
@@ -725,12 +789,20 @@ namespace Genesis.RoomScan.SigmaPrism
             Candidates.Dispose();
             Outcomes.Dispose();
             CandidateStates.Dispose();
+            CandidateLower.Dispose();
+            CandidateUpper.Dispose();
+            CandidateValidity.Dispose();
             PendingGauges.Dispose();
             Deltas.Dispose();
             DirtyEdges.Dispose();
             Revisions.Dispose();
             ResolvedBlockCounts.Dispose();
             ResolvedIndices.Dispose();
+            ReducedLower.Dispose();
+            ReducedUpper.Dispose();
+            ReducedGap.Dispose();
+            ReducedValidity.Dispose();
+            ReducedStates.Dispose();
             PendingLabels.Dispose();
             PendingLinks.Dispose();
             DeferredFlags.Dispose();
@@ -812,6 +884,16 @@ namespace Genesis.RoomScan.SigmaPrism
 
         private static long BufferBytes(GraphicsBuffer buffer) =>
             checked((long)buffer.count * buffer.stride);
+
+        private static int NextPowerOfTwo(int value)
+        {
+            if (value <= 0 || value > 1 << 30)
+                throw new ArgumentOutOfRangeException(nameof(value));
+            int result = 1;
+            while (result < value)
+                result <<= 1;
+            return result;
+        }
 
         private static SigmaFrameUInt4Gpu UInt4(uint x, uint y, uint z, uint w) =>
             new() { X = x, Y = y, Z = z, W = w };

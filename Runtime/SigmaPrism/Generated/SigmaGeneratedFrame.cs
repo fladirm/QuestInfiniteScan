@@ -92,6 +92,9 @@ namespace Genesis.RoomScan.SigmaPrism
         Constrained = 0x00000001u,
         Observed = 0x00000002u,
         Unobservable = 0x00000004u,
+        Independent = 0x00000008u,
+        Conflict = 0x00000010u,
+        Accepted = 0x00000020u,
         Fault = 0x80000000u,
     }
 
@@ -147,12 +150,13 @@ namespace Genesis.RoomScan.SigmaPrism
     internal static class SigmaGeneratedFrame
     {
         internal const string AbiVersion = "CPQ4-S16-FRAME-1";
-        internal const string AbiFingerprint = "f189c6c2b3123cd4c8b9a74dacbae769590d15e1ebd5ee62673ad23b7211ee25";
+        internal const string AbiFingerprint = "1ab5f56a94f962cc75562f0e09a41be4b5047e05472c6e0988a230d74363a21e";
         internal const int SourceCount = 4;
         internal const int LaneCount = 16;
         internal const int PackedQ48Stride = 8;
         internal const int ValidityStride = 4;
         internal const int ProvenanceStride = 16;
+        internal const int SourceMaskShift = 8;
         internal const uint Invalid = 0xffffffffu;
         internal const int OwnedFrameStride = 48;
         internal const int FrameCandidateStride = 48;

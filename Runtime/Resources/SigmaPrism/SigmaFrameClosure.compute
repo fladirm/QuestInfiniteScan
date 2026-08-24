@@ -10,9 +10,21 @@
 #pragma kernel AllocatePendingRoots
 #pragma kernel ResolveFrameTargets
 #pragma kernel BuildDirtyEdges
+#pragma kernel ClearTargetReduction
+#pragma kernel SortTargetBlocks
+#pragma kernel MergeTargetStage
+#pragma kernel MergeTargetTails
+#pragma kernel MarkTargetHeads
+#pragma kernel ScanTargetHeads
+#pragma kernel ScanTargetHeadBlocks
+#pragma kernel ScanTargetHeadSupers
+#pragma kernel CompactTargetHeads
+#pragma kernel ReduceTargetWindow
+#pragma kernel FinalizeReducedTargets
 #pragma target 5.0
 
 #include "SigmaFrameAbi.hlsl"
+#include "SigmaInverseMath.hlsl"
 #include "SigmaGeometryReadout.hlsl"
 #include "SigmaStableScan.hlsl"
 #include "SigmaTopologyAbi.hlsl"
@@ -32,7 +44,7 @@ StructuredBuffer<SigmaFrameCandidateGpu> _FrameCandidates;
 StructuredBuffer<SigmaFrameOutcomeGpu> _FrameOutcomes;
 StructuredBuffer<uint2> _FrameCandidateStates;
 RWStructuredBuffer<SigmaFrameDeltaGpu> _FrameDeltas;
-StructuredBuffer<uint> _FrameResolvedIndices;
+RWStructuredBuffer<uint> _FrameResolvedIndices;
 RWStructuredBuffer<uint> _PendingLabels;
 RWStructuredBuffer<uint> _PendingLinks;
 RWStructuredBuffer<uint> _FrameDeferredFlags;
@@ -44,6 +56,19 @@ RWStructuredBuffer<uint4> _FrameClosureCounters;
 RWStructuredBuffer<uint4> _FrameExtentAllocator;
 RWStructuredBuffer<SigmaDirtyEdgeGpu> _FrameDirtyEdges;
 RWStructuredBuffer<uint> _FramePageMarks;
+RWStructuredBuffer<SigmaFrameDeltaGpu> _FrameTargetScratch;
+StructuredBuffer<uint2> _FrameCandidateLower;
+StructuredBuffer<uint2> _FrameCandidateUpper;
+StructuredBuffer<uint> _FrameCandidateValidity;
+RWStructuredBuffer<uint2> _ReducedTargetLower;
+RWStructuredBuffer<uint2> _ReducedTargetUpper;
+RWStructuredBuffer<uint2> _ReducedTargetGap;
+RWStructuredBuffer<uint> _ReducedTargetValidity;
+RWStructuredBuffer<uint2> _ReducedTargetStates;
+
+StructuredBuffer<uint2> _CarrierState;
+StructuredBuffer<SigmaCarrierPageMetaGpu> _PageMetadata;
+StructuredBuffer<uint> _CurrentFlags;
 
 StructuredBuffer<uint2> _DepthLeftLower;
 StructuredBuffer<uint2> _DepthLeftUpper;
@@ -59,10 +84,167 @@ uint _FrameRevision;
 uint _FrameSlot;
 uint _FrameFootprintCount;
 uint _FrameCandidateCount;
+uint4 _FrameSourceKeys;
 uint _RootBlockCount;
 uint _RootSuperCount;
 uint _TargetSegmentIndex;
 uint _TargetPageCapacity;
+uint _TargetSortCapacity;
+uint _SortK;
+uint _SortJ;
+uint _TargetHeadBlockCount;
+uint _TargetHeadSuperCount;
+uint _TargetWindowFirst;
+uint _TargetWindowCount;
+uint _CandidateWindowFirst;
+uint _CandidateWindowCount;
+uint _ReductionFirstWindow;
+uint _FinalizeProposalKind;
+uint _CarrierSegmentIndex;
+uint _PageCapacity;
+
+groupshared SigmaFrameDeltaGpu FrameTargetSort[256];
+groupshared uint2 FrameTargetValueA[256];
+groupshared uint2 FrameTargetValueB[256];
+groupshared uint2 FrameTargetLower[256];
+groupshared uint2 FrameTargetUpper[256];
+groupshared uint FrameTargetCellFlags[256];
+groupshared uint2 FrameTargetMass[16];
+groupshared uint2 FrameTargetMaximumWidth[16];
+groupshared uint4 FrameTargetMeta[16];
+groupshared uint FrameTargetChanged[16];
+groupshared uint FrameTargetFault[16];
+
+SigmaFrameDeltaGpu SigmaFrameEmptyTarget()
+{
+    SigmaFrameDeltaGpu record;
+    record.Coordinate = SIGMA_FRAME_INVALID;
+    record.Candidate = SIGMA_FRAME_INVALID;
+    record.Evidence = 0u;
+    return record;
+}
+
+bool SigmaFrameTargetActive(SigmaFrameDeltaGpu record)
+{
+    return record.Evidence.z != SIGMA_FRAME_PROPOSAL_KIND_NONE &&
+        record.Evidence.w < 4u;
+}
+
+int SigmaFrameCompareU32(uint left, uint right)
+{
+    if (left < right)
+        return -1;
+    if (left > right)
+        return 1;
+    return 0;
+}
+
+int SigmaFrameCompareI64(uint2 left, uint2 right)
+{
+    if (all(left == right))
+        return 0;
+    if (SigmaI64Less(left, right))
+        return -1;
+    return 1;
+}
+
+int SigmaFrameCompareTarget(SigmaFrameDeltaGpu left,
+    SigmaFrameDeltaGpu right)
+{
+    bool leftActive = SigmaFrameTargetActive(left);
+    bool rightActive = SigmaFrameTargetActive(right);
+    if (leftActive != rightActive)
+        return leftActive ? -1 : 1;
+    if (!leftActive)
+        return 0;
+    int order = SigmaFrameCompareU32(left.Evidence.z, right.Evidence.z);
+    if (order != 0)
+        return order;
+    order = SigmaFrameCompareI64(left.Coordinate.xy, right.Coordinate.xy);
+    if (order != 0)
+        return order;
+    order = SigmaFrameCompareI64(left.Coordinate.zw, right.Coordinate.zw);
+    if (order != 0)
+        return order;
+    if (left.Evidence.z == SIGMA_FRAME_PROPOSAL_KIND_CURRENT)
+    {
+        order = SigmaFrameCompareU32(left.Candidate.x, right.Candidate.x);
+        if (order != 0)
+            return order;
+        order = SigmaFrameCompareU32(left.Candidate.y, right.Candidate.y);
+        if (order != 0)
+            return order;
+        order = SigmaFrameCompareU32(left.Candidate.z, right.Candidate.z);
+        if (order != 0)
+            return order;
+        order = SigmaFrameCompareU32(left.Candidate.w, right.Candidate.w);
+        if (order != 0)
+            return order;
+    }
+    order = SigmaFrameCompareU32(left.Evidence.x, right.Evidence.x);
+    if (order != 0)
+        return order;
+    return SigmaFrameCompareU32(left.Evidence.w, right.Evidence.w);
+}
+
+bool SigmaFrameTargetLess(SigmaFrameDeltaGpu left,
+    SigmaFrameDeltaGpu right)
+{
+    return SigmaFrameCompareTarget(left, right) < 0;
+}
+
+bool SigmaFrameSameTarget(SigmaFrameDeltaGpu left,
+    SigmaFrameDeltaGpu right)
+{
+    if (!SigmaFrameTargetActive(left) || !SigmaFrameTargetActive(right) ||
+        left.Evidence.z != right.Evidence.z ||
+        any(left.Coordinate != right.Coordinate))
+        return false;
+    if (left.Evidence.z == SIGMA_FRAME_PROPOSAL_KIND_CURRENT)
+        return all(left.Candidate == right.Candidate);
+    return left.Evidence.x == right.Evidence.x;
+}
+
+SigmaQ48Bounds SigmaFrameReductionFullBounds()
+{
+    SigmaQ48Bounds result;
+    result.lo = uint2(0u, 0x80000000u);
+    result.hi = uint2(0xffffffffu, 0x7fffffffu);
+    return result;
+}
+
+bool SigmaFrameSourceMaskIndependent(uint sourceMask)
+{
+    uint firstKey = 0u;
+    [unroll]
+    for (uint source = 0u; source < SIGMA_FRAME_SOURCE_COUNT; ++source)
+    {
+        if ((sourceMask & (1u << source)) == 0u)
+            continue;
+        uint key = _FrameSourceKeys[source];
+        if (key == 0u)
+            continue;
+        if (firstKey == 0u)
+            firstKey = key;
+        else if (firstKey != key)
+            return true;
+    }
+    return false;
+}
+
+uint2 SigmaFrameTargetTransform(uint base, uint row, inout uint valid)
+{
+    uint2 sum = SIGMA_FRAME_Q48_ZERO;
+    [unroll]
+    for (uint lane = 0u; lane < SIGMA_FRAME_LANE_COUNT; ++lane)
+    {
+        uint2 term = SigmaHadamardSign(row, lane) < 0
+            ? SigmaQ48NegateChecked(FrameTargetValueA[base + lane], valid)
+            : FrameTargetValueA[base + lane];
+        sum = SigmaQ48AddChecked(sum, term, valid);
+    }
+    return sum;
+}
 
 bool SigmaFrameClosureEnabled()
 {
@@ -206,6 +388,453 @@ uint2 SigmaFrameRootCost(uint footprint)
         2u * SIGMA_FRAME_GUARD;
     uint pageCount = (paddedWidth >> 6u) * ((height + 63u) >> 6u);
     return uint2(paddedWidth, pageCount);
+}
+
+[numthreads(256, 1, 1)]
+void ClearTargetReduction(uint3 id : SV_DispatchThreadID)
+{
+    uint index = id.x;
+    if (index < _TargetSortCapacity)
+    {
+        if (index >= _FrameFootprintCount)
+            _FrameDeltas[index] = SigmaFrameEmptyTarget();
+        _FrameTargetScratch[index] = SigmaFrameEmptyTarget();
+    }
+    if (index < _FrameFootprintCount)
+        _FrameResolvedIndices[index] = 0u;
+    if (index < 4u)
+        _FrameClosureCounters[index] = 0u;
+}
+
+[numthreads(256, 1, 1)]
+void SortTargetBlocks(uint3 groupId : SV_GroupID,
+    uint3 threadId : SV_GroupThreadID)
+{
+    uint lane = threadId.x;
+    uint index = groupId.x * 256u + lane;
+    if (index < _TargetSortCapacity)
+        FrameTargetSort[lane] = _FrameDeltas[index];
+    else
+        FrameTargetSort[lane] = SigmaFrameEmptyTarget();
+    GroupMemoryBarrierWithGroupSync();
+    [unroll]
+    for (uint width = 2u; width <= 256u; width <<= 1u)
+    {
+        [unroll]
+        for (uint stride = width >> 1u; stride != 0u; stride >>= 1u)
+        {
+            uint partner = lane ^ stride;
+            if (partner > lane)
+            {
+                bool ascending = (index & width) == 0u;
+                SigmaFrameDeltaGpu left = FrameTargetSort[lane];
+                SigmaFrameDeltaGpu right = FrameTargetSort[partner];
+                bool swap = ascending
+                    ? SigmaFrameTargetLess(right, left)
+                    : SigmaFrameTargetLess(left, right);
+                if (swap)
+                {
+                    FrameTargetSort[lane] = right;
+                    FrameTargetSort[partner] = left;
+                }
+            }
+            GroupMemoryBarrierWithGroupSync();
+        }
+    }
+    if (index < _TargetSortCapacity)
+        _FrameDeltas[index] = FrameTargetSort[lane];
+}
+
+[numthreads(256, 1, 1)]
+void MergeTargetStage(uint3 id : SV_DispatchThreadID)
+{
+    uint leftIndex = id.x;
+    if (leftIndex >= _TargetSortCapacity)
+        return;
+    uint rightIndex = leftIndex ^ _SortJ;
+    if (rightIndex <= leftIndex || rightIndex >= _TargetSortCapacity)
+        return;
+    SigmaFrameDeltaGpu left = _FrameDeltas[leftIndex];
+    SigmaFrameDeltaGpu right = _FrameDeltas[rightIndex];
+    bool ascending = (leftIndex & _SortK) == 0u;
+    bool swap = ascending
+        ? SigmaFrameTargetLess(right, left)
+        : SigmaFrameTargetLess(left, right);
+    if (swap)
+    {
+        _FrameDeltas[leftIndex] = right;
+        _FrameDeltas[rightIndex] = left;
+    }
+}
+
+[numthreads(256, 1, 1)]
+void MergeTargetTails(uint3 groupId : SV_GroupID,
+    uint3 threadId : SV_GroupThreadID)
+{
+    uint lane = threadId.x;
+    uint index = groupId.x * 256u + lane;
+    if (index < _TargetSortCapacity)
+        FrameTargetSort[lane] = _FrameDeltas[index];
+    else
+        FrameTargetSort[lane] = SigmaFrameEmptyTarget();
+    GroupMemoryBarrierWithGroupSync();
+    [unroll]
+    for (uint stride = 128u; stride != 0u; stride >>= 1u)
+    {
+        uint partner = lane ^ stride;
+        if (partner > lane)
+        {
+            bool ascending = (index & _SortK) == 0u;
+            SigmaFrameDeltaGpu left = FrameTargetSort[lane];
+            SigmaFrameDeltaGpu right = FrameTargetSort[partner];
+            bool swap = ascending
+                ? SigmaFrameTargetLess(right, left)
+                : SigmaFrameTargetLess(left, right);
+            if (swap)
+            {
+                FrameTargetSort[lane] = right;
+                FrameTargetSort[partner] = left;
+            }
+        }
+        GroupMemoryBarrierWithGroupSync();
+    }
+    if (index < _TargetSortCapacity)
+        _FrameDeltas[index] = FrameTargetSort[lane];
+}
+
+[numthreads(256, 1, 1)]
+void MarkTargetHeads(uint3 id : SV_DispatchThreadID)
+{
+    uint index = id.x;
+    if (index >= _FrameFootprintCount)
+        return;
+    SigmaFrameDeltaGpu record = _FrameDeltas[index];
+    bool head = SigmaFrameTargetActive(record) &&
+        (index == 0u ||
+            !SigmaFrameSameTarget(_FrameDeltas[index - 1u], record));
+    _FrameResolvedIndices[index] = head ? 1u : 0u;
+}
+
+[numthreads(256, 1, 1)]
+void ScanTargetHeads(uint3 groupId : SV_GroupID,
+    uint3 threadId : SV_GroupThreadID)
+{
+    uint lane = threadId.x;
+    uint index = groupId.x * 256u + lane;
+    uint value = index < _FrameFootprintCount
+        ? _FrameResolvedIndices[index] : 0u;
+    uint total;
+    uint prefix = SigmaStableExclusiveScan256(lane, value, total);
+    if (index < _FrameFootprintCount)
+        _RootLocalOffsets[index] = uint2(prefix, 0u);
+    if (lane == 0u)
+        _RootBlockOffsets[groupId.x] = uint2(total, 0u);
+}
+
+[numthreads(256, 1, 1)]
+void ScanTargetHeadBlocks(uint3 groupId : SV_GroupID,
+    uint3 threadId : SV_GroupThreadID)
+{
+    uint lane = threadId.x;
+    uint block = groupId.x * 256u + lane;
+    uint value = block < _TargetHeadBlockCount
+        ? _RootBlockOffsets[block].x : 0u;
+    uint total;
+    uint prefix = SigmaStableExclusiveScan256(lane, value, total);
+    if (block < _TargetHeadBlockCount)
+        _RootBlockOffsets[block] = uint2(prefix, 0u);
+    if (lane == 0u)
+        _RootSuperOffsets[groupId.x] = uint2(total, 0u);
+}
+
+[numthreads(256, 1, 1)]
+void ScanTargetHeadSupers(uint3 threadId : SV_GroupThreadID)
+{
+    uint lane = threadId.x;
+    uint value = lane < _TargetHeadSuperCount
+        ? _RootSuperOffsets[lane].x : 0u;
+    uint total;
+    uint prefix = SigmaStableExclusiveScan256(lane, value, total);
+    if (lane < _TargetHeadSuperCount)
+        _RootSuperOffsets[lane] = uint2(prefix, 0u);
+    if (lane == 0u)
+        _FrameClosureCounters[0].x = total;
+}
+
+[numthreads(256, 1, 1)]
+void CompactTargetHeads(uint3 id : SV_DispatchThreadID)
+{
+    uint index = id.x;
+    if (index >= _FrameFootprintCount ||
+        _FrameResolvedIndices[index] == 0u)
+        return;
+    uint block = index >> 8u;
+    uint superBlock = block >> 8u;
+    uint ordinal = _RootLocalOffsets[index].x +
+        _RootBlockOffsets[block].x + _RootSuperOffsets[superBlock].x;
+    SigmaFrameDeltaGpu head = SigmaFrameEmptyTarget();
+    head.Evidence.x = index;
+    _FrameTargetScratch[_TargetSortCapacity + ordinal] = head;
+}
+
+[numthreads(16, 1, 1)]
+void ReduceTargetWindow(uint3 groupId : SV_GroupID,
+    uint3 threadId : SV_GroupThreadID)
+{
+    uint coordinate = threadId.x;
+    uint ordinal = _TargetWindowFirst + groupId.x;
+    uint targetCount = _FrameClosureCounters[0].x;
+    if (ordinal >= targetCount ||
+        ordinal >= _TargetWindowFirst + _TargetWindowCount)
+        return;
+    uint localTarget = ordinal - _TargetWindowFirst;
+    uint targetAddress = localTarget * SIGMA_FRAME_LANE_COUNT + coordinate;
+    SigmaQ48Bounds accumulator = SigmaFrameReductionFullBounds();
+    uint cellFlags = 0u;
+    uint2 representativeState = SIGMA_FRAME_Q48_ZERO;
+    if (_ReductionFirstWindow == 0u)
+    {
+        accumulator.lo = _ReducedTargetLower[targetAddress];
+        accumulator.hi = _ReducedTargetUpper[targetAddress];
+        cellFlags = _ReducedTargetValidity[targetAddress];
+        representativeState = _ReducedTargetStates[targetAddress];
+    }
+
+    uint start =
+        _FrameTargetScratch[_TargetSortCapacity + ordinal].Evidence.x;
+    SigmaFrameDeltaGpu target = _FrameDeltas[start];
+    [loop]
+    for (uint cursor = start; cursor < _FrameFootprintCount; ++cursor)
+    {
+        SigmaFrameDeltaGpu record = _FrameDeltas[cursor];
+        if (!SigmaFrameSameTarget(target, record))
+            break;
+        uint footprint = record.Evidence.x;
+        if (footprint < _CandidateWindowFirst ||
+            footprint >= _CandidateWindowFirst + _CandidateWindowCount)
+            continue;
+        uint proposal = record.Evidence.w;
+        uint localFootprint = footprint - _CandidateWindowFirst;
+        uint candidate = localFootprint * 4u + proposal;
+        uint address = candidate * SIGMA_FRAME_LANE_COUNT + coordinate;
+        uint incomingFlags = _FrameCandidateValidity[address];
+        if ((record.Evidence.y & SIGMA_FRAME_OUTCOME_ACCEPTED) != 0u)
+            incomingFlags |= SIGMA_FRAME_CELL_ACCEPTED;
+        if ((record.Evidence.y & SIGMA_FRAME_OUTCOME_CONFLICT) != 0u)
+            incomingFlags |= SIGMA_FRAME_CELL_CONFLICT;
+        if ((record.Evidence.y & SIGMA_FRAME_OUTCOME_FAULT) != 0u)
+            incomingFlags |= SIGMA_FRAME_CELL_FAULT;
+        if ((incomingFlags & SIGMA_FRAME_CELL_CONSTRAINED) != 0u)
+        {
+            accumulator.lo = SigmaQ48Max(accumulator.lo,
+                _FrameCandidateLower[address]);
+            accumulator.hi = SigmaQ48Min(accumulator.hi,
+                _FrameCandidateUpper[address]);
+        }
+        cellFlags |= incomingFlags;
+        if (cursor == start)
+            representativeState = _FrameCandidateStates[address];
+    }
+    bool conflict = SigmaQ48Less(accumulator.hi, accumulator.lo);
+    if (conflict)
+        cellFlags |= SIGMA_FRAME_CELL_CONFLICT;
+    uint gapValid = 1u;
+    uint2 gap = SIGMA_FRAME_Q48_ZERO;
+    if (conflict)
+        gap = SigmaQ48SubChecked(accumulator.lo, accumulator.hi, gapValid);
+    if (gapValid == 0u)
+        cellFlags |= SIGMA_FRAME_CELL_FAULT;
+    _ReducedTargetLower[targetAddress] = accumulator.lo;
+    _ReducedTargetUpper[targetAddress] = accumulator.hi;
+    _ReducedTargetGap[targetAddress] = gap;
+    _ReducedTargetValidity[targetAddress] = cellFlags;
+    _ReducedTargetStates[targetAddress] = representativeState;
+}
+
+[numthreads(256, 1, 1)]
+void FinalizeReducedTargets(uint3 groupId : SV_GroupID,
+    uint3 threadId : SV_GroupThreadID)
+{
+    uint coordinate = threadId.x & 15u;
+    uint local = threadId.x >> 4u;
+    uint ordinal = _TargetWindowFirst + groupId.x * 16u + local;
+    uint flat = local * SIGMA_FRAME_LANE_COUNT + coordinate;
+    uint targetCount = _FrameClosureCounters[0].x;
+    bool inRange = ordinal < targetCount &&
+        ordinal < _TargetWindowFirst + _TargetWindowCount;
+    SigmaFrameDeltaGpu record = SigmaFrameEmptyTarget();
+    if (inRange)
+    {
+        uint start =
+            _FrameTargetScratch[_TargetSortCapacity + ordinal].Evidence.x;
+        record = _FrameDeltas[start];
+    }
+    uint kind = record.Evidence.z;
+    bool process = inRange && kind == _FinalizeProposalKind;
+    if (kind == SIGMA_FRAME_PROPOSAL_KIND_CURRENT)
+        process = process && record.Candidate.x == _CarrierSegmentIndex &&
+            record.Candidate.y < _PageCapacity &&
+            record.Candidate.w < SIGMA_PAGE_SAMPLE_COUNT;
+
+    uint localTarget = inRange ? ordinal - _TargetWindowFirst : 0u;
+    uint targetAddress = localTarget * SIGMA_FRAME_LANE_COUNT + coordinate;
+    uint2 prior = SIGMA_FRAME_Q48_ZERO;
+    if (process && kind == SIGMA_FRAME_PROPOSAL_KIND_CURRENT)
+    {
+        SigmaCarrierPageMetaGpu metadata =
+            _PageMetadata[record.Candidate.y];
+        bool current = _CurrentFlags[record.Candidate.y] != 0u &&
+            metadata.generation == record.Candidate.z &&
+            all(uint4(metadata.pageXLo, metadata.pageXHi,
+                metadata.pageYLo, metadata.pageYHi) == record.Coordinate);
+        process = process && current;
+        if (process)
+            prior = _CarrierState[record.Candidate.y * SIGMA_PAGE_LANE_COUNT +
+                record.Candidate.w * SIGMA_FRAME_LANE_COUNT + coordinate];
+    }
+    else if (process)
+        prior = _ReducedTargetStates[targetAddress];
+
+    if (coordinate == 0u)
+    {
+        FrameTargetChanged[local] =
+            kind == SIGMA_FRAME_PROPOSAL_KIND_NOVEL ? 1u : 0u;
+        FrameTargetFault[local] = process ? 0u : 1u;
+    }
+    FrameTargetValueA[flat] = prior;
+    GroupMemoryBarrierWithGroupSync();
+
+    uint valid = process ? 1u : 0u;
+    uint2 transformed = valid != 0u
+        ? SigmaFrameTargetTransform(flat - coordinate, coordinate, valid)
+        : SIGMA_FRAME_Q48_ZERO;
+    FrameTargetValueB[flat] = transformed;
+    if (coordinate == SIGMA_GEOMETRY_ROWS[0])
+        FrameTargetMass[local] = transformed;
+    uint2 lower = inRange ? _ReducedTargetLower[targetAddress]
+        : SIGMA_FRAME_Q48_ZERO;
+    uint2 upper = inRange ? _ReducedTargetUpper[targetAddress]
+        : SIGMA_FRAME_Q48_ZERO;
+    uint cellFlags = inRange ? _ReducedTargetValidity[targetAddress] : 0u;
+    FrameTargetLower[flat] = lower;
+    FrameTargetUpper[flat] = upper;
+    FrameTargetCellFlags[flat] = cellFlags;
+    GroupMemoryBarrierWithGroupSync();
+
+    uint2 mass = FrameTargetMass[local];
+    valid &= SigmaQ48Positive(mass) ? 1u : 0u;
+    uint2 currentY = valid != 0u
+        ? SigmaQ48DivNearestEven(transformed, mass, valid)
+        : SIGMA_FRAME_Q48_ZERO;
+    FrameTargetValueB[flat] = currentY;
+    if (valid == 0u)
+        InterlockedOr(FrameTargetFault[local], 2u);
+    if (coordinate == 0u)
+    {
+        uint constrained = 0u;
+        uint conflict = 0u;
+        uint fault = valid == 0u ? 1u : 0u;
+        uint aggregateSourceMask = 0u;
+        uint accepted = 0u;
+        uint2 maximumWidth = SIGMA_FRAME_Q48_ZERO;
+        [unroll]
+        for (uint lane = 0u; lane < SIGMA_FRAME_LANE_COUNT; ++lane)
+        {
+            uint flags = FrameTargetCellFlags[flat + lane];
+            bool laneConstrained =
+                (flags & SIGMA_FRAME_CELL_CONSTRAINED) != 0u;
+            if (laneConstrained)
+            {
+                constrained |= 1u << lane;
+                uint laneSourceMask =
+                    (flags >> SIGMA_FRAME_SOURCE_MASK_SHIFT) &
+                    ((1u << SIGMA_FRAME_SOURCE_COUNT) - 1u);
+                aggregateSourceMask |= laneSourceMask;
+                if (!SigmaQ48Less(FrameTargetUpper[flat + lane],
+                        FrameTargetLower[flat + lane]))
+                {
+                    maximumWidth = SigmaQ48Max(maximumWidth,
+                        SigmaQ48SubChecked(FrameTargetUpper[flat + lane],
+                            FrameTargetLower[flat + lane], valid));
+                }
+            }
+            accepted |= (flags & SIGMA_FRAME_CELL_ACCEPTED) != 0u ? 1u : 0u;
+            conflict |= (flags & SIGMA_FRAME_CELL_CONFLICT) != 0u ? 1u : 0u;
+            fault |= (flags & SIGMA_FRAME_CELL_FAULT) != 0u ? 1u : 0u;
+        }
+        uint support = constrained != 0u &&
+            SigmaFrameSourceMaskIndependent(aggregateSourceMask) ? 1u : 0u;
+        FrameTargetMeta[local] = uint4(constrained, conflict, fault,
+            support | (accepted << 1u));
+        FrameTargetMaximumWidth[local] = maximumWidth;
+        if (fault != 0u)
+            InterlockedOr(FrameTargetFault[local], 4u);
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    uint constrainedMask = FrameTargetMeta[local].x;
+    bool eligible = (FrameTargetMeta[local].w & 2u) != 0u &&
+        FrameTargetMeta[local].y == 0u && FrameTargetFault[local] == 0u;
+    uint2 targetMass = mass;
+    if (eligible && (FrameTargetMeta[local].w & 1u) != 0u)
+        targetMass = SigmaQ48Max(targetMass,
+            SigmaInformationMassForWidth(FrameTargetMaximumWidth[local], valid));
+    uint2 targetY = eligible &&
+        (constrainedMask & (1u << coordinate)) != 0u
+        ? SigmaProjectiveClamp(currentY, lower, upper)
+        : currentY;
+    FrameTargetValueB[flat] = targetY;
+    GroupMemoryBarrierWithGroupSync();
+
+    uint2 candidateState = prior;
+    if (eligible && valid != 0u)
+    {
+        uint2 inverse = SIGMA_FRAME_Q48_ZERO;
+        [unroll]
+        for (uint sourceLane = 0u; sourceLane <
+            SIGMA_FRAME_LANE_COUNT; ++sourceLane)
+        {
+            uint2 term = SigmaHadamardSign(coordinate, sourceLane) < 0
+                ? SigmaQ48NegateChecked(
+                    FrameTargetValueB[flat - coordinate + sourceLane], valid)
+                : FrameTargetValueB[flat - coordinate + sourceLane];
+            inverse = SigmaQ48AddChecked(inverse, term, valid);
+        }
+        uint2 projective =
+            SigmaQ48ShiftRightNearestEven(inverse, 4u, valid);
+        candidateState =
+            SigmaQ48MulNearestEven(targetMass, projective, valid);
+    }
+    _ReducedTargetStates[targetAddress] = candidateState;
+    if (!all(candidateState == prior))
+        InterlockedOr(FrameTargetChanged[local], 1u);
+    if (valid == 0u)
+        InterlockedOr(FrameTargetFault[local], 8u);
+    GroupMemoryBarrierWithGroupSync();
+
+    if (coordinate == 0u && process)
+    {
+        uint flags;
+        if ((record.Evidence.y & SIGMA_FRAME_OUTCOME_FAULT) != 0u ||
+            FrameTargetFault[local] != 0u)
+        {
+            flags = SIGMA_FRAME_OUTCOME_FAULT;
+            InterlockedOr(_FrameClosureCounters[3].x,
+                FrameTargetFault[local]);
+        }
+        else if ((record.Evidence.y & SIGMA_FRAME_OUTCOME_CONFLICT) != 0u ||
+            FrameTargetMeta[local].y != 0u)
+            flags = SIGMA_FRAME_OUTCOME_CONFLICT;
+        else if (!eligible)
+            flags = SIGMA_FRAME_OUTCOME_PENDING;
+        else
+            flags = SIGMA_FRAME_OUTCOME_ACCEPTED |
+                (FrameTargetChanged[local] == 0u
+                    ? SIGMA_FRAME_OUTCOME_UNCHANGED : 0u);
+        record.Evidence.y = flags;
+        record.Evidence.w = ordinal;
+        _FrameTargetScratch[ordinal] = record;
+    }
 }
 
 [numthreads(256, 1, 1)]

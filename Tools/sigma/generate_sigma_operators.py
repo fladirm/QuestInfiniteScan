@@ -100,8 +100,13 @@ FRAME_CELL_FLAGS = {
     "Constrained": 1 << 0,
     "Observed": 1 << 1,
     "Unobservable": 1 << 2,
+    "Independent": 1 << 3,
+    "Conflict": 1 << 4,
+    "Accepted": 1 << 5,
     "Fault": 1 << 31,
 }
+
+FRAME_SOURCE_MASK_SHIFT = 8
 
 @lru_cache(maxsize=None)
 def basis_product(dimension: int, left: int, right: int) -> tuple[int, int]:
@@ -571,6 +576,7 @@ def frame_abi_descriptor() -> dict:
         "packedQ48Stride": 8,
         "validityStride": 4,
         "provenanceStride": 16,
+        "sourceMaskShift": FRAME_SOURCE_MASK_SHIFT,
     }
     descriptor["fingerprint"] = sha256(descriptor)
     return descriptor
@@ -651,6 +657,7 @@ namespace Genesis.RoomScan.SigmaPrism
         internal const int PackedQ48Stride = {frame['packedQ48Stride']};
         internal const int ValidityStride = {frame['validityStride']};
         internal const int ProvenanceStride = {frame['provenanceStride']};
+        internal const int SourceMaskShift = {frame['sourceMaskShift']};
         internal const uint Invalid = 0xffffffffu;
 {stride_lines}
     }}
@@ -671,6 +678,8 @@ def render_frame_hlsl(frame: dict) -> str:
     for name, value in frame["cellFlags"].items():
         macro_lines.append(
             f"#define SIGMA_FRAME_CELL_{upper_snake(name)} 0x{value:08x}u")
+    macro_lines.append(
+        f"#define SIGMA_FRAME_SOURCE_MASK_SHIFT {frame['sourceMaskShift']}u")
 
     struct_text = []
     for entry in frame["structs"]:
