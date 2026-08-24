@@ -29,4 +29,32 @@ struct SigmaCarrierPageMetaGpu
     uint reserved1;
 };
 
+bool SigmaCarrierSameLogicalPage(SigmaCarrierPageMetaGpu left,
+    SigmaCarrierPageMetaGpu right)
+{
+    return all(uint4(left.pageXLo, left.pageXHi, left.pageYLo, left.pageYHi) ==
+        uint4(right.pageXLo, right.pageXHi, right.pageYLo, right.pageYHi));
+}
+
+// A physical pair is only backing. The single published revision root selects
+// the newest complete generation without mutating either bank before publication.
+bool SigmaCarrierVisibleAtRoot(SigmaCarrierPageMetaGpu page,
+    SigmaCarrierPageMetaGpu sibling, bool hasSibling, uint publishedRevision)
+{
+    bool visible = false;
+    if (publishedRevision == 0u ||
+        (page.flags & SIGMA_PAGE_ALLOCATED) == 0u || page.revision == 0u ||
+        page.revision > publishedRevision)
+        visible = false;
+    else if (!hasSibling || (sibling.flags & SIGMA_PAGE_ALLOCATED) == 0u ||
+        sibling.revision == 0u || sibling.revision > publishedRevision ||
+        !SigmaCarrierSameLogicalPage(page, sibling))
+        visible = true;
+    else
+        visible = page.revision > sibling.revision ||
+            (page.revision == sibling.revision &&
+                page.generation >= sibling.generation);
+    return visible;
+}
+
 #endif

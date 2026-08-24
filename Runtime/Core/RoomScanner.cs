@@ -31,7 +31,6 @@ namespace Genesis.RoomScan
     [RequireComponent(typeof(RoomAnchorManager))]
     [RequireComponent(typeof(SigmaRigBridge))]
     [RequireComponent(typeof(SigmaCarrier))]
-    [RequireComponent(typeof(SigmaTopologyController))]
     [RequireComponent(typeof(SigmaRenderer))]
     [RequireComponent(typeof(SigmaInverseController))]
     public sealed class RoomScanner : MonoBehaviour
@@ -48,7 +47,6 @@ namespace Genesis.RoomScan
         private DepthCapture _depthCapture;
         private SigmaRigBridge _rigBridge;
         private SigmaCarrier _carrier;
-        private SigmaTopologyController _sigmaTopology;
         private SigmaRenderer _sigmaRenderer;
         private SigmaInverseController _sigmaInverse;
         private RoomAnchorManager _roomAnchor;
@@ -71,7 +69,6 @@ namespace Genesis.RoomScan
         public DepthCapture DepthCapture => _depthCapture;
         public SigmaRigBridge RigBridge => _rigBridge;
         public SigmaCarrier Carrier => _carrier;
-        public SigmaTopologyController SigmaTopology => _sigmaTopology;
         public SigmaRenderer SigmaRenderer => _sigmaRenderer;
         public SigmaInverseController SigmaInverse => _sigmaInverse;
         public DebugMenuController DebugMenu => _debugMenu;
@@ -93,7 +90,6 @@ namespace Genesis.RoomScan
             _depthCapture = GetComponent<DepthCapture>();
             _rigBridge = GetComponent<SigmaRigBridge>();
             _carrier = GetComponent<SigmaCarrier>();
-            _sigmaTopology = GetComponent<SigmaTopologyController>();
             _sigmaRenderer = GetComponent<SigmaRenderer>();
             _sigmaInverse = GetComponent<SigmaInverseController>();
             _roomAnchor = GetComponent<RoomAnchorManager>();

@@ -15,7 +15,6 @@ namespace Genesis.RoomScan.SigmaPrism
     /// </summary>
     [DisallowMultipleComponent]
     [RequireComponent(typeof(SigmaCarrier))]
-    [RequireComponent(typeof(SigmaTopologyController))]
     [RequireComponent(typeof(SigmaRenderer))]
     [RequireComponent(typeof(SigmaRigBridge))]
     [DefaultExecutionOrder(0)]
@@ -51,7 +50,6 @@ namespace Genesis.RoomScan.SigmaPrism
 
         private RoomScanner _scanner;
         private SigmaCarrier _carrier;
-        private SigmaTopologyController _topology;
         private SigmaRenderer _renderer;
         private SigmaRigBridge _rigBridge;
         private SigmaExactBackendGate _backendGate;
@@ -105,8 +103,6 @@ namespace Genesis.RoomScan.SigmaPrism
                 return;
             _scanner = scanner ?? throw new ArgumentNullException(nameof(scanner));
             _carrier = scanner.Carrier ?? GetComponent<SigmaCarrier>();
-            _topology = scanner.SigmaTopology ??
-                GetComponent<SigmaTopologyController>();
             _renderer = scanner.SigmaRenderer ?? GetComponent<SigmaRenderer>();
             _rigBridge = scanner.RigBridge ?? GetComponent<SigmaRigBridge>();
             _backendGate = scanner.ExactBackendGate ??
@@ -118,7 +114,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 DepthNormalizeResource);
             _coneLutShader = Resources.Load<ComputeShader>(ConeLutResource);
             _poseGaugeShader = Resources.Load<ComputeShader>(PoseGaugeResource);
-            if (_carrier == null || _topology == null || _renderer == null ||
+            if (_carrier == null || _renderer == null ||
                 _rigBridge == null || _normalizeShader == null ||
                 _coneLutShader == null || _poseGaugeShader == null)
                 throw new InvalidOperationException(
@@ -127,7 +123,6 @@ namespace Genesis.RoomScan.SigmaPrism
             FindKernels();
             _pool = _carrier.AcquireGpuManagedPool();
             _diagnosticTelemetry = new SigmaDiagnosticTelemetry();
-            _topology.EnsureSegmentViews();
             _renderer.PredictionReady += OnPredictionReady;
             _initialized = true;
             Logger.Info("Sigma direct frame host ready; the first coherent " +
@@ -209,8 +204,7 @@ namespace Genesis.RoomScan.SigmaPrism
                     _backendGate.Buffer,
                     _graph.Resources.ClosureCounters.Segments[0].Buffer,
                     _graph.Resources.Revisions.Segments[0].Buffer,
-                    _graph.Resources.RevisionRoot.Segments[0].Buffer,
-                    _topology.DiagnosticCounters,
+                    _pool.PublicationRoot,
                     drawArguments, currentPageSlots, readoutVertices,
                     readoutPageCapacity, CaptureTimingTelemetry());
             }
@@ -310,11 +304,13 @@ namespace Genesis.RoomScan.SigmaPrism
                 _graph.RecordSourceAndResolve(command, ownedFrame, revision,
                     input);
                 _graph.RecordExactClosure(command, ownedFrame, revision, input);
+                _graph.RecordPublication(command, ownedFrame, revision, input);
                 command.EndSample("Sigma.Frame.InversePublish");
                 SigmaGpuCompletionTicket ticket =
                     SigmaGpuCompletion.RecordAfterAllWork(command);
                 Graphics.ExecuteCommandBuffer(command);
                 slot.Begin(prediction, correctedPrediction, luts, ownedFrame,
+                    _graph.Resources.OwnedFrames, _pool.PublicationRoot,
                     ticket, revision, Time.realtimeSinceStartupAsDouble);
                 correctedPrediction = null;
                 luts = null;
@@ -932,6 +928,12 @@ namespace Genesis.RoomScan.SigmaPrism
             private ConeLutLease _coneLuts;
             private SigmaOwnedFrameLease _ownedFrame;
             private SigmaGpuCompletionTicket _ticket;
+            private GraphicsBuffer _ownedFrames;
+            private GraphicsBuffer _publicationRoot;
+            private AsyncGPUReadbackRequest _frameDispositionReadback;
+            private AsyncGPUReadbackRequest _publicationRootReadback;
+            private bool _completionReadbackPending;
+            private bool _retainPublishedEvidence;
             private double _submittedAt;
             private readonly int _index;
             private Vector2Int _resolution;
@@ -968,6 +970,7 @@ namespace Genesis.RoomScan.SigmaPrism
             internal void Begin(SigmaPredictionFrameLease prediction,
                 SigmaPredictionFrameLease correctedPrediction,
                 ConeLutLease coneLuts, SigmaOwnedFrameLease ownedFrame,
+                GraphicsBuffer ownedFrames, GraphicsBuffer publicationRoot,
                 SigmaGpuCompletionTicket ticket,
                 uint revision, double submittedAt)
             {
@@ -979,15 +982,73 @@ namespace Genesis.RoomScan.SigmaPrism
                 _coneLuts = coneLuts;
                 _ownedFrame = ownedFrame ?? throw new ArgumentNullException(
                     nameof(ownedFrame));
+                _ownedFrames = ownedFrames ?? throw new ArgumentNullException(
+                    nameof(ownedFrames));
+                _publicationRoot = publicationRoot ??
+                    throw new ArgumentNullException(nameof(publicationRoot));
                 _ticket = ticket;
                 _submittedAt = submittedAt;
                 Revision = revision;
+                _completionReadbackPending = false;
+                _retainPublishedEvidence = false;
                 AgeFrames = 0L;
                 InFlight = true;
             }
 
-            internal SigmaGpuCompletionStatus Poll(out string error) =>
-                _ticket.Poll(out error);
+            internal SigmaGpuCompletionStatus Poll(out string error)
+            {
+                if (!_completionReadbackPending)
+                {
+                    SigmaGpuCompletionStatus fence = _ticket.Poll(out error);
+                    if (fence != SigmaGpuCompletionStatus.Complete)
+                        return fence;
+                    ReleaseTransientInputs();
+                    if (!SystemInfo.supportsAsyncGPUReadback)
+                    {
+                        error = "Published evidence ownership requires async " +
+                            "GPU readback support.";
+                        return SigmaGpuCompletionStatus.Faulted;
+                    }
+                    int frameOffset = checked(_ownedFrame.Slot *
+                        SigmaGeneratedFrame.OwnedFrameStride);
+                    _frameDispositionReadback = AsyncGPUReadback.Request(
+                        _ownedFrames, SigmaGeneratedFrame.OwnedFrameStride,
+                        frameOffset);
+                    _publicationRootReadback = AsyncGPUReadback.Request(
+                        _publicationRoot, sizeof(uint), 0);
+                    _completionReadbackPending = true;
+                    error = null;
+                    return SigmaGpuCompletionStatus.Pending;
+                }
+
+                if (!_frameDispositionReadback.done ||
+                    !_publicationRootReadback.done)
+                {
+                    error = null;
+                    return SigmaGpuCompletionStatus.Pending;
+                }
+                if (_frameDispositionReadback.hasError ||
+                    _publicationRootReadback.hasError)
+                {
+                    error = "Published evidence ownership readback failed.";
+                    return SigmaGpuCompletionStatus.Faulted;
+                }
+
+                var frames = _frameDispositionReadback
+                    .GetData<SigmaOwnedFrameGpu>();
+                var roots = _publicationRootReadback.GetData<uint>();
+                if (frames.Length != 1 || roots.Length != 1)
+                {
+                    error = "Published evidence ownership readback returned " +
+                        "an invalid record count.";
+                    return SigmaGpuCompletionStatus.Faulted;
+                }
+                _retainPublishedEvidence =
+                    SigmaFrameResources.IsPublishedEvidence(
+                        frames[0], roots[0], Revision);
+                error = null;
+                return SigmaGpuCompletionStatus.Complete;
+            }
             internal void AdvanceAge() => AgeFrames++;
             internal double ElapsedMilliseconds(double completedAt) =>
                 Math.Max(0.0, completedAt - _submittedAt) * 1000.0;
@@ -1023,14 +1084,15 @@ namespace Genesis.RoomScan.SigmaPrism
 
             internal void Complete()
             {
-                _prediction?.Dispose();
-                _prediction = null;
-                _correctedPrediction?.Dispose();
-                _correctedPrediction = null;
-                _coneLuts?.Dispose();
-                _coneLuts = null;
+                ReleaseTransientInputs();
+                if (_retainPublishedEvidence)
+                    _ownedFrame?.TransferEvidence(Revision);
                 _ownedFrame?.Dispose();
                 _ownedFrame = null;
+                _ownedFrames = null;
+                _publicationRoot = null;
+                _completionReadbackPending = false;
+                _retainPublishedEvidence = false;
                 InFlight = false;
                 AgeFrames = 0L;
                 _submittedAt = 0.0;
@@ -1038,14 +1100,11 @@ namespace Genesis.RoomScan.SigmaPrism
 
             public void Dispose()
             {
-                _prediction?.Dispose();
-                _prediction = null;
-                _correctedPrediction?.Dispose();
-                _correctedPrediction = null;
-                _coneLuts?.Dispose();
-                _coneLuts = null;
+                ReleaseTransientInputs();
                 _ownedFrame?.Dispose();
                 _ownedFrame = null;
+                _ownedFrames = null;
+                _publicationRoot = null;
                 RawDepthCalibration?.Dispose();
                 RawRgbCalibration?.Dispose();
                 CorrectedDepthCalibration?.Dispose();
@@ -1059,6 +1118,16 @@ namespace Genesis.RoomScan.SigmaPrism
                 DepthFlags = null;
                 InFlight = false;
                 _submittedAt = 0.0;
+            }
+
+            private void ReleaseTransientInputs()
+            {
+                _prediction?.Dispose();
+                _prediction = null;
+                _correctedPrediction?.Dispose();
+                _correctedPrediction = null;
+                _coneLuts?.Dispose();
+                _coneLuts = null;
             }
         }
     }

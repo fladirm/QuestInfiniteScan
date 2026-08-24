@@ -14,10 +14,10 @@ namespace Genesis.RoomScan.SigmaPrism
     {
         private const float SampleIntervalSeconds = 0.0f;
         private const int GateWords = 1;
-        private const int ClosureWords = 16;
+        private const int ClosureWords =
+            SigmaFrameResources.ClosureCounterRecords * 4;
         private const int RevisionWords =
             SigmaGeneratedFrame.FrameRevisionStride / sizeof(uint);
-        private const int TopologyWords = 8;
         private const int DrawArgumentWords = 4;
         private const int ReadoutVertexWords =
             SigmaRenderer.ReadoutSamplesPerPage * 4;
@@ -40,7 +40,7 @@ namespace Genesis.RoomScan.SigmaPrism
         internal void Tick(float unscaledTime, long submittedFrames,
             long committedFrames, uint hostRevision, GraphicsBuffer gate,
             GraphicsBuffer closureCounters, GraphicsBuffer revisions,
-            GraphicsBuffer revisionRoot, GraphicsBuffer topologyCounters,
+            GraphicsBuffer revisionRoot,
             GraphicsBuffer drawArguments, GraphicsBuffer currentPageSlots,
             GraphicsBuffer readoutVertices, int readoutPageCapacity,
             SigmaRuntimeTimingTelemetry timing)
@@ -61,7 +61,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 return;
             }
             if (gate == null || closureCounters == null || revisions == null ||
-                revisionRoot == null || topologyCounters == null)
+                revisionRoot == null)
             {
                 Snapshot = SigmaRuntimeTelemetrySnapshot.MissingBuffers;
                 return;
@@ -79,8 +79,6 @@ namespace Genesis.RoomScan.SigmaPrism
                 Request(batch, BufferKind.Revisions, revisions,
                     checked(revisions.count * RevisionWords));
                 Request(batch, BufferKind.RevisionRoot, revisionRoot, 1);
-                Request(batch, BufferKind.Topology, topologyCounters,
-                    TopologyWords);
                 if (drawArguments != null && currentPageSlots != null &&
                     readoutVertices != null && readoutPageCapacity > 0)
                 {
@@ -216,10 +214,9 @@ namespace Genesis.RoomScan.SigmaPrism
             Closure = 1,
             Revisions = 2,
             RevisionRoot = 3,
-            Topology = 4,
-            DrawArguments = 5,
-            CurrentPageSlots = 6,
-            ReadoutVertices = 7,
+            DrawArguments = 4,
+            CurrentPageSlots = 5,
+            ReadoutVertices = 6,
         }
 
         internal sealed class Batch
@@ -252,7 +249,6 @@ namespace Genesis.RoomScan.SigmaPrism
             internal uint[] Closure { get; private set; }
             internal uint[] Revisions { get; private set; }
             internal uint[] RevisionRoot { get; private set; }
-            internal uint[] Topology { get; private set; }
             internal uint[] DrawArguments { get; private set; }
             internal uint[] CurrentPageSlots { get; private set; }
             internal uint[] ReadoutVertices { get; private set; }
@@ -265,7 +261,6 @@ namespace Genesis.RoomScan.SigmaPrism
                     case BufferKind.Closure: Closure = words; break;
                     case BufferKind.Revisions: Revisions = words; break;
                     case BufferKind.RevisionRoot: RevisionRoot = words; break;
-                    case BufferKind.Topology: Topology = words; break;
                     case BufferKind.DrawArguments: DrawArguments = words; break;
                     case BufferKind.CurrentPageSlots:
                         CurrentPageSlots = words;
@@ -436,12 +431,20 @@ namespace Genesis.RoomScan.SigmaPrism
             CommittedFrames = batch.CommittedFrames;
             HostRevision = batch.HostRevision;
             GateWord = Word(batch.Gate, 0);
-            PendingExtentWidth = Word(batch.Closure, 0);
-            PendingPagePairs = Word(batch.Closure, 1);
-            AllocationPageSlot = Word(batch.Closure, 6);
-            ChangedPages = Word(batch.Closure, 7);
-            FaultMask = Word(batch.Closure, 8);
-            DirtyEdges = Word(batch.Closure, 9);
+            ReducedTargets = Word(batch.Closure, 0);
+            ClaimedEdges = Word(batch.Closure, 4);
+            ClosedEdges = Word(batch.Closure, 5);
+            UnresolvedEdges = Word(batch.Closure, 6);
+            DeferredOrRetentionFlags = Word(batch.Closure, 8);
+            ClosureFaultMask = Word(batch.Closure, 12);
+            RetainedPending = Word(batch.Closure, 13);
+            ChangedTargets = Word(batch.Closure, 20);
+            NovelTargets = Word(batch.Closure, 21);
+            PublicationPages = Word(batch.Closure, 22);
+            ChangedPages = Word(batch.Closure, 23);
+            FaultMask = Word(batch.Closure, 24);
+            MissingPages = Word(batch.Closure, 25);
+            FreePagePairs = Word(batch.Closure, 26);
             RevisionRoot = Word(batch.RevisionRoot, 0);
             int revisionOffset = RevisionRoot == 0u ? -1 :
                 checked(((int)RevisionRoot - 1) *
@@ -456,13 +459,6 @@ namespace Genesis.RoomScan.SigmaPrism
             WitnessFrameSlot = Word(batch.Revisions, revisionOffset + 8);
             WitnessFootprints = Word(batch.Revisions, revisionOffset + 9);
             WitnessDirtyEdges = Word(batch.Revisions, revisionOffset + 10);
-            TopologyEvaluated = Word(batch.Topology, 0);
-            TopologyAnnihilatorEvaluations = Word(batch.Topology, 1);
-            TopologyAssociatorEvaluations = Word(batch.Topology, 2);
-            TopologySingular = Word(batch.Topology, 3);
-            TopologyUnresolved = Word(batch.Topology, 4);
-            TopologyReused = Word(batch.Topology, 5);
-            TopologyOverflow = Word(batch.Topology, 6);
             DrawVertexCount = Word(batch.DrawArguments, 0);
             DrawInstanceCount = Word(batch.DrawArguments, 1);
             ReadoutVertices = new SigmaReadoutVertexTelemetry(
@@ -489,12 +485,20 @@ namespace Genesis.RoomScan.SigmaPrism
         public long CommittedFrames { get; }
         public uint HostRevision { get; }
         public uint GateWord { get; }
-        public uint PendingExtentWidth { get; }
-        public uint PendingPagePairs { get; }
-        public uint AllocationPageSlot { get; }
+        public uint ReducedTargets { get; }
+        public uint ClaimedEdges { get; }
+        public uint ClosedEdges { get; }
+        public uint UnresolvedEdges { get; }
+        public uint DeferredOrRetentionFlags { get; }
+        public uint ClosureFaultMask { get; }
+        public uint RetainedPending { get; }
+        public uint ChangedTargets { get; }
+        public uint NovelTargets { get; }
+        public uint PublicationPages { get; }
         public uint ChangedPages { get; }
         public uint FaultMask { get; }
-        public uint DirtyEdges { get; }
+        public uint MissingPages { get; }
+        public uint FreePagePairs { get; }
         public uint RevisionRoot { get; }
         public uint PublishedRevision { get; }
         public uint BaseRevision { get; }
@@ -506,13 +510,6 @@ namespace Genesis.RoomScan.SigmaPrism
         public uint WitnessFrameSlot { get; }
         public uint WitnessFootprints { get; }
         public uint WitnessDirtyEdges { get; }
-        public uint TopologyEvaluated { get; }
-        public uint TopologyAnnihilatorEvaluations { get; }
-        public uint TopologyAssociatorEvaluations { get; }
-        public uint TopologySingular { get; }
-        public uint TopologyUnresolved { get; }
-        public uint TopologyReused { get; }
-        public uint TopologyOverflow { get; }
         public uint DrawVertexCount { get; }
         public uint DrawInstanceCount { get; }
         public uint ReadoutPageCount => SigmaRenderer.VerticesPerCarrierPage == 0
@@ -529,6 +526,8 @@ namespace Genesis.RoomScan.SigmaPrism
                     return Status;
                 if (GateWord == 0u)
                     return "exact-backend-gate";
+                if (ClosureFaultMask != 0u)
+                    return "exact-transition-closure-fault";
                 if (FaultMask != 0u)
                     return "exact-frame-closure-fault";
                 if (SubmittedFrames == 0)
@@ -563,18 +562,20 @@ namespace Genesis.RoomScan.SigmaPrism
                 .Append('/').Append(RevisionPageCapacity)
                 .Append(" witness=").Append(WitnessFrameSlot).Append(':')
                 .Append(WitnessFootprints).Append(':')
-                .Append(WitnessDirtyEdges).Append("} closure={width=")
-                .Append(PendingExtentWidth).Append(" pairs=")
-                .Append(PendingPagePairs).Append(" slot=")
-                .Append(AllocationPageSlot).Append(" changed=")
-                .Append(ChangedPages).Append(" edges=").Append(DirtyEdges)
-                .Append(" fault=0x").Append(FaultMask.ToString("X"))
-                .Append("} topology=").Append(TopologyEvaluated).Append('/')
-                .Append(TopologyAnnihilatorEvaluations).Append('/')
-                .Append(TopologyAssociatorEvaluations).Append(" singular=")
-                .Append(TopologySingular).Append(" unresolved=")
-                .Append(TopologyUnresolved).Append(" overflow=")
-                .Append(TopologyOverflow).Append(" draw=")
+                .Append(WitnessDirtyEdges).Append("} r3={targets=")
+                .Append(ReducedTargets).Append(" edges=")
+                .Append(ClaimedEdges).Append('/').Append(ClosedEdges)
+                .Append('/').Append(UnresolvedEdges).Append(" deferred=0x")
+                .Append(DeferredOrRetentionFlags.ToString("X"))
+                .Append(" pending=").Append(RetainedPending)
+                .Append(" fault=0x").Append(ClosureFaultMask.ToString("X"))
+                .Append("} r4={targets=").Append(ChangedTargets)
+                .Append(" novel=").Append(NovelTargets).Append(" pages=")
+                .Append(PublicationPages).Append('/').Append(ChangedPages)
+                .Append(" missing=").Append(MissingPages).Append(" free=")
+                .Append(FreePagePairs).Append(" fault=0x")
+                .Append(FaultMask.ToString("X"))
+                .Append("} draw=")
                 .Append(DrawVertexCount).Append('v').Append('/')
                 .Append(ReadoutPageCount).Append("p vertices={");
             ReadoutVertices.AppendTo(text);

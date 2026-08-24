@@ -267,6 +267,9 @@ namespace Genesis.RoomScan.SigmaPrism
         internal SigmaFrameSourceStorage Sources => Owner.GetSources(_slot,
             _generation);
 
+        internal void TransferEvidence(uint journal) =>
+            Owner.TransferEvidence(_slot, _generation, journal);
+
         internal SigmaOwnedFrameLease Retain()
         {
             SigmaFrameResources owner = Owner;
@@ -297,12 +300,14 @@ namespace Genesis.RoomScan.SigmaPrism
         private const long MiB = 1024L * 1024L;
         private const long PreferredSegmentBytes = 64L * MiB;
         private const int InitialProposalKinds = 4;
-        private const int InitialRevisionRecords = 256;
-        private const int ClosureCounterRecords = 4;
+        private const int InitialRevisionRecords = 2;
+        internal const int ClosureCounterRecords = 8;
 
         private readonly long _bindingLimit;
         private readonly long _budgetBytes;
         private readonly FrameSlot[] _frameSlots;
+        private readonly Dictionary<uint, SigmaFrameSourceStorage>
+            _retainedEvidence = new();
         private readonly Stack<int> _freeAllocated = new();
         private readonly Stack<int> _unallocated = new();
         private long _allocatedBytes;
@@ -401,6 +406,9 @@ namespace Genesis.RoomScan.SigmaPrism
             Revisions = Buffer<SigmaFrameRevisionGpu>(
                 SigmaGeneratedFrame.FrameRevisionStride,
                 "Sigma direct frame revisions");
+            PublicationSegments = Buffer<SigmaFrameUInt4Gpu>(
+                SigmaGeneratedFrame.ProvenanceStride,
+                "Sigma direct publication segments");
             ResolvedBlockCounts = Buffer<SigmaFrameUInt4Gpu>(
                 SigmaGeneratedFrame.ProvenanceStride,
                 "Sigma direct resolved block counts");
@@ -438,17 +446,21 @@ namespace Genesis.RoomScan.SigmaPrism
                 "Sigma direct pending root super offsets");
             PageMarks = Buffer<uint>(sizeof(uint),
                 "Sigma direct changed page marks");
-            ChangedPageSlots = Buffer<uint>(sizeof(uint),
-                "Sigma direct changed page slots");
             ClosureCounters = Buffer<SigmaFrameUInt4Gpu>(
                 SigmaGeneratedFrame.ProvenanceStride,
                 "Sigma direct closure counters");
             ExtentAllocator = Buffer<SigmaFrameUInt4Gpu>(
                 SigmaGeneratedFrame.ProvenanceStride,
                 "Sigma direct carrier extent allocator");
-            RevisionRoot = Buffer<uint>(sizeof(uint),
-                "Sigma direct published revision root");
-
+            PublicationDispatchArguments = new GraphicsBuffer(
+                GraphicsBuffer.Target.Structured |
+                GraphicsBuffer.Target.IndirectArguments,
+                3, sizeof(uint))
+            {
+                name = "Sigma direct publication dispatch arguments"
+            };
+            _allocatedBytes = checked(_allocatedBytes +
+                BufferBytes(PublicationDispatchArguments));
             if (!TryEnsureCandidateCapacity(initialCandidates) ||
                 !TryEnsurePendingCapacity(FootprintCount) ||
                 !TryEnsureTargetScratchCapacity(initialTargets) ||
@@ -483,7 +495,7 @@ namespace Genesis.RoomScan.SigmaPrism
             });
             ExtentAllocator.Segments[0].Buffer.SetData(
                 new SigmaFrameUInt4Gpu[1]);
-            RevisionRoot.Segments[0].Buffer.SetData(new uint[1]);
+            PublicationDispatchArguments.SetData(new uint[] { 0u, 1u, 1u });
             for (int slot = frameCapacity - 1; slot >= 0; --slot)
                 _unallocated.Push(slot);
         }
@@ -499,7 +511,6 @@ namespace Genesis.RoomScan.SigmaPrism
         internal long BudgetBytes => _budgetBytes;
         internal long OwnedBytes => _allocatedBytes;
         internal long SourceBytesPerFrame => EstimateSourceBytes(FootprintCount);
-
         internal GraphicsBuffer OwnedFrames { get; private set; }
         internal SigmaFrameSegmentedBuffer Candidates { get; }
         internal SigmaFrameSegmentedBuffer Outcomes { get; }
@@ -519,6 +530,7 @@ namespace Genesis.RoomScan.SigmaPrism
         internal SigmaFrameSegmentedBuffer TargetScratch { get; }
         internal SigmaFrameSegmentedBuffer DirtyEdges { get; }
         internal SigmaFrameSegmentedBuffer Revisions { get; }
+        internal SigmaFrameSegmentedBuffer PublicationSegments { get; }
         internal SigmaFrameSegmentedBuffer ResolvedBlockCounts { get; }
         internal SigmaFrameSegmentedBuffer ResolvedIndices { get; }
         internal SigmaFrameSegmentedBuffer ReducedLower { get; }
@@ -533,10 +545,9 @@ namespace Genesis.RoomScan.SigmaPrism
         internal SigmaFrameSegmentedBuffer RootBlockOffsets { get; }
         internal SigmaFrameSegmentedBuffer RootSuperOffsets { get; }
         internal SigmaFrameSegmentedBuffer PageMarks { get; }
-        internal SigmaFrameSegmentedBuffer ChangedPageSlots { get; }
         internal SigmaFrameSegmentedBuffer ClosureCounters { get; }
         internal SigmaFrameSegmentedBuffer ExtentAllocator { get; }
-        internal SigmaFrameSegmentedBuffer RevisionRoot { get; }
+        internal GraphicsBuffer PublicationDispatchArguments { get; }
 
         internal bool TryAcquireFrame(uint revision, uint calibrationEpoch,
             uint depthLeftKey, uint depthRightKey, uint rgbLeftKey,
@@ -698,6 +709,23 @@ namespace Genesis.RoomScan.SigmaPrism
         internal bool TryEnsureRevisionCapacity(long records) =>
             TryGrow(Revisions, records);
 
+        internal bool TryEnsurePublicationCapacity(int segmentCount,
+            int totalPhysicalPages)
+        {
+            RequireAlive();
+            if (segmentCount <= 0 || totalPhysicalPages <= 0)
+                throw new ArgumentOutOfRangeException(nameof(segmentCount));
+            long additional = PublicationSegments.AdditionalBytesFor(segmentCount);
+            additional = checked(additional +
+                Revisions.AdditionalBytesFor(2));
+            if (!TryReserve(additional))
+                return false;
+            PublicationSegments.GrowTo(segmentCount);
+            Revisions.GrowTo(2);
+            _allocatedBytes = checked(_allocatedBytes + additional);
+            return true;
+        }
+
         internal bool TryEnsureClosureCapacity(int pageCapacity)
         {
             RequireAlive();
@@ -720,13 +748,9 @@ namespace Genesis.RoomScan.SigmaPrism
             additional = checked(additional +
                 PageMarks.AdditionalBytesFor(pageCapacity));
             additional = checked(additional +
-                ChangedPageSlots.AdditionalBytesFor(pageCapacity));
-            additional = checked(additional +
                 ClosureCounters.AdditionalBytesFor(ClosureCounterRecords));
             additional = checked(additional +
                 ExtentAllocator.AdditionalBytesFor(1));
-            additional = checked(additional +
-                RevisionRoot.AdditionalBytesFor(1));
             if (!TryReserve(additional))
                 return false;
             PendingLabels.GrowTo(FootprintCount);
@@ -736,10 +760,8 @@ namespace Genesis.RoomScan.SigmaPrism
             RootBlockOffsets.GrowTo(blockCount);
             RootSuperOffsets.GrowTo(superCount);
             PageMarks.GrowTo(pageCapacity);
-            ChangedPageSlots.GrowTo(pageCapacity);
             ClosureCounters.GrowTo(ClosureCounterRecords);
             ExtentAllocator.GrowTo(1);
-            RevisionRoot.GrowTo(1);
             _allocatedBytes = checked(_allocatedBytes + additional);
             return true;
         }
@@ -825,14 +847,77 @@ namespace Genesis.RoomScan.SigmaPrism
         internal SigmaFrameSourceStorage GetSources(int slot, uint generation)
         {
             RequireSlot(slot, generation);
-            return _frameSlots[slot].Sources;
+            return _frameSlots[slot].Sources ??
+                throw new InvalidOperationException(
+                    "Sigma frame source journal has transferred ownership.");
         }
 
         internal void Retain(int slot, uint generation)
         {
             RequireSlot(slot, generation);
+            if (_frameSlots[slot].Sources == null)
+                throw new InvalidOperationException(
+                    "Transferred Sigma frame evidence cannot regain frame ownership.");
             _frameSlots[slot].References = checked(
                 _frameSlots[slot].References + 1);
+        }
+
+        internal SigmaFrameSourceStorage GetRetainedEvidence(uint journal)
+        {
+            RequireAlive();
+            if (journal == 0u ||
+                !_retainedEvidence.TryGetValue(journal, out var sources))
+                throw new KeyNotFoundException(
+                    $"Sigma evidence journal {journal} is not retained.");
+            return sources;
+        }
+
+        internal static bool IsPublishedEvidence(SigmaOwnedFrameGpu frame,
+            uint publishedRoot, uint revision) => revision != 0u &&
+            frame.Identity.X == revision &&
+            frame.PoseSource.Z ==
+                (uint)SigmaOwnedFrameState.EvidenceRetained &&
+            frame.PoseSource.W == 0u && publishedRoot >= revision;
+
+        internal void ReleaseRetainedEvidence(uint journal)
+        {
+            RequireAlive();
+            if (journal == 0u ||
+                !_retainedEvidence.Remove(journal, out var sources))
+                throw new KeyNotFoundException(
+                    $"Sigma evidence journal {journal} is not retained.");
+
+            if (_unallocated.Count != 0)
+            {
+                int slot = _unallocated.Pop();
+                if (_frameSlots[slot].Sources != null ||
+                    _frameSlots[slot].References != 0)
+                    throw new InvalidOperationException(
+                        "Sigma unallocated frame slot still owns source storage.");
+                _frameSlots[slot].Sources = sources;
+                _freeAllocated.Push(slot);
+                return;
+            }
+
+            long bytes = sources.OwnedBytes;
+            sources.Dispose();
+            _allocatedBytes = checked(_allocatedBytes - bytes);
+        }
+
+        internal void TransferEvidence(int slot, uint generation, uint journal)
+        {
+            if (journal == 0u)
+                throw new ArgumentOutOfRangeException(nameof(journal));
+            RequireSlot(slot, generation);
+            ref FrameSlot frame = ref _frameSlots[slot];
+            SigmaFrameSourceStorage sources = frame.Sources ??
+                throw new InvalidOperationException(
+                    "Sigma frame evidence was already transferred.");
+            if (_retainedEvidence.ContainsKey(journal))
+                throw new InvalidOperationException(
+                    $"Sigma evidence journal {journal} already exists.");
+            _retainedEvidence.Add(journal, sources);
+            frame.Sources = null;
         }
 
         internal void Release(int slot, uint generation)
@@ -852,7 +937,10 @@ namespace Genesis.RoomScan.SigmaPrism
                     (uint)SigmaOwnedFrameState.Free, 0u),
             };
             OwnedFrames.SetData(new[] { cleared }, 0, slot, 1);
-            _freeAllocated.Push(slot);
+            if (frame.Sources == null)
+                _unallocated.Push(slot);
+            else
+                _freeAllocated.Push(slot);
         }
 
         public void Dispose()
@@ -862,6 +950,10 @@ namespace Genesis.RoomScan.SigmaPrism
             _disposed = true;
             for (int slot = 0; slot < _frameSlots.Length; ++slot)
                 _frameSlots[slot].Sources?.Dispose();
+            foreach (SigmaFrameSourceStorage evidence in
+                _retainedEvidence.Values)
+                evidence.Dispose();
+            _retainedEvidence.Clear();
             Candidates.Dispose();
             Outcomes.Dispose();
             CandidateStates.Dispose();
@@ -880,6 +972,7 @@ namespace Genesis.RoomScan.SigmaPrism
             TargetScratch.Dispose();
             DirtyEdges.Dispose();
             Revisions.Dispose();
+            PublicationSegments.Dispose();
             ResolvedBlockCounts.Dispose();
             ResolvedIndices.Dispose();
             ReducedLower.Dispose();
@@ -894,10 +987,9 @@ namespace Genesis.RoomScan.SigmaPrism
             RootBlockOffsets.Dispose();
             RootSuperOffsets.Dispose();
             PageMarks.Dispose();
-            ChangedPageSlots.Dispose();
             ClosureCounters.Dispose();
             ExtentAllocator.Dispose();
-            RevisionRoot.Dispose();
+            PublicationDispatchArguments?.Dispose();
             OwnedFrames?.Dispose();
             OwnedFrames = null;
             _freeAllocated.Clear();
@@ -945,8 +1037,7 @@ namespace Genesis.RoomScan.SigmaPrism
             RequireAlive();
             if ((uint)slot >= (uint)_frameSlots.Length || generation == 0u ||
                 _frameSlots[slot].Generation != generation ||
-                _frameSlots[slot].References <= 0 ||
-                _frameSlots[slot].Sources == null)
+                _frameSlots[slot].References <= 0)
                 throw new InvalidOperationException(
                     "Sigma owned-frame lease is stale or not resident.");
         }

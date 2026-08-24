@@ -79,7 +79,7 @@ Texture2D<float4> _DepthRayCenterRight;
 
 StructuredBuffer<uint2> _CarrierState;
 StructuredBuffer<SigmaCarrierPageMetaGpu> _PageMetadata;
-StructuredBuffer<uint> _CurrentFlags;
+StructuredBuffer<uint> _PublishedRevisionRoot;
 
 float4x4 _WorldFromOpticalLeft;
 float4x4 _WorldFromOpticalRight;
@@ -137,7 +137,6 @@ bool SigmaFrameExactEnabled()
 {
     return _SigmaExactBackendGate[0u] != 0u;
 }
-
 SigmaQ48Bounds SigmaFrameFullBounds()
 {
     SigmaQ48Bounds result;
@@ -1072,7 +1071,12 @@ void EvaluateCandidateMeets(uint3 groupId : SV_GroupID,
         uint pageSlot = candidate.Handle.y;
         uint sample = candidate.Identity.w & SIGMA_FRAME_PROPOSAL_SAMPLE_MASK;
         SigmaCarrierPageMetaGpu metadata = _PageMetadata[pageSlot];
-        bool current = _CurrentFlags[pageSlot] != 0u &&
+        uint siblingSlot = pageSlot ^ 1u;
+        SigmaCarrierPageMetaGpu sibling = metadata;
+        if (siblingSlot < _PageCapacity)
+            sibling = _PageMetadata[siblingSlot];
+        bool current = SigmaCarrierVisibleAtRoot(metadata, sibling,
+                siblingSlot < _PageCapacity, _PublishedRevisionRoot[0u]) &&
             metadata.generation == candidate.Handle.z &&
             metadata.revision == candidate.Handle.w &&
             all(uint4(metadata.pageXLo, metadata.pageXHi,

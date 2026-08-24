@@ -81,7 +81,7 @@ StructuredBuffer<uint2> _ReducedTargetStatesRead;
 
 StructuredBuffer<uint2> _CarrierState;
 StructuredBuffer<SigmaCarrierPageMetaGpu> _PageMetadata;
-StructuredBuffer<uint> _CurrentFlags;
+StructuredBuffer<uint> _PublishedRevisionRoot;
 
 uint2 _FrameResolution;
 uint _FrameRevision;
@@ -143,7 +143,6 @@ SigmaFrameDeltaGpu SigmaFrameEmptyTarget()
     record.Evidence = 0u;
     return record;
 }
-
 bool SigmaFrameTargetActive(SigmaFrameDeltaGpu record)
 {
     return record.Evidence.z != SIGMA_FRAME_PROPOSAL_KIND_NONE &&
@@ -603,9 +602,14 @@ void FinalizeReducedTargets(uint3 groupId : SV_GroupID,
     uint2 prior = SIGMA_FRAME_Q48_ZERO;
     if (process && kind == SIGMA_FRAME_PROPOSAL_KIND_CURRENT)
     {
-        SigmaCarrierPageMetaGpu metadata =
-            _PageMetadata[record.Candidate.y];
-        bool current = _CurrentFlags[record.Candidate.y] != 0u &&
+        uint pageSlot = record.Candidate.y;
+        SigmaCarrierPageMetaGpu metadata = _PageMetadata[pageSlot];
+        uint siblingSlot = pageSlot ^ 1u;
+        SigmaCarrierPageMetaGpu sibling = metadata;
+        if (siblingSlot < _PageCapacity)
+            sibling = _PageMetadata[siblingSlot];
+        bool current = SigmaCarrierVisibleAtRoot(metadata, sibling,
+                siblingSlot < _PageCapacity, _PublishedRevisionRoot[0u]) &&
             metadata.generation == record.Candidate.z &&
             all(uint4(metadata.pageXLo, metadata.pageXHi,
                 metadata.pageYLo, metadata.pageYHi) == record.Coordinate);

@@ -91,7 +91,6 @@ namespace Genesis.RoomScan.Editor
                 if (roomScan == null || roomScan.GetComponent<RoomScanner>() == null ||
                     roomScan.GetComponent<SigmaRigBridge>() == null ||
                     roomScan.GetComponent<SigmaCarrier>() == null ||
-                    roomScan.GetComponent<SigmaTopologyController>() == null ||
                     roomScan.GetComponent<SigmaRenderer>() == null ||
                     roomScan.GetComponent<SigmaInverseController>() == null ||
                     roomScan.GetComponent<DepthCapture>() == null)

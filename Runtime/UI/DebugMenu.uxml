@@ -51,10 +51,6 @@
                 <ui:Label text="Ψ carrier" class="status-key" />
                 <ui:Label name="val-carrier" text="--" class="status-val status-val--small" />
             </ui:VisualElement>
-            <ui:VisualElement class="status-row">
-                <ui:Label text="S4-05 singular topology" class="status-key" />
-                <ui:Label name="val-topology" text="--" class="status-val status-val--small" />
-            </ui:VisualElement>
             <ui:VisualElement class="status-row status-row--last">
                 <ui:Label text="S4-08 joint inverse" class="status-key" />
                 <ui:Label name="val-inverse" text="--" class="status-val status-val--small" />

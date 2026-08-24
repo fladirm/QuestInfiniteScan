@@ -70,6 +70,10 @@ namespace Genesis.RoomScan.Tests
         private sealed class PublicationSnapshot
         {
             internal uint Root;
+            internal UInt4[] Counters;
+            internal SigmaOwnedFrameGpu[] Owned;
+            internal SigmaFrameDeltaGpu[] Targets;
+            internal uint[] Deferred;
             internal SigmaFrameRevisionGpu[] Revisions;
             internal PageMeta[] Metadata;
             internal uint[] Current;
@@ -545,8 +549,33 @@ namespace Genesis.RoomScan.Tests
 
         private static void AssertPublished(PublicationSnapshot snapshot)
         {
+            int accepted = 0;
+            int changed = 0;
+            int deferred = 0;
+            for (int index = 0; index < snapshot.Targets.Length; ++index)
+            {
+                uint flags = snapshot.Targets[index].Evidence.Y;
+                if ((flags & (uint)SigmaFrameOutcomeFlags.Accepted) != 0u)
+                    ++accepted;
+                if ((flags & ((uint)SigmaFrameOutcomeFlags.Accepted |
+                        (uint)SigmaFrameOutcomeFlags.Unchanged)) ==
+                    (uint)SigmaFrameOutcomeFlags.Accepted)
+                    ++changed;
+                if (snapshot.Deferred[index] != 0u)
+                    ++deferred;
+            }
             Assert.That(snapshot.Root, Is.EqualTo(1u),
-                "publication root must flip exactly once to revision slot zero");
+                "publication root must flip exactly once to revision slot zero; " +
+                $"targets={snapshot.Counters[0].X}, " +
+                $"publish={snapshot.Counters[5].X}/" +
+                $"{snapshot.Counters[5].Y}/" +
+                $"{snapshot.Counters[5].Z}/" +
+                $"{snapshot.Counters[5].W}, " +
+                $"fault=0x{snapshot.Counters[6].X:x8}, " +
+                $"accepted={accepted}, changed={changed}, " +
+                $"deferred={deferred}, " +
+                $"frame={snapshot.Owned[0].PoseSource.Z}/" +
+                $"0x{snapshot.Owned[0].PoseSource.W:x8}");
             Assert.That(snapshot.Revisions[0].Identity.X, Is.EqualTo(1u));
             Assert.That(snapshot.Revisions[0].Identity.Z,
                 Is.EqualTo((uint)SigmaFrameRevisionState.Published));
@@ -1124,8 +1153,8 @@ namespace Genesis.RoomScan.Tests
                     SigmaCarrier.PageLaneCount));
                 using var metadata = Buffer<PageMeta>(pageCapacity);
                 using var dirty = Buffer<uint>(pageCapacity);
-                using var current = Buffer<uint>(pageCapacity);
                 using var readoutDirty = Buffer<uint>(pageCapacity);
+                using var publicationRoot = Buffer<uint>(1);
                 var stateData = new UInt2[state.count];
                 long[] prior = BuildCarrierPrior();
                 for (int lane = 0; lane < Lanes; ++lane)
@@ -1143,12 +1172,12 @@ namespace Genesis.RoomScan.Tests
                     Flags = 1u,
                 };
                 metadata.SetData(metadataData);
-                current.SetData(new uint[] { 1u, 0u });
                 dirty.SetData(new uint[pageCapacity]);
                 readoutDirty.SetData(new uint[pageCapacity]);
+                publicationRoot.SetData(new uint[] { 1u });
                 var batch = new SigmaCarrierReadBatch((int)segment,
-                    pageCapacity, 1UL, state, metadata, dirty, current,
-                    readoutDirty);
+                    pageCapacity, 0, state, metadata, dirty, readoutDirty,
+                    publicationRoot);
                 var input = new SigmaFrameInverseInput(_prediction, _metricDepth,
                     _depthFlags, _depthCalibration, _rgbCalibration, _poseResult,
                     _coneLease, DepthLeftKey, DepthRightKey, RgbLeftKey,
@@ -1324,37 +1353,85 @@ namespace Genesis.RoomScan.Tests
                     SigmaCarrier.PageLaneCount));
                 using var metadata = Buffer<PageMeta>(pageCapacity);
                 using var dirty = Buffer<uint>(pageCapacity);
-                using var current = Buffer<uint>(pageCapacity);
                 using var readoutDirty = Buffer<uint>(pageCapacity);
+                using var publicationRoot = Buffer<uint>(1);
                 state.SetData(new UInt2[state.count]);
                 metadata.SetData(new PageMeta[pageCapacity]);
                 dirty.SetData(new uint[pageCapacity]);
-                current.SetData(new uint[pageCapacity]);
                 readoutDirty.SetData(new uint[pageCapacity]);
-                var target = new SigmaFramePublicationTarget(0, pageCapacity,
-                    state, metadata, dirty, current, readoutDirty);
+                publicationRoot.SetData(new uint[1]);
+                var batch = new SigmaCarrierReadBatch(0, pageCapacity, 0,
+                    state, metadata, dirty, readoutDirty, publicationRoot);
+                var publishInput = new SigmaFrameInverseInput(
+                    _input.Prediction, _input.MetricDepth, _input.DepthFlags,
+                    _input.DepthCalibration, _input.RgbCalibration,
+                    _input.PoseResult, _input.ConeLuts,
+                    _input.DepthLeftKey, _input.DepthRightKey,
+                    _input.RgbLeftKey, _input.RgbRightKey,
+                    new[] { batch });
                 using var command = new CommandBuffer
                     { name = "Sigma M3 atomic frame publication fixture" };
                 try
                 {
-                    _graph.RecordSourceAndResolve(command, _owned, 1u, _input,
-                        footprintWindow);
-                    _graph.RecordExactClosure(command, _owned, 1u, _input);
+                    _graph.RecordSourceAndResolve(command, _owned, 1u,
+                        publishInput, footprintWindow);
+                    _graph.RecordExactClosure(command, _owned, 1u,
+                        publishInput);
+                    _graph.RecordPublication(command, _owned, 1u,
+                        publishInput);
                     Graphics.ExecuteCommandBuffer(command);
                 }
                 finally { command.Clear(); }
+                uint root = Read<uint>(publicationRoot, 1)[0];
+                PageMeta[] metadataSnapshot = Read<PageMeta>(metadata,
+                    pageCapacity);
+                var visible = new uint[pageCapacity];
+                for (int page = 0; page < pageCapacity; ++page)
+                    visible[page] = VisibleAtRoot(metadataSnapshot, page, root)
+                        ? 1u : 0u;
                 return new PublicationSnapshot
                 {
-                    Root = Read<uint>(
-                        _graph.Resources.RevisionRoot.Segments[0].Buffer, 1)[0],
+                    Root = root,
+                    Counters = Read<UInt4>(
+                        _graph.Resources.ClosureCounters.Segments[0].Buffer,
+                        SigmaFrameResources.ClosureCounterRecords),
+                    Targets = Read<SigmaFrameDeltaGpu>(
+                        _graph.Resources.TargetScratch,
+                        _graph.Resources.FootprintCount),
+                    Deferred = Read<uint>(_graph.Resources.DeferredFlags,
+                        _graph.Resources.FootprintCount),
+                    Owned = Read<SigmaOwnedFrameGpu>(
+                        _graph.Resources.OwnedFrames,
+                        _graph.Resources.FrameCapacity),
                     Revisions = Read<SigmaFrameRevisionGpu>(
                         _graph.Resources.Revisions.Segments[0].Buffer,
                         checked((int)_graph.Resources.Revisions.RecordCapacity)),
-                    Metadata = Read<PageMeta>(metadata, pageCapacity),
-                    Current = Read<uint>(current, pageCapacity),
+                    Metadata = metadataSnapshot,
+                    Current = visible,
                     ReadoutDirty = Read<uint>(readoutDirty, pageCapacity),
                     State = Read<UInt2>(state, state.count),
                 };
+            }
+
+            private static bool VisibleAtRoot(PageMeta[] metadata, int page,
+                uint root)
+            {
+                PageMeta value = metadata[page];
+                if (root == 0u || (value.Flags & 1u) == 0u ||
+                    value.Revision == 0u || value.Revision > root)
+                    return false;
+                int sibling = page ^ 1;
+                if ((uint)sibling >= (uint)metadata.Length)
+                    return true;
+                PageMeta other = metadata[sibling];
+                bool same = value.XLo == other.XLo && value.XHi == other.XHi &&
+                    value.YLo == other.YLo && value.YHi == other.YHi;
+                if ((other.Flags & 1u) == 0u || other.Revision == 0u ||
+                    other.Revision > root || !same)
+                    return true;
+                return value.Revision > other.Revision ||
+                    (value.Revision == other.Revision &&
+                        value.Generation >= other.Generation);
             }
 
             public void Dispose()

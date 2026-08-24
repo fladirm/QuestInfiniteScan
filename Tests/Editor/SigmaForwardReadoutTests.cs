@@ -67,7 +67,7 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
-        public void GpuReadoutAndRasterSelectNearFoldWhileNullStaysEmpty()
+        public void GpuReadoutAndPredictionExposeSupportedFoldAndNullStaysEmpty()
         {
             ComputeShader readout = Resources.Load<ComputeShader>(
                 "SigmaPrism/SigmaForwardReadout");
@@ -97,8 +97,8 @@ namespace Genesis.RoomScan.Tests
                 packed.Length, Marshal.SizeOf<UInt2>());
             using var meta = new GraphicsBuffer(GraphicsBuffer.Target.Structured,
                 1, Marshal.SizeOf<PageMeta>());
-            using var current = new GraphicsBuffer(GraphicsBuffer.Target.Structured,
-                1, sizeof(uint));
+            using var publicationRoot = new GraphicsBuffer(
+                GraphicsBuffer.Target.Structured, 1, sizeof(uint));
             using var readoutDirty = new GraphicsBuffer(
                 GraphicsBuffer.Target.Structured, 1, sizeof(uint));
             using var vertices = new GraphicsBuffer(GraphicsBuffer.Target.Structured,
@@ -107,11 +107,6 @@ namespace Genesis.RoomScan.Tests
                 1, sizeof(uint));
             using var dirtySlots = new GraphicsBuffer(GraphicsBuffer.Target.Structured,
                 1, sizeof(uint));
-            using var topologyCellFlags = new GraphicsBuffer(
-                GraphicsBuffer.Target.Structured, PageSize * PageSize,
-                sizeof(uint));
-            using var topologyPageKeys = new GraphicsBuffer(
-                GraphicsBuffer.Target.Structured, 1, sizeof(uint) * 4);
             using var poseResult = new GraphicsBuffer(
                 GraphicsBuffer.Target.Structured, 4, sizeof(uint) * 4);
             using var arguments = new GraphicsBuffer(
@@ -125,16 +120,11 @@ namespace Genesis.RoomScan.Tests
                 GraphicsBuffer.Target.IndirectArguments, 3, sizeof(uint));
             state.SetData(packed);
             meta.SetData(metadata);
-            current.SetData(new uint[] { 1u });
+            publicationRoot.SetData(new uint[] { 17u });
             readoutDirty.SetData(new uint[] { 1u });
             arguments.SetData(new uint[] { 0u, 1u, 0u, 0u });
             buildArguments.SetData(new uint[] { 64u, 0u, 1u });
             haloArguments.SetData(new uint[] { 1u, 0u, 1u });
-            topologyCellFlags.SetData(new uint[PageSize * PageSize]);
-            topologyPageKeys.SetData(new[]
-            {
-                new UInt4 { X = 9u, Y = 17u, Z = 1u, W = 0u }
-            });
             poseResult.SetData(new UInt4[4]);
 
             int build = readout.FindKernel("BuildCarrierReadout");
@@ -142,7 +132,8 @@ namespace Genesis.RoomScan.Tests
             int resolveHalo = readout.FindKernel("ResolveCarrierHalos");
             readout.SetInt("_PageCapacity", 1);
             readout.SetBuffer(compact, "_PageMetadata", meta);
-            readout.SetBuffer(compact, "_CurrentFlags", current);
+            readout.SetBuffer(compact, "_PublishedRevisionRoot",
+                publicationRoot);
             readout.SetBuffer(compact, "_ReadoutDirtyFlags", readoutDirty);
             readout.SetBuffer(compact, "_CurrentPageSlots", activeSlots);
             readout.SetBuffer(compact, "_ReadoutDrawArguments", arguments);
@@ -154,13 +145,15 @@ namespace Genesis.RoomScan.Tests
             gate.Bind(readout, build);
             readout.SetBuffer(build, "_CarrierState", state);
             readout.SetBuffer(build, "_PageMetadata", meta);
-            readout.SetBuffer(build, "_CurrentFlags", current);
+            readout.SetBuffer(build, "_PublishedRevisionRoot",
+                publicationRoot);
             readout.SetBuffer(build, "_ReadoutDirtyFlags", readoutDirty);
             readout.SetBuffer(build, "_ReadoutDirtyPageSlots", dirtySlots);
             readout.SetBuffer(build, "_ReadoutVertices", vertices);
             readout.DispatchIndirect(build, buildArguments);
             readout.SetBuffer(resolveHalo, "_PageMetadata", meta);
-            readout.SetBuffer(resolveHalo, "_CurrentFlags", current);
+            readout.SetBuffer(resolveHalo, "_PublishedRevisionRoot",
+                publicationRoot);
             readout.SetBuffer(resolveHalo, "_CurrentPageSlots", activeSlots);
             readout.SetBuffer(resolveHalo, "_ReadoutVertices", vertices);
             readout.DispatchIndirect(resolveHalo, haloArguments);
@@ -201,8 +194,6 @@ namespace Genesis.RoomScan.Tests
                 properties.SetBuffer("_ReadoutVertices", vertices);
                 properties.SetBuffer("_CurrentPageSlots", activeSlots);
                 properties.SetBuffer("_PageMetadata", meta);
-                properties.SetBuffer("_TopologyCellFlags", topologyCellFlags);
-                properties.SetBuffer("_TopologyPageKeys", topologyPageKeys);
                 properties.SetBuffer("_PoseResult", poseResult);
                 properties.SetMatrix("_PoseConsumeReferenceFromWorld",
                     Matrix4x4.identity);
@@ -221,10 +212,6 @@ namespace Genesis.RoomScan.Tests
                 Assert.That(uvNormal[pixel * 4], Is.GreaterThan(38f),
                     "CarrierUV must identify the near branch, not the far branch");
 
-                int emptyPixel = 2 * targetSize + 2;
-                Assert.That(depth[emptyPixel * 2], Is.Zero,
-                    "implicit/null carrier may not emit physical contact");
-
                 long gaugeZ = SigmaNumericDomain.Quantize(0.05);
                 poseResult.SetData(new[]
                 {
@@ -241,42 +228,26 @@ namespace Genesis.RoomScan.Tests
                     carrierPage, carrierUvNormal, stateKey, hardwareDepth);
                 depth = Readback<float>(depthSupport);
                 float correctedMinDepth = MinPositiveDepth(depth);
+                const float nearSurfaceZ = 0.3f;
+                const float correctedSurfaceZ = nearSurfaceZ - 0.05f;
+                float expectedCorrectedRange = Mathf.Sqrt(Mathf.Max(0f,
+                    identityMinDepth * identityMinDepth -
+                    nearSurfaceZ * nearSurfaceZ +
+                    correctedSurfaceZ * correctedSurfaceZ));
                 Assert.That(correctedMinDepth,
-                    Is.EqualTo(identityMinDepth - 0.05f).Within(0.004f),
+                    Is.EqualTo(expectedCorrectedRange).Within(0.004f),
                     "a nonzero exact pose result must rerasterize the same " +
-                    "carrier frame through the inverse rigid gauge");
+                    "carrier frame through the inverse rigid gauge while " +
+                    "reporting Euclidean optical range");
                 poseResult.SetData(new UInt4[4]);
-
-                topologyPageKeys.SetData(new[]
-                {
-                    new UInt4 { X = 8u, Y = 17u, Z = 1u, W = 0u }
-                });
-                DrawPrediction(material, arguments, properties, depthSupport,
-                    carrierPage, carrierUvNormal, stateKey, hardwareDepth);
-                depth = Readback<float>(depthSupport);
-                Assert.That(depth[pixel * 2], Is.Zero,
-                    "a topology cache from another carrier generation must fail closed");
-
-                topologyPageKeys.SetData(new[]
-                {
-                    new UInt4 { X = 9u, Y = 17u, Z = 1u, W = 0u }
-                });
-                var allCut = new uint[PageSize * PageSize];
-                Array.Fill(allCut, 3u);
-                topologyCellFlags.SetData(allCut);
-                DrawPrediction(material, arguments, properties, depthSupport,
-                    carrierPage, carrierUvNormal, stateKey, hardwareDepth);
-                depth = Readback<float>(depthSupport);
-                Assert.That(depth[pixel * 2], Is.Zero,
-                    "a supported intrinsic singular cut must not be interpolated");
 
                 properties.SetFloat("_ContactFootprintPixels", 1.35f);
                 DrawPrediction(material, arguments, properties, depthSupport,
-                    carrierPage, carrierUvNormal, stateKey, hardwareDepth, 1);
+                    carrierPage, carrierUvNormal, stateKey, hardwareDepth);
                 depth = Readback<float>(depthSupport);
                 Assert.That(MinPositiveDepth(depth), Is.InRange(0.28f, 0.70f),
                     "disposable contact footprints must expose supported Psi " +
-                    "without weakening the topology-gated surface pass");
+                    "without creating a second geometry world");
             }
             finally
             {

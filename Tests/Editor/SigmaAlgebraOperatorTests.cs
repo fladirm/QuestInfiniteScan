@@ -278,27 +278,6 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
-        public void TransitionCacheHitMissAndGenerationInvalidationAreExact()
-        {
-            var cache = new SigmaTransitionCache(4);
-            SigmaS16 left = DeterministicState(5);
-            SigmaS16 right = DeterministicState(9);
-            var key = new SigmaTransitionKey(100, 7, 101, 3);
-            SigmaTransitionSignature first = cache.GetOrCompute(key, left, right);
-            SigmaTransitionSignature hit = cache.GetOrCompute(key, left, right);
-            Assert.That(hit.Transition, Is.EqualTo(first.Transition));
-            Assert.That(hit.AnnihilatorId, Is.EqualTo(first.AnnihilatorId));
-            Assert.That(hit.AnnihilatorError, Is.EqualTo(first.AnnihilatorError));
-            Assert.That(cache.HitCount, Is.EqualTo(1));
-            Assert.That(cache.MissCount, Is.EqualTo(1));
-
-            SigmaTransitionSignature changed = cache.GetOrCompute(
-                new SigmaTransitionKey(100, 8, 101, 3), left, right);
-            Assert.That(changed.Transition, Is.EqualTo(first.Transition));
-            Assert.That(cache.MissCount, Is.EqualTo(2));
-        }
-
-        [Test]
         public void GeneratedFingerprintsAreStableAndBoundToCanonicalBundle()
         {
             Assert.That(SigmaOperatorSet.Canonical.NumericDomainId,

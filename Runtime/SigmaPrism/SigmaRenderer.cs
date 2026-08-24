@@ -13,7 +13,6 @@ namespace Genesis.RoomScan.SigmaPrism
     /// </summary>
     [DisallowMultipleComponent]
     [RequireComponent(typeof(SigmaCarrier))]
-    [RequireComponent(typeof(SigmaTopologyController))]
     [RequireComponent(typeof(SigmaRigBridge))]
     [DefaultExecutionOrder(-10)]
     public sealed class SigmaRenderer : MonoBehaviour, IRoomScanModule
@@ -37,8 +36,8 @@ namespace Genesis.RoomScan.SigmaPrism
             "_CarrierState");
         private static readonly int PageMetadataId = Shader.PropertyToID(
             "_PageMetadata");
-        private static readonly int CurrentFlagsId = Shader.PropertyToID(
-            "_CurrentFlags");
+        private static readonly int PublishedRevisionRootId = Shader.PropertyToID(
+            "_PublishedRevisionRoot");
         private static readonly int ReadoutDirtyFlagsId = Shader.PropertyToID(
             "_ReadoutDirtyFlags");
         private static readonly int ReadoutVerticesId = Shader.PropertyToID(
@@ -61,10 +60,6 @@ namespace Genesis.RoomScan.SigmaPrism
             "_OpticalFromWorld");
         private static readonly int SegmentIndexId = Shader.PropertyToID(
             "_SegmentIndex");
-        private static readonly int TopologyCellFlagsId = Shader.PropertyToID(
-            "_TopologyCellFlags");
-        private static readonly int TopologyPageKeysId = Shader.PropertyToID(
-            "_TopologyPageKeys");
         private static readonly int PoseResultId = Shader.PropertyToID(
             "_PoseResult");
         private static readonly int PoseReferenceFromWorldId = Shader.PropertyToID(
@@ -87,7 +82,6 @@ namespace Genesis.RoomScan.SigmaPrism
 
         private RoomScanner _scanner;
         private SigmaCarrier _carrier;
-        private SigmaTopologyController _topology;
         private SigmaRigBridge _rigBridge;
         private SigmaExactBackendGate _backendGate;
         private ComputeShader _readoutCompute;
@@ -157,8 +151,6 @@ namespace Genesis.RoomScan.SigmaPrism
                 return;
             _scanner = scanner ?? throw new ArgumentNullException(nameof(scanner));
             _carrier = scanner.Carrier ?? GetComponent<SigmaCarrier>();
-            _topology = scanner.SigmaTopology ??
-                GetComponent<SigmaTopologyController>();
             _rigBridge = scanner.RigBridge ?? GetComponent<SigmaRigBridge>();
             _backendGate = scanner.ExactBackendGate ??
                 throw new InvalidOperationException(
@@ -166,7 +158,7 @@ namespace Genesis.RoomScan.SigmaPrism
             _readoutCompute = Resources.Load<ComputeShader>(ReadoutResource);
             Shader prediction = Resources.Load<Shader>(PredictionResource);
             Shader preview = Resources.Load<Shader>(PreviewResource);
-            if (_carrier == null || _topology == null || _rigBridge == null ||
+            if (_carrier == null || _rigBridge == null ||
                 _readoutCompute == null || prediction == null || preview == null)
                 throw new InvalidOperationException(
                     "Sigma forward-readout resources are incomplete.");
@@ -195,7 +187,6 @@ namespace Genesis.RoomScan.SigmaPrism
                 name = "Sigma identity pose-gauge readout"
             };
             _identityPoseResult.SetData(new uint[16]);
-            _topology.EnsureSegmentViews();
             _carrier.CollectReadableSegments(_readBatches);
             EnsureSegmentCaches();
             _initialized = true;
@@ -418,7 +409,7 @@ namespace Genesis.RoomScan.SigmaPrism
             command.SetComputeBufferParam(_readoutCompute, _buildKernel,
                 PageMetadataId, batch.Metadata);
             command.SetComputeBufferParam(_readoutCompute, _buildKernel,
-                CurrentFlagsId, batch.CurrentFlags);
+                PublishedRevisionRootId, batch.PublicationRoot);
             command.SetComputeBufferParam(_readoutCompute, _buildKernel,
                 ReadoutDirtyFlagsId, batch.ReadoutDirtyFlags);
             command.SetComputeBufferParam(_readoutCompute, _buildKernel,
@@ -435,7 +426,7 @@ namespace Genesis.RoomScan.SigmaPrism
             command.SetComputeBufferParam(_readoutCompute, _compactKernel,
                 PageMetadataId, batch.Metadata);
             command.SetComputeBufferParam(_readoutCompute, _compactKernel,
-                CurrentFlagsId, batch.CurrentFlags);
+                PublishedRevisionRootId, batch.PublicationRoot);
             command.SetComputeBufferParam(_readoutCompute, _compactKernel,
                 ReadoutDirtyFlagsId, batch.ReadoutDirtyFlags);
             command.SetComputeBufferParam(_readoutCompute, _compactKernel,
@@ -458,7 +449,7 @@ namespace Genesis.RoomScan.SigmaPrism
             command.SetComputeBufferParam(_readoutCompute, _resolveHaloKernel,
                 PageMetadataId, batch.Metadata);
             command.SetComputeBufferParam(_readoutCompute, _resolveHaloKernel,
-                CurrentFlagsId, batch.CurrentFlags);
+                PublishedRevisionRootId, batch.PublicationRoot);
             command.SetComputeBufferParam(_readoutCompute, _resolveHaloKernel,
                 CurrentPageSlotsId, cache.CurrentPageSlots);
             command.SetComputeBufferParam(_readoutCompute, _resolveHaloKernel,
@@ -474,9 +465,6 @@ namespace Genesis.RoomScan.SigmaPrism
             {
                 SigmaCarrierReadBatch batch = _readBatches[index];
                 SegmentReadoutCache cache = _segmentCaches[index];
-                if (!_topology.TryGetSegmentView(batch.SegmentIndex,
-                        out SigmaTopologySegmentView topologyView))
-                    continue;
                 _properties.Clear();
                 _properties.SetMatrix(ClipFromWorldId, clipFromWorld);
                 _properties.SetMatrix(OpticalFromWorldId, opticalFromWorld);
@@ -491,15 +479,8 @@ namespace Genesis.RoomScan.SigmaPrism
                 _properties.SetBuffer(CurrentPageSlotsId,
                     cache.CurrentPageSlots);
                 _properties.SetBuffer(PageMetadataId, batch.Metadata);
-                _properties.SetBuffer(TopologyCellFlagsId,
-                    topologyView.CellFlags);
-                _properties.SetBuffer(TopologyPageKeysId,
-                    topologyView.PageKeys);
                 command.DrawProceduralIndirect(Matrix4x4.identity,
                     _predictionMaterial, 0, MeshTopology.Triangles,
-                    cache.DrawArguments, 0, _properties);
-                command.DrawProceduralIndirect(Matrix4x4.identity,
-                    _predictionMaterial, 1, MeshTopology.Triangles,
                     cache.DrawArguments, 0, _properties);
             }
         }
@@ -643,7 +624,6 @@ namespace Genesis.RoomScan.SigmaPrism
             }
             _readoutCompute = null;
             _backendGate = null;
-            _topology = null;
             _carrier = null;
             _rigBridge = null;
             _scanner = null;

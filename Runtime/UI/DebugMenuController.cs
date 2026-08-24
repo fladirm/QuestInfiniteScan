@@ -20,7 +20,6 @@ namespace Genesis.RoomScan.UI
         private Label _pipeline;
         private Label _gateState;
         private Label _carrierState;
-        private Label _topologyState;
         private Label _inverseState;
         private Label _pointerState;
         private Label _rigState;
@@ -99,7 +98,6 @@ namespace Genesis.RoomScan.UI
             _pipeline = _root.Q<Label>("val-pipeline");
             _gateState = _root.Q<Label>("val-gate");
             _carrierState = _root.Q<Label>("val-carrier");
-            _topologyState = _root.Q<Label>("val-topology");
             _inverseState = _root.Q<Label>("val-inverse");
             _pointerState = _root.Q<Label>("val-pointer");
             _rigState = _root.Q<Label>("val-rig");
@@ -189,22 +187,6 @@ namespace Genesis.RoomScan.UI
                 inverse != null && inverse.CommittedFrames != 0
                     ? StatusKind.Warning : StatusKind.Neutral;
             SetStatus(_carrierState, carrierText, carrierKind);
-
-            var topology = scanner.SigmaTopology;
-            string topologyText = topology == null ? "missing" :
-                !topology.IsInitialized ? "initializing" :
-                telemetry?.HasSample == true
-                    ? $"eval={telemetry.TopologyEvaluated} · " +
-                      $"singular={telemetry.TopologySingular} · " +
-                      $"unresolved={telemetry.TopologyUnresolved} · " +
-                      $"overflow={telemetry.TopologyOverflow}"
-                    : "ready · awaiting GPU telemetry";
-            StatusKind topologyKind = topology == null ? StatusKind.Error :
-                !topology.IsInitialized || telemetry?.HasSample != true
-                    ? StatusKind.Warning :
-                telemetry.TopologyOverflow == 0u ? StatusKind.Good :
-                    StatusKind.Warning;
-            SetStatus(_topologyState, topologyText, topologyKind);
 
             if (inverse == null)
                 SetStatus(_inverseState, "missing", StatusKind.Error);

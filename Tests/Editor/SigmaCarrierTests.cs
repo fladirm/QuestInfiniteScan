@@ -152,51 +152,14 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
-        public void DirtyCompactionIsStableAndSegmentSizingRespectsBindingLimit()
+        public void SegmentSizingRespectsBindingLimitAndGenerationPairs()
         {
             Assert.That(SigmaCarrier.DecodedPageBytes, Is.EqualTo(524288));
             Assert.That(SigmaCarrier.ComputeSegmentPageCapacity(128L * 1024 * 1024,
                 64), Is.EqualTo(128));
-            Assert.That(SigmaCarrier.ComputeSegmentPageCapacity(
-                SigmaCarrier.DecodedPageBytes, 64), Is.EqualTo(1));
-
-            const int capacity = 64;
-            uint[] flags = new uint[capacity];
-            int[] expectedIndices = { 0, 3, 4, 17, 31, 63 };
-            foreach (int index in expectedIndices)
-                flags[index] = 1u;
-            uint[] slots = new uint[capacity];
-            uint[] count = new uint[1];
-            uint[] arguments = new uint[3];
-            ComputeShader shader = Resources.Load<ComputeShader>(
-                "SigmaPrism/SigmaCarrier");
-            Assert.That(shader, Is.Not.Null);
-            int kernel = shader.FindKernel("CompactDirtyPages");
-            using var flagBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured,
-                capacity, sizeof(uint));
-            using var slotBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured,
-                capacity, sizeof(uint));
-            using var countBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured,
-                1, sizeof(uint));
-            using var argumentBuffer = new GraphicsBuffer(
-                GraphicsBuffer.Target.Structured | GraphicsBuffer.Target.IndirectArguments,
-                3, sizeof(uint));
-            flagBuffer.SetData(flags);
-            shader.SetInt("_PageCapacity", capacity);
-            shader.SetBuffer(kernel, "_DirtyFlags", flagBuffer);
-            shader.SetBuffer(kernel, "_DirtyPageSlots", slotBuffer);
-            shader.SetBuffer(kernel, "_DirtyCount", countBuffer);
-            shader.SetBuffer(kernel, "_DirtyDispatchArgs", argumentBuffer);
-            shader.Dispatch(kernel, 1, 1, 1);
-            slotBuffer.GetData(slots);
-            countBuffer.GetData(count);
-            argumentBuffer.GetData(arguments);
-
-            Assert.That(count[0], Is.EqualTo((uint)expectedIndices.Length));
-            Assert.That(arguments, Is.EqualTo(new uint[]
-                { (uint)expectedIndices.Length, 1u, 1u }));
-            for (int index = 0; index < expectedIndices.Length; ++index)
-                Assert.That(slots[index], Is.EqualTo((uint)expectedIndices[index]));
+            Assert.Throws<InvalidOperationException>(() =>
+                SigmaCarrier.ComputeSegmentPageCapacity(
+                    SigmaCarrier.DecodedPageBytes, 64));
         }
 
         private static void AssertAddress(long x, long y, long pageX, long pageY,

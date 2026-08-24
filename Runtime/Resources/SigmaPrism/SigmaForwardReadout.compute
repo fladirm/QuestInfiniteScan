@@ -9,7 +9,7 @@
 
 StructuredBuffer<uint2> _CarrierState;
 StructuredBuffer<SigmaCarrierPageMetaGpu> _PageMetadata;
-StructuredBuffer<uint> _CurrentFlags;
+StructuredBuffer<uint> _PublishedRevisionRoot;
 RWStructuredBuffer<uint> _ReadoutDirtyFlags;
 RWStructuredBuffer<float4> _ReadoutVertices;
 
@@ -35,13 +35,19 @@ uint SigmaReadoutIndex(uint pageSlot, uint x, uint y)
 {
     return pageSlot * SIGMA_READOUT_SAMPLES + y * SIGMA_READOUT_EXTENT + x;
 }
-
 bool SigmaReadoutPageVisible(uint pageSlot)
 {
-    if (pageSlot >= _PageCapacity || _CurrentFlags[pageSlot] == 0u)
+    bool visible = false;
+    if (pageSlot >= _PageCapacity)
         return false;
-    SigmaCarrierPageMetaGpu metadata = _PageMetadata[pageSlot];
-    return (metadata.flags & SIGMA_PAGE_PUBLISHED) != 0u;
+    uint siblingSlot = pageSlot ^ 1u;
+    SigmaCarrierPageMetaGpu page = _PageMetadata[pageSlot];
+    SigmaCarrierPageMetaGpu sibling = page;
+    if (siblingSlot < _PageCapacity)
+        sibling = _PageMetadata[siblingSlot];
+    visible = SigmaCarrierVisibleAtRoot(page, sibling,
+        siblingSlot < _PageCapacity, _PublishedRevisionRoot[0u]);
+    return visible;
 }
 
 [numthreads(64, 1, 1)]
@@ -81,8 +87,8 @@ void BuildCarrierReadout(uint3 groupId : SV_GroupID,
         _ReadoutDirtyFlags[pageSlot] = 0u;
 }
 
-// The immutable current-generation mask is the only publication visibility
-// authority. Stable scans choose execution order and have no physical meaning.
+// The immutable revision root is the only publication visibility authority.
+// Stable scans choose execution order and have no physical meaning.
 [numthreads(256, 1, 1)]
 void CompactCurrentPages(uint3 groupThreadId : SV_GroupThreadID)
 {

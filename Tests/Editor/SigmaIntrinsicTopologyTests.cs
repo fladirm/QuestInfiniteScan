@@ -27,29 +27,6 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
-        public void GenerationPairCacheComputesOneTransitionAndInvalidatesEitherEnd()
-        {
-            SigmaS16 center = Scalar(1);
-            SigmaS16 neighbour = Scalar(2);
-            var cache = new SigmaTransitionCache(8);
-            var firstKey = new SigmaTransitionKey(10UL, 3u, 11UL, 7u);
-            SigmaTransitionSignature first = cache.GetOrCompute(firstKey,
-                center, neighbour);
-            SigmaTransitionSignature repeated = cache.GetOrCompute(firstKey,
-                center, neighbour);
-            SigmaTransitionSignature changed = cache.GetOrCompute(
-                new SigmaTransitionKey(10UL, 3u, 11UL, 8u), center, neighbour);
-
-            Assert.That(first.Transition, Is.EqualTo(repeated.Transition));
-            Assert.That(first.AnnihilatorId, Is.EqualTo(repeated.AnnihilatorId));
-            Assert.That(first.AnnihilatorError,
-                Is.EqualTo(repeated.AnnihilatorError));
-            Assert.That(cache.HitCount, Is.EqualTo(1UL));
-            Assert.That(cache.MissCount, Is.EqualTo(2UL));
-            Assert.That(changed.Transition, Is.EqualTo(first.Transition));
-        }
-
-        [Test]
         public void StableIndependentEvidencePromotesExactSingularity()
         {
             SigmaS16 center = Scalar(1);

@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using Genesis.RoomScan.SigmaPrism;
 using NUnit.Framework;
@@ -53,6 +54,68 @@ namespace Genesis.RoomScan.Tests
             Assert.That((long)records * SigmaGeneratedFrame.PackedQ48Stride,
                 Is.LessThan(binding));
             Assert.That(records % 256, Is.EqualTo(0));
+        }
+
+        [Test]
+        public void EvidenceTransferSurvivesExactFrameSlotReuse()
+        {
+            using var resources = new SigmaFrameResources(new Vector2Int(8, 8),
+                SigmaFrameMemoryProfile.Minimum, 32L * 1024L * 1024L);
+            Assert.That(resources.TryAcquireFrame(1u, 1u, 11u, 12u, 13u,
+                14u, 1u, 1u, out SigmaOwnedFrameLease first), Is.True);
+            int slot = first.Slot;
+            var expected = new SigmaFrameUInt2Gpu
+                { X = 0x76543210u, Y = 0x12345678u };
+            first.Sources.Lower(SigmaFrameSource.DepthLeft).Segment(0).Buffer
+                .SetData(new[] { expected });
+            var published = new SigmaOwnedFrameGpu
+            {
+                Identity = new SigmaFrameUInt4Gpu { X = 1u },
+                PoseSource = new SigmaFrameUInt4Gpu
+                {
+                    Z = (uint)SigmaOwnedFrameState.EvidenceRetained,
+                },
+            };
+            Assert.That(SigmaFrameResources.IsPublishedEvidence(
+                published, 1u, 1u), Is.True);
+            Assert.That(SigmaFrameResources.IsPublishedEvidence(
+                published, 2u, 1u), Is.True);
+            Assert.That(SigmaFrameResources.IsPublishedEvidence(
+                published, 0u, 1u), Is.False);
+            Assert.That(SigmaFrameResources.IsPublishedEvidence(
+                published, 2u, 2u), Is.False);
+            published.PoseSource.Z =
+                (uint)SigmaOwnedFrameState.Resolved;
+            Assert.That(SigmaFrameResources.IsPublishedEvidence(
+                published, 2u, 1u), Is.False);
+            first.TransferEvidence(1u);
+            first.Dispose();
+
+            Assert.That(resources.TryAcquireFrame(2u, 1u, 21u, 22u, 23u,
+                24u, 2u, 2u, out SigmaOwnedFrameLease second), Is.True);
+            Assert.That(second.Slot, Is.EqualTo(slot));
+            second.Sources.Lower(SigmaFrameSource.DepthLeft).Segment(0).Buffer
+                .SetData(new[] { new SigmaFrameUInt2Gpu
+                    { X = 0xaaaaaaaau, Y = 0xbbbbbbbbu } });
+
+            SigmaFrameSourceStorage retained =
+                resources.GetRetainedEvidence(1u);
+            var actual = new SigmaFrameUInt2Gpu[1];
+            retained
+                .Lower(SigmaFrameSource.DepthLeft).Segment(0).Buffer
+                .GetData(actual);
+            Assert.That(actual[0].X, Is.EqualTo(expected.X));
+            Assert.That(actual[0].Y, Is.EqualTo(expected.Y));
+
+            resources.ReleaseRetainedEvidence(1u);
+            Assert.Throws<KeyNotFoundException>(() =>
+                resources.GetRetainedEvidence(1u));
+            Assert.That(resources.TryAcquireFrame(3u, 1u, 31u, 32u, 33u,
+                34u, 3u, 3u, out SigmaOwnedFrameLease third), Is.True);
+            Assert.That(third.Slot, Is.Not.EqualTo(second.Slot));
+            Assert.That(third.Sources, Is.SameAs(retained));
+            third.Dispose();
+            second.Dispose();
         }
 
         [Test]

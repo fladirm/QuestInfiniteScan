@@ -78,49 +78,6 @@ namespace Genesis.RoomScan.SigmaPrism
         internal IReadOnlyList<SigmaCarrierReadBatch> CarrierSegments { get; }
     }
 
-    internal readonly struct SigmaFramePublicationTarget
-    {
-        internal SigmaFramePublicationTarget(int segmentIndex, int pageCapacity,
-            GraphicsBuffer state, GraphicsBuffer metadata,
-            GraphicsBuffer dirtyFlags, GraphicsBuffer currentFlags,
-            GraphicsBuffer readoutDirtyFlags)
-        {
-            if (segmentIndex < 0 || pageCapacity <= 0 ||
-                (pageCapacity & 1) != 0 ||
-                pageCapacity > SigmaCarrier.MaximumPagesPerSegment)
-                throw new ArgumentOutOfRangeException(nameof(pageCapacity));
-            SegmentIndex = segmentIndex;
-            PageCapacity = pageCapacity;
-            State = state ?? throw new ArgumentNullException(nameof(state));
-            Metadata = metadata ?? throw new ArgumentNullException(nameof(metadata));
-            DirtyFlags = dirtyFlags ?? throw new ArgumentNullException(
-                nameof(dirtyFlags));
-            CurrentFlags = currentFlags ?? throw new ArgumentNullException(
-                nameof(currentFlags));
-            ReadoutDirtyFlags = readoutDirtyFlags ??
-                throw new ArgumentNullException(nameof(readoutDirtyFlags));
-            if (state.stride != SigmaGeneratedFrame.PackedQ48Stride ||
-                state.count < checked(pageCapacity * SigmaCarrier.PageLaneCount) ||
-                metadata.stride != SigmaCarrier.PageMetadataStride ||
-                metadata.count < pageCapacity || dirtyFlags.stride != sizeof(uint) ||
-                currentFlags.stride != sizeof(uint) ||
-                readoutDirtyFlags.stride != sizeof(uint) ||
-                dirtyFlags.count < pageCapacity ||
-                currentFlags.count < pageCapacity ||
-                readoutDirtyFlags.count < pageCapacity)
-                throw new InvalidOperationException(
-                    "Direct-frame publication target has an invalid carrier ABI.");
-        }
-
-        internal int SegmentIndex { get; }
-        internal int PageCapacity { get; }
-        internal GraphicsBuffer State { get; }
-        internal GraphicsBuffer Metadata { get; }
-        internal GraphicsBuffer DirtyFlags { get; }
-        internal GraphicsBuffer CurrentFlags { get; }
-        internal GraphicsBuffer ReadoutDirtyFlags { get; }
-    }
-
     /// <summary>
     /// Fixed direct GPU dataflow for one coherent four-source observation. It has
     /// no transaction, tile, page-closure or token scheduler state. Candidate
@@ -142,7 +99,7 @@ namespace Genesis.RoomScan.SigmaPrism
         private readonly GraphicsBuffer _rgbViewSupportScale;
         private readonly GraphicsBuffer _nullCarrierState;
         private readonly GraphicsBuffer _nullPageMetadata;
-        private readonly GraphicsBuffer _nullCurrentFlags;
+        private readonly GraphicsBuffer _nullPublicationRoot;
         private readonly int _clearKernel;
         private readonly int _pendingProjectionClearKernel;
         private readonly int _pendingProjectionDepthKernel;
@@ -209,9 +166,16 @@ namespace Genesis.RoomScan.SigmaPrism
                 "CompactTargetHeads", "MapTargetOrdinals",
                 "ReduceTargetWindow", "FinalizeReducedTargets");
             _publishKernels = FindKernels(_publish,
-                "PrepareFramePages", "ScatterFrameDeltas",
-                "CompactChangedPages", "CloseFrameRevision",
-                "FinalizePageVisibility", "PublishFrameRevision");
+                "ClearPublicationState", "AccumulateNovelBounds",
+                "ReserveNovelExtent", "MapFrameTargets", "MarkPageHeads",
+                "ScanPageValues", "ScanPageBlocks", "ScanPageSupers",
+                "CompactPageHeads", "MapPageOrdinals",
+                "FindExistingPages", "MarkMissingPages", "CountFreePairs",
+                "ScanFreeSegments", "CommitPhysicalAllocation",
+                "AssignPagePairs", "PropagatePageMappings", "BeginSegment",
+                "MarkSegmentPages", "PrepareSegmentPages",
+                "ScatterSegmentTargets", "CloseFrameRevision",
+                "PublishFrameRevision");
 
             Resources = new SigmaFrameResources(resolution, profile,
                 bindingLimit);
@@ -238,11 +202,11 @@ namespace Genesis.RoomScan.SigmaPrism
                 _nullPageMetadata = CreateBuffer(1,
                     SigmaCarrier.PageMetadataStride,
                     "Sigma frame null page metadata binding");
-                _nullCurrentFlags = CreateBuffer(1, sizeof(uint),
-                    "Sigma frame null current binding");
+                _nullPublicationRoot = CreateBuffer(1, sizeof(uint),
+                    "Sigma frame null publication root");
                 _nullCarrierState.SetData(new SigmaFrameUInt2Gpu[1]);
                 _nullPageMetadata.SetData(new uint[12]);
-                _nullCurrentFlags.SetData(new uint[1]);
+                _nullPublicationRoot.SetData(new uint[1]);
             }
             catch
             {
@@ -257,6 +221,15 @@ namespace Genesis.RoomScan.SigmaPrism
             SigmaFrameInverseInput input, out SigmaOwnedFrameLease lease)
         {
             RequireAlive();
+            if (input.CarrierSegments != null &&
+                (!ValidatePublicationSegments(input.CarrierSegments,
+                    out int totalPhysicalPages, out _) ||
+                 !Resources.TryEnsurePublicationCapacity(
+                    input.CarrierSegments.Count, totalPhysicalPages)))
+            {
+                lease = null;
+                return false;
+            }
             return Resources.TryAcquireFrame(revision, calibrationEpoch,
                 input.DepthLeftKey, input.DepthRightKey, input.RgbLeftKey,
                 input.RgbRightKey, input.Prediction.PoseGauge.Revision,
@@ -354,7 +327,7 @@ namespace Genesis.RoomScan.SigmaPrism
                     {
                         SigmaCarrierReadBatch batch = readable[index];
                         BindCarrier(command, batch.State, batch.Metadata,
-                            batch.CurrentFlags, batch.SegmentIndex,
+                            batch.PublicationRoot, batch.SegmentIndex,
                             batch.PageCapacity,
                             (uint)SigmaFrameProposalKind.Current);
                         command.DispatchComputeProfiled(_inverse, _evaluateKernel,
@@ -363,7 +336,7 @@ namespace Genesis.RoomScan.SigmaPrism
                     }
                 }
                 BindCarrier(command, _nullCarrierState, _nullPageMetadata,
-                    _nullCurrentFlags, -1, 1,
+                    _nullPublicationRoot, -1, 1,
                     (uint)SigmaFrameProposalKind.Pending);
                 for (int pendingWindowIndex = 0;
                     pendingWindowIndex < Resources.ExecutionWindowCount;
@@ -376,7 +349,7 @@ namespace Genesis.RoomScan.SigmaPrism
                             FootprintsPerCoordinateGroup), 1, 1);
                 }
                 BindCarrier(command, _nullCarrierState, _nullPageMetadata,
-                    _nullCurrentFlags, -1, 1,
+                    _nullPublicationRoot, -1, 1,
                     (uint)SigmaFrameProposalKind.Novel);
                 command.DispatchComputeProfiled(_inverse, _evaluateKernel,
                     CeilDiv(windowCandidates, FootprintsPerCoordinateGroup), 1, 1);
@@ -554,7 +527,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 command.SetComputeIntParam(_closure, "_FinalizeProposalKind",
                     (int)SigmaFrameProposalKind.Pending);
                 BindReductionCarrier(command, _reductionKernels[11],
-                    _nullCarrierState, _nullPageMetadata, _nullCurrentFlags,
+                    _nullCarrierState, _nullPageMetadata, _nullPublicationRoot,
                     -1, 1);
                 for (int pendingWindowIndex = 0;
                     pendingWindowIndex < Resources.ExecutionWindowCount;
@@ -570,7 +543,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 command.SetComputeIntParam(_closure, "_FinalizeProposalKind",
                     (int)SigmaFrameProposalKind.Novel);
                 BindReductionCarrier(command, _reductionKernels[11],
-                    _nullCarrierState, _nullPageMetadata, _nullCurrentFlags,
+                    _nullCarrierState, _nullPageMetadata, _nullPublicationRoot,
                     -1, 1);
                 command.DispatchComputeProfiled(_closure,
                     _reductionKernels[11],
@@ -717,6 +690,149 @@ namespace Genesis.RoomScan.SigmaPrism
             command.SetComputeIntParam(_closure, "_ScanOutputMode", 0);
         }
 
+        internal void RecordPublication(CommandBuffer command,
+            SigmaOwnedFrameLease ownedFrame, uint revision,
+            SigmaFrameInverseInput input)
+        {
+            RequireAlive();
+            if (command == null)
+                throw new ArgumentNullException(nameof(command));
+            if (ownedFrame == null)
+                throw new ArgumentNullException(nameof(ownedFrame));
+            if (revision == 0u ||
+                !ValidatePublicationSegments(input.CarrierSegments,
+                    out int totalPhysicalPages, out int totalPairCapacity))
+                throw new InvalidOperationException(
+                    "Direct-frame publication has no complete carrier backing.");
+            if (!Resources.TryEnsurePublicationCapacity(
+                    input.CarrierSegments.Count, totalPhysicalPages))
+                throw new InvalidOperationException(
+                    "Direct-frame publication storage cannot retain the revision.");
+
+            int footprintCount = Resources.FootprintCount;
+            int sortCapacity = Resources.TargetSortCapacity;
+            int footprintGroups = CeilDiv(footprintCount, 256);
+            int scanBlocks = CeilDiv(footprintCount, 256);
+            int scanSupers = CeilDiv(scanBlocks, 256);
+            for (int index = 0; index < _publishKernels.Length; ++index)
+                BindPublicationBase(command, _publishKernels[index], ownedFrame,
+                    revision, input, 2);
+
+            command.DispatchComputeProfiled(_publish, _publishKernels[0],
+                CeilDiv(Math.Max(sortCapacity, footprintCount), 256), 1, 1);
+            command.DispatchComputeProfiled(_publish, _publishKernels[1],
+                footprintGroups, 1, 1);
+            command.DispatchComputeProfiled(_publish, _publishKernels[2],
+                1, 1, 1);
+            command.DispatchComputeProfiled(_publish, _publishKernels[3],
+                footprintGroups, 1, 1);
+            RecordMappedTargetSort(command, sortCapacity);
+            command.DispatchComputeProfiled(_publish, _publishKernels[4],
+                footprintGroups, 1, 1);
+            RecordPublicationScan(command, footprintCount, scanBlocks,
+                scanSupers, 0);
+            command.DispatchComputeProfiled(_publish, _publishKernels[8],
+                footprintGroups, 1, 1);
+            command.DispatchComputeProfiled(_publish, _publishKernels[9],
+                footprintGroups, 1, 1);
+
+            for (int segmentIndex = 0;
+                segmentIndex < input.CarrierSegments.Count; ++segmentIndex)
+            {
+                SigmaCarrierReadBatch segment =
+                    input.CarrierSegments[segmentIndex];
+                BindPublicationSegment(command, _publishKernels[10], segment);
+                command.DispatchComputeProfiled(_publish, _publishKernels[10],
+                    Resources.PublicationDispatchArguments, 0u);
+            }
+            command.DispatchComputeProfiled(_publish, _publishKernels[11],
+                footprintGroups, 1, 1);
+            RecordPublicationScan(command, footprintCount, scanBlocks,
+                scanSupers, 1);
+
+            for (int segmentIndex = 0;
+                segmentIndex < input.CarrierSegments.Count; ++segmentIndex)
+            {
+                SigmaCarrierReadBatch segment =
+                    input.CarrierSegments[segmentIndex];
+                BindPublicationSegment(command, _publishKernels[12], segment);
+                command.DispatchComputeProfiled(_publish, _publishKernels[12],
+                    1, 1, 1);
+            }
+            command.DispatchComputeProfiled(_publish, _publishKernels[13],
+                1, 1, 1);
+            command.DispatchComputeProfiled(_publish, _publishKernels[14],
+                1, 1, 1);
+
+            for (int segmentIndex = 0;
+                segmentIndex < input.CarrierSegments.Count; ++segmentIndex)
+            {
+                SigmaCarrierReadBatch segment =
+                    input.CarrierSegments[segmentIndex];
+                BindPublicationSegment(command, _publishKernels[15], segment);
+                command.DispatchComputeProfiled(_publish, _publishKernels[15],
+                    footprintGroups, 1, 1);
+            }
+            command.DispatchComputeProfiled(_publish, _publishKernels[16],
+                footprintGroups, 1, 1);
+
+            for (int segmentIndex = 0;
+                segmentIndex < input.CarrierSegments.Count; ++segmentIndex)
+            {
+                SigmaCarrierReadBatch segment =
+                    input.CarrierSegments[segmentIndex];
+                BindPublicationSegment(command, _publishKernels[17], segment);
+                command.DispatchComputeProfiled(_publish, _publishKernels[17],
+                    CeilDiv(segment.PageCapacity, 256), 1, 1);
+                BindPublicationSegment(command, _publishKernels[18], segment);
+                command.DispatchComputeProfiled(_publish, _publishKernels[18],
+                    footprintGroups, 1, 1);
+                BindPublicationSegment(command, _publishKernels[19], segment);
+                command.DispatchComputeProfiled(_publish, _publishKernels[19],
+                    SigmaCarrier.SamplesPerPage / 64,
+                    segment.PageCapacity, 1);
+                for (int targetWindowIndex = 0;
+                    targetWindowIndex < Resources.ExecutionWindowCount;
+                    ++targetWindowIndex)
+                {
+                    SigmaFrameExecutionWindow targetWindow =
+                        Resources.ExecutionWindow(targetWindowIndex);
+                    BindPublicationSegment(command, _publishKernels[20], segment);
+                    BindPublicationTargetWindow(command, _publishKernels[20],
+                        targetWindow);
+                    command.DispatchComputeProfiled(_publish,
+                        _publishKernels[20], CeilDiv(footprintCount, 16), 1, 1);
+                }
+            }
+            command.DispatchComputeProfiled(_publish, _publishKernels[21],
+                1, 1, 1);
+            command.DispatchComputeProfiled(_publish, _publishKernels[22],
+                1, 1, 1);
+        }
+
+        private void RecordMappedTargetSort(CommandBuffer command,
+            int sortCapacity)
+        {
+            int kernel = _reductionKernels[2];
+            command.SetComputeIntParam(_closure, "_TargetSortCapacity",
+                sortCapacity);
+            command.SetComputeBufferParam(_closure, kernel, "_FrameDeltas",
+                FirstSegment(Resources.Deltas, sortCapacity,
+                    "_FrameDeltas"));
+            for (int width = 2; ; width <<= 1)
+            {
+                command.SetComputeIntParam(_closure, "_SortK", width);
+                for (int stride = width >> 1; stride != 0; stride >>= 1)
+                {
+                    command.SetComputeIntParam(_closure, "_SortJ", stride);
+                    command.DispatchComputeProfiled(_closure, kernel,
+                        CeilDiv(sortCapacity, 256), 1, 1);
+                }
+                if (width == sortCapacity)
+                    break;
+            }
+        }
+
         public void Dispose()
         {
             if (_disposed)
@@ -727,7 +843,7 @@ namespace Genesis.RoomScan.SigmaPrism
             _rgbViewSupportScale?.Dispose();
             _nullCarrierState?.Dispose();
             _nullPageMetadata?.Dispose();
-            _nullCurrentFlags?.Dispose();
+            _nullPublicationRoot?.Dispose();
         }
 
         private void BindExactClosureBase(CommandBuffer command, int kernel,
@@ -792,10 +908,11 @@ namespace Genesis.RoomScan.SigmaPrism
             command.SetComputeIntParam(_closure, "_PendingCapacity",
                 Resources.FootprintCount);
             command.SetComputeBufferParam(_closure, kernel,
-                "_FrameClosureCounters", Single(Resources.ClosureCounters, 4));
+                "_FrameClosureCounters", Single(Resources.ClosureCounters,
+                    SigmaFrameResources.ClosureCounterRecords));
             command.SetComputeBufferParam(_closure, kernel,
                 "_FrameClosureCountersRead", Single(Resources.ClosureCounters,
-                    4));
+                    SigmaFrameResources.ClosureCounterRecords));
         }
 
         private void BindExactEdgeWindow(CommandBuffer command, int kernel,
@@ -825,60 +942,181 @@ namespace Genesis.RoomScan.SigmaPrism
                         SigmaGeneratedFrame.LaneCount));
         }
 
-        private void BindPublishKernel(CommandBuffer command, int kernel,
-            SigmaOwnedFrameLease ownedFrame, uint revision, int revisionSlot,
-            int revisionCapacity, SigmaFramePublicationTarget target,
-            int candidateCount)
+        private void BindPublicationBase(CommandBuffer command, int kernel,
+            SigmaOwnedFrameLease ownedFrame, uint revision,
+            SigmaFrameInverseInput input, int revisionCapacity)
         {
+            int footprintCount = Resources.FootprintCount;
+            int sortCapacity = Resources.TargetSortCapacity;
+            command.SetComputeIntParams(_publish, "_FrameResolution",
+                Resources.Resolution.x, Resources.Resolution.y);
+            command.SetComputeIntParams(_publish, "_FrameSourceKeys",
+                unchecked((int)input.DepthLeftKey),
+                unchecked((int)input.DepthRightKey),
+                unchecked((int)input.RgbLeftKey),
+                unchecked((int)input.RgbRightKey));
             command.SetComputeIntParam(_publish, "_FrameRevision",
                 unchecked((int)revision));
             command.SetComputeIntParam(_publish, "_FrameSlot", ownedFrame.Slot);
             command.SetComputeIntParam(_publish, "_FrameFootprintCount",
-                Resources.FootprintCount);
-            command.SetComputeIntParam(_publish, "_RevisionSlot", revisionSlot);
+                footprintCount);
+            command.SetComputeIntParam(_publish, "_CalibrationEpoch",
+                unchecked((int)input.Prediction.Source.CalibrationEpoch));
+            command.SetComputeIntParam(_publish, "_EvidenceJournal",
+                unchecked((int)revision));
+            command.SetComputeIntParam(_publish, "_TargetSortCapacity",
+                sortCapacity);
+            command.SetComputeIntParam(_publish, "_PublicationSegmentCount",
+                input.CarrierSegments.Count);
             command.SetComputeIntParam(_publish, "_RevisionCapacity",
                 revisionCapacity);
-            command.SetComputeIntParam(_publish, "_TargetSegmentIndex",
-                target.SegmentIndex);
-            command.SetComputeIntParam(_publish, "_TargetPageCapacity",
-                target.PageCapacity);
             command.SetComputeBufferParam(_publish, kernel,
                 "_SigmaExactBackendGate", _backendGate.Buffer);
             command.SetComputeBufferParam(_publish, kernel, "_OwnedFrames",
                 Resources.OwnedFrames);
             command.SetComputeBufferParam(_publish, kernel, "_FrameDeltas",
-                Single(Resources.Deltas, Resources.FootprintCount));
+                FirstSegment(Resources.Deltas, sortCapacity, "_FrameDeltas"));
             command.SetComputeBufferParam(_publish, kernel,
-                "_FrameResolvedIndices", Single(Resources.ResolvedIndices,
-                    Resources.FootprintCount));
+                "_FrameTargetScratch", FirstSegment(Resources.TargetScratch,
+                    checked(sortCapacity + footprintCount),
+                    "_FrameTargetScratch"));
             command.SetComputeBufferParam(_publish, kernel,
-                "_FrameDeferredFlags", Single(Resources.DeferredFlags,
-                    Resources.FootprintCount));
+                "_FrameTargetScratchRead", FirstSegment(
+                    Resources.TargetScratch,
+                    checked(sortCapacity + footprintCount),
+                    "_FrameTargetScratchRead"));
             command.SetComputeBufferParam(_publish, kernel,
-                "_FrameCandidateStates", Single(Resources.CandidateStates,
-                    checked((long)candidateCount *
-                        SigmaGeneratedFrame.LaneCount)));
+                "_FrameResolvedIndices", FirstSegment(Resources.ResolvedIndices,
+                    footprintCount, "_FrameResolvedIndices"));
             command.SetComputeBufferParam(_publish, kernel,
-                "_FrameClosureCounters", Single(Resources.ClosureCounters, 4));
-            command.SetComputeBufferParam(_publish, kernel, "_FramePageMarks",
-                Single(Resources.PageMarks, target.PageCapacity));
+                "_FrameDeferredFlags", FirstSegment(Resources.DeferredFlags,
+                    footprintCount, "_FrameDeferredFlags"));
+            command.SetComputeBufferParam(_publish, kernel, "_PendingLabels",
+                FirstSegment(Resources.PendingLabels, footprintCount,
+                    "_PendingLabels"));
+            command.SetComputeBufferParam(_publish, kernel, "_PendingLinks",
+                FirstSegment(Resources.PendingLinks, footprintCount,
+                    "_PendingLinks"));
             command.SetComputeBufferParam(_publish, kernel,
-                "_ChangedPageSlots", Single(Resources.ChangedPageSlots,
-                    target.PageCapacity));
+                "_RootLocalOffsets", FirstSegment(Resources.RootLocalOffsets,
+                    footprintCount, "_RootLocalOffsets"));
+            command.SetComputeBufferParam(_publish, kernel,
+                "_RootBlockOffsets", FirstSegment(Resources.RootBlockOffsets,
+                    CeilDiv(footprintCount, 256), "_RootBlockOffsets"));
+            command.SetComputeBufferParam(_publish, kernel,
+                "_RootSuperOffsets", FirstSegment(Resources.RootSuperOffsets,
+                    CeilDiv(CeilDiv(footprintCount, 256), 256),
+                    "_RootSuperOffsets"));
+            command.SetComputeBufferParam(_publish, kernel,
+                "_FrameClosureCounters", FirstSegment(
+                    Resources.ClosureCounters,
+                    SigmaFrameResources.ClosureCounterRecords,
+                    "_FrameClosureCounters"));
+            command.SetComputeBufferParam(_publish, kernel,
+                "_FrameClosureCountersRead", FirstSegment(
+                    Resources.ClosureCounters,
+                    SigmaFrameResources.ClosureCounterRecords,
+                    "_FrameClosureCountersRead"));
+            command.SetComputeBufferParam(_publish, kernel, "_ExtentAllocator",
+                FirstSegment(Resources.ExtentAllocator, 1, "_ExtentAllocator"));
+            command.SetComputeBufferParam(_publish, kernel,
+                "_PublicationSegments", FirstSegment(
+                    Resources.PublicationSegments,
+                    input.CarrierSegments.Count, "_PublicationSegments"));
+            command.SetComputeBufferParam(_publish, kernel,
+                "_FramePageMarks", FirstSegment(Resources.PageMarks,
+                    SigmaCarrier.MaximumPagesPerSegment,
+                    "_FramePageMarks"));
             command.SetComputeBufferParam(_publish, kernel, "_FrameRevisions",
-                Single(Resources.Revisions, revisionCapacity));
+                FirstSegment(Resources.Revisions, revisionCapacity,
+                    "_FrameRevisions"));
             command.SetComputeBufferParam(_publish, kernel,
-                "_FrameRevisionRoot", Single(Resources.RevisionRoot, 1));
+                "_FrameRevisionRoot",
+                input.CarrierSegments[0].PublicationRoot);
             command.SetComputeBufferParam(_publish, kernel,
-                "_TargetCarrierState", target.State);
+                "_PublicationDispatchArguments",
+                Resources.PublicationDispatchArguments);
+        }
+
+        private void BindPublicationTargetWindow(CommandBuffer command,
+            int kernel, SigmaFrameExecutionWindow window)
+        {
+            command.SetComputeIntParam(_publish, "_TargetWindowFirst",
+                window.FirstFootprint);
+            command.SetComputeIntParam(_publish, "_TargetWindowCount",
+                window.FootprintCount);
             command.SetComputeBufferParam(_publish, kernel,
-                "_TargetPageMetadata", target.Metadata);
+                "_ReducedTargetStatesRead", Window(Resources.ReducedStates,
+                    window, SigmaGeneratedFrame.LaneCount));
+        }
+
+        private void BindPublicationSegment(CommandBuffer command, int kernel,
+            SigmaCarrierReadBatch segment)
+        {
+            command.SetComputeIntParam(_publish, "_TargetSegmentIndex",
+                segment.SegmentIndex);
+            command.SetComputeIntParam(_publish, "_TargetPairFirst",
+                segment.PairFirst);
+            command.SetComputeIntParam(_publish, "_TargetPairCount",
+                segment.PairCount);
+            command.SetComputeIntParam(_publish, "_TargetPageCapacity",
+                segment.PageCapacity);
             command.SetComputeBufferParam(_publish, kernel,
-                "_TargetDirtyFlags", target.DirtyFlags);
+                "_TargetCarrierState", segment.State);
             command.SetComputeBufferParam(_publish, kernel,
-                "_TargetCurrentFlags", target.CurrentFlags);
+                "_TargetPageMetadata", segment.Metadata);
             command.SetComputeBufferParam(_publish, kernel,
-                "_TargetReadoutDirtyFlags", target.ReadoutDirtyFlags);
+                "_TargetPageMetadataRead", segment.Metadata);
+            command.SetComputeBufferParam(_publish, kernel,
+                "_TargetDirtyFlags", segment.DirtyFlags);
+            command.SetComputeBufferParam(_publish, kernel,
+                "_TargetReadoutDirtyFlags", segment.ReadoutDirtyFlags);
+        }
+
+        private void RecordPublicationScan(CommandBuffer command, int count,
+            int blocks, int supers, int mode)
+        {
+            command.SetComputeIntParam(_publish, "_ScanElementCount", count);
+            command.SetComputeIntParam(_publish, "_ScanBlockCount", blocks);
+            command.SetComputeIntParam(_publish, "_ScanSuperCount", supers);
+            command.SetComputeIntParam(_publish, "_ScanMode", mode);
+            command.DispatchComputeProfiled(_publish, _publishKernels[5],
+                blocks, 1, 1);
+            command.DispatchComputeProfiled(_publish, _publishKernels[6],
+                supers, 1, 1);
+            command.DispatchComputeProfiled(_publish, _publishKernels[7],
+                1, 1, 1);
+        }
+
+        private static bool ValidatePublicationSegments(
+            IReadOnlyList<SigmaCarrierReadBatch> segments,
+            out int totalPhysicalPages, out int totalPairCapacity)
+        {
+            totalPhysicalPages = 0;
+            totalPairCapacity = 0;
+            if (segments == null || segments.Count == 0 || segments.Count > 256)
+                return false;
+            for (int index = 0; index < segments.Count; ++index)
+            {
+                SigmaCarrierReadBatch segment = segments[index];
+                if (segment.SegmentIndex != index ||
+                    segment.PairFirst != totalPairCapacity ||
+                    segment.PageCapacity <= 0 ||
+                    (segment.PageCapacity & 1) != 0 ||
+                    segment.PageCapacity > SigmaCarrier.MaximumPagesPerSegment ||
+                    !segment.HasPublicationStorage || segment.State == null ||
+                    segment.Metadata == null || segment.DirtyFlags == null ||
+                    segment.ReadoutDirtyFlags == null ||
+                    segment.PublicationRoot == null ||
+                    (index != 0 && segment.PublicationRoot !=
+                        segments[0].PublicationRoot))
+                    return false;
+                totalPhysicalPages = checked(totalPhysicalPages +
+                    segment.PageCapacity);
+                totalPairCapacity = checked(totalPairCapacity +
+                    segment.PairCount);
+            }
+            return totalPairCapacity != 0;
         }
 
         private void BindTargetReductionBase(CommandBuffer command, int kernel,
@@ -925,7 +1163,8 @@ namespace Genesis.RoomScan.SigmaPrism
                     headSupers, "_RootSuperOffsets"));
             command.SetComputeBufferParam(_closure, kernel,
                 "_FrameClosureCounters",
-                FirstSegment(Resources.ClosureCounters, 4,
+                FirstSegment(Resources.ClosureCounters,
+                    SigmaFrameResources.ClosureCounterRecords,
                     "_FrameClosureCounters"));
             command.SetComputeBufferParam(_closure, kernel,
                 "_PendingControl", Single(Resources.PendingControl, 1));
@@ -1037,19 +1276,19 @@ namespace Genesis.RoomScan.SigmaPrism
 
         private void BindReductionCarrier(CommandBuffer command, int kernel,
             SigmaCarrierReadBatch batch) => BindReductionCarrier(command, kernel,
-            batch.State, batch.Metadata, batch.CurrentFlags, batch.SegmentIndex,
-            batch.PageCapacity);
+            batch.State, batch.Metadata, batch.PublicationRoot,
+            batch.SegmentIndex, batch.PageCapacity);
 
         private void BindReductionCarrier(CommandBuffer command, int kernel,
             GraphicsBuffer state, GraphicsBuffer metadata,
-            GraphicsBuffer currentFlags, int segmentIndex, int pageCapacity)
+            GraphicsBuffer publicationRoot, int segmentIndex, int pageCapacity)
         {
             command.SetComputeBufferParam(_closure, kernel, "_CarrierState",
                 state);
             command.SetComputeBufferParam(_closure, kernel, "_PageMetadata",
                 metadata);
-            command.SetComputeBufferParam(_closure, kernel, "_CurrentFlags",
-                currentFlags);
+            command.SetComputeBufferParam(_closure, kernel,
+                "_PublishedRevisionRoot", publicationRoot);
             command.SetComputeIntParam(_closure, "_CarrierSegmentIndex",
                 segmentIndex);
             command.SetComputeIntParam(_closure, "_PageCapacity", pageCapacity);
@@ -1278,7 +1517,7 @@ namespace Genesis.RoomScan.SigmaPrism
         }
 
         private void BindCarrier(CommandBuffer command, GraphicsBuffer state,
-            GraphicsBuffer metadata, GraphicsBuffer currentFlags,
+            GraphicsBuffer metadata, GraphicsBuffer publicationRoot,
             int segmentIndex, int pageCapacity, uint proposalKind)
         {
             command.SetComputeBufferParam(_inverse, _evaluateKernel,
@@ -1286,7 +1525,7 @@ namespace Genesis.RoomScan.SigmaPrism
             command.SetComputeBufferParam(_inverse, _evaluateKernel,
                 "_PageMetadata", metadata);
             command.SetComputeBufferParam(_inverse, _evaluateKernel,
-                "_CurrentFlags", currentFlags);
+                "_PublishedRevisionRoot", publicationRoot);
             command.SetComputeIntParam(_inverse, "_CarrierSegmentIndex",
                 segmentIndex);
             command.SetComputeIntParam(_inverse, "_PageCapacity",

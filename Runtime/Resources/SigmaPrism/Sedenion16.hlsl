@@ -53,28 +53,26 @@ uint2 SigmaU64AbsSigned(uint2 value)
 
 uint2 SigmaU64ShiftRight(uint2 value, uint count)
 {
-    uint2 result = uint2(0u, 0u);
     if (count == 0u)
         return value;
     if (count < 32u)
-        result = uint2((value.x >> count) | (value.y << (32u - count)),
+        return uint2((value.x >> count) | (value.y << (32u - count)),
             value.y >> count);
-    else if (count < 64u)
-        result = uint2(value.y >> (count - 32u), 0u);
-    return result;
+    if (count < 64u)
+        return uint2(value.y >> (count - 32u), 0u);
+    return uint2(0u, 0u);
 }
 
 uint2 SigmaU64ShiftLeftRaw(uint2 value, uint count)
 {
-    uint2 result = uint2(0u, 0u);
     if (count == 0u)
         return value;
     if (count < 32u)
-        result = uint2(value.x << count,
+        return uint2(value.x << count,
             (value.y << count) | (value.x >> (32u - count)));
-    else if (count < 64u)
-        result = uint2(0u, value.x << (count - 32u));
-    return result;
+    if (count < 64u)
+        return uint2(0u, value.x << (count - 32u));
+    return uint2(0u, 0u);
 }
 
 uint2 SigmaI64ShiftRightRaw(uint2 value, uint count)
@@ -92,19 +90,16 @@ uint2 SigmaI64ShiftRightRaw(uint2 value, uint count)
 
 bool SigmaU64AnyLowBits(uint2 value, uint count)
 {
-    bool result = false;
     if (count == 0u)
         return false;
     if (count < 32u)
-        result = (value.x & ((1u << count) - 1u)) != 0u;
-    else if (count == 32u)
-        result = value.x != 0u;
-    else if (count < 64u)
-        result = value.x != 0u ||
+        return (value.x & ((1u << count) - 1u)) != 0u;
+    if (count == 32u)
+        return value.x != 0u;
+    if (count < 64u)
+        return value.x != 0u ||
             (value.y & ((1u << (count - 32u)) - 1u)) != 0u;
-    else
-        result = any(value != 0u);
-    return result;
+    return any(value != 0u);
 }
 
 bool SigmaU64Bit(uint2 value, uint bit)
@@ -345,8 +340,11 @@ bool SigmaQ48TryDivDyadic(uint2 a, uint2 b, uint mode,
     if (shift >= 0)
     {
         uint count = (uint)shift;
-        quotient = SigmaU64ShiftLeftRaw(magnitude, count);
-        if (count >= 64u ||
+        if (count >= 64u)
+            valid = 0u;
+        else
+            quotient = SigmaU64ShiftLeftRaw(magnitude, count);
+        if (count < 64u &&
             !SigmaU64Equal(SigmaU64ShiftRight(quotient, count), magnitude))
             valid = 0u;
     }
@@ -402,7 +400,7 @@ uint SigmaU64DivideByU32(uint high, uint low, uint divisor,
     uint quotientHigh = highPrefix / divisorHigh;
     uint trialRemainder = highPrefix - quotientHigh * divisorHigh;
     [unroll]
-    for (uint correction = 0u; correction < 2u; ++correction)
+    for (uint lowCorrection = 0u; lowCorrection < 2u; ++lowCorrection)
     {
         if (quotientHigh < 0x10000u &&
             quotientHigh * divisorLow <=
@@ -516,6 +514,8 @@ uint SigmaU96DivideStep(inout uint low, inout uint middle, inout uint high,
 uint2 SigmaQ48DivideMagnitude(uint2 numeratorMagnitude, uint2 denominator,
     out uint2 remainder, out bool quotientOverflow)
 {
+    remainder = uint2(0u, 0u);
+    quotientOverflow = false;
     uint numerator0 = 0u;
     uint numerator1 = numeratorMagnitude.x << 16u;
     uint numerator2 = (numeratorMagnitude.x >> 16u) |
@@ -586,8 +586,8 @@ uint2 SigmaQ48DivRounded(uint2 a, uint2 b, uint mode, inout uint valid)
     if (SigmaQ48TryDivDyadic(a, b, mode, dyadicResult, valid))
         return dyadicResult;
     bool negative = ((a.y ^ b.y) & 0x80000000u) != 0u;
-    uint2 remainder;
-    bool quotientOverflow;
+    uint2 remainder = uint2(0u, 0u);
+    bool quotientOverflow = false;
     uint2 quotient64 = SigmaQ48DivideMagnitude(SigmaU64AbsSigned(a),
         denominator, remainder, quotientOverflow);
     if (quotientOverflow)

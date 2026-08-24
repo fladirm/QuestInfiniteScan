@@ -1,42 +1,16 @@
-#pragma kernel InitializeNullPage
 #pragma kernel InitializeGpuPool
-#pragma kernel ClonePageGeneration
-#pragma kernel PublishPageGeneration
-#pragma kernel MarkPageDirty
-#pragma kernel DeactivatePageGeneration
-#pragma kernel ReleasePageSlot
-#pragma kernel CompactDirtyPages
-#pragma kernel AcknowledgeDirtyPages
 #pragma target 5.0
 
 #include "Sedenion16.hlsl"
 #include "SigmaCarrierAbi.hlsl"
-#include "SigmaStableScan.hlsl"
 
 StructuredBuffer<uint> _SigmaExactBackendGate;
-StructuredBuffer<uint2> _SourceCarrierState;
 RWStructuredBuffer<uint2> _TargetCarrierState;
 RWStructuredBuffer<SigmaCarrierPageMetaGpu> _PageMetadata;
 RWStructuredBuffer<uint> _DirtyFlags;
-RWStructuredBuffer<uint> _CurrentFlags;
 RWStructuredBuffer<uint> _ReadoutDirtyFlags;
-RWStructuredBuffer<uint> _DirtyPageSlots;
-RWStructuredBuffer<uint> _DirtyCount;
-RWStructuredBuffer<uint> _DirtyDispatchArgs;
 
-uint _SourcePageSlot;
-uint _TargetPageSlot;
-uint _SourcePageCapacity;
 uint _PageCapacity;
-uint _PageXLo;
-uint _PageXHi;
-uint _PageYLo;
-uint _PageYHi;
-uint _Generation;
-uint _Revision;
-uint _CertificateOffsetLo;
-uint _CertificateOffsetHi;
-uint _CertificateCount;
 uint _GpuPoolPageCount;
 
 uint2 SigmaCarrierNullLane(uint lane)
@@ -50,48 +24,6 @@ uint2 SigmaCarrierNullLane(uint lane)
     return uint2(0u, 0u);
 }
 
-SigmaCarrierPageMetaGpu SigmaRequestedPageMetadata()
-{
-    SigmaCarrierPageMetaGpu metadata;
-    metadata.pageXLo = _PageXLo;
-    metadata.pageXHi = _PageXHi;
-    metadata.pageYLo = _PageYLo;
-    metadata.pageYHi = _PageYHi;
-    metadata.generation = _Generation;
-    metadata.revision = _Revision;
-    metadata.certificateOffsetLo = _CertificateOffsetLo;
-    metadata.certificateOffsetHi = _CertificateOffsetHi;
-    metadata.certificateCount = _CertificateCount;
-    metadata.flags = SIGMA_PAGE_ALLOCATED | SIGMA_PAGE_DIRTY;
-    metadata.reserved0 = 0u;
-    metadata.reserved1 = 0u;
-    return metadata;
-}
-
-[numthreads(64, 1, 1)]
-void InitializeNullPage(uint3 dispatchId : SV_DispatchThreadID)
-{
-    uint sample = dispatchId.x;
-    if (_SigmaExactBackendGate[0] == 0u || sample >= SIGMA_PAGE_SAMPLE_COUNT ||
-        _TargetPageSlot >= _PageCapacity)
-        return;
-
-    uint stateBase = _TargetPageSlot * SIGMA_PAGE_LANE_COUNT +
-        sample * SIGMA_LANE_COUNT;
-    [unroll]
-    for (uint lane = 0u; lane < SIGMA_LANE_COUNT; ++lane)
-        _TargetCarrierState[stateBase + lane] = SigmaCarrierNullLane(lane);
-
-    if (sample == 0u)
-    {
-        _PageMetadata[_TargetPageSlot] = SigmaRequestedPageMetadata();
-        _DirtyFlags[_TargetPageSlot] = 1u;
-    }
-}
-
-// Live reconstruction owns an even set of generation-paired physical slots.
-// Every slot starts as exact z_null but is neither allocated nor current. A
-// proof-gated GPU transaction is the only operation allowed to publish it.
 [numthreads(64, 1, 1)]
 void InitializeGpuPool(uint3 groupId : SV_GroupID,
     uint3 groupThreadId : SV_GroupThreadID)
@@ -112,114 +44,6 @@ void InitializeGpuPool(uint3 groupId : SV_GroupID,
     {
         _PageMetadata[pageSlot] = (SigmaCarrierPageMetaGpu)0;
         _DirtyFlags[pageSlot] = 0u;
-        _CurrentFlags[pageSlot] = 0u;
         _ReadoutDirtyFlags[pageSlot] = 0u;
     }
-}
-
-[numthreads(64, 1, 1)]
-void ClonePageGeneration(uint3 dispatchId : SV_DispatchThreadID)
-{
-    uint sample = dispatchId.x;
-    if (_SigmaExactBackendGate[0] == 0u || sample >= SIGMA_PAGE_SAMPLE_COUNT ||
-        _SourcePageSlot >= _SourcePageCapacity || _TargetPageSlot >= _PageCapacity)
-        return;
-
-    uint sourceBase = _SourcePageSlot * SIGMA_PAGE_LANE_COUNT +
-        sample * SIGMA_LANE_COUNT;
-    uint targetBase = _TargetPageSlot * SIGMA_PAGE_LANE_COUNT +
-        sample * SIGMA_LANE_COUNT;
-    [unroll]
-    for (uint lane = 0u; lane < SIGMA_LANE_COUNT; ++lane)
-        _TargetCarrierState[targetBase + lane] = _SourceCarrierState[sourceBase + lane];
-
-    if (sample == 0u)
-    {
-        _PageMetadata[_TargetPageSlot] = SigmaRequestedPageMetadata();
-        _DirtyFlags[_TargetPageSlot] = 1u;
-    }
-}
-
-[numthreads(1, 1, 1)]
-void PublishPageGeneration(uint3 dispatchId : SV_DispatchThreadID)
-{
-    if (_SigmaExactBackendGate[0] == 0u || _TargetPageSlot >= _PageCapacity)
-        return;
-    SigmaCarrierPageMetaGpu metadata = _PageMetadata[_TargetPageSlot];
-    metadata.flags |= SIGMA_PAGE_PUBLISHED | SIGMA_PAGE_DIRTY;
-    _PageMetadata[_TargetPageSlot] = metadata;
-    _DirtyFlags[_TargetPageSlot] = 1u;
-    _CurrentFlags[_TargetPageSlot] = 1u;
-    _ReadoutDirtyFlags[_TargetPageSlot] = 1u;
-}
-
-[numthreads(1, 1, 1)]
-void DeactivatePageGeneration(uint3 dispatchId : SV_DispatchThreadID)
-{
-    if (_TargetPageSlot >= _PageCapacity)
-        return;
-    _CurrentFlags[_TargetPageSlot] = 0u;
-    _ReadoutDirtyFlags[_TargetPageSlot] = 0u;
-}
-
-[numthreads(1, 1, 1)]
-void MarkPageDirty(uint3 dispatchId : SV_DispatchThreadID)
-{
-    if (_SigmaExactBackendGate[0] == 0u || _TargetPageSlot >= _PageCapacity)
-        return;
-    _DirtyFlags[_TargetPageSlot] = 1u;
-    SigmaCarrierPageMetaGpu metadata = _PageMetadata[_TargetPageSlot];
-    metadata.flags |= SIGMA_PAGE_DIRTY;
-    _PageMetadata[_TargetPageSlot] = metadata;
-}
-
-[numthreads(1, 1, 1)]
-void ReleasePageSlot(uint3 dispatchId : SV_DispatchThreadID)
-{
-    if (_TargetPageSlot >= _PageCapacity)
-        return;
-    SigmaCarrierPageMetaGpu metadata = (SigmaCarrierPageMetaGpu)0;
-    _PageMetadata[_TargetPageSlot] = metadata;
-    _DirtyFlags[_TargetPageSlot] = 0u;
-    _CurrentFlags[_TargetPageSlot] = 0u;
-    _ReadoutDirtyFlags[_TargetPageSlot] = 0u;
-}
-
-// One segment has at most 256 decoded pages. This shared fixed scalar circuit
-// emits dirty slots in stable ascending physical-slot order without atomic
-// arrival order becoming canonical addressing authority.
-[numthreads(256, 1, 1)]
-void CompactDirtyPages(uint3 groupThreadId : SV_GroupThreadID)
-{
-    uint lane = groupThreadId.x;
-    uint active = lane < _PageCapacity && _DirtyFlags[lane] != 0u ? 1u : 0u;
-    uint total;
-    uint prefix = SigmaStableExclusiveScan256(lane, active, total);
-
-    if (active != 0u)
-        _DirtyPageSlots[prefix] = lane;
-
-    if (lane == 0u)
-    {
-        _DirtyCount[0] = total;
-        _DirtyDispatchArgs[0] = total;
-        _DirtyDispatchArgs[1] = 1u;
-        _DirtyDispatchArgs[2] = 1u;
-    }
-}
-
-[numthreads(64, 1, 1)]
-void AcknowledgeDirtyPages(uint3 dispatchId : SV_DispatchThreadID)
-{
-    uint index = dispatchId.x;
-    uint count = _DirtyCount[0];
-    if (index >= count)
-        return;
-    uint slot = _DirtyPageSlots[index];
-    if (slot >= _PageCapacity)
-        return;
-    _DirtyFlags[slot] = 0u;
-    SigmaCarrierPageMetaGpu metadata = _PageMetadata[slot];
-    metadata.flags &= ~SIGMA_PAGE_DIRTY;
-    _PageMetadata[slot] = metadata;
 }
