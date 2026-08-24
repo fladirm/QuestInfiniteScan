@@ -2,14 +2,19 @@
 
 ## User
 
-Resume exactly at the segmented R3 pending lowering after compaction, preserve
-cross-window neighbours and immutable read/write phases, and give a real ETA.
+Finish S4-08.5, including the forensic corrections. Keep R1/R2, replace R3 and R4
+as coherent whole-file cuts, retain complete evidence once per observation, release
+frame slots after generation-safe transfer rather than proof minimization, keep
+negative production LOC, no legacy/fallback, then build/archive/install the exact
+accepted commit and stop before S4-09.
 
 ## Assistant
 
-R3 is complete: persistent exact pending evidence is reused on later frames,
-proposal identity is equal over one/two/seven Vulkan binding windows and regular
-plus 5mm-thin edge closure is unchanged across a physical window boundary. All 11
-applicable inverse gates and 3/3 resource gates pass; the only remaining red test is
-the intentionally disconnected R4 atomic-publication fixture. The exact cursor is
-R4 segmented carrier/evidence/revision ownership, then R5 gates and Release APK.
+R3 is accepted: the complete closure shader was manually read and replaced so
+image/XYZ only proposes, exact first-hit cells qualify claims, generated S16
+annihilator/associator closure decides transitions, and only incident changed
+mutations defer before union. Vulkan/EditMode is 64/64 with no shader/bind error.
+The exact cursor is now R4: replace the rejected page-owned evidence/publication
+cut with one observation-owned segmented journal, CHANGED-only shadows, immutable
+root-selected visibility and root-last publication; proof minimization cannot gate
+frame-slot release.

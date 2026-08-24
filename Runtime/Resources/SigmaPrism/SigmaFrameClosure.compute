@@ -104,6 +104,7 @@ uint _PageCapacity;
 uint _EdgeFirstFootprint;
 uint _EdgeFootprintCount;
 uint _SingularShift;
+uint _AssociatorShift;
 uint _ScanOutputMode;
 uint _PendingCapacity;
 uint _PendingFirst;
@@ -122,7 +123,14 @@ groupshared uint FrameTargetChanged[16];
 groupshared uint FrameTargetFault[16];
 groupshared uint2 FrameEdgeLeft[16];
 groupshared uint2 FrameEdgeRight[16];
+groupshared uint2 FrameEdgeDown[16];
 groupshared uint2 FrameEdgeTau[16];
+groupshared uint2 FrameEdgeDeltaU[16];
+groupshared uint2 FrameEdgeDeltaV[16];
+groupshared uint2 FrameEdgeProductAB[16];
+groupshared uint2 FrameEdgeProductBC[16];
+groupshared uint2 FrameEdgeLeftBracket[16];
+groupshared uint2 FrameEdgeRightBracket[16];
 groupshared uint4 FrameEdgeError[256];
 groupshared uint FrameEdgeId[256];
 groupshared uint4 FrameEdgeMeta[2];
@@ -838,11 +846,15 @@ void SigmaFrameSelectKeys(uint sourceMask, out uint key0, out uint key1)
     }
 }
 
-void SigmaFrameQualifyEdge(uint leftBase, uint rightBase,
-    out bool observed, out bool discontinuity)
+uint SigmaFrameQualifyEdge(uint leftBase, uint rightBase,
+    out uint key0, out uint key1)
 {
-    observed = true;
-    discontinuity = false;
+    uint leftMask = SigmaFrameSourceMask(leftBase);
+    uint rightMask = SigmaFrameSourceMask(rightBase);
+    SigmaFrameSelectKeys(leftMask | rightMask, key0, key1);
+    uint endpointFlags = 0u;
+    bool observed = true;
+    bool intersects = true;
     [unroll]
     for (uint axis = 0u; axis < 3u; ++axis)
     {
@@ -856,15 +868,67 @@ void SigmaFrameQualifyEdge(uint leftBase, uint rightBase,
         observed = observed && axisObserved;
         if (axisObserved)
         {
-            bool separated = SigmaQ48Less(
-                    _FrameEdgeUpper[leftBase + coordinate],
-                    _FrameEdgeLower[rightBase + coordinate]) ||
-                SigmaQ48Less(
-                    _FrameEdgeUpper[rightBase + coordinate],
+            intersects = intersects &&
+                !SigmaQ48Less(_FrameEdgeUpper[leftBase + coordinate],
+                    _FrameEdgeLower[rightBase + coordinate]) &&
+                !SigmaQ48Less(_FrameEdgeUpper[rightBase + coordinate],
                     _FrameEdgeLower[leftBase + coordinate]);
-            discontinuity = discontinuity || separated;
         }
     }
+    [unroll]
+    for (uint coordinate = 0u; coordinate < SIGMA_FRAME_LANE_COUNT;
+        ++coordinate)
+    {
+        endpointFlags |= _FrameEdgeValidity[leftBase + coordinate];
+        endpointFlags |= _FrameEdgeValidity[rightBase + coordinate];
+    }
+    if ((endpointFlags &
+            (SIGMA_FRAME_CELL_CONFLICT | SIGMA_FRAME_CELL_FAULT)) != 0u)
+        return SIGMA_FRAME_CLAIM_KIND_CONFLICT;
+    // Geometry source bits are emitted only for inclusive first-hit depth cells.
+    // Optical adjacency proposes this check but cannot manufacture the relation.
+    if (!observed || !intersects || (leftMask & 3u) == 0u ||
+        (rightMask & 3u) == 0u)
+        return SIGMA_FRAME_CLAIM_KIND_NONE;
+    return SIGMA_FRAME_CLAIM_KIND_CONTACT;
+}
+
+uint2 SigmaFrameAssociatorProduct(uint stage, uint outputLane,
+    inout uint valid)
+{
+    uint2 sum = SIGMA_FRAME_Q48_ZERO;
+    [loop]
+    for (uint leftLane = 0u; leftLane < SIGMA_FRAME_LANE_COUNT; ++leftLane)
+    {
+        uint rightLane = leftLane ^ outputLane;
+        uint2 left;
+        uint2 right;
+        if (stage == 0u)
+        {
+            left = FrameEdgeLeft[leftLane];
+            right = FrameEdgeDeltaU[rightLane];
+        }
+        else if (stage == 1u)
+        {
+            left = FrameEdgeDeltaU[leftLane];
+            right = FrameEdgeDeltaV[rightLane];
+        }
+        else if (stage == 2u)
+        {
+            left = FrameEdgeProductAB[leftLane];
+            right = FrameEdgeDeltaV[rightLane];
+        }
+        else
+        {
+            left = FrameEdgeLeft[leftLane];
+            right = FrameEdgeProductBC[rightLane];
+        }
+        uint2 term = SigmaQ48MulNearestEven(left, right, valid);
+        if (SigmaMulBasisSign(leftLane, rightLane) < 0)
+            term = SigmaQ48NegateChecked(term, valid);
+        sum = SigmaQ48AddChecked(sum, term, valid);
+    }
+    return sum;
 }
 
 [numthreads(256, 1, 1)]
@@ -938,7 +1002,7 @@ void BuildPendingEdges(uint3 id : SV_DispatchThreadID)
                 edge.Left = uint4(leftOrdinal, rightOrdinal,
                     footprint, neighbour);
                 edge.Right = uint4(leftKind, rightKind, direction, 0u);
-                edge.Closure = uint4(SIGMA_FRAME_CLAIM_KIND_CONTACT,
+                edge.Closure = uint4(SIGMA_FRAME_CLAIM_KIND_NONE,
                     SigmaTopologyPack(SIGMA_TOPOLOGY_UNRESOLVED, 255u, 0u),
                     0u, 0u);
                 InterlockedAdd(_FrameClosureCounters[1].x, 1u);
@@ -1013,45 +1077,58 @@ void ClosePendingEdges(uint3 groupId : SV_GroupID,
     uint leftBase = (localFootprint * 4u + direction * 2u) *
         SIGMA_FRAME_LANE_COUNT;
     uint rightBase = leftBase + SIGMA_FRAME_LANE_COUNT;
+    SigmaDirtyEdgeGpu horizontal = edge;
+    SigmaDirtyEdgeGpu vertical = edge;
+    if (active)
+    {
+        horizontal = _FrameDirtyEdges[localFootprint * 2u];
+        vertical = _FrameDirtyEdges[localFootprint * 2u + 1u];
+    }
+    bool cellActive = active && horizontal.Left.x != SIGMA_FRAME_INVALID &&
+        horizontal.Left.y != SIGMA_FRAME_INVALID &&
+        vertical.Left.x != SIGMA_FRAME_INVALID &&
+        vertical.Left.y != SIGMA_FRAME_INVALID;
+    uint downBase = (localFootprint * 4u + 3u) *
+        SIGMA_FRAME_LANE_COUNT;
     if (lane < SIGMA_FRAME_LANE_COUNT)
     {
         FrameEdgeLeft[lane] = active
             ? _FrameEdgeStates[leftBase + lane] : SIGMA_FRAME_Q48_ZERO;
         FrameEdgeRight[lane] = active
             ? _FrameEdgeStates[rightBase + lane] : SIGMA_FRAME_Q48_ZERO;
+        FrameEdgeDown[lane] = cellActive
+            ? _FrameEdgeStates[downBase + lane] : SIGMA_FRAME_Q48_ZERO;
     }
     GroupMemoryBarrierWithGroupSync();
 
     if (lane == 0u)
     {
-        uint leftMask = active ? SigmaFrameSourceMask(leftBase) : 0u;
-        uint rightMask = active ? SigmaFrameSourceMask(rightBase) : 0u;
-        uint combinedMask = leftMask | rightMask;
-        uint key0;
-        uint key1;
-        SigmaFrameSelectKeys(combinedMask, key0, key1);
-        uint claim = active ? SIGMA_FRAME_CLAIM_KIND_CONTACT :
-            SIGMA_FRAME_CLAIM_KIND_NONE;
-        bool geometryObserved;
-        bool discontinuity;
-        SigmaFrameQualifyEdge(leftBase, rightBase, geometryObserved,
-            discontinuity);
-        uint endpointFlags = 0u;
-        [unroll]
-        for (uint coordinate = 0u; coordinate < SIGMA_FRAME_LANE_COUNT;
-            ++coordinate)
-        {
-            endpointFlags |= _FrameEdgeValidity[leftBase + coordinate];
-            endpointFlags |= _FrameEdgeValidity[rightBase + coordinate];
-        }
-        if (active && (leftMask == 0u || rightMask == 0u ||
-                !geometryObserved))
-            claim = SIGMA_FRAME_CLAIM_KIND_NONE;
-        else if ((endpointFlags &
-            (SIGMA_FRAME_CELL_CONFLICT | SIGMA_FRAME_CELL_FAULT)) != 0u)
-            claim = SIGMA_FRAME_CLAIM_KIND_CONFLICT;
+        uint key0 = 0u;
+        uint key1 = 0u;
+        uint claim = active
+            ? SigmaFrameQualifyEdge(leftBase, rightBase, key0, key1)
+            : SIGMA_FRAME_CLAIM_KIND_NONE;
+        uint horizontalKey0 = 0u;
+        uint horizontalKey1 = 0u;
+        uint verticalKey0 = 0u;
+        uint verticalKey1 = 0u;
+        uint horizontalClaim = cellActive
+            ? SigmaFrameQualifyEdge(localFootprint * 4u *
+                SIGMA_FRAME_LANE_COUNT,
+                (localFootprint * 4u + 1u) * SIGMA_FRAME_LANE_COUNT,
+                horizontalKey0, horizontalKey1)
+            : SIGMA_FRAME_CLAIM_KIND_NONE;
+        uint verticalClaim = cellActive
+            ? SigmaFrameQualifyEdge((localFootprint * 4u + 2u) *
+                SIGMA_FRAME_LANE_COUNT,
+                (localFootprint * 4u + 3u) * SIGMA_FRAME_LANE_COUNT,
+                verticalKey0, verticalKey1)
+            : SIGMA_FRAME_CLAIM_KIND_NONE;
         FrameEdgeMeta[0] = uint4(claim, key0, key1, 1u);
-        FrameEdgeMeta[1] = uint4(discontinuity ? 1u : 0u, 0u, 0u, 0u);
+        FrameEdgeMeta[1] = uint4(0u,
+            horizontalClaim == SIGMA_FRAME_CLAIM_KIND_CONTACT &&
+            verticalClaim == SIGMA_FRAME_CLAIM_KIND_CONTACT ? 1u : 0u,
+            0u, 0u);
     }
     GroupMemoryBarrierWithGroupSync();
 
@@ -1131,6 +1208,135 @@ void ClosePendingEdges(uint3 groupId : SV_GroupID,
         GroupMemoryBarrierWithGroupSync();
     }
 
+    if (lane == 0u)
+    {
+        uint scaleValid = FrameEdgeMeta[0].w;
+        uint4 transitionScale = SigmaS16L1(FrameEdgeTau, scaleValid);
+        if (SigmaU128Equal(transitionScale, SIGMA_U128_ZERO))
+            transitionScale = SIGMA_U128_ONE;
+        FrameEdgeError[254u] = transitionScale;
+        FrameEdgeMeta[1].x = FrameEdgeId[0];
+        FrameEdgeMeta[1].z = scaleValid != 0u &&
+            FrameEdgeMeta[1].y != 0u &&
+            SigmaRelativeNearGate(FrameEdgeError[0], transitionScale,
+                _SingularShift) ? 1u : 0u;
+        FrameEdgeMeta[1].w = 0u;
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    if (FrameEdgeMeta[1].z != 0u)
+    {
+        uint associatorValid = FrameEdgeMeta[0].w;
+        if (lane < SIGMA_FRAME_LANE_COUNT)
+        {
+            FrameEdgeDeltaU[lane] = SigmaQ48SubChecked(FrameEdgeRight[lane],
+                FrameEdgeLeft[lane], associatorValid);
+            FrameEdgeDeltaV[lane] = SigmaQ48SubChecked(FrameEdgeDown[lane],
+                FrameEdgeLeft[lane], associatorValid);
+            FrameEdgeId[lane] = associatorValid;
+        }
+        GroupMemoryBarrierWithGroupSync();
+        if (lane == 0u)
+        {
+            uint valid = 1u;
+            [unroll]
+            for (uint coordinate = 0u; coordinate < SIGMA_FRAME_LANE_COUNT;
+                ++coordinate)
+                valid &= FrameEdgeId[coordinate];
+            FrameEdgeMeta[1].w = valid;
+        }
+        GroupMemoryBarrierWithGroupSync();
+
+        associatorValid = FrameEdgeMeta[1].w;
+        if (lane < SIGMA_FRAME_LANE_COUNT)
+        {
+            FrameEdgeProductAB[lane] = SigmaFrameAssociatorProduct(0u, lane,
+                associatorValid);
+            FrameEdgeId[lane] = associatorValid;
+        }
+        GroupMemoryBarrierWithGroupSync();
+        if (lane == 0u)
+        {
+            uint valid = 1u;
+            [unroll]
+            for (uint coordinate = 0u; coordinate < SIGMA_FRAME_LANE_COUNT;
+                ++coordinate)
+                valid &= FrameEdgeId[coordinate];
+            FrameEdgeMeta[1].w = valid;
+        }
+        GroupMemoryBarrierWithGroupSync();
+
+        associatorValid = FrameEdgeMeta[1].w;
+        if (lane < SIGMA_FRAME_LANE_COUNT)
+        {
+            FrameEdgeProductBC[lane] = SigmaFrameAssociatorProduct(1u, lane,
+                associatorValid);
+            FrameEdgeId[lane] = associatorValid;
+        }
+        GroupMemoryBarrierWithGroupSync();
+        if (lane == 0u)
+        {
+            uint valid = 1u;
+            [unroll]
+            for (uint coordinate = 0u; coordinate < SIGMA_FRAME_LANE_COUNT;
+                ++coordinate)
+                valid &= FrameEdgeId[coordinate];
+            FrameEdgeMeta[1].w = valid;
+        }
+        GroupMemoryBarrierWithGroupSync();
+
+        associatorValid = FrameEdgeMeta[1].w;
+        if (lane < SIGMA_FRAME_LANE_COUNT)
+        {
+            FrameEdgeLeftBracket[lane] = SigmaFrameAssociatorProduct(2u, lane,
+                associatorValid);
+            FrameEdgeRightBracket[lane] = SigmaFrameAssociatorProduct(3u, lane,
+                associatorValid);
+            FrameEdgeId[lane] = associatorValid;
+        }
+        GroupMemoryBarrierWithGroupSync();
+        if (lane == 0u)
+        {
+            uint valid = 1u;
+            [unroll]
+            for (uint coordinate = 0u; coordinate < SIGMA_FRAME_LANE_COUNT;
+                ++coordinate)
+                valid &= FrameEdgeId[coordinate];
+            FrameEdgeMeta[1].w = valid;
+        }
+        GroupMemoryBarrierWithGroupSync();
+
+        associatorValid = FrameEdgeMeta[1].w;
+        if (lane < SIGMA_FRAME_LANE_COUNT)
+        {
+            FrameEdgeProductAB[lane] = SigmaQ48SubChecked(
+                FrameEdgeLeftBracket[lane], FrameEdgeRightBracket[lane],
+                associatorValid);
+            FrameEdgeId[lane] = associatorValid;
+        }
+        GroupMemoryBarrierWithGroupSync();
+        if (lane == 0u)
+        {
+            uint valid = 1u;
+            [unroll]
+            for (uint coordinate = 0u; coordinate < SIGMA_FRAME_LANE_COUNT;
+                ++coordinate)
+                valid &= FrameEdgeId[coordinate];
+            uint4 associatorError = SigmaS16L1(FrameEdgeProductAB, valid);
+            uint4 associatorScale = SigmaS16L1(FrameEdgeLeft, valid);
+            associatorScale = SigmaU128Add(associatorScale,
+                SigmaS16L1(FrameEdgeDeltaU, valid), valid);
+            associatorScale = SigmaU128Add(associatorScale,
+                SigmaS16L1(FrameEdgeDeltaV, valid), valid);
+            if (SigmaU128Equal(associatorScale, SIGMA_U128_ZERO))
+                associatorScale = SIGMA_U128_ONE;
+            FrameEdgeMeta[1].w = valid != 0u &&
+                SigmaRelativeAssociatorGate(associatorError,
+                    associatorScale, _AssociatorShift) ? 1u : 0u;
+        }
+        GroupMemoryBarrierWithGroupSync();
+    }
+
     if (lane == 0u && active)
     {
         uint leftReadoutValid;
@@ -1141,13 +1347,24 @@ void ClosePendingEdges(uint3 groupId : SV_GroupID,
             rightReadoutValid);
         uint valid = FrameEdgeMeta[0].w & leftReadoutValid &
             rightReadoutValid;
-        uint4 scale = SigmaS16L1(FrameEdgeTau, valid);
-        if (SigmaU128Equal(scale, SIGMA_U128_ZERO))
-            scale = SIGMA_U128_ONE;
+        uint4 scale = FrameEdgeError[254u];
         uint4 closure = SigmaClassifyClaimedPair(leftContact, rightContact,
             FrameEdgeMeta[0].x, FrameEdgeMeta[0].y, FrameEdgeMeta[0].z,
-            FrameEdgeId[0], FrameEdgeError[0], scale, _SingularShift,
-            FrameEdgeMeta[1].x != 0u, valid);
+            FrameEdgeMeta[1].x, FrameEdgeError[0], scale, _SingularShift,
+            false, valid);
+        if (FrameEdgeMeta[1].w != 0u &&
+            FrameEdgeMeta[0].x != SIGMA_FRAME_CLAIM_KIND_NONE)
+        {
+            bool near = SigmaRelativeNearGate(FrameEdgeError[0], scale,
+                _SingularShift);
+            bool independent = FrameEdgeMeta[0].y != 0u &&
+                FrameEdgeMeta[0].z != 0u &&
+                FrameEdgeMeta[0].y != FrameEdgeMeta[0].z;
+            uint classification = near && independent
+                ? SIGMA_TOPOLOGY_SINGULAR : SIGMA_TOPOLOGY_UNRESOLVED;
+            closure.x = (closure.x & ~SIGMA_TOPOLOGY_CLASS_MASK) |
+                SIGMA_TOPOLOGY_ASSOCIATOR | classification;
+        }
         edge.Closure = uint4(FrameEdgeMeta[0].x, closure.x,
             closure.y, closure.z);
         _FrameDirtyEdges[edgeIndex] = edge;
@@ -1168,6 +1385,9 @@ void ApplyPendingEdges(uint3 id : SV_DispatchThreadID)
         return;
     uint left = edge.Left.x;
     uint right = edge.Left.y;
+    if (_FrameDeferredFlags[left] != 0u ||
+        _FrameDeferredFlags[right] != 0u)
+        return;
     bool leftPending = SigmaFrameTargetPending(left);
     bool rightPending = SigmaFrameTargetPending(right);
     if (leftPending && rightPending)

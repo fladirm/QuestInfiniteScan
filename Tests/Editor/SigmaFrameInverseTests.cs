@@ -93,7 +93,8 @@ namespace Genesis.RoomScan.Tests
         {
             internal ClosureTarget(int footprint, SigmaFrameProposalKind kind,
                 long[] state, uint sourceMask, bool changed = true,
-                bool pending = false)
+                bool pending = false, long[] geometryLower = null,
+                long[] geometryUpper = null)
             {
                 Footprint = footprint;
                 Kind = kind;
@@ -101,6 +102,8 @@ namespace Genesis.RoomScan.Tests
                 SourceMask = sourceMask;
                 Changed = changed;
                 Pending = pending;
+                GeometryLower = geometryLower;
+                GeometryUpper = geometryUpper;
             }
 
             internal int Footprint { get; }
@@ -109,6 +112,8 @@ namespace Genesis.RoomScan.Tests
             internal uint SourceMask { get; }
             internal bool Changed { get; }
             internal bool Pending { get; }
+            internal long[] GeometryLower { get; }
+            internal long[] GeometryUpper { get; }
         }
 
         private sealed class ClosureSnapshot
@@ -366,18 +371,20 @@ namespace Genesis.RoomScan.Tests
             Assert.That(continuation.Targets[1].Evidence.Z,
                 Is.EqualTo((uint)SigmaFrameProposalKind.Continuation));
             Assert.That(continuation.Links[1], Is.EqualTo(0u));
-            Assert.That(continuation.Gauges[1].Identity.W, Is.EqualTo(0u));
         }
 
         [Test]
         public void ClaimedUnresolvedEdgeDefersOnlyIncidentChanges()
         {
             using var fixture = new FrameFixture();
+            GeometryRelationCell(out long[] lower, out long[] upper);
             ClosureSnapshot snapshot = fixture.RunExactClosure(
                 new ClosureTarget(0, SigmaFrameProposalKind.Novel,
-                    ScalarState(1), 0x1u),
+                    ScalarState(1), 0x1u, geometryLower: lower,
+                    geometryUpper: upper),
                 new ClosureTarget(1, SigmaFrameProposalKind.Novel,
-                    ContactZeroDivisorState(), 0x1u),
+                    ContactZeroDivisorState(), 0x1u, geometryLower: lower,
+                    geometryUpper: upper),
                 new ClosureTarget(Footprints - 1,
                     SigmaFrameProposalKind.Novel, ScalarState(3), 0x3u));
 
@@ -397,7 +404,7 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
-        public void AdjacentThinStatesRequireExactSingularClosure()
+        public void SeparatedExactCellsRemainDistinctWithoutPhysicalClaim()
         {
             using var fixture = new FrameFixture();
             long mass = SigmaNumericDomain.FromInteger(8);
@@ -413,11 +420,42 @@ namespace Genesis.RoomScan.Tests
                 new ClosureTarget(1, SigmaFrameProposalKind.Novel,
                     back, 0x3u));
 
+            Assert.That(snapshot.Edges[0].Closure.X,
+                Is.EqualTo((uint)SigmaFrameClaimKind.None));
             Assert.That(snapshot.Edges[0].Closure.Y & 3u,
-                Is.EqualTo((uint)SigmaTopologyClass.Unresolved));
+                Is.EqualTo((uint)SigmaTopologyClass.Unsupported));
             Assert.That(snapshot.Labels[0], Is.Not.EqualTo(snapshot.Labels[1]));
-            Assert.That(snapshot.Deferred[0], Is.EqualTo(1u));
-            Assert.That(snapshot.Deferred[1], Is.EqualTo(1u));
+            Assert.That(snapshot.Deferred[0], Is.Zero);
+            Assert.That(snapshot.Deferred[1], Is.Zero);
+        }
+
+        [Test]
+        public void ClaimedFoldMatchesFullIntrinsicS16Oracle()
+        {
+            using var fixture = new FrameFixture();
+            long[] center = ScalarState(1);
+            long[] right = ContactZeroDivisorState();
+            long[] down = ScalarState(1);
+            GeometryRelationCell(out long[] lower, out long[] upper);
+            ClosureSnapshot snapshot = fixture.RunExactClosure(
+                new ClosureTarget(0, SigmaFrameProposalKind.Novel, center,
+                    0x3u, geometryLower: lower, geometryUpper: upper),
+                new ClosureTarget(1, SigmaFrameProposalKind.Novel, right,
+                    0x3u, geometryLower: lower, geometryUpper: upper),
+                new ClosureTarget(Width, SigmaFrameProposalKind.Novel, down,
+                    0x3u, geometryLower: lower, geometryUpper: upper));
+            SigmaIntrinsicTopologySignature expected =
+                SigmaIntrinsicTopology.EvaluateCell(
+                    SigmaS16.FromArray(center), SigmaS16.FromArray(right),
+                    SigmaS16.FromArray(down), DepthLeftKey, DepthRightKey,
+                    false);
+
+            Assert.That(snapshot.Edges[0].Closure.X,
+                Is.EqualTo((uint)SigmaFrameClaimKind.Contact));
+            Assert.That(snapshot.Edges[0].Closure.Y & 3u,
+                Is.EqualTo((uint)expected.Classification));
+            Assert.That((snapshot.Edges[0].Closure.Y >> 8) & 0xffu,
+                Is.EqualTo((uint)expected.AnnihilatorId));
         }
 
         [Test]
@@ -542,17 +580,17 @@ namespace Genesis.RoomScan.Tests
             const int count = 257;
             using var fixture = new FrameFixture(count, 1, bindingLimit);
             windowCount = fixture.ExecutionWindowCount;
-            long mass = SigmaNumericDomain.FromInteger(8);
-            long[] front = SigmaGeometryReadout.LiftFixture(mass, 0L, 0L,
-                SigmaNumericDomain.Quantize(0.500)).ToArray();
-            long[] back = SigmaGeometryReadout.LiftFixture(mass, 0L, 0L,
-                SigmaNumericDomain.Quantize(0.505)).ToArray();
+            long[] front = ScalarState(1);
+            long[] singular = ContactZeroDivisorState();
+            GeometryRelationCell(out long[] lower, out long[] upper);
             var targets = new ClosureTarget[count];
             for (int index = 0; index < targets.Length; ++index)
             {
                 targets[index] = new ClosureTarget(index,
                     SigmaFrameProposalKind.Novel,
-                    thin && index == targets.Length - 1 ? back : front, 0x3u);
+                    thin && index == targets.Length - 1 ? singular : front,
+                    thin ? 0x1u : 0x3u, geometryLower: lower,
+                    geometryUpper: upper);
             }
             return fixture.RunExactClosure(targets);
         }
@@ -1200,8 +1238,23 @@ namespace Genesis.RoomScan.Tests
                         states[address] = Packed(target.State[lane]);
                         long projective = target.SourceMask == 0u ? 0L :
                             SigmaNumericDomain.QDiv(transformed[lane], mass);
+                        for (int axis = 0; axis < 3; ++axis)
+                        {
+                            if (lane != SigmaGeneratedAlgebra.GeometryRows[
+                                    axis + 1])
+                                continue;
+                            if (target.GeometryLower != null)
+                                projective = target.GeometryLower[axis];
+                        }
                         lower[address] = Packed(projective);
-                        upper[address] = Packed(projective);
+                        long projectiveUpper = projective;
+                        for (int axis = 0; axis < 3; ++axis)
+                        {
+                            if (lane == SigmaGeneratedAlgebra.GeometryRows[
+                                    axis + 1] && target.GeometryUpper != null)
+                                projectiveUpper = target.GeometryUpper[axis];
+                        }
+                        upper[address] = Packed(projectiveUpper);
                         validity[address] = cellFlags;
                     }
                 }
@@ -1532,6 +1585,17 @@ namespace Genesis.RoomScan.Tests
             }
             throw new InvalidOperationException(
                 "Generated catalog has no contact-readable zero divisor.");
+        }
+
+        private static void GeometryRelationCell(out long[] lower,
+            out long[] upper)
+        {
+            lower = new long[3];
+            upper = new long[3];
+            long lo = SigmaNumericDomain.FromInteger(-4);
+            long hi = SigmaNumericDomain.FromInteger(4);
+            Array.Fill(lower, lo);
+            Array.Fill(upper, hi);
         }
 
         private static UInt2 Packed(long value)

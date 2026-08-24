@@ -642,11 +642,30 @@ namespace Genesis.RoomScan.SigmaPrism
                 BindExactEdgeWindow(command, _closureKernels[3], edgeWindow);
                 command.DispatchComputeProfiled(_closure, _closureKernels[3],
                     checked(edgeWindow.FootprintCount * 2), 1, 1);
-                BindExactEdgeWindow(command, _closureKernels[4], edgeWindow);
-                command.DispatchComputeProfiled(_closure, _closureKernels[4],
-                    CeilDiv(checked(edgeWindow.FootprintCount * 2), 256), 1, 1);
+            }
+
+            // Classification is immutable for the pass. Mark every unresolved
+            // claimed endpoint before any component union so dispatch/window
+            // order cannot give a deferred mutation connectivity authority.
+            for (int edgeWindowIndex = 0;
+                edgeWindowIndex < Resources.ExecutionWindowCount;
+                ++edgeWindowIndex)
+            {
+                SigmaFrameExecutionWindow edgeWindow =
+                    Resources.ExecutionWindow(edgeWindowIndex);
                 BindExactEdgeWindow(command, _closureKernels[7], edgeWindow);
                 command.DispatchComputeProfiled(_closure, _closureKernels[7],
+                    CeilDiv(checked(edgeWindow.FootprintCount * 2), 256), 1, 1);
+            }
+
+            for (int edgeWindowIndex = 0;
+                edgeWindowIndex < Resources.ExecutionWindowCount;
+                ++edgeWindowIndex)
+            {
+                SigmaFrameExecutionWindow edgeWindow =
+                    Resources.ExecutionWindow(edgeWindowIndex);
+                BindExactEdgeWindow(command, _closureKernels[4], edgeWindow);
+                command.DispatchComputeProfiled(_closure, _closureKernels[4],
                     CeilDiv(checked(edgeWindow.FootprintCount * 2), 256), 1, 1);
             }
 
@@ -726,6 +745,8 @@ namespace Genesis.RoomScan.SigmaPrism
                 Resources.TargetSortCapacity);
             command.SetComputeIntParam(_closure, "_SingularShift",
                 SigmaIntrinsicTopology.DefaultSingularShift);
+            command.SetComputeIntParam(_closure, "_AssociatorShift",
+                SigmaIntrinsicTopology.DefaultAssociatorShift);
             command.SetComputeIntParams(_closure, "_FrameSourceKeys",
                 unchecked((int)input.DepthLeftKey),
                 unchecked((int)input.DepthRightKey),
@@ -1192,6 +1213,8 @@ namespace Genesis.RoomScan.SigmaPrism
                         SigmaGeneratedFrame.LaneCount));
             command.SetComputeBufferParam(_inverse, _evaluateKernel,
                 "_PendingControl", Single(Resources.PendingControl, 1));
+            BindPendingInverseWindow(command, _evaluateKernel,
+                Resources.ExecutionWindow(0));
             BindSourceReads(command, _evaluateKernel, sources, window);
         }
 

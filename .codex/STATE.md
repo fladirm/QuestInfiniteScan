@@ -11,7 +11,21 @@ Updated: 2026-08-24 (Europe/Prague)
 - Active repair: **S4-08.5 direct-frame closure repair**.
 - Frozen delta contract: `.codex/S4-08.5_DIRECT_FRAME_CLOSURE_PLAN.md`.
 - Sole routine resume cursor: `.codex/S4-08.5_RESUME.md`.
-- Forensic evidence: `s4-083-audit.md` and archived device captures.
+- Current forensic authority: `refact.md`; older evidence remains in
+  `s4-083-audit.md` and archived device captures.
+
+## Active replacement cursor — 2026-08-24
+
+- The forensic audit in `refact.md` is closed and implementation is authorized.
+- R3 replacement is accepted: image/XYZ only proposes work; physical claims and
+  incident-only mutation deferral come solely from exact first-hit/four-source/S16
+  closure. Vulkan/EditMode passes 64/64 without shader/bind errors.
+- Dirty R4 is being replaced, not extended: complete source evidence is owned once
+  per observation, referenced generation-safely, and publication exposes only a
+  complete immutable view by one final root exchange.
+- Proof minimization follows ownership transfer and cannot delay frame-slot reuse.
+- R3, R4 and R5 land as separate gates; final production LOC must be negative
+  against `d3b83e1` with no retired lifecycle or fallback.
 
 ## Frozen ontology
 
@@ -73,11 +87,8 @@ extent allocation, proof/raw ownership and milestone gates are frozen in the pla
 
 ## Current exact action
 
-S4-08.5 R4: consume only R3 accepted changed non-deferred targets, transfer their
-complete immutable exact evidence and scatter them into generation-safe segmented
-carrier backing. CURRENT retains its source segment identity, UNCHANGED emits no
-generation, and one variable-length revision root atomically exposes all changed
-pages without a fixed allocation/session cliff.
+Replace the rejected dirty R4 journal/allocation/root publication and its consumers
+exactly as named in `.codex/S4-08.5_RESUME.md`; do not reopen R1-R3.
 
 ## Required end state
 
