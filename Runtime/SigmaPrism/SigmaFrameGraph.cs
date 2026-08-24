@@ -54,18 +54,65 @@ namespace Genesis.RoomScan.SigmaPrism
         internal IReadOnlyList<SigmaCarrierReadBatch> CarrierSegments { get; }
     }
 
+    internal readonly struct SigmaFramePublicationTarget
+    {
+        internal SigmaFramePublicationTarget(int segmentIndex, int pageCapacity,
+            GraphicsBuffer state, GraphicsBuffer metadata,
+            GraphicsBuffer dirtyFlags, GraphicsBuffer currentFlags,
+            GraphicsBuffer readoutDirtyFlags)
+        {
+            if (segmentIndex < 0 || pageCapacity <= 0 ||
+                (pageCapacity & 1) != 0 ||
+                pageCapacity > SigmaCarrier.MaximumPagesPerSegment)
+                throw new ArgumentOutOfRangeException(nameof(pageCapacity));
+            SegmentIndex = segmentIndex;
+            PageCapacity = pageCapacity;
+            State = state ?? throw new ArgumentNullException(nameof(state));
+            Metadata = metadata ?? throw new ArgumentNullException(nameof(metadata));
+            DirtyFlags = dirtyFlags ?? throw new ArgumentNullException(
+                nameof(dirtyFlags));
+            CurrentFlags = currentFlags ?? throw new ArgumentNullException(
+                nameof(currentFlags));
+            ReadoutDirtyFlags = readoutDirtyFlags ??
+                throw new ArgumentNullException(nameof(readoutDirtyFlags));
+            if (state.stride != SigmaGeneratedFrame.PackedQ48Stride ||
+                state.count < checked(pageCapacity * SigmaCarrier.PageLaneCount) ||
+                metadata.stride != SigmaCarrier.PageMetadataStride ||
+                metadata.count < pageCapacity || dirtyFlags.stride != sizeof(uint) ||
+                currentFlags.stride != sizeof(uint) ||
+                readoutDirtyFlags.stride != sizeof(uint) ||
+                dirtyFlags.count < pageCapacity ||
+                currentFlags.count < pageCapacity ||
+                readoutDirtyFlags.count < pageCapacity)
+                throw new InvalidOperationException(
+                    "Direct-frame publication target has an invalid carrier ABI.");
+        }
+
+        internal int SegmentIndex { get; }
+        internal int PageCapacity { get; }
+        internal GraphicsBuffer State { get; }
+        internal GraphicsBuffer Metadata { get; }
+        internal GraphicsBuffer DirtyFlags { get; }
+        internal GraphicsBuffer CurrentFlags { get; }
+        internal GraphicsBuffer ReadoutDirtyFlags { get; }
+    }
+
     /// <summary>
     /// Fixed direct GPU dataflow for one coherent four-source observation. It has
-    /// no transaction, tile, page-closure or token scheduler state. M2 stops at
-    /// exact resolved records and never mutates the carrier.
+    /// no transaction, tile, page-closure or token scheduler state. Candidate
+    /// closure and shadow publication remain one fixed dataflow.
     /// </summary>
     internal sealed class SigmaFrameGraph : IDisposable
     {
         private const string InverseResource = "SigmaPrism/SigmaFrameInverse";
+        private const string ClosureResource = "SigmaPrism/SigmaFrameClosure";
+        private const string PublishResource = "SigmaPrism/SigmaFramePublish";
         private const int ProposalsPerFootprint = 4;
         private const int FootprintsPerCoordinateGroup = 16;
 
         private readonly ComputeShader _inverse;
+        private readonly ComputeShader _closure;
+        private readonly ComputeShader _publish;
         private readonly SigmaExactBackendGate _backendGate;
         private readonly GraphicsBuffer _rgbViewOperators;
         private readonly GraphicsBuffer _rgbViewSupportScale;
@@ -78,6 +125,8 @@ namespace Genesis.RoomScan.SigmaPrism
         private readonly int _rgbKernel;
         private readonly int _evaluateKernel;
         private readonly int _compactKernel;
+        private readonly int[] _closureKernels;
+        private readonly int[] _publishKernels;
         private bool _disposed;
 
         internal SigmaFrameGraph(Vector2Int resolution,
@@ -88,9 +137,11 @@ namespace Genesis.RoomScan.SigmaPrism
             _backendGate = backendGate ?? throw new ArgumentNullException(
                 nameof(backendGate));
             _inverse = UnityEngine.Resources.Load<ComputeShader>(InverseResource);
-            if (_inverse == null)
+            _closure = UnityEngine.Resources.Load<ComputeShader>(ClosureResource);
+            _publish = UnityEngine.Resources.Load<ComputeShader>(PublishResource);
+            if (_inverse == null || _closure == null || _publish == null)
                 throw new InvalidOperationException(
-                    "Required Sigma direct-frame inverse shader is missing.");
+                    "Required Sigma direct-frame shaders are missing.");
             _clearKernel = _inverse.FindProfiledKernel("ClearFrameState");
             _proposalKernel = _inverse.FindProfiledKernel(
                 "BuildFrameProposals");
@@ -100,6 +151,18 @@ namespace Genesis.RoomScan.SigmaPrism
                 "EvaluateCandidateMeets");
             _compactKernel = _inverse.FindProfiledKernel(
                 "CompactResolvedTargets");
+            _closureKernels = FindKernels(_closure,
+                "ClearFrameClosure", "ClearFrameClosureStorage",
+                "BuildPendingEdges", "RelaxPendingLabels",
+                "FinalizePendingGauges",
+                "ScanPendingRoots", "ScanPendingRootBlocks",
+                "ScanPendingRootSupers", "ReserveFrameAllocation",
+                "AllocatePendingRoots", "ResolveFrameTargets",
+                "BuildDirtyEdges");
+            _publishKernels = FindKernels(_publish,
+                "PrepareFramePages", "ScatterFrameDeltas",
+                "CompactChangedPages", "CloseFrameRevision",
+                "FinalizePageVisibility", "PublishFrameRevision");
 
             Resources = new SigmaFrameResources(resolution, profile);
             try
@@ -201,6 +264,9 @@ namespace Genesis.RoomScan.SigmaPrism
                 "_FrameDeltas", deltas);
             command.SetComputeBufferParam(_inverse, _clearKernel,
                 "_FrameResolvedBlockCounts", resolvedBlockCounts);
+            command.SetComputeBufferParam(_inverse, _clearKernel,
+                "_FrameResolvedIndices", Single(Resources.ResolvedIndices,
+                    Resources.FootprintCount));
             command.DispatchComputeProfiled(_inverse, _clearKernel,
                 CeilDiv(checked((int)candidateRecords), 256), 1, 1);
 
@@ -258,8 +324,87 @@ namespace Genesis.RoomScan.SigmaPrism
                 "_FrameDeltas", deltas);
             command.SetComputeBufferParam(_inverse, _compactKernel,
                 "_FrameResolvedBlockCounts", resolvedBlockCounts);
+            command.SetComputeBufferParam(_inverse, _compactKernel,
+                "_FrameResolvedIndices", Single(Resources.ResolvedIndices,
+                    Resources.FootprintCount));
             command.DispatchComputeProfiled(_inverse, _compactKernel,
                 resolvedBlockCount, 1, 1);
+        }
+
+        internal void RecordClosureAndPublish(CommandBuffer command,
+            SigmaOwnedFrameLease ownedFrame, uint revision,
+            SigmaFramePublicationTarget target)
+        {
+            RequireAlive();
+            if (command == null)
+                throw new ArgumentNullException(nameof(command));
+            if (ownedFrame == null)
+                throw new ArgumentNullException(nameof(ownedFrame));
+            if (revision == 0u)
+                throw new ArgumentOutOfRangeException(nameof(revision));
+            if (!Resources.TryEnsureClosureCapacity(target.PageCapacity))
+                throw new InvalidOperationException(
+                    "Direct-frame closure cannot be admitted losslessly.");
+
+            int footprints = Resources.FootprintCount;
+            int rootBlocks = CeilDiv(footprints, 256);
+            int rootSupers = CeilDiv(rootBlocks, 256);
+            int candidateCount = checked(footprints * ProposalsPerFootprint);
+            int revisionCapacity = checked((int)Resources.Revisions.RecordCapacity);
+            int revisionSlot = checked((int)((revision - 1u) %
+                (uint)revisionCapacity));
+            SigmaFrameSourceStorage sources = ownedFrame.Sources;
+            RequireSingleExecutionWindow(sources);
+
+            for (int index = 0; index < _closureKernels.Length; ++index)
+                BindClosureKernel(command, _closureKernels[index], ownedFrame,
+                    revision, target, sources, candidateCount, rootBlocks,
+                    rootSupers);
+
+            int clearCount = Math.Max(footprints, target.PageCapacity);
+            clearCount = Math.Max(clearCount, Math.Max(rootBlocks, rootSupers));
+            command.DispatchComputeProfiled(_closure, _closureKernels[0],
+                CeilDiv(footprints, 256), 1, 1);
+            command.DispatchComputeProfiled(_closure, _closureKernels[1],
+                CeilDiv(clearCount, 256), 1, 1);
+            command.DispatchComputeProfiled(_closure, _closureKernels[2],
+                CeilDiv(footprints, 256), 1, 1);
+            for (int pass = 0; pass < 18; ++pass)
+                command.DispatchComputeProfiled(_closure, _closureKernels[3],
+                    CeilDiv(footprints, 256), 1, 1);
+            command.DispatchComputeProfiled(_closure, _closureKernels[4],
+                CeilDiv(footprints, 256), 1, 1);
+            command.DispatchComputeProfiled(_closure, _closureKernels[5],
+                rootBlocks, 1, 1);
+            command.DispatchComputeProfiled(_closure, _closureKernels[6],
+                rootSupers, 1, 1);
+            command.DispatchComputeProfiled(_closure, _closureKernels[7],
+                1, 1, 1);
+            command.DispatchComputeProfiled(_closure, _closureKernels[8],
+                1, 1, 1);
+            command.DispatchComputeProfiled(_closure, _closureKernels[9],
+                CeilDiv(footprints, 256), 1, 1);
+            command.DispatchComputeProfiled(_closure, _closureKernels[10],
+                CeilDiv(footprints, 256), 1, 1);
+            command.DispatchComputeProfiled(_closure, _closureKernels[11],
+                CeilDiv(footprints, 256), 1, 1);
+
+            for (int index = 0; index < _publishKernels.Length; ++index)
+                BindPublishKernel(command, _publishKernels[index], ownedFrame,
+                    revision, revisionSlot, revisionCapacity, target,
+                    candidateCount);
+            command.DispatchComputeProfiled(_publish, _publishKernels[0],
+                SigmaCarrier.SamplesPerPage / 64, target.PageCapacity, 1);
+            command.DispatchComputeProfiled(_publish, _publishKernels[1],
+                CeilDiv(footprints, FootprintsPerCoordinateGroup), 1, 1);
+            command.DispatchComputeProfiled(_publish, _publishKernels[2],
+                1, 1, 1);
+            command.DispatchComputeProfiled(_publish, _publishKernels[3],
+                1, 1, 1);
+            command.DispatchComputeProfiled(_publish, _publishKernels[4],
+                1, 1, 1);
+            command.DispatchComputeProfiled(_publish, _publishKernels[5],
+                1, 1, 1);
         }
 
         public void Dispose()
@@ -273,6 +418,148 @@ namespace Genesis.RoomScan.SigmaPrism
             _nullCarrierState?.Dispose();
             _nullPageMetadata?.Dispose();
             _nullCurrentFlags?.Dispose();
+        }
+
+        private void BindClosureKernel(CommandBuffer command, int kernel,
+            SigmaOwnedFrameLease ownedFrame, uint revision,
+            SigmaFramePublicationTarget target,
+            SigmaFrameSourceStorage sources, int candidateCount,
+            int rootBlocks, int rootSupers)
+        {
+            command.SetComputeIntParams(_closure, "_FrameResolution",
+                Resources.Resolution.x, Resources.Resolution.y);
+            command.SetComputeIntParam(_closure, "_FrameRevision",
+                unchecked((int)revision));
+            command.SetComputeIntParam(_closure, "_FrameSlot", ownedFrame.Slot);
+            command.SetComputeIntParam(_closure, "_FrameFootprintCount",
+                Resources.FootprintCount);
+            command.SetComputeIntParam(_closure, "_FrameCandidateCount",
+                candidateCount);
+            command.SetComputeIntParam(_closure, "_RootBlockCount", rootBlocks);
+            command.SetComputeIntParam(_closure, "_RootSuperCount", rootSupers);
+            command.SetComputeIntParam(_closure, "_TargetSegmentIndex",
+                target.SegmentIndex);
+            command.SetComputeIntParam(_closure, "_TargetPageCapacity",
+                target.PageCapacity);
+            command.SetComputeBufferParam(_closure, kernel,
+                "_SigmaExactBackendGate", _backendGate.Buffer);
+            command.SetComputeBufferParam(_closure, kernel, "_FrameCandidates",
+                Single(Resources.Candidates, candidateCount));
+            command.SetComputeBufferParam(_closure, kernel, "_FrameOutcomes",
+                Single(Resources.Outcomes, candidateCount));
+            command.SetComputeBufferParam(_closure, kernel,
+                "_FrameCandidateStates", Single(Resources.CandidateStates,
+                    checked((long)candidateCount *
+                        SigmaGeneratedFrame.LaneCount)));
+            command.SetComputeBufferParam(_closure, kernel, "_FrameDeltas",
+                Single(Resources.Deltas, candidateCount));
+            command.SetComputeBufferParam(_closure, kernel,
+                "_FrameResolvedIndices", Single(Resources.ResolvedIndices,
+                    Resources.FootprintCount));
+            command.SetComputeBufferParam(_closure, kernel, "_PendingLabels",
+                Single(Resources.PendingLabels, Resources.FootprintCount));
+            command.SetComputeBufferParam(_closure, kernel, "_PendingLinks",
+                Single(Resources.PendingLinks, Resources.FootprintCount));
+            command.SetComputeBufferParam(_closure, kernel,
+                "_FrameDeferredFlags", Single(Resources.DeferredFlags,
+                    Resources.FootprintCount));
+            command.SetComputeBufferParam(_closure, kernel, "_PendingGauges",
+                Single(Resources.PendingGauges, Resources.FootprintCount));
+            command.SetComputeBufferParam(_closure, kernel,
+                "_RootLocalOffsets", Single(Resources.RootLocalOffsets,
+                    Resources.FootprintCount));
+            command.SetComputeBufferParam(_closure, kernel,
+                "_RootBlockOffsets", Single(Resources.RootBlockOffsets,
+                    rootBlocks));
+            command.SetComputeBufferParam(_closure, kernel,
+                "_RootSuperOffsets", Single(Resources.RootSuperOffsets,
+                    rootSupers));
+            command.SetComputeBufferParam(_closure, kernel,
+                "_FrameClosureCounters", Single(Resources.ClosureCounters, 4));
+            command.SetComputeBufferParam(_closure, kernel,
+                "_FrameExtentAllocator", Single(Resources.ExtentAllocator, 1));
+            command.SetComputeBufferParam(_closure, kernel,
+                "_FrameDirtyEdges", Single(Resources.DirtyEdges,
+                    checked((long)Resources.FootprintCount * 2L)));
+            command.SetComputeBufferParam(_closure, kernel, "_FramePageMarks",
+                Single(Resources.PageMarks, target.PageCapacity));
+            command.SetComputeBufferParam(_closure, kernel,
+                "_TargetPageMetadata", target.Metadata);
+            BindClosureDepth(command, kernel, sources,
+                SigmaFrameSource.DepthLeft, "DepthLeft");
+            BindClosureDepth(command, kernel, sources,
+                SigmaFrameSource.DepthRight, "DepthRight");
+        }
+
+        private void BindPublishKernel(CommandBuffer command, int kernel,
+            SigmaOwnedFrameLease ownedFrame, uint revision, int revisionSlot,
+            int revisionCapacity, SigmaFramePublicationTarget target,
+            int candidateCount)
+        {
+            command.SetComputeIntParam(_publish, "_FrameRevision",
+                unchecked((int)revision));
+            command.SetComputeIntParam(_publish, "_FrameSlot", ownedFrame.Slot);
+            command.SetComputeIntParam(_publish, "_FrameFootprintCount",
+                Resources.FootprintCount);
+            command.SetComputeIntParam(_publish, "_RevisionSlot", revisionSlot);
+            command.SetComputeIntParam(_publish, "_RevisionCapacity",
+                revisionCapacity);
+            command.SetComputeIntParam(_publish, "_TargetSegmentIndex",
+                target.SegmentIndex);
+            command.SetComputeIntParam(_publish, "_TargetPageCapacity",
+                target.PageCapacity);
+            command.SetComputeBufferParam(_publish, kernel,
+                "_SigmaExactBackendGate", _backendGate.Buffer);
+            command.SetComputeBufferParam(_publish, kernel, "_OwnedFrames",
+                Resources.OwnedFrames);
+            command.SetComputeBufferParam(_publish, kernel, "_FrameDeltas",
+                Single(Resources.Deltas, candidateCount));
+            command.SetComputeBufferParam(_publish, kernel,
+                "_FrameResolvedIndices", Single(Resources.ResolvedIndices,
+                    Resources.FootprintCount));
+            command.SetComputeBufferParam(_publish, kernel,
+                "_FrameDeferredFlags", Single(Resources.DeferredFlags,
+                    Resources.FootprintCount));
+            command.SetComputeBufferParam(_publish, kernel,
+                "_FrameCandidateStates", Single(Resources.CandidateStates,
+                    checked((long)candidateCount *
+                        SigmaGeneratedFrame.LaneCount)));
+            command.SetComputeBufferParam(_publish, kernel,
+                "_FrameClosureCounters", Single(Resources.ClosureCounters, 4));
+            command.SetComputeBufferParam(_publish, kernel, "_FramePageMarks",
+                Single(Resources.PageMarks, target.PageCapacity));
+            command.SetComputeBufferParam(_publish, kernel,
+                "_ChangedPageSlots", Single(Resources.ChangedPageSlots,
+                    target.PageCapacity));
+            command.SetComputeBufferParam(_publish, kernel, "_FrameRevisions",
+                Single(Resources.Revisions, revisionCapacity));
+            command.SetComputeBufferParam(_publish, kernel,
+                "_FrameRevisionRoot", Single(Resources.RevisionRoot, 1));
+            command.SetComputeBufferParam(_publish, kernel,
+                "_TargetCarrierState", target.State);
+            command.SetComputeBufferParam(_publish, kernel,
+                "_TargetPageMetadata", target.Metadata);
+            command.SetComputeBufferParam(_publish, kernel,
+                "_TargetDirtyFlags", target.DirtyFlags);
+            command.SetComputeBufferParam(_publish, kernel,
+                "_TargetCurrentFlags", target.CurrentFlags);
+            command.SetComputeBufferParam(_publish, kernel,
+                "_TargetReadoutDirtyFlags", target.ReadoutDirtyFlags);
+        }
+
+        private void BindClosureDepth(CommandBuffer command, int kernel,
+            SigmaFrameSourceStorage sources, SigmaFrameSource source,
+            string prefix)
+        {
+            long coordinates = checked((long)Resources.FootprintCount *
+                SigmaGeneratedFrame.LaneCount);
+            command.SetComputeBufferParam(_closure, kernel, $"_{prefix}Lower",
+                Single(sources.Lower(source), coordinates));
+            command.SetComputeBufferParam(_closure, kernel, $"_{prefix}Upper",
+                Single(sources.Upper(source), coordinates));
+            command.SetComputeBufferParam(_closure, kernel,
+                $"_{prefix}Validity", Single(sources.Validity(source),
+                    coordinates));
         }
 
         private void BindFrameConstants(CommandBuffer command,
@@ -562,6 +849,15 @@ namespace Genesis.RoomScan.SigmaPrism
         private static GraphicsBuffer CreateBuffer(int count, int stride,
             string name) => new(GraphicsBuffer.Target.Structured, count, stride)
             { name = name };
+
+        private static int[] FindKernels(ComputeShader shader,
+            params string[] names)
+        {
+            var kernels = new int[names.Length];
+            for (int index = 0; index < names.Length; ++index)
+                kernels[index] = shader.FindProfiledKernel(names[index]);
+            return kernels;
+        }
 
         private static Matrix4x4 PoseMatrix(Pose pose) => Matrix4x4.TRS(
             pose.position, pose.rotation, Vector3.one);

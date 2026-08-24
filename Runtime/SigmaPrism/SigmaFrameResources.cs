@@ -291,6 +291,7 @@ namespace Genesis.RoomScan.SigmaPrism
         private const int InitialProposalKinds = 4;
         private const int InitialEdgesPerCandidate = 4;
         private const int InitialRevisionRecords = 256;
+        private const int ClosureCounterRecords = 4;
 
         private readonly long _bindingLimit;
         private readonly long _budgetBytes;
@@ -354,11 +355,41 @@ namespace Genesis.RoomScan.SigmaPrism
             ResolvedBlockCounts = Buffer<SigmaFrameUInt4Gpu>(
                 SigmaGeneratedFrame.ProvenanceStride,
                 "Sigma direct resolved block counts");
+            ResolvedIndices = Buffer<uint>(sizeof(uint),
+                "Sigma direct resolved candidate indices");
+            PendingLabels = Buffer<uint>(sizeof(uint),
+                "Sigma direct pending component labels");
+            PendingLinks = Buffer<uint>(sizeof(uint),
+                "Sigma direct pending exact links");
+            DeferredFlags = Buffer<uint>(sizeof(uint),
+                "Sigma direct deferred mutation flags");
+            RootLocalOffsets = Buffer<SigmaFrameUInt2Gpu>(
+                SigmaGeneratedFrame.PackedQ48Stride,
+                "Sigma direct pending root local offsets");
+            RootBlockOffsets = Buffer<SigmaFrameUInt2Gpu>(
+                SigmaGeneratedFrame.PackedQ48Stride,
+                "Sigma direct pending root block offsets");
+            RootSuperOffsets = Buffer<SigmaFrameUInt2Gpu>(
+                SigmaGeneratedFrame.PackedQ48Stride,
+                "Sigma direct pending root super offsets");
+            PageMarks = Buffer<uint>(sizeof(uint),
+                "Sigma direct changed page marks");
+            ChangedPageSlots = Buffer<uint>(sizeof(uint),
+                "Sigma direct changed page slots");
+            ClosureCounters = Buffer<SigmaFrameUInt4Gpu>(
+                SigmaGeneratedFrame.ProvenanceStride,
+                "Sigma direct closure counters");
+            ExtentAllocator = Buffer<SigmaFrameUInt4Gpu>(
+                SigmaGeneratedFrame.ProvenanceStride,
+                "Sigma direct carrier extent allocator");
+            RevisionRoot = Buffer<uint>(sizeof(uint),
+                "Sigma direct published revision root");
 
             if (!TryEnsureCandidateCapacity(initialCandidates) ||
                 !TryEnsurePendingGaugeCapacity(FootprintCount) ||
                 !TryEnsureDirtyEdgeCapacity(initialEdges) ||
-                !TryEnsureRevisionCapacity(InitialRevisionRecords))
+                !TryEnsureRevisionCapacity(InitialRevisionRecords) ||
+                !TryEnsureClosureCapacity(SigmaCarrier.MaximumPagesPerSegment))
                 throw new InvalidOperationException(
                     "The selected Sigma frame memory profile cannot hold one " +
                     "complete direct-frame execution window.");
@@ -379,6 +410,11 @@ namespace Genesis.RoomScan.SigmaPrism
             _allocatedBytes = checked(_allocatedBytes +
                 BufferBytes(OwnedFrames));
             OwnedFrames.SetData(new SigmaOwnedFrameGpu[frameCapacity]);
+            ClosureCounters.Segments[0].Buffer.SetData(
+                new SigmaFrameUInt4Gpu[ClosureCounterRecords]);
+            ExtentAllocator.Segments[0].Buffer.SetData(
+                new SigmaFrameUInt4Gpu[1]);
+            RevisionRoot.Segments[0].Buffer.SetData(new uint[1]);
             for (int slot = frameCapacity - 1; slot >= 0; --slot)
                 _unallocated.Push(slot);
         }
@@ -400,6 +436,18 @@ namespace Genesis.RoomScan.SigmaPrism
         internal SigmaFrameSegmentedBuffer DirtyEdges { get; }
         internal SigmaFrameSegmentedBuffer Revisions { get; }
         internal SigmaFrameSegmentedBuffer ResolvedBlockCounts { get; }
+        internal SigmaFrameSegmentedBuffer ResolvedIndices { get; }
+        internal SigmaFrameSegmentedBuffer PendingLabels { get; }
+        internal SigmaFrameSegmentedBuffer PendingLinks { get; }
+        internal SigmaFrameSegmentedBuffer DeferredFlags { get; }
+        internal SigmaFrameSegmentedBuffer RootLocalOffsets { get; }
+        internal SigmaFrameSegmentedBuffer RootBlockOffsets { get; }
+        internal SigmaFrameSegmentedBuffer RootSuperOffsets { get; }
+        internal SigmaFrameSegmentedBuffer PageMarks { get; }
+        internal SigmaFrameSegmentedBuffer ChangedPageSlots { get; }
+        internal SigmaFrameSegmentedBuffer ClosureCounters { get; }
+        internal SigmaFrameSegmentedBuffer ExtentAllocator { get; }
+        internal SigmaFrameSegmentedBuffer RevisionRoot { get; }
 
         internal bool TryAcquireFrame(uint revision, uint calibrationEpoch,
             uint depthLeftKey, uint depthRightKey, uint rgbLeftKey,
@@ -476,6 +524,8 @@ namespace Genesis.RoomScan.SigmaPrism
             long resolvedBlocks = checked((candidateRecords + 1023L) / 1024L);
             additional = checked(additional +
                 ResolvedBlockCounts.AdditionalBytesFor(resolvedBlocks));
+            additional = checked(additional +
+                ResolvedIndices.AdditionalBytesFor(FootprintCount));
             if (!TryReserve(additional))
                 return false;
             Candidates.GrowTo(candidateRecords);
@@ -483,6 +533,7 @@ namespace Genesis.RoomScan.SigmaPrism
             CandidateStates.GrowTo(stateRecords);
             Deltas.GrowTo(candidateRecords);
             ResolvedBlockCounts.GrowTo(resolvedBlocks);
+            ResolvedIndices.GrowTo(FootprintCount);
             _allocatedBytes = checked(_allocatedBytes + additional);
             return true;
         }
@@ -495,6 +546,52 @@ namespace Genesis.RoomScan.SigmaPrism
 
         internal bool TryEnsureRevisionCapacity(long records) =>
             TryGrow(Revisions, records);
+
+        internal bool TryEnsureClosureCapacity(int pageCapacity)
+        {
+            RequireAlive();
+            if (pageCapacity <= 0 ||
+                pageCapacity > SigmaCarrier.MaximumPagesPerSegment)
+                throw new ArgumentOutOfRangeException(nameof(pageCapacity));
+            long blockCount = (FootprintCount + 255L) / 256L;
+            long superCount = (blockCount + 255L) / 256L;
+            long additional = PendingLabels.AdditionalBytesFor(FootprintCount);
+            additional = checked(additional +
+                PendingLinks.AdditionalBytesFor(FootprintCount));
+            additional = checked(additional +
+                DeferredFlags.AdditionalBytesFor(FootprintCount));
+            additional = checked(additional +
+                RootLocalOffsets.AdditionalBytesFor(FootprintCount));
+            additional = checked(additional +
+                RootBlockOffsets.AdditionalBytesFor(blockCount));
+            additional = checked(additional +
+                RootSuperOffsets.AdditionalBytesFor(superCount));
+            additional = checked(additional +
+                PageMarks.AdditionalBytesFor(pageCapacity));
+            additional = checked(additional +
+                ChangedPageSlots.AdditionalBytesFor(pageCapacity));
+            additional = checked(additional +
+                ClosureCounters.AdditionalBytesFor(ClosureCounterRecords));
+            additional = checked(additional +
+                ExtentAllocator.AdditionalBytesFor(1));
+            additional = checked(additional +
+                RevisionRoot.AdditionalBytesFor(1));
+            if (!TryReserve(additional))
+                return false;
+            PendingLabels.GrowTo(FootprintCount);
+            PendingLinks.GrowTo(FootprintCount);
+            DeferredFlags.GrowTo(FootprintCount);
+            RootLocalOffsets.GrowTo(FootprintCount);
+            RootBlockOffsets.GrowTo(blockCount);
+            RootSuperOffsets.GrowTo(superCount);
+            PageMarks.GrowTo(pageCapacity);
+            ChangedPageSlots.GrowTo(pageCapacity);
+            ClosureCounters.GrowTo(ClosureCounterRecords);
+            ExtentAllocator.GrowTo(1);
+            RevisionRoot.GrowTo(1);
+            _allocatedBytes = checked(_allocatedBytes + additional);
+            return true;
+        }
 
         internal static long EstimateSourceBytes(int footprintCount)
         {
@@ -572,6 +669,18 @@ namespace Genesis.RoomScan.SigmaPrism
             DirtyEdges.Dispose();
             Revisions.Dispose();
             ResolvedBlockCounts.Dispose();
+            ResolvedIndices.Dispose();
+            PendingLabels.Dispose();
+            PendingLinks.Dispose();
+            DeferredFlags.Dispose();
+            RootLocalOffsets.Dispose();
+            RootBlockOffsets.Dispose();
+            RootSuperOffsets.Dispose();
+            PageMarks.Dispose();
+            ChangedPageSlots.Dispose();
+            ClosureCounters.Dispose();
+            ExtentAllocator.Dispose();
+            RevisionRoot.Dispose();
             OwnedFrames?.Dispose();
             OwnedFrames = null;
             _freeAllocated.Clear();

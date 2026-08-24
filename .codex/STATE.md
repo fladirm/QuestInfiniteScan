@@ -73,10 +73,9 @@ extent allocation, proof/raw ownership and milestone gates are frozen in the pla
 
 ## Current exact action
 
-M3: implement the complete pending/transition/evidence/publication vertical slice
-named in `.codex/S4-08.4_RESUME.md`. One synthetic coherent frame must publish one
-atomic visible revision with bit-identical state, proof and provenance under legal
-page/workgroup/proof-window decompositions; controller cutover waits for M4.
+M4: cut the live controller over to the fixed direct-frame graph, bind carrier
+shadow publication, expose read-only direct-stage profiling, delete the complete
+superseded stream lifecycle and pass the no-reference plus negative-LOC oracle.
 
 ## Required end state
 
@@ -106,6 +105,12 @@ page/workgroup/proof-window decompositions; controller cutover waits for M4.
   independent source cells and resolves the novel exact state against a CPU oracle;
   full and three-footprint execution partitions are bit-identical and Unity Vulkan
   EditMode passes 77/77.
+- M3 closure/publication gate is green: a complete coherent-frame candidate closes
+  pending exact components, allocates storage-independent carrier extents, scatters
+  accepted S16 deltas to shadow pages and publishes one root-visible revision with
+  bit-identical state/proof/provenance across tested decompositions. Incident edges
+  remain fail-closed unresolved. Full Unity Vulkan EditMode passes 78/78; generated,
+  diff, shader bind/UAV and manual changed-file gates are green.
 
 ## Completion protocol
 

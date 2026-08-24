@@ -1,0 +1,201 @@
+#pragma kernel PrepareFramePages
+#pragma kernel ScatterFrameDeltas
+#pragma kernel CompactChangedPages
+#pragma kernel CloseFrameRevision
+#pragma kernel FinalizePageVisibility
+#pragma kernel PublishFrameRevision
+#pragma target 5.0
+
+#include "SigmaFrameAbi.hlsl"
+#include "Sedenion16.hlsl"
+#include "SigmaStableScan.hlsl"
+
+// Shadow page writes are storage lowering only. The single atomic root index is
+// the visibility boundary; readers resolve immutable revision records from it.
+
+static const uint2 SIGMA_FRAME_Q48_ZERO = uint2(0u, 0u);
+
+RWStructuredBuffer<SigmaOwnedFrameGpu> _OwnedFrames;
+StructuredBuffer<SigmaFrameDeltaGpu> _FrameDeltas;
+StructuredBuffer<uint> _FrameResolvedIndices;
+StructuredBuffer<uint> _FrameDeferredFlags;
+StructuredBuffer<uint2> _FrameCandidateStates;
+RWStructuredBuffer<uint4> _FrameClosureCounters;
+StructuredBuffer<uint> _FramePageMarks;
+RWStructuredBuffer<uint> _ChangedPageSlots;
+RWStructuredBuffer<SigmaFrameRevisionGpu> _FrameRevisions;
+RWStructuredBuffer<uint> _FrameRevisionRoot;
+
+RWStructuredBuffer<uint2> _TargetCarrierState;
+RWStructuredBuffer<SigmaCarrierPageMetaGpu> _TargetPageMetadata;
+RWStructuredBuffer<uint> _TargetDirtyFlags;
+RWStructuredBuffer<uint> _TargetCurrentFlags;
+RWStructuredBuffer<uint> _TargetReadoutDirtyFlags;
+StructuredBuffer<uint> _SigmaExactBackendGate;
+
+uint _FrameRevision;
+uint _FrameSlot;
+uint _FrameFootprintCount;
+uint _RevisionSlot;
+uint _RevisionCapacity;
+uint _TargetSegmentIndex;
+uint _TargetPageCapacity;
+
+uint2 SigmaFrameNullLane(uint lane)
+{
+    if (lane == (uint)SIGMA_Z_NULL_DYAD.x)
+        return SIGMA_Z_NULL_DYAD.y < 0
+            ? uint2(0u, 0xffff0000u) : uint2(0u, 0x00010000u);
+    if (lane == (uint)SIGMA_Z_NULL_DYAD.z)
+        return SIGMA_Z_NULL_DYAD.w < 0
+            ? uint2(0u, 0xffff0000u) : uint2(0u, 0x00010000u);
+    return SIGMA_FRAME_Q48_ZERO;
+}
+
+[numthreads(64, 1, 1)]
+void PrepareFramePages(uint3 groupId : SV_GroupID,
+    uint3 threadId : SV_GroupThreadID)
+{
+    uint pageSlot = groupId.y;
+    uint sample = groupId.x * 64u + threadId.x;
+    if (_SigmaExactBackendGate[0] == 0u ||
+        pageSlot >= _TargetPageCapacity || sample >= SIGMA_PAGE_SAMPLE_COUNT ||
+        _FramePageMarks[pageSlot] != _FrameRevision)
+        return;
+    SigmaCarrierPageMetaGpu metadata = _TargetPageMetadata[pageSlot];
+    uint targetBase = pageSlot * SIGMA_PAGE_LANE_COUNT +
+        sample * SIGMA_FRAME_LANE_COUNT;
+    bool clone = metadata.reserved0 < _TargetPageCapacity;
+    uint sourceBase = clone ? metadata.reserved0 * SIGMA_PAGE_LANE_COUNT +
+        sample * SIGMA_FRAME_LANE_COUNT : 0u;
+    [unroll]
+    for (uint lane = 0u; lane < SIGMA_FRAME_LANE_COUNT; ++lane)
+        _TargetCarrierState[targetBase + lane] = clone
+            ? _TargetCarrierState[sourceBase + lane]
+            : SigmaFrameNullLane(lane);
+}
+
+[numthreads(256, 1, 1)]
+void ScatterFrameDeltas(uint3 groupId : SV_GroupID,
+    uint3 threadId : SV_GroupThreadID)
+{
+    uint coordinate = threadId.x & 15u;
+    uint local = threadId.x >> 4u;
+    uint footprint = groupId.x * 16u + local;
+    if (_SigmaExactBackendGate[0] == 0u ||
+        footprint >= _FrameFootprintCount ||
+        _FrameDeferredFlags[footprint] != 0u ||
+        _FrameResolvedIndices[footprint] == SIGMA_FRAME_INVALID)
+        return;
+    SigmaFrameDeltaGpu delta = _FrameDeltas[footprint];
+    uint pageSlot = delta.Candidate.x;
+    uint candidate = delta.Candidate.w;
+    uint sample = delta.Evidence.w;
+    if (pageSlot >= _TargetPageCapacity || sample >= SIGMA_PAGE_SAMPLE_COUNT ||
+        candidate == SIGMA_FRAME_INVALID ||
+        _FramePageMarks[pageSlot] != _FrameRevision)
+        return;
+    uint target = pageSlot * SIGMA_PAGE_LANE_COUNT +
+        sample * SIGMA_FRAME_LANE_COUNT + coordinate;
+    _TargetCarrierState[target] =
+        _FrameCandidateStates[candidate * SIGMA_FRAME_LANE_COUNT + coordinate];
+}
+
+[numthreads(256, 1, 1)]
+void CompactChangedPages(uint3 threadId : SV_GroupThreadID)
+{
+    uint lane = threadId.x;
+    uint marked = lane < _TargetPageCapacity &&
+        _FramePageMarks[lane] == _FrameRevision ? 1u : 0u;
+    uint total;
+    uint prefix = SigmaStableExclusiveScan256(lane, marked, total);
+    if (marked != 0u)
+        _ChangedPageSlots[prefix] = lane;
+    if (lane == 0u)
+        _FrameClosureCounters[1].w = total;
+}
+
+[numthreads(1, 1, 1)]
+void CloseFrameRevision(uint3 id : SV_DispatchThreadID)
+{
+    if (_SigmaExactBackendGate[0] == 0u ||
+        _RevisionSlot >= _RevisionCapacity)
+        return;
+    uint changed = _FrameClosureCounters[1].w;
+    uint fault = _FrameClosureCounters[2].x;
+    SigmaOwnedFrameGpu frame = _OwnedFrames[_FrameSlot];
+    if (fault != 0u)
+    {
+        frame.PoseSource.z = SIGMA_OWNED_FRAME_STATE_RESOLVED;
+        frame.PoseSource.w = fault;
+        _OwnedFrames[_FrameSlot] = frame;
+        return;
+    }
+    if (changed == 0u)
+    {
+        frame.PoseSource.z = SIGMA_OWNED_FRAME_STATE_EVIDENCE_RETAINED;
+        _OwnedFrames[_FrameSlot] = frame;
+        return;
+    }
+    uint root = _FrameRevisionRoot[0];
+    uint baseRevision = 0u;
+    if (root != 0u && root - 1u < _RevisionCapacity)
+        baseRevision = _FrameRevisions[root - 1u].Identity.x;
+    SigmaFrameRevisionGpu revision;
+    revision.Identity = uint4(_FrameRevision, baseRevision,
+        SIGMA_FRAME_REVISION_STATE_CLOSED, _FrameSlot);
+    revision.ChangedPages = uint4(0u, changed, _TargetSegmentIndex,
+        _TargetPageCapacity);
+    revision.WitnessJournal = uint4(_FrameSlot, _FrameFootprintCount,
+        _FrameClosureCounters[2].y, _FrameClosureCounters[2].z);
+    _FrameRevisions[_RevisionSlot] = revision;
+    frame.PoseSource.z = SIGMA_OWNED_FRAME_STATE_CLOSED;
+    _OwnedFrames[_FrameSlot] = frame;
+}
+
+[numthreads(256, 1, 1)]
+void FinalizePageVisibility(uint3 id : SV_DispatchThreadID)
+{
+    uint index = id.x;
+    uint changed = _FrameClosureCounters[1].w;
+    if (index >= changed || _FrameClosureCounters[2].x != 0u)
+        return;
+    uint pageSlot = _ChangedPageSlots[index];
+    if (pageSlot >= _TargetPageCapacity)
+        return;
+    SigmaCarrierPageMetaGpu metadata = _TargetPageMetadata[pageSlot];
+    if (metadata.revision != _FrameRevision)
+        return;
+    metadata.flags |= SIGMA_PAGE_PUBLISHED | SIGMA_PAGE_DIRTY;
+    _TargetPageMetadata[pageSlot] = metadata;
+    uint previous = pageSlot ^ 1u;
+    if (previous < _TargetPageCapacity)
+    {
+        _TargetCurrentFlags[previous] = 0u;
+        _TargetReadoutDirtyFlags[previous] = 0u;
+    }
+    _TargetDirtyFlags[pageSlot] = 1u;
+    _TargetCurrentFlags[pageSlot] = 1u;
+    _TargetReadoutDirtyFlags[pageSlot] = 1u;
+}
+
+[numthreads(1, 1, 1)]
+void PublishFrameRevision(uint3 id : SV_DispatchThreadID)
+{
+    if (_SigmaExactBackendGate[0] == 0u ||
+        _RevisionSlot >= _RevisionCapacity ||
+        _FrameClosureCounters[1].w == 0u ||
+        _FrameClosureCounters[2].x != 0u)
+        return;
+    SigmaFrameRevisionGpu revision = _FrameRevisions[_RevisionSlot];
+    if (revision.Identity.x != _FrameRevision ||
+        revision.Identity.z != SIGMA_FRAME_REVISION_STATE_CLOSED)
+        return;
+    revision.Identity.z = SIGMA_FRAME_REVISION_STATE_PUBLISHED;
+    _FrameRevisions[_RevisionSlot] = revision;
+    uint previous;
+    InterlockedExchange(_FrameRevisionRoot[0], _RevisionSlot + 1u, previous);
+    SigmaOwnedFrameGpu frame = _OwnedFrames[_FrameSlot];
+    frame.PoseSource.z = SIGMA_OWNED_FRAME_STATE_EVIDENCE_RETAINED;
+    _OwnedFrames[_FrameSlot] = frame;
+}

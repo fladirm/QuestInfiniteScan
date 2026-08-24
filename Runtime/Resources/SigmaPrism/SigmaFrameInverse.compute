@@ -29,6 +29,7 @@ RWStructuredBuffer<SigmaFrameOutcomeGpu> _FrameOutcomes;
 RWStructuredBuffer<uint2> _FrameCandidateStates;
 RWStructuredBuffer<SigmaFrameDeltaGpu> _FrameDeltas;
 RWStructuredBuffer<uint4> _FrameResolvedBlockCounts;
+RWStructuredBuffer<uint> _FrameResolvedIndices;
 
 RWStructuredBuffer<uint2> _SourceLowerOut;
 RWStructuredBuffer<uint2> _SourceUpperOut;
@@ -278,6 +279,8 @@ void ClearFrameState(uint3 id : SV_DispatchThreadID)
     }
     if (index < _FrameResolvedBlockCount)
         _FrameResolvedBlockCounts[index] = 0u;
+    if (index < _FrameFootprintCount)
+        _FrameResolvedIndices[index] = SIGMA_FRAME_INVALID;
     if (index == 0u)
     {
         SigmaOwnedFrameGpu frame = _OwnedFrames[_FrameSlot];
@@ -1108,14 +1111,14 @@ void CompactResolvedTargets(uint3 groupId : SV_GroupID,
     uint prefix = SigmaStableExclusiveScan256(lane, accepted, total);
     if (accepted != 0u)
     {
-        uint output = groupId.x * 256u + prefix;
         SigmaFrameCandidateGpu candidate = _FrameCandidates[selected];
         SigmaFrameDeltaGpu delta;
         delta.Coordinate = candidate.Coordinate;
         delta.Candidate = uint4(candidate.Handle.xyz, selected);
         delta.Evidence = uint4(footprint, flags,
             candidate.Identity.z, candidate.Identity.w);
-        _FrameDeltas[output] = delta;
+        _FrameDeltas[footprint] = delta;
+        _FrameResolvedIndices[footprint] = selected;
     }
     if (lane == 0u)
         _FrameResolvedBlockCounts[groupId.x] = uint4(total,

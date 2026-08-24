@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "source_digest": "16bf82ed3bd71a3c4bb2982eeafdf50b854cfdcb99d65d1c02f006f060b65398",
+  "source_digest": "2db58fbb9c89e20528ca427e9d0a867daf3de42414b96a2a8ae55b9bc980697e",
   "scope": [
     "Runtime/**/*.cs",
     "Runtime/Resources/SigmaPrism/**/*.*",
@@ -10,10 +10,10 @@
     "Tests/Editor/*.cs"
   ],
   "summary": {
-    "files": 142,
-    "symbols": 2348,
-    "methods_and_functions": 1872,
-    "gpu_kernels": 119,
+    "files": 144,
+    "symbols": 2410,
+    "methods_and_functions": 1913,
+    "gpu_kernels": 137,
     "event_links": 5
   },
   "files": [
@@ -218,8 +218,18 @@
       "language": "hlsl"
     },
     {
+      "id": "file:Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute",
+      "path": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute",
+      "language": "compute"
+    },
+    {
       "id": "file:Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute",
       "path": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute",
+      "language": "compute"
+    },
+    {
+      "id": "file:Runtime/Resources/SigmaPrism/SigmaFramePublish.compute",
+      "path": "Runtime/Resources/SigmaPrism/SigmaFramePublish.compute",
       "language": "compute"
     },
     {
@@ -3089,186 +3099,431 @@
       "line": 73
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildDepthSourceCells@337",
-      "file": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute",
-      "name": "BuildDepthSourceCells",
-      "kind": "gpu_function",
-      "line": 337
-    },
-    {
-      "id": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildFrameProposals@289",
-      "file": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute",
-      "name": "BuildFrameProposals",
-      "kind": "gpu_function",
-      "line": 289
-    },
-    {
-      "id": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildRgbSourceCells@465",
-      "file": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute",
-      "name": "BuildRgbSourceCells",
-      "kind": "gpu_function",
-      "line": 465
-    },
-    {
-      "id": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::ClearFrameState@262",
-      "file": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute",
-      "name": "ClearFrameState",
-      "kind": "gpu_function",
-      "line": 262
-    },
-    {
-      "id": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::CompactResolvedTargets@1080",
-      "file": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute",
-      "name": "CompactResolvedTargets",
-      "kind": "gpu_function",
-      "line": 1080
-    },
-    {
-      "id": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::EvaluateCandidateMeets@818",
-      "file": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute",
-      "name": "EvaluateCandidateMeets",
-      "kind": "gpu_function",
-      "line": 818
-    },
-    {
-      "id": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameBootstrapCoordinate@449",
-      "file": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute",
-      "name": "SigmaFrameBootstrapCoordinate",
-      "kind": "gpu_function",
-      "line": 449
-    },
-    {
-      "id": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameBuildNovelState@765",
-      "file": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute",
-      "name": "SigmaFrameBuildNovelState",
-      "kind": "gpu_function",
-      "line": 765
-    },
-    {
-      "id": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameCandidateLess@234",
-      "file": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute",
-      "name": "SigmaFrameCandidateLess",
-      "kind": "gpu_function",
-      "line": 234
-    },
-    {
-      "id": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameCellAddress@127",
-      "file": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute",
-      "name": "SigmaFrameCellAddress",
-      "kind": "gpu_function",
-      "line": 127
-    },
-    {
-      "id": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameEmptyCandidate@198",
-      "file": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute",
-      "name": "SigmaFrameEmptyCandidate",
-      "kind": "gpu_function",
-      "line": 198
-    },
-    {
-      "id": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameExactEnabled@114",
-      "file": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute",
-      "name": "SigmaFrameExactEnabled",
-      "kind": "gpu_function",
-      "line": 114
-    },
-    {
-      "id": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameFullBounds@119",
-      "file": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute",
-      "name": "SigmaFrameFullBounds",
-      "kind": "gpu_function",
-      "line": 119
-    },
-    {
-      "id": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameLoadDepthJoint@411",
-      "file": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute",
-      "name": "SigmaFrameLoadDepthJoint",
+      "id": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::AllocatePendingRoots@411",
+      "file": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute",
+      "name": "AllocatePendingRoots",
       "kind": "gpu_function",
       "line": 411
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameLoadMetric@138",
-      "file": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute",
-      "name": "SigmaFrameLoadMetric",
+      "id": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::BuildDirtyEdges@531",
+      "file": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute",
+      "name": "BuildDirtyEdges",
+      "kind": "gpu_function",
+      "line": 531
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::BuildPendingEdges@253",
+      "file": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute",
+      "name": "BuildPendingEdges",
+      "kind": "gpu_function",
+      "line": 253
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::ClearFrameClosure@210",
+      "file": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute",
+      "name": "ClearFrameClosure",
+      "kind": "gpu_function",
+      "line": 210
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::ClearFrameClosureStorage@239",
+      "file": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute",
+      "name": "ClearFrameClosureStorage",
+      "kind": "gpu_function",
+      "line": 239
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::FinalizePendingGauges@313",
+      "file": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute",
+      "name": "FinalizePendingGauges",
+      "kind": "gpu_function",
+      "line": 313
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::RelaxPendingLabels@283",
+      "file": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute",
+      "name": "RelaxPendingLabels",
+      "kind": "gpu_function",
+      "line": 283
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::ReserveFrameAllocation@394",
+      "file": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute",
+      "name": "ReserveFrameAllocation",
+      "kind": "gpu_function",
+      "line": 394
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::ResolveFrameTargets@469",
+      "file": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute",
+      "name": "ResolveFrameTargets",
+      "kind": "gpu_function",
+      "line": 469
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::ScanPendingRootBlocks@360",
+      "file": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute",
+      "name": "ScanPendingRootBlocks",
+      "kind": "gpu_function",
+      "line": 360
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::ScanPendingRootSupers@378",
+      "file": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute",
+      "name": "ScanPendingRootSupers",
+      "kind": "gpu_function",
+      "line": 378
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::ScanPendingRoots@342",
+      "file": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute",
+      "name": "ScanPendingRoots",
+      "kind": "gpu_function",
+      "line": 342
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::SigmaFrameAddU64@183",
+      "file": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute",
+      "name": "SigmaFrameAddU64",
+      "kind": "gpu_function",
+      "line": 183
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::SigmaFrameClosureEnabled@66",
+      "file": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute",
+      "name": "SigmaFrameClosureEnabled",
+      "kind": "gpu_function",
+      "line": 66
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::SigmaFrameDepthBounds@112",
+      "file": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute",
+      "name": "SigmaFrameDepthBounds",
+      "kind": "gpu_function",
+      "line": 112
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::SigmaFrameOutcomeFlags@77",
+      "file": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute",
+      "name": "SigmaFrameOutcomeFlags",
+      "kind": "gpu_function",
+      "line": 77
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::SigmaFramePaddedWidth@189",
+      "file": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute",
+      "name": "SigmaFramePaddedWidth",
+      "kind": "gpu_function",
+      "line": 189
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::SigmaFramePendingActive@83",
+      "file": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute",
+      "name": "SigmaFramePendingActive",
+      "kind": "gpu_function",
+      "line": 83
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::SigmaFramePendingCompatible@138",
+      "file": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute",
+      "name": "SigmaFramePendingCompatible",
       "kind": "gpu_function",
       "line": 138
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFramePixel@132",
+      "id": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::SigmaFrameResolved@71",
+      "file": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute",
+      "name": "SigmaFrameResolved",
+      "kind": "gpu_function",
+      "line": 71
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::SigmaFrameRootCost@196",
+      "file": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute",
+      "name": "SigmaFrameRootCost",
+      "kind": "gpu_function",
+      "line": 196
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::SigmaFrameStateHasContact@104",
+      "file": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute",
+      "name": "SigmaFrameStateHasContact",
+      "kind": "gpu_function",
+      "line": 104
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::SigmaFrameStateLane@97",
+      "file": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute",
+      "name": "SigmaFrameStateLane",
+      "kind": "gpu_function",
+      "line": 97
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::kernel:AllocatePendingRoots",
+      "file": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute",
+      "name": "AllocatePendingRoots",
+      "kind": "gpu_kernel",
+      "line": 10
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::kernel:BuildDirtyEdges",
+      "file": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute",
+      "name": "BuildDirtyEdges",
+      "kind": "gpu_kernel",
+      "line": 12
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::kernel:BuildPendingEdges",
+      "file": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute",
+      "name": "BuildPendingEdges",
+      "kind": "gpu_kernel",
+      "line": 3
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::kernel:ClearFrameClosure",
+      "file": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute",
+      "name": "ClearFrameClosure",
+      "kind": "gpu_kernel",
+      "line": 1
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::kernel:ClearFrameClosureStorage",
+      "file": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute",
+      "name": "ClearFrameClosureStorage",
+      "kind": "gpu_kernel",
+      "line": 2
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::kernel:FinalizePendingGauges",
+      "file": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute",
+      "name": "FinalizePendingGauges",
+      "kind": "gpu_kernel",
+      "line": 5
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::kernel:RelaxPendingLabels",
+      "file": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute",
+      "name": "RelaxPendingLabels",
+      "kind": "gpu_kernel",
+      "line": 4
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::kernel:ReserveFrameAllocation",
+      "file": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute",
+      "name": "ReserveFrameAllocation",
+      "kind": "gpu_kernel",
+      "line": 9
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::kernel:ResolveFrameTargets",
+      "file": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute",
+      "name": "ResolveFrameTargets",
+      "kind": "gpu_kernel",
+      "line": 11
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::kernel:ScanPendingRootBlocks",
+      "file": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute",
+      "name": "ScanPendingRootBlocks",
+      "kind": "gpu_kernel",
+      "line": 7
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::kernel:ScanPendingRootSupers",
+      "file": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute",
+      "name": "ScanPendingRootSupers",
+      "kind": "gpu_kernel",
+      "line": 8
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::kernel:ScanPendingRoots",
+      "file": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute",
+      "name": "ScanPendingRoots",
+      "kind": "gpu_kernel",
+      "line": 6
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildDepthSourceCells@340",
+      "file": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute",
+      "name": "BuildDepthSourceCells",
+      "kind": "gpu_function",
+      "line": 340
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildFrameProposals@292",
+      "file": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute",
+      "name": "BuildFrameProposals",
+      "kind": "gpu_function",
+      "line": 292
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildRgbSourceCells@468",
+      "file": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute",
+      "name": "BuildRgbSourceCells",
+      "kind": "gpu_function",
+      "line": 468
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::ClearFrameState@263",
+      "file": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute",
+      "name": "ClearFrameState",
+      "kind": "gpu_function",
+      "line": 263
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::CompactResolvedTargets@1083",
+      "file": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute",
+      "name": "CompactResolvedTargets",
+      "kind": "gpu_function",
+      "line": 1083
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::EvaluateCandidateMeets@821",
+      "file": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute",
+      "name": "EvaluateCandidateMeets",
+      "kind": "gpu_function",
+      "line": 821
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameBootstrapCoordinate@452",
+      "file": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute",
+      "name": "SigmaFrameBootstrapCoordinate",
+      "kind": "gpu_function",
+      "line": 452
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameBuildNovelState@768",
+      "file": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute",
+      "name": "SigmaFrameBuildNovelState",
+      "kind": "gpu_function",
+      "line": 768
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameCandidateLess@235",
+      "file": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute",
+      "name": "SigmaFrameCandidateLess",
+      "kind": "gpu_function",
+      "line": 235
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameCellAddress@128",
+      "file": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute",
+      "name": "SigmaFrameCellAddress",
+      "kind": "gpu_function",
+      "line": 128
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameEmptyCandidate@199",
+      "file": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute",
+      "name": "SigmaFrameEmptyCandidate",
+      "kind": "gpu_function",
+      "line": 199
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameExactEnabled@115",
+      "file": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute",
+      "name": "SigmaFrameExactEnabled",
+      "kind": "gpu_function",
+      "line": 115
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameFullBounds@120",
+      "file": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute",
+      "name": "SigmaFrameFullBounds",
+      "kind": "gpu_function",
+      "line": 120
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameLoadDepthJoint@414",
+      "file": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute",
+      "name": "SigmaFrameLoadDepthJoint",
+      "kind": "gpu_function",
+      "line": 414
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameLoadMetric@139",
+      "file": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute",
+      "name": "SigmaFrameLoadMetric",
+      "kind": "gpu_function",
+      "line": 139
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFramePixel@133",
       "file": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute",
       "name": "SigmaFramePixel",
       "kind": "gpu_function",
-      "line": 132
+      "line": 133
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFramePredictionCandidate@208",
+      "id": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFramePredictionCandidate@209",
       "file": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute",
       "name": "SigmaFramePredictionCandidate",
       "kind": "gpu_function",
-      "line": 208
+      "line": 209
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameProjectDepth@172",
+      "id": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameProjectDepth@173",
       "file": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute",
       "name": "SigmaFrameProjectDepth",
       "kind": "gpu_function",
-      "line": 172
+      "line": 173
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameReferenceWorld@148",
+      "id": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameReferenceWorld@149",
       "file": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute",
       "name": "SigmaFrameReferenceWorld",
       "kind": "gpu_function",
-      "line": 148
+      "line": 149
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameSameCandidate@252",
+      "id": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameSameCandidate@253",
       "file": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute",
       "name": "SigmaFrameSameCandidate",
       "kind": "gpu_function",
-      "line": 252
+      "line": 253
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameSourceBounds@709",
+      "id": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameSourceBounds@712",
       "file": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute",
       "name": "SigmaFrameSourceBounds",
       "kind": "gpu_function",
-      "line": 709
+      "line": 712
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameSourceProvenance@740",
+      "id": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameSourceProvenance@743",
       "file": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute",
       "name": "SigmaFrameSourceProvenance",
       "kind": "gpu_function",
-      "line": 740
+      "line": 743
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameTransformRow@751",
+      "id": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameTransformRow@754",
       "file": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute",
       "name": "SigmaFrameTransformRow",
       "kind": "gpu_function",
-      "line": 751
+      "line": 754
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::if@720",
+      "id": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::if@723",
       "file": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute",
       "name": "if",
       "kind": "gpu_function",
-      "line": 720
+      "line": 723
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::if@726",
+      "id": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::if@729",
       "file": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute",
       "name": "if",
       "kind": "gpu_function",
-      "line": 726
+      "line": 729
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::if@869",
+      "id": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::if@872",
       "file": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute",
       "name": "if",
       "kind": "gpu_function",
-      "line": 869
+      "line": 872
     },
     {
       "id": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::kernel:BuildDepthSourceCells",
@@ -3311,6 +3566,97 @@
       "name": "EvaluateCandidateMeets",
       "kind": "gpu_kernel",
       "line": 5
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaFramePublish.compute::CloseFrameRevision@117",
+      "file": "Runtime/Resources/SigmaPrism/SigmaFramePublish.compute",
+      "name": "CloseFrameRevision",
+      "kind": "gpu_function",
+      "line": 117
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaFramePublish.compute::CompactChangedPages@103",
+      "file": "Runtime/Resources/SigmaPrism/SigmaFramePublish.compute",
+      "name": "CompactChangedPages",
+      "kind": "gpu_function",
+      "line": 103
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaFramePublish.compute::FinalizePageVisibility@155",
+      "file": "Runtime/Resources/SigmaPrism/SigmaFramePublish.compute",
+      "name": "FinalizePageVisibility",
+      "kind": "gpu_function",
+      "line": 155
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaFramePublish.compute::PrepareFramePages@54",
+      "file": "Runtime/Resources/SigmaPrism/SigmaFramePublish.compute",
+      "name": "PrepareFramePages",
+      "kind": "gpu_function",
+      "line": 54
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaFramePublish.compute::PublishFrameRevision@181",
+      "file": "Runtime/Resources/SigmaPrism/SigmaFramePublish.compute",
+      "name": "PublishFrameRevision",
+      "kind": "gpu_function",
+      "line": 181
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaFramePublish.compute::ScatterFrameDeltas@77",
+      "file": "Runtime/Resources/SigmaPrism/SigmaFramePublish.compute",
+      "name": "ScatterFrameDeltas",
+      "kind": "gpu_function",
+      "line": 77
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaFramePublish.compute::SigmaFrameNullLane@43",
+      "file": "Runtime/Resources/SigmaPrism/SigmaFramePublish.compute",
+      "name": "SigmaFrameNullLane",
+      "kind": "gpu_function",
+      "line": 43
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaFramePublish.compute::kernel:CloseFrameRevision",
+      "file": "Runtime/Resources/SigmaPrism/SigmaFramePublish.compute",
+      "name": "CloseFrameRevision",
+      "kind": "gpu_kernel",
+      "line": 4
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaFramePublish.compute::kernel:CompactChangedPages",
+      "file": "Runtime/Resources/SigmaPrism/SigmaFramePublish.compute",
+      "name": "CompactChangedPages",
+      "kind": "gpu_kernel",
+      "line": 3
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaFramePublish.compute::kernel:FinalizePageVisibility",
+      "file": "Runtime/Resources/SigmaPrism/SigmaFramePublish.compute",
+      "name": "FinalizePageVisibility",
+      "kind": "gpu_kernel",
+      "line": 5
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaFramePublish.compute::kernel:PrepareFramePages",
+      "file": "Runtime/Resources/SigmaPrism/SigmaFramePublish.compute",
+      "name": "PrepareFramePages",
+      "kind": "gpu_kernel",
+      "line": 1
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaFramePublish.compute::kernel:PublishFrameRevision",
+      "file": "Runtime/Resources/SigmaPrism/SigmaFramePublish.compute",
+      "name": "PublishFrameRevision",
+      "kind": "gpu_kernel",
+      "line": 6
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaFramePublish.compute::kernel:ScatterFrameDeltas",
+      "file": "Runtime/Resources/SigmaPrism/SigmaFramePublish.compute",
+      "name": "ScatterFrameDeltas",
+      "kind": "gpu_kernel",
+      "line": 2
     },
     {
       "id": "Runtime/Resources/SigmaPrism/SigmaGaugeAbi.hlsl::SigmaGaugeBlock@32",
@@ -10523,151 +10869,186 @@
       "line": 6
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaFrameGraph.cs::BindCarrier@433",
+      "id": "Runtime/SigmaPrism/SigmaFrameGraph.cs::BindCarrier@720",
       "file": "Runtime/SigmaPrism/SigmaFrameGraph.cs",
       "name": "BindCarrier",
       "kind": "method",
-      "line": 433
+      "line": 720
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaFrameGraph.cs::BindEvaluate@415",
+      "id": "Runtime/SigmaPrism/SigmaFrameGraph.cs::BindClosureDepth@549",
+      "file": "Runtime/SigmaPrism/SigmaFrameGraph.cs",
+      "name": "BindClosureDepth",
+      "kind": "method",
+      "line": 549
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaFrameGraph.cs::BindClosureKernel@422",
+      "file": "Runtime/SigmaPrism/SigmaFrameGraph.cs",
+      "name": "BindClosureKernel",
+      "kind": "method",
+      "line": 422
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaFrameGraph.cs::BindEvaluate@702",
       "file": "Runtime/SigmaPrism/SigmaFrameGraph.cs",
       "name": "BindEvaluate",
       "kind": "method",
-      "line": 415
+      "line": 702
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaFrameGraph.cs::BindFootprintWindow@585",
+      "id": "Runtime/SigmaPrism/SigmaFrameGraph.cs::BindFootprintWindow@881",
       "file": "Runtime/SigmaPrism/SigmaFrameGraph.cs",
       "name": "BindFootprintWindow",
       "kind": "method",
-      "line": 585
+      "line": 881
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaFrameGraph.cs::BindFrameConstants@277",
+      "id": "Runtime/SigmaPrism/SigmaFrameGraph.cs::BindFrameConstants@564",
       "file": "Runtime/SigmaPrism/SigmaFrameGraph.cs",
       "name": "BindFrameConstants",
       "kind": "method",
-      "line": 277
+      "line": 564
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaFrameGraph.cs::BindProposal@313",
+      "id": "Runtime/SigmaPrism/SigmaFrameGraph.cs::BindProposal@600",
       "file": "Runtime/SigmaPrism/SigmaFrameGraph.cs",
       "name": "BindProposal",
       "kind": "method",
-      "line": 313
+      "line": 600
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaFrameGraph.cs::BindSourceOutputs@451",
+      "id": "Runtime/SigmaPrism/SigmaFrameGraph.cs::BindPublishKernel@493",
+      "file": "Runtime/SigmaPrism/SigmaFrameGraph.cs",
+      "name": "BindPublishKernel",
+      "kind": "method",
+      "line": 493
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaFrameGraph.cs::BindSourceOutputs@738",
       "file": "Runtime/SigmaPrism/SigmaFrameGraph.cs",
       "name": "BindSourceOutputs",
       "kind": "method",
-      "line": 451
+      "line": 738
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaFrameGraph.cs::BindSourceRead@484",
+      "id": "Runtime/SigmaPrism/SigmaFrameGraph.cs::BindSourceRead@771",
       "file": "Runtime/SigmaPrism/SigmaFrameGraph.cs",
       "name": "BindSourceRead",
       "kind": "method",
-      "line": 484
+      "line": 771
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaFrameGraph.cs::BindSourceReads@471",
+      "id": "Runtime/SigmaPrism/SigmaFrameGraph.cs::BindSourceReads@758",
       "file": "Runtime/SigmaPrism/SigmaFrameGraph.cs",
       "name": "BindSourceReads",
       "kind": "method",
-      "line": 471
+      "line": 758
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaFrameGraph.cs::CeilDiv@582",
+      "id": "Runtime/SigmaPrism/SigmaFrameGraph.cs::CeilDiv@878",
       "file": "Runtime/SigmaPrism/SigmaFrameGraph.cs",
       "name": "CeilDiv",
       "kind": "method",
-      "line": 582
+      "line": 878
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaFrameGraph.cs::CreateBuffer@561",
+      "id": "Runtime/SigmaPrism/SigmaFrameGraph.cs::CreateBuffer@848",
       "file": "Runtime/SigmaPrism/SigmaFrameGraph.cs",
       "name": "CreateBuffer",
       "kind": "method",
-      "line": 561
+      "line": 848
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaFrameGraph.cs::Dispose@264",
+      "id": "Runtime/SigmaPrism/SigmaFrameGraph.cs::Dispose@409",
       "file": "Runtime/SigmaPrism/SigmaFrameGraph.cs",
       "name": "Dispose",
       "kind": "method",
-      "line": 264
+      "line": 409
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaFrameGraph.cs::Intrinsics@568",
+      "id": "Runtime/SigmaPrism/SigmaFrameGraph.cs::FindKernels@852",
+      "file": "Runtime/SigmaPrism/SigmaFrameGraph.cs",
+      "name": "FindKernels",
+      "kind": "method",
+      "line": 852
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaFrameGraph.cs::Intrinsics@864",
       "file": "Runtime/SigmaPrism/SigmaFrameGraph.cs",
       "name": "Intrinsics",
       "kind": "method",
-      "line": 568
+      "line": 864
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaFrameGraph.cs::Packed@572",
+      "id": "Runtime/SigmaPrism/SigmaFrameGraph.cs::Packed@868",
       "file": "Runtime/SigmaPrism/SigmaFrameGraph.cs",
       "name": "Packed",
       "kind": "method",
-      "line": 572
+      "line": 868
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaFrameGraph.cs::PoseMatrix@565",
+      "id": "Runtime/SigmaPrism/SigmaFrameGraph.cs::PoseMatrix@861",
       "file": "Runtime/SigmaPrism/SigmaFrameGraph.cs",
       "name": "PoseMatrix",
       "kind": "method",
-      "line": 565
+      "line": 861
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaFrameGraph.cs::RecordDepthSource@341",
+      "id": "Runtime/SigmaPrism/SigmaFrameGraph.cs::RecordClosureAndPublish@333",
+      "file": "Runtime/SigmaPrism/SigmaFrameGraph.cs",
+      "name": "RecordClosureAndPublish",
+      "kind": "method",
+      "line": 333
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaFrameGraph.cs::RecordDepthSource@628",
       "file": "Runtime/SigmaPrism/SigmaFrameGraph.cs",
       "name": "RecordDepthSource",
       "kind": "method",
-      "line": 341
+      "line": 628
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaFrameGraph.cs::RecordRgbSource@379",
+      "id": "Runtime/SigmaPrism/SigmaFrameGraph.cs::RecordRgbSource@666",
       "file": "Runtime/SigmaPrism/SigmaFrameGraph.cs",
       "name": "RecordRgbSource",
       "kind": "method",
-      "line": 379
+      "line": 666
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaFrameGraph.cs::RecordSourceAndResolve@152",
+      "id": "Runtime/SigmaPrism/SigmaFrameGraph.cs::RecordSourceAndResolve@215",
       "file": "Runtime/SigmaPrism/SigmaFrameGraph.cs",
       "name": "RecordSourceAndResolve",
       "kind": "method",
-      "line": 152
+      "line": 215
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaFrameGraph.cs::RequireAlive@592",
+      "id": "Runtime/SigmaPrism/SigmaFrameGraph.cs::RequireAlive@888",
       "file": "Runtime/SigmaPrism/SigmaFrameGraph.cs",
       "name": "RequireAlive",
       "kind": "method",
-      "line": 592
+      "line": 888
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaFrameGraph.cs::RequireSingleExecutionWindow@534",
+      "id": "Runtime/SigmaPrism/SigmaFrameGraph.cs::RequireSingleExecutionWindow@821",
       "file": "Runtime/SigmaPrism/SigmaFrameGraph.cs",
       "name": "RequireSingleExecutionWindow",
       "kind": "method",
-      "line": 534
+      "line": 821
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaFrameGraph.cs::SetFrameMatrices@502",
+      "id": "Runtime/SigmaPrism/SigmaFrameGraph.cs::SetFrameMatrices@789",
       "file": "Runtime/SigmaPrism/SigmaFrameGraph.cs",
       "name": "SetFrameMatrices",
       "kind": "method",
-      "line": 502
+      "line": 789
     },
     {
       "id": "Runtime/SigmaPrism/SigmaFrameGraph.cs::SigmaFrameGraph",
       "file": "Runtime/SigmaPrism/SigmaFrameGraph.cs",
       "name": "SigmaFrameGraph",
       "kind": "class",
-      "line": 62
+      "line": 105
     },
     {
       "id": "Runtime/SigmaPrism/SigmaFrameGraph.cs::SigmaFrameInverseInput",
@@ -10677,18 +11058,25 @@
       "line": 12
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaFrameGraph.cs::Single@551",
+      "id": "Runtime/SigmaPrism/SigmaFrameGraph.cs::SigmaFramePublicationTarget",
+      "file": "Runtime/SigmaPrism/SigmaFrameGraph.cs",
+      "name": "SigmaFramePublicationTarget",
+      "kind": "struct",
+      "line": 56
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaFrameGraph.cs::Single@838",
       "file": "Runtime/SigmaPrism/SigmaFrameGraph.cs",
       "name": "Single",
       "kind": "method",
-      "line": 551
+      "line": 838
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaFrameGraph.cs::TryAcquire@142",
+      "id": "Runtime/SigmaPrism/SigmaFrameGraph.cs::TryAcquire@205",
       "file": "Runtime/SigmaPrism/SigmaFrameGraph.cs",
       "name": "TryAcquire",
       "kind": "method",
-      "line": 142
+      "line": 205
     },
     {
       "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::AdditionalBytesFor@62",
@@ -10698,25 +11086,25 @@
       "line": 62
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::BufferBytes@632",
+      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::BufferBytes@741",
       "file": "Runtime/SigmaPrism/SigmaFrameResources.cs",
       "name": "BufferBytes",
       "kind": "method",
-      "line": 632
+      "line": 741
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::ComputeSegmentRecordCapacity@513",
+      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::ComputeSegmentRecordCapacity@610",
       "file": "Runtime/SigmaPrism/SigmaFrameResources.cs",
       "name": "ComputeSegmentRecordCapacity",
       "kind": "method",
-      "line": 513
+      "line": 610
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::CreateBuffer@623",
+      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::CreateBuffer@732",
       "file": "Runtime/SigmaPrism/SigmaFrameResources.cs",
       "name": "CreateBuffer",
       "kind": "method",
-      "line": 623
+      "line": 732
     },
     {
       "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::Dispose@212",
@@ -10740,11 +11128,11 @@
       "line": 268
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::Dispose@559",
+      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::Dispose@656",
       "file": "Runtime/SigmaPrism/SigmaFrameResources.cs",
       "name": "Dispose",
       "kind": "method",
-      "line": 559
+      "line": 656
     },
     {
       "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::Dispose@98",
@@ -10754,18 +11142,18 @@
       "line": 98
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::EstimateSourceBytes@498",
+      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::EstimateSourceBytes@595",
       "file": "Runtime/SigmaPrism/SigmaFrameResources.cs",
       "name": "EstimateSourceBytes",
       "kind": "method",
-      "line": 498
+      "line": 595
     },
     {
       "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::FrameSlot",
       "file": "Runtime/SigmaPrism/SigmaFrameResources.cs",
       "name": "FrameSlot",
       "kind": "struct",
-      "line": 669
+      "line": 778
     },
     {
       "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::Get@223",
@@ -10775,11 +11163,11 @@
       "line": 223
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::GetSources@526",
+      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::GetSources@623",
       "file": "Runtime/SigmaPrism/SigmaFrameResources.cs",
       "name": "GetSources",
       "kind": "method",
-      "line": 526
+      "line": 623
     },
     {
       "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::GrowTo@71",
@@ -10803,11 +11191,11 @@
       "line": 210
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::Release@539",
+      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::Release@636",
       "file": "Runtime/SigmaPrism/SigmaFrameResources.cs",
       "name": "Release",
       "kind": "method",
-      "line": 539
+      "line": 636
     },
     {
       "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::RequireAlive@109",
@@ -10817,18 +11205,18 @@
       "line": 109
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::RequireAlive@617",
+      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::RequireAlive@726",
       "file": "Runtime/SigmaPrism/SigmaFrameResources.cs",
       "name": "RequireAlive",
       "kind": "method",
-      "line": 617
+      "line": 726
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::RequireSlot@606",
+      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::RequireSlot@715",
       "file": "Runtime/SigmaPrism/SigmaFrameResources.cs",
       "name": "RequireSlot",
       "kind": "method",
-      "line": 606
+      "line": 715
     },
     {
       "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::Retain@261",
@@ -10838,11 +11226,11 @@
       "line": 261
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::Retain@532",
+      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::Retain@629",
       "file": "Runtime/SigmaPrism/SigmaFrameResources.cs",
       "name": "Retain",
       "kind": "method",
-      "line": 532
+      "line": 629
     },
     {
       "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::SigmaFrameBufferSegment",
@@ -10887,60 +11275,67 @@
       "line": 242
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::TryAcquireFrame@403",
+      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::TryAcquireFrame@451",
       "file": "Runtime/SigmaPrism/SigmaFrameResources.cs",
       "name": "TryAcquireFrame",
       "kind": "method",
-      "line": 403
+      "line": 451
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::TryEnsureCandidateCapacity@462",
+      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::TryEnsureCandidateCapacity@510",
       "file": "Runtime/SigmaPrism/SigmaFrameResources.cs",
       "name": "TryEnsureCandidateCapacity",
       "kind": "method",
-      "line": 462
+      "line": 510
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::TryEnsureDirtyEdgeCapacity@492",
+      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::TryEnsureClosureCapacity@549",
+      "file": "Runtime/SigmaPrism/SigmaFrameResources.cs",
+      "name": "TryEnsureClosureCapacity",
+      "kind": "method",
+      "line": 549
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::TryEnsureDirtyEdgeCapacity@543",
       "file": "Runtime/SigmaPrism/SigmaFrameResources.cs",
       "name": "TryEnsureDirtyEdgeCapacity",
       "kind": "method",
-      "line": 492
+      "line": 543
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::TryEnsurePendingGaugeCapacity@489",
+      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::TryEnsurePendingGaugeCapacity@540",
       "file": "Runtime/SigmaPrism/SigmaFrameResources.cs",
       "name": "TryEnsurePendingGaugeCapacity",
       "kind": "method",
-      "line": 489
+      "line": 540
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::TryEnsureRevisionCapacity@495",
+      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::TryEnsureRevisionCapacity@546",
       "file": "Runtime/SigmaPrism/SigmaFrameResources.cs",
       "name": "TryEnsureRevisionCapacity",
       "kind": "method",
-      "line": 495
+      "line": 546
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::TryGrow@592",
+      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::TryGrow@701",
       "file": "Runtime/SigmaPrism/SigmaFrameResources.cs",
       "name": "TryGrow",
       "kind": "method",
-      "line": 592
+      "line": 701
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::TryReserve@603",
+      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::TryReserve@712",
       "file": "Runtime/SigmaPrism/SigmaFrameResources.cs",
       "name": "TryReserve",
       "kind": "method",
-      "line": 603
+      "line": 712
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::UInt4@635",
+      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::UInt4@744",
       "file": "Runtime/SigmaPrism/SigmaFrameResources.cs",
       "name": "UInt4",
       "kind": "method",
-      "line": 635
+      "line": 744
     },
     {
       "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::Upper@206",
@@ -10950,11 +11345,11 @@
       "line": 206
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::ValidateGeneratedAbi@638",
+      "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::ValidateGeneratedAbi@747",
       "file": "Runtime/SigmaPrism/SigmaFrameResources.cs",
       "name": "ValidateGeneratedAbi",
       "kind": "method",
-      "line": 638
+      "line": 747
     },
     {
       "id": "Runtime/SigmaPrism/SigmaFrameResources.cs::Validity@208",
@@ -15570,130 +15965,179 @@
       "line": 26
     },
     {
-      "id": "Tests/Editor/SigmaFrameInverseTests.cs::ArrayRenderTexture@477",
+      "id": "Tests/Editor/SigmaFrameInverseTests.cs::ArrayRenderTexture@622",
       "file": "Tests/Editor/SigmaFrameInverseTests.cs",
       "name": "ArrayRenderTexture",
       "kind": "method",
-      "line": 477
+      "line": 622
     },
     {
-      "id": "Tests/Editor/SigmaFrameInverseTests.cs::BuildCpuOracle@118",
+      "id": "Tests/Editor/SigmaFrameInverseTests.cs::AssertPublished@192",
+      "file": "Tests/Editor/SigmaFrameInverseTests.cs",
+      "name": "AssertPublished",
+      "kind": "method",
+      "line": 192
+    },
+    {
+      "id": "Tests/Editor/SigmaFrameInverseTests.cs::BuildCpuOracle@223",
       "file": "Tests/Editor/SigmaFrameInverseTests.cs",
       "name": "BuildCpuOracle",
       "kind": "method",
-      "line": 118
+      "line": 223
     },
     {
-      "id": "Tests/Editor/SigmaFrameInverseTests.cs::Candidate@251",
+      "id": "Tests/Editor/SigmaFrameInverseTests.cs::Candidate@356",
       "file": "Tests/Editor/SigmaFrameInverseTests.cs",
       "name": "Candidate",
       "kind": "method",
-      "line": 251
+      "line": 356
     },
     {
-      "id": "Tests/Editor/SigmaFrameInverseTests.cs::ClearPrediction@499",
+      "id": "Tests/Editor/SigmaFrameInverseTests.cs::ClearPrediction@644",
       "file": "Tests/Editor/SigmaFrameInverseTests.cs",
       "name": "ClearPrediction",
       "kind": "method",
-      "line": 499
+      "line": 644
     },
     {
-      "id": "Tests/Editor/SigmaFrameInverseTests.cs::ConstrainedLaneCount@221",
+      "id": "Tests/Editor/SigmaFrameInverseTests.cs::ConstrainedLaneCount@326",
       "file": "Tests/Editor/SigmaFrameInverseTests.cs",
       "name": "ConstrainedLaneCount",
       "kind": "method",
-      "line": 221
+      "line": 326
     },
     {
-      "id": "Tests/Editor/SigmaFrameInverseTests.cs::Contains@247",
+      "id": "Tests/Editor/SigmaFrameInverseTests.cs::Contains@352",
       "file": "Tests/Editor/SigmaFrameInverseTests.cs",
       "name": "Contains",
       "kind": "method",
-      "line": 247
+      "line": 352
     },
     {
-      "id": "Tests/Editor/SigmaFrameInverseTests.cs::DepthCalibration@522",
+      "id": "Tests/Editor/SigmaFrameInverseTests.cs::CurrentPage@205",
+      "file": "Tests/Editor/SigmaFrameInverseTests.cs",
+      "name": "CurrentPage",
+      "kind": "method",
+      "line": 205
+    },
+    {
+      "id": "Tests/Editor/SigmaFrameInverseTests.cs::DepthCalibration@667",
       "file": "Tests/Editor/SigmaFrameInverseTests.cs",
       "name": "DepthCalibration",
       "kind": "method",
-      "line": 522
+      "line": 667
     },
     {
-      "id": "Tests/Editor/SigmaFrameInverseTests.cs::Destroy@595",
+      "id": "Tests/Editor/SigmaFrameInverseTests.cs::Destroy@743",
       "file": "Tests/Editor/SigmaFrameInverseTests.cs",
       "name": "Destroy",
       "kind": "method",
-      "line": 595
+      "line": 743
     },
     {
-      "id": "Tests/Editor/SigmaFrameInverseTests.cs::Dispose@376",
+      "id": "Tests/Editor/SigmaFrameInverseTests.cs::DirectFramePublicationIsAtomicAndLayoutInvariant@147",
+      "file": "Tests/Editor/SigmaFrameInverseTests.cs",
+      "name": "DirectFramePublicationIsAtomicAndLayoutInvariant",
+      "kind": "method",
+      "line": 147
+    },
+    {
+      "id": "Tests/Editor/SigmaFrameInverseTests.cs::Dispose@521",
       "file": "Tests/Editor/SigmaFrameInverseTests.cs",
       "name": "Dispose",
       "kind": "method",
-      "line": 376
+      "line": 521
     },
     {
       "id": "Tests/Editor/SigmaFrameInverseTests.cs::FrameFixture",
       "file": "Tests/Editor/SigmaFrameInverseTests.cs",
       "name": "FrameFixture",
       "kind": "class",
-      "line": 262
+      "line": 367
     },
     {
-      "id": "Tests/Editor/SigmaFrameInverseTests.cs::Intrinsics@429",
+      "id": "Tests/Editor/SigmaFrameInverseTests.cs::Intrinsics@574",
       "file": "Tests/Editor/SigmaFrameInverseTests.cs",
       "name": "Intrinsics",
       "kind": "method",
-      "line": 429
+      "line": 574
     },
     {
-      "id": "Tests/Editor/SigmaFrameInverseTests.cs::NormalizeDepth@457",
+      "id": "Tests/Editor/SigmaFrameInverseTests.cs::NormalizeDepth@602",
       "file": "Tests/Editor/SigmaFrameInverseTests.cs",
       "name": "NormalizeDepth",
       "kind": "method",
-      "line": 457
+      "line": 602
     },
     {
-      "id": "Tests/Editor/SigmaFrameInverseTests.cs::RawDepthTexture@445",
+      "id": "Tests/Editor/SigmaFrameInverseTests.cs::PageMeta",
+      "file": "Tests/Editor/SigmaFrameInverseTests.cs",
+      "name": "PageMeta",
+      "kind": "struct",
+      "line": 43
+    },
+    {
+      "id": "Tests/Editor/SigmaFrameInverseTests.cs::PageState@215",
+      "file": "Tests/Editor/SigmaFrameInverseTests.cs",
+      "name": "PageState",
+      "kind": "method",
+      "line": 215
+    },
+    {
+      "id": "Tests/Editor/SigmaFrameInverseTests.cs::PublicationSnapshot",
+      "file": "Tests/Editor/SigmaFrameInverseTests.cs",
+      "name": "PublicationSnapshot",
+      "kind": "class",
+      "line": 69
+    },
+    {
+      "id": "Tests/Editor/SigmaFrameInverseTests.cs::RawDepthTexture@590",
       "file": "Tests/Editor/SigmaFrameInverseTests.cs",
       "name": "RawDepthTexture",
       "kind": "method",
-      "line": 445
+      "line": 590
     },
     {
-      "id": "Tests/Editor/SigmaFrameInverseTests.cs::ReadSnapshot@399",
+      "id": "Tests/Editor/SigmaFrameInverseTests.cs::ReadSnapshot@544",
       "file": "Tests/Editor/SigmaFrameInverseTests.cs",
       "name": "ReadSnapshot",
       "kind": "method",
-      "line": 399
+      "line": 544
     },
     {
-      "id": "Tests/Editor/SigmaFrameInverseTests.cs::RgbCalibration@553",
+      "id": "Tests/Editor/SigmaFrameInverseTests.cs::RgbCalibration@698",
       "file": "Tests/Editor/SigmaFrameInverseTests.cs",
       "name": "RgbCalibration",
       "kind": "method",
-      "line": 553
+      "line": 698
     },
     {
-      "id": "Tests/Editor/SigmaFrameInverseTests.cs::RgbTexture@434",
+      "id": "Tests/Editor/SigmaFrameInverseTests.cs::RgbTexture@579",
       "file": "Tests/Editor/SigmaFrameInverseTests.cs",
       "name": "RgbTexture",
       "kind": "method",
-      "line": 434
+      "line": 579
     },
     {
-      "id": "Tests/Editor/SigmaFrameInverseTests.cs::Run@362",
+      "id": "Tests/Editor/SigmaFrameInverseTests.cs::Run@467",
       "file": "Tests/Editor/SigmaFrameInverseTests.cs",
       "name": "Run",
       "kind": "method",
-      "line": 362
+      "line": 467
     },
     {
-      "id": "Tests/Editor/SigmaFrameInverseTests.cs::Set@568",
+      "id": "Tests/Editor/SigmaFrameInverseTests.cs::RunPublished@481",
+      "file": "Tests/Editor/SigmaFrameInverseTests.cs",
+      "name": "RunPublished",
+      "kind": "method",
+      "line": 481
+    },
+    {
+      "id": "Tests/Editor/SigmaFrameInverseTests.cs::Set@713",
       "file": "Tests/Editor/SigmaFrameInverseTests.cs",
       "name": "Set",
       "kind": "method",
-      "line": 568
+      "line": 713
     },
     {
       "id": "Tests/Editor/SigmaFrameInverseTests.cs::SigmaFrameInverseTests",
@@ -15703,25 +16147,25 @@
       "line": 11
     },
     {
-      "id": "Tests/Editor/SigmaFrameInverseTests.cs::Signed@259",
+      "id": "Tests/Editor/SigmaFrameInverseTests.cs::Signed@364",
       "file": "Tests/Editor/SigmaFrameInverseTests.cs",
       "name": "Signed",
       "kind": "method",
-      "line": 259
+      "line": 364
     },
     {
       "id": "Tests/Editor/SigmaFrameInverseTests.cs::Snapshot",
       "file": "Tests/Editor/SigmaFrameInverseTests.cs",
       "name": "Snapshot",
       "kind": "class",
-      "line": 41
+      "line": 58
     },
     {
-      "id": "Tests/Editor/SigmaFrameInverseTests.cs::SourceKey@233",
+      "id": "Tests/Editor/SigmaFrameInverseTests.cs::SourceKey@338",
       "file": "Tests/Editor/SigmaFrameInverseTests.cs",
       "name": "SourceKey",
       "kind": "method",
-      "line": 233
+      "line": 338
     },
     {
       "id": "Tests/Editor/SigmaFrameInverseTests.cs::UInt2",
@@ -15738,11 +16182,11 @@
       "line": 34
     },
     {
-      "id": "Tests/Editor/SigmaFrameInverseTests.cs::WholeFrameFourSourceInverseIsExactAndPartitionInvariant@54",
+      "id": "Tests/Editor/SigmaFrameInverseTests.cs::WholeFrameFourSourceInverseIsExactAndPartitionInvariant@81",
       "file": "Tests/Editor/SigmaFrameInverseTests.cs",
       "name": "WholeFrameFourSourceInverseIsExactAndPartitionInvariant",
       "kind": "method",
-      "line": 54
+      "line": 81
     },
     {
       "id": "Tests/Editor/SigmaFrameResourceTests.cs::GeneratedFrameAbiHasExactManagedStrides@21",
@@ -19238,493 +19682,633 @@
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildDepthSourceCells@337",
-      "target": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameCellAddress@127",
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::AllocatePendingRoots@411",
+      "target": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::SigmaFrameAddU64@183",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildDepthSourceCells@337",
-      "target": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameFullBounds@119",
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::AllocatePendingRoots@411",
+      "target": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::SigmaFramePaddedWidth@189",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildDepthSourceCells@337",
-      "target": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameLoadMetric@138",
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::BuildPendingEdges@253",
+      "target": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::SigmaFramePendingCompatible@138",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildDepthSourceCells@337",
-      "target": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameProjectDepth@172",
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::ClearFrameClosure@210",
+      "target": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::SigmaFrameClosureEnabled@66",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildDepthSourceCells@337",
-      "target": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameReferenceWorld@148",
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::ClearFrameClosure@210",
+      "target": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::SigmaFramePendingActive@83",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildDepthSourceCells@337",
-      "target": "Runtime/Resources/SigmaPrism/SigmaInverseMath.hlsl::SigmaBuildDepthWorldCell@229",
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::FinalizePendingGauges@313",
+      "target": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::SigmaFrameResolved@71",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildFrameProposals@289",
-      "target": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameCandidateLess@234",
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::ReserveFrameAllocation@394",
+      "target": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::SigmaFrameAddU64@183",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildFrameProposals@289",
-      "target": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameEmptyCandidate@198",
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::ResolveFrameTargets@469",
+      "target": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::SigmaFramePaddedWidth@189",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildFrameProposals@289",
-      "target": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFramePixel@132",
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::ResolveFrameTargets@469",
+      "target": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::SigmaFrameResolved@71",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildFrameProposals@289",
-      "target": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFramePredictionCandidate@208",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildFrameProposals@289",
-      "target": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameProjectDepth@172",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildFrameProposals@289",
-      "target": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameReferenceWorld@148",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildFrameProposals@289",
-      "target": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameSameCandidate@252",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildRgbSourceCells@465",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48AddChecked@140",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildRgbSourceCells@465",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48DivLower@623",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildRgbSourceCells@465",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48DivUpper@628",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildRgbSourceCells@465",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48MulNearestEven@304",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildRgbSourceCells@465",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48NegateChecked@152",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildRgbSourceCells@465",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48SubChecked@159",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildRgbSourceCells@465",
-      "target": "Runtime/Resources/SigmaPrism/SigmaExactCompare.hlsl::SigmaQ48Less@25",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildRgbSourceCells@465",
-      "target": "Runtime/Resources/SigmaPrism/SigmaExactCompare.hlsl::SigmaQ48Max@35",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildRgbSourceCells@465",
-      "target": "Runtime/Resources/SigmaPrism/SigmaExactCompare.hlsl::SigmaQ48Min@30",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildRgbSourceCells@465",
-      "target": "Runtime/Resources/SigmaPrism/SigmaExactCompare.hlsl::SigmaU64Equal@7",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildRgbSourceCells@465",
-      "target": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameBootstrapCoordinate@449",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildRgbSourceCells@465",
-      "target": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameCellAddress@127",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildRgbSourceCells@465",
-      "target": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameExactEnabled@114",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildRgbSourceCells@465",
-      "target": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameFullBounds@119",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildRgbSourceCells@465",
-      "target": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameLoadDepthJoint@411",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildRgbSourceCells@465",
-      "target": "Runtime/Resources/SigmaPrism/SigmaGeometryReadout.hlsl::SigmaQ48ToReadoutFloat@5",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildRgbSourceCells@465",
-      "target": "Runtime/Resources/SigmaPrism/SigmaInverseMath.hlsl::SigmaPriorHalfWidth@140",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildRgbSourceCells@465",
-      "target": "Runtime/Resources/SigmaPrism/SigmaInverseMath.hlsl::SigmaQ48FromUnsignedInteger@25",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildRgbSourceCells@465",
-      "target": "Runtime/Resources/SigmaPrism/SigmaInverseMath.hlsl::SigmaQ48PointBounds@74",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildRgbSourceCells@465",
-      "target": "Runtime/Resources/SigmaPrism/SigmaInverseMath.hlsl::SigmaQ48ScaleBounds@118",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildRgbSourceCells@465",
-      "target": "Runtime/Resources/SigmaPrism/SigmaPoseConsume.hlsl::SigmaPoseUnapplyWorld@109",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildRgbSourceCells@465",
-      "target": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaBuildRgbMeasurement@124",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildRgbSourceCells@465",
-      "target": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaProjectWorldToRgb@96",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildRgbSourceCells@465",
-      "target": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaRgbCalibrationValue@38",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildRgbSourceCells@465",
-      "target": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaRgbInequalityCoefficient@169",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildRgbSourceCells@465",
-      "target": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaRgbOperator@48",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildRgbSourceCells@465",
-      "target": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaRgbQuantizedDirection@72",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::CompactResolvedTargets@1080",
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::ScanPendingRootBlocks@360",
       "target": "Runtime/Resources/SigmaPrism/SigmaStableScan.hlsl::SigmaStableExclusiveScan256@78",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::EvaluateCandidateMeets@818",
-      "target": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedTables.hlsl::SigmaHadamardSign@197",
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::ScanPendingRootSupers@378",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStableScan.hlsl::SigmaStableExclusiveScan256@78",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::EvaluateCandidateMeets@818",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48AddChecked@140",
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::ScanPendingRoots@342",
+      "target": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::SigmaFrameRootCost@196",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::EvaluateCandidateMeets@818",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48DivNearestEven@618",
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::ScanPendingRoots@342",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStableScan.hlsl::SigmaStableExclusiveScan256@78",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::EvaluateCandidateMeets@818",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48MulNearestEven@304",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::EvaluateCandidateMeets@818",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48NegateChecked@152",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::EvaluateCandidateMeets@818",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48ShiftRightNearestEven@184",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::EvaluateCandidateMeets@818",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48SubChecked@159",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::EvaluateCandidateMeets@818",
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::SigmaFrameDepthBounds@112",
       "target": "Runtime/Resources/SigmaPrism/SigmaExactCompare.hlsl::SigmaQ48Less@25",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::EvaluateCandidateMeets@818",
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::SigmaFrameDepthBounds@112",
       "target": "Runtime/Resources/SigmaPrism/SigmaExactCompare.hlsl::SigmaQ48Max@35",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::EvaluateCandidateMeets@818",
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::SigmaFrameDepthBounds@112",
       "target": "Runtime/Resources/SigmaPrism/SigmaExactCompare.hlsl::SigmaQ48Min@30",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::EvaluateCandidateMeets@818",
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::SigmaFramePendingActive@83",
+      "target": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::SigmaFrameResolved@71",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::SigmaFramePendingCompatible@138",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48SubChecked@159",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::SigmaFramePendingCompatible@138",
+      "target": "Runtime/Resources/SigmaPrism/SigmaExactCompare.hlsl::SigmaQ48Less@25",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::SigmaFramePendingCompatible@138",
+      "target": "Runtime/Resources/SigmaPrism/SigmaExactCompare.hlsl::SigmaQ48Max@35",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::SigmaFramePendingCompatible@138",
+      "target": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::SigmaFrameDepthBounds@112",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::SigmaFramePendingCompatible@138",
+      "target": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::SigmaFrameStateHasContact@104",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::SigmaFramePendingCompatible@138",
+      "target": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::SigmaFrameStateLane@97",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::SigmaFrameRootCost@196",
+      "target": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::SigmaFramePaddedWidth@189",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::SigmaFrameStateHasContact@104",
+      "target": "Runtime/Resources/SigmaPrism/SigmaGeometryReadout.hlsl::SigmaGeometryReadoutExact@19",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::SigmaFrameStateLane@97",
+      "target": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::SigmaFrameResolved@71",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildDepthSourceCells@340",
+      "target": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameCellAddress@128",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildDepthSourceCells@340",
+      "target": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameFullBounds@120",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildDepthSourceCells@340",
+      "target": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameLoadMetric@139",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildDepthSourceCells@340",
+      "target": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameProjectDepth@173",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildDepthSourceCells@340",
+      "target": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameReferenceWorld@149",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildDepthSourceCells@340",
+      "target": "Runtime/Resources/SigmaPrism/SigmaInverseMath.hlsl::SigmaBuildDepthWorldCell@229",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildFrameProposals@292",
+      "target": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameCandidateLess@235",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildFrameProposals@292",
+      "target": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameEmptyCandidate@199",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildFrameProposals@292",
+      "target": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFramePixel@133",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildFrameProposals@292",
+      "target": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFramePredictionCandidate@209",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildFrameProposals@292",
+      "target": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameProjectDepth@173",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildFrameProposals@292",
+      "target": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameReferenceWorld@149",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildFrameProposals@292",
+      "target": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameSameCandidate@253",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildRgbSourceCells@468",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48AddChecked@140",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildRgbSourceCells@468",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48DivLower@623",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildRgbSourceCells@468",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48DivUpper@628",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildRgbSourceCells@468",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48MulNearestEven@304",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildRgbSourceCells@468",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48NegateChecked@152",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildRgbSourceCells@468",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48SubChecked@159",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildRgbSourceCells@468",
+      "target": "Runtime/Resources/SigmaPrism/SigmaExactCompare.hlsl::SigmaQ48Less@25",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildRgbSourceCells@468",
+      "target": "Runtime/Resources/SigmaPrism/SigmaExactCompare.hlsl::SigmaQ48Max@35",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildRgbSourceCells@468",
+      "target": "Runtime/Resources/SigmaPrism/SigmaExactCompare.hlsl::SigmaQ48Min@30",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildRgbSourceCells@468",
       "target": "Runtime/Resources/SigmaPrism/SigmaExactCompare.hlsl::SigmaU64Equal@7",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::EvaluateCandidateMeets@818",
-      "target": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameBuildNovelState@765",
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildRgbSourceCells@468",
+      "target": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameBootstrapCoordinate@452",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::EvaluateCandidateMeets@818",
-      "target": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameCellAddress@127",
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildRgbSourceCells@468",
+      "target": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameCellAddress@128",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::EvaluateCandidateMeets@818",
-      "target": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameEmptyCandidate@198",
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildRgbSourceCells@468",
+      "target": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameExactEnabled@115",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::EvaluateCandidateMeets@818",
-      "target": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameExactEnabled@114",
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildRgbSourceCells@468",
+      "target": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameFullBounds@120",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::EvaluateCandidateMeets@818",
-      "target": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameFullBounds@119",
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildRgbSourceCells@468",
+      "target": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameLoadDepthJoint@414",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::EvaluateCandidateMeets@818",
-      "target": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameSourceBounds@709",
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildRgbSourceCells@468",
+      "target": "Runtime/Resources/SigmaPrism/SigmaGeometryReadout.hlsl::SigmaQ48ToReadoutFloat@5",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::EvaluateCandidateMeets@818",
-      "target": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameSourceProvenance@740",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::EvaluateCandidateMeets@818",
-      "target": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameTransformRow@751",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::EvaluateCandidateMeets@818",
-      "target": "Runtime/Resources/SigmaPrism/SigmaInverseMath.hlsl::SigmaInformationMassForWidth@163",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::EvaluateCandidateMeets@818",
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildRgbSourceCells@468",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseMath.hlsl::SigmaPriorHalfWidth@140",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::EvaluateCandidateMeets@818",
-      "target": "Runtime/Resources/SigmaPrism/SigmaInverseMath.hlsl::SigmaQ48AbsDifference@60",
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildRgbSourceCells@468",
+      "target": "Runtime/Resources/SigmaPrism/SigmaInverseMath.hlsl::SigmaQ48FromUnsignedInteger@25",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::EvaluateCandidateMeets@818",
-      "target": "Runtime/Resources/SigmaPrism/SigmaInverseMath.hlsl::SigmaQ48Positive@19",
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildRgbSourceCells@468",
+      "target": "Runtime/Resources/SigmaPrism/SigmaInverseMath.hlsl::SigmaQ48PointBounds@74",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::EvaluateCandidateMeets@818",
-      "target": "Runtime/Resources/SigmaPrism/SigmaInverseMath.hlsl::SigmaQ48Widen@82",
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildRgbSourceCells@468",
+      "target": "Runtime/Resources/SigmaPrism/SigmaInverseMath.hlsl::SigmaQ48ScaleBounds@118",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::EvaluateCandidateMeets@818",
-      "target": "Runtime/Resources/SigmaPrism/SigmaOperatorPlan.hlsl::SigmaProjectiveClamp@118",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameBootstrapCoordinate@449",
-      "target": "Runtime/Resources/SigmaPrism/SigmaInverseMath.hlsl::SigmaQ48Midpoint@67",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameBuildNovelState@765",
-      "target": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedTables.hlsl::SigmaHadamardSign@197",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameBuildNovelState@765",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48AddChecked@140",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameBuildNovelState@765",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48MulNearestEven@304",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameBuildNovelState@765",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48NegateChecked@152",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameBuildNovelState@765",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48ShiftRightNearestEven@184",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameBuildNovelState@765",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48SubChecked@159",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameBuildNovelState@765",
-      "target": "Runtime/Resources/SigmaPrism/SigmaExactCompare.hlsl::SigmaQ48Less@25",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameBuildNovelState@765",
-      "target": "Runtime/Resources/SigmaPrism/SigmaExactCompare.hlsl::SigmaQ48Max@35",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameBuildNovelState@765",
-      "target": "Runtime/Resources/SigmaPrism/SigmaExactCompare.hlsl::SigmaQ48Min@30",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameBuildNovelState@765",
-      "target": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameCellAddress@127",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameBuildNovelState@765",
-      "target": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameFullBounds@119",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameBuildNovelState@765",
-      "target": "Runtime/Resources/SigmaPrism/SigmaInverseMath.hlsl::SigmaInformationMassForWidth@163",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameBuildNovelState@765",
-      "target": "Runtime/Resources/SigmaPrism/SigmaInverseMath.hlsl::SigmaQ48Midpoint@67",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameCandidateLess@234",
-      "target": "Runtime/Resources/SigmaPrism/SigmaExactCompare.hlsl::SigmaI64Less@18",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameCandidateLess@234",
-      "target": "Runtime/Resources/SigmaPrism/SigmaExactCompare.hlsl::SigmaU64Equal@7",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameLoadDepthJoint@411",
-      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48SubChecked@159",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameLoadDepthJoint@411",
-      "target": "Runtime/Resources/SigmaPrism/SigmaExactCompare.hlsl::SigmaQ48Less@25",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameLoadDepthJoint@411",
-      "target": "Runtime/Resources/SigmaPrism/SigmaExactCompare.hlsl::SigmaQ48Max@35",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameLoadDepthJoint@411",
-      "target": "Runtime/Resources/SigmaPrism/SigmaExactCompare.hlsl::SigmaQ48Min@30",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameLoadDepthJoint@411",
-      "target": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameCellAddress@127",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameLoadDepthJoint@411",
-      "target": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameFullBounds@119",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameLoadDepthJoint@411",
-      "target": "Runtime/Resources/SigmaPrism/SigmaInverseMath.hlsl::SigmaInformationMassForWidth@163",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFramePredictionCandidate@208",
-      "target": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameEmptyCandidate@198",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameProjectDepth@172",
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildRgbSourceCells@468",
       "target": "Runtime/Resources/SigmaPrism/SigmaPoseConsume.hlsl::SigmaPoseUnapplyWorld@109",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameReferenceWorld@148",
-      "target": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameLoadMetric@138",
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildRgbSourceCells@468",
+      "target": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaBuildRgbMeasurement@124",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameReferenceWorld@148",
-      "target": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFramePixel@132",
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildRgbSourceCells@468",
+      "target": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaProjectWorldToRgb@96",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameReferenceWorld@148",
-      "target": "Runtime/Resources/SigmaPrism/SigmaPoseConsume.hlsl::SigmaPoseApplyWorld@95",
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildRgbSourceCells@468",
+      "target": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaRgbCalibrationValue@38",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameTransformRow@751",
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildRgbSourceCells@468",
+      "target": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaRgbInequalityCoefficient@169",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildRgbSourceCells@468",
+      "target": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaRgbOperator@48",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::BuildRgbSourceCells@468",
+      "target": "Runtime/Resources/SigmaPrism/SigmaRgbInverseMath.hlsl::SigmaRgbQuantizedDirection@72",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::CompactResolvedTargets@1083",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStableScan.hlsl::SigmaStableExclusiveScan256@78",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::EvaluateCandidateMeets@821",
       "target": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedTables.hlsl::SigmaHadamardSign@197",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameTransformRow@751",
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::EvaluateCandidateMeets@821",
       "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48AddChecked@140",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameTransformRow@751",
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::EvaluateCandidateMeets@821",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48DivNearestEven@618",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::EvaluateCandidateMeets@821",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48MulNearestEven@304",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::EvaluateCandidateMeets@821",
       "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48NegateChecked@152",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::if@869",
-      "target": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameBuildNovelState@765",
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::EvaluateCandidateMeets@821",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48ShiftRightNearestEven@184",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::EvaluateCandidateMeets@821",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48SubChecked@159",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::EvaluateCandidateMeets@821",
+      "target": "Runtime/Resources/SigmaPrism/SigmaExactCompare.hlsl::SigmaQ48Less@25",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::EvaluateCandidateMeets@821",
+      "target": "Runtime/Resources/SigmaPrism/SigmaExactCompare.hlsl::SigmaQ48Max@35",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::EvaluateCandidateMeets@821",
+      "target": "Runtime/Resources/SigmaPrism/SigmaExactCompare.hlsl::SigmaQ48Min@30",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::EvaluateCandidateMeets@821",
+      "target": "Runtime/Resources/SigmaPrism/SigmaExactCompare.hlsl::SigmaU64Equal@7",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::EvaluateCandidateMeets@821",
+      "target": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameBuildNovelState@768",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::EvaluateCandidateMeets@821",
+      "target": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameCellAddress@128",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::EvaluateCandidateMeets@821",
+      "target": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameEmptyCandidate@199",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::EvaluateCandidateMeets@821",
+      "target": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameExactEnabled@115",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::EvaluateCandidateMeets@821",
+      "target": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameFullBounds@120",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::EvaluateCandidateMeets@821",
+      "target": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameSourceBounds@712",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::EvaluateCandidateMeets@821",
+      "target": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameSourceProvenance@743",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::EvaluateCandidateMeets@821",
+      "target": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameTransformRow@754",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::EvaluateCandidateMeets@821",
+      "target": "Runtime/Resources/SigmaPrism/SigmaInverseMath.hlsl::SigmaInformationMassForWidth@163",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::EvaluateCandidateMeets@821",
+      "target": "Runtime/Resources/SigmaPrism/SigmaInverseMath.hlsl::SigmaPriorHalfWidth@140",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::EvaluateCandidateMeets@821",
+      "target": "Runtime/Resources/SigmaPrism/SigmaInverseMath.hlsl::SigmaQ48AbsDifference@60",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::EvaluateCandidateMeets@821",
+      "target": "Runtime/Resources/SigmaPrism/SigmaInverseMath.hlsl::SigmaQ48Positive@19",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::EvaluateCandidateMeets@821",
+      "target": "Runtime/Resources/SigmaPrism/SigmaInverseMath.hlsl::SigmaQ48Widen@82",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::EvaluateCandidateMeets@821",
+      "target": "Runtime/Resources/SigmaPrism/SigmaOperatorPlan.hlsl::SigmaProjectiveClamp@118",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameBootstrapCoordinate@452",
+      "target": "Runtime/Resources/SigmaPrism/SigmaInverseMath.hlsl::SigmaQ48Midpoint@67",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameBuildNovelState@768",
+      "target": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedTables.hlsl::SigmaHadamardSign@197",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameBuildNovelState@768",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48AddChecked@140",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameBuildNovelState@768",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48MulNearestEven@304",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameBuildNovelState@768",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48NegateChecked@152",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameBuildNovelState@768",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48ShiftRightNearestEven@184",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameBuildNovelState@768",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48SubChecked@159",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameBuildNovelState@768",
+      "target": "Runtime/Resources/SigmaPrism/SigmaExactCompare.hlsl::SigmaQ48Less@25",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameBuildNovelState@768",
+      "target": "Runtime/Resources/SigmaPrism/SigmaExactCompare.hlsl::SigmaQ48Max@35",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameBuildNovelState@768",
+      "target": "Runtime/Resources/SigmaPrism/SigmaExactCompare.hlsl::SigmaQ48Min@30",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameBuildNovelState@768",
+      "target": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameCellAddress@128",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameBuildNovelState@768",
+      "target": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameFullBounds@120",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameBuildNovelState@768",
+      "target": "Runtime/Resources/SigmaPrism/SigmaInverseMath.hlsl::SigmaInformationMassForWidth@163",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameBuildNovelState@768",
+      "target": "Runtime/Resources/SigmaPrism/SigmaInverseMath.hlsl::SigmaQ48Midpoint@67",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameCandidateLess@235",
+      "target": "Runtime/Resources/SigmaPrism/SigmaExactCompare.hlsl::SigmaI64Less@18",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameCandidateLess@235",
+      "target": "Runtime/Resources/SigmaPrism/SigmaExactCompare.hlsl::SigmaU64Equal@7",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameLoadDepthJoint@414",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48SubChecked@159",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameLoadDepthJoint@414",
+      "target": "Runtime/Resources/SigmaPrism/SigmaExactCompare.hlsl::SigmaQ48Less@25",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameLoadDepthJoint@414",
+      "target": "Runtime/Resources/SigmaPrism/SigmaExactCompare.hlsl::SigmaQ48Max@35",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameLoadDepthJoint@414",
+      "target": "Runtime/Resources/SigmaPrism/SigmaExactCompare.hlsl::SigmaQ48Min@30",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameLoadDepthJoint@414",
+      "target": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameCellAddress@128",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameLoadDepthJoint@414",
+      "target": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameFullBounds@120",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameLoadDepthJoint@414",
+      "target": "Runtime/Resources/SigmaPrism/SigmaInverseMath.hlsl::SigmaInformationMassForWidth@163",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFramePredictionCandidate@209",
+      "target": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameEmptyCandidate@199",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameProjectDepth@173",
+      "target": "Runtime/Resources/SigmaPrism/SigmaPoseConsume.hlsl::SigmaPoseUnapplyWorld@109",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameReferenceWorld@149",
+      "target": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameLoadMetric@139",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameReferenceWorld@149",
+      "target": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFramePixel@133",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameReferenceWorld@149",
+      "target": "Runtime/Resources/SigmaPrism/SigmaPoseConsume.hlsl::SigmaPoseApplyWorld@95",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameTransformRow@754",
+      "target": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedTables.hlsl::SigmaHadamardSign@197",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameTransformRow@754",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48AddChecked@140",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameTransformRow@754",
+      "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48NegateChecked@152",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::if@872",
+      "target": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameBuildNovelState@768",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFramePublish.compute::CompactChangedPages@103",
+      "target": "Runtime/Resources/SigmaPrism/SigmaStableScan.hlsl::SigmaStableExclusiveScan256@78",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaFramePublish.compute::PrepareFramePages@54",
+      "target": "Runtime/Resources/SigmaPrism/SigmaFramePublish.compute::SigmaFrameNullLane@43",
       "kind": "calls"
     },
     {
@@ -27898,163 +28482,223 @@
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::BindEvaluate@415",
-      "target": "Runtime/SigmaPrism/SigmaFrameGraph.cs::BindSourceReads@471",
+      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::BindClosureDepth@549",
+      "target": "Runtime/SigmaPrism/SigmaFrameGraph.cs::Single@838",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::BindSourceOutputs@451",
-      "target": "Runtime/SigmaPrism/SigmaFrameGraph.cs::Single@551",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::BindSourceOutputs@451",
-      "target": "Runtime/SigmaPrism/SigmaFrameResources.cs::Provenance@210",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::BindSourceOutputs@451",
+      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::BindClosureDepth@549",
       "target": "Runtime/SigmaPrism/SigmaFrameResources.cs::Upper@206",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::BindSourceOutputs@451",
+      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::BindClosureDepth@549",
       "target": "Runtime/SigmaPrism/SigmaFrameResources.cs::Validity@208",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::BindSourceRead@484",
-      "target": "Runtime/SigmaPrism/SigmaFrameGraph.cs::Single@551",
+      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::BindClosureKernel@422",
+      "target": "Runtime/SigmaPrism/SigmaFrameGraph.cs::BindClosureDepth@549",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::BindSourceRead@484",
+      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::BindClosureKernel@422",
+      "target": "Runtime/SigmaPrism/SigmaFrameGraph.cs::Single@838",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::BindEvaluate@702",
+      "target": "Runtime/SigmaPrism/SigmaFrameGraph.cs::BindSourceReads@758",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::BindPublishKernel@493",
+      "target": "Runtime/SigmaPrism/SigmaFrameGraph.cs::Single@838",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::BindSourceOutputs@738",
+      "target": "Runtime/SigmaPrism/SigmaFrameGraph.cs::Single@838",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::BindSourceOutputs@738",
       "target": "Runtime/SigmaPrism/SigmaFrameResources.cs::Provenance@210",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::BindSourceRead@484",
+      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::BindSourceOutputs@738",
       "target": "Runtime/SigmaPrism/SigmaFrameResources.cs::Upper@206",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::BindSourceRead@484",
+      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::BindSourceOutputs@738",
       "target": "Runtime/SigmaPrism/SigmaFrameResources.cs::Validity@208",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::BindSourceReads@471",
-      "target": "Runtime/SigmaPrism/SigmaFrameGraph.cs::BindSourceRead@484",
+      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::BindSourceRead@771",
+      "target": "Runtime/SigmaPrism/SigmaFrameGraph.cs::Single@838",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::RecordDepthSource@341",
-      "target": "Runtime/SigmaPrism/SigmaFrameGraph.cs::BindFootprintWindow@585",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::RecordDepthSource@341",
-      "target": "Runtime/SigmaPrism/SigmaFrameGraph.cs::BindSourceOutputs@451",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::RecordDepthSource@341",
-      "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Min@170",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::RecordRgbSource@379",
-      "target": "Runtime/SigmaPrism/SigmaFrameGraph.cs::BindFootprintWindow@585",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::RecordRgbSource@379",
-      "target": "Runtime/SigmaPrism/SigmaFrameGraph.cs::BindSourceOutputs@451",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::RecordRgbSource@379",
-      "target": "Runtime/SigmaPrism/SigmaFrameGraph.cs::BindSourceReads@471",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::RecordRgbSource@379",
-      "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Min@170",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::RecordSourceAndResolve@152",
-      "target": "Runtime/SigmaPrism/SigmaFrameGraph.cs::BindCarrier@433",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::RecordSourceAndResolve@152",
-      "target": "Runtime/SigmaPrism/SigmaFrameGraph.cs::BindEvaluate@415",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::RecordSourceAndResolve@152",
-      "target": "Runtime/SigmaPrism/SigmaFrameGraph.cs::BindFootprintWindow@585",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::RecordSourceAndResolve@152",
-      "target": "Runtime/SigmaPrism/SigmaFrameGraph.cs::BindFrameConstants@277",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::RecordSourceAndResolve@152",
-      "target": "Runtime/SigmaPrism/SigmaFrameGraph.cs::BindProposal@313",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::RecordSourceAndResolve@152",
-      "target": "Runtime/SigmaPrism/SigmaFrameGraph.cs::RecordDepthSource@341",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::RecordSourceAndResolve@152",
-      "target": "Runtime/SigmaPrism/SigmaFrameGraph.cs::RecordRgbSource@379",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::RecordSourceAndResolve@152",
-      "target": "Runtime/SigmaPrism/SigmaFrameGraph.cs::RequireSingleExecutionWindow@534",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::RecordSourceAndResolve@152",
-      "target": "Runtime/SigmaPrism/SigmaFrameGraph.cs::Single@551",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::RecordSourceAndResolve@152",
-      "target": "Runtime/SigmaPrism/SigmaFrameResources.cs::TryEnsureCandidateCapacity@462",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::RecordSourceAndResolve@152",
-      "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Min@170",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::RequireSingleExecutionWindow@534",
+      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::BindSourceRead@771",
       "target": "Runtime/SigmaPrism/SigmaFrameResources.cs::Provenance@210",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::RequireSingleExecutionWindow@534",
+      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::BindSourceRead@771",
       "target": "Runtime/SigmaPrism/SigmaFrameResources.cs::Upper@206",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::RequireSingleExecutionWindow@534",
+      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::BindSourceRead@771",
       "target": "Runtime/SigmaPrism/SigmaFrameResources.cs::Validity@208",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::TryAcquire@142",
-      "target": "Runtime/SigmaPrism/SigmaFrameResources.cs::TryAcquireFrame@403",
+      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::BindSourceReads@758",
+      "target": "Runtime/SigmaPrism/SigmaFrameGraph.cs::BindSourceRead@771",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::FindKernels@852",
+      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::FindProfiledKernel@59",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::RecordClosureAndPublish@333",
+      "target": "Runtime/SigmaPrism/SigmaFrameGraph.cs::BindClosureKernel@422",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::RecordClosureAndPublish@333",
+      "target": "Runtime/SigmaPrism/SigmaFrameGraph.cs::BindPublishKernel@493",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::RecordClosureAndPublish@333",
+      "target": "Runtime/SigmaPrism/SigmaFrameGraph.cs::RequireSingleExecutionWindow@821",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::RecordClosureAndPublish@333",
+      "target": "Runtime/SigmaPrism/SigmaFrameResources.cs::TryEnsureClosureCapacity@549",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::RecordClosureAndPublish@333",
+      "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Max@172",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::RecordDepthSource@628",
+      "target": "Runtime/SigmaPrism/SigmaFrameGraph.cs::BindFootprintWindow@881",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::RecordDepthSource@628",
+      "target": "Runtime/SigmaPrism/SigmaFrameGraph.cs::BindSourceOutputs@738",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::RecordDepthSource@628",
+      "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Min@170",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::RecordRgbSource@666",
+      "target": "Runtime/SigmaPrism/SigmaFrameGraph.cs::BindFootprintWindow@881",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::RecordRgbSource@666",
+      "target": "Runtime/SigmaPrism/SigmaFrameGraph.cs::BindSourceOutputs@738",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::RecordRgbSource@666",
+      "target": "Runtime/SigmaPrism/SigmaFrameGraph.cs::BindSourceReads@758",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::RecordRgbSource@666",
+      "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Min@170",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::RecordSourceAndResolve@215",
+      "target": "Runtime/SigmaPrism/SigmaFrameGraph.cs::BindCarrier@720",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::RecordSourceAndResolve@215",
+      "target": "Runtime/SigmaPrism/SigmaFrameGraph.cs::BindEvaluate@702",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::RecordSourceAndResolve@215",
+      "target": "Runtime/SigmaPrism/SigmaFrameGraph.cs::BindFootprintWindow@881",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::RecordSourceAndResolve@215",
+      "target": "Runtime/SigmaPrism/SigmaFrameGraph.cs::BindFrameConstants@564",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::RecordSourceAndResolve@215",
+      "target": "Runtime/SigmaPrism/SigmaFrameGraph.cs::BindProposal@600",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::RecordSourceAndResolve@215",
+      "target": "Runtime/SigmaPrism/SigmaFrameGraph.cs::RecordDepthSource@628",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::RecordSourceAndResolve@215",
+      "target": "Runtime/SigmaPrism/SigmaFrameGraph.cs::RecordRgbSource@666",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::RecordSourceAndResolve@215",
+      "target": "Runtime/SigmaPrism/SigmaFrameGraph.cs::RequireSingleExecutionWindow@821",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::RecordSourceAndResolve@215",
+      "target": "Runtime/SigmaPrism/SigmaFrameGraph.cs::Single@838",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::RecordSourceAndResolve@215",
+      "target": "Runtime/SigmaPrism/SigmaFrameResources.cs::TryEnsureCandidateCapacity@510",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::RecordSourceAndResolve@215",
+      "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Min@170",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::RequireSingleExecutionWindow@821",
+      "target": "Runtime/SigmaPrism/SigmaFrameResources.cs::Provenance@210",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::RequireSingleExecutionWindow@821",
+      "target": "Runtime/SigmaPrism/SigmaFrameResources.cs::Upper@206",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::RequireSingleExecutionWindow@821",
+      "target": "Runtime/SigmaPrism/SigmaFrameResources.cs::Validity@208",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::TryAcquire@205",
+      "target": "Runtime/SigmaPrism/SigmaFrameResources.cs::TryAcquireFrame@451",
       "kind": "calls"
     },
     {
@@ -28063,17 +28707,17 @@
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaFrameResources.cs::ComputeSegmentRecordCapacity@513",
+      "source": "Runtime/SigmaPrism/SigmaFrameResources.cs::ComputeSegmentRecordCapacity@610",
       "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Max@172",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaFrameResources.cs::ComputeSegmentRecordCapacity@513",
+      "source": "Runtime/SigmaPrism/SigmaFrameResources.cs::ComputeSegmentRecordCapacity@610",
       "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Min@170",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaFrameResources.cs::Dispose@559",
+      "source": "Runtime/SigmaPrism/SigmaFrameResources.cs::Dispose@656",
       "target": "Runtime/SigmaPrism/SigmaTransitionCache.cs::Clear@104",
       "kind": "calls"
     },
@@ -28083,8 +28727,8 @@
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaFrameResources.cs::GetSources@526",
-      "target": "Runtime/SigmaPrism/SigmaFrameResources.cs::RequireSlot@606",
+      "source": "Runtime/SigmaPrism/SigmaFrameResources.cs::GetSources@623",
+      "target": "Runtime/SigmaPrism/SigmaFrameResources.cs::RequireSlot@715",
       "kind": "calls"
     },
     {
@@ -28098,8 +28742,8 @@
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaFrameResources.cs::Release@539",
-      "target": "Runtime/SigmaPrism/SigmaFrameResources.cs::RequireSlot@606",
+      "source": "Runtime/SigmaPrism/SigmaFrameResources.cs::Release@636",
+      "target": "Runtime/SigmaPrism/SigmaFrameResources.cs::RequireSlot@715",
       "kind": "calls"
     },
     {
@@ -28108,48 +28752,63 @@
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaFrameResources.cs::Retain@532",
-      "target": "Runtime/SigmaPrism/SigmaFrameResources.cs::RequireSlot@606",
+      "source": "Runtime/SigmaPrism/SigmaFrameResources.cs::Retain@629",
+      "target": "Runtime/SigmaPrism/SigmaFrameResources.cs::RequireSlot@715",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaFrameResources.cs::TryAcquireFrame@403",
+      "source": "Runtime/SigmaPrism/SigmaFrameResources.cs::TryAcquireFrame@451",
       "target": "Runtime/SigmaPrism/SigmaFrameResources.cs::SigmaFrameSourceStorage",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaFrameResources.cs::TryAcquireFrame@403",
+      "source": "Runtime/SigmaPrism/SigmaFrameResources.cs::TryAcquireFrame@451",
       "target": "Runtime/SigmaPrism/SigmaFrameResources.cs::SigmaOwnedFrameLease",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaFrameResources.cs::TryEnsureCandidateCapacity@462",
+      "source": "Runtime/SigmaPrism/SigmaFrameResources.cs::TryEnsureCandidateCapacity@510",
       "target": "Runtime/SigmaPrism/SigmaFrameResources.cs::AdditionalBytesFor@62",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaFrameResources.cs::TryEnsureCandidateCapacity@462",
+      "source": "Runtime/SigmaPrism/SigmaFrameResources.cs::TryEnsureCandidateCapacity@510",
       "target": "Runtime/SigmaPrism/SigmaFrameResources.cs::GrowTo@71",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaFrameResources.cs::TryEnsureCandidateCapacity@462",
-      "target": "Runtime/SigmaPrism/SigmaFrameResources.cs::TryReserve@603",
+      "source": "Runtime/SigmaPrism/SigmaFrameResources.cs::TryEnsureCandidateCapacity@510",
+      "target": "Runtime/SigmaPrism/SigmaFrameResources.cs::TryReserve@712",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaFrameResources.cs::TryGrow@592",
+      "source": "Runtime/SigmaPrism/SigmaFrameResources.cs::TryEnsureClosureCapacity@549",
       "target": "Runtime/SigmaPrism/SigmaFrameResources.cs::AdditionalBytesFor@62",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaFrameResources.cs::TryGrow@592",
+      "source": "Runtime/SigmaPrism/SigmaFrameResources.cs::TryEnsureClosureCapacity@549",
       "target": "Runtime/SigmaPrism/SigmaFrameResources.cs::GrowTo@71",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaFrameResources.cs::TryGrow@592",
-      "target": "Runtime/SigmaPrism/SigmaFrameResources.cs::TryReserve@603",
+      "source": "Runtime/SigmaPrism/SigmaFrameResources.cs::TryEnsureClosureCapacity@549",
+      "target": "Runtime/SigmaPrism/SigmaFrameResources.cs::TryReserve@712",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaFrameResources.cs::TryGrow@701",
+      "target": "Runtime/SigmaPrism/SigmaFrameResources.cs::AdditionalBytesFor@62",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaFrameResources.cs::TryGrow@701",
+      "target": "Runtime/SigmaPrism/SigmaFrameResources.cs::GrowTo@71",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaFrameResources.cs::TryGrow@701",
+      "target": "Runtime/SigmaPrism/SigmaFrameResources.cs::TryReserve@712",
       "kind": "calls"
     },
     {
@@ -29005,11 +29664,6 @@
     {
       "source": "Runtime/SigmaPrism/SigmaInverseController.cs::OnModuleInitialize@113",
       "target": "Runtime/SigmaPrism/SigmaInverseController.cs::CreatePersistentResources@840",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaInverseController.cs::OnModuleInitialize@113",
-      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::FindKernels@825",
       "kind": "calls"
     },
     {
@@ -32248,163 +32902,223 @@
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaFrameInverseTests.cs::BuildCpuOracle@118",
+      "source": "Tests/Editor/SigmaFrameInverseTests.cs::AssertPublished@192",
+      "target": "Tests/Editor/SigmaFrameInverseTests.cs::CurrentPage@205",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaFrameInverseTests.cs::BuildCpuOracle@223",
       "target": "Runtime/SigmaPrism/SigmaDepthInverse.cs::InformationMassForWidth@147",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaFrameInverseTests.cs::BuildCpuOracle@118",
+      "source": "Tests/Editor/SigmaFrameInverseTests.cs::BuildCpuOracle@223",
       "target": "Runtime/SigmaPrism/SigmaDepthInverse.cs::PriorHalfWidth@124",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaFrameInverseTests.cs::BuildCpuOracle@118",
+      "source": "Tests/Editor/SigmaFrameInverseTests.cs::BuildCpuOracle@223",
       "target": "Runtime/SigmaPrism/SigmaNumericDomain.cs::QAdd@28",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaFrameInverseTests.cs::BuildCpuOracle@118",
+      "source": "Tests/Editor/SigmaFrameInverseTests.cs::BuildCpuOracle@223",
       "target": "Runtime/SigmaPrism/SigmaNumericDomain.cs::QClamp@54",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaFrameInverseTests.cs::BuildCpuOracle@118",
+      "source": "Tests/Editor/SigmaFrameInverseTests.cs::BuildCpuOracle@223",
       "target": "Runtime/SigmaPrism/SigmaNumericDomain.cs::QMidpoint@38",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaFrameInverseTests.cs::BuildCpuOracle@118",
+      "source": "Tests/Editor/SigmaFrameInverseTests.cs::BuildCpuOracle@223",
       "target": "Runtime/SigmaPrism/SigmaNumericDomain.cs::QShiftRight@107",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaFrameInverseTests.cs::BuildCpuOracle@118",
+      "source": "Tests/Editor/SigmaFrameInverseTests.cs::BuildCpuOracle@223",
       "target": "Runtime/SigmaPrism/SigmaNumericDomain.cs::QSub@30",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaFrameInverseTests.cs::BuildCpuOracle@118",
+      "source": "Tests/Editor/SigmaFrameInverseTests.cs::BuildCpuOracle@223",
       "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Max@172",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaFrameInverseTests.cs::BuildCpuOracle@118",
+      "source": "Tests/Editor/SigmaFrameInverseTests.cs::BuildCpuOracle@223",
       "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Min@170",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaFrameInverseTests.cs::BuildCpuOracle@118",
+      "source": "Tests/Editor/SigmaFrameInverseTests.cs::BuildCpuOracle@223",
       "target": "Runtime/SigmaPrism/SigmaS16.cs::FromArray@82",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaFrameInverseTests.cs::BuildCpuOracle@118",
+      "source": "Tests/Editor/SigmaFrameInverseTests.cs::BuildCpuOracle@223",
       "target": "Runtime/SigmaPrism/SigmaS16.cs::HadamardB@290",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaFrameInverseTests.cs::BuildCpuOracle@118",
+      "source": "Tests/Editor/SigmaFrameInverseTests.cs::BuildCpuOracle@223",
       "target": "Runtime/SigmaPrism/SigmaS16.cs::HadamardBT@298",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaFrameInverseTests.cs::BuildCpuOracle@118",
-      "target": "Tests/Editor/SigmaFrameInverseTests.cs::SourceKey@233",
+      "source": "Tests/Editor/SigmaFrameInverseTests.cs::BuildCpuOracle@223",
+      "target": "Tests/Editor/SigmaFrameInverseTests.cs::SourceKey@338",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaFrameInverseTests.cs::ClearPrediction@499",
+      "source": "Tests/Editor/SigmaFrameInverseTests.cs::ClearPrediction@644",
       "target": "Runtime/SigmaPrism/SigmaTransitionCache.cs::Clear@104",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaFrameInverseTests.cs::NormalizeDepth@457",
-      "target": "Runtime/SigmaPrism/SigmaExactBackendGate.cs::Dispatch@45",
-      "kind": "calls"
-    },
-    {
-      "source": "Tests/Editor/SigmaFrameInverseTests.cs::NormalizeDepth@457",
-      "target": "Runtime/SigmaPrism/SigmaStreamingGraph.cs::SetTexture@987",
-      "kind": "calls"
-    },
-    {
-      "source": "Tests/Editor/SigmaFrameInverseTests.cs::ReadSnapshot@399",
-      "target": "Runtime/SigmaPrism/SigmaFrameResources.cs::Provenance@210",
-      "kind": "calls"
-    },
-    {
-      "source": "Tests/Editor/SigmaFrameInverseTests.cs::ReadSnapshot@399",
-      "target": "Runtime/SigmaPrism/SigmaFrameResources.cs::Upper@206",
-      "kind": "calls"
-    },
-    {
-      "source": "Tests/Editor/SigmaFrameInverseTests.cs::ReadSnapshot@399",
-      "target": "Runtime/SigmaPrism/SigmaFrameResources.cs::Validity@208",
-      "kind": "calls"
-    },
-    {
-      "source": "Tests/Editor/SigmaFrameInverseTests.cs::ReadSnapshot@399",
-      "target": "Tests/Editor/SigmaFrameInverseTests.cs::Snapshot",
-      "kind": "calls"
-    },
-    {
-      "source": "Tests/Editor/SigmaFrameInverseTests.cs::Run@362",
-      "target": "Runtime/SigmaPrism/SigmaFrameGraph.cs::RecordSourceAndResolve@152",
-      "kind": "calls"
-    },
-    {
-      "source": "Tests/Editor/SigmaFrameInverseTests.cs::Run@362",
-      "target": "Runtime/SigmaPrism/SigmaTransitionCache.cs::Clear@104",
-      "kind": "calls"
-    },
-    {
-      "source": "Tests/Editor/SigmaFrameInverseTests.cs::Run@362",
-      "target": "Tests/Editor/SigmaFrameInverseTests.cs::ReadSnapshot@399",
-      "kind": "calls"
-    },
-    {
-      "source": "Tests/Editor/SigmaFrameInverseTests.cs::WholeFrameFourSourceInverseIsExactAndPartitionInvariant@54",
+      "source": "Tests/Editor/SigmaFrameInverseTests.cs::DirectFramePublicationIsAtomicAndLayoutInvariant@147",
       "target": "Runtime/SigmaPrism/SigmaGeometryReadout.cs::TryRead@25",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaFrameInverseTests.cs::WholeFrameFourSourceInverseIsExactAndPartitionInvariant@54",
+      "source": "Tests/Editor/SigmaFrameInverseTests.cs::DirectFramePublicationIsAtomicAndLayoutInvariant@147",
       "target": "Runtime/SigmaPrism/SigmaS16.cs::FromArray@82",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaFrameInverseTests.cs::WholeFrameFourSourceInverseIsExactAndPartitionInvariant@54",
-      "target": "Tests/Editor/SigmaFrameInverseTests.cs::BuildCpuOracle@118",
+      "source": "Tests/Editor/SigmaFrameInverseTests.cs::DirectFramePublicationIsAtomicAndLayoutInvariant@147",
+      "target": "Tests/Editor/SigmaFrameInverseTests.cs::AssertPublished@192",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaFrameInverseTests.cs::WholeFrameFourSourceInverseIsExactAndPartitionInvariant@54",
-      "target": "Tests/Editor/SigmaFrameInverseTests.cs::Candidate@251",
+      "source": "Tests/Editor/SigmaFrameInverseTests.cs::DirectFramePublicationIsAtomicAndLayoutInvariant@147",
+      "target": "Tests/Editor/SigmaFrameInverseTests.cs::CurrentPage@205",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaFrameInverseTests.cs::WholeFrameFourSourceInverseIsExactAndPartitionInvariant@54",
-      "target": "Tests/Editor/SigmaFrameInverseTests.cs::ConstrainedLaneCount@221",
-      "kind": "calls"
-    },
-    {
-      "source": "Tests/Editor/SigmaFrameInverseTests.cs::WholeFrameFourSourceInverseIsExactAndPartitionInvariant@54",
+      "source": "Tests/Editor/SigmaFrameInverseTests.cs::DirectFramePublicationIsAtomicAndLayoutInvariant@147",
       "target": "Tests/Editor/SigmaFrameInverseTests.cs::FrameFixture",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaFrameInverseTests.cs::WholeFrameFourSourceInverseIsExactAndPartitionInvariant@54",
-      "target": "Tests/Editor/SigmaFrameInverseTests.cs::Run@362",
+      "source": "Tests/Editor/SigmaFrameInverseTests.cs::DirectFramePublicationIsAtomicAndLayoutInvariant@147",
+      "target": "Tests/Editor/SigmaFrameInverseTests.cs::PageState@215",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaFrameInverseTests.cs::DirectFramePublicationIsAtomicAndLayoutInvariant@147",
+      "target": "Tests/Editor/SigmaFrameInverseTests.cs::RunPublished@481",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaFrameInverseTests.cs::NormalizeDepth@602",
+      "target": "Runtime/SigmaPrism/SigmaExactBackendGate.cs::Dispatch@45",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaFrameInverseTests.cs::NormalizeDepth@602",
+      "target": "Runtime/SigmaPrism/SigmaStreamingGraph.cs::SetTexture@987",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaFrameInverseTests.cs::ReadSnapshot@544",
+      "target": "Runtime/SigmaPrism/SigmaFrameResources.cs::Provenance@210",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaFrameInverseTests.cs::ReadSnapshot@544",
+      "target": "Runtime/SigmaPrism/SigmaFrameResources.cs::Upper@206",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaFrameInverseTests.cs::ReadSnapshot@544",
+      "target": "Runtime/SigmaPrism/SigmaFrameResources.cs::Validity@208",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaFrameInverseTests.cs::ReadSnapshot@544",
+      "target": "Tests/Editor/SigmaFrameInverseTests.cs::Snapshot",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaFrameInverseTests.cs::Run@467",
+      "target": "Runtime/SigmaPrism/SigmaFrameGraph.cs::RecordSourceAndResolve@215",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaFrameInverseTests.cs::Run@467",
+      "target": "Runtime/SigmaPrism/SigmaTransitionCache.cs::Clear@104",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaFrameInverseTests.cs::Run@467",
+      "target": "Tests/Editor/SigmaFrameInverseTests.cs::ReadSnapshot@544",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaFrameInverseTests.cs::RunPublished@481",
+      "target": "Runtime/SigmaPrism/SigmaFrameGraph.cs::RecordClosureAndPublish@333",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaFrameInverseTests.cs::RunPublished@481",
+      "target": "Runtime/SigmaPrism/SigmaFrameGraph.cs::RecordSourceAndResolve@215",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaFrameInverseTests.cs::RunPublished@481",
+      "target": "Runtime/SigmaPrism/SigmaFrameGraph.cs::SigmaFramePublicationTarget",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaFrameInverseTests.cs::RunPublished@481",
+      "target": "Runtime/SigmaPrism/SigmaTransitionCache.cs::Clear@104",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaFrameInverseTests.cs::WholeFrameFourSourceInverseIsExactAndPartitionInvariant@81",
+      "target": "Runtime/SigmaPrism/SigmaGeometryReadout.cs::TryRead@25",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaFrameInverseTests.cs::WholeFrameFourSourceInverseIsExactAndPartitionInvariant@81",
+      "target": "Runtime/SigmaPrism/SigmaS16.cs::FromArray@82",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaFrameInverseTests.cs::WholeFrameFourSourceInverseIsExactAndPartitionInvariant@81",
+      "target": "Tests/Editor/SigmaFrameInverseTests.cs::BuildCpuOracle@223",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaFrameInverseTests.cs::WholeFrameFourSourceInverseIsExactAndPartitionInvariant@81",
+      "target": "Tests/Editor/SigmaFrameInverseTests.cs::Candidate@356",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaFrameInverseTests.cs::WholeFrameFourSourceInverseIsExactAndPartitionInvariant@81",
+      "target": "Tests/Editor/SigmaFrameInverseTests.cs::ConstrainedLaneCount@326",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaFrameInverseTests.cs::WholeFrameFourSourceInverseIsExactAndPartitionInvariant@81",
+      "target": "Tests/Editor/SigmaFrameInverseTests.cs::FrameFixture",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaFrameInverseTests.cs::WholeFrameFourSourceInverseIsExactAndPartitionInvariant@81",
+      "target": "Tests/Editor/SigmaFrameInverseTests.cs::Run@467",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaFrameResourceTests.cs::SourceStorageIsCompleteAndSegmentRangeNeverExceedsBinding@42",
-      "target": "Runtime/SigmaPrism/SigmaFrameResources.cs::ComputeSegmentRecordCapacity@513",
+      "target": "Runtime/SigmaPrism/SigmaFrameResources.cs::ComputeSegmentRecordCapacity@610",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaFrameResourceTests.cs::SourceStorageIsCompleteAndSegmentRangeNeverExceedsBinding@42",
-      "target": "Runtime/SigmaPrism/SigmaFrameResources.cs::EstimateSourceBytes@498",
+      "target": "Runtime/SigmaPrism/SigmaFrameResources.cs::EstimateSourceBytes@595",
       "kind": "calls"
     },
     {

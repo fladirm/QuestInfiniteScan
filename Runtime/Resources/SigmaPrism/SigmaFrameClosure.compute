@@ -1,0 +1,574 @@
+#pragma kernel ClearFrameClosure
+#pragma kernel ClearFrameClosureStorage
+#pragma kernel BuildPendingEdges
+#pragma kernel RelaxPendingLabels
+#pragma kernel FinalizePendingGauges
+#pragma kernel ScanPendingRoots
+#pragma kernel ScanPendingRootBlocks
+#pragma kernel ScanPendingRootSupers
+#pragma kernel ReserveFrameAllocation
+#pragma kernel AllocatePendingRoots
+#pragma kernel ResolveFrameTargets
+#pragma kernel BuildDirtyEdges
+#pragma target 5.0
+
+#include "SigmaFrameAbi.hlsl"
+#include "SigmaGeometryReadout.hlsl"
+#include "SigmaStableScan.hlsl"
+#include "SigmaTopologyAbi.hlsl"
+
+// Closure is over one coherent observation. Optical neighbours only propose a
+// local pending edge; exact depth-cell overlap and valid S16 contact decide it.
+// Backing pages appear only after promoted component closure.
+
+#define SIGMA_FRAME_LINK_RIGHT 1u
+#define SIGMA_FRAME_LINK_DOWN 2u
+#define SIGMA_FRAME_GUARD 16u
+#define SIGMA_FRAME_ROOT_BLOCK 256u
+
+static const uint2 SIGMA_FRAME_Q48_ZERO = uint2(0u, 0u);
+
+StructuredBuffer<SigmaFrameCandidateGpu> _FrameCandidates;
+StructuredBuffer<SigmaFrameOutcomeGpu> _FrameOutcomes;
+StructuredBuffer<uint2> _FrameCandidateStates;
+RWStructuredBuffer<SigmaFrameDeltaGpu> _FrameDeltas;
+StructuredBuffer<uint> _FrameResolvedIndices;
+RWStructuredBuffer<uint> _PendingLabels;
+RWStructuredBuffer<uint> _PendingLinks;
+RWStructuredBuffer<uint> _FrameDeferredFlags;
+RWStructuredBuffer<SigmaPendingGaugeGpu> _PendingGauges;
+RWStructuredBuffer<uint2> _RootLocalOffsets;
+RWStructuredBuffer<uint2> _RootBlockOffsets;
+RWStructuredBuffer<uint2> _RootSuperOffsets;
+RWStructuredBuffer<uint4> _FrameClosureCounters;
+RWStructuredBuffer<uint4> _FrameExtentAllocator;
+RWStructuredBuffer<SigmaDirtyEdgeGpu> _FrameDirtyEdges;
+RWStructuredBuffer<uint> _FramePageMarks;
+
+StructuredBuffer<uint2> _DepthLeftLower;
+StructuredBuffer<uint2> _DepthLeftUpper;
+StructuredBuffer<uint> _DepthLeftValidity;
+StructuredBuffer<uint2> _DepthRightLower;
+StructuredBuffer<uint2> _DepthRightUpper;
+StructuredBuffer<uint> _DepthRightValidity;
+
+RWStructuredBuffer<SigmaCarrierPageMetaGpu> _TargetPageMetadata;
+
+uint2 _FrameResolution;
+uint _FrameRevision;
+uint _FrameSlot;
+uint _FrameFootprintCount;
+uint _FrameCandidateCount;
+uint _RootBlockCount;
+uint _RootSuperCount;
+uint _TargetSegmentIndex;
+uint _TargetPageCapacity;
+
+bool SigmaFrameClosureEnabled()
+{
+    return _SigmaExactBackendGate[0] != 0u;
+}
+
+uint SigmaFrameResolved(uint footprint)
+{
+    return footprint < _FrameFootprintCount
+        ? _FrameResolvedIndices[footprint] : SIGMA_FRAME_INVALID;
+}
+
+uint SigmaFrameOutcomeFlags(uint candidate)
+{
+    return candidate < _FrameCandidateCount
+        ? _FrameOutcomes[candidate].Classification.x : 0u;
+}
+
+bool SigmaFramePendingActive(uint footprint)
+{
+    uint candidate = SigmaFrameResolved(footprint);
+    if (candidate == SIGMA_FRAME_INVALID)
+        return false;
+    uint kind = _FrameCandidates[candidate].Identity.z;
+    uint flags = SigmaFrameOutcomeFlags(candidate);
+    return kind != SIGMA_FRAME_PROPOSAL_KIND_CURRENT &&
+        (flags & (SIGMA_FRAME_OUTCOME_ACCEPTED |
+            SIGMA_FRAME_OUTCOME_PENDING)) != 0u &&
+        (flags & (SIGMA_FRAME_OUTCOME_CONFLICT |
+            SIGMA_FRAME_OUTCOME_FAULT)) == 0u;
+}
+
+uint2 SigmaFrameStateLane(uint footprint, uint lane)
+{
+    uint candidate = SigmaFrameResolved(footprint);
+    return candidate == SIGMA_FRAME_INVALID ? SIGMA_FRAME_Q48_ZERO :
+        _FrameCandidateStates[candidate * SIGMA_FRAME_LANE_COUNT + lane];
+}
+
+bool SigmaFrameStateHasContact(uint2 state[16], out uint readoutValid)
+{
+    uint2 geometry[4];
+    uint2 projectivePosition[3];
+    return SigmaGeometryReadoutExact(state, geometry, projectivePosition,
+        readoutValid);
+}
+
+bool SigmaFrameDepthBounds(uint footprint, uint coordinate,
+    out uint2 lower, out uint2 upper, inout uint valid)
+{
+    uint address = footprint * SIGMA_FRAME_LANE_COUNT + coordinate;
+    bool hasLeft = (_DepthLeftValidity[address] &
+        SIGMA_FRAME_CELL_CONSTRAINED) != 0u;
+    bool hasRight = (_DepthRightValidity[address] &
+        SIGMA_FRAME_CELL_CONSTRAINED) != 0u;
+    if (!hasLeft && !hasRight)
+    {
+        lower = SIGMA_FRAME_Q48_ZERO;
+        upper = SIGMA_FRAME_Q48_ZERO;
+        return false;
+    }
+    lower = hasLeft ? _DepthLeftLower[address] : _DepthRightLower[address];
+    upper = hasLeft ? _DepthLeftUpper[address] : _DepthRightUpper[address];
+    if (hasRight)
+    {
+        lower = SigmaQ48Max(lower, _DepthRightLower[address]);
+        upper = SigmaQ48Min(upper, _DepthRightUpper[address]);
+    }
+    if (SigmaQ48Less(upper, lower))
+        valid = 0u;
+    return valid != 0u;
+}
+
+bool SigmaFramePendingCompatible(uint leftFootprint, uint rightFootprint)
+{
+    uint2 left[16];
+    uint2 right[16];
+    [unroll]
+    for (uint lane = 0u; lane < 16u; ++lane)
+    {
+        left[lane] = SigmaFrameStateLane(leftFootprint, lane);
+        right[lane] = SigmaFrameStateLane(rightFootprint, lane);
+    }
+    uint leftValid;
+    uint rightValid;
+    if (!SigmaFrameStateHasContact(left, leftValid) ||
+        !SigmaFrameStateHasContact(right, rightValid) ||
+        leftValid == 0u || rightValid == 0u)
+        return false;
+
+    uint valid = 1u;
+    [unroll]
+    for (uint axis = 0u; axis < 3u; ++axis)
+    {
+        uint coordinate = SIGMA_GEOMETRY_ROWS[axis + 1u];
+        uint2 leftLo;
+        uint2 leftHi;
+        uint2 rightLo;
+        uint2 rightHi;
+        if (!SigmaFrameDepthBounds(leftFootprint, coordinate, leftLo, leftHi,
+                valid) ||
+            !SigmaFrameDepthBounds(rightFootprint, coordinate, rightLo, rightHi,
+                valid))
+            return false;
+        uint2 leftWidth = SigmaQ48SubChecked(leftHi, leftLo, valid);
+        uint2 rightWidth = SigmaQ48SubChecked(rightHi, rightLo, valid);
+        uint2 tolerance = SigmaQ48Max(leftWidth, rightWidth);
+        uint2 gap = SIGMA_FRAME_Q48_ZERO;
+        if (SigmaQ48Less(leftHi, rightLo))
+            gap = SigmaQ48SubChecked(rightLo, leftHi, valid);
+        else if (SigmaQ48Less(rightHi, leftLo))
+            gap = SigmaQ48SubChecked(leftLo, rightHi, valid);
+        if (valid == 0u || SigmaQ48Less(tolerance, gap))
+            return false;
+    }
+    return true;
+}
+
+uint2 SigmaFrameAddU64(uint2 value, uint addend)
+{
+    uint low = value.x + addend;
+    return uint2(low, value.y + (low < value.x ? 1u : 0u));
+}
+
+uint SigmaFramePaddedWidth(SigmaPendingGaugeGpu gauge)
+{
+    uint width = gauge.LocalExtent.z - gauge.LocalExtent.x + 1u +
+        2u * SIGMA_FRAME_GUARD;
+    return (width + 63u) & ~63u;
+}
+
+uint2 SigmaFrameRootCost(uint footprint)
+{
+    SigmaPendingGaugeGpu gauge = _PendingGauges[footprint];
+    bool root = _PendingLabels[footprint] == footprint &&
+        gauge.Identity.z != 0u;
+    if (!root)
+        return uint2(0u, 0u);
+    uint paddedWidth = SigmaFramePaddedWidth(gauge);
+    uint height = gauge.LocalExtent.w - gauge.LocalExtent.y + 1u +
+        2u * SIGMA_FRAME_GUARD;
+    uint pageCount = (paddedWidth >> 6u) * ((height + 63u) >> 6u);
+    return uint2(paddedWidth, pageCount);
+}
+
+[numthreads(256, 1, 1)]
+void ClearFrameClosure(uint3 id : SV_DispatchThreadID)
+{
+    uint footprint = id.x;
+    if (footprint < _FrameFootprintCount)
+    {
+        bool active = SigmaFrameClosureEnabled() &&
+            SigmaFramePendingActive(footprint);
+        _PendingLabels[footprint] = active ? footprint : SIGMA_FRAME_INVALID;
+        _PendingLinks[footprint] = 0u;
+        _FrameDeferredFlags[footprint] = 0u;
+        _RootLocalOffsets[footprint] = 0u;
+        SigmaPendingGaugeGpu gauge;
+        gauge.Identity = uint4(_FrameRevision,
+            SIGMA_PENDING_GAUGE_STATE_OPEN, 0u, SIGMA_FRAME_INVALID);
+        gauge.Provenance = uint4(footprint, _FrameSlot, 0u, 0u);
+        gauge.LocalExtent = uint4(SIGMA_FRAME_INVALID,
+            SIGMA_FRAME_INVALID, 0u, 0u);
+        _PendingGauges[footprint] = gauge;
+        SigmaDirtyEdgeGpu horizontal;
+        horizontal.Left = SIGMA_FRAME_INVALID;
+        horizontal.Right = SIGMA_FRAME_INVALID;
+        horizontal.Closure = uint4(SIGMA_FRAME_CLAIM_KIND_NONE,
+            SIGMA_TOPOLOGY_UNSUPPORTED, 0u, 0u);
+        _FrameDirtyEdges[footprint * 2u] = horizontal;
+        _FrameDirtyEdges[footprint * 2u + 1u] = horizontal;
+    }
+}
+
+[numthreads(256, 1, 1)]
+void ClearFrameClosureStorage(uint3 id : SV_DispatchThreadID)
+{
+    uint index = id.x;
+    if (index < _TargetPageCapacity)
+        _FramePageMarks[index] = 0u;
+    if (index < _RootBlockCount)
+        _RootBlockOffsets[index] = 0u;
+    if (index < _RootSuperCount)
+        _RootSuperOffsets[index] = 0u;
+    if (index < 4u)
+        _FrameClosureCounters[index] = 0u;
+}
+
+[numthreads(256, 1, 1)]
+void BuildPendingEdges(uint3 id : SV_DispatchThreadID)
+{
+    uint footprint = id.x;
+    if (footprint >= _FrameFootprintCount ||
+        _PendingLabels[footprint] == SIGMA_FRAME_INVALID)
+        return;
+    uint x = footprint % _FrameResolution.x;
+    uint y = footprint / _FrameResolution.x;
+    uint links = 0u;
+    if (x + 1u < _FrameResolution.x &&
+        _PendingLabels[footprint + 1u] != SIGMA_FRAME_INVALID &&
+        SigmaFramePendingCompatible(footprint, footprint + 1u))
+    {
+        links |= SIGMA_FRAME_LINK_RIGHT;
+        InterlockedMin(_PendingLabels[footprint + 1u], footprint);
+    }
+    if (y + 1u < _FrameResolution.y &&
+        _PendingLabels[footprint + _FrameResolution.x] !=
+            SIGMA_FRAME_INVALID &&
+        SigmaFramePendingCompatible(footprint,
+            footprint + _FrameResolution.x))
+    {
+        links |= SIGMA_FRAME_LINK_DOWN;
+        InterlockedMin(_PendingLabels[footprint + _FrameResolution.x],
+            footprint);
+    }
+    _PendingLinks[footprint] = links;
+}
+
+[numthreads(256, 1, 1)]
+void RelaxPendingLabels(uint3 id : SV_DispatchThreadID)
+{
+    uint footprint = id.x;
+    if (footprint >= _FrameFootprintCount)
+        return;
+    uint label = _PendingLabels[footprint];
+    if (label == SIGMA_FRAME_INVALID)
+        return;
+    uint x = footprint % _FrameResolution.x;
+    uint y = footprint / _FrameResolution.x;
+    uint best = label;
+    if ((_PendingLinks[footprint] & SIGMA_FRAME_LINK_RIGHT) != 0u)
+        best = min(best, _PendingLabels[footprint + 1u]);
+    if ((_PendingLinks[footprint] & SIGMA_FRAME_LINK_DOWN) != 0u)
+        best = min(best,
+            _PendingLabels[footprint + _FrameResolution.x]);
+    if (x != 0u &&
+        (_PendingLinks[footprint - 1u] & SIGMA_FRAME_LINK_RIGHT) != 0u)
+        best = min(best, _PendingLabels[footprint - 1u]);
+    if (y != 0u &&
+        (_PendingLinks[footprint - _FrameResolution.x] &
+            SIGMA_FRAME_LINK_DOWN) != 0u)
+        best = min(best,
+            _PendingLabels[footprint - _FrameResolution.x]);
+    if (label < _FrameFootprintCount)
+        best = min(best, _PendingLabels[label]);
+    InterlockedMin(_PendingLabels[footprint], best);
+}
+
+[numthreads(256, 1, 1)]
+void FinalizePendingGauges(uint3 id : SV_DispatchThreadID)
+{
+    uint footprint = id.x;
+    if (footprint >= _FrameFootprintCount)
+        return;
+    uint root = _PendingLabels[footprint];
+    if (root == SIGMA_FRAME_INVALID || root >= _FrameFootprintCount)
+        return;
+    [loop]
+    for (uint step = 0u; step < 18u; ++step)
+    {
+        uint parent = _PendingLabels[root];
+        if (parent == root || parent == SIGMA_FRAME_INVALID)
+            break;
+        root = parent;
+    }
+    _PendingLabels[footprint] = root;
+    uint x = footprint % _FrameResolution.x;
+    uint y = footprint / _FrameResolution.x;
+    InterlockedMin(_PendingGauges[root].LocalExtent.x, x);
+    InterlockedMin(_PendingGauges[root].LocalExtent.y, y);
+    InterlockedMax(_PendingGauges[root].LocalExtent.z, x);
+    InterlockedMax(_PendingGauges[root].LocalExtent.w, y);
+    uint candidate = SigmaFrameResolved(footprint);
+    if ((SigmaFrameOutcomeFlags(candidate) & SIGMA_FRAME_OUTCOME_ACCEPTED) != 0u)
+        InterlockedAdd(_PendingGauges[root].Identity.z, 1u);
+}
+
+[numthreads(256, 1, 1)]
+void ScanPendingRoots(uint3 groupId : SV_GroupID,
+    uint3 threadId : SV_GroupThreadID)
+{
+    uint lane = threadId.x;
+    uint footprint = groupId.x * 256u + lane;
+    uint2 cost = footprint < _FrameFootprintCount
+        ? SigmaFrameRootCost(footprint) : 0u;
+    uint widthTotal;
+    uint widthPrefix = SigmaStableExclusiveScan256(lane, cost.x, widthTotal);
+    uint pageTotal;
+    uint pagePrefix = SigmaStableExclusiveScan256(lane, cost.y, pageTotal);
+    if (footprint < _FrameFootprintCount)
+        _RootLocalOffsets[footprint] = uint2(widthPrefix, pagePrefix);
+    if (lane == 0u)
+        _RootBlockOffsets[groupId.x] = uint2(widthTotal, pageTotal);
+}
+
+[numthreads(256, 1, 1)]
+void ScanPendingRootBlocks(uint3 groupId : SV_GroupID,
+    uint3 threadId : SV_GroupThreadID)
+{
+    uint lane = threadId.x;
+    uint block = groupId.x * 256u + lane;
+    uint2 value = block < _RootBlockCount
+        ? _RootBlockOffsets[block] : 0u;
+    uint widthTotal;
+    uint widthPrefix = SigmaStableExclusiveScan256(lane, value.x, widthTotal);
+    uint pageTotal;
+    uint pagePrefix = SigmaStableExclusiveScan256(lane, value.y, pageTotal);
+    if (block < _RootBlockCount)
+        _RootBlockOffsets[block] = uint2(widthPrefix, pagePrefix);
+    if (lane == 0u)
+        _RootSuperOffsets[groupId.x] = uint2(widthTotal, pageTotal);
+}
+
+[numthreads(256, 1, 1)]
+void ScanPendingRootSupers(uint3 threadId : SV_GroupThreadID)
+{
+    uint lane = threadId.x;
+    uint2 value = lane < _RootSuperCount ? _RootSuperOffsets[lane] : 0u;
+    uint widthTotal;
+    uint widthPrefix = SigmaStableExclusiveScan256(lane, value.x, widthTotal);
+    uint pageTotal;
+    uint pagePrefix = SigmaStableExclusiveScan256(lane, value.y, pageTotal);
+    if (lane < _RootSuperCount)
+        _RootSuperOffsets[lane] = uint2(widthPrefix, pagePrefix);
+    if (lane == 0u)
+        _FrameClosureCounters[0] = uint4(widthTotal, pageTotal,
+            _RootBlockCount, _RootSuperCount);
+}
+
+[numthreads(1, 1, 1)]
+void ReserveFrameAllocation(uint3 id : SV_DispatchThreadID)
+{
+    uint4 total = _FrameClosureCounters[0];
+    uint4 allocator = _FrameExtentAllocator[0];
+    uint requiredPhysical = total.y * 2u;
+    bool capacity = requiredPhysical <= _TargetPageCapacity &&
+        allocator.z <= _TargetPageCapacity - requiredPhysical;
+    _FrameClosureCounters[1] = uint4(allocator.xy, allocator.z, 0u);
+    _FrameClosureCounters[2] = uint4(capacity ? 0u : 1u, 0u, 0u, 0u);
+    if (!capacity)
+        return;
+    allocator.xy = SigmaFrameAddU64(allocator.xy, total.x);
+    allocator.z += requiredPhysical;
+    _FrameExtentAllocator[0] = allocator;
+}
+
+[numthreads(256, 1, 1)]
+void AllocatePendingRoots(uint3 id : SV_DispatchThreadID)
+{
+    uint footprint = id.x;
+    if (footprint >= _FrameFootprintCount ||
+        _PendingLabels[footprint] != footprint ||
+        _PendingGauges[footprint].Identity.z == 0u ||
+        _FrameClosureCounters[2].x != 0u)
+        return;
+    uint block = footprint >> 8u;
+    uint superBlock = block >> 8u;
+    uint2 prefix = _RootLocalOffsets[footprint] +
+        _RootBlockOffsets[block] + _RootSuperOffsets[superBlock];
+    uint4 frameBase = _FrameClosureCounters[1];
+    uint2 componentBase = SigmaFrameAddU64(frameBase.xy, prefix.x);
+    uint pageSlotBase = frameBase.z + prefix.y * 2u;
+    SigmaPendingGaugeGpu gauge = _PendingGauges[footprint];
+    uint paddedWidth = SigmaFramePaddedWidth(gauge);
+    uint pageCountX = paddedWidth >> 6u;
+    uint height = gauge.LocalExtent.w - gauge.LocalExtent.y + 1u +
+        2u * SIGMA_FRAME_GUARD;
+    uint pageCountY = (height + 63u) >> 6u;
+    uint2 origin = SigmaFrameAddU64(componentBase, SIGMA_FRAME_GUARD);
+    gauge.Identity.y = SIGMA_PENDING_GAUGE_STATE_PROMOTED;
+    gauge.Identity.w = pageSlotBase;
+    gauge.Provenance = uint4(footprint, _FrameSlot, origin);
+    _PendingGauges[footprint] = gauge;
+
+    uint2 pageXBase = uint2((componentBase.x >> 6u) |
+        (componentBase.y << 26u), componentBase.y >> 6u);
+    [loop]
+    for (uint pageY = 0u; pageY < pageCountY; ++pageY)
+    {
+        [loop]
+        for (uint pageX = 0u; pageX < pageCountX; ++pageX)
+        {
+            uint pageOrdinal = pageY * pageCountX + pageX;
+            uint slot = pageSlotBase + pageOrdinal * 2u;
+            SigmaCarrierPageMetaGpu metadata;
+            uint2 pageCoordinateX = SigmaFrameAddU64(pageXBase, pageX);
+            metadata.pageXLo = pageCoordinateX.x;
+            metadata.pageXHi = pageCoordinateX.y;
+            metadata.pageYLo = pageY;
+            metadata.pageYHi = 0u;
+            metadata.generation = 1u;
+            metadata.revision = _FrameRevision;
+            metadata.certificateOffsetLo = _FrameSlot;
+            metadata.certificateOffsetHi = 0u;
+            metadata.certificateCount = gauge.Identity.z;
+            metadata.flags = SIGMA_PAGE_ALLOCATED | SIGMA_PAGE_DIRTY;
+            metadata.reserved0 = SIGMA_FRAME_INVALID;
+            metadata.reserved1 = footprint;
+            _TargetPageMetadata[slot] = metadata;
+            _FramePageMarks[slot] = _FrameRevision;
+        }
+    }
+}
+
+[numthreads(256, 1, 1)]
+void ResolveFrameTargets(uint3 id : SV_DispatchThreadID)
+{
+    uint footprint = id.x;
+    if (footprint >= _FrameFootprintCount)
+        return;
+    uint candidateIndex = SigmaFrameResolved(footprint);
+    if (candidateIndex == SIGMA_FRAME_INVALID)
+        return;
+    SigmaFrameCandidateGpu candidate = _FrameCandidates[candidateIndex];
+    SigmaFrameDeltaGpu delta = _FrameDeltas[footprint];
+    if (candidate.Identity.z == SIGMA_FRAME_PROPOSAL_KIND_CURRENT)
+    {
+        uint sourceSlot = candidate.Handle.y;
+        uint targetSlot = sourceSlot ^ 1u;
+        if (targetSlot >= _TargetPageCapacity)
+        {
+            _FrameDeferredFlags[footprint] = 1u;
+            InterlockedOr(_FrameClosureCounters[2].x, 1u);
+            return;
+        }
+        uint original;
+        InterlockedCompareExchange(_FramePageMarks[targetSlot], 0u,
+            _FrameRevision, original);
+        if (original == 0u)
+        {
+            SigmaCarrierPageMetaGpu metadata =
+                _TargetPageMetadata[sourceSlot];
+            metadata.generation++;
+            metadata.revision = _FrameRevision;
+            metadata.flags = SIGMA_PAGE_ALLOCATED | SIGMA_PAGE_DIRTY;
+            metadata.reserved0 = sourceSlot;
+            _TargetPageMetadata[targetSlot] = metadata;
+        }
+        delta.Candidate = uint4(targetSlot, candidate.Handle.z + 1u,
+            _TargetSegmentIndex, candidateIndex);
+    }
+    else
+    {
+        uint root = _PendingLabels[footprint];
+        if (root == SIGMA_FRAME_INVALID || root >= _FrameFootprintCount)
+            return;
+        SigmaPendingGaugeGpu gauge = _PendingGauges[root];
+        if (gauge.Identity.y != SIGMA_PENDING_GAUGE_STATE_PROMOTED)
+            return;
+        uint localX = footprint % _FrameResolution.x;
+        uint localY = footprint / _FrameResolution.x;
+        uint offsetX = localX - gauge.LocalExtent.x + SIGMA_FRAME_GUARD;
+        uint offsetY = localY - gauge.LocalExtent.y + SIGMA_FRAME_GUARD;
+        uint pageCountX = SigmaFramePaddedWidth(gauge) >> 6u;
+        uint pageOrdinal = (offsetY >> 6u) * pageCountX + (offsetX >> 6u);
+        uint targetSlot = gauge.Identity.w + pageOrdinal * 2u;
+        SigmaCarrierPageMetaGpu metadata = _TargetPageMetadata[targetSlot];
+        delta.Coordinate = uint4(metadata.pageXLo, metadata.pageXHi,
+            metadata.pageYLo, metadata.pageYHi);
+        delta.Candidate = uint4(targetSlot, metadata.generation,
+            _TargetSegmentIndex, candidateIndex);
+        delta.Evidence.w = (offsetY & 63u) * 64u + (offsetX & 63u);
+    }
+    _FrameDeltas[footprint] = delta;
+}
+
+[numthreads(256, 1, 1)]
+void BuildDirtyEdges(uint3 id : SV_DispatchThreadID)
+{
+    uint footprint = id.x;
+    if (footprint >= _FrameFootprintCount)
+        return;
+    SigmaFrameDeltaGpu left = _FrameDeltas[footprint];
+    if (left.Candidate.x == SIGMA_FRAME_INVALID ||
+        _FrameDeferredFlags[footprint] != 0u)
+        return;
+    uint x = footprint % _FrameResolution.x;
+    uint y = footprint / _FrameResolution.x;
+    [unroll]
+    for (uint direction = 0u; direction < 2u; ++direction)
+    {
+        bool inside = direction == 0u
+            ? x + 1u < _FrameResolution.x
+            : y + 1u < _FrameResolution.y;
+        uint neighbour = direction == 0u
+            ? footprint + 1u : footprint + _FrameResolution.x;
+        if (!inside || neighbour >= _FrameFootprintCount)
+            continue;
+        SigmaFrameDeltaGpu right = _FrameDeltas[neighbour];
+        if (right.Candidate.x == SIGMA_FRAME_INVALID ||
+            _FrameDeferredFlags[neighbour] != 0u)
+            continue;
+        bool samePending = _PendingLabels[footprint] != SIGMA_FRAME_INVALID &&
+            _PendingLabels[footprint] == _PendingLabels[neighbour];
+        bool bothCurrent = _FrameCandidates[left.Candidate.w].Identity.z ==
+                SIGMA_FRAME_PROPOSAL_KIND_CURRENT &&
+            _FrameCandidates[right.Candidate.w].Identity.z ==
+                SIGMA_FRAME_PROPOSAL_KIND_CURRENT;
+        if (!samePending && !bothCurrent)
+            continue;
+        SigmaDirtyEdgeGpu edge;
+        edge.Left = left.Coordinate;
+        edge.Right = right.Coordinate;
+        edge.Closure = uint4(SIGMA_FRAME_CLAIM_KIND_CONTACT,
+            SIGMA_TOPOLOGY_UNRESOLVED, left.Evidence.w, right.Evidence.w);
+        _FrameDirtyEdges[footprint * 2u + direction] = edge;
+        InterlockedAdd(_FrameClosureCounters[2].y, 1u);
+    }
+}

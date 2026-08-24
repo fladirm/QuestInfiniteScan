@@ -39,6 +39,23 @@ namespace Genesis.RoomScan.Tests
             public uint W;
         }
 
+        [StructLayout(LayoutKind.Sequential, Pack = 4)]
+        private struct PageMeta
+        {
+            public uint XLo;
+            public uint XHi;
+            public uint YLo;
+            public uint YHi;
+            public uint Generation;
+            public uint Revision;
+            public uint CertificateLo;
+            public uint CertificateHi;
+            public uint CertificateCount;
+            public uint Flags;
+            public uint SourceSlot;
+            public uint Root;
+        }
+
         private sealed class Snapshot
         {
             internal readonly UInt2[][] Lower = new UInt2[4][];
@@ -48,6 +65,16 @@ namespace Genesis.RoomScan.Tests
             internal SigmaFrameCandidateGpu[] Candidates;
             internal SigmaFrameOutcomeGpu[] Outcomes;
             internal UInt2[] CandidateStates;
+        }
+
+        private sealed class PublicationSnapshot
+        {
+            internal uint Root;
+            internal SigmaFrameRevisionGpu[] Revisions;
+            internal PageMeta[] Metadata;
+            internal uint[] Current;
+            internal uint[] ReadoutDirty;
+            internal UInt2[] State;
         }
 
         [Test]
@@ -114,6 +141,84 @@ namespace Genesis.RoomScan.Tests
             long[] expected = BuildCpuOracle(whole, center);
             Assert.That(gpuState, Is.EqualTo(expected),
                 "GPU whole-frame inverse diverged from the exact CPU oracle");
+        }
+
+        [Test]
+        public void DirectFramePublicationIsAtomicAndLayoutInvariant()
+        {
+            PublicationSnapshot compact;
+            PublicationSnapshot roomy;
+            using (var fixture = new FrameFixture())
+                compact = fixture.RunPublished(int.MaxValue, 4);
+            using (var fixture = new FrameFixture())
+                roomy = fixture.RunPublished(3, 8);
+
+            AssertPublished(compact);
+            AssertPublished(roomy);
+            PageMeta compactPage = CurrentPage(compact, out int compactSlot);
+            PageMeta roomyPage = CurrentPage(roomy, out int roomySlot);
+            Assert.That(roomyPage.XLo, Is.EqualTo(compactPage.XLo));
+            Assert.That(roomyPage.XHi, Is.EqualTo(compactPage.XHi));
+            Assert.That(roomyPage.YLo, Is.EqualTo(compactPage.YLo));
+            Assert.That(roomyPage.YHi, Is.EqualTo(compactPage.YHi));
+            Assert.That(roomyPage.Generation,
+                Is.EqualTo(compactPage.Generation));
+            Assert.That(roomyPage.Revision, Is.EqualTo(compactPage.Revision));
+            Assert.That(roomyPage.CertificateLo,
+                Is.EqualTo(compactPage.CertificateLo));
+            Assert.That(roomyPage.CertificateHi,
+                Is.EqualTo(compactPage.CertificateHi));
+            Assert.That(roomyPage.CertificateCount,
+                Is.EqualTo(compactPage.CertificateCount));
+            Assert.That(roomyPage.Root, Is.EqualTo(compactPage.Root));
+            Assert.That(roomy.Revisions[0].WitnessJournal,
+                Is.EqualTo(compact.Revisions[0].WitnessJournal));
+            Assert.That(PageState(roomy, roomySlot),
+                Is.EqualTo(PageState(compact, compactSlot)));
+
+            int supported = 0;
+            UInt2[] state = PageState(compact, compactSlot);
+            for (int sample = 0; sample < SigmaCarrier.SamplesPerPage; ++sample)
+            {
+                var raw = new long[Lanes];
+                for (int lane = 0; lane < Lanes; ++lane)
+                    raw[lane] = Signed(state[sample * Lanes + lane]);
+                if (SigmaGeometryReadout.TryRead(SigmaS16.FromArray(raw),
+                        out _))
+                    ++supported;
+            }
+            Assert.That(supported, Is.EqualTo(Footprints));
+        }
+
+        private static void AssertPublished(PublicationSnapshot snapshot)
+        {
+            Assert.That(snapshot.Root, Is.EqualTo(1u),
+                "publication root must flip exactly once to revision slot zero");
+            Assert.That(snapshot.Revisions[0].Identity.X, Is.EqualTo(1u));
+            Assert.That(snapshot.Revisions[0].Identity.Z,
+                Is.EqualTo((uint)SigmaFrameRevisionState.Published));
+            Assert.That(snapshot.Revisions[0].ChangedPages.Y, Is.EqualTo(1u));
+            PageMeta page = CurrentPage(snapshot, out int slot);
+            Assert.That(page.Revision, Is.EqualTo(1u));
+            Assert.That(snapshot.ReadoutDirty[slot], Is.EqualTo(1u));
+        }
+
+        private static PageMeta CurrentPage(PublicationSnapshot snapshot,
+            out int slot)
+        {
+            slot = Array.FindIndex(snapshot.Current, value => value != 0u);
+            Assert.That(slot, Is.GreaterThanOrEqualTo(0));
+            Assert.That(Array.FindAll(snapshot.Current, value => value != 0u),
+                Has.Length.EqualTo(1));
+            return snapshot.Metadata[slot];
+        }
+
+        private static UInt2[] PageState(PublicationSnapshot snapshot, int slot)
+        {
+            var page = new UInt2[SigmaCarrier.PageLaneCount];
+            Array.Copy(snapshot.State, slot * SigmaCarrier.PageLaneCount, page,
+                0, page.Length);
+            return page;
         }
 
         private static long[] BuildCpuOracle(Snapshot snapshot, int footprint)
@@ -374,6 +479,46 @@ namespace Genesis.RoomScan.Tests
                 return ReadSnapshot();
             }
 
+            internal PublicationSnapshot RunPublished(int footprintWindow,
+                int pageCapacity)
+            {
+                using var state = Buffer<UInt2>(checked(pageCapacity *
+                    SigmaCarrier.PageLaneCount));
+                using var metadata = Buffer<PageMeta>(pageCapacity);
+                using var dirty = Buffer<uint>(pageCapacity);
+                using var current = Buffer<uint>(pageCapacity);
+                using var readoutDirty = Buffer<uint>(pageCapacity);
+                state.SetData(new UInt2[state.count]);
+                metadata.SetData(new PageMeta[pageCapacity]);
+                dirty.SetData(new uint[pageCapacity]);
+                current.SetData(new uint[pageCapacity]);
+                readoutDirty.SetData(new uint[pageCapacity]);
+                var target = new SigmaFramePublicationTarget(0, pageCapacity,
+                    state, metadata, dirty, current, readoutDirty);
+                using var command = new CommandBuffer
+                    { name = "Sigma M3 atomic frame publication fixture" };
+                try
+                {
+                    _graph.RecordSourceAndResolve(command, _owned, 1u, _input,
+                        footprintWindow);
+                    _graph.RecordClosureAndPublish(command, _owned, 1u, target);
+                    Graphics.ExecuteCommandBuffer(command);
+                }
+                finally { command.Clear(); }
+                return new PublicationSnapshot
+                {
+                    Root = Read<uint>(
+                        _graph.Resources.RevisionRoot.Segments[0].Buffer, 1)[0],
+                    Revisions = Read<SigmaFrameRevisionGpu>(
+                        _graph.Resources.Revisions.Segments[0].Buffer,
+                        checked((int)_graph.Resources.Revisions.RecordCapacity)),
+                    Metadata = Read<PageMeta>(metadata, pageCapacity),
+                    Current = Read<uint>(current, pageCapacity),
+                    ReadoutDirty = Read<uint>(readoutDirty, pageCapacity),
+                    State = Read<UInt2>(state, state.count),
+                };
+            }
+
             public void Dispose()
             {
                 _owned?.Dispose();
@@ -584,6 +729,9 @@ namespace Genesis.RoomScan.Tests
             buffer.SetData(values);
             return buffer;
         }
+
+        private static GraphicsBuffer Buffer<T>(int count) where T : struct =>
+            new(GraphicsBuffer.Target.Structured, count, Marshal.SizeOf<T>());
 
         private static T[] Read<T>(GraphicsBuffer buffer, int count)
             where T : struct
