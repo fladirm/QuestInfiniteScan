@@ -221,6 +221,14 @@ namespace Genesis.RoomScan.Tests
             Assert.That(supported, Is.EqualTo(Footprints));
         }
 
+        [Test]
+        public void ProductionFrameDispatchesEveryWindowAndNormalizesTargets()
+        {
+            const long bindingLimit = 8L * 1024L * 1024L;
+            using var fixture = new FrameFixture(320, 320, bindingLimit);
+            fixture.RunSegmentedTargetFixture();
+        }
+
         private static void AssertPublished(PublicationSnapshot snapshot)
         {
             Assert.That(snapshot.Root, Is.EqualTo(1u),
@@ -398,6 +406,9 @@ namespace Genesis.RoomScan.Tests
 
         private sealed class FrameFixture : IDisposable
         {
+            private readonly int _width;
+            private readonly int _height;
+            private readonly int _footprints;
             private readonly Texture2D _rgbLeftSource;
             private readonly Texture2D _rgbRightSource;
             private readonly Texture2DArray _depthSource;
@@ -419,11 +430,17 @@ namespace Genesis.RoomScan.Tests
             private readonly SigmaOwnedFrameLease _owned;
             private readonly SigmaFrameInverseInput _input;
 
-            internal FrameFixture()
+            internal FrameFixture(int width = Width, int height = Height,
+                long bindingLimit = 0L)
             {
-                _rgbLeftSource = RgbTexture(96, 128, 192);
-                _rgbRightSource = RgbTexture(96, 128, 192);
-                _depthSource = RawDepthTexture();
+                if (width <= 0 || height <= 0)
+                    throw new ArgumentOutOfRangeException(nameof(width));
+                _width = width;
+                _height = height;
+                _footprints = checked(width * height);
+                _rgbLeftSource = RgbTexture(width, height, 96, 128, 192);
+                _rgbRightSource = RgbTexture(width, height, 96, 128, 192);
+                _depthSource = RawDepthTexture(width, height);
                 _rgbLeftRing = new GpuTextureRing("M2 RGB L", 3);
                 _rgbRightRing = new GpuTextureRing("M2 RGB R", 3);
                 _depthRing = new GpuTextureRing("M2 Depth", 3,
@@ -436,7 +453,7 @@ namespace Genesis.RoomScan.Tests
                 Assert.That(_depthRing.TryCopy(_depthSource,
                     out GpuTextureLease depth, out _), Is.True);
 
-                RigIntrinsics intrinsics = Intrinsics();
+                RigIntrinsics intrinsics = Intrinsics(width, height);
                 Pose left = new(Vector3.zero, Quaternion.identity);
                 Pose right = new(new Vector3(0.064f, 0f, 0f),
                     Quaternion.identity);
@@ -458,7 +475,7 @@ namespace Genesis.RoomScan.Tests
                     RigDepthEncoding.ProjectionDepth01, new Vector2(0.1f, 10f));
                 _frame = new StereoRigFrameLease(1L, 1u, rgbLeft,
                     rgbLeftView, rgbRight, rgbRightView, depth, depthLeftView,
-                    depthRightView, new Vector2Int(Width, Height),
+                    depthRightView, new Vector2Int(width, height),
                     new Vector2(0.1f, 10f), new RigPairingHealth(0L, 0L, 0L));
 
                 Assert.That(RigCalibration.TryCreate(_frame,
@@ -468,11 +485,13 @@ namespace Genesis.RoomScan.Tests
                 Assert.That(coneShader, Is.Not.Null);
                 _coneSet = RigConeLutSet.Create(coneShader, calibration);
                 _coneLease = _coneSet.Acquire();
-                _metricDepth = ArrayRenderTexture(
+                _metricDepth = ArrayRenderTexture(width, height,
                     GraphicsFormat.R32G32_SFloat);
-                _depthFlags = ArrayRenderTexture(GraphicsFormat.R32_UInt);
-                NormalizeDepth(_frame, _coneLease, _metricDepth, _depthFlags);
-                _depthCalibration = Buffer(DepthCalibration(),
+                _depthFlags = ArrayRenderTexture(width, height,
+                    GraphicsFormat.R32_UInt);
+                NormalizeDepth(_frame, _coneLease, _metricDepth, _depthFlags,
+                    width, height);
+                _depthCalibration = Buffer(DepthCalibration(width, height),
                     Marshal.SizeOf<UInt2>());
                 _rgbCalibration = Buffer(RgbCalibration(),
                     Marshal.SizeOf<UInt2>());
@@ -487,8 +506,11 @@ namespace Genesis.RoomScan.Tests
                 _prediction.CommitGpuWrite();
 
                 _backend = SigmaExactBackendGate.Dispatch();
-                _graph = new SigmaFrameGraph(new Vector2Int(Width, Height),
-                    _backend, SigmaFrameMemoryProfile.Minimum);
+                _graph = bindingLimit > 0L
+                    ? new SigmaFrameGraph(new Vector2Int(width, height),
+                        _backend, SigmaFrameMemoryProfile.Minimum, bindingLimit)
+                    : new SigmaFrameGraph(new Vector2Int(width, height),
+                        _backend, SigmaFrameMemoryProfile.Minimum);
                 _input = new SigmaFrameInverseInput(_prediction, _metricDepth,
                     _depthFlags, _depthCalibration, _rgbCalibration, _poseResult,
                     _coneLease, DepthLeftKey, DepthRightKey, RgbLeftKey,
@@ -509,6 +531,105 @@ namespace Genesis.RoomScan.Tests
                 }
                 finally { command.Clear(); }
                 return ReadSnapshot();
+            }
+
+            internal void RunSegmentedTargetFixture()
+            {
+                Assert.That(_graph.Resources.ExecutionWindowCount,
+                    Is.GreaterThan(1));
+                using (var command = new CommandBuffer
+                    { name = "Sigma R1 segmented whole-frame fixture" })
+                {
+                    try
+                    {
+                        _graph.RecordSourceAndResolve(command, _owned, 1u,
+                            _input);
+                        Graphics.ExecuteCommandBuffer(command);
+                    }
+                    finally { command.Clear(); }
+                }
+
+                int targets = Math.Min(2,
+                    _graph.Resources.ExecutionWindowCount);
+                for (int index = 0; index < targets; ++index)
+                {
+                    SigmaFrameExecutionWindow window =
+                        _graph.Resources.ExecutionWindow(index);
+                    int localFootprint = window.FootprintCount - 1;
+                    int candidateIndex = localFootprint * Proposals;
+                    uint globalFootprint = unchecked((uint)(
+                        window.FirstFootprint + localFootprint));
+                    uint segment = unchecked((uint)(7 + index * 11));
+                    uint page = unchecked((uint)(13 + index * 17));
+                    uint generation = unchecked((uint)(19 + index * 23));
+                    uint sample = unchecked((uint)(
+                        SigmaCarrier.SamplesPerPage - 1 - index));
+                    var candidate = new SigmaFrameCandidateGpu
+                    {
+                        Identity = Gpu4(1u, globalFootprint,
+                            (uint)SigmaFrameProposalKind.Current,
+                            sample | (1u << 16)),
+                        Handle = Gpu4(segment, page, generation, 29u),
+                        Coordinate = Gpu4(31u + (uint)index, 0u,
+                            37u + (uint)index, 0u),
+                    };
+                    var outcome = new SigmaFrameOutcomeGpu
+                    {
+                        Classification = Gpu4(
+                            (uint)SigmaFrameOutcomeFlags.Accepted, 0u, 0u, 0u),
+                    };
+                    SigmaFrameBufferSegment candidateSegment =
+                        _graph.Resources.Candidates.Segment(index);
+                    SigmaFrameBufferSegment outcomeSegment =
+                        _graph.Resources.Outcomes.Segment(index);
+                    candidateSegment.Buffer.SetData(new[] { candidate }, 0,
+                        candidateIndex, 1);
+                    outcomeSegment.Buffer.SetData(new[] { outcome }, 0,
+                        candidateIndex, 1);
+
+                    using var compact = new CommandBuffer
+                        { name = "Sigma R1 normalized target fixture" };
+                    try
+                    {
+                        _graph.RecordCompactWindow(compact, index, 1u);
+                        Graphics.ExecuteCommandBuffer(compact);
+                    }
+                    finally { compact.Clear(); }
+
+                    SigmaFrameDeltaGpu delta = ReadAt<SigmaFrameDeltaGpu>(
+                        _graph.Resources.Deltas.Segment(index).Buffer,
+                        localFootprint);
+                    Assert.That(delta.Candidate.X, Is.EqualTo(segment));
+                    Assert.That(delta.Candidate.Y, Is.EqualTo(page));
+                    Assert.That(delta.Candidate.Z, Is.EqualTo(generation));
+                    Assert.That(delta.Candidate.W, Is.EqualTo(sample));
+                    Assert.That(delta.Evidence.X, Is.EqualTo(globalFootprint));
+                    Assert.That(delta.Evidence.Z,
+                        Is.EqualTo((uint)SigmaFrameProposalKind.Current));
+                    Assert.That(delta.Evidence.W, Is.EqualTo(0u));
+                    Assert.That(delta.Coordinate, Is.EqualTo(candidate.Coordinate));
+                }
+
+                for (int index = 0;
+                    index < _graph.Resources.ExecutionWindowCount; ++index)
+                {
+                    SigmaFrameExecutionWindow window =
+                        _graph.Resources.ExecutionWindow(index);
+                    SigmaFrameOutcomeGpu novel = ReadAt<SigmaFrameOutcomeGpu>(
+                        _graph.Resources.Outcomes.Segment(index).Buffer,
+                        (window.FootprintCount - 1) * Proposals +
+                            NovelProposalSlot);
+                    SigmaFrameCandidateGpu proposal =
+                        ReadAt<SigmaFrameCandidateGpu>(
+                            _graph.Resources.Candidates.Segment(index).Buffer,
+                            (window.FootprintCount - 1) * Proposals +
+                                NovelProposalSlot);
+                    Assert.That(proposal.Identity.Z,
+                        Is.EqualTo((uint)SigmaFrameProposalKind.Novel),
+                        $"window {index} proposal did not execute");
+                    Assert.That(novel.Classification.X, Is.Not.EqualTo(0u),
+                        $"window {index} inverse did not execute");
+                }
             }
 
             internal PublicationSnapshot RunPublished(int footprintWindow,
@@ -582,49 +703,47 @@ namespace Genesis.RoomScan.Tests
                 {
                     SigmaFrameSource kind = (SigmaFrameSource)source;
                     result.Lower[source] = Read<UInt2>(
-                        sources.Lower(kind).Segments[0].Buffer, Footprints * Lanes);
+                        sources.Lower(kind), _footprints * Lanes);
                     result.Upper[source] = Read<UInt2>(
-                        sources.Upper(kind).Segments[0].Buffer, Footprints * Lanes);
+                        sources.Upper(kind), _footprints * Lanes);
                     result.Validity[source] = Read<uint>(
-                        sources.Validity(kind).Segments[0].Buffer,
-                        Footprints * Lanes);
+                        sources.Validity(kind), _footprints * Lanes);
                     result.Provenance[source] = Read<UInt4>(
-                        sources.Provenance(kind).Segments[0].Buffer, Footprints);
+                        sources.Provenance(kind), _footprints);
                 }
                 result.Outcomes = Read<SigmaFrameOutcomeGpu>(
-                    _graph.Resources.Outcomes.Segments[0].Buffer,
-                    Footprints * Proposals);
+                    _graph.Resources.Outcomes, _footprints * Proposals);
                 result.Candidates = Read<SigmaFrameCandidateGpu>(
-                    _graph.Resources.Candidates.Segments[0].Buffer,
-                    Footprints * Proposals);
+                    _graph.Resources.Candidates, _footprints * Proposals);
                 result.CandidateStates = Read<UInt2>(
-                    _graph.Resources.CandidateStates.Segments[0].Buffer,
-                    Footprints * Proposals * Lanes);
+                    _graph.Resources.CandidateStates,
+                    _footprints * Proposals * Lanes);
                 return result;
             }
         }
 
-        private static RigIntrinsics Intrinsics() => new(
-            new Vector2(8f, 8f), new Vector2(4f, 4f),
-            new Vector2Int(Width, Height), new Vector2Int(Width, Height),
+        private static RigIntrinsics Intrinsics(int width, int height) => new(
+            new Vector2(width, height), new Vector2(width * 0.5f, height * 0.5f),
+            new Vector2Int(width, height), new Vector2Int(width, height),
             Pose.identity, new Vector4(-0.5f, 0.5f, 0.5f, -0.5f), 0x1234UL);
 
-        private static Texture2D RgbTexture(byte r, byte g, byte b)
+        private static Texture2D RgbTexture(int width, int height,
+            byte r, byte g, byte b)
         {
-            var texture = new Texture2D(Width, Height,
+            var texture = new Texture2D(width, height,
                 GraphicsFormat.R8G8B8A8_UNorm, TextureCreationFlags.None);
-            var pixels = new Color32[Footprints];
+            var pixels = new Color32[checked(width * height)];
             Array.Fill(pixels, new Color32(r, g, b, 255));
             texture.SetPixelData(pixels, 0);
             texture.Apply(false, false);
             return texture;
         }
 
-        private static Texture2DArray RawDepthTexture()
+        private static Texture2DArray RawDepthTexture(int width, int height)
         {
-            var texture = new Texture2DArray(Width, Height, 2,
+            var texture = new Texture2DArray(width, height, 2,
                 GraphicsFormat.R32_SFloat, TextureCreationFlags.None);
-            var values = new float[Footprints];
+            var values = new float[checked(width * height)];
             Array.Fill(values, 10f * (2f - 0.1f) / (2f * (10f - 0.1f)));
             texture.SetPixelData(values, 0, 0);
             texture.SetPixelData(values, 0, 1);
@@ -634,13 +753,13 @@ namespace Genesis.RoomScan.Tests
 
         private static void NormalizeDepth(StereoRigFrameLease frame,
             ConeLutLease luts, RenderTexture metricDepth,
-            RenderTexture depthFlags)
+            RenderTexture depthFlags, int width, int height)
         {
             ComputeShader shader = Resources.Load<ComputeShader>(
                 "SigmaPrism/DepthNormalize");
             Assert.That(shader, Is.Not.Null);
             int kernel = shader.FindKernel("NormalizeStereoDepth");
-            shader.SetInts("_Resolution", Width, Height);
+            shader.SetInts("_Resolution", width, height);
             shader.SetVector("_NearFar", new Vector4(0.1f, 10f, 0f, 0f));
             shader.SetTexture(kernel, "_RawDepth", frame.DepthLeft.Texture);
             shader.SetTexture(kernel, "_DepthRayCenterLeft",
@@ -652,9 +771,10 @@ namespace Genesis.RoomScan.Tests
             shader.Dispatch(kernel, 1, 1, 2);
         }
 
-        private static RenderTexture ArrayRenderTexture(GraphicsFormat format)
+        private static RenderTexture ArrayRenderTexture(int width, int height,
+            GraphicsFormat format)
         {
-            var descriptor = new RenderTextureDescriptor(Width, Height)
+            var descriptor = new RenderTextureDescriptor(width, height)
             {
                 graphicsFormat = format,
                 depthBufferBits = 0,
@@ -697,16 +817,16 @@ namespace Genesis.RoomScan.Tests
             finally { command.Clear(); }
         }
 
-        private static UInt2[] DepthCalibration()
+        private static UInt2[] DepthCalibration(int width, int height)
         {
             var result = new UInt2[DepthCalibrationStride * 2];
             for (int eye = 0; eye < 2; ++eye)
             {
                 int at = eye * DepthCalibrationStride;
-                Set(result, at + 0, 8f);
-                Set(result, at + 1, 8f);
-                Set(result, at + 2, 4f);
-                Set(result, at + 3, 4f);
+                Set(result, at + 0, width);
+                Set(result, at + 1, height);
+                Set(result, at + 2, width * 0.5f);
+                Set(result, at + 3, height * 0.5f);
                 Set(result, at + 4, 1f);
                 Set(result, at + 8, 1f);
                 Set(result, at + 12, 1f);
@@ -772,6 +892,35 @@ namespace Genesis.RoomScan.Tests
             buffer.GetData(values, 0, 0, count);
             return values;
         }
+
+        private static T[] Read<T>(SigmaFrameSegmentedBuffer buffer, int count)
+            where T : struct
+        {
+            var values = new T[count];
+            int destination = 0;
+            for (int index = 0; index < buffer.Segments.Count; ++index)
+            {
+                SigmaFrameBufferSegment segment = buffer.Segment(index);
+                int copy = Math.Min(segment.RecordCount, count - destination);
+                if (copy <= 0)
+                    break;
+                segment.Buffer.GetData(values, destination, 0, copy);
+                destination += copy;
+            }
+            Assert.That(destination, Is.EqualTo(count));
+            return values;
+        }
+
+        private static T ReadAt<T>(GraphicsBuffer buffer, int index)
+            where T : struct
+        {
+            var value = new T[1];
+            buffer.GetData(value, 0, index, 1);
+            return value[0];
+        }
+
+        private static SigmaFrameUInt4Gpu Gpu4(uint x, uint y, uint z,
+            uint w) => new() { X = x, Y = y, Z = z, W = w };
 
         private static void Destroy(UnityEngine.Object value)
         {

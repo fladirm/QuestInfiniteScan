@@ -60,6 +60,14 @@ namespace Genesis.RoomScan.SigmaPrism
         internal long OwnedBytes => checked(RecordCapacity * _stride);
         internal IReadOnlyList<SigmaFrameBufferSegment> Segments => _segments;
 
+        internal SigmaFrameBufferSegment Segment(int index)
+        {
+            RequireAlive();
+            if ((uint)index >= (uint)_segments.Count)
+                throw new ArgumentOutOfRangeException(nameof(index));
+            return _segments[index];
+        }
+
         internal long AdditionalBytesFor(long requiredRecords)
         {
             RequireAlive();
@@ -129,20 +137,20 @@ namespace Genesis.RoomScan.SigmaPrism
         private bool _disposed;
 
         internal SigmaFrameSourceStorage(int slot, int footprintCount,
-            long bindingLimit)
+            int footprintsPerWindow)
         {
             if (slot < 0)
                 throw new ArgumentOutOfRangeException(nameof(slot));
             if (footprintCount <= 0)
                 throw new ArgumentOutOfRangeException(nameof(footprintCount));
             FootprintCount = footprintCount;
+            if (footprintsPerWindow <= 0)
+                throw new ArgumentOutOfRangeException(nameof(footprintsPerWindow));
             long coordinateRecords = checked((long)footprintCount *
                 SigmaGeneratedFrame.LaneCount);
-            int coordinateSegmentRecords =
-                SigmaFrameResources.ComputeSegmentRecordCapacity(bindingLimit,
-                    SigmaGeneratedFrame.PackedQ48Stride);
-            int provenanceSegmentRecords = Math.Max(1,
-                coordinateSegmentRecords / SigmaGeneratedFrame.LaneCount);
+            int coordinateSegmentRecords = checked(footprintsPerWindow *
+                SigmaGeneratedFrame.LaneCount);
+            int provenanceSegmentRecords = footprintsPerWindow;
 
             _lo = new SigmaFrameSegmentedBuffer[SigmaGeneratedFrame.SourceCount];
             _hi = new SigmaFrameSegmentedBuffer[SigmaGeneratedFrame.SourceCount];
@@ -289,7 +297,6 @@ namespace Genesis.RoomScan.SigmaPrism
         private const long MiB = 1024L * 1024L;
         private const long PreferredSegmentBytes = 64L * MiB;
         private const int InitialProposalKinds = 4;
-        private const int InitialEdgesPerCandidate = 4;
         private const int InitialRevisionRecords = 256;
         private const int ClosureCounterRecords = 4;
 
@@ -326,29 +333,30 @@ namespace Genesis.RoomScan.SigmaPrism
             Profile = profile;
             _bindingLimit = bindingLimit;
             _budgetBytes = checked((long)profileMiB * MiB);
+            FootprintsPerWindow = ComputeExecutionWindowFootprints(bindingLimit);
 
             long initialCandidates = checked((long)FootprintCount *
                 InitialProposalKinds);
-            long initialEdges = checked(initialCandidates *
-                InitialEdgesPerCandidate);
+            long initialEdges = checked((long)FootprintCount * 2L);
             Candidates = Buffer<SigmaFrameCandidateGpu>(
                 SigmaGeneratedFrame.FrameCandidateStride,
-                "Sigma direct frame candidates");
+                "Sigma direct frame candidates", InitialProposalKinds);
             Outcomes = Buffer<SigmaFrameOutcomeGpu>(
                 SigmaGeneratedFrame.FrameOutcomeStride,
-                "Sigma direct frame outcomes");
+                "Sigma direct frame outcomes", InitialProposalKinds);
             CandidateStates = Buffer<SigmaFrameUInt2Gpu>(
                 SigmaGeneratedFrame.PackedQ48Stride,
-                "Sigma direct candidate S16 states");
+                "Sigma direct candidate S16 states",
+                InitialProposalKinds * SigmaGeneratedFrame.LaneCount);
             PendingGauges = Buffer<SigmaPendingGaugeGpu>(
                 SigmaGeneratedFrame.PendingGaugeStride,
-                "Sigma pending latent gauges");
+                "Sigma pending latent gauges", 1);
             Deltas = Buffer<SigmaFrameDeltaGpu>(
                 SigmaGeneratedFrame.FrameDeltaStride,
-                "Sigma direct frame deltas");
+                "Sigma direct frame deltas", 1);
             DirtyEdges = Buffer<SigmaDirtyEdgeGpu>(
                 SigmaGeneratedFrame.DirtyEdgeStride,
-                "Sigma direct dirty intrinsic edges");
+                "Sigma direct dirty intrinsic edges", 2);
             Revisions = Buffer<SigmaFrameRevisionGpu>(
                 SigmaGeneratedFrame.FrameRevisionStride,
                 "Sigma direct frame revisions");
@@ -356,16 +364,16 @@ namespace Genesis.RoomScan.SigmaPrism
                 SigmaGeneratedFrame.ProvenanceStride,
                 "Sigma direct resolved block counts");
             ResolvedIndices = Buffer<uint>(sizeof(uint),
-                "Sigma direct resolved candidate indices");
+                "Sigma direct resolved candidate indices", 1);
             PendingLabels = Buffer<uint>(sizeof(uint),
-                "Sigma direct pending component labels");
+                "Sigma direct pending component labels", 1);
             PendingLinks = Buffer<uint>(sizeof(uint),
-                "Sigma direct pending exact links");
+                "Sigma direct pending exact links", 1);
             DeferredFlags = Buffer<uint>(sizeof(uint),
-                "Sigma direct deferred mutation flags");
+                "Sigma direct deferred mutation flags", 1);
             RootLocalOffsets = Buffer<SigmaFrameUInt2Gpu>(
                 SigmaGeneratedFrame.PackedQ48Stride,
-                "Sigma direct pending root local offsets");
+                "Sigma direct pending root local offsets", 1);
             RootBlockOffsets = Buffer<SigmaFrameUInt2Gpu>(
                 SigmaGeneratedFrame.PackedQ48Stride,
                 "Sigma direct pending root block offsets");
@@ -421,6 +429,9 @@ namespace Genesis.RoomScan.SigmaPrism
 
         internal Vector2Int Resolution { get; }
         internal int FootprintCount { get; }
+        internal int FootprintsPerWindow { get; }
+        internal int ExecutionWindowCount => checked((FootprintCount +
+            FootprintsPerWindow - 1) / FootprintsPerWindow);
         internal SigmaFrameMemoryProfile Profile { get; }
         internal int FrameCapacity => _frameSlots.Length;
         internal long BudgetBytes => _budgetBytes;
@@ -476,7 +487,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 try
                 {
                     var sources = new SigmaFrameSourceStorage(slot,
-                        FootprintCount, _bindingLimit);
+                        FootprintCount, FootprintsPerWindow);
                     _frameSlots[slot].Sources = sources;
                     _allocatedBytes = checked(_allocatedBytes + sources.OwnedBytes);
                 }
@@ -520,7 +531,7 @@ namespace Genesis.RoomScan.SigmaPrism
             additional = checked(additional +
                 CandidateStates.AdditionalBytesFor(stateRecords));
             additional = checked(additional +
-                Deltas.AdditionalBytesFor(candidateRecords));
+                Deltas.AdditionalBytesFor(FootprintCount));
             long resolvedBlocks = checked((candidateRecords + 1023L) / 1024L);
             additional = checked(additional +
                 ResolvedBlockCounts.AdditionalBytesFor(resolvedBlocks));
@@ -531,7 +542,7 @@ namespace Genesis.RoomScan.SigmaPrism
             Candidates.GrowTo(candidateRecords);
             Outcomes.GrowTo(candidateRecords);
             CandidateStates.GrowTo(stateRecords);
-            Deltas.GrowTo(candidateRecords);
+            Deltas.GrowTo(FootprintCount);
             ResolvedBlockCounts.GrowTo(resolvedBlocks);
             ResolvedIndices.GrowTo(FootprintCount);
             _allocatedBytes = checked(_allocatedBytes + additional);
@@ -621,6 +632,56 @@ namespace Genesis.RoomScan.SigmaPrism
             return checked((int)Math.Max(1L, Math.Min(int.MaxValue, records)));
         }
 
+        internal static int ComputeExecutionWindowFootprints(long bindingLimit)
+        {
+            int capacity = int.MaxValue;
+            capacity = Math.Min(capacity, ComputeSegmentRecordCapacity(bindingLimit,
+                SigmaGeneratedFrame.FrameCandidateStride) / InitialProposalKinds);
+            capacity = Math.Min(capacity, ComputeSegmentRecordCapacity(bindingLimit,
+                SigmaGeneratedFrame.FrameOutcomeStride) / InitialProposalKinds);
+            capacity = Math.Min(capacity, ComputeSegmentRecordCapacity(bindingLimit,
+                SigmaGeneratedFrame.PackedQ48Stride) /
+                (InitialProposalKinds * SigmaGeneratedFrame.LaneCount));
+            capacity = Math.Min(capacity, ComputeSegmentRecordCapacity(bindingLimit,
+                SigmaGeneratedFrame.FrameDeltaStride));
+            capacity = Math.Min(capacity, ComputeSegmentRecordCapacity(bindingLimit,
+                SigmaGeneratedFrame.DirtyEdgeStride) / 2);
+            capacity = Math.Min(capacity, ComputeSegmentRecordCapacity(bindingLimit,
+                SigmaGeneratedFrame.ValidityStride) / SigmaGeneratedFrame.LaneCount);
+            capacity = Math.Min(capacity, ComputeSegmentRecordCapacity(bindingLimit,
+                SigmaGeneratedFrame.ProvenanceStride));
+            capacity = capacity / 256 * 256;
+            if (capacity < 256)
+                throw new InvalidOperationException(
+                    "Vulkan binding range cannot hold one 256-footprint Sigma window.");
+            return capacity;
+        }
+
+        internal SigmaFrameExecutionWindow ExecutionWindow(int index)
+        {
+            RequireAlive();
+            if ((uint)index >= (uint)ExecutionWindowCount)
+                throw new ArgumentOutOfRangeException(nameof(index));
+            int first = checked(index * FootprintsPerWindow);
+            return new SigmaFrameExecutionWindow(index, first,
+                Math.Min(FootprintsPerWindow, FootprintCount - first));
+        }
+
+        internal static GraphicsBuffer WindowBuffer(SigmaFrameSegmentedBuffer buffer,
+            SigmaFrameExecutionWindow window, int recordsPerFootprint)
+        {
+            if (buffer == null || recordsPerFootprint <= 0)
+                throw new ArgumentOutOfRangeException(nameof(recordsPerFootprint));
+            SigmaFrameBufferSegment segment = buffer.Segment(window.Index);
+            long expectedFirst = checked((long)window.FirstFootprint *
+                recordsPerFootprint);
+            int required = checked(window.FootprintCount * recordsPerFootprint);
+            if (segment.FirstRecord != expectedFirst || segment.RecordCount < required)
+                throw new InvalidOperationException(
+                    "Sigma execution-window buffers are not footprint aligned.");
+            return segment.Buffer;
+        }
+
         internal SigmaFrameSourceStorage GetSources(int slot, uint generation)
         {
             RequireSlot(slot, generation);
@@ -697,6 +758,16 @@ namespace Genesis.RoomScan.SigmaPrism
                     $"C#={Marshal.SizeOf<T>()}, generated={stride}.");
             return new SigmaFrameSegmentedBuffer(stride,
                 ComputeSegmentRecordCapacity(_bindingLimit, stride), name);
+        }
+
+        private SigmaFrameSegmentedBuffer Buffer<T>(int stride, string name,
+            int recordsPerFootprint) where T : struct
+        {
+            if (Marshal.SizeOf<T>() != stride || recordsPerFootprint <= 0)
+                throw new InvalidOperationException(
+                    $"Sigma frame window ABI mismatch for {typeof(T).Name}.");
+            return new SigmaFrameSegmentedBuffer(stride,
+                checked(FootprintsPerWindow * recordsPerFootprint), name);
         }
 
         private bool TryGrow(SigmaFrameSegmentedBuffer buffer, long records)
@@ -782,5 +853,20 @@ namespace Genesis.RoomScan.SigmaPrism
             internal int References;
             internal SigmaFrameSourceStorage Sources;
         }
+    }
+
+    internal readonly struct SigmaFrameExecutionWindow
+    {
+        internal SigmaFrameExecutionWindow(int index, int firstFootprint,
+            int footprintCount)
+        {
+            Index = index;
+            FirstFootprint = firstFootprint;
+            FootprintCount = footprintCount;
+        }
+
+        internal int Index { get; }
+        internal int FirstFootprint { get; }
+        internal int FootprintCount { get; }
     }
 }

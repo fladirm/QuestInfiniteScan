@@ -82,6 +82,7 @@ uint _FrameResolvedBlockCount;
 uint _FirstFootprint;
 uint _BoundFootprintCount;
 uint _SourceFootprintBase;
+uint _FrameBufferFootprintBase;
 uint _FrameSourceOrdinal;
 uint _ResolveProposalKind;
 uint _CarrierSegmentIndex;
@@ -271,16 +272,18 @@ void ClearFrameState(uint3 id : SV_DispatchThreadID)
         outcome.Classification = 0u;
         outcome.Evidence = 0u;
         _FrameOutcomes[index] = outcome;
+    }
+    if (index < _BoundFootprintCount)
+    {
         SigmaFrameDeltaGpu delta;
         delta.Coordinate = SIGMA_FRAME_INVALID;
         delta.Candidate = SIGMA_FRAME_INVALID;
         delta.Evidence = 0u;
         _FrameDeltas[index] = delta;
+        _FrameResolvedIndices[index] = SIGMA_FRAME_INVALID;
     }
     if (index < _FrameResolvedBlockCount)
         _FrameResolvedBlockCounts[index] = 0u;
-    if (index < _FrameFootprintCount)
-        _FrameResolvedIndices[index] = SIGMA_FRAME_INVALID;
     if (index == 0u)
     {
         SigmaOwnedFrameGpu frame = _OwnedFrames[_FrameSlot];
@@ -318,7 +321,8 @@ void BuildFrameProposals(uint3 id : SV_DispatchThreadID)
         second = swap;
     }
 
-    uint base = footprint * SIGMA_FRAME_PROPOSALS_PER_FOOTPRINT;
+    uint storageFootprint = footprint - _FrameBufferFootprintBase;
+    uint base = storageFootprint * SIGMA_FRAME_PROPOSALS_PER_FOOTPRINT;
     SigmaFrameCandidateGpu primary = SigmaFrameEmptyCandidate(footprint);
     SigmaFrameCandidateGpu secondary = SigmaFrameEmptyCandidate(footprint);
     if (hasFirst)
@@ -1086,12 +1090,14 @@ void CompactResolvedTargets(uint3 groupId : SV_GroupID,
     uint3 threadId : SV_GroupThreadID)
 {
     uint lane = threadId.x;
-    uint footprint = groupId.x * 256u + lane;
+    uint storageFootprint = groupId.x * 256u + lane;
+    uint footprint = _FrameBufferFootprintBase + storageFootprint;
     uint selected = SIGMA_FRAME_INVALID;
     uint flags = 0u;
-    if (footprint < _FrameFootprintCount)
+    if (storageFootprint < _BoundFootprintCount &&
+        footprint < _FrameFootprintCount)
     {
-        uint base = footprint * SIGMA_FRAME_PROPOSALS_PER_FOOTPRINT;
+        uint base = storageFootprint * SIGMA_FRAME_PROPOSALS_PER_FOOTPRINT;
         [unroll]
         for (uint proposal = 0u; proposal <
             SIGMA_FRAME_PROPOSALS_PER_FOOTPRINT; ++proposal)
@@ -1113,12 +1119,15 @@ void CompactResolvedTargets(uint3 groupId : SV_GroupID,
     {
         SigmaFrameCandidateGpu candidate = _FrameCandidates[selected];
         SigmaFrameDeltaGpu delta;
+        uint proposal = selected - storageFootprint *
+            SIGMA_FRAME_PROPOSALS_PER_FOOTPRINT;
         delta.Coordinate = candidate.Coordinate;
-        delta.Candidate = uint4(candidate.Handle.xyz, selected);
+        delta.Candidate = uint4(candidate.Handle.xyz,
+            candidate.Identity.w & SIGMA_FRAME_PROPOSAL_SAMPLE_MASK);
         delta.Evidence = uint4(footprint, flags,
-            candidate.Identity.z, candidate.Identity.w);
-        _FrameDeltas[footprint] = delta;
-        _FrameResolvedIndices[footprint] = selected;
+            candidate.Identity.z, proposal);
+        _FrameDeltas[storageFootprint] = delta;
+        _FrameResolvedIndices[storageFootprint] = selected;
     }
     if (lane == 0u)
         _FrameResolvedBlockCounts[groupId.x] = uint4(total,

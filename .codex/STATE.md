@@ -73,10 +73,10 @@ extent allocation, proof/raw ownership and milestone gates are frozen in the pla
 
 ## Current exact action
 
-S4-08.5 R0 control-only reopen: freeze the verified G1-G14 closure contract,
-validate controls and commit it. R1 then replaces the single-window source path
-with aligned lossless windows and normalized target records; no carrier mutation is
-accepted until R2-R4 close exact reduction, transition, evidence and publication.
+S4-08.5 R2: reduce the complete normalized target stream before constructing any
+final S16 candidate. Stable target/source ordering, exact joint-cell reduction,
+minimum-change finalization and retained certificate ownership replace the old
+direct-writer closure. Only CHANGED records may proceed toward scatter.
 
 ## Required end state
 
@@ -98,6 +98,10 @@ accepted until R2-R4 close exact reduction, transition, evidence and publication
 - Unity Vulkan EditMode 73/73, generated operators, code graph/control,
   `git diff --check` and Quest eight-UAV validation were green.
 - Device evidence remains negative acceptance and must not be restated as success.
+- R1 executes a production 320x320 observation through seven aligned Vulkan
+  binding windows, preserves two distinct CURRENT segment/page/generation/sample
+  targets and strips the right-eye bit from sample addressing. Focused Vulkan
+  inverse tests pass 4/4 and resource/ABI tests pass 3/3.
 - S4-08.4 M0 control gate is green: DAG JSON parses, generated code graph is
   current, control validation names active S4-08 and diff whitespace is clean.
 - M1 generated ABI/resource gate is green: generated outputs are current and Unity
