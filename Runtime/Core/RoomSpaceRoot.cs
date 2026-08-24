@@ -61,7 +61,7 @@ namespace Genesis.RoomScan
         [SerializeField] protected bool verbose = true;
 
         [Tooltip("Editor/testing only: bind to this Transform instead of polling " +
-                 "RoomAnchorManager for a real OVRSpatialAnchor, neither of which " +
+                 "RoomAnchorManager for a real OVRSpatialAnchor, which does not " +
                  "work in playmode without a headset. Leave null on device.")]
         [SerializeField] protected Transform anchorOverride;
 
@@ -270,8 +270,8 @@ namespace Genesis.RoomScan
         }
 
         /// <summary>
-        /// Bind to a stand-in anchor without going through MRUK or
-        /// <c>OVRSpatialAnchor</c>, for editor playmode and tests. Applies
+        /// Bind to a stand-in anchor without an <c>OVRSpatialAnchor</c>, for editor
+        /// playmode and tests. Applies
         /// synchronously so a caller can bake or author against the result in
         /// the same frame. Pass null to return to the world origin.
         /// </summary>

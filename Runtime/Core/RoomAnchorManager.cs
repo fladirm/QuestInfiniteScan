@@ -1,16 +1,17 @@
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.Threading.Tasks;
-using Meta.XR.MRUtilityKit;
 using UnityEngine;
 
 namespace Genesis.RoomScan
 {
     /// <summary>
-    /// Room anchor manager. Uses MRUK for runtime world-locking and provides
-    /// <see cref="OVRSpatialAnchor"/>-based persistence for reliable cross-session relocation.
-    /// Computes per-artifact relocation matrices via <c>R = A_now * Inv(A_create)</c>.
+    /// Owns the localized <see cref="OVRSpatialAnchor"/> that defines the stable
+    /// scan-space frame. It does not depend on a Meta room model: arbitrary rooms,
+    /// corridors, outdoor spaces and later large-world anchor sets use the same
+    /// anchor-local carrier coordinates. Computes relocation matrices via
+    /// <c>R = A_now * Inv(A_create)</c> without giving anchors physical identity in
+    /// the canonical carrier.
     /// </summary>
     [DisallowMultipleComponent]
     public class RoomAnchorManager : MonoBehaviour, IRoomScanModule
@@ -24,15 +25,6 @@ namespace Genesis.RoomScan
         /// <summary>Singleton instance set in <see cref="Awake"/>.</summary>
         public static RoomAnchorManager Instance { get; private set; }
 
-        /// <summary>Raised once when the MRUK room scene has been loaded and the anchor transform is available.</summary>
-        public event Action RoomReady;
-
-        /// <summary>True after the MRUK scene has loaded (even if no rooms were found).</summary>
-        public bool IsRoomLoaded { get; private set; }
-
-        private MRUK _mruk;
-        private Transform _anchorTransform;
-
         private OVRSpatialAnchor _activeSpatialAnchor;
         private readonly List<OVRSpatialAnchor.UnboundAnchor> _unboundAnchors = new();
 
@@ -41,96 +33,15 @@ namespace Genesis.RoomScan
             Instance = this;
         }
 
-        private IEnumerator Start()
-        {
-            if (!enabled)
-                yield break;
-
-            _mruk = FindAnyObjectByType<MRUK>();
-            if (_mruk == null)
-            {
-                var go = new GameObject("[MRUK]");
-                go.transform.SetParent(transform, false);
-                _mruk = go.AddComponent<MRUK>();
-            }
-
-            _mruk.SceneSettings ??= new MRUK.MRUKSettings();
-            _mruk.SceneSettings.DataSource = MRUK.SceneDataSource.Device;
-            _mruk.SceneSettings.LoadSceneOnStartup = false;
-            _mruk.SceneSettings.EnableHighFidelityScene = true;
-
-            if (_mruk.SceneLoadedEvent != null)
-                _mruk.SceneLoadedEvent.AddListener(OnSceneLoaded);
-
-            yield return null;
-            _ = _mruk.LoadSceneFromDevice(sceneModel: MRUK.SceneModel.V2FallbackV1);
-            Logger.Info("MRUK LoadSceneFromDevice started (V2FallbackV1, awaiting SceneLoadedEvent)...");
-        }
-
         private void OnDestroy()
         {
-            if (_mruk != null && _mruk.SceneLoadedEvent != null)
-                _mruk.SceneLoadedEvent.RemoveListener(OnSceneLoaded);
             if (Instance == this)
                 Instance = null;
         }
 
-        private void OnSceneLoaded()
-        {
-            if (!enabled)
-                return;
-
-            if (_mruk.Rooms == null || _mruk.Rooms.Count == 0)
-            {
-                Logger.Warning("MRUK loaded but no rooms found");
-                IsRoomLoaded = true;
-                RoomReady?.Invoke();
-                return;
-            }
-
-            MRUKRoom room = _mruk.GetCurrentRoom() ?? _mruk.Rooms[0];
-
-            Logger.Info($"MRUK rooms={_mruk.Rooms.Count}, " +
-                        $"current room anchors={room.Anchors.Count}");
-            foreach (var a in room.Anchors)
-                Logger.Info($"  anchor: {a.Label} vol={a.VolumeBounds.HasValue} plane={a.PlaneRect.HasValue}");
-
-            MRUKAnchor floorAnchor = null;
-            if (room.FloorAnchors != null && room.FloorAnchors.Count > 0)
-                floorAnchor = room.FloorAnchors[0];
-
-            _anchorTransform = floorAnchor != null ? floorAnchor.transform : room.transform;
-            if (_anchorTransform == null)
-            {
-                Logger.Warning("No anchor transform");
-                IsRoomLoaded = true;
-                RoomReady?.Invoke();
-                return;
-            }
-
-            if (floorAnchor != null)
-                Logger.Info($"Using floor MRUKAnchor '{floorAnchor.name}' " +
-                          $"(label={floorAnchor.Label}) pos={_anchorTransform.position}, rot={_anchorTransform.rotation.eulerAngles}");
-            else
-                Logger.Warning($"No FloorAnchors — falling back to MRUKRoom.transform (pos={_anchorTransform.position})");
-
-            IsRoomLoaded = true;
-            Logger.Info($"Room ready — anchor pos={_anchorTransform.position}, rot={_anchorTransform.rotation.eulerAngles}");
-            RoomReady?.Invoke();
-        }
-
         // ─────────────────────────────────────────────────────────────
-        //  MRUK fallback API (unchanged)
+        //  Spatial-anchor relocation
         // ─────────────────────────────────────────────────────────────
-
-        /// <summary>
-        /// Floor MRUK anchor → world matrix. Used as fallback when spatial anchor
-        /// localization fails. Main thread only.
-        /// </summary>
-        public Matrix4x4 GetRoomLocalToWorld()
-        {
-            return _anchorTransform != null ? _anchorTransform.localToWorldMatrix : Matrix4x4.identity;
-        }
 
         /// <summary>
         /// One-shot relocation: <c>R = A_now * Inv(A_save)</c>.
@@ -143,15 +54,6 @@ namespace Genesis.RoomScan
                       $"  A_now  col3(pos): {anchorNow.GetColumn(3)}\n" +
                       $"  R      col3(pos): {reloc.GetColumn(3)}");
             return reloc;
-        }
-
-        /// <summary>
-        /// Overload for backward compat — uses the current MRUK anchor as A_now.
-        /// </summary>
-        public Matrix4x4 ComputeRelocationMatrix(Matrix4x4 anchorAtSave)
-        {
-            Matrix4x4 aNow = _anchorTransform != null ? _anchorTransform.localToWorldMatrix : Matrix4x4.identity;
-            return ComputeRelocationMatrix(aNow, anchorAtSave);
         }
 
         // ─────────────────────────────────────────────────────────────
@@ -206,17 +108,10 @@ namespace Genesis.RoomScan
         /// <summary>
         /// Creates an <see cref="OVRSpatialAnchor"/> at the given world pose, waits for
         /// creation, persists it, and returns the UUID + localToWorld matrix.
-        /// Falls back to MRUK anchor position if <paramref name="position"/> is default.
         /// </summary>
         public async Task<(Guid uuid, Matrix4x4 matrix)?> CreateAndSaveSpatialAnchorAsync(
             Vector3 position, Quaternion rotation)
         {
-            if (position == Vector3.zero && rotation == Quaternion.identity && _anchorTransform != null)
-            {
-                position = _anchorTransform.position;
-                rotation = _anchorTransform.rotation;
-            }
-
             var go = new GameObject("[SpatialAnchor]");
             go.transform.SetPositionAndRotation(position, rotation);
             var anchor = go.AddComponent<OVRSpatialAnchor>();
@@ -277,7 +172,6 @@ namespace Genesis.RoomScan
         /// <summary>
         /// Loads a previously persisted spatial anchor by UUID, localizes it, and returns
         /// the anchor's current localToWorld matrix. Returns null on failure.
-        /// Falls back to MRUK anchor if localization fails.
         /// </summary>
         public async Task<Matrix4x4?> LoadSpatialAnchorAsync(Guid uuid)
         {
@@ -289,7 +183,7 @@ namespace Genesis.RoomScan
             if (!loadResult.Success || _unboundAnchors.Count == 0)
             {
                 Logger.Warning($"Spatial anchor load failed: {loadResult.Status}, " +
-                                 $"count={_unboundAnchors.Count}. Falling back to MRUK.");
+                                 $"count={_unboundAnchors.Count}.");
                 return null;
             }
 
@@ -308,7 +202,7 @@ namespace Genesis.RoomScan
                 }
                 if (!unbound.Localized)
                 {
-                    Logger.Warning("Spatial anchor localization timed out. Falling back to MRUK.");
+                    Logger.Warning("Spatial anchor localization timed out.");
                     return null;
                 }
             }

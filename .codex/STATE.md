@@ -73,9 +73,9 @@ extent allocation, proof/raw ownership and milestone gates are frozen in the pla
 
 ## Current exact action
 
-M6 handoff: freeze this accepted S4-08 commit, archive it source-only, then build
-and install the Quest Android/Vulkan Release from that exact commit. Stop before
-S4-09 and wait for device audit.
+M6 device-repair handoff: rebuild and install the exact post-audit S4-08 commit
+whose scan-space anchor is created directly from tracking space without an MRUK
+room-scene prerequisite. Stop before S4-09 and verify Start Scan on Quest.
 
 ## Required end state
 
@@ -124,6 +124,12 @@ S4-09 and wait for device audit.
 - M6 pre-freeze Release compiler gate is green on the accepted runtime: Quest
   eight-UAV validation passes and the Android/Vulkan Release APK builds with zero
   shader/C# errors. Compiler warnings remain reported rather than hidden.
+- First post-freeze device launch exposed a pre-ingress lifecycle regression: M5
+  retained the donor MRUK `IsRoomLoaded` gate and assumed a scene-authored
+  `RoomSpaceRoot`. The repair deletes MRUK room-scene loading/fallback, creates the
+  root at runtime and retains OVR spatial-anchor create/save/load/localization.
+  Unity Vulkan EditMode remains green at 54/54 and the Quest eight-UAV gate passes;
+  device revalidation is pending.
 
 ## Completion protocol
 

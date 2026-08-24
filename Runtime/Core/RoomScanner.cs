@@ -57,7 +57,6 @@ namespace Genesis.RoomScan
         private SigmaExactBackendGate _exactBackendGate;
         private Task _startTask = Task.CompletedTask;
         private uint _lifecycleGeneration;
-        private bool _roomReady;
         private bool _resourcesReleased;
 
         public ScanLifecycleState ScanLifecycle { get; private set; } =
@@ -99,6 +98,11 @@ namespace Genesis.RoomScan
             _sigmaInverse = GetComponent<SigmaInverseController>();
             _roomAnchor = GetComponent<RoomAnchorManager>();
             _debugMenu = GetComponentInChildren<DebugMenuController>(true);
+            if (RoomSpaceRoot.Instance == null)
+            {
+                var roomSpace = new GameObject("[SigmaRoomSpace]");
+                roomSpace.AddComponent<RoomSpaceRoot>();
+            }
             Shader.SetGlobalFloat(WireframeId, 0f);
             Shader.SetGlobalFloat(WireThicknessId, wireThickness);
         }
@@ -129,28 +133,12 @@ namespace Genesis.RoomScan
             _modules = GetComponents<IRoomScanModule>();
             foreach (IRoomScanModule module in _modules)
                 module.OnModuleInitialize(this);
-
-            if (_roomAnchor != null && _roomAnchor.enabled && !_roomAnchor.IsRoomLoaded)
-                _roomAnchor.RoomReady += OnRoomReady;
-            else
-                OnRoomReady();
-        }
-
-        private void OnRoomReady()
-        {
-            if (_roomReady)
-                return;
-            _roomReady = true;
-            if (_roomAnchor != null)
-                _roomAnchor.RoomReady -= OnRoomReady;
             Logger.Info("Σ-PRISM-16 Quest shell ready; scanner awaits Start.");
         }
 
         private void OnDisable()
         {
             StopScanning();
-            if (_roomAnchor != null)
-                _roomAnchor.RoomReady -= OnRoomReady;
         }
 
         private void OnDestroy()
@@ -317,7 +305,7 @@ namespace Genesis.RoomScan
 
         private async Task<bool> EnsureScanAnchorAsync()
         {
-            if (_roomAnchor == null || !_roomAnchor.IsRoomLoaded)
+            if (_roomAnchor == null)
                 return false;
             if (_roomAnchor.HasSpatialAnchor)
                 return true;

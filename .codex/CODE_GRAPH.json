@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "source_digest": "f8eefbe238e3c720583975a246d4f36354f8ea0e347ec65d9d09323b8abf12fc",
+  "source_digest": "e7a18925253412d9165f300d8449d9cda689e44ee5a4dec6bbd72bafe83a0151",
   "scope": [
     "Runtime/**/*.cs",
     "Runtime/Resources/SigmaPrism/**/*.*",
@@ -11,10 +11,10 @@
   ],
   "summary": {
     "files": 113,
-    "symbols": 1612,
-    "methods_and_functions": 1309,
+    "symbols": 1607,
+    "methods_and_functions": 1304,
     "gpu_kernels": 64,
-    "event_links": 5
+    "event_links": 4
   },
   "files": [
     {
@@ -1327,172 +1327,137 @@
       "line": 8
     },
     {
-      "id": "Runtime/Core/RoomAnchorManager.cs::Awake@38",
+      "id": "Runtime/Core/RoomAnchorManager.cs::Awake@30",
       "file": "Runtime/Core/RoomAnchorManager.cs",
       "name": "Awake",
       "kind": "method",
-      "line": 38
+      "line": 30
     },
     {
-      "id": "Runtime/Core/RoomAnchorManager.cs::ComputeRelocationMatrix@138",
+      "id": "Runtime/Core/RoomAnchorManager.cs::ComputeRelocationMatrix@49",
       "file": "Runtime/Core/RoomAnchorManager.cs",
       "name": "ComputeRelocationMatrix",
       "kind": "method",
-      "line": 138
+      "line": 49
     },
     {
-      "id": "Runtime/Core/RoomAnchorManager.cs::ComputeRelocationMatrix@151",
-      "file": "Runtime/Core/RoomAnchorManager.cs",
-      "name": "ComputeRelocationMatrix",
-      "kind": "method",
-      "line": 151
-    },
-    {
-      "id": "Runtime/Core/RoomAnchorManager.cs::DetachChildrenForReparent@374",
+      "id": "Runtime/Core/RoomAnchorManager.cs::DetachChildrenForReparent@268",
       "file": "Runtime/Core/RoomAnchorManager.cs",
       "name": "DetachChildrenForReparent",
       "kind": "method",
-      "line": 374
+      "line": 268
     },
     {
-      "id": "Runtime/Core/RoomAnchorManager.cs::EraseSpatialAnchorAsync@343",
+      "id": "Runtime/Core/RoomAnchorManager.cs::EraseSpatialAnchorAsync@237",
       "file": "Runtime/Core/RoomAnchorManager.cs",
       "name": "EraseSpatialAnchorAsync",
       "kind": "method",
-      "line": 343
+      "line": 237
     },
     {
-      "id": "Runtime/Core/RoomAnchorManager.cs::GetRoomLocalToWorld@130",
-      "file": "Runtime/Core/RoomAnchorManager.cs",
-      "name": "GetRoomLocalToWorld",
-      "kind": "method",
-      "line": 130
-    },
-    {
-      "id": "Runtime/Core/RoomAnchorManager.cs::LoadSpatialAnchorAsync@282",
+      "id": "Runtime/Core/RoomAnchorManager.cs::LoadSpatialAnchorAsync@176",
       "file": "Runtime/Core/RoomAnchorManager.cs",
       "name": "LoadSpatialAnchorAsync",
       "kind": "method",
-      "line": 282
+      "line": 176
     },
     {
-      "id": "Runtime/Core/RoomAnchorManager.cs::OnDestroy@69",
+      "id": "Runtime/Core/RoomAnchorManager.cs::OnDestroy@35",
       "file": "Runtime/Core/RoomAnchorManager.cs",
       "name": "OnDestroy",
       "kind": "method",
-      "line": 69
+      "line": 35
     },
     {
-      "id": "Runtime/Core/RoomAnchorManager.cs::OnModuleInitialize@22",
+      "id": "Runtime/Core/RoomAnchorManager.cs::OnModuleInitialize@23",
       "file": "Runtime/Core/RoomAnchorManager.cs",
       "name": "OnModuleInitialize",
       "kind": "method",
-      "line": 22
-    },
-    {
-      "id": "Runtime/Core/RoomAnchorManager.cs::OnSceneLoaded@77",
-      "file": "Runtime/Core/RoomAnchorManager.cs",
-      "name": "OnSceneLoaded",
-      "kind": "method",
-      "line": 77
+      "line": 23
     },
     {
       "id": "Runtime/Core/RoomAnchorManager.cs::RoomAnchorManager",
       "file": "Runtime/Core/RoomAnchorManager.cs",
       "name": "RoomAnchorManager",
       "kind": "class",
-      "line": 16
+      "line": 17
     },
     {
-      "id": "Runtime/Core/RoomAnchorManager.cs::StabilizeAnchorTransform@387",
+      "id": "Runtime/Core/RoomAnchorManager.cs::StabilizeAnchorTransform@281",
       "file": "Runtime/Core/RoomAnchorManager.cs",
       "name": "StabilizeAnchorTransform",
       "kind": "method",
-      "line": 387
+      "line": 281
     },
     {
-      "id": "Runtime/Core/RoomAnchorManager.cs::Start@43",
-      "file": "Runtime/Core/RoomAnchorManager.cs",
-      "name": "Start",
-      "kind": "method",
-      "line": 43
-    },
-    {
-      "id": "Runtime/Core/RoomScanner.cs::Awake@89",
+      "id": "Runtime/Core/RoomScanner.cs::Awake@88",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "Awake",
       "kind": "method",
-      "line": 89
+      "line": 88
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::ClearAllDataAsync@285",
+      "id": "Runtime/Core/RoomScanner.cs::ClearAllDataAsync@273",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "ClearAllDataAsync",
       "kind": "method",
-      "line": 285
+      "line": 273
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::ClearScan@278",
+      "id": "Runtime/Core/RoomScanner.cs::ClearScan@266",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "ClearScan",
       "kind": "method",
-      "line": 278
+      "line": 266
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::CycleRenderMode@302",
+      "id": "Runtime/Core/RoomScanner.cs::CycleRenderMode@290",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "CycleRenderMode",
       "kind": "method",
-      "line": 302
+      "line": 290
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::EnsureScanAnchorAsync@317",
+      "id": "Runtime/Core/RoomScanner.cs::EnsureScanAnchorAsync@305",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "EnsureScanAnchorAsync",
       "kind": "method",
-      "line": 317
+      "line": 305
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::IsModeAvailable@312",
+      "id": "Runtime/Core/RoomScanner.cs::IsModeAvailable@300",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "IsModeAvailable",
       "kind": "method",
-      "line": 312
+      "line": 300
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::ObserveStart@264",
+      "id": "Runtime/Core/RoomScanner.cs::ObserveStart@252",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "ObserveStart",
       "kind": "method",
-      "line": 264
+      "line": 252
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::OnDestroy@155",
+      "id": "Runtime/Core/RoomScanner.cs::OnDestroy@143",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "OnDestroy",
       "kind": "method",
-      "line": 155
+      "line": 143
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::OnDisable@148",
+      "id": "Runtime/Core/RoomScanner.cs::OnDisable@138",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "OnDisable",
-      "kind": "method",
-      "line": 148
-    },
-    {
-      "id": "Runtime/Core/RoomScanner.cs::OnRoomReady@138",
-      "file": "Runtime/Core/RoomScanner.cs",
-      "name": "OnRoomReady",
       "kind": "method",
       "line": 138
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::ReleaseScanResources@270",
+      "id": "Runtime/Core/RoomScanner.cs::ReleaseScanResources@258",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "ReleaseScanResources",
       "kind": "method",
-      "line": 270
+      "line": 258
     },
     {
       "id": "Runtime/Core/RoomScanner.cs::RoomScanner",
@@ -1516,53 +1481,53 @@
       "line": 10
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::SetRenderMode@293",
+      "id": "Runtime/Core/RoomScanner.cs::SetRenderMode@281",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "SetRenderMode",
       "kind": "method",
-      "line": 293
+      "line": 281
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::Start@105",
+      "id": "Runtime/Core/RoomScanner.cs::Start@109",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "Start",
       "kind": "method",
-      "line": 105
+      "line": 109
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::StartScanningAsync@163",
+      "id": "Runtime/Core/RoomScanner.cs::StartScanningAsync@151",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "StartScanningAsync",
       "kind": "method",
-      "line": 163
+      "line": 151
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::StartScanningCoreAsync@177",
+      "id": "Runtime/Core/RoomScanner.cs::StartScanningCoreAsync@165",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "StartScanningCoreAsync",
       "kind": "method",
-      "line": 177
+      "line": 165
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::StopScanning@232",
+      "id": "Runtime/Core/RoomScanner.cs::StopScanning@220",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "StopScanning",
       "kind": "method",
-      "line": 232
+      "line": 220
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::ToggleDebugMenu@315",
+      "id": "Runtime/Core/RoomScanner.cs::ToggleDebugMenu@303",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "ToggleDebugMenu",
       "kind": "method",
-      "line": 315
+      "line": 303
     },
     {
-      "id": "Runtime/Core/RoomScanner.cs::ToggleScanning@254",
+      "id": "Runtime/Core/RoomScanner.cs::ToggleScanning@242",
       "file": "Runtime/Core/RoomScanner.cs",
       "name": "ToggleScanning",
       "kind": "method",
-      "line": 254
+      "line": 242
     },
     {
       "id": "Runtime/Core/RoomSpaceRoot.cs::Adopt@186",
@@ -11879,14 +11844,6 @@
       "line": 220
     },
     {
-      "file": "Runtime/Core/RoomScanner.cs",
-      "source_variable": "_roomAnchor",
-      "source_type": "RoomAnchorManager",
-      "event": "RoomReady",
-      "handler": "OnRoomReady",
-      "line": 134
-    },
-    {
       "file": "Runtime/SigmaPrism/SigmaGpuCompletion.cs",
       "source_variable": "RenderPipelineManager",
       "source_type": null,
@@ -12622,188 +12579,163 @@
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomAnchorManager.cs::ComputeRelocationMatrix@138",
+      "source": "Runtime/Core/RoomAnchorManager.cs::ComputeRelocationMatrix@49",
       "target": "Runtime/Utils/Logger.cs::Info@30",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomAnchorManager.cs::EraseSpatialAnchorAsync@343",
+      "source": "Runtime/Core/RoomAnchorManager.cs::EraseSpatialAnchorAsync@237",
       "target": "Runtime/Utils/Logger.cs::Info@30",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomAnchorManager.cs::EraseSpatialAnchorAsync@343",
+      "source": "Runtime/Core/RoomAnchorManager.cs::EraseSpatialAnchorAsync@237",
       "target": "Runtime/Utils/Logger.cs::Warning@36",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomAnchorManager.cs::LoadSpatialAnchorAsync@282",
-      "target": "Runtime/Core/RoomAnchorManager.cs::DetachChildrenForReparent@374",
+      "source": "Runtime/Core/RoomAnchorManager.cs::LoadSpatialAnchorAsync@176",
+      "target": "Runtime/Core/RoomAnchorManager.cs::DetachChildrenForReparent@268",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomAnchorManager.cs::LoadSpatialAnchorAsync@282",
-      "target": "Runtime/Core/RoomAnchorManager.cs::StabilizeAnchorTransform@387",
+      "source": "Runtime/Core/RoomAnchorManager.cs::LoadSpatialAnchorAsync@176",
+      "target": "Runtime/Core/RoomAnchorManager.cs::StabilizeAnchorTransform@281",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomAnchorManager.cs::LoadSpatialAnchorAsync@282",
+      "source": "Runtime/Core/RoomAnchorManager.cs::LoadSpatialAnchorAsync@176",
       "target": "Runtime/Utils/Logger.cs::Info@30",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomAnchorManager.cs::LoadSpatialAnchorAsync@282",
+      "source": "Runtime/Core/RoomAnchorManager.cs::LoadSpatialAnchorAsync@176",
       "target": "Runtime/Utils/Logger.cs::Warning@36",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomAnchorManager.cs::OnSceneLoaded@77",
-      "target": "Runtime/Utils/Logger.cs::Info@30",
+      "source": "Runtime/Core/RoomScanner.cs::ClearAllDataAsync@273",
+      "target": "Runtime/Core/RoomScanner.cs::ClearScan@266",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomAnchorManager.cs::OnSceneLoaded@77",
-      "target": "Runtime/Utils/Logger.cs::Warning@36",
+      "source": "Runtime/Core/RoomScanner.cs::ClearScan@266",
+      "target": "Runtime/Core/RoomScanner.cs::SetRenderMode@281",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomAnchorManager.cs::RoomAnchorManager",
-      "target": "Runtime/Core/RoomScanner.cs::OnRoomReady@138",
-      "kind": "event:RoomReady"
-    },
-    {
-      "source": "Runtime/Core/RoomAnchorManager.cs::Start@43",
-      "target": "Runtime/Utils/Logger.cs::Info@30",
+      "source": "Runtime/Core/RoomScanner.cs::ClearScan@266",
+      "target": "Runtime/Core/RoomScanner.cs::StopScanning@220",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::ClearAllDataAsync@285",
-      "target": "Runtime/Core/RoomScanner.cs::ClearScan@278",
+      "source": "Runtime/Core/RoomScanner.cs::CycleRenderMode@290",
+      "target": "Runtime/Core/RoomScanner.cs::SetRenderMode@281",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::ClearScan@278",
-      "target": "Runtime/Core/RoomScanner.cs::SetRenderMode@293",
+      "source": "Runtime/Core/RoomScanner.cs::OnDisable@138",
+      "target": "Runtime/Core/RoomScanner.cs::StopScanning@220",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::ClearScan@278",
-      "target": "Runtime/Core/RoomScanner.cs::StopScanning@232",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Core/RoomScanner.cs::CycleRenderMode@302",
-      "target": "Runtime/Core/RoomScanner.cs::SetRenderMode@293",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Core/RoomScanner.cs::OnDisable@148",
-      "target": "Runtime/Core/RoomScanner.cs::StopScanning@232",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Core/RoomScanner.cs::OnRoomReady@138",
-      "target": "Runtime/Utils/Logger.cs::Info@30",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Core/RoomScanner.cs::ReleaseScanResources@270",
+      "source": "Runtime/Core/RoomScanner.cs::ReleaseScanResources@258",
       "target": "Runtime/Core/DepthCapture.cs::ReleaseResources@83",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::ReleaseScanResources@270",
-      "target": "Runtime/Core/RoomScanner.cs::SetRenderMode@293",
+      "source": "Runtime/Core/RoomScanner.cs::ReleaseScanResources@258",
+      "target": "Runtime/Core/RoomScanner.cs::SetRenderMode@281",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::ReleaseScanResources@270",
-      "target": "Runtime/Core/RoomScanner.cs::StopScanning@232",
+      "source": "Runtime/Core/RoomScanner.cs::ReleaseScanResources@258",
+      "target": "Runtime/Core/RoomScanner.cs::StopScanning@220",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::Start@105",
-      "target": "Runtime/Core/RoomScanner.cs::OnRoomReady@138",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/Core/RoomScanner.cs::Start@105",
+      "source": "Runtime/Core/RoomScanner.cs::Start@109",
       "target": "Runtime/SigmaPrism/SigmaExactBackendGate.cs::Dispatch@45",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::Start@105",
+      "source": "Runtime/Core/RoomScanner.cs::Start@109",
       "target": "Runtime/Utils/Logger.cs::Error@42",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::Start@105",
+      "source": "Runtime/Core/RoomScanner.cs::Start@109",
+      "target": "Runtime/Utils/Logger.cs::Info@30",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Core/RoomScanner.cs::Start@109",
       "target": "Runtime/Utils/Logger.cs::Warning@36",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::StartScanningAsync@163",
-      "target": "Runtime/Core/RoomScanner.cs::StartScanningCoreAsync@177",
+      "source": "Runtime/Core/RoomScanner.cs::StartScanningAsync@151",
+      "target": "Runtime/Core/RoomScanner.cs::StartScanningCoreAsync@165",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::StartScanningCoreAsync@177",
+      "source": "Runtime/Core/RoomScanner.cs::StartScanningCoreAsync@165",
       "target": "Runtime/Camera/PassthroughCameraProvider.cs::RequestCameraPermissionAsync@81",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::StartScanningCoreAsync@177",
+      "source": "Runtime/Core/RoomScanner.cs::StartScanningCoreAsync@165",
       "target": "Runtime/Core/DepthCapture.cs::StartDepthCapture@69",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::StartScanningCoreAsync@177",
+      "source": "Runtime/Core/RoomScanner.cs::StartScanningCoreAsync@165",
       "target": "Runtime/Core/DepthCapture.cs::StopDepthCapture@77",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::StartScanningCoreAsync@177",
-      "target": "Runtime/Core/RoomScanner.cs::EnsureScanAnchorAsync@317",
+      "source": "Runtime/Core/RoomScanner.cs::StartScanningCoreAsync@165",
+      "target": "Runtime/Core/RoomScanner.cs::EnsureScanAnchorAsync@305",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::StartScanningCoreAsync@177",
+      "source": "Runtime/Core/RoomScanner.cs::StartScanningCoreAsync@165",
       "target": "Runtime/Core/RoomSpaceRoot.cs::WaitForBindAsync@252",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::StartScanningCoreAsync@177",
+      "source": "Runtime/Core/RoomScanner.cs::StartScanningCoreAsync@165",
       "target": "Runtime/Utils/Logger.cs::Error@42",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::StartScanningCoreAsync@177",
+      "source": "Runtime/Core/RoomScanner.cs::StartScanningCoreAsync@165",
       "target": "Runtime/Utils/Logger.cs::Info@30",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::StopScanning@232",
+      "source": "Runtime/Core/RoomScanner.cs::StopScanning@220",
       "target": "Runtime/Core/DepthCapture.cs::StopDepthCapture@77",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::StopScanning@232",
+      "source": "Runtime/Core/RoomScanner.cs::StopScanning@220",
       "target": "Runtime/Utils/Logger.cs::Info@30",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::ToggleScanning@254",
-      "target": "Runtime/Core/RoomScanner.cs::ObserveStart@264",
+      "source": "Runtime/Core/RoomScanner.cs::ToggleScanning@242",
+      "target": "Runtime/Core/RoomScanner.cs::ObserveStart@252",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::ToggleScanning@254",
-      "target": "Runtime/Core/RoomScanner.cs::StartScanningAsync@163",
+      "source": "Runtime/Core/RoomScanner.cs::ToggleScanning@242",
+      "target": "Runtime/Core/RoomScanner.cs::StartScanningAsync@151",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Core/RoomScanner.cs::ToggleScanning@254",
-      "target": "Runtime/Core/RoomScanner.cs::StopScanning@232",
+      "source": "Runtime/Core/RoomScanner.cs::ToggleScanning@242",
+      "target": "Runtime/Core/RoomScanner.cs::StopScanning@220",
       "kind": "calls"
     },
     {
@@ -16188,22 +16120,22 @@
     },
     {
       "source": "Runtime/RoomScanInputHandler.cs::ExecuteAction@110",
-      "target": "Runtime/Core/RoomScanner.cs::ClearAllDataAsync@285",
+      "target": "Runtime/Core/RoomScanner.cs::ClearAllDataAsync@273",
       "kind": "calls"
     },
     {
       "source": "Runtime/RoomScanInputHandler.cs::ExecuteAction@110",
-      "target": "Runtime/Core/RoomScanner.cs::CycleRenderMode@302",
+      "target": "Runtime/Core/RoomScanner.cs::CycleRenderMode@290",
       "kind": "calls"
     },
     {
       "source": "Runtime/RoomScanInputHandler.cs::ExecuteAction@110",
-      "target": "Runtime/Core/RoomScanner.cs::ToggleDebugMenu@315",
+      "target": "Runtime/Core/RoomScanner.cs::ToggleDebugMenu@303",
       "kind": "calls"
     },
     {
       "source": "Runtime/RoomScanInputHandler.cs::ExecuteAction@110",
-      "target": "Runtime/Core/RoomScanner.cs::ToggleScanning@254",
+      "target": "Runtime/Core/RoomScanner.cs::ToggleScanning@242",
       "kind": "calls"
     },
     {
@@ -20268,17 +20200,17 @@
     },
     {
       "source": "Runtime/UI/DebugMenuController.cs::Bind@109",
-      "target": "Runtime/Core/RoomScanner.cs::ClearAllDataAsync@285",
+      "target": "Runtime/Core/RoomScanner.cs::ClearAllDataAsync@273",
       "kind": "calls"
     },
     {
       "source": "Runtime/UI/DebugMenuController.cs::Bind@109",
-      "target": "Runtime/Core/RoomScanner.cs::CycleRenderMode@302",
+      "target": "Runtime/Core/RoomScanner.cs::CycleRenderMode@290",
       "kind": "calls"
     },
     {
       "source": "Runtime/UI/DebugMenuController.cs::Bind@109",
-      "target": "Runtime/Core/RoomScanner.cs::ToggleScanning@254",
+      "target": "Runtime/Core/RoomScanner.cs::ToggleScanning@242",
       "kind": "calls"
     },
     {
