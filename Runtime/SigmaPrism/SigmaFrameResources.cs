@@ -116,7 +116,9 @@ namespace Genesis.RoomScan.SigmaPrism
 
     /// <summary>
     /// Complete exact four-source cell journal for one owned coherent frame.
-    /// Layout is coordinate-major: coordinate * footprintCount + footprint.
+    /// Execution is coordinate-major while storage keeps each sixteen-lane
+    /// footprint contiguous: footprint * laneCount + coordinate. Segment cuts
+    /// therefore never split one exact S16 source cell.
     /// </summary>
     internal sealed class SigmaFrameSourceStorage : IDisposable
     {
@@ -139,9 +141,8 @@ namespace Genesis.RoomScan.SigmaPrism
             int coordinateSegmentRecords =
                 SigmaFrameResources.ComputeSegmentRecordCapacity(bindingLimit,
                     SigmaGeneratedFrame.PackedQ48Stride);
-            int provenanceSegmentRecords =
-                SigmaFrameResources.ComputeSegmentRecordCapacity(bindingLimit,
-                    SigmaGeneratedFrame.ProvenanceStride);
+            int provenanceSegmentRecords = Math.Max(1,
+                coordinateSegmentRecords / SigmaGeneratedFrame.LaneCount);
 
             _lo = new SigmaFrameSegmentedBuffer[SigmaGeneratedFrame.SourceCount];
             _hi = new SigmaFrameSegmentedBuffer[SigmaGeneratedFrame.SourceCount];
@@ -350,6 +351,9 @@ namespace Genesis.RoomScan.SigmaPrism
             Revisions = Buffer<SigmaFrameRevisionGpu>(
                 SigmaGeneratedFrame.FrameRevisionStride,
                 "Sigma direct frame revisions");
+            ResolvedBlockCounts = Buffer<SigmaFrameUInt4Gpu>(
+                SigmaGeneratedFrame.ProvenanceStride,
+                "Sigma direct resolved block counts");
 
             if (!TryEnsureCandidateCapacity(initialCandidates) ||
                 !TryEnsurePendingGaugeCapacity(FootprintCount) ||
@@ -395,6 +399,7 @@ namespace Genesis.RoomScan.SigmaPrism
         internal SigmaFrameSegmentedBuffer Deltas { get; }
         internal SigmaFrameSegmentedBuffer DirtyEdges { get; }
         internal SigmaFrameSegmentedBuffer Revisions { get; }
+        internal SigmaFrameSegmentedBuffer ResolvedBlockCounts { get; }
 
         internal bool TryAcquireFrame(uint revision, uint calibrationEpoch,
             uint depthLeftKey, uint depthRightKey, uint rgbLeftKey,
@@ -468,12 +473,16 @@ namespace Genesis.RoomScan.SigmaPrism
                 CandidateStates.AdditionalBytesFor(stateRecords));
             additional = checked(additional +
                 Deltas.AdditionalBytesFor(candidateRecords));
+            long resolvedBlocks = checked((candidateRecords + 1023L) / 1024L);
+            additional = checked(additional +
+                ResolvedBlockCounts.AdditionalBytesFor(resolvedBlocks));
             if (!TryReserve(additional))
                 return false;
             Candidates.GrowTo(candidateRecords);
             Outcomes.GrowTo(candidateRecords);
             CandidateStates.GrowTo(stateRecords);
             Deltas.GrowTo(candidateRecords);
+            ResolvedBlockCounts.GrowTo(resolvedBlocks);
             _allocatedBytes = checked(_allocatedBytes + additional);
             return true;
         }
@@ -562,6 +571,7 @@ namespace Genesis.RoomScan.SigmaPrism
             Deltas.Dispose();
             DirtyEdges.Dispose();
             Revisions.Dispose();
+            ResolvedBlockCounts.Dispose();
             OwnedFrames?.Dispose();
             OwnedFrames = null;
             _freeAllocated.Clear();

@@ -73,9 +73,10 @@ extent allocation, proof/raw ownership and milestone gates are frozen in the pla
 
 ## Current exact action
 
-M2: implement the complete direct-frame source/proposal/resolve shader and host
-recorder named in `.codex/S4-08.4_RESUME.md`. It must produce exact four-source
-frame outcomes without carrier mutation; controller cutover waits for M3 closure.
+M3: implement the complete pending/transition/evidence/publication vertical slice
+named in `.codex/S4-08.4_RESUME.md`. One synthetic coherent frame must publish one
+atomic visible revision with bit-identical state, proof and provenance under legal
+page/workgroup/proof-window decompositions; controller cutover waits for M4.
 
 ## Required end state
 
@@ -101,6 +102,10 @@ frame outcomes without carrier mutation; controller cutover waits for M3 closure
   current, control validation names active S4-08 and diff whitespace is clean.
 - M1 generated ABI/resource gate is green: generated outputs are current and Unity
   Vulkan EditMode passes 76/76 including the eight-UAV frame ABI dispatch.
+- M2 direct inverse gate is green: the new whole-frame shader materializes four
+  independent source cells and resolves the novel exact state against a CPU oracle;
+  full and three-footprint execution partitions are bit-identical and Unity Vulkan
+  EditMode passes 77/77.
 
 ## Completion protocol
 

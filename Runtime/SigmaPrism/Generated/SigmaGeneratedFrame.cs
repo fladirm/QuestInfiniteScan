@@ -85,6 +85,15 @@ namespace Genesis.RoomScan.SigmaPrism
         Deferred = 0x00000020u,
         Fault = 0x80000000u,
     }
+    [System.Flags]
+    internal enum SigmaFrameCellFlags : uint
+    {
+        None = 0u,
+        Constrained = 0x00000001u,
+        Observed = 0x00000002u,
+        Unobservable = 0x00000004u,
+        Fault = 0x80000000u,
+    }
 
     [StructLayout(LayoutKind.Sequential, Pack = 4)]
     internal struct SigmaOwnedFrameGpu
@@ -138,7 +147,7 @@ namespace Genesis.RoomScan.SigmaPrism
     internal static class SigmaGeneratedFrame
     {
         internal const string AbiVersion = "CPQ4-S16-FRAME-1";
-        internal const string AbiFingerprint = "137e381adc1159249184c661996615564401fc4cb850163746474bc2f3ea5b81";
+        internal const string AbiFingerprint = "f189c6c2b3123cd4c8b9a74dacbae769590d15e1ebd5ee62673ad23b7211ee25";
         internal const int SourceCount = 4;
         internal const int LaneCount = 16;
         internal const int PackedQ48Stride = 8;

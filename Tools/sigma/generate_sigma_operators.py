@@ -101,6 +101,13 @@ FRAME_OUTCOME_FLAGS = {
     "Fault": 1 << 31,
 }
 
+FRAME_CELL_FLAGS = {
+    "Constrained": 1 << 0,
+    "Observed": 1 << 1,
+    "Unobservable": 1 << 2,
+    "Fault": 1 << 31,
+}
+
 BUDGET_CLASSES = {
     "NONE": 0,
     "INGRESS_ADMISSION": 1,
@@ -1170,6 +1177,7 @@ def frame_abi_descriptor() -> dict:
         ],
         "enums": FRAME_ENUMS,
         "outcomeFlags": FRAME_OUTCOME_FLAGS,
+        "cellFlags": FRAME_CELL_FLAGS,
         "packedQ48Stride": 8,
         "validityStride": 4,
         "provenanceStride": 16,
@@ -1194,6 +1202,13 @@ def render_frame_cs(frame: dict) -> str:
         "    [System.Flags]\n"
         "    internal enum SigmaFrameOutcomeFlags : uint\n"
         f"    {{\n        None = 0u,\n{flag_members}\n    }}")
+    cell_flag_members = "\n".join(
+        f"        {name} = 0x{value:08x}u,"
+        for name, value in frame["cellFlags"].items())
+    enum_text.append(
+        "    [System.Flags]\n"
+        "    internal enum SigmaFrameCellFlags : uint\n"
+        f"    {{\n        None = 0u,\n{cell_flag_members}\n    }}")
 
     struct_text = []
     for entry in frame["structs"]:
@@ -1263,6 +1278,9 @@ def render_frame_hlsl(frame: dict) -> str:
     for name, value in frame["outcomeFlags"].items():
         macro_lines.append(
             f"#define SIGMA_FRAME_OUTCOME_{upper_snake(name)} 0x{value:08x}u")
+    for name, value in frame["cellFlags"].items():
+        macro_lines.append(
+            f"#define SIGMA_FRAME_CELL_{upper_snake(name)} 0x{value:08x}u")
 
     struct_text = []
     for entry in frame["structs"]:

@@ -1,0 +1,1123 @@
+#pragma kernel ClearFrameState
+#pragma kernel BuildFrameProposals
+#pragma kernel BuildDepthSourceCells
+#pragma kernel BuildRgbSourceCells
+#pragma kernel EvaluateCandidateMeets
+#pragma kernel CompactResolvedTargets
+#pragma target 5.0
+
+#include "SigmaFrameAbi.hlsl"
+#include "SigmaGeometryReadout.hlsl"
+#include "SigmaInverseMath.hlsl"
+#include "SigmaRgbInverseMath.hlsl"
+#include "SigmaPoseConsume.hlsl"
+#include "SigmaStableScan.hlsl"
+
+// One coherent four-camera frame is the execution domain. Threads and bound
+// buffer segments are replaceable lowering details; neither creates carrier
+// identity. Every canonical decision below is packed Q16.48.
+
+#define SIGMA_FRAME_PROPOSALS_PER_FOOTPRINT 4u
+#define SIGMA_FRAME_FOOTPRINTS_PER_GROUP 16u
+#define SIGMA_FRAME_COORDINATES_PER_GROUP 256u
+#define SIGMA_FRAME_PROPOSAL_SAMPLE_MASK 0x0000ffffu
+#define SIGMA_FRAME_PROPOSAL_EYE_SHIFT 16u
+
+RWStructuredBuffer<SigmaOwnedFrameGpu> _OwnedFrames;
+RWStructuredBuffer<SigmaFrameCandidateGpu> _FrameCandidates;
+RWStructuredBuffer<SigmaFrameOutcomeGpu> _FrameOutcomes;
+RWStructuredBuffer<uint2> _FrameCandidateStates;
+RWStructuredBuffer<SigmaFrameDeltaGpu> _FrameDeltas;
+RWStructuredBuffer<uint4> _FrameResolvedBlockCounts;
+
+RWStructuredBuffer<uint2> _SourceLowerOut;
+RWStructuredBuffer<uint2> _SourceUpperOut;
+RWStructuredBuffer<uint> _SourceValidityOut;
+RWStructuredBuffer<uint4> _SourceProvenanceOut;
+
+StructuredBuffer<uint2> _DepthLeftLower;
+StructuredBuffer<uint2> _DepthLeftUpper;
+StructuredBuffer<uint> _DepthLeftValidity;
+StructuredBuffer<uint4> _DepthLeftProvenance;
+StructuredBuffer<uint2> _DepthRightLower;
+StructuredBuffer<uint2> _DepthRightUpper;
+StructuredBuffer<uint> _DepthRightValidity;
+StructuredBuffer<uint4> _DepthRightProvenance;
+StructuredBuffer<uint2> _RgbLeftLower;
+StructuredBuffer<uint2> _RgbLeftUpper;
+StructuredBuffer<uint> _RgbLeftValidity;
+StructuredBuffer<uint4> _RgbLeftProvenance;
+StructuredBuffer<uint2> _RgbRightLower;
+StructuredBuffer<uint2> _RgbRightUpper;
+StructuredBuffer<uint> _RgbRightValidity;
+StructuredBuffer<uint4> _RgbRightProvenance;
+
+Texture2DArray<float2> _MetricDepth;
+Texture2DArray<uint> _DepthFlags;
+Texture2DArray<float2> _PredDepthSupport;
+Texture2DArray<uint4> _PredCarrierPage;
+Texture2DArray<float4> _PredCarrierUvNormal;
+Texture2DArray<uint4> _PredStateKey;
+Texture2D<float4> _DepthRayCenterLeft;
+Texture2D<float4> _DepthRayCenterRight;
+
+StructuredBuffer<uint2> _CarrierState;
+StructuredBuffer<SigmaCarrierPageMetaGpu> _PageMetadata;
+StructuredBuffer<uint> _CurrentFlags;
+
+float4x4 _WorldFromOpticalLeft;
+float4x4 _WorldFromOpticalRight;
+float4x4 _OpticalFromWorldLeft;
+float4x4 _OpticalFromWorldRight;
+float4 _DepthIntrinsicsLeft;
+float4 _DepthIntrinsicsRight;
+uint2 _FrameResolution;
+uint4 _FrameSourceKeys;
+uint _FrameRevision;
+uint _FrameSlot;
+uint _FrameFootprintCount;
+uint _FrameCandidateCount;
+uint _FrameResolvedBlockCount;
+uint _FirstFootprint;
+uint _BoundFootprintCount;
+uint _SourceFootprintBase;
+uint _FrameSourceOrdinal;
+uint _ResolveProposalKind;
+uint _CarrierSegmentIndex;
+uint _PageCapacity;
+
+groupshared uint2 FrameAxisLower[SIGMA_FRAME_FOOTPRINTS_PER_GROUP * 3u];
+groupshared uint2 FrameAxisUpper[SIGMA_FRAME_FOOTPRINTS_PER_GROUP * 3u];
+groupshared uint4 FrameSourceMeta[SIGMA_FRAME_FOOTPRINTS_PER_GROUP];
+groupshared uint2 FrameValueA[SIGMA_FRAME_COORDINATES_PER_GROUP];
+groupshared uint2 FrameValueB[SIGMA_FRAME_COORDINATES_PER_GROUP];
+groupshared uint2 FrameLower[SIGMA_FRAME_COORDINATES_PER_GROUP];
+groupshared uint2 FrameUpper[SIGMA_FRAME_COORDINATES_PER_GROUP];
+groupshared uint FrameLaneValid[SIGMA_FRAME_COORDINATES_PER_GROUP];
+groupshared uint FrameActive[SIGMA_FRAME_FOOTPRINTS_PER_GROUP];
+groupshared uint FrameConstrained[SIGMA_FRAME_FOOTPRINTS_PER_GROUP];
+groupshared uint FrameConflict[SIGMA_FRAME_FOOTPRINTS_PER_GROUP];
+groupshared uint FrameIndependent[SIGMA_FRAME_FOOTPRINTS_PER_GROUP];
+groupshared uint FrameSourceMask[SIGMA_FRAME_FOOTPRINTS_PER_GROUP];
+groupshared uint FrameChanged[SIGMA_FRAME_FOOTPRINTS_PER_GROUP];
+groupshared uint FrameFault[SIGMA_FRAME_FOOTPRINTS_PER_GROUP];
+groupshared uint2 FrameMass[SIGMA_FRAME_FOOTPRINTS_PER_GROUP];
+groupshared uint2 FramePriorWidth[SIGMA_FRAME_FOOTPRINTS_PER_GROUP];
+groupshared uint2 FrameMaximumWidth[SIGMA_FRAME_FOOTPRINTS_PER_GROUP];
+groupshared SigmaQ48Bounds FrameRgbMeasurement[
+    SIGMA_FRAME_FOOTPRINTS_PER_GROUP * 3u];
+groupshared uint FrameRgbDirection[SIGMA_FRAME_FOOTPRINTS_PER_GROUP];
+groupshared uint FrameRgbNegative[SIGMA_FRAME_FOOTPRINTS_PER_GROUP];
+groupshared uint FrameRgbUnobservable[SIGMA_FRAME_FOOTPRINTS_PER_GROUP];
+groupshared uint2 FrameRgbSupportFloor[SIGMA_FRAME_FOOTPRINTS_PER_GROUP];
+groupshared uint2 FrameRgbTotal[SIGMA_FRAME_FOOTPRINTS_PER_GROUP];
+
+bool SigmaFrameExactEnabled()
+{
+    return _SigmaExactBackendGate[0u] != 0u;
+}
+
+SigmaQ48Bounds SigmaFrameFullBounds()
+{
+    SigmaQ48Bounds result;
+    result.lo = uint2(0u, 0x80000000u);
+    result.hi = uint2(0xffffffffu, 0x7fffffffu);
+    return result;
+}
+
+uint SigmaFrameCellAddress(uint footprint, uint coordinate)
+{
+    return footprint * SIGMA_FRAME_LANE_COUNT + coordinate;
+}
+
+uint2 SigmaFramePixel(uint footprint)
+{
+    return uint2(footprint % _FrameResolution.x,
+        footprint / _FrameResolution.x);
+}
+
+bool SigmaFrameLoadMetric(uint eye, uint2 pixel, out float2 metric)
+{
+    metric = 0.0;
+    if (any(pixel >= _FrameResolution) ||
+        (_DepthFlags[uint3(pixel, eye)] & 1u) == 0u)
+        return false;
+    metric = _MetricDepth[uint3(pixel, eye)];
+    return metric.x > 0.0 && metric.y > 0.0 && all(isfinite(metric));
+}
+
+bool SigmaFrameReferenceWorld(uint footprint, out float3 world)
+{
+    world = 0.0;
+    uint2 pixel = SigmaFramePixel(footprint);
+    float2 metric;
+    if (SigmaFrameLoadMetric(0u, pixel, metric))
+    {
+        float3 ray = _DepthRayCenterLeft[pixel].xyz;
+        float3 raw = mul(_WorldFromOpticalLeft,
+            float4(ray * metric.x, 1.0)).xyz;
+        world = SigmaPoseApplyWorld(raw);
+        return all(isfinite(world));
+    }
+    if (SigmaFrameLoadMetric(1u, pixel, metric))
+    {
+        float3 ray = _DepthRayCenterRight[pixel].xyz;
+        float3 raw = mul(_WorldFromOpticalRight,
+            float4(ray * metric.x, 1.0)).xyz;
+        world = SigmaPoseApplyWorld(raw);
+        return all(isfinite(world));
+    }
+    return false;
+}
+
+bool SigmaFrameProjectDepth(float3 correctedWorld, uint eye,
+    out uint2 pixel)
+{
+    float4x4 opticalFromWorld = eye == 0u
+        ? _OpticalFromWorldLeft : _OpticalFromWorldRight;
+    float4 intrinsics = eye == 0u
+        ? _DepthIntrinsicsLeft : _DepthIntrinsicsRight;
+    float3 rawWorld = SigmaPoseUnapplyWorld(correctedWorld);
+    float3 optical = mul(opticalFromWorld, float4(rawWorld, 1.0)).xyz;
+    if (!all(isfinite(optical)) || optical.z <= 1e-6)
+    {
+        pixel = 0u;
+        return false;
+    }
+    float2 projected = optical.xy / optical.z * intrinsics.xy +
+        intrinsics.zw;
+    int2 integerPixel = int2(floor(projected));
+    if (any(integerPixel < 0) || any(integerPixel >= (int2)_FrameResolution))
+    {
+        pixel = 0u;
+        return false;
+    }
+    pixel = (uint2)integerPixel;
+    return true;
+}
+
+SigmaFrameCandidateGpu SigmaFrameEmptyCandidate(uint footprint)
+{
+    SigmaFrameCandidateGpu candidate;
+    candidate.Identity = uint4(_FrameRevision, footprint,
+        SIGMA_FRAME_PROPOSAL_KIND_NONE, 0u);
+    candidate.Handle = SIGMA_FRAME_INVALID;
+    candidate.Coordinate = SIGMA_FRAME_INVALID;
+    return candidate;
+}
+
+bool SigmaFramePredictionCandidate(uint footprint, uint eye, uint2 pixel,
+    out SigmaFrameCandidateGpu candidate)
+{
+    candidate = SigmaFrameEmptyCandidate(footprint);
+    if (any(pixel >= _FrameResolution))
+        return false;
+    float2 depthSupport = _PredDepthSupport[uint3(pixel, eye)];
+    uint4 stateKey = _PredStateKey[uint3(pixel, eye)];
+    uint4 page = _PredCarrierPage[uint3(pixel, eye)];
+    float2 local = _PredCarrierUvNormal[uint3(pixel, eye)].xy;
+    int2 integerLocal = int2(round(local));
+    if (!(depthSupport.y > 0.0) || !all(isfinite(depthSupport)) ||
+        stateKey.x == 0u || stateKey.y == 0u ||
+        stateKey.w == SIGMA_FRAME_INVALID || any(integerLocal < 0) ||
+        any(integerLocal >= (int2)SIGMA_PAGE_SIZE))
+        return false;
+    uint sample = (uint)integerLocal.y * SIGMA_PAGE_SIZE +
+        (uint)integerLocal.x;
+    candidate.Identity = uint4(_FrameRevision, footprint,
+        SIGMA_FRAME_PROPOSAL_KIND_CURRENT,
+        sample | (eye << SIGMA_FRAME_PROPOSAL_EYE_SHIFT));
+    candidate.Handle = uint4(stateKey.z, stateKey.w, stateKey.x, stateKey.y);
+    candidate.Coordinate = page;
+    return true;
+}
+
+bool SigmaFrameCandidateLess(SigmaFrameCandidateGpu left,
+    SigmaFrameCandidateGpu right)
+{
+    uint2 leftX = left.Coordinate.xy;
+    uint2 rightX = right.Coordinate.xy;
+    if (!SigmaU64Equal(leftX, rightX))
+        return SigmaI64Less(leftX, rightX);
+    uint2 leftY = left.Coordinate.zw;
+    uint2 rightY = right.Coordinate.zw;
+    if (!SigmaU64Equal(leftY, rightY))
+        return SigmaI64Less(leftY, rightY);
+    if (left.Handle.x != right.Handle.x)
+        return left.Handle.x < right.Handle.x;
+    if (left.Handle.y != right.Handle.y)
+        return left.Handle.y < right.Handle.y;
+    return left.Identity.w < right.Identity.w;
+}
+
+bool SigmaFrameSameCandidate(SigmaFrameCandidateGpu left,
+    SigmaFrameCandidateGpu right)
+{
+    return all(left.Coordinate == right.Coordinate) &&
+        left.Handle.x == right.Handle.x && left.Handle.y == right.Handle.y &&
+        left.Handle.z == right.Handle.z &&
+        (left.Identity.w & SIGMA_FRAME_PROPOSAL_SAMPLE_MASK) ==
+            (right.Identity.w & SIGMA_FRAME_PROPOSAL_SAMPLE_MASK);
+}
+
+[numthreads(256, 1, 1)]
+void ClearFrameState(uint3 id : SV_DispatchThreadID)
+{
+    uint index = id.x;
+    if (index < _FrameCandidateCount)
+    {
+        SigmaFrameOutcomeGpu outcome;
+        outcome.Classification = 0u;
+        outcome.Evidence = 0u;
+        _FrameOutcomes[index] = outcome;
+        SigmaFrameDeltaGpu delta;
+        delta.Coordinate = SIGMA_FRAME_INVALID;
+        delta.Candidate = SIGMA_FRAME_INVALID;
+        delta.Evidence = 0u;
+        _FrameDeltas[index] = delta;
+    }
+    if (index < _FrameResolvedBlockCount)
+        _FrameResolvedBlockCounts[index] = 0u;
+    if (index == 0u)
+    {
+        SigmaOwnedFrameGpu frame = _OwnedFrames[_FrameSlot];
+        frame.PoseSource.z = SIGMA_OWNED_FRAME_STATE_SEALED;
+        frame.PoseSource.w = 0u;
+        _OwnedFrames[_FrameSlot] = frame;
+    }
+}
+
+[numthreads(256, 1, 1)]
+void BuildFrameProposals(uint3 id : SV_DispatchThreadID)
+{
+    uint footprint = _FirstFootprint + id.x;
+    if (id.x >= _BoundFootprintCount || footprint >= _FrameFootprintCount)
+        return;
+
+    SigmaFrameCandidateGpu first = SigmaFrameEmptyCandidate(footprint);
+    SigmaFrameCandidateGpu second = SigmaFrameEmptyCandidate(footprint);
+    uint2 leftPixel;
+    uint2 rightPixel;
+    float3 world;
+    bool hasWorld = SigmaFrameReferenceWorld(footprint, world);
+    bool hasLeftPixel = hasWorld && SigmaFrameProjectDepth(world, 0u, leftPixel);
+    bool hasRightPixel = hasWorld && SigmaFrameProjectDepth(world, 1u, rightPixel);
+    bool hasFirst = hasLeftPixel &&
+        SigmaFramePredictionCandidate(footprint, 0u, leftPixel, first);
+    bool hasSecond = hasRightPixel &&
+        SigmaFramePredictionCandidate(footprint, 1u, rightPixel, second);
+    if (hasFirst && hasSecond && SigmaFrameSameCandidate(first, second))
+        hasSecond = false;
+    if (hasFirst && hasSecond && SigmaFrameCandidateLess(second, first))
+    {
+        SigmaFrameCandidateGpu swap = first;
+        first = second;
+        second = swap;
+    }
+
+    uint base = footprint * SIGMA_FRAME_PROPOSALS_PER_FOOTPRINT;
+    SigmaFrameCandidateGpu primary = SigmaFrameEmptyCandidate(footprint);
+    SigmaFrameCandidateGpu secondary = SigmaFrameEmptyCandidate(footprint);
+    if (hasFirst)
+        primary = first;
+    else if (hasSecond)
+        primary = second;
+    if (hasFirst && hasSecond)
+        secondary = second;
+    _FrameCandidates[base + 0u] = primary;
+    _FrameCandidates[base + 1u] = secondary;
+    _FrameCandidates[base + 2u] = SigmaFrameEmptyCandidate(footprint);
+    SigmaFrameCandidateGpu novel = SigmaFrameEmptyCandidate(footprint);
+    novel.Identity.z = SIGMA_FRAME_PROPOSAL_KIND_NOVEL;
+    novel.Handle = SIGMA_FRAME_INVALID;
+    uint2 local = SigmaFramePixel(footprint);
+    novel.Coordinate = uint4(local, 0u, 0u);
+    _FrameCandidates[base + 3u] = novel;
+}
+
+[numthreads(256, 1, 1)]
+void BuildDepthSourceCells(uint3 groupId : SV_GroupID,
+    uint3 threadId : SV_GroupThreadID)
+{
+    uint coordinate = threadId.x & 15u;
+    uint local = threadId.x >> 4u;
+    uint footprint = _FirstFootprint + groupId.x *
+        SIGMA_FRAME_FOOTPRINTS_PER_GROUP + local;
+    uint flat = local * SIGMA_FRAME_LANE_COUNT + coordinate;
+    bool inRange = footprint < _FrameFootprintCount &&
+        footprint < _FirstFootprint + _BoundFootprintCount;
+
+    if (coordinate == 0u)
+    {
+        SigmaDepthCell3 cell = (SigmaDepthCell3)0;
+        SigmaQ48Bounds rangeBounds;
+        bool built = false;
+        if (inRange && _FrameSourceOrdinal <= SIGMA_FRAME_SOURCE_DEPTH_RIGHT)
+        {
+            float3 world;
+            uint2 pixel;
+            uint eye = _FrameSourceOrdinal;
+            float2 metric;
+            built = SigmaFrameReferenceWorld(footprint, world) &&
+                SigmaFrameProjectDepth(world, eye, pixel) &&
+                SigmaFrameLoadMetric(eye, pixel, metric) &&
+                SigmaBuildDepthWorldCell(eye, pixel, metric,
+                    eye == 0u ? SIGMA_SOURCE_DEPTH_LEFT :
+                        SIGMA_SOURCE_DEPTH_RIGHT,
+                    _FrameSourceKeys[eye], cell, rangeBounds);
+        }
+        uint mask = 0u;
+        if (built && cell.valid != 0u && cell.sector == SIGMA_SECTOR_HIT)
+        {
+            [unroll]
+            for (uint axis = 0u; axis < 3u; ++axis)
+            {
+                FrameAxisLower[local * 3u + axis] = cell.axis[axis].lo;
+                FrameAxisUpper[local * 3u + axis] = cell.axis[axis].hi;
+                mask |= 1u << SIGMA_GEOMETRY_ROWS[axis + 1u];
+            }
+        }
+        FrameSourceMeta[local] = uint4(mask,
+            _FrameSourceOrdinal == SIGMA_FRAME_SOURCE_DEPTH_LEFT
+                ? SIGMA_SOURCE_DEPTH_LEFT : SIGMA_SOURCE_DEPTH_RIGHT,
+            _FrameSourceKeys[_FrameSourceOrdinal],
+            built ? cell.sector : SIGMA_SECTOR_NO_CONSTRAINT);
+    }
+    GroupMemoryBarrierWithGroupSync();
+    if (!inRange)
+        return;
+
+    SigmaQ48Bounds bounds = SigmaFrameFullBounds();
+    uint mask = FrameSourceMeta[local].x;
+    uint flags = 0u;
+    [unroll]
+    for (uint axis = 0u; axis < 3u; ++axis)
+    {
+        if (coordinate != SIGMA_GEOMETRY_ROWS[axis + 1u] ||
+            (mask & (1u << coordinate)) == 0u)
+            continue;
+        bounds.lo = FrameAxisLower[local * 3u + axis];
+        bounds.hi = FrameAxisUpper[local * 3u + axis];
+        flags = SIGMA_FRAME_CELL_CONSTRAINED | SIGMA_FRAME_CELL_OBSERVED;
+    }
+    uint localFootprint = footprint - _SourceFootprintBase;
+    uint address = SigmaFrameCellAddress(localFootprint, coordinate);
+    _SourceLowerOut[address] = bounds.lo;
+    _SourceUpperOut[address] = bounds.hi;
+    _SourceValidityOut[address] = flags;
+    if (coordinate == 0u)
+        _SourceProvenanceOut[localFootprint] = FrameSourceMeta[local];
+}
+
+void SigmaFrameLoadDepthJoint(uint localFootprint, uint sampleLocal,
+    out uint2 mass, out uint active)
+{
+    uint valid = 1u;
+    uint depthCount = 0u;
+    uint2 maximumWidth = SIGMA_Q48_ZERO;
+    [unroll]
+    for (uint axis = 0u; axis < 3u; ++axis)
+    {
+        uint coordinate = SIGMA_GEOMETRY_ROWS[axis + 1u];
+        uint address = SigmaFrameCellAddress(localFootprint, coordinate);
+        SigmaQ48Bounds joint = SigmaFrameFullBounds();
+        if ((_DepthLeftValidity[address] & SIGMA_FRAME_CELL_CONSTRAINED) != 0u)
+        {
+            joint.lo = SigmaQ48Max(joint.lo, _DepthLeftLower[address]);
+            joint.hi = SigmaQ48Min(joint.hi, _DepthLeftUpper[address]);
+            depthCount |= 1u;
+        }
+        if ((_DepthRightValidity[address] & SIGMA_FRAME_CELL_CONSTRAINED) != 0u)
+        {
+            joint.lo = SigmaQ48Max(joint.lo, _DepthRightLower[address]);
+            joint.hi = SigmaQ48Min(joint.hi, _DepthRightUpper[address]);
+            depthCount |= 2u;
+        }
+        if (SigmaQ48Less(joint.hi, joint.lo))
+            valid = 0u;
+        FrameAxisLower[sampleLocal * 3u + axis] = joint.lo;
+        FrameAxisUpper[sampleLocal * 3u + axis] = joint.hi;
+        maximumWidth = SigmaQ48Max(maximumWidth,
+            SigmaQ48SubChecked(joint.hi, joint.lo, valid));
+    }
+    active = depthCount != 0u && valid != 0u ? 1u : 0u;
+    mass = active != 0u
+        ? SigmaInformationMassForWidth(maximumWidth, valid)
+        : SIGMA_Q48_ZERO;
+    active &= valid;
+}
+
+uint2 SigmaFrameBootstrapCoordinate(uint sampleLocal, uint coordinate,
+    inout uint valid)
+{
+    if (coordinate == SIGMA_GEOMETRY_ROWS[0])
+        return SIGMA_Q48_ONE;
+    [unroll]
+    for (uint axis = 0u; axis < 3u; ++axis)
+    {
+        if (coordinate == SIGMA_GEOMETRY_ROWS[axis + 1u])
+            return SigmaQ48Midpoint(
+                FrameAxisLower[sampleLocal * 3u + axis],
+                FrameAxisUpper[sampleLocal * 3u + axis], valid);
+    }
+    return SIGMA_Q48_ZERO;
+}
+
+[numthreads(256, 1, 1)]
+void BuildRgbSourceCells(uint3 groupId : SV_GroupID,
+    uint3 threadId : SV_GroupThreadID)
+{
+    uint coordinate = threadId.x & 15u;
+    uint local = threadId.x >> 4u;
+    uint footprint = _FirstFootprint + groupId.x *
+        SIGMA_FRAME_FOOTPRINTS_PER_GROUP + local;
+    uint flat = local * SIGMA_FRAME_LANE_COUNT + coordinate;
+    bool inRange = footprint < _FrameFootprintCount &&
+        footprint < _FirstFootprint + _BoundFootprintCount;
+    uint localFootprint = footprint - _SourceFootprintBase;
+
+    if (coordinate == 0u)
+    {
+        uint2 mass;
+        uint active;
+        if (inRange)
+            SigmaFrameLoadDepthJoint(localFootprint, local, mass, active);
+        else
+        {
+            mass = SIGMA_Q48_ZERO;
+            active = 0u;
+        }
+        FrameMass[local] = mass;
+        FrameActive[local] = active & (SigmaFrameExactEnabled() ? 1u : 0u);
+        uint priorValid = FrameActive[local];
+        FramePriorWidth[local] = priorValid != 0u
+            ? SigmaPriorHalfWidth(mass, priorValid) : SIGMA_Q48_ZERO;
+        FrameActive[local] &= priorValid;
+        FrameRgbUnobservable[local] = 0u;
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    uint valid = FrameActive[local];
+    uint2 currentY = valid != 0u
+        ? SigmaFrameBootstrapCoordinate(local, coordinate, valid)
+        : SIGMA_Q48_ZERO;
+    FrameValueA[flat] = currentY;
+    FrameLower[flat] = valid != 0u
+        ? SigmaQ48SubChecked(currentY, FramePriorWidth[local], valid)
+        : SigmaFrameFullBounds().lo;
+    FrameUpper[flat] = valid != 0u
+        ? SigmaQ48AddChecked(currentY, FramePriorWidth[local], valid)
+        : SigmaFrameFullBounds().hi;
+    FrameLaneValid[flat] = valid;
+    GroupMemoryBarrierWithGroupSync();
+
+    if (coordinate == 0u && FrameActive[local] != 0u)
+    {
+        uint setup = 1u;
+        float3 world = float3(
+            SigmaQ48ToReadoutFloat(FrameValueA[flat +
+                SIGMA_GEOMETRY_ROWS[1]]),
+            SigmaQ48ToReadoutFloat(FrameValueA[flat +
+                SIGMA_GEOMETRY_ROWS[2]]),
+            SigmaQ48ToReadoutFloat(FrameValueA[flat +
+                SIGMA_GEOMETRY_ROWS[3]]));
+        uint eye = _FrameSourceOrdinal - SIGMA_FRAME_SOURCE_RGB_LEFT;
+        float2 pixel;
+        SigmaQ48Bounds measured[3];
+        bool measuredOk = eye < 2u &&
+            SigmaProjectWorldToRgb(SigmaPoseUnapplyWorld(world), eye, pixel) &&
+            SigmaBuildRgbMeasurement(eye, pixel, measured, setup);
+        if (measuredOk && setup != 0u)
+        {
+            [unroll]
+            for (uint channel = 0u; channel < 3u; ++channel)
+                FrameRgbMeasurement[local * 3u + channel] = measured[channel];
+            uint direction = SigmaRgbQuantizedDirection(
+                FrameValueA[flat + SIGMA_GEOMETRY_ROWS[1]],
+                FrameValueA[flat + SIGMA_GEOMETRY_ROWS[2]],
+                FrameValueA[flat + SIGMA_GEOMETRY_ROWS[3]], eye, setup);
+            uint scale = direction < SIGMA_RGB_VIEW_COUNT
+                ? _RgbViewSupportScale[direction] : 0u;
+            if (direction == SIGMA_RGB_VIEW_NULL || scale == 0u)
+                setup = 0u;
+            uint2 scaleQ = SigmaQ48FromUnsignedInteger(scale, setup);
+            FrameRgbSupportFloor[local] = SigmaQ48MulNearestEven(
+                SigmaRgbCalibrationValue(eye, SIGMA_RGB_CAL_SUPPORT_FLOOR),
+                scaleQ, setup);
+            FrameRgbDirection[local] = direction;
+        }
+        FrameActive[local] = measuredOk ? setup : 0u;
+        FrameRgbUnobservable[local] = measuredOk && setup != 0u ? 0u : 1u;
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    valid = FrameActive[local] & FrameLaneValid[flat];
+    uint2 denominatorCoefficient = SIGMA_Q48_ZERO;
+    SigmaQ48Bounds contribution = SigmaQ48PointBounds(SIGMA_Q48_ZERO);
+    if (valid != 0u)
+    {
+        denominatorCoefficient = SigmaRgbOperator(
+            FrameRgbDirection[local], 0u, coordinate);
+        SigmaQ48Bounds box;
+        box.lo = FrameLower[flat];
+        box.hi = FrameUpper[flat];
+        contribution = SigmaQ48ScaleBounds(denominatorCoefficient, box, valid);
+    }
+    FrameValueA[flat] = contribution.lo;
+    FrameValueB[flat] = contribution.hi;
+    FrameLaneValid[flat] = valid;
+    GroupMemoryBarrierWithGroupSync();
+    if (coordinate == 0u && FrameActive[local] != 0u)
+    {
+        uint reduceValid = 1u;
+        SigmaQ48Bounds denominator = SigmaQ48PointBounds(SIGMA_Q48_ZERO);
+        [unroll]
+        for (uint lane = 0u; lane < 16u; ++lane)
+        {
+            denominator.lo = SigmaQ48AddChecked(denominator.lo,
+                FrameValueA[flat + lane], reduceValid);
+            denominator.hi = SigmaQ48AddChecked(denominator.hi,
+                FrameValueB[flat + lane], reduceValid);
+            reduceValid &= FrameLaneValid[flat + lane];
+        }
+        bool positive = !SigmaQ48Less(denominator.lo,
+            FrameRgbSupportFloor[local]);
+        uint2 negativeFloor = SigmaQ48NegateChecked(
+            FrameRgbSupportFloor[local], reduceValid);
+        bool negative = !SigmaQ48Less(negativeFloor, denominator.hi);
+        if (!positive && !negative)
+        {
+            FrameRgbUnobservable[local] = 1u;
+            reduceValid = 0u;
+        }
+        FrameRgbNegative[local] = negative ? 1u : 0u;
+        FrameActive[local] = reduceValid;
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    [loop]
+    for (uint sweep = 0u; sweep < 4u; ++sweep)
+    {
+        bool reverse = sweep >= 2u;
+        [loop]
+        for (uint step = 0u; step < 7u; ++step)
+        {
+            uint constraint = reverse ? 6u - step : step;
+            valid = FrameActive[local] & FrameLaneValid[flat];
+            uint2 coefficient = SIGMA_Q48_ZERO;
+            SigmaQ48Bounds box;
+            box.lo = FrameLower[flat];
+            box.hi = FrameUpper[flat];
+            if (valid != 0u)
+                coefficient = SigmaRgbInequalityCoefficient(constraint,
+                    FrameRgbDirection[local], coordinate,
+                    FrameRgbMeasurement[local * 3u + 0u],
+                    FrameRgbMeasurement[local * 3u + 1u],
+                    FrameRgbMeasurement[local * 3u + 2u],
+                    FrameRgbNegative[local] != 0u, valid);
+            uint2 minimum = valid != 0u
+                ? SigmaQ48ScaleBounds(coefficient, box, valid).lo
+                : SIGMA_Q48_ZERO;
+            FrameValueA[flat] = coefficient;
+            FrameValueB[flat] = minimum;
+            FrameLaneValid[flat] = valid;
+            GroupMemoryBarrierWithGroupSync();
+            if (coordinate == 0u && FrameActive[local] != 0u)
+            {
+                uint reduceValid = 1u;
+                uint2 total = SIGMA_Q48_ZERO;
+                [unroll]
+                for (uint lane = 0u; lane < 16u; ++lane)
+                {
+                    total = SigmaQ48AddChecked(total,
+                        FrameValueB[flat + lane], reduceValid);
+                    reduceValid &= FrameLaneValid[flat + lane];
+                }
+                FrameRgbTotal[local] = total;
+                FrameActive[local] = reduceValid;
+            }
+            GroupMemoryBarrierWithGroupSync();
+            valid = FrameActive[local];
+            if (valid != 0u &&
+                !SigmaU64Equal(FrameValueA[flat], SIGMA_Q48_ZERO))
+            {
+                uint2 other = SigmaQ48SubChecked(FrameRgbTotal[local],
+                    FrameValueB[flat], valid);
+                uint2 upper = constraint == 0u
+                    ? SigmaQ48NegateChecked(FrameRgbSupportFloor[local], valid)
+                    : SIGMA_Q48_ZERO;
+                uint2 numerator = SigmaQ48SubChecked(upper, other, valid);
+                if ((FrameValueA[flat].y & 0x80000000u) == 0u)
+                    FrameUpper[flat] = SigmaQ48Min(FrameUpper[flat],
+                        SigmaQ48DivUpper(numerator, FrameValueA[flat], valid));
+                else
+                    FrameLower[flat] = SigmaQ48Max(FrameLower[flat],
+                        SigmaQ48DivLower(numerator, FrameValueA[flat], valid));
+            }
+            FrameLaneValid[flat] = valid;
+        }
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    // Compare against the original projective prior without a second state
+    // representation. Reconstructing its two endpoints is exact and cheap.
+    uint compareValid = FrameActive[local];
+    uint2 priorCentre = SigmaFrameBootstrapCoordinate(local, coordinate,
+        compareValid);
+    uint2 priorLo = SigmaQ48SubChecked(priorCentre,
+        FramePriorWidth[local], compareValid);
+    uint2 priorHi = SigmaQ48AddChecked(priorCentre,
+        FramePriorWidth[local], compareValid);
+    uint changed = FrameActive[local] != 0u && compareValid != 0u &&
+        (!SigmaU64Equal(FrameLower[flat], priorLo) ||
+         !SigmaU64Equal(FrameUpper[flat], priorHi)) ? 1u : 0u;
+    FrameLaneValid[flat] = changed;
+    GroupMemoryBarrierWithGroupSync();
+    if (coordinate == 0u)
+    {
+        uint mask = 0u;
+        [unroll]
+        for (uint lane = 0u; lane < 16u; ++lane)
+            mask |= (FrameLaneValid[flat + lane] & 1u) << lane;
+        FrameSourceMeta[local] = uint4(mask,
+            _FrameSourceOrdinal == SIGMA_FRAME_SOURCE_RGB_LEFT
+                ? SIGMA_SOURCE_RGB_LEFT : SIGMA_SOURCE_RGB_RIGHT,
+            _FrameSourceKeys[_FrameSourceOrdinal],
+            FrameRgbUnobservable[local] != 0u
+                ? SIGMA_FRAME_CELL_UNOBSERVABLE : 0u);
+    }
+    GroupMemoryBarrierWithGroupSync();
+    if (!inRange)
+        return;
+    uint flags = (FrameSourceMeta[local].x & (1u << coordinate)) != 0u
+        ? SIGMA_FRAME_CELL_CONSTRAINED | SIGMA_FRAME_CELL_OBSERVED : 0u;
+    if ((FrameSourceMeta[local].w & SIGMA_FRAME_CELL_UNOBSERVABLE) != 0u)
+        flags |= SIGMA_FRAME_CELL_UNOBSERVABLE;
+    SigmaQ48Bounds output = SigmaFrameFullBounds();
+    if ((flags & SIGMA_FRAME_CELL_CONSTRAINED) != 0u)
+    {
+        output.lo = FrameLower[flat];
+        output.hi = FrameUpper[flat];
+    }
+    uint address = SigmaFrameCellAddress(localFootprint, coordinate);
+    _SourceLowerOut[address] = output.lo;
+    _SourceUpperOut[address] = output.hi;
+    _SourceValidityOut[address] = flags;
+    if (coordinate == 0u)
+        _SourceProvenanceOut[localFootprint] = FrameSourceMeta[local];
+}
+
+SigmaQ48Bounds SigmaFrameSourceBounds(uint source, uint address,
+    out uint validity)
+{
+    SigmaQ48Bounds result;
+    if (source == SIGMA_FRAME_SOURCE_DEPTH_LEFT)
+    {
+        result.lo = _DepthLeftLower[address];
+        result.hi = _DepthLeftUpper[address];
+        validity = _DepthLeftValidity[address];
+    }
+    else if (source == SIGMA_FRAME_SOURCE_DEPTH_RIGHT)
+    {
+        result.lo = _DepthRightLower[address];
+        result.hi = _DepthRightUpper[address];
+        validity = _DepthRightValidity[address];
+    }
+    else if (source == SIGMA_FRAME_SOURCE_RGB_LEFT)
+    {
+        result.lo = _RgbLeftLower[address];
+        result.hi = _RgbLeftUpper[address];
+        validity = _RgbLeftValidity[address];
+    }
+    else
+    {
+        result.lo = _RgbRightLower[address];
+        result.hi = _RgbRightUpper[address];
+        validity = _RgbRightValidity[address];
+    }
+    return result;
+}
+
+uint4 SigmaFrameSourceProvenance(uint source, uint footprint)
+{
+    if (source == SIGMA_FRAME_SOURCE_DEPTH_LEFT)
+        return _DepthLeftProvenance[footprint];
+    if (source == SIGMA_FRAME_SOURCE_DEPTH_RIGHT)
+        return _DepthRightProvenance[footprint];
+    if (source == SIGMA_FRAME_SOURCE_RGB_LEFT)
+        return _RgbLeftProvenance[footprint];
+    return _RgbRightProvenance[footprint];
+}
+
+uint2 SigmaFrameTransformRow(uint base, uint row, inout uint valid)
+{
+    uint2 result = SIGMA_Q48_ZERO;
+    [unroll]
+    for (uint source = 0u; source < 16u; ++source)
+    {
+        uint2 term = SigmaHadamardSign(row, source) < 0
+            ? SigmaQ48NegateChecked(FrameValueA[base + source], valid)
+            : FrameValueA[base + source];
+        result = SigmaQ48AddChecked(result, term, valid);
+    }
+    return result;
+}
+
+bool SigmaFrameBuildNovelState(uint footprint, uint local, uint coordinate,
+    out uint2 state)
+{
+    uint valid = 1u;
+    uint depthMask = 0u;
+    uint2 maximumWidth = SIGMA_Q48_ZERO;
+    uint2 geometry[4];
+    geometry[0] = SIGMA_Q48_ONE;
+    [unroll]
+    for (uint axis = 0u; axis < 3u; ++axis)
+    {
+        uint lane = SIGMA_GEOMETRY_ROWS[axis + 1u];
+        uint address = SigmaFrameCellAddress(footprint, lane);
+        SigmaQ48Bounds joint = SigmaFrameFullBounds();
+        if ((_DepthLeftValidity[address] & SIGMA_FRAME_CELL_CONSTRAINED) != 0u)
+        {
+            joint.lo = SigmaQ48Max(joint.lo, _DepthLeftLower[address]);
+            joint.hi = SigmaQ48Min(joint.hi, _DepthLeftUpper[address]);
+            depthMask |= 1u;
+        }
+        if ((_DepthRightValidity[address] & SIGMA_FRAME_CELL_CONSTRAINED) != 0u)
+        {
+            joint.lo = SigmaQ48Max(joint.lo, _DepthRightLower[address]);
+            joint.hi = SigmaQ48Min(joint.hi, _DepthRightUpper[address]);
+            depthMask |= 2u;
+        }
+        if (SigmaQ48Less(joint.hi, joint.lo))
+            valid = 0u;
+        geometry[axis + 1u] = SigmaQ48Midpoint(joint.lo, joint.hi, valid);
+        maximumWidth = SigmaQ48Max(maximumWidth,
+            SigmaQ48SubChecked(joint.hi, joint.lo, valid));
+    }
+    uint2 mass = SigmaInformationMassForWidth(maximumWidth, valid);
+    uint2 projective = SIGMA_Q48_ZERO;
+    [unroll]
+    for (uint rowIndex = 0u; rowIndex < 4u; ++rowIndex)
+    {
+        uint row = SIGMA_GEOMETRY_ROWS[rowIndex];
+        uint2 term = SigmaHadamardSign(row, coordinate) < 0
+            ? SigmaQ48NegateChecked(geometry[rowIndex], valid)
+            : geometry[rowIndex];
+        projective = SigmaQ48AddChecked(projective, term, valid);
+    }
+    projective = SigmaQ48ShiftRightNearestEven(projective, 4u, valid);
+    state = SigmaQ48MulNearestEven(mass, projective, valid);
+    if (coordinate == 0u)
+    {
+        FrameMass[local] = mass;
+        FrameSourceMask[local] = depthMask;
+    }
+    return depthMask != 0u && valid != 0u;
+}
+
+[numthreads(256, 1, 1)]
+void EvaluateCandidateMeets(uint3 groupId : SV_GroupID,
+    uint3 threadId : SV_GroupThreadID)
+{
+    uint coordinate = threadId.x & 15u;
+    uint local = threadId.x >> 4u;
+    uint candidateIndex = groupId.x * SIGMA_FRAME_FOOTPRINTS_PER_GROUP + local;
+    uint flat = local * SIGMA_FRAME_LANE_COUNT + coordinate;
+    bool inRange = candidateIndex < _FrameCandidateCount;
+    SigmaFrameCandidateGpu candidate = SigmaFrameEmptyCandidate(0u);
+    if (inRange)
+        candidate = _FrameCandidates[candidateIndex];
+    uint kind = candidate.Identity.z;
+    bool process = inRange && kind == _ResolveProposalKind;
+    if (kind == SIGMA_FRAME_PROPOSAL_KIND_CURRENT)
+        process = process && candidate.Handle.x == _CarrierSegmentIndex &&
+            candidate.Handle.y < _PageCapacity;
+
+    if (coordinate == 0u)
+    {
+        FrameActive[local] = process && SigmaFrameExactEnabled() ? 1u : 0u;
+        FrameConstrained[local] = 0u;
+        FrameConflict[local] = 0u;
+        FrameIndependent[local] = 0u;
+        FrameSourceMask[local] = 0u;
+        FrameChanged[local] = 0u;
+        FrameFault[local] = 0u;
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    uint valid = FrameActive[local];
+    uint2 state = SIGMA_Q48_ZERO;
+    uint footprint = candidate.Identity.y;
+    uint sourceFootprint = footprint - _SourceFootprintBase;
+    if (valid != 0u && kind == SIGMA_FRAME_PROPOSAL_KIND_CURRENT)
+    {
+        uint pageSlot = candidate.Handle.y;
+        uint sample = candidate.Identity.w & SIGMA_FRAME_PROPOSAL_SAMPLE_MASK;
+        SigmaCarrierPageMetaGpu metadata = _PageMetadata[pageSlot];
+        bool current = _CurrentFlags[pageSlot] != 0u &&
+            metadata.generation == candidate.Handle.z &&
+            metadata.revision == candidate.Handle.w &&
+            all(uint4(metadata.pageXLo, metadata.pageXHi,
+                metadata.pageYLo, metadata.pageYHi) == candidate.Coordinate) &&
+            sample < SIGMA_PAGE_SAMPLE_COUNT;
+        valid &= current ? 1u : 0u;
+        if (valid != 0u)
+            state = _CarrierState[pageSlot * SIGMA_PAGE_LANE_COUNT +
+                sample * SIGMA_FRAME_LANE_COUNT + coordinate];
+    }
+    else if (valid != 0u && kind == SIGMA_FRAME_PROPOSAL_KIND_NOVEL)
+    {
+        valid &= SigmaFrameBuildNovelState(sourceFootprint, local, coordinate,
+            state) ? 1u : 0u;
+    }
+    else
+        valid = 0u;
+    FrameValueA[flat] = state;
+    FrameLaneValid[flat] = valid;
+    GroupMemoryBarrierWithGroupSync();
+
+    uint transformValid = FrameLaneValid[flat];
+    uint2 transformed = transformValid != 0u
+        ? SigmaFrameTransformRow(flat - coordinate, coordinate, transformValid)
+        : SIGMA_Q48_ZERO;
+    FrameValueB[flat] = transformed;
+    FrameLaneValid[flat] = transformValid;
+    if (coordinate == SIGMA_GEOMETRY_ROWS[0])
+        FrameMass[local] = transformed;
+    GroupMemoryBarrierWithGroupSync();
+
+    uint2 mass = FrameMass[local];
+    valid = FrameLaneValid[flat] & (SigmaQ48Positive(mass) ? 1u : 0u);
+    uint2 currentY = valid != 0u
+        ? SigmaQ48DivNearestEven(transformed, mass, valid)
+        : SIGMA_Q48_ZERO;
+    if (coordinate == 0u)
+        FramePriorWidth[local] = valid != 0u
+            ? SigmaPriorHalfWidth(mass, valid) : SIGMA_Q48_ZERO;
+    FrameValueB[flat] = currentY;
+    FrameLaneValid[flat] = valid;
+    GroupMemoryBarrierWithGroupSync();
+
+    valid = FrameLaneValid[flat];
+    SigmaQ48Bounds joint = SigmaFrameFullBounds();
+    if (valid != 0u)
+        joint = SigmaQ48Widen(currentY, FramePriorWidth[local], valid);
+    uint firstKey = 0u;
+    bool independent = false;
+    uint sourceMask = 0u;
+    [unroll]
+    for (uint source = 0u; source < SIGMA_FRAME_SOURCE_COUNT; ++source)
+    {
+        uint address = SigmaFrameCellAddress(sourceFootprint, coordinate);
+        uint cellValidity;
+        SigmaQ48Bounds sourceBounds = SigmaFrameSourceBounds(source, address,
+            cellValidity);
+        if ((cellValidity & SIGMA_FRAME_CELL_CONSTRAINED) == 0u)
+            continue;
+        uint4 provenance = SigmaFrameSourceProvenance(source,
+            sourceFootprint);
+        joint.lo = SigmaQ48Max(joint.lo, sourceBounds.lo);
+        joint.hi = SigmaQ48Min(joint.hi, sourceBounds.hi);
+        sourceMask |= 1u << source;
+        uint key = provenance.z;
+        if (key != 0u && firstKey == 0u)
+            firstKey = key;
+        else if (key != 0u && key != firstKey)
+            independent = true;
+    }
+    FrameLower[flat] = joint.lo;
+    FrameUpper[flat] = joint.hi;
+    if (sourceMask != 0u)
+        InterlockedOr(FrameConstrained[local], 1u << coordinate);
+    if (independent)
+        InterlockedOr(FrameIndependent[local], 1u << coordinate);
+    if (SigmaQ48Less(joint.hi, joint.lo))
+        InterlockedOr(FrameConflict[local], 1u << coordinate);
+    InterlockedOr(FrameSourceMask[local], sourceMask);
+    FrameLaneValid[flat] = valid;
+    GroupMemoryBarrierWithGroupSync();
+
+    if (coordinate == 0u)
+    {
+        uint reduceValid = 1u;
+        uint2 maximumWidth = SIGMA_Q48_ZERO;
+        [unroll]
+        for (uint lane = 0u; lane < 16u; ++lane)
+        {
+            reduceValid &= FrameLaneValid[flat + lane];
+            if ((FrameConstrained[local] & (1u << lane)) != 0u &&
+                !SigmaQ48Less(FrameUpper[flat + lane], FrameLower[flat + lane]))
+                maximumWidth = SigmaQ48Max(maximumWidth,
+                    SigmaQ48SubChecked(FrameUpper[flat + lane],
+                        FrameLower[flat + lane], reduceValid));
+        }
+        FrameMaximumWidth[local] = maximumWidth;
+        FrameFault[local] |= reduceValid == 0u ? 1u : 0u;
+        uint4 dl = SigmaFrameSourceProvenance(
+            SIGMA_FRAME_SOURCE_DEPTH_LEFT, sourceFootprint);
+        uint4 dr = SigmaFrameSourceProvenance(
+            SIGMA_FRAME_SOURCE_DEPTH_RIGHT, sourceFootprint);
+        uint4 rl = SigmaFrameSourceProvenance(
+            SIGMA_FRAME_SOURCE_RGB_LEFT, sourceFootprint);
+        uint4 rr = SigmaFrameSourceProvenance(
+            SIGMA_FRAME_SOURCE_RGB_RIGHT, sourceFootprint);
+        uint first = 0u;
+        bool supportIndependent = false;
+        uint4 keys = uint4(dl.z, dr.z, rl.z, rr.z);
+        uint sourcePresence = FrameSourceMask[local];
+        [unroll]
+        for (uint source = 0u; source < 4u; ++source)
+        {
+            if ((sourcePresence & (1u << source)) == 0u || keys[source] == 0u)
+                continue;
+            if (first == 0u)
+                first = keys[source];
+            else if (first != keys[source])
+                supportIndependent = true;
+        }
+        bool hasDepth = (sourcePresence & 3u) != 0u;
+        FrameActive[local] &= reduceValid;
+        if (kind == SIGMA_FRAME_PROPOSAL_KIND_NOVEL &&
+            (!hasDepth || !supportIndependent))
+            FrameActive[local] = 0u;
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    valid = FrameLaneValid[flat] & (FrameFault[local] == 0u ? 1u : 0u);
+    uint2 targetMass = mass;
+    uint constrained = FrameConstrained[local];
+    if (constrained != 0u &&
+        (FrameIndependent[local] & constrained) == constrained)
+        targetMass = SigmaQ48Max(targetMass,
+            SigmaInformationMassForWidth(FrameMaximumWidth[local], valid));
+    uint2 targetY = (constrained & (1u << coordinate)) != 0u &&
+        FrameConflict[local] == 0u
+        ? SigmaProjectiveClamp(currentY, joint.lo, joint.hi)
+        : currentY;
+    bool changed = kind == SIGMA_FRAME_PROPOSAL_KIND_NOVEL ||
+        SigmaQ48Less(mass, targetMass) || !SigmaU64Equal(targetY, currentY);
+    if (changed)
+        InterlockedOr(FrameChanged[local], 1u);
+    FrameValueB[flat] = targetY;
+    GroupMemoryBarrierWithGroupSync();
+
+    uint2 candidateState = state;
+    if (FrameChanged[local] != 0u && FrameConflict[local] == 0u && valid != 0u)
+    {
+        uint2 inverse = SIGMA_Q48_ZERO;
+        [unroll]
+        for (uint sourceLane = 0u; sourceLane < 16u; ++sourceLane)
+        {
+            uint2 term = SigmaHadamardSign(coordinate, sourceLane) < 0
+                ? SigmaQ48NegateChecked(FrameValueB[flat - coordinate +
+                    sourceLane], valid)
+                : FrameValueB[flat - coordinate + sourceLane];
+            inverse = SigmaQ48AddChecked(inverse, term, valid);
+        }
+        uint2 projective = SigmaQ48ShiftRightNearestEven(inverse, 4u, valid);
+        candidateState = SigmaQ48MulNearestEven(targetMass, projective, valid);
+    }
+    FrameValueA[flat] = candidateState;
+    if (process)
+        _FrameCandidateStates[candidateIndex * SIGMA_FRAME_LANE_COUNT +
+            coordinate] = candidateState;
+    FrameLaneValid[flat] = valid;
+    GroupMemoryBarrierWithGroupSync();
+
+    uint checkValid = FrameLaneValid[flat];
+    uint2 check = checkValid != 0u
+        ? SigmaFrameTransformRow(flat - coordinate, coordinate, checkValid)
+        : SIGMA_Q48_ZERO;
+    FrameValueB[flat] = check;
+    FrameLaneValid[flat] = checkValid;
+    if (coordinate == SIGMA_GEOMETRY_ROWS[0])
+        FrameMass[local] = check;
+    GroupMemoryBarrierWithGroupSync();
+
+    uint2 checkMass = FrameMass[local];
+    checkValid = FrameLaneValid[flat] & (SigmaQ48Positive(checkMass) ? 1u : 0u);
+    uint2 oneLsb = uint2(1u, 0u);
+    if (SigmaQ48Less(oneLsb,
+            SigmaQ48AbsDifference(checkMass, targetMass, checkValid)))
+        checkValid = 0u;
+    if ((constrained & (1u << coordinate)) != 0u && checkValid != 0u)
+    {
+        uint2 checkY = SigmaQ48DivNearestEven(check, checkMass, checkValid);
+        uint2 lo = SigmaQ48SubChecked(FrameLower[flat], oneLsb, checkValid);
+        uint2 hi = SigmaQ48AddChecked(FrameUpper[flat], oneLsb, checkValid);
+        if (SigmaQ48Less(checkY, lo) || SigmaQ48Less(hi, checkY))
+            checkValid = 0u;
+    }
+    FrameLaneValid[flat] = checkValid;
+    GroupMemoryBarrierWithGroupSync();
+
+    if (coordinate == 0u && process)
+    {
+        uint allValid = 1u;
+        [unroll]
+        for (uint lane = 0u; lane < 16u; ++lane)
+            allValid &= FrameLaneValid[flat + lane];
+        uint flags = 0u;
+        if (FrameConflict[local] != 0u)
+            flags = SIGMA_FRAME_OUTCOME_CONFLICT;
+        else if (FrameFault[local] != 0u || allValid == 0u)
+            flags = SIGMA_FRAME_OUTCOME_FAULT;
+        else if (FrameActive[local] == 0u)
+            flags = SIGMA_FRAME_OUTCOME_PENDING;
+        else
+            flags = SIGMA_FRAME_OUTCOME_ACCEPTED |
+                (FrameChanged[local] == 0u
+                    ? SIGMA_FRAME_OUTCOME_UNCHANGED : 0u);
+        SigmaFrameOutcomeGpu outcome;
+        outcome.Classification = uint4(flags, FrameConstrained[local],
+            FrameConflict[local], FrameSourceMask[local]);
+        outcome.Evidence = uint4(candidateIndex, FrameIndependent[local],
+            footprint, kind);
+        _FrameOutcomes[candidateIndex] = outcome;
+    }
+}
+
+[numthreads(256, 1, 1)]
+void CompactResolvedTargets(uint3 groupId : SV_GroupID,
+    uint3 threadId : SV_GroupThreadID)
+{
+    uint lane = threadId.x;
+    uint footprint = groupId.x * 256u + lane;
+    uint selected = SIGMA_FRAME_INVALID;
+    uint flags = 0u;
+    if (footprint < _FrameFootprintCount)
+    {
+        uint base = footprint * SIGMA_FRAME_PROPOSALS_PER_FOOTPRINT;
+        [unroll]
+        for (uint proposal = 0u; proposal <
+            SIGMA_FRAME_PROPOSALS_PER_FOOTPRINT; ++proposal)
+        {
+            uint candidate = base + proposal;
+            uint candidateFlags = _FrameOutcomes[candidate].Classification.x;
+            if (selected == SIGMA_FRAME_INVALID &&
+                (candidateFlags & SIGMA_FRAME_OUTCOME_ACCEPTED) != 0u)
+            {
+                selected = candidate;
+                flags = candidateFlags;
+            }
+        }
+    }
+    uint accepted = selected != SIGMA_FRAME_INVALID ? 1u : 0u;
+    uint total;
+    uint prefix = SigmaStableExclusiveScan256(lane, accepted, total);
+    if (accepted != 0u)
+    {
+        uint output = groupId.x * 256u + prefix;
+        SigmaFrameCandidateGpu candidate = _FrameCandidates[selected];
+        SigmaFrameDeltaGpu delta;
+        delta.Coordinate = candidate.Coordinate;
+        delta.Candidate = uint4(candidate.Handle.xyz, selected);
+        delta.Evidence = uint4(footprint, flags,
+            candidate.Identity.z, candidate.Identity.w);
+        _FrameDeltas[output] = delta;
+    }
+    if (lane == 0u)
+        _FrameResolvedBlockCounts[groupId.x] = uint4(total,
+            groupId.x * 256u, _FrameRevision, 0u);
+}
