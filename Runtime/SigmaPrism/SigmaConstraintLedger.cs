@@ -158,12 +158,12 @@ namespace Genesis.RoomScan.SigmaPrism
             if (_gaugeShader == null)
                 throw new InvalidOperationException(
                     "Sigma gauge-demand compute resource is missing.");
-            _clearKernel = _shader.FindKernel("ClearProofTransaction");
-            _reduceSourcesKernel = _shader.FindKernel("ReduceProofSources");
-            _finalizeKernel = _shader.FindKernel("FinalizeProofPage");
-            _gaugeCoordinateKernel = _gaugeShader.FindKernel(
+            _clearKernel = _shader.FindProfiledKernel("ClearProofTransaction");
+            _reduceSourcesKernel = _shader.FindProfiledKernel("ReduceProofSources");
+            _finalizeKernel = _shader.FindProfiledKernel("FinalizeProofPage");
+            _gaugeCoordinateKernel = _gaugeShader.FindProfiledKernel(
                 "BuildGaugeCoordinateCandidates");
-            _gaugeFinalizeKernel = _gaugeShader.FindKernel(
+            _gaugeFinalizeKernel = _gaugeShader.FindProfiledKernel(
                 "FinalizeGaugeDemand");
 
             _certificates = CreateBuffer(checked(proofPageCapacity *
@@ -351,7 +351,7 @@ namespace Genesis.RoomScan.SigmaPrism
             _shader.SetBuffer(_clearKernel, "_ProofSamples", _proofSamples);
             _shader.SetBuffer(_clearKernel, "_ProofPageStatus", _pageStatus);
             _shader.SetBuffer(_clearKernel, "_RawRequests", _rawRequests);
-            _shader.Dispatch(_clearKernel,
+            _shader.DispatchProfiled(_clearKernel,
                 (SigmaCarrier.SamplesPerPage + 63) / 64, 1, 1);
         }
 
@@ -414,7 +414,7 @@ namespace Genesis.RoomScan.SigmaPrism
             _shader.SetBuffer(_reduceSourcesKernel, "_ProofSourceScratchBounds",
                 _proofSourceScratchBounds);
             _backendGate.Bind(_shader, _reduceSourcesKernel);
-            _shader.Dispatch(_reduceSourcesKernel, BlocksPerPage, 1,
+            _shader.DispatchProfiled(_reduceSourcesKernel, BlocksPerPage, 1,
                 ProofSourceCount);
 
             BindCommon(page, _finalizeKernel);
@@ -433,7 +433,7 @@ namespace Genesis.RoomScan.SigmaPrism
             _shader.SetBuffer(_finalizeKernel, "_RawRequests", _rawRequests);
             _shader.SetBuffer(_finalizeKernel, "_ProofPageStatus", _pageStatus);
             _backendGate.Bind(_shader, _finalizeKernel);
-            _shader.Dispatch(_finalizeKernel, BlocksPerPage, 1, 1);
+            _shader.DispatchProfiled(_finalizeKernel, BlocksPerPage, 1, 1);
 
             _gaugeShader.SetInt("_UseInverseWorkList", 0);
             _gaugeShader.SetInt("_TargetProofSlot", page.TargetSlot);
@@ -447,7 +447,7 @@ namespace Genesis.RoomScan.SigmaPrism
             _gaugeShader.SetBuffer(_gaugeCoordinateKernel,
                 "_GaugeCoordinateCandidates", _gaugeCoordinateScratch);
             _backendGate.Bind(_gaugeShader, _gaugeCoordinateKernel);
-            _gaugeShader.Dispatch(_gaugeCoordinateKernel, BlocksPerPage, 1,
+            _gaugeShader.DispatchProfiled(_gaugeCoordinateKernel, BlocksPerPage, 1,
                 SigmaS16.LaneCount);
 
             _gaugeShader.SetInt("_UseInverseWorkList", 0);
@@ -457,7 +457,7 @@ namespace Genesis.RoomScan.SigmaPrism
             _gaugeShader.SetBuffer(_gaugeFinalizeKernel, "_GaugeDemand",
                 _gaugeDemand);
             _backendGate.Bind(_gaugeShader, _gaugeFinalizeKernel);
-            _gaugeShader.Dispatch(_gaugeFinalizeKernel, BlocksPerPage, 1, 1);
+            _gaugeShader.DispatchProfiled(_gaugeFinalizeKernel, BlocksPerPage, 1, 1);
         }
 
         internal void BindGaugeReadOnly(ComputeShader shader, int kernel)

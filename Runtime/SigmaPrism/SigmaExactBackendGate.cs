@@ -49,12 +49,12 @@ namespace Genesis.RoomScan.SigmaPrism
             if (fixture == null)
                 throw new InvalidOperationException(
                     "The exact Sigma backend fixture resource is missing.");
-            int kernel = fixture.FindKernel("CanonicalSelfTest");
+            int kernel = fixture.FindProfiledKernel("CanonicalSelfTest");
             var gate = new GraphicsBuffer(GraphicsBuffer.Target.Structured, 1,
                 sizeof(uint));
             gate.SetData(new uint[] { 0u });
             fixture.SetBuffer(kernel, "_CapabilityGate", gate);
-            fixture.Dispatch(kernel, 1, 1, 1);
+            fixture.DispatchProfiled(kernel, 1, 1, 1);
             Logger.Info("Exact S16 GPU witness dispatched; mutation kernels " +
                         "consume it directly and fail closed on zero.");
             return new SigmaExactBackendGate(gate);

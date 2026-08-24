@@ -130,77 +130,77 @@ namespace Genesis.RoomScan.SigmaPrism
             _dormant = RequireShader(DormantResource);
             _forensic = RequireShader(ForensicResource);
 
-            _initializeGraph = _work.FindKernel("InitializeStreamingGraph");
-            _initializeOwnership = _work.FindKernel(
+            _initializeGraph = _work.FindProfiledKernel("InitializeStreamingGraph");
+            _initializeOwnership = _work.FindProfiledKernel(
                 "InitializeStreamingOwnership");
-            _clearIngress = _work.FindKernel("ClearIngressWork");
-            _compactIngress = _work.FindKernel("CompactIngressBundles");
-            _finalizeBundles = _work.FindKernel("FinalizeExtractedBundles");
-            _schedule = _work.FindKernel("ScheduleSigmaTransactions");
-            _scheduleDiagnostics = _work.FindKernel(
+            _clearIngress = _work.FindProfiledKernel("ClearIngressWork");
+            _compactIngress = _work.FindProfiledKernel("CompactIngressBundles");
+            _finalizeBundles = _work.FindProfiledKernel("FinalizeExtractedBundles");
+            _schedule = _work.FindProfiledKernel("ScheduleSigmaTransactions");
+            _scheduleDiagnostics = _work.FindProfiledKernel(
                 "FinalizeStreamingScheduleDiagnostics");
-            _releaseProbation = _work.FindKernel(
+            _releaseProbation = _work.FindProfiledKernel(
                 "ReleaseProbationAssociations");
-            _preparePages = _work.FindKernel("PrepareTransactionPages");
+            _preparePages = _work.FindProfiledKernel("PrepareTransactionPages");
 
-            _copyBundleMetadata = _source.FindKernel(
+            _copyBundleMetadata = _source.FindProfiledKernel(
                 "CopySealedBundleMetadata");
-            _extractBundleSamples = _source.FindKernel(
+            _extractBundleSamples = _source.FindProfiledKernel(
                 "ExtractSealedBundleSamples");
-            _prepareMicrotile = _inverse.FindKernel(
+            _prepareMicrotile = _inverse.FindProfiledKernel(
                 "PrepareTransactionMicrotile");
-            _evaluateRgbLeft = _inverse.FindKernel(
+            _evaluateRgbLeft = _inverse.FindProfiledKernel(
                 "EvaluateTransactionRgbLeft");
-            _evaluateRgbRight = _inverse.FindKernel(
+            _evaluateRgbRight = _inverse.FindProfiledKernel(
                 "EvaluateTransactionRgbRight");
-            _meetMicrotile = _inverse.FindKernel(
+            _meetMicrotile = _inverse.FindProfiledKernel(
                 "MeetTransactionMicrotile");
-            _evaluateMicrotile = _inverse.FindKernel(
+            _evaluateMicrotile = _inverse.FindProfiledKernel(
                 "EvaluateTransactionMicrotile");
 
-            _reduceSourceBlock = _proof.FindKernel(
+            _reduceSourceBlock = _proof.FindProfiledKernel(
                 "ReduceTransactionSourceBlock");
-            _prepareProofOrder = _proof.FindKernel("PrepareProofOrder");
-            _mergeProofRuns = _proof.FindKernel("MergeProofRuns");
-            _coalesceProof = _proof.FindKernel("CoalesceProofWindow");
-            _prepareRedundancy = _proof.FindKernel(
+            _prepareProofOrder = _proof.FindProfiledKernel("PrepareProofOrder");
+            _mergeProofRuns = _proof.FindProfiledKernel("MergeProofRuns");
+            _coalesceProof = _proof.FindProfiledKernel("CoalesceProofWindow");
+            _prepareRedundancy = _proof.FindProfiledKernel(
                 "PrepareProofRedundancy");
-            _evaluateRedundancy = _proof.FindKernel(
+            _evaluateRedundancy = _proof.FindProfiledKernel(
                 "EvaluateProofRedundancyWindow");
-            _emitCertificates = _proof.FindKernel("EmitProofCertificates");
-            _retainRaw = _proof.FindKernel("RetainProofRawWindow");
-            _completeProofBlock = _proof.FindKernel("CompleteProofBlock");
+            _emitCertificates = _proof.FindProfiledKernel("EmitProofCertificates");
+            _retainRaw = _proof.FindProfiledKernel("RetainProofRawWindow");
+            _completeProofBlock = _proof.FindProfiledKernel("CompleteProofBlock");
 
-            _validateTransition = _transition.FindKernel(
+            _validateTransition = _transition.FindProfiledKernel(
                 "ValidateCandidateTransitionChunk");
-            _validateAssociator = _transition.FindKernel(
+            _validateAssociator = _transition.FindProfiledKernel(
                 "ValidateCandidateAssociatorChunk");
 
-            _initializeVisibility = _publication.FindKernel(
+            _initializeVisibility = _publication.FindProfiledKernel(
                 "InitializeManifestVisibility");
-            _prepareManifest = _publication.FindKernel(
+            _prepareManifest = _publication.FindProfiledKernel(
                 "PreparePublicationManifest");
-            _publishManifest = _publication.FindKernel(
+            _publishManifest = _publication.FindProfiledKernel(
                 "PublishPublicationManifest");
-            _resolvePageCaches = _publication.FindKernel(
+            _resolvePageCaches = _publication.FindProfiledKernel(
                 "ResolvePublishedPageCaches");
-            _retireTransaction = _publication.FindKernel(
+            _retireTransaction = _publication.FindProfiledKernel(
                 "RetirePublishedTransaction");
-            _materializeTopology = _derived.FindKernel(
+            _materializeTopology = _derived.FindProfiledKernel(
                 "MaterializePublishedTopology");
-            _prepareDormant = _dormant.FindKernel(
+            _prepareDormant = _dormant.FindProfiledKernel(
                 "PrepareDormantParking");
-            _parkDormantSources = _dormant.FindKernel(
+            _parkDormantSources = _dormant.FindProfiledKernel(
                 "ParkDormantSources");
-            _parkDormantSegments = _dormant.FindKernel(
+            _parkDormantSegments = _dormant.FindProfiledKernel(
                 "ParkDormantSegments");
-            _releaseDormantPage = _dormant.FindKernel(
+            _releaseDormantPage = _dormant.FindProfiledKernel(
                 "ReleaseDormantPage");
-            _finalizeDormant = _dormant.FindKernel(
+            _finalizeDormant = _dormant.FindProfiledKernel(
                 "FinalizeDormantParking");
-            _recheckDormant = _dormant.FindKernel(
+            _recheckDormant = _dormant.FindProfiledKernel(
                 "RecheckDormantProbations");
-            _collectForensics = _forensic.FindKernel(
+            _collectForensics = _forensic.FindProfiledKernel(
                 "CollectSigmaForensics");
         }
 
@@ -210,11 +210,11 @@ namespace Genesis.RoomScan.SigmaPrism
         {
             RequireCommand(command);
             BindInitializeGraph(command, _initializeGraph);
-            command.DispatchCompute(_work, _initializeGraph, 1, 1, 1);
+            command.DispatchComputeProfiled(_work, _initializeGraph, 1, 1, 1);
             BindInitializeOwnership(command, _initializeOwnership);
-            command.DispatchCompute(_work, _initializeOwnership, 1, 1, 1);
+            command.DispatchComputeProfiled(_work, _initializeOwnership, 1, 1, 1);
             BindInitializeVisibility(command, _initializeVisibility);
-            command.DispatchCompute(_publication, _initializeVisibility,
+            command.DispatchComputeProfiled(_publication, _initializeVisibility,
                 CeilDiv(_pool.PageCapacity, 64), 1, 1);
         }
 
@@ -239,13 +239,13 @@ namespace Genesis.RoomScan.SigmaPrism
                 frame.DepthResolution);
 
             BindClearIngress(command, _clearIngress);
-            command.DispatchCompute(_work, _clearIngress, 1, 1, 1);
+            command.DispatchComputeProfiled(_work, _clearIngress, 1, 1, 1);
 
             BindCompactIngress(command, _compactIngress, activePageFlags,
                 unmatchedBlockFlags, blockResolution, blockCount, revision,
                 frame.CalibrationEpoch, leftKey, rightKey, rgbLeftKey,
                 rgbRightKey, rayEpoch);
-            command.DispatchCompute(_work, _compactIngress, 1, 1, 1);
+            command.DispatchComputeProfiled(_work, _compactIngress, 1, 1, 1);
 
             BindBundleSource(command, _copyBundleMetadata, frame, prediction,
                 metricDepth, depthFlags, correctedDepthCalibration,
@@ -253,7 +253,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 depthRayCenterLeft);
             // The extraction count is GPU-owned.  Sixty-four bounded Y groups
             // cover every possible header and self-reject above the live count.
-            command.DispatchCompute(_source, _copyBundleMetadata, 1,
+            command.DispatchComputeProfiled(_source, _copyBundleMetadata, 1,
                 SigmaGeneratedStreaming.BundleCapacity, 1);
 
             BindBundleSource(command, _extractBundleSamples, frame, prediction,
@@ -264,7 +264,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 SigmaStreamOpcode.EXTRACT_BUNDLE);
 
             BindFinalizeBundles(command, _finalizeBundles);
-            command.DispatchCompute(_work, _finalizeBundles, 1, 1, 1);
+            command.DispatchComputeProfiled(_work, _finalizeBundles, 1, 1, 1);
         }
 
         internal void RecordCanonicalQuantum(CommandBuffer command,
@@ -273,22 +273,22 @@ namespace Genesis.RoomScan.SigmaPrism
             RequireCommand(command);
 
             BindInitializeVisibility(command, _initializeVisibility);
-            command.DispatchCompute(_publication, _initializeVisibility,
+            command.DispatchComputeProfiled(_publication, _initializeVisibility,
                 CeilDiv(_pool.PageCapacity, 64), 1, 1);
 
             for (int round = 0; round < CanonicalRoundsPerSubmission;
                 ++round)
             {
                 RecordCanonicalRound(command, singularShift, associatorShift,
-                    round == 0,
+                    true,
                     round + 1 == CanonicalRoundsPerSubmission);
             }
 
             BindScheduleDiagnostics(command, _scheduleDiagnostics);
-            command.DispatchCompute(_work, _scheduleDiagnostics, 1, 1, 1);
+            command.DispatchComputeProfiled(_work, _scheduleDiagnostics, 1, 1, 1);
 
             BindForensics(command, _collectForensics);
-            command.DispatchCompute(_forensic, _collectForensics, 1, 1, 1);
+            command.DispatchComputeProfiled(_forensic, _collectForensics, 1, 1, 1);
         }
 
         private void RecordCanonicalRound(CommandBuffer command,
@@ -301,14 +301,14 @@ namespace Genesis.RoomScan.SigmaPrism
                 emitPublication ? 1 : 0);
 
             BindSchedule(command, _schedule);
-            command.DispatchCompute(_work, _schedule, 1, 1, 1);
+            command.DispatchComputeProfiled(_work, _schedule, 1, 1, 1);
 
             BindPreparePages(command, _preparePages);
             DispatchIndirect(command, _work, _preparePages,
                 SigmaStreamOpcode.ADMIT);
 
             BindReleaseProbation(command, _releaseProbation);
-            command.DispatchCompute(_work, _releaseProbation, 1, 1, 1);
+            command.DispatchComputeProfiled(_work, _releaseProbation, 1, 1, 1);
 
             RecordDormantStage(command, _prepareDormant);
             RecordDormantStage(command, _parkDormantSources);
@@ -316,7 +316,7 @@ namespace Genesis.RoomScan.SigmaPrism
             RecordDormantStage(command, _releaseDormantPage);
             RecordDormantStage(command, _finalizeDormant);
             BindDormant(command, _recheckDormant);
-            command.DispatchCompute(_dormant, _recheckDormant, 1, 1, 1);
+            command.DispatchComputeProfiled(_dormant, _recheckDormant, 1, 1, 1);
 
             _renderer.RecordHistoricalRevalidation(command, _stream, _ledger);
 
@@ -930,7 +930,7 @@ namespace Genesis.RoomScan.SigmaPrism
         private void DispatchIndirect(CommandBuffer command,
             ComputeShader shader, int kernel, SigmaStreamOpcode opcode)
         {
-            command.DispatchCompute(shader, kernel, _stream.DispatchArguments,
+            command.DispatchComputeProfiled(shader, kernel, _stream.DispatchArguments,
                 checked((uint)opcode * 3u * sizeof(uint)));
         }
 

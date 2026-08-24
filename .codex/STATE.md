@@ -147,9 +147,19 @@ through Unity XR `TrackingSpace`, emits conservative adjacent-sample triangles,
 shows their barycentric edges in Wireframe mode and retains point fallback only for
 isolated support. It is one disposable readout of existing Psi and does not alter
 prediction, topology or canonical state. Vulkan EditMode remains 72/72 with no new
-shader diagnostic. Exact next action: commit this visualization closure, build the
-same revision as Android/Vulkan Release and install it for world-lock inspection.
-Do not open S4-09.
+shader diagnostic.
+
+The throughput diagnostic checkpoint keeps the same eight bounded canonical rounds
+but refills their existing deterministic deficits in every recorded round instead
+of only the first. No token weight, opcode, shader, exact operation or canonical
+decision changed. Every production compute dispatch now carries a read-only Unity
+Vulkan GPU timestamp marker; the existing async telemetry reports end-of-quantum
+deficit/owner/work-cap pressure as fast as one prior sample completes. Profiler
+failure cannot suppress a dispatch. Full Unity Vulkan EditMode passes 73/73,
+generated output and `git diff --check` are current, and the Quest UAV limit remains
+8. Exact next action: commit, build the same revision as Android/Vulkan Release,
+install it and use the device log to measure real per-kernel load versus artificial
+scheduler delay. Do not tune costs or open S4-09 before that evidence.
 
 ## Acceptance still required
 

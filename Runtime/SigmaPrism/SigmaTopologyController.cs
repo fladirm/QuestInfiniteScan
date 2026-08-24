@@ -210,25 +210,25 @@ namespace Genesis.RoomScan.SigmaPrism
                 throw new InvalidOperationException(
                     "Sigma intrinsic-topology resources are incomplete.");
 
-            _clearCacheKernel = _shader.FindKernel("ClearTopologyCache");
-            _clearPageKernel = _shader.FindKernel("ClearTopologyPage");
-            _copyPriorKernel = _shader.FindKernel("CopyPriorTopologyPage");
-            _clearWorkKernel = _shader.FindKernel("ClearTopologyWork");
-            _sampleSupportKernel = _shader.FindKernel("BuildSampleSupport");
-            _buildMetaKernel = _shader.FindKernel("BuildTransitionMeta");
-            _buildTauKernel = _shader.FindKernel("BuildTransitionTau");
-            _markCandidatesKernel = _shader.FindKernel(
+            _clearCacheKernel = _shader.FindProfiledKernel("ClearTopologyCache");
+            _clearPageKernel = _shader.FindProfiledKernel("ClearTopologyPage");
+            _copyPriorKernel = _shader.FindProfiledKernel("CopyPriorTopologyPage");
+            _clearWorkKernel = _shader.FindProfiledKernel("ClearTopologyWork");
+            _sampleSupportKernel = _shader.FindProfiledKernel("BuildSampleSupport");
+            _buildMetaKernel = _shader.FindProfiledKernel("BuildTransitionMeta");
+            _buildTauKernel = _shader.FindProfiledKernel("BuildTransitionTau");
+            _markCandidatesKernel = _shader.FindProfiledKernel(
                 "MarkTopologyCandidates");
-            _buildDispatchKernel = _shader.FindKernel(
+            _buildDispatchKernel = _shader.FindProfiledKernel(
                 "BuildTopologyDispatchArgs");
-            _scanKernel = _shader.FindKernel("ScanAnnihilatorCatalog");
-            _accumulateEvidenceKernel = _shader.FindKernel(
+            _scanKernel = _shader.FindProfiledKernel("ScanAnnihilatorCatalog");
+            _accumulateEvidenceKernel = _shader.FindProfiledKernel(
                 "AccumulateTopologyEvidence");
-            _associatorKernel = _shader.FindKernel("EvaluateAssociatorCells");
-            _finalizeKernel = _shader.FindKernel("FinalizeTransitionClasses");
-            _cellCutsKernel = _shader.FindKernel("BuildCellCutFlags");
-            _publishKernel = _shader.FindKernel("PublishTopologyPage");
-            _resolveLiveNeighboursKernel = _shader.FindKernel(
+            _associatorKernel = _shader.FindProfiledKernel("EvaluateAssociatorCells");
+            _finalizeKernel = _shader.FindProfiledKernel("FinalizeTransitionClasses");
+            _cellCutsKernel = _shader.FindProfiledKernel("BuildCellCutFlags");
+            _publishKernel = _shader.FindProfiledKernel("PublishTopologyPage");
+            _resolveLiveNeighboursKernel = _shader.FindProfiledKernel(
                 "ResolveLiveTopologyNeighbours");
 
             _transitionTau = CreateBuffer(
@@ -348,7 +348,7 @@ namespace Genesis.RoomScan.SigmaPrism
             command.SetComputeBufferParam(_shader,
                 _resolveLiveNeighboursKernel, "_LiveTopologyNeighbours",
                 _liveTopologyNeighbours);
-            command.DispatchCompute(_shader, _resolveLiveNeighboursKernel,
+            command.DispatchComputeProfiled(_shader, _resolveLiveNeighboursKernel,
                 workCapacity, 1, 1);
 
             for (int workIndex = 0; workIndex < workCapacity; ++workIndex)
@@ -366,20 +366,20 @@ namespace Genesis.RoomScan.SigmaPrism
                     "_CellTopologyFlags", cache.CellFlags);
                 command.SetComputeBufferParam(_shader, _clearPageKernel,
                     "_TopologyPageKeys", cache.PageKeys);
-                command.DispatchCompute(_shader, _clearPageKernel,
+                command.DispatchComputeProfiled(_shader, _clearPageKernel,
                     TransitionsPerPage / 64, 1, 1);
 
                 command.SetComputeBufferParam(_shader, _clearWorkKernel,
                     "_TopologyCandidateCount", _topologyCandidateCount);
                 command.SetComputeBufferParam(_shader, _clearWorkKernel,
                     "_TopologyDispatchArgs", _topologyDispatchArguments);
-                command.DispatchCompute(_shader, _clearWorkKernel, 1, 1, 1);
+                command.DispatchComputeProfiled(_shader, _clearWorkKernel, 1, 1, 1);
 
                 command.SetComputeBufferParam(_shader, _sampleSupportKernel,
                     "_TargetState", batch.State);
                 command.SetComputeBufferParam(_shader, _sampleSupportKernel,
                     "_SampleSupport", _sampleSupport);
-                command.DispatchCompute(_shader, _sampleSupportKernel,
+                command.DispatchComputeProfiled(_shader, _sampleSupportKernel,
                     SigmaCarrier.SamplesPerPage / 64, 1, 1);
 
                 command.SetComputeBufferParam(_shader, _buildMetaKernel,
@@ -396,7 +396,7 @@ namespace Genesis.RoomScan.SigmaPrism
                     "_TransitionCache", cache.TransitionRecords);
                 BindGpuEvidence(command, _buildMetaKernel, proposalStatus,
                     proposalEpoch);
-                command.DispatchCompute(_shader, _buildMetaKernel,
+                command.DispatchComputeProfiled(_shader, _buildMetaKernel,
                     TransitionsPerPage / 64, 1, 1);
 
                 command.SetComputeBufferParam(_shader, _markCandidatesKernel,
@@ -407,14 +407,14 @@ namespace Genesis.RoomScan.SigmaPrism
                     "_TopologyCandidateCount", _topologyCandidateCount);
                 command.SetComputeBufferParam(_shader, _markCandidatesKernel,
                     "_TopologyCounters", _counters);
-                command.DispatchCompute(_shader, _markCandidatesKernel,
+                command.DispatchComputeProfiled(_shader, _markCandidatesKernel,
                     1, 1, 1);
 
                 command.SetComputeBufferParam(_shader, _buildDispatchKernel,
                     "_TopologyCandidateCount", _topologyCandidateCount);
                 command.SetComputeBufferParam(_shader, _buildDispatchKernel,
                     "_TopologyDispatchArgs", _topologyDispatchArguments);
-                command.DispatchCompute(_shader, _buildDispatchKernel, 1, 1, 1);
+                command.DispatchComputeProfiled(_shader, _buildDispatchKernel, 1, 1, 1);
 
                 command.SetComputeBufferParam(_shader, _buildTauKernel,
                     "_TargetState", batch.State);
@@ -432,7 +432,7 @@ namespace Genesis.RoomScan.SigmaPrism
                     "_TopologyCandidates", _topologyCandidates);
                 command.SetComputeBufferParam(_shader, _buildTauKernel,
                     "_TopologyCandidateCount", _topologyCandidateCount);
-                command.DispatchCompute(_shader, _buildTauKernel,
+                command.DispatchComputeProfiled(_shader, _buildTauKernel,
                     _topologyDispatchArguments, CandidateDispatchOffset);
 
                 command.SetComputeBufferParam(_shader, _scanKernel,
@@ -449,11 +449,11 @@ namespace Genesis.RoomScan.SigmaPrism
                     "_TopologyCandidates", _topologyCandidates);
                 command.SetComputeBufferParam(_shader, _scanKernel,
                     "_TopologyCandidateCount", _topologyCandidateCount);
-                command.DispatchCompute(_shader, _scanKernel,
+                command.DispatchComputeProfiled(_shader, _scanKernel,
                     _topologyDispatchArguments, WitnessDispatchOffset);
 
                 BindLiveAssociator(command, batch, cache);
-                command.DispatchCompute(_shader, _associatorKernel,
+                command.DispatchComputeProfiled(_shader, _associatorKernel,
                     _topologyDispatchArguments, CandidateDispatchOffset);
 
                 command.SetComputeBufferParam(_shader, _finalizeKernel,
@@ -464,7 +464,7 @@ namespace Genesis.RoomScan.SigmaPrism
                     "_AssociatorFlags", cache.AssociatorFlags);
                 command.SetComputeBufferParam(_shader, _finalizeKernel,
                     "_TopologyCounters", _counters);
-                command.DispatchCompute(_shader, _finalizeKernel,
+                command.DispatchComputeProfiled(_shader, _finalizeKernel,
                     TransitionsPerPage / 64, 1, 1);
 
                 command.SetComputeBufferParam(_shader, _cellCutsKernel,
@@ -475,12 +475,12 @@ namespace Genesis.RoomScan.SigmaPrism
                     "_DownTransitionCache", cache.TransitionRecords);
                 command.SetComputeBufferParam(_shader, _cellCutsKernel,
                     "_CellTopologyFlags", cache.CellFlags);
-                command.DispatchCompute(_shader, _cellCutsKernel,
+                command.DispatchComputeProfiled(_shader, _cellCutsKernel,
                     SigmaCarrier.SamplesPerPage / 64, 1, 1);
 
                 command.SetComputeBufferParam(_shader, _publishKernel,
                     "_TopologyPageKeys", cache.PageKeys);
-                command.DispatchCompute(_shader, _publishKernel, 1, 1, 1);
+                command.DispatchComputeProfiled(_shader, _publishKernel, 1, 1, 1);
             }
         }
 
@@ -701,7 +701,7 @@ namespace Genesis.RoomScan.SigmaPrism
             _shader.SetBuffer(_accumulateEvidenceKernel, "_TopologyCounters",
                 _counters);
             _backendGate.Bind(_shader, _accumulateEvidenceKernel);
-            _shader.Dispatch(_accumulateEvidenceKernel,
+            _shader.DispatchProfiled(_accumulateEvidenceKernel,
                 TransitionsPerPage / 64, 1, 1);
 
             BindTopologyNeighbours(right, rightValid, down, downValid,
@@ -711,14 +711,14 @@ namespace Genesis.RoomScan.SigmaPrism
             _shader.SetBuffer(_cellCutsKernel, "_CellTopologyFlags",
                 targetCache.CellFlags);
             _backendGate.Bind(_shader, _cellCutsKernel);
-            _shader.Dispatch(_cellCutsKernel,
+            _shader.DispatchProfiled(_cellCutsKernel,
                 SigmaCarrier.SamplesPerPage / 64, 1, 1);
             SetUInt("_TargetGeneration", target.Generation);
             SetUInt("_TargetRevision", target.Revision);
             _shader.SetBuffer(_publishKernel, "_TopologyPageKeys",
                 targetCache.PageKeys);
             _backendGate.Bind(_shader, _publishKernel);
-            _shader.Dispatch(_publishKernel, 1, 1, 1);
+            _shader.DispatchProfiled(_publishKernel, 1, 1, 1);
         }
 
         internal void PublishBuiltGeneration(SigmaCarrierPageHandle handle)
@@ -772,13 +772,13 @@ namespace Genesis.RoomScan.SigmaPrism
                 _topologyCandidateCount);
             _shader.SetBuffer(_clearWorkKernel, "_TopologyDispatchArgs",
                 _topologyDispatchArguments);
-            _shader.Dispatch(_clearWorkKernel, 1, 1, 1);
+            _shader.DispatchProfiled(_clearWorkKernel, 1, 1, 1);
             _shader.SetBuffer(_sampleSupportKernel, "_TargetState",
                 targetBatch.State);
             _shader.SetBuffer(_sampleSupportKernel, "_SampleSupport",
                 _sampleSupport);
             _backendGate.Bind(_shader, _sampleSupportKernel);
-            _shader.Dispatch(_sampleSupportKernel,
+            _shader.DispatchProfiled(_sampleSupportKernel,
                 SigmaCarrier.SamplesPerPage / 64, 1, 1);
             _shader.SetBuffer(_buildMetaKernel, "_TransitionMeta",
                 _transitionMeta);
@@ -787,7 +787,7 @@ namespace Genesis.RoomScan.SigmaPrism
             _shader.SetBuffer(_buildMetaKernel, "_TransitionCache",
                 targetCache.TransitionRecords);
             _backendGate.Bind(_shader, _buildMetaKernel);
-            _shader.Dispatch(_buildMetaKernel, TransitionsPerPage / 64, 1, 1);
+            _shader.DispatchProfiled(_buildMetaKernel, TransitionsPerPage / 64, 1, 1);
 
             _shader.SetInt("_SingularShift", singularShift);
             _shader.SetInt("_AssociatorShift", associatorShift);
@@ -802,13 +802,13 @@ namespace Genesis.RoomScan.SigmaPrism
             _shader.SetBuffer(_markCandidatesKernel, "_TopologyCounters",
                 _counters);
             _backendGate.Bind(_shader, _markCandidatesKernel);
-            _shader.Dispatch(_markCandidatesKernel,
+            _shader.DispatchProfiled(_markCandidatesKernel,
                 1, 1, 1);
             _shader.SetBuffer(_buildDispatchKernel, "_TopologyCandidateCount",
                 _topologyCandidateCount);
             _shader.SetBuffer(_buildDispatchKernel, "_TopologyDispatchArgs",
                 _topologyDispatchArguments);
-            _shader.Dispatch(_buildDispatchKernel, 1, 1, 1);
+            _shader.DispatchProfiled(_buildDispatchKernel, 1, 1, 1);
 
             // Every transition runs the cheap activity gate, but only compacted
             // constraint-active lanes enter the expensive exact dense transition
@@ -823,7 +823,7 @@ namespace Genesis.RoomScan.SigmaPrism
             _shader.SetBuffer(_buildTauKernel, "_TopologyCandidateCount",
                 _topologyCandidateCount);
             _backendGate.Bind(_shader, _buildTauKernel);
-            _shader.DispatchIndirect(_buildTauKernel,
+            _shader.DispatchIndirectProfiled(_buildTauKernel,
                 _topologyDispatchArguments, CandidateDispatchOffset);
 
             _shader.SetBuffer(_scanKernel, "_TransitionTau", _transitionTau);
@@ -836,11 +836,11 @@ namespace Genesis.RoomScan.SigmaPrism
                 _topologyCandidates);
             _shader.SetBuffer(_scanKernel, "_TopologyCandidateCount",
                 _topologyCandidateCount);
-            _shader.DispatchIndirect(_scanKernel, _topologyDispatchArguments,
+            _shader.DispatchIndirectProfiled(_scanKernel, _topologyDispatchArguments,
                 WitnessDispatchOffset);
 
             BindDirectAssociator(targetCache);
-            _shader.DispatchIndirect(_associatorKernel,
+            _shader.DispatchIndirectProfiled(_associatorKernel,
                 _topologyDispatchArguments, CandidateDispatchOffset);
 
             _shader.SetBuffer(_finalizeKernel, "_TransitionCache",
@@ -851,7 +851,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 targetCache.AssociatorFlags);
             _shader.SetBuffer(_finalizeKernel, "_TopologyCounters", _counters);
             _backendGate.Bind(_shader, _finalizeKernel);
-            _shader.Dispatch(_finalizeKernel, TransitionsPerPage / 64, 1, 1);
+            _shader.DispatchProfiled(_finalizeKernel, TransitionsPerPage / 64, 1, 1);
 
             BindTopologyNeighbours(right, rightValid, down, downValid,
                 targetCache);
@@ -860,7 +860,7 @@ namespace Genesis.RoomScan.SigmaPrism
             _shader.SetBuffer(_cellCutsKernel, "_CellTopologyFlags",
                 targetCache.CellFlags);
             _backendGate.Bind(_shader, _cellCutsKernel);
-            _shader.Dispatch(_cellCutsKernel,
+            _shader.DispatchProfiled(_cellCutsKernel,
                 SigmaCarrier.SamplesPerPage / 64, 1, 1);
 
             SetUInt("_TargetGeneration", target.Generation);
@@ -868,7 +868,7 @@ namespace Genesis.RoomScan.SigmaPrism
             _shader.SetBuffer(_publishKernel, "_TopologyPageKeys",
                 targetCache.PageKeys);
             _backendGate.Bind(_shader, _publishKernel);
-            _shader.Dispatch(_publishKernel, 1, 1, 1);
+            _shader.DispatchProfiled(_publishKernel, 1, 1, 1);
         }
 
         private void BindDirectAssociator(TopologySegmentCache targetCache)
@@ -1059,7 +1059,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 source.TransitionRecords);
             _shader.SetBuffer(_copyPriorKernel, "_TransitionCache",
                 target.TransitionRecords);
-            _shader.Dispatch(_copyPriorKernel, TransitionsPerPage / 64, 1, 1);
+            _shader.DispatchProfiled(_copyPriorKernel, TransitionsPerPage / 64, 1, 1);
         }
 
         private void ClearPage(TopologySegmentCache cache, int pageSlot)
@@ -1075,7 +1075,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 cache.CellFlags);
             _shader.SetBuffer(_clearPageKernel, "_TopologyPageKeys",
                 cache.PageKeys);
-            _shader.Dispatch(_clearPageKernel, TransitionsPerPage / 64, 1, 1);
+            _shader.DispatchProfiled(_clearPageKernel, TransitionsPerPage / 64, 1, 1);
         }
 
         private void BindDirectExecutionMode()
@@ -1105,7 +1105,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 cache.PageKeys);
             _shader.SetBuffer(_clearCacheKernel, "_TopologyCounters", _counters);
             int count = Math.Max(transitions, Math.Max(cells, batch.PageCapacity));
-            _shader.Dispatch(_clearCacheKernel, CeilDiv(count, 64), 1, 1);
+            _shader.DispatchProfiled(_clearCacheKernel, CeilDiv(count, 64), 1, 1);
             return cache;
         }
 

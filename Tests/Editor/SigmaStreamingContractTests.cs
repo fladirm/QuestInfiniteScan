@@ -161,7 +161,10 @@ namespace Genesis.RoomScan.Tests
             StringAssert.Contains("_PoseConsumeWorldFromReference", graph);
             StringAssert.Contains(
                 "private const int CanonicalRoundsPerSubmission = 8;", graph);
-            StringAssert.Contains("round == 0", graph);
+            StringAssert.IsMatch(
+                @"RecordCanonicalRound\(command, singularShift, " +
+                @"associatorShift,\s*true,", graph);
+            StringAssert.DoesNotContain("round == 0", graph);
             StringAssert.Contains(
                 "round + 1 == CanonicalRoundsPerSubmission", graph);
 
@@ -208,6 +211,32 @@ namespace Genesis.RoomScan.Tests
             StringAssert.Contains("transaction.publication.z", publication);
             StringAssert.Contains("if (count == 0u || count > " +
                 "SIGMA_STREAM_MAX_PAGES)", publication);
+        }
+
+        [Test]
+        public void ProductionComputeDispatchesUseGpuTimestampWrapper()
+        {
+            string telemetry = ReadScript("SigmaGpuKernelTelemetry.cs");
+            StringAssert.Contains("CustomSampler.Create", telemetry);
+            StringAssert.Contains("gpuElapsedNanoseconds", telemetry);
+            StringAssert.Contains("gpuSampleBlockCount", telemetry);
+
+            foreach (string guid in AssetDatabase.FindAssets("t:MonoScript"))
+            {
+                string path = AssetDatabase.GUIDToAssetPath(guid);
+                if (!path.Contains("/Runtime/SigmaPrism/",
+                        StringComparison.Ordinal) ||
+                    path.EndsWith("/SigmaGpuKernelTelemetry.cs",
+                        StringComparison.Ordinal))
+                    continue;
+                string source = File.ReadAllText(path);
+                StringAssert.DoesNotContain(".FindKernel(", source, path);
+                StringAssert.DoesNotContain(".DispatchCompute(", source,
+                    path);
+                StringAssert.DoesNotContain(".DispatchIndirect(", source,
+                    path);
+                StringAssert.DoesNotContain(".Dispatch(", source, path);
+            }
         }
 
         [Test]

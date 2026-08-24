@@ -271,20 +271,20 @@ namespace Genesis.RoomScan.SigmaPrism
                 throw new InvalidOperationException(
                     "Sigma forward-readout resources are incomplete.");
 
-            _buildKernel = _readoutCompute.FindKernel("BuildCarrierReadout");
-            _compactKernel = _readoutCompute.FindKernel("CompactCurrentPages");
-            _resolveHaloKernel = _readoutCompute.FindKernel(
+            _buildKernel = _readoutCompute.FindProfiledKernel("BuildCarrierReadout");
+            _compactKernel = _readoutCompute.FindProfiledKernel("CompactCurrentPages");
+            _resolveHaloKernel = _readoutCompute.FindProfiledKernel(
                 "ResolveCarrierHalos");
-            _prepareRevalidationKernel = _revalidationCompute.FindKernel(
+            _prepareRevalidationKernel = _revalidationCompute.FindProfiledKernel(
                 "PrepareHistoricalRevalidation");
-            _buildRevalidationArgsKernel = _revalidationCompute.FindKernel(
+            _buildRevalidationArgsKernel = _revalidationCompute.FindProfiledKernel(
                 "BuildHistoricalDrawArguments");
             _rebuildRevalidationAssociationKernel =
-                _revalidationCompute.FindKernel(
+                _revalidationCompute.FindProfiledKernel(
                     "RebuildHistoricalAssociation");
-            _finalizeRevalidationKernel = _revalidationCompute.FindKernel(
+            _finalizeRevalidationKernel = _revalidationCompute.FindProfiledKernel(
                 "FinalizeHistoricalRevalidation");
-            _cancelRevalidationKernel = _revalidationCompute.FindKernel(
+            _cancelRevalidationKernel = _revalidationCompute.FindProfiledKernel(
                 "CancelHistoricalRevalidation");
             _predictionMaterial = new Material(prediction)
             {
@@ -486,16 +486,16 @@ namespace Genesis.RoomScan.SigmaPrism
             if (!cacheReady)
             {
                 BindCancelHistoricalRevalidation(command, stream);
-                command.DispatchCompute(_revalidationCompute,
+                command.DispatchComputeProfiled(_revalidationCompute,
                     _cancelRevalidationKernel, 1, 1, 1);
                 return;
             }
 
             BindPrepareHistoricalRevalidation(command, stream, batch);
-            command.DispatchCompute(_revalidationCompute,
+            command.DispatchComputeProfiled(_revalidationCompute,
                 _prepareRevalidationKernel, 1, 1, 1);
             BindHistoricalDrawArguments(command, stream);
-            command.DispatchCompute(_revalidationCompute,
+            command.DispatchComputeProfiled(_revalidationCompute,
                 _buildRevalidationArgsKernel, 1, 1, 1);
 
             _revalidationTargets.SetMrt(_revalidationMrt);
@@ -526,10 +526,10 @@ namespace Genesis.RoomScan.SigmaPrism
                 _revalidationDrawArguments, sizeof(uint) * 4, _properties);
 
             BindRebuildHistoricalAssociation(command, stream, ledger);
-            command.DispatchCompute(_revalidationCompute,
+            command.DispatchComputeProfiled(_revalidationCompute,
                 _rebuildRevalidationAssociationKernel, 64, 1, 1);
             BindFinalizeHistoricalRevalidation(command, stream);
-            command.DispatchCompute(_revalidationCompute,
+            command.DispatchComputeProfiled(_revalidationCompute,
                 _finalizeRevalidationKernel, 1, 1, 1);
         }
 
@@ -805,12 +805,12 @@ namespace Genesis.RoomScan.SigmaPrism
                     continue;
                 SegmentReadoutCache cache = _segmentCaches[index];
                 BindCompaction(command, batch, cache);
-                command.DispatchCompute(_readoutCompute, _compactKernel, 1, 1, 1);
+                command.DispatchComputeProfiled(_readoutCompute, _compactKernel, 1, 1, 1);
                 BindBuild(command, batch, cache);
-                command.DispatchCompute(_readoutCompute, _buildKernel,
+                command.DispatchComputeProfiled(_readoutCompute, _buildKernel,
                     cache.BuildDispatchArguments, 0);
                 BindHaloResolve(command, batch, cache);
-                command.DispatchCompute(_readoutCompute, _resolveHaloKernel,
+                command.DispatchComputeProfiled(_readoutCompute, _resolveHaloKernel,
                     cache.HaloDispatchArguments, 0);
             }
             return _readBatches.Count != 0;

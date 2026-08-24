@@ -256,17 +256,17 @@ namespace Genesis.RoomScan.SigmaPrism
                 throw new InvalidOperationException(
                     "Sigma carrier/codec compute resources are missing.");
 
-            _initializeNullKernel = _carrierShader.FindKernel("InitializeNullPage");
-            _initializeGpuPoolKernel = _carrierShader.FindKernel(
+            _initializeNullKernel = _carrierShader.FindProfiledKernel("InitializeNullPage");
+            _initializeGpuPoolKernel = _carrierShader.FindProfiledKernel(
                 "InitializeGpuPool");
-            _cloneKernel = _carrierShader.FindKernel("ClonePageGeneration");
-            _publishKernel = _carrierShader.FindKernel("PublishPageGeneration");
-            _markDirtyKernel = _carrierShader.FindKernel("MarkPageDirty");
-            _deactivateKernel = _carrierShader.FindKernel(
+            _cloneKernel = _carrierShader.FindProfiledKernel("ClonePageGeneration");
+            _publishKernel = _carrierShader.FindProfiledKernel("PublishPageGeneration");
+            _markDirtyKernel = _carrierShader.FindProfiledKernel("MarkPageDirty");
+            _deactivateKernel = _carrierShader.FindProfiledKernel(
                 "DeactivatePageGeneration");
-            _releaseKernel = _carrierShader.FindKernel("ReleasePageSlot");
-            _compactKernel = _carrierShader.FindKernel("CompactDirtyPages");
-            _acknowledgeKernel = _carrierShader.FindKernel("AcknowledgeDirtyPages");
+            _releaseKernel = _carrierShader.FindProfiledKernel("ReleasePageSlot");
+            _compactKernel = _carrierShader.FindProfiledKernel("CompactDirtyPages");
+            _acknowledgeKernel = _carrierShader.FindProfiledKernel("AcknowledgeDirtyPages");
 
             _runtimeBindingLimit = SystemInfo.maxGraphicsBufferSize;
             if (_runtimeBindingLimit < DecodedPageBytes)
@@ -329,7 +329,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 "_CurrentFlags", segment.CurrentFlags);
             _carrierShader.SetBuffer(_initializeGpuPoolKernel,
                 "_ReadoutDirtyFlags", segment.ReadoutDirtyFlags);
-            _carrierShader.Dispatch(_initializeGpuPoolKernel,
+            _carrierShader.DispatchProfiled(_initializeGpuPoolKernel,
                 SamplesPerPage / 64, capacity, 1);
             segment.MarkReadoutChanged();
             return segment.CreateReadBatch(segmentIndex);
@@ -377,7 +377,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 segment.Metadata);
             _carrierShader.SetBuffer(_initializeNullKernel, "_DirtyFlags",
                 segment.DirtyFlags);
-            _carrierShader.Dispatch(_initializeNullKernel,
+            _carrierShader.DispatchProfiled(_initializeNullKernel,
                 SamplesPerPage / 64, 1, 1);
             return new SigmaCarrierWriteLease(this, handle);
         }
@@ -406,7 +406,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 targetSegment.Metadata);
             _carrierShader.SetBuffer(_cloneKernel, "_DirtyFlags",
                 targetSegment.DirtyFlags);
-            _carrierShader.Dispatch(_cloneKernel, SamplesPerPage / 64, 1, 1);
+            _carrierShader.DispatchProfiled(_cloneKernel, SamplesPerPage / 64, 1, 1);
             return new SigmaCarrierWriteLease(this, handle);
         }
 
@@ -439,7 +439,7 @@ namespace Genesis.RoomScan.SigmaPrism
                     segment.DirtyCount);
                 _carrierShader.SetBuffer(_compactKernel, "_DirtyDispatchArgs",
                     segment.DirtyDispatchArguments);
-                _carrierShader.Dispatch(_compactKernel, 1, 1, 1);
+                _carrierShader.DispatchProfiled(_compactKernel, 1, 1, 1);
                 batches[index] = segment.CreateDirtyBatch(index);
             }
             return batches;
@@ -492,7 +492,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 segment.DirtyCount);
             _carrierShader.SetBuffer(_acknowledgeKernel, "_PageMetadata",
                 segment.Metadata);
-            _carrierShader.Dispatch(_acknowledgeKernel,
+            _carrierShader.DispatchProfiled(_acknowledgeKernel,
                 (segment.Capacity + 63) / 64, 1, 1);
         }
 
@@ -507,7 +507,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 segment.DirtyFlags);
             _carrierShader.SetBuffer(_markDirtyKernel, "_PageMetadata",
                 segment.Metadata);
-            _carrierShader.Dispatch(_markDirtyKernel, 1, 1, 1);
+            _carrierShader.DispatchProfiled(_markDirtyKernel, 1, 1, 1);
         }
 
         public bool TryReleaseRetiredGeneration(SigmaCarrierPageHandle handle)
@@ -530,7 +530,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 segment.CurrentFlags);
             _carrierShader.SetBuffer(_releaseKernel, "_ReadoutDirtyFlags",
                 segment.ReadoutDirtyFlags);
-            _carrierShader.Dispatch(_releaseKernel, 1, 1, 1);
+            _carrierShader.DispatchProfiled(_releaseKernel, 1, 1, 1);
             _allocated.Remove(key);
             segment.ReleaseSlot(handle.PageSlot);
             return true;
@@ -569,7 +569,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 segment.CurrentFlags);
             _carrierShader.SetBuffer(_publishKernel, "_ReadoutDirtyFlags",
                 segment.ReadoutDirtyFlags);
-            _carrierShader.Dispatch(_publishKernel, 1, 1, 1);
+            _carrierShader.DispatchProfiled(_publishKernel, 1, 1, 1);
             var key = new PageGenerationKey(handle.Coordinate, handle.Generation);
             _pending.Remove(key);
             _latest[handle.Coordinate] = handle;
@@ -594,7 +594,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 segment.CurrentFlags);
             _carrierShader.SetBuffer(_releaseKernel, "_ReadoutDirtyFlags",
                 segment.ReadoutDirtyFlags);
-            _carrierShader.Dispatch(_releaseKernel, 1, 1, 1);
+            _carrierShader.DispatchProfiled(_releaseKernel, 1, 1, 1);
             _allocated.Remove(key);
             segment.ReleaseSlot(handle.PageSlot);
         }
@@ -689,7 +689,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 segment.CurrentFlags);
             _carrierShader.SetBuffer(_deactivateKernel, "_ReadoutDirtyFlags",
                 segment.ReadoutDirtyFlags);
-            _carrierShader.Dispatch(_deactivateKernel, 1, 1, 1);
+            _carrierShader.DispatchProfiled(_deactivateKernel, 1, 1, 1);
             segment.MarkReadoutChanged();
         }
 

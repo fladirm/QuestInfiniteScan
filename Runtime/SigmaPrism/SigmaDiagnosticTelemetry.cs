@@ -12,7 +12,7 @@ namespace Genesis.RoomScan.SigmaPrism
     /// </summary>
     internal sealed class SigmaDiagnosticTelemetry : IDisposable
     {
-        private const float SampleIntervalSeconds = 1.0f;
+        private const float SampleIntervalSeconds = 0.0f;
         private const int GateWords = 1;
         private const int DiagnosticWords = 32;
         private const int SchedulerWords = 32;
@@ -488,6 +488,17 @@ namespace Genesis.RoomScan.SigmaPrism
         public uint TransitionPhase { get; }
         public uint TransitionFailure { get; }
         public bool Occupied => State != 0u;
+        public uint PendingOpcode => State switch
+        {
+            1u => 1u,
+            2u => ProgressPhase == 1u ? 4u : 3u,
+            3u => 5u,
+            4u => TransitionPhase == 0u ? 6u : 7u,
+            5u => 8u,
+            6u => 9u,
+            8u => 12u,
+            _ => 0u
+        };
         public string StateName => State switch
         {
             0u => "FREE",
@@ -846,6 +857,8 @@ namespace Genesis.RoomScan.SigmaPrism
             AppendRange(text, Diagnostics, 28, 4);
             text.Append(" scheduler=");
             AppendRange(text, Scheduler, 0, Scheduler.Length);
+            text.Append(" pressure=");
+            AppendSchedulerPressure(text);
             text.Append(" work={");
             for (int index = 0; index < WorkCounts.Length; ++index)
             {
@@ -883,6 +896,66 @@ namespace Genesis.RoomScan.SigmaPrism
             if (first)
                 text.Append("none");
             return text.Append('}').ToString();
+        }
+
+        private void AppendSchedulerPressure(StringBuilder text)
+        {
+            const int deficitBase = 12;
+            const int budgetBase = 17;
+            const int proofOwnerAddress = 22;
+            const int workCapacity = 64;
+            const uint invalid = uint.MaxValue;
+
+            text.Append("{class=");
+            for (int budgetClass = 1; budgetClass <= 4; ++budgetClass)
+            {
+                if (budgetClass != 1)
+                    text.Append(',');
+                text.Append(budgetClass).Append(':')
+                    .Append(Word(Scheduler, deficitBase + budgetClass))
+                    .Append('/')
+                    .Append(Word(Scheduler, budgetBase + budgetClass));
+            }
+            text.Append(" pending=");
+            bool first = true;
+            for (int slot = 0; slot < Transactions.Length; ++slot)
+            {
+                SigmaTransactionTelemetry transaction = Transactions[slot];
+                uint opcode = transaction.PendingOpcode;
+                if (opcode == 0u || opcode >=
+                    SigmaGeneratedStreaming.KernelTokenCost.Length)
+                    continue;
+                if (!first)
+                    text.Append('|');
+                first = false;
+                uint budgetClass =
+                    SigmaGeneratedStreaming.KernelBudgetClass[opcode];
+                uint deficit = Word(Scheduler,
+                    deficitBase + (int)budgetClass);
+                uint cost = SigmaGeneratedStreaming.KernelTokenCost[opcode];
+                text.Append(slot).Append(':')
+                    .Append(opcode < OpcodeNames.Length
+                        ? OpcodeNames[opcode] : opcode.ToString())
+                    .Append('@').Append(cost).Append('/');
+                if (cost > deficit)
+                    text.Append("deficit-").Append(cost - deficit);
+                else if (opcode == 8u && RevalidationOwner != invalid &&
+                    RevalidationOwner != (uint)slot)
+                    text.Append("reval-owner-").Append(RevalidationOwner);
+                else if ((opcode == 4u || opcode == 5u) &&
+                    Word(Scheduler, proofOwnerAddress) != invalid &&
+                    Word(Scheduler, proofOwnerAddress) != (uint)slot)
+                    text.Append("proof-owner-")
+                        .Append(Word(Scheduler, proofOwnerAddress));
+                else if (opcode < WorkCounts.Length &&
+                    WorkCounts[opcode] >= workCapacity)
+                    text.Append("work-cap");
+                else
+                    text.Append("ready");
+            }
+            if (first)
+                text.Append("none");
+            text.Append('}');
         }
 
         public string FormatForensicLogLine()

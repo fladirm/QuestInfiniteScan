@@ -188,19 +188,19 @@ namespace Genesis.RoomScan.SigmaPrism
             if (_shader == null)
                 throw new InvalidOperationException(
                     "Sigma gauge-refinement compute resource is missing.");
-            _factsKernel = _shader.FindKernel("BuildGaugeBlockFacts");
-            _selectKernel = _shader.FindKernel("SelectGaugeRequest");
-            _clearKernel = _shader.FindKernel("ClearGaugeTransaction");
-            _stateKernel = _shader.FindKernel("TransformGaugeState");
-            _cloneRawKernel = _shader.FindKernel("CloneGaugeRawTiles");
-            _finalizeRawKernel = _shader.FindKernel("FinalizeGaugeRawChains");
-            _proofKernel = _shader.FindKernel("TransformGaugeProof");
-            _validateKernel = _shader.FindKernel("ValidateGaugeTransform");
-            _clearTopologyKernel = _shader.FindKernel(
+            _factsKernel = _shader.FindProfiledKernel("BuildGaugeBlockFacts");
+            _selectKernel = _shader.FindProfiledKernel("SelectGaugeRequest");
+            _clearKernel = _shader.FindProfiledKernel("ClearGaugeTransaction");
+            _stateKernel = _shader.FindProfiledKernel("TransformGaugeState");
+            _cloneRawKernel = _shader.FindProfiledKernel("CloneGaugeRawTiles");
+            _finalizeRawKernel = _shader.FindProfiledKernel("FinalizeGaugeRawChains");
+            _proofKernel = _shader.FindProfiledKernel("TransformGaugeProof");
+            _validateKernel = _shader.FindProfiledKernel("ValidateGaugeTransform");
+            _clearTopologyKernel = _shader.FindProfiledKernel(
                 "ClearGaugeTopologyPrior");
-            _transportTopologyKernel = _shader.FindKernel(
+            _transportTopologyKernel = _shader.FindProfiledKernel(
                 "TransportGaugeTopologyPrior");
-            _validateTopologyKernel = _shader.FindKernel(
+            _validateTopologyKernel = _shader.FindProfiledKernel(
                 "ValidateGaugeTopology");
             _blockFacts = Buffer(64, sizeof(uint) * 4,
                 "Sigma gauge null/proof block facts");
@@ -243,7 +243,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 _ledger.BindGaugeSourceReadOnly(_shader, _factsKernel, proofSlot);
                 _shader.SetBuffer(_factsKernel, "_GaugeBlockFacts", _blockFacts);
                 _backendGate.Bind(_shader, _factsKernel);
-                _shader.Dispatch(_factsKernel,
+                _shader.DispatchProfiled(_factsKernel,
                     SigmaConstraintLedger.BlocksPerPage, 1, 1);
 
                 _ledger.BindGaugeSourceReadOnly(_shader, _selectKernel,
@@ -254,7 +254,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 SetUInt("_GaugeTargetRevision", source.Revision);
                 _shader.SetInt("_GaugeRequestCapacity", RequestCapacity);
                 _backendGate.Bind(_shader, _selectKernel);
-                _shader.Dispatch(_selectKernel, 1, 1, 1);
+                _shader.DispatchProfiled(_selectKernel, 1, 1, 1);
             }
             return count;
         }
@@ -328,13 +328,13 @@ namespace Genesis.RoomScan.SigmaPrism
                     _rawClonePlan.SetData(proof.ClonePlan);
                 BindTransactionCommon(proof, request, selection.RequestIndex);
                 BindProofTarget(_clearKernel, proof);
-                _shader.Dispatch(_clearKernel,
+                _shader.DispatchProfiled(_clearKernel,
                     SigmaConstraintLedger.BoundsPerPage / 64, 1, 1);
 
                 BindState(source, carrier, _stateKernel);
                 BindTopology(source, _stateKernel);
                 _shader.SetBuffer(_stateKernel, "_GaugeStatus", _status);
-                _shader.Dispatch(_stateKernel,
+                _shader.DispatchProfiled(_stateKernel,
                     SigmaCarrier.SamplesPerPage / 64, 1, 1);
 
                 if (proof.ClonePlan.Length != 0)
@@ -346,22 +346,22 @@ namespace Genesis.RoomScan.SigmaPrism
                     _shader.SetBuffer(_cloneRawKernel, "_GaugeRawCloneStatus",
                         _rawCloneStatus);
                     // One 64-lane workgroup owns one raw-tile clone plan.
-                    _shader.Dispatch(_cloneRawKernel,
+                    _shader.DispatchProfiled(_cloneRawKernel,
                         proof.ClonePlan.Length, 1, 1);
                 }
                 BindProofTarget(_finalizeRawKernel, proof);
                 _shader.SetBuffer(_finalizeRawKernel, "_GaugeRawCloneStatus",
                     _rawCloneStatus);
-                _shader.Dispatch(_finalizeRawKernel, 1, 1, 1);
+                _shader.DispatchProfiled(_finalizeRawKernel, 1, 1, 1);
 
                 BindProofSource(_proofKernel, proof);
                 BindProofTarget(_proofKernel, proof);
-                _shader.Dispatch(_proofKernel,
+                _shader.DispatchProfiled(_proofKernel,
                     SigmaConstraintLedger.BlocksPerPage, 1, 1);
 
                 BindState(source, carrier, _validateKernel);
                 _shader.SetBuffer(_validateKernel, "_GaugeStatus", _status);
-                _shader.Dispatch(_validateKernel,
+                _shader.DispatchProfiled(_validateKernel,
                     SigmaCarrier.SamplesPerPage / 64, 1, 1);
                 var transaction = new SigmaGaugeTransaction(source, carrier,
                     proof, request, selection.RequestIndex);
@@ -395,7 +395,7 @@ namespace Genesis.RoomScan.SigmaPrism
             _shader.SetBuffer(_validateTopologyKernel, "_GaugeRequests",
                 _requests);
             _backendGate.Bind(_shader, _validateTopologyKernel);
-            _shader.Dispatch(_validateTopologyKernel,
+            _shader.DispatchProfiled(_validateTopologyKernel,
                 SigmaTopologyController.TransitionsPerPage / 64, 1, 1);
         }
 
@@ -410,12 +410,12 @@ namespace Genesis.RoomScan.SigmaPrism
             BindGaugeTopology(topology, _clearTopologyKernel);
             _shader.SetBuffer(_clearTopologyKernel, "_GaugeStatus", _status);
             _backendGate.Bind(_shader, _clearTopologyKernel);
-            _shader.Dispatch(_clearTopologyKernel,
+            _shader.DispatchProfiled(_clearTopologyKernel,
                 SigmaTopologyController.TransitionsPerPage / 64, 1, 1);
             BindGaugeTopology(topology, _transportTopologyKernel);
             _shader.SetBuffer(_transportTopologyKernel, "_GaugeStatus", _status);
             _backendGate.Bind(_shader, _transportTopologyKernel);
-            _shader.Dispatch(_transportTopologyKernel,
+            _shader.DispatchProfiled(_transportTopologyKernel,
                 SigmaTopologyController.TransitionsPerPage / 64, 1, 1);
         }
 

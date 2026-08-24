@@ -213,6 +213,7 @@ namespace Genesis.RoomScan.SigmaPrism
             PollCanonical();
             PollDerived();
             FrameTimingManager.CaptureFrameTimings();
+            SigmaGpuKernelTelemetry.CaptureAndLogFrame();
             if (_completionFaulted || !_graphReady)
                 return;
 
@@ -550,7 +551,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 "_MetricDepth", slot.MetricDepth);
             command.SetComputeTextureParam(_ingressShader, _normalizeKernel,
                 "_DepthFlags", slot.DepthFlags);
-            command.DispatchCompute(_ingressShader, _normalizeKernel,
+            command.DispatchComputeProfiled(_ingressShader, _normalizeKernel,
                 CeilDiv(source.DepthResolution.x, 8),
                 CeilDiv(source.DepthResolution.y, 8), 2);
         }
@@ -573,7 +574,7 @@ namespace Genesis.RoomScan.SigmaPrism
             command.SetComputeBufferParam(_ingressShader,
                 _clearClassificationKernel, "_UnmatchedBlockFlags",
                 slot.UnmatchedBlockFlags);
-            command.DispatchCompute(_ingressShader,
+            command.DispatchComputeProfiled(_ingressShader,
                 _clearClassificationKernel, CeilDiv(clearCount, 64), 1, 1);
 
             command.SetComputeIntParams(_ingressShader, "_Resolution",
@@ -620,7 +621,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 "_PoseConsumeReferenceFromWorld", leftWorld.inverse);
             command.SetComputeMatrixParam(_ingressShader,
                 "_PoseConsumeWorldFromReference", leftWorld);
-            command.DispatchCompute(_ingressShader, _classifyKernel,
+            command.DispatchComputeProfiled(_ingressShader, _classifyKernel,
                 CeilDiv(source.DepthResolution.x, 8),
                 CeilDiv(source.DepthResolution.y, 8), 2);
         }
@@ -664,7 +665,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 unchecked((int)revision));
             command.SetComputeIntParam(_poseGaugeShader, "_PosePartialCount",
                 partialCount);
-            command.DispatchCompute(_poseGaugeShader, _poseBuildKernel,
+            command.DispatchComputeProfiled(_poseGaugeShader, _poseBuildKernel,
                 partialCount, 1, 1);
 
             command.SetComputeBufferParam(_poseGaugeShader, _poseReduceKernel,
@@ -675,7 +676,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 "_PosePartials", slot.PosePartials);
             command.SetComputeBufferParam(_poseGaugeShader, _poseReduceKernel,
                 "_PoseResult", slot.PoseResult);
-            command.DispatchCompute(_poseGaugeShader, _poseReduceKernel,
+            command.DispatchComputeProfiled(_poseGaugeShader, _poseReduceKernel,
                 1, 1, 1);
         }
 
@@ -702,7 +703,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 "_PoseConsumeReferenceFromWorld", referenceWorld.inverse);
             command.SetComputeMatrixParam(_poseGaugeShader,
                 "_PoseConsumeWorldFromReference", referenceWorld);
-            command.DispatchCompute(_poseGaugeShader,
+            command.DispatchComputeProfiled(_poseGaugeShader,
                 _poseCalibrationKernel, 2, 1, 1);
         }
 
@@ -824,16 +825,16 @@ namespace Genesis.RoomScan.SigmaPrism
 
         private void FindKernels()
         {
-            _normalizeKernel = _ingressShader.FindKernel(
+            _normalizeKernel = _ingressShader.FindProfiledKernel(
                 "NormalizeStereoDepth");
-            _clearClassificationKernel = _ingressShader.FindKernel(
+            _clearClassificationKernel = _ingressShader.FindProfiledKernel(
                 "ClearIngressClassification");
-            _classifyKernel = _ingressShader.FindKernel("ClassifyIngress");
-            _poseBuildKernel = _poseGaugeShader.FindKernel(
+            _classifyKernel = _ingressShader.FindProfiledKernel("ClassifyIngress");
+            _poseBuildKernel = _poseGaugeShader.FindProfiledKernel(
                 "BuildPoseGaugePartials");
-            _poseReduceKernel = _poseGaugeShader.FindKernel(
+            _poseReduceKernel = _poseGaugeShader.FindProfiledKernel(
                 "ReducePoseGauge");
-            _poseCalibrationKernel = _poseGaugeShader.FindKernel(
+            _poseCalibrationKernel = _poseGaugeShader.FindProfiledKernel(
                 "BuildCorrectedCalibration");
         }
 
