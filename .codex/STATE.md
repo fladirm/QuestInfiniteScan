@@ -1,6 +1,6 @@
 # Sigma-PRISM-16 implementation state
 
-Updated: 2026-08-24 (Europe/Prague)
+Updated: 2026-08-25 (Europe/Prague)
 
 ## Authority and active work
 
@@ -99,11 +99,12 @@ extent allocation, proof/raw ownership and milestone gates are frozen in the pla
 
 ## Current exact action
 
-Commit/archive/build/install the narrow 1 GiB decoded-carrier residency slice,
-then stop. Commit `63ca337` already proved root/publication/draw through root 7 and
-removed `0x104`; its next revision exhausted the artificial 240-pair pool as
-`0x120`. The next Quest gate is continued root progress well beyond 7 without
-`0x20/0x120`. No R3/R4, S16, paging or publication change is authorized.
+Regenerate/validate controls, commit and push the narrow corrected-ring,
+evidence-recycle, exact-sort, diagnostic-preview and one-shot per-kernel timing
+slice; archive/build/install that exact commit and stop. Vulkan EditMode is 71/71,
+the 131072-record optimized sort is bit-identical to the global reference and
+production LOC is net -61 against `d3b83e1`. No R3/R4, S16, paging, accepted-bit
+or publication change is authorized.
 
 ## Required end state
 

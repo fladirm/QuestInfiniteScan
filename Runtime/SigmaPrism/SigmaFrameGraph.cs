@@ -445,21 +445,7 @@ namespace Genesis.RoomScan.SigmaPrism
             command.DispatchComputeProfiled(_closure, _reductionKernels[0],
                 CeilDiv(sortCapacity, 256), 1, 1);
 
-            // One global fixed bitonic circuit is the R2 correctness lowering.
-            // R3's complete-file closure replacement may fuse its local stages;
-            // dispatch partition has no authority over the ordered target stream.
-            for (int width = 2; ; width <<= 1)
-            {
-                command.SetComputeIntParam(_closure, "_SortK", width);
-                for (int stride = width >> 1; stride != 0; stride >>= 1)
-                {
-                    command.SetComputeIntParam(_closure, "_SortJ", stride);
-                    command.DispatchComputeProfiled(_closure,
-                        _reductionKernels[2], CeilDiv(sortCapacity, 256), 1, 1);
-                }
-                if (width == sortCapacity)
-                    break;
-            }
+            RecordExactTargetSort(command, sortCapacity);
 
             command.DispatchComputeProfiled(_closure, _reductionKernels[4],
                 headBlocks, 1, 1);
@@ -830,25 +816,73 @@ namespace Genesis.RoomScan.SigmaPrism
         private void RecordMappedTargetSort(CommandBuffer command,
             int sortCapacity)
         {
+            RecordExactTargetSort(command, sortCapacity);
+        }
+
+        private void RecordExactTargetSort(CommandBuffer command,
+            int sortCapacity)
+        {
+            GraphicsBuffer targets = FirstSegment(Resources.Deltas,
+                sortCapacity, "_FrameDeltas");
+            for (int index = 1; index <= 3; ++index)
+            {
+                int kernel = _reductionKernels[index];
+                command.SetComputeIntParam(_closure, "_TargetSortCapacity",
+                    sortCapacity);
+                command.SetComputeBufferParam(_closure, kernel,
+                    "_FrameDeltas", targets);
+            }
+
+            int groups = CeilDiv(sortCapacity, 256);
+            command.DispatchComputeProfiled(_closure, _reductionKernels[1],
+                groups, 1, 1);
+            for (int width = 512; width <= sortCapacity; width <<= 1)
+            {
+                command.SetComputeIntParam(_closure, "_SortK", width);
+                for (int stride = width >> 1; stride >= 256; stride >>= 1)
+                {
+                    command.SetComputeIntParam(_closure, "_SortJ", stride);
+                    command.DispatchComputeProfiled(_closure,
+                        _reductionKernels[2], groups, 1, 1);
+                }
+                command.DispatchComputeProfiled(_closure,
+                    _reductionKernels[3], groups, 1, 1);
+            }
+        }
+
+#if UNITY_EDITOR
+        internal void RecordTargetSortForTests(CommandBuffer command,
+            bool reference)
+        {
+            RequireAlive();
+            if (command == null)
+                throw new ArgumentNullException(nameof(command));
+            int sortCapacity = Resources.TargetSortCapacity;
+            if (!reference)
+            {
+                RecordExactTargetSort(command, sortCapacity);
+                return;
+            }
+
             int kernel = _reductionKernels[2];
             command.SetComputeIntParam(_closure, "_TargetSortCapacity",
                 sortCapacity);
             command.SetComputeBufferParam(_closure, kernel, "_FrameDeltas",
                 FirstSegment(Resources.Deltas, sortCapacity,
                     "_FrameDeltas"));
-            for (int width = 2; ; width <<= 1)
+            int groups = CeilDiv(sortCapacity, 256);
+            for (int width = 2; width <= sortCapacity; width <<= 1)
             {
                 command.SetComputeIntParam(_closure, "_SortK", width);
                 for (int stride = width >> 1; stride != 0; stride >>= 1)
                 {
                     command.SetComputeIntParam(_closure, "_SortJ", stride);
                     command.DispatchComputeProfiled(_closure, kernel,
-                        CeilDiv(sortCapacity, 256), 1, 1);
+                        groups, 1, 1);
                 }
-                if (width == sortCapacity)
-                    break;
             }
         }
+#endif
 
         public void Dispose()
         {

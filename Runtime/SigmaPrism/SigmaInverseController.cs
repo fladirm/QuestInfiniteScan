@@ -42,6 +42,7 @@ namespace Genesis.RoomScan.SigmaPrism
         [SerializeField, Range(0.25f, 5f)]
         private float poseRotationPriorDegrees = 2f;
         [SerializeField, Range(4, 32)] private int poseSampleStride = 16;
+        [SerializeField] private bool profileNextCanonicalSubmission = true;
 
         private readonly Queue<SigmaPredictionFrameLease> _pendingIngress =
             new();
@@ -148,6 +149,8 @@ namespace Genesis.RoomScan.SigmaPrism
             _hasPreviousTrackingPose = false;
             _previousTrackingTimestampNs = 0L;
             _frameLatency.Reset();
+            if (profileNextCanonicalSubmission)
+                SigmaGpuKernelTelemetry.RequestSingleSubmission();
         }
 
         public void OnScanStopped()
@@ -256,29 +259,42 @@ namespace Genesis.RoomScan.SigmaPrism
             if (!source.IsValid)
                 throw new InvalidOperationException(
                     "Inverse source lease is invalid.");
-            EnsureCalibration(source);
-            slot.EnsureFrameResources(source.DepthResolution);
-
-            uint revision = NextRevision();
             Matrix4x4 worldToRoom = prediction.WorldToRoom;
-            uint leftKey = IndependenceKey(source.DepthLeft,
-                source.CalibrationEpoch, worldToRoom);
-            uint rightKey = IndependenceKey(source.DepthRight,
-                source.CalibrationEpoch, worldToRoom);
-            uint rgbLeftKey = IndependenceKey(source.RgbLeft,
-                source.CalibrationEpoch, worldToRoom);
-            uint rgbRightKey = IndependenceKey(source.RgbRight,
-                source.CalibrationEpoch, worldToRoom);
-            UploadExactCalibration(slot, source, worldToRoom);
-            UploadPosePrior(slot, source, worldToRoom);
+            SigmaPredictionAcquireResult correctedAcquisition =
+                _renderer.TryAcquirePoseGaugePrediction(source, worldToRoom,
+                    out SigmaPredictionFrameLease correctedPrediction);
+            if (correctedAcquisition == SigmaPredictionAcquireResult.Busy)
+                return false;
+            if (correctedAcquisition == SigmaPredictionAcquireResult.Faulted)
+                throw new InvalidOperationException(
+                    "Same-frame corrected prediction ring faulted.");
 
-            ConeLutLease luts = _coneLuts.Acquire();
-            CommandBuffer command = CommandBufferPool.Get(
-                "Sigma-PRISM-16 Direct Coherent Frame");
-            SigmaPredictionFrameLease correctedPrediction = null;
+            ConeLutLease luts = null;
+            CommandBuffer command = null;
             SigmaOwnedFrameLease ownedFrame = null;
+            uint revision = 0u;
+            bool profiling = false;
+            bool submitted = false;
             try
             {
+                EnsureCalibration(source);
+                slot.EnsureFrameResources(source.DepthResolution);
+                revision = NextRevision();
+                uint leftKey = IndependenceKey(source.DepthLeft,
+                    source.CalibrationEpoch, worldToRoom);
+                uint rightKey = IndependenceKey(source.DepthRight,
+                    source.CalibrationEpoch, worldToRoom);
+                uint rgbLeftKey = IndependenceKey(source.RgbLeft,
+                    source.CalibrationEpoch, worldToRoom);
+                uint rgbRightKey = IndependenceKey(source.RgbRight,
+                    source.CalibrationEpoch, worldToRoom);
+                UploadExactCalibration(slot, source, worldToRoom);
+                UploadPosePrior(slot, source, worldToRoom);
+                luts = _coneLuts.Acquire();
+                command = CommandBufferPool.Get(
+                    "Sigma-PRISM-16 Direct Coherent Frame");
+                profiling = SigmaGpuKernelTelemetry.BeginProfiledSubmission(
+                    revision);
                 command.BeginSample("Sigma.Frame.Normalize");
                 RecordNormalize(command, slot, source, luts);
                 command.EndSample("Sigma.Frame.Normalize");
@@ -289,11 +305,8 @@ namespace Genesis.RoomScan.SigmaPrism
                     worldToRoom);
                 command.EndSample("Sigma.Frame.PoseGauge");
                 command.BeginSample("Sigma.Frame.Reraster");
-                if (!_renderer.TryRecordPoseGaugePrediction(command, source,
-                        slot.PoseResult, worldToRoom,
-                        out correctedPrediction))
-                    throw new InvalidOperationException(
-                        "Unable to reserve same-frame corrected prediction.");
+                _renderer.RecordPoseGaugePrediction(command, source,
+                    slot.PoseResult, worldToRoom, correctedPrediction);
                 command.EndSample("Sigma.Frame.Reraster");
 
                 _carrier.CollectReadableSegments(_carrierReadBatches);
@@ -316,6 +329,10 @@ namespace Genesis.RoomScan.SigmaPrism
                 SigmaGpuCompletionTicket ticket =
                     SigmaGpuCompletion.RecordAfterAllWork(command);
                 Graphics.ExecuteCommandBuffer(command);
+                submitted = true;
+                if (profiling)
+                    SigmaGpuKernelTelemetry.EndProfiledSubmission(revision,
+                        true);
                 slot.Begin(prediction, correctedPrediction, luts, ownedFrame,
                     _graph.Resources.OwnedFrames, _pool.PublicationRoot,
                     ticket, revision, Time.realtimeSinceStartupAsDouble);
@@ -332,10 +349,14 @@ namespace Genesis.RoomScan.SigmaPrism
             }
             finally
             {
+                if (profiling && !submitted)
+                    SigmaGpuKernelTelemetry.EndProfiledSubmission(revision,
+                        false);
                 ownedFrame?.Dispose();
                 correctedPrediction?.Dispose();
                 luts?.Dispose();
-                CommandBufferPool.Release(command);
+                if (command != null)
+                    CommandBufferPool.Release(command);
             }
         }
 
@@ -356,6 +377,8 @@ namespace Genesis.RoomScan.SigmaPrism
                         PeakCompletionAgeFrames, slot.AgeFrames);
                     continue;
                 }
+                SigmaGpuKernelTelemetry.CompleteProfiledSubmission(
+                    slot.Revision);
                 if (status == SigmaGpuCompletionStatus.Faulted)
                 {
                     LatchCompletionFault($"Sigma ingress slot {index} failed " +
@@ -840,6 +863,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 return;
             _disposed = true;
             _running = false;
+            SigmaGpuKernelTelemetry.CancelSingleSubmission();
             if (_renderer != null)
                 _renderer.PredictionReady -= OnPredictionReady;
             ReleasePendingIngress();
@@ -1097,8 +1121,9 @@ namespace Genesis.RoomScan.SigmaPrism
                 bool published = _completionDisposition ==
                     SigmaFrameCompletionDisposition.Published;
                 if (published)
-                    _ownedFrame?.TransferEvidence(Revision);
-                _ownedFrame?.Dispose();
+                    _ownedFrame?.RecyclePublishedEvidence(Revision);
+                else
+                    _ownedFrame?.Dispose();
                 _ownedFrame = null;
                 _ownedFrames = null;
                 _publicationRoot = null;

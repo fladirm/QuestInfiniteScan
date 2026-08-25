@@ -270,6 +270,14 @@ namespace Genesis.RoomScan.SigmaPrism
         internal void TransferEvidence(uint journal) =>
             Owner.TransferEvidence(_slot, _generation, journal);
 
+        internal void RecyclePublishedEvidence(uint journal)
+        {
+            SigmaFrameResources owner = Owner;
+            owner.TransferEvidence(_slot, _generation, journal);
+            Dispose();
+            owner.ReleaseRetainedEvidence(journal);
+        }
+
         internal SigmaOwnedFrameLease Retain()
         {
             SigmaFrameResources owner = Owner;

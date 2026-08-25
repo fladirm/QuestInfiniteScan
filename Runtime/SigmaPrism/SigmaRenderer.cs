@@ -26,6 +26,7 @@ namespace Genesis.RoomScan.SigmaPrism
         private const string PredictionResource = "SigmaPrism/SigmaPredict";
         private const string PreviewResource =
             "SigmaPrism/SigmaDirectCarrierPreview";
+        private const int CorrectedTargetRingSlots = 4;
 
         [SerializeField, Range(3, 12)] private int targetRingSlots = 4;
         [SerializeField, Min(16f)] private float directPreviewBounds = 128f;
@@ -89,6 +90,7 @@ namespace Genesis.RoomScan.SigmaPrism
         private Material _previewMaterial;
         private MaterialPropertyBlock _properties;
         private SigmaPredictionTargetRing _targets;
+        private SigmaPredictionTargetRing _correctedTargets;
         private GraphicsBuffer _identityPoseResult;
         private SigmaPredictionFrameLease _latest;
         private RigCalibration _calibration;
@@ -181,6 +183,8 @@ namespace Genesis.RoomScan.SigmaPrism
             };
             _properties = new MaterialPropertyBlock();
             _targets = new SigmaPredictionTargetRing(targetRingSlots);
+            _correctedTargets = new SigmaPredictionTargetRing(
+                CorrectedTargetRingSlots);
             _identityPoseResult = new GraphicsBuffer(
                 GraphicsBuffer.Target.Structured, 4, sizeof(uint) * 4)
             {
@@ -247,25 +251,33 @@ namespace Genesis.RoomScan.SigmaPrism
             return RenderPrediction(source, gauge, false, out prediction);
         }
 
-        internal bool TryRecordPoseGaugePrediction(CommandBuffer command,
-            StereoRigFrameLease source, GraphicsBuffer poseResult,
-            Matrix4x4 worldToRoom,
+        internal SigmaPredictionAcquireResult TryAcquirePoseGaugePrediction(
+            StereoRigFrameLease source, Matrix4x4 worldToRoom,
             out SigmaPredictionFrameLease prediction)
         {
             prediction = null;
+            if (!_initialized || source == null || !source.IsValid ||
+                _correctedTargets == null)
+                return SigmaPredictionAcquireResult.Faulted;
+            SigmaPredictionAcquireResult result = _correctedTargets.TryBegin(
+                source, SigmaPoseGaugeState.Identity(source.CalibrationEpoch),
+                worldToRoom, out prediction);
+            if (result == SigmaPredictionAcquireResult.Busy)
+                BackpressureFrames++;
+            return result;
+        }
+
+        internal void RecordPoseGaugePrediction(CommandBuffer command,
+            StereoRigFrameLease source, GraphicsBuffer poseResult,
+            Matrix4x4 worldToRoom, SigmaPredictionFrameLease prediction)
+        {
             if (!_initialized || command == null || source == null ||
-                !source.IsValid || poseResult == null)
-                return false;
+                !source.IsValid || poseResult == null || prediction == null ||
+                prediction.IsDisposed)
+                throw new InvalidOperationException(
+                    "Corrected Sigma prediction inputs are incomplete.");
             _carrier.CollectReadableSegments(_readBatches);
             EnsureSegmentCaches();
-            if (!_targets.TryBegin(source,
-                    SigmaPoseGaugeState.Identity(source.CalibrationEpoch),
-                    worldToRoom,
-                    out prediction))
-            {
-                BackpressureFrames++;
-                return false;
-            }
             try
             {
                 Matrix4x4 referenceWorld = SigmaRoomFrame.FromCamera(
@@ -287,12 +299,10 @@ namespace Genesis.RoomScan.SigmaPrism
                             opticalFromWorld), opticalFromWorld, poseResult,
                         referenceWorld.inverse, referenceWorld);
                 }
-                return true;
             }
             catch
             {
                 prediction.Dispose();
-                prediction = null;
                 throw;
             }
         }
@@ -310,10 +320,15 @@ namespace Genesis.RoomScan.SigmaPrism
                     return false;
             }
             Matrix4x4 worldToRoom = RoomSpaceRoot.WorldToRoom;
-            if (!_targets.TryBegin(source, gauge, worldToRoom,
-                    out SigmaPredictionFrameLease prediction))
+            SigmaPredictionAcquireResult acquisition = _targets.TryBegin(source,
+                gauge, worldToRoom, out SigmaPredictionFrameLease prediction);
+            if (acquisition != SigmaPredictionAcquireResult.Acquired)
             {
-                BackpressureFrames++;
+                if (acquisition == SigmaPredictionAcquireResult.Busy)
+                    BackpressureFrames++;
+                else
+                    Logger.Error("Sigma published prediction ring fault: " +
+                        (_targets.CompletionFault ?? "unknown fault"));
                 return false;
             }
 
@@ -557,13 +572,12 @@ namespace Genesis.RoomScan.SigmaPrism
                 SigmaCarrierReadBatch batch = _readBatches[index];
                 SegmentReadoutCache cache = _segmentCaches[index];
                 _properties.Clear();
-                _properties.SetInt(SegmentIndexId, batch.SegmentIndex);
                 _properties.SetFloat(PreviewWireframeId,
                     _scanner.CurrentRenderMode == ScanRenderMode.Wireframe
                         ? 1f : 0f);
                 _properties.SetFloat(PreviewContactPixelsId,
                     _scanner.CurrentRenderMode == ScanRenderMode.Wireframe
-                        ? 3.5f : 2.5f);
+                        ? 1.75f : 1.35f);
                 _properties.SetMatrix(RoomToWorldId,
                     SigmaRoomFrame.ToUnityWorld);
                 _properties.SetBuffer(ReadoutVerticesId, cache.Vertices);
@@ -591,6 +605,8 @@ namespace Genesis.RoomScan.SigmaPrism
             _latest = null;
             SigmaPredictionTargetRing targets = _targets;
             _targets = null;
+            SigmaPredictionTargetRing correctedTargets = _correctedTargets;
+            _correctedTargets = null;
             GraphicsBuffer identityPoseResult = _identityPoseResult;
             _identityPoseResult = null;
             SegmentReadoutCache[] segmentCaches = _segmentCaches.ToArray();
@@ -603,6 +619,7 @@ namespace Genesis.RoomScan.SigmaPrism
             void ReleaseOwnedResources()
             {
                 targets?.Dispose();
+                correctedTargets?.Dispose();
                 identityPoseResult?.Dispose();
                 for (int index = 0; index < segmentCaches.Length; ++index)
                     segmentCaches[index]?.Dispose();

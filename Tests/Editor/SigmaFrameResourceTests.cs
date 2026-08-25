@@ -157,6 +157,25 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
+        public void PublishedEvidenceRecyclesWithoutRevisionScaledResidency()
+        {
+            using var resources = new SigmaFrameResources(new Vector2Int(8, 8),
+                SigmaFrameMemoryProfile.Minimum, 32L * 1024L * 1024L);
+            SigmaFrameSourceStorage firstStorage = null;
+            for (uint revision = 1u; revision <= 32u; ++revision)
+            {
+                Assert.That(resources.TryAcquireFrame(revision, 1u,
+                    11u, 12u, 13u, 14u, revision, revision,
+                    out SigmaOwnedFrameLease frame), Is.True);
+                firstStorage ??= frame.Sources;
+                Assert.That(frame.Sources, Is.SameAs(firstStorage));
+                frame.RecyclePublishedEvidence(revision);
+                Assert.Throws<KeyNotFoundException>(() =>
+                    resources.GetRetainedEvidence(revision));
+            }
+        }
+
+        [Test]
         public void FrameCompletionDispositionIsTruthfulAndFailClosed()
         {
             const uint revision = 7u;

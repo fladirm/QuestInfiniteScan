@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Text;
 using UnityEngine;
 using UnityEngine.Profiling;
 using UnityEngine.Rendering;
@@ -8,76 +7,57 @@ using UnityEngine.Rendering;
 namespace Genesis.RoomScan.SigmaPrism
 {
     /// <summary>
-    /// Optional read-only GPU timestamp instrumentation for compute dispatches.
-    /// Production Release dispatches remain unprofiled unless explicitly enabled;
-    /// measurements never participate in scheduling or canonical decisions.
+    /// Explicit one-submission GPU timestamp instrumentation. Normal dispatches
+    /// carry no markers. One requested sample aggregates each compute kernel via
+    /// Unity's recorder without per-kernel readbacks or canonical authority.
     /// </summary>
     internal static class SigmaGpuKernelTelemetry
     {
         internal const int MaximumThreadGroupsPerDimension = 65535;
         private const int GpuTimestampDelayFrames = 3;
-        private const int LogLineLimit = 3000;
+
+        private enum State : byte
+        {
+            Idle,
+            Armed,
+            Recording,
+            Submitted,
+            AwaitingCounters,
+        }
 
         private sealed class Entry
         {
-            internal Entry(string name, CustomSampler sampler,
-                Recorder recorder)
-            {
-                Name = name;
-                Sampler = sampler;
-                Recorder = recorder;
-            }
-
+            internal Entry(string name) => Name = name;
             internal string Name { get; }
-            internal CustomSampler Sampler { get; }
-            internal Recorder Recorder { get; }
+            internal CustomSampler Sampler { get; set; }
+            internal Recorder Recorder { get; set; }
         }
 
         private static readonly Dictionary<(ulong Entity, int Kernel), Entry>
-            EntriesByKernel =
-            new();
+            EntriesByKernel = new();
         private static readonly List<Entry> Entries = new();
-        private static int _lastCapturedFrame = -1;
-        private static bool _gpuUnavailableReported;
-        private static bool _registrationUnavailableReported;
+        private static State _state;
+        private static uint _revision;
+        private static int _captureFrame;
+        private static bool _ownsProfiler;
+        private static bool _registrationWarning;
 #if UNITY_EDITOR
-        private static bool? _profilingOverrideForTests;
         internal static Action<ulong, int, int, int, int>
             DirectDispatchObservedForTests;
+        internal static Action<ulong, int, int, int, int>
+            ProfiledDispatchObservedForTests;
 #endif
-
-        private static bool ProfilingEnabled
-        {
-            get
-            {
-#if UNITY_EDITOR
-                if (_profilingOverrideForTests.HasValue)
-                    return _profilingOverrideForTests.Value;
-#endif
-#if UNITY_EDITOR || DEVELOPMENT_BUILD || SIGMA_GPU_KERNEL_PROFILING
-                return true;
-#else
-                return false;
-#endif
-            }
-        }
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
         private static void Reset()
         {
-            for (int index = 0; index < Entries.Count; ++index)
-            {
-                Recorder recorder = Entries[index].Recorder;
-                if (recorder != null && recorder.isValid)
-                    recorder.enabled = false;
-            }
+            Finish();
             EntriesByKernel.Clear();
             Entries.Clear();
-            _lastCapturedFrame = -1;
-            _gpuUnavailableReported = false;
-            _registrationUnavailableReported = false;
+            _registrationWarning = false;
 #if UNITY_EDITOR
             DirectDispatchObservedForTests = null;
+            ProfiledDispatchObservedForTests = null;
 #endif
         }
 
@@ -90,356 +70,318 @@ namespace Genesis.RoomScan.SigmaPrism
                 throw new ArgumentException("Kernel name is required.",
                     nameof(kernelName));
             int kernel = shader.FindKernel(kernelName);
-            if (ProfilingEnabled)
-                Register(shader, kernel, kernelName);
+            Register(shader, kernel, kernelName);
             return kernel;
         }
 
+        internal static bool RequestSingleSubmission()
+        {
+            if (_state != State.Idle)
+                return false;
+            _state = State.Armed;
+            return true;
+        }
+
+        internal static bool BeginProfiledSubmission(uint revision)
+        {
+            if (_state != State.Armed || revision == 0u)
+                return false;
+            _ownsProfiler = !Profiler.enabled;
+            if (_ownsProfiler)
+            {
+                try { Profiler.enabled = true; }
+                catch (Exception exception)
+                {
+                    _ownsProfiler = false;
+                    Warn("one-shot request", exception.Message);
+                }
+            }
+            _revision = revision;
+            for (int index = 0; index < Entries.Count; ++index)
+            {
+                Entry entry = Entries[index];
+                EnsureSampler(entry);
+                if (entry.Recorder == null || !entry.Recorder.isValid)
+                    continue;
+                entry.Recorder.enabled = false;
+                entry.Recorder.enabled = true;
+            }
+            _state = State.Recording;
+            return true;
+        }
+
+        internal static void EndProfiledSubmission(uint revision,
+            bool submitted)
+        {
+            if (_state != State.Recording || revision != _revision)
+                return;
+            if (submitted)
+            {
+                _state = State.Submitted;
+                return;
+            }
+            DisableRecorders();
+            RestoreProfiler();
+            _revision = 0u;
+            _state = State.Armed;
+        }
+
+        internal static void CompleteProfiledSubmission(uint revision)
+        {
+            if (_state != State.Submitted || revision != _revision)
+                return;
+            _captureFrame = Time.frameCount + GpuTimestampDelayFrames;
+            _state = State.AwaitingCounters;
+        }
+
+        internal static void CancelSingleSubmission() => Finish();
+
         internal static void DispatchComputeProfiled(this CommandBuffer command,
-            ComputeShader shader, int kernel, int threadGroupsX,
-            int threadGroupsY, int threadGroupsZ)
+            ComputeShader shader, int kernel, int x, int y, int z)
         {
             if (command == null)
                 throw new ArgumentNullException(nameof(command));
-            ValidateDirectDispatchDimensions(threadGroupsX, threadGroupsY,
-                threadGroupsZ);
+            ValidateDirectDispatchDimensions(x, y, z);
 #if UNITY_EDITOR
-            DirectDispatchObservedForTests?.Invoke(
-                shader.GetEntityId().GetRawData(), kernel, threadGroupsX,
-                threadGroupsY, threadGroupsZ);
+            ulong entity = EntityId.ToULong(shader.GetEntityId());
+            DirectDispatchObservedForTests?.Invoke(entity, kernel, x, y, z);
+            if (_state == State.Recording)
+                ProfiledDispatchObservedForTests?.Invoke(entity, kernel,
+                    x, y, z);
 #endif
-            Entry entry = OptionalEntry(shader, kernel);
+            Entry entry = ActiveEntry(shader, kernel);
             if (entry?.Sampler == null)
             {
-                command.DispatchCompute(shader, kernel, threadGroupsX,
-                    threadGroupsY, threadGroupsZ);
+                command.DispatchCompute(shader, kernel, x, y, z);
                 return;
             }
             command.BeginSample(entry.Sampler);
-            command.DispatchCompute(shader, kernel, threadGroupsX,
-                threadGroupsY, threadGroupsZ);
+            command.DispatchCompute(shader, kernel, x, y, z);
             command.EndSample(entry.Sampler);
         }
 
         internal static void DispatchComputeProfiled(this CommandBuffer command,
-            ComputeShader shader, int kernel, GraphicsBuffer indirectArguments,
-            uint argumentsOffset)
+            ComputeShader shader, int kernel, GraphicsBuffer arguments,
+            uint offset)
         {
             if (command == null)
                 throw new ArgumentNullException(nameof(command));
-            if (indirectArguments == null)
-                throw new ArgumentNullException(nameof(indirectArguments));
-            Entry entry = OptionalEntry(shader, kernel);
+            if (arguments == null)
+                throw new ArgumentNullException(nameof(arguments));
+            Entry entry = ActiveEntry(shader, kernel);
             if (entry?.Sampler == null)
             {
-                command.DispatchCompute(shader, kernel, indirectArguments,
-                    argumentsOffset);
+                command.DispatchCompute(shader, kernel, arguments, offset);
                 return;
             }
             command.BeginSample(entry.Sampler);
-            command.DispatchCompute(shader, kernel, indirectArguments,
-                argumentsOffset);
+            command.DispatchCompute(shader, kernel, arguments, offset);
             command.EndSample(entry.Sampler);
         }
 
         internal static void DispatchProfiled(this ComputeShader shader,
-            int kernel, int threadGroupsX, int threadGroupsY,
-            int threadGroupsZ)
+            int kernel, int x, int y, int z)
         {
-            ValidateDirectDispatchDimensions(threadGroupsX, threadGroupsY,
-                threadGroupsZ);
-            Entry entry = OptionalEntry(shader, kernel);
+            ValidateDirectDispatchDimensions(x, y, z);
+            Entry entry = ActiveEntry(shader, kernel);
             if (entry?.Sampler == null)
             {
-                shader.Dispatch(kernel, threadGroupsX, threadGroupsY,
-                    threadGroupsZ);
+                shader.Dispatch(kernel, x, y, z);
                 return;
             }
             entry.Sampler.Begin();
-            shader.Dispatch(kernel, threadGroupsX, threadGroupsY,
-                threadGroupsZ);
+            shader.Dispatch(kernel, x, y, z);
             entry.Sampler.End();
         }
 
-        internal static void ValidateDirectDispatchDimensions(int threadGroupsX,
-            int threadGroupsY, int threadGroupsZ)
+        internal static void ValidateDirectDispatchDimensions(int x, int y,
+            int z)
         {
-            if (threadGroupsX <= 0 || threadGroupsY <= 0 ||
-                threadGroupsZ <= 0 ||
-                threadGroupsX > MaximumThreadGroupsPerDimension ||
-                threadGroupsY > MaximumThreadGroupsPerDimension ||
-                threadGroupsZ > MaximumThreadGroupsPerDimension)
+            if (x <= 0 || y <= 0 || z <= 0 ||
+                x > MaximumThreadGroupsPerDimension ||
+                y > MaximumThreadGroupsPerDimension ||
+                z > MaximumThreadGroupsPerDimension)
                 throw new InvalidOperationException(
-                    $"Illegal direct compute dispatch ({threadGroupsX}, " +
-                    $"{threadGroupsY}, {threadGroupsZ}); every dimension must " +
-                    $"be in [1,{MaximumThreadGroupsPerDimension}].");
+                    $"Illegal direct compute dispatch ({x}, {y}, {z}); " +
+                    $"every dimension must be in [1," +
+                    $"{MaximumThreadGroupsPerDimension}].");
         }
 
-        internal static Vector2Int ComputeLinearDispatchGrid(
-            int logicalGroupCount)
+        internal static Vector2Int ComputeLinearDispatchGrid(int logicalGroups)
         {
-            if (logicalGroupCount <= 0)
-                throw new ArgumentOutOfRangeException(
-                    nameof(logicalGroupCount));
-            int groupsY = checked((int)(((long)logicalGroupCount +
+            if (logicalGroups <= 0)
+                throw new ArgumentOutOfRangeException(nameof(logicalGroups));
+            int y = checked((int)(((long)logicalGroups +
                 MaximumThreadGroupsPerDimension - 1L) /
                 MaximumThreadGroupsPerDimension));
-            int groupsX = checked((int)(((long)logicalGroupCount +
-                groupsY - 1L) / groupsY));
-            ValidateDirectDispatchDimensions(groupsX, groupsY, 1);
-            return new Vector2Int(groupsX, groupsY);
-        }
-
-        internal static void DispatchIndirectProfiled(this ComputeShader shader,
-            int kernel, ComputeBuffer indirectArguments, uint argumentsOffset)
-        {
-            if (indirectArguments == null)
-                throw new ArgumentNullException(nameof(indirectArguments));
-            Entry entry = OptionalEntry(shader, kernel);
-            if (entry?.Sampler == null)
-            {
-                shader.DispatchIndirect(kernel, indirectArguments,
-                    argumentsOffset);
-                return;
-            }
-            entry.Sampler.Begin();
-            shader.DispatchIndirect(kernel, indirectArguments, argumentsOffset);
-            entry.Sampler.End();
-        }
-
-        internal static void DispatchIndirectProfiled(this ComputeShader shader,
-            int kernel, GraphicsBuffer indirectArguments, uint argumentsOffset)
-        {
-            if (indirectArguments == null)
-                throw new ArgumentNullException(nameof(indirectArguments));
-            Entry entry = OptionalEntry(shader, kernel);
-            if (entry?.Sampler == null)
-            {
-                shader.DispatchIndirect(kernel, indirectArguments,
-                    argumentsOffset);
-                return;
-            }
-            entry.Sampler.Begin();
-            shader.DispatchIndirect(kernel, indirectArguments, argumentsOffset);
-            entry.Sampler.End();
+            int x = checked((int)(((long)logicalGroups + y - 1L) / y));
+            ValidateDirectDispatchDimensions(x, y, 1);
+            return new Vector2Int(x, y);
         }
 
         internal static void CaptureAndLogFrame()
         {
-            if (!ProfilingEnabled)
+            if (_state != State.AwaitingCounters ||
+                Time.frameCount < _captureFrame)
                 return;
-            int frame = Time.frameCount;
-            if (frame == _lastCapturedFrame)
-                return;
-            _lastCapturedFrame = frame;
-
-            long totalNanoseconds = 0L;
-            int totalBlocks = 0;
-            int validRecorders = 0;
-            var lines = new List<string>();
-            var line = BeginLine();
-
+            var samples = new List<(Entry Entry, int Blocks, long Nanoseconds)>();
             for (int index = 0; index < Entries.Count; ++index)
             {
                 Entry entry = Entries[index];
                 Recorder recorder = entry.Recorder;
                 if (recorder == null || !recorder.isValid)
                     continue;
-                validRecorders++;
-                int blocks = recorder.gpuSampleBlockCount;
-                long nanoseconds = recorder.gpuElapsedNanoseconds;
-                if (blocks <= 0 && nanoseconds <= 0L)
-                    continue;
-
-                if (nanoseconds < 0L)
-                    nanoseconds = 0L;
-                totalBlocks += Math.Max(0, blocks);
-                totalNanoseconds += nanoseconds;
-                string sample = FormatSample(entry.Name, blocks, nanoseconds);
-                if (line.Length + sample.Length + 1 > LogLineLimit)
-                {
-                    lines.Add(line.ToString());
-                    line = BeginLine();
-                }
-                if (line[line.Length - 1] != '{')
-                    line.Append(';');
-                line.Append(sample);
+                int blocks = Math.Max(0, recorder.gpuSampleBlockCount);
+                long nanoseconds = Math.Max(0L,
+                    recorder.gpuElapsedNanoseconds);
+                if (blocks != 0 || nanoseconds != 0L)
+                    samples.Add((entry, blocks, nanoseconds));
             }
-
-            if (line[line.Length - 1] != '{')
-                lines.Add(line.ToString());
-
-            if (totalBlocks == 0)
+            samples.Sort((left, right) =>
+                right.Nanoseconds.CompareTo(left.Nanoseconds));
+            long total = 0L;
+            int totalBlocks = 0;
+            for (int index = 0; index < samples.Count; ++index)
             {
-                if (frame <= GpuTimestampDelayFrames + 2)
-                    return;
-                if (validRecorders == 0)
-                {
-                    if (!_gpuUnavailableReported)
-                    {
-                        _gpuUnavailableReported = true;
-                        Logger.Warning("Sigma GPU kernel timestamps are " +
-                            "unavailable; compute dispatch remains enabled " +
-                            "without profiling markers.");
-                    }
-                    return;
-                }
-                if (!_gpuUnavailableReported)
-                {
-                    _gpuUnavailableReported = true;
-                    Logger.Warning("Sigma GPU kernel timestamps contain no " +
-                        "executed samples for this delayed GPU frame.");
-                }
-                return;
+                var sample = samples[index];
+                total = checked(total + sample.Nanoseconds);
+                totalBlocks = checked(totalBlocks + sample.Blocks);
+                double totalUs = sample.Nanoseconds / 1000.0;
+                double averageUs = sample.Blocks == 0
+                    ? 0.0 : totalUs / sample.Blocks;
+                Logger.Info($"Sigma gpu-kernel revision={_revision} " +
+                    $"rank={index + 1} kernel={sample.Entry.Name} " +
+                    $"dispatchBlocks={sample.Blocks} total={totalUs:F1}us " +
+                    $"average={averageUs:F1}us");
             }
-
-            _gpuUnavailableReported = false;
-            string summary = $"Sigma gpu-kernels sourceFrame=" +
-                $"{frame - GpuTimestampDelayFrames} total=" +
-                $"{NanosecondsToMilliseconds(totalNanoseconds):F3}ms " +
-                $"blocks={totalBlocks} kernels={CountSamples(lines)}";
-            for (int index = 0; index < lines.Count; ++index)
-                Logger.Info(summary + " part=" + (index + 1) + "/" +
-                    lines.Count + " " + lines[index] + '}');
+            if (samples.Count == 0)
+                Logger.Warning("Sigma one-shot per-kernel GPU timestamp " +
+                    "recorders returned no samples; dispatch stayed exact.");
+            else
+                Logger.Info($"Sigma gpu-kernel revision={_revision} " +
+                    $"compute-checksum={total / 1_000_000.0:F3}ms " +
+                    $"dispatchBlocks={totalBlocks} kernels={samples.Count}");
+            Finish();
         }
 
         private static void Register(ComputeShader shader, int kernel,
             string kernelName)
         {
-            (ulong Entity, int Kernel) key = Key(shader, kernel);
+            var key = Key(shader, kernel);
+            string name = shader.name + '.' + kernelName;
             if (EntriesByKernel.TryGetValue(key, out Entry existing))
             {
-                string expected = FullName(shader, kernelName);
-                if (!string.Equals(existing.Name, expected,
-                        StringComparison.Ordinal))
+                if (existing.Name != name)
                     throw new InvalidOperationException(
-                        $"Compute kernel telemetry key collision: " +
-                        $"{existing.Name} versus {expected}.");
+                        $"Compute kernel telemetry collision: " +
+                        $"{existing.Name} versus {name}.");
                 return;
             }
-
-            string name = FullName(shader, kernelName);
-            if (Entries.Count == 0 && !Profiler.enabled)
-            {
-                try
-                {
-                    Profiler.enabled = true;
-                }
-                catch (Exception exception)
-                {
-                    ReportRegistrationUnavailable(name,
-                        "Profiler could not be enabled: " + exception.Message);
-                }
-            }
-            CustomSampler sampler = null;
-            Recorder recorder = null;
-            try
-            {
-                sampler = CustomSampler.Create("Sigma.GPU." + name, true);
-                if (sampler == null || !sampler.isValid)
-                    sampler = null;
-                else
-                {
-                    recorder = sampler.GetRecorder();
-                    if (recorder == null || !recorder.isValid)
-                    {
-                        recorder = null;
-                        sampler = null;
-                    }
-                    else
-                    {
-                        recorder.CollectFromAllThreads();
-                        recorder.enabled = true;
-                    }
-                }
-            }
-            catch (Exception exception)
-            {
-                sampler = null;
-                recorder = null;
-                ReportRegistrationUnavailable(name, exception.Message);
-            }
-            if (sampler == null)
-                ReportRegistrationUnavailable(name,
-                    "GPU sampler or recorder is invalid");
-            var entry = new Entry(name, sampler, recorder);
+            var entry = new Entry(name);
             EntriesByKernel.Add(key, entry);
             Entries.Add(entry);
+            if (_state == State.Recording)
+                EnsureSampler(entry);
         }
 
-        private static Entry RequireEntry(ComputeShader shader, int kernel)
+        private static Entry ActiveEntry(ComputeShader shader, int kernel)
         {
             if (shader == null)
                 throw new ArgumentNullException(nameof(shader));
-            (ulong Entity, int Kernel) key = Key(shader, kernel);
-            if (EntriesByKernel.TryGetValue(key, out Entry entry))
-                return entry;
-            throw new InvalidOperationException(
-                $"Compute kernel {shader.name}#{kernel} was dispatched " +
-                "without FindProfiledKernel registration.");
+            if (_state != State.Recording)
+                return null;
+            if (!EntriesByKernel.TryGetValue(Key(shader, kernel),
+                    out Entry entry))
+                throw new InvalidOperationException(
+                    $"Compute kernel {shader.name}#{kernel} was not registered.");
+            EnsureSampler(entry);
+            return entry;
         }
 
-        private static Entry OptionalEntry(ComputeShader shader, int kernel)
+        private static void EnsureSampler(Entry entry)
         {
-            if (shader == null)
-                throw new ArgumentNullException(nameof(shader));
-            return ProfilingEnabled ? RequireEntry(shader, kernel) : null;
+            if (entry.Sampler != null && entry.Sampler.isValid &&
+                entry.Recorder != null && entry.Recorder.isValid)
+                return;
+            try
+            {
+                CustomSampler sampler = CustomSampler.Create(
+                    "Sigma.GPU." + entry.Name, true);
+                Recorder recorder = sampler?.GetRecorder();
+                if (sampler == null || !sampler.isValid || recorder == null ||
+                    !recorder.isValid)
+                {
+                    Warn(entry.Name, "invalid GPU sampler/recorder");
+                    return;
+                }
+                recorder.CollectFromAllThreads();
+                recorder.enabled = true;
+                entry.Sampler = sampler;
+                entry.Recorder = recorder;
+            }
+            catch (Exception exception) { Warn(entry.Name, exception.Message); }
+        }
+
+        private static void Finish()
+        {
+            DisableRecorders();
+            RestoreProfiler();
+            _state = State.Idle;
+            _revision = 0u;
+            _captureFrame = 0;
+        }
+
+        private static void DisableRecorders()
+        {
+            for (int index = 0; index < Entries.Count; ++index)
+            {
+                Recorder recorder = Entries[index].Recorder;
+                if (recorder != null && recorder.isValid)
+                    recorder.enabled = false;
+            }
+        }
+
+        private static void RestoreProfiler()
+        {
+            if (!_ownsProfiler)
+                return;
+            try { Profiler.enabled = false; }
+            catch (Exception) { }
+            _ownsProfiler = false;
         }
 
         private static (ulong Entity, int Kernel) Key(ComputeShader shader,
-            int kernel) => (shader.GetEntityId().GetRawData(), kernel);
+            int kernel) => (EntityId.ToULong(shader.GetEntityId()), kernel);
 
-        private static string FullName(ComputeShader shader,
-            string kernelName) => shader.name + '.' + kernelName;
-
-        private static void ReportRegistrationUnavailable(string name,
-            string detail)
+        private static void Warn(string name, string detail)
         {
-            if (_registrationUnavailableReported)
+            if (_registrationWarning)
                 return;
-            _registrationUnavailableReported = true;
-            Logger.Warning("Sigma GPU kernel timing unavailable for " + name +
-                ": " + detail + ". Dispatch will remain unprofiled.");
+            _registrationWarning = true;
+            Logger.Warning("Sigma GPU timing unavailable for " + name + ": " +
+                detail + ". Dispatch remains exact and unprofiled.");
         }
-
-        private static StringBuilder BeginLine() =>
-            new StringBuilder(1024).Append("samples{");
-
-        private static string FormatSample(string name, int blocks,
-            long nanoseconds)
-        {
-            double totalMicroseconds = nanoseconds / 1000.0;
-            double averageMicroseconds = blocks > 0
-                ? totalMicroseconds / blocks : 0.0;
-            return name + '=' + Math.Max(0, blocks) + '/' +
-                totalMicroseconds.ToString("F1") + "us/" +
-                averageMicroseconds.ToString("F1") + "us";
-        }
-
-        private static int CountSamples(List<string> lines)
-        {
-            int count = 0;
-            for (int index = 0; index < lines.Count; ++index)
-            {
-                string value = lines[index];
-                for (int cursor = 0; cursor < value.Length; ++cursor)
-                    if (value[cursor] == '=')
-                        count++;
-            }
-            return count;
-        }
-
-        private static double NanosecondsToMilliseconds(long nanoseconds) =>
-            nanoseconds / 1_000_000.0;
 
 #if UNITY_EDITOR
         internal static void SetProfilingEnabledForTests(bool? enabled)
         {
             Reset();
-            _profilingOverrideForTests = enabled;
+            if (enabled == true)
+                RequestSingleSubmission();
         }
 
         internal static int RegisteredKernelCountForTests => Entries.Count;
+        internal static int RegisteredSamplerCountForTests
+        {
+            get
+            {
+                int count = 0;
+                for (int index = 0; index < Entries.Count; ++index)
+                    if (Entries[index].Sampler != null)
+                        count++;
+                return count;
+            }
+        }
 #endif
     }
 }

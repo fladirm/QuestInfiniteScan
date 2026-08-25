@@ -30,7 +30,6 @@ Shader "Hidden/Genesis/SigmaPrism/DirectCarrierPreview"
             StructuredBuffer<uint> _CurrentPageSlots;
             StructuredBuffer<SigmaCarrierPageMetaGpu> _PageMetadata;
             float4x4 _RoomToWorld;
-            uint _SegmentIndex;
             float _PreviewWireframe;
             float _PreviewContactPixels;
 
@@ -61,8 +60,22 @@ Shader "Hidden/Genesis/SigmaPrism/DirectCarrierPreview"
                     SigmaPreviewHash(metadata.pageXHi));
                 value ^= SigmaPreviewHash(metadata.pageYLo ^
                     SigmaPreviewHash(metadata.pageYHi));
-                return SigmaPreviewHash(value ^
-                    SigmaPreviewHash(_SegmentIndex));
+                return SigmaPreviewHash(value);
+            }
+
+            float3 SigmaPreviewPalette(uint index)
+            {
+                switch (index & 7u)
+                {
+                    case 0u: return float3(0.96, 0.55, 0.62);
+                    case 1u: return float3(0.45, 0.78, 0.96);
+                    case 2u: return float3(0.55, 0.88, 0.68);
+                    case 3u: return float3(0.96, 0.78, 0.46);
+                    case 4u: return float3(0.72, 0.62, 0.96);
+                    case 5u: return float3(0.42, 0.88, 0.86);
+                    case 6u: return float3(0.96, 0.63, 0.38);
+                    default: return float3(0.82, 0.82, 0.90);
+                }
             }
 
             float2 SigmaPreviewBillboardCorner(uint corner)
@@ -73,12 +86,6 @@ Shader "Hidden/Genesis/SigmaPrism/DirectCarrierPreview"
                 if (corner == 3u) return float2(1.0, -1.0);
                 if (corner == 4u) return float2(-1.0, 1.0);
                 return float2(1.0, 1.0);
-            }
-
-            float3 SigmaPreviewHue(float hue)
-            {
-                float3 phase = frac(hue + float3(0.0, 0.6666667, 0.3333333));
-                return saturate(abs(phase * 6.0 - 3.0) - 1.0);
             }
 
             struct Attributes
@@ -92,8 +99,7 @@ Shader "Hidden/Genesis/SigmaPrism/DirectCarrierPreview"
                 float4 positionCS : SV_POSITION;
                 float2 billboard : TEXCOORD0;
                 nointerpolation float support : TEXCOORD1;
-                nointerpolation float generationTone : TEXCOORD2;
-                nointerpolation uint pageHash : TEXCOORD3;
+                nointerpolation uint pageHash : TEXCOORD2;
                 UNITY_VERTEX_OUTPUT_STEREO
             };
 
@@ -115,15 +121,11 @@ Shader "Hidden/Genesis/SigmaPrism/DirectCarrierPreview"
                 uint y = sample >> 6u;
                 float4 readout = _ReadoutVertices[
                     SigmaPreviewReadoutIndex(pageSlot, x, y)];
+                bool checker = ((x ^ y) & 1u) == 0u;
                 bool valid = sample < SIGMA_CONTACT_SAMPLES_PER_PAGE &&
-                    readout.w > 0.0;
+                    checker && readout.w > 0.0;
 
                 SigmaCarrierPageMetaGpu metadata = _PageMetadata[pageSlot];
-                uint pageHash = SigmaPreviewPageHash(metadata);
-                float generationTone = 0.62 + 0.38 *
-                    frac((float)metadata.generation * 0.38196601125);
-                float generationSize = 0.88 + 0.12 *
-                    (float)(metadata.generation & 3u);
                 float2 billboard = SigmaPreviewBillboardCorner(corner);
                 float3 worldPosition = mul(_RoomToWorld,
                     float4(readout.xyz, 1.0)).xyz;
@@ -133,14 +135,13 @@ Shader "Hidden/Genesis/SigmaPrism/DirectCarrierPreview"
                 float2 screenSize = max(_ScreenParams.xy,
                     float2(1.0, 1.0));
                 clip.xy += billboard *
-                    (2.0 * max(_PreviewContactPixels, 1.0) *
-                        generationSize / screenSize) * clip.w;
+                    (2.0 * max(_PreviewContactPixels, 1.0) /
+                        screenSize) * clip.w;
 
                 output.positionCS = clip;
                 output.billboard = billboard;
                 output.support = valid ? readout.w : 0.0;
-                output.generationTone = generationTone;
-                output.pageHash = pageHash;
+                output.pageHash = SigmaPreviewPageHash(metadata);
                 return output;
             }
 
@@ -154,11 +155,7 @@ Shader "Hidden/Genesis/SigmaPrism/DirectCarrierPreview"
                 if (radius > 1.0)
                     discard;
 
-                float hue = (float)(input.pageHash & 1023u) / 1024.0;
-                float3 pageColour = SigmaPreviewHue(hue);
-                pageColour = lerp(float3(0.08, 0.08, 0.08), pageColour,
-                    input.generationTone);
-
+                float3 pageColour = SigmaPreviewPalette(input.pageHash);
                 float feather = max(fwidth(radius), 0.015);
                 float outer = 1.0 - smoothstep(1.0 - feather, 1.0, radius);
                 if (_PreviewWireframe > 0.5)
@@ -168,13 +165,10 @@ Shader "Hidden/Genesis/SigmaPrism/DirectCarrierPreview"
                     float ring = outer * inner;
                     if (ring <= 0.01)
                         discard;
-                    return half4((half3)pageColour, (half)(0.92 * ring));
+                    return half4((half3)pageColour, (half)(0.43 * ring));
                 }
 
-                float centre = 1.0 - smoothstep(0.0, 0.34, radius);
-                float3 colour = lerp(pageColour, float3(1.0, 1.0, 1.0),
-                    centre * 0.45);
-                return half4((half3)colour, (half)(0.86 * outer));
+                return half4((half3)pageColour, (half)(0.30 * outer));
             }
             ENDHLSL
         }

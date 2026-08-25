@@ -302,6 +302,13 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
+        public void PredictionRingBusyIsRecoverableBackpressure()
+        {
+            using var fixture = new FrameFixture();
+            fixture.VerifyPredictionRingBusyRecovery();
+        }
+
+        [Test]
         public void ProfilingDisabledPreservesProductionDispatchContract()
         {
             const long largeBinding = 512L * 1024L * 1024L;
@@ -310,9 +317,14 @@ namespace Genesis.RoomScan.Tests
                 SigmaGpuKernelTelemetry.SetProfilingEnabledForTests(false);
                 var unprofiled = new List<(ulong Entity, int Kernel,
                     int X, int Y, int Z)>();
+                var disabledMarkers = new List<(ulong Entity, int Kernel,
+                    int X, int Y, int Z)>();
                 SigmaGpuKernelTelemetry.DirectDispatchObservedForTests =
                     (entity, kernel, x, y, z) =>
                         unprofiled.Add((entity, kernel, x, y, z));
+                SigmaGpuKernelTelemetry.ProfiledDispatchObservedForTests =
+                    (entity, kernel, x, y, z) =>
+                        disabledMarkers.Add((entity, kernel, x, y, z));
                 using (var fixture = new FrameFixture(320, 320, largeBinding))
                 {
                     Assert.That(fixture.ExecutionWindowCount, Is.EqualTo(1));
@@ -320,7 +332,10 @@ namespace Genesis.RoomScan.Tests
                 }
                 Assert.That(unprofiled, Is.Not.Empty);
                 Assert.That(SigmaGpuKernelTelemetry
-                    .RegisteredKernelCountForTests, Is.Zero);
+                    .RegisteredKernelCountForTests, Is.GreaterThan(0));
+                Assert.That(SigmaGpuKernelTelemetry
+                    .RegisteredSamplerCountForTests, Is.Zero);
+                Assert.That(disabledMarkers, Is.Empty);
                 Assert.That(unprofiled.Exists(record =>
                     record.X == 51200 && record.Y == 2 && record.Z == 1),
                     Is.True);
@@ -331,14 +346,23 @@ namespace Genesis.RoomScan.Tests
                 SigmaGpuKernelTelemetry.SetProfilingEnabledForTests(true);
                 var profiled = new List<(ulong Entity, int Kernel,
                     int X, int Y, int Z)>();
+                var markers = new List<(ulong Entity, int Kernel,
+                    int X, int Y, int Z)>();
                 SigmaGpuKernelTelemetry.DirectDispatchObservedForTests =
                     (entity, kernel, x, y, z) =>
                         profiled.Add((entity, kernel, x, y, z));
+                SigmaGpuKernelTelemetry.ProfiledDispatchObservedForTests =
+                    (entity, kernel, x, y, z) =>
+                        markers.Add((entity, kernel, x, y, z));
+                Assert.That(SigmaGpuKernelTelemetry.BeginProfiledSubmission(1u),
+                    Is.True);
                 using (var fixture = new FrameFixture(320, 320, largeBinding))
                 {
                     fixture.RecordProductionGraphOnly();
                 }
+                SigmaGpuKernelTelemetry.EndProfiledSubmission(1u, false);
                 Assert.That(profiled, Is.EqualTo(unprofiled));
+                Assert.That(markers, Is.EqualTo(profiled));
                 Assert.That(SigmaGpuKernelTelemetry
                     .RegisteredKernelCountForTests, Is.GreaterThan(0));
             }
@@ -410,6 +434,50 @@ namespace Genesis.RoomScan.Tests
                     value => value.ToString("x8"))));
             Assert.That(forward.Target.Evidence.Y &
                 (uint)SigmaFrameOutcomeFlags.Unchanged, Is.EqualTo(0u));
+        }
+
+        [Test]
+        public void BlockBitonicSortIsBitIdenticalToGlobalReferenceCircuit()
+        {
+            using var fixture = new FrameFixture(320, 320,
+                512L * 1024L * 1024L);
+            var records = new SigmaFrameDeltaGpu[fixture.TargetSortCapacity];
+            var random = new System.Random(0x5a17);
+            for (int index = 0; index < records.Length; ++index)
+            {
+                if ((index % 11) == 0)
+                {
+                    records[index] = new SigmaFrameDeltaGpu
+                    {
+                        Coordinate = Gpu4(uint.MaxValue, uint.MaxValue,
+                            uint.MaxValue, uint.MaxValue),
+                        Candidate = Gpu4(uint.MaxValue, uint.MaxValue,
+                            uint.MaxValue, uint.MaxValue),
+                    };
+                    continue;
+                }
+                uint kind = unchecked((uint)(1 + index % 3));
+                records[index] = new SigmaFrameDeltaGpu
+                {
+                    Coordinate = Gpu4(
+                        unchecked((uint)random.Next(0, 37)), 0u,
+                        unchecked((uint)random.Next(0, 19)), 0u),
+                    Candidate = Gpu4(
+                        unchecked((uint)random.Next(0, 8)),
+                        unchecked((uint)random.Next(0, 32)),
+                        unchecked((uint)random.Next(1, 9)),
+                        unchecked((uint)random.Next(0, 4096))),
+                    Evidence = Gpu4(unchecked((uint)index),
+                        unchecked((uint)SigmaFrameOutcomeFlags.Accepted),
+                        kind, unchecked((uint)(index & 3))),
+                };
+            }
+
+            SigmaFrameDeltaGpu[] reference = fixture.RunTargetSort(records,
+                true);
+            SigmaFrameDeltaGpu[] lowered = fixture.RunTargetSort(records,
+                false);
+            Assert.That(lowered, Is.EqualTo(reference));
         }
 
         [Test]
@@ -956,6 +1024,8 @@ namespace Genesis.RoomScan.Tests
 
             internal int ExecutionWindowCount =>
                 _graph.Resources.ExecutionWindowCount;
+            internal int TargetSortCapacity =>
+                _graph.Resources.TargetSortCapacity;
 
             internal FrameFixture(int width = Width, int height = Height,
                 long bindingLimit = 0L)
@@ -1028,7 +1098,7 @@ namespace Genesis.RoomScan.Tests
                 Assert.That(_predictionRing.TryBegin(_frame,
                     SigmaPoseGaugeState.Identity(1u, 1u), Matrix4x4.identity,
                     out _prediction),
-                    Is.True);
+                    Is.EqualTo(SigmaPredictionAcquireResult.Acquired));
                 ClearPrediction(_prediction);
                 _prediction.CommitGpuWrite();
 
@@ -1245,6 +1315,31 @@ namespace Genesis.RoomScan.Tests
                 _graph.RecordPublication(command, _owned, 1u, input);
             }
 
+            internal void VerifyPredictionRingBusyRecovery()
+            {
+                using var ring = new SigmaPredictionTargetRing(3);
+                var leases = new SigmaPredictionFrameLease[3];
+                for (int index = 0; index < leases.Length; ++index)
+                    Assert.That(ring.TryBegin(_frame,
+                        SigmaPoseGaugeState.Identity(1u), Matrix4x4.identity,
+                        out leases[index]),
+                        Is.EqualTo(SigmaPredictionAcquireResult.Acquired));
+                Assert.That(ring.TryBegin(_frame,
+                    SigmaPoseGaugeState.Identity(1u), Matrix4x4.identity,
+                    out SigmaPredictionFrameLease blocked),
+                    Is.EqualTo(SigmaPredictionAcquireResult.Busy));
+                Assert.That(blocked, Is.Null);
+                leases[1].Dispose();
+                leases[1] = null;
+                Assert.That(ring.TryBegin(_frame,
+                    SigmaPoseGaugeState.Identity(1u), Matrix4x4.identity,
+                    out SigmaPredictionFrameLease recovered),
+                    Is.EqualTo(SigmaPredictionAcquireResult.Acquired));
+                recovered.Dispose();
+                for (int index = 0; index < leases.Length; ++index)
+                    leases[index]?.Dispose();
+            }
+
             internal ReductionSnapshot RunTargetReduction(bool reverse)
             {
                 const int firstFootprint = 3;
@@ -1355,6 +1450,26 @@ namespace Genesis.RoomScan.Tests
                     State = Read<UInt2>(_graph.Resources.ReducedStates, Lanes),
                     FaultStage = counters[3].X,
                 };
+            }
+
+            internal SigmaFrameDeltaGpu[] RunTargetSort(
+                SigmaFrameDeltaGpu[] records, bool reference)
+            {
+                Assert.That(records, Has.Length.EqualTo(TargetSortCapacity));
+                GraphicsBuffer deltas =
+                    _graph.Resources.Deltas.Segment(0).Buffer;
+                deltas.SetData(records);
+                using var command = new CommandBuffer
+                    { name = "Sigma exact target sort parity" };
+                try
+                {
+                    _graph.RecordTargetSortForTests(command, reference);
+                    Graphics.ExecuteCommandBuffer(command);
+                }
+                finally { command.Clear(); }
+                var result = new SigmaFrameDeltaGpu[TargetSortCapacity];
+                deltas.GetData(result);
+                return result;
             }
 
             internal ClosureSnapshot RunExactClosure(

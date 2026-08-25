@@ -5,6 +5,13 @@ using UnityEngine.Rendering;
 
 namespace Genesis.RoomScan.SigmaPrism
 {
+    internal enum SigmaPredictionAcquireResult
+    {
+        Acquired = 0,
+        Busy = 1,
+        Faulted = 2
+    }
+
     /// <summary>
     /// Immutable lease over one dual-eye disposable forward readout. Carrier page
     /// coordinates are exact signed-64 limbs; local UV and normal are derived FP.
@@ -102,15 +109,16 @@ namespace Genesis.RoomScan.SigmaPrism
                 _slots[index] = new Slot();
         }
 
-        internal bool TryBegin(StereoRigFrameLease source,
+        internal SigmaPredictionAcquireResult TryBegin(
+            StereoRigFrameLease source,
             SigmaPoseGaugeState poseGauge, Matrix4x4 worldToRoom,
             out SigmaPredictionFrameLease frame)
         {
             frame = null;
             if (_disposed || source == null || !source.IsValid)
-                return false;
+                return SigmaPredictionAcquireResult.Faulted;
             if (_completionFault != null)
-                return false;
+                return SigmaPredictionAcquireResult.Faulted;
             int selected = -1;
             for (int offset = 0; offset < _slots.Length; ++offset)
             {
@@ -123,7 +131,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 if (status == SigmaGpuCompletionStatus.Faulted)
                 {
                     LatchCompletionFault(candidate, completionError);
-                    return false;
+                    return SigmaPredictionAcquireResult.Faulted;
                 }
                 if (status != SigmaGpuCompletionStatus.Complete)
                     continue;
@@ -131,7 +139,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 break;
             }
             if (selected < 0)
-                return false;
+                return SigmaPredictionAcquireResult.Busy;
 
             Slot slot = _slots[selected];
             EnsureTextures(slot, source.DepthResolution, selected);
@@ -142,8 +150,10 @@ namespace Genesis.RoomScan.SigmaPrism
             _cursor = (selected + 1) % _slots.Length;
             frame = new SigmaPredictionFrameLease(this, selected,
                 slot.Generation, source.Retain(), poseGauge, worldToRoom);
-            return true;
+            return SigmaPredictionAcquireResult.Acquired;
         }
+
+        internal string CompletionFault => _completionFault;
 
         internal Slot Get(int index, uint generation)
         {
