@@ -1,48 +1,56 @@
 # Goal
 
 [`new_spec.md`](../new_spec.md) is the sole canonical product/reconstruction
-specification. Active baseline: `CPQ4-2026-08-25-S16-v8.1`.
+specification. Active baseline: `CPQ4-2026-08-25-S16-v8.2`.
 
-Build a fully on-device Quest 3 scanner whose only canonical physical world is:
-
-```text
-Psi : intrinsic sparse atlas Sigma_2 -> full native S16
-```
-
-The authoritative TOE Merkaba/eigenmode law is represented by one generated
-descriptor containing actual operator/frame/kernel semantics, relation arities and
-brackets, manifestation, local contribution plans, whole-scene reducers, exact ZD,
-nonassociative context, fibre-preserving selectors and modal-refinement capacity.
-
-Exactly 22 relations are an optional generated inventory. The implementation may
-factor solely through them only after faithfulness modulo frozen harmless
-gauge/null equivalence is proven; otherwise direct S16/eigenmode dependencies
-remain.
-
-Each sensor/eye observation is a whole-field shadow. The rig supplies two coherent
-RGB-D shadows. Each measured footprint yields a disjunction of possible native
-supports. Ambiguity remains evidence and cannot mutate every support or be resolved
-by minimum change.
-
-One semantic operation owns canonical mutation:
+Build a fully on-device Quest 3 scanner whose only canonical physical medium is:
 
 ```text
-NativeCloseCommit =
-    prior field
-    ∩ observation support disjunctions
-    ∩ authoritative Merkaba/eigenmode constraints
-    ∩ intrinsic atlas incidence
-    -> resolved/common full-S16 NativeStateDelta
-    -> root-last publication
+Psi : one intrinsic signed-64 carrier Sigma_2 -> full native S16
 ```
 
-Unexplained evidence begins as `UnresolvedShadowBranch` without native identity,
-chart or extent. `BoundNativeBranch` exists only after independent native-relation
-proof and remains noncanonical until supported materialization.
+`S16` is an algebra value, not a record of property lanes. `Σ₂` is one carrier/
+gauge, not a physical sheet/chart/component database.
 
-Eye, prediction, textured 3D export and debug are independent pure whole-field
-readouts. `ABSENT` storage is not an allocated descriptor-defined `NATIVE_NULL`
-state. Certificates prove state but cannot provide missing physical appearance.
+One authoritative generated Merkaba relation-program IR owns every physical query
+and exact reverse contractor:
+
+```text
+Y_q = M_q[Psi]
+```
+
+Sensor, XR eye, intrinsic relation, prediction, export and debug are query entry
+points of this same program. Specialized DAGs/kernels are compiler lowerings, not
+separate physical subsystems.
+
+Scan is exact reverse evaluation:
+
+```text
+A_q(O) = { Phi : M_q[Phi] lies in O }
+```
+
+Alternative preimages remain disposable contractor scratch. Across frames retain
+only exact unresolved constraints and source evidence, never hypothesis, branch,
+chart or extent identity.
+
+One `NativeCloseCommit` combines both coherent RGB-D shadows, accumulated exact
+constraints and generated native-relation predicates. It publishes only uniquely
+resolved or complete-union-common full-S16 deltas. If the current field remains
+feasible, canonical bytes remain unchanged.
+
+N1R must derive a full-query no-manifestation representative `z_empty`. Only after
+that proof may unbacked storage and NULL codec denote the same S16 field value.
+Current `G z_null = 0` is not sufficient.
+
+Hidden-state preservation is defined only on equivalence fibres of the complete
+accumulated relation program. A kernel/right-lift of one partial query cannot freeze
+a mode that remains active through native coupling.
+
+Refinement either contracts S16 at current sampling or increases sampling density
+of the same `Psi`. It creates no physical child germs/charts or detail world.
+
+Eye, prediction, textured 3D export and debug are pure readouts. Evidence proves
+state but cannot provide missing physical appearance.
 
 Active node: S4‑08, replacement run S4‑08.6 N0R–N8R. Authorities:
 
@@ -50,7 +58,7 @@ Active node: S4‑08, replacement run S4‑08.6 N0R–N8R. Authorities:
 - [`S4-08.6_RESUME.md`](S4-08.6_RESUME.md)
 - [`analyza.md`](../analyza.md)
 
-The run hard-deletes at least 10,000 production LOC, adds at most 4,000, finishes
-net at most -6,100 versus `cac9ab0` and leaves no legacy/fallback. S4‑08 closes only
-after archive/build/install/physical acceptance of the exact same commit. S4‑09
-remains unopened until then.
+The run gross-deletes at least 10,000 production LOC, adds at most 4,000,
+finishes net at most -6,100 versus `cac9ab0` and leaves no legacy/fallback. S4‑08
+closes only after archive/build/install/physical acceptance of the exact same
+commit. S4‑09 remains unopened until then.

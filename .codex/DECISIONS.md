@@ -1,197 +1,145 @@
 # Active architecture decisions
 
-`new_spec.md` is authority. Historical v6/v7 and superseded germ-first v8 decisions
-remain in Git history only.
+`new_spec.md` is authority. Historical v6/v7, germ-first v8 and v8.1
+branch/chart decisions remain in Git history only.
 
 ## ADR-S400 — Clean branch and one reconstruction product
 
 - The previous mapper is recoverable from Git but is not an implementation donor.
 - Active reconstruction remains under `Runtime/SigmaPrism` and
   `Runtime/Resources/SigmaPrism`.
-- Only representation-neutral capture/calibration/XR/lifecycle/UI/fence/indirect/
-  persistence/build plumbing may survive.
 - No compatibility reconstruction, fallback or second canonical world may coexist.
 
-## ADR-S401 — Full S16 atlas field is the only physical world
+## ADR-S401V2 — One carrier and one S16 medium
 
 - Canonical reality is `Psi : Sigma_2 -> S16` in checked nearest-even Q16.48.
-- `Σ₂` is an intrinsic sparse atlas namespace supporting disconnected components,
-  folds, multiple sheets and two-sided manifestations.
-- Chart incidence is canonical domain structure, not a separate topology graph.
-- A carrier state is full native S16, not independent property channels.
-- Observations, hypotheses, branches, certificates, eye maps, geometry, meshes,
-  textures and exports are noncanonical evidence or readouts.
+- `Σ₂` is one signed-64 intrinsic carrier/gauge, not a physical chart/sheet/object
+  namespace.
+- `S16` is an algebra value, never semantic XYZ/RGB/topology lanes.
+- Disconnected/folded/two-sided manifestations are field values and relations.
 
-## ADR-S403 — Exact arithmetic and bracket trees are semantic authority
+## ADR-S403 — Exact arithmetic and brackets
 
-- `SigmaNumericDomain`, generated signed-XOR algebra and authoritative explicit
-  expression brackets define canonical arithmetic.
-- Point arithmetic is nearest-even Q16.48; intervals round outward; overflow fails
-  closed; FP cannot decide canonical mutation.
-- GPU fusion may share expressions but cannot reassociate them.
-- Packed-32/native-I64 paths require exact parity gates.
+- Generated signed-XOR algebra and explicit expression brackets define canonical
+  arithmetic.
+- Intervals round outward; overflow fails closed; FP cannot decide mutation.
+- GPU CSE/fusion may not reassociate expressions.
 
-## ADR-S404R — ABSENT and allocated native null are distinct
+## ADR-S423V2 — One generated Merkaba relation-program IR
 
-- `ABSENT` means no materialized atlas/carrier state and has no S16 value.
-- `NATIVE_NULL` is an allocated descriptor-defined S16 state/stratum and may be
-  nonzero or use ZD/eigenmode structure.
-- Missing pages and codec tags cannot silently mean native null.
-- Immutable exact carrier generations and lossless codecs remain storage
-  primitives; persistence/restart preserves the distinction.
+- Baseline `CPQ4-2026-08-25-S16-v8.2` supersedes the v8.1 descriptor-subsystem
+  decomposition before live N1 work.
+- The supplied TOE artifact compiles to one fingerprinted relation-program IR with
+  exact arity, neighbourhood, brackets, eigenmode/shadow coupling, query reductions
+  and reverse contractors.
+- Sensor, eye, intrinsic relation, prediction, export and debug are entry points of
+  that same IR. Specialized plans/kernels are compiler products.
+- E22 is optional inventory; exclusive routing requires faithfulness or direct S16
+  dependencies remain.
 
-## ADR-S423 — Authoritative native-law descriptor preserves actual TOE arity
+## ADR-S424V2 — Query-level shadows and first hit
 
-- Baseline `CPQ4-2026-08-25-S16-v8.1` supersedes germ-first v8 before live N1 work.
-- One generated descriptor contains S16 algebra, authoritative TOE
-  Merkaba/eigenmode operator/frame/kernel semantics, relation family with explicit
-  arity/brackets, manifestation, local query plans, whole-scene reducers, exact ZD,
-  near-singular definition, nonassoc context, fibre-preserving selector/right-lifts
-  and modal refinement capacity.
-- Exactly 22 relations are an optional generated inventory, never independent
-  channels. Exclusive E22 factorization requires faithfulness modulo a frozen
-  harmless gauge/null equivalence. Without proof, direct S16/eigenmode dependencies
-  remain.
-- Scanner code cannot infer missing TOE equations from current geometry, inverse or
-  topology code.
+- Physical output is `M_q[Psi]`.
+- Local evaluation and whole-query reduction are lowerings, not ontology.
+- Reduction owns overlap, direct order, first-hit, occlusion, finite footprint and
+  query-relevant ZD/nonassoc context.
+- The rig supplies two coherent RGB-D shadows; depth and optical leaves per eye
+  remain independent until reverse closure.
 
-## ADR-S424 — Physical observations are whole-field shadows
+## ADR-S425V2 — Preimage disjunction is contractor scratch
 
-- A bounded native neighbourhood produces only a local contribution.
-- The physical sensor/eye shadow is a whole-scene reduction over all relevant local
-  contributions.
-- Scene reduction owns overlap, direct order, first-hit, occlusion, fold/sheet
-  collapse, native-null manifestation, query-relevant ZD/nonassoc context and finite
-  footprint integration.
-- The rig supplies two coherent RGB-D shadows. Depth and RGB are independent leaves
-  within each eye and cannot pre-contract one another.
-- First-hit never belongs to one local germ descriptor.
+- Exact inverse is `{Phi : M_q[Phi] in O}` and may be disjunctive.
+- One-winner and mutate-all are invalid.
+- Branch masks/ranges are disposable reverse-program scratch.
+- Cross-frame ambiguity persists only as exact unresolved constraints plus source
+  evidence, with no hypothesis/branch/chart/extent identity.
 
-## ADR-S425 — Inverse preserves support disjunction
+## ADR-S426V2 — One NativeCloseCommit
 
-- A measured footprint defines a union of possible native support hypotheses.
-- One-winner pruning is invalid without an exact conservative exclusion proof.
-- Mutating every enumerated support is also invalid.
-- Canonical mutation is legal only for one exactly resolved support, an identical
-  complete delta under every surviving support, or a native-law-proven common
-  update over the full union.
-- Otherwise ambiguity is retained as `UnresolvedShadowBranch` with no canonical
-  identity, chart or physical extent.
-- Immutable `ShadowObservation` records contain no candidate/native/chart key;
-  disposable `ShadowHypothesis` records carry alternatives.
+- Both-eye reverse constraints and native relation predicates enter one feasible
+  close before selection.
+- The current feasible field produces canonical no-change.
+- A delta requires one resolved physical equivalence class or one common delta
+  over the complete surviving union.
+- Physical phases and profiler labels never become semantic authorities.
 
-## ADR-S426 — One `NativeCloseCommit` owns all canonical feasibility
+## ADR-S427V2 — Complete-program fibres, not per-query kernels
 
-- Observation support unions, authoritative Merkaba/eigenmode relations and
-  intrinsic atlas incidence enter one feasible set before selection.
-- `NativeCloseCommit` is the sole semantic mutation operation.
-- Projection, scene reduction, close, overflow and commit are physical GPU phases
-  or profiler labels, not independent authorities.
-- `StitchNative22`, inverse-then-topology and latent-object solving are not semantic
-  subsystems.
-- Minimum-change acts only inside an already resolved harmless-equivalence fibre;
-  it cannot choose physical support identity.
+- A query-transparent native direction may remain active through TOE-supplied
+  coupling.
+- Preserve the prior representative only along an equivalence fibre proven for the
+  complete accumulated relation program.
+- A linear right-lift is legal only after generated complete decoupling proof.
 
-## ADR-S427 — Hidden native modes are preserved by construction
+## ADR-S428 — ZD, near singular, nonassociation and order differ
 
-- Linear query families use generated exact right-lifts with
-  `R L_R = I` and a frozen `Im L_R ⊕ ker R` decomposition; the kernel
-  representative remains byte-identical.
-- Nonlinear/bracketed predicates preserve the prior representative on every fibre
-  they cannot distinguish.
-- This is an explicit descriptor/selector contract, not an assumed theorem of an
-  arbitrary distance metric.
+- Exact ZD requires exact annihilation.
+- A calibrated nonzero residual is near-singular, never exact ZD.
+- Bracket trees remain descriptor-owned.
+- Direct projective order never comes from ZD.
+- Relation caches are disposable and own no topology.
 
-## ADR-S428 — ZD, near singular, nonassociation and order remain distinct
+## ADR-S429V2 — Native default is a field value
 
-- Exact ZD requires exact annihilation. A calibrated nonzero residual is
-  `NEAR_SINGULAR`, not exact ZD.
-- Every multi-factor relation uses descriptor-owned bracket trees; associator
-  magnitude is not a generic edge detector.
-- Direct projective order owns front/back; ZD never substitutes for depth.
-- Native relation subtype is part of the one field closure. A generation-keyed
-  cache may memoize it but owns no topology.
+- N1R derives/fingerprints `z_empty` from the authoritative program: no
+  sensor/eye/export manifestation and exact unbacked/allocated parity in intrinsic
+  relation contexts, including defined default/support boundaries.
+- Current `ZNullDyad` is only a candidate until sensor/eye/relation/export gates
+  pass; `Gz=0` alone is insufficient.
+- After proof, unbacked logical carrier, allocated `z_empty` and NULL codec decode
+  are storage representations of the same S16 value.
+- No physical ABSENT state or support bitmap exists beside S16.
 
-## ADR-S429 — Unresolved, bound and supported stages are proof ordered
+## ADR-S430V2 — Refinement remains the same field
 
-- F0 `UnresolvedShadowBranch` is evidence/preimage/disjunction only, with no chart
-  or physical identity.
-- F1 `BoundNativeBranch` exists only after independent native-relation proof and may
-  own a noncanonical local chart.
-- F2 supported materialization allocates `Σ₂` only after support/contact and atlas
-  attachment/component semantics are proven and both scene shadows forward-verify.
-- Observation revision/provenance may order only proven gauge-equivalent placements;
-  it cannot create physical placement.
-- `LatentGerm`, PENDING and NOVEL are retired physical ontologies.
+- Repeated queries first contract S16 at current sampling.
+- If retained evidence proves finer intrinsic variation, exact reparameterization
+  increases sampling density of the same `Psi`.
+- No physical germ split, chart manager, voxel hierarchy or detail world appears.
 
-## ADR-S430 — Refinement follows authoritative modal capacity
+## ADR-S431 — Evidence is proof, not physical state
 
-- N1R must import/freeze actual TOE eigenmode/eigenspace semantics, query-mode
-  coupling/kernel visibility, mode transport and refinement capacity.
-- Refinement requires jointly supportable observations, proven current-capacity
-  insufficiency, proven finer-capacity sufficiency and complete forward verification.
-- It performs intrinsic gauge remap plus full S16/evidence/relation transport.
-- Voxel size, depth distance, image resolution and repeat count have no canonical
-  refinement authority.
+- Exact uncertainty is preimage/disjunction, provenance, independence and source
+  evidence.
+- Scalar confidence is diagnostic only.
+- Complete evidence precedes publication and deterministic certificates govern
+  reclaim.
+- Evidence cannot supply export colour/detail missing from `Psi`.
 
-## ADR-S431 — Epistemic state is structured; certificates are nonphysical
+## ADR-S432 — Static correction before temporal evolution
 
-- Exact uncertainty consists of preimage regions, hypothesis unions, provenance,
-  independence, first-hit roles and unresolved ancestry.
-- No scalar confidence/precision drives fusion, relation classification,
-  hypothesis choice, chart allocation, refinement or export appearance.
-- Complete evidence precedes publication. Deterministic certificates prove state
-  and may carry uncertainty metadata.
-- Certificates and raw observations cannot supply physical colour/detail missing
-  from `Ψ`; first close/refine the field, then export.
+- Independent clear-path/pre-hit evidence may remove false support from one static
+  field.
+- Behind-hit remains no evidence.
+- S4‑09 handles only observations irreconcilable as one static admitted epoch.
 
-## ADR-S432 — Static correction and temporal evolution are separate
+## ADR-S433V2 — Pure query readouts
 
-- Independent clear-path/pre-hit evidence can contract one static-scene feasible
-  field and remove a false reconstruction in S4‑08.
-- Behind-hit remains no evidence and a nearer occluder never removes background.
-- S4‑09 handles only observations not reconcilable under one admitted static
-  scene/epoch model.
+- Eye, prediction, intrinsic diagnostics and export use entry points of the same
+  generated program.
+- Readout caches own no continuity or identity.
+- Deleting a cache changes no field, proof or other readout.
 
-## ADR-S433 — Pure readout family
+## ADR-S434V2 — Low-code lowering and hard deletion
 
-- Sensor prediction and XR eyes use local field projection plus whole-scene
-  reduction; prediction retains support alternatives and has no identity authority.
-- Export reads full latest `Ψ`, intrinsic atlas incidence and native relation law.
-  It derives geometry/connectivity/appearance without a canonical mesh/texture
-  world.
-- Eye/export/debug caches are disposable; deleting them cannot alter `Ψ`, proof or
-  another readout.
-
-## ADR-S434 — Low-code lowering and hard replacement
-
-- Initial production phases are `ProjectNativeShadow`, `ReduceNativeShadow`,
-  `CloseNativeField`, sparse `ResolveClosureOverflow`, `PrepareChangedPages`,
-  `ScatterChangedStates` and `CloseAndPublishRevision`.
-- Only `NativeCloseCommit` is semantic. Physical stages cannot become lifecycle
-  objects or managers.
-- C# owns lifecycle/resources/residency/fences only; GPU owns shadow/closure/deltas.
+- Target phases are EvaluateNativeQuery, ReduceNativeQuery, ContractNativeQuery,
+  CloseNativeConstraints, cold ResolveContractorOverflow and sparse root-last
+  commit.
 - N3R–N7R delete each replaced branch in the same commit.
-- Final gates: gross deletion `>=10000`, new production `<=4000`, net `<=-6100`
-  versus `cac9ab0`, net `<=-5500` versus `d3b83e1`, zero legacy/fallback.
+- Final gates: gross delete >=10000, new production <=4000, net <=-6100 versus
+  cac9ab0, net <=-5500 versus d3b83e1, zero legacy/fallback.
 
-## ADR-S435 — Deterministic reset and physical closure
+## ADR-S435V2 — Deterministic closure
 
-- S4‑08.6 runs N0R through N8R exactly as frozen in the active plan; the resume
-  file is the sole routine cursor.
-- N1R blocks rather than guessing an absent TOE artifact.
-- Every accepted run regenerates the code graph and commits separately.
-- Only N8R archives/builds/installs and physically accepts the same exact commit,
-  with truthful Release kernel times, `NativeCloseCommit <=1500 ms`, wall
-  `<=1800 ms`, bounded memory and no revision/segment latency slope.
-- S4‑09 remains unopened until that gate passes.
+- S4‑08.6 follows the active N0R–N8R plan and sole resume cursor.
+- N1R blocks rather than guessing TOE law, full-query default or coupling.
+- Every accepted run regenerates code graph and commits separately.
+- Only N8R archives/builds/installs and physically accepts the identical commit.
+- S4‑09 remains unopened.
 
 ## Explicit supersession
 
-- ADR-S415 through ADR-S422 are superseded. Their unary-E22/germ-first shadow,
-  `LatentGerm`, `StitchNative22` and Omega/Xi semantic split must not be implemented.
-- ADR-S405 through ADR-S414 remain historical evidence for primitives and failed
+- ADR-S404R and ADR-S423 through ADR-S435 are superseded by their V2 replacements.
+- ADR-S415 through ADR-S422 remain superseded germ-first history.
+- ADR-S405 through ADR-S414 remain evidence for exact primitives and failed
   lowerings only.
-- Exact NumericDomain/algebra, sparse immutable storage/codec primitives,
-  representation-neutral Quest infrastructure, complete evidence and root-last
-  publication survive only where v8.1 permits them.

@@ -1,7 +1,7 @@
 # Σ-PRISM-16
 
 Σ-PRISM-16 is a pure on-device Quest 3/3S spatial scanner. Its canonical
-reconstruction baseline is `CPQ4-2026-08-25-S16-v8.1`, defined exclusively by
+reconstruction baseline is `CPQ4-2026-08-25-S16-v8.2`, defined exclusively by
 [`new_spec.md`](new_spec.md).
 
 The only durable physical world is one sparse exact carrier:
@@ -10,12 +10,12 @@ The only durable physical world is one sparse exact carrier:
 Ψ : Σ₂ → S16
 ```
 
-`Σ₂` is an intrinsic sparse atlas and every allocated state is full native S16.
-The stereo rig observes two coherent whole-field RGB-D shadows. Alternative native
-supports remain an explicit disjunction and one `NativeCloseCommit` jointly closes
-observation, authoritative Merkaba/eigenmode and atlas-incidence constraints.
-Geometry, intrinsic relations, detail, appearance, eye images and exports are pure
-readouts or constraints of that field, never parallel reconstruction states.
+`Σ₂` is one signed-64 intrinsic carrier/gauge and every value is full native S16.
+One authoritative generated Merkaba relation-program IR produces sensor, eye,
+intrinsic-relation and export queries and their exact reverse contractors. Multiple
+preimages remain disposable contractor disjunctions, never physical objects.
+Geometry, relation, detail, appearance, eye images and exports are pure readouts or
+constraints of the same field.
 
 ## Retained Quest shell
 
@@ -44,7 +44,7 @@ S4-04  finite-footprint/depth constraint primitives
 S4-05  exact transition/ZD/nonassoc primitives
 S4-06  optical evidence and certificate primitives
 S4-07  bijective intrinsic gauge primitives
-S4-08  full-field NativeCloseCommit replacement and pure readouts
+S4-08  one-medium Merkaba forward/reverse replacement and pure readouts
 S4-09  temporal evolution not reconcilable as one static scene
 S4-10  infinite paging, persistence and revisit
 S4-11  disposable GPU meshlet readout

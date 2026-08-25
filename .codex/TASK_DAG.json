@@ -2,7 +2,7 @@
   "schema_version": 1,
   "goal": "Sigma-PRISM-16 full-native S16/Merkaba reconstruction on Quest 3",
   "canonical_spec": "new_spec.md",
-  "reconstruction_physics": "CPQ4-2026-08-25-S16-v8.1",
+  "reconstruction_physics": "CPQ4-2026-08-25-S16-v8.2",
   "spec_status": "canonical_replacement_frozen_for_implementation",
   "active_repair": "S4-08.6_ONTOLOGY_RESET_NATIVE_CLOSE",
   "effort_policy": "90_percent_implementation_5_percent_verification_5_percent_controls",
@@ -69,7 +69,7 @@
         "Prediction/readout caches are disposable and generation keyed"
       ],
       "evidence": [
-        "Accepted geometry-readout primitive checkpoint; v8.1 reuses only exact local manifestation primitives and moves first-hit authority to whole-scene reduction"
+        "Accepted geometry-readout primitive checkpoint; v8.2 retains it only as a generated whole-S16 query donor, never geometry state or final TOE authority"
       ]
     },
     {
@@ -84,7 +84,7 @@
         "Independent sources meet without weighted averaging and contradictions retain provenance"
       ],
       "evidence": [
-        "Accepted finite-footprint/depth primitive evidence; v8.1 supersedes per-germ/source-cell live authority with whole-field preimage closure"
+        "Accepted finite-footprint/depth primitive evidence; v8.2 supersedes per-source-cell authority with reverse evaluation of one generated relation program"
       ]
     },
     {
@@ -99,7 +99,7 @@
         "No separate canonical topology world exists"
       ],
       "evidence": [
-        "Accepted exact transition/ZD/associator primitive evidence; v8.1 integrates authoritative native relations into one field closure"
+        "Accepted exact transition/ZD/associator primitive evidence; v8.2 retains the algebra while generating all relation queries from one authoritative program"
       ]
     },
     {
@@ -114,7 +114,7 @@
         "Complete evidence and deterministic minimal certificates are non-physical proof of one Psi"
       ],
       "evidence": [
-        "Accepted optical/evidence primitive checkpoint; v8.1 requires source-independent scene-shadow leaves, hypothesis disjunction and complete publication ownership"
+        "Accepted optical/evidence primitive checkpoint; v8.2 keeps independent leaves and complete evidence while treating preimage disjunction only as contractor scratch"
       ]
     },
     {
@@ -129,25 +129,28 @@
         "Fine detail adds S16 germs and never creates a displacement or mesh world"
       ],
       "evidence": [
-        "Accepted bijective gauge primitive checkpoint; v8.1 permits it only under authoritative modal-capacity and branch-materialization proof"
+        "Accepted bijective gauge primitive checkpoint; v8.2 permits it only as an exact sampling-density reparameterization of the same field under authoritative proof"
       ]
     },
     {
       "id": "S4-08",
-      "title": "Replace the scanner with one full-field native S16 close/commit and pure readouts",
+      "title": "Replace the scanner with one S16 medium, one generated Merkaba program and pure query readouts",
       "status": "in_progress",
       "depends_on": [
         "S4-07"
       ],
       "acceptance": [
-        "One frozen authoritative TOE descriptor preserves actual Merkaba/eigenmode operator/frame/kernel semantics, relation arities/brackets, manifestation, local projection, whole-scene reducers, exact ZD, fibre preservation and modal refinement",
+        "Psi on one signed-64 Sigma_2 carrier is the sole physical medium; no sheet/chart/component/branch/topology state exists beside it",
+        "One frozen authoritative TOE artifact generates one fingerprinted Merkaba relation-program IR with exact arities, neighbourhoods, brackets, coupling, query reductions and reverse contractors",
         "Exclusive E22 factorization is used only after faithfulness modulo frozen harmless equivalence; otherwise direct S16/eigenmode dependencies remain",
-        "The rig supplies two coherent RGB-D whole-field shadows whose independent depth/optical leaves contain no candidate identity",
-        "Every footprint retains the complete union of possible supports; ambiguity cannot select one winner, mutate every support or be resolved by minimum change",
-        "Observation unions, native Merkaba/eigenmode constraints and intrinsic atlas incidence enter one NativeCloseCommit feasible set before selection",
-        "Unexplained evidence is UnresolvedShadowBranch without germ/chart/extent; BoundNativeBranch and supported materialization require independent exact proof",
-        "ABSENT storage and allocated descriptor-defined NATIVE_NULL remain distinct through codec, persistence, refinement and replay",
-        "Only resolved or branch-common full-S16 NativeStateDelta records mutate immutable pages after complete evidence ownership and one root-last publication",
+        "The rig supplies two coherent RGB-D query shadows whose independent depth/optical leaves contain no candidate identity",
+        "Every footprint retains the complete union of possible preimages in disposable contractor scratch; ambiguity cannot select one winner or mutate every alternative",
+        "Both-eye constraints and native relation predicates enter one NativeCloseCommit feasible set before selection",
+        "Cross-frame ambiguity persists only as exact unresolved constraints and source evidence, never hypothesis/branch/chart/extent identity",
+        "A full-query-proven z_empty makes unbacked, allocated-default and NULL-codec representations physically identical; current Gz=0 alone is insufficient",
+        "Hidden state is preserved only on equivalence fibres of the complete accumulated relation program, never from one partial query kernel alone",
+        "Refinement contracts S16 or increases sampling density of the same Psi without physical germ/chart/detail hierarchy",
+        "Only resolved or complete-union-common full-S16 NativeStateDelta records mutate immutable pages after complete evidence ownership and one root-last publication",
         "Static clear-path exclusion can correct a false same-scene manifestation while behind-hit remains no evidence; actual temporal evolution remains S4-09",
         "Eye, prediction, export and debug are pure whole-field readouts; certificates cannot supply physical appearance/detail absent from Psi",
         "Workgroup/relation/window/segment/page/cache decomposition leaves hypothesis unions, branches, deltas, Psi, certificates and readouts byte-identical",
@@ -156,7 +159,8 @@
       ],
       "evidence": [
         "N0 germ-first checkpoint f24ecc3 is conceptually superseded before runtime cutover",
-        "N0R accepted: CPQ4-2026-08-25-S16-v8.1 field-level spec/audit/plan/control reset, validated forensic preservation and zero Runtime/Resources diff; N1R is the sole next run",
+        "N0R v8.1 checkpoint 7d547b2 is conceptually superseded before runtime cutover by the source-grounded v8.2 one-medium correction",
+        "N0R v8.2 accepted: one carrier/one S16 field/one generated relation IR spec-audit-plan-control replacement; forensic sections preserved, validators green and zero Runtime/Resources diff; N1R is sole next run",
         "Starting Quest evidence cac9ab0: 266 dispatches/61 kernels, compute 4520.946 ms, wall 4776.70 ms; top three duplicated solvers consume 90.78%; root31 then truthful carrier fault 0x120"
       ]
     },

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "source_digest": "1f78eed093fb8e4b1998571a94e6f35be5975af1da39c0e5b31faac541029b44",
+  "source_digest": "793745d3dbcfc2185ceb5f06b6c7f3b1aa39fcc325a4991d8fea5062c57153e8",
   "scope": [
     "Runtime/**/*.cs",
     "Runtime/Resources/SigmaPrism/**/*.*",
@@ -11,7 +11,7 @@
   ],
   "summary": {
     "files": 107,
-    "symbols": 1649,
+    "symbols": 1648,
     "methods_and_functions": 1344,
     "gpu_kernels": 73,
     "event_links": 5
@@ -12089,13 +12089,6 @@
       "name": "visit",
       "kind": "function",
       "line": 86
-    },
-    {
-      "id": "new_spec.md::does",
-      "file": "new_spec.md",
-      "name": "does",
-      "kind": "class",
-      "line": 944
     }
   ],
   "event_links": [
@@ -12270,7 +12263,7 @@
     },
     {
       "id": "S4-08",
-      "title": "Replace the scanner with one full-field native S16 close/commit and pure readouts",
+      "title": "Replace the scanner with one S16 medium, one generated Merkaba program and pure query readouts",
       "status": "in_progress",
       "depends_on": [
         "S4-07"

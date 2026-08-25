@@ -4,15 +4,15 @@ Updated: 2026-08-25 (Europe/Prague)
 
 ## Authority
 
-- Canonical spec: `new_spec.md`, `CPQ4-2026-08-25-S16-v8.1`.
+- Canonical spec: `new_spec.md`, `CPQ4-2026-08-25-S16-v8.2`.
 - Branch: `feat/sigma-prism-16-cpq4-20260822`.
 - Runtime replacement baseline: `cac9ab012f4ce574e5eb9bee88290982fd9c4fe8`.
-- Accepted primitive milestones: S4‑00 through S4‑07 where compatible with v8.1.
+- Accepted primitive milestones: S4‑00 through S4‑07 where compatible with v8.2.
 - Active node: S4‑08, reopened and in progress.
-- Active repair: S4‑08.6 ontology-reset native field closure.
+- Active repair: S4‑08.6 one-medium native closure.
 - Frozen plan: `.codex/S4-08.6_NATIVE_CLOSURE_PLAN.md`.
 - Sole routine cursor: `.codex/S4-08.6_RESUME.md`.
-- Forensic facts and corrected matrix: `analyza.md`.
+- Forensic facts and replacement matrix: `analyza.md`.
 - S4‑09 remains pending/unopened.
 
 ## Device-proven starting point
@@ -35,67 +35,71 @@ pending             fragmented growth; observed holes/reuse=0/0
 Forensic §§4–8 of `analyza.md` preserve the exact timing/kernel/source/causal
 facts. Do not repeat that audit.
 
-## Superseded checkpoint
-
-Commit `f24ecc3` correctly rejected v7 sensor/proposal/topology decomposition but
-its germ-first architecture is superseded before any N1 runtime work. Do not
-implement these parts from it:
+## Source-proven architectural basis
 
 ```text
-unary E22 as assumed complete native law
-per-germ physical sensor shadow
-candidate identity inside observation packets
-LatentGerm as first unresolved state
-Omega inverse then Xi stitch/commit semantic split
-StitchNative22 as physical authority
-ABSENT interpreted as native null
-scalar precision as canonical epistemic physics
+SigmaS16 is an algebra value, not a world object/property layout.
+Geometry and directional RGB are generated operations over all 16 coefficients.
+Transition/associator/annihilator are relations of the same algebra.
+SigmaOperatorPlan is one exact fingerprinted DAG vocabulary with bracket ownership.
+Sigma_2 carrier addresses are signed-64 (u,v).
+IntrinsicTopology owns no topology/geometry state.
+Current pool/NULL codec use generated ZNullDyad.
 ```
 
-## Frozen v8.1 ontology
+The source does not prove the authoritative TOE program, E22 faithfulness,
+full-query validity of current `ZNullDyad`, complete shadow-mode coupling/fibres or
+the final refinement transform.
+
+## Frozen v8.2 model
 
 ```text
-canonical:
-    full Psi : intrinsic atlas Sigma_2 -> S16
-    + authoritative TOE Merkaba/eigenmode law
+CANONICAL
+    one Psi : one carrier Sigma_2 -> S16
 
-forward:
-    local contributions from bounded native neighbourhoods
-    -> whole-scene shadow reduction
+LAW
+    one authoritative generated Merkaba relation-program IR M
 
-observation:
-    two coherent RGB-D whole-field shadows
+QUERY
+    sensor / eye / relation / prediction / export = M_q[Psi]
 
-inverse:
-    union of possible support hypotheses per footprint
+SCAN
+    exact reverse evaluation of the same program
 
-closure:
-    observation unions + native law + atlas incidence
-    -> one NativeCloseCommit feasible solve
+AMBIGUITY
+    transient contractor disjunction; persisted constraint/evidence only
 
-unresolved:
-    evidence branch; no germ/chart/extent
+CLOSE
+    both-eye constraints + native relations -> one NativeCloseCommit
 
-publication:
-    only resolved/common full-S16 NativeStateDelta, root last
+DEFAULT
+    z_empty is a full-program-proven S16 value; backing absence is representation
 
-readouts:
-    eye/prediction/export/debug are pure field shadows
+REFINE
+    contract S16 or increase sampling density of the same Psi
+
+PUBLISH
+    resolved/common full-S16 deltas, root last
 ```
 
-`ABSENT != NATIVE_NULL`. Exact ZD != near-singular != direct order. Minimum-change
-operates only inside an already resolved harmless-equivalence fibre.
+There is no physical chart/sheet/branch/hypothesis/materialization/topology world.
+Preservation is defined on complete-program equivalence fibres, not one query
+kernel.
 
 ## Current exact action
 
-N0R is accepted with zero Runtime/Resources diff. N1R is the sole active run:
-locate, hash and freeze the supplied authoritative TOE `K_M`
-operator/frame/kernel artifact, including relation arities/brackets,
-manifestation, local contribution and scene-reducer laws, ZD distinctions,
-fibre-preservation and modal refinement.
+N0R v8.2 is accepted with zero Runtime/Resources diff. N1R is the sole active run:
 
-If the artifact is absent/incomplete, N1R is blocked. Do not guess or substitute
-current B/G/F/inverse/topology equations.
+1. locate and hash the supplied authoritative TOE artifact;
+2. generate one relation-program IR with all arities/brackets/couplings;
+3. generate query reductions and exact reverse contractors;
+4. prove E22 faithfulness or retain direct S16 dependencies;
+5. prove full-query `z_empty` or block;
+6. prove complete-program fibre/coupling rules;
+7. import the authoritative sampling-refinement transform;
+8. establish CPU/HLSL parity without live mutation.
+
+Do not infer missing law from current B/G/F/RGB/topology code.
 
 ## LOC cursor
 
@@ -107,8 +111,7 @@ net vs d3b83e1                         <=-5500
 retired live symbols/fallbacks         0
 ```
 
-N3R–N7R delete each replaced branch in the same commit. Dead code is removed, not
-left disconnected.
+N3R–N7R delete each replaced branch in the same commit.
 
 ## Completion gate
 

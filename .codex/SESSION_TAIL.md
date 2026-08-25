@@ -2,17 +2,18 @@
 
 ## User
 
-Issued the authoritative S4‑08.6 ontology reset: do not implement germ-first v8.
-Use a full-field whole-scene shadow, mandatory support-hypothesis disjunction, one
-joint `NativeCloseCommit`, candidate-free evidence, unresolved branches without
-identity, proof-gated bound branches, E22 faithfulness/direct-S16 fallback,
-`ABSENT != NATIVE_NULL`, modal refinement and pure eye/export readouts. Replace the
-spec/audit/plan before N1 and update copies in `~/Stažené`.
+Required a deeper source-grounded verdict before incorporation. The reviewed
+direction is to eliminate scanner ontology entirely: one carrier, one S16 field,
+one generated Merkaba relation program, exact reverse constraints, no persistent
+hypothesis/branch/chart/materialization objects, full-program hidden-mode coupling,
+native default backing and refinement as denser sampling of the same field.
 
 ## Assistant
 
-N0R is accepted as a documentation/control-only reset with zero runtime diff and
-byte-identical forensic evidence sections. The sole cursor is N1R: locate, hash
-and freeze the supplied authoritative TOE operator/frame/kernel artifact before
-generating any native law. No relation, bracket, eigenmode, native-null or
-refinement equation may be guessed.
+Source audit accepts the core reduction with three gates: current `ZNullDyad` needs
+full sensor/eye/relation/export proof; one program means one semantic IR with
+specialized compiled plans, not one monolithic kernel; and duplicate/new-support
+decisions require exact feasibility plus full-program gauge equivalence. N0R v8.2
+has replaced spec, audit, plan and controls with zero runtime diff while preserving
+forensic §§4–8 byte-identically. N1R is the sole cursor and may not guess absent
+TOE law.
