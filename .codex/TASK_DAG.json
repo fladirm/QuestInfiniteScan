@@ -2,7 +2,7 @@
   "schema_version": 1,
   "goal": "Sigma-PRISM-16 full-native S16/Merkaba reconstruction on Quest 3",
   "canonical_spec": "new_spec.md",
-  "reconstruction_physics": "CPQ4-2026-08-25-S16-v8.2",
+  "reconstruction_physics": "CPQ4-2026-08-25-S16-v8.3",
   "spec_status": "canonical_replacement_frozen_for_implementation",
   "active_repair": "S4-08.6_ONE_MEDIUM_NATIVE_CLOSE",
   "effort_policy": "90_percent_implementation_5_percent_verification_5_percent_controls",
@@ -69,7 +69,7 @@
         "Prediction/readout caches are disposable and generation keyed"
       ],
       "evidence": [
-        "Accepted geometry-readout primitive checkpoint; v8.2 retains it only as a generated whole-S16 query donor, never geometry state or final TOE authority"
+        "Accepted geometry-readout primitive checkpoint; v8.3 retains it only as a generated whole-S16 query donor, never geometry state or final TOE authority"
       ]
     },
     {
@@ -84,7 +84,7 @@
         "Independent sources meet without weighted averaging and contradictions retain provenance"
       ],
       "evidence": [
-        "Accepted finite-footprint/depth primitive evidence; v8.2 supersedes per-source-cell authority with reverse evaluation of one generated relation program"
+        "Accepted finite-footprint/depth primitive evidence; v8.3 supersedes per-source-cell authority with reverse evaluation of one generated relation program"
       ]
     },
     {
@@ -99,7 +99,7 @@
         "No separate canonical topology world exists"
       ],
       "evidence": [
-        "Accepted exact transition/ZD/associator primitive evidence; v8.2 retains the algebra while generating all relation queries from one authoritative program"
+        "Accepted exact transition/ZD/associator primitive evidence; v8.3 retains the algebra while generating all relation queries from one authoritative program"
       ]
     },
     {
@@ -114,7 +114,7 @@
         "Complete evidence and deterministic minimal certificates are non-physical proof of one Psi"
       ],
       "evidence": [
-        "Accepted optical/evidence primitive checkpoint; v8.2 keeps independent leaves and complete evidence while treating preimage disjunction only as contractor scratch"
+        "Accepted optical/evidence primitive checkpoint; v8.3 keeps independent leaves and complete evidence while treating preimage disjunction only as contractor scratch"
       ]
     },
     {
@@ -126,10 +126,10 @@
       ],
       "acceptance": [
         "Refinement is a bijective reparameterization of the same Sigma_2 carrier",
-        "Fine detail adds S16 germs and never creates a displacement or mesh world"
+        "Fine detail adds exact normalized S16 sampling capacity and never creates a physical child-germ, displacement or mesh world"
       ],
       "evidence": [
-        "Accepted bijective gauge primitive checkpoint; v8.2 permits it only as an exact sampling-density reparameterization of the same field under authoritative proof"
+        "Accepted bijective gauge primitive checkpoint; v8.3 permits it only as an exact normalized chi/kappa sampling-density/reconstruction reparameterization of the same field under authoritative proof"
       ]
     },
     {
@@ -153,18 +153,25 @@
         "A proven ZEmpty makes unbacked, allocated-default and NULL-codec representations identical, and an all-default neighbourhood is exactly quiescent; changing supported state to ZEmpty remains physical mutation; current Gz=0 alone is insufficient",
         "Hidden state is preserved only on equivalence fibres of the complete accumulated relation program, never from one partial query kernel alone",
         "Coordinate-local relation support is the fast domain while descriptor-proven seam/gauge/nonlocal tuples remain disposable and no canonical relation graph exists",
-        "Refinement contracts S16 or increases sampling density of the same Psi through a representation theorem proved against the complete program, transporting full state, exact constraints, directional information, independent-view evidence, relations and bandwidth without physical germ/chart/detail hierarchy",
-        "Only resolved or complete-union-common full-S16 NativeStateDelta records mutate immutable pages after complete evidence ownership and one root-last publication",
+        "One generated exact chi map plus kappa support/measure/reconstruction plan represents local backing density of the same Psi; neither is physical state, gauge equivalence requires pointwise full-S16 transport rather than readout equality, and discovery/allocation permutations normalize byte-identically or remain unresolved",
+        "Refinement contracts S16 or atomically changes normalized chi/kappa plus state through a complete-program representation theorem, transporting full state, exact constraints, directional information, independent-view evidence, relations and bandwidth without physical germ/chart/detail hierarchy",
+        "Only resolved or complete-union-common full-S16 NativeStateDelta records mutate physical Psi; equivalence-proved NativeGaugeDelta records mutate representation only, and state/gauge/certificate/directory generations publish under one root",
+        "A fresh all-ZEmpty world admits the proved base-density support case in N3 without any Candidate/Pending/Continuation/Novel path, and the sole generator can no longer emit that legacy ABI",
+        "The optical query owns calibrated illumination/exposure/gain/transfer nuisance regions; missing metadata is conservatively represented and no quality scalar hides physical RGB contradictions",
+        "A generated conservative query-support index has zero false negatives for resident, nonresident and refined regions and is rebuildable without owning identity",
+        "A durable logical page/gauge directory, encoded on-device blobs and bounded decoded GPU cache provide exact eviction/rehydration/restart so resident capacity never limits world size",
+        "Deterministic exact certificate minimization keeps converged duplicate/weak revisit storage bounded while preserving unresolved and genuinely new information",
         "Static clear-path exclusion can correct a false same-scene manifestation while behind-hit remains no evidence; actual temporal evolution remains S4-09",
         "Eye, prediction, export and debug are pure whole-field readouts; certificates cannot supply physical appearance/detail absent from Psi",
         "With the S4-08.6 64x64 page and 8x8 codec-block ABI frozen, workgroup/relation/window/segment/cache decomposition leaves hypothesis unions, branches, deltas, Psi pages, certificates and readouts byte-identical",
         "The replacement gross-deletes at least 10000 production LOC, adds at most 4000, is net at most -6100 versus cac9ab0 and leaves no legacy/fallback path",
-        "Exact oracle/Vulkan tests and same-commit Quest Release corpus pass with NativeCloseCommit <=1500 ms, wall <=1800 ms, bounded memory and no revision-dependent latency slope"
+        "Exact oracle/Vulkan tests and same-commit Quest Release corpus pass the 1500/1800 ms recovery ceiling plus <=33.3 ms stable no-change, <=100 ms ordinary informative p95 and <=13.89/11.11 ms eye-query cadence, with bounded residency/proof growth and no revision-dependent latency slope"
       ],
       "evidence": [
         "N0 germ-first checkpoint f24ecc3 is conceptually superseded before runtime cutover",
         "N0R v8.1 checkpoint 7d547b2 is conceptually superseded before runtime cutover by the source-grounded v8.2 one-medium correction",
-        "N0R v8.2 accepted and implementation-safety tightened: one carrier/one S16 field/one provenance-bearing relation IR, ZEmpty representation/quiescence, contextual E22, joint N3R close, derived nonlocal relations, frozen storage ABI, exact directional first-hit mould action and locality feasible-set/information compression; zero Runtime/Resources diff; N1R is sole next run",
+        "N0R v8.2 checkpoint 61e9f1a is superseded before runtime work by the v8.3 representation/runtime closure",
+        "N0R v8.3 closes exact chi/kappa gauge/reconstruction normalization and atomicity, fresh-world N3/generated-ABI ownership, optical nuisance law, nonresident support completeness, bounded certificate growth, durable pager ownership and final realtime contracts with zero Runtime/Resources diff; N1R is sole next run",
         "Starting Quest evidence cac9ab0: 266 dispatches/61 kernels, compute 4520.946 ms, wall 4776.70 ms; top three duplicated solvers consume 90.78%; root31 then truthful carrier fault 0x120"
       ]
     },
@@ -183,20 +190,20 @@
     },
     {
       "id": "S4-10",
-      "title": "Implement unbounded logical carrier persistence and transparent residency",
+      "title": "Extend durable native backing and certificates across admitted temporal epochs",
       "status": "pending",
       "depends_on": [
         "S4-09"
       ],
       "acceptance": [
-        "Durable exact pages/certificates and required unresolved evidence survive restart byte-identically",
-        "Residency, eviction, rehydration and segment placement never change native physics or world size"
+        "The base unbounded static pager accepted in S4-08 remains byte-exact across S4-09 temporal generations and unresolved evolution evidence",
+        "Temporal epoch retention/reclaim changes neither residency-independent native physics nor the S4-08 clear/restore contract"
       ],
       "evidence": []
     },
     {
       "id": "S4-11",
-      "title": "Qualify direct low-latency stereo eye readout",
+      "title": "Extend direct low-latency stereo eye readout across temporal/durable epochs",
       "status": "pending",
       "depends_on": [
         "S4-10"

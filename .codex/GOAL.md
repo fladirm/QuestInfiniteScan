@@ -1,16 +1,30 @@
 # Goal
 
 [`new_spec.md`](../new_spec.md) is the sole canonical product/reconstruction
-specification. Active baseline: `CPQ4-2026-08-25-S16-v8.2`.
+specification. Active baseline: `CPQ4-2026-08-25-S16-v8.3`.
 
 Build a fully on-device Quest 3 scanner whose only canonical physical medium is:
 
 ```text
-Psi : one intrinsic signed-64 carrier Sigma_2 -> full native S16
+Psi : one intrinsic carrier Sigma_2 -> full native S16
+      (signed-64 addresses belong to its finite backing representative)
 ```
 
 `S16` is an algebra value, not a record of property lanes. `Σ₂` is one carrier/
 gauge, not a physical sheet/chart/component database.
+
+One published finite representative is `(chi, kappa, Psi-hat)`, where exact
+`chi : Z^2_backing -> Sigma_2` locates sample degrees of freedom and generated
+`kappa` defines their exact intrinsic support/measure/reconstruction. `chi/kappa`
+and any derived Riemann-like metric are representation metadata, never another
+physical world. Where an exact local Jacobian exists, the explanatory density is
+`rho = sqrt(det(g_chi)) = abs(det(J_chi))^-1`; canonical code uses the exact
+representation plan, never a floating metric. Gauge-equivalent outcomes must pass
+a constructive observation/allocation-order-independent normalizer and state/
+gauge/certificate/directory generations publish under one root.
+Gauge equivalence itself requires an admissible exact carrier bijection with
+pointwise full-S16 equality and lossless relation/proof transport; equal readouts
+alone can never discard a hidden native mode.
 
 One authoritative generated Merkaba relation-program IR owns every physical query
 and exact reverse contractor. It compiles exact algebra, authoritative TOE native
@@ -55,6 +69,11 @@ native relations close before one delta can publish. There is no sensor-only
 canonical intermediate. S4‑08.6 freezes the current `64×64` page and `8×8` codec
 block ABI so decomposition parity is well-typed.
 
+N3R also owns the minimal proved base-density `ZEmpty -> supported` admission and
+the sole generator/frame-ABI cut. A fresh field must publish without NOVEL/pending,
+and a generator rerun must contain no Candidate/Pending/Continuation/Novel/
+DirtyEdge symbols.
+
 The generated sensor reverse program preserves two native reconstruction
 principles. Clear pre-hit plus measured first-hit produces an exact directional
 mould action with behind-hit `NO_CLAIM`; it is no pressure field, carving or
@@ -68,7 +87,19 @@ accumulated relation program. A kernel/right-lift of one partial query cannot fr
 a mode that remains active through native coupling.
 
 Refinement either contracts S16 at current sampling or increases sampling density
-of the same `Psi`. It creates no physical child germs/charts or detail world.
+of the same `Psi` by an exact normalized `chi/kappa` representation transform. It
+creates no physical child germs/charts or detail world.
+
+The query boundary includes a calibrated illumination/exposure/gain/transfer
+nuisance law, not an optical confidence scalar. Sparse whole-field work uses
+generated conservative query-support summaries with zero false negatives,
+including encoded nonresident pages.
+
+S4‑08 includes a live durable logical page/gauge directory, lossless on-device
+encoded blobs, bounded decoded GPU residency, asynchronous eviction/rehydration
+and clear/restore lifecycle. Resident capacity is never world size. Exact
+certificate/evidence storage grows with unresolved or genuinely new information,
+not duplicate revisit count.
 
 Eye, prediction, textured 3D export and debug are pure readouts. Evidence proves
 state but cannot provide missing physical appearance.
@@ -82,4 +113,6 @@ Active node: S4‑08, replacement run S4‑08.6 N0R–N7R. Authorities:
 The run gross-deletes at least 10,000 production LOC, adds at most 4,000,
 finishes net at most -6,100 versus `cac9ab0` and leaves no legacy/fallback. S4‑08
 closes only after archive/build/install/physical acceptance of the exact same
-commit. S4‑09 remains unopened until then.
+commit. The old 1500/1800 ms pair is only a replacement recovery ceiling; final
+gates include `<=33.3 ms` stable no-change, `<=100 ms` ordinary informative p95,
+and `<=13.89/11.11 ms` eye query at 72/90 Hz. S4‑09 remains unopened until then.

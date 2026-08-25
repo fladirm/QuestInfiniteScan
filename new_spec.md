@@ -5,7 +5,7 @@
 Canonical product baseline:
 
 ```text
-CPQ4-2026-08-25-S16-v8.2
+CPQ4-2026-08-25-S16-v8.3
 ```
 
 Status: canonical reconstruction and product specification.
@@ -13,7 +13,10 @@ Status: canonical reconstruction and product specification.
 This revision removes the last scanner-specific ontology. It does not replace it
 with charts, branches, hypotheses, latent objects or a topology system carrying
 native names. There is one native field, one exact relation-program authority and
-different forward or reverse evaluations of that same authority.
+different forward or reverse evaluations of that same authority. It also makes
+the representation of locally varying sampling explicit: a revisioned exact
+coordinate map may change the finite backing representative, but it never becomes
+a second physical field.
 
 ---
 
@@ -51,8 +54,8 @@ The reconstructed world is exactly
 \]
 
 `Σ₂` is one logically unbounded intrinsic two-dimensional carrier/gauge.
-`Ψ(ξ)` is one immutable sixteen-coefficient exact S16 algebra value at carrier
-coordinate `ξ`.
+`Ψ(ξ)` is one immutable sixteen-coefficient exact S16 algebra value at intrinsic
+carrier locality `ξ`.
 
 There is no additional canonical:
 
@@ -72,25 +75,162 @@ objects stored beside it.
 
 The carrier does not know the words wall, sheet, object, fold or floor.
 
----
-
-# 2. `Σ₂` is one gauge, not a database of surfaces
-
-The implementation address is an exact signed-64 pair:
+The physical field is defined modulo exact harmless representation-gauge
+reparameterization:
 
 \[
-\xi=(u,v)\in\Sigma_2.
+\boxed{\text{physical state}=[\Psi]_{gauge}.}
 \]
 
-Exact coordinate-local neighbourhoods are the primary sparse relation domain.
-They provide the bounded fast path and are independent of storage pages.
+This does not make all address permutations harmless. A reparameterization is
+gauge only when the complete generated program proves equality of every physical
+query and native relation. The runtime stores and publishes one deterministic
+normal finite representative of that equivalence class.
+
+---
+
+# 2. `Σ₂`, exact representation gauge and local sampling density
+
+Do not conflate the intrinsic locality with its current finite backing address.
+For one published representation revision `r`, let
+
+\[
+a=(i,j)\in A_r\subset\mathbb Z^2
+\]
+
+be an exact signed-64 backing address and let
+
+\[
+\boxed{\chi_r:A_r\rightarrow\Sigma_2}
+\]
+
+be the fingerprinted exact coordinate-gauge map. The stored samples are
+
+\[
+\widehat\Psi_r(a)=\Psi(\chi_r(a)).
+\]
+
+`chi` alone is not a complete sampling representation. It locates the native
+sample degrees of freedom, but a locally non-uniform representation must also
+define their exact intrinsic support, measure and reconstruction action so that
+adding backing samples does not duplicate manifestation or leave values between
+sample sites undefined. Let
+
+\[
+\kappa_r
+\]
+
+denote this fingerprinted exact representation plan. It is generated with the
+admitted `chi` map family and may be implicit when that family uniquely determines
+it. Every backing coefficient remains one full S16 value; `kappa` is not a set of
+semantic channels or a physical interpolation field.
+
+The finite representative is
+
+\[
+\boxed{
+\mathcal R_r=(\chi_r,\kappa_r,\widehat\Psi_r,\mathcal W_r)
+}
+\]
+
+where `W_r` contains only exact representation/equivalence witnesses required to
+interpret or verify it. The logical field represented by it is written
+
+\[
+\operatorname{DecodeField}(\mathcal R_r).
+\]
+
+For a nodal map family the displayed equation
+`Psi-hat(a)=Psi(chi(a))` is literal. If the authoritative law requires another
+exact local reconstruction convention, N1R must generate it in `kappa`; storage
+code may not invent interpolation, sample weights or footprint ownership. Two
+representatives are gauge-equivalent only when their decoded fields are
+the same full S16 field under an admissible exact carrier reparameterization, not
+merely when their sample locations or current readouts look similar.
+
+Normatively,
+
+\[
+\boxed{
+\mathcal R_a\sim_g\mathcal R_b
+\Longleftrightarrow
+\exists\gamma\in G_{admissible}:\quad
+\operatorname{DecodeField}(\mathcal R_b)(\gamma(\xi))
+=
+\operatorname{DecodeField}(\mathcal R_a)(\xi)
+\quad\forall\xi\in\Sigma_2
+}
+\]
+
+coefficient-for-coefficient in S16, including `ZEmpty`, together with exact
+transport of every generated intrinsic relation and proof factor. `gamma` must be
+a fingerprinted bijection from the generated admissible gauge family; a lossy
+resampling, many-to-one map or hidden-mode projection is never gauge.
+
+This pointwise full-S16 condition must imply, as a separate generated covariance/
+faithfulness proof,
+
+\[
+\forall q\in Q_{physical}:\quad
+\mathfrak M_q[\operatorname{DecodeField}(\mathcal R_a)]
+=
+\mathfrak M_q[\operatorname{DecodeField}(\mathcal R_b)].
+\]
+
+`Q_physical` is the full frozen admissible query family, not only views observed
+so far. Readout equality alone is necessary but never sufficient to declare
+gauge; otherwise an unobserved S16 direction could be deleted by representation.
+
+The current uniform signed-64 `(u,v)` layout is one donor representative in which
+`χ` is implicit. It is not a proof that every admissible locally refined
+representative has uniform density.
+
+`chi` and `kappa` are representation metadata, not another physical field, chart
+database, surface identity or deformation world. They may be stored per exact
+backing region or through an equivalent generated normal form. N1R must freeze a
+finite exact map/reconstruction family and its arithmetic. An exact dyadic affine/Jacobian
+lowering is a preferred Quest candidate, including anisotropic dyadic density
+where the authoritative program proves it, but no dyadic formula is normative
+until its complete-program representation theorem passes. Floating metric tensors
+may not decide canonical mutation.
+
+Where an exact local inverse exists, the Riemannian-looking quantity
+
+\[
+g_\chi=(D\chi^{-1})^T(D\chi^{-1})
+\]
+
+is only a derived description of representational sampling density. It is not a
+new physical tensor beside `Ψ`, and a general floating `g_ξ` is not canonical ABI.
+For an exact nonsingular local map with Jacobian `J_chi`, the corresponding
+explanatory density is
+
+\[
+\rho_\chi=\sqrt{\det g_\chi}=|\det J_\chi|^{-1}.
+\]
+
+Canonical code uses the exact map/reconstruction record, not a floating
+determinant. Singular maps, overlapping sample ownership or a change in total
+query weight are illegal unless `kappa` and the complete-program equivalence proof
+explicitly make them representation-neutral.
+
+The useful coastline analogy is precise only at this level: more backing degrees
+of freedom are admitted where retained observations prove more native variation,
+just as a smaller ruler resolves more of the same coastline. The coastline and
+the S16 medium are not recreated.
+
+Exact intrinsic neighbourhoods induced by `chi_r/kappa_r` are the primary sparse
+relation domain. Backing adjacency is usable only when the map proves that it
+represents the required intrinsic neighbourhood. Page/sample adjacency alone
+never defines physics.
 
 They are not an ontological assertion that every native relation is restricted to
-`(u±1,v)` or `(u,v±1)`. Where the authoritative program proves that a gauge
-seam, closed manifestation or higher-arity native context requires another
-carrier support tuple, it may generate that tuple directly from `Ψ`, the query
-and the fingerprinted relation law. Such tuples and generation-keyed caches are
-disposable evaluation work. They never become a canonical seam table, chart
+one backing `(i±1,j)` or `(i,j±1)` stencil. Where the authoritative program proves
+that a gauge seam, closed manifestation or higher-arity native context requires
+another carrier support tuple, it may generate that tuple directly from `Ψ`, the
+query, the published representation and the fingerprinted relation law. Such
+tuples and generation-keyed caches are disposable evaluation work. They never
+become a canonical seam table, chart
 incidence database or topology graph, and they may not be inferred from XYZ,
 pixels, pages or proximity.
 
@@ -101,12 +241,27 @@ native no-manifestation state. A fold is an S16 relation across intrinsic
 neighbours. Two physically close sheets may occupy distant carrier regions. Two
 carrier neighbours may manifest as a sharp fold.
 
-Gauge allocation chooses an address representative only after the exact native
-law proves a non-default supported update. It may choose only among placements
-proven gauge-equivalent under the complete generated program, not merely
-placements indistinguishable to the current camera. Pixel order, observation
-revision, provenance, XYZ, page and segment identity may never decide physical
-placement.
+Gauge allocation chooses a backing representative only after the exact native law
+proves a non-default supported update. It may choose only among embeddings proven
+gauge-equivalent under the complete generated program, not merely placements
+indistinguishable to the current camera. Pixel order, observation revision,
+provenance, XYZ, page and segment identity may never decide physical placement.
+
+Before publication, every gauge-equivalent result is passed through a generated
+constructive normalizer
+
+\[
+\boxed{
+N_g(\chi,\kappa,\widehat\Psi,\mathcal W)
+}
+\]
+
+where `W` denotes only the exact relation/representation witnesses required to
+prove equivalence. The normal form must be independent of observation order,
+allocation order, dispatch order and residency. Equivalent placements therefore
+produce one byte-identical canonical representative. If the authoritative law
+cannot construct a unique normal form for surviving placements, support remains
+unresolved and no allocator choice may manufacture determinism.
 
 Gauge allocation is not object creation.
 
@@ -257,6 +412,29 @@ whether each node originates in exact S16 algebra, authoritative TOE law or a
 query-boundary descriptor, and all provenance participates in the one bundle
 fingerprint.
 
+The sensor part of `I_Q` includes an exact photometric nuisance law. For one eye,
+the optical observation is constrained by a relation of the form
+
+\[
+RGB_{obs}
+\in
+\mathfrak M_{optical}
+(\Psi,q,L_t,E_t),
+\]
+
+where `L_t` is the admitted illumination region and `E_t` is the sensor exposure,
+gain, transfer and white-balance region. These are immutable query/evidence
+nuisance parameters, not canonical appearance fields and not a second texture
+truth. They may widen only according to a frozen calibrated uncertainty law; they
+may not become an unrestricted explanation for arbitrary RGB disagreement.
+
+If the capture API supplies exposure/gain/transfer metadata, it is retained with
+the observation. If it does not, a conservative derived photometric region with
+explicit provenance is mandatory. Missing metadata may reduce optical information
+but may not turn recency or a heuristic quality scalar into authority. This is the
+mechanism by which dim, blurred or illumination-shifted RGB can remain broad while
+valid depth still contracts geometry and previously supported appearance survives.
+
 `𝔐` is the resulting fingerprinted generated exact relation-program IR.
 
 It contains expression graphs with:
@@ -397,10 +575,36 @@ nonassociation      bracket-sensitive context
 
 None may impersonate another.
 
-"Whole-field" is semantic coverage, not permission for full-world traversal. A
-disposable query-support index may cull a carrier region only after proving that
-its contribution to that exact query is zero. Residency/page/segment boundaries
-cannot prune physics.
+"Whole-field" is semantic coverage, not permission for full-world traversal. The
+compiler must generate a conservative region bound
+
+\[
+\boxed{
+B_q(P)=0
+\Longrightarrow
+P\text{ contributes exactly zero to }\mathfrak M_q[\Psi]
+}
+\]
+
+for each query family and indexed logical region `P`. `B_q(P) != 0` is only a
+possible contribution: false positives are legal, false negatives are not. Bounds
+must include finite footprint, direct order, native relation/ZD/nonassociative
+context and the published `chi/kappa` representation; a cheap geometry box is insufficient unless the
+generator proves it conservative for the complete query.
+
+A disposable sparse query-support index stores/reduces these conservative bounds
+over the finite non-default/mixed-boundary directory. It must produce a finite
+worklist without scanning the entire logical field, include nonresident encoded
+pages and remain complete after local refinement. It is derived from published
+representation bytes and generated program fingerprints, can be deleted/rebuilt,
+and never owns support identity. Missing, stale or corrupt summaries cause
+rehydration/backpressure/fail-closed inclusion, never omission. Residency, page,
+segment and index tree shape cannot prune physics.
+
+All-default quiescence is what makes the infinite default remainder safely absent
+from this index. N1R must generate the summary/bound law; N2R must compare indexed
+worklists with exhaustive small-domain evaluation; N5R must persist enough
+summary metadata to query nonresident storage without decoding the whole world.
 
 ---
 
@@ -421,7 +625,9 @@ O_e=(D_e,RGB_e,\Omega_e,F_e,P_e),
 where `Ω` is the finite footprint, `F` the first-hit/support role and `P` exact
 provenance/independence plus the frozen sensor-uncertainty descriptor. It retains
 range/incidence/baseline, pose/calibration uncertainty and optical sharpness/
-motion/exposure validity as exact regions/categories, not one confidence scalar.
+motion/exposure validity as exact regions/categories, plus the calibrated
+illumination and sensor-transfer nuisance regions required by `I_Q`, not one
+confidence scalar.
 `Γ_t` freezes timestamps, rig pose, calibration and epoch.
 
 XR/spatial anchors may stabilize the query/world gauge across large spaces,
@@ -436,6 +642,12 @@ Neither may initialize, narrow or weight the other before their pullbacks meet i
 the common reverse program. Their shared footprint, pose, calibration, first-hit
 and occlusion context remains explicit in that joint query; separateness does not
 mean four unrelated physical worlds or statistically independent sensors.
+
+Optical nuisance parameters are evidence-side variables of this same query. They
+may explain only variation admitted by the frozen photometric law. A genuine
+appearance change that cannot be reconciled by that law remains an exact
+contradiction and follows the static-correction/temporal boundary; it is not hidden
+by broadening `L_t` or `E_t` after the fact.
 
 The two eyes are coherent shadows of one field, not four physical source worlds.
 
@@ -591,9 +803,13 @@ The sole semantic mutation is
 
 \[
 \boxed{
-\operatorname{NativeCloseCommit}(\Psi_t,Y_t,\mathcal C_t).
+\operatorname{NativeCloseCommit}([\Psi_t]_{gauge},\mathcal R_t,Y_t,\mathcal C_t).
 }
 \]
+
+`𝓡_t` supplies the selected finite representative; it does not add another
+physical argument. The result is a new feasible physical gauge class plus either
+the unchanged representative or one normalized representation revision.
 
 Sensor validity and intrinsic relation validity are solved in the same feasible
 set. A sensor-valid intermediate may not be committed before relation closure.
@@ -610,11 +826,30 @@ The current field is tested first.
 If
 
 \[
-\Psi_t\in\mathcal C_{t+1},
+\operatorname{DecodeField}(\mathcal R_t)\in\mathcal C_{t+1},
 \]
 
 canonical S16 bytes remain unchanged. Evidence/certificates may strengthen. This
 is exact idempotence, not an ambiguity heuristic.
+
+This theorem owns a generated exact no-change fast path. If the root-selected
+forward shadow and relation witnesses prove that the complete current
+representation already lies in every new measurement region and no newly active
+relation/support frontier exists, the submission emits one `NoChangeReceipt` and:
+
+```text
+emits zero NativeStateDelta
+emits zero NativeGaugeDelta
+clones zero pages
+recloses no relation outside the exact proof frontier
+retains/minimizes evidence only where it adds independent proof
+```
+
+The fast path may use conservative summaries and cached witnesses only when their
+generation/program/gauge fingerprints match the selected root. A failed or
+inconclusive fast test falls through to the same exact closure; it never declares
+no-change heuristically. Stable revisits must not pay the cost of a full native
+solve merely to rediscover byte equality.
 
 If the current field is infeasible, a canonical delta is legal only when:
 
@@ -688,6 +923,33 @@ witness, never a replacement for source evidence.
 Repeated identical evidence in the same independence class does not gain strength
 by vote count. New pose/baseline/footprint phase constrains the field only through
 the frozen sensor uncertainty law.
+
+Evidence lifetime must also be asymptotically bounded by unresolved or genuinely
+new information, not by elapsed frame count. A deterministic minimizer may replace
+raw observations only after proving equivalence of the retained certificate under
+the complete generated forward/reverse program. It must preserve disjunctions,
+cross-locality factors, independence classes, directional information, optical
+nuisance regions and every receipt required for replay.
+
+For a converged static locality, exact duplicate or weaker compatible revisits
+must eventually reduce to an idempotent certificate representation. Ten thousand
+such revisits may strengthen a bounded receipt/counter only where the frozen
+independence law gives that operation exact meaning; they may not retain ten
+thousand full journals. A new independent angle, finer supported bandwidth or an
+unresolved contradiction may grow the certificate. Resolved redundant raw data is
+released after durable equivalent handoff; unresolved source evidence remains.
+
+The required growth law is therefore
+
+\[
+\boxed{
+\operatorname{bytes}(proof)
+=O(\text{unresolved structure}+\text{genuinely new native information}),
+}
+\]
+
+not `O(number of admitted frames)`. This is an acceptance theorem, not permission
+for lossy summarization.
 
 No scalar precision/confidence is canonical physics. Derived scalar diagnostics
 may not choose hypotheses, fuse state, allocate gauge, classify relations or
@@ -772,6 +1034,12 @@ intersection: a broad weak revisit often leaves the current representative
 feasible and unchanged. It does not allow old evidence to overrule a genuine exact
 contradiction.
 
+The compressed locality form and global certificate minimizer share one proof
+boundary: reconstruction from the minimized form must yield the same feasible-set
+predicates, common deltas, gauge/refinement decisions and forward verification as
+the retained source journal. If this equivalence is not proved for a factor, that
+factor and its exact source evidence remain unminimized.
+
 ---
 
 # 16. Null-to-support in the same field
@@ -794,13 +1062,27 @@ is legal only when:
 - exact independent-support proof passes under the frozen sensor law;
 - native relation closure permits the update;
 - the placement is unique modulo proven gauge equivalence, or all placements yield
-  one common delta after gauge normalization;
+  one common normalized representation delta after gauge normalization;
 - forward evaluation satisfies every retained relevant shadow.
 
-The deterministic allocator then chooses only an address representative within
-that gauge-equivalence class.
+The reverse contractor returns a relative intrinsic support pattern, its required
+native-relation attachments and the complete gauge-equivalence class. It does not
+return a pixel rectangle or physical object identity. `N_g` then constructs the
+canonical `chi/kappa` embedding and backing addresses. Allocation merely realizes that
+already-normalized representation.
 
 If multiple non-equivalent placements survive, the constraint remains unresolved.
+If multiple equivalent placements survive but no constructive byte-deterministic
+normal form has been proved, the constraint also remains unresolved.
+
+The first publication-capable replacement run must already implement the minimal
+proved base-density case. An all-`ZEmpty` field must be able to admit uniquely or
+gauge-equivalently resolved support without `NOVEL`, pending, a pixel bbox or a
+legacy path. Adaptive local density may follow in the refinement run, but a fresh
+world cannot be accepted while every observation is deliberately left unresolved.
+That first live cut uses only the generated uniform/base-density
+`(chi_0,kappa_0)` subset and fingerprints it in the root; it may not smuggle in an
+unproved regional refinement before N4R.
 
 ---
 
@@ -910,69 +1192,142 @@ incompatible constraint                                    -> unresolved/static
 
 ---
 
-# 20. Refinement is denser sampling of the same `Ψ`
+# 20. Exact local gauge density and refinement of the same `Ψ`
 
-First refinement regime: accumulated constraints tighten S16 values at the current
-sampling without changing carrier density.
+There are two and only two refinement regimes.
 
-Second regime: retained observations prove variation finer than the current
-intrinsic sampling can represent:
+## 20.1 Same-representation S16 tomography
+
+Accumulated constraints first tighten admissible S16 values at the current
+representation `(chi_r, kappa_r, Psi-hat_r)`. No coordinate map, reconstruction
+plan or backing density changes while the retained evidence can be reproduced at
+that capacity.
+
+## 20.2 Representation refinement
+
+The second regime begins only when retained observations prove variation finer
+than the current intrinsic sampling/reconstruction plan can represent:
 
 \[
 \Psi(\xi+\delta_1)\neq\Psi(\xi+\delta_2).
 \]
 
-Then the runtime increases sampling capacity for the same function `Ψ` on the same
-carrier by an exact local gauge reparameterization/lowering.
+The runtime then increases backing degrees of freedom over the same intrinsic
+region by replacing `(chi_r,kappa_r)` with a finer exact representation plan. Let
 
-It does not create child surfaces, physical germs, charts, a detail mesh or a
-three-dimensional voxel refinement hierarchy.
+\[
+\mathcal R_r=(\chi_r,\kappa_r,\widehat\Psi_r,\mathcal W_r)
+\]
+
+denote the published representation, exact reconstruction plan and only the
+representation/equivalence witnesses `W_r` required to interpret it. A refinement
+transform
+
+\[
+T_r:\mathcal R_r\rightarrow\mathcal R_{r+1}^{prior}
+\]
+
+is legal only if it proves
+
+\[
+\boxed{
+\forall q\in Q_{retained}:\quad
+\mathfrak M_q[\operatorname{DecodeField}(\mathcal R_r)]
+=
+\mathfrak M_q[\operatorname{DecodeField}(\mathcal R_{r+1}^{prior})]
+}
+\]
+
+and equality of every active intrinsic relation predicate, complete-program fibre,
+certificate interpretation and canonical default boundary. Only after this
+representation-equivalent prior exists may newly resolved higher-frequency
+information contract `Ψ̂_{r+1}`.
 
 Refinement is legal only when:
 
 1. retained evidence is jointly supportable;
-2. current sampling cannot satisfy it without contradiction or destructive
+2. current representation cannot satisfy it without contradiction or destructive
    broadening;
-3. a representation theorem generated and proved against the complete `𝔐`
-   establishes that the reparameterization preserves the prior manifested field
-   before adding new information; the transform need not be a separately named TOE
-   source equation;
-4. all evidence and relation certificates transport exactly;
-5. every exact locality information form, independent-view receipt, uncertainty
-   law and best-supported bandwidth transports without loss;
-6. the refined field forward-verifies all retained queries;
-7. replay and backing decomposition remain byte deterministic.
+3. the exact map/reconstruction family, support measure, prolongation/transport
+   and inverse interpretation are generated and proved against the complete `M`;
+   no implicit interpolation, resampling weight or footprint ownership is
+   invented by storage code;
+4. all S16 state, feasible-set factors, source evidence, native relations,
+   independent-view receipts, optical nuisance regions, directional information
+   forms and best-supported bandwidth transport exactly;
+5. the old field and all exact readouts/relations are bit-identical before adding
+   new information;
+6. the refined result forward-verifies all retained queries;
+7. `N_g` normalizes the result independently of observation/allocation order;
+8. backing decomposition and replay remain byte deterministic.
 
-Immediately after reparameterization and before adding newly resolved
-higher-frequency information, the old field and every exact readout must be
-bit-identical. Refinement changes representation capacity first, information
-second.
+The map/reconstruction plan may be encoded regionally, but it may not create a
+physical chart or child-germ hierarchy. Region boundaries are representation
+boundaries only and must be invisible to every query and relation. A coarsening/
+restriction is legal only under the symmetric exact theorem that it loses no
+retained native information.
 
-Detail density follows variation of `Ψ`, not metres, depth or image resolution.
+The coastline/Riemann intuition is deliberately non-physical: `χ` locally changes
+how much exact representation capacity covers one intrinsic region. Flat/simple
+native variation can remain sparse and compress as `CONST/AFFINE`; supported fine
+variation can receive denser samples and use `DELTA/RAW`. Density follows proven
+native bandwidth/complexity, not metres, camera pixels, range or a 3D resolution
+heuristic.
+
+No second detail world appears. The physical state remains `[Ψ]_{gauge}`.
 
 ---
 
-# 21. Sparse immutable publication
+# 21. Sparse immutable representation publication
 
-Only a resolved full-S16 delta mutates the world:
+Only a resolved full-S16 `NativeStateDelta` mutates the physical field. An exact
+`NativeGaugeDelta` may mutate its finite representation without changing physical
+content, but only with the complete equivalence and normalization proof from §20.
 
 ```text
-complete intrinsic address
-prior generation
-full S16[16] result
-changed mask
-relation-program witness
-evidence receipts
+NativeStateDelta
+    normalized backing/intrinsic address
+    prior state generation
+    full S16[16] result
+    changed mask
+    relation-program witness
+    evidence receipts
+
+NativeGaugeDelta
+    affected backing region
+    prior gauge generation/fingerprint
+    new exact chi/kappa representation
+    old-to-new state/evidence/relation transport witness
+    gauge-equivalence and normalization receipt
 ```
+
+Both are carried by one `NativeFieldRevision`. A gauge-only revision changes no
+physical query result. A refinement revision may contain both gauge and state
+deltas, but the proof must expose the representation-equivalent pre-information
+state even though no reader observes it as a separate root.
+
+The published representation root selects atomically:
+
+\[
+\boxed{
+(\chi_r,\kappa_r,\widehat\Psi_r,\text{program/default fingerprints},
+\text{certificate manifest},\text{page directory})
+}
+\]
+
+`chi/kappa`, certificates and directory metadata are not extra physical worlds;
+they are required to interpret/prove the one field. A reader may never observe
+new `Psi-hat` with an old representation plan, or a new representation plan with
+old `Psi-hat`.
 
 Publication order is:
 
 ```text
-resolve all affected deltas
+resolve and normalize all affected state/gauge deltas
 retain complete evidence/certificate ownership
 prepare all touched shadow page generations
-scatter exact S16 bytes
-close page and revision manifests
+scatter exact S16 and representation bytes
+close page, gauge, certificate and directory manifests
 validate all relations and mappings
 exchange the immutable revision root last
 ```
@@ -980,17 +1335,33 @@ exchange the immutable revision root last
 Any fault before the final root exchange leaves the previous root authoritative.
 Readers never observe a mixed revision.
 
-Unchanged evidence does not clone pages or increment a canonical generation.
+Unchanged evidence does not clone pages or increment a state/gauge generation.
 
 ---
 
-# 22. Storage, codec and persistence
+# 22. Storage, codec, durable page directory and residency
 
-The canonical logical field is unbounded; decoded residency is bounded.
+The canonical logical field is unbounded; decoded GPU residency is bounded. This
+is a production contract, not a later aspiration.
 
 Pages, blocks, segments, codecs, chunks and files are storage only. Their shape,
 order and residency may not affect `Ψ`, query results, reverse constraints or
 certificates.
+
+The live backing must contain four representation-neutral layers:
+
+```text
+published logical page/gauge key and generation directory
+durable lossless encoded page/gauge/certificate blobs on device storage
+bounded decoded GPU current/shadow residency cache
+derived conservative query-support summaries/index
+```
+
+The directory and root manifest are append/replace atomically and identify the
+latest durable generation independently of resident slot/segment. A clean page is
+evictable only after its encoded bytes, gauge metadata, certificate receipts and
+query-support summary are durably reachable from a published manifest. Rehydrate
+must reproduce the exact decoded representation before it becomes query-visible.
 
 After the `ZEmpty` gate:
 
@@ -1000,19 +1371,37 @@ After the `ZEmpty` gate:
 - clean pages may encode/evict/rehydrate transparently;
 - capacity pressure changes residency, never logical world size.
 
+The current `NULL/CONST/AFFINE/DELTA/RAW` codec is a donor for state payloads. The
+production schema must additionally encode/fingerprint the exact `chi/kappa`
+normal form or its page/region reference, gauge generation, program/default fingerprint and
+conservative support summary required to interpret a nonresident page. The
+S4‑08.6 `64×64` page and `8×8` block geometry remains frozen; adaptive density is
+represented by `chi/kappa`, not by silently changing this ABI.
+
+Page lookup, encode, durable write, eviction, asynchronous rehydrate and GPU cache
+replacement must be implemented before S4‑08 closure. A resident allocation fault
+is backpressure/page-fault work, not proof that the logical carrier is full. The
+published eye/readout root remains usable while cold rehydrate/refinement work is
+in flight.
+
 Persist:
 
 ```text
 non-default sparse S16 pages/generations
+normalized gauge-map generations and transport fingerprints
 Merkaba program and algebra fingerprints
 canonical default fingerprint
 minimal exact certificates
 unresolved constraints and only source evidence still required
 calibration/pose metadata needed by those records
+conservative nonresident query-support summaries or their deterministic rebuild input
 ```
 
-Restart plus the same accepted observation sequence produces byte-identical field,
-certificates and readouts.
+Clear-data removes the durable manifest/blobs and resident cache as one explicit
+user operation; stopping/sleeping the scanner does not. Restart plus the same
+accepted observation sequence produces byte-identical normalized representation,
+certificates and readouts. Rehydrating into different physical segments produces
+the same result.
 
 ---
 
@@ -1076,6 +1465,9 @@ The semantic model is one relation program and one close/commit. A preferred spa
 physical lowering is:
 
 ```text
+SelectNativeQuerySupport
+    conservative resident/nonresident worklist from generated exact bounds
+
 EvaluateNativeQuery
     generated local query plans over relevant carrier support
 
@@ -1090,13 +1482,14 @@ ContractNativeQuery
 CloseNativeConstraints
     combine all observation leaves, accumulated feasible-set/information
     certificates and native relations
-    emit only resolved/common sparse S16 deltas
+    emit only resolved/common sparse S16 state deltas, normalized support/gauge
+    deltas, no-change receipts or unresolved exact constraints
 
 ResolveContractorOverflow          indirect/cold
     continue the same reverse/closure program for cross-block or branch overflow
 
-PrepareChangedPages                indirect
-ScatterChangedStates               indirect
+PrepareChangedRepresentation       indirect
+ScatterChangedStatesAndGauge       indirect
 CloseAndPublishRevision
 ```
 
@@ -1105,6 +1498,14 @@ Names may change. Their semantic limits may not.
 `Evaluate/Reduce` are query compiler stages. `Contract/Close` are forward/reverse
 execution of the same program. Overflow is continuation of the same solve, not a
 scheduler, object manager or second physical authority.
+
+`SelectNativeQuerySupport` is a derived culling lowering with false positives and
+zero false negatives. Nonresident candidates produce asynchronous page-fault work
+or conservative backpressure; they are never silently omitted.
+
+The generated no-change proof exits before state/gauge allocation and page clone.
+Cold refinement, disjunction overflow or SSD rehydrate may continue
+asynchronously, but published-root eye queries remain independent.
 
 No CPU pixel loop, CPU mesh, synchronous readback or full-world traversal is
 allowed.
@@ -1129,6 +1530,9 @@ NativeObservationGpu
     rangeIncidenceBaselineRegion
     poseCalibrationUncertainty
     opticalQualityRegion
+    illuminationRegion
+    exposureGainTransferRegion
+    photometricLawFingerprint
     rawReference
 ```
 
@@ -1161,16 +1565,41 @@ no chart
 no extent
 ```
 
-Canonical mutation is `NativeStateDeltaGpu`:
+Physical mutation is `NativeStateDeltaGpu`:
 
 ```text
-carrier address
-prior generation
+normalized backing address + gauge generation
+prior state generation
 full S16[16]
 changed mask
 program witness
 evidence receipts
 ```
+
+Representation-only mutation is `NativeGaugeDeltaGpu`:
+
+```text
+affected backing range
+prior/new exact chi/kappa fingerprints or inline normal-form record
+old-to-new sample/evidence/relation transport range
+equivalence and canonical-normalization receipt
+```
+
+One `NativeFieldRevisionGpu` owns compact state deltas, gauge deltas, certificate/
+directory manifests, the prior root and the proposed root. State/gauge records are
+never published independently.
+
+Derived noncanonical storage/query metadata may contain:
+
+```text
+NativeQuerySupportSummary
+    representation root + program fingerprint
+    logical page/gauge range
+    exact conservative query-family bounds
+    durable encoded-generation locator
+```
+
+It can be rebuilt and has no mutation authority.
 
 No packet mixes observation identity with possible support identity.
 
@@ -1209,13 +1638,31 @@ Within that ABI, for the same admitted observation sequence, all legal lowerings
 produce byte-identical:
 
 ```text
-Psi pages and generations
+normalized chi/kappa gauge records
+Psi pages and state/gauge generations
 program/canonical-default fingerprints
 unresolved constraint encodings
 certificates and provenance
+durable directory/manifest logical contents
 query results at exact query parameters
 publication roots
 ```
+
+The same static independent evidence presented in any permitted order must also
+produce the same normalized representation. This is not achieved by seeding an
+allocator with revision/provenance order. Before publication,
+
+\[
+\boxed{
+N_g(\mathcal R_a)=N_g(\mathcal R_b)
+\quad\text{for every proved }\mathcal R_a\sim_g\mathcal R_b.
+}
+\]
+
+`N_g` must be constructive over the admitted finite support, include local density
+maps and be fingerprinted with the program. If gauge symmetry cannot be normalized
+without choosing physics from observation/allocation order, the update remains
+unresolved.
 
 Changing any of the following may change cost only:
 
@@ -1240,7 +1687,8 @@ serialization, for example the stable ordered stream
 
 \[
 \operatorname{CanonicalSerialize}
-\{(\xi,g_\xi,\Psi(\xi))\}.
+\{(N_g(\mathcal R)_r,\widehat\Psi_r,
+\text{state/gauge generations},\text{program/default fingerprints})\}.
 \]
 
 Such a migration must prove byte identity of that logical serialization,
@@ -1294,16 +1742,56 @@ association were computed as three separate systems. The replacement removes
 those semantic duplications; it does not merely rename or micro-optimize them.
 
 Release telemetry is one-shot opt-in and records actual per-kernel GPU timestamps
-without enabling the Unity development profiler.
+without enabling the Unity development profiler. The timestamped submission is
+diagnostic-contaminated and is not used as an ordinary wall baseline.
 
-Final device targets:
+The old `1500/1800 ms` pair is an S4‑08.6 **recovery ceiling** for early live
+replacement cuts, not a final realtime product contract:
 
 ```text
-NativeCloseCommit measured compute  <= 1500 ms
-admitted-frame wall                 <= 1800 ms
-revision-dependent latency slope    statistically zero
-memory                              bounded by residency + active evidence
+N3R/N4R recovery NativeCloseCommit compute  <= 1500 ms
+N3R/N4R recovery admitted-frame wall         <= 1800 ms
 ```
+
+Final S4‑08 acceptance has distinct hot/cold/readout contracts:
+
+```text
+stable exact no-change revisit at 30 Hz ingress
+    admitted-frame proof wall                 <= 33.3 ms
+    state/gauge deltas and cloned pages       0
+
+ordinary bounded informative 320x320 update
+    NativeCloseCommit p95                     <= 100 ms
+    no revision/segment/residency slope
+
+XR eye query from immutable published root
+    <= 13.89 ms at 72 Hz
+    <= 11.11 ms at 90 Hz
+    independent of concurrent scan/refinement/page-fault work
+
+cold exact work
+    large disjunction/refinement/SSD page fault may exceed hot budget
+    but uses backpressure/indirect continuation and never blocks eye readout
+
+memory
+    bounded decoded residency + active unresolved/new-information proof
+    no growth per duplicate revisit
+```
+
+All timing gates are Release/Vulkan p95 gates with the exact commit, query/program
+fingerprint, work cardinalities, residency state and warmup recorded in evidence.
+The stable no-change gate measures admitted-observation ownership through terminal
+GPU disposition after a warm published root. The ordinary informative fixture is
+warm-resident, excludes a cold SSD fault/refinement overflow and freezes its
+query-visible pages plus active constraint frontier in the evidence manifest; a
+different workload cannot be substituted under the same number. The eye gate
+measures `Select/Evaluate/Reduce` to completed retinal outputs over at least 1000
+frames while scan work is queued. Cold work has no fake hot deadline, but its
+backpressure may not stall or mix the published eye root.
+
+Pre-admission sensor sampling may be deterministic when ordinary informative work
+cannot consume every captured frame, but an admitted frame remains owned. Stable
+room revisits must reach the no-change path rather than permanent decimation.
 
 ---
 
@@ -1331,9 +1819,17 @@ The following are hard failures:
 - separate stitch/topology solver or canonical relation graph;
 - PENDING/NOVEL/LatentGerm lifecycle;
 - pixel/global-bbox canonical gauge;
+- `chi/kappa`/`g` treated as a second physical field, floating metric authority, chart
+  manager or observation-order allocator;
+- state and gauge generations published under different roots;
 - refinement by metres, pixels or 3D voxels;
 - texture/detail reconstructed outside `Ψ` for export;
 - page/segment/residency identity affecting physics;
+- finite resident page pairs treated as logical world capacity;
+- query-support culling without a generated zero-false-negative proof;
+- optical quality/confidence used instead of a calibrated illumination/sensor
+  transfer nuisance law;
+- proof/evidence growth proportional to duplicate revisit count after convergence;
 - legacy/fallback runtime path after cutover.
 
 ---
@@ -1360,7 +1856,8 @@ Before live mutation:
 12. no persisted contractor branch gains physical identity;
 13. current feasible `Ψ` yields canonical no-change;
 14. ambiguous non-equivalent placement yields no mutation;
-15. gauge-equivalent placement replays byte-identically;
+15. gauge-equivalent placement and disconnected-support discovery permutations
+    normalize to one byte-identical `(chi, kappa, Psi-hat)` representative;
 16. a query-transparent but program-coupled mode can update when later evidence
     constrains it;
 17. a proven complete-program fibre preserves its prior representative;
@@ -1369,7 +1866,7 @@ Before live mutation:
 20. static pass-through can remove a false manifestation;
 21. local and descriptor-proven nonlocal relation evaluation is
     cache/decomposition invariant;
-22. refinement preserves the prior field before adding finer information.
+22. refinement preserves the prior field before adding finer information;
 23. clear pre-hit plus measured first-hit produces the exact directional mould
     action, while behind-hit produces no constraint/action;
 24. near false support and a farther measured mould converge only through a proven
@@ -1384,7 +1881,28 @@ Before live mutation:
 29. refinement transports S16, exact feasible sets, directional information,
     evidence, relations and bandwidth with pre-addition readout parity;
 30. static-incompatible moving evidence remains unresolved for S4‑09 rather than
-    becoming an elastic smear.
+    becoming an elastic smear;
+31. the generated `chi/kappa` map/reconstruction family, exact arithmetic,
+    prolongation/transport and canonical normalizer are CPU/GPU/replay identical,
+    and gauge-only transport preserves pointwise full-S16 state before query
+    parity is considered;
+32. a gauge-only revision changes no sensor/eye/relation/export query, and any
+    mixed state/gauge fault exposes neither half;
+33. a fresh all-`ZEmpty` world admits uniquely or gauge-equivalently proved base
+    support without a NOVEL/pending/pixel path;
+34. exhaustive small-domain evaluation finds no contribution omitted by the
+    sparse query-support index, including nonresident and refined regions;
+35. missing/stale support summaries fail closed instead of hiding a page;
+36. the calibrated optical nuisance law distinguishes broad lighting/exposure
+    uncertainty from genuine appearance contradiction;
+37. deterministic certificate minimization is equivalent to exhaustive evidence,
+    and 10,000 redundant compatible revisits have bounded proof bytes;
+38. encoded eviction/rehydration reproduces normalized gauge/state/certificate
+    bytes and exact query results in different physical segments;
+39. the exact no-change fast path emits no state/gauge delta or page clone and
+    meets the stable-revisit cadence gate;
+40. direct eye queries meet XR cadence while scan/refinement/page faults are in
+    flight.
 
 ---
 
@@ -1414,6 +1932,9 @@ poor-light RGB with valid depth
 changed illumination with static geometry
 inconsistent moving object under one static epoch
 observation-order permutations of the same independent evidence
+fresh all-ZEmpty world first support without legacy proposal kinds
+disconnected support A/B discovered in both orders
+10,000 duplicate/weak compatible static revisits after convergence
 ```
 
 Expected: evidence monotonically preserves or tightens the feasible field; no
@@ -1431,8 +1952,13 @@ local sampling refinement with exact evidence transport
 same-locality contraction without density growth
 directional information/certificate transport through refinement
 old-field/readout parity before adding higher-frequency information
+gauge-only revision atomicity and canonical normalization
+uniform versus locally refined chi/kappa representation parity
 restart/rehydrate and deterministic replay
 long scan beyond resident capacity with transparent eviction
+nonresident page contributing to a sensor/eye query
+stale/missing query-support summary fail-closed path
+clear-data versus stop/sleep durable-lifecycle separation
 ```
 
 ## Eye and export
@@ -1443,6 +1969,7 @@ head translation/rotation
 fold crossing
 thin two-sided sheet
 sleep/wake/resume
+eye readout while scan close/refinement/SSD page fault is active
 export after 1 pass and after repeated refinement
 opposite-side appearance
 export after restart
@@ -1464,15 +1991,22 @@ Deleting eye/prediction caches changes no canonical bytes or export result.
 ## N1R — authoritative Merkaba program
 
 - locate/hash the supplied TOE artifact and freeze query-boundary inputs `I_Q`;
-- generate the one relation-program IR and query entry points;
+- extend/replace the current closed scalar operator vocabulary only where the
+  source-backed TOE/query law requires it, then generate one relation-program IR;
 - freeze expression provenance, arities/brackets/couplings;
+- freeze the exact `chi/kappa` map/reconstruction family, representation decoder, transport and
+  constructive canonical gauge normalizer;
 - prove contextual E22 separation or retain direct S16;
 - prove `ZEmpty` representation parity and all-default quiescence or block;
 - generate forward/reverse/reference plans, including exact directional
   first-hit action and uncertainty/information pullback;
+- generate calibrated illumination/exposure/transfer nuisance relations;
+- generate conservative query-support summary/bound plans with zero-false-negative
+  proof;
 - generate exact locality information-form/certificate compression without scalar
   confidence or loss of coupled/disjunctive constraints;
-- derive and prove the carrier-reparameterization theorem against complete `𝔐`;
+- derive bounded deterministic evidence minimization and the carrier-
+  reparameterization theorem against complete `𝔐`;
 - no live mutation.
 
 ## N2R — non-mutating forward/reverse oracle
@@ -1483,7 +2017,12 @@ Deleting eye/prediction caches changes no canonical bytes or export result.
 - prove pre-hit pressure/mould correction, behind-hit zero action, multi-view
   equilibrium and non-carving;
 - prove monotonic directional information/non-degradation, optical-quality
-  behaviour and exact refinement transport;
+  behaviour under the calibrated nuisance law and exact refinement transport;
+- prove gauge-only parity/canonical normalization and base-density
+  `ZEmpty -> supported` admission;
+- prove sparse query-support completeness against exhaustive resident/nonresident
+  small domains;
+- prove bounded certificate bytes under duplicate revisit permutations;
 - compare against exhaustive small-domain oracle.
 
 ## N3R — joint NativeCloseCommit live cutover
@@ -1493,39 +2032,57 @@ Deleting eye/prediction caches changes no canonical bytes or export result.
 - evaluate intrinsic/ZD/nonassoc relations through the same active feasible set
   before any delta is publishable;
 - emit and publish resolved/common S16 deltas only after joint closure;
-- persist unresolved constraints without branch identity;
+- admit the N1/N2-proved base-density `ZEmpty -> supported` case so a fresh field
+  scans without a legacy NOVEL path;
+- bind/fingerprint only the uniform `chi_0/kappa_0` representation in N3; adaptive
+  regional density begins in N4;
+- retain unresolved constraints/evidence in-session without branch identity;
+- regenerate the sole frame ABI in this commit and delete every generated
+  Candidate/Pending/Continuation/Novel/DirtyEdge symbol;
 - delete source-cell builders, proposals, provider×segment evaluation and global
   target sort/reduce in the same commit;
 - delete the optical-edge universe, XYZ qualifier, label propagation and separate
   topology/stitch authority in that same commit;
 - keep only cold indirect continuation of the identical contractor program;
-- unresolved/new support remains evidence only; no legacy NOVEL/default-support
-  path may fill the gap before N4R.
+- any support outside the proved base-density admission remains unresolved; no
+  legacy path fills the gap.
 
 There is no publication-capable sensor-only intermediate run.
 
-## N4R — default support and refinement cutover
+## N4R — durable constraints, exact gauge density and certificate cutover
 
 - implement proven `ZEmpty` backing equivalence and all-default quiescence;
-- replace pending/novel/branch lifecycle with unresolved constraint persistence;
+- replace N3 in-session retention with durable/reclaimable unresolved constraint
+  records and deterministic exact certificate minimization;
 - persist only the minimal exact locality information/coupled-factor certificates
   required for tomography, non-degradation and refinement;
-- implement gauge-equivalent null-to-support allocation;
-- implement exact sampling-density refinement of the same field;
+- implement normalized `NativeGaugeDelta` plus exact sampling-density refinement
+  of the same field;
+- transport state/evidence/relations/information/bandwidth and atomically publish
+  state plus gauge generations;
+- make `chi/kappa` gauge metadata and fingerprints mandatory carrier/codec ABI;
+- implement static false-support correction through exact mould/exclusion closure;
 - delete pending projection/retention, global pixel bbox and physical chart logic.
 
-## N5R — sparse commit simplification
+## N5R — representation-aware sparse commit and durable pager
 
-- feed `NativeStateDeltaGpu` directly to touched-page shadow generations;
+- feed compact state/gauge deltas directly to touched representation generations;
 - retain complete evidence/certificate ownership;
-- root exchange remains last;
+- implement the durable logical page/gauge directory, encoded on-device blob
+  backing, bounded decoded GPU residency, asynchronous eviction/rehydration and
+  exact clear/restore lifecycle;
+- persist conservative nonresident query-support summaries and prove their rebuild;
+- root exchange atomically selects gauge/state/certificate/directory and remains
+  last;
 - delete superseded second mapping/sort/publication orchestration.
 
 ## N6R — pure readouts
 
 - eye, prediction, relation, debug and export use generated query plans;
 - remove live mesh/halo/readout state that claims continuity or physical authority;
-- keep only disposable caches and on-demand rich export.
+- keep only disposable caches and on-demand rich export;
+- meet 72/90 Hz eye-query budgets independently of concurrent scan/refinement/
+  page-fault work.
 
 ## N7R — hard deletion and physical closure
 
@@ -1534,6 +2091,10 @@ There is no publication-capable sensor-only intermediate run.
 - net at most -6100 versus `cac9ab0` and -5500 versus `d3b83e1`;
 - zero legacy/fallback symbols;
 - exact oracle/Vulkan/Release gates;
+- recovery ceiling, stable no-change, ordinary informative-update and XR-eye
+  performance contracts all pass;
+- long scan exceeds decoded residency without world-size fault;
+- 10,000 redundant revisits have bounded evidence/certificate growth;
 - source archive, APK and Quest corpus from the identical commit;
 - stop before S4‑09.
 
@@ -1557,12 +2118,19 @@ first-hit is whole-query reduction
 exact directional reverse action corrects pre-hit artefacts and is zero behind hit
 locality feasible sets/information become monotonically tighter, never scalar confidence
 native relation is a query, not topology state
-refinement increases sampling of the same Psi
+chi/kappa is exact representation gauge/reconstruction, never a physical field
+gauge-equivalent support normalizes independently of discovery/allocation order
+refinement increases sampling of the same Psi and publishes gauge/state atomically
 refinement transports exact directional information and reproduces old readouts first
-only resolved/common full-S16 deltas publish root-last
+fresh ZEmpty world admits proved support without legacy proposal kinds
+only resolved/common full-S16 state plus proved representation deltas publish root-last
+query-support culling has a generated zero-false-negative proof
+durable SSD backing makes decoded residency independent of logical world size
+certificate growth follows new/unresolved information, not revisit count
+optical nuisance law handles calibrated illumination/sensor transfer without hiding contradictions
 eyes/prediction/export/debug are pure readouts
 storage and execution decomposition are physically invisible
-negative-LOC and device performance gates pass
+no-change, informative-update, eye cadence, negative-LOC and device gates pass
 ```
 
 The final architecture is:
@@ -1570,6 +2138,9 @@ The final architecture is:
 ```text
                          ONE NATIVE MEDIUM
                          Psi : Sigma_2 -> S16
+                                  |
+                  exact normalized representation
+                      (chi, kappa, Psi-hat)
                                   |
                     one generated Merkaba program M
                        /          |          \
@@ -1581,9 +2152,11 @@ The final architecture is:
                                   |
                      one NativeCloseCommit
                                   |
-                      sparse full-S16 deltas
+                sparse state + proved gauge deltas
                                   |
-                         root-last publication
+              root-last representation publication
+                                  |
+          durable directory/codec <-> bounded GPU residency
 ```
 
 The core rule is:

@@ -4,10 +4,10 @@ Updated: 2026-08-25 (Europe/Prague)
 
 ## Authority
 
-- Canonical spec: `new_spec.md`, `CPQ4-2026-08-25-S16-v8.2`.
+- Canonical spec: `new_spec.md`, `CPQ4-2026-08-25-S16-v8.3`.
 - Branch: `feat/sigma-prism-16-cpq4-20260822`.
 - Runtime replacement baseline: `cac9ab012f4ce574e5eb9bee88290982fd9c4fe8`.
-- Accepted primitive milestones: S4‑00 through S4‑07 where compatible with v8.2.
+- Accepted primitive milestones: S4‑00 through S4‑07 where compatible with v8.3.
 - Active node: S4‑08, reopened and in progress.
 - Active repair: S4‑08.6 one-medium native closure.
 - Frozen plan: `.codex/S4-08.6_NATIVE_CLOSURE_PLAN.md`.
@@ -45,15 +45,20 @@ SigmaOperatorPlan is one exact fingerprinted DAG vocabulary with bracket ownersh
 Sigma_2 carrier addresses are signed-64 (u,v).
 IntrinsicTopology owns no topology/geometry state.
 Current pool/NULL codec use generated ZNullDyad.
+Current address/page/codec ABI has no local chi/gauge-density map.
+Current live carrier is one finite preallocated decoded pool; TryGetLatest is false.
+Current sole generator emits Candidate/PendingGauge/DirtyEdge and proposal kinds.
+Current GpuImageView has no exposure/gain/illumination nuisance region.
 ```
 
 The source does not prove the authoritative TOE program, contextual
 separation/complete-law sufficiency of an arbitrary-arity E22 inventory,
 full-query validity and all-default quiescence of current `ZNullDyad`, complete
-shadow-mode coupling/fibres or an exact carrier-reparameterization theorem against
-the complete program.
+shadow-mode coupling/fibres, an exact carrier-reparameterization/canonical-gauge
+theorem, calibrated photometric nuisance law, conservative nonresident query
+support, durable pager or bounded exact certificate minimizer.
 
-## Frozen v8.2 model
+## Frozen v8.3 model
 
 ```text
 CANONICAL
@@ -85,7 +90,18 @@ DEFAULT
     supported->ZEmpty remains a physical mutation
 
 REFINE
-    contract S16 or increase sampling density of the same Psi
+    contract S16 or revise exact chi/kappa to increase local density of the same Psi
+
+REPRESENT
+    normalized (chi, kappa, Psi-hat, certificate, directory) under one root;
+    chi/kappa and Riemann-like density are representation, not physical state
+
+QUERY SUPPORT
+    generated conservative summaries, zero false negatives, resident/nonresident
+
+BACKING
+    durable logical page/gauge directory + encoded on-device blobs;
+    bounded decoded GPU residency
 
 PUBLISH
     resolved/common full-S16 deltas, root last
@@ -97,20 +113,27 @@ kernel.
 
 ## Current exact action
 
-N0R v8.2 is accepted with zero Runtime/Resources diff. N1R is the sole active run:
+N0R v8.3 documentation correction is accepted by this checkpoint with zero
+Runtime/Resources diff. N1R has not started and remains the sole next
+implementation run:
 
 1. locate/hash the supplied authoritative TOE artifact and freeze/hash `I_Q`;
-2. generate one provenance-bearing relation-program IR with all
+2. extend/replace the donor operator vocabulary only if authoritative source
+   requires it, then generate one provenance-bearing relation-program IR with all
    arities/brackets/couplings;
 3. generate query reductions and exact reverse contractors;
 4. generate exact directional mould action, behind-hit zero action and native
    uncertainty/information pullback;
-5. prove locality certificate compression preserves coupled/disjunctive exactness;
-6. prove contextual E22 separation/complete-law sufficiency or retain direct S16;
-7. prove `ZEmpty` representation parity plus all-default quiescence or block;
-8. prove complete-program fibre/coupling rules;
-9. derive/freeze lossless carrier-reparameterization against complete `M`;
-10. establish CPU/HLSL parity without live mutation.
+5. freeze calibrated photometric nuisance relations and generate exact
+   zero-false-negative query-support summaries;
+6. prove locality certificate compression and deterministic minimization preserve
+   coupled/disjunctive exactness with bounded duplicate-revisit growth;
+7. prove contextual E22 separation/complete-law sufficiency or retain direct S16;
+8. prove `ZEmpty` representation parity plus all-default quiescence or block;
+9. prove complete-program fibre/coupling rules;
+10. freeze exact `chi/kappa`, representation decode/transport and constructive canonical
+    gauge normalizer; prove base-density fresh support admission;
+11. establish CPU/HLSL parity without live mutation.
 
 Do not infer missing law from current B/G/F/RGB/topology code.
 
@@ -129,6 +152,15 @@ N3R jointly cuts sensor inverse + native relation before publication
 64x64 page / 8x8 codec block is frozen for S4-08.6 parity
 exact directional pre-hit/first-hit mould action; zero behind hit
 exact locality feasible-set/coupled-factor information; no scalar confidence
+exact chi/kappa gauge-density/reconstruction representation and observation-order-independent normalizer
+pointwise full-S16 gauge transport; readout equality alone is insufficient
+atomic state/gauge/certificate/directory root
+fresh-world base support in N3 + generated ABI hard cut
+calibrated optical nuisance law
+zero-false-negative resident/nonresident query-support index
+bounded exact certificate minimization
+real durable pager in N5; decoded residency is not world size
+recovery ceiling separated from no-change/informative/eye realtime contracts
 ```
 
 Changed documentation/control files are `new_spec.md`, `analyza.md`, the frozen
@@ -164,5 +196,7 @@ each subsequently replaced branch immediately.
 
 Only N7R closes S4‑08. It requires exact oracle/Vulkan/LOC/code-graph gates,
 same-commit source archive and Release APK, Quest installation and physical corpus,
-truthful kernel times, `NativeCloseCommit <=1500 ms`, wall `<=1800 ms`, bounded
-memory and no revision/segment latency slope.
+truthful kernel times, recovery `1500/1800 ms`, final stable no-change `<=33.3 ms`,
+ordinary informative p95 `<=100 ms`, eye query `<=13.89/11.11 ms` at 72/90 Hz,
+long scan beyond decoded residency, bounded duplicate evidence and no revision/
+segment latency slope.
