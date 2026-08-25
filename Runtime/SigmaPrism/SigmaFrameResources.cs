@@ -471,7 +471,8 @@ namespace Genesis.RoomScan.SigmaPrism
             _allocatedBytes = checked(_allocatedBytes +
                 BufferBytes(PublicationDispatchArguments));
             if (!TryEnsureCandidateCapacity(initialCandidates) ||
-                !TryEnsurePendingCapacity(FootprintCount) ||
+                !TryEnsurePendingProjectionCapacity(FootprintCount) ||
+                !TryEnsurePersistentPendingCapacity(FootprintCount) ||
                 !TryEnsureTargetScratchCapacity(initialTargets) ||
                 !TryEnsureDirtyEdgeCapacity(initialEdges) ||
                 !TryEnsureRevisionCapacity(InitialRevisionRecords) ||
@@ -500,7 +501,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 new SigmaFrameUInt4Gpu[ClosureCounterRecords]);
             PendingControl.Segments[0].Buffer.SetData(new[]
             {
-                UInt4(0u, unchecked((uint)FootprintCount), 1u, 0u),
+                UInt4(0u, unchecked((uint)PersistentPendingCapacity), 1u, 0u),
             });
             ExtentAllocator.Segments[0].Buffer.SetData(
                 new SigmaFrameUInt4Gpu[1]);
@@ -515,6 +516,9 @@ namespace Genesis.RoomScan.SigmaPrism
         internal int FootprintsPerWindow { get; }
         internal int ExecutionWindowCount => checked((FootprintCount +
             FootprintsPerWindow - 1) / FootprintsPerWindow);
+        internal int PendingWindowCount => PendingGauges.Segments.Count;
+        internal int PersistentPendingCapacity => checked((int)
+            PendingGauges.RecordCapacity);
         internal SigmaFrameMemoryProfile Profile { get; }
         internal int FrameCapacity => _frameSlots.Length;
         internal long BudgetBytes => _budgetBytes;
@@ -532,6 +536,7 @@ namespace Genesis.RoomScan.SigmaPrism
         internal SigmaFrameSegmentedBuffer PendingLower { get; }
         internal SigmaFrameSegmentedBuffer PendingUpper { get; }
         internal SigmaFrameSegmentedBuffer PendingValidity { get; }
+        internal GraphicsBuffer PendingReusableSlots { get; private set; }
         internal SigmaFrameSegmentedBuffer PendingProjectionDepth { get; }
         internal SigmaFrameSegmentedBuffer PendingProjectionHandles { get; }
         internal SigmaFrameSegmentedBuffer PendingControl { get; }
@@ -673,13 +678,33 @@ namespace Genesis.RoomScan.SigmaPrism
             return true;
         }
 
-        internal bool TryEnsurePendingCapacity(long records)
+        internal bool TryEnsurePendingProjectionCapacity(long records)
         {
             RequireAlive();
             if (records < 0L)
                 throw new ArgumentOutOfRangeException(nameof(records));
-            long coordinates = checked(records * SigmaGeneratedFrame.LaneCount);
             long projections = checked(records * 2L);
+            long additional =
+                PendingProjectionDepth.AdditionalBytesFor(projections);
+            additional = checked(additional +
+                PendingProjectionHandles.AdditionalBytesFor(projections));
+            if (!TryReserve(additional))
+                return false;
+            PendingProjectionDepth.GrowTo(projections);
+            PendingProjectionHandles.GrowTo(projections);
+            _allocatedBytes = checked(_allocatedBytes + additional);
+            return true;
+        }
+
+        internal bool TryEnsurePersistentPendingCapacity(long records)
+        {
+            RequireAlive();
+            if (records < 0L || records > int.MaxValue)
+                throw new ArgumentOutOfRangeException(nameof(records));
+            long coordinates = checked(records * SigmaGeneratedFrame.LaneCount);
+            long reusableBytes = checked(records * sizeof(uint));
+            long existingReusableBytes = PendingReusableSlots == null ? 0L :
+                BufferBytes(PendingReusableSlots);
             long additional = PendingGauges.AdditionalBytesFor(records);
             additional = checked(additional +
                 PendingStates.AdditionalBytesFor(coordinates));
@@ -689,23 +714,29 @@ namespace Genesis.RoomScan.SigmaPrism
                 PendingUpper.AdditionalBytesFor(coordinates));
             additional = checked(additional +
                 PendingValidity.AdditionalBytesFor(coordinates));
-            additional = checked(additional +
-                PendingProjectionDepth.AdditionalBytesFor(projections));
-            additional = checked(additional +
-                PendingProjectionHandles.AdditionalBytesFor(projections));
+            additional = checked(additional + Math.Max(0L,
+                reusableBytes - existingReusableBytes));
             additional = checked(additional +
                 PendingControl.AdditionalBytesFor(1));
             if (!TryReserve(additional))
                 return false;
+            GraphicsBuffer reusable = PendingReusableSlots;
+            if (reusableBytes > existingReusableBytes)
+                reusable = CreateBuffer(checked((int)records), sizeof(uint),
+                    "Sigma pending reusable-slot scratch");
             PendingGauges.GrowTo(records);
             PendingStates.GrowTo(coordinates);
             PendingLower.GrowTo(coordinates);
             PendingUpper.GrowTo(coordinates);
             PendingValidity.GrowTo(coordinates);
-            PendingProjectionDepth.GrowTo(projections);
-            PendingProjectionHandles.GrowTo(projections);
             PendingControl.GrowTo(1);
+            if (!ReferenceEquals(reusable, PendingReusableSlots))
+            {
+                PendingReusableSlots?.Dispose();
+                PendingReusableSlots = reusable;
+            }
             _allocatedBytes = checked(_allocatedBytes + additional);
+            _ = PendingWindow(checked(PendingWindowCount - 1));
             return true;
         }
 
@@ -837,6 +868,22 @@ namespace Genesis.RoomScan.SigmaPrism
             int first = checked(index * FootprintsPerWindow);
             return new SigmaFrameExecutionWindow(index, first,
                 Math.Min(FootprintsPerWindow, FootprintCount - first));
+        }
+
+        internal SigmaFrameExecutionWindow PendingWindow(int index)
+        {
+            RequireAlive();
+            SigmaFrameBufferSegment gauges = PendingGauges.Segment(index);
+            RequirePendingWindow(PendingStates, index, gauges,
+                SigmaGeneratedFrame.LaneCount);
+            RequirePendingWindow(PendingLower, index, gauges,
+                SigmaGeneratedFrame.LaneCount);
+            RequirePendingWindow(PendingUpper, index, gauges,
+                SigmaGeneratedFrame.LaneCount);
+            RequirePendingWindow(PendingValidity, index, gauges,
+                SigmaGeneratedFrame.LaneCount);
+            return new SigmaFrameExecutionWindow(index,
+                checked((int)gauges.FirstRecord), gauges.RecordCount);
         }
 
         internal static GraphicsBuffer WindowBuffer(SigmaFrameSegmentedBuffer buffer,
@@ -975,6 +1022,8 @@ namespace Genesis.RoomScan.SigmaPrism
             PendingLower.Dispose();
             PendingUpper.Dispose();
             PendingValidity.Dispose();
+            PendingReusableSlots?.Dispose();
+            PendingReusableSlots = null;
             PendingProjectionDepth.Dispose();
             PendingProjectionHandles.Dispose();
             PendingControl.Dispose();
@@ -1041,6 +1090,19 @@ namespace Genesis.RoomScan.SigmaPrism
 
         private bool TryReserve(long additionalBytes) => additionalBytes >= 0L &&
             _allocatedBytes <= _budgetBytes - additionalBytes;
+
+        private static void RequirePendingWindow(
+            SigmaFrameSegmentedBuffer buffer, int index,
+            SigmaFrameBufferSegment gauges, int recordsPerPending)
+        {
+            SigmaFrameBufferSegment segment = buffer.Segment(index);
+            if (segment.FirstRecord != checked(gauges.FirstRecord *
+                    recordsPerPending) ||
+                segment.RecordCount != checked(gauges.RecordCount *
+                    recordsPerPending))
+                throw new InvalidOperationException(
+                    "Persistent Sigma pending SoA windows are misaligned.");
+        }
 
         private void RequireSlot(int slot, uint generation)
         {

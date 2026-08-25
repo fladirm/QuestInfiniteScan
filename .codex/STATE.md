@@ -99,12 +99,13 @@ extent allocation, proof/raw ownership and milestone gates are frozen in the pla
 
 ## Current exact action
 
-Regenerate/validate controls, commit and push the narrow corrected-ring,
-evidence-recycle, exact-sort, diagnostic-preview and one-shot per-kernel timing
-slice; archive/build/install that exact commit and stop. Vulkan EditMode is 71/71,
-the 131072-record optimized sort is bit-identical to the global reference and
-production LOC is net -61 against `d3b83e1`. No R3/R4, S16, paging, accepted-bit
-or publication change is authorized.
+Commit the isolated persistent-PENDING backing repair, then implement one separate
+diagnostic-only commit replacing broken Vulkan dispatch interception with explicit
+one-shot plugin events around the centralized dispatch wrappers. Push, build and
+install the exact second commit. Persistent backing growth, three-window traversal,
+handle-above-frame projection and bit-identical promotion fixtures are green; the
+full Vulkan run passed 72/73 with only the pre-existing full-sort timeout. No
+R3/R4, S16, carrier, accepted-bit or publication change is authorized.
 
 ## Required end state
 

@@ -95,6 +95,55 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
+        public void PersistentPendingGrowthPreservesRecordsAndFrameScratch()
+        {
+            using var resources = new SigmaFrameResources(new Vector2Int(8, 8),
+                SigmaFrameMemoryProfile.Minimum, 32L * 1024L * 1024L);
+            GraphicsBuffer firstGauge = resources.PendingGauges.Segment(0).Buffer;
+            var expected = new SigmaPendingGaugeGpu
+            {
+                Identity = new SigmaFrameUInt4Gpu
+                    { X = 17u, Y = (uint)SigmaPendingGaugeState.Open },
+            };
+            firstGauge.SetData(new[] { expected }, 0, 7, 1);
+            long projectionRecords = resources.PendingProjectionDepth
+                .RecordCapacity;
+
+            Assert.That(resources.TryEnsurePersistentPendingCapacity(128),
+                Is.True);
+            Assert.That(resources.TryEnsurePersistentPendingCapacity(192),
+                Is.True);
+            Assert.That(resources.PersistentPendingCapacity, Is.EqualTo(192));
+            Assert.That(resources.PendingWindowCount, Is.EqualTo(3));
+            Assert.That(resources.PendingProjectionDepth.RecordCapacity,
+                Is.EqualTo(projectionRecords));
+            Assert.That(resources.PendingReusableSlots.count, Is.EqualTo(192));
+            Assert.That(resources.PendingGauges.Segment(0).Buffer,
+                Is.SameAs(firstGauge));
+            var actual = new SigmaPendingGaugeGpu[1];
+            firstGauge.GetData(actual, 0, 7, 1);
+            Assert.That(actual[0].Identity.X, Is.EqualTo(expected.Identity.X));
+            Assert.That(actual[0].Identity.Y, Is.EqualTo(expected.Identity.Y));
+            for (int index = 0; index < resources.PendingWindowCount; ++index)
+            {
+                SigmaFrameExecutionWindow window = resources.PendingWindow(index);
+                Assert.That(window.FirstFootprint,
+                    Is.EqualTo(index * resources.FootprintCount));
+                Assert.That(window.FootprintCount,
+                    Is.EqualTo(resources.FootprintCount));
+            }
+        }
+
+        [Test]
+        public void PendingAdmissionHeadroomCountsEveryInflightFrame()
+        {
+            Assert.That(SigmaInverseController.RequiredPendingCapacity(
+                100u, 0, 64), Is.EqualTo(164ul));
+            Assert.That(SigmaInverseController.RequiredPendingCapacity(
+                100u, 3, 64), Is.EqualTo(356ul));
+        }
+
+        [Test]
         public void EvidenceTransferSurvivesExactFrameSlotReuse()
         {
             using var resources = new SigmaFrameResources(new Vector2Int(8, 8),

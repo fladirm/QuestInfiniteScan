@@ -339,11 +339,11 @@ namespace Genesis.RoomScan.SigmaPrism
                     _nullPublicationRoot, -1, 1,
                     (uint)SigmaFrameProposalKind.Pending);
                 for (int pendingWindowIndex = 0;
-                    pendingWindowIndex < Resources.ExecutionWindowCount;
+                    pendingWindowIndex < Resources.PendingWindowCount;
                     ++pendingWindowIndex)
                 {
                     BindPendingInverseWindow(command, _evaluateKernel,
-                        Resources.ExecutionWindow(pendingWindowIndex));
+                        Resources.PendingWindow(pendingWindowIndex));
                     command.DispatchComputeProfiled(_inverse, _evaluateKernel,
                         CeilDiv(windowCandidates,
                             FootprintsPerCoordinateGroup), 1, 1);
@@ -379,11 +379,11 @@ namespace Genesis.RoomScan.SigmaPrism
                     1, 1);
 
                 for (int pendingWindowIndex = 0;
-                    pendingWindowIndex < Resources.ExecutionWindowCount;
+                    pendingWindowIndex < Resources.PendingWindowCount;
                     ++pendingWindowIndex)
                 {
                     SigmaFrameExecutionWindow pendingWindow =
-                        Resources.ExecutionWindow(pendingWindowIndex);
+                        Resources.PendingWindow(pendingWindowIndex);
                     BindPendingProjectionInput(command,
                         _pendingProjectionDepthKernel, pendingWindow,
                         projectionWindow, input.PoseResult);
@@ -392,11 +392,11 @@ namespace Genesis.RoomScan.SigmaPrism
                         CeilDiv(pendingWindow.FootprintCount, 64), 1, 1);
                 }
                 for (int pendingWindowIndex = 0;
-                    pendingWindowIndex < Resources.ExecutionWindowCount;
+                    pendingWindowIndex < Resources.PendingWindowCount;
                     ++pendingWindowIndex)
                 {
                     SigmaFrameExecutionWindow pendingWindow =
-                        Resources.ExecutionWindow(pendingWindowIndex);
+                        Resources.PendingWindow(pendingWindowIndex);
                     BindPendingProjectionInput(command,
                         _pendingProjectionResolveKernel, pendingWindow,
                         projectionWindow, input.PoseResult);
@@ -501,7 +501,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 // The first pending window is a neutral binding for CURRENT and
                 // NOVEL; PENDING dispatches replace it with each logical window.
                 BindPendingClosureReadWindow(command, _reductionKernels[11],
-                    Resources.ExecutionWindow(0));
+                    Resources.PendingWindow(0));
                 command.SetComputeIntParam(_closure, "_FinalizeProposalKind",
                     (int)SigmaFrameProposalKind.Current);
                 if (readable != null)
@@ -521,12 +521,12 @@ namespace Genesis.RoomScan.SigmaPrism
                     _nullCarrierState, _nullPageMetadata, _nullPublicationRoot,
                     -1, 1);
                 for (int pendingWindowIndex = 0;
-                    pendingWindowIndex < Resources.ExecutionWindowCount;
+                    pendingWindowIndex < Resources.PendingWindowCount;
                     ++pendingWindowIndex)
                 {
                     BindPendingClosureReadWindow(command,
                         _reductionKernels[11],
-                        Resources.ExecutionWindow(pendingWindowIndex));
+                        Resources.PendingWindow(pendingWindowIndex));
                     command.DispatchComputeProfiled(_closure,
                         _reductionKernels[11],
                         CeilDiv(targetWindow.FootprintCount, 16), 1, 1);
@@ -646,14 +646,17 @@ namespace Genesis.RoomScan.SigmaPrism
             command.DispatchComputeProfiled(_closure, _closureKernels[8],
                 CeilDiv(footprints, 256), 1, 1);
 
-            for (int index = 0; index < Resources.ExecutionWindowCount; ++index)
+            BindPendingReusableSlots(command, _closureKernels[9]);
+            for (int index = 0; index < Resources.PendingWindowCount; ++index)
             {
-                SigmaFrameExecutionWindow pendingWindow = Resources.ExecutionWindow(index);
+                SigmaFrameExecutionWindow pendingWindow =
+                    Resources.PendingWindow(index);
                 BindPendingClosureReadWindow(command, _closureKernels[9],
                     pendingWindow);
                 command.DispatchComputeProfiled(_closure, _closureKernels[9],
                     CeilDiv(pendingWindow.FootprintCount, 256), 1, 1);
             }
+            BindPendingReusableSlots(command, _closureKernels[10]);
             command.DispatchComputeProfiled(_closure, _closureKernels[10],
                 1, 1, 1);
             for (int targetWindowIndex = 0;
@@ -670,12 +673,12 @@ namespace Genesis.RoomScan.SigmaPrism
                 command.SetComputeIntParam(_closure,
                     "_LinearDispatchGroupsX", persistenceGrid.x);
                 for (int pendingWindowIndex = 0;
-                    pendingWindowIndex < Resources.ExecutionWindowCount;
+                    pendingWindowIndex < Resources.PendingWindowCount;
                     ++pendingWindowIndex)
                 {
                     BindPendingClosureWriteWindow(command,
                         _closureKernels[11],
-                        Resources.ExecutionWindow(pendingWindowIndex));
+                        Resources.PendingWindow(pendingWindowIndex));
                     command.DispatchComputeProfiled(_closure,
                         _closureKernels[11], persistenceGrid.x,
                         persistenceGrid.y, 1);
@@ -807,10 +810,10 @@ namespace Genesis.RoomScan.SigmaPrism
             command.SetComputeBufferParam(_closure, promoteKernel,
                 "_PublishedRevisionRoot",
                 input.CarrierSegments[0].PublicationRoot);
-            for (int index = 0; index < Resources.ExecutionWindowCount; ++index)
+            for (int index = 0; index < Resources.PendingWindowCount; ++index)
             {
                 BindPendingClosureWriteWindow(command, promoteKernel,
-                    Resources.ExecutionWindow(index));
+                    Resources.PendingWindow(index));
                 command.DispatchComputeProfiled(_closure, promoteKernel,
                     footprintGroups, 1, 1);
             }
@@ -943,7 +946,7 @@ namespace Genesis.RoomScan.SigmaPrism
             command.SetComputeBufferParam(_closure, kernel,
                 "_PendingControlRead", Single(Resources.PendingControl, 1));
             command.SetComputeIntParam(_closure, "_PendingCapacity",
-                Resources.FootprintCount);
+                Resources.PersistentPendingCapacity);
             command.SetComputeBufferParam(_closure, kernel,
                 "_FrameClosureCounters", Single(Resources.ClosureCounters,
                     SigmaFrameResources.ClosureCounterRecords));
@@ -1311,6 +1314,12 @@ namespace Genesis.RoomScan.SigmaPrism
                     SigmaGeneratedFrame.LaneCount));
         }
 
+        private void BindPendingReusableSlots(CommandBuffer command, int kernel)
+        {
+            command.SetComputeBufferParam(_closure, kernel,
+                "_PendingReusableSlots", Resources.PendingReusableSlots);
+        }
+
         private void BindReductionCarrier(CommandBuffer command, int kernel,
             SigmaCarrierReadBatch batch) => BindReductionCarrier(command, kernel,
             batch.State, batch.Metadata, batch.PublicationRoot,
@@ -1490,7 +1499,7 @@ namespace Genesis.RoomScan.SigmaPrism
             command.SetComputeBufferParam(_inverse, _evaluateKernel,
                 "_PendingControl", Single(Resources.PendingControl, 1));
             BindPendingInverseWindow(command, _evaluateKernel,
-                Resources.ExecutionWindow(0));
+                Resources.PendingWindow(0));
             BindSourceReads(command, _evaluateKernel, sources, window);
         }
 

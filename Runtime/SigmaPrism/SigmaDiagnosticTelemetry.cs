@@ -38,7 +38,8 @@ namespace Genesis.RoomScan.SigmaPrism
             _active == null && unscaledTime >= _nextSampleTime;
 
         internal void Tick(float unscaledTime, long submittedFrames,
-            long committedFrames, uint hostRevision, GraphicsBuffer gate,
+            long committedFrames, uint hostRevision, uint pendingHighWater,
+            uint pendingCapacity, GraphicsBuffer gate,
             GraphicsBuffer closureCounters, GraphicsBuffer revisions,
             GraphicsBuffer revisionRoot,
             GraphicsBuffer drawArguments, GraphicsBuffer currentPageSlots,
@@ -68,7 +69,8 @@ namespace Genesis.RoomScan.SigmaPrism
             }
 
             var batch = new Batch(++_sequence, submittedFrames,
-                committedFrames, hostRevision, readoutPageCapacity,
+                committedFrames, hostRevision, pendingHighWater,
+                pendingCapacity, readoutPageCapacity,
                 _nextReadoutPageSlot, timing);
             _active = batch;
             try
@@ -223,6 +225,7 @@ namespace Genesis.RoomScan.SigmaPrism
         {
             internal Batch(uint sequence, long submittedFrames,
                 long committedFrames, uint hostRevision,
+                uint pendingHighWater, uint pendingCapacity,
                 int readoutPageCapacity, uint sampledReadoutPageSlot,
                 SigmaRuntimeTimingTelemetry timing)
             {
@@ -230,6 +233,8 @@ namespace Genesis.RoomScan.SigmaPrism
                 SubmittedFrames = submittedFrames;
                 CommittedFrames = committedFrames;
                 HostRevision = hostRevision;
+                PendingHighWater = pendingHighWater;
+                PendingCapacity = pendingCapacity;
                 ReadoutPageCapacity = readoutPageCapacity;
                 SampledReadoutPageSlot = sampledReadoutPageSlot;
                 Timing = timing;
@@ -239,6 +244,8 @@ namespace Genesis.RoomScan.SigmaPrism
             internal long SubmittedFrames { get; }
             internal long CommittedFrames { get; }
             internal uint HostRevision { get; }
+            internal uint PendingHighWater { get; }
+            internal uint PendingCapacity { get; }
             internal int ReadoutPageCapacity { get; }
             internal uint SampledReadoutPageSlot { get; }
             internal SigmaRuntimeTimingTelemetry Timing { get; }
@@ -438,6 +445,10 @@ namespace Genesis.RoomScan.SigmaPrism
             DeferredOrRetentionFlags = Word(batch.Closure, 8);
             ClosureFaultMask = Word(batch.Closure, 12);
             RetainedPending = Word(batch.Closure, 13);
+            PromotedPendingHoles = Word(batch.Closure, 14);
+            ExistingPendingReused = Word(batch.Closure, 15);
+            PendingHighWater = batch.PendingHighWater;
+            PendingCapacity = batch.PendingCapacity;
             ChangedTargets = Word(batch.Closure, 20);
             NovelTargets = Word(batch.Closure, 21);
             PublicationPages = Word(batch.Closure, 22);
@@ -492,6 +503,10 @@ namespace Genesis.RoomScan.SigmaPrism
         public uint DeferredOrRetentionFlags { get; }
         public uint ClosureFaultMask { get; }
         public uint RetainedPending { get; }
+        public uint PromotedPendingHoles { get; }
+        public uint ExistingPendingReused { get; }
+        public uint PendingHighWater { get; }
+        public uint PendingCapacity { get; }
         public uint ChangedTargets { get; }
         public uint NovelTargets { get; }
         public uint PublicationPages { get; }
@@ -567,7 +582,10 @@ namespace Genesis.RoomScan.SigmaPrism
                 .Append(ClaimedEdges).Append('/').Append(ClosedEdges)
                 .Append('/').Append(UnresolvedEdges).Append(" deferred=0x")
                 .Append(DeferredOrRetentionFlags.ToString("X"))
-                .Append(" pending=").Append(RetainedPending)
+                .Append(" pending=").Append(RetainedPending).Append('@')
+                .Append(PendingHighWater).Append('/').Append(PendingCapacity)
+                .Append(" holes=").Append(PromotedPendingHoles)
+                .Append(" reused=").Append(ExistingPendingReused)
                 .Append(" fault=0x").Append(ClosureFaultMask.ToString("X"))
                 .Append("} r4={targets=").Append(ChangedTargets)
                 .Append(" novel=").Append(NovelTargets).Append(" pages=")

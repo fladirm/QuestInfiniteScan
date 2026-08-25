@@ -768,6 +768,43 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
+        public void PersistentPendingHandleBeyondFrameFootprintIsProjected()
+        {
+            using var fixture = new FrameFixture(64, 1);
+            fixture.GrowPendingTo(128);
+            fixture.GrowPendingTo(192);
+            fixture.SeedPendingAt(130, BuildCarrierPrior(), 17u);
+
+            Assert.That(fixture.PendingWindowCount, Is.EqualTo(3));
+            SigmaFrameCandidateGpu[] pending = PendingCandidates(
+                fixture.Run(int.MaxValue, 2u));
+            Assert.That(Array.Exists(pending, candidate =>
+                candidate.Handle.Y == 130u && candidate.Handle.Z == 17u),
+                Is.True);
+        }
+
+        [Test]
+        public void BitIdenticalPendingPromotionStillChangesCanonicalLifetime()
+        {
+            using var fixture = new FrameFixture();
+            long[] state = ContactState(2);
+            fixture.SeedPending(state, 17u);
+            ClosureSnapshot accepted = fixture.RunExactClosure(2u,
+                new ClosureTarget(0, SigmaFrameProposalKind.Pending, state,
+                    0x3u, changed: false, pendingHandle: 0u,
+                    pendingGeneration: 17u));
+
+            Assert.That(accepted.Targets[0].Evidence.Y &
+                (uint)SigmaFrameOutcomeFlags.Accepted, Is.Not.Zero);
+            Assert.That(accepted.Targets[0].Evidence.Y &
+                (uint)SigmaFrameOutcomeFlags.Unchanged, Is.Zero);
+            Assert.That(fixture.PublishCurrentClosure(2u, 16).Root,
+                Is.EqualTo(2u));
+            Assert.That(fixture.ReadPendingGauge(0).Identity.Y,
+                Is.EqualTo((uint)SigmaPendingGaugeState.Promoted));
+        }
+
+        [Test]
         public void PendingEdgesCrossExecutionWindowsWithoutChangingPhysics()
         {
             ClosureSnapshot regularWhole = RunBoundaryClosure(0L, false,
@@ -1084,6 +1121,8 @@ namespace Genesis.RoomScan.Tests
 
             internal int ExecutionWindowCount =>
                 _graph.Resources.ExecutionWindowCount;
+            internal int PendingWindowCount =>
+                _graph.Resources.PendingWindowCount;
             internal int TargetSortCapacity =>
                 _graph.Resources.TargetSortCapacity;
 
@@ -1209,9 +1248,21 @@ namespace Genesis.RoomScan.Tests
                         handle / _graph.Resources.FootprintsPerWindow).Buffer,
                     handle % _graph.Resources.FootprintsPerWindow);
 
-            internal void SeedPending(long[] state, uint generation)
+            internal void GrowPendingTo(int records)
+            {
+                Assert.That(_graph.Resources.TryEnsurePersistentPendingCapacity(
+                    records), Is.True);
+            }
+
+            internal void SeedPending(long[] state, uint generation) =>
+                SeedPendingAt(0, state, generation);
+
+            internal void SeedPendingAt(int handle, long[] state,
+                uint generation)
             {
                 Assert.That(state, Has.Length.EqualTo(Lanes));
+                Assert.That(handle, Is.InRange(0,
+                    _graph.Resources.PersistentPendingCapacity - 1));
                 var packedState = new UInt2[Lanes];
                 var lower = new UInt2[Lanes];
                 var upper = new UInt2[Lanes];
@@ -1238,18 +1289,27 @@ namespace Genesis.RoomScan.Tests
                     Provenance = Gpu4(1u, DepthLeftKey, 0u, 1u),
                     LocalExtent = Gpu4(0u, 0u, 0u, 0u),
                 };
-                _graph.Resources.PendingGauges.Segment(0).Buffer.SetData(
-                    new[] { gauge }, 0, 0, 1);
-                _graph.Resources.PendingStates.Segment(0).Buffer.SetData(
-                    packedState, 0, 0, Lanes);
-                _graph.Resources.PendingLower.Segment(0).Buffer.SetData(
-                    lower, 0, 0, Lanes);
-                _graph.Resources.PendingUpper.Segment(0).Buffer.SetData(
-                    upper, 0, 0, Lanes);
-                _graph.Resources.PendingValidity.Segment(0).Buffer.SetData(
-                    validity, 0, 0, Lanes);
+                int windowIndex = 0;
+                SigmaFrameExecutionWindow window =
+                    _graph.Resources.PendingWindow(windowIndex);
+                while (handle >= window.FirstFootprint + window.FootprintCount)
+                    window = _graph.Resources.PendingWindow(++windowIndex);
+                int local = handle - window.FirstFootprint;
+                _graph.Resources.PendingGauges.Segment(windowIndex).Buffer
+                    .SetData(new[] { gauge }, 0, local, 1);
+                int coordinate = local * Lanes;
+                _graph.Resources.PendingStates.Segment(windowIndex).Buffer
+                    .SetData(packedState, 0, coordinate, Lanes);
+                _graph.Resources.PendingLower.Segment(windowIndex).Buffer
+                    .SetData(lower, 0, coordinate, Lanes);
+                _graph.Resources.PendingUpper.Segment(windowIndex).Buffer
+                    .SetData(upper, 0, coordinate, Lanes);
+                _graph.Resources.PendingValidity.Segment(windowIndex).Buffer
+                    .SetData(validity, 0, coordinate, Lanes);
                 _graph.Resources.PendingControl.Segment(0).Buffer.SetData(
-                    new[] { Gpu4(1u, unchecked((uint)_footprints), 1u, 0u) });
+                    new[] { Gpu4(unchecked((uint)(handle + 1)),
+                        unchecked((uint)_graph.Resources
+                            .PersistentPendingCapacity), 1u, 0u) });
             }
 
             internal void RunSegmentedTargetFixture()

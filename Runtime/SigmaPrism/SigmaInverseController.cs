@@ -84,6 +84,9 @@ namespace Genesis.RoomScan.SigmaPrism
         private bool _disposed;
         private bool _completionFaulted;
         private uint _nextRevision = 1u;
+        private uint _observedPendingRevision;
+        private SigmaFrameUInt4Gpu _observedPendingControl;
+        private float _nextPendingPressureLogTime;
         private Pose _previousTrackingPose;
         private long _previousTrackingTimestampNs;
         private bool _hasPreviousTrackingPose;
@@ -187,7 +190,8 @@ namespace Genesis.RoomScan.SigmaPrism
                     SigmaPredictionFrameLease prediction =
                         _pendingIngress.Peek();
                     EnsureDirectGraph(prediction.Source);
-                    if (TryGetFreeIngressSlot(out IngressSlot slot) &&
+                    if (TryEnsurePendingHeadroom() &&
+                        TryGetFreeIngressSlot(out IngressSlot slot) &&
                         SubmitIngress(slot, prediction))
                         _pendingIngress.Dequeue();
                 }
@@ -211,6 +215,9 @@ namespace Genesis.RoomScan.SigmaPrism
                     out int readoutPageCapacity);
                 _diagnosticTelemetry.Tick(telemetryTime, SubmittedFrames,
                     CommittedFrames, unchecked(_nextRevision - 1u),
+                    _observedPendingControl.X,
+                    unchecked((uint)_graph.Resources
+                        .PersistentPendingCapacity),
                     _backendGate.Buffer,
                     _graph.Resources.ClosureCounters.Segments[0].Buffer,
                     _graph.Resources.Revisions.Segments[0].Buffer,
@@ -245,6 +252,15 @@ namespace Genesis.RoomScan.SigmaPrism
             }
             _graph = new SigmaFrameGraph(source.DepthResolution, _backendGate,
                 SigmaFrameMemoryProfile.HighThroughput);
+            _observedPendingControl = new SigmaFrameUInt4Gpu
+            {
+                X = 0u,
+                Y = unchecked((uint)_graph.Resources
+                    .PersistentPendingCapacity),
+                Z = 1u,
+                W = 0u,
+            };
+            _observedPendingRevision = 0u;
             CreatePersistentResources(_graph.Resources.FrameCapacity);
             Logger.Info($"Sigma direct graph ready: resolution=" +
                         $"{source.DepthResolution.x}x{source.DepthResolution.y}, " +
@@ -331,6 +347,7 @@ namespace Genesis.RoomScan.SigmaPrism
                         true);
                 slot.Begin(prediction, correctedPrediction, luts, ownedFrame,
                     _graph.Resources.OwnedFrames, _pool.PublicationRoot,
+                    _graph.Resources.PendingControl.Segments[0].Buffer,
                     ticket, revision, Time.realtimeSinceStartupAsDouble);
                 correctedPrediction = null;
                 luts = null;
@@ -375,6 +392,9 @@ namespace Genesis.RoomScan.SigmaPrism
                 }
                 SigmaGpuKernelTelemetry.CompleteProfiledSubmission(
                     slot.Revision);
+                if (slot.HasPendingControlSnapshot)
+                    ObservePendingControl(slot.Revision,
+                        slot.PendingControlSnapshot);
                 if (status == SigmaGpuCompletionStatus.Faulted)
                 {
                     LatchCompletionFault($"Sigma ingress slot {index} failed " +
@@ -733,6 +753,60 @@ namespace Genesis.RoomScan.SigmaPrism
             return false;
         }
 
+        private bool TryEnsurePendingHeadroom()
+        {
+            int inFlight = CountPendingTickets();
+            ulong required = RequiredPendingCapacity(
+                _observedPendingControl.X, inFlight,
+                _graph.Resources.FootprintCount);
+            uint capacity = unchecked((uint)_graph.Resources
+                .PersistentPendingCapacity);
+            if (required <= capacity)
+                return true;
+            if (inFlight != 0)
+                return false;
+            if (required > int.MaxValue ||
+                !_graph.Resources.TryEnsurePersistentPendingCapacity(
+                    checked((long)required)))
+            {
+                float now = Time.unscaledTime;
+                if (now >= _nextPendingPressureLogTime)
+                {
+                    _nextPendingPressureLogTime = now + 1f;
+                    Logger.Warning("Sigma pending backing pressure: queued " +
+                        $"frame retained; required={required}, capacity=" +
+                        $"{capacity}.");
+                }
+                return false;
+            }
+            _observedPendingControl.Y = unchecked((uint)_graph.Resources
+                .PersistentPendingCapacity);
+            _graph.Resources.PendingControl.Segments[0].Buffer.SetData(
+                new[] { _observedPendingControl });
+            return true;
+        }
+
+        private void ObservePendingControl(uint revision,
+            SigmaFrameUInt4Gpu control)
+        {
+            if (revision < _observedPendingRevision)
+                return;
+            _observedPendingRevision = revision;
+            _observedPendingControl = control;
+            _observedPendingControl.Y = Math.Max(control.Y,
+                unchecked((uint)_graph.Resources.PersistentPendingCapacity));
+        }
+
+        internal static ulong RequiredPendingCapacity(uint observedHighWater,
+            int inFlightCanonicalFrames, int footprintCount)
+        {
+            if (inFlightCanonicalFrames < 0 || footprintCount <= 0)
+                throw new ArgumentOutOfRangeException(nameof(footprintCount));
+            return checked((ulong)observedHighWater +
+                (ulong)(inFlightCanonicalFrames + 1) *
+                unchecked((uint)footprintCount));
+        }
+
         private int CountPendingTickets()
         {
             int count = 0;
@@ -957,9 +1031,13 @@ namespace Genesis.RoomScan.SigmaPrism
             private SigmaGpuCompletionTicket _ticket;
             private GraphicsBuffer _ownedFrames;
             private GraphicsBuffer _publicationRoot;
+            private GraphicsBuffer _pendingControl;
             private AsyncGPUReadbackRequest _frameDispositionReadback;
             private AsyncGPUReadbackRequest _publicationRootReadback;
+            private AsyncGPUReadbackRequest _pendingControlReadback;
             private bool _completionReadbackPending;
+            private bool _hasPendingControlSnapshot;
+            private SigmaFrameUInt4Gpu _pendingControlSnapshot;
             private SigmaFrameCompletionDisposition _completionDisposition;
             private double _submittedAt;
             private readonly int _index;
@@ -993,11 +1071,18 @@ namespace Genesis.RoomScan.SigmaPrism
             internal bool InFlight { get; private set; }
             internal long AgeFrames { get; private set; }
             internal uint Revision { get; private set; }
+            internal bool HasPendingControlSnapshot =>
+                _hasPendingControlSnapshot;
+            internal SigmaFrameUInt4Gpu PendingControlSnapshot =>
+                _hasPendingControlSnapshot ? _pendingControlSnapshot :
+                throw new InvalidOperationException(
+                    "Sigma pending control snapshot is unavailable.");
 
             internal void Begin(SigmaPredictionFrameLease prediction,
                 SigmaPredictionFrameLease correctedPrediction,
                 ConeLutLease coneLuts, SigmaOwnedFrameLease ownedFrame,
                 GraphicsBuffer ownedFrames, GraphicsBuffer publicationRoot,
+                GraphicsBuffer pendingControl,
                 SigmaGpuCompletionTicket ticket,
                 uint revision, double submittedAt)
             {
@@ -1013,10 +1098,13 @@ namespace Genesis.RoomScan.SigmaPrism
                     nameof(ownedFrames));
                 _publicationRoot = publicationRoot ??
                     throw new ArgumentNullException(nameof(publicationRoot));
+                _pendingControl = pendingControl ??
+                    throw new ArgumentNullException(nameof(pendingControl));
                 _ticket = ticket;
                 _submittedAt = submittedAt;
                 Revision = revision;
                 _completionReadbackPending = false;
+                _hasPendingControlSnapshot = false;
                 _completionDisposition =
                     SigmaFrameCompletionDisposition.Faulted;
                 AgeFrames = 0L;
@@ -1044,19 +1132,24 @@ namespace Genesis.RoomScan.SigmaPrism
                         frameOffset);
                     _publicationRootReadback = AsyncGPUReadback.Request(
                         _publicationRoot, sizeof(uint), 0);
+                    _pendingControlReadback = AsyncGPUReadback.Request(
+                        _pendingControl, SigmaGeneratedFrame.ProvenanceStride,
+                        0);
                     _completionReadbackPending = true;
                     error = null;
                     return SigmaGpuCompletionStatus.Pending;
                 }
 
                 if (!_frameDispositionReadback.done ||
-                    !_publicationRootReadback.done)
+                    !_publicationRootReadback.done ||
+                    !_pendingControlReadback.done)
                 {
                     error = null;
                     return SigmaGpuCompletionStatus.Pending;
                 }
                 if (_frameDispositionReadback.hasError ||
-                    _publicationRootReadback.hasError)
+                    _publicationRootReadback.hasError ||
+                    _pendingControlReadback.hasError)
                 {
                     error = "Published evidence ownership readback failed.";
                     return SigmaGpuCompletionStatus.Faulted;
@@ -1065,12 +1158,17 @@ namespace Genesis.RoomScan.SigmaPrism
                 var frames = _frameDispositionReadback
                     .GetData<SigmaOwnedFrameGpu>();
                 var roots = _publicationRootReadback.GetData<uint>();
-                if (frames.Length != 1 || roots.Length != 1)
+                var pending = _pendingControlReadback
+                    .GetData<SigmaFrameUInt4Gpu>();
+                if (frames.Length != 1 || roots.Length != 1 ||
+                    pending.Length != 1)
                 {
                     error = "Published evidence ownership readback returned " +
                         "an invalid record count.";
                     return SigmaGpuCompletionStatus.Faulted;
                 }
+                _pendingControlSnapshot = pending[0];
+                _hasPendingControlSnapshot = true;
                 _completionDisposition = ClassifyFrameCompletion(frames[0],
                     roots[0], Revision, out error);
                 return _completionDisposition ==
@@ -1123,7 +1221,9 @@ namespace Genesis.RoomScan.SigmaPrism
                 _ownedFrame = null;
                 _ownedFrames = null;
                 _publicationRoot = null;
+                _pendingControl = null;
                 _completionReadbackPending = false;
+                _hasPendingControlSnapshot = false;
                 _completionDisposition =
                     SigmaFrameCompletionDisposition.Faulted;
                 InFlight = false;
@@ -1139,6 +1239,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 _ownedFrame = null;
                 _ownedFrames = null;
                 _publicationRoot = null;
+                _pendingControl = null;
                 RawDepthCalibration?.Dispose();
                 RawRgbCalibration?.Dispose();
                 CorrectedDepthCalibration?.Dispose();

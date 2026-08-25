@@ -40,6 +40,7 @@ static const uint2 SIGMA_FRAME_Q48_ZERO = uint2(0u, 0u);
 
 RWStructuredBuffer<SigmaFrameDeltaGpu> _FrameDeltas;
 RWStructuredBuffer<uint> _FrameResolvedIndices;
+RWStructuredBuffer<uint> _PendingReusableSlots;
 RWStructuredBuffer<uint> _PendingLabels;
 RWStructuredBuffer<uint> _PendingLinks;
 RWStructuredBuffer<uint> _FrameDeferredFlags;
@@ -1483,6 +1484,10 @@ void FinalizeExactClosure(uint3 id : SV_DispatchThreadID)
         {
             uint anchor = _PendingLinks[root];
             bool accepted = (flags & SIGMA_FRAME_OUTCOME_ACCEPTED) != 0u;
+            bool promotesExisting = accepted && target.Candidate.x ==
+                SIGMA_FRAME_TARGET_KIND_PENDING;
+            flags &= promotesExisting
+                ? ~SIGMA_FRAME_OUTCOME_UNCHANGED : 0xffffffffu;
             target.Evidence.z = accepted
                 ? (anchor != SIGMA_FRAME_INVALID
                     ? SIGMA_FRAME_PROPOSAL_KIND_CONTINUATION
@@ -1517,7 +1522,7 @@ void MarkPromotedPendingSlots(uint3 id : SV_DispatchThreadID)
         return;
     uint slot = _PendingFirst + localSlot;
     uint4 control = _PendingControlRead[0u];
-    _FrameResolvedIndices[slot] = slot < control.x && slot < control.y &&
+    _PendingReusableSlots[slot] = slot < control.x && slot < control.y &&
         slot < _PendingCapacity && _PendingGaugesRead[localSlot].Identity.y ==
             SIGMA_PENDING_GAUGE_STATE_PROMOTED ? 1u : 0u;
 }
@@ -1528,20 +1533,26 @@ void AllocatePendingRetention(uint3 id : SV_DispatchThreadID)
     uint capacity = min(control.y, _PendingCapacity), targetCount = _FrameClosureCounters[0].x;
     if (control.x > capacity)
         { _FrameClosureCounters[3].x = 1u; return; }
-    uint needed = 0u;
+    uint needed = 0u, existingHandleReused = 0u;
     [loop]
     for (uint index = 0u; index < targetCount; ++index)
     {
         SigmaFrameDeltaGpu target = _FrameTargetScratch[index];
         uint existing;
-        if (SigmaPendingNeedsRetention(target) &&
-            !SigmaPendingExistingHandle(target, control, existing))
+        if (!SigmaPendingNeedsRetention(target))
+            continue;
+        if (SigmaPendingExistingHandle(target, control, existing))
+            ++existingHandleReused;
+        else
             ++needed;
     }
     uint holes = 0u;
     [loop]
     for (uint slot = 0u; slot < control.x; ++slot)
-        holes += _FrameResolvedIndices[slot] != 0u ? 1u : 0u;
+        holes += _PendingReusableSlots[slot] != 0u ? 1u : 0u;
+    _FrameClosureCounters[3].y = needed;
+    _FrameClosureCounters[3].z = holes;
+    _FrameClosureCounters[3].w = existingHandleReused;
     if (needed > holes + capacity - control.x)
         { _FrameClosureCounters[3].x = 1u; return; }
     uint holeCursor = 0u, tail = control.x;
@@ -1555,7 +1566,7 @@ void AllocatePendingRetention(uint3 id : SV_DispatchThreadID)
         if (!SigmaPendingExistingHandle(target, control, slot))
         {
             [loop]
-            while (holeCursor < control.x && _FrameResolvedIndices[holeCursor] == 0u)
+            while (holeCursor < control.x && _PendingReusableSlots[holeCursor] == 0u)
                 ++holeCursor;
             uint append = holeCursor >= control.x ? 1u : 0u; slot = append != 0u ? tail : holeCursor; holeCursor += 1u - append; tail += append;
         }
@@ -1563,7 +1574,6 @@ void AllocatePendingRetention(uint3 id : SV_DispatchThreadID)
     }
     control.x = tail;
     _PendingControl[0u] = control;
-    _FrameClosureCounters[3].y = needed;
 }
 void SigmaPendingSelectKeys(uint sourceMask, SigmaPendingGaugeGpu previous,
     bool existing, out uint key0, out uint key1)

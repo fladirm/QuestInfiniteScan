@@ -2,18 +2,17 @@
 
 ## User
 
-Implement one narrow post-`9b3dd7f` cut: separate corrected prediction liveness,
-bounded retained-evidence recycle, the already-existing exact block/stage/tail sort,
-and a cheaper diagnostic-only XR preview. Add minimal profiling that identifies the
-actual slow compute kernel, not merely whole-frame time; keep it one-shot with as
-little readback as possible. Preserve S16/R3/R4/publication semantics, commit/push,
-build/install the exact Release APK and stop.
+Finish only the narrow persistent-PENDING backing repair from `ef81e4a`: separate
+persistent capacity/window traversal from frame footprint, retain stable handles,
+count every in-flight frame in admission headroom and commit separately. Then make
+Release per-kernel Vulkan timing truthful with explicit plugin events, commit,
+push, build and install.
 
 ## Assistant
 
-The production cut is implemented. One 320x320 canonical submission is sampled
-per kernel through GPU recorders; all other submissions contain no profiler markers
-and no per-kernel async readback exists. Exact sort parity runs at the full 131072
-record capacity. Unity 6000.5.9f1 Vulkan EditMode passes 71/71; S4-08.5 production
-is net -61 LOC against `d3b83e1`. Current cursor is code-graph/control validation,
-exact commit/push, source archive, Release APK build/install, then stop.
+The pending runtime cut and focused fixtures are complete. Persistent SoA traversal
+uses all allocated segment spans while live GPU `PendingControl.x` gates records;
+projection scratch stays frame-sized, admission reserves all in-flight worst-case
+headroom, and bit-identical promotion is a canonical lifetime change. Current cursor:
+generate/validate and commit this cut, then touch only telemetry/native timestamp
+files for the second diagnostic commit before push/build/install.
