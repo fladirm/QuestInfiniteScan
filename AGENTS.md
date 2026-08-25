@@ -37,20 +37,23 @@ marked `done` unless its evidence is absent or a later change regressed it.
 
 ## Canonical product
 
-`new_spec.md`, baseline `CPQ4-2026-08-25-S16-v8`, is frozen. The product is a fully
+`new_spec.md`, baseline `CPQ4-2026-08-25-S16-v8.1`, is frozen. The product is a fully
 on-device Quest 3 scanner whose only durable physical world is:
 
 ```text
 Psi : Sigma_2 -> S16
 ```
 
-The canonical carrier is sparse, logically unbounded and exact Q16.48. Each germ is
-a full native S16 state. One frozen generated native-relation descriptor interprets
-that state through an overcomplete 22-relation Merkaba/eigenmode atlas; the atlas is
-not another world or 22 independent channels. Geometry, topology/singularities,
-boundaries, detail, directional appearance, scene changes, eye images, PBR and GLB
-are constraints on or readouts of this same state. Never create a parallel canonical
-geometry, topology, texture, scene-history, latent-pixel or object world.
+The canonical carrier is a sparse, logically unbounded intrinsic atlas and exact
+Q16.48. Each allocated state is full native S16. One frozen generated descriptor
+preserves the actual TOE Merkaba/eigenmode operator/frame/kernel law, relation
+arities/brackets, manifestation, local query contributions, whole-scene reducers,
+ZD/nonassoc semantics and modal refinement. Exactly 22 relations are optional
+inventory and may become a complete factorization only after faithfulness proof;
+otherwise direct S16 dependencies remain. Geometry, topology, detail, appearance,
+scene change, eye images and export are constraints on or readouts of this field.
+Never create a parallel canonical geometry, topology, texture, history, candidate,
+latent-object or mesh world.
 
 The previous Cone-PRISM/ContactFilm/PressureManifold mapper is recoverable from Git
 history only. It is not an implementation donor. The only retained donor surface is:
@@ -74,28 +77,36 @@ history only. It is not an implementation donor. The only retained donor surface
 - Preserve explicit product bracketing. Optimized operator DAGs must equal their
   semantic reference bit-for-bit and use mask/select/fixed schedules for bounded
   GPU control.
-- Freeze one authoritative TOE/native relation descriptor and generate forward,
-  exact inverse-image pullback, intrinsic stitch and semantic reference evaluators
-  from that same bracketed DAG. Never guess missing TOE relations from v7 code.
-- Both RGB streams and both depth views remain independent native-shadow constraints
-  until exact conjunction. One source or prior may not pre-contract another source
-  without a generated equivalence proof. Confidence changes admissible width, never
-  a weighted sum.
-- Each finite calibrated pixel footprint constrains only the pre-hit sector and its
-  first supported hit. State behind the hit receives no inclusive cell, exclusion
-  cell or confidence change. UNKNOWN is never inferred EMPTY.
+- Freeze the supplied authoritative TOE native law with actual relation arities and
+  brackets. Generate local-contribution, whole-scene shadow, reverse contractor,
+  native-close and reference plans from it. Never guess missing equations from v7
+  or the superseded germ-first v8 draft.
+- A local state produces only a query contribution. Physical camera/eye observation
+  is a whole-field reduction owning overlap, direct order, first-hit, occlusion,
+  fold/sheet collapse and query-relevant ZD/nonassoc context.
+- The rig supplies two coherent RGB-D shadows. Depth and optical leaves within each
+  eye remain independent until exact conjunction; neither may pre-contract the
+  other.
+- A footprint defines a union of possible supports. Do not select one winner or
+  mutate every alternative. Ambiguity emits no canonical delta unless all surviving
+  branches imply the same proven update.
+- First-hit is scene-level. State behind the hit receives no inclusive constraint,
+  exclusion or evidence change. Independent clear pre-hit evidence may correct a
+  false same-scene manifestation through the joint closure.
 - Contradictory cells retain exact gaps and provenance; they never average or cancel.
-- Stronger prior intervals and minimal certificates are state resistance. Broad,
-  far, grazing or redundant observations may confirm but cannot blur a narrower
-  supported result.
-- Latent evidence is a native admissible S16 region with complete evidence and a
-  stable local relation gauge. Exact stitch closure precedes absorption or
-  deterministic carrier promotion. Pixel CURRENT/PENDING/CONTINUATION/NOVEL kinds
-  have no physical meaning.
-- Topology is the regular/singular/no-relation/unresolved result of the same native
-  relation stitch, including exact annihilator/associator strata. Do not allocate
-  canonical charts, films, BoundaryCurves, half-edge graphs, split/merge objects or
-  image/3D proximity identities.
+- Exact epistemic state is a preimage region, support disjunction, provenance,
+  independence and unresolved ancestry. Scalar confidence is diagnostic only and
+  cannot drive physical decisions.
+- Unexplained evidence begins as `UnresolvedShadowBranch` with no germ/chart/extent.
+  `BoundNativeBranch` and supported atlas materialization require independent native
+  proof. CURRENT/PENDING/CONTINUATION/NOVEL and LatentGerm have no physical meaning.
+- Observation unions, authoritative native relations and intrinsic atlas incidence
+  participate in one `NativeCloseCommit` feasible set before selection. There is no
+  separate stitch/topology semantic subsystem.
+- Exact ZD, near-singular, direct order and nonassociative context remain distinct.
+  Do not use ZD as depth or associator magnitude as an image-edge detector.
+- Sparse `ABSENT` has no S16 value and is not an allocated descriptor-defined
+  `NATIVE_NULL` state.
 - Fine geometry and appearance are local variation of the same carrier. Gauge
   refinement is a bijective reparameterization; no displacement/texture world may
   appear beside `Psi`.
@@ -108,9 +119,9 @@ history only. It is not an implementation donor. The only retained donor surface
   declaration, C# binding/dispatch call site and directly affected test. Do not patch
   a shader from an `rg` excerpt or isolated error line. Record the completed manual
   shader review in the active node evidence before build/deploy.
-- Keep native-fibre association, inverse pullback/conjunction, state mutation,
-  relation stitching, gauge work, readout, culling, LOD, draw compaction and
-  rendering on GPU.
+- Keep whole-field shadow projection/reduction, support-hypothesis handling, joint
+  native closure, state mutation, branch binding/materialization, gauge work and
+  readout on GPU.
 - Use compacted work and indirect dispatch/draw. No CPU pixel loop, CPU mesh,
   synchronous GPU readback or full-world frame traversal.
 - C# owns lifecycle, calibration epoch, resources, page residency, fences,
@@ -120,8 +131,9 @@ history only. It is not an implementation donor. The only retained donor surface
 - No storage-buffer binding may exceed the runtime Vulkan range. Use segmented pools
   and the memory governor; pressure may evict clean pages/caches, never canonical
   detail or accepted sensor resolution.
-- Sensor ingress never waits for reconstruction. Stage work by active visible,
-  inverse-active, dirty and unresolved locality.
+- Sensor capture never waits for reconstruction. Canonical admission may
+  deterministically defer/backpressure before ownership; once admitted, a coherent
+  observation is never overwritten or partially retained.
 
 ### Active S4-08.6 compaction cursor
 
@@ -131,9 +143,10 @@ explicit exception to the broad resume order: read only
 CURRENT run files named by that cursor and continue. Do not reread v7 plans/audits,
 rederive the architecture or repeat a completed run.
 
-S4-08.6 is a hard native-closure replacement. N3-N7 delete each superseded v7
+S4-08.6 is a hard native-closure replacement. N3R-N7R delete each superseded v7/v8
 branch in the same commit; they do not patch, rename, wrap or retain sensor-cell,
-proposal-kind, optical-edge, pending-chart or duplicated publication machinery.
+proposal-kind, optical-edge, pending/LatentGerm, stitch-authority or duplicated
+publication machinery.
 There is no old/new fallback. Every changed shader remains a complete-file
 implementation after full ABI/bind review.
 

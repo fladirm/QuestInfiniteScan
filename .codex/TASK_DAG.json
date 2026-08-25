@@ -2,9 +2,9 @@
   "schema_version": 1,
   "goal": "Sigma-PRISM-16 full-native S16/Merkaba reconstruction on Quest 3",
   "canonical_spec": "new_spec.md",
-  "reconstruction_physics": "CPQ4-2026-08-25-S16-v8",
+  "reconstruction_physics": "CPQ4-2026-08-25-S16-v8.1",
   "spec_status": "canonical_replacement_frozen_for_implementation",
-  "active_repair": "S4-08.6_NATIVE_CLOSURE",
+  "active_repair": "S4-08.6_ONTOLOGY_RESET_NATIVE_CLOSE",
   "effort_policy": "90_percent_implementation_5_percent_verification_5_percent_controls",
   "checkpoint_policy": "one accepted node per commit; regenerate code graph; archive/build/install the exact accepted S4-08 commit before S4-09",
   "allowed_statuses": [
@@ -69,7 +69,7 @@
         "Prediction/readout caches are disposable and generation keyed"
       ],
       "evidence": [
-        "Accepted geometry readout and raster first-hit primitive checkpoint; v8 will replace its duplicated live orchestration, not canonical carrier bytes"
+        "Accepted geometry-readout primitive checkpoint; v8.1 reuses only exact local manifestation primitives and moves first-hit authority to whole-scene reduction"
       ]
     },
     {
@@ -84,7 +84,7 @@
         "Independent sources meet without weighted averaging and contradictions retain provenance"
       ],
       "evidence": [
-        "Accepted depth inverse primitive checkpoint; v8 supersedes the source-specific live cell-world orchestration"
+        "Accepted finite-footprint/depth primitive evidence; v8.1 supersedes per-germ/source-cell live authority with whole-field preimage closure"
       ]
     },
     {
@@ -99,7 +99,7 @@
         "No separate canonical topology world exists"
       ],
       "evidence": [
-        "Accepted transition algebra checkpoint; v8 replaces the optical/XYZ topology lowering with native relation stitching"
+        "Accepted exact transition/ZD/associator primitive evidence; v8.1 integrates authoritative native relations into one field closure"
       ]
     },
     {
@@ -114,7 +114,7 @@
         "Complete evidence and deterministic minimal certificates are non-physical proof of one Psi"
       ],
       "evidence": [
-        "Accepted RGB/evidence primitive checkpoint; v8 requires source-independent native pullback and complete publication ownership"
+        "Accepted optical/evidence primitive checkpoint; v8.1 requires source-independent scene-shadow leaves, hypothesis disjunction and complete publication ownership"
       ]
     },
     {
@@ -129,42 +129,46 @@
         "Fine detail adds S16 germs and never creates a displacement or mesh world"
       ],
       "evidence": [
-        "Accepted gauge-refinement primitive checkpoint; v8 reuses it under native relation admission"
+        "Accepted bijective gauge primitive checkpoint; v8.1 permits it only under authoritative modal-capacity and branch-materialization proof"
       ]
     },
     {
       "id": "S4-08",
-      "title": "Replace the scanner with native S16 inverse-Merkaba closure and pure readouts",
+      "title": "Replace the scanner with one full-field native S16 close/commit and pure readouts",
       "status": "in_progress",
       "depends_on": [
         "S4-07"
       ],
       "acceptance": [
-        "One frozen TOE E22 NativeRelationDescriptor generates forward, exact inverse-image pullback, intrinsic stitch and reference evaluators with preserved bracket trees",
-        "Coherent stereo RGB-D shadows constrain one full S16 germ through independent native relations; unobserved fibre directions are preserved",
-        "Association tests every admissible supported or latent native fibre before any new identity and uses no physical CURRENT/PENDING/CONTINUATION/NOVEL classes",
-        "Intrinsic topology is the regular/singular/no-relation/unresolved result of the same E22 transition stitch; XYZ/image/page proximity has no authority",
-        "Latent evidence owns a stable local relation gauge and complete evidence until exact absorption, promotion or rejection",
-        "Only sparse exact GermDelta records mutate immutable carrier generations; complete evidence is owned before one root-last publication",
-        "Eye, prediction, export and debug are pure disposable readouts of the same full Psi and cannot mutate or impoverish it",
-        "Execution partition, workgroup, relation order, segment/page layout and readout choice leave canonical Psi/certificates byte-identical",
+        "One frozen authoritative TOE descriptor preserves actual Merkaba/eigenmode operator/frame/kernel semantics, relation arities/brackets, manifestation, local projection, whole-scene reducers, exact ZD, fibre preservation and modal refinement",
+        "Exclusive E22 factorization is used only after faithfulness modulo frozen harmless equivalence; otherwise direct S16/eigenmode dependencies remain",
+        "The rig supplies two coherent RGB-D whole-field shadows whose independent depth/optical leaves contain no candidate identity",
+        "Every footprint retains the complete union of possible supports; ambiguity cannot select one winner, mutate every support or be resolved by minimum change",
+        "Observation unions, native Merkaba/eigenmode constraints and intrinsic atlas incidence enter one NativeCloseCommit feasible set before selection",
+        "Unexplained evidence is UnresolvedShadowBranch without germ/chart/extent; BoundNativeBranch and supported materialization require independent exact proof",
+        "ABSENT storage and allocated descriptor-defined NATIVE_NULL remain distinct through codec, persistence, refinement and replay",
+        "Only resolved or branch-common full-S16 NativeStateDelta records mutate immutable pages after complete evidence ownership and one root-last publication",
+        "Static clear-path exclusion can correct a false same-scene manifestation while behind-hit remains no evidence; actual temporal evolution remains S4-09",
+        "Eye, prediction, export and debug are pure whole-field readouts; certificates cannot supply physical appearance/detail absent from Psi",
+        "Workgroup/relation/window/segment/page/cache decomposition leaves hypothesis unions, branches, deltas, Psi, certificates and readouts byte-identical",
         "The replacement gross-deletes at least 10000 production LOC, adds at most 4000, is net at most -6100 versus cac9ab0 and leaves no legacy/fallback path",
-        "Exact oracle/Vulkan tests, generated graph and same-commit Quest Release corpus pass with Omega+Xi <=1500 ms, wall <=1800 ms, bounded memory and no revision-dependent latency slope"
+        "Exact oracle/Vulkan tests and same-commit Quest Release corpus pass with NativeCloseCommit <=1500 ms, wall <=1800 ms, bounded memory and no revision-dependent latency slope"
       ],
       "evidence": [
-        "N0 accepted by this checkpoint: analyza.md, CPQ4-2026-08-25-S16-v8, deterministic N0-N8 replacement plan, compact controls/resume cursor, current code graph and zero Runtime/Resources diff",
+        "N0 germ-first checkpoint f24ecc3 is conceptually superseded before runtime cutover",
+        "N0R accepted: CPQ4-2026-08-25-S16-v8.1 field-level spec/audit/plan/control reset, validated forensic preservation and zero Runtime/Resources diff; N1R is the sole next run",
         "Starting Quest evidence cac9ab0: 266 dispatches/61 kernels, compute 4520.946 ms, wall 4776.70 ms; top three duplicated solvers consume 90.78%; root31 then truthful carrier fault 0x120"
       ]
     },
     {
       "id": "S4-09",
-      "title": "Implement deterministic scene evolution through native shadow exclusion and transport",
+      "title": "Implement temporal native evolution for observations not reconcilable as one static scene",
       "status": "pending",
       "depends_on": [
         "S4-08"
       ],
       "acceptance": [
-        "Pre-hit exclusion, pass-through and native transition evidence implement contact appearance, disappearance and identity-preserving transport",
+        "After S4-08 static correction is exhausted, temporal exclusion/transition evidence implements disappearance, new manifestation and identity-preserving transport",
         "Occlusion never deletes hidden state and all evolution mutates only Psi"
       ],
       "evidence": []

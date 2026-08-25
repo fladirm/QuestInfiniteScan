@@ -1,21 +1,22 @@
 # Σ‑PRISM‑16
 
-## Full-native S16 world, inverse Merkaba closure and multiple pure readouts
+## Full-field native S16 world, Merkaba/eigenmode law, scene-shadow closure and pure readouts
 
-**Canonical reconstruction baseline:** `CPQ4-2026-08-25-S16-v8`
+**Canonical reconstruction baseline:** `CPQ4-2026-08-25-S16-v8.1`
 **Target device:** Meta Quest 3
 **Implementation target:** Unity / Android / Vulkan / GPU-first
-**Status:** canonical replacement specification
+**Status:** ontology-reset canonical replacement specification
 
-Version 8 replaces the v7 sensor-cell/proposal/topology execution ontology. It
-keeps the exact NumericDomain, signed-XOR S16 algebra, sparse intrinsic carrier,
-evidence ownership, first-hit causality, exact codec and root-last publication. It
-defines one native relation descriptor from which forward manifestation, sensor
-inverse pullback, intrinsic stitching and every readout are generated.
+Version 8.1 replaces both the v7 classical scanner graph and the germ-first v8
+draft. It does not rename a conventional association/inverse/topology pipeline
+with native terminology. The scanner is a sparse exact lowering of one full-field
+native feasibility equation.
 
-The architecture is not “a conventional 3D scanner encoded in S16”. S16 is the
-native local reality. RGB-D, retinal images, geometry, topology and export are
-lower-dimensional shadows or relations of that reality.
+The physical direction is from the native S16 field through the authoritative
+Merkaba/eigenmode law into a whole-scene lower-dimensional shadow. Scan follows
+the inverse causal direction by constraining possible native fields. It never
+promotes a 3D reconstruction into S16 and never applies one observation to every
+candidate support.
 
 ---
 
@@ -23,165 +24,211 @@ lower-dimensional shadows or relations of that reality.
 
 This document is the sole canonical reconstruction/product specification.
 
-The live implementation must be self-contained. Exact TOE/Merkaba expressions may
-be imported as build-time source material, but they become authoritative only
-after they are represented by the generated descriptor and frozen fingerprints
-defined here. No runtime dependency on another repository or undocumented theorem
-is permitted.
+The live implementation must be self-contained. Exact TOE/Merkaba/eigenmode
+expressions may enter as authoritative build-time source material, but they become
+runtime authority only after generator ingestion, semantic validation and frozen
+fingerprints. Scanner code may not invent missing relations, eigenmodes, brackets,
+null strata or refinement laws.
 
-Version 8 is a replacement, not an additive compatibility layer. The following v7
-runtime concepts are not alternate valid physics:
+Version 8.1 is a replacement, not an appendix or compatibility mode. The following
+are explicitly noncanonical:
 
 ```text
-four persistent/global sensor-cell worlds
-CURRENT / PENDING / CONTINUATION / NOVEL as physical kinds
-one-winner pending projection
-provider × backing-segment candidate evaluation
-image-edge topology universe
-XYZ overlap as transition authority
-pixel-shaped canonical gauge allocation
-page halo as continuity
-live mesh/XYZ world as reconstruction state
+four sensor-cell worlds
+per-pixel/per-germ physical sensor shadow
+CURRENT / PENDING / CONTINUATION / NOVEL physical kinds
+candidate identity inside immutable observation evidence
+one-winner association
+mutation of every enumerated candidate support
+LatentGerm as the first form of unresolved evidence
+separate inverse then stitch/topology semantic authorities
+image/XYZ proximity topology
+pixel/global-bbox carrier allocation
+ABSENT storage interpreted as a materialized native-null state
+scalar confidence used as canonical physics
+live mesh/XYZ/texture world
 ```
 
-They may exist only until the corresponding S4‑08.6 replacement gate passes. The
-same commit then deletes them. No fallback, feature flag or compatibility graph may
-remain.
+Each S4‑08.6 replacement commit deletes the branch it supersedes. No feature flag,
+legacy fallback, renamed manager or parallel solver may remain.
 
-Representation-neutral donor infrastructure is limited to synchronized capture,
+Representation-neutral infrastructure may survive: synchronized capture,
 immutable calibration/poses, XR lifecycle, permissions/anchors/input/UI, Vulkan
 resource/fence/indirect helpers, asynchronous persistence plumbing and GLB
 encoding utilities.
 
 ---
 
-# 1. Canonical product statement
+# 1. Canonical physical world
 
-The only durable physical world is
+The only canonical reconstructed world is
 
 \[
 \boxed{\Psi:\Sigma_2\rightarrow\mathbb S_{16}}.
 \]
 
-- `Σ₂` is one sparse, logically unbounded intrinsic two-dimensional carrier.
-- `S16` is the real 16-dimensional sedenion algebra.
-- `Ψ(ξ)` is a complete native local state, called a **germ**.
-- unallocated carrier is implicit native null state and costs no storage;
-- canonical coefficients use checked nearest-even Q16.48;
-- fixed algebra/relation fingerprints and minimal exact certificates are
-  interpretation/proof metadata, not another physical world.
+`Σ₂` is a sparse, logically unbounded intrinsic two-dimensional **atlas
+namespace**. It can contain multiple disconnected chart components, folds,
+multi-sheet manifestations and two-sided surfaces. It is not one camera grid, one
+connected sheet, a voxel lattice, a render mesh or a storage page layout.
 
-The canonical world is never reduced to:
+For `ξ∈Σ₂`,
+
+\[
+s_\xi=\Psi(\xi)\in S16
+\]
+
+is the complete native local algebraic state. Its sixteen coefficients are not
+independent `xyz/rgb/normal/confidence/...` channels.
+
+The canonical world comprises:
 
 ```text
-XYZ points or voxels
-eye pixels or depth maps
-mesh/splat/meshlet vertices
-texture texels or material maps
-topology/boundary/object graphs
-sensor consensus records
-scene-history geometry
+full allocated S16 carrier states
+intrinsic atlas chart domains and incidence
+descriptor/fingerprint interpretation metadata
+minimal exact evidence/native-relation certificates
+the selected immutable revision root
 ```
 
-All such products are disposable readouts or evidence views. Deleting every
-readout cache must leave `Ψ`, its proof and future inference unchanged.
+Chart incidence is canonical domain structure of `Σ₂`; it is not a separately
+editable topology world.
 
-The product supports one persistent whole-building scan, revisit refinement,
-two-sided/thin surfaces, folds, directional appearance, current-scene evolution,
-direct stereo XR readout, rich textured 3D export, restart and deterministic
-continuation—all through this one native field.
+No readout, candidate, hypothesis, observation record, certificate, mesh, texture,
+topology graph, scene-history object or cache is canonical physical state.
+
+## 1.1 ABSENT is not NATIVE_NULL
+
+Two states are distinct:
+
+```text
+ABSENT
+    no materialized carrier/chart state exists at that atlas address
+
+NATIVE_NULL
+    an allocated descriptor-defined S16 null-manifestation state or stratum
+```
+
+Sparse `ABSENT` consumes no page/sample storage and makes no native-state claim.
+`NATIVE_NULL` may be nonzero and may use zero-divisor/eigenmode structure. Its
+exact state/stratum and fingerprint come only from the authoritative native law.
+
+No codec tag, missing page, zero-filled memory or allocator default may silently
+equate these concepts.
 
 ---
 
-# 2. Native-16D viewpoint
+# 2. Native-16D field viewpoint
 
-A physical camera produces a lower-dimensional drawing of the native world. It
-does not provide a primitive 3D reality that is later encoded into S16.
+A camera produces a lower-dimensional drawing of a native S16 field. It does not
+observe an isolated germ, and it does not supply primitive 3D reality later encoded
+into S16.
 
-For germ `ξ`:
-
-\[
-s_\xi=\Psi(\xi)\in S16.
-\]
-
-For a sensor/readout query `q`, the observed value is a shadow:
+The authoritative native law may depend on a bounded intrinsic neighbourhood:
 
 \[
-o_q\in\mathcal S_q(s_\xi).
+\Psi|_{\mathcal N_r(\xi)}.
 \]
 
-Scan asks for the native preimage:
+For a query `q`, one carrier locality produces only a **local contribution**
+
+\[
+\phi_{q,\xi}[\Psi]
+=
+\Pi^{loc}_{q,\xi}
+\left(
+\mathcal M
+\left(
+\mathcal K_M,
+\mathcal E_M,
+\Psi|_{\mathcal N_r(\xi)}
+\right)
+\right).
+\]
+
+This is a lowering primitive. It is not the physical sensor observation.
+
+The camera/eye observes the whole-scene shadow
 
 \[
 \boxed{
-\mathcal A_q
+\mathscr S_q[\Psi]
 =
-\mathcal S_q^{-1}(O_q)
-=
-\{s\in S16\mid\mathcal S_q(s)\in O_q\}.
+\mathfrak R_q
+\left(
+\{\phi_{q,\xi}[\Psi]\}_{\xi\in\Sigma_2}
+\right).
 }
 \]
 
-This is analogous to understanding a native 3D object from several 2D drawings,
-except the native object here is S16. A view may discard information; the canonical
-world does not.
+The scene reducer owns the many-to-one effects that no single germ can decide:
 
-Multiple observations refine the same native admissible region:
+```text
+overlap of multiple native supports
+direct projective order
+first manifested stratum / first-hit
+occlusion and behind-hit no-claim
+fold/two-sheet collapse in a query
+native-null manifestation
+query-relevant ZD relation collapse
+nonassociative context with its frozen bracket plan
+finite-footprint integration
+```
 
-\[
-\mathcal A_\xi^{n+1}
-=
-\mathcal A_\xi^n\cap\mathcal A_{q,t,\xi}.
-\]
-
-Time is provenance and causality, not a separate fusion algebra. A later pose is
-another shadow operator. Scene evolution is admitted only by explicit first-hit
-transition proof.
+Scan therefore asks which possible native fields could have produced the measured
+whole-scene shadow. It does not ask which one germ produced one pixel.
 
 ---
 
 # 3. Non-negotiable invariants
 
-1. **One full native state.** Sixteen coefficients are an algebraic state, not
-   independent `xyz/rgb/normal/confidence` channels.
-2. **One relation vocabulary.** Manifestation, sensor pullback, intrinsic stitch
-   and readout are generated from the same descriptor.
-3. **Overcomplete relations are not state channels.** A 22-relation atlas has one
-   shared S16 preimage and cannot be independently updated.
-4. **Readout is lossy and pure.** Eye/export/debug/prediction readouts never mutate
-   or impoverish `Ψ`.
-5. **Independent evidence stays independent.** RGB-L/R, depth-L/R and different
-   poses remain distinct native relation constraints until conjunction.
-6. **Confidence is admissible width.** It never becomes a sensor weight or vote.
-7. **First-hit causality.** A measurement constrains its pre-hit sector and first
-   supported hit. Behind-hit state receives exactly no evidence.
-8. **UNKNOWN is not EMPTY.** The complement of one shadow is an unresolved native
-   fibre, not null space evidence.
-9. **Minimum change is native.** XYZ, RGB or pixel error cannot define state
-   identity.
-10. **Invisible directions survive.** New evidence cannot modify a native relation
-    direction it does not constrain.
-11. **Topology is stitchability.** Regular/fold/null/no-relation/unresolved are
-    strata of the same native relation closure, not a second topology solver.
-12. **3D proximity is never identity.** Arbitrarily close manifestations may be
-    different carrier preimages.
-13. **Gauge is intrinsic.** Sensor pixels, pages and 3D coordinates never allocate
-    canonical carrier coordinates.
-14. **Refinement adds native carrier capacity.** It never creates a detail mesh or
-    texture world.
-15. **Contradictions remain exact.** Gaps and provenance are retained, never
-    averaged or cancelled.
-16. **Pages/segments are storage only.** Changing them changes no physical work
-    cardinality, state, topology, proof or readout.
-17. **One revision root.** A reader sees the entire old or entire new immutable
-    revision. Root exchange is the last visible write.
-18. **No fixed evidence/session ceiling.** Scratch limits continue, spill or
-    backpressure; they cannot truncate admitted evidence.
-19. **GPU owns canonical work.** CPU owns lifecycle/resources/fences/persistence
-    orchestration, never per-pixel/native decisions.
-20. **Admitted observations are owned.** Pre-admission capture may be sampled by a
-    deterministic policy; after admission no frame is overwritten or partially
-    retained.
+1. **One full native field.** `Ψ:Σ₂→S16` is the only physical world.
+2. **One authoritative native law.** Algebra, eigenmodes, relations,
+   manifestation, local projection, scene reduction, ZD and brackets share one
+   generated descriptor.
+3. **No assumed unary E22 ontology.** Exactly 22 relations may be used only as an
+   inventory supplied by TOE; completeness requires a faithfulness proof.
+4. **Local contribution is not observation.** First-hit and occlusion are
+   whole-scene reduction results.
+5. **Two coherent sensor shadows.** Left and right each contain independent depth
+   and optical leaves with shared eye pose/footprint provenance.
+6. **Observation identity is not support identity.** Immutable evidence contains
+   no native/chart/candidate key.
+7. **Alternative supports are a disjunction.** `A OR B` is neither one winner nor
+   simultaneous mutation of A and B.
+8. **Ambiguity does not mutate.** Only a resolved hypothesis or a delta common to
+   every surviving hypothesis may publish.
+9. **One semantic closure.** Observation, Merkaba/eigenmode and intrinsic atlas
+   relations share one feasible set before selection.
+10. **Minimum change cannot choose a hypothesis.** It acts only inside an already
+    resolved harmless-equivalence fibre.
+11. **Hidden native modes survive by construction.** Linear updates use a proven
+    right-lift/direct-sum decomposition; nonlinear updates preserve the prior
+    representative on indistinguishable fibres.
+12. **Exact ZD differs from near singular.** A nonzero calibrated residual is not
+    an exact zero divisor.
+13. **Direct order differs from ZD.** ZD is never fake depth.
+14. **Nonassociativity is semantic.** Every multi-factor relation keeps the
+    authoritative bracket tree.
+15. **Atlas incidence is intrinsic.** Geometry proximity cannot create
+    connectivity or identity.
+16. **ABSENT differs from NATIVE_NULL.** The distinction survives codec,
+    persistence, refinement and replay.
+17. **Confidence is not canonical scalar physics.** Exact uncertainty is a region,
+    disjunction, provenance and independence structure.
+18. **Independent evidence never votes.** Repetition alone adds no information.
+19. **Static correction is part of reconstruction.** Valid exclusion may remove a
+    false same-scene manifestation; behind-hit still provides no evidence.
+20. **Refinement is modal and intrinsic.** It adds full S16 states only after the
+    authoritative capacity law proves current atlas/modal insufficiency.
+21. **Readouts are pure.** Eye, prediction, export and debug cannot mutate or
+    impoverish `Ψ`.
+22. **Pages/segments are storage only.** Decomposition changes cost only, never
+    physical cardinality or result.
+23. **One immutable root.** Readers see the entire old or entire new revision; root
+    exchange is last.
+24. **No admitted evidence loss.** Pre-admission sampling may be deterministic;
+    admitted observations remain owned until a terminal disposition.
 
 ---
 
@@ -194,27 +241,27 @@ Within the Cayley-Dickson ladder
 \rightarrow\mathbb O\rightarrow\mathbb S,
 \]
 
-the required native relation semantics include both:
+the required native relation semantics include both explicit bracket sensitivity
 
 \[
 [a,b,c]=(ab)c-a(bc)\ne0
 \]
 
-and a non-trivial zero-divisor/annihilator stratum
+and non-trivial exact zero-divisor/annihilator strata
 
 \[
-z\ne0,\quad a\ne0,\quad za=0.
+z\ne0,\qquad a\ne0,\qquad za=0.
 \]
 
-S16 is the first stage in this ladder possessing both. This is a state-space
-minimality statement, not the dimension of physical position. Ordinary 3D is one
-manifestation/readout.
+S16 is the first Cayley-Dickson stage possessing both. This is a native local
+state-space minimality statement, not the dimensionality of manifested physical
+position. Ordinary 3D is one query/readout.
 
 ---
 
 # 5. Canonical NumericDomain
 
-Canonical coefficient and state-changing scalar semantics are:
+Canonical coefficients and every state-changing scalar decision use:
 
 ```text
 NumericDomain = num.fixed.q16_48.checked.nearest_even
@@ -222,36 +269,28 @@ signed         = true
 int_bits       = 16
 frac_bits      = 48
 storage_bits   = 64
-rounding       = nearest-even for point arithmetic
+point_rounding = nearest-even
 interval       = outward-rounded
 overflow       = checked, fail-closed
 ONE            = 1 << 48
 range          = [-32768,32768)
 ```
 
-Required primitives:
+Required primitives include checked add/subtract/multiply/divide, dyadic shifts,
+exact comparisons, outward interval arithmetic and descriptor-required bounded
+integer roots.
 
-```text
-qadd/qsub
-qmul/qdiv
-qabs/qmin/qmax/qclamp
-checked dyadic shifts
-outward interval mul/div
-deterministic integer sqrt where required
-exact signed comparisons
-```
+FP16/FP32 may run only after a canonical decision for disposable output. Floating
+point cannot decide feasible branches, first-hit, ZD class, chart allocation,
+native state, evidence proof, publication or persistence.
 
-FP16/FP32 may run after a canonical decision for disposable readout. FP cannot
-decide acceptance, identity, first-hit sector, stitch class, gauge allocation,
-proof, publication or persistence.
-
-Backend layout is a lowering. Packed-32 and native-I64 are legal only after
-bit-parity/capability gates. Unsupported exact arithmetic disables canonical
-mutation; it never silently falls back to floating point.
+Packed-32 and native-I64 are execution lowerings. Each is enabled only after exact
+CPU/GPU parity and capability gates; unsupported arithmetic disables canonical
+mutation.
 
 ---
 
-# 6. Exact S16 algebra and generated operator IR
+# 6. Exact S16 algebra and generated semantic IR
 
 Use basis `e0=1,e1,…,e15` and generated signed-XOR multiplication
 
@@ -260,23 +299,24 @@ e_ie_j=\varepsilon_{ij}e_{i\oplus j},
 \qquad\varepsilon_{ij}\in\{-1,+1\}.
 \]
 
-Reference equivalence uses the frozen Cayley-Dickson recursion. The generator owns:
+The generator owns:
 
 ```text
-mulBasis index/sign
-conjugation signs
+basis product index/sign
+conjugation
 left/right basis permutations
-signed-dyad annihilator catalog
-explicit bracket trees
-Hadamard/readout rows that remain part of the native descriptor
-native relation descriptor and fingerprints
+exact signed-dyad annihilator catalog
+all TOE native operator/eigenmode relation expressions
+all explicit bracket trees
+query/local-contribution/scene-reducer plans
+reverse contractors and reference evaluators
+stable semantic/lowering fingerprints
 ```
 
 Every product of more than two factors has an explicit bracket tree. `a*b*c` is
-invalid semantic source. A fused lowering records and proves equality to one exact
-tree.
+invalid semantic source. GPU fusion records exactly which frozen tree it lowers.
 
-The common generated IR vocabulary is:
+Generated IR includes:
 
 ```text
 XOR_INDEX / PERMUTE / SIGN / NEGATE
@@ -284,1091 +324,1151 @@ ADD / SUB / SHIFT
 CMP / MIN / MAX / MASK / SELECT
 GATHER / SCATTER
 FIXED_BOUNDED_REDUCTION
-QMUL / QDIV only where the semantic expression requires them
-INTERVAL_MUL / INTERVAL_DIV only for conservative contractor propagation
+QMUL / QDIV only when semantically required
+INTERVAL_MUL / INTERVAL_DIV for conservative reverse propagation
+UNION_BRANCH / INTERSECT_CONSTRAINT / FORWARD_VERIFY
 ```
 
-Rules:
-
-- dense schoolbook S16 multiplication is a reference or explicitly selected
-  generated fallback, never the default hot path;
-- signed-XOR/permutation/dyadic operations bypass generic multiplication;
-- common subexpressions are shared across all 22 relations and readouts;
-- bounded control lowers to masks/selects or uniform fixed schedules;
-- optimized and reference evaluators are bit-identical;
-- semantic descriptor fingerprint, not instruction order, is authority.
+Common subexpressions are shared across the entire native law. Dense schoolbook
+S16 multiplication remains a semantic reference or explicit fallback for a truly
+dense generated expression, never the default vocabulary.
 
 ---
 
-# 7. Native Merkaba/eigenmode relation descriptor
+# 7. Authoritative Merkaba/eigenmode descriptor
 
-## 7.1 Descriptor definition
+## 7.1 Descriptor schema
 
-One generated descriptor is frozen:
+Freeze one generated descriptor:
 
 \[
 \boxed{
 \mathcal D_M=
-(\mathcal A_{S16},E_{0..21},\mathcal M,\Pi_q,
-\mathcal T,\mathcal Z,\mathcal B,\Delta).
+(\mathcal A_{S16},\mathcal K_M,\mathcal E_M,\mathcal M,
+\Pi^{loc}_q,\mathfrak R_q,\mathcal Z,\mathcal B,\Delta).
 }
 \]
 
 It contains:
 
 ```text
-22 exact relation expression DAGs
-every input lane/constant/signed-XOR permutation
-every explicit product bracket
-relation output domains and consistency identities
-forward local-manifestation plan
-sensor/eye/export/debug query plans
-reverse contractor for every expression node
-intrinsic neighbour transport/stitch plan
-ZD/annihilator and associator strata
-native minimum-change selector and tie order
-common-subexpression schedule
-semantic and generated-lowering fingerprints
+A_S16      exact signed-XOR S16 algebra
+K_M        authoritative TOE Merkaba/eigenmode operator/frame/kernel semantics
+E_M        generated native relation family with explicit arity and brackets
+M          native manifestation law
+Pi_loc     local query contribution/contraction plans
+R_q        whole-scene shadow reduction plans
+Z          exact ZD/annihilator and calibrated near-singular strata
+B          explicit nonassociative context/bracket plans
+Delta      fibre-preserving selector inside a resolved harmless equivalence class
 ```
 
-The exact E22 expressions come from the authoritative TOE construction supplied to
-the generator. Scanner developers may not infer or invent the missing equations.
-Before that descriptor passes §34.1, live v8 mutation remains disabled.
+`E_M` may contain unary state relations, binary neighbour relations, k-ary
+nonassociative relations and bounded-neighbourhood relations. The implementation
+must not force the native law into unary `E_k(s)` form.
 
-## 7.2 Relation atlas
+The descriptor also freezes:
+
+```text
+operator arities and domains
+input roles and intrinsic neighbourhood radius
+all constants, permutations and bracket trees
+native eigenmode/eigenspace identifiers
+query coupling and mode/kernel visibility
+mode transport and refinement-capacity semantics
+local contribution plans
+whole-scene first-hit/order/occlusion reducers
+reverse contractor schedules
+exact consistency identities
+harmless gauge/null equivalence
+semantic and lowering fingerprints
+```
+
+The exact TOE artifact is mandatory. If it is absent or incomplete, N1R is
+blocked; current scanner equations cannot substitute for it.
+
+## 7.2 Optional E22 inventory and faithfulness
+
+If the authoritative artifact supplies exactly 22 relations, the generator may
+name their inventory `E22`. The automatically safe dimensional statement is only
 
 \[
-E_{22}(s)=(E_0(s),\ldots,E_{21}(s)),
+\dim E_{22}(S16)\le16.
+\]
+
+Before the full law may factor exclusively through `E22`, prove on the canonical
+admissible domain:
+
+\[
+E_{22}(s_a)=E_{22}(s_b)
+\Longrightarrow
+s_a\equiv s_b,
+\]
+
+where `≡` is the frozen harmless gauge/null equivalence from the descriptor.
+
+If this faithfulness gate fails or remains unproven:
+
+- direct S16/eigenmode dependencies remain in the descriptor;
+- local manifestation, inverse closure and export may not route solely through
+  `E22`;
+- no native direction may disappear because the 22-relation inventory does not
+  separate it.
+
+Relation values are derived/cached outputs. They are never independently editable
+canonical lanes.
+
+## 7.3 Generated authorities
+
+One semantic descriptor generates:
+
+```text
+ForwardNativeLawReference
+ProjectLocalNativeContribution
+ReduceWholeSceneShadow
+ContractNativeWorldPreimage
+CloseNativeFieldReference
+NativeRelationClassification
+NativeModeTransport
+NativeRefinementCapacity
+readout-specific query plans
+```
+
+These are evaluators of one law, not separate physical solvers.
+
+---
+
+# 8. Forward manifestation and whole-scene shadows
+
+For each materialized atlas locality `ξ`, query `q` and descriptor-defined bounded
+neighbourhood, evaluate
+
+\[
+\phi_{q,\xi}[\Psi]
+=
+\Pi^{loc}_{q,\xi}
+\left(
+\mathcal M(
+\mathcal K_M,
+\mathcal E_M,
+\Psi|_{\mathcal N_r(\xi)})
+\right).
+\]
+
+`φ` may include:
+
+```text
+native support/chart key
+direct-order interval
+homogeneous query coordinate interval
+optical/directional interval
+native-null/support role
+relation/ZD/bracket witness
+finite-footprint coverage contribution
+```
+
+The physical query shadow is
+
+\[
+\boxed{
+\mathscr S_q[\Psi]
+=
+\mathfrak R_q
+(\{\phi_{q,\xi}[\Psi]\}_{\xi\in\Sigma_2}).
+}
+\]
+
+`mathfrak R_q` performs exact or conservatively outward-bounded many-to-one
+reduction:
+
+1. collect all local contributions overlapping the query footprint;
+2. preserve alternative support keys and relation witnesses;
+3. resolve direct-order intervals where provable;
+4. compute first manifested stratum and occlusion;
+5. preserve ambiguous equal/overlapping order as a hypothesis group;
+6. apply descriptor-owned ZD/nonassociative reduction only where query semantics
+   require it;
+7. integrate the calibrated finite footprint;
+8. emit the shadow plus complete support-hypothesis provenance.
+
+No local projector owns first-hit. No isolated state is declared to be what the
+camera sees.
+
+The reducer is query-specific but generated from the same native law. Eye, sensor,
+export and debug queries may expose different lossy shadows without changing
+`Ψ`.
+
+“Whole-scene” is semantic coverage, not a requirement to traverse every persisted
+page. A disposable conservative query-support index may cull a locality only when
+its exact bound proves zero contribution to the query. If a potentially relevant
+support is nonresident or the index is incomplete, the query/closure defers and
+rehydrates; it may not omit the support or mint a replacement identity.
+
+---
+
+# 9. Canonical stereo observation
+
+One admitted rig observation is
+
+\[
+\boxed{Y_t=(O_L,O_R,\Gamma_t)}
+\]
+
+with
+
+\[
+O_L=(D_L,RGB_L,F_L,H_L),
 \qquad
-\mathcal V_E=E_{22}(S16).
+O_R=(D_R,RGB_R,F_R,H_R),
 \]
 
-`V_E` is the consistent image of S16. It is an overcomplete coordinate/relation
-atlas of the same state, not a 22-dimensional canonical replacement. Relation
-bounds are conjoined through one shared S16 preimage.
-
-No runtime may persist independently editable `Edge[22]` state. Generated relation
-values/caches are disposable and keyed by germ generation plus descriptor
-fingerprint.
-
-## 7.3 Four mandatory evaluators from one descriptor
-
-The generator emits:
+where:
 
 ```text
-ForwardNative22            S16 -> relation atlas / manifestation / shadow
-PullbackNative22           observation relation set -> admissible S16 region
-StitchNative22             neighbouring S16 germs -> native relation stratum
-Native22ReferenceOracle    slow semantic authority for all three
+D       calibrated depth/direct-order region
+RGB     calibrated optical relation region
+F       finite footprint geometry
+H       measured first-hit/support role
+Gamma   timestamped rig pose, intrinsics, extrinsics and calibration epoch
 ```
 
-Separate handwritten depth, RGB, topology or export physics are forbidden.
+The rig supplies **two coherent RGB-D shadows**, not four unrelated physical
+worlds. Within each side, depth and RGB remain independent relation leaves:
+
+\[
+O_e=O_{D_e}\cap O_{RGB_e}
+\]
+
+only at the exact relation conjunction. Depth may not initialize or pre-contract
+the RGB native domain, and RGB may not alter the depth uncertainty model.
+
+Left and right remain independent support classes under the frozen rig
+correlation model. Repeated frames share an independence class unless baseline,
+pose, footprint phase or sensor statistics prove otherwise.
+
+The immutable observation contains no native support key, germ key, chart address
+or latent identity.
 
 ---
 
-# 8. Forward manifestation and shadow family
+# 10. Exact inverse as a preimage of possible fields
 
-For germ state `s`, sub-carrier offset `δ` and direction/query `ω`, define the
-local manifestation
+## 10.1 World preimage
 
-\[
-v_M=\mathcal M(E_{22}(s);\delta,\omega).
-\]
-
-For query descriptor `q`:
+For query `q` and measured shadow region `O_q`, the exact preimage is
 
 \[
 \boxed{
-\mathcal S_{q,p}(s)
+\mathcal P_q(O_q)
 =
-\Pi_{q,p}(v_M).
+\{\Phi:\mathscr S_q[\Phi]\in O_q\}.
 }
 \]
 
-`Πq,p` contains only query/calibration semantics:
+This is a set of possible native fields, not a per-germ inverse and not a floating
+pseudoinverse.
 
-- finite pixel or requested readout footprint;
-- exact pose/calibration epoch;
-- homogeneous projection rows;
-- direct order/depth relation;
-- optical/directional response;
-- support/null predicates;
-- first-hit visibility policy.
+Each possible field includes the affected atlas support/materialization and
+incidence choices together with full S16 values; it is not merely a vector update
+over an already chosen support.
 
-The forward evaluator may materialize a local 3D point, differential or colour as
-an output when a query requests it. That materialization is never an intermediate
-canonical world.
-
-For a homogeneous row pair `Uq,Wq`, an observed image interval
-
-\[
-u_{min}\le\frac{U_qs}{W_qs}\le u_{max}
-\]
-
-is represented by exact inequalities
-
-\[
-(U_q-u_{max}W_q)s\le0,
-\qquad
-(u_{min}W_q-U_q)s\le0.
-\]
-
-The descriptor uses the analogous exact relation form for `v`, direct order/depth
-and optical ratios. Where a row is not linear, the original bracketed expression
-remains in the relation packet and is contracted through its generated DAG.
-
----
-
-# 9. Scanner observation model
-
-One coherent admitted rig observation is
-
-\[
-Y_t=(D_L,D_R,RGB_L,RGB_R,M_t,K_t,C_t),
-\]
-
-where `M/K/C` name exact timestamped pose, intrinsics/extrinsics and immutable
-calibration epoch.
-
-Each valid finite footprint produces an independent `ShadowRelationPacket`:
-
-```text
-observation revision
-source/eye and independence key
-calibration/pose epoch
-finite footprint key
-first-hit sector and direct-order interval
-candidate native fibre key or latent seed key
-relation mask
-exact relation bounds/predicates
-raw reference when later contraction needs original samples
-```
-
-The four sensor streams are not converted into four persistent 16D cell arrays.
-They are independent constraints on the same relation atlas. The implementation
-may materialize packets or construct them on demand, but source order and physical
-partition cannot alter their conjunction.
-
-Stereo is native observability, not only triangulation. If `Rq` denotes the active
-generated shadow rows on a linear branch, left/right constrain different row
-spaces:
-
-\[
-V_L=\operatorname{rowspan}R_L,
-\quad
-V_R=\operatorname{rowspan}R_R,
-\quad
-\operatorname{span}(V_L,V_R).
-\]
-
-Across viewpoints that span can grow and reveal native directions shadowed by a
-previous observation. No sample-count strengthening is implied.
-
----
-
-# 10. Exact inverse Merkaba pullback
-
-## 10.1 Inverse image, not pseudoinverse
-
-For observation region `Oq,p`:
+For a measured footprint, scene reduction generally produces alternative support
+hypotheses:
 
 \[
 \boxed{
-\mathcal A_{q,p}
+\mathcal P_{q,p}(O)
 =
-(\Pi_{q,p}\circ\mathcal M\circ E_{22})^{-1}(O_{q,p}).
+\bigcup_{H\in\mathcal H_{q,p}}
+\mathfrak A_{q,p,H}(O).
 }
 \]
 
-The contractor reverses the same semantic DAG. It never computes a floating matrix
-pseudoinverse and never re-associates a nonassociative product for convenience.
+The union is mandatory ontology. If supports `A`, `B` and `C` remain possible,
+the observation means `A OR B OR C`.
 
-## 10.2 Native admissible region
-
-A `NativeRegion` is an exact conjunction of descriptor relation predicates with a
-conservative Q16.48 enclosure and provenance. It is not defined to be a 16D
-axis-aligned box.
+It does **not** mean:
 
 ```text
-NativeRegion
-    descriptor fingerprint
-    conservative S16 enclosure
-    relation predicate/range records
-    source/independence provenance
-    first-hit/order records
-    consistency mask
-    unresolved branch cursor, if bounded contraction is incomplete
+choose one nearest/lowest handle
+constrain A, B and C simultaneously
+mutate every enumerated support
+mint a new branch because enumeration was incomplete
 ```
 
-Outward interval propagation may widen an enclosure. It may not drop an original
-predicate. A candidate state commits only after all original predicates are
-forward-evaluated and satisfied bit-exactly. Contractor exhaustion is unresolved.
+## 10.2 Exact reverse propagation
 
-## 10.3 Independent conjunction
+For each support hypothesis, contractors reverse the exact descriptor expression
+DAG while retaining original predicate records. They do not algebraically
+reassociate nonassociative products.
 
-For one germ candidate `i`:
-
-\[
-\mathcal C_i
-=
-\mathcal C_{prior,i}
-\cap
-\bigcap_{q,p}\mathcal A_{q,p,i}
-\cap
-\bigcap_{j\in N(i)}\mathcal N_{ij}.
-\]
-
-Conjunction is commutative and source-order invariant. Empty intersection retains
-the exact failed predicate/gap and both provenances. Nothing is averaged.
-
-## 10.4 Native minimum-change selection
-
-\[
-\boxed{
-s'_i
-=
-\operatorname*{argmin}_{s\in\mathcal C_i\cap Q48^{16}}
-\Delta_{\mathcal D_M}(s,s_i).
-}
-\]
-
-`ΔD` and its lexicographic tie break are generated/fingerprinted. It cannot be
-Euclidean XYZ distance, RGB error or pixel reprojection error alone.
-
-If the prior satisfies all new relations, its bytes remain unchanged. Evidence may
-still strengthen the certificate.
-
-## 10.5 Hidden native directions
-
-For a linear active row operator `R`:
-
-\[
-P_{\ker R}(s'-s)=0.
-\]
-
-For general nonlinear/bracketed relations, define observation-fibre equivalence:
-
-\[
-s_a\sim_O s_b
-\iff
-\forall c\in O:\ c(s_a)=c(s_b).
-\]
-
-Minimum change retains the prior representative along the unconstrained
-equivalence fibre. One-eye/depth-only evidence cannot erase directional
-appearance, hidden relation context, topology state or fine detail learned from
-another view.
-
-## 10.6 Checked result
-
-The candidate must pass:
+A contractor may emit:
 
 ```text
-all source relation predicates
-descriptor consistency identities
-Q16.48 checked range
-first-hit and behind-hit causality
-required intrinsic stitches
-promotion/disappearance gates when relevant
-evidence ownership
-codec round-trip
+conservative Q16.48 S16/field enclosure
+exact relation predicates
+branch/disjunction cursor
+support/chart constraints
+direct-order and first-hit role
+source/provenance references
+forward-verification obligations
 ```
 
-Failure leaves the prior byte-identical and retains the necessary unresolved
-evidence.
+Outward propagation may be broad. It may not remove a mathematically possible
+field. Resource exhaustion produces `UNRESOLVED`, never false accept/reject.
+
+## 10.3 Resolved/common delta rule
+
+Canonical mutation is legal only if one of these is proven:
+
+1. exactly one native support hypothesis remains and its canonical delta is
+   resolved modulo frozen harmless gauge equivalence;
+2. every surviving hypothesis induces the same byte-identical canonical delta on
+   every affected field key;
+3. the authoritative native law proves one common update valid over the complete
+   disjunction.
+
+Let `D(H)` be the set of legal sparse deltas under hypothesis `H`. A common delta
+`d` is publishable only when
+
+\[
+\forall H\in\mathcal H_{survive}: d\in D(H)
+\]
+
+and its complete affected-key/value set is identical under every branch.
+
+Otherwise the result is
+
+```text
+UNRESOLVED_SHADOW_BRANCH
+canonical delta = empty
+evidence retained
+```
 
 ---
 
-# 11. First-hit and direct-order semantics
+# 11. Scene-level first-hit and exclusion
 
-First-hit is part of the sensor shadow descriptor before association/closure.
+First-hit is evaluated inside `mathfrak R_q`, after all relevant local contributions are
+available.
 
-For measured first-hit interval `Dm` and predicted fibre order interval `Dp`:
+For one measured footprint, each support hypothesis contains a direct-order
+interval and one role:
 
-## 11.1 Compatible hit
+```text
+SUPPORTED_HIT
+PRE_HIT_EXCLUSION
+BEHIND_HIT_NO_CLAIM
+ORDER_UNRESOLVED
+```
 
-If the intervals overlap under calibrated uncertainty, the observation contributes
-inclusive native relation constraints to that fibre.
+## 11.1 Compatible first stratum
 
-## 11.2 Measured hit in front
+If measured and predicted first-stratum order regions overlap under calibrated
+uncertainty, the observation may constrain that support hypothesis.
 
-If `Dm` is strictly before `Dp`, the measured hit may constrain another supported
-or latent fibre. The old predicted fibre is behind the new first hit and receives
-no evidence.
+## 11.2 Measured stratum in front
 
-## 11.3 Predicted contact in measured pre-hit path
+An older support strictly behind the measured first stratum receives no evidence.
+The measured shadow may be explained by a different supported or unresolved
+branch.
 
-If `Dp` is strictly before `Dm`, emit an exact `PRE_HIT_EXCLUSION` relation against
-that fibre. It is not a negative correction and cannot alone mutate state.
+## 11.3 Predicted manifestation in clear measured pre-hit path
+
+If a predicted manifestation lies strictly in the independently observed clear
+pre-hit path, emit exact exclusion evidence against that support branch.
+
+Exclusion participates in the same static field closure. It may remove a false
+same-scene manifestation when independent pass-through evidence and the native law
+resolve the field. It is not automatically deferred to temporal scene evolution.
 
 ## 11.4 Behind-hit invariant
 
-Every state behind the measured first hit receives:
+Anything behind the measured first hit receives:
+
+\[
+\boxed{\text{no inclusive constraint, no exclusion and no evidence strengthening}.}
+\]
+
+No ray carving or inferred free-space volume is canonical.
+
+## 11.5 Direct order, ZD and nonassociativity are distinct
+
+```text
+direct projective order   decides front/back ordering
+exact ZD                  identifies exact null/singular algebraic relation
+nonassociative bracket    defines context-sensitive composition
+```
+
+All can affect scene reduction, but none may impersonate another.
+
+---
+
+# 12. Evidence and disposable support hypotheses
+
+## 12.1 Immutable `ShadowObservation`
+
+```text
+observation revision
+sensor side / independence class
+rig pose/calibration epoch
+finite footprint
+measured depth/direct-order region
+measured optical relation region
+measured first-hit/support role
+raw reference when exact replay/refinement requires it
+```
+
+It contains no native key, chart address, support identity or candidate identity.
+
+## 12.2 Disposable `ShadowHypothesis`
+
+```text
+ShadowObservation id
+hypothesis-group id
+candidate native support key/range OR unbound support branch
+predicted local-contribution witness
+whole-scene reducer role
+direct-order/support interval
+native relation / ZD / bracket witness references
+```
+
+Many hypotheses may reference one observation. They are possibilities, not
+physical objects. Sort/compaction handles are execution details and cannot be
+persisted as identity.
+
+## 12.3 Coverage and pruning
+
+Candidate generation must conservatively include every resident or required
+nonresident support whose shadow bounds can explain the measurement. Pruning needs
+an exact conservative incompatibility proof.
+
+If complete support coverage cannot be guaranteed because required carrier data is
+nonresident, submission defers/backpressures. It cannot create a new support.
+
+Right and left eyes use their actual reprojections. A one-winner depth/handle
+projection is insufficient whenever multiple sheets/folds overlap.
+
+An observation may also create an unbound support hypothesis that has no atlas
+address. This remains `UnresolvedShadowBranch` evidence until §14 proof gates are
+satisfied; it is not an implicit candidate state.
+
+---
+
+# 13. One semantic operation: `NativeCloseCommit`
+
+The complete feasible field set is
 
 \[
 \boxed{
-\text{no inclusive relation, no exclusion, no confidence/certificate change}.
+\mathcal C[\Psi_t,Y_t]
+=
+\mathcal C_{prior}
+\cap
+\bigcap_{q,p}
+\left(
+\bigcup_{H\in\mathcal H_{q,p}}
+\mathfrak A_{q,p,H}
+\right)
+\cap
+\mathcal C_{Merkaba/eigen}
+\cap
+\mathcal C_{intrinsic}.
 }
 \]
 
-No ray carving or implicit free space is permitted.
+Observation preimages, support alternatives, native eigenmode/zero-divisor/
+nonassociative relations and intrinsic atlas incidence participate in the **same
+feasible set before selection**.
 
----
-
-# 12. Native fibre association
-
-Prediction is a disposable generator of candidate native fibres. It is never
-allocation or identity authority.
-
-For footprint `p`, candidate generation returns an ordered compact set
+The sole canonical semantic operation is
 
 \[
-F_p=\{f_0,\ldots,f_n\}
-\]
-
-containing every visible/resident fibre whose exact shadow bound can explain the
-observation. Multiple preimages at one eye pixel are legal and expected.
-
-Rules:
-
-1. both eyes use their actual reprojected footprint;
-2. no nearest-depth/lowest-handle winner may discard another untested fibre;
-3. pruning is legal only when a conservative native-shadow bound proves
-   incompatibility;
-4. each candidate uses the same `PullbackNative22` and first-hit rules;
-5. a latent solve is attempted only after all supplied compatible fibre classes
-   fail or remain unresolved according to the descriptor;
-6. inability to enumerate a required nonresident fibre backpressures/defers; it
-   cannot mint a new identity;
-7. execution ordering is stable by complete native key and provenance.
-
-`CURRENT`, `PENDING`, `CONTINUATION` and `NOVEL` are removed as physical proposal
-kinds. Runtime dispositions may describe whether evidence matched a supported
-germ, refined a latent germ or remains unresolved, but those labels do not define
-physics or canonical addressing.
-
----
-
-# 13. Intrinsic Merkaba stitching and native topology
-
-## 13.1 Transition
-
-For intrinsic neighbours `i,j`:
-
-\[
-\tau_{ij}=\overline{s_i}s_j.
-\]
-
-The descriptor generates relation transport `Tk(τij)` and compatibility:
-
-\[
-\mathcal N_{ij}
+\boxed{
+\operatorname{NativeCloseCommit}(\Psi_t,Y_t)
 =
-\bigcap_{k=0}^{21}
-\operatorname{Compat}_k
-\left(E_k(s_j),\mathcal T_k(\tau_{ij})E_k(s_i),e_{ij}\right).
+\operatorname{RootLastCommit}
+\left[
+\operatorname{NativeSelect}
+(\mathcal C[\Psi_t,Y_t],\Psi_t)
+\right].
+}
 \]
 
-`eij` is exact first-hit/native-relation evidence. Image adjacency or 3D proximity
-may propose a candidate key but creates no claim.
+There is no semantic `inverse → stitch → latent solve → commit` sequence. Physical
+GPU phases may use profiler labels such as projection, reduction, close, overflow
+and commit, but none is an independent physical authority.
 
-## 13.2 Outcomes
+## 13.1 Native relation component
 
-```text
-REGULAR
-    required relation modes close under regular transport
-
-SINGULAR
-    required relation enters a stable supported ZD/nonassociative stratum
-
-NO_RELATION
-    first-hit/native constraints prohibit the stitch
-
-UNRESOLVED
-    evidence or bounded contractor is insufficient
-```
-
-A fold, boundary, null/contact transition or different sheet is a stitch outcome.
-No separate topology graph or XYZ qualifier exists.
-
-## 13.3 Zero divisors
-
-The generated exact dyad catalog defines probes `ak`. A singular relation may
-satisfy
+`C_Merkaba/eigen` is generated from the authoritative descriptor. It can include
+unary, neighbour, k-ary and bounded-neighbourhood constraints. For intrinsic
+neighbours one descriptor relation may use
 
 \[
-\tau_{ij}a_k=0
+\tau_{ij}=\overline{s_i}s_j,
 \]
 
-or the calibrated exact relative Q16.48 stratum gate. Dyad action uses generated
-signed-XOR permutations/add/sub, not generic dense multiplication.
+but no separate stitch subsystem owns topology.
 
-## 13.4 Nonassociative context
+## 13.2 Exact ZD and near-singular classes
 
-For an intrinsic chain `i→j→k`, compare explicit brackets
+An exact zero-divisor witness satisfies
 
 \[
-(\tau_{ij}\tau_{jk})a_r,
-\qquad
+\tau a_k=0
+\]
+
+in exact Q16.48/algebra semantics for an authoritative probe `a_k`.
+
+`NEAR_SINGULAR_Q48` is a separate calibrated nonzero-residual class. It cannot be
+called exact ZD and cannot acquire exact ZD proof by repetition.
+
+## 13.3 Nonassociative context
+
+For a chain, the descriptor may require both
+
+\[
+(\tau_{ij}\tau_{jk})a_r
+\qquad\text{and}\qquad
 \tau_{ij}(\tau_{jk}a_r).
 \]
 
-A nonzero associator is native context and may prevent flattening the relation
-into an associative pairwise continuation. The generator owns the bracket plan.
+Their difference can change whether a branch collapses in a query or remains
+distinct. Associator magnitude is not a generic image-edge detector.
 
-## 13.5 Dirty domain and cache
+## 13.4 Native relation taxonomy
 
-The dirty stitch domain is
+Only descriptor-defined subtypes may be emitted. The minimum transport/cache
+taxonomy is:
 
-\[
-D_E=
-\{(i,j)\in E_{\Sigma}:
-g_i\ne g_i^{cache}
-\lor g_j\ne g_j^{cache}
-\lor e_{ij}\ne e_{ij}^{cache}\}.
-\]
+```text
+REGULAR
+ZD_EXACT
+NEAR_SINGULAR
+NONASSOC_CONTEXT
+FOLD_OR_CREASE          only when descriptor derives it
+NULL_CONTACT_RELATION   only when descriptor derives it
+NO_RELATION
+UNRESOLVED
+```
 
-It depends on endpoint/evidence generations, never proposal kinds. This includes
-changed supported↔supported edges.
-
-The cache key contains both endpoint generations, evidence generation and
-descriptor fingerprint. Hit and forced-miss paths are bit-identical. The cache is
-disposable and has no topology authority.
-
-## 13.6 Independent-view stability
-
-A measured singular class becomes stable only when its exact relation signature is
-supported by the persisted minimum number of independent view keys. Repeat frames
-from one class do not count as new support. Until then the claimed edge remains
-unresolved/fail-closed.
+A `NativeRelationCache` may cache outcomes for generation/evidence-keyed intrinsic
+neighbourhoods. It is disposable and owns no topology.
 
 ---
 
-# 14. Latent native relations
+# 14. Unresolved evidence lifecycle
 
-If no supported fibre can explain an observation, the system creates or refines a
-noncanonical `LatentGerm`:
+A shadow not yet explained is not yet a germ.
 
-```text
-stable local native chart/seed
-admissible NativeRegion
-complete source-relation evidence references
-candidate intrinsic stitch references
-generation and lifecycle receipt
-```
-
-It is not a pixel, 3D point, page, surface object or second world. Sensor/image
-coordinates remain observation provenance only.
-
-A later observation first tests all conservatively viable supported and latent
-fibres. Exact native conjunction may:
-
-- refine the same latent germ;
-- absorb it into an existing carrier branch through a supported stitch;
-- keep it unresolved;
-- reject/expire its identity while retaining still-required evidence;
-- promote it after independent support.
-
-Promotion to canonical `Σ₂` occurs only when:
+## 14.1 F0 — `UnresolvedShadowBranch`
 
 ```text
-the native relation region is non-empty and forward-verified
-independent null→contact support is satisfied
-no compatible existing/latent stitch explains the evidence
-the local chart and evidence are complete
+branch id
+one or more immutable observation references
+bounded native relation/preimage representation
+support-hypothesis ancestry
+continuation cursor for exact bounded contraction
+no canonical native identity
+no Sigma_2 chart
+no physical extent
 ```
 
-The deterministic promoted-chart allocator preserves the latent local chart and
-allocates collision-free intrinsic carrier space ordered by observation revision,
-complete provenance key and lexicographic native seed. It is independent of image
-resolution, pixel layout, 3D position, page layout and GPU scheduling.
+This is pure unresolved evidence.
+
+## 14.2 F1 — `BoundNativeBranch`
+
+Created only after independent observations plus native relation closure prove a
+persistent intrinsic support relation.
+
+```text
+stable noncanonical intrinsic local chart/gauge
+native relation region
+complete evidence references
+native relation attachment references
+generation and proof receipt
+```
+
+It still has no supported canonical carrier address.
+
+## 14.3 F2 — supported carrier materialization
+
+Canonical `Σ₂` allocation occurs only after the native law proves:
+
+```text
+support/contact manifestation
+resolved support hypothesis or common delta
+chart attachment/component semantics
+complete independent evidence ownership
+forward satisfaction of both whole-scene sensor shadows
+```
+
+Deterministic ordering may choose only among mathematically gauge-equivalent
+placements. Observation revision, provenance, image position, XYZ position, page
+or GPU order may never determine physical placement.
+
+## 14.4 Branch transitions
+
+New evidence may:
+
+- refine the same unresolved branch;
+- merge hypothesis ancestry without declaring support;
+- prove and bind one native branch;
+- attach a bound branch to existing atlas incidence;
+- materialize a new supported chart component;
+- prove the branch inconsistent and release it after evidence obligations end.
+
+There is no first-stage `LatentGerm`, pending pixel chart or novel rectangle.
 
 ---
 
-# 15. Multi-pass refinement and intrinsic gauge
+# 15. Multi-pass eigenmode refinement
 
-The descriptor may expose local manifestation over sub-carrier offset/direction:
+N1R must import and freeze the authoritative Merkaba/eigenmode operator, frame and
+kernel semantics `K_M`. The scanner cannot merely use the word “eigenmode”.
 
-\[
-\mathcal R_\xi(\delta,\omega)
-=
-\mathcal M(E_{22}(s_\xi);\delta,\omega).
-\]
-
-Different baselines, angles and footprint phases can constrain different native
-modes of one germ. Stable revisits may leave S16 bytes unchanged while strengthening
-certificates. Informative revisits contract the admissible state.
-
-A germ is refined only when all retained observations cannot be represented by one
-state and its descriptor-permitted local variation:
-
-\[
-\exists O_a,O_b:
-\text{one-germ closure empty or falsely broad, while a finer intrinsic chart has
-a non-empty verified closure}.
-\]
-
-Refinement performs:
+The descriptor exposes:
 
 ```text
-exact gauge demand proof
-→ bijective intrinsic chart split/remap
-→ transport complete evidence and stitch relations
-→ instantiate finer S16 germs
-→ rerun the same native closure
+native eigenmode/eigenspace identification required by TOE
+query coupling of each relevant mode
+mode/kernel visibility under each whole-scene shadow
+native relation transport of modes
+current chart/modal bandwidth or capacity semantics
+refinement transport rules
 ```
 
-No 3D voxel, displacement field, texture world, mip geometry or decimated
-canonical mesh is introduced.
+Repeated views refine one full native field because distinct shadows constrain
+different native-mode combinations. A stable duplicate from the same independence
+class does not gain strength merely by repetition.
+
+Refinement is demanded only when all are proven:
+
+1. retained observations are jointly real/supportable under one static scene;
+2. current chart/modal capacity cannot reproduce them without contradiction or
+   destructive broadening;
+3. a finer intrinsic chart increases representable native modal capacity;
+4. the finer closure forward-verifies every retained whole-scene observation.
+
+Then:
+
+```text
+exact intrinsic gauge split/remap
+transport complete evidence and native relations
+instantiate finer full S16 states
+rerun the same NativeCloseCommit feasibility law
+```
+
+No 3D voxel resolution, depth-distance heuristic, image tile count or repeated
+sample count is canonical refinement authority.
 
 ---
 
-# 16. Evidence, precision and certificates
+# 16. Evidence, uncertainty and certificates
 
-## 16.1 Epistemic precision is not an arbitrary S16 channel
+## 16.1 Exact epistemic representation
 
-Native state support/amplitude may be a descriptor observable. Directional
-epistemic precision is carried by exact relation regions and certificates. It may
-not be collapsed into an ad-hoc dyadic scalar staircase that changes canonical S16
-bytes.
-
-For a linear constrained relation width `wr` with physical floor `wFloor,r`, the
-normative precision contribution is
-
-\[
-\pi_r=\frac{wFloor,r}{\max(w_r,wFloor,r)}
-\]
-
-using exact Q16.48 division. For nonlinear relations the descriptor supplies the
-corresponding monotone precision bound. No source-count term exists.
-
-Any scalar support value stored in/derived from `s` is only the descriptor-defined
-physical/projective observable. It is not a substitute for directional proof.
-
-## 16.2 Complete journal before visibility
-
-Every candidate visible revision owns a complete immutable journal of all source
-relation packets required to reproduce:
-
-- the selected state or unchanged result;
-- validity and exact gaps;
-- first-hit sectors;
-- latent promotion/absorption;
-- required stitch classes;
-- independent support.
-
-The joint region or selected state is a fast witness/cache, not a complete journal.
-Source evidence is stored once per observation. Page/revision generations hold
-references and never duplicate it per page.
-
-## 16.3 Native relation certificate
-
-After deterministic proof minimization, retain:
+Canonical epistemic knowledge is represented by:
 
 ```text
-NativeRelationCertificate
-    descriptor fingerprint
-    native germ/latent range
-    relation mask and exact predicates/bounds
-    source class and independence key
-    calibration/pose epoch
-    first-hit/order role
-    support / appearance / stitch / transition / pose role mask
-    raw reference when irreducible
+native relation/preimage regions
+support-hypothesis disjunctions
+provenance and independence classes
+first-hit/order roles
+unresolved branch structure
+forward-verification receipts
 ```
 
-Certificates are proof metadata, not physical state.
+No normative scalar precision/confidence formula is part of canonical physics
+unless the authoritative TOE law explicitly introduces one.
+
+A scalar confidence may be derived for telemetry or presentation. It cannot drive
+state fusion, hypothesis choice, native relation classification, chart allocation,
+refinement, export colour/detail or publication.
+
+## 16.2 Complete evidence before visibility
+
+Every visible revision owns complete immutable evidence sufficient to reproduce:
+
+- the support-hypothesis groups;
+- the selected/common delta or no-change result;
+- exact contradictions/gaps;
+- first-hit and exclusion roles;
+- unresolved/bound/materialized branch transitions;
+- native relation classes required by the revision;
+- independence and forward-verification gates.
+
+Evidence is stored once per observation. Page generations hold references and do
+not duplicate it.
+
+## 16.3 `NativeClosureCertificate`
+
+After deterministic minimization, retain:
+
+```text
+descriptor and query fingerprints
+observation/independence/provenance keys
+hypothesis-group and resolved/common-delta proof
+native relation predicates/bounds
+first-hit/order/exclusion role
+intrinsic relation subtype/signature
+branch binding/materialization receipt
+raw reference when irreducible
+```
+
+Certificates prove `Ψ`; they do not supply physical appearance or detail absent
+from `Ψ`.
 
 ## 16.4 Deterministic minimization
 
-1. sort records by germ/latent key, role, independence key, source, descriptor
-   relation and exact bounds;
-2. coalesce same-key compatible relations by exact conjunction;
-3. preserve explicit conflicts;
-4. perform reverse-lexicographic redundancy sweeps;
-5. remove one certificate only when state, full admissible relation set, first-hit,
-   support and stitch gates remain bit-identical;
-6. repeat to a fixed point with a generation-owned continuation cursor.
+1. stable-sort by observation, hypothesis group, role, relation and provenance;
+2. preserve the explicit union/intersection structure;
+3. coalesce only equivalent same-branch predicates;
+4. retain exact conflicts and branch ancestry;
+5. remove a record only when complete feasible-field set, selected/common delta,
+   first-hit, native relation and independence gates remain bit-identical;
+6. repeat reverse-lexicographic redundancy passes to fixed point using a
+   generation-owned continuation cursor.
 
-Scratch window size may change cost only. Complete journal/raw references remain
-owned until minimization/persistence handoff. Frame execution storage may recycle
-as soon as evidence has transferred to generation-safe ownership.
+Scratch window size affects time only. Complete evidence remains owned until an
+exact certificate/raw persistence handoff makes reclamation safe.
 
-## 16.5 Raw observation retention
+## 16.5 Repeated-pass semantics
 
-Retain compressed raw tiles only while needed to contract an unresolved native
-relation, resolve a conflict, exploit future subpixel/baseline information, prove a
-scene transition or resolve pose/calibration ambiguity. Reclaim after an exact
-certificate/durable handoff proves them redundant.
+- exact duplicates in one independence class do not become stronger by count;
+- new baseline/pose/footprint phase may constrain different native modes;
+- statistically independent remeasurement narrows only through the frozen sensor
+  uncertainty law;
+- strong→weak and weak→strong order is invariant;
+- contradictory branches remain explicit until native closure resolves them.
 
 ---
 
 # 17. Sparse canonical publication
 
-Only `GermDelta` may mutate `Ψ`:
+The only canonical mutation record is `NativeStateDeltaGpu`:
 
 ```text
-NativeGermKey
-prior generation
-new S16[16] Q16.48
-changed mask/outcome
-evidence journal/certificate receipt
-required stitch receipts
+complete intrinsic carrier key
+prior page/sample generation
+full selected S16[16] Q16.48 state
+changed mask
+closure witness
+evidence/certificate receipts
+affected intrinsic relation receipts
 ```
 
-One admitted observation produces at most one sparse revision boundary:
+Publication is:
 
 ```text
-CHANGED germs
+resolved/common NativeStateDelta stream
+→ stable reduce by complete intrinsic carrier key
+→ final full-field forward verification
 → unique touched logical pages
-→ allocate/prepare immutable shadow generations
-→ scatter exact S16 bytes, one owner per germ
-→ attach evidence/stitch receipts
-→ close all pages and revision manifest
-→ validate fault/defer state
-→ atomic published-root exchange as final visible instruction
+→ allocate/clone unpublished shadow generations
+→ scatter exact full S16 states
+→ attach complete evidence receipts
+→ validate revision closure
+→ mark immutable generations complete
+→ one root exchange, last
 ```
 
-`UNCHANGED` may strengthen evidence without allocating a page generation.
-`UNRESOLVED`, conflict or fault cannot expose partial state. Readers resolve every
-page through the selected immutable root. Old generations remain pinned until all
-GPU readers and evidence owners retire.
+`UNCHANGED` may strengthen a certificate without creating a new page generation.
+`UNRESOLVED`, conflict, incomplete support coverage or failed native relation gate
+cannot advance root.
 
-Pages, blocks and segments are absent from observation, topology, gauge and proof
-identity.
+Readers select only complete generations at or below the published root. A fault
+before the final exchange leaves the previous world entirely visible.
 
 ---
 
-# 18. Exact carrier storage and codec
+# 18. Carrier storage, codec and atlas incidence
 
-`Σ₂` uses signed 64-bit logical page coordinates. Unallocated space is implicit
-native null.
+`Σ₂` uses signed-64 intrinsic chart/page coordinates. Page and block dimensions are
+storage choices only.
 
-Logical 64×64 pages contain 8×8 codec blocks. Each block chooses the smallest
-exact encoding:
-
-```text
-NULL      implicit exact native null state
-CONST     one S16 state repeated 8×8
-AFFINE    exact s(u,v)=s0+u*su+v*sv
-DELTA     exact predictive residual stream
-RAW       explicit 8×8×16 Q16.48 states
-```
-
-DELTA predictor per coefficient in raster order:
+Persist per allocated chart/page:
 
 ```text
-(0,0)        0
-first row    left
-first col    up
-interior     left + up - upperLeft
-residual     actual - predictor
+logical atlas address and chart component/incidence metadata
+immutable generation/revision
+full S16 Q16.48 samples
+certificate ranges
+codec payload and checksum
 ```
 
-Store the minimum signed bit width per coefficient and fixed
-`(coefficient,v,u)` bit order. Mode tie order is
-`NULL<CONST<AFFINE<DELTA<RAW`. Decode must reproduce exact samples;
-encode→decode→encode is deterministic.
+The deterministic lossless block encodings remain:
 
-Codec mode, block, page and physical segment have zero physical meaning.
+```text
+CONST / AFFINE / DELTA / RAW
+```
+
+The historical `NULL` codec name cannot mean sparse absence. Before reuse, the
+descriptor must prove an exact allocated `NATIVE_NULL` state/stratum and the codec
+must be named/typed accordingly. Until then an allocated native-null state is
+encoded losslessly as ordinary state data.
+
+`ABSENT` is represented only by absence from the allocated atlas/page map. Reading
+an absent address yields “no materialized state”, not an S16 vector.
+
+Atlas chart incidence is intrinsic domain metadata. Export connectivity uses
+incidence gated by native relation class; it never infers adjacency from page or
+XYZ proximity.
 
 ---
 
-# 19. Residency, paging and unbounded world
+# 19. Residency, paging and logically unbounded scale
 
-The logical carrier and evidence namespaces are unbounded. GPU residency is a
-bounded cache.
+Logical world size is independent of decoded GPU residency.
 
-Resident locality includes:
-
-- eye-visible/query-active germs;
-- sensor inverse fibres;
-- dirty stitch neighbours;
-- unresolved latent work;
-- publication shadows and pinned readers.
-
-Pressure order:
+Residency priorities may include:
 
 ```text
-discard disposable eye/prediction/debug/export caches
-stage clean immutable carrier generations and certificates
-spill owned complete evidence journals losslessly
-evict clean pages after durable publication
-backpressure new canonical admission if no lossless destination exists
+current eye-query localities
+sensor-shadow contributors and support hypotheses
+closure-affected intrinsic neighbourhoods
+unresolved/bound branch evidence
+dirty unpublished pages
+explicit export region
 ```
 
-It never reduces sensor resolution, relation count, proof, S16 detail or accepted
-work. A storage-buffer binding never exceeds the runtime Vulkan range. Segment
-count cannot change semantic work count.
+Pressure may:
 
-S4‑08 retains fail-closed bounded residency. S4‑10 closes encode/evict/rehydrate,
-restart and whole-building scale. A fixed 1 GiB decoded pool is not world size.
+- evict clean disposable readouts;
+- encode clean immutable pages;
+- durably spill complete evidence;
+- pause admission while required supports rehydrate;
+- reduce noncanonical query quality where permitted.
+
+Pressure may not lower sensor resolution, erase accepted native detail, truncate a
+hypothesis union, equate ABSENT with NATIVE_NULL or mint identity because a support
+is nonresident.
+
+Each Vulkan binding obeys runtime limits through segmented pools. Segmentation
+cannot repeat a whole logical domain or alter results.
 
 ---
 
 # 20. Pose and calibration as query gauge
 
-Pose and calibration parameterize `Πq`; they are not canonical geometry.
+The immutable Meta rig pose, timestamps, intrinsics, extrinsics and calibration
+epoch define query descriptor `Γ_t`.
 
-Conditioned overlaps construct independent exact Q16.48 twist admissible regions
-against the immutable Meta pose prior. Missing covariance is never zero
-uncertainty; use the deterministic conservative envelope from clock/skew,
-translation/rotation rate, rig residual and calibration bounds.
+A same-frame pose correction may be inferred from independently conditioned
+whole-scene shadow overlaps. It is an observation/query gauge, not carrier state.
 
-Conjoin source pose regions. If the non-empty region excludes zero, choose the
-generated minimum-magnitude twist. If it contains zero, retain Meta pose. If empty,
-retain Meta pose and unresolved evidence. An accepted correction reruns the same
-frame's shadow query; it is not carried blindly into the next frame.
+Rules:
 
-Calibration epochs are immutable and fingerprinted. Existing evidence is never
-silently reinterpreted under a different descriptor.
+- the corrected pose is bounded by the immutable tracking prior;
+- correction uses exact native-shadow relations, not a CPU point cloud;
+- the same retained frame is reprojected under the accepted correction;
+- correction from frame `t` is never blindly transported to `t+1`;
+- pose conflict retains the immutable Meta pose or defers the observation;
+- no second SLAM, pose graph or geometry world is canonical.
 
 ---
 
-# 21. Scene evolution on the same native world
+# 21. Static reconstruction correction and temporal evolution
 
-The durable root represents the current best-supported scene, not an average or
-union of history. Evolution remains a native relation transition:
+## 21.1 Static same-scene correction
+
+If independent same-epoch observations prove that current `Ψ` contains a false
+manifestation, valid scene-level exclusion participates in `NativeCloseCommit`.
+
+Examples:
 
 ```text
-LATENT -> SUPPORTED
-SUPPORTED -> LATENT
-SUPPORTED(old manifestation) -> SUPPORTED(new manifestation)
-SUPPORTED -> SUPPORTED* native deformation
+approach artifact
+later side view
+independent clear pre-hit/pass-through evidence
+same static scene remains jointly feasible only after removing false support
 ```
 
-## 21.1 New manifestation
+The resulting contraction may publish a corrected full S16 field. It is ordinary
+epistemic reconstruction correction, not temporal object deletion.
 
-A measured first hit in front of a current fibre may support a latent native germ.
-The old behind-hit germ receives no constraint. Promotion follows §14.
+## 21.2 Actual temporal evolution
 
-## 21.2 Exclusion and disappearance
+Temporal transition semantics becomes relevant only when admitted observations
+cannot be reconciled as one static scene under the frozen pose/calibration/epoch
+model.
 
-A predicted contact lying in independently observed pre-hit paths accumulates
-exact exclusion certificates keyed by independence class. It returns to native
-null only when:
+S4‑09 may then evaluate native identity-preserving transport, disappearance and new
+manifestation. A nearer occluder never proves background removal. Behind-hit
+remains no evidence.
 
-1. the persisted minimum independent-view/angular gate passes;
-2. null makes every confirming shadow admissible;
-3. no retained stronger inclusive relation still requires the contact;
-4. no coherent native transport explains the change;
-5. no behind-hit sample was used.
-
-This is not ray carving.
-
-## 21.3 Identity-preserving transport
-
-Before retire/recreate, test whether one descriptor-generated native transport of
-the same intrinsic carrier region explains both old exclusions and new inclusive
-shadows while preserving hidden relations, stitch strata, detail and evidence
-strength. Transport identity is intrinsic; no semantic object or XYZ-nearest match
-is canonical.
-
-## 21.4 Occlusion
-
-A nearer first hit supplies no evidence to the hidden background. Temporary
-occlusion cannot retire or weaken that background.
-
-S4‑09 implements these transitions by reusing v8 relation packets, latent records,
-stitch closure and certificates. It may not add a temporal/object solver.
+Time is provenance/causality, not a weighted source or separate geometry history.
 
 ---
 
 # 22. Readout family A — direct stereo XR eyes
 
-The Quest eyes require two retinal images, not a persistent mesh world.
-
-Compile two query descriptors:
+For eye descriptors:
 
 \[
-Q_{L,eye},\qquad Q_{R,eye}.
+\boxed{
+I_L=\mathscr S_{eye,L}[\Psi],
+\qquad
+I_R=\mathscr S_{eye,R}[\Psi].
+}
 \]
 
-For each active germ/fibre, `ForwardNative22` emits only the rows required for:
+The implementation reuses `ProjectNativeShadow` and `ReduceNativeShadow` with eye
+query plans. It may directly produce two 2D RGB/depth/order maps.
 
-```text
-homogeneous retinal location
-direct-order/depth reduction
-directional optical response
-support/null and native stitch predicates
-```
+No persistent XYZ, triangle, splat, meshlet or texture world is required. The eye
+maps are lossy and disposable. Their kernel directions remain preserved in `Ψ`.
 
-The eye reducer performs the unavoidable many-to-one first-hit/order reduction in
-each retina using the same native stitch/ZD/bracket semantics. It outputs
-disposable 2D RGB/depth/order targets.
-
-Forbidden:
-
-- baking `Ψ` into eye maps;
-- using eye pixels as native identity;
-- using display quantization as inverse evidence;
-- deleting native modes because the current eyes do not expose them;
-- requiring a persistent XYZ vertex, triangle, splat or meshlet world.
-
-The eye path is intentionally cheap and may be visually lossy relative to export.
-It must preserve binocular disparity, world lock, first-hit occlusion and
-fold/two-sided separation. It cannot cap scanner or export quality.
+Eye reduction must preserve binocular disparity, direct order, folds, overlapping
+sheets, native-null behaviour and descriptor-relevant ZD/nonassociative context.
+Display quantization never feeds canonical closure.
 
 ---
 
 # 23. Readout family B — scanner prediction
 
-Sensor prediction compiles the same shadow descriptor at the sensor poses. It may
-output:
+Sensor prediction is the generated scene-shadow computation for the timestamped
+rig query. It emits:
 
 ```text
-native germ/fibre key and generation
-direct-order/depth interval
-support/null predicate
-predicted optical tuple
-native relation/stitch signature needed for conservative candidate pruning
+predicted whole-scene RGB-D/order shadow
+support-hypothesis groups
+candidate native support keys/ranges
+local-contribution and reducer witnesses
+generation/query/descriptor fingerprints
+relation/ZD/bracket signatures required for reverse closure
 ```
 
-Prediction is disposable acceleration. It returns zero, one or multiple fibres per
-measured footprint as required by §12. A first-hit raster may accelerate ordering,
-but it cannot erase other conservatively viable preimages or allocate identity.
+Prediction is disposable acceleration. It has no allocation or identity authority.
+It must retain multiple overlapping supports whenever reduction cannot prove a
+single one.
 
-Deleting/rebuilding prediction cannot alter replay or canonical state.
+Deleting/rebuilding prediction changes no canonical bytes or certificate.
 
 ---
 
 # 24. Readout family C — rich textured 3D export
 
-Export explicitly asks the full latest `Ψ` for a rich interoperable 3D drawing.
-It is on demand and may be expensive.
+Export is an explicit rich query of the full latest published `Ψ` and
+authoritative native law.
 
 ## 24.1 Geometry
 
-The descriptor owns a homogeneous geometry manifestation. If its proven generated
-form is `G_M`, then:
+Use the descriptor-authoritative 3D manifestation. Where the frozen operator
+contains homogeneous geometry rows `G`, a supported state may yield
 
 \[
-h=G_M(s),
+h=Gs,
 \qquad
 X(s)=\left(\frac{h_1}{h_0},\frac{h_2}{h_0},\frac{h_3}{h_0}\right).
 \]
 
-`G_M` is a readout of E22/native semantics, not a separately maintained geometry
-model. Unsupported/null germs emit no contact.
+This is one export/readout, never canonical storage.
 
 ## 24.2 Connectivity
 
-Connectivity comes only from intrinsic stitch outcomes:
+Candidate connectivity is
 
 ```text
-REGULAR       may connect/interpolate
-SINGULAR      preserve fold/boundary sides
-NO_RELATION   never weld
-UNRESOLVED    remain open/conservative
+intrinsic atlas chart incidence
+AND descriptor-defined native relation class
 ```
 
-XYZ nearest-neighbour welding is forbidden.
+Regular intrinsic incidence may connect. A fold can remain intrinsically connected
+while nonsmooth. `NO_RELATION` never welds. Exact ZD, near-singular,
+nonassociative-context and unresolved subtypes follow descriptor-specific export
+rules. XYZ-nearest-neighbour welding is forbidden.
 
-## 24.3 Detail
+## 24.3 Detail and appearance
 
-Export evaluates the finest supported intrinsic gauge and requested local
-manifestation modes. It may tessellate adaptively but may not decimate below the
-requested evidence-supported threshold.
+Geometry/detail/appearance come from full S16/eigenmode state at requested
+refinement. Certificates provide proof/uncertainty metadata only.
 
-## 24.4 Appearance and texture
+Certificates and observation journals may not synthesize physical RGB/detail
+missing from `Ψ`. If retained raw optical evidence contains unresolved physical
+detail, first refine/close `Ψ`; then export.
 
-Export consumes the full native directional/eigenmode state plus all current
-optical certificates. It may derive:
-
-```text
-view-stable base colour
-high-resolution texture atlas
-directional residual representation
-normal/roughness/material proxies only when identifiable
-confidence/evidence metadata
-```
-
-These are export products, never canonical texture state. Repeated passes can
-improve geometry and texture because they constrain more native relations. Export
-always reads the selected latest root, never an eye/prediction cache.
+On-demand export may generate textures, material parameters, directional residuals
+and GLB. These are disposable readouts and never lower the information ceiling of
+the canonical field.
 
 ---
 
-# 25. Readout family D — debug and analysis
+# 25. Readout family D — debug and analytics
 
-Generated opt-in queries may expose:
+Generated pure queries may expose:
 
 ```text
-XYZ / depth / optical response
-native key and generation
-relation support and certificate age
+XYZ/depth/RGB/order
+native support/chart key
+observation and hypothesis groups
+unresolved/bound branch state
 exact gaps/conflicts
-ZD/annihilator stratum
-associator/bracket signature
-stitch outcome/cache status
-latent support/refinement rank
+ZD_EXACT vs NEAR_SINGULAR
+nonassociative bracket signature
+mode visibility/refinement rank
+residency/evidence age
 ```
 
-Debug buffers are disposable and read-only with respect to canonical resources.
-Telemetry/timestamps never schedule or mutate.
+Debug buffers and timestamps are read-only. Telemetry cannot select work or mutate
+`Ψ`.
 
 ---
 
-# 26. Two semantic solves and physical GPU lowering
+# 26. One semantic closure and low-code GPU lowering
 
-The canonical core has two semantic operations.
+The sole semantic mutation is `NativeCloseCommit` from §13.
 
-## 26.1 Ω — `INVERSE_NATIVE_22`
-
-\[
-\boxed{
-\Omega(Y_t,\Psi_t)
-=
-\operatorname{NativeMinChange}
-\left(
-\mathcal C_{prior}
-\cap
-\bigcap_{q,p}\mathcal S_{q,p}^{-1}(O_{q,p})
-\right).
-}
-\]
-
-It owns sensor shadows, fibre association, exact native conjunction and one
-candidate per germ/latent seed.
-
-## 26.2 Ξ — `STITCH_COMMIT_NATIVE_22`
-
-\[
-\boxed{
-\Xi(\Omega,\Psi_t)
-=
-\operatorname{RootLastCommit}
-\left(
-\operatorname{NativeStitch}_{22}(\Omega,\Psi_t)
-\right).
-}
-\]
-
-It owns dirty intrinsic stitching, latent resolution, sparse S16 deltas, evidence
-receipts and root-last publication.
-
-Readout is pure forward evaluation and not another reconstruction solve.
-
-## 26.3 Initial physical kernels
+Initial physical kernels:
 
 ```text
-ProjectSensorShadow
-ReduceSensorShadow
-ConstrainNativeGerms
-ResolveStitchOverflow          indirect, dirty cache misses only
-ResolveLatentRelations         indirect/cold
-PrepareChangedPages            touched pages only
-ScatterChangedGerms
-CloseAndPublishRevision        one bounded close, root exchange last
+ProjectNativeShadow
+    current Psi local contributions for sensor/eye query
+
+ReduceNativeShadow
+    whole-scene order/first-hit/occlusion/footprint reduction
+    emits sparse support-hypothesis groups
+
+CloseNativeField
+    measured two-eye RGB-D shadows
+    + support-hypothesis disjunctions
+    + authoritative Merkaba/eigenmode relations
+    + intrinsic atlas incidence
+    → one feasible closure
+    → resolved/common sparse NativeStateDelta
+    → unresolved branches remain evidence
+
+ResolveClosureOverflow          indirect/cold
+    only cross-workgroup, coupled-hypothesis, nonresident or bounded-contractor
+    continuation; re-enters the same semantic closure
+
+PrepareChangedPages             indirect, touched pages only
+ScatterChangedStates            indirect, resolved/common deltas only
+CloseAndPublishRevision         bounded validation, root exchange last
 ```
 
-Eye readout:
+Eye readout uses only `ProjectNativeShadow → ReduceNativeShadow` with eye query
+descriptors.
 
-```text
-ProjectEyeShadow
-ReduceEyeShadow
-```
+Physical phases may fuse after exact parity/profiling. They may not split into
+sensor-specific, topology, latent-object or proof-owner lifecycle subsystems.
 
-These may fuse after bit-parity and profiler evidence. They may not split into
-sensor-specific or topology-specific physical solvers.
+No persistent transaction, token scheduler, candidate manager, topology solver,
+latent solver, page-owned proof or CPU work selection is permitted.
 
-## 26.4 Work ownership
-
-Logical owners are:
-
-- one `ShadowRelationPacket` during projection;
-- one complete native germ/latent key during conjunction;
-- one intrinsic stitch key on cache miss;
-- one changed germ during scatter;
-- one touched logical page during backing preparation.
-
-There is no persistent transaction, token scheduler, page lifecycle, singleton
-proof owner or CPU work selection.
-
-If one physical dispatch/window is insufficient, a generation-owned compact stream
-and cursor continue it. Changing window size cannot repeat a whole logical domain
-or alter output.
+If bounded work cannot finish in one physical window, a generation-owned cursor
+continues the same logical closure. Changing window size/order cannot repeat a
+whole field domain or alter output.
 
 ---
 
 # 27. Runtime ABI
 
-## 27.1 `NativeRelationDescriptorGpu`
+## 27.1 Generated `NativeLawDescriptorGpu`
 
-Generated read-only tables/descriptors containing expression nodes, brackets,
-signed-XOR actions, reverse contractor schedule, stitch plan and fingerprints.
+Read-only descriptor tables for S16 algebra, `K_M`, relation expressions with
+arity/brackets, manifestation, local query contributions, scene reducers, reverse
+contractors, exact/near ZD, mode transport/refinement and fingerprints.
 
-## 27.2 `ShadowRelationPacketGpu`
-
-One bounded packet with source/provenance key, fibre/latent key, relation mask,
-exact Q16.48 ranges/predicate handles, first-hit/order and raw reference.
-
-## 27.3 `GermCandidateGpu`
-
-One record per owner:
+## 27.2 Immutable `ShadowObservationGpu`
 
 ```text
-complete NativeGermKey
+observationRevision
+sensorSide
+independenceClass
+poseCalibrationEpoch
+finiteFootprint
+depthOrderRegion
+opticalRelationRegion
+measuredFirstHitRole
+rawRef
+```
+
+No native/candidate/chart key is legal.
+
+## 27.3 Disposable `ShadowHypothesisGpu`
+
+```text
+observationId
+hypothesisGroupId
+supportKeyOrUnboundBranch
+predictedShadowWitness
+sceneReducerRole
+directOrderSupportInterval
+nativeRelationWitnessRange
+```
+
+## 27.4 `UnresolvedShadowBranchGpu`
+
+```text
+branchId
+observationRefRange
+native preimage/relation representation
+hypothesis ancestry
+continuation cursor
+no canonical chart or physical extent
+```
+
+## 27.5 `BoundNativeBranchGpu`
+
+```text
+stable noncanonical intrinsic local chart
+native relation region
+evidence refs
+relation attachment refs
+generation/proof receipt
+```
+
+## 27.6 `NativeStateDeltaGpu`
+
+```text
+complete intrinsic carrier key
 prior generation
-candidate S16 Q16.48 state
-outcome/changed mask
-native relation witness/gap range
-evidence range
-incident stitch range
-latent receipt
+full S16[16] state
+changed mask
+closure witness
+evidence receipts
 ```
 
-## 27.4 `NativeStitchGpu`
-
-```text
-endpoint native keys/generations
-evidence generation
-descriptor fingerprint
-REGULAR/SINGULAR/NO_RELATION/UNRESOLVED
-ZD/associator signature and exact residual
-independent-support receipt
-```
-
-It is a disposable cache/certificate reference, not a topology object.
-
-## 27.5 `GermDeltaGpu`
-
-The only canonical mutation record defined in §17.
-
-No ABI field may overload pixel, pending slot, page and carrier identity.
+No ABI field may overload observation identity, hypothesis identity, chart identity,
+page identity or physical state.
 
 ---
 
 # 28. Capture admission and host responsibilities
 
-Capture pairing may produce coherent candidates faster than canonical closure can
-consume them. The system distinguishes:
+Distinguish:
 
 ```text
 CAPTURED_CANDIDATE
-    may be deterministically sampled/decimated before admission
+    may be deterministically sampled before canonical admission
 
 CANONICALLY_ADMITTED
-    owns the complete coherent observation until PUBLISHED, NO_CHANGE,
+    owns both coherent eye shadows until PUBLISHED, NO_CHANGE,
     RETAINED_UNRESOLVED or FAULT
 ```
 
-An admitted observation cannot be silently overwritten by a later latest frame.
-Sensor ingress itself never waits for reconstruction; admission is bounded and
-observable.
+An admitted observation cannot be overwritten by a newer latest frame. Sensor
+capture itself never waits; bounded admission/backpressure is explicit.
 
 C# owns:
 
-- lifecycle, capture admission and resource leases;
-- calibration/descriptor epoch selection;
-- GPU buffer/page/evidence residency;
-- command recording and fences;
-- immutable revision/readout leases;
-- asynchronous persistence/export orchestration;
-- truthful completion/fault reporting.
+```text
+capture pairing/admission and immutable leases
+descriptor/calibration/pose epoch selection
+GPU buffer/page/evidence residency
+command recording, dimensions and fences
+revision/readout leases
+asynchronous persistence/export orchestration
+truthful completion/fault reporting
+```
 
-C# does not inspect pixels, select fibres, decide native closure/stitch/gauge,
-construct meshes or repair topology.
+GPU owns local projection, scene reduction, hypothesis enumeration, exact field
+closure, native relations, branch resolution, delta creation, scatter and readout.
+
+C# does not inspect pixels, choose support hypotheses, classify native relations,
+allocate physical charts from observations, construct meshes or repair topology.
 
 ---
 
@@ -1378,99 +1478,99 @@ Persist fingerprints for:
 
 ```text
 NumericDomain
-signed-XOR multiplication/conjugation
-annihilator catalog
-NativeRelationDescriptor/E22 bracket DAG
-forward/pullback/stitch generated plans
-minimum-change selector/tie order
-codec schema
+signed-XOR algebra and conjugation
+authoritative K_M and E_M expressions/arity/brackets
+manifestation and local query plans
+whole-scene reducers
+exact/near ZD definitions
+fibre-preserving selector/right-lifts/equivalence rules
+refinement-capacity law
+codec and persistence schema
 ```
 
-For the same accepted observation sequence, the following are byte-identical under
-every legal source order, workgroup shape, dispatch partition, storage segmentation,
-page size/placement, cache hit/miss and proof scratch-window size:
+For the same admitted observation sequence, all legal source orders, workgroup
+shapes, dispatch/window partitions, segment/page layouts, cache hit/miss patterns
+and proof scratch sizes produce byte-identical:
 
 ```text
-Psi pages and generations
-native validity/gaps/conflicts
-certificates/provenance
-latent seed/chart/promotion order
-stitch classes/signatures
-gauge allocation
-published root sequence
+support-hypothesis union structure
+unresolved/bound branch identities and ancestry
+resolved/common NativeStateDelta stream
+Psi pages/generations/root sequence
+atlas chart incidence and gauge allocation
+native relation subtypes/signatures
+evidence/certificates/provenance
+readout results at the same exact query contract
 ```
 
-Physical segment count may change buffer bindings only. It may not change the
-number of evaluations of a whole logical sensor/germ/stitch domain.
+Physical segmentation cannot change how many times an entire logical scene,
+hypothesis group or intrinsic relation domain is evaluated.
 
-Stable ordering is required only where output identity/allocation depends on
-order. The order key is complete native key plus complete provenance; pixels/pages
-are not tie authorities.
-
-Any optimized generated plan differing by one bit from its semantic reference is
-disabled for canonical mutation.
+Stable ordering is used only for deterministic execution/allocation among proven
+gauge-equivalent choices. Observation revision/provenance can order such choices;
+it cannot create their physical placement.
 
 ---
 
-# 30. Performance contract and Release telemetry
+# 30. Performance and Release telemetry
 
-Cost follows new information and active locality:
+Cost follows active query support and new information:
 
 ```text
-sensor projection            admitted active footprints/fibres
-native inverse               unique candidate germ/latent owners
-stitch                       dirty intrinsic cache misses
-publication                  changed germs/touched pages
-eye readout                  current visible/query-active fibres
-export                       explicit requested region/quality only
+projection        active materialized local contributions for the query
+scene reduction   overlapping support contributions/hypothesis groups
+field closure     affected hypotheses/native neighbourhoods
+overflow          only unresolved cross-block/coupled continuations
+publication       resolved changed states/touched pages
+eye readout       current eye-visible contributions
+export            explicit requested region/quality
 ```
 
-Forbidden cost scaling:
+Forbidden scaling:
 
 ```text
-total persisted world per frame
-image footprints × backing segments
-all optical image edges
-revision count / pending window count
-page count as topology domain
-proof minimization in foreground visibility gate
+total persisted world per scan frame
+image footprint × backing segments
+all image edges as topology
+revision count or pending-window count
+candidate count followed by mutation of every candidate
+page count as relation domain
+proof minimization in the foreground visibility gate
 ```
 
-S4‑08.6 acceptance for the frozen 320×320 Quest fixture:
+S4‑08.6 acceptance on the frozen 320×320 Quest fixture:
 
 ```text
-old BuildDepthSourceCells / BuildRgbSourceCells      absent
-old EvaluateCandidateMeets provider loop             absent
-old ClosePendingEdges / label closure                absent
-old two global target sorts                          absent
-old 23-kernel publication graph                      absent
+old sensor-cell/proposal/provider graph              absent
+old optical-edge/label/topology graph                absent
+old pending/LatentGerm/pixel-chart graph             absent
+old duplicated target/page publication graph         absent
 
-Ω + Ξ measured compute                              <= 1500 ms
-admission-to-completion wall                         <= 1800 ms
-30-revision steady-state drift                       <= 1%
-segment-decomposition semantic work-count change     0
+NativeCloseCommit measured compute                   <= 1500 ms
+admission-to-completion wall                          <= 1800 ms
+30-revision steady-state drift                        <= 1%
+segment decomposition semantic work-count change     0
 ```
 
-Direct eye readout is independently gated at target headset refresh without
-requiring scan closure at display rate. Export has no live-frame budget.
+Profiler phase labels may report projection/reduction/close/overflow/commit, but
+they do not define semantic authorities.
 
-Release diagnostics use one-shot actual Vulkan timestamp markers around production
-dispatches with minimal asynchronous readback. Report:
+One-shot Release Vulkan telemetry reports per-kernel time/count/records plus:
 
 ```text
-per-kernel dispatch count, records and GPU time
-active shadow packets/fibres/native owners
-changed/unchanged/conflict/unresolved/exclusion outcomes
-stitch proposals/cache hits/misses/classes
-latent projected/evaluated/reused/absorbed/promoted/aborted
-changed germs/touched pages/root/fault
+local contributions and scene-reducer overlap
+hypothesis groups and alternatives/group
+unique/resolved/common/unresolved branch outcomes
+exact ZD / near-singular / nonassoc relation classes
+unresolved→bound→materialized transitions
+changed states/touched pages/root/fault
 resident carrier/evidence/readout bytes
-owned ingress and oldest admitted age
+oldest admitted age
 descriptor/operator operation counts
 ```
 
-Telemetry never controls work. A diagnostic timestamp sample contaminates its own
-wall time and is labeled accordingly.
+Telemetry never controls execution. Its sampled wall time is diagnostic-contaminated
+and labeled accordingly.
 
 ---
 
@@ -1480,52 +1580,55 @@ Persist:
 
 ```text
 world/manifest
-    schema = CPQ4-2026-08-25-S16-v8
-    NumericDomain fingerprint
-    signed-XOR/algebra fingerprint
-    NativeRelationDescriptor/E22 fingerprint
-    generated plan fingerprints
-    native null state
-    calibration/query descriptor epochs
-    selected world revision/root
+    schema = CPQ4-2026-08-25-S16-v8.1
+    NumericDomain/algebra fingerprints
+    K_M/E_M/manifestation/query/reducer fingerprints
+    exact/near ZD and bracket-plan fingerprints
+    ABSENT/native-null distinction and native-null fingerprint if defined
+    calibration/query epochs
+    selected root
 
-world/carrier
-    sorted sparse logical page generations
-    exact NULL/CONST/AFFINE/DELTA/RAW payloads
-    minimal NativeRelationCertificates
-    intrinsic stitch certificates required by the selected root
+world/atlas
+    chart domains/components/incidence
+    sorted sparse allocated page generations
+    exact lossless S16 payloads
+    NativeClosureCertificate ranges
 
-world/latent
-    unresolved LatentGerm local charts/regions/evidence refs
+world/unresolved
+    UnresolvedShadowBranch records and evidence refs
+    BoundNativeBranch charts/relations/evidence refs
 
 world/observations
-    unresolved compressed raw relation tiles only
+    unresolved raw tiles only where exact replay/refinement requires them
 
-world/derived       optional/deletable
-    eye/prediction/debug/export caches
+world/derived                 optional/deletable
+    sensor/eye/debug/export caches
 ```
 
-Durable publication precedes eviction. Restart plus the same accepted observation
-sequence produces byte-identical pages, certificates and roots.
+No ABSENT address is serialized as a native S16 state. An allocated NATIVE_NULL is
+serialized exactly like any descriptor-defined native state.
+
+Durable publication precedes eviction. Restart plus the same admitted observation
+sequence reproduces byte-identical atlas state, branches, certificates and roots.
 
 ---
 
 # 32. Repository architecture and hard deletion boundary
 
-Active code remains only under:
+Active reconstruction remains under:
 
 ```text
 Runtime/SigmaPrism
 Runtime/Resources/SigmaPrism
 ```
 
-Preserve/reuse:
+Preserve where compatible:
 
 ```text
 capture/sync/calibration/pose infrastructure
 SigmaNumericDomain and exact backend gate
 generated signed-XOR S16 primitives
-SigmaCarrier and exact codec/storage
+SigmaCarrier and lossless codec/storage primitives
 GPU completion/fence/indirect helpers
 root-last immutable publication primitive
 one-shot Release timing infrastructure
@@ -1533,37 +1636,47 @@ XR lifecycle/UI/anchors
 GLB encoding plumbing
 ```
 
-Generate/replace with a small native core:
+Target small native core:
 
 ```text
-SigmaNativeRelationDescriptor.*          generated C#/HLSL
-SigmaNativeClosure.compute               Ω and native stitch/latent lowering
-SigmaNativeCommit.compute                sparse root-last commit
-SigmaNativeReadout.compute/shader         sensor and eye query lowering
-SigmaNativeGraph.cs                       fixed recorder, lifecycle-free
-SigmaNativeResources.cs                   packets/germs/stitches/journal scratch
+generated NativeLawDescriptor C#/HLSL tables
+SigmaNativeShadow.compute        project/reduce query shadows
+SigmaNativeClose.compute         joint field closure + overflow continuation
+SigmaNativeCommit.compute        sparse root-last storage lowering
+SigmaNativeReadout.shader        direct eye presentation where needed
+SigmaNativeGraph.cs              fixed recorder, no semantic lifecycle objects
+SigmaNativeResources.cs          observations/hypotheses/branches/deltas/evidence
 ```
 
-Hard-delete after parity/cutover:
+Hard-delete after each cutover:
 
 ```text
 SigmaFrameInverse.compute
 SigmaFrameClosure.compute
 SigmaFramePublish.compute
-old SigmaFrameGraph/SigmaFrameResources implementation
-sensor-specific inverse math/live APIs superseded by descriptor
-separate topology math/controller superseded by stitch
-pending projection/labels/links/retention physical ontology
-global target sorting circuits superseded by native owner reduction
-global NOVEL bbox/pixel continuation mapping
-page halo continuity and live persistent XYZ/mesh reconstruction caches
+old SigmaFrameGraph/SigmaFrameResources
+sensor-specific live inverse cell worlds
+proposal-kind/candidate identity machinery
+separate topology/stitch controller/math authority
+pending/LatentGerm projection/label/link/retention lifecycle
+global novel bbox/pixel continuation
+global target/page sorting/mapping orchestration superseded by sparse owner close
+page halo/live persistent XYZ/mesh authority
 ```
 
-Gross production deletion from `cac9ab0` must be at least 10,000 lines. New
-production additions before device acceptance are capped at 4,000 lines. Final
-`Runtime/Resources` diff is at most `-6,100` lines versus `cac9ab0` and at most
-`-5,500` versus `d3b83e1`. Generated descriptor tables and tests are reported
-separately and cannot hide orchestration growth.
+Final S4‑08.6 production gates:
+
+```text
+gross deletion versus cac9ab0       >= 10000 LOC
+new production code                 <= 4000 LOC
+net versus cac9ab0                  <= -6100 LOC
+net versus d3b83e1                  <= -5500 LOC
+retired live symbols/assets         0
+legacy/fallback paths               0
+```
+
+Generated tables and tests are reported separately and cannot conceal
+orchestration growth.
 
 ---
 
@@ -1571,229 +1684,271 @@ separately and cannot hide orchestration growth.
 
 The implementation is invalid if it introduces or retains:
 
-- canonical geometry/mesh/voxel/splat/texture/topology/object/history beside `Ψ`;
-- independently editable 22-edge state;
-- depth-conditioned RGB pullback or any cross-source pre-contraction;
-- sensor weights/averaging;
-- hardcoded HIT or behind-hit evidence;
-- one-winner candidate pruning without a conservative proof;
-- unconditional physical NOVEL allocation;
-- pixel/image/XYZ/page/segment identity;
-- optical full-frame edges as intrinsic topology;
-- generic dense S16 loops where generated sparse plans exist;
-- changed-state publication before evidence/stitch closure;
-- page/segment flags bypassing the selected root;
-- fixed journal/proof/session caps;
-- CPU pixel/native decision loops or synchronous readback;
-- runtime legacy/fallback graph;
-- eye/export/readout quantization fed back into canonical closure.
+- a canonical geometry/mesh/voxel/splat/texture/topology/object/history beside
+  `Ψ`;
+- forced unary `E22(s)` factorization without faithfulness modulo frozen harmless
+  equivalence;
+- independently editable relation/eigenmode channels;
+- local `S_q,p(s)` presented as the complete physical camera shadow;
+- first-hit inside one local projector;
+- immutable observation packets containing candidate/native identity;
+- one-winner support pruning without an exact coverage proof;
+- mutation of every alternative support;
+- minimum-change selection across unresolved support hypotheses;
+- `LatentGerm`, PENDING or NOVEL as first unresolved identity;
+- separate semantic inverse and stitch/topology operations;
+- generic associator magnitude as image-edge detector;
+- nonzero near-singular residual labeled exact ZD;
+- ZD used as depth/order;
+- image/XYZ/page/segment identity or connectivity;
+- `ABSENT == NATIVE_NULL`;
+- scalar confidence/precision driving canonical physics;
+- depth-conditioned RGB or cross-source pre-contraction;
+- vote/count fusion;
+- deferred static artifact correction solely because exclusion is “temporal”;
+- export appearance/detail reconstructed from certificates instead of `Ψ`;
+- fixed journal/session caps, CPU pixel decisions or synchronous readback;
+- legacy/fallback graph.
 
 ---
 
 # 34. Exact unit and oracle gates
 
-## 34.1 Native descriptor gate H0
+## 34.1 Descriptor gate H0
 
-Before live v8 mutation:
+Before live mutation:
 
-1. all 22 TOE relation expressions and brackets are present and fingerprinted;
-2. every relation forward evaluator matches the semantic oracle bit-for-bit;
-3. shared-CSE on/off outputs are identical;
-4. reverse contractor is sound: no mathematically admissible Q48 fixture state is
-   excluded by its enclosure;
-5. every accepted inverse state forward-satisfies every original predicate;
-6. bounded incompleteness yields unresolved, not false accept/reject;
-7. `StitchNative22` matches its reference for regular, exact ZD, near-singular,
-   associator and no-relation fixtures;
-8. CPU and Vulkan packed-32/native-I64 enabled paths are bit-identical;
-9. descriptor/plan fingerprints are stable;
-10. no handwritten duplicate physical equation is live.
+1. authoritative `K_M`, relation family, arities and brackets are present and
+   fingerprinted;
+2. semantic reference matches generated CPU/HLSL forward evaluation bit-for-bit;
+3. common-subexpression fusion on/off is identical;
+4. E22 faithfulness modulo frozen harmless equivalence is proven, or direct S16
+   dependencies remain visibly active;
+5. ABSENT/native-null semantics are explicit and distinct;
+6. exact ZD and calibrated nonzero near-singular fixtures never alias;
+7. all multi-factor CPU/GPU bracket plans match;
+8. whole-scene reduction oracle covers overlap/order/first-hit/occlusion/folds;
+9. linear right-lifts prove `R L_R = I` on the observable image and the frozen
+   direct-sum decomposition;
+10. nonlinear selector preserves prior representatives on indistinguishable
+    fibres;
+11. refinement-capacity and mode-transport laws are present, not inferred by
+    scanner code;
+12. no handwritten alternate physics is live.
 
-## 34.2 Numeric/algebra gates
+## 34.2 Scene-shadow gates
 
-- exhaustive basis signed-XOR parity;
-- conjugation identities;
-- all canonical zero-divisor pairs and dyad actions;
-- explicit associator bracket fixtures;
-- checked nearest-even/outward arithmetic extremes;
-- exact codec round trips;
-- cache hit/forced-miss parity;
-- mask/select and work partition parity.
+- two candidate supports, only A scene-valid → A may resolve;
+- two supports remain valid → no canonical mutation;
+- two supports imply one identical delta → common delta is legal;
+- one measurement cannot mutate A and B independently;
+- fold/two sheets at one sensor pixel remain distinct alternatives;
+- scene-level first-hit matches exhaustive CPU oracle;
+- right-eye-only support and different left/right physical sheets are handled;
+- finite-footprint/outward reduction never drops a possible support;
+- candidate enumeration/window/segment permutations are identical.
 
-## 34.3 Inverse gates
+## 34.3 Source and closure gates
 
-- left/right and source-order permutation invariance;
-- actual right-eye reprojection;
-- multiple candidate fibres at one pixel;
-- RGB native pullback independence from depth/prior;
-- HIT/PRE_HIT_EXCLUSION/NO_CLAIM;
-- no behind-hit mutation;
-- hidden-mode/fibre preservation;
-- weak-after-strong and strong-after-weak;
-- explicit conflict/gap preservation;
-- one owner/no multiple writer;
-- execution-window and segment invariance.
+- depth and RGB leaves within each eye remain independent;
+- left/right source order and work partition are invariant;
+- hidden linear modes are byte-preserved through generated right-lift;
+- nonlinear indistinguishable fibres preserve prior representative;
+- unresolved disjunction retains evidence and emits no delta;
+- all surviving branches/common delta are forward-verified against both measured
+  whole-scene shadows;
+- direct order, exact ZD and nonassoc context remain distinct;
+- current atlas incidence and all affected native relations participate before
+  state selection;
+- static clear-path exclusion can remove a false manifestation;
+- behind-hit state remains byte/evidence identical.
 
-## 34.4 Stitch/latent gates
+## 34.4 Branch/refinement gates
 
-- changed supported↔supported incident edges included;
-- optical/XYZ proximity produces no claim;
-- stable regular/fold/thin/no-relation/unknown outcomes;
-- independent-view singular signature stability;
-- cache key invalidates only on endpoint/evidence generation change;
-- repeated latent observation reuses one latent germ;
-- side reveal absorbs into compatible intrinsic branch;
-- 5 mm parallel sheets remain distinct;
-- image resolution and backing decomposition do not change local chart/promotion;
-- stale generation cannot absorb/promote a reused latent handle.
+- unexplained shadow first creates `UnresolvedShadowBranch`, not chart/state;
+- repeated compatible evidence reuses branch ancestry;
+- binding requires independent relation proof;
+- materialization requires support/chart-attachment proof;
+- resolution/image/page/workgroup changes do not change chart identity;
+- stale generation cannot bind/materialize/reclaim a newer branch;
+- modal refinement is demanded only by the authoritative capacity law;
+- finer closure forward-verifies all retained evidence;
+- thin/opposite/fold manifestations remain distinct when required.
 
 ## 34.5 Publication/evidence gates
 
-- CHANGED-only scatter;
-- UNCHANGED evidence strengthening without page generation;
-- one root exposes all-or-none multi-page/multi-segment revision;
-- failure leaves root and current pages byte-identical;
-- frame slot recycle cannot invalidate journal;
-- deterministic certificate minimization across window sizes;
-- no source duplication per page;
-- genuine pressure backpressures/fails closed without false commit.
+- only resolved/common `NativeStateDelta` reaches scatter;
+- multiple records for one key reduce exactly before one writer;
+- no-change creates no page generation;
+- fault/unresolved/incomplete coverage cannot advance root;
+- readers see all-old or all-new across pages/segments;
+- observation evidence survives frame-slot reuse;
+- minimization window size and record permutation preserve certificate bytes;
+- proof minimization changes no physical export geometry/appearance;
+- capacity pressure backpressures/fails closed without false commit.
 
 ---
 
 # 35. Physical acceptance corpus
 
-## 35.1 Scan/refinement
+## 35.1 Static scan and support ambiguity
 
 ```text
-same wall: 1 / 5 / 20 passes
-front + grazing views
-left/right asymmetric information
-5/10/20/50 mm sheets, both sides different colours
-fold, door frame, recess, alcove
-pipe, railing, stairs, multi-floor loop
-subpixel relief and printed high-frequency texture
-approach artifact then reveal valid empty/pass-through
+flat wall 1/5/20 passes
+front + grazing wall
+right-eye-only texture/depth support
+two valid sheets at one sensor pixel
+thin board with different sides
+fold/crease and self-overlap
+bucket inside/outside
+alcove, stairs, multi-floor loop
+subpixel relief and repeated footprint phases
+approach artifact then independent clear pass-through
 ```
 
 Expected:
 
-- native region tightens or stays stable;
-- previously learned hidden modes survive;
-- no false duplicate extents;
-- detail improves before/through justified gauge refinement;
-- near manifestations remain different fibres when not stitchable;
-- latency does not grow with revision or backing segments.
+- resolved modes improve or remain stable without vote-count strengthening;
+- ambiguous alternatives do not mutate every support;
+- common delta across alternatives is allowed only with exact proof;
+- hidden modes survive partial shadows;
+- no duplicate chart from image/view decomposition;
+- valid static exclusion removes a false artifact;
+- folds and close parallel sheets retain correct incidence/relation distinctions.
 
-## 35.2 XR eye readout
+## 35.2 Native-law and refinement
+
+```text
+E22 alias-pair search over the canonical fixture domain
+exact ZD vs one-LSB near-singular
+nonassociative bracket swap negative control
+same relation under cache hit/miss
+mode visible only from grazing query
+current modal capacity insufficient, refined capacity sufficient
+```
+
+Expected descriptor/oracle parity and no loss of direct S16 dependencies when E22
+faithfulness is unproven.
+
+## 35.3 Eye readout
 
 ```text
 left/right disparity
 head translation/rotation
-fold crossing
-thin two-sided sheet
-occlusion
+overlapping sheets and fold crossing
+native-null manifestation
 sleep/wake/resume
-cache deletion/rebuild
+delete/rebuild all eye caches
 ```
 
-Expected: stable world-locked eyes, correct order/fold separation, no live mesh
-authority and target refresh independent of scan cadence.
+Expected stable world-locked low-latency retinal shadows and no change to `Ψ` or
+export after cache deletion.
 
-## 35.3 Export
+## 35.4 Export
 
-Export after one pass, multiple passes, local refinement, opposite-side scan and
-restart. Geometry, non-welded connectivity and texture/material quality must improve
-with accumulated native evidence. Export may never be limited by eye-cache quality.
+Export after one pass, multiple passes, modal refinement, opposite-side scan and
+restart/rehydrate.
 
-## 35.4 Scene evolution
+Expected latest geometry, intrinsic incidence gated by native relations,
+multi-view physical appearance from `Ψ`, no certificate-derived hidden texture and
+no eye-readout information ceiling.
 
-Add object, temporary person occlusion, remove object, move same object, open/close
-door and replace with a different object. No behind-hit damage, averaging or
-semantic object identity is allowed.
+## 35.5 Scale/lifecycle
+
+Long scan, building loop, residency pressure, interrupted persistence, restart,
+revisit and deterministic replay. No capacity cliff, revision-dependent latency,
+segment seam or admitted-frame loss.
 
 ---
 
-# 36. S4‑08.6 deterministic closure sequence
+# 36. S4‑08.6 deterministic ontology-reset closure sequence
 
-S4‑08 remains open. Prior S4‑01…S4‑07 results are primitive evidence only where
-they match v8; their v7 sensor/proposal/topology compositions have no grandfathered
-authority.
+S4‑08 remains open. Prior S4‑01…S4‑07 are retained only as primitive evidence
+where they satisfy v8.1.
 
-## N0 — canonical rebase
+## N0R — ontology rebase
 
-- publish v8 spec, `analyza.md`, this plan and compact resume cursor;
-- freeze descriptor schema and external TOE/E22 provenance requirement;
+- replace v8 germ-first spec, architecture audit interpretation and closure plan;
+- freeze field-level shadow, hypothesis disjunction, single closure,
+  `UnresolvedShadowBranch`, `BoundNativeBranch`, ABSENT/native-null and pure-readout
+  contracts;
 - runtime unchanged;
-- controls/code graph/Markdown/diff gates;
+- controls/code graph/math/link/diff gates;
 - commit separately.
 
-## N1 — descriptor and four evaluators
+## N1R — authoritative native descriptor
 
-- generate `ForwardNative22`, `PullbackNative22`, `StitchNative22`, oracle;
-- pass §34.1/34.2;
-- no live mutation/cutover;
+- import/freeze S16 algebra plus actual TOE `K_M`, relation family arity/brackets,
+  manifestation, local projection, scene reducers, ZD distinctions, bracket plans,
+  fibre-preserving selectors/right-lifts and modal refinement law;
+- prove E22 faithfulness or retain direct S16 dependencies;
+- emit semantic oracle and CPU/HLSL generated plans;
+- no live mutation;
 - commit separately.
 
-## N2 — native shadow/pullback oracle
+## N2R — non-mutating scene-shadow oracle
 
-- implement sensor packets and non-mutating native owner output;
-- pass inverse candidate/source-independence/first-hit/fibre fixtures;
-- captured forward parity where semantics are shared;
+- implement `ProjectNativeShadow`, `ReduceNativeShadow`, immutable observations and
+  disposable hypothesis groups;
+- pass §34.2 including ambiguous/no-mutation/common-delta cases;
+- no live canonical cutover;
 - commit separately.
 
-## N3 — carrier-pull owner cutover
+## N3R — joint field closure cutover
 
-- live Ω cutover;
-- simultaneously delete proposals, four source worlds, provider×segment evaluation
-  and replaced global target sort/reduction;
-- no fallback;
+- implement `CloseNativeField` with observation hypothesis unions and native
+  relation law in one feasible solve;
+- hard-delete proposals, sensor cell worlds, provider×segment evaluation and old
+  target sort/reduce in the same commit;
+- no separate stitch semantic pass or fallback;
 - production LOC becomes negative;
 - commit separately.
 
-## N4 — native stitch cutover
+## N4R — native relation/overflow cutover
 
-- dirty intrinsic/evidence cache misses only;
+- fold same-locality ZD/nonassoc/intrinsic constraints into `CloseNativeField`;
+- use one sparse `ResolveClosureOverflow` only for physical partition/cross-block
+  continuation of the same closure;
 - delete optical edge universe, label propagation, XYZ qualifier and separate
-  topology subsystem in the same commit;
-- pass stitch/physical corpus fixtures;
+  topology authority;
 - commit separately.
 
-## N5 — latent native relation cutover
+## N5R — unresolved branch cutover
 
-- replace pending/continuation/novel ontology with `LatentGerm`;
+- replace pending/novel/LatentGerm identity with `UnresolvedShadowBranch` and
+  proof-gated `BoundNativeBranch`;
 - delete pending projection winner, pixel chart, global bbox and pending SoA
   lifecycle;
-- pass reuse/absorption/thin/chart/decomposition gates;
+- pass branch reuse/binding/materialization/modal-refinement gates;
 - commit separately.
 
-## N6 — sparse commit/evidence cutover
+## N6R — sparse root-last commit
 
-- touched-page root-last commit and generation-safe journal/certificate ownership;
-- delete duplicate page map/sort/scan graph and old frame graph/resources;
-- pass atomicity/recycle/minimization/pressure gates;
+- consume only resolved/common `NativeStateDelta`;
+- close generation-safe complete evidence/certificate ownership;
+- delete duplicate page mapping/sorting/publication graph and old frame graph;
+- preserve one root-last immutable publication primitive;
 - commit separately.
 
-## N7 — pure readout cutover
+## N7R — pure readouts
 
-- direct sensor and eye shadows from descriptor;
-- remove page halo/live persistent XYZ/mesh authority after parity;
-- export consumes full `Ψ` on demand;
+- direct whole-field eye shadows;
+- prediction emits scene-level support-hypothesis output;
+- export reads full latest `Ψ` plus atlas/native law, certificates as proof only;
+- remove page halo/live XYZ/mesh authority after parity;
 - commit separately.
 
-## N8 — hard deletion and physical closure
+## N8R — hard deletion and physical closure
 
-- gross/net LOC gates in §32;
-- zero retired symbols/assets/calls/fallbacks;
-- generated code graph and control validation;
-- exact full Vulkan tests and Release compile;
-- source archive, APK build and install from the same commit;
-- capture complete Release per-kernel evidence;
-- pass §30 and §35 physical gates;
+- pass LOC/retired-symbol/code-graph/full exact/Vulkan gates;
+- archive the exact source commit;
+- build/install the Release APK from that same commit;
+- capture truthful per-kernel evidence;
+- pass §30 and §35;
 - only then mark S4‑08 done and stop before S4‑09.
 
-At most one run is `in_progress`. Each run ends in one commit. A failed gate is
-fixed inside the same native descriptor/lowering; it cannot introduce a subsystem
-outside Ω/Ξ.
+At most one run is active. A failed gate is corrected inside the same native law or
+its exact sparse lowering; it cannot introduce a new subsystem.
 
 ---
 
@@ -1802,16 +1957,15 @@ outside Ω/Ξ.
 After accepted S4‑08:
 
 ```text
-S4-09   scene evolution using native relation/exclusion/transport closure
-S4-10   durable infinite paging, eviction, rehydrate and restart
-S4-11   direct XR readout quality/culling completion if not closed in N7
+S4-09   temporal evolution only for observations not reconcilable as one static scene
+S4-10   durable unbounded paging/eviction/rehydration/restart
+S4-11   direct eye quality/culling completion if needed after N7R
 S4-12   rich textured 3D/PBR/GLB export from full latest Psi
-S4-13   complete Quest correctness/quality/scale/performance corpus
+S4-13   complete physical Quest correctness/scale/quality corpus
 ```
 
-These nodes may refine lowerings and readouts. They may not add a second physical
-world or change the frozen native descriptor without a schema/fingerprint revision
-and complete replay migration.
+Later nodes may extend query lowerings and persistence. They cannot change the
+frozen native law without a schema/fingerprint migration and complete replay gate.
 
 ---
 
@@ -1820,27 +1974,34 @@ and complete replay migration.
 Complete means physically demonstrated on Quest 3:
 
 ```text
-Psi : Sigma_2 -> S16 is the only canonical world
-all 22 native relations share one S16 preimage and one frozen descriptor
-forward, inverse, stitch and oracle come from that descriptor
-canonical arithmetic and decisions are exact Q16.48
-independent RGB-D/views constrain one native state without summation
-first-hit has exact pre-hit/hit/behind-hit semantics
-hidden native modes survive partial observations
-revisits tighten/refine state without coarse degradation
-thin/parallel/fold manifestations preserve native separation
-topology is native stitchability, never XYZ/image/page proximity
-latent identity/chart is intrinsic and reused before promotion
-only GermDelta mutates canonical state
-evidence remains reproducible through journal/certificate handoff
-publication is immutable and root-last
-pages/segments/residency never affect physics or work cardinality
-direct stereo eye maps are pure/disposable and frame-rate safe
-rich textured export reads full latest Psi, never preview cache
-restart reproduces identical pages/certificates/relations/readouts
-no retired v7 graph or fallback remains
+Psi : Sigma_2 -> S16 is the only canonical physical world
+Sigma_2 is an intrinsic atlas with canonical chart incidence
+ABSENT and NATIVE_NULL remain distinct everywhere
+authoritative K_M/eigenmode semantics are present and fingerprinted
+relation arities/brackets match the TOE artifact
+E22 faithfulness is proven or direct S16 dependencies remain
+local contribution and whole-scene shadow are distinct
+first-hit/order/occlusion are scene-reducer results
+rig input is two coherent RGB-D shadows with independent depth/RGB leaves
+support alternatives remain an explicit disjunction
+ambiguous alternatives cannot all mutate
+minimum-change never chooses physical support identity
+hidden S16 modes are preserved by right-lift/fibre construction
+exact ZD differs from near-singular and direct order
+nonassociative brackets are deterministic and never reassociated
+one NativeCloseCommit owns observation/native/intrinsic feasibility
+unexplained evidence has no germ/chart/extent
+binding/materialization require exact proof
+multi-pass refinement follows authoritative modal-capacity semantics
+static exclusion can correct false same-scene manifestations
+only resolved/common full-S16 deltas mutate immutable root
+evidence/certificates prove but never supply missing physical appearance
+eye/prediction/export/debug are pure whole-field readouts
+pages/segments/residency never define physics
+restart/replay is byte-identical
+no retired v7/v8 germ-first graph or fallback remains
 production LOC and measured performance pass §30/§32
-the full physical corpus passes from the exact installed commit
+same-commit physical corpus passes
 ```
 
 A compile, synthetic fixture, visible point cloud or advancing root alone is not
@@ -1850,41 +2011,67 @@ acceptance.
 
 # 39. Architectural summary
 
-The physical direction is
+The canonical reality is
 
 \[
-S16
-\xrightarrow{E_{22}}
-\text{Merkaba/eigenmode relation atlas}
-\xrightarrow{\mathcal M}
-\text{manifestation}
-\xrightarrow{\Pi_q}
-\text{sensor/readout shadow}.
+\boxed{\Psi:\Sigma_2\rightarrow S16}
 \]
 
-The scanner follows the inverse causal direction by exact constraint pullback:
+plus one authoritative Merkaba/eigenmode native law.
+
+The physical readout direction is
+
+\[
+\Psi
+\xrightarrow{\mathcal K_M,\mathcal E_M,\mathcal M}
+\{\phi_{q,\xi}[\Psi]\}
+\xrightarrow{\mathfrak R_q}
+\mathscr S_q[\Psi].
+\]
+
+The scanner receives two coherent measured RGB-D shadows and closes the set of
+possible native fields:
 
 \[
 \boxed{
-\mathcal A_{RGBD}
+\mathcal C[\Psi_t,Y_t]
 =
-\bigcap_q
-(\Pi_q\circ\mathcal M\circ E_{22})^{-1}(O_q),
-\qquad
-\Psi_{t+1}=\Xi(\Omega(Y_t,\Psi_t),\Psi_t).
+\mathcal C_{prior}
+\cap
+\bigcap_{q,p}
+\left(
+\bigcup_H\mathfrak A_{q,p,H}
+\right)
+\cap
+\mathcal C_{Merkaba/eigen}
+\cap
+\mathcal C_{intrinsic}.
 }
 \]
 
-Neighbour relations use the same vocabulary through `StitchNative22`. Eye,
-prediction, export and debug are pure forward queries of the same state.
-
-The crucial invariant is:
+Only a resolved or branch-common full-S16 delta may publish:
 
 \[
 \boxed{
-\textbf{a readout can be simple without making the world simple.}
+\Psi_{t+1}
+=
+\operatorname{NativeCloseCommit}(\Psi_t,Y_t).
 }
 \]
 
-Elegance is achieved by deleting duplicated representations and solvers, not by
-discarding native information.
+Ambiguity remains evidence. It does not become a germ, chart, object or mutation.
+
+Eyes consume a cheap pair of retinal shadows. Export consumes a rich textured 3D
+shadow. Debug consumes arbitrary shadows. None can simplify or mutate the native
+world.
+
+The core rule is:
+
+\[
+\boxed{
+\textbf{Do not optimize the old scanner ontology by renaming its objects.}
+}
+\]
+
+The implementation is a sparse exact lowering of the full-field native equation,
+not a pipeline of native-sounding managers.

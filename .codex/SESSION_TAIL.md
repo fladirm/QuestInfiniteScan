@@ -2,18 +2,17 @@
 
 ## User
 
-Replace the current scanner ontology with a full native S16 world. Use the supplied
-Merkaba/eigenmode idea in the inverse direction: RGB-D sensor shadows are pulled
-back through the same exact nonassociative/ZD 22-relation bridge into S16. Preserve
-multiple pure readouts, write `analyza.md`, replace rather than append to the spec,
-and prepare deterministic low-code S4‑08.xx closure runs with hard deletion,
-negative LOC, no legacy/fallback and physical Quest acceptance.
+Issued the authoritative S4‑08.6 ontology reset: do not implement germ-first v8.
+Use a full-field whole-scene shadow, mandatory support-hypothesis disjunction, one
+joint `NativeCloseCommit`, candidate-free evidence, unresolved branches without
+identity, proof-gated bound branches, E22 faithfulness/direct-S16 fallback,
+`ABSENT != NATIVE_NULL`, modal refinement and pure eye/export readouts. Replace the
+spec/audit/plan before N1 and update copies in `~/Stažené`.
 
 ## Assistant
 
-N0 canonical rebase is complete at this checkpoint: `analyza.md` contains the
-61-kernel/source/error/replacement matrix, `new_spec.md` is a true v8 replacement,
-the N0–N8 run and compact controls are frozen, code graph/control/math/link gates
-pass and Runtime is untouched. Current cursor is N1: freeze the supplied
-authoritative TOE E22 artifact, generate one descriptor/four evaluators and do not
-guess relations or cut live runtime yet.
+N0R is accepted as a documentation/control-only reset with zero runtime diff and
+byte-identical forensic evidence sections. The sole cursor is N1R: locate, hash
+and freeze the supplied authoritative TOE operator/frame/kernel artifact before
+generating any native law. No relation, bracket, eigenmode, native-null or
+refinement equation may be guessed.

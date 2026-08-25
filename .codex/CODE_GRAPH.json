@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "source_digest": "1aa12fc1cb4a6becfd3a663e42991bedec1e5ad655aef75b92a62248288dd5f2",
+  "source_digest": "1f78eed093fb8e4b1998571a94e6f35be5975af1da39c0e5b31faac541029b44",
   "scope": [
     "Runtime/**/*.cs",
     "Runtime/Resources/SigmaPrism/**/*.*",
@@ -11,7 +11,7 @@
   ],
   "summary": {
     "files": 107,
-    "symbols": 1648,
+    "symbols": 1649,
     "methods_and_functions": 1344,
     "gpu_kernels": 73,
     "event_links": 5
@@ -12089,6 +12089,13 @@
       "name": "visit",
       "kind": "function",
       "line": 86
+    },
+    {
+      "id": "new_spec.md::does",
+      "file": "new_spec.md",
+      "name": "does",
+      "kind": "class",
+      "line": 944
     }
   ],
   "event_links": [
@@ -12263,7 +12270,7 @@
     },
     {
       "id": "S4-08",
-      "title": "Replace the scanner with native S16 inverse-Merkaba closure and pure readouts",
+      "title": "Replace the scanner with one full-field native S16 close/commit and pure readouts",
       "status": "in_progress",
       "depends_on": [
         "S4-07"
@@ -12276,7 +12283,7 @@
     },
     {
       "id": "S4-09",
-      "title": "Implement deterministic scene evolution through native shadow exclusion and transport",
+      "title": "Implement temporal native evolution for observations not reconcilable as one static scene",
       "status": "pending",
       "depends_on": [
         "S4-08"
