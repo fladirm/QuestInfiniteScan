@@ -54,7 +54,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 sizeof(uint));
             gate.SetData(new uint[] { 0u });
             fixture.SetBuffer(kernel, "_CapabilityGate", gate);
-            fixture.DispatchProfiled(kernel, 1, 1, 1);
+            fixture.Dispatch(kernel, 1, 1, 1);
             Logger.Info("Exact S16 GPU witness dispatched; mutation kernels " +
                         "consume it directly and fail closed on zero.");
             return new SigmaExactBackendGate(gate);

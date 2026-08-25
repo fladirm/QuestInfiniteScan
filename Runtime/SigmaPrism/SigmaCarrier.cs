@@ -203,7 +203,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 "_DirtyFlags", segment.DirtyFlags);
             _carrierShader.SetBuffer(_initializeGpuPoolKernel,
                 "_ReadoutDirtyFlags", segment.ReadoutDirtyFlags);
-            _carrierShader.DispatchProfiled(_initializeGpuPoolKernel,
+            _carrierShader.Dispatch(_initializeGpuPoolKernel,
                 SamplesPerPage / 64, segment.Capacity, 1);
         }
 

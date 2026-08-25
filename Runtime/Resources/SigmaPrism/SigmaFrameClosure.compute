@@ -19,10 +19,10 @@
 #pragma kernel FinalizePendingGauges
 #pragma kernel DeferUnresolvedEdges
 #pragma kernel FinalizeExactClosure
-#pragma kernel MarkPendingRetention
-#pragma kernel AssignPendingRetentionSlots
+#pragma kernel MarkPromotedPendingSlots
+#pragma kernel AllocatePendingRetention
 #pragma kernel PersistPendingTargets
-#pragma kernel CommitPendingRetention
+#pragma kernel CommitPromotedPending
 #pragma target 5.0
 
 #include "SigmaFrameAbi.hlsl"
@@ -42,8 +42,6 @@ RWStructuredBuffer<SigmaFrameDeltaGpu> _FrameDeltas;
 RWStructuredBuffer<uint> _FrameResolvedIndices;
 RWStructuredBuffer<uint> _PendingLabels;
 RWStructuredBuffer<uint> _PendingLinks;
-StructuredBuffer<uint> _PendingLabelsRead;
-StructuredBuffer<uint> _PendingLinksRead;
 RWStructuredBuffer<uint> _FrameDeferredFlags;
 RWStructuredBuffer<SigmaPendingGaugeGpu> _PendingGauges;
 RWStructuredBuffer<uint2> _PendingStates;
@@ -105,7 +103,6 @@ uint _EdgeFirstFootprint;
 uint _EdgeFootprintCount;
 uint _SingularShift;
 uint _AssociatorShift;
-uint _ScanOutputMode;
 uint _PendingCapacity;
 uint _PendingFirst;
 uint _PendingCount;
@@ -437,12 +434,7 @@ void ScanTargetHeadSupers(uint3 threadId : SV_GroupThreadID)
     if (lane < _TargetHeadSuperCount)
         _RootSuperOffsets[lane] = uint2(prefix, 0u);
     if (lane == 0u)
-    {
-        if (_ScanOutputMode == 0u)
-            _FrameClosureCounters[0].x = total;
-        else
-            _FrameClosureCounters[3].y = total;
-    }
+        _FrameClosureCounters[0].x = total;
 }
 
 [numthreads(256, 1, 1)]
@@ -956,9 +948,6 @@ void ClearExactClosure(uint3 id : SV_DispatchThreadID)
         _FrameClosureCounters[1] = 0u;
         _FrameClosureCounters[2] = 0u;
         _FrameClosureCounters[3] = 0u;
-        uint4 pendingControl = _PendingControl[0u];
-        pendingControl.w = 0u;
-        _PendingControl[0u] = pendingControl;
     }
 }
 
@@ -1506,67 +1495,76 @@ void FinalizeExactClosure(uint3 id : SV_DispatchThreadID)
     target.Evidence.y = flags;
     _FrameTargetScratch[ordinal] = target;
 }
-
-[numthreads(256, 1, 1)]
-void MarkPendingRetention(uint3 id : SV_DispatchThreadID)
+bool SigmaPendingNeedsRetention(SigmaFrameDeltaGpu target)
 {
-    uint ordinal = id.x;
-    uint targetCount = _FrameClosureCounters[0].x;
-    if (ordinal >= _FrameFootprintCount)
+    uint flags = target.Evidence.y;
+    return (flags & SIGMA_FRAME_OUTCOME_PENDING) != 0u &&
+        (flags & (SIGMA_FRAME_OUTCOME_CONFLICT | SIGMA_FRAME_OUTCOME_FAULT)) == 0u &&
+        target.Evidence.z != SIGMA_FRAME_PROPOSAL_KIND_CURRENT;
+}
+bool SigmaPendingExistingHandle(SigmaFrameDeltaGpu target, uint4 control,
+    out uint handle)
+{
+    handle = target.Candidate.y;
+    return target.Candidate.x == SIGMA_FRAME_TARGET_KIND_PENDING && handle < control.x &&
+        handle < control.y && handle < _PendingCapacity;
+}
+[numthreads(256, 1, 1)]
+void MarkPromotedPendingSlots(uint3 id : SV_DispatchThreadID)
+{
+    uint localSlot = id.x;
+    if (localSlot >= _PendingCount)
         return;
-    uint retain = 0u;
-    uint existing = SIGMA_FRAME_INVALID;
-    if (ordinal < targetCount)
+    uint slot = _PendingFirst + localSlot;
+    uint4 control = _PendingControlRead[0u];
+    _FrameResolvedIndices[slot] = slot < control.x && slot < control.y &&
+        slot < _PendingCapacity && _PendingGaugesRead[localSlot].Identity.y ==
+            SIGMA_PENDING_GAUGE_STATE_PROMOTED ? 1u : 0u;
+}
+[numthreads(1, 1, 1)]
+void AllocatePendingRetention(uint3 id : SV_DispatchThreadID)
+{
+    uint4 control = _PendingControl[0u];
+    uint capacity = min(control.y, _PendingCapacity), targetCount = _FrameClosureCounters[0].x;
+    if (control.x > capacity)
+        { _FrameClosureCounters[3].x = 1u; return; }
+    uint needed = 0u;
+    [loop]
+    for (uint index = 0u; index < targetCount; ++index)
+    {
+        SigmaFrameDeltaGpu target = _FrameTargetScratch[index];
+        uint existing;
+        if (SigmaPendingNeedsRetention(target) &&
+            !SigmaPendingExistingHandle(target, control, existing))
+            ++needed;
+    }
+    uint holes = 0u;
+    [loop]
+    for (uint slot = 0u; slot < control.x; ++slot)
+        holes += _FrameResolvedIndices[slot] != 0u ? 1u : 0u;
+    if (needed > holes + capacity - control.x)
+        { _FrameClosureCounters[3].x = 1u; return; }
+    uint holeCursor = 0u, tail = control.x;
+    [loop]
+    for (uint ordinal = 0u; ordinal < targetCount; ++ordinal)
     {
         SigmaFrameDeltaGpu target = _FrameTargetScratch[ordinal];
-        uint flags = target.Evidence.y;
-        bool pending = (flags & SIGMA_FRAME_OUTCOME_PENDING) != 0u &&
-            (flags & (SIGMA_FRAME_OUTCOME_CONFLICT |
-                SIGMA_FRAME_OUTCOME_FAULT)) == 0u &&
-            target.Evidence.z != SIGMA_FRAME_PROPOSAL_KIND_CURRENT;
-        if (pending && target.Candidate.x ==
-                SIGMA_FRAME_TARGET_KIND_PENDING)
+        if (!SigmaPendingNeedsRetention(target))
+            continue;
+        uint slot;
+        if (!SigmaPendingExistingHandle(target, control, slot))
         {
-            uint4 control = _PendingControlRead[0u];
-            uint handle = target.Candidate.y;
-            if (handle < control.x && handle < control.y)
-                existing = handle;
+            [loop]
+            while (holeCursor < control.x && _FrameResolvedIndices[holeCursor] == 0u)
+                ++holeCursor;
+            uint append = holeCursor >= control.x ? 1u : 0u; slot = append != 0u ? tail : holeCursor; holeCursor += 1u - append; tail += append;
         }
-        retain = pending && existing == SIGMA_FRAME_INVALID ? 1u : 0u;
-        if (pending)
-            _PendingLinks[ordinal] = existing;
+        _PendingLinks[ordinal] = slot;
     }
-    _FrameResolvedIndices[ordinal] = retain;
+    control.x = tail;
+    _PendingControl[0u] = control;
+    _FrameClosureCounters[3].y = needed;
 }
-
-[numthreads(256, 1, 1)]
-void AssignPendingRetentionSlots(uint3 id : SV_DispatchThreadID)
-{
-    uint ordinal = id.x;
-    uint targetCount = _FrameClosureCounters[0].x;
-    if (ordinal >= targetCount)
-        return;
-    SigmaFrameDeltaGpu target = _FrameTargetScratch[ordinal];
-    if ((target.Evidence.y & SIGMA_FRAME_OUTCOME_PENDING) == 0u ||
-        target.Evidence.z == SIGMA_FRAME_PROPOSAL_KIND_CURRENT)
-        return;
-    if (_PendingLinks[ordinal] != SIGMA_FRAME_INVALID)
-        return;
-    uint block = ordinal >> 8u;
-    uint superBlock = block >> 8u;
-    uint prefix = _RootLocalOffsets[ordinal].x +
-        _RootBlockOffsets[block].x + _RootSuperOffsets[superBlock].x;
-    uint4 control = _PendingControl[0u];
-    uint slot = control.x + prefix;
-    if (slot >= control.y || slot >= _PendingCapacity)
-    {
-        InterlockedOr(_PendingControl[0u].w, 1u);
-        InterlockedOr(_FrameClosureCounters[2].x, 0x100u);
-        return;
-    }
-    _PendingLinks[ordinal] = slot;
-}
-
 void SigmaPendingSelectKeys(uint sourceMask, SigmaPendingGaugeGpu previous,
     bool existing, out uint key0, out uint key1)
 {
@@ -1595,17 +1593,13 @@ void PersistPendingTargets(uint3 groupId : SV_GroupID,
     uint linearGroup = groupId.y * _LinearDispatchGroupsX + groupId.x;
     uint ordinal = _TargetWindowFirst + linearGroup;
     uint targetCount = _FrameClosureCountersRead[0].x;
-    if (ordinal >= targetCount ||
+    if (_FrameClosureCountersRead[3].x != 0u || ordinal >= targetCount ||
         ordinal >= _TargetWindowFirst + _TargetWindowCount)
         return;
     SigmaFrameDeltaGpu target = _FrameTargetScratch[ordinal];
-    uint flags = target.Evidence.y;
-    if ((flags & SIGMA_FRAME_OUTCOME_PENDING) == 0u ||
-        target.Evidence.z == SIGMA_FRAME_PROPOSAL_KIND_CURRENT ||
-        (flags & (SIGMA_FRAME_OUTCOME_CONFLICT |
-            SIGMA_FRAME_OUTCOME_FAULT)) != 0u)
+    if (!SigmaPendingNeedsRetention(target))
         return;
-    uint slot = _PendingLinksRead[ordinal];
+    uint slot = _PendingLinks[ordinal];
     if (slot < _PendingFirst || slot >= _PendingFirst + _PendingCount ||
         slot >= _PendingCapacity || slot >= _PendingControlRead[0u].y)
         return;
@@ -1647,10 +1641,10 @@ void PersistPendingTargets(uint3 groupId : SV_GroupID,
         uint key1;
         SigmaPendingSelectKeys(sourceMask, previous, existing, key0, key1);
         uint generation = existing ? previous.Identity.x : _FrameRevision;
-        uint root = _PendingLabelsRead[ordinal];
+        uint root = _PendingLabels[ordinal];
         uint rootSlot = root < targetCount &&
-            _PendingLinksRead[root] != SIGMA_FRAME_INVALID
-            ? _PendingLinksRead[root] : slot;
+            _PendingLinks[root] != SIGMA_FRAME_INVALID
+            ? _PendingLinks[root] : slot;
         uint footprint = target.Evidence.x;
         SigmaPendingGaugeGpu gauge;
         gauge.Identity = uint4(generation,
@@ -1668,18 +1662,33 @@ void PersistPendingTargets(uint3 groupId : SV_GroupID,
         _FrameTargetScratch[ordinal] = target;
     }
 }
-
-[numthreads(1, 1, 1)]
-void CommitPendingRetention(uint3 id : SV_DispatchThreadID)
+[numthreads(256, 1, 1)]
+void CommitPromotedPending(uint3 id : SV_DispatchThreadID)
 {
-    uint4 control = _PendingControl[0u];
-    uint appended = _FrameClosureCounters[3].y;
-    if (control.w != 0u || appended > control.y ||
-        control.x > control.y - appended)
-    {
-        InterlockedOr(_FrameClosureCounters[2].x, 0x200u);
+    uint ordinal = id.x;
+    if (_PublishedRevisionRoot[0u] != _FrameRevision ||
+        ordinal >= _FrameClosureCountersRead[0].x)
         return;
-    }
-    control.x += appended;
-    _PendingControl[0u] = control;
+    SigmaFrameDeltaGpu target = _FrameTargetScratch[ordinal];
+    uint flags = target.Evidence.y, kind = target.Evidence.z;
+    if ((flags & SIGMA_FRAME_OUTCOME_ACCEPTED) == 0u ||
+        (flags & (SIGMA_FRAME_OUTCOME_UNCHANGED |
+            SIGMA_FRAME_OUTCOME_CONFLICT | SIGMA_FRAME_OUTCOME_FAULT |
+            SIGMA_FRAME_OUTCOME_DEFERRED)) != 0u ||
+        (kind != SIGMA_FRAME_PROPOSAL_KIND_CONTINUATION &&
+            kind != SIGMA_FRAME_PROPOSAL_KIND_NOVEL))
+        return;
+    uint handle = target.Candidate.y, generation = target.Candidate.z;
+    uint4 control = _PendingControlRead[0u];
+    if (handle < _PendingFirst || handle >= _PendingFirst + _PendingCount ||
+        handle >= control.x || handle >= control.y || handle >= _PendingCapacity)
+        return;
+    uint localSlot = handle - _PendingFirst;
+    SigmaPendingGaugeGpu gauge = _PendingGauges[localSlot];
+    if (gauge.Identity.x != generation ||
+        (gauge.Identity.y != SIGMA_PENDING_GAUGE_STATE_OPEN &&
+            gauge.Identity.y != SIGMA_PENDING_GAUGE_STATE_SUPPORTED))
+        return;
+    gauge.Identity.y = SIGMA_PENDING_GAUGE_STATE_PROMOTED;
+    _PendingGauges[localSlot] = gauge;
 }

@@ -386,7 +386,7 @@ namespace Genesis.RoomScan.SigmaPrism
                     "_SourceProjectionDepth", source);
                 _imageCopyCompute.SetTexture(_copyDepthArrayKernel,
                     "_TargetProjectionDepth", target);
-                _imageCopyCompute.DispatchProfiled(_copyDepthArrayKernel,
+                _imageCopyCompute.Dispatch(_copyDepthArrayKernel,
                     Math.Max(1, (source.width + 7) / 8),
                     Math.Max(1, (source.height + 7) / 8), slices);
                 return;

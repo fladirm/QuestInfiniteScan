@@ -180,7 +180,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 _shader.SetTexture(_kernel, DifferentialXId, dx);
                 _shader.SetTexture(_kernel, DifferentialYId, dy);
                 _shader.SetTexture(_kernel, SlopeBoundsId, slopes);
-                _shader.DispatchProfiled(_kernel, CeilDiv(resolution.x, 8),
+                _shader.Dispatch(_kernel, CeilDiv(resolution.x, 8),
                     CeilDiv(resolution.y, 8), 1);
                 return new ConeProjectionLut(projection, center, dx, dy, slopes);
             }

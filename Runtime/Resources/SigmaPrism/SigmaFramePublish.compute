@@ -258,6 +258,7 @@ void ClearPublicationState(uint3 id : SV_DispatchThreadID)
     }
     if (index == 0u)
     {
+        uint upstreamFault = _FrameClosureCounters[3].x;
         SigmaFrameDeltaGpu novel = SigmaEmptyRecord();
         novel.Coordinate = uint4(SIGMA_FRAME_INVALID,
             SIGMA_FRAME_INVALID, 0u, 0u);
@@ -265,7 +266,8 @@ void ClearPublicationState(uint3 id : SV_DispatchThreadID)
         _FrameTargetScratch[_TargetSortCapacity] = novel;
         _FrameClosureCounters[4] = 0u;
         _FrameClosureCounters[5] = 0u;
-        _FrameClosureCounters[6] = 0u;
+        _FrameClosureCounters[6] = uint4(
+            upstreamFault != 0u ? 0x00000800u : 0u, 0u, 0u, 0u);
         _FrameClosureCounters[7] = 0u;
         _PublicationDispatchArguments[0u] = 0u;
         _PublicationDispatchArguments[1u] = 1u;
@@ -297,6 +299,8 @@ void AccumulateNovelBounds(uint3 id : SV_DispatchThreadID)
 [numthreads(1, 1, 1)]
 void ReserveNovelExtent(uint3 id : SV_DispatchThreadID)
 {
+    if (_FrameClosureCounters[6].x != 0u)
+        return;
     if (!SigmaExactEnabled())
     {
         _FrameClosureCounters[6].x = 0x00000001u;
