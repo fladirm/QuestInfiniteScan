@@ -295,19 +295,15 @@ namespace Genesis.RoomScan.SigmaPrism
                     "Sigma-PRISM-16 Direct Coherent Frame");
                 profiling = SigmaGpuKernelTelemetry.BeginProfiledSubmission(
                     revision);
-                command.BeginSample("Sigma.Frame.Normalize");
+                if (profiling)
+                    SigmaGpuKernelTelemetry.RecordProfileBegin(command);
                 RecordNormalize(command, slot, source, luts);
-                command.EndSample("Sigma.Frame.Normalize");
-                command.BeginSample("Sigma.Frame.PoseGauge");
                 RecordPoseGauge(command, slot, source, prediction, revision,
                     luts);
                 RecordCorrectedCalibration(command, slot, source,
                     worldToRoom);
-                command.EndSample("Sigma.Frame.PoseGauge");
-                command.BeginSample("Sigma.Frame.Reraster");
                 _renderer.RecordPoseGaugePrediction(command, source,
                     slot.PoseResult, worldToRoom, correctedPrediction);
-                command.EndSample("Sigma.Frame.Reraster");
 
                 _carrier.CollectReadableSegments(_carrierReadBatches);
                 var input = new SigmaFrameInverseInput(correctedPrediction,
@@ -320,12 +316,12 @@ namespace Genesis.RoomScan.SigmaPrism
                         input, out ownedFrame))
                     return false;
 
-                command.BeginSample("Sigma.Frame.InversePublish");
                 _graph.RecordSourceAndResolve(command, ownedFrame, revision,
                     input);
                 _graph.RecordExactClosure(command, ownedFrame, revision, input);
                 _graph.RecordPublication(command, ownedFrame, revision, input);
-                command.EndSample("Sigma.Frame.InversePublish");
+                if (profiling)
+                    SigmaGpuKernelTelemetry.RecordProfileEnd(command);
                 SigmaGpuCompletionTicket ticket =
                     SigmaGpuCompletion.RecordAfterAllWork(command);
                 Graphics.ExecuteCommandBuffer(command);

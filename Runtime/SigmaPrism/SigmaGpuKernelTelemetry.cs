@@ -1,20 +1,20 @@
 using System;
 using System.Collections.Generic;
+using System.Runtime.InteropServices;
 using UnityEngine;
-using UnityEngine.Profiling;
 using UnityEngine.Rendering;
 
 namespace Genesis.RoomScan.SigmaPrism
 {
     /// <summary>
-    /// Explicit one-submission GPU timestamp instrumentation. Normal dispatches
-    /// carry no markers. One requested sample aggregates each compute kernel via
-    /// Unity's recorder without per-kernel readbacks or canonical authority.
+    /// One-shot Vulkan timestamps for an otherwise unmodified Release submission.
+    /// Two plugin events bracket the command buffer; the native Vulkan hook writes
+    /// query pairs around dispatches and returns the complete pool after its fence.
     /// </summary>
     internal static class SigmaGpuKernelTelemetry
     {
         internal const int MaximumThreadGroupsPerDimension = 65535;
-        private const int GpuTimestampDelayFrames = 3;
+        private const int MaximumTimedDispatches = 4096;
 
         private enum State : byte
         {
@@ -22,26 +22,32 @@ namespace Genesis.RoomScan.SigmaPrism
             Armed,
             Recording,
             Submitted,
-            AwaitingCounters,
+            AwaitingResults,
         }
 
         private sealed class Entry
         {
             internal Entry(string name) => Name = name;
             internal string Name { get; }
-            internal CustomSampler Sampler { get; set; }
-            internal Recorder Recorder { get; set; }
+        }
+
+        private sealed class Aggregate
+        {
+            internal int Dispatches;
+            internal double TotalNanoseconds;
+            internal double MaximumNanoseconds;
         }
 
         private static readonly Dictionary<(ulong Entity, int Kernel), Entry>
             EntriesByKernel = new();
-        private static readonly List<Entry> Entries = new();
+        private static readonly List<Entry> DispatchSequence = new();
+        private static readonly ulong[] TimestampPairs =
+            new ulong[MaximumTimedDispatches * 2];
         private static State _state;
         private static uint _revision;
-        private static int _captureFrame;
-        private static bool _ownsProfiler;
-        private static bool _registrationWarning;
+        private static bool _warningLogged;
 #if UNITY_EDITOR
+        private static bool _testTimingAvailable;
         internal static Action<ulong, int, int, int, int>
             DirectDispatchObservedForTests;
         internal static Action<ulong, int, int, int, int>
@@ -51,11 +57,13 @@ namespace Genesis.RoomScan.SigmaPrism
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
         private static void Reset()
         {
-            Finish();
             EntriesByKernel.Clear();
-            Entries.Clear();
-            _registrationWarning = false;
+            DispatchSequence.Clear();
+            _state = State.Idle;
+            _revision = 0u;
+            _warningLogged = false;
 #if UNITY_EDITOR
+            _testTimingAvailable = false;
             DirectDispatchObservedForTests = null;
             ProfiledDispatchObservedForTests = null;
 #endif
@@ -70,7 +78,17 @@ namespace Genesis.RoomScan.SigmaPrism
                 throw new ArgumentException("Kernel name is required.",
                     nameof(kernelName));
             int kernel = shader.FindKernel(kernelName);
-            Register(shader, kernel, kernelName);
+            var key = Key(shader, kernel);
+            string name = shader.name + '.' + kernelName;
+            if (EntriesByKernel.TryGetValue(key, out Entry existing))
+            {
+                if (existing.Name != name)
+                    throw new InvalidOperationException(
+                        $"Compute timing collision: {existing.Name} versus " +
+                        $"{name}.");
+            }
+            else
+                EntriesByKernel.Add(key, new Entry(name));
             return kernel;
         }
 
@@ -86,28 +104,48 @@ namespace Genesis.RoomScan.SigmaPrism
         {
             if (_state != State.Armed || revision == 0u)
                 return false;
-            _ownsProfiler = !Profiler.enabled;
-            if (_ownsProfiler)
+            DispatchSequence.Clear();
+#if UNITY_EDITOR
+            if (_testTimingAvailable)
             {
-                try { Profiler.enabled = true; }
-                catch (Exception exception)
-                {
-                    _ownsProfiler = false;
-                    Warn("one-shot request", exception.Message);
-                }
+                _revision = revision;
+                _state = State.Recording;
+                return true;
+            }
+#endif
+            if (!Native.TryArm(revision))
+            {
+                Warn("Release Vulkan timestamp query pool is unavailable");
+                _state = State.Idle;
+                return false;
             }
             _revision = revision;
-            for (int index = 0; index < Entries.Count; ++index)
-            {
-                Entry entry = Entries[index];
-                EnsureSampler(entry);
-                if (entry.Recorder == null || !entry.Recorder.isValid)
-                    continue;
-                entry.Recorder.enabled = false;
-                entry.Recorder.enabled = true;
-            }
             _state = State.Recording;
             return true;
+        }
+
+        internal static void RecordProfileBegin(CommandBuffer command)
+        {
+            if (_state != State.Recording)
+                return;
+            if (command == null)
+                throw new ArgumentNullException(nameof(command));
+#if !UNITY_EDITOR && UNITY_ANDROID
+            command.IssuePluginEvent(Native.RenderEvent,
+                Native.BeginEventId);
+#endif
+        }
+
+        internal static void RecordProfileEnd(CommandBuffer command)
+        {
+            if (_state != State.Recording)
+                return;
+            if (command == null)
+                throw new ArgumentNullException(nameof(command));
+#if !UNITY_EDITOR && UNITY_ANDROID
+            command.IssuePluginEvent(Native.RenderEvent,
+                Native.EndEventId);
+#endif
         }
 
         internal static void EndProfiledSubmission(uint revision,
@@ -120,8 +158,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 _state = State.Submitted;
                 return;
             }
-            DisableRecorders();
-            RestoreProfiler();
+            CancelNative();
             _revision = 0u;
             _state = State.Armed;
         }
@@ -130,11 +167,16 @@ namespace Genesis.RoomScan.SigmaPrism
         {
             if (_state != State.Submitted || revision != _revision)
                 return;
-            _captureFrame = Time.frameCount + GpuTimestampDelayFrames;
-            _state = State.AwaitingCounters;
+            _state = State.AwaitingResults;
         }
 
-        internal static void CancelSingleSubmission() => Finish();
+        internal static void CancelSingleSubmission()
+        {
+            CancelNative();
+            DispatchSequence.Clear();
+            _state = State.Idle;
+            _revision = 0u;
+        }
 
         internal static void DispatchComputeProfiled(this CommandBuffer command,
             ComputeShader shader, int kernel, int x, int y, int z)
@@ -142,22 +184,8 @@ namespace Genesis.RoomScan.SigmaPrism
             if (command == null)
                 throw new ArgumentNullException(nameof(command));
             ValidateDirectDispatchDimensions(x, y, z);
-#if UNITY_EDITOR
-            ulong entity = EntityId.ToULong(shader.GetEntityId());
-            DirectDispatchObservedForTests?.Invoke(entity, kernel, x, y, z);
-            if (_state == State.Recording)
-                ProfiledDispatchObservedForTests?.Invoke(entity, kernel,
-                    x, y, z);
-#endif
-            Entry entry = ActiveEntry(shader, kernel);
-            if (entry?.Sampler == null)
-            {
-                command.DispatchCompute(shader, kernel, x, y, z);
-                return;
-            }
-            command.BeginSample(entry.Sampler);
+            Observe(shader, kernel, x, y, z);
             command.DispatchCompute(shader, kernel, x, y, z);
-            command.EndSample(entry.Sampler);
         }
 
         internal static void DispatchComputeProfiled(this CommandBuffer command,
@@ -168,30 +196,8 @@ namespace Genesis.RoomScan.SigmaPrism
                 throw new ArgumentNullException(nameof(command));
             if (arguments == null)
                 throw new ArgumentNullException(nameof(arguments));
-            Entry entry = ActiveEntry(shader, kernel);
-            if (entry?.Sampler == null)
-            {
-                command.DispatchCompute(shader, kernel, arguments, offset);
-                return;
-            }
-            command.BeginSample(entry.Sampler);
+            Observe(shader, kernel, -1, -1, -1);
             command.DispatchCompute(shader, kernel, arguments, offset);
-            command.EndSample(entry.Sampler);
-        }
-
-        internal static void DispatchProfiled(this ComputeShader shader,
-            int kernel, int x, int y, int z)
-        {
-            ValidateDirectDispatchDimensions(x, y, z);
-            Entry entry = ActiveEntry(shader, kernel);
-            if (entry?.Sampler == null)
-            {
-                shader.Dispatch(kernel, x, y, z);
-                return;
-            }
-            entry.Sampler.Begin();
-            shader.Dispatch(kernel, x, y, z);
-            entry.Sampler.End();
         }
 
         internal static void ValidateDirectDispatchDimensions(int x, int y,
@@ -221,167 +227,211 @@ namespace Genesis.RoomScan.SigmaPrism
 
         internal static void CaptureAndLogFrame()
         {
-            if (_state != State.AwaitingCounters ||
-                Time.frameCount < _captureFrame)
+            if (_state != State.AwaitingResults)
                 return;
-            var samples = new List<(Entry Entry, int Blocks, long Nanoseconds)>();
-            for (int index = 0; index < Entries.Count; ++index)
-            {
-                Entry entry = Entries[index];
-                Recorder recorder = entry.Recorder;
-                if (recorder == null || !recorder.isValid)
-                    continue;
-                int blocks = Math.Max(0, recorder.gpuSampleBlockCount);
-                long nanoseconds = Math.Max(0L,
-                    recorder.gpuElapsedNanoseconds);
-                if (blocks != 0 || nanoseconds != 0L)
-                    samples.Add((entry, blocks, nanoseconds));
-            }
-            samples.Sort((left, right) =>
-                right.Nanoseconds.CompareTo(left.Nanoseconds));
-            long total = 0L;
-            int totalBlocks = 0;
-            for (int index = 0; index < samples.Count; ++index)
-            {
-                var sample = samples[index];
-                total = checked(total + sample.Nanoseconds);
-                totalBlocks = checked(totalBlocks + sample.Blocks);
-                double totalUs = sample.Nanoseconds / 1000.0;
-                double averageUs = sample.Blocks == 0
-                    ? 0.0 : totalUs / sample.Blocks;
-                Logger.Info($"Sigma gpu-kernel revision={_revision} " +
-                    $"rank={index + 1} kernel={sample.Entry.Name} " +
-                    $"dispatchBlocks={sample.Blocks} total={totalUs:F1}us " +
-                    $"average={averageUs:F1}us");
-            }
-            if (samples.Count == 0)
-                Logger.Warning("Sigma one-shot per-kernel GPU timestamp " +
-                    "recorders returned no samples; dispatch stayed exact.");
-            else
-                Logger.Info($"Sigma gpu-kernel revision={_revision} " +
-                    $"compute-checksum={total / 1_000_000.0:F3}ms " +
-                    $"dispatchBlocks={totalBlocks} kernels={samples.Count}");
+#if UNITY_EDITOR
             Finish();
-        }
-
-        private static void Register(ComputeShader shader, int kernel,
-            string kernelName)
-        {
-            var key = Key(shader, kernel);
-            string name = shader.name + '.' + kernelName;
-            if (EntriesByKernel.TryGetValue(key, out Entry existing))
+#else
+            int status = Native.TryRead(TimestampPairs, out int dispatchCount,
+                out double timestampPeriod, out int validBits,
+                out ulong capturedRevision, out bool overflow);
+            if (status == 0)
+                return;
+            if (status < 0 || capturedRevision != _revision || overflow ||
+                dispatchCount != DispatchSequence.Count)
             {
-                if (existing.Name != name)
-                    throw new InvalidOperationException(
-                        $"Compute kernel telemetry collision: " +
-                        $"{existing.Name} versus {name}.");
+                Warn($"Vulkan timestamp mismatch revision={_revision}, " +
+                    $"nativeRevision={capturedRevision}, " +
+                    $"expected={DispatchSequence.Count}, actual={dispatchCount}, " +
+                    $"overflow={overflow}");
+                Finish();
                 return;
             }
-            var entry = new Entry(name);
-            EntriesByKernel.Add(key, entry);
-            Entries.Add(entry);
-            if (_state == State.Recording)
-                EnsureSampler(entry);
+            LogResults(dispatchCount, timestampPeriod, validBits);
+            Finish();
+#endif
         }
 
-        private static Entry ActiveEntry(ComputeShader shader, int kernel)
+        private static void Observe(ComputeShader shader, int kernel,
+            int x, int y, int z)
         {
             if (shader == null)
                 throw new ArgumentNullException(nameof(shader));
+            ulong entity = EntityId.ToULong(shader.GetEntityId());
+#if UNITY_EDITOR
+            DirectDispatchObservedForTests?.Invoke(entity, kernel, x, y, z);
+#endif
             if (_state != State.Recording)
-                return null;
-            if (!EntriesByKernel.TryGetValue(Key(shader, kernel),
-                    out Entry entry))
+                return;
+            if (!EntriesByKernel.TryGetValue((entity, kernel), out Entry entry))
                 throw new InvalidOperationException(
                     $"Compute kernel {shader.name}#{kernel} was not registered.");
-            EnsureSampler(entry);
-            return entry;
+            if (DispatchSequence.Count >= MaximumTimedDispatches)
+                throw new InvalidOperationException(
+                    $"Timestamp capture exceeds {MaximumTimedDispatches} " +
+                    "dispatches.");
+            DispatchSequence.Add(entry);
+#if UNITY_EDITOR
+            ProfiledDispatchObservedForTests?.Invoke(entity, kernel, x, y, z);
+#endif
         }
 
-        private static void EnsureSampler(Entry entry)
+        private static void LogResults(int dispatchCount,
+            double timestampPeriod, int validBits)
         {
-            if (entry.Sampler != null && entry.Sampler.isValid &&
-                entry.Recorder != null && entry.Recorder.isValid)
-                return;
-            try
+            ulong mask = validBits >= 64
+                ? ulong.MaxValue : (1UL << validBits) - 1UL;
+            var totals = new Dictionary<Entry, Aggregate>();
+            double checksum = 0.0;
+            for (int index = 0; index < dispatchCount; ++index)
             {
-                CustomSampler sampler = CustomSampler.Create(
-                    "Sigma.GPU." + entry.Name, true);
-                Recorder recorder = sampler?.GetRecorder();
-                if (sampler == null || !sampler.isValid || recorder == null ||
-                    !recorder.isValid)
+                ulong begin = TimestampPairs[index * 2] & mask;
+                ulong end = TimestampPairs[index * 2 + 1] & mask;
+                ulong ticks = (end - begin) & mask;
+                double nanoseconds = ticks * timestampPeriod;
+                Entry entry = DispatchSequence[index];
+                if (!totals.TryGetValue(entry, out Aggregate aggregate))
                 {
-                    Warn(entry.Name, "invalid GPU sampler/recorder");
-                    return;
+                    aggregate = new Aggregate();
+                    totals.Add(entry, aggregate);
                 }
-                recorder.CollectFromAllThreads();
-                recorder.enabled = true;
-                entry.Sampler = sampler;
-                entry.Recorder = recorder;
+                aggregate.Dispatches++;
+                aggregate.TotalNanoseconds += nanoseconds;
+                aggregate.MaximumNanoseconds = Math.Max(
+                    aggregate.MaximumNanoseconds, nanoseconds);
+                checksum += nanoseconds;
             }
-            catch (Exception exception) { Warn(entry.Name, exception.Message); }
+            var ranked = new List<KeyValuePair<Entry, Aggregate>>(totals);
+            ranked.Sort((left, right) => right.Value.TotalNanoseconds
+                .CompareTo(left.Value.TotalNanoseconds));
+            for (int index = 0; index < ranked.Count; ++index)
+            {
+                Entry entry = ranked[index].Key;
+                Aggregate aggregate = ranked[index].Value;
+                double average = aggregate.TotalNanoseconds /
+                    aggregate.Dispatches;
+                Logger.Info($"Sigma gpu-kernel revision={_revision} " +
+                    $"rank={index + 1} kernel={entry.Name} " +
+                    $"dispatches={aggregate.Dispatches} " +
+                    $"total={aggregate.TotalNanoseconds / 1000.0:F1}us " +
+                    $"average={average / 1000.0:F1}us " +
+                    $"maximum={aggregate.MaximumNanoseconds / 1000.0:F1}us");
+            }
+            Logger.Info($"Sigma gpu-kernel revision={_revision} " +
+                $"compute-checksum={checksum / 1_000_000.0:F3}ms " +
+                $"dispatches={dispatchCount} kernels={ranked.Count} " +
+                $"timestampPeriod={timestampPeriod:F6}ns validBits={validBits}");
         }
 
         private static void Finish()
         {
-            DisableRecorders();
-            RestoreProfiler();
+            DispatchSequence.Clear();
             _state = State.Idle;
             _revision = 0u;
-            _captureFrame = 0;
         }
 
-        private static void DisableRecorders()
+        private static void CancelNative()
         {
-            for (int index = 0; index < Entries.Count; ++index)
-            {
-                Recorder recorder = Entries[index].Recorder;
-                if (recorder != null && recorder.isValid)
-                    recorder.enabled = false;
-            }
-        }
-
-        private static void RestoreProfiler()
-        {
-            if (!_ownsProfiler)
-                return;
-            try { Profiler.enabled = false; }
-            catch (Exception) { }
-            _ownsProfiler = false;
+#if !UNITY_EDITOR && UNITY_ANDROID
+            Native.Cancel();
+#endif
         }
 
         private static (ulong Entity, int Kernel) Key(ComputeShader shader,
             int kernel) => (EntityId.ToULong(shader.GetEntityId()), kernel);
 
-        private static void Warn(string name, string detail)
+        private static void Warn(string detail)
         {
-            if (_registrationWarning)
+            if (_warningLogged)
                 return;
-            _registrationWarning = true;
-            Logger.Warning("Sigma GPU timing unavailable for " + name + ": " +
-                detail + ". Dispatch remains exact and unprofiled.");
+            _warningLogged = true;
+            Logger.Warning("Sigma GPU timing unavailable: " + detail +
+                ". Dispatch remains exact and unprofiled.");
+        }
+
+        private static class Native
+        {
+#if !UNITY_EDITOR && UNITY_ANDROID
+            private const string Library = "SigmaVulkanTimestamps";
+
+            [DllImport(Library, EntryPoint = "SigmaTimestamp_IsAvailable")]
+            private static extern int IsAvailableNative();
+            [DllImport(Library, EntryPoint = "SigmaTimestamp_Arm")]
+            private static extern int ArmNative(ulong revision);
+            [DllImport(Library, EntryPoint = "SigmaTimestamp_Cancel")]
+            private static extern void CancelNative();
+            [DllImport(Library, EntryPoint = "SigmaTimestamp_GetRenderEventFunc")]
+            private static extern IntPtr GetRenderEventFuncNative();
+            [DllImport(Library, EntryPoint = "SigmaTimestamp_GetBeginEventId")]
+            private static extern int GetBeginEventIdNative();
+            [DllImport(Library, EntryPoint = "SigmaTimestamp_GetEndEventId")]
+            private static extern int GetEndEventIdNative();
+            [DllImport(Library, EntryPoint = "SigmaTimestamp_Read")]
+            private static extern int ReadNative([Out] ulong[] timestamps,
+                int timestampCapacity, out int dispatchCount,
+                out double timestampPeriod, out int validBits,
+                out ulong revision, out int overflow);
+
+            internal static IntPtr RenderEvent => GetRenderEventFuncNative();
+            internal static int BeginEventId => GetBeginEventIdNative();
+            internal static int EndEventId => GetEndEventIdNative();
+            internal static bool TryArm(uint revision)
+            {
+                try
+                {
+                    return IsAvailableNative() != 0 &&
+                        ArmNative(revision) != 0;
+                }
+                catch (DllNotFoundException) { return false; }
+                catch (EntryPointNotFoundException) { return false; }
+            }
+            internal static void Cancel()
+            {
+                try { CancelNative(); }
+                catch (DllNotFoundException) { }
+                catch (EntryPointNotFoundException) { }
+            }
+            internal static int TryRead(ulong[] timestamps,
+                out int dispatchCount, out double timestampPeriod,
+                out int validBits, out ulong revision, out bool overflow)
+            {
+                int result = ReadNative(timestamps, timestamps.Length,
+                    out dispatchCount, out timestampPeriod, out validBits,
+                    out revision, out int overflowValue);
+                overflow = overflowValue != 0;
+                return result;
+            }
+#else
+            internal static IntPtr RenderEvent => IntPtr.Zero;
+            internal static int BeginEventId => 0;
+            internal static int EndEventId => 0;
+            internal static bool TryArm(uint revision) => false;
+            internal static void Cancel() { }
+            internal static int TryRead(ulong[] timestamps,
+                out int dispatchCount, out double timestampPeriod,
+                out int validBits, out ulong revision, out bool overflow)
+            {
+                dispatchCount = 0;
+                timestampPeriod = 0.0;
+                validBits = 0;
+                revision = 0u;
+                overflow = false;
+                return -1;
+            }
+#endif
         }
 
 #if UNITY_EDITOR
         internal static void SetProfilingEnabledForTests(bool? enabled)
         {
             Reset();
-            if (enabled == true)
+            _testTimingAvailable = enabled == true;
+            if (_testTimingAvailable)
                 RequestSingleSubmission();
         }
 
-        internal static int RegisteredKernelCountForTests => Entries.Count;
-        internal static int RegisteredSamplerCountForTests
-        {
-            get
-            {
-                int count = 0;
-                for (int index = 0; index < Entries.Count; ++index)
-                    if (Entries[index].Sampler != null)
-                        count++;
-                return count;
-            }
-        }
+        internal static int RegisteredKernelCountForTests =>
+            EntriesByKernel.Count;
 #endif
     }
 }

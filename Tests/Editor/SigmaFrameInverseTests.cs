@@ -333,8 +333,6 @@ namespace Genesis.RoomScan.Tests
                 Assert.That(unprofiled, Is.Not.Empty);
                 Assert.That(SigmaGpuKernelTelemetry
                     .RegisteredKernelCountForTests, Is.GreaterThan(0));
-                Assert.That(SigmaGpuKernelTelemetry
-                    .RegisteredSamplerCountForTests, Is.Zero);
                 Assert.That(disabledMarkers, Is.Empty);
                 Assert.That(unprofiled.Exists(record =>
                     record.X == 51200 && record.Y == 2 && record.Z == 1),

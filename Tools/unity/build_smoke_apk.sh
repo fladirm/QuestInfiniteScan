@@ -22,6 +22,8 @@ fi
 
 install -d -- "$qis_log_dir" "$(dirname -- "$QIS_APK_PATH")"
 
+"$qis_script_dir/build_sigma_vulkan_timestamps.sh" "$qis_project"
+
 qis_apk_mtime_before=-1
 if [[ -e "$QIS_APK_PATH" ]]; then
     qis_apk_mtime_before="$(stat -c '%Y' -- "$QIS_APK_PATH")"
