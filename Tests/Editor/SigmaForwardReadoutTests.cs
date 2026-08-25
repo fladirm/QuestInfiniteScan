@@ -14,6 +14,8 @@ namespace Genesis.RoomScan.Tests
         private const int ReadoutExtent = 65;
         private const int ReadoutSampleCount = ReadoutExtent * ReadoutExtent;
         private const int VerticesPerPage = PageSize * PageSize * 6;
+        private const int PreviewSamplesPerPage = PageSize * PageSize / 2;
+        private const int PreviewVerticesPerPage = PreviewSamplesPerPage * 6;
 
         [StructLayout(LayoutKind.Sequential)]
         private struct UInt2
@@ -112,6 +114,9 @@ namespace Genesis.RoomScan.Tests
             using var arguments = new GraphicsBuffer(
                 GraphicsBuffer.Target.Structured |
                 GraphicsBuffer.Target.IndirectArguments, 4, sizeof(uint));
+            using var previewArguments = new GraphicsBuffer(
+                GraphicsBuffer.Target.Structured |
+                GraphicsBuffer.Target.IndirectArguments, 4, sizeof(uint));
             using var buildArguments = new GraphicsBuffer(
                 GraphicsBuffer.Target.Structured |
                 GraphicsBuffer.Target.IndirectArguments, 3, sizeof(uint));
@@ -123,6 +128,7 @@ namespace Genesis.RoomScan.Tests
             publicationRoot.SetData(new uint[] { 17u });
             readoutDirty.SetData(new uint[] { 1u });
             arguments.SetData(new uint[] { 0u, 1u, 0u, 0u });
+            previewArguments.SetData(new uint[] { 0u, 1u, 0u, 0u });
             buildArguments.SetData(new uint[] { 64u, 0u, 1u });
             haloArguments.SetData(new uint[] { 1u, 0u, 1u });
             poseResult.SetData(new UInt4[4]);
@@ -137,10 +143,25 @@ namespace Genesis.RoomScan.Tests
             readout.SetBuffer(compact, "_ReadoutDirtyFlags", readoutDirty);
             readout.SetBuffer(compact, "_CurrentPageSlots", activeSlots);
             readout.SetBuffer(compact, "_ReadoutDrawArguments", arguments);
+            readout.SetBuffer(compact, "_PreviewDrawArguments",
+                previewArguments);
             readout.SetBuffer(compact, "_ReadoutDirtyPageSlots", dirtySlots);
             readout.SetBuffer(compact, "_ReadoutBuildArguments", buildArguments);
             readout.SetBuffer(compact, "_ReadoutHaloArguments", haloArguments);
             readout.Dispatch(compact, 1, 1, 1);
+
+            var fullDraw = new uint[4];
+            var previewDraw = new uint[4];
+            arguments.GetData(fullDraw);
+            previewArguments.GetData(previewDraw);
+            Assert.That(fullDraw, Is.EqualTo(new uint[]
+            {
+                VerticesPerPage, 1u, 0u, 0u
+            }));
+            Assert.That(previewDraw, Is.EqualTo(new uint[]
+            {
+                PreviewVerticesPerPage, 1u, 0u, 0u
+            }));
 
             gate.Bind(readout, build);
             readout.SetBuffer(build, "_CarrierState", state);
@@ -257,6 +278,33 @@ namespace Genesis.RoomScan.Tests
                 Destroy(carrierUvNormal);
                 Destroy(stateKey);
                 Destroy(hardwareDepth);
+            }
+        }
+
+        [Test]
+        public void CompactPreviewOrdinalEnumeratesOriginalCheckerboardExactly()
+        {
+            var seen = new bool[PageSize * PageSize];
+            for (int sparse = 0; sparse < PreviewSamplesPerPage; ++sparse)
+            {
+                int y = sparse >> 5;
+                int col = sparse & 31;
+                int x = col * 2 + (y & 1);
+                int sample = y * PageSize + x;
+                Assert.That((x ^ y) & 1, Is.Zero);
+                Assert.That(seen[sample], Is.False,
+                    $"checkerboard sample {sample} was emitted twice");
+                seen[sample] = true;
+            }
+
+            for (int y = 0; y < PageSize; ++y)
+            {
+                for (int x = 0; x < PageSize; ++x)
+                {
+                    Assert.That(seen[y * PageSize + x],
+                        Is.EqualTo(((x ^ y) & 1) == 0),
+                        $"checkerboard membership differs at ({x},{y})");
+                }
             }
         }
 

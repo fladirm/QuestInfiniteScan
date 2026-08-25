@@ -35,8 +35,8 @@ Shader "Hidden/Genesis/SigmaPrism/DirectCarrierPreview"
 
             #define SIGMA_READOUT_EXTENT 65u
             #define SIGMA_READOUT_SAMPLES 4225u
-            #define SIGMA_READOUT_VERTICES_PER_PAGE 24576u
-            #define SIGMA_CONTACT_SAMPLES_PER_PAGE 4096u
+            #define SIGMA_PREVIEW_VERTICES_PER_PAGE 12288u
+            #define SIGMA_PREVIEW_SAMPLES_PER_PAGE 2048u
             #define SIGMA_CONTACT_VERTICES_PER_SAMPLE 6u
 
             uint SigmaPreviewReadoutIndex(uint pageSlot, uint x, uint y)
@@ -110,20 +110,20 @@ Shader "Hidden/Genesis/SigmaPrism/DirectCarrierPreview"
                 UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(output);
 
                 uint activePage = input.vertexId /
-                    SIGMA_READOUT_VERTICES_PER_PAGE;
+                    SIGMA_PREVIEW_VERTICES_PER_PAGE;
                 uint pageVertex = input.vertexId -
-                    activePage * SIGMA_READOUT_VERTICES_PER_PAGE;
+                    activePage * SIGMA_PREVIEW_VERTICES_PER_PAGE;
                 uint pageSlot = _CurrentPageSlots[activePage];
-                uint sample = pageVertex / SIGMA_CONTACT_VERTICES_PER_SAMPLE;
+                uint sparse = pageVertex / SIGMA_CONTACT_VERTICES_PER_SAMPLE;
                 uint corner = pageVertex -
-                    sample * SIGMA_CONTACT_VERTICES_PER_SAMPLE;
-                uint x = sample & 63u;
-                uint y = sample >> 6u;
+                    sparse * SIGMA_CONTACT_VERTICES_PER_SAMPLE;
+                uint y = sparse >> 5u;
+                uint col = sparse & 31u;
+                uint x = col * 2u + (y & 1u);
                 float4 readout = _ReadoutVertices[
                     SigmaPreviewReadoutIndex(pageSlot, x, y)];
-                bool checker = ((x ^ y) & 1u) == 0u;
-                bool valid = sample < SIGMA_CONTACT_SAMPLES_PER_PAGE &&
-                    checker && readout.w > 0.0;
+                bool valid = sparse < SIGMA_PREVIEW_SAMPLES_PER_PAGE &&
+                    readout.w > 0.0;
 
                 SigmaCarrierPageMetaGpu metadata = _PageMetadata[pageSlot];
                 float2 billboard = SigmaPreviewBillboardCorner(corner);

@@ -15,6 +15,7 @@ RWStructuredBuffer<float4> _ReadoutVertices;
 
 RWStructuredBuffer<uint> _CurrentPageSlots;
 RWStructuredBuffer<uint> _ReadoutDrawArguments;
+RWStructuredBuffer<uint> _PreviewDrawArguments;
 RWStructuredBuffer<uint> _ReadoutDirtyPageSlots;
 RWStructuredBuffer<uint> _ReadoutBuildArguments;
 RWStructuredBuffer<uint> _ReadoutHaloArguments;
@@ -24,6 +25,7 @@ uint _PageCapacity;
 #define SIGMA_READOUT_EXTENT 65u
 #define SIGMA_READOUT_SAMPLES 4225u
 #define SIGMA_READOUT_VERTICES_PER_PAGE 24576u
+#define SIGMA_PREVIEW_VERTICES_PER_PAGE 12288u
 #define SIGMA_INVALID_PAGE_SLOT 0xffffffffu
 
 groupshared uint SigmaHaloRightSlot;
@@ -116,6 +118,11 @@ void CompactCurrentPages(uint3 groupThreadId : SV_GroupThreadID)
         _ReadoutDrawArguments[1] = 1u;
         _ReadoutDrawArguments[2] = 0u;
         _ReadoutDrawArguments[3] = 0u;
+        _PreviewDrawArguments[0] = currentCount *
+            SIGMA_PREVIEW_VERTICES_PER_PAGE;
+        _PreviewDrawArguments[1] = 1u;
+        _PreviewDrawArguments[2] = 0u;
+        _PreviewDrawArguments[3] = 0u;
         _ReadoutBuildArguments[0] = 64u;
         _ReadoutBuildArguments[1] = dirtyCount;
         _ReadoutBuildArguments[2] = 1u;

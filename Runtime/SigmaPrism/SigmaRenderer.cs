@@ -47,6 +47,8 @@ namespace Genesis.RoomScan.SigmaPrism
             "_CurrentPageSlots");
         private static readonly int ReadoutDrawArgumentsId = Shader.PropertyToID(
             "_ReadoutDrawArguments");
+        private static readonly int PreviewDrawArgumentsId = Shader.PropertyToID(
+            "_PreviewDrawArguments");
         private static readonly int ReadoutDirtyPageSlotsId = Shader.PropertyToID(
             "_ReadoutDirtyPageSlots");
         private static readonly int ReadoutBuildArgumentsId = Shader.PropertyToID(
@@ -449,6 +451,8 @@ namespace Genesis.RoomScan.SigmaPrism
             command.SetComputeBufferParam(_readoutCompute, _compactKernel,
                 ReadoutDrawArgumentsId, cache.DrawArguments);
             command.SetComputeBufferParam(_readoutCompute, _compactKernel,
+                PreviewDrawArgumentsId, cache.PreviewDrawArguments);
+            command.SetComputeBufferParam(_readoutCompute, _compactKernel,
                 ReadoutDirtyPageSlotsId, cache.DirtyPageSlots);
             command.SetComputeBufferParam(_readoutCompute, _compactKernel,
                 ReadoutBuildArgumentsId, cache.BuildDispatchArguments);
@@ -594,7 +598,7 @@ namespace Genesis.RoomScan.SigmaPrism
                     layer = gameObject.layer
                 };
                 Graphics.RenderPrimitivesIndirect(renderParams,
-                    MeshTopology.Triangles, cache.DrawArguments, 1);
+                    MeshTopology.Triangles, cache.PreviewDrawArguments, 1);
             }
         }
 
@@ -687,6 +691,14 @@ namespace Genesis.RoomScan.SigmaPrism
                     name = $"Sigma readout draw args {SegmentIndex}"
                 };
                 DrawArguments.SetData(new uint[] { 0u, 1u, 0u, 0u });
+                PreviewDrawArguments = new GraphicsBuffer(
+                    GraphicsBuffer.Target.Structured |
+                    GraphicsBuffer.Target.IndirectArguments,
+                    4, sizeof(uint))
+                {
+                    name = $"Sigma preview draw args {SegmentIndex}"
+                };
+                PreviewDrawArguments.SetData(new uint[] { 0u, 1u, 0u, 0u });
                 DirtyPageSlots = new GraphicsBuffer(
                     GraphicsBuffer.Target.Structured, Capacity, sizeof(uint))
                 {
@@ -715,6 +727,7 @@ namespace Genesis.RoomScan.SigmaPrism
             public GraphicsBuffer Vertices { get; }
             public GraphicsBuffer CurrentPageSlots { get; }
             public GraphicsBuffer DrawArguments { get; }
+            public GraphicsBuffer PreviewDrawArguments { get; }
             public GraphicsBuffer DirtyPageSlots { get; }
             public GraphicsBuffer BuildDispatchArguments { get; }
             public GraphicsBuffer HaloDispatchArguments { get; }
@@ -730,6 +743,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 Vertices.Dispose();
                 CurrentPageSlots.Dispose();
                 DrawArguments.Dispose();
+                PreviewDrawArguments.Dispose();
                 DirtyPageSlots.Dispose();
                 BuildDispatchArguments.Dispose();
                 HaloDispatchArguments.Dispose();
