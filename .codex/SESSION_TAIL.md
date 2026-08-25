@@ -2,15 +2,18 @@
 
 ## User
 
-After committing the pending backing cut, replace the broken Release timestamp
-capture only: delete global Vulkan dispatch hooks and use explicit submission and
-per-dispatch plugin events around the centralized wrappers. Commit separately,
-push, build and install.
+Replace the current scanner ontology with a full native S16 world. Use the supplied
+Merkaba/eigenmode idea in the inverse direction: RGB-D sensor shadows are pulled
+back through the same exact nonassociative/ZD 22-relation bridge into S16. Preserve
+multiple pure readouts, write `analyza.md`, replace rather than append to the spec,
+and prepare deterministic low-code S4‑08.xx closure runs with hard deletion,
+negative LOC, no legacy/fallback and physical Quest acceptance.
 
 ## Assistant
 
-Pending backing is committed at `e28a956`. Global Vulkan interception is deleted;
-an armed submission now emits explicit begin/end events around each unchanged
-dispatch and native callbacks timestamp their current Unity recording state. Native
-Android compilation and managed production-dispatch parity pass. Current cursor:
-regenerate/validate, commit the two-file diagnostic cut, push, Release build/install.
+N0 canonical rebase is complete at this checkpoint: `analyza.md` contains the
+61-kernel/source/error/replacement matrix, `new_spec.md` is a true v8 replacement,
+the N0–N8 run and compact controls are frozen, code graph/control/math/link gates
+pass and Runtime is untouched. Current cursor is N1: freeze the supplied
+authoritative TOE E22 artifact, generate one descriptor/four evaluators and do not
+guess relations or cut live runtime yet.

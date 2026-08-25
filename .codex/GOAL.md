@@ -1,47 +1,47 @@
 # Goal
 
-[`new_spec.md`](../new_spec.md) is the sole canonical product and reconstruction
-specification. Its baseline is `CPQ4-2026-08-24-S16-v7`; this file and the DAG may
-sequence implementation but may not reinterpret or weaken it.
+[`new_spec.md`](../new_spec.md) is the sole canonical product/reconstruction
+specification. Active baseline: `CPQ4-2026-08-25-S16-v8`.
 
-Build Σ-PRISM-16 as a fully on-device Quest 3 scanner whose only durable physical
-world is the exact sparse carrier field
+Build a fully on-device Quest 3 scanner whose only durable physical world is:
 
 ```text
 Psi : Sigma_2 -> S16
 ```
 
-Canonical sedenion coefficients and every state-changing decision use inherited
-`num.fixed.q16_48.checked.nearest_even` semantics. Both RGB streams, both depth
-views and retained temporal observations remain independent finite-footprint,
-first-hit constraints until their exact Q16.48 admissible-set intersection is
-formed. Geometry, topology, folds, boundaries, normals, fine detail, directional
-appearance, motion state, PBR and meshes are readouts of that same carrier; none may
-become a second canonical reconstruction.
+S16 is the native local state reality. The frozen native relation descriptor
+provides one overcomplete 22-relation Merkaba/eigenmode atlas of that same state.
+It is not another world and not 22 independent channels.
 
-The active implementation sequence is exactly `S4-00` through `S4-13` in
-`.codex/TASK_DAG.json`. A node is complete only with its inspectable gate evidence.
-The previous Cone-PRISM mapper remains recoverable from Git history/its previous
-branch but its ContactFilm/PressureManifold, persistence and rendering code are not
-part of this product branch.
+One descriptor and exact bracketed operator IR generate:
 
-The retained donor surface is deliberately narrow:
+```text
+ForwardNative22
+PullbackNative22
+StitchNative22
+Native22ReferenceOracle
+```
 
-- Unity 6 / Android / Vulkan / Meta XR toolchain and lifecycle;
-- GPU-native synchronized `RGB_L/R + DEPTH_L/R` capture, exact timestamped poses,
-  immutable intrinsics/extrinsics and calibration epochs;
-- permissions, anchors, input, task-oriented VR UI and logging;
-- representation-neutral GPU fence/indirect helpers and build/deploy tooling.
+Scanner RGB-D is a lower-dimensional shadow. Canonical scan performs exact
+inverse-image pullback through that descriptor, preserves unobserved native fibre
+directions and commits only checked Q16.48 S16 germs. Intrinsic topology is the
+regular/singular/no-relation/unresolved stitchability of the same native relations.
 
-Everything else is implemented from `new_spec.md` under `Runtime/SigmaPrism` and
-`Runtime/Resources/SigmaPrism`. No TSDF/DTSDF, ContactFilm, explicit topology graph,
-surfel/triangle world, Gaussian map, server/notebook, compatibility fallback, CPU
-meshing, synchronous readback or independent texture world is permitted.
+Eye, scanner prediction, textured 3D export and debug are independent pure
+readouts. A cheap readout may discard information; `Psi` never does.
 
-The active S4-08 closure uses one direct whole-observation GPU inverse. Image tiles,
-source bundles, storage pages, proof windows and scheduling quanta cannot allocate
-carrier identity or define canonical publication. The retired S4-08.3 transaction
-graph may not remain as a fallback or be recreated under new names.
+The active node is S4‑08, repair run S4‑08.6. Its deterministic plan is
+[`S4-08.6_NATIVE_CLOSURE_PLAN.md`](S4-08.6_NATIVE_CLOSURE_PLAN.md); its sole routine
+cursor is [`S4-08.6_RESUME.md`](S4-08.6_RESUME.md); the source/device audit is
+[`analyza.md`](../analyza.md).
 
-Completion is section 50 of `new_spec.md`, including the section 43 physical Quest
-corpus. Compilation and synthetic tests alone are never the final acceptance.
+The run replaces and deletes v7 sensor-specific cell worlds, proposal-kind
+physics, provider×segment evaluation, optical topology, pending pixel charts,
+global novel bbox and duplicated publication orchestration. No legacy/fallback may
+remain. Final production gates are gross deletion `>=10000` LOC, net `<=-6100`
+versus `cac9ab0`, net `<=-5500` versus `d3b83e1`, and new production code `<=4000`
+LOC.
+
+S4‑08 closes only after the same source commit is archived, built as Android/Vulkan
+Release, installed and passes the physical Quest/native timing corpus. S4‑09 stays
+pending until then.

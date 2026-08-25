@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "source_digest": "e1aa8a1641e15ca7411254e95e1c693caf9d1c09e6ca401f7cbe5639b9e16c3d",
+  "source_digest": "1aa12fc1cb4a6becfd3a663e42991bedec1e5ad655aef75b92a62248288dd5f2",
   "scope": [
     "Runtime/**/*.cs",
     "Runtime/Resources/SigmaPrism/**/*.*",
@@ -12180,7 +12180,7 @@
     },
     {
       "id": "S4-01",
-      "title": "Implement the inherited exact NumericDomain and generated S16 operator core",
+      "title": "Implement exact NumericDomain and generated S16 algebra core",
       "status": "done",
       "depends_on": [
         "S4-00"
@@ -12197,7 +12197,7 @@
     },
     {
       "id": "S4-02",
-      "title": "Implement the sparse exact Q16.48 carrier and lossless physical codec",
+      "title": "Implement sparse exact S16 carrier and lossless codec",
       "status": "done",
       "depends_on": [
         "S4-01"
@@ -12213,7 +12213,7 @@
     },
     {
       "id": "S4-03",
-      "title": "Implement forward geometry readout from the single carrier",
+      "title": "Implement exact disposable forward geometry readout",
       "status": "done",
       "depends_on": [
         "S4-02"
@@ -12227,7 +12227,7 @@
     },
     {
       "id": "S4-04",
-      "title": "Implement joint inverse depth readout and exact admissible-set fusion",
+      "title": "Implement exact independent depth inverse primitives",
       "status": "done",
       "depends_on": [
         "S4-03"
@@ -12236,7 +12236,7 @@
     },
     {
       "id": "S4-05",
-      "title": "Implement exact intrinsic singular topology",
+      "title": "Implement exact S16 transition, annihilator and associator primitives",
       "status": "done",
       "depends_on": [
         "S4-04"
@@ -12245,7 +12245,7 @@
     },
     {
       "id": "S4-06",
-      "title": "Implement joint RGB inverse readout and minimal proof certificates",
+      "title": "Implement RGB inverse and exact evidence primitives",
       "status": "done",
       "depends_on": [
         "S4-05"
@@ -12254,7 +12254,7 @@
     },
     {
       "id": "S4-07",
-      "title": "Implement local bijective carrier-gauge refinement for supported detail",
+      "title": "Implement exact intrinsic carrier-gauge refinement primitives",
       "status": "done",
       "depends_on": [
         "S4-06"
@@ -12263,7 +12263,7 @@
     },
     {
       "id": "S4-08",
-      "title": "Implement bounded pose-gauge intersection",
+      "title": "Replace the scanner with native S16 inverse-Merkaba closure and pure readouts",
       "status": "in_progress",
       "depends_on": [
         "S4-07"
@@ -12276,7 +12276,7 @@
     },
     {
       "id": "S4-09",
-      "title": "Implement deterministic persistent scene evolution on the same carrier",
+      "title": "Implement deterministic scene evolution through native shadow exclusion and transport",
       "status": "pending",
       "depends_on": [
         "S4-08"
@@ -12285,7 +12285,7 @@
     },
     {
       "id": "S4-10",
-      "title": "Implement infinite carrier paging, exact persistence, restart and revisit",
+      "title": "Implement unbounded logical carrier persistence and transparent residency",
       "status": "pending",
       "depends_on": [
         "S4-09"
@@ -12294,7 +12294,7 @@
     },
     {
       "id": "S4-11",
-      "title": "Implement disposable meshlet readout, culling, LOD and indirect rendering",
+      "title": "Qualify direct low-latency stereo eye readout",
       "status": "pending",
       "depends_on": [
         "S4-10"
@@ -12303,7 +12303,7 @@
     },
     {
       "id": "S4-12",
-      "title": "Implement directional appearance readout and direct confidence-bearing PBR/GLB export",
+      "title": "Implement rich textured 3D export from full native Psi",
       "status": "pending",
       "depends_on": [
         "S4-11"
@@ -12312,7 +12312,7 @@
     },
     {
       "id": "S4-13",
-      "title": "Pass the complete physical Quest 3 correctness, quality, scale and performance corpus",
+      "title": "Pass the complete physical Quest scan, eye, export, scale and restart corpus",
       "status": "pending",
       "depends_on": [
         "S4-12"

@@ -37,18 +37,20 @@ marked `done` unless its evidence is absent or a later change regressed it.
 
 ## Canonical product
 
-`new_spec.md`, baseline `CPQ4-2026-08-24-S16-v7`, is frozen. The product is a fully
+`new_spec.md`, baseline `CPQ4-2026-08-25-S16-v8`, is frozen. The product is a fully
 on-device Quest 3 scanner whose only durable physical world is:
 
 ```text
 Psi : Sigma_2 -> S16
 ```
 
-The canonical carrier is sparse, logically unbounded and exact Q16.48. Geometry,
-topology/singularities, boundaries, detail, directional appearance, scene changes,
-meshlets, PBR and GLB are inverse constraints or readouts of this same state. Never
-create a parallel canonical geometry, topology, texture, scene-history or object
-world.
+The canonical carrier is sparse, logically unbounded and exact Q16.48. Each germ is
+a full native S16 state. One frozen generated native-relation descriptor interprets
+that state through an overcomplete 22-relation Merkaba/eigenmode atlas; the atlas is
+not another world or 22 independent channels. Geometry, topology/singularities,
+boundaries, detail, directional appearance, scene changes, eye images, PBR and GLB
+are constraints on or readouts of this same state. Never create a parallel canonical
+geometry, topology, texture, scene-history, latent-pixel or object world.
 
 The previous Cone-PRISM/ContactFilm/PressureManifold mapper is recoverable from Git
 history only. It is not an implementation donor. The only retained donor surface is:
@@ -72,9 +74,13 @@ history only. It is not an implementation donor. The only retained donor surface
 - Preserve explicit product bracketing. Optimized operator DAGs must equal their
   semantic reference bit-for-bit and use mask/select/fixed schedules for bounded
   GPU control.
-- Both RGB streams, both depth views and temporal sources remain independent until
-  their exact Q16.48 admissible cells meet by componentwise max/min. Confidence
-  changes interval width, never a weighted sum.
+- Freeze one authoritative TOE/native relation descriptor and generate forward,
+  exact inverse-image pullback, intrinsic stitch and semantic reference evaluators
+  from that same bracketed DAG. Never guess missing TOE relations from v7 code.
+- Both RGB streams and both depth views remain independent native-shadow constraints
+  until exact conjunction. One source or prior may not pre-contract another source
+  without a generated equivalence proof. Confidence changes admissible width, never
+  a weighted sum.
 - Each finite calibrated pixel footprint constrains only the pre-hit sector and its
   first supported hit. State behind the hit receives no inclusive cell, exclusion
   cell or confidence change. UNKNOWN is never inferred EMPTY.
@@ -82,12 +88,14 @@ history only. It is not an implementation donor. The only retained donor surface
 - Stronger prior intervals and minimal certificates are state resistance. Broad,
   far, grazing or redundant observations may confirm but cannot blur a narrower
   supported result.
-- Null-to-contact uses deterministic gauge allocation and independent-support
-  probation. Contact-to-null requires proven multi-view pass-through. Coherent
-  identity-preserving transport is tested before retire/recreate.
-- Topology is intrinsic to regular/singular sedenion transitions and exact
-  annihilator/associator gates. Do not allocate canonical charts, films,
-  BoundaryCurves, half-edge graphs, split/merge objects or 3D proximity identities.
+- Latent evidence is a native admissible S16 region with complete evidence and a
+  stable local relation gauge. Exact stitch closure precedes absorption or
+  deterministic carrier promotion. Pixel CURRENT/PENDING/CONTINUATION/NOVEL kinds
+  have no physical meaning.
+- Topology is the regular/singular/no-relation/unresolved result of the same native
+  relation stitch, including exact annihilator/associator strata. Do not allocate
+  canonical charts, films, BoundaryCurves, half-edge graphs, split/merge objects or
+  image/3D proximity identities.
 - Fine geometry and appearance are local variation of the same carrier. Gauge
   refinement is a bijective reparameterization; no displacement/texture world may
   appear beside `Psi`.
@@ -100,8 +108,9 @@ history only. It is not an implementation donor. The only retained donor surface
   declaration, C# binding/dispatch call site and directly affected test. Do not patch
   a shader from an `rg` excerpt or isolated error line. Record the completed manual
   shader review in the active node evidence before build/deploy.
-- Keep association, inverse-cell construction/meet, state mutation, transition
-  algebra, gauge work, readout, culling, LOD, draw compaction and rendering on GPU.
+- Keep native-fibre association, inverse pullback/conjunction, state mutation,
+  relation stitching, gauge work, readout, culling, LOD, draw compaction and
+  rendering on GPU.
 - Use compacted work and indirect dispatch/draw. No CPU pixel loop, CPU mesh,
   synchronous GPU readback or full-world frame traversal.
 - C# owns lifecycle, calibration epoch, resources, page residency, fences,
@@ -114,17 +123,19 @@ history only. It is not an implementation donor. The only retained donor surface
 - Sensor ingress never waits for reconstruction. Stage work by active visible,
   inverse-active, dirty and unresolved locality.
 
-### Active S4-08.4 compaction cursor
+### Active S4-08.6 compaction cursor
 
-While `.codex/STATE.md` names S4-08.4 active, routine post-compaction resume is an
-explicit exception to the broad resume order: read
-`.codex/S4-08.4_RESUME.md`, run `git status --short && git diff --stat`, open only
-its CURRENT files/functions and continue. Do not reread old S4-08 plans/audits or
-reconstruct the retired graph unless the checkpoint names one unresolved contract.
+While `.codex/STATE.md` names S4-08.6 active, routine post-compaction resume is an
+explicit exception to the broad resume order: read only
+`.codex/S4-08.6_RESUME.md`, run `git status --short && git diff --stat`, inspect the
+CURRENT run files named by that cursor and continue. Do not reread v7 plans/audits,
+rederive the architecture or repeat a completed run.
 
-S4-08.4 is a hard direct-frame cutover. Do not patch, rename, wrap or retain the
-page/bundle/transaction/token scheduler; do not add an old/new fallback. Every new
-or changed shader remains a complete-file implementation after full ABI/bind review.
+S4-08.6 is a hard native-closure replacement. N3-N7 delete each superseded v7
+branch in the same commit; they do not patch, rename, wrap or retain sensor-cell,
+proposal-kind, optical-edge, pending-chart or duplicated publication machinery.
+There is no old/new fallback. Every changed shader remains a complete-file
+implementation after full ABI/bind review.
 
 ## Persistence and export
 

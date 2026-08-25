@@ -1,12 +1,18 @@
 {
   "schema_version": 1,
-  "goal": "Sigma-PRISM-16 pure-Quest holistic sedenion carrier reconstruction",
+  "goal": "Sigma-PRISM-16 full-native S16/Merkaba reconstruction on Quest 3",
   "canonical_spec": "new_spec.md",
-  "reconstruction_physics": "CPQ4-2026-08-24-S16-v7",
+  "reconstruction_physics": "CPQ4-2026-08-25-S16-v8",
   "spec_status": "canonical_replacement_frozen_for_implementation",
-  "effort_policy": "90_percent_implementation_5_percent_tests_5_percent_controls; physical Quest tests only at consolidated vertical milestones",
-  "base_freeze_policy": "After accepted S4-08 is committed, create a source-only git archive ZIP from that exact commit, build the Quest Android/Vulkan APK from the same commit, deploy it to the connected headset, and stop before S4-09 for user audit/device evaluation",
-  "allowed_statuses": ["pending", "in_progress", "done", "blocked"],
+  "active_repair": "S4-08.6_NATIVE_CLOSURE",
+  "effort_policy": "90_percent_implementation_5_percent_verification_5_percent_controls",
+  "checkpoint_policy": "one accepted node per commit; regenerate code graph; archive/build/install the exact accepted S4-08 commit before S4-09",
+  "allowed_statuses": [
+    "pending",
+    "in_progress",
+    "done",
+    "blocked"
+  ],
   "nodes": [
     {
       "id": "S4-00",
@@ -14,333 +20,205 @@
       "status": "done",
       "depends_on": [],
       "acceptance": [
-        "The previous Cone-PRISM implementation remains recoverable from its committed branch and no compatibility adapter remains in the live reconstruction path",
-        "new_spec.md is the sole canonical reconstruction/product specification and all active control documents name the current CPQ4-S16 baseline",
-        "Only representation-neutral Unity/Quest infrastructure is retained: synchronized four-stream GPU capture, immutable rig calibration/poses, XR lifecycle, permissions, anchors, input/UI, fences, indirect helpers and build/deploy tooling",
-        "Old ContactFilm/PressureManifold, TSDF/DTSDF, persistence, chunk, pose-graph, appearance, meshlet and export reconstruction implementations and their tests/resources/wiring are absent from the active branch",
-        "The active scanner lifecycle is wired only to Runtime/SigmaPrism and remains buildable with scan ingress gated until the exact algebra mutation gate exists",
-        "README, ALGORITHM and setup tooling describe only Sigma-PRISM and do not advertise a second reconstruction ontology"
+        "Previous mapper remains recoverable from Git while active reconstruction contains no compatibility donor",
+        "Only representation-neutral Quest capture, calibration, lifecycle, UI and build infrastructure survives"
       ],
       "evidence": [
-        "Archival parent cabcbc7 remains reachable while development runs on feat/sigma-prism-16-cpq4-20260822",
-        "Filesystem/source exclusion gate passed: no Runtime/Prism, Runtime/World, Runtime/Export, Runtime.AIDetection, old plugin/material, forbidden mapper namespace or active reconstruction fallback remains",
-        "Tools/unity/run_editmode_tests.sh passed on Unity 6000.5.9f1 Vulkan: 7/7 SigmaRigContractTests, 0 failures, clean package compilation",
-        "python3 Tools/unity/validate_sigma_compute_uav.py passed with the Quest eight-UAV limit",
-        "README.md, ALGORITHM.md, setup automation, UX and generated code graph name only new_spec.md / the current CPQ4-S16 baseline",
-        "Regression repair: clean-scene automation now requires EventSystem + OVRInputModule + PanelInputConfiguration + VRDocumentRaycaster + ControllerRayDriver, a serialized dedicated ray shader, UIDocument assets and RoomScanInputHandler before it can publish a Quest scene",
-        "Unity Vulkan EditMode remains 64/64; the freshly generated Quest scene contains the complete controller-ray/operator UX stack and its preparation log contains no C#/shader/UI import error"
+        "Accepted clean-branch checkpoint; historical detailed evidence remains in Git history and generated code-graph checkpoints"
       ]
     },
     {
       "id": "S4-01",
-      "title": "Implement the inherited exact NumericDomain and generated S16 operator core",
+      "title": "Implement exact NumericDomain and generated S16 algebra core",
       "status": "done",
-      "depends_on": ["S4-00"],
+      "depends_on": [
+        "S4-00"
+      ],
       "acceptance": [
-        "num.fixed.q16_48.checked.nearest_even is implemented once as semantic truth with checked overflow, nearest-even point arithmetic and outward interval arithmetic",
-        "A build-time deterministic generator emits the signed-XOR Cayley-Dickson table, conjugation, left/right basis permutations, exact signed-dyad annihilator catalog, Hadamard/readout rows and stable fingerprints",
-        "One exact operator IR preserves bracket trees, shares common subexpressions and lowers XOR/permutation/sign/add/sub/shift/compare/mask/select/reduction without generic qmul/qdiv where unnecessary",
-        "CPU semantic evaluator and Quest HLSL lowering consume the same generated descriptors; native-I64 and packed-32 capability paths fail closed unless bit-parity is proven",
-        "Dense S16 multiplication exists only as reference or explicitly selected generated fallback, never as the default hot-path vocabulary",
-        "All section 41 numeric/algebra/operator fixtures pass bit-for-bit"
+        "Checked nearest-even Q16.48 and outward intervals have one semantic authority",
+        "Signed-XOR algebra, conjugation, bracketed operator DAG and fingerprints are generated and CPU/GPU exact"
       ],
       "evidence": [
-        "SigmaNumericDomain implements checked signed Q16.48 add/sub/mul/div/shifts, exact IEEE quantization, nearest-even point rounding and outward scalar interval bounds from one CPU semantic authority",
-        "Tools/sigma/generate_sigma_operators.py deterministically emits the recursive signed-XOR table, conjugation/basis permutations, 1344 sorted zero-divisor pairs, 168 annihilator actions, z_null, Hadamard G/F rows and stable generated fingerprints; --check passes",
-        "SigmaOperatorPlan provides bracket-preserving exact scalar DAGs, deterministic CSE, sparse basis/dyad/Hadamard/view lowering, explicit dense fallback plans only where coefficient products are genuinely required, CPU evaluation and fail-closed HLSL lowering",
-        "Sedenion16.hlsl implements the packed-32 exact Q16.48 fallback with widened qmul, bounded long qdiv, checked overflow validity and outward rounding; SigmaExactBackendGate keeps canonical GPU mutation disabled unless its device-side self-test writes the exact witness",
-        "Unity 6000.5.9f1 Vulkan EditMode gate passed 21/21 including CPU/GPU bit parity, all 256 basis products, all 1344 zero pairs, sparse annihilator equivalence, associator bracketing, CSE/masks, transition cache and generated fingerprints",
-        "Final Android/Vulkan IL2CPP smoke build succeeded and produced a fresh 224368573-byte Quest APK; shader/build logs contain no Sigma compile error and the eight-UAV validator passes"
+        "Accepted generated algebra/NumericDomain checkpoint with CPU/GPU parity; exact details remain in Git history"
       ]
     },
     {
       "id": "S4-02",
-      "title": "Implement the sparse exact Q16.48 carrier and lossless physical codec",
+      "title": "Implement sparse exact S16 carrier and lossless codec",
       "status": "done",
-      "depends_on": ["S4-01"],
+      "depends_on": [
+        "S4-01"
+      ],
       "acceptance": [
-        "SigmaCarrier is one logically unbounded signed-64 2D page space with implicit z_null for every unallocated sample",
-        "64x64 pages contain 8x8 logical blocks and immutable generations, certificate ranges and dirty GPU compaction",
-        "NULL, CONST, AFFINE, DELTA and RAW codecs choose the deterministic smallest exact encoding and reproduce all decoded S16 Q16.48 samples bit-for-bit",
-        "Segmented GPU pools obey the runtime Vulkan per-binding range without giving page/block boundaries physical meaning",
-        "Encode/decode/re-encode and snapshot/restart fixtures are byte-identical"
+        "Psi is a logically unbounded sparse Sigma_2 carrier with immutable Q16.48 generations",
+        "NULL/CONST/AFFINE/DELTA/RAW persistence is deterministic and lossless"
       ],
       "evidence": [
-        "SigmaCarrier exposes a signed-64 logical page map with implicit generated z_null, 64x64 decoded pages, 8x8 logical codec blocks, immutable generation write leases, page certificate ranges and generation-safe reusable physical slots",
-        "SigmaCarrierCodec defines canonical deterministic page/snapshot bytes and exact NULL/CONST/AFFINE/DELTA/RAW selection; DELTA uses per-lane minimum signed widths, exact 96-bit-or-BigInteger predictor intermediates and fixed LSB-first coefficient/v/u order",
-        "SigmaCarrier.compute performs exact-gated GPU null initialization, generation cloning/publication, stable per-segment dirty prefix compaction and indirect dispatch construction without coefficient readback or CPU pixel work",
-        "SigmaCarrierCodec.compute uses one 16-lane workgroup per 8x8 block and matches the CPU persistence oracle exactly for all five modes and decoded packed Q16.48 samples",
-        "Unity 6000.5.9f1 Vulkan EditMode passed 26/26 including signed extreme addressing, all codec modes, page/snapshot restart identity, CPU/GPU codec byte parity and stable dirty compaction",
-        "Android/Vulkan IL2CPP build completed successfully with a fresh 224657841-byte APK; Sigma shader/C# error scan is clean and the Quest eight-UAV validator passes"
+        "Accepted carrier/codec checkpoint with byte-exact codec and segmented binding gates; details remain in Git history"
       ]
     },
     {
       "id": "S4-03",
-      "title": "Implement forward geometry readout from the single carrier",
+      "title": "Implement exact disposable forward geometry readout",
       "status": "done",
-      "depends_on": ["S4-02"],
+      "depends_on": [
+        "S4-02"
+      ],
       "acceptance": [
-        "SigmaRigBridge supplies coherent RGB_L/R, DEPTH_L/R, timestamps, immutable calibration epochs and exact sensor poses without CPU pixel copies",
-        "Visible resident carrier pages read out supported projective geometry, CarrierUV, support and state-generation keys into both sensor views",
-        "z_null and unsupported/null transitions emit no physical contact",
-        "Raster hardware performs first-hit visibility; all prediction buffers are derived and disposable",
-        "Synthetic regular, folded, singular and null carrier fixtures produce deterministic expected depth and CarrierUV"
+        "Generated exact projective readout exposes supported geometry without creating a second world",
+        "Prediction/readout caches are disposable and generation keyed"
       ],
       "evidence": [
-        "SigmaGeometryReadout and the generated SigmaGeometryReadout.hlsl evaluate G and exact checked Q16.48 projective division before producing disposable FP32 position/information readout; z_null and failed exact operations emit no support",
-        "SigmaForwardReadout.compute rebuilds only stably compacted current dirty pages through indirect dispatch, preserves 65x65 cross-page/cross-segment halos without giving page boundaries physical meaning, and compacts current generations for procedural raster",
-        "SigmaRenderer consumes coherent SigmaRigBridge depth-eye poses/calibration, rasterizes both eyes through hardware Z into depth/support, exact signed-64 page limbs, local CarrierUV/derived normal and page generation/revision keys, with ref-counted non-blocking disposable target leases",
-        "The active RoomScanner and setup automation require SigmaRenderer; no legacy mapper, CPU pixel/mesh path, synchronous runtime readback or second geometry state is reachable",
-        "Unity 6000.5.9f1 Vulkan EditMode passed 28/28, including exact lift/readout, GPU exact readout, folded two-branch hardware first-hit selection and null-carrier no-contact fixtures; the eight-UAV validator and generated-operator check pass",
-        "Android/Vulkan IL2CPP build completed successfully with a fresh 224804460-byte APK and zero build errors; this is build evidence, not a claimed physical scan"
+        "Accepted geometry readout and raster first-hit primitive checkpoint; v8 will replace its duplicated live orchestration, not canonical carrier bytes"
       ]
     },
     {
       "id": "S4-04",
-      "title": "Implement joint inverse depth readout and exact admissible-set fusion",
+      "title": "Implement exact independent depth inverse primitives",
       "status": "done",
-      "depends_on": ["S4-03"],
+      "depends_on": [
+        "S4-03"
+      ],
       "acceptance": [
-        "Both depth eyes independently construct finite-footprint conservative Q16.48 S16 source cells against the same predicted Psi",
-        "Confidence changes cell width only; inclusive fusion is exact componentwise max/min intersection and is source-order/LR-order invariant",
-        "Empty intersections preserve exact gaps, sectors and source provenance while leaving canonical state unchanged",
-        "First-hit semantics emit inclusive hit, pre-hit exclusion or no constraint, with exactly zero canonical effect behind the measured first hit",
-        "The checked projective commit intersects the prior, clamps minimum-change coordinates, preserves stronger prior information and atomically updates only legal state",
-        "Unmatched supported depth deterministically allocates latent gauge and promotes only through the section 18 independent-support gate"
+        "Calibrated finite depth footprints produce conservative exact constraints",
+        "Independent sources meet without weighted averaging and contradictions retain provenance"
       ],
       "evidence": [
-        "SigmaInverse.compute independently builds conservative finite-footprint Q16.48 source cells for both depth eyes against one immutable prediction and implements exact inclusive componentwise meet with no stereo averaging",
-        "Exact HIT/PRE_HIT_EXCLUSION/NO_CONSTRAINT sectors, gap/sector/source conflict records and checked proposal revalidation preserve byte-zero canonical effect for empty meets and all evidence behind the measured first hit",
-        "Accepted projective updates use the sparse geometry transpose correction, prior intersection and a monotone information-resistance ladder; repeated correlated eye/pose keys cannot add count-based hardness",
-        "Unmatched blocks are bounded scheduling metadata only; an unpublished latent gauge generation promotes and publishes only after distinct L/R support yields at least one exact accepted sample, otherwise it aborts",
-        "Runtime pixel and carrier work remains GPU-only and indirect; the CPU consumes only bounded asynchronous page/block scheduler flags, with teardown resources retired after callbacks and no synchronous readback",
-        "Unity 6000.5.9f1 Vulkan EditMode passed 34/34; generated-operator and eight-UAV gates pass; Android/Vulkan IL2CPP produced a fresh 225040262-byte APK with Build Finished, Result: Success and no build errors"
+        "Accepted depth inverse primitive checkpoint; v8 supersedes the source-specific live cell-world orchestration"
       ]
     },
     {
       "id": "S4-05",
-      "title": "Implement exact intrinsic singular topology",
+      "title": "Implement exact S16 transition, annihilator and associator primitives",
       "status": "done",
-      "depends_on": ["S4-04"],
+      "depends_on": [
+        "S4-04"
+      ],
       "acceptance": [
-        "Changed neighbour generations produce one cached exact transition tau and complete annihilator-catalog residual scan through generated signed permutations/additions",
-        "Stable independent-view annihilator signatures and integer associator gates classify regular, singular and unresolved transitions without boundary/topology objects",
-        "Null/contact, fold, termination, doorway and thin-side topology is intrinsic to Psi and 3D proximity never defines carrier identity",
-        "Derived readout cuts interpolation at supported singular loci and unresolved state fails closed",
-        "H0 wall, crease, doorway, pipe and thin-plate signatures meet the persisted integer gates"
+        "Transition bracketing, zero-divisor probes and associator evaluation are exact and generated",
+        "No separate canonical topology world exists"
       ],
       "evidence": [
-        "SigmaIntrinsicTopology.compute implements generation-keyed exact transition caching, 168-action annihilator catalog scanning, integer associator gates, regular/singular/unresolved classification, and fail-closed cut publication without topology objects or proximity identity",
-        "SigmaTopologyController preserves immutable carrier generations, uses epoch/frame-validated evidence, supports exact full build and bounded evidence-only revisit accumulation, and publishes topology keys before prediction consumes them",
-        "SigmaRenderer and SigmaPredict reject stale topology generation/revision or cut triangles; topology state remains disposable derived readout and never mutates the Sigma carrier",
-        "Unity 6000.5.9f1 Vulkan EditMode passed 4/4 SigmaIntrinsicTopologyTests, 2/2 SigmaForwardReadoutTests and 38/38 full Sigma EditMode tests; generated operator check, git diff check and eight-UAV validator passed",
-        "The Android smoke build was intentionally deferred to the accepted S4-08 consolidated base milestone; no physical Quest scan is claimed for this algebra/topology substep"
+        "Accepted transition algebra checkpoint; v8 replaces the optical/XYZ topology lowering with native relation stitching"
       ]
     },
     {
       "id": "S4-06",
-      "title": "Implement joint RGB inverse readout and minimal proof certificates",
+      "title": "Implement RGB inverse and exact evidence primitives",
       "status": "done",
-      "depends_on": ["S4-05"],
+      "depends_on": [
+        "S4-05"
+      ],
       "acceptance": [
-        "RGB_L/R construct independent outward-rounded projective S16 cells through the generated view operator and exact bounded interval contraction",
-        "RGB and depth narrow one common carrier state; no texture world or detached geometry correction exists",
-        "Incompatible RGB/depth cells remain explicit conflicts and unobservable appearance axes contribute no bound",
-        "Absorbed evidence reduces deterministically to the minimal ConstraintCertificate proof set; raw tiles persist only while future inverse evaluation needs them",
-        "Repeated calibrated subpixel views sharpen geometry and appearance readout without sensor summation or a side-channel texture bake"
+        "Both RGB streams remain independent exact evidence",
+        "Complete evidence and deterministic minimal certificates are non-physical proof of one Psi"
       ],
       "evidence": [
-        "RGB_L/R independently construct conservative Q16.48 projective cells through the generated 27-direction view operator and exact 2-forward/2-reverse interval contraction, then meet both independent depth cells and the selected generation proof prior in one SigmaBuildJointProposal path",
-        "The checked joint commit changes only Psi: unobservable RGB axes add no bounds, empty RGB/depth intersections preserve exact conflict provenance, and per-coordinate independent support prevents appearance evidence from manufacturing unrelated geometry hardness",
-        "SigmaConstraintLedger performs exact same-key coalescing plus deterministic reverse-lexicographic redundancy sweeps into sparse ConstraintCertificates; nonuniform/conflicting/exclusion/unobservable/overflow evidence retains replayable raw finite-footprint cells and immutable timestamp/pose/calibration metadata",
-        "Carrier and proof generations publish only after asynchronous GPU proof validation, and durable certificates are reapplied as the exact prior of subsequent inverse proposals so weaker evidence cannot degrade a narrower supported state",
-        "Unity 6000.5.9f1 Vulkan EditMode passed 52/52 including direct GPU reducer fixtures; generated operators, git diff and eight-UAV validation passed. Android and physical Quest execution remain intentionally deferred to accepted S4-08"
+        "Accepted RGB/evidence primitive checkpoint; v8 requires source-independent native pullback and complete publication ownership"
       ]
     },
     {
       "id": "S4-07",
-      "title": "Implement local bijective carrier-gauge refinement for supported detail",
+      "title": "Implement exact intrinsic carrier-gauge refinement primitives",
       "status": "done",
-      "depends_on": ["S4-06"],
+      "depends_on": [
+        "S4-06"
+      ],
       "acceptance": [
-        "Independent accepted inverse cells request more carrier sampling only when current sampling cannot reproduce their common admissible readout",
-        "Dirty-local gauge deformation is bijective, stretches into implicit-null carrier and preserves all retained constraints, readouts, topology and information strength",
-        "Fine geometry and texture remain literal local variation of Psi; no displacement field, mip geometry ontology or chart hierarchy is introduced",
-        "Gauge transform plus inverse reproduces the accepted Q16.48 readout within the persisted sensor-quantization bound"
+        "Refinement is a bijective reparameterization of the same Sigma_2 carrier",
+        "Fine detail adds S16 germs and never creates a displacement or mesh world"
       ],
       "evidence": [
-        "BuildGaugeDemand streams exact generated projective coordinates one lane at a time and emits a request only when two independent accepted proof sources jointly constrain an adjacent triple whose midpoint reproduction error exceeds their admissible width",
-        "SigmaGaugeRefinement implements one deterministic separable piecewise-linear carrier bijection: the requested 8-sample band expands twofold, retained bands translate, two exact null tail bands supply the gauge reservoir, and the outer support endpoint remains fixed",
-        "SigmaGaugeController transforms immutable packed-Q16.48 Psi samples, minimal proof certificates/raw observations and intrinsic topology evidence in one validated transaction; unsupported or singular midpoint transport fails closed and no displacement, chart, mip or second detail state exists",
-        "Direct Vulkan fixtures prove exact GPU gauge demand, carrier/oracle parity, proof-footprint transport and singular-transition transport; inverse round-trip restores every retained Q16.48 sample and all 61/61 Unity Vulkan EditMode tests pass",
-        "Generated operator check, git diff check and the Quest eight-UAV validator pass; Android/device execution remains intentionally batched with accepted S4-08"
+        "Accepted gauge-refinement primitive checkpoint; v8 reuses it under native relation admission"
       ]
     },
     {
       "id": "S4-08",
-      "title": "Implement bounded pose-gauge intersection",
+      "title": "Replace the scanner with native S16 inverse-Merkaba closure and pure readouts",
       "status": "in_progress",
-      "active_repair_run": "S4-08.5 liveness/RAM/sort/preview/timing device candidate; physical acceptance pending",
-      "repair_plan": ".codex/S4-08.5_DIRECT_FRAME_CLOSURE_PLAN.md",
-      "repair_resume": ".codex/S4-08.5_RESUME.md",
-      "repair_audit": "refact.md",
-      "reopen_reason": [
-        "Device evidence proves the page/bundle/transaction execution partition became canonical identity: a 320x320 frame creates a 5x5 board of 25 fresh logical pages and subsequent frames allocate duplicate Morton gauges over the same footprint",
-        "The 64-bundle arena releases coherent capture before all evidence is owned, so side/rear observations are lost; raw retention then hard-stalls after 4096 closed blocks and the 12-record proof spill has no continuation",
-        "Page transactions, token scheduling, singleton proof ownership and per-page transition/publication create tens-of-seconds visibility latency and cannot satisfy whole-frame, page-invariant section-11/12/35 semantics",
-        "Release profiler recorders produced zero samples, so the replacement must expose actual per-kernel GPU timing before performance acceptance",
-        "ADR-S413 and specification v7 therefore retire the streaming lifecycle rather than expanding capacities, tuning tokens or renaming its objects",
-        "The first post-MRUK Quest scan reaches coherent 320x320 capture but SigmaFrameGraph rejects its legal segmented buffers before the first inverse dispatch; source audit then proves missing target reduction, right-eye and segment address loss, absent pending/continuation and exact transition closure, recycled evidence witnesses, a single finite carrier pool, unchanged-page churn and unsafe revision reuse",
-        "The fd0fee1 forensic audit reopens R3 and rejects dirty R4: image adjacency still gains topology authority without first-hit relation evidence, page-owned lossy evidence makes a production 320x320 frame impossible to admit under the 2048 MiB profile, publication bypasses its root, allocators retain session cliffs and the repair violates its negative-LOC gate"
+      "depends_on": [
+        "S4-07"
       ],
-      "repair_acceptance": [
-        "The live controller records only the fixed direct whole-frame graph; all page/bundle/transaction/token scheduler files, ABIs, serialized references and tests are absent with no old/new fallback",
-        "One accepted coherent frame is owned completely and materializes independent D_L, D_R, RGB_L and RGB_R exact source cells once; no partial admission or execution partition can drop evidence",
-        "Current carrier, pending gauge and latent continuation are proposal sources only; exact four-source admissibility and first-hit rules decide identity, while genuinely novel evidence enters a local pending gauge without a canonical address",
-        "Pending connectivity and reuse use exact S16 transition/admissibility closure; image adjacency, 3D proximity, Morton order and storage pages cannot allocate or join physical identity",
-        "Canonical carrier extent is allocated only at promotion in deterministic section-18.7 order and replay of the same accepted observation sequence is byte-identical under every legal workgroup/page/proof-window decomposition",
-        "The foreground commit owns a complete immutable exact evidence journal with no fixed record cap; scratch windows continue by cursor, raw source footprints are retained once with reclaimable segmented ownership, and durable persistence waits for deterministic proof minimization",
-        "Only intrinsic edges incident to changed candidate samples are validated; UNOBSERVED makes no physical null claim and an unresolved claimed edge defers only its incident mutation rather than failing a page",
-        "All accepted non-deferred deltas scatter into shadow backing generations and one variable-length frame revision root exposes every changed page atomically to prediction and readout",
-        "The existing exact Q16.48 NumericDomain, four-source meet, width-derived mass, pose/corrected calibration, topology algebra, carrier codec and gauge-refinement mathematics remain bit-identical to their accepted oracles",
-        "Memory uses segmented 1024/2048/3072 MiB execution profiles; the obsolete 112 MiB correctness gate is absent and profile pressure changes residency/spill only, never source resolution, evidence, Psi or proof",
-        "Release diagnostics expose actual per-kernel/stage GPU duration, dispatch/record counts, generated exact-operation counts, bytes and owned-pool pressure, or explicit unsupported timing; telemetry never controls work or mutation",
-        "New production code is at most 4200 LOC and the runtime/resource cutover deletes at least 5500 net LOC unless a documented stop-and-simplify review changes that bound",
-        "Vulkan fixtures prove four-source exact parity, pending reuse, existing revisit, side reveal, thin parallel surfaces, cross-page equality, proof-window continuation, raw stress and atomic multi-page revision visibility",
-        "The installed Release shows first exact world-space support within five seconds, continuous directional coverage and canonical progress for three minutes without a 5x5 board, duplicate gauges, evidence loss, capacity cliff, missing bind, fence fault or watchdog"
-      ],
-      "depends_on": ["S4-07"],
       "acceptance": [
-        "Conditioned overlaps produce bounded six-component Q16.48 pose-twist source cells that intersect the immutable Meta prior",
-        "A non-empty pose meet applies the deterministic minimum-magnitude correction; empty evidence leaves Meta pose unchanged and unresolved",
-        "Pose is a readout gauge and never rewrites carrier connectivity, frame timestamps or canonical samples",
-        "Revisit improves complete forward-readout agreement without creating a second SLAM or reconstruction state"
+        "One frozen TOE E22 NativeRelationDescriptor generates forward, exact inverse-image pullback, intrinsic stitch and reference evaluators with preserved bracket trees",
+        "Coherent stereo RGB-D shadows constrain one full S16 germ through independent native relations; unobserved fibre directions are preserved",
+        "Association tests every admissible supported or latent native fibre before any new identity and uses no physical CURRENT/PENDING/CONTINUATION/NOVEL classes",
+        "Intrinsic topology is the regular/singular/no-relation/unresolved result of the same E22 transition stitch; XYZ/image/page proximity has no authority",
+        "Latent evidence owns a stable local relation gauge and complete evidence until exact absorption, promotion or rejection",
+        "Only sparse exact GermDelta records mutate immutable carrier generations; complete evidence is owned before one root-last publication",
+        "Eye, prediction, export and debug are pure disposable readouts of the same full Psi and cannot mutate or impoverish it",
+        "Execution partition, workgroup, relation order, segment/page layout and readout choice leave canonical Psi/certificates byte-identical",
+        "The replacement gross-deletes at least 10000 production LOC, adds at most 4000, is net at most -6100 versus cac9ab0 and leaves no legacy/fallback path",
+        "Exact oracle/Vulkan tests, generated graph and same-commit Quest Release corpus pass with Omega+Xi <=1500 ms, wall <=1800 ms, bounded memory and no revision-dependent latency slope"
       ],
       "evidence": [
-        "S4-08.4 M0 freezes specification v7, ADR-S413, a hard deletion boundary, negative-LOC guard and compact sole resume cursor in commit 89188a0",
-        "S4-08.4 M1 generates one C#/HLSL direct-frame ABI for seven records and owns complete four-source coordinate-major segmented cell journals under 1024/2048/3072 MiB residency profiles; Unity Vulkan passes 76/76 including a real eight-UAV ABI dispatch",
-        "S4-08.4 M2 adds one complete direct-frame inverse shader and fixed host recorder: a coherent Vulkan fixture materializes independent D_L, D_R, RGB_L and RGB_R exact cells, resolves novel S16 state against the exact CPU oracle and proves bit-identical outcomes/state for full-frame and three-footprint execution partitions; Unity Vulkan passes 77/77 and generated outputs are current",
-        "S4-08.4 M3 closes one coherent-frame candidate without page lifecycle authority: exact pending components allocate deterministic promoted extents, accepted S16 deltas scatter to paired shadow pages, incident transitions remain fail-closed unresolved, and one revision root exposes the complete result. Vulkan fixtures prove state/proof/provenance parity across execution windows and page capacities; full EditMode passes 78/78 with generated, bind/UAV and diff gates green",
-        "S4-08.4 M4 hard-cuts the live runtime to SigmaFrameGraph and direct carrier publication/readout/telemetry, deletes the complete stream transaction/bundle/Morton/token/proof-owner lifecycle with no fallback, and removes 22,715 net LOC. Generated, whitespace, no-reference and Unity Vulkan EditMode 53/53 gates pass",
-        "S4-08.4 M5 binds a localized room anchor before scan ingress and retains one coherent-frame room transform snapshot across exact depth/RGB calibration, pose gauge, independence identity, prediction and canonical readout; only disposable XR presentation maps room coordinates back into current Unity world. Focused anchor-relocation parity and full Unity Vulkan EditMode 54/54 pass with generated/diff gates green",
-        "S4-08.4 M6 source candidate passes generated/control/diff gates, Unity Vulkan EditMode 54/54, Quest eight-UAV validation and an Android/Vulkan Release compiler build with zero shader/C# errors, but physical acceptance is negative and the node is reopened",
-        "S4-08.5 device/source audit at d3b83e1 proves the empty scan is an immediate legal-segmentation rejection followed by a latched fail-closed controller, and maps all G1-G14 closure gaps to the direct-frame implementation without restoring any retired transaction/bundle/Morton/token path",
-        "S4-08.5 R1 executes one 320x320 observation over seven aligned Vulkan binding windows with complete source/proposal/meet/compact coverage; normalized target records preserve two distinct segment/page/generation/sample keys and remove the packed right-eye bit from sample addressing, with focused Vulkan inverse 4/4 and resource 3/3 gates green",
-        "S4-08.5 R2 stable-orders the complete normalized stream by full target/source identity, exact-reduces every equal range across all execution windows with outward bounds, validity, gaps and source provenance, then constructs one minimum-change final S16 candidate with distinct changed/unchanged/conflict/pending/fault outcomes; focused Vulkan inverse passes 5/5 including reversed-order two-window target parity and resources remain 3/3",
-        "S4-08.5 R3 replaces the complete closure lowering so optical/image adjacency only proposes work, exact first-hit four-source cells qualify physical claims, generated S16 annihilator/associator closure decides transitions and unresolved claimed edges defer only incident changed mutations before union; independent full-S16 oracle, separated-cell NO_CLAIM and cross-window fixtures pass in the Vulkan/EditMode 64/64 gate with no shader or binding error",
-        "The current fd0fee1/dirty-R4 forensic checkpoint is recorded in refact.md with production memory arithmetic, complete-evidence loss, non-atomic root publication, finite allocator cliffs, test-oracle drift, net-positive LOC and the audit-only corrective cursor; no implementation or device acceptance is claimed",
-        "The first post-freeze Quest launch exposed a pre-ingress lifecycle regression: M5 retained the donor MRUK IsRoomLoaded gate and assumed a scene-authored RoomSpaceRoot. The repair removes MRUK room-scene loading/fallback, creates scan space at runtime, retains OVR spatial-anchor create/save/load/localization, and keeps Unity Vulkan EditMode 54/54 plus the eight-UAV gate green; device revalidation remains pending",
-        "S4-08.2 closure source uses one fail-closed graphics completion/retirement contract, fixed packed-limb ExactALU division, coordinate-major inverse work, scalar shared stable compaction, generated-plan Section 44 GPU diagnostics and coherent whole-file shader replacements; generated-output, git diff and Quest eight-UAV gates pass while Release/device acceptance remains pending",
-        "S4-08.2 implementation candidate replaces unsupported async-queue fences with one fail-closed graphics-queue completion ticket, rewrites the exact GPU hot path into bounded cooperative schedules, adds a temporary direct stereo carrier preview without a second world, and passes generated-operator, diff, Quest eight-UAV and Unity Vulkan 65/65 gates; Release/device acceptance remains pending",
-        "SigmaPoseGauge.compute constructs sparse conditioned point-to-plane source intervals in parallel GPU workgroups, reduces them by exact source-order-independent Q16.48 intersection against the immutable six-component Meta prior, and selects the deterministic minimum-magnitude point only from a non-empty two-eye meet",
-        "Pose solving is a two-stage readout transaction: raw Meta-pose prediction supplies the overlap, the accepted gauge rerasterizes the same immutable StereoRigFrame, and only that corrected prediction/pose snapshot enters both depth and RGB inverse calibration; unresolved/conflicting evidence retains the raw Meta pose",
-        "SigmaPoseGaugeState is a bounded noncanonical readout value; applying it preserves fixed rig extrinsics and no carrier sample, intrinsic topology record, timestamp, calibration epoch or proof certificate is rewritten",
-        "The pose pass is GPU-parallel rather than a single long-running workgroup: sampled overlaps reduce to compact partial meets and one bounded 64-lane final reduction; the exact result remains GPU-resident and is consumed directly by same-frame depth/RGB association while CPU observes only a completion fence",
-        "Unity 6000.5.9f1 Vulkan EditMode passed 64/64 including exact minimum-magnitude/identity and rigid-rig invariance contracts; generated operators, git diff and eight-UAV validation passed",
-        "Android/Vulkan IL2CPP Release correction commit 91e4721c30c0 built with zero shader/C# errors, was archived source-only and installed on the connected Quest before S4-09",
-        "The repaired live path stably compacts inverse work, allocates generation-paired scratch, reduces proof, commits accepted proposals into the same Psi, consumes pose gauge on GPU and resolves topology/readout neighbours only by exact signed-64 Sigma_2 page identity; Unity Vulkan passed 64/64, the eight-UAV gate passed, and the fresh Release APK built with zero errors and was installed before S4-09",
-        "S4-08.1 candidate corrects exact point-to-plane intervals, integer acceptance, true rigid SE(3), corrected same-frame reraster/exact source calibration, GPU-appended pose provenance, reusable active-local raw records, complete topology bindings, fail-closed associator gates and bounded fair candidate scheduling without introducing another world",
-        "Every changed shader was manually reviewed in full with its include ABI, all kernels/resources, C# binding and dispatch call sites and affected tests; generated operators, git diff and Quest eight-UAV validation pass",
-        "Unity Vulkan passes 65/65; the closure fixture actually dispatches BuildPoseGaugePartials, ReducePoseGauge and BuildCorrectedCalibration, proves nonzero exact correction and fixed-rig preservation, and the prediction fixture proves nonzero same-frame reraster",
-        "The pose-prior contract is truthful: immutable Meta pose supplies the centre; numeric covariance is projected when exposed, otherwise the exact prior width is a deterministic conservative envelope from coherent-frame timing/skew uncertainty, observed tracking rates, rig residuals and persisted bounds",
-        "Release-only Vulkan validation found and removed the redundant varying early return around the second PlanRawReservations group scan; every lane now follows one uniform bounded barrier schedule and the 65/65 Vulkan suite remains green",
-        "Executable-source commit 6b3003a199df produced a fresh 67463376-byte Android/Vulkan IL2CPP Release APK with zero build errors; its SHA-256 is 0d3278947652746c9a7dac1f01cb9361e512d28d5db0b2e7b466d8b6d46dc12c and streamed ADB installation succeeded on the single authorized Quest",
-        "S4-08.3 replaces page-sized submissions with generation-safe persistent GPU transactions, owned sealed source streams, deterministic token scheduling, manifest-atomic publication, bounded historical revalidation, dormant dependency reactivation and disposable manifest-driven readout without adding a second canonical world",
-        "S4-08.3 source closure passes generated-output and git-diff gates, Quest eight-UAV validation, 4/4 Vulkan streaming contracts, a 30-to-16 certificate GPU fixed-point proof, 1/2/7/max partition/interleaving parity and the full Unity Vulkan EditMode suite at 69/69; Release build/install and physical scan acceptance remain pending",
-        "The first S4-08.3 Release compiler pass exposed Android/Vulkan-only control-flow and include portability defects in four streaming shaders; each affected shader was manually reviewed with its complete ABI and host dispatch/bind graph and replaced as one coherent file, after which the focused Vulkan streaming suite passed 4/4 and the Quest eight-UAV gate remained green",
-        "The complete Release shader inventory exposed the remaining divergent preflight/barrier and forced-unroll variants in inverse, proof, transition, revalidation, derived readout and the scheduler; all six were replaced as coherent files with lane-zero uniform preflight and unchanged exact algorithms, and the focused Vulkan streaming suite passes 4/4 with the eight-UAV gate green",
-        "The next Android compiler pass reached EvaluateTransactionMicrotile without an error but expanded its forced fixed reductions for more than three minutes; the complete shader, ABI and host bind/dispatch contract were manually audited and re-emitted with identical sequential Q48/validity order under bounded loop lowering, after which focused Vulkan streaming remained 4/4 and the Quest UAV limit remained 8",
-        "The monolithic inverse entrypoint was then replaced as one manually audited five-stage shader pipeline over one immutable work item: depth/projective preparation, independent RGB contractions, source-ordered exact meet and final checked lift/cursor advance. Only the final stage advances progress, none publishes Psi, transaction-owned scratch is budgeted and reclaimed, generated token cost covers all stages, Vulkan streaming passes 4/4, full EditMode passes 69/69, and the Quest UAV limit remains 8",
-        "Release commit 3924c6e compiled the five-stage inverse and scheduler, then exposed one proof-only barrier defect repeated as 45 build diagnostics. The complete proof file and its ABI/host graph were manually audited; all 64 lanes now remain through lane-zero canonical source publication and close each of four source reductions with the same uniform barrier schedule. Exact reduction/provenance ordering is unchanged, generated barrier cost is current and focused Vulkan proof/streaming passes 4/4",
-        "Release commit d006686 confirmed the closing sync alone was insufficient because two entrypoint returns still made the four reducer calls potentially varying. The complete proof shader was reviewed again and its source-block entrypoint now executes one unconditional 64-lane barrier schedule, masks invalid/spilled work to zero without publishing, and performs lane-zero cursor/closure publication only after the final sync; focused Vulkan streaming/proof passes 4/4 with exact source/Q48/provenance order unchanged"
-        ,"Device forensic closure at 082eda09 is recorded in s4-083-audit.md: coherent ingress reached a fail-open null publication through missing inverse bindings and unowned scratch; page-handle aliasing, admission loss and 36.6-second scheduling latency were independently traced without changing runtime source",
-        "S4-08.3C candidate closes the audited production binds, owns every five-stage inverse quantum by transaction generation/source/block/microtile and completion mask, fails closed before publication without accepted compatible exact evidence, uses explicit page count and same-generation readout visibility, records eight dependency rounds over one token refill, removes the two-bundle ingress cap, and exposes diagnostic-only execution/load telemetry. Generated outputs, git diff, Quest eight-UAV and Unity Vulkan EditMode 71/71 gates pass; Release/device acceptance remains pending"
-        ,"S4-08.3D source closure distinguishes unobserved endpoints from exact null evidence, resolves candidate neighbours before published Psi within a sealed workset, transfers irreducible dormant raw residue into existing ConstraintLedger ownership, reclaims only transient bundle residency, reattaches new observations as proposals to generation-safe dormant anchors and never advances zero-admission ingress. Focused Vulkan streaming passes 6/6, full EditMode passes 71/71, generated output/diff/eight-UAV gates pass; Release/device acceptance remains pending",
-        "The final device-driven transition/liveness repair makes CHANGED the bit-exact final Psi delta, keeps source conflict diagnostics separate from valid fallback endpoint state, closes valid unresolved transitions conservatively for derived cutting, and deterministically revokes non-active association caches before they can block a live transaction. Full Unity Vulkan EditMode passes 71/71 including the saturated 8/8 association fixture; diff and Quest eight-UAV gates pass; Release/device acceptance remains pending",
-        "The exact bootstrap lift now centres constrained gauge coordinates in the complete final Q48 meet, derives information mass from independently supported meet width and corrects the checked Hadamard quantization residual through state lane zero without a new buffer or authority. The production Vulkan kernel fixture proves four width-dependent masses, exact cell containment, source-order bit parity and one-eye fail-closed promotion; full EditMode passes 72/72 and generated/diff/eight-UAV gates remain green; Release/device acceptance remains pending",
-        "The temporary pre-S4-11 human readout now maps capture tracking space through Unity XR TrackingSpace, renders conservative adjacent-sample triangles, exposes barycentric Wireframe edges and retains point fallback only for isolated support without changing Psi or prediction; Vulkan EditMode remains 72/72 and the Quest UAV gate remains green; device world-lock acceptance is pending",
-        "The throughput diagnostic checkpoint preserves the eight bounded canonical rounds while refilling their existing deterministic deficits per round, wraps every production compute dispatch in read-only Unity Vulkan GPU timestamps and reports deficit/owner/work-cap pressure through diagnostic-only async telemetry. No shader, token cost or canonical decision changed; full Vulkan EditMode passes 73/73 and generated/diff/eight-UAV gates are green; device timing remains pending",
-        "The c2720b5 device forensic closure proves that the visible 5 x 5 board is 25 fresh logical gauge pages derived from the 320 x 320 image grid, followed by duplicate fresh Morton identities over the same footprint; later directional evidence is lost when 64 resident bundle slots fill, and publication then hard-stalls after exactly 4096 durable raw-retention blocks because the monotonic allocator has no reuse/segmentation. The renderer draws every current page; the failure is canonical acquisition, identity and proof-retention ownership, documented in s4-083-audit.md.",
-        "S4-08.4 M0 promotes CPQ4-2026-08-24-S16-v7, rewrites section 18 around pending gauges and promoted extents, records ADR-S413, freezes the direct-frame deletion/implementation plan and installs a compact sole resume cursor. DAG JSON, git diff, generated code graph and control validation are green; runtime source is intentionally unchanged before M1.",
-        "Quest evidence rejects 87d33f2 before inverse interpretation: one 320x320 frame recorded direct groupCountX values 102400, 204800 and 102400 above Vulkan's 65535 limit, leaving root, R4 publication and draw at zero. The narrow host repair caps execution windows at 32512 footprints, validates every direct dimension fail-closed before command recording, and passes the actual 320x320 large-binding production recorder plus full Vulkan EditMode 65/65; exact-commit APK/device evidence remains pending.",
-    "The truthful completion slice classifies the immutable post-fence frame disposition without shader changes: only zero-fault EVIDENCE_RETAINED at root>=revision retains evidence and increments committed frames, RESOLVED+0 is legal no-change, and shader fault/incomplete/stale records latch Faulted. The focused pure disposition fixture and full Vulkan EditMode pass 66/66; new exact-commit APK/device evidence remains pending.",
-    "The dispatch-grid performance slice decouples binding-derived storage windows from Vulkan physical dispatch dimensions without changing R3/R4 or S16 semantics. Production 320x320 uses one execution window; ReduceTargetWindow, ClosePendingEdges and PersistPendingTargets flatten onto exact legal grids 51200x2, 51200x4 and 51200x2. One/four-window complete reduction is bit-identical, full Vulkan EditMode passes 66/66 and generated/eight-UAV/diff gates are green; exact-commit APK/device evidence remains pending.",
-    "The production-profiler slice removes per-dispatch CustomSampler/Recorder registration, Profiler enablement and sample markers from normal non-development Release while preserving direct/indirect dispatch calls and fail-closed dimension validation. The actual 320x320 production graph has identical kernel IDs, order and physical grids with profiling disabled and registers no sampler entries; Vulkan EditMode passes 67/67 and R3/R4, shaders and canonical state are unchanged.",
-    "The continuation-anchor ownership slice snapshots the exact CURRENT target ordinal into accepted CONTINUATION target.Candidate.x before PendingLinks is reused as mutable retention-slot scratch; MapFrameTargets consumes only that immutable target field. A Vulkan fixture forces the component root link from anchor ordinal 0 to retention slot 1 and still publishes root 2 with bit-correct mapping and no 0x004/0x100 fault. Full EditMode passes 68/68 with no ABI, buffer or S16 change.",
-        "Quest commit 63ca337 publishes roots 1, 2, 4, 6 and 7 with nonzero changed pages/readout and no 0x104, then truthfully fails closed when revision 8 needs 37 new logical page pairs but the fixed 240-pair decoded pool has only 29 free. The narrow backing-only repair raises default decoded residency to 1024 MiB (2048 physical pages / 1024 current-shadow pairs) and derives each segment as the largest legal even Vulkan binding range up to 256 pages, keeping approximately 8-9 segments instead of multiplying traversal. Full Vulkan EditMode remains 68/68 and S16/R3/R4/publication are unchanged.",
-        "The post-9b3dd7f device-stability slice separates published/corrected prediction rings with recoverable FIFO backpressure, bounds published source-journal residency through the existing generation-safe recycle path, lowers both exact 131072-record target sorts from 153 to 55 dispatches with bit-identical GPU parity, makes only the temporary XR preview translucent/half-density, and records one explicitly sampled submission ranked per compute kernel without per-kernel readback. Vulkan EditMode passes 71/71 and S4-08.5 production is net -61 LOC against d3b83e1; device acceptance remains pending.",
-        "The narrow persistent-PENDING repair separates frame-sized projection scratch from independently growing segmented journal backing, traverses every allocated GPU segment under live high-water gating, reuses only generation-matched PROMOTED holes, clears UNCHANGED for canonical pending promotion and admits a frame only with conservative headroom for all in-flight canonical submissions. Focused Vulkan resource, three-window, >frame-handle and bit-identical-promotion fixtures pass without changing S16/R3/R4/publication physics.",
-        "The one-shot Release timestamp repair deletes global vkCmdDispatch/vkCmdDispatchIndirect interception and command-buffer identity assumptions. An armed managed submission emits four explicitly configured Unity Vulkan plugin event types, each native callback obtains current CommandRecordingState and writes paired COMPUTE_SHADER timestamps; unarmed production dispatches remain one unchanged call with no event. Native Android compilation and production-dispatch parity pass."
+        "N0 accepted by this checkpoint: analyza.md, CPQ4-2026-08-25-S16-v8, deterministic N0-N8 replacement plan, compact controls/resume cursor, current code graph and zero Runtime/Resources diff",
+        "Starting Quest evidence cac9ab0: 266 dispatches/61 kernels, compute 4520.946 ms, wall 4776.70 ms; top three duplicated solvers consume 90.78%; root31 then truthful carrier fault 0x120"
       ]
     },
     {
       "id": "S4-09",
-      "title": "Implement deterministic persistent scene evolution on the same carrier",
+      "title": "Implement deterministic scene evolution through native shadow exclusion and transport",
       "status": "pending",
-      "depends_on": ["S4-08"],
+      "depends_on": [
+        "S4-08"
+      ],
       "acceptance": [
-        "Independent pre-hit exclusion provenance drives null-to-contact, contact-to-null and contact transport/deformation transitions without subtraction or post-hit evidence",
-        "A nearer occluder cannot retire hidden background; proven removal requires the exact multi-key/angular/pass-through gate",
-        "Identity-preserving coherent transport is tested before disappearance, uses exact intrinsic signatures and verified Q16.48 transforms, and preserves detail/information",
-        "Transient candidates/masks remain disposable and only one selected current Psi revision participates in prediction",
-        "Section 42 new-object, removal, occlusion, transport and fallback invariance fixtures are byte-deterministic"
+        "Pre-hit exclusion, pass-through and native transition evidence implement contact appearance, disappearance and identity-preserving transport",
+        "Occlusion never deletes hidden state and all evolution mutates only Psi"
       ],
       "evidence": []
     },
     {
       "id": "S4-10",
-      "title": "Implement infinite carrier paging, exact persistence, restart and revisit",
+      "title": "Implement unbounded logical carrier persistence and transparent residency",
       "status": "pending",
-      "depends_on": ["S4-09"],
+      "depends_on": [
+        "S4-09"
+      ],
       "acceptance": [
-        "Page residency follows visible, inverse-active, dirty, halo and probation locality while world size grows only on flash",
-        "Immutable sorted page generations, fixed algebra/operator metadata, minimal certificates and unresolved observation tiles persist under schema CPQ4-S16-v7",
-        "Paging, eviction and storage coordinates never alter carrier physics or create seams",
-        "Durable publication precedes eviction and interruption preserves the previous complete revision",
-        "Restart restores byte-identical carrier/proof state and revisit continues the same inference"
+        "Durable exact pages/certificates and required unresolved evidence survive restart byte-identically",
+        "Residency, eviction, rehydration and segment placement never change native physics or world size"
       ],
       "evidence": []
     },
     {
       "id": "S4-11",
-      "title": "Implement disposable meshlet readout, culling, LOD and indirect rendering",
+      "title": "Qualify direct low-latency stereo eye readout",
       "status": "pending",
-      "depends_on": ["S4-10"],
+      "depends_on": [
+        "S4-10"
+      ],
       "acceptance": [
-        "Dirty supported carrier cells materialize ordinary indexed meshlets entirely on GPU and clip mixed null/contact cells",
-        "Stable singular loci split derived interpolation by deterministic bounded bisection and no BoundaryCurve object is introduced",
-        "GPU frustum/Hi-Z/screen-error/page-residency culling compacts indirect stereo-safe draw lists with no CPU mesh/readback/full-world traversal",
-        "Opaque/front-depth preview and optional equal-depth transparency avoid hidden alpha soup",
-        "Deleting all meshlet/readout caches and rebuilding yields the same geometry readout"
+        "Direct S16 native-relation eye shadows provide stable binocular XR output at target cadence",
+        "Eye maps are disposable and their information loss never feeds back into Psi"
       ],
       "evidence": []
     },
     {
       "id": "S4-12",
-      "title": "Implement directional appearance readout and direct confidence-bearing PBR/GLB export",
+      "title": "Implement rich textured 3D export from full native Psi",
       "status": "pending",
-      "depends_on": ["S4-11"],
+      "depends_on": [
+        "S4-11"
+      ],
       "acceptance": [
-        "Directional appearance, colour and normal are read from the same Psi through generated operators and carrier differentials",
-        "Measured subpixel RGB footprints improve carrier appearance without a separate texture atlas as canonical state",
-        "PBR is a confidence-bearing derivative; metallic remains zero and roughness remains explicitly uncertain until identifiable",
-        "Selected-region and paged whole-world GLB export is a readout that never mutates canonical carrier state",
-        "Generated GLB passes Khronos validation and an independent importer"
+        "Export derives geometry, intrinsic connectivity and multi-view appearance from latest full Psi",
+        "GLB/PBR/texture products are on-demand readouts and never become canonical state"
       ],
       "evidence": []
     },
     {
       "id": "S4-13",
-      "title": "Pass the complete physical Quest 3 correctness, quality, scale and performance corpus",
+      "title": "Pass the complete physical Quest scan, eye, export, scale and restart corpus",
       "status": "pending",
-      "depends_on": ["S4-12"],
+      "depends_on": [
+        "S4-12"
+      ],
       "acceptance": [
-        "The H0 algebra proof gate passes the complete recorded synchronized corpus before live canonical mutation is accepted",
-        "Section 43 thin surfaces, folds, holes/unknown, detail, persistent scene change and building-scale routes pass on Quest 3",
-        "Both RGB and both depth streams constrain one Psi and supported revisits improve geometry/appearance without lower-information degradation",
-        "Exact-operator counters and GPU timings prove active-local bounded execution with no full-world pass, synchronous readback or CPU geometry hot path",
-        "Active allocation stays within the section 44 Quest budget and no individual storage binding exceeds the runtime Vulkan range",
-        "Every section 50 definition-of-done statement is physically demonstrated; no parallel reconstruction ontology is added to repair a failed gate"
+        "Repeated passes monotonically refine supported native modes without erasing hidden modes or duplicating identity",
+        "Thin/folded/multifloor/scene-change/readout/export/restart cases pass physically with bounded active-local GPU work",
+        "No parallel canonical world, legacy fallback, capacity cliff or storage-defined seam remains"
       ],
       "evidence": []
     }

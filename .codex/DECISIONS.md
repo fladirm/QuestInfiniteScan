@@ -1,308 +1,182 @@
 # Active architecture decisions
 
-`new_spec.md` is the detailed authority. Previous Cone-PRISM decisions remain in
-Git history and are not active on this branch.
+`new_spec.md` is the detailed authority. This file records only decisions needed to
+resume active implementation. Superseded v6/v7 execution decisions and their
+evidence remain in Git history; they are intentionally not repeated here.
 
-## ADR-S400 — Canonical replacement and clean branch
+## ADR-S400 — Clean branch and one reconstruction product
 
-- Decision: `CPQ4-2026-08-22-S16-v6` replaces the complete previous reconstruction
-  architecture. Development occurs on `feat/sigma-prism-16-cpq4-20260822`, whose
-  parent preserves the former mapper.
-- Decision: retain only representation-neutral Quest/Unity capture, calibration,
-  lifecycle, input/UI and GPU/build plumbing. Delete old reconstruction,
-  persistence and compatibility wiring from the active branch.
-- Consequence: no ContactFilm, PressureManifold atlas, explicit boundary/topology
-  graph, old chunk schema or derived old mesh cache may become a donor abstraction.
+- The previous mapper remains recoverable from Git and is not an implementation
+  donor.
+- Active reconstruction lives only under `Runtime/SigmaPrism` and
+  `Runtime/Resources/SigmaPrism`.
+- Representation-neutral capture, calibration, XR lifecycle, UI, anchors, fences,
+  indirect helpers and build/deploy tooling may remain.
+- No compatibility reconstruction, alternate world or fallback path may coexist
+  with the active implementation.
 
-## ADR-S401 — One exact carrier is the physical world
+## ADR-S401 — Full native S16 is the only physical world
 
-- Decision: the only durable physical state is `Psi : Sigma_2 -> S16`; unallocated
-  carrier is implicit `z_null`. Geometry, singular topology, detail, appearance,
-  scene evolution and render/export products are operators/readouts of this state.
-- Decision: canonical values and state decisions use the inherited checked
-  nearest-even Q16.48 NumericDomain. Independent sensors meet as exact admissible
-  sets; confidence changes interval width and never becomes a summation weight.
-- Consequence: all later DAG nodes must fail closed rather than introduce a second
-  physical world, FP decision path, sensor consensus object or paging-defined seam.
+- The only canonical reconstructed reality is
+  `Psi : Sigma_2 -> S16` in checked nearest-even Q16.48.
+- One carrier germ is a full native S16 state, not an `xyz/rgb/normal/...` channel
+  tuple and not an encoded 3D point.
+- Geometry, appearance, first-hit order, detail, topology, scene evolution and all
+  exported/displayed forms are constraints on or readouts of this same state.
+- Pages, blocks, segments, image pixels, workgroups and readout coordinates have no
+  physical identity.
 
-## ADR-S402 — Section 49 is the implementation order
+## ADR-S403 — Exact algebra and expression trees are semantic authority
 
-- Decision: the active DAG is exactly `S4-00..S4-13` from `new_spec.md`; additional
-  kernels/helpers may only decompose those semantic stages and may not create a new
-  ontology.
-- Consequence: S4-01 exact algebra is a hard gate before live mutation, and S4-13
-  physical Quest acceptance—not compilation—is the final product gate.
+- `SigmaNumericDomain`, the generated signed-XOR Cayley-Dickson algebra and explicit
+  bracket trees define canonical arithmetic.
+- Q16.48 point operations round nearest-even; interval operations round outward and
+  checked overflow fails closed.
+- GPU schedules may lower an expression DAG but may not reassociate it. FP cannot
+  decide canonical mutation.
+- Packed-32 or native-I64 execution is legal only behind exact bit-parity gates.
 
-## ADR-S403 — Exact algebra authority and fail-closed Quest lowering
+## ADR-S404 — Sparse immutable carrier and lossless persistence
 
-- Decision: `SigmaNumericDomain` is the sole CPU semantic authority for checked
-  nearest-even Q16.48. One deterministic generator owns the signed-XOR
-  Cayley-Dickson table, sparse basis/dyad actions, annihilator catalog, Hadamard
-  rows and semantic bundle fingerprints consumed by C# and HLSL.
-- Decision: hot-path algebra is an explicit bracket-preserving operator DAG with
-  deterministic common-subexpression sharing. Sparse sign/XOR/permutation/readout
-  operations may not route through generic qmul/qdiv; dense multiplication is an
-  explicitly named reference/generated fallback only where arbitrary coefficient
-  products require it.
-- Decision: packed-32 Vulkan is the currently proven exact execution lowering.
-  Native I64 remains fail-closed until separate parity evidence exists. A
-  GPU-resident startup witness gate—not an optimistic CPU flag—must be bound by
-  every later canonical mutation kernel.
-- Consequence: later carrier/inverse kernels consume `SigmaOperatorSet.Canonical`,
-  generated descriptors and the backend gate; they may not hand-code alternate
-  sedenion arithmetic or infer backend legality from platform names.
+- The signed-64 two-dimensional carrier is logically unbounded; unallocated state
+  is implicit generated native null.
+- Published page generations are immutable. NULL/CONST/AFFINE/DELTA/RAW codecs are
+  deterministic lossless encodings, not alternative physical states.
+- Residency and binding segmentation may change cost only. Durable publication
+  precedes eviction and restart reproduces canonical bytes and operator
+  fingerprints.
 
-## ADR-S404 — Exact sparse carrier storage and immutable publication
+## ADR-S415 — One frozen native-relation descriptor owns all physics
 
-- Decision: canonical persistence bytes are defined by the deterministic
-  NULL/CONST/AFFINE/DELTA/RAW CPU codec oracle; packed GPU decoded pages are an
-  exact execution lowering of the same Q16.48 samples, not another state format.
-- Decision: every published page generation is immutable. Canonical mutation owns
-  an unpublished GPU write lease, publishes atomically after the exact backend
-  gate, and never reuses a generation number after abort.
-- Decision: physical pages, 8x8 codec blocks and segmented Vulkan buffers are only
-  addressing/storage boundaries. Dirty publication is stably compacted and driven
-  indirectly; no boundary may acquire reconstruction meaning.
-- Consequence: later readout/inverse stages consume generation-keyed decoded pages
-  and must create a new generation for accepted mutation. Persistence/restart must
-  reproduce the exact selected page bytes and algebra/operator fingerprints.
+- Baseline `CPQ4-2026-08-25-S16-v8` replaces the v7 scanner execution ontology.
+- A supplied authoritative TOE artifact must be frozen as one generated
+  `NativeRelationDescriptor`. If its exact 22-relation factorization is proven, the
+  resulting `E22` atlas is an overcomplete image of one S16 state, not 22 degrees of
+  freedom and not a second world.
+- The descriptor owns relation expressions, signed-XOR routing, constants, query
+  rows, zero-divisor families and every bracket tree.
+- Exactly four evaluators are generated from the same descriptor and fingerprint:
+  `ForwardNative22`, `PullbackNative22`, `StitchNative22` and
+  `Native22ReferenceOracle`.
+- The project must not infer or invent missing TOE relations from current v7
+  geometry/RGB/topology code.
 
-## ADR-S405 — Exact derived forward readout and raster first-hit authority
+## ADR-S416 — Scan is exact inverse-image pullback of the forward manifestation
 
-- Decision: geometry support and projective position are decided by the generated
-  exact packed-Q16.48 `G`/`qdiv` plan. Conversion to FP32 occurs only after that
-  decision in a disposable readout cache; it cannot mutate or reinterpret `Psi`.
-- Decision: only the latest immutable generation of each logical carrier page may
-  enter prediction. Changed pages compact stably into indirect exact-readout work;
-  derived neighbour halos cross physical page/segment boundaries and are refreshed
-  only in the changed local neighbourhood.
-- Decision: hardware rasterization is the visibility/first-hit operator for both
-  timestamped depth-eye poses. Prediction preserves exact signed-64 carrier page
-  limbs and immutable page generation/revision keys so S4-04 can pull every source
-  constraint back into the same canonical state.
-- Consequence: prediction/readout buffers are deletable, ref-counted GPU caches.
-  No CPU geometry, synchronous readback, Unity Mesh or parallel geometry world may
-  be introduced by inverse, topology or rendering stages.
+- Physical causality is `S16 -> native relations -> manifested/query shadow`.
+  Scanning evaluates the exact inverse image of a coherent measured RGB-D shadow
+  through that same expression DAG; it is not a numerical matrix inverse and not
+  `RGB-D -> XYZ -> S16`.
+- Left/right RGB and depth evidence remain independent until componentwise exact
+  conjunction in native relation space. A source contractor may not be pre-narrowed
+  by another source or by the prior without a generated equivalence proof.
+- The admissible result is a native S16 fibre/region, not necessarily an axis-aligned
+  16-lane box. Minimum-change selection is S16-native and fingerprinted.
+- A partial shadow may constrain only observable native directions. It cannot erase
+  a prior distinction in its unobserved fibre; every selected state is forward
+  verified against all source shadows.
+- First-hit/pre-hit exclusion/behind-hit no-claim are persistent exact relation
+  semantics, never a hardcoded depth sector.
 
-## ADR-S406 — Independent depth cells and transactional latent-gauge promotion
+## ADR-S417 — Topology is the same native relation stitch
 
-- Decision: left and right depth remain independent conservative finite-cone Q16.48
-  source cells. Their contribution is exact inclusive admissible-set intersection;
-  confidence changes interval width only and never becomes a weighted sensor sum.
-- Decision: empty meets and pre-hit exclusions produce bounded provenance evidence,
-  not canonical mutation. Accepted proposals are revalidated against the immutable
-  source generation before a new page generation is published, and weaker or
-  correlated observations cannot reduce existing information resistance.
-- Decision: image blocks and nearby carrier pages may schedule unmatched work but
-  have no topological meaning. A latent-gauge generation remains unpublished until
-  distinct L/R evidence promotes at least one exact sample; otherwise the write is
-  aborted. Small scheduling counters may return asynchronously while all pixel and
-  carrier arithmetic remains on GPU.
-- Consequence: S4-05 topology must be derived from exact carrier transitions and
-  evidence signatures, never from gauge allocation layout, image blocks, depth
-  patches or spatial proximity.
+- For intrinsic neighbours, the exact transition is
+  `tau_ij = conjugate(s_i) * s_j` with descriptor-owned bracketing.
+- Regular, singular, no-relation and unresolved are outcomes of compatibility of
+  the same native-relation manifestations under transition transport.
+- Zero-divisor annihilation and non-zero associators are native strata inside that
+  stitch, not a separate topology pipeline.
+- Dirty work is keyed by intrinsic endpoint generations or changed relation
+  evidence. Optical/XYZ proximity may propose bounded work only and can never claim
+  contact or identity.
+- A disposable cache is keyed by complete endpoint-generation/evidence identity;
+  stable singular classification requires the specified independent-view proof.
 
-## ADR-S407 — Exact intrinsic topology is derived readout, not a second world
+## ADR-S418 — Association, latent state and refinement are native
 
-- Decision: S4-05 derives transition classes, annihilator evidence and
-  singular/unresolved cuts from generation-keyed Sigma carrier readout. It does
-  not introduce ContactFilm, BoundaryCurve, manifold, proximity or other
-  topology state, and it never mutates the canonical carrier.
-- Decision: changed pages use the full exact topology build; unchanged active
-  pages use only bounded epoch/frame-validated evidence accumulation. Published
-  topology keys are generation/revision keyed and stale or cut readout is
-  rejected by prediction.
-- Consequence: S4-06 RGB inverse evidence must narrow the same carrier and emit
-  proof certificates/conflicts; it may not create a detached appearance or
-  geometry correction world.
+- Every admissible supported or latent fibre that can explain a measured shadow is
+  evaluated before new identity is admitted. Candidate pruning needs an exact
+  coverage proof.
+- `CURRENT`, `PENDING`, `CONTINUATION` and `NOVEL` are not physical classes in v8;
+  pixel winner selection cannot mint or discard identity.
+- Unresolved evidence is a `LatentGerm`: native admissible region, complete evidence
+  references and a stable local relation gauge. It is neither a pixel chart nor a
+  second pending world.
+- Exact stitch closure absorbs a latent germ into an existing branch or promotes it
+  into deterministic collision-free carrier gauge. Failure or uncertainty makes no
+  canonical claim.
+- When one germ cannot represent independently supported variation, exact bijective
+  gauge refinement adds finer S16 germs and transports retained evidence. It never
+  creates a detail mesh or texture world.
 
-## ADR-S408 — RGB-D proof narrows the same hyperdimensional carrier
+## ADR-S419 — Complete evidence precedes sparse root-last publication
 
-- Decision: both RGB eyes and both depth eyes remain four independent source cells
-  until exact admissible-set intersection against one selected `Psi` generation.
-  RGB can alter geometry-relevant S16 directions only where the generated view
-  operator actually makes them observable; there is no texture-world or detached
-  photometric correction.
-- Decision: sparse `ConstraintCertificate` records and unresolved raw tiles are
-  directional inference proof for `Psi`, not physical state. Certificates are
-  reapplied to the exact prior of later inverse evaluations; raw tiles retain the
-  original timestamps, pairing uncertainty, pose/calibration gauge, footprint and
-  source cells required for deterministic replay.
-- Decision: independent support is evaluated per S16 operator coordinate. Two
-  distinct sources may harden only the directions both actually constrain; an
-  appearance-only constraint cannot make an unrelated geometry direction resistive.
-- Consequence: S4-07 may change only carrier gauge sampling through a bijection. It
-  must transport/revalidate these retained constraints over the same `Psi` and may
-  not reinterpret the proof ledger as geometry, topology, detail or appearance.
+- Only `GermDelta` records can mutate canonical state.
+- All deltas targeting the same complete native germ key reduce deterministically
+  before one final selection and revalidation. Execution order never selects a
+  writer.
+- A visible revision owns complete independent source evidence or a proven exact
+  certificate/raw handoff before publication. Reduced joint state is only a
+  witness/cache, never a substitute for the source journal.
+- Touched pages receive unpublished shadow generations; validation closes one
+  revision and a single root exchange is the final visible operation.
+- Proof minimization and evidence reclamation may run later, but cannot weaken or
+  outlive their ownership contract.
 
-## ADR-S409 — Supported detail is a local carrier gauge bijection
+## ADR-S420 — Multiple lower-dimensional readouts are pure consumers
 
-- Decision: gauge demand is derived only from independently accepted proof cells
-  whose exact common admissible width cannot reproduce local projective variation;
-  image tiles, pages and repeated correlated views never demand detail by count.
-- Decision: the accepted local gauge is a separable continuous bijection of the
-  same carrier. It expands one requested eight-sample band, translates retained
-  support and draws capacity only from two exact implicit-null tail bands while
-  fixing the outer support endpoint.
-- Decision: carrier samples, proof footprints, retained raw observations and
-  intrinsic transition evidence are transported and revalidated in one immutable
-  generation transaction. Singular or unresolved interpolation fails closed.
-- Consequence: supported fine geometry and appearance remain literal variation of
-  `Psi`; no displacement, chart, mip hierarchy or secondary detail ontology is
-  permitted. S4-08 changes only the observation pose gauge and must reuse this
-  exact-cell infrastructure rather than introduce a second SLAM.
+- Direct stereo eye, scanner prediction, textured 3D export and debug/analytics are
+  independent query descriptors over full latest `Psi`.
+- Eye output may be deliberately cheap and lossy; discarded directions remain in
+  `Psi` for later views and rich export.
+- Prediction proposes native fibres and direct order but has no allocation or
+  identity authority.
+- Export derives geometry, intrinsic connectivity and multi-view appearance from
+  full `Psi`; it never consumes an old preview cache as canonical truth.
+- Readout caches, eye maps, meshes and textures are disposable. Deleting them cannot
+  change replay or carrier bytes.
 
-## ADR-S410 — Pose correction is an exact same-frame readout gauge
+## ADR-S421 — Two semantic solves, bounded GPU lowering and hard replacement
 
-- Decision: conditioned dual-eye overlaps emit independent conservative twist
-  intervals which meet the bounded Meta-pose tracking prior in exact Q16.48. The
-  immutable Meta pose is its centre. Numeric tracking covariance is projected when
-  exposed by the capture API; otherwise a deterministic envelope is derived from
-  coherent-frame timing/skew uncertainty, observed tracking rates, fixed-rig
-  residuals and persisted calibration bounds. Missing covariance never means zero
-  uncertainty. A non-empty meet selects the componentwise minimum-magnitude point;
-  conflict or insufficient independent support retains the immutable Meta pose.
-- Decision: an accepted nonzero twist rerasterizes the same retained
-  `StereoRigFrame` before any carrier inverse work. Depth and RGB calibration then
-  consume that corrected prediction/gauge snapshot together; a correction from
-  frame N is never blindly carried into frame N+1.
-- Decision: overlap work is distributed into GPU partial meets and one fixed
-  reduction. The exact result remains GPU-resident and is consumed directly by
-  same-frame depth/RGB association and projection; CPU sees only a fence. It is a
-  readout gauge, not carrier state, and cannot rewrite `Psi`, intrinsic topology,
-  timestamps or rig extrinsics.
-- Consequence: S4-09 receives one unchanged canonical carrier plus a bounded
-  observation gauge, not a pose graph, second SLAM or historical geometry rewrite.
+- Live reconstruction has only two semantic solves:
+  `Omega = INVERSE_NATIVE_22` and `Xi = STITCH_COMMIT_NATIVE_22`. Readout is a pure
+  evaluation, not a third reconstruction world.
+- The initial physical lowering is a small fixed set of compact/indirect kernels.
+  Relation expressions and common subexpressions are fused by the generator;
+  dispatch stages are not semantic lifecycle objects.
+- C# owns capture admission, immutable resources, residency, fences, publication
+  lifecycle and errors only. GPU owns association, pullback, stitch, mutation and
+  readout.
+- Canonical results must be invariant under workgroup, segment, page, relation and
+  dispatch decomposition. Illegal dispatch/binding dimensions fail before command
+  execution.
+- S4-08.6 is a replacement run: each N3-N7 cut deletes the branch it supersedes.
+  Final gates are gross deletion `>=10000` production LOC, new production
+  `<=4000`, net `<=-6100` versus `cac9ab0`, net `<=-5500` versus `d3b83e1`, and no
+  legacy/fallback symbols.
 
-## ADR-S411 — Live inverse completion is one GPU-resident Psi transaction
+## ADR-S422 — Deterministic closure and physical acceptance
 
-- Decision: active/unmatched work compaction, generation-paired scratch allocation,
-  inverse-cell solve, raw-proof reservation, exact proof reduction and immutable
-  publication execute as one indirect GPU command graph. CPU owns lifecycle,
-  immutable frame metadata and a completion fence only.
-- Decision: topology/readout execution adjacency is derived solely from exact
-  signed-64 `Sigma_2` logical page addresses. Image neighbourhoods, Euclidean 3D
-  proximity and storage-segment boundaries have no identity or physical meaning.
-- Consequence: no callback, CPU scheduler, chart/mesh topology or parallel world is
-  permitted to decide canonical mutation; singular structure remains an exact
-  annihilator/associator readout of the same `Psi`.
+- S4-08.6 runs strictly N0 through N8 as frozen in
+  `.codex/S4-08.6_NATIVE_CLOSURE_PLAN.md`; `.codex/S4-08.6_RESUME.md` is its sole
+  routine resume cursor.
+- N1 freezes the authoritative TOE descriptor before runtime work. No live cutover
+  may begin from guessed relations.
+- Every accepted node regenerates the code graph and is committed separately.
+- Only N8 may close S4-08: archive the exact source commit, build/install that same
+  Android/Vulkan Release and pass the physical scan/readout corpus with truthful
+  kernel timing, `Omega+Xi <=1500 ms`, wall `<=1800 ms`, bounded memory and no
+  revision/segment latency slope.
+- S4-09 remains unopened until this same-commit device gate is accepted.
 
-## ADR-S412 — Canonical transaction is independent of GPU scheduling time
+## Explicit supersession
 
-- Decision: ADR-S411's one proof-closed `Psi` transaction remains the semantic
-  unit, but it is no longer required to execute as one page-sized command-buffer
-  quantum. A transaction may persist across XR frames in owned GPU scratch while
-  deterministic 16-sample execution microtiles complete 64-sample proof blocks.
-  Partitioning, token budget, fair interleaving and pause/resume must reproduce the
-  one-shot semantic oracle bit-for-bit, including validity, conflicts, provenance,
-  minimal certificates and candidate transition signatures.
-- Decision: one bounded generation-safe GPU transaction arena and one generated
-  cost-token scheduler own live progress. The CPU records fixed indirect ingress,
-  canonical and derived submissions and polls completion only for resource
-  lifetime. No CPU work selection, timing readback, callback mutation authority or
-  hardware-async requirement is introduced. Admission scans a fixed source-header
-  ring before the eight active records; transactions with intersecting exact
-  logical footprint masks are dependency-chained and published in checked ticket
-  order, while disjoint work may interleave.
-- Decision: an ingress-surviving source bundle owns compact immutable sensor and
-  prediction payload plus provenance. It never retains a capture/prediction ring
-  lease. Its source set is sealed before exact evaluation; certificate
-  minimization occurs only after sealed proof closure in section-30 order. A
-  transient section-18 probation record may collect multiple immutable bundle
-  handles in source order, but it cannot begin mutation or publish geometry until
-  the independent-support rule seals that exact handle set.
-- Decision: novel association handles same-carrier, mixed-eye, no-prediction and
-  incompatible-carrier cases through exact admissible-cell and first-hit rules.
-  Prediction proposes identity but is not an existence condition. Empty exact
-  evidence is retained with a dependency fingerprint and is not retried until a
-  relevant `Psi`, pose, calibration, support or independence generation changes.
-  Dependency hashes are lookup accelerators only; exact decisions compare the full
-  generation tuple. Before publication, changed first-hit dependencies rerasterize
-  manifest-resolved `Psi` from the retained observation pose and repeat exact gates.
-- Decision: canonical candidate-transition validation evaluates candidate S16,
-  exact annihilator/associator plans and retained evidence directly before commit.
-  The generation-keyed topology cache remains derived readout only. A
-  generation-safe publication manifest exposes every page generation belonging to
-  one affected carrier footprint with one all-or-none visibility marker. New pages
-  name a `bornManifest`; replaced pages name the same `retiredByManifest`; the
-  shared visibility rule changes both sides only when that manifest atomically
-  becomes published. Per-page current flags are derived caches and page boundaries
-  retain zero physical meaning.
-- Decision: scheduler costs combine generated operator-plan counts with a fixed
-  kernel execution manifest covering workgroup shape, memory traffic, barriers,
-  scratch and witness work. Static device token profiles bound submissions;
-  Section-44 telemetry validates the profile but never changes canonical physics.
-- Decision: resident bundle headers, source scratch and twelve-candidate proof
-  arrays are execution windows, never canonical limits. A transaction owns a
-  generation-safe segmented stream of its complete sealed evidence. Exhausted
-  windows pause or losslessly spill; only after source closure may stable
-  lexicographic coalescing and reverse-order redundancy run to a fixed point.
-  Bundle partitioning, token budget and scratch capacity cannot change Psi, proof
-  bytes, validity or provenance.
-- Consequence: sensor ingress is decoupled from inverse latency, exact evidence is
-  never blurred or made scheduling-dependent, and the renderer sees only committed
-  manifest-visible `Psi`. S4-10 supplies durable lossless overflow and S4-11 later
-  replaces the temporary direct carrier readout without changing this contract.
-
-## ADR-S413 — Direct whole-observation inverse supersedes page transactions
-
-- Decision: `CPQ4-2026-08-24-S16-v7` replaces section-18 image-block/Morton gauge
-  allocation. One synchronized four-stream rig frame is one observation and one
-  sparse revision boundary. Execution tiles, source cells, proof windows and pages
-  may lower its work but may not create identity, ownership or publication units.
-- Decision: the live foreground path is one fixed GPU frame dataflow: owned-frame
-  seal, current/pending proposals, four independent exact source-cell streams,
-  stable exact target reduction, pending continuation/reuse/promotion, complete
-  evidence journal, incident-edge transition closure, shadow scatter and one atomic
-  revision-root flip. Persistent bundle/page transactions, token scheduling,
-  singleton proof ownership and per-page publication are removed rather than fixed.
-- Decision: pending gauges are transient local parameterizations plus exact
-  evidence. They have no canonical `Sigma_2` coordinate and cannot be canonical
-  prediction sources. Canonical extent allocation occurs only at promotion in the
-  deterministic section-18.7 order and is independent of Morton, tiles, pages, GPU
-  order and 3D position.
-- Decision: a visible revision owns its complete immutable exact evidence journal
-  before publication. Deterministic minimal-certificate reduction may follow as
-  background compaction, but durable persistence/eviction waits for that result.
-  Fixed scratch windows and raw pools always continue, reclaim or spill; they never
-  truncate evidence or stop a session.
-- Decision: transition validation evaluates only intrinsic edges incident to
-  changed candidate samples. Unobserved endpoints make no physical null claim;
-  unresolved claimed edges defer only incident mutations. Backing-page boundaries
-  are absent from the transition operator.
-- Decision: the 112 MiB transient hard gate is retired. Memory is a segmented
-  execution profile with initial 1024/2048/3072 MiB Quest targets. Profiles change
-  residency/cadence only and never state, proof, source resolution or allocation.
-- Decision: Release diagnostics use actual GPU timestamp markers plus exact
-  operation/memory counters. Timing and async readback are observation only and an
-  unsupported recorder is explicit rather than a zero sample.
-- Supersession: ADR-S411 remains authoritative only for GPU residency, exact
-  publication and no CPU/second-world control. ADR-S412's transaction arena,
-  bundle ownership, token scheduler, microtile/proof-block lifecycle and manifest
-  footprint transaction are retired and must not be renamed or retained as a
-  fallback.
-- Consequence: S4-08 acceptance is the direct-frame cutover defined in
-  `.codex/S4-08.4_DIRECT_FRAME_PLAN.md`. S4-09 remains unopened until that exact
-  revision is archived, built, installed and physically accepted on Quest.
-
-## ADR-S414 — One reduced target stream owns direct-frame closure
-
-- Decision: binding-safe footprint windows are fixed slices of one coherent frame,
-  not persistent work records. They feed one transient target stream; all records
-  with the same complete carrier/pending key are reduced by exact meet before one
-  final S16 state is constructed. Window, dispatch and writer order cannot select a
-  canonical result.
-- Decision: the reduced target record is reused as final-state input, exact live
-  certificate source, dirty-edge input and shadow-scatter input. Existing frame
-  records, constraint-ledger ownership, carrier segments and revision handles are
-  reused; no new scheduler, manager, ABI family or publication authority exists.
-- Decision: pending and continuation proposals persist only as generation-safe
-  exact evidence/parameterization handles. Exact S16 pending/transition closure
-  decides joins and incident deferral. Image/XYZ adjacency only proposes work.
-- Decision: carrier and revision allocation are binding-safe segmented paired
-  arenas with generation-safe reclaim. One manifest root is authoritative to
-  prediction, topology, readout and persistence; CPU metadata may mirror it but
-  cannot establish an independent current generation.
-- Consequence: S4-08.5 closes the incomplete ADR-S413 lowering without reviving
-  ADR-S412's transaction/token graph. The final production LOC must be lower than
-  baseline `d3b83e1`, and only a same-commit Quest gate may close S4-08.
+- ADR-S405 through ADR-S414 remain historical evidence for accepted primitives and
+  failed lowerings only.
+- Their sensor-specific cell worlds, proposal-kind identity, provider-by-segment
+  evaluation, optical edge universe, pixel pending chart, global novel bbox,
+  page-halo continuity and duplicated publication graph are superseded and must be
+  deleted, not renamed.
+- Root-last immutable publication, exact carrier/codec, complete evidence,
+  generated algebra and representation-neutral Quest infrastructure survive where
+  they satisfy v8.
