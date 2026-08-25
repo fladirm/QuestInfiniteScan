@@ -8,8 +8,8 @@ namespace Genesis.RoomScan.SigmaPrism
 {
     /// <summary>
     /// One-shot Vulkan timestamps for an otherwise unmodified Release submission.
-    /// Two plugin events bracket the command buffer; the native Vulkan hook writes
-    /// query pairs around dispatches and returns the complete pool after its fence.
+    /// Explicit plugin events place query pairs around each recorded dispatch and
+    /// return the complete pool after the submission fence.
     /// </summary>
     internal static class SigmaGpuKernelTelemetry
     {
@@ -132,7 +132,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 throw new ArgumentNullException(nameof(command));
 #if !UNITY_EDITOR && UNITY_ANDROID
             command.IssuePluginEvent(Native.RenderEvent,
-                Native.BeginEventId);
+                Native.EventId(Native.SubmissionBegin));
 #endif
         }
 
@@ -144,7 +144,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 throw new ArgumentNullException(nameof(command));
 #if !UNITY_EDITOR && UNITY_ANDROID
             command.IssuePluginEvent(Native.RenderEvent,
-                Native.EndEventId);
+                Native.EventId(Native.SubmissionEnd));
 #endif
         }
 
@@ -184,8 +184,10 @@ namespace Genesis.RoomScan.SigmaPrism
             if (command == null)
                 throw new ArgumentNullException(nameof(command));
             ValidateDirectDispatchDimensions(x, y, z);
-            Observe(shader, kernel, x, y, z);
+            bool timed = Observe(shader, kernel, x, y, z);
+            RecordDispatchEvent(command, timed, true);
             command.DispatchCompute(shader, kernel, x, y, z);
+            RecordDispatchEvent(command, timed, false);
         }
 
         internal static void DispatchComputeProfiled(this CommandBuffer command,
@@ -196,8 +198,10 @@ namespace Genesis.RoomScan.SigmaPrism
                 throw new ArgumentNullException(nameof(command));
             if (arguments == null)
                 throw new ArgumentNullException(nameof(arguments));
-            Observe(shader, kernel, -1, -1, -1);
+            bool timed = Observe(shader, kernel, -1, -1, -1);
+            RecordDispatchEvent(command, timed, true);
             command.DispatchCompute(shader, kernel, arguments, offset);
+            RecordDispatchEvent(command, timed, false);
         }
 
         internal static void ValidateDirectDispatchDimensions(int x, int y,
@@ -252,7 +256,7 @@ namespace Genesis.RoomScan.SigmaPrism
 #endif
         }
 
-        private static void Observe(ComputeShader shader, int kernel,
+        private static bool Observe(ComputeShader shader, int kernel,
             int x, int y, int z)
         {
             if (shader == null)
@@ -262,7 +266,7 @@ namespace Genesis.RoomScan.SigmaPrism
             DirectDispatchObservedForTests?.Invoke(entity, kernel, x, y, z);
 #endif
             if (_state != State.Recording)
-                return;
+                return false;
             if (!EntriesByKernel.TryGetValue((entity, kernel), out Entry entry))
                 throw new InvalidOperationException(
                     $"Compute kernel {shader.name}#{kernel} was not registered.");
@@ -273,6 +277,18 @@ namespace Genesis.RoomScan.SigmaPrism
             DispatchSequence.Add(entry);
 #if UNITY_EDITOR
             ProfiledDispatchObservedForTests?.Invoke(entity, kernel, x, y, z);
+#endif
+            return true;
+        }
+
+        private static void RecordDispatchEvent(CommandBuffer command,
+            bool timed, bool begin)
+        {
+#if !UNITY_EDITOR && UNITY_ANDROID
+            if (timed)
+                command.IssuePluginEvent(Native.RenderEvent, begin
+                    ? Native.EventId(Native.DispatchBegin)
+                    : Native.EventId(Native.DispatchEnd));
 #endif
         }
 
@@ -351,6 +367,10 @@ namespace Genesis.RoomScan.SigmaPrism
 
         private static class Native
         {
+            internal const int SubmissionBegin = 0;
+            internal const int DispatchBegin = 1;
+            internal const int DispatchEnd = 2;
+            internal const int SubmissionEnd = 3;
 #if !UNITY_EDITOR && UNITY_ANDROID
             private const string Library = "SigmaVulkanTimestamps";
 
@@ -362,10 +382,8 @@ namespace Genesis.RoomScan.SigmaPrism
             private static extern void CancelNative();
             [DllImport(Library, EntryPoint = "SigmaTimestamp_GetRenderEventFunc")]
             private static extern IntPtr GetRenderEventFuncNative();
-            [DllImport(Library, EntryPoint = "SigmaTimestamp_GetBeginEventId")]
-            private static extern int GetBeginEventIdNative();
-            [DllImport(Library, EntryPoint = "SigmaTimestamp_GetEndEventId")]
-            private static extern int GetEndEventIdNative();
+            [DllImport(Library, EntryPoint = "SigmaTimestamp_GetEventId")]
+            private static extern int GetEventIdNative(int offset);
             [DllImport(Library, EntryPoint = "SigmaTimestamp_Read")]
             private static extern int ReadNative([Out] ulong[] timestamps,
                 int timestampCapacity, out int dispatchCount,
@@ -373,8 +391,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 out ulong revision, out int overflow);
 
             internal static IntPtr RenderEvent => GetRenderEventFuncNative();
-            internal static int BeginEventId => GetBeginEventIdNative();
-            internal static int EndEventId => GetEndEventIdNative();
+            internal static int EventId(int offset) => GetEventIdNative(offset);
             internal static bool TryArm(uint revision)
             {
                 try
@@ -403,8 +420,7 @@ namespace Genesis.RoomScan.SigmaPrism
             }
 #else
             internal static IntPtr RenderEvent => IntPtr.Zero;
-            internal static int BeginEventId => 0;
-            internal static int EndEventId => 0;
+            internal static int EventId(int offset) => 0;
             internal static bool TryArm(uint revision) => false;
             internal static void Cancel() { }
             internal static int TryRead(ulong[] timestamps,

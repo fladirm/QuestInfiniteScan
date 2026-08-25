@@ -99,13 +99,11 @@ extent allocation, proof/raw ownership and milestone gates are frozen in the pla
 
 ## Current exact action
 
-Commit the isolated persistent-PENDING backing repair, then implement one separate
-diagnostic-only commit replacing broken Vulkan dispatch interception with explicit
-one-shot plugin events around the centralized dispatch wrappers. Push, build and
-install the exact second commit. Persistent backing growth, three-window traversal,
-handle-above-frame projection and bit-identical promotion fixtures are green; the
-full Vulkan run passed 72/73 with only the pre-existing full-sort timeout. No
-R3/R4, S16, carrier, accepted-bit or publication change is authorized.
+The persistent-PENDING repair is committed at `e28a956`. Commit the isolated
+diagnostic replacement of global Vulkan dispatch interception with explicit
+one-shot plugin events, then push, build and install that exact commit. Native
+Android compilation and the profiling-disabled production-dispatch parity fixture
+are green. No R3/R4, S16, carrier, accepted-bit or publication change is authorized.
 
 ## Required end state
 

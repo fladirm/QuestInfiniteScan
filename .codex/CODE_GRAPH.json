@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "source_digest": "79e770ea810279006aa324e41a4b3028a49af00667b7f78344c7a6f644b3a2ac",
+  "source_digest": "e1aa8a1641e15ca7411254e95e1c693caf9d1c09e6ca401f7cbe5639b9e16c3d",
   "scope": [
     "Runtime/**/*.cs",
     "Runtime/Resources/SigmaPrism/**/*.*",
@@ -11,8 +11,8 @@
   ],
   "summary": {
     "files": 107,
-    "symbols": 1646,
-    "methods_and_functions": 1342,
+    "symbols": 1648,
+    "methods_and_functions": 1344,
     "gpu_kernels": 73,
     "event_links": 5
   },
@@ -7548,11 +7548,11 @@
       "line": 33
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::ArmNative@360",
+      "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::ArmNative@380",
       "file": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs",
       "name": "ArmNative",
       "kind": "method",
-      "line": 360
+      "line": 380
     },
     {
       "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::BeginProfiledSubmission@102",
@@ -7562,32 +7562,32 @@
       "line": 102
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::Cancel@388",
+      "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::Cancel@405",
       "file": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs",
       "name": "Cancel",
       "kind": "method",
-      "line": 388
+      "line": 405
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::Cancel@409",
+      "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::Cancel@425",
       "file": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs",
       "name": "Cancel",
       "kind": "method",
-      "line": 409
+      "line": 425
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::CancelNative@332",
+      "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::CancelNative@348",
       "file": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs",
       "name": "CancelNative",
       "kind": "method",
-      "line": 332
+      "line": 348
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::CancelNative@362",
+      "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::CancelNative@382",
       "file": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs",
       "name": "CancelNative",
       "kind": "method",
-      "line": 362
+      "line": 382
     },
     {
       "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::CancelSingleSubmission@172",
@@ -7597,11 +7597,11 @@
       "line": 172
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::CaptureAndLogFrame@227",
+      "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::CaptureAndLogFrame@231",
       "file": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs",
       "name": "CaptureAndLogFrame",
       "kind": "method",
-      "line": 227
+      "line": 231
     },
     {
       "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::CompleteProfiledSubmission@165",
@@ -7611,11 +7611,11 @@
       "line": 165
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::ComputeLinearDispatchGrid@215",
+      "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::ComputeLinearDispatchGrid@219",
       "file": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs",
       "name": "ComputeLinearDispatchGrid",
       "kind": "method",
-      "line": 215
+      "line": 219
     },
     {
       "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::DispatchComputeProfiled@180",
@@ -7625,11 +7625,11 @@
       "line": 180
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::DispatchComputeProfiled@190",
+      "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::DispatchComputeProfiled@192",
       "file": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs",
       "name": "DispatchComputeProfiled",
       "kind": "method",
-      "line": 190
+      "line": 192
     },
     {
       "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::EndProfiledSubmission@150",
@@ -7646,6 +7646,20 @@
       "line": 27
     },
     {
+      "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::EventId@394",
+      "file": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs",
+      "name": "EventId",
+      "kind": "method",
+      "line": 394
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::EventId@423",
+      "file": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs",
+      "name": "EventId",
+      "kind": "method",
+      "line": 423
+    },
+    {
       "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::FindProfiledKernel@71",
       "file": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs",
       "name": "FindProfiledKernel",
@@ -7653,67 +7667,67 @@
       "line": 71
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::Finish@325",
+      "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::Finish@341",
       "file": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs",
       "name": "Finish",
       "kind": "method",
-      "line": 325
+      "line": 341
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::GetBeginEventIdNative@366",
+      "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::GetEventIdNative@386",
       "file": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs",
-      "name": "GetBeginEventIdNative",
+      "name": "GetEventIdNative",
       "kind": "method",
-      "line": 366
+      "line": 386
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::GetEndEventIdNative@368",
-      "file": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs",
-      "name": "GetEndEventIdNative",
-      "kind": "method",
-      "line": 368
-    },
-    {
-      "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::GetRenderEventFuncNative@364",
+      "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::GetRenderEventFuncNative@384",
       "file": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs",
       "name": "GetRenderEventFuncNative",
       "kind": "method",
-      "line": 364
+      "line": 384
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::IsAvailableNative@358",
+      "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::IsAvailableNative@378",
       "file": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs",
       "name": "IsAvailableNative",
       "kind": "method",
-      "line": 358
+      "line": 378
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::LogResults@278",
+      "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::LogResults@294",
       "file": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs",
       "name": "LogResults",
       "kind": "method",
-      "line": 278
+      "line": 294
     },
     {
       "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::Native",
       "file": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs",
       "name": "Native",
       "kind": "class",
-      "line": 351
+      "line": 367
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::Observe@254",
+      "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::Observe@258",
       "file": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs",
       "name": "Observe",
       "kind": "method",
-      "line": 254
+      "line": 258
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::ReadNative@370",
+      "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::ReadNative@388",
       "file": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs",
       "name": "ReadNative",
       "kind": "method",
-      "line": 370
+      "line": 388
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::RecordDispatchEvent@283",
+      "file": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs",
+      "name": "RecordDispatchEvent",
+      "kind": "method",
+      "line": 283
     },
     {
       "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::RecordProfileBegin@126",
@@ -7744,11 +7758,11 @@
       "line": 58
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::SetProfilingEnabledForTests@425",
+      "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::SetProfilingEnabledForTests@441",
       "file": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs",
       "name": "SetProfilingEnabledForTests",
       "kind": "method",
-      "line": 425
+      "line": 441
     },
     {
       "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::SigmaGpuKernelTelemetry",
@@ -7765,46 +7779,46 @@
       "line": 18
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::TryArm@378",
+      "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::TryArm@395",
       "file": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs",
       "name": "TryArm",
       "kind": "method",
-      "line": 378
+      "line": 395
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::TryArm@408",
+      "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::TryArm@424",
       "file": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs",
       "name": "TryArm",
       "kind": "method",
-      "line": 408
+      "line": 424
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::TryRead@394",
+      "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::TryRead@411",
       "file": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs",
       "name": "TryRead",
       "kind": "method",
-      "line": 394
+      "line": 411
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::TryRead@410",
+      "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::TryRead@426",
       "file": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs",
       "name": "TryRead",
       "kind": "method",
-      "line": 410
+      "line": 426
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::ValidateDirectDispatchDimensions@202",
+      "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::ValidateDirectDispatchDimensions@206",
       "file": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs",
       "name": "ValidateDirectDispatchDimensions",
       "kind": "method",
-      "line": 202
+      "line": 206
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::Warn@342",
+      "id": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::Warn@358",
       "file": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs",
       "name": "Warn",
       "kind": "method",
-      "line": 342
+      "line": 358
     },
     {
       "id": "Runtime/SigmaPrism/SigmaIntrinsicTopology.cs::CanonicalizeKeys@152",
@@ -12100,7 +12114,7 @@
       "source_type": "Aggregate",
       "event": "TotalNanoseconds",
       "handler": "nanoseconds",
-      "line": 299
+      "line": 315
     },
     {
       "file": "Runtime/SigmaPrism/SigmaInverseController.cs",
@@ -17577,7 +17591,7 @@
     },
     {
       "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::RecordExactClosureOnly@559",
-      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::ComputeLinearDispatchGrid@215",
+      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::ComputeLinearDispatchGrid@219",
       "kind": "calls"
     },
     {
@@ -17817,7 +17831,7 @@
     },
     {
       "source": "Runtime/SigmaPrism/SigmaFrameGraph.cs::RecordTargetReduction@421",
-      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::ComputeLinearDispatchGrid@215",
+      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::ComputeLinearDispatchGrid@219",
       "kind": "calls"
     },
     {
@@ -18157,81 +18171,91 @@
     },
     {
       "source": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::BeginProfiledSubmission@102",
-      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::Warn@342",
+      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::Warn@358",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::CaptureAndLogFrame@227",
-      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::Finish@325",
+      "source": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::CaptureAndLogFrame@231",
+      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::Finish@341",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::CaptureAndLogFrame@227",
-      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::LogResults@278",
+      "source": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::CaptureAndLogFrame@231",
+      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::LogResults@294",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::CaptureAndLogFrame@227",
-      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::Warn@342",
+      "source": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::CaptureAndLogFrame@231",
+      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::Warn@358",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::ComputeLinearDispatchGrid@215",
-      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::ValidateDirectDispatchDimensions@202",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::DispatchComputeProfiled@180",
-      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::Observe@254",
+      "source": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::ComputeLinearDispatchGrid@219",
+      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::ValidateDirectDispatchDimensions@206",
       "kind": "calls"
     },
     {
       "source": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::DispatchComputeProfiled@180",
-      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::ValidateDirectDispatchDimensions@202",
+      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::Observe@258",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::DispatchComputeProfiled@190",
-      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::Observe@254",
+      "source": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::DispatchComputeProfiled@180",
+      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::RecordDispatchEvent@283",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::LogResults@278",
+      "source": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::DispatchComputeProfiled@180",
+      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::ValidateDirectDispatchDimensions@206",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::DispatchComputeProfiled@192",
+      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::Observe@258",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::DispatchComputeProfiled@192",
+      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::RecordDispatchEvent@283",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::LogResults@294",
       "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::Aggregate",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::LogResults@278",
+      "source": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::LogResults@294",
       "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Max@172",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::LogResults@278",
+      "source": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::LogResults@294",
       "target": "Runtime/Utils/Logger.cs::Info@30",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::SetProfilingEnabledForTests@425",
+      "source": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::SetProfilingEnabledForTests@441",
       "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::RequestSingleSubmission@94",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::TryArm@378",
-      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::ArmNative@360",
+      "source": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::TryArm@395",
+      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::ArmNative@380",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::TryArm@378",
-      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::IsAvailableNative@358",
+      "source": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::TryArm@395",
+      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::IsAvailableNative@378",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::TryRead@394",
-      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::ReadNative@370",
+      "source": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::TryRead@411",
+      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::ReadNative@388",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::Warn@342",
+      "source": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::Warn@358",
       "target": "Runtime/Utils/Logger.cs::Warning@36",
       "kind": "calls"
     },
@@ -18497,7 +18521,7 @@
     },
     {
       "source": "Runtime/SigmaPrism/SigmaInverseController.cs::LateUpdate@174",
-      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::CaptureAndLogFrame@227",
+      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::CaptureAndLogFrame@231",
       "kind": "calls"
     },
     {
@@ -21312,7 +21336,7 @@
     },
     {
       "source": "Tests/Editor/SigmaFrameInverseTests.cs::ProfilingDisabledPreservesProductionDispatchContract@318",
-      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::SetProfilingEnabledForTests@425",
+      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::SetProfilingEnabledForTests@441",
       "kind": "calls"
     },
     {
@@ -21822,12 +21846,12 @@
     },
     {
       "source": "Tests/Editor/SigmaFrameResourceTests.cs::ExecutionWindowsAndDirectDispatchesRespectVulkanDimensions@61",
-      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::ComputeLinearDispatchGrid@215",
+      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::ComputeLinearDispatchGrid@219",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaFrameResourceTests.cs::ExecutionWindowsAndDirectDispatchesRespectVulkanDimensions@61",
-      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::ValidateDirectDispatchDimensions@202",
+      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::ValidateDirectDispatchDimensions@206",
       "kind": "calls"
     },
     {
