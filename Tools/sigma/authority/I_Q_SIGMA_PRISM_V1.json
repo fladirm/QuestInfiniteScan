@@ -1,0 +1,137 @@
+{
+  "schemaVersion": "CPQ4-IQ-1",
+  "authority": {
+    "canonicalSpec": "new_spec.md",
+    "sections": [5, 7, 8, 9, 10, 13, 14, 15, 16, 17, 20, 23, 24, 25, 27, 30],
+    "scope": "instrument/query boundary only; never native TOE algebra"
+  },
+  "numericDomain": "num.fixed.q16_48.checked.nearest_even",
+  "observation": {
+    "rigCardinality": 2,
+    "sides": ["LEFT", "RIGHT"],
+    "coherentLeavesPerSide": ["DEPTH_ORDER", "OPTICAL"],
+    "sharedContext": [
+      "FINITE_FOOTPRINT",
+      "POSE_CALIBRATION_EPOCH",
+      "FIRST_HIT_ROLE",
+      "OCCLUSION_CONTEXT",
+      "PROVENANCE"
+    ],
+    "leafMeet": "EXACT_SET_INTERSECTION",
+    "weightedFusion": false,
+    "bootstrapBetweenLeaves": false
+  },
+  "queryFamilies": [
+    {
+      "id": "SENSOR_LEFT",
+      "entryArity": "FULL_FIELD_PLUS_QUERY",
+      "localContribution": "MERKABA_SHADOW_THEN_CALIBRATED_SENSOR_CONTRACTION",
+      "reduction": ["FINITE_FOOTPRINT", "DIRECT_ORDER", "FIRST_HIT", "OCCLUSION"],
+      "reverse": "EXACT_PREIMAGE_WITH_DISJUNCTION"
+    },
+    {
+      "id": "SENSOR_RIGHT",
+      "entryArity": "FULL_FIELD_PLUS_QUERY",
+      "localContribution": "MERKABA_SHADOW_THEN_CALIBRATED_SENSOR_CONTRACTION",
+      "reduction": ["FINITE_FOOTPRINT", "DIRECT_ORDER", "FIRST_HIT", "OCCLUSION"],
+      "reverse": "EXACT_PREIMAGE_WITH_DISJUNCTION"
+    },
+    {
+      "id": "EYE_PAIR",
+      "entryArity": "FULL_FIELD_PLUS_TWO_EYE_QUERIES",
+      "localContribution": "MERKABA_SHADOW_THEN_CALIBRATED_RETINAL_CONTRACTION",
+      "reduction": ["DIRECT_ORDER", "FIRST_HIT", "OCCLUSION", "FINITE_FOOTPRINT"],
+      "reverse": "FORBIDDEN"
+    },
+    {
+      "id": "INTRINSIC_RELATION",
+      "entryArity": "GENERATED_CONTEXT_TUPLE",
+      "localContribution": "FULL_S16_SIGN_TRANSPORT_AND_EXPLICIT_BRACKETS",
+      "reduction": ["EXACT_ZD", "NEAR_SINGULAR_Q48", "NONASSOCIATIVE_CONTEXT"],
+      "reverse": "EXACT_RELATION_PREIMAGE"
+    },
+    {
+      "id": "PREDICTION_SUPPORT",
+      "entryArity": "FULL_FIELD_PLUS_SENSOR_QUERY",
+      "localContribution": "SENSOR_FORWARD_WITNESS",
+      "reduction": ["DIRECT_ORDER", "FIRST_HIT", "OCCLUSION"],
+      "reverse": "POSSIBLE_SUPPORT_ONLY"
+    },
+    {
+      "id": "EXPORT",
+      "entryArity": "FULL_FIELD_PLUS_EXPORT_QUERY",
+      "localContribution": "FULL_S16_MERKABA_MANIFESTATION",
+      "reduction": ["NATIVE_RELATION_GATED_CONNECTIVITY", "DIRECTIONAL_APPEARANCE"],
+      "reverse": "FORBIDDEN"
+    },
+    {
+      "id": "DEBUG",
+      "entryArity": "FULL_FIELD_PLUS_DEBUG_QUERY",
+      "localContribution": "REQUESTED_GENERATED_RELATION",
+      "reduction": ["QUERY_DEFINED"],
+      "reverse": "FORBIDDEN"
+    }
+  ],
+  "sceneReduction": {
+    "preHit": "EXCLUSION_CONSTRAINT",
+    "firstHit": "INCLUSIVE_MOULD_CONSTRAINT",
+    "behindHit": "NO_CLAIM",
+    "directOrderAuthority": "CALIBRATED_QUERY_ORDER_NOT_ZD",
+    "branchSemantics": "UNION_UNTIL_EXACT_ELIMINATION_OR_COMMON_DELTA"
+  },
+  "defaultSemantics": {
+    "localContribution": "EXACT_REDUCER_IDENTITY",
+    "allDefaultRelation": "DEFAULT_SAT",
+    "allDefaultActiveWork": 0,
+    "mixedDefaultSupport": "DESCRIPTOR_EVALUATION_REQUIRED"
+  },
+  "reverseContractor": {
+    "brackets": "PRESERVE_SOURCE_TREE",
+    "intervalRounding": "OUTWARD",
+    "directionalAction": "EXACT_CONSTRAINT_COTANGENT_WITNESS_NOT_GRADIENT",
+    "behindHitAction": "NONE",
+    "contradiction": "PRESERVE_GAP_AND_PROVENANCE"
+  },
+  "nativeModalRelation": {
+    "source": "I_TOE_SECTION_8",
+    "residual": "EXACT_BRACKETED_U_J_MINUS_U_I_TRANSPORTED_BY_U_IJ",
+    "admissibleRegion": "FINGERPRINTED_OUTWARD_Q48_REGION_DERIVED_FROM_G_AND_EPSILON_CL",
+    "exactZero": "ADMISSIBLE",
+    "missingOrUnprovedRegion": "UNRESOLVED",
+    "xyzOrPixelCriterion": false
+  },
+  "photometricNuisance": {
+    "law": "OBSERVED_C_IN_CALIBRATED_MONOTONE_TRANSFER_C(EXPOSURE_TIMES_GAIN_C_TIMES_ILLUMINATION_C_TIMES_NATIVE_RESPONSE_C_PLUS_OFFSET_C)",
+    "parameterRepresentation": "BOUNDED_Q48_INTERVALS_PLUS_FINGERPRINTED_MONOTONE_PIECEWISE_LINEAR_TRANSFER",
+    "calibrationProvenance": "CAPTURE_CALIBRATION_EPOCH_FINGERPRINT",
+    "requiredBoundedParameters": [
+      "EXPOSURE",
+      "GAIN_PER_CHANNEL",
+      "ILLUMINATION_PER_CHANNEL",
+      "OFFSET_PER_CHANNEL",
+      "MONOTONE_TRANSFER_SEGMENTS"
+    ],
+    "unboundedParameterRegion": "FORBIDDEN_TO_PROVE_COMPATIBILITY_OR_MUTATION",
+    "whiteBalance": "BOUNDED_PER_CHANNEL_GAIN",
+    "metadataPresent": "REQUIRE_MATCHING_CALIBRATION_EPOCH_AND_BOUNDED_PARAMETERS",
+    "metadataMissing": "NO_OPTICAL_CLAIM_WITH_MISSING_METADATA_PROVENANCE",
+    "missingMetadataMayProveCompatibility": false,
+    "qualityScalarMutationAuthority": false
+  },
+  "querySupportSummary": {
+    "omitIff": "ALL_DEFAULT_AND_DEFAULT_BOUNDARY_CLOSED_AND_PROGRAM_GAUGE_FINGERPRINTS_MATCH",
+    "otherwise": "INCLUDE_CONSERVATIVELY",
+    "falseNegatives": 0,
+    "covers": ["RESIDENT", "NONRESIDENT", "REFINED", "MIXED_DEFAULT_BOUNDARY"],
+    "missingOrStale": "FAIL_CLOSED_INCLUDE_OR_REHYDRATE"
+  },
+  "certificate": {
+    "canonicalFactorOrder": "SCOPE_EXPRESSION_INDEPENDENCE_PROVENANCE_INTERVAL_LEXICOGRAPHIC",
+    "duplicateRule": "ONE_FACTOR_PLUS_BOUNDED_MULTIPLICITY_RECEIPT",
+    "weakerRule": "REMOVE_ONLY_EXACT_SUPERSET_WITH_IDENTICAL_SCOPE_AND_INDEPENDENCE_CLASS",
+    "coupledOrDisjunctiveRule": "RETAIN_UNLESS_COMPLETE_PROGRAM_EQUIVALENCE_IS_PROVED",
+    "scalarConfidence": false,
+    "directionalInformation": "EXACT_FACTOR_OR_PROVED_LOSSLESS_NATIVE_INFORMATION_FORM",
+    "completeProgramFibreSelector": "PRESERVE_PRIOR_ONLY_INSIDE_PROVED_COMPLETE_PROGRAM_EQUIVALENCE_FIBRE"
+  }
+}

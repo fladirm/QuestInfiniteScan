@@ -1,0 +1,522 @@
+{
+  "certificate": {
+    "canonicalFactorOrder": "SCOPE_EXPRESSION_INDEPENDENCE_PROVENANCE_INTERVAL_LEXICOGRAPHIC",
+    "completeProgramFibreSelector": "PRESERVE_PRIOR_ONLY_INSIDE_PROVED_COMPLETE_PROGRAM_EQUIVALENCE_FIBRE",
+    "coupledOrDisjunctiveRule": "RETAIN_UNLESS_COMPLETE_PROGRAM_EQUIVALENCE_IS_PROVED",
+    "directionalInformation": "EXACT_FACTOR_OR_PROVED_LOSSLESS_NATIVE_INFORMATION_FORM",
+    "duplicateRule": "ONE_FACTOR_PLUS_BOUNDED_MULTIPLICITY_RECEIPT",
+    "scalarConfidence": false,
+    "weakerRule": "REMOVE_ONLY_EXACT_SUPERSET_WITH_IDENTICAL_SCOPE_AND_INDEPENDENCE_CLASS"
+  },
+  "directS16DependenciesRetained": true,
+  "e22InventoryCount": 0,
+  "expressionInventory": [
+    {
+      "arity": 2,
+      "bracket": "mul(e_a,e_b)",
+      "fingerprint": "a809fc06c3567806c9918f7b9537228f9609b021360aedbc9f685253df73e4e4",
+      "formula": "epsilon(a,b)*e_(a XOR b)",
+      "id": "K16_BASIS_PRODUCT",
+      "neighbourhood": "LOCAL",
+      "source": "I_TOE:1"
+    },
+    {
+      "arity": 3,
+      "bracket": "(a*b)*c-a*(b*c)",
+      "fingerprint": "045dfeb49609dbd1babe32b6d45c595e71e857fc3b3eee2931be0bfb8468b81a",
+      "formula": "Omega(a,b,c)*e_(a XOR b XOR c)",
+      "id": "K16_ASSOCIATOR",
+      "neighbourhood": "LOCAL_CONTEXT",
+      "source": "I_TOE:2"
+    },
+    {
+      "arity": 2,
+      "bracket": "epsilon_ab*L_(a XOR b)-L_a*L_b",
+      "fingerprint": "02e36cd4e30248c477ebe5d13cec2527634c528d6ff38ae124fd30e101f909d5",
+      "formula": "sum_(a<b) D_ab",
+      "id": "K16_DIFFRACTION",
+      "neighbourhood": "LOCAL",
+      "source": "I_TOE:3"
+    },
+    {
+      "arity": 2,
+      "bracket": "mul(a,b)",
+      "fingerprint": "f5b63d09ef28f0b1e5b289399734f10a16703e4808c82078236eaa4c037d54a3",
+      "formula": "a!=0 and b!=0 and a*b==0; distinct from ker(A)",
+      "id": "K16_ZERO_DIVISOR",
+      "neighbourhood": "LOCAL_RELATION",
+      "source": "I_TOE:4+A_S16"
+    },
+    {
+      "arity": 1,
+      "bracket": "recursive_block_matrix",
+      "fingerprint": "a42bc1b364a8669182e77df2664212bd2daadded33323d4adf5eea8cc1752ddc",
+      "formula": "A4^2=-15I16",
+      "id": "K16_SHELL",
+      "neighbourhood": "LOCAL",
+      "source": "I_TOE:5"
+    },
+    {
+      "arity": 1,
+      "bracket": "C16*u0",
+      "fingerprint": "7ca81f3b66e907c70eb62794864be89700034da1e2baafd373cd43df4fd84d8a",
+      "formula": "C16*u0=lambda0*u0; observer shadow is not full mode",
+      "id": "K16_CLOSURE_EIGENMODE",
+      "neighbourhood": "FULL_LOCAL_STATE",
+      "source": "I_TOE:6"
+    },
+    {
+      "arity": 1,
+      "bracket": "P_t*s(address)",
+      "fingerprint": "4c0abf5aa7007026169ae2f5f7e5d4bafdbe1380255d83e5555c2bdcb6ba8969",
+      "formula": "F_M=16P_t",
+      "id": "MERKABA_SHADOW",
+      "neighbourhood": "LOCAL",
+      "source": "I_TOE:6"
+    },
+    {
+      "arity": 1,
+      "bracket": "P*C*(I-P)",
+      "fingerprint": "8e0f9efe3b9b3ee55b6ba7a9a65971e544b79d520a2a199705c901989f23e058",
+      "formula": "omit_kernel_only_if_Cvk=Ckv=0",
+      "id": "SHADOW_COUPLING",
+      "neighbourhood": "COMPLETE_PROGRAM",
+      "source": "I_TOE:7"
+    },
+    {
+      "arity": 3,
+      "bracket": "ordered_plaquette",
+      "fingerprint": "90c6c34f3edbffb29793e1b86845dce4210f268ba9ebb0092a5967dad306e1b5",
+      "formula": "Ua(b)Uc(b XOR a)Ua(b XOR c)^-1Uc(b)^-1",
+      "id": "SIGN_TRANSPORT",
+      "neighbourhood": "GENERATED_CONTEXT",
+      "source": "I_TOE:8"
+    },
+    {
+      "arity": 2,
+      "bracket": "sub(u_j,transport(U_ij,u_i))",
+      "fingerprint": "b40a58614f4e3d1c97606e6c1b5e332d20ef18b161479084722f9b358ab075f1",
+      "formula": "exact_residual_in_fingerprinted_Q48_region; missing_region=UNRESOLVED",
+      "id": "NATIVE_MODAL_RELATION",
+      "neighbourhood": "GENERATED_INTRINSIC_CONTEXT",
+      "source": "I_TOE:8+I_Q:nativeModalRelation"
+    },
+    {
+      "arity": -1,
+      "bracket": "project_then_reduce",
+      "fingerprint": "55c246334e9d544800c8613a09682c780067f13b5d51f55ca8abf3e143693c83",
+      "formula": "finite_footprint+order+first_hit+occlusion",
+      "id": "SENSOR_SHADOW",
+      "neighbourhood": "WHOLE_QUERY",
+      "source": "I_Q:SENSOR_LEFT_RIGHT"
+    },
+    {
+      "arity": -1,
+      "bracket": "source_tree_reverse",
+      "fingerprint": "9967d9d64822b42b06d31ede15cb6ec6e5d19d71909002d9536c63285d3d65ac",
+      "formula": "preimage_union_outward_intervals",
+      "id": "EXACT_REVERSE",
+      "neighbourhood": "QUERY_SUPPORT_UNION",
+      "source": "I_Q:reverseContractor"
+    },
+    {
+      "arity": 1,
+      "bracket": "decode_before_query",
+      "fingerprint": "5fdfeeac6d410f01f88cd3cbdc643cc4ae1eddcf9f4c3884301a45d517d637eb",
+      "formula": "piecewise_constant_full_S16",
+      "id": "DYADIC_REPRESENTATION",
+      "neighbourhood": "HALF_OPEN_DYADIC_CELL",
+      "source": "I_REP:kappa"
+    },
+    {
+      "arity": -1,
+      "bracket": "decode_default_then_evaluate",
+      "fingerprint": "89eed565c48831d548157ade8be873b50a149b6666f84c72c4b870dcdd0f2eaa",
+      "formula": "unbacked=allocated=NULL=algebra_zero; all_default=DEFAULT_SAT",
+      "id": "ZEMPTY_DEFAULT",
+      "neighbourhood": "WHOLE_PROGRAM",
+      "source": "I_Q:defaultSemantics+I_REP:defaultRepresentations"
+    },
+    {
+      "arity": -1,
+      "bracket": "reverse_source_tree",
+      "fingerprint": "f11ac6b09a4057cb492156e52cbc10e6bbd2fae153954cac57dcc391e57f0d15",
+      "formula": "pre_hit_exclusion+first_hit_mould; behind_hit=NO_CLAIM",
+      "id": "DIRECTIONAL_FIRST_HIT_ACTION",
+      "neighbourhood": "WHOLE_QUERY_PREIMAGE",
+      "source": "I_Q:sceneReduction+reverseContractor"
+    },
+    {
+      "arity": -1,
+      "bracket": "bounded_transfer_then_joint_reverse",
+      "fingerprint": "a63a9e8bc82a520515e1a90f74481cede342ccb2e04c1f14f3c428790c06782b",
+      "formula": "bounded_calibrated_monotone_Q48_transfer",
+      "id": "OPTICAL_NUISANCE",
+      "neighbourhood": "COHERENT_EYE_SHADOW",
+      "source": "I_Q:photometricNuisance"
+    },
+    {
+      "arity": -1,
+      "bracket": "retain_coupled_or_disjunctive_factor",
+      "fingerprint": "8249fcda193e2358e9100e471056d312818b3030d6cf5cea45f4bed3602a8cd7",
+      "formula": "directional_exact_factor_not_scalar_confidence",
+      "id": "NATIVE_INFORMATION_PULLBACK",
+      "neighbourhood": "COMPLETE_CONSTRAINT_FACTOR",
+      "source": "I_Q:certificate"
+    },
+    {
+      "arity": -1,
+      "bracket": "canonical_factor_order_then_exact_dominance",
+      "fingerprint": "16f8eead432af30d31a94f2529d4a91a07fa44ce03d3da00493f2889e681c449",
+      "formula": "deduplicate_only_same_scope_class; retain_coupling_and_disjunction",
+      "id": "CERTIFICATE_MINIMIZER",
+      "neighbourhood": "ACCUMULATED_EVIDENCE",
+      "source": "I_Q:certificate"
+    },
+    {
+      "arity": -1,
+      "bracket": "normalize_before_serialize",
+      "fingerprint": "8aa307a776f8b93f39b91d33363bb2f7eb6f0ea14a0bafda303771b2a8ec8dcd",
+      "formula": "global_translation_normal_form+exact_dyadic_split_collapse",
+      "id": "CANONICAL_GAUGE_NORMALIZER",
+      "neighbourhood": "FINITE_NONDEFAULT_SUPPORT",
+      "source": "I_REP:gaugeFamily+normalizer"
+    }
+  ],
+  "generatedOutputs": [
+    "Runtime/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.cs",
+    "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.hlsl"
+  ],
+  "inputs": {
+    "algebraCoreSha256": "f7524a2d348cda462a2c6fa4804cf6be33c2554a69c6ecf67a11ef97009529cc",
+    "canonicalSpec": {
+      "path": "new_spec.md",
+      "sha256": "20d15b4936aba2bca72e951b5534160d44c4cb44713b43a6effc9c93df826d69"
+    },
+    "closurePlan": {
+      "path": ".codex/S4-08.6_NATIVE_CLOSURE_PLAN.md",
+      "sha256": "db976e44c50445f5279a75742baa23290e51c2af4352ef650789b2862d625f7b"
+    },
+    "generatorSource": {
+      "path": "Tools/sigma/generate_sigma_operators.py",
+      "sha256": "02d1f49e9f05d62e8fd139b849a04e5263cbf5e440176566ae374b0efedbac94",
+      "version": "CPQ4-S16-GEN-1"
+    },
+    "queryBoundary": {
+      "path": "Tools/sigma/authority/I_Q_SIGMA_PRISM_V1.json",
+      "sha256": "cf7cb9581324e14016b813191d800fd3e7eca32c83740bcae58bb3a3adf36840"
+    },
+    "representation": {
+      "path": "Tools/sigma/authority/I_REP_SIGMA_PRISM_V1.json",
+      "sha256": "b41ecfc0700cef61525bcb78dc65a7c8dc3b8643c6ea702424ca273f7b176a7a"
+    },
+    "toeCapsule": {
+      "admittedSections": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8"
+      ],
+      "declaredUpstreamSha256": "9d2e3604846305cfe5244a4ef49f169632c60582cf895256fadc36426dc5786f",
+      "declaredUpstreamSource": "PROJECTION_ALGEBRA_TOE_CANONICAL.md",
+      "path": "Tools/sigma/authority/I_TOE_S16_K16_NATIVE_CLOSURE.md",
+      "sha256": "36a584dcff0c0c340d491ab476aa7428f7b1edf0c97e1407022e0f71181fdee1"
+    }
+  },
+  "otherToeSectorsImported": false,
+  "photometricNuisance": {
+    "calibrationProvenance": "CAPTURE_CALIBRATION_EPOCH_FINGERPRINT",
+    "law": "OBSERVED_C_IN_CALIBRATED_MONOTONE_TRANSFER_C(EXPOSURE_TIMES_GAIN_C_TIMES_ILLUMINATION_C_TIMES_NATIVE_RESPONSE_C_PLUS_OFFSET_C)",
+    "metadataMissing": "NO_OPTICAL_CLAIM_WITH_MISSING_METADATA_PROVENANCE",
+    "metadataPresent": "REQUIRE_MATCHING_CALIBRATION_EPOCH_AND_BOUNDED_PARAMETERS",
+    "missingMetadataMayProveCompatibility": false,
+    "parameterRepresentation": "BOUNDED_Q48_INTERVALS_PLUS_FINGERPRINTED_MONOTONE_PIECEWISE_LINEAR_TRANSFER",
+    "qualityScalarMutationAuthority": false,
+    "requiredBoundedParameters": [
+      "EXPOSURE",
+      "GAIN_PER_CHANNEL",
+      "ILLUMINATION_PER_CHANNEL",
+      "OFFSET_PER_CHANNEL",
+      "MONOTONE_TRANSFER_SEGMENTS"
+    ],
+    "unboundedParameterRegion": "FORBIDDEN_TO_PROVE_COMPATIBILITY_OR_MUTATION",
+    "whiteBalance": "BOUNDED_PER_CHANNEL_GAIN"
+  },
+  "programFingerprint": "ce356a5913c689908325a2f79bcf2350bc28691e917e3d0d71d7c51417193343",
+  "programVersion": "CPQ4-S16-MERKABA-N1R-1",
+  "proofs": {
+    "allDefaultActiveWork": 0,
+    "allDefaultRelation": "DEFAULT_SAT",
+    "associatorHistogram": {
+      "-2": 924,
+      "0": 2248,
+      "2": 924
+    },
+    "associatorNonzero": 1848,
+    "baseGaugeNormalForm": [
+      [
+        0,
+        0,
+        0,
+        7
+      ],
+      [
+        1,
+        0,
+        0,
+        9
+      ],
+      [
+        2,
+        1,
+        0,
+        11
+      ]
+    ],
+    "behindHitAction": "NO_CLAIM",
+    "canFreezeShadowKernel": false,
+    "completeProgramFibreSelector": "IDENTITY_ONLY_UNLESS_EQUIVALENCE_PROVED",
+    "coupledFactorInputCount": 2,
+    "coupledFactorMinimizedCount": 2,
+    "diffractionSkew": true,
+    "directS16DependenciesRetained": true,
+    "duplicateFixtureCount": 10000,
+    "duplicateMinimizedFactorCount": 1,
+    "e22InventoryCount": 0,
+    "gaugePermutationCount": 6,
+    "legacyZNullAccepted": false,
+    "missingOpticalMetadata": "NO_OPTICAL_CLAIM",
+    "mixedDefaultSupportBehaviour": "DESCRIPTOR_EVALUATION_REQUIRED",
+    "negativeHolonomy": 2688,
+    "opticalCalibrationProvenance": true,
+    "opticalUnboundedExplanationForbidden": true,
+    "querySupportFalseNegatives": 0,
+    "querySupportFixtureCount": 32,
+    "refinementExactHalfOpenCover": true,
+    "refinementExactMeasure": true,
+    "refinementPointwiseFullS16": true,
+    "refinementProlongation": "FOUR_EXACT_FULL_S16_COPIES",
+    "representationDefaultParity": true,
+    "reverseIntervalSoundFixtureCount": 1972,
+    "reverseZeroBranchRetained": true,
+    "shadowFrame": "16P_t",
+    "shadowKernelDecouplingProof": false,
+    "shellBaseOrientationFrozen": false,
+    "shellSquare": "-15I16",
+    "weakFactorPreservesStrongRegion": true,
+    "zEmpty": "ALGEBRA_ZERO"
+  },
+  "queryFamilies": [
+    {
+      "entryArity": "FULL_FIELD_PLUS_QUERY",
+      "id": "SENSOR_LEFT",
+      "localContribution": "MERKABA_SHADOW_THEN_CALIBRATED_SENSOR_CONTRACTION",
+      "reduction": [
+        "FINITE_FOOTPRINT",
+        "DIRECT_ORDER",
+        "FIRST_HIT",
+        "OCCLUSION"
+      ],
+      "reverse": "EXACT_PREIMAGE_WITH_DISJUNCTION"
+    },
+    {
+      "entryArity": "FULL_FIELD_PLUS_QUERY",
+      "id": "SENSOR_RIGHT",
+      "localContribution": "MERKABA_SHADOW_THEN_CALIBRATED_SENSOR_CONTRACTION",
+      "reduction": [
+        "FINITE_FOOTPRINT",
+        "DIRECT_ORDER",
+        "FIRST_HIT",
+        "OCCLUSION"
+      ],
+      "reverse": "EXACT_PREIMAGE_WITH_DISJUNCTION"
+    },
+    {
+      "entryArity": "FULL_FIELD_PLUS_TWO_EYE_QUERIES",
+      "id": "EYE_PAIR",
+      "localContribution": "MERKABA_SHADOW_THEN_CALIBRATED_RETINAL_CONTRACTION",
+      "reduction": [
+        "DIRECT_ORDER",
+        "FIRST_HIT",
+        "OCCLUSION",
+        "FINITE_FOOTPRINT"
+      ],
+      "reverse": "FORBIDDEN"
+    },
+    {
+      "entryArity": "GENERATED_CONTEXT_TUPLE",
+      "id": "INTRINSIC_RELATION",
+      "localContribution": "FULL_S16_SIGN_TRANSPORT_AND_EXPLICIT_BRACKETS",
+      "reduction": [
+        "EXACT_ZD",
+        "NEAR_SINGULAR_Q48",
+        "NONASSOCIATIVE_CONTEXT"
+      ],
+      "reverse": "EXACT_RELATION_PREIMAGE"
+    },
+    {
+      "entryArity": "FULL_FIELD_PLUS_SENSOR_QUERY",
+      "id": "PREDICTION_SUPPORT",
+      "localContribution": "SENSOR_FORWARD_WITNESS",
+      "reduction": [
+        "DIRECT_ORDER",
+        "FIRST_HIT",
+        "OCCLUSION"
+      ],
+      "reverse": "POSSIBLE_SUPPORT_ONLY"
+    },
+    {
+      "entryArity": "FULL_FIELD_PLUS_EXPORT_QUERY",
+      "id": "EXPORT",
+      "localContribution": "FULL_S16_MERKABA_MANIFESTATION",
+      "reduction": [
+        "NATIVE_RELATION_GATED_CONNECTIVITY",
+        "DIRECTIONAL_APPEARANCE"
+      ],
+      "reverse": "FORBIDDEN"
+    },
+    {
+      "entryArity": "FULL_FIELD_PLUS_DEBUG_QUERY",
+      "id": "DEBUG",
+      "localContribution": "REQUESTED_GENERATED_RELATION",
+      "reduction": [
+        "QUERY_DEFINED"
+      ],
+      "reverse": "FORBIDDEN"
+    }
+  ],
+  "querySupportSummary": {
+    "covers": [
+      "RESIDENT",
+      "NONRESIDENT",
+      "REFINED",
+      "MIXED_DEFAULT_BOUNDARY"
+    ],
+    "falseNegatives": 0,
+    "missingOrStale": "FAIL_CLOSED_INCLUDE_OR_REHYDRATE",
+    "omitIff": "ALL_DEFAULT_AND_DEFAULT_BOUNDARY_CLOSED_AND_PROGRAM_GAUGE_FINGERPRINTS_MATCH",
+    "otherwise": "INCLUDE_CONSERVATIVELY"
+  },
+  "representation": {
+    "address": {
+      "backing": "SIGNED_INT64_UV_PLUS_UNSIGNED_DYADIC_LEVEL",
+      "baseLevel": 0,
+      "cellDomain": "HALF_OPEN_DYADIC_SQUARE",
+      "chi": "CELL_CENTRE_IN_INTRINSIC_DYADIC_COORDINATES"
+    },
+    "authority": {
+      "canonicalSpec": "new_spec.md",
+      "scope": "exact finite representation of the same full S16 field",
+      "sections": [
+        1,
+        2,
+        3,
+        16,
+        20,
+        21,
+        22,
+        27,
+        30
+      ]
+    },
+    "defaultRepresentations": {
+      "allocated": "FULL_S16_ALGEBRA_ZERO",
+      "equivalence": "COMPLETE_PROGRAM_BYTE_IDENTITY",
+      "legacyNonzeroZNull": "REJECT_UNLESS_COMPLETE_PROGRAM_PROOF",
+      "logicalUnbacked": "ZEMPTY",
+      "nullCodecDecode": "ZEMPTY"
+    },
+    "freshSupport": {
+      "ambiguousNonEquivalentPlacement": "UNRESOLVED",
+      "input": "RESOLVED_RELATIVE_BASE_DENSITY_PATTERN",
+      "normalization": "GLOBAL_TRANSLATION_NORMAL_FORM",
+      "pixelOrXyzAuthority": false
+    },
+    "gaugeFamily": {
+      "base": "GLOBAL_SIGNED_INTEGER_TRANSLATION",
+      "independentComponentTranslation": "NOT_ADMITTED_WITHOUT_RELATION_PROGRAM_PROOF",
+      "lossyResampling": "FORBIDDEN",
+      "refinement": "PROVED_DYADIC_SPLIT_OR_EXACT_COLLAPSE"
+    },
+    "kappa": {
+      "defaultOutsideFiniteSupport": "ZEMPTY",
+      "family": "DYADIC_HALF_OPEN_PIECEWISE_CONSTANT",
+      "measure": "EXACT_DYADIC_CELL_AREA",
+      "overlap": "FORBIDDEN",
+      "ownership": "DISJOINT_PARTITION",
+      "queryAccumulation": "INTRINSIC_MEASURE_WEIGHTED_WITH_EXACT_CHILD_SUM_EQUAL_PARENT",
+      "reconstruction": "ONE_FULL_S16_VALUE_OVER_EACH_OWNED_CELL"
+    },
+    "normalizer": {
+      "cellOrder": "LEVEL_THEN_SIGNED_MORTON_THEN_U_THEN_V",
+      "collapse": "RECURSIVE_EQUAL_FOUR_CHILD_COLLAPSE",
+      "translation": "SUBTRACT_LEXICOGRAPHIC_MINIMUM_NONDEFAULT_CELL_LOWER_COORDINATE",
+      "unresolvedRule": "NO_UNIQUE_NORMAL_FORM_MEANS_NO_PUBLICATION"
+    },
+    "refinement": {
+      "coarsen": "COLLAPSE_ONLY_FOUR_EQUAL_CHILDREN_WITH_EQUIVALENT_TRANSPORTED_PROOF",
+      "preInformationEquality": "POINTWISE_FULL_S16",
+      "priorProlongation": "COPY_ALL_16_PARENT_COEFFICIENTS_TO_EACH_CHILD",
+      "split": "ONE_LEVEL_L_CELL_TO_FOUR_LEVEL_L_PLUS_1_CHILDREN",
+      "transport": [
+        "STATE",
+        "EXACT_FEASIBLE_FACTORS",
+        "DIRECTIONAL_INFORMATION",
+        "EVIDENCE_RECEIPTS",
+        "NATIVE_RELATION_WITNESSES",
+        "SUPPORTED_BANDWIDTH"
+      ]
+    },
+    "schemaVersion": "CPQ4-IREP-1",
+    "serialization": {
+      "atomicRoot": [
+        "CHI",
+        "KAPPA",
+        "STATE",
+        "CERTIFICATE",
+        "DIRECTORY"
+      ],
+      "codecBlockGeometry": "8X8_FROZEN",
+      "order": "NORMALIZED_GAUGE_RECORD_THEN_FULL_S16_THEN_GENERATIONS_AND_FINGERPRINTS",
+      "pageGeometry": "64X64_FROZEN"
+    }
+  },
+  "reverseRules": [
+    {
+      "opcode": "PERMUTE_SIGN",
+      "rule": "EXACT_INVERSE_PERMUTATION"
+    },
+    {
+      "opcode": "ADD_SUB",
+      "rule": "OUTWARD_INTERVAL_BACKPROPAGATION"
+    },
+    {
+      "opcode": "QMUL_QDIV",
+      "rule": "OUTWARD_INTERVAL_WITH_ZERO_BRANCH_UNION"
+    },
+    {
+      "opcode": "BRACKETED_PRODUCT",
+      "rule": "REVERSE_SAME_EXPRESSION_TREE"
+    },
+    {
+      "opcode": "SCENE_REDUCE",
+      "rule": "RETAIN_SUPPORT_DISJUNCTION"
+    },
+    {
+      "opcode": "BEHIND_HIT",
+      "rule": "NO_CLAIM"
+    }
+  ],
+  "sceneReduction": {
+    "behindHit": "NO_CLAIM",
+    "branchSemantics": "UNION_UNTIL_EXACT_ELIMINATION_OR_COMMON_DELTA",
+    "directOrderAuthority": "CALIBRATED_QUERY_ORDER_NOT_ZD",
+    "firstHit": "INCLUSIVE_MOULD_CONSTRAINT",
+    "preHit": "EXCLUSION_CONSTRAINT"
+  },
+  "schemaVersion": "CPQ4-S16-MERKABA-AUTHORITY-1"
+}

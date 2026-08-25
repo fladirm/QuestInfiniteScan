@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "source_digest": "408f354007cd786fadf73a3d9f14b473594148e97e9ba91e62e2a038f3415974",
+  "source_digest": "e853a9bfdd04b133099374c0681159c32906f23d8d7aebee79e213ee8f88f198",
   "scope": [
     "Runtime/**/*.cs",
     "Runtime/Resources/SigmaPrism/**/*.*",
@@ -10,10 +10,10 @@
     "Tests/Editor/*.cs"
   ],
   "summary": {
-    "files": 107,
-    "symbols": 1648,
-    "methods_and_functions": 1344,
-    "gpu_kernels": 73,
+    "files": 110,
+    "symbols": 1702,
+    "methods_and_functions": 1387,
+    "gpu_kernels": 76,
     "event_links": 5
   },
   "files": [
@@ -145,6 +145,11 @@
     {
       "id": "file:Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedLayout.hlsl",
       "path": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedLayout.hlsl",
+      "language": "hlsl"
+    },
+    {
+      "id": "file:Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.hlsl",
+      "path": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.hlsl",
       "language": "hlsl"
     },
     {
@@ -333,6 +338,11 @@
       "language": "cs"
     },
     {
+      "id": "file:Runtime/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.cs",
+      "path": "Runtime/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.cs",
+      "language": "cs"
+    },
+    {
       "id": "file:Runtime/SigmaPrism/SigmaBackendCapabilities.cs",
       "path": "Runtime/SigmaPrism/SigmaBackendCapabilities.cs",
       "language": "cs"
@@ -510,6 +520,11 @@
     {
       "id": "file:Tests/Editor/SigmaIntrinsicTopologyTests.cs",
       "path": "Tests/Editor/SigmaIntrinsicTopologyTests.cs",
+      "language": "cs"
+    },
+    {
+      "id": "file:Tests/Editor/SigmaMerkabaProgramTests.cs",
+      "path": "Tests/Editor/SigmaMerkabaProgramTests.cs",
       "language": "cs"
     },
     {
@@ -1626,32 +1641,95 @@
       "line": 1
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedTables.hlsl::SigmaConjugateSign@196",
+      "id": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.hlsl::SigmaMerkabaAssociatorCoefficient@42",
+      "file": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.hlsl",
+      "name": "SigmaMerkabaAssociatorCoefficient",
+      "kind": "gpu_function",
+      "line": 42
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.hlsl::SigmaMerkabaBasisSign@37",
+      "file": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.hlsl",
+      "name": "SigmaMerkabaBasisSign",
+      "kind": "gpu_function",
+      "line": 37
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.hlsl::SigmaMerkabaCanOmitQueryRegion@83",
+      "file": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.hlsl",
+      "name": "SigmaMerkabaCanOmitQueryRegion",
+      "kind": "gpu_function",
+      "line": 83
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.hlsl::SigmaMerkabaClassifyZeroDivisor@89",
+      "file": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.hlsl",
+      "name": "SigmaMerkabaClassifyZeroDivisor",
+      "kind": "gpu_function",
+      "line": 89
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.hlsl::SigmaMerkabaIsZEmpty@66",
+      "file": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.hlsl",
+      "name": "SigmaMerkabaIsZEmpty",
+      "kind": "gpu_function",
+      "line": 66
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.hlsl::SigmaMerkabaPlaquetteHolonomy@53",
+      "file": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.hlsl",
+      "name": "SigmaMerkabaPlaquetteHolonomy",
+      "kind": "gpu_function",
+      "line": 53
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.hlsl::SigmaMerkabaReverseActionFor@75",
+      "file": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.hlsl",
+      "name": "SigmaMerkabaReverseActionFor",
+      "kind": "gpu_function",
+      "line": 75
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.hlsl::SigmaMerkabaShadowNumerator@61",
+      "file": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.hlsl",
+      "name": "SigmaMerkabaShadowNumerator",
+      "kind": "gpu_function",
+      "line": 61
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.hlsl::SigmaMerkabaSignTransport@48",
+      "file": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.hlsl",
+      "name": "SigmaMerkabaSignTransport",
+      "kind": "gpu_function",
+      "line": 48
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedTables.hlsl::SigmaConjugateSign@198",
       "file": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedTables.hlsl",
       "name": "SigmaConjugateSign",
       "kind": "gpu_function",
-      "line": 196
+      "line": 198
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedTables.hlsl::SigmaHadamardSign@197",
+      "id": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedTables.hlsl::SigmaHadamardSign@199",
       "file": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedTables.hlsl",
       "name": "SigmaHadamardSign",
       "kind": "gpu_function",
-      "line": 197
+      "line": 199
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedTables.hlsl::SigmaMulBasisIndex@190",
+      "id": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedTables.hlsl::SigmaMulBasisIndex@192",
       "file": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedTables.hlsl",
       "name": "SigmaMulBasisIndex",
       "kind": "gpu_function",
-      "line": 190
+      "line": 192
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedTables.hlsl::SigmaMulBasisSign@192",
+      "id": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedTables.hlsl::SigmaMulBasisSign@194",
       "file": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedTables.hlsl",
       "name": "SigmaMulBasisSign",
       "kind": "gpu_function",
-      "line": 192
+      "line": 194
     },
     {
       "id": "Runtime/Resources/SigmaPrism/RigImageCopy.compute::CopyProjectionDepthArray@13",
@@ -3943,39 +4021,60 @@
       "line": 376
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::AlgebraParity@75",
+      "id": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::AlgebraParity@82",
       "file": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute",
       "name": "AlgebraParity",
       "kind": "gpu_function",
-      "line": 75
+      "line": 82
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::BasisTableParity@102",
+      "id": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::BasisTableParity@109",
       "file": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute",
       "name": "BasisTableParity",
       "kind": "gpu_function",
-      "line": 102
+      "line": 109
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::CanonicalSelfTest@112",
+      "id": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::CanonicalSelfTest@171",
       "file": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute",
       "name": "CanonicalSelfTest",
       "kind": "gpu_function",
-      "line": 112
+      "line": 171
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::NumericParity@26",
+      "id": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::MerkabaDefaultParity@144",
+      "file": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute",
+      "name": "MerkabaDefaultParity",
+      "kind": "gpu_function",
+      "line": 144
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::MerkabaMatrixParity@133",
+      "file": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute",
+      "name": "MerkabaMatrixParity",
+      "kind": "gpu_function",
+      "line": 133
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::MerkabaProgramParity@119",
+      "file": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute",
+      "name": "MerkabaProgramParity",
+      "kind": "gpu_function",
+      "line": 119
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::NumericParity@33",
       "file": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute",
       "name": "NumericParity",
       "kind": "gpu_function",
-      "line": 26
+      "line": 33
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::SigmaWriteNumeric@20",
+      "id": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::SigmaWriteNumeric@27",
       "file": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute",
       "name": "SigmaWriteNumeric",
       "kind": "gpu_function",
-      "line": 20
+      "line": 27
     },
     {
       "id": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::kernel:AlgebraParity",
@@ -3995,6 +4094,27 @@
       "id": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::kernel:CanonicalSelfTest",
       "file": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute",
       "name": "CanonicalSelfTest",
+      "kind": "gpu_kernel",
+      "line": 7
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::kernel:MerkabaDefaultParity",
+      "file": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute",
+      "name": "MerkabaDefaultParity",
+      "kind": "gpu_kernel",
+      "line": 6
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::kernel:MerkabaMatrixParity",
+      "file": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute",
+      "name": "MerkabaMatrixParity",
+      "kind": "gpu_kernel",
+      "line": 5
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::kernel:MerkabaProgramParity",
+      "file": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute",
+      "name": "MerkabaProgramParity",
       "kind": "gpu_kernel",
       "line": 4
     },
@@ -5740,6 +5860,104 @@
       "name": "SigmaPendingGaugeState",
       "kind": "enum",
       "line": 61
+    },
+    {
+      "id": "Runtime/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.cs::AssociatorCoefficient@160",
+      "file": "Runtime/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.cs",
+      "name": "AssociatorCoefficient",
+      "kind": "method",
+      "line": 160
+    },
+    {
+      "id": "Runtime/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.cs::BasisSign@153",
+      "file": "Runtime/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.cs",
+      "name": "BasisSign",
+      "kind": "method",
+      "line": 153
+    },
+    {
+      "id": "Runtime/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.cs::CanOmitQueryRegion@201",
+      "file": "Runtime/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.cs",
+      "name": "CanOmitQueryRegion",
+      "kind": "method",
+      "line": 201
+    },
+    {
+      "id": "Runtime/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.cs::ClassifyAllDefault@216",
+      "file": "Runtime/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.cs",
+      "name": "ClassifyAllDefault",
+      "kind": "method",
+      "line": 216
+    },
+    {
+      "id": "Runtime/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.cs::ClassifyZeroDivisor@205",
+      "file": "Runtime/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.cs",
+      "name": "ClassifyZeroDivisor",
+      "kind": "method",
+      "line": 205
+    },
+    {
+      "id": "Runtime/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.cs::IsZEmpty@189",
+      "file": "Runtime/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.cs",
+      "name": "IsZEmpty",
+      "kind": "method",
+      "line": 189
+    },
+    {
+      "id": "Runtime/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.cs::PlaquetteHolonomy@172",
+      "file": "Runtime/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.cs",
+      "name": "PlaquetteHolonomy",
+      "kind": "method",
+      "line": 172
+    },
+    {
+      "id": "Runtime/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.cs::RequireAddress@222",
+      "file": "Runtime/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.cs",
+      "name": "RequireAddress",
+      "kind": "method",
+      "line": 222
+    },
+    {
+      "id": "Runtime/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.cs::ReverseActionFor@191",
+      "file": "Runtime/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.cs",
+      "name": "ReverseActionFor",
+      "kind": "method",
+      "line": 191
+    },
+    {
+      "id": "Runtime/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.cs::ShadowNumerator@181",
+      "file": "Runtime/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.cs",
+      "name": "ShadowNumerator",
+      "kind": "method",
+      "line": 181
+    },
+    {
+      "id": "Runtime/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.cs::SigmaGeneratedMerkabaProgram",
+      "file": "Runtime/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.cs",
+      "name": "SigmaGeneratedMerkabaProgram",
+      "kind": "class",
+      "line": 25
+    },
+    {
+      "id": "Runtime/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.cs::SigmaMerkabaRelationClass",
+      "file": "Runtime/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.cs",
+      "name": "SigmaMerkabaRelationClass",
+      "kind": "enum",
+      "line": 8
+    },
+    {
+      "id": "Runtime/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.cs::SigmaNativeQueryClaim",
+      "file": "Runtime/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.cs",
+      "name": "SigmaNativeQueryClaim",
+      "kind": "enum",
+      "line": 18
+    },
+    {
+      "id": "Runtime/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.cs::SignTransport@169",
+      "file": "Runtime/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.cs",
+      "name": "SignTransport",
+      "kind": "method",
+      "line": 169
     },
     {
       "id": "Runtime/SigmaPrism/SigmaBackendCapabilities.cs::Lower@104",
@@ -11447,6 +11665,76 @@
       "line": 126
     },
     {
+      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::AuthorityBoundaryAndDirectS16RouteAreFrozen@21",
+      "file": "Tests/Editor/SigmaMerkabaProgramTests.cs",
+      "name": "AuthorityBoundaryAndDirectS16RouteAreFrozen",
+      "kind": "method",
+      "line": 21
+    },
+    {
+      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::ExactZeroDivisorAndOneLsbResidualDoNotAlias@292",
+      "file": "Tests/Editor/SigmaMerkabaProgramTests.cs",
+      "name": "ExactZeroDivisorAndOneLsbResidualDoNotAlias",
+      "kind": "method",
+      "line": 292
+    },
+    {
+      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::GeneratedMerkabaHlslMatchesCpuForEveryBasisContext@323",
+      "file": "Tests/Editor/SigmaMerkabaProgramTests.cs",
+      "name": "GeneratedMerkabaHlslMatchesCpuForEveryBasisContext",
+      "kind": "method",
+      "line": 323
+    },
+    {
+      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::MerkabaShadowFrameAndKernelCouplingProofRemainNative@114",
+      "file": "Tests/Editor/SigmaMerkabaProgramTests.cs",
+      "name": "MerkabaShadowFrameAndKernelCouplingProofRemainNative",
+      "kind": "method",
+      "line": 114
+    },
+    {
+      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::PrimitiveReverseIntervalsRetainEveryForwardSourcePoint@223",
+      "file": "Tests/Editor/SigmaMerkabaProgramTests.cs",
+      "name": "PrimitiveReverseIntervalsRetainEveryForwardSourcePoint",
+      "kind": "method",
+      "line": 223
+    },
+    {
+      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::ShellRecurrenceReachesMinusFifteenWithoutInventingBaseOrientation@103",
+      "file": "Tests/Editor/SigmaMerkabaProgramTests.cs",
+      "name": "ShellRecurrenceReachesMinusFifteenWithoutInventingBaseOrientation",
+      "kind": "method",
+      "line": 103
+    },
+    {
+      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::SigmaMerkabaProgramTests",
+      "file": "Tests/Editor/SigmaMerkabaProgramTests.cs",
+      "name": "SigmaMerkabaProgramTests",
+      "kind": "class",
+      "line": 9
+    },
+    {
+      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::SignedXorAssociatorDiffractionAndHolonomyMatchCapsuleExhaustively@52",
+      "file": "Tests/Editor/SigmaMerkabaProgramTests.cs",
+      "name": "SignedXorAssociatorDiffractionAndHolonomyMatchCapsuleExhaustively",
+      "kind": "method",
+      "line": 52
+    },
+    {
+      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::UInt4",
+      "file": "Tests/Editor/SigmaMerkabaProgramTests.cs",
+      "name": "UInt4",
+      "kind": "struct",
+      "line": 12
+    },
+    {
+      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::ZEmptyClaimsSupportAndRepresentationProofsFailClosed@148",
+      "file": "Tests/Editor/SigmaMerkabaProgramTests.cs",
+      "name": "ZEmptyClaimsSupportAndRepresentationProofsFailClosed",
+      "kind": "method",
+      "line": 148
+    },
+    {
       "id": "Tests/Editor/SigmaPoseGaugeTests.cs::BuildDepthCalibration@374",
       "file": "Tests/Editor/SigmaPoseGaugeTests.cs",
       "name": "BuildDepthCalibration",
@@ -11857,175 +12145,280 @@
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaFrameUInt2Gpu",
       "kind": "struct",
-      "line": 632
+      "line": 1443
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaFrameUInt4Gpu",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaFrameUInt4Gpu",
       "kind": "struct",
-      "line": 639
+      "line": 1450
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaGeneratedAlgebra",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaGeneratedAlgebra",
       "kind": "class",
-      "line": 383
+      "line": 858
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaGeneratedFrame",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaGeneratedFrame",
       "kind": "class",
-      "line": 650
+      "line": 1461
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::basis_product@112",
+      "id": "Tools/sigma/generate_sigma_operators.py::SigmaGeneratedMerkabaProgram",
+      "file": "Tools/sigma/generate_sigma_operators.py",
+      "name": "SigmaGeneratedMerkabaProgram",
+      "kind": "class",
+      "line": 1055
+    },
+    {
+      "id": "Tools/sigma/generate_sigma_operators.py::SigmaMerkabaRelationClass",
+      "file": "Tools/sigma/generate_sigma_operators.py",
+      "name": "SigmaMerkabaRelationClass",
+      "kind": "enum",
+      "line": 1038
+    },
+    {
+      "id": "Tools/sigma/generate_sigma_operators.py::SigmaNativeQueryClaim",
+      "file": "Tools/sigma/generate_sigma_operators.py",
+      "name": "SigmaNativeQueryClaim",
+      "kind": "enum",
+      "line": 1048
+    },
+    {
+      "id": "Tools/sigma/generate_sigma_operators.py::basis_product@127",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "basis_product",
       "kind": "function",
-      "line": 112
+      "line": 127
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::build_descriptor@162",
+      "id": "Tools/sigma/generate_sigma_operators.py::build_descriptor@627",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "build_descriptor",
       "kind": "function",
-      "line": 162
+      "line": 627
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::check_or_write@711",
+      "id": "Tools/sigma/generate_sigma_operators.py::build_merkaba_descriptor@273",
+      "file": "Tools/sigma/generate_sigma_operators.py",
+      "name": "build_merkaba_descriptor",
+      "kind": "function",
+      "line": 273
+    },
+    {
+      "id": "Tools/sigma/generate_sigma_operators.py::check_or_write@1522",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "check_or_write",
       "kind": "function",
-      "line": 711
+      "line": 1522
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::chunks@354",
+      "id": "Tools/sigma/generate_sigma_operators.py::chunks@829",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "chunks",
       "kind": "function",
-      "line": 354
+      "line": 829
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::conjugate_sign@129",
+      "id": "Tools/sigma/generate_sigma_operators.py::conjugate_sign@144",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "conjugate_sign",
       "kind": "function",
-      "line": 129
+      "line": 144
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::cs_array@359",
+      "id": "Tools/sigma/generate_sigma_operators.py::cs_array@834",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "cs_array",
       "kind": "function",
-      "line": 359
+      "line": 834
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::dyads@137",
+      "id": "Tools/sigma/generate_sigma_operators.py::diffraction_matrix@189",
+      "file": "Tools/sigma/generate_sigma_operators.py",
+      "name": "diffraction_matrix",
+      "kind": "function",
+      "line": 189
+    },
+    {
+      "id": "Tools/sigma/generate_sigma_operators.py::dyads@152",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "dyads",
       "kind": "function",
-      "line": 137
+      "line": 152
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::fingerprint_words@443",
+      "id": "Tools/sigma/generate_sigma_operators.py::file_sha256@177",
+      "file": "Tools/sigma/generate_sigma_operators.py",
+      "name": "file_sha256",
+      "kind": "function",
+      "line": 177
+    },
+    {
+      "id": "Tools/sigma/generate_sigma_operators.py::fingerprint_words@920",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "fingerprint_words",
       "kind": "function",
-      "line": 443
+      "line": 920
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::frame_abi_descriptor@558",
+      "id": "Tools/sigma/generate_sigma_operators.py::frame_abi_descriptor@1369",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "frame_abi_descriptor",
       "kind": "function",
-      "line": 558
+      "line": 1369
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::hadamard_sign@133",
+      "id": "Tools/sigma/generate_sigma_operators.py::hadamard_sign@148",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "hadamard_sign",
       "kind": "function",
-      "line": 133
+      "line": 148
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::main@724",
+      "id": "Tools/sigma/generate_sigma_operators.py::main@1535",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "main",
       "kind": "function",
-      "line": 724
+      "line": 1535
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::multiply_dyads@145",
+      "id": "Tools/sigma/generate_sigma_operators.py::merkaba_shadow_numerator@204",
+      "file": "Tools/sigma/generate_sigma_operators.py",
+      "name": "merkaba_shadow_numerator",
+      "kind": "function",
+      "line": 204
+    },
+    {
+      "id": "Tools/sigma/generate_sigma_operators.py::multiply_dyads@160",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "multiply_dyads",
       "kind": "function",
-      "line": 145
+      "line": 160
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::render_cs@368",
+      "id": "Tools/sigma/generate_sigma_operators.py::normalize@537",
+      "file": "Tools/sigma/generate_sigma_operators.py",
+      "name": "normalize",
+      "kind": "function",
+      "line": 537
+    },
+    {
+      "id": "Tools/sigma/generate_sigma_operators.py::read_json@181",
+      "file": "Tools/sigma/generate_sigma_operators.py",
+      "name": "read_json",
+      "kind": "function",
+      "line": 181
+    },
+    {
+      "id": "Tools/sigma/generate_sigma_operators.py::render_authority_manifest@1298",
+      "file": "Tools/sigma/generate_sigma_operators.py",
+      "name": "render_authority_manifest",
+      "kind": "function",
+      "line": 1298
+    },
+    {
+      "id": "Tools/sigma/generate_sigma_operators.py::render_cs@843",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "render_cs",
       "kind": "function",
-      "line": 368
+      "line": 843
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::render_frame_cs@583",
+      "id": "Tools/sigma/generate_sigma_operators.py::render_frame_cs@1394",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "render_frame_cs",
       "kind": "function",
-      "line": 583
+      "line": 1394
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::render_frame_hlsl@666",
+      "id": "Tools/sigma/generate_sigma_operators.py::render_frame_hlsl@1477",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "render_frame_hlsl",
       "kind": "function",
-      "line": 666
+      "line": 1477
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::render_hlsl@486",
+      "id": "Tools/sigma/generate_sigma_operators.py::render_hlsl@963",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "render_hlsl",
       "kind": "function",
-      "line": 486
+      "line": 963
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::render_hlsl_layout@447",
+      "id": "Tools/sigma/generate_sigma_operators.py::render_hlsl_layout@924",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "render_hlsl_layout",
       "kind": "function",
-      "line": 447
+      "line": 924
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::sha256@157",
+      "id": "Tools/sigma/generate_sigma_operators.py::render_merkaba_cs@1021",
+      "file": "Tools/sigma/generate_sigma_operators.py",
+      "name": "render_merkaba_cs",
+      "kind": "function",
+      "line": 1021
+    },
+    {
+      "id": "Tools/sigma/generate_sigma_operators.py::render_merkaba_hlsl@1187",
+      "file": "Tools/sigma/generate_sigma_operators.py",
+      "name": "render_merkaba_hlsl",
+      "kind": "function",
+      "line": 1187
+    },
+    {
+      "id": "Tools/sigma/generate_sigma_operators.py::reverse_interval_soundness_fixture_count@228",
+      "file": "Tools/sigma/generate_sigma_operators.py",
+      "name": "reverse_interval_soundness_fixture_count",
+      "kind": "function",
+      "line": 228
+    },
+    {
+      "id": "Tools/sigma/generate_sigma_operators.py::sha256@172",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "sha256",
       "kind": "function",
-      "line": 157
+      "line": 172
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::uint_array@543",
+      "id": "Tools/sigma/generate_sigma_operators.py::signed_morton@210",
+      "file": "Tools/sigma/generate_sigma_operators.py",
+      "name": "signed_morton",
+      "kind": "function",
+      "line": 210
+    },
+    {
+      "id": "Tools/sigma/generate_sigma_operators.py::uint_array@1354",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "uint_array",
       "kind": "function",
-      "line": 543
+      "line": 1354
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::upper_snake@547",
+      "id": "Tools/sigma/generate_sigma_operators.py::upper_snake@1358",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "upper_snake",
       "kind": "function",
-      "line": 547
+      "line": 1358
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::validate_descriptor@328",
+      "id": "Tools/sigma/generate_sigma_operators.py::validate_descriptor@803",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "validate_descriptor",
       "kind": "function",
-      "line": 328
+      "line": 803
+    },
+    {
+      "id": "Tools/sigma/generate_sigma_operators.py::zig_zag@214",
+      "file": "Tools/sigma/generate_sigma_operators.py",
+      "name": "zig_zag",
+      "kind": "function",
+      "line": 214
     },
     {
       "id": "Tools/unity/validate_sigma_compute_uav.py::function_bodies@46",
@@ -13070,8 +13463,38 @@
       "kind": "calls"
     },
     {
+      "source": "Runtime/Resources/SigmaPrism/ConeLut.compute::LocalRay@11",
+      "target": "Tools/sigma/generate_sigma_operators.py::normalize@537",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/ConeMath.hlsl::ConeSurfaceFootprint@15",
+      "target": "Tools/sigma/generate_sigma_operators.py::normalize@537",
+      "kind": "calls"
+    },
+    {
       "source": "Runtime/Resources/SigmaPrism/DepthNormalize.compute::NormalizeStereoDepth@18",
       "target": "Runtime/Resources/SigmaPrism/ConeMath.hlsl::ConeProjectionDepthToViewZ@3",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.hlsl::SigmaMerkabaAssociatorCoefficient@42",
+      "target": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.hlsl::SigmaMerkabaBasisSign@37",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.hlsl::SigmaMerkabaBasisSign@37",
+      "target": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedTables.hlsl::SigmaMulBasisSign@194",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.hlsl::SigmaMerkabaPlaquetteHolonomy@53",
+      "target": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.hlsl::SigmaMerkabaSignTransport@48",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.hlsl::SigmaMerkabaSignTransport@48",
+      "target": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.hlsl::SigmaMerkabaBasisSign@37",
       "kind": "calls"
     },
     {
@@ -13086,7 +13509,7 @@
     },
     {
       "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaHadamardRow@675",
-      "target": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedTables.hlsl::SigmaHadamardSign@197",
+      "target": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedTables.hlsl::SigmaHadamardSign@199",
       "kind": "calls"
     },
     {
@@ -13101,7 +13524,7 @@
     },
     {
       "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaLeftBasisAction@633",
-      "target": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedTables.hlsl::SigmaMulBasisSign@192",
+      "target": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedTables.hlsl::SigmaMulBasisSign@194",
       "kind": "calls"
     },
     {
@@ -13321,7 +13744,7 @@
     },
     {
       "source": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaRightBasisAction@646",
-      "target": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedTables.hlsl::SigmaMulBasisSign@192",
+      "target": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedTables.hlsl::SigmaMulBasisSign@194",
       "kind": "calls"
     },
     {
@@ -13756,12 +14179,12 @@
     },
     {
       "source": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::ClosePendingEdges@1049",
-      "target": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedTables.hlsl::SigmaConjugateSign@196",
+      "target": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedTables.hlsl::SigmaConjugateSign@198",
       "kind": "calls"
     },
     {
       "source": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::ClosePendingEdges@1049",
-      "target": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedTables.hlsl::SigmaMulBasisSign@192",
+      "target": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedTables.hlsl::SigmaMulBasisSign@194",
       "kind": "calls"
     },
     {
@@ -13866,7 +14289,7 @@
     },
     {
       "source": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::FinalizeReducedTargets@552",
-      "target": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedTables.hlsl::SigmaHadamardSign@197",
+      "target": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedTables.hlsl::SigmaHadamardSign@199",
       "kind": "calls"
     },
     {
@@ -14036,7 +14459,7 @@
     },
     {
       "source": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::SigmaFrameAssociatorProduct@894",
-      "target": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedTables.hlsl::SigmaMulBasisSign@192",
+      "target": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedTables.hlsl::SigmaMulBasisSign@194",
       "kind": "calls"
     },
     {
@@ -14116,7 +14539,7 @@
     },
     {
       "source": "Runtime/Resources/SigmaPrism/SigmaFrameClosure.compute::SigmaFrameTargetTransform@254",
-      "target": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedTables.hlsl::SigmaHadamardSign@197",
+      "target": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedTables.hlsl::SigmaHadamardSign@199",
       "kind": "calls"
     },
     {
@@ -14356,7 +14779,7 @@
     },
     {
       "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::EvaluateCandidateMeets@1017",
-      "target": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedTables.hlsl::SigmaHadamardSign@197",
+      "target": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedTables.hlsl::SigmaHadamardSign@199",
       "kind": "calls"
     },
     {
@@ -14511,7 +14934,7 @@
     },
     {
       "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameBuildNovelState@964",
-      "target": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedTables.hlsl::SigmaHadamardSign@197",
+      "target": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedTables.hlsl::SigmaHadamardSign@199",
       "kind": "calls"
     },
     {
@@ -14656,7 +15079,7 @@
     },
     {
       "source": "Runtime/Resources/SigmaPrism/SigmaFrameInverse.compute::SigmaFrameTransformRow@950",
-      "target": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedTables.hlsl::SigmaHadamardSign@197",
+      "target": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedTables.hlsl::SigmaHadamardSign@199",
       "kind": "calls"
     },
     {
@@ -14891,7 +15314,7 @@
     },
     {
       "source": "Runtime/Resources/SigmaPrism/SigmaInverseMath.hlsl::SigmaApplyGeometryTargets@319",
-      "target": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedTables.hlsl::SigmaHadamardSign@197",
+      "target": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedTables.hlsl::SigmaHadamardSign@199",
       "kind": "calls"
     },
     {
@@ -15146,7 +15569,7 @@
     },
     {
       "source": "Runtime/Resources/SigmaPrism/SigmaInverseMath.hlsl::SigmaLiftNullDepthMeet@517",
-      "target": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedTables.hlsl::SigmaHadamardSign@197",
+      "target": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedTables.hlsl::SigmaHadamardSign@199",
       "kind": "calls"
     },
     {
@@ -15420,123 +15843,163 @@
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::AlgebraParity@75",
+      "source": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::AlgebraParity@82",
       "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaRightSignedDyadAction@659",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::AlgebraParity@75",
+      "source": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::AlgebraParity@82",
       "target": "Runtime/Resources/SigmaPrism/SigmaOperatorPlan.hlsl::SigmaConjugatePlan@16",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::AlgebraParity@75",
+      "source": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::AlgebraParity@82",
       "target": "Runtime/Resources/SigmaPrism/SigmaOperatorPlan.hlsl::SigmaGeometryGPlan@81",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::BasisTableParity@102",
-      "target": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedTables.hlsl::SigmaMulBasisIndex@190",
+      "source": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::BasisTableParity@109",
+      "target": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedTables.hlsl::SigmaMulBasisIndex@192",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::BasisTableParity@102",
-      "target": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedTables.hlsl::SigmaMulBasisSign@192",
+      "source": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::BasisTableParity@109",
+      "target": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedTables.hlsl::SigmaMulBasisSign@194",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::CanonicalSelfTest@112",
+      "source": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::CanonicalSelfTest@171",
       "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48AddChecked@135",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::CanonicalSelfTest@112",
+      "source": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::CanonicalSelfTest@171",
       "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48DivNearestEven@618",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::CanonicalSelfTest@112",
+      "source": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::CanonicalSelfTest@171",
       "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48MulNearestEven@299",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::CanonicalSelfTest@112",
+      "source": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::CanonicalSelfTest@171",
       "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaRightSignedDyadAction@659",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::CanonicalSelfTest@112",
+      "source": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::CanonicalSelfTest@171",
       "target": "Runtime/Resources/SigmaPrism/SigmaOperatorPlan.hlsl::SigmaGeometryGPlan@81",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::NumericParity@26",
+      "source": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::MerkabaDefaultParity@144",
+      "target": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.hlsl::SigmaMerkabaCanOmitQueryRegion@83",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::MerkabaDefaultParity@144",
+      "target": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.hlsl::SigmaMerkabaClassifyZeroDivisor@89",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::MerkabaDefaultParity@144",
+      "target": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.hlsl::SigmaMerkabaIsZEmpty@66",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::MerkabaDefaultParity@144",
+      "target": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.hlsl::SigmaMerkabaReverseActionFor@75",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::MerkabaProgramParity@119",
+      "target": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.hlsl::SigmaMerkabaAssociatorCoefficient@42",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::MerkabaProgramParity@119",
+      "target": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.hlsl::SigmaMerkabaBasisSign@37",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::MerkabaProgramParity@119",
+      "target": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.hlsl::SigmaMerkabaPlaquetteHolonomy@53",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::MerkabaProgramParity@119",
+      "target": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.hlsl::SigmaMerkabaShadowNumerator@61",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::NumericParity@33",
       "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48AddChecked@135",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::NumericParity@26",
+      "source": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::NumericParity@33",
       "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48DivLower@623",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::NumericParity@26",
+      "source": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::NumericParity@33",
       "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48DivNearestEven@618",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::NumericParity@26",
+      "source": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::NumericParity@33",
       "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48DivUpper@628",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::NumericParity@26",
+      "source": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::NumericParity@33",
       "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48MulLower@304",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::NumericParity@26",
+      "source": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::NumericParity@33",
       "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48MulNearestEven@299",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::NumericParity@26",
+      "source": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::NumericParity@33",
       "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48MulUpper@309",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::NumericParity@26",
+      "source": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::NumericParity@33",
       "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48NegateChecked@147",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::NumericParity@26",
+      "source": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::NumericParity@33",
       "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48Select@129",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::NumericParity@26",
+      "source": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::NumericParity@33",
       "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48ShiftLeftChecked@166",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::NumericParity@26",
+      "source": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::NumericParity@33",
       "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48ShiftRightNearestEven@179",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::NumericParity@26",
+      "source": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::NumericParity@33",
       "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48SubChecked@154",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::NumericParity@26",
+      "source": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::NumericParity@33",
       "target": "Runtime/Resources/SigmaPrism/SigmaExactCompare.hlsl::SigmaQ48Less@25",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::NumericParity@26",
-      "target": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::SigmaWriteNumeric@20",
+      "source": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::NumericParity@33",
+      "target": "Runtime/Resources/SigmaPrism/SigmaOperatorFixture.compute::SigmaWriteNumeric@27",
       "kind": "calls"
     },
     {
@@ -16005,8 +16468,18 @@
       "kind": "calls"
     },
     {
+      "source": "Runtime/Resources/SigmaPrism/SigmaPredict.shader::PredictionFrag@152",
+      "target": "Tools/sigma/generate_sigma_operators.py::normalize@537",
+      "kind": "calls"
+    },
+    {
       "source": "Runtime/Resources/SigmaPrism/SigmaPredict.shader::SigmaContactNormal@87",
       "target": "Runtime/Resources/SigmaPrism/SigmaPoseConsume.hlsl::SigmaPoseUnapplyVectorWorld@82",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaPredict.shader::SigmaContactNormal@87",
+      "target": "Tools/sigma/generate_sigma_operators.py::normalize@537",
       "kind": "calls"
     },
     {
@@ -16166,7 +16639,7 @@
     },
     {
       "source": "Runtime/Resources/SigmaPrism/SigmaTopologyMath.hlsl::SigmaDenseProductPlan@85",
-      "target": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedTables.hlsl::SigmaMulBasisSign@192",
+      "target": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedTables.hlsl::SigmaMulBasisSign@194",
       "kind": "calls"
     },
     {
@@ -16206,7 +16679,7 @@
     },
     {
       "source": "Runtime/Resources/SigmaPrism/SigmaTopologyMath.hlsl::SigmaRightDyadL1@133",
-      "target": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedTables.hlsl::SigmaMulBasisSign@192",
+      "target": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedTables.hlsl::SigmaMulBasisSign@194",
       "kind": "calls"
     },
     {
@@ -16602,6 +17075,36 @@
     {
       "source": "Runtime/SigmaPrism/Capture/RigFrameSynchronizer.cs::TryDequeue@184",
       "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Max@172",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.cs::AssociatorCoefficient@160",
+      "target": "Runtime/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.cs::BasisSign@153",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.cs::AssociatorCoefficient@160",
+      "target": "Runtime/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.cs::RequireAddress@222",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.cs::BasisSign@153",
+      "target": "Runtime/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.cs::RequireAddress@222",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.cs::PlaquetteHolonomy@172",
+      "target": "Runtime/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.cs::RequireAddress@222",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.cs::PlaquetteHolonomy@172",
+      "target": "Runtime/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.cs::SignTransport@169",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.cs::ShadowNumerator@181",
+      "target": "Runtime/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.cs::RequireAddress@222",
       "kind": "calls"
     },
     {
@@ -22075,6 +22578,146 @@
       "kind": "calls"
     },
     {
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::ExactZeroDivisorAndOneLsbResidualDoNotAlias@292",
+      "target": "Runtime/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.cs::ClassifyZeroDivisor@205",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::ExactZeroDivisorAndOneLsbResidualDoNotAlias@292",
+      "target": "Runtime/SigmaPrism/SigmaS16.cs::DenseReferenceMultiply@255",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::ExactZeroDivisorAndOneLsbResidualDoNotAlias@292",
+      "target": "Runtime/SigmaPrism/SigmaS16.cs::FromArray@82",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::ExactZeroDivisorAndOneLsbResidualDoNotAlias@292",
+      "target": "Runtime/SigmaPrism/SigmaS16.cs::GetZeroDivisorEntry@367",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::ExactZeroDivisorAndOneLsbResidualDoNotAlias@292",
+      "target": "Runtime/SigmaPrism/SigmaS16.cs::ToS16@170",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::GeneratedMerkabaHlslMatchesCpuForEveryBasisContext@323",
+      "target": "Runtime/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.cs::AssociatorCoefficient@160",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::GeneratedMerkabaHlslMatchesCpuForEveryBasisContext@323",
+      "target": "Runtime/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.cs::BasisSign@153",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::GeneratedMerkabaHlslMatchesCpuForEveryBasisContext@323",
+      "target": "Runtime/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.cs::PlaquetteHolonomy@172",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::GeneratedMerkabaHlslMatchesCpuForEveryBasisContext@323",
+      "target": "Runtime/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.cs::ShadowNumerator@181",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::GeneratedMerkabaHlslMatchesCpuForEveryBasisContext@323",
+      "target": "Runtime/SigmaPrism/SigmaExactBackendGate.cs::Dispatch@45",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::MerkabaShadowFrameAndKernelCouplingProofRemainNative@114",
+      "target": "Runtime/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.cs::ShadowNumerator@181",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::PrimitiveReverseIntervalsRetainEveryForwardSourcePoint@223",
+      "target": "Runtime/SigmaPrism/SigmaNumericDomain.cs::FromInteger@193",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::PrimitiveReverseIntervalsRetainEveryForwardSourcePoint@223",
+      "target": "Runtime/SigmaPrism/SigmaNumericDomain.cs::QAdd@28",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::PrimitiveReverseIntervalsRetainEveryForwardSourcePoint@223",
+      "target": "Runtime/SigmaPrism/SigmaNumericDomain.cs::QDivLower@83",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::PrimitiveReverseIntervalsRetainEveryForwardSourcePoint@223",
+      "target": "Runtime/SigmaPrism/SigmaNumericDomain.cs::QDivUpper@92",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::PrimitiveReverseIntervalsRetainEveryForwardSourcePoint@223",
+      "target": "Runtime/SigmaPrism/SigmaNumericDomain.cs::QSub@30",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::PrimitiveReverseIntervalsRetainEveryForwardSourcePoint@223",
+      "target": "Runtime/SigmaPrism/SigmaNumericDomain.cs::SigmaQ48Interval",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::SignedXorAssociatorDiffractionAndHolonomyMatchCapsuleExhaustively@52",
+      "target": "Runtime/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.cs::AssociatorCoefficient@160",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::SignedXorAssociatorDiffractionAndHolonomyMatchCapsuleExhaustively@52",
+      "target": "Runtime/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.cs::BasisSign@153",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::SignedXorAssociatorDiffractionAndHolonomyMatchCapsuleExhaustively@52",
+      "target": "Runtime/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.cs::PlaquetteHolonomy@172",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::SignedXorAssociatorDiffractionAndHolonomyMatchCapsuleExhaustively@52",
+      "target": "Runtime/SigmaPrism/SigmaS16.cs::Associator@336",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::SignedXorAssociatorDiffractionAndHolonomyMatchCapsuleExhaustively@52",
+      "target": "Runtime/SigmaPrism/SigmaS16.cs::Basis@95",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::SignedXorAssociatorDiffractionAndHolonomyMatchCapsuleExhaustively@52",
+      "target": "Runtime/SigmaPrism/SigmaS16.cs::BasisProductSign@234",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::ZEmptyClaimsSupportAndRepresentationProofsFailClosed@148",
+      "target": "Runtime/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.cs::CanOmitQueryRegion@201",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::ZEmptyClaimsSupportAndRepresentationProofsFailClosed@148",
+      "target": "Runtime/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.cs::ClassifyAllDefault@216",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::ZEmptyClaimsSupportAndRepresentationProofsFailClosed@148",
+      "target": "Runtime/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.cs::IsZEmpty@189",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::ZEmptyClaimsSupportAndRepresentationProofsFailClosed@148",
+      "target": "Runtime/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.cs::ReverseActionFor@191",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::ZEmptyClaimsSupportAndRepresentationProofsFailClosed@148",
+      "target": "Runtime/SigmaPrism/SigmaS16.cs::Basis@95",
+      "kind": "calls"
+    },
+    {
       "source": "Tests/Editor/SigmaPoseGaugeTests.cs::BuildDepthCalibration@374",
       "target": "Runtime/SigmaPrism/SigmaNumericDomain.cs::FromRatio@196",
       "kind": "calls"
@@ -22511,7 +23154,7 @@
     },
     {
       "source": "Tools/generate_code_graph.py::is_hlsl_definition@110",
-      "target": "Tools/sigma/generate_sigma_operators.py::sha256@157",
+      "target": "Tools/sigma/generate_sigma_operators.py::sha256@172",
       "kind": "calls"
     },
     {
@@ -22520,8 +23163,13 @@
       "kind": "calls"
     },
     {
-      "source": "Tools/sigma/generate_sigma_operators.py::render_cs@368",
-      "target": "Tools/sigma/generate_sigma_operators.py::cs_array@359",
+      "source": "Tools/sigma/generate_sigma_operators.py::normalize@537",
+      "target": "Tools/sigma/generate_sigma_operators.py::file_sha256@177",
+      "kind": "calls"
+    },
+    {
+      "source": "Tools/sigma/generate_sigma_operators.py::render_cs@843",
+      "target": "Tools/sigma/generate_sigma_operators.py::cs_array@834",
       "kind": "calls"
     },
     {

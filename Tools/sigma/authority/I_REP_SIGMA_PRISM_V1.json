@@ -1,0 +1,68 @@
+{
+  "schemaVersion": "CPQ4-IREP-1",
+  "authority": {
+    "canonicalSpec": "new_spec.md",
+    "sections": [1, 2, 3, 16, 20, 21, 22, 27, 30],
+    "scope": "exact finite representation of the same full S16 field"
+  },
+  "address": {
+    "backing": "SIGNED_INT64_UV_PLUS_UNSIGNED_DYADIC_LEVEL",
+    "baseLevel": 0,
+    "cellDomain": "HALF_OPEN_DYADIC_SQUARE",
+    "chi": "CELL_CENTRE_IN_INTRINSIC_DYADIC_COORDINATES"
+  },
+  "kappa": {
+    "family": "DYADIC_HALF_OPEN_PIECEWISE_CONSTANT",
+    "ownership": "DISJOINT_PARTITION",
+    "reconstruction": "ONE_FULL_S16_VALUE_OVER_EACH_OWNED_CELL",
+    "measure": "EXACT_DYADIC_CELL_AREA",
+    "queryAccumulation": "INTRINSIC_MEASURE_WEIGHTED_WITH_EXACT_CHILD_SUM_EQUAL_PARENT",
+    "defaultOutsideFiniteSupport": "ZEMPTY",
+    "overlap": "FORBIDDEN"
+  },
+  "defaultRepresentations": {
+    "logicalUnbacked": "ZEMPTY",
+    "allocated": "FULL_S16_ALGEBRA_ZERO",
+    "nullCodecDecode": "ZEMPTY",
+    "equivalence": "COMPLETE_PROGRAM_BYTE_IDENTITY",
+    "legacyNonzeroZNull": "REJECT_UNLESS_COMPLETE_PROGRAM_PROOF"
+  },
+  "refinement": {
+    "split": "ONE_LEVEL_L_CELL_TO_FOUR_LEVEL_L_PLUS_1_CHILDREN",
+    "priorProlongation": "COPY_ALL_16_PARENT_COEFFICIENTS_TO_EACH_CHILD",
+    "preInformationEquality": "POINTWISE_FULL_S16",
+    "transport": [
+      "STATE",
+      "EXACT_FEASIBLE_FACTORS",
+      "DIRECTIONAL_INFORMATION",
+      "EVIDENCE_RECEIPTS",
+      "NATIVE_RELATION_WITNESSES",
+      "SUPPORTED_BANDWIDTH"
+    ],
+    "coarsen": "COLLAPSE_ONLY_FOUR_EQUAL_CHILDREN_WITH_EQUIVALENT_TRANSPORTED_PROOF"
+  },
+  "gaugeFamily": {
+    "base": "GLOBAL_SIGNED_INTEGER_TRANSLATION",
+    "refinement": "PROVED_DYADIC_SPLIT_OR_EXACT_COLLAPSE",
+    "independentComponentTranslation": "NOT_ADMITTED_WITHOUT_RELATION_PROGRAM_PROOF",
+    "lossyResampling": "FORBIDDEN"
+  },
+  "normalizer": {
+    "translation": "SUBTRACT_LEXICOGRAPHIC_MINIMUM_NONDEFAULT_CELL_LOWER_COORDINATE",
+    "cellOrder": "LEVEL_THEN_SIGNED_MORTON_THEN_U_THEN_V",
+    "collapse": "RECURSIVE_EQUAL_FOUR_CHILD_COLLAPSE",
+    "unresolvedRule": "NO_UNIQUE_NORMAL_FORM_MEANS_NO_PUBLICATION"
+  },
+  "freshSupport": {
+    "input": "RESOLVED_RELATIVE_BASE_DENSITY_PATTERN",
+    "normalization": "GLOBAL_TRANSLATION_NORMAL_FORM",
+    "pixelOrXyzAuthority": false,
+    "ambiguousNonEquivalentPlacement": "UNRESOLVED"
+  },
+  "serialization": {
+    "pageGeometry": "64X64_FROZEN",
+    "codecBlockGeometry": "8X8_FROZEN",
+    "order": "NORMALIZED_GAUGE_RECORD_THEN_FULL_S16_THEN_GENERATIONS_AND_FINGERPRINTS",
+    "atomicRoot": ["CHI", "KAPPA", "STATE", "CERTIFICATE", "DIRECTORY"]
+  }
+}

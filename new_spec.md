@@ -400,8 +400,13 @@ There is one semantic authority:
 }.
 \]
 
-`I_TOE` is the supplied authoritative Merkaba/eigenmode operator/frame/kernel
-artifact. `I_Q` is the frozen family of query-boundary laws and schemas for the
+`I_TOE` is the scanner-facing algebra capsule
+`Tools/sigma/authority/I_TOE_S16_K16_NATIVE_CLOSURE.md`. It is the complete TOE
+authority admitted by this product: K16 signed-XOR/sign-cocycle grammar, explicit
+associator brackets, diffraction and shell/closure laws, Merkaba shadow/frame,
+shadow-kernel coupling rule and native sign transport. The upstream monograph is
+provenance only; no other TOE sector may enter N1R. `I_Q` is the frozen family of
+query-boundary laws and schemas for the
 physical sensor transfer/finite footprint, XR eyes, intrinsic queries, export and
 debug. Runtime calibration/pose epochs instantiate parameters of those schemas;
 they do not rewrite native law.

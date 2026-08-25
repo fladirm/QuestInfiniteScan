@@ -226,6 +226,33 @@ branch/chart decisions remain in Git history only.
 - N3 unresolved evidence is in-session only; N4 replaces it with durable minimized
   exact constraints.
 
+## ADR-S441 — N1R scanner algebra authority is capsule-bounded
+
+- `Tools/sigma/authority/I_TOE_S16_K16_NATIVE_CLOSURE.md` is the sole admitted
+  TOE input. Its workspace SHA-256 is
+  `36a584dcff0c0c340d491ab476aa7428f7b1edf0c97e1407022e0f71181fdee1`;
+  the declared upstream monograph SHA-256 is
+  `9d2e3604846305cfe5244a4ef49f169632c60582cf895256fadc36426dc5786f`.
+- Only capsule sections 1–8 enter the generated program. Cosmology, particles,
+  masses, couplings, SI/metrology and every other monograph sector remain outside
+  the scanner authority boundary.
+- The Merkaba input fingerprint uses the numeric/multiplication/zero-divisor
+  native core and excludes legacy `G/F/RGB` readout/operator bundle authority.
+- The capsule supplies no E22 inventory and no `C_vk=C_kv=0` proof. Direct full
+  S16 dependencies therefore remain and no shadow-transparent mode is frozen.
+- The capsule fixes `A_k^2=-(2^k-1)I` but not one `A_1` orientation. Generated
+  code retains only the orientation-independent `-1/-3/-7/-15` recurrence and
+  never manufactures a concrete shell matrix.
+- Capsule section 8 leaves the native modal metric/tolerance parametric. The
+  generated exact Q48 admissible region is a fingerprinted query input; missing
+  or unproved input yields `UNRESOLVED`, never an invented XYZ/contact rule.
+- The new representation proves algebra zero as `ZEmpty`; the legacy nonzero
+  `ZNullDyad` is explicitly rejected until a complete-program proof exists.
+- The sole generator hashes its own source and emits the complete expression,
+  reverse-rule, query, representation and provenance inventory into the authority
+  manifest. N1R introduces no live mutation; the generated authority is consumed
+  only by parity fixtures until a later accepted cutover.
+
 ## Explicit supersession
 
 - ADR-S404R, ADR-S423 through ADR-S435 and their V2 revisions are superseded by

@@ -1,6 +1,6 @@
 # Sigma‑PRISM‑16 implementation state
 
-Updated: 2026-08-25 (Europe/Prague)
+Updated: 2026-08-26 (Europe/Prague)
 
 ## Authority
 
@@ -8,7 +8,7 @@ Updated: 2026-08-25 (Europe/Prague)
 - Branch: `feat/sigma-prism-16-cpq4-20260822`.
 - Runtime replacement baseline: `cac9ab012f4ce574e5eb9bee88290982fd9c4fe8`.
 - Accepted primitive milestones: S4‑00 through S4‑07 where compatible with v8.3.
-- Active node: S4‑08, reopened and in progress.
+- Active node: S4‑08; N1R accepted, no subsequent run active.
 - Active repair: S4‑08.6 one-medium native closure.
 - Frozen plan: `.codex/S4-08.6_NATIVE_CLOSURE_PLAN.md`.
 - Sole routine cursor: `.codex/S4-08.6_RESUME.md`.
@@ -111,31 +111,46 @@ There is no physical chart/sheet/branch/hypothesis/materialization/topology worl
 Preservation is defined on complete-program equivalence fibres, not one query
 kernel.
 
-## Current exact action
+## N1R accepted checkpoint
 
-N0R v8.3 documentation correction is accepted by this checkpoint with zero
-Runtime/Resources diff. N1R has not started and remains the sole next
-implementation run:
+N1R consumes only the workspace scanner capsule
+`Tools/sigma/authority/I_TOE_S16_K16_NATIVE_CLOSURE.md`, whose workspace SHA-256
+is `36a584dcff0c0c340d491ab476aa7428f7b1edf0c97e1407022e0f71181fdee1`
+and whose declared upstream monograph SHA-256 is
+`9d2e3604846305cfe5244a4ef49f169632c60582cf895256fadc36426dc5786f`.
+No other TOE sector or `~/Stažené` copy is an input.
 
-1. locate/hash the supplied authoritative TOE artifact and freeze/hash `I_Q`;
-2. extend/replace the donor operator vocabulary only if authoritative source
-   requires it, then generate one provenance-bearing relation-program IR with all
-   arities/brackets/couplings;
-3. generate query reductions and exact reverse contractors;
-4. generate exact directional mould action, behind-hit zero action and native
-   uncertainty/information pullback;
-5. freeze calibrated photometric nuisance relations and generate exact
-   zero-false-negative query-support summaries;
-6. prove locality certificate compression and deterministic minimization preserve
-   coupled/disjunctive exactness with bounded duplicate-revisit growth;
-7. prove contextual E22 separation/complete-law sufficiency or retain direct S16;
-8. prove `ZEmpty` representation parity plus all-default quiescence or block;
-9. prove complete-program fibre/coupling rules;
-10. freeze exact `chi/kappa`, representation decode/transport and constructive canonical
-    gauge normalizer; prove base-density fresh support admission;
-11. establish CPU/HLSL parity without live mutation.
+The sole generator now hashes itself, the capsule, exact `I_Q`/`I_REP`, canonical
+spec/plan and an S16 native-core fingerprint which deliberately excludes legacy
+`G/F/RGB` readout authority. It emits one auditable 19-expression provenance
+inventory plus CPU/HLSL tables under program fingerprint
+`ce356a5913c689908325a2f79bcf2350bc28691e917e3d0d71d7c51417193343`.
 
-Do not infer missing law from current B/G/F/RGB/topology code.
+Source-faithful fail-closed boundaries are explicit:
+
+```text
+E22 inventory                         absent; direct full S16 retained
+shadow-kernel decoupling proof        absent; transparent modes not frozen
+shell A1 orientation                  absent; only -1/-3/-7/-15 invariant emitted
+native modal G/epsilon region         parametric fingerprinted Q48 input;
+                                      missing/unproved means UNRESOLVED
+ZEmpty                                algebra zero in the new representation
+legacy nonzero ZNullDyad              rejected as no-manifestation authority
+all-default                           DEFAULT_SAT, reducer identity, zero work
+behind-hit                            NO_CLAIM / zero reverse action
+```
+
+No production controller references the new program; N1R adds no live mutation,
+fallback or second graph. Focused generator/JSON/UAV gates pass. Unity
+`6000.5.9f1`, Vulkan EditMode warm run is `85/85` passed, including `8/8` N1R
+tests and exhaustive CPU/HLSL basis-context parity. The preceding cold-import run
+was `84/85`; its sole failure was an unrelated legacy test timeout during a
+392-second first shader import, and the immediate warm rerun passed all 85.
+
+N1R production diff versus `df5200f`/`cac9ab0` is `+392/-0` LOC: 229 generated
+C#, 100 generated HLSL, 59 parity-fixture lines and four native-core fingerprint
+lines. This is the generated replacement authority required before the N3 hard
+cut; no subsequent run is active in this checkpoint.
 
 ## N0R implementation-safety correction
 
