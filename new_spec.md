@@ -1745,6 +1745,199 @@ Release telemetry is one-shot opt-in and records actual per-kernel GPU timestamp
 without enabling the Unity development profiler. The timestamped submission is
 diagnostic-contaminated and is not used as an ordinary wall baseline.
 
+## 28.1 GPU dispatch-collapse contract
+
+Dispatch count is an acceptance gate independent of elapsed time. Deleting old
+symbols or reducing milliseconds while recreating a 100--200-dispatch graph under
+new names is a structural failure.
+
+The measured baseline is exactly:
+
+```text
+cac9ab0
+    266 recorded Vulkan compute dispatches
+     61 distinct exercised compute kernels
+```
+
+The current Release timestamp path explicitly wraps direct and indirect
+`DispatchCompute` calls; it does not automatically count Vulkan raster draws. For
+the budgets below define the structural graph-command count
+
+```text
+D_budget = recorded PRISM compute dispatches + recorded PRISM raster draws
+```
+
+and report both terms separately. Every required PRISM raster draw consumes one
+budget slot rather than escaping the gate under a different Vulkan verb. If a
+replacement readout uses raster draws, it must add explicit stage-correct Release
+instrumentation before acceptance. The `cac9ab0` baseline term is 266 compute
+dispatches; no unmeasured draw is retroactively claimed by that sample.
+
+For one admitted scan frame, the counting interval is:
+
+```text
+admitted observation becomes GPU-owned
+    -> terminal Fault / NoChangeReceipt / published-root disposition
+```
+
+It includes every hot PRISM submission needed for:
+
+```text
+query-support selection
+forward sensor query and whole-query reduction
+reverse contractor and native-relation closure
+mandatory compaction, prefix or indirect-argument preparation
+cache/relation preparation required by that frame
+representation preparation and state/gauge scatter
+publication validation and close
+```
+
+`generated`, `helper`, `scan`, `prefix`, `compaction`, `indirect preparation`,
+`cache update` and `relation preparation` are not exclusions. Meta/camera capture
+before PRISM ownership, timestamp instrumentation itself and unrelated Unity/XR
+compositor work are excluded. Explicit cold continuations are excluded from the
+hot total only under section 28.3.
+
+For an eye readout, count from query invocation against one immutable published
+root until both retinal outputs are complete. Both eyes share one budget; a
+separate allowance per eye is forbidden.
+
+For bounded warm-resident work, the counted graph-command sequence must be
+invariant to:
+
+```text
+total world size
+resident segment count
+total carrier/page count
+historical revision/observation count
+candidate/provider/page-pair count
+pixel-edge count
+```
+
+Those quantities may change compact worklist cardinality, dispatch dimensions and
+workgroup count. They may not create one host-recorded dispatch sequence per page,
+segment, candidate class, relation family, S16 lane, E22 relation, bracket/IR node,
+evidence class or sort level. Required work is lowered to compact worklists plus a
+fixed small number of direct/indirect submissions. Generated specialization is
+legal only where it reduces actual parallel work; it may not mechanically turn
+the IR into a kernel-per-node orchestration graph.
+
+The hard staged budgets are:
+
+```text
+N3R warm ordinary base-density chi_0/kappa_0 scan
+    D_budget <= 80
+
+N4R warm ordinary same-sampling informative scan
+    D_budget <= 64
+
+N5R same warm-resident ordinary fixture
+    D_budget <= 56
+
+N6R/N7R stable exact no-change revisit
+    D_budget                 <= 20
+    NativeStateDelta count     = 0
+    NativeGaugeDelta count     = 0
+    page clones                = 0
+
+N6R/N7R ordinary warm-resident bounded 320x320 informative update
+    D_budget <= 40
+
+N6R/N7R direct immutable-root eye query producing both eyes
+    D_budget <= 8
+```
+
+The N4 ordinary fixture does not trigger regional reparameterization. Genuine
+new `chi/kappa` refinement is cold, is counted separately and must disappear from
+the next equivalent warm frame after completion. At N5, increasing resident
+segment/page count while query-visible work stays fixed may not increase the hot
+count. SSD page-fault, encode, eviction and rehydrate submissions are cold and may
+not be inserted into every warm frame.
+
+Final warm scan fixtures may exercise at most 24 distinct hot GPU entry points;
+the final eye-pair fixture may exercise at most 6. These sanity limits do not
+authorize one serial generic interpreter kernel. Generated kernels remain
+specialized, fixed-schedule and parallel; the goal is to remove duplicated host/
+GPU orchestration, not hide it inside one pathological dispatch.
+
+Passing a timing gate never waives a dispatch-count failure. In
+particular, any ordinary warm-frame replacement that removes the old graph but
+records `D_budget >= 100` is categorically rejected regardless
+of LOC or latency.
+
+## 28.2 Required dispatch telemetry and scaling controls
+
+Every N3R--N7R Quest acceptance capture emits one machine-readable row per
+stage/entry point containing:
+
+```text
+stage and kernel/entry-point fingerprint
+compute-dispatch count and raster-draw count
+GPU total ms and p95 where applicable
+work-item cardinality
+query-visible page count
+active constraint count
+resident segment count
+HOT or COLD classification plus cold-reason code
+```
+
+and totals:
+
+```text
+HOT_COMPUTE_DISPATCHES
+HOT_RASTER_DRAWS
+TOTAL_HOT_DISPATCHES
+COLD_COMPUTE_DISPATCHES
+COLD_RASTER_DRAWS
+TOTAL_COLD_DISPATCHES
+DISTINCT_HOT_KERNELS
+DISTINCT_COLD_KERNELS
+DISTINCT_HOT_ENTRY_POINTS
+DISTINCT_COLD_ENTRY_POINTS
+```
+
+The capture stores the exact source commit, APK, program/query/default and
+representation-root fingerprints. `TOTAL_HOT_DISPATCHES` is the normative
+umbrella count `D_budget = HOT_COMPUTE_DISPATCHES + HOT_RASTER_DRAWS`; it is not a
+Vulkan queue-submission count. A count mismatch, unmatched timing event or missing
+mandatory entry is a failed capture, not zero work.
+
+Negative controls vary independently:
+
+```text
+resident segments       1 / 2 / 7
+query-visible pages      fixed
+world pages              small / large
+historical revisions     short / long
+```
+
+For identical query-visible physical work, the hot sequence/count and canonical
+result remain identical. A second fixture increases query-visible support: grid/
+work-item cardinality may grow, but the hot graph remains the same bounded
+sequence rather than adding one dispatch chain per page.
+
+## 28.3 Cold-work boundary
+
+Only the following may exceed the final hot-path budgets:
+
+```text
+genuine contractor overflow
+new regional chi/kappa refinement
+SSD page fault / rehydrate
+durable encode / eviction
+rare canonical-normalization continuation proved irreducible
+```
+
+Cold work is explicitly reason-coded and separately timestamped, is absent when
+its trigger is absent, never becomes a permanent frame stage and never blocks the
+published-root eye query. Warm work may not be relabelled cold. After cold work
+completes, the next equivalent warm frame must return to the normal hot budget.
+
+If exact generated law demonstrably needs a higher count, stop the active run and
+report the exact irreducible dispatch dependency and why batching, fusion,
+compaction or indirect lowering would change semantics. Budgets are not relaxed to
+make an implementation pass.
+
 The old `1500/1800 ms` pair is an S4‑08.6 **recovery ceiling** for early live
 replacement cuts, not a final realtime product contract:
 
@@ -1830,6 +2023,12 @@ The following are hard failures:
 - optical quality/confidence used instead of a calibrated illumination/sensor
   transfer nuisance law;
 - proof/evidence growth proportional to duplicate revisit count after convergence;
+- hot dispatch sequences multiplied by pages, segments, candidates, relation
+  families, lanes, IR/bracket nodes, evidence classes or sort levels;
+- a renamed ordinary warm graph with `D_budget >= 100`, or timing used
+  to waive any staged dispatch budget;
+- permanent hot work relabelled as contractor/refinement/pager cold work;
+- a serial generic interpreter kernel used to fake a low entry-point count;
 - legacy/fallback runtime path after cutover.
 
 ---
@@ -1904,6 +2103,13 @@ Before live mutation:
 40. direct eye queries meet XR cadence while scan/refinement/page faults are in
     flight.
 
+Live Quest acceptance additionally requires the staged `D_budget` limits
+`N3<=80`, `N4<=64`, `N5<=56`, final no-change `<=20`, final ordinary informative
+`<=40` and eye pair `<=8`. Final exercised entry points are `<=24` for the warm
+scan graph and `<=6` for the eye pair. Timing success cannot waive these gates.
+The fixed-query-visible-work segment/world/history negative controls must preserve
+both byte-identical results and an identical hot graph-command sequence.
+
 ---
 
 # 31. Physical acceptance corpus
@@ -1960,6 +2166,24 @@ nonresident page contributing to a sensor/eye query
 stale/missing query-support summary fail-closed path
 clear-data versus stop/sleep durable-lifecycle separation
 ```
+
+## Dispatch scaling and telemetry
+
+```text
+resident segments 1 / 2 / 7 with fixed query-visible pages
+small / large total world with identical visible work
+short / long revision history with identical visible work
+larger query-visible support with the same bounded hot graph
+cold refinement followed by an equivalent warm frame
+cold SSD fault/rehydrate followed by an equivalent warm frame
+machine-readable per-stage timing/count/cardinality table
+```
+
+Expected: identical visible work has an identical hot graph-command sequence and
+byte-identical result. Larger visible work changes grid/work cardinality, not one
+dispatch chain per page. Cold graph commands are separately reason-coded and vanish
+after completion. Every staged and final count/entry-point budget passes
+independently of timing.
 
 ## Eye and export
 
@@ -2046,6 +2270,22 @@ Deleting eye/prediction caches changes no canonical bytes or export result.
 - keep only cold indirect continuation of the identical contractor program;
 - any support outside the proved base-density admission remains unresolved; no
   legacy path fills the gap.
+- require `D_budget<=80` for the warm ordinary base-density fixture in addition to
+  the `1500/1800 ms` recovery ceiling; every named old dispatch/entry point,
+  generated ABI path and generator declaration is absent and unregeneratable.
+
+The named-entry absence gate includes exactly:
+
+```text
+BuildFrameProposals
+BuildDepthSourceCells
+BuildRgbSourceCells
+EvaluateCandidateMeets
+BuildPendingEdges
+GatherEdgeEndpoints
+ClosePendingEdges
+RelaxPendingLabels
+```
 
 There is no publication-capable sensor-only intermediate run.
 
@@ -2063,6 +2303,9 @@ There is no publication-capable sensor-only intermediate run.
 - make `chi/kappa` gauge metadata and fingerprints mandatory carrier/codec ABI;
 - implement static false-support correction through exact mould/exclusion closure;
 - delete pending projection/retention, global pixel bbox and physical chart logic.
+- require `D_budget<=64` for a warm ordinary same-sampling frame; genuine regional
+  refinement is separately reason-coded cold work and is absent from the next
+  equivalent warm frame.
 
 ## N5R — representation-aware sparse commit and durable pager
 
@@ -2075,6 +2318,8 @@ There is no publication-capable sensor-only intermediate run.
 - root exchange atomically selects gauge/state/certificate/directory and remains
   last;
 - delete superseded second mapping/sort/publication orchestration.
+- require `D_budget<=56` on the same warm ordinary fixture; changing resident
+  segment/page count at fixed visible work leaves the hot sequence unchanged.
 
 ## N6R — pure readouts
 
@@ -2083,6 +2328,8 @@ There is no publication-capable sensor-only intermediate run.
 - keep only disposable caches and on-demand rich export;
 - meet 72/90 Hz eye-query budgets independently of concurrent scan/refinement/
   page-fault work.
+- produce both eyes in `D_budget<=8` with at most 6 exercised GPU entry points;
+  instrument and count any raster draws explicitly.
 
 ## N7R — hard deletion and physical closure
 
@@ -2093,6 +2340,13 @@ There is no publication-capable sensor-only intermediate run.
 - exact oracle/Vulkan/Release gates;
 - recovery ceiling, stable no-change, ordinary informative-update and XR-eye
   performance contracts all pass;
+- final hot dispatch gates pass independently: no-change `<=20`, ordinary
+  informative `<=40`, eye pair `<=8`, scan entry points `<=24`, eye entry points
+  `<=6`, with no serial generic-interpreter evasion;
+- every Quest capture contains machine-readable compute/draw/total-dispatch,
+  hot/cold, timing,
+  cardinality, residency and fingerprint telemetry; scaling negative controls
+  preserve the hot sequence at fixed visible work;
 - long scan exceeds decoded residency without world-size fault;
 - 10,000 redundant revisits have bounded evidence/certificate growth;
 - source archive, APK and Quest corpus from the identical commit;
@@ -2130,6 +2384,9 @@ certificate growth follows new/unresolved information, not revisit count
 optical nuisance law handles calibrated illumination/sensor transfer without hiding contradictions
 eyes/prediction/export/debug are pure readouts
 storage and execution decomposition are physically invisible
+hot GPU submission graph is bounded and invariant to world/segment/history size
+dispatch budgets 80 -> 64 -> 56 -> final 40/20/8 pass independently of timing
+final warm scan/eye entry-point limits 24/6 pass without a serial interpreter
 no-change, informative-update, eye cadence, negative-LOC and device gates pass
 ```
 
