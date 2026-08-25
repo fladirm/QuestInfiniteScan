@@ -8,6 +8,7 @@
   "address": {
     "backing": "SIGNED_INT64_UV_PLUS_UNSIGNED_DYADIC_LEVEL",
     "baseLevel": 0,
+    "maximumLevel": 62,
     "cellDomain": "HALF_OPEN_DYADIC_SQUARE",
     "chi": "CELL_CENTRE_IN_INTRINSIC_DYADIC_COORDINATES"
   },
@@ -48,7 +49,7 @@
     "lossyResampling": "FORBIDDEN"
   },
   "normalizer": {
-    "translation": "SUBTRACT_LEXICOGRAPHIC_MINIMUM_NONDEFAULT_CELL_LOWER_COORDINATE",
+    "translation": "SUBTRACT_INTEGER_FLOOR_OF_LEXICOGRAPHIC_MINIMUM_NONDEFAULT_DYADIC_LOWER_COORDINATE",
     "cellOrder": "LEVEL_THEN_SIGNED_MORTON_THEN_U_THEN_V",
     "collapse": "RECURSIVE_EQUAL_FOUR_CHILD_COLLAPSE",
     "unresolvedRule": "NO_UNIQUE_NORMAL_FORM_MEANS_NO_PUBLICATION"

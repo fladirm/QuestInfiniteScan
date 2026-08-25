@@ -32,10 +32,12 @@ I_REP_SOURCE = (ROOT / "Tools" / "sigma" / "authority" /
                 "I_REP_SIGMA_PRISM_V1.json")
 AUTHORITY_MANIFEST_OUTPUT = (ROOT / "Tools" / "sigma" / "authority" /
                              "SigmaMerkabaAuthorityManifest.json")
-CS_MERKABA_OUTPUT = (ROOT / "Runtime" / "SigmaPrism" / "Generated" /
+CS_MERKABA_OUTPUT = (ROOT / "Tests" / "Editor" / "Generated" /
                      "SigmaGeneratedMerkabaProgram.cs")
-HLSL_MERKABA_OUTPUT = (ROOT / "Runtime" / "Resources" / "SigmaPrism" /
-                       "Generated" / "SigmaGeneratedMerkabaProgram.hlsl")
+HLSL_MERKABA_OUTPUT = (ROOT / "Tests" / "Editor" / "Generated" /
+                       "SigmaGeneratedMerkabaProgram.hlsl")
+HLSL_MERKABA_FIXTURE_OUTPUT = (ROOT / "Tests" / "Editor" / "Generated" /
+                               "SigmaMerkabaProgramFixture.compute")
 NUMERIC_ID = "num.fixed.q16_48.checked.nearest_even"
 GENERATOR_VERSION = "CPQ4-S16-GEN-1"
 FRAME_ABI_VERSION = "CPQ4-S16-FRAME-1"
@@ -227,49 +229,796 @@ def signed_morton(left: int, right: int) -> int:
     return output
 
 
-def reverse_interval_soundness_fixture_count() -> int:
-    """Prove the generated primitive reverse rules retain every source point."""
+def transpose(matrix: list[list[int]]) -> list[list[int]]:
+    return [list(column) for column in zip(*matrix)]
+
+
+def matrix_multiply(left: list[list[int]],
+                    right: list[list[int]]) -> list[list[int]]:
+    return [[sum(left[row][inner] * right[inner][column]
+                 for inner in range(len(right)))
+             for column in range(len(right[0]))]
+            for row in range(len(left))]
+
+
+def information_metric(diffraction: list[list[int]]) -> list[list[int]]:
+    """G=2*A^T*A=-2*A^2, with A the generated diffraction operator."""
+    ata = matrix_multiply(transpose(diffraction), diffraction)
+    square = matrix_multiply(diffraction, diffraction)
+    metric = [[2 * value for value in row] for row in ata]
+    if metric != [[-2 * value for value in row] for row in square]:
+        raise RuntimeError("diffraction metric lost G=2*A^T*A=-2*A^2")
+    if any(metric[row][column] != metric[column][row]
+           for row in range(LANES) for column in range(LANES)):
+        raise RuntimeError("diffraction information metric is not symmetric")
+    for probe in itertools.product((-1, 0, 1), repeat=4):
+        vector = list(probe) + [0] * (LANES - len(probe))
+        quadratic = sum(vector[row] * metric[row][column] * vector[column]
+                        for row in range(LANES) for column in range(LANES))
+        if quadratic < 0:
+            raise RuntimeError("diffraction information metric is not PSD")
+    return metric
+
+
+def build_executable_merkaba_ir() -> dict:
+    """Build the one numeric, bracket-preserving IR consumed by CPU and HLSL."""
+    opcode_names = (
+        "INPUT_S16", "INPUT_FIELD", "INPUT_QUERY", "INPUT_INTERVAL",
+        "INPUT_ROLE", "BASIS_PRODUCT", "S16_MULTIPLY", "S16_SUBTRACT",
+        "DIFFRACTION_APPLY", "INFORMATION_METRIC_APPLY", "SIGN_TRANSPORT",
+        "PRIMITIVE_REPRESENTATIVE", "OUTWARD_G_NORM", "NORMALIZE_FACTOR",
+        "PLAQUETTE_HOLONOMY", "PLAQUETTE_NORMALIZE_HALF", "DIRECT_SUM",
+        "MERKABA_SHADOW", "CALIBRATED_QUERY_CONTRACT", "SCENE_REDUCE",
+        "PREIMAGE_UNION", "FIRST_HIT_ACTION", "OPTICAL_NUISANCE_CONTRACT",
+        "INFORMATION_PULLBACK", "CERTIFICATE_MINIMIZE", "DYADIC_DECODE",
+        "GAUGE_NORMALIZE", "ZEMPTY_DEFAULT", "RELATION_CLASSIFY",
+    )
+    value_kinds = (
+        "S16", "Q48_INTERVAL", "S16_INTERVAL", "RELATION_FACTOR",
+        "SCENE_SHADOW", "PREIMAGE_UNION", "ACTION_WITNESS", "CERTIFICATE",
+        "GAUGE_FIELD", "QUERY_ROLE", "BOOLEAN",
+    )
+    neighbourhoods = (
+        "LOCAL", "LOCAL_CONTEXT", "FULL_LOCAL_STATE", "WHOLE_QUERY",
+        "WHOLE_PROGRAM", "INTRINSIC_PAIR", "INTRINSIC_TRIPLE",
+        "PLAQUETTE", "FINITE_SUPPORT", "COHERENT_EYE",
+    )
+    reverse_rules = (
+        "NONE", "EXACT_IDENTITY", "EXACT_INVERSE_PERMUTATION",
+        "OUTWARD_ADD_SUB", "OUTWARD_PRODUCT_ZERO_BRANCH_UNION",
+        "REVERSE_SAME_BRACKET_TREE", "RETAIN_SUPPORT_DISJUNCTION",
+        "NO_CLAIM", "REVERSE_CALIBRATED_QUERY", "RETAIN_FACTOR",
+    )
+    reducers = (
+        "NONE", "DIRECT_ORDER_FIRST_HIT_OCCLUSION", "EXACT_DIRECT_SUM",
+        "NATIVE_RELATION_CONTEXT", "EXPORT_RELATION_GATED",
+    )
+    op = {name: index for index, name in enumerate(opcode_names)}
+    kind = {name: index for index, name in enumerate(value_kinds)}
+    neighbourhood = {name: index for index, name in enumerate(neighbourhoods)}
+    reverse = {name: index for index, name in enumerate(reverse_rules)}
+    reducer = {name: index for index, name in enumerate(reducers)}
+    nodes: list[dict] = []
+    operands: list[int] = []
+    expressions: list[dict] = []
+
+    def add_node(opcode: str, output_kind: str, inputs: Iterable[int] = (),
+                 reverse_rule: str = "NONE", argument0: int = 0,
+                 argument1: int = 0) -> int:
+        inputs = tuple(inputs)
+        first = len(operands)
+        operands.extend(inputs)
+        nodes.append({
+            "opcode": op[opcode],
+            "outputKind": kind[output_kind],
+            "reverseRule": reverse[reverse_rule],
+            "operandStart": first,
+            "operandCount": len(inputs),
+            "argument0": argument0,
+            "argument1": argument1,
+        })
+        return len(nodes) - 1
+
+    def add_expression(identifier: str, source: str, arity: int,
+                       locality: str, build) -> int:
+        first = len(nodes)
+        root = build()
+        expression = {
+            "id": identifier,
+            "source": source,
+            "arity": arity,
+            "neighbourhood": neighbourhood[locality],
+            "nodeStart": first,
+            "nodeCount": len(nodes) - first,
+            "rootNode": root,
+        }
+        expression["fingerprint"] = sha256({
+            **expression,
+            "nodes": nodes[first:],
+            "operands": operands,
+        })
+        expressions.append(expression)
+        return len(expressions) - 1
+
+    def input_s16(slot: int) -> int:
+        return add_node("INPUT_S16", "S16", argument0=slot,
+                        reverse_rule="EXACT_IDENTITY")
+
+    add_expression("K16_BASIS_PRODUCT", "I_TOE:1", 2, "LOCAL",
+        lambda: add_node("BASIS_PRODUCT", "S16",
+                         (input_s16(0), input_s16(1)),
+                         "EXACT_INVERSE_PERMUTATION"))
+
+    def associator_expression() -> int:
+        a, b, c = input_s16(0), input_s16(1), input_s16(2)
+        left = add_node("S16_MULTIPLY", "S16",
+                        (add_node("S16_MULTIPLY", "S16", (a, b),
+                                  "OUTWARD_PRODUCT_ZERO_BRANCH_UNION"), c),
+                        "OUTWARD_PRODUCT_ZERO_BRANCH_UNION")
+        right = add_node("S16_MULTIPLY", "S16",
+                         (a, add_node("S16_MULTIPLY", "S16", (b, c),
+                                      "OUTWARD_PRODUCT_ZERO_BRANCH_UNION")),
+                         "OUTWARD_PRODUCT_ZERO_BRANCH_UNION")
+        return add_node("S16_SUBTRACT", "S16", (left, right),
+                        "OUTWARD_ADD_SUB")
+    associator_index = add_expression(
+        "K16_ASSOCIATOR", "I_TOE:2", 3, "INTRINSIC_TRIPLE",
+        associator_expression)
+
+    def diffraction_expression() -> int:
+        return add_node("DIFFRACTION_APPLY", "S16", (input_s16(0),),
+                        "REVERSE_SAME_BRACKET_TREE")
+    add_expression("K16_DIFFRACTION", "I_TOE:3", 1, "LOCAL",
+                   diffraction_expression)
+
+    def link_factor_expression() -> int:
+        ui, uj = input_s16(0), input_s16(1)
+        transport = add_node("SIGN_TRANSPORT", "S16", (ui,),
+                             "EXACT_INVERSE_PERMUTATION")
+        defect = add_node("S16_SUBTRACT", "S16", (uj, transport),
+                          "OUTWARD_ADD_SUB")
+        primitive = add_node("PRIMITIVE_REPRESENTATIVE", "S16", (defect,),
+                             "RETAIN_FACTOR")
+        metric = add_node("INFORMATION_METRIC_APPLY", "S16", (primitive,),
+                          "REVERSE_SAME_BRACKET_TREE")
+        norm = add_node("OUTWARD_G_NORM", "Q48_INTERVAL",
+                        (primitive, metric), "RETAIN_FACTOR")
+        return add_node("NORMALIZE_FACTOR", "RELATION_FACTOR", (defect, norm),
+                        "RETAIN_FACTOR")
+    link_index = add_expression(
+        "NORMALIZED_LINK_DEFECT", "I_TOE:8", 2, "INTRINSIC_PAIR",
+        link_factor_expression)
+
+    def normalized_associator_expression() -> int:
+        associator_root = expressions[associator_index]["rootNode"]
+        primitive = add_node("PRIMITIVE_REPRESENTATIVE", "S16",
+                             (associator_root,), "RETAIN_FACTOR")
+        metric = add_node("INFORMATION_METRIC_APPLY", "S16", (primitive,),
+                          "REVERSE_SAME_BRACKET_TREE")
+        norm = add_node("OUTWARD_G_NORM", "Q48_INTERVAL",
+                        (primitive, metric), "RETAIN_FACTOR")
+        return add_node("NORMALIZE_FACTOR", "RELATION_FACTOR",
+                        (associator_root, norm), "RETAIN_FACTOR")
+    normalized_associator_index = add_expression(
+        "NORMALIZED_ASSOCIATOR_DEFECT", "I_TOE:8", 3,
+        "INTRINSIC_TRIPLE", normalized_associator_expression)
+
+    def plaquette_expression() -> int:
+        holonomy = add_node("PLAQUETTE_HOLONOMY", "Q48_INTERVAL",
+                            (), "REVERSE_SAME_BRACKET_TREE")
+        return add_node("PLAQUETTE_NORMALIZE_HALF", "RELATION_FACTOR",
+                        (holonomy,), "RETAIN_FACTOR")
+    plaquette_index = add_expression(
+        "NORMALIZED_PLAQUETTE_DEFECT", "I_TOE:8", 4, "PLAQUETTE",
+        plaquette_expression)
+
+    add_expression("NATIVE_CLOSURE_DEFECT", "I_TOE:8", -1,
+        "LOCAL_CONTEXT", lambda: add_node(
+            "DIRECT_SUM", "RELATION_FACTOR",
+            (expressions[link_index]["rootNode"],
+             expressions[normalized_associator_index]["rootNode"],
+             expressions[plaquette_index]["rootNode"]), "RETAIN_FACTOR"))
+
+    def shadow_expression() -> int:
+        field = add_node("INPUT_FIELD", "GAUGE_FIELD", argument0=0,
+                         reverse_rule="RETAIN_SUPPORT_DISJUNCTION")
+        query = add_node("INPUT_QUERY", "Q48_INTERVAL", argument0=1,
+                         reverse_rule="REVERSE_CALIBRATED_QUERY")
+        local = add_node("MERKABA_SHADOW", "S16_INTERVAL", (field,),
+                         "REVERSE_SAME_BRACKET_TREE")
+        contracted = add_node("CALIBRATED_QUERY_CONTRACT", "SCENE_SHADOW",
+                              (local, query), "REVERSE_CALIBRATED_QUERY")
+        return add_node("SCENE_REDUCE", "SCENE_SHADOW", (contracted,),
+                        "RETAIN_SUPPORT_DISJUNCTION",
+                        argument0=reducer["DIRECT_ORDER_FIRST_HIT_OCCLUSION"])
+    sensor_index = add_expression(
+        "SENSOR_SCENE_SHADOW", "I_Q:SENSOR_LEFT_RIGHT", -1,
+        "WHOLE_QUERY", shadow_expression)
+
+    def reverse_expression() -> int:
+        shadow_root = expressions[sensor_index]["rootNode"]
+        observation = add_node("INPUT_INTERVAL", "Q48_INTERVAL", argument0=0,
+                               reverse_rule="EXACT_IDENTITY")
+        return add_node("PREIMAGE_UNION", "PREIMAGE_UNION",
+                        (shadow_root, observation),
+                        "RETAIN_SUPPORT_DISJUNCTION")
+    reverse_index = add_expression(
+        "EXACT_SENSOR_REVERSE", "I_Q:reverseContractor", -1,
+        "WHOLE_QUERY", reverse_expression)
+
+    def action_expression() -> int:
+        role = add_node("INPUT_ROLE", "QUERY_ROLE", argument0=0,
+                        reverse_rule="NO_CLAIM")
+        direction = add_node("INPUT_INTERVAL", "Q48_INTERVAL", argument0=1,
+                             reverse_rule="EXACT_IDENTITY")
+        residual = add_node("INPUT_INTERVAL", "Q48_INTERVAL", argument0=2,
+                            reverse_rule="EXACT_IDENTITY")
+        return add_node("FIRST_HIT_ACTION", "ACTION_WITNESS",
+                        (role, direction, residual), "RETAIN_FACTOR")
+    action_index = add_expression(
+        "DIRECTIONAL_FIRST_HIT_ACTION", "I_Q:sceneReduction+reverseContractor",
+        3, "WHOLE_QUERY", action_expression)
+
+    def optical_expression() -> int:
+        observation = add_node("INPUT_INTERVAL", "Q48_INTERVAL", argument0=0,
+                               reverse_rule="EXACT_IDENTITY")
+        nuisance = add_node("INPUT_QUERY", "Q48_INTERVAL", argument0=1,
+                            reverse_rule="REVERSE_CALIBRATED_QUERY")
+        return add_node("OPTICAL_NUISANCE_CONTRACT", "RELATION_FACTOR",
+                        (observation, nuisance), "RETAIN_FACTOR")
+    add_expression("OPTICAL_NUISANCE", "I_Q:photometricNuisance", 2,
+                   "COHERENT_EYE", optical_expression)
+
+    add_expression("NATIVE_INFORMATION_PULLBACK", "I_Q:certificate", -1,
+        "LOCAL_CONTEXT", lambda: add_node(
+            "INFORMATION_PULLBACK", "CERTIFICATE",
+            (expressions[reverse_index]["rootNode"],), "RETAIN_FACTOR"))
+    add_expression("CERTIFICATE_MINIMIZER", "I_Q:certificate", -1,
+        "FINITE_SUPPORT", lambda: add_node(
+            "CERTIFICATE_MINIMIZE", "CERTIFICATE", (), "RETAIN_FACTOR"))
+
+    def gauge_expression() -> int:
+        backing = add_node("INPUT_FIELD", "GAUGE_FIELD", argument0=0,
+                           reverse_rule="EXACT_IDENTITY")
+        decoded = add_node("DYADIC_DECODE", "GAUGE_FIELD", (backing,),
+                           "EXACT_IDENTITY")
+        return add_node("GAUGE_NORMALIZE", "GAUGE_FIELD", (decoded,),
+                        "EXACT_IDENTITY")
+    gauge_index = add_expression(
+        "DYADIC_GAUGE_NORMALIZER", "I_REP:kappa+normalizer", 1,
+        "FINITE_SUPPORT", gauge_expression)
+    zempty_index = add_expression(
+        "ZEMPTY_DEFAULT", "I_Q:defaultSemantics+I_REP:defaultRepresentations",
+        -1, "WHOLE_PROGRAM", lambda: add_node(
+            "ZEMPTY_DEFAULT", "S16", (), "EXACT_IDENTITY"))
+
+    entry_points = [
+        {"id": "SENSOR_LEFT", "forwardExpression": sensor_index,
+         "reverseExpression": reverse_index,
+         "reducer": reducer["DIRECT_ORDER_FIRST_HIT_OCCLUSION"]},
+        {"id": "SENSOR_RIGHT", "forwardExpression": sensor_index,
+         "reverseExpression": reverse_index,
+         "reducer": reducer["DIRECT_ORDER_FIRST_HIT_OCCLUSION"]},
+        {"id": "EYE_PAIR", "forwardExpression": sensor_index,
+         "reverseExpression": -1,
+         "reducer": reducer["DIRECT_ORDER_FIRST_HIT_OCCLUSION"]},
+        {"id": "INTRINSIC_RELATION", "forwardExpression": link_index,
+         "reverseExpression": link_index,
+         "reducer": reducer["NATIVE_RELATION_CONTEXT"]},
+        {"id": "PREDICTION_SUPPORT", "forwardExpression": sensor_index,
+         "reverseExpression": reverse_index,
+         "reducer": reducer["DIRECT_ORDER_FIRST_HIT_OCCLUSION"]},
+        {"id": "EXPORT", "forwardExpression": sensor_index,
+         "reverseExpression": -1,
+         "reducer": reducer["EXPORT_RELATION_GATED"]},
+        {"id": "DEBUG", "forwardExpression": sensor_index,
+         "reverseExpression": -1, "reducer": reducer["NONE"]},
+    ]
+    ir = {
+        "opcodes": list(opcode_names),
+        "valueKinds": list(value_kinds),
+        "neighbourhoods": list(neighbourhoods),
+        "reverseRules": list(reverse_rules),
+        "reducers": list(reducers),
+        "nodes": nodes,
+        "operands": operands,
+        "expressions": expressions,
+        "entryPoints": entry_points,
+        "actionExpression": action_index,
+        "gaugeExpression": gauge_index,
+        "zEmptyExpression": zempty_index,
+    }
+    for expression in expressions:
+        start = expression["nodeStart"]
+        end = start + expression["nodeCount"]
+        if not start <= expression["rootNode"] < end:
+            # Cross-expression roots are allowed only as explicit operands; each
+            # expression still owns a final root node of its own.
+            raise RuntimeError(f"IR expression has external root: {expression['id']}")
+    for index, node in enumerate(nodes):
+        for operand in operands[node["operandStart"]:
+                                node["operandStart"] + node["operandCount"]]:
+            if operand >= index:
+                raise RuntimeError("Merkaba IR is not a forward acyclic DAG")
+    ir["fingerprint"] = sha256(ir)
+    return ir
+
+
+def reverse_complete_tree_proof(ir: dict) -> dict:
+    """Soundness of the generated bracket tree, including zero branches."""
+    # This is the bounded exhaustive oracle domain for intermediate values, not
+    # the source-domain interval.  It must contain every product in the fixture.
+    full = (-64, 64)
+
+    def interval_mul(left: tuple[int, int], right: tuple[int, int]) -> tuple[int, int]:
+        products = [left[0] * right[0], left[0] * right[1],
+                    left[1] * right[0], left[1] * right[1]]
+        return min(products), max(products)
+
+    def interval_add(left: tuple[int, int], right: tuple[int, int]) -> tuple[int, int]:
+        return left[0] + right[0], left[1] + right[1]
+
+    def interval_sub(left: tuple[int, int], right: tuple[int, int]) -> tuple[int, int]:
+        return left[0] - right[1], left[1] - right[0]
+
+    def reverse_mul(output: tuple[int, int], known: tuple[int, int]) -> tuple[int, int]:
+        if known[0] <= 0 <= known[1]:
+            return full
+        quotients = [Fraction(output[0], known[0]), Fraction(output[0], known[1]),
+                     Fraction(output[1], known[0]), Fraction(output[1], known[1])]
+        lower = min(value.numerator // value.denominator for value in quotients)
+        upper = max(-(-value.numerator // value.denominator) for value in quotients)
+        return max(full[0], lower), min(full[1], upper)
+
     fixtures = 0
-    for left, right, padding in itertools.product(range(-8, 9), range(-8, 9),
-                                                   (0, 1, 3)):
-        add_value = left + right
-        add_lower = add_value - padding
-        add_upper = add_value + padding
-        if not add_lower - right <= left <= add_upper - right:
-            raise RuntimeError("ADD reverse interval lost its source point")
-        fixtures += 1
+    zero_branches = 0
+    bracket_negative_controls = 0
+    for a, b, c in itertools.product(range(-3, 4), repeat=3):
+        for padding in (0, 1):
+            ia, ib, ic = (a, a), (b, b), (c, c)
+            ab = interval_mul(ia, ib)
+            bc = interval_mul(ib, ic)
+            left = interval_mul(ab, ic)
+            right = interval_mul(ia, bc)
+            root = interval_sub(left, right)
+            output = (root[0] - padding, root[1] + padding)
+            reverse_left = interval_add(output, right)
+            reverse_right = interval_sub(left, output)
+            reverse_ab = reverse_mul(reverse_left, ic)
+            reverse_c_left = reverse_mul(reverse_left, ab)
+            reverse_a_left = reverse_mul(reverse_ab, ib)
+            reverse_b_left = reverse_mul(reverse_ab, ia)
+            reverse_a_right = reverse_mul(reverse_right, bc)
+            reverse_bc = reverse_mul(reverse_right, ia)
+            reverse_b_right = reverse_mul(reverse_bc, ic)
+            reverse_c_right = reverse_mul(reverse_bc, ib)
+            retained = (
+                reverse_a_left[0] <= a <= reverse_a_left[1] and
+                reverse_a_right[0] <= a <= reverse_a_right[1] and
+                reverse_b_left[0] <= b <= reverse_b_left[1] and
+                reverse_b_right[0] <= b <= reverse_b_right[1] and
+                reverse_c_left[0] <= c <= reverse_c_left[1] and
+                reverse_c_right[0] <= c <= reverse_c_right[1])
+            if not retained:
+                raise RuntimeError("complete bracket-tree reverse lost a source")
+            zero_branches += int(a == 0 or b == 0 or c == 0)
+            fixtures += 1
+        # The two S16 bracket histories are independently fingerprinted and must
+        # differ for a known nonassociative basis triple.
+        if any((basis_product(LANES, a0, b0)[0] *
+                basis_product(LANES, a0 ^ b0, c0)[0]) !=
+               (basis_product(LANES, b0, c0)[0] *
+                basis_product(LANES, a0, b0 ^ c0)[0])
+               for a0, b0, c0 in itertools.product(range(LANES), repeat=3)):
+            bracket_negative_controls = 1
+    # Interpret the actual numeric K16_ASSOCIATOR node graph over a complete
+    # zero-plus-basis domain.  This ties the reverse proof to the emitted node
+    # topology instead of reimplementing a prose formula beside it.
+    associator = next(expression for expression in ir["expressions"]
+                      if expression["id"] == "K16_ASSOCIATOR")
+    opcode_names = ir["opcodes"]
+    zero = (0,) * LANES
+    basis_domain = [zero] + [tuple(1 if lane == basis else 0
+                                   for lane in range(LANES))
+                             for basis in range(LANES)]
 
-        sub_value = left - right
-        sub_lower = sub_value - padding
-        sub_upper = sub_value + padding
-        if not sub_lower + right <= left <= sub_upper + right:
-            raise RuntimeError("SUB reverse interval lost its source point")
-        fixtures += 1
+    def multiply_s16(left: tuple[int, ...],
+                     right: tuple[int, ...]) -> tuple[int, ...]:
+        output = [0] * LANES
+        for left_lane, left_value in enumerate(left):
+            if left_value == 0:
+                continue
+            for right_lane, right_value in enumerate(right):
+                if right_value == 0:
+                    continue
+                sign, lane = basis_product(LANES, left_lane, right_lane)
+                output[lane] += sign * left_value * right_value
+        return tuple(output)
 
-    for value, sign in itertools.product(range(-32, 33), (-1, 1)):
-        if sign * (sign * value) != value:
-            raise RuntimeError("signed permutation reverse is not exact")
+    def evaluate_actual_associator(inputs: tuple[tuple[int, ...], ...]
+                                    ) -> tuple[int, ...]:
+        values: dict[int, tuple[int, ...]] = {}
+        start = associator["nodeStart"]
+        end = start + associator["nodeCount"]
+        for node_index in range(start, end):
+            node = ir["nodes"][node_index]
+            opcode = opcode_names[node["opcode"]]
+            node_operands = ir["operands"][
+                node["operandStart"]:node["operandStart"] + node["operandCount"]]
+            if opcode == "INPUT_S16":
+                values[node_index] = inputs[node["argument0"]]
+            elif opcode == "S16_MULTIPLY":
+                values[node_index] = multiply_s16(
+                    values[node_operands[0]], values[node_operands[1]])
+            elif opcode == "S16_SUBTRACT":
+                values[node_index] = tuple(
+                    left - right for left, right in zip(
+                        values[node_operands[0]], values[node_operands[1]]))
+            else:
+                raise RuntimeError(
+                    f"unsupported opcode in actual associator proof: {opcode}")
+        return values[associator["rootNode"]]
+
+    ir_preimages: dict[tuple[int, ...], list[tuple[int, int, int]]] = {}
+    ir_forward_fixtures = 0
+    for input_indices in itertools.product(range(len(basis_domain)), repeat=3):
+        inputs = tuple(basis_domain[index] for index in input_indices)
+        actual = evaluate_actual_associator(inputs)
+        reference = tuple(left - right for left, right in zip(
+            multiply_s16(multiply_s16(inputs[0], inputs[1]), inputs[2]),
+            multiply_s16(inputs[0], multiply_s16(inputs[1], inputs[2]))))
+        if actual != reference:
+            raise RuntimeError("generated associator DAG changed its bracket tree")
+        ir_preimages.setdefault(actual, []).append(input_indices)
+        ir_forward_fixtures += 1
+    ir_ambiguous_outputs = sum(len(preimages) > 1
+                               for preimages in ir_preimages.values())
+    ir_max_preimage_count = max(map(len, ir_preimages.values()))
+    if ir_ambiguous_outputs == 0 or ir_max_preimage_count <= 1:
+        raise RuntimeError("actual generated reverse proof lost set-valued preimages")
+
+    # Scene reduction reverse is a disjunction, never one winner applied to all.
+    scene_fixtures = 0
+    for first_order, second_order, first_value, second_value in itertools.product(
+            (1, 2), (1, 2), (-1, 1), (-1, 1)):
+        selected = first_value if first_order <= second_order else second_value
+        candidates = []
+        for support in (0, 1):
+            value = first_value if support == 0 else second_value
+            order = first_order if support == 0 else second_order
+            if value == selected and order == min(first_order, second_order):
+                candidates.append(support)
+        expected_support = 0 if first_order <= second_order else 1
+        if expected_support not in candidates:
+            raise RuntimeError("scene reverse lost the true first-hit support")
+        scene_fixtures += 1
+    if zero_branches == 0 or bracket_negative_controls != 1:
+        raise RuntimeError("reverse proof lacks zero/bracket negative controls")
+    return {
+        "fixtureCount": fixtures + scene_fixtures + ir_forward_fixtures,
+        "zeroBranchCount": zero_branches,
+        "sceneDisjunctionCount": scene_fixtures,
+        "bracketNegativeControls": bracket_negative_controls,
+        "irAssociatorFingerprint": associator["fingerprint"],
+        "irForwardFixtureCount": ir_forward_fixtures,
+        "irPreimageOutputCount": len(ir_preimages),
+        "irAmbiguousPreimageOutputCount": ir_ambiguous_outputs,
+        "irMaxPreimageCount": ir_max_preimage_count,
+    }
+
+
+def query_support_exhaustive_proof(i_q: dict) -> dict:
+    """Compare omission with an independent evaluation of generated query law."""
+    fixtures = 0
+    false_negatives = 0
+    omitted = 0
+    refined_fixtures = 0
+    nonresident_fixtures = 0
+    evaluations = []
+    for storage_class, refined, state_mask, boundary_closed, fingerprints_match in (
+            itertools.product(i_q["querySupportSummary"]["covers"],
+                              (False, True), range(16), (False, True),
+                              (False, True))):
+        coarse_cells = tuple(
+            tuple(1 if address == lane else 0 for address in range(LANES))
+            if state_mask & (1 << lane) else (0,) * LANES
+            for lane in range(4))
+        # Evaluate the generated Merkaba shadow on every exact cell.  A refined
+        # cell is four equal-measure copies of the same full-S16 state; resident
+        # and nonresident spellings decode to the same value.  The intrinsic
+        # entry point retains direct S16 dependencies, so a nonzero state is
+        # query-visible even when this particular four-coordinate shadow happens
+        # to vanish.  An open mixed-default boundary is independently visible.
+        exact_cells = tuple((state, Fraction(1, 16))
+                            for state in coarse_cells for _ in range(4)) \
+            if refined else tuple((state, Fraction(1, 4))
+                                   for state in coarse_cells)
+        shadow_contributions = tuple(
+            tuple(sum(state[address] * merkaba_shadow_numerator(address)[axis]
+                      for address in range(LANES)) * measure
+                  for axis in range(4))
+            for state, measure in exact_cells)
+        sensor_contribution = any(any(value != 0 for value in shadow)
+                                  for shadow in shadow_contributions)
+        intrinsic_contribution = any(any(value != 0 for value in state)
+                                     for state, _ in exact_cells)
+        exhaustive_contribution = (sensor_contribution or
+                                   intrinsic_contribution or
+                                   not boundary_closed)
+        summary_all_default = all(not any(state) for state, _ in exact_cells)
+        summary_omit = (summary_all_default and boundary_closed and
+                        fingerprints_match)
+        if summary_omit and exhaustive_contribution:
+            false_negatives += 1
+        evaluations.append((storage_class, refined, state_mask, boundary_closed,
+                            fingerprints_match, sensor_contribution,
+                            intrinsic_contribution, exhaustive_contribution,
+                            summary_omit))
+        omitted += int(summary_omit)
+        refined_fixtures += int(refined)
+        nonresident_fixtures += int(storage_class == "NONRESIDENT")
         fixtures += 1
-    scale = 1 << 48
-    for source, coefficient, padding in itertools.product(
-            range(-4, 5), (-3, -2, -1, 1, 2, 3), (0, 1)):
-        source_raw = source * scale
-        coefficient_raw = coefficient * scale
-        product_raw = source * coefficient * scale
-        output_lower = product_raw - padding
-        output_upper = product_raw + padding
-        lower_fraction = Fraction(
-            (output_lower if coefficient > 0 else output_upper) * scale,
-            coefficient_raw)
-        upper_fraction = Fraction(
-            (output_upper if coefficient > 0 else output_lower) * scale,
-            coefficient_raw)
-        reverse_lower = lower_fraction.numerator // lower_fraction.denominator
-        reverse_upper = -(-upper_fraction.numerator // upper_fraction.denominator)
-        if not reverse_lower <= source_raw <= reverse_upper:
-            raise RuntimeError("Q48 multiply reverse interval lost its source point")
-        fixtures += 1
-    return fixtures
+    if false_negatives:
+        raise RuntimeError("query-support summary lost exhaustive contribution")
+    return {"fixtureCount": fixtures, "falseNegatives": false_negatives,
+            "omittedIdentityFixtures": omitted,
+            "refinedFixtureCount": refined_fixtures,
+            "nonresidentFixtureCount": nonresident_fixtures,
+            "evaluationFingerprint": sha256(evaluations)}
+
+
+def default_representation_proof(i_q: dict, i_rep: dict, ir: dict) -> dict:
+    """Abstract-interpret every forward entry from each S16-zero spelling."""
+    representations = (
+        ("LOGICAL_UNBACKED", i_rep["defaultRepresentations"]["logicalUnbacked"]),
+        ("EXPLICIT_ZEMPTY", i_rep["defaultRepresentations"]["allocated"]),
+        ("NULL_CODEC", i_rep["defaultRepresentations"]["nullCodecDecode"]),
+    )
+    admitted = {"ZEMPTY", "FULL_S16_ALGEBRA_ZERO"}
+    if any(value not in admitted for _, value in representations):
+        raise RuntimeError("a default representation does not decode to algebra zero")
+    if (i_q["defaultSemantics"]["localContribution"] !=
+            "EXACT_REDUCER_IDENTITY" or
+            i_q["defaultSemantics"]["allDefaultRelation"] != "DEFAULT_SAT"):
+        raise RuntimeError("default query substitution is not quiescent")
+    zempty = ir["expressions"][ir["zEmptyExpression"]]
+    if zempty["id"] != "ZEMPTY_DEFAULT" or zempty["source"] != (
+            "I_Q:defaultSemantics+I_REP:defaultRepresentations"):
+        raise RuntimeError("default decoder is not tied to both authorities")
+    opcode_names = ir["opcodes"]
+
+    def interpret_forward(root: int) -> str:
+        values: dict[int, str] = {}
+        for node_index in range(root + 1):
+            node = ir["nodes"][node_index]
+            opcode = opcode_names[node["opcode"]]
+            operands = [values[index] for index in ir["operands"]
+                        [node["operandStart"]:
+                         node["operandStart"] + node["operandCount"]]]
+            if opcode == "INPUT_S16":
+                value = "ZERO_S16"
+            elif opcode == "INPUT_FIELD":
+                value = "DEFAULT_FIELD"
+            elif opcode in ("INPUT_QUERY", "INPUT_INTERVAL"):
+                value = "QUERY_VALUE"
+            elif opcode == "INPUT_ROLE":
+                value = "NO_CLAIM"
+            elif opcode in ("BASIS_PRODUCT", "S16_MULTIPLY",
+                            "S16_SUBTRACT", "DIFFRACTION_APPLY",
+                            "INFORMATION_METRIC_APPLY", "SIGN_TRANSPORT",
+                            "PRIMITIVE_REPRESENTATIVE"):
+                value = "ZERO_S16" if operands and all(
+                    operand == "ZERO_S16" for operand in operands) else "OTHER"
+            elif opcode == "OUTWARD_G_NORM":
+                value = "ZERO_INTERVAL" if operands and all(
+                    operand == "ZERO_S16" for operand in operands) else "OTHER"
+            elif opcode == "NORMALIZE_FACTOR":
+                value = "DEFAULT_FACTOR" if operands and operands[0] == (
+                    "ZERO_S16") else "OTHER"
+            elif opcode == "MERKABA_SHADOW":
+                value = "NO_CONTRIBUTION" if operands == [
+                    "DEFAULT_FIELD"] else "OTHER"
+            elif opcode == "CALIBRATED_QUERY_CONTRACT":
+                value = "NO_CONTRIBUTION" if operands and operands[0] == (
+                    "NO_CONTRIBUTION") else "OTHER"
+            elif opcode == "SCENE_REDUCE":
+                value = "REDUCER_IDENTITY" if operands == [
+                    "NO_CONTRIBUTION"] else "OTHER"
+            elif opcode == "ZEMPTY_DEFAULT":
+                value = "ZERO_S16"
+            else:
+                value = "OTHER"
+            values[node_index] = value
+        return values[root]
+
+    entry_results = []
+    for entry in ir["entryPoints"]:
+        expression = ir["expressions"][entry["forwardExpression"]]
+        result = interpret_forward(expression["rootNode"])
+        expected = ("DEFAULT_FACTOR" if entry["id"] == "INTRINSIC_RELATION"
+                    else "REDUCER_IDENTITY")
+        if result != expected:
+            raise RuntimeError(
+                f"default representation activates {entry['id']}: {result}")
+        entry_results.append((entry["id"], result,
+                              expression["fingerprint"]))
+    fixtures = [(entry[0], representation[0], entry[1], entry[2])
+                for entry in entry_results for representation in representations]
+    if len(fixtures) != len(ir["entryPoints"]) * len(representations):
+        raise RuntimeError("default representation query proof is incomplete")
+    return {
+        "fixtureCount": len(fixtures),
+        "queryCount": len(ir["entryPoints"]),
+        "representationCount": len(representations),
+        "fingerprint": sha256(fixtures),
+    }
+
+
+def certificate_minimizer_proof() -> dict:
+    """Minimize exact factors and compare feasible assignments exhaustively."""
+    # scope, expression, independence, provenance, coupling, branch, lower, upper
+    duplicate = ("s0", "e0", "i0", "p0", "c0", "b0", -2, 3)
+    weak = ("s0", "e0", "i0", "p0", "c0", "b0", -4, 9)
+    coupled_a = ("s1", "e1", "i1", "p1", "coupling-A", "branch-A", -1, 2)
+    coupled_b = ("s1", "e1", "i1", "p1", "coupling-B", "branch-B", -1, 2)
+    factors = [duplicate] * 10000 + [weak, coupled_a, coupled_b]
+
+    def minimize(values: Iterable[tuple]) -> list[tuple[tuple, int]]:
+        by_context: dict[tuple, list[tuple[int, int, int]]] = {}
+        for value in values:
+            context = value[:6]
+            lower, upper = value[6:]
+            bucket = by_context.setdefault(context, [])
+            duplicate_index = next((index for index, item in enumerate(bucket)
+                                    if item[0] == lower and item[1] == upper), None)
+            if duplicate_index is not None:
+                old_lower, old_upper, count = bucket[duplicate_index]
+                bucket[duplicate_index] = (old_lower, old_upper, count + 1)
+                continue
+            if any(existing_lower >= lower and existing_upper <= upper
+                   for existing_lower, existing_upper, _ in bucket):
+                continue
+            bucket[:] = [item for item in bucket
+                         if not (lower >= item[0] and upper <= item[1])]
+            bucket.append((lower, upper, 1))
+        output = []
+        for context in sorted(by_context):
+            for lower, upper, count in sorted(by_context[context]):
+                output.append((context + (lower, upper), count))
+        return output
+
+    minimized = minimize(factors)
+    for candidate in range(-6, 12):
+        exhaustive = all(factor[6] <= candidate <= factor[7]
+                         for factor in factors if factor[:6] == duplicate[:6])
+        compact = all(factor[6] <= candidate <= factor[7]
+                      for factor, _ in minimized if factor[:6] == duplicate[:6])
+        if exhaustive != compact:
+            raise RuntimeError("certificate minimizer changed feasible set")
+    contexts = {factor[:6] for factor, _ in minimized}
+    if coupled_a[:6] not in contexts or coupled_b[:6] not in contexts:
+        raise RuntimeError("certificate minimizer collapsed coupled branches")
+    duplicate_record = next(item for item in minimized
+                            if item[0][:6] == duplicate[:6])
+    if duplicate_record[1] != 10000 or len(minimized) != 3:
+        raise RuntimeError("certificate storage does not follow new information")
+    return {
+        "duplicateFixtureCount": 10000,
+        "minimizedFactorCount": len(minimized),
+        "duplicateMultiplicity": duplicate_record[1],
+        "coupledFactorCount": 2,
+        "feasibleAssignmentCount": 18,
+        "fingerprint": sha256(minimized),
+    }
+
+
+def gauge_transport_proof() -> dict:
+    """Constructive dyadic transport and allocation-order-independent normal form."""
+    payload_a = (tuple(range(-8, 8)), "factor-A", "relation-A", "evidence-A",
+                 "information-A", "bandwidth-A")
+    payload_b = (tuple(range(8, 24)), "factor-B", "relation-B", "evidence-B",
+                 "information-B", "bandwidth-B")
+
+    def split(cell: tuple) -> list[tuple]:
+        u, v, level, payload = cell
+        return [(2 * u + du, 2 * v + dv, level + 1, payload)
+                for dv in range(2) for du in range(2)]
+
+    def collapse_once(cells: list[tuple]) -> tuple[list[tuple], bool]:
+        groups: dict[tuple, list[tuple]] = {}
+        for cell in cells:
+            u, v, level, payload = cell
+            if level == 0:
+                continue
+            groups.setdefault((u // 2, v // 2, level - 1, payload), []).append(cell)
+        for parent, children in sorted(groups.items(), key=lambda item: repr(item[0])):
+            expected = {(parent[0] * 2 + du, parent[1] * 2 + dv,
+                         parent[2] + 1, parent[3])
+                        for dv in range(2) for du in range(2)}
+            if set(children) == expected:
+                return [cell for cell in cells if cell not in expected] + [parent], True
+        return cells, False
+
+    def normalize(cells: Iterable[tuple]) -> tuple[tuple, ...]:
+        cells = list(cells)
+        changed = True
+        while changed:
+            cells, changed = collapse_once(cells)
+        lower_coordinates = [(Fraction(u, 1 << level),
+                              Fraction(v, 1 << level))
+                             for u, v, level, _ in cells]
+        minimum_u, minimum_v = min(lower_coordinates)
+        translate_u = minimum_u.numerator // minimum_u.denominator
+        translate_v = minimum_v.numerator // minimum_v.denominator
+        translated = [(u - translate_u * (1 << level),
+                       v - translate_v * (1 << level), level, payload)
+                      for u, v, level, payload in cells]
+        return tuple(sorted(translated, key=lambda cell: (
+            cell[2], signed_morton(cell[0], cell[1]), cell[0], cell[1],
+            sha256(cell[3]))))
+
+    parent = (5, -3, 0, payload_a)
+    refined_once = split(parent)
+    refined = [grandchild for child in refined_once for grandchild in split(child)]
+    # Add disconnected level-two support with a distinct six-field payload.
+    disconnected = split((9, 4, 1, payload_b))
+    pattern = refined + disconnected
+    normal = normalize(pattern)
+    permutation_count = 0
+    # Exercise all cells in 24 deterministic allocation/discovery orders without
+    # pretending that factorial enumeration is a constructive theorem.
+    for shift in range(12):
+        rotated = pattern[shift:] + pattern[:shift]
+        for candidate in (rotated, list(reversed(rotated))):
+            if normalize(candidate) != normal:
+                raise RuntimeError("gauge normal form depends on discovery order")
+            permutation_count += 1
+    if permutation_count != 24:
+        raise RuntimeError("gauge permutation corpus changed unexpectedly")
+    translated = [(u + 7 * (1 << level), v - 5 * (1 << level), level, payload)
+                  for u, v, level, payload in pattern]
+    if normalize(translated) != normal:
+        raise RuntimeError("gauge normal form depends on allocation translation")
+    # A split transported at two levels must collapse to the original state and
+    # proof payload before any higher-frequency information is introduced.
+    if normalize(refined) != normalize(refined_once) or \
+            normalize(refined_once) != normalize([parent]):
+        raise RuntimeError("recursive gauge refinement changed canonical field")
+    non_equivalent = pattern + [(31, 17, 0, payload_a)]
+    if normalize(non_equivalent) == normal:
+        raise RuntimeError("gauge normalizer collapsed non-equivalent support")
+
+    # Pointwise field and exact dyadic measure are invariant before new detail.
+    probe_count = 0
+    for numerator_u, numerator_v in itertools.product(range(20, 24), range(-12, -8)):
+        u = Fraction(numerator_u, 4)
+        v = Fraction(numerator_v, 4)
+        parent_owns = Fraction(5) <= u < Fraction(6) and Fraction(-3) <= v < Fraction(-2)
+        child_owners = [cell for cell in refined
+                        if Fraction(cell[0], 1 << cell[2]) <= u <
+                           Fraction(cell[0] + 1, 1 << cell[2]) and
+                           Fraction(cell[1], 1 << cell[2]) <= v <
+                           Fraction(cell[1] + 1, 1 << cell[2])]
+        if parent_owns != (len(child_owners) == 1):
+            raise RuntimeError("dyadic split changed pointwise field support")
+        if child_owners and child_owners[0][3] != payload_a:
+            raise RuntimeError("dyadic split lost state/evidence/relation transport")
+        probe_count += 1
+    parent_measure = Fraction(1)
+    child_measure = sum(Fraction(1, 1 << (2 * cell[2])) for cell in refined)
+    if child_measure != parent_measure:
+        raise RuntimeError("dyadic split changed exact intrinsic measure")
+    if normalize(refined) != normalize([parent]):
+        raise RuntimeError("equal-child collapse changed canonical serialization")
+    return {
+        "permutationCount": permutation_count,
+        "pointProbeCount": probe_count,
+        "transportFieldCount": len(payload_a),
+        "normalForm": [list(cell[:3]) + [sha256(cell[3])] for cell in normal],
+        "canonicalSerializationFingerprint": sha256(normal),
+        "freshSupportUniqueModuloGauge": True,
+        "freshSupportNonEquivalentRejected": True,
+    }
 
 
 def build_merkaba_descriptor(algebra: dict) -> dict:
@@ -290,6 +1039,11 @@ def build_merkaba_descriptor(algebra: dict) -> dict:
         "F_{\\mathfrak M}=\\sum_b p(b)p(b)^T=16P_t",
         "C_{vk}=C_{kv}=0",
         "U_a(b)=\\varepsilon_{a,b}",
+        "G=2A^TA=-2A^2",
+        "\\widehat d_{ij}",
+        "\\widehat{\\mathfrak A}_{ijk}",
+        "\\widehat F_\\square",
+        "\\mathfrak D_{cl}",
     )
     for token in required_toe_tokens:
         if token not in toe_text:
@@ -315,6 +1069,12 @@ def build_merkaba_descriptor(algebra: dict) -> dict:
         raise RuntimeError("query-support authority permits false negatives")
     native_relation = i_q["nativeModalRelation"]
     if (native_relation["source"] != "I_TOE_SECTION_8" or
+            native_relation["informationMetric"] !=
+            "G_EQUALS_2_AT_A_EQUALS_MINUS_2_A_SQUARED_FOR_DIFFRACTION_A" or
+            native_relation["primitiveRepresentative"] !=
+            "DIVIDE_NONZERO_Q16_48_RAW_COEFFICIENT_VECTOR_BY_ITS_POSITIVE_INTEGER_CONTENT_GCD" or
+            native_relation["independentContinuousWeights"] or
+            native_relation["epsilonClParameter"] or
             native_relation["missingOrUnprovedRegion"] != "UNRESOLVED" or
             native_relation["xyzOrPixelCriterion"]):
         raise RuntimeError("native modal relation is not TOE-derived/fail-closed")
@@ -334,6 +1094,11 @@ def build_merkaba_descriptor(algebra: dict) -> dict:
             i_rep["kappa"]["queryAccumulation"] !=
             "INTRINSIC_MEASURE_WEIGHTED_WITH_EXACT_CHILD_SUM_EQUAL_PARENT"):
         raise RuntimeError("kappa does not conserve exact intrinsic measure")
+    if (i_rep["address"]["baseLevel"] != 0 or
+            i_rep["address"]["maximumLevel"] != 62 or
+            i_rep["kappa"]["ownership"] != "DISJOINT_PARTITION" or
+            i_rep["kappa"]["overlap"] != "FORBIDDEN"):
+        raise RuntimeError("representation address/ownership bounds are not exact")
 
     associator_nonzero = 0
     associator_coefficients = {-2: 0, 0: 0, 2: 0}
@@ -353,6 +1118,7 @@ def build_merkaba_descriptor(algebra: dict) -> dict:
     if any(diffraction[row][column] != -diffraction[column][row]
            for row in range(LANES) for column in range(LANES)):
         raise RuntimeError("generated diffraction operator is not skew")
+    metric = information_metric(diffraction)
 
     # The capsule fixes the recurrence and A_1^2=-I, but not one concrete A_1
     # orientation.  Prove the orientation-independent square invariant without
@@ -394,159 +1160,12 @@ def build_merkaba_descriptor(algebra: dict) -> dict:
             raise RuntimeError("sign holonomy escaped +/-1")
         negative_holonomy += value < 0
 
-    reverse_sound_fixtures = reverse_interval_soundness_fixture_count()
-
-    support_summary_fixtures = 0
-    support_false_negatives = 0
-    for storage_class, all_default, boundary_closed, fingerprints_match in (
-            itertools.product(i_q["querySupportSummary"]["covers"],
-                              (False, True), (False, True), (False, True))):
-        del storage_class
-        omit = all_default and boundary_closed and fingerprints_match
-        contribution_possible = not omit
-        support_false_negatives += omit and contribution_possible
-        support_summary_fixtures += 1
-    if support_false_negatives != 0:
-        raise RuntimeError("query-support summary produced a false negative")
-
-    # A dyadic split is an exact disjoint cover of the parent half-open cell.
-    # Copying the complete S16 value therefore preserves the represented field
-    # pointwise before any newly resolved higher-frequency information is added.
-    child_domains = (
-        (Fraction(0), Fraction(1, 2), Fraction(0), Fraction(1, 2)),
-        (Fraction(1, 2), Fraction(1), Fraction(0), Fraction(1, 2)),
-        (Fraction(0), Fraction(1, 2), Fraction(1, 2), Fraction(1)),
-        (Fraction(1, 2), Fraction(1), Fraction(1, 2), Fraction(1)),
-    )
-    probe_coordinates = (Fraction(0), Fraction(1, 4), Fraction(1, 2),
-                         Fraction(3, 4), Fraction(15, 16))
-    prior_state = tuple(range(-8, 8))
-    refined_states = (prior_state,) * 4
-    child_measure = sum((u1 - u0) * (v1 - v0)
-                        for u0, u1, v0, v1 in child_domains)
-    if child_measure != Fraction(1):
-        raise RuntimeError("dyadic refinement changed intrinsic query measure")
-    for u, v in itertools.product(probe_coordinates, repeat=2):
-        owners = [index for index, (u0, u1, v0, v1) in enumerate(child_domains)
-                  if u0 <= u < u1 and v0 <= v < v1]
-        if len(owners) != 1 or refined_states[owners[0]] != prior_state:
-            raise RuntimeError("dyadic refinement lost pointwise full-S16 state")
-
-    expressions = [
-        {"id": "K16_BASIS_PRODUCT", "source": "I_TOE:1", "arity": 2,
-         "neighbourhood": "LOCAL", "bracket": "mul(e_a,e_b)",
-         "formula": "epsilon(a,b)*e_(a XOR b)"},
-        {"id": "K16_ASSOCIATOR", "source": "I_TOE:2", "arity": 3,
-         "neighbourhood": "LOCAL_CONTEXT", "bracket": "(a*b)*c-a*(b*c)",
-         "formula": "Omega(a,b,c)*e_(a XOR b XOR c)"},
-        {"id": "K16_DIFFRACTION", "source": "I_TOE:3", "arity": 2,
-         "neighbourhood": "LOCAL", "bracket": "epsilon_ab*L_(a XOR b)-L_a*L_b",
-         "formula": "sum_(a<b) D_ab"},
-        {"id": "K16_ZERO_DIVISOR", "source": "I_TOE:4+A_S16",
-         "arity": 2, "neighbourhood": "LOCAL_RELATION",
-         "bracket": "mul(a,b)",
-         "formula": "a!=0 and b!=0 and a*b==0; distinct from ker(A)"},
-        {"id": "K16_SHELL", "source": "I_TOE:5", "arity": 1,
-         "neighbourhood": "LOCAL", "bracket": "recursive_block_matrix",
-         "formula": "A4^2=-15I16"},
-        {"id": "K16_CLOSURE_EIGENMODE", "source": "I_TOE:6", "arity": 1,
-         "neighbourhood": "FULL_LOCAL_STATE",
-         "bracket": "C16*u0",
-         "formula": "C16*u0=lambda0*u0; observer shadow is not full mode"},
-        {"id": "MERKABA_SHADOW", "source": "I_TOE:6", "arity": 1,
-         "neighbourhood": "LOCAL", "bracket": "P_t*s(address)",
-         "formula": "F_M=16P_t"},
-        {"id": "SHADOW_COUPLING", "source": "I_TOE:7", "arity": 1,
-         "neighbourhood": "COMPLETE_PROGRAM", "bracket": "P*C*(I-P)",
-         "formula": "omit_kernel_only_if_Cvk=Ckv=0"},
-        {"id": "SIGN_TRANSPORT", "source": "I_TOE:8", "arity": 3,
-         "neighbourhood": "GENERATED_CONTEXT", "bracket": "ordered_plaquette",
-         "formula": "Ua(b)Uc(b XOR a)Ua(b XOR c)^-1Uc(b)^-1"},
-        {"id": "NATIVE_MODAL_RELATION",
-         "source": "I_TOE:8+I_Q:nativeModalRelation", "arity": 2,
-         "neighbourhood": "GENERATED_INTRINSIC_CONTEXT",
-         "bracket": "sub(u_j,transport(U_ij,u_i))",
-         "formula": "exact_residual_in_fingerprinted_Q48_region; missing_region=UNRESOLVED"},
-        {"id": "SENSOR_SHADOW", "source": "I_Q:SENSOR_LEFT_RIGHT", "arity": -1,
-         "neighbourhood": "WHOLE_QUERY", "bracket": "project_then_reduce",
-         "formula": "finite_footprint+order+first_hit+occlusion"},
-        {"id": "EXACT_REVERSE", "source": "I_Q:reverseContractor", "arity": -1,
-         "neighbourhood": "QUERY_SUPPORT_UNION", "bracket": "source_tree_reverse",
-         "formula": "preimage_union_outward_intervals"},
-        {"id": "DYADIC_REPRESENTATION", "source": "I_REP:kappa", "arity": 1,
-         "neighbourhood": "HALF_OPEN_DYADIC_CELL", "bracket": "decode_before_query",
-         "formula": "piecewise_constant_full_S16"},
-        {"id": "ZEMPTY_DEFAULT", "source": "I_Q:defaultSemantics+I_REP:defaultRepresentations",
-         "arity": -1, "neighbourhood": "WHOLE_PROGRAM",
-         "bracket": "decode_default_then_evaluate",
-         "formula": "unbacked=allocated=NULL=algebra_zero; all_default=DEFAULT_SAT"},
-        {"id": "DIRECTIONAL_FIRST_HIT_ACTION", "source": "I_Q:sceneReduction+reverseContractor",
-         "arity": -1, "neighbourhood": "WHOLE_QUERY_PREIMAGE",
-         "bracket": "reverse_source_tree",
-         "formula": "pre_hit_exclusion+first_hit_mould; behind_hit=NO_CLAIM"},
-        {"id": "OPTICAL_NUISANCE", "source": "I_Q:photometricNuisance",
-         "arity": -1, "neighbourhood": "COHERENT_EYE_SHADOW",
-         "bracket": "bounded_transfer_then_joint_reverse",
-         "formula": "bounded_calibrated_monotone_Q48_transfer"},
-        {"id": "NATIVE_INFORMATION_PULLBACK", "source": "I_Q:certificate",
-         "arity": -1, "neighbourhood": "COMPLETE_CONSTRAINT_FACTOR",
-         "bracket": "retain_coupled_or_disjunctive_factor",
-         "formula": "directional_exact_factor_not_scalar_confidence"},
-        {"id": "CERTIFICATE_MINIMIZER", "source": "I_Q:certificate",
-         "arity": -1, "neighbourhood": "ACCUMULATED_EVIDENCE",
-         "bracket": "canonical_factor_order_then_exact_dominance",
-         "formula": "deduplicate_only_same_scope_class; retain_coupling_and_disjunction"},
-        {"id": "CANONICAL_GAUGE_NORMALIZER", "source": "I_REP:gaugeFamily+normalizer",
-         "arity": -1, "neighbourhood": "FINITE_NONDEFAULT_SUPPORT",
-         "bracket": "normalize_before_serialize",
-         "formula": "global_translation_normal_form+exact_dyadic_split_collapse"},
-    ]
-    for expression in expressions:
-        expression["fingerprint"] = sha256(expression)
-
-    reverse_rules = [
-        {"opcode": "PERMUTE_SIGN", "rule": "EXACT_INVERSE_PERMUTATION"},
-        {"opcode": "ADD_SUB", "rule": "OUTWARD_INTERVAL_BACKPROPAGATION"},
-        {"opcode": "QMUL_QDIV", "rule": "OUTWARD_INTERVAL_WITH_ZERO_BRANCH_UNION"},
-        {"opcode": "BRACKETED_PRODUCT", "rule": "REVERSE_SAME_EXPRESSION_TREE"},
-        {"opcode": "SCENE_REDUCE", "rule": "RETAIN_SUPPORT_DISJUNCTION"},
-        {"opcode": "BEHIND_HIT", "rule": "NO_CLAIM"},
-    ]
-
-    # Constructive proof fixtures: exact duplicates collapse; coupled/disjunctive
-    # factors do not. Translation normal form ignores input order.
-    duplicate_receipts = {("scope0", "expr0", "class0", -4, 9): 0}
-    for _ in range(10000):
-        key = next(iter(duplicate_receipts))
-        duplicate_receipts[key] += 1
-    if len(duplicate_receipts) != 1 or next(iter(duplicate_receipts.values())) != 10000:
-        raise RuntimeError("duplicate certificate minimizer is not bounded")
-    coupled_factors = {
-        ("scope0", "expr0", "class0", "coupling-A", "branch-A", -4, 9),
-        ("scope0", "expr0", "class0", "coupling-B", "branch-B", -4, 9),
-    }
-    if len(coupled_factors) != 2:
-        raise RuntimeError("certificate minimizer collapsed coupled/disjunctive factors")
-    strong_interval = (-2, 3)
-    weak_interval = (-4, 9)
-    if (max(strong_interval[0], weak_interval[0]),
-            min(strong_interval[1], weak_interval[1])) != strong_interval:
-        raise RuntimeError("weak exact factor changed a stronger feasible interval")
-
-    pattern = [(5, -3, 0, 7), (7, -2, 0, 11), (6, -3, 0, 9)]
-    def normalize(values: Iterable[tuple[int, int, int, int]]) -> tuple[tuple[int, int, int, int], ...]:
-        values = list(values)
-        minimum_u, minimum_v, _, _ = min(
-            values, key=lambda value: (value[0], value[1]))
-        translated = ((u - minimum_u, v - minimum_v, level, state)
-                      for u, v, level, state in values)
-        return tuple(sorted(translated,
-            key=lambda value: (value[2], signed_morton(value[0], value[1]),
-                               value[0], value[1], value[3])))
-    normalized = normalize(pattern)
-    for permutation in itertools.permutations(pattern):
-        if normalize(permutation) != normalized:
-            raise RuntimeError("gauge normalization depends on discovery order")
+    ir = build_executable_merkaba_ir()
+    reverse_proof = reverse_complete_tree_proof(ir)
+    support_proof = query_support_exhaustive_proof(i_q)
+    default_proof = default_representation_proof(i_q, i_rep, ir)
+    certificate_proof = certificate_minimizer_proof()
+    gauge_proof = gauge_transport_proof()
 
     inputs = {
         "generatorSource": file_sha256(Path(__file__)),
@@ -569,8 +1188,9 @@ def build_merkaba_descriptor(algebra: dict) -> dict:
             "representationSchema": i_rep["schemaVersion"],
             "otherToeSectorsImported": False,
         },
-        "expressions": expressions,
-        "reverseRules": reverse_rules,
+        "ir": ir,
+        "expressions": ir["expressions"],
+        "reverseRules": ir["reverseRules"],
         "queryFamilies": i_q["queryFamilies"],
         "sceneReduction": i_q["sceneReduction"],
         "photometricNuisance": i_q["photometricNuisance"],
@@ -578,6 +1198,7 @@ def build_merkaba_descriptor(algebra: dict) -> dict:
         "certificate": i_q["certificate"],
         "representation": i_rep,
         "diffractionMatrix": [value for row in diffraction for value in row],
+        "informationMetric": [value for row in metric for value in row],
         "shellSquareByRank": shell_square_by_rank,
         "shadowNumerator4": [value for row in shadow for value in row],
         "visibleProjectorNumerator256": [value for row in visible_numerator
@@ -586,6 +1207,8 @@ def build_merkaba_descriptor(algebra: dict) -> dict:
             "associatorNonzero": associator_nonzero,
             "associatorHistogram": associator_coefficients,
             "diffractionSkew": True,
+            "informationMetricIdentity": "G=2*A^T*A=-2*A^2",
+            "independentClosureWeights": 0,
             "shellSquare": "-15I16",
             "shadowFrame": "16P_t",
             "shadowKernelDecouplingProof": shadow_kernel_decoupling_proof,
@@ -598,22 +1221,59 @@ def build_merkaba_descriptor(algebra: dict) -> dict:
             "allDefaultActiveWork": 0,
             "behindHitAction": "NO_CLAIM",
             "missingOpticalMetadata": "NO_OPTICAL_CLAIM",
-            "querySupportFalseNegatives": 0,
-            "querySupportFixtureCount": support_summary_fixtures,
-            "reverseIntervalSoundFixtureCount": reverse_sound_fixtures,
-            "reverseZeroBranchRetained": True,
-            "duplicateFixtureCount": 10000,
-            "duplicateMinimizedFactorCount": len(duplicate_receipts),
-            "coupledFactorInputCount": 2,
-            "coupledFactorMinimizedCount": len(coupled_factors),
+            "querySupportFalseNegatives": support_proof["falseNegatives"],
+            "querySupportFixtureCount": support_proof["fixtureCount"],
+            "querySupportOmittedIdentityFixtures":
+                support_proof["omittedIdentityFixtures"],
+            "querySupportRefinedFixtureCount":
+                support_proof["refinedFixtureCount"],
+            "querySupportNonresidentFixtureCount":
+                support_proof["nonresidentFixtureCount"],
+            "querySupportEvaluationFingerprint":
+                support_proof["evaluationFingerprint"],
+            "reverseIntervalSoundFixtureCount": reverse_proof["fixtureCount"],
+            "reverseZeroBranchRetained": reverse_proof["zeroBranchCount"] > 0,
+            "reverseSceneDisjunctionCount": reverse_proof["sceneDisjunctionCount"],
+            "bracketNegativeControls": reverse_proof["bracketNegativeControls"],
+            "reverseIrAssociatorFingerprint":
+                reverse_proof["irAssociatorFingerprint"],
+            "reverseIrForwardFixtureCount":
+                reverse_proof["irForwardFixtureCount"],
+            "reverseIrPreimageOutputCount":
+                reverse_proof["irPreimageOutputCount"],
+            "reverseIrAmbiguousPreimageOutputCount":
+                reverse_proof["irAmbiguousPreimageOutputCount"],
+            "reverseIrMaxPreimageCount": reverse_proof["irMaxPreimageCount"],
+            "duplicateFixtureCount": certificate_proof["duplicateFixtureCount"],
+            "duplicateMinimizedFactorCount":
+                certificate_proof["minimizedFactorCount"],
+            "duplicateMultiplicity": certificate_proof["duplicateMultiplicity"],
+            "coupledFactorInputCount": certificate_proof["coupledFactorCount"],
+            "coupledFactorMinimizedCount": certificate_proof["coupledFactorCount"],
+            "certificateFeasibleAssignmentCount":
+                certificate_proof["feasibleAssignmentCount"],
+            "certificateProofFingerprint": certificate_proof["fingerprint"],
             "weakFactorPreservesStrongRegion": True,
-            "gaugePermutationCount": 6,
-            "baseGaugeNormalForm": [list(value) for value in normalized],
+            "gaugePermutationCount": gauge_proof["permutationCount"],
+            "gaugePointProbeCount": gauge_proof["pointProbeCount"],
+            "gaugeTransportFieldCount": gauge_proof["transportFieldCount"],
+            "baseGaugeNormalForm": gauge_proof["normalForm"],
+            "canonicalSerializationFingerprint":
+                gauge_proof["canonicalSerializationFingerprint"],
+            "freshSupportUniqueModuloGauge":
+                gauge_proof["freshSupportUniqueModuloGauge"],
+            "freshSupportNonEquivalentRejected":
+                gauge_proof["freshSupportNonEquivalentRejected"],
             "refinementProlongation": "FOUR_EXACT_FULL_S16_COPIES",
             "refinementExactHalfOpenCover": True,
             "refinementPointwiseFullS16": True,
             "refinementExactMeasure": True,
             "representationDefaultParity": True,
+            "defaultRepresentationFixtureCount": default_proof["fixtureCount"],
+            "defaultRepresentationQueryCount": default_proof["queryCount"],
+            "defaultRepresentationCount": default_proof["representationCount"],
+            "defaultRepresentationProofFingerprint":
+                default_proof["fingerprint"],
             "mixedDefaultSupportBehaviour": "DESCRIPTOR_EVALUATION_REQUIRED",
             "canFreezeShadowKernel": False,
             "shellBaseOrientationFrozen": False,
@@ -867,8 +1527,6 @@ namespace Genesis.RoomScan.SigmaPrism
         internal const string NumericFingerprint = \"{fingerprints['numeric']}\";
         internal const string MultiplicationFingerprint = \"{fingerprints['multiplication']}\";
         internal const string AnnihilatorFingerprint = \"{fingerprints['annihilator']}\";
-        internal const string ZeroDivisorRelationFingerprint = \"{fingerprints['zeroDivisorRelation']}\";
-        internal const string NativeCoreFingerprint = \"{fingerprints['nativeCore']}\";
         internal const string ReadoutFingerprint = \"{fingerprints['readout']}\";
         internal const string OperatorFingerprint = \"{fingerprints['operators']}\";
         internal const string BundleFingerprint = \"{fingerprints['bundle']}\";
@@ -979,9 +1637,8 @@ def render_hlsl(descriptor: dict) -> str:
         f"int4({value[0]}, {value[1]}, {value[2]}, {value[3]})"
         for value in actions)
     fingerprint_lines = []
-    for name in ("numeric", "multiplication", "annihilator",
-                 "zeroDivisorRelation", "nativeCore", "readout", "operators",
-                 "bundle"):
+    for name in ("numeric", "multiplication", "annihilator", "readout",
+                 "operators", "bundle"):
         words = ", ".join(
             f"0x{value:08x}u" for value in fingerprint_words(fingerprints[name]))
         fingerprint_lines.append(
@@ -1022,19 +1679,65 @@ int SigmaHadamardSign(uint row, uint column)
 
 def render_merkaba_cs(descriptor: dict) -> str:
     proofs = descriptor["proofs"]
+    ir = descriptor["ir"]
     expression_fingerprints = ",\n".join(
         f'            "{entry["fingerprint"]}"'
         for entry in descriptor["expressions"])
     input_lines = "\n".join(
         f'        internal const string {upper_snake(name).title().replace("_", "")}InputFingerprint = "{value}";'
         for name, value in descriptor["inputs"].items())
+    opcode_members = "\n".join(
+        f"        {name} = {index}u," for index, name in enumerate(ir["opcodes"]))
+    kind_members = "\n".join(
+        f"        {name} = {index}u," for index, name in enumerate(ir["valueKinds"]))
+    reverse_members = "\n".join(
+        f"        {name} = {index}u," for index, name in enumerate(ir["reverseRules"]))
+    node_lines = ",\n".join(
+        "            new SigmaMerkabaIrNode(" +
+        f"(SigmaMerkabaIrOpcode){node['opcode']}u, " +
+        f"(SigmaMerkabaValueKind){node['outputKind']}u, " +
+        f"(SigmaMerkabaReverseRule){node['reverseRule']}u, " +
+        f"{node['operandStart']}, {node['operandCount']}, " +
+        f"{node['argument0']}, {node['argument1']})"
+        for node in ir["nodes"])
+    operand_lines = ", ".join(str(value) for value in ir["operands"])
+    expression_lines = ",\n".join(
+        "            new SigmaMerkabaExpression(" +
+        f'"{entry["id"]}", "{entry["source"]}", {entry["arity"]}, ' +
+        f"{entry['neighbourhood']}, {entry['nodeStart']}, " +
+        f"{entry['nodeCount']}, {entry['rootNode']}, " +
+        f'"{entry["fingerprint"]}")'
+        for entry in ir["expressions"])
+    entry_lines = ",\n".join(
+        "            new SigmaMerkabaEntryPoint(" +
+        f'"{entry["id"]}", {entry["forwardExpression"]}, ' +
+        f"{entry['reverseExpression']}, {entry['reducer']})"
+        for entry in ir["entryPoints"])
     return f"""// <auto-generated by Tools/sigma/generate_sigma_operators.py>
 // Canonical baseline: CPQ4-2026-08-25-S16-v8.3. Do not edit by hand.
 
 using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Numerics;
 
 namespace Genesis.RoomScan.SigmaPrism
 {{
+    internal enum SigmaMerkabaIrOpcode : uint
+    {{
+{opcode_members}
+    }}
+
+    internal enum SigmaMerkabaValueKind : uint
+    {{
+{kind_members}
+    }}
+
+    internal enum SigmaMerkabaReverseRule : uint
+    {{
+{reverse_members}
+    }}
+
     internal enum SigmaMerkabaRelationClass : uint
     {{
         DefaultSat = 0u,
@@ -1053,6 +1756,141 @@ namespace Genesis.RoomScan.SigmaPrism
         FirstHitMould = 2u,
     }}
 
+    internal enum SigmaExactFactorClass : uint
+    {{
+        ProvenIncompatible = 0u,
+        ProvenExactClosed = 1u,
+        Unresolved = 2u,
+    }}
+
+    internal enum SigmaDefaultBackingKind : uint
+    {{
+        LogicalUnbacked = 0u,
+        ExplicitZEmpty = 1u,
+        NullCodec = 2u,
+    }}
+
+    internal readonly struct SigmaMerkabaIrNode
+    {{
+        internal SigmaMerkabaIrNode(SigmaMerkabaIrOpcode opcode,
+            SigmaMerkabaValueKind outputKind, SigmaMerkabaReverseRule reverseRule,
+            int operandStart, int operandCount, int argument0, int argument1)
+        {{
+            Opcode = opcode;
+            OutputKind = outputKind;
+            ReverseRule = reverseRule;
+            OperandStart = operandStart;
+            OperandCount = operandCount;
+            Argument0 = argument0;
+            Argument1 = argument1;
+        }}
+        internal SigmaMerkabaIrOpcode Opcode {{ get; }}
+        internal SigmaMerkabaValueKind OutputKind {{ get; }}
+        internal SigmaMerkabaReverseRule ReverseRule {{ get; }}
+        internal int OperandStart {{ get; }}
+        internal int OperandCount {{ get; }}
+        internal int Argument0 {{ get; }}
+        internal int Argument1 {{ get; }}
+    }}
+
+    internal readonly struct SigmaMerkabaExpression
+    {{
+        internal SigmaMerkabaExpression(string id, string source, int arity,
+            int neighbourhood, int nodeStart, int nodeCount, int rootNode,
+            string fingerprint)
+        {{
+            Id = id; Source = source; Arity = arity; Neighbourhood = neighbourhood;
+            NodeStart = nodeStart; NodeCount = nodeCount; RootNode = rootNode;
+            Fingerprint = fingerprint;
+        }}
+        internal string Id {{ get; }}
+        internal string Source {{ get; }}
+        internal int Arity {{ get; }}
+        internal int Neighbourhood {{ get; }}
+        internal int NodeStart {{ get; }}
+        internal int NodeCount {{ get; }}
+        internal int RootNode {{ get; }}
+        internal string Fingerprint {{ get; }}
+    }}
+
+    internal readonly struct SigmaMerkabaEntryPoint
+    {{
+        internal SigmaMerkabaEntryPoint(string id, int forwardExpression,
+            int reverseExpression, int reducer)
+        {{
+            Id = id; ForwardExpression = forwardExpression;
+            ReverseExpression = reverseExpression; Reducer = reducer;
+        }}
+        internal string Id {{ get; }}
+        internal int ForwardExpression {{ get; }}
+        internal int ReverseExpression {{ get; }}
+        internal int Reducer {{ get; }}
+    }}
+
+    internal readonly struct SigmaDirectionalActionWitness
+    {{
+        internal SigmaDirectionalActionWitness(SigmaNativeQueryClaim claim,
+            SigmaQ48Interval direction, SigmaQ48Interval residual,
+            SigmaQ48Interval action, bool active)
+        {{
+            Claim = claim; Direction = direction; Residual = residual;
+            Action = action; Active = active;
+        }}
+        internal SigmaNativeQueryClaim Claim {{ get; }}
+        internal SigmaQ48Interval Direction {{ get; }}
+        internal SigmaQ48Interval Residual {{ get; }}
+        internal SigmaQ48Interval Action {{ get; }}
+        internal bool Active {{ get; }}
+        internal bool StopsAtMeasuredMould =>
+            Active && Claim == SigmaNativeQueryClaim.FirstHitMould;
+    }}
+
+    internal readonly struct SigmaCertificateFactor
+    {{
+        internal SigmaCertificateFactor(string scope, string expression,
+            string independence, string provenance, string coupling, string branch,
+            long lower, long upper)
+        {{
+            Scope = scope; Expression = expression; Independence = independence;
+            Provenance = provenance; Coupling = coupling; Branch = branch;
+            Lower = lower; Upper = upper;
+        }}
+        internal string Scope {{ get; }}
+        internal string Expression {{ get; }}
+        internal string Independence {{ get; }}
+        internal string Provenance {{ get; }}
+        internal string Coupling {{ get; }}
+        internal string Branch {{ get; }}
+        internal long Lower {{ get; }}
+        internal long Upper {{ get; }}
+        internal string ContextKey => string.Join("|", Scope, Expression,
+            Independence, Provenance, Coupling, Branch);
+    }}
+
+    internal readonly struct SigmaMinimizedFactor
+    {{
+        internal SigmaMinimizedFactor(SigmaCertificateFactor factor, int multiplicity)
+        {{ Factor = factor; Multiplicity = multiplicity; }}
+        internal SigmaCertificateFactor Factor {{ get; }}
+        internal int Multiplicity {{ get; }}
+    }}
+
+    internal readonly struct SigmaGaugeCell
+    {{
+        internal SigmaGaugeCell(long u, long v, int level, string payloadFingerprint)
+        {{
+            if ((uint)level > 62u)
+                throw new ArgumentOutOfRangeException(nameof(level));
+            U = u; V = v; Level = level;
+            PayloadFingerprint = payloadFingerprint ??
+                throw new ArgumentNullException(nameof(payloadFingerprint));
+        }}
+        internal long U {{ get; }}
+        internal long V {{ get; }}
+        internal int Level {{ get; }}
+        internal string PayloadFingerprint {{ get; }}
+    }}
+
     internal static class SigmaGeneratedMerkabaProgram
     {{
         internal const string ProgramVersion = "{descriptor['version']}";
@@ -1060,7 +1898,10 @@ namespace Genesis.RoomScan.SigmaPrism
         internal const string ProgramFingerprint = "{descriptor['fingerprint']}";
         internal const string DeclaredToeUpstreamFingerprint = "{descriptor['inputs']['toeUpstreamDeclared']}";
 {input_lines}
-        internal const int ExpressionCount = {len(descriptor['expressions'])};
+        internal const int ExpressionCount = {len(ir['expressions'])};
+        internal const int IrNodeCount = {len(ir['nodes'])};
+        internal const int IrOperandCount = {len(ir['operands'])};
+        internal const int EntryPointCount = {len(ir['entryPoints'])};
         internal const int AssociatorNonzeroBasisTriples = {proofs['associatorNonzero']};
         internal const bool ShadowKernelDecouplingProofSupplied = false;
         internal const int NegativeHolonomyFixtures = {proofs['negativeHolonomy']};
@@ -1069,10 +1910,23 @@ namespace Genesis.RoomScan.SigmaPrism
         internal const bool LegacyZNullAccepted = false;
         internal const int QuerySupportFalseNegatives = 0;
         internal const int QuerySupportFixtureCount = {proofs['querySupportFixtureCount']};
+        internal const int QuerySupportRefinedFixtureCount = {proofs['querySupportRefinedFixtureCount']};
+        internal const int QuerySupportNonresidentFixtureCount = {proofs['querySupportNonresidentFixtureCount']};
+        internal const string QuerySupportEvaluationFingerprint =
+            "{proofs['querySupportEvaluationFingerprint']}";
         internal const int ReverseIntervalSoundFixtureCount = {proofs['reverseIntervalSoundFixtureCount']};
         internal const bool ReverseZeroBranchRetained = true;
+        internal const int ReverseSceneDisjunctionCount = {proofs['reverseSceneDisjunctionCount']};
+        internal const int BracketNegativeControlCount = {proofs['bracketNegativeControls']};
+        internal const int ReverseIrForwardFixtureCount = {proofs['reverseIrForwardFixtureCount']};
+        internal const int ReverseIrPreimageOutputCount = {proofs['reverseIrPreimageOutputCount']};
+        internal const int ReverseIrAmbiguousPreimageOutputCount = {proofs['reverseIrAmbiguousPreimageOutputCount']};
+        internal const int ReverseIrMaxPreimageCount = {proofs['reverseIrMaxPreimageCount']};
+        internal const string ReverseIrAssociatorFingerprint =
+            "{proofs['reverseIrAssociatorFingerprint']}";
         internal const int DuplicateFixtureCount = {proofs['duplicateFixtureCount']};
         internal const int DuplicateMinimizedFactorCount = {proofs['duplicateMinimizedFactorCount']};
+        internal const int DuplicateMultiplicity = {proofs['duplicateMultiplicity']};
         internal const int CoupledFactorInputCount = {proofs['coupledFactorInputCount']};
         internal const int CoupledFactorMinimizedCount = {proofs['coupledFactorMinimizedCount']};
         internal const bool WeakFactorPreservesStrongRegion = true;
@@ -1085,16 +1939,51 @@ namespace Genesis.RoomScan.SigmaPrism
         internal const bool RefinementPointwiseFullS16 = true;
         internal const bool RefinementExactMeasure = true;
         internal const bool RepresentationDefaultParity = true;
+        internal const int DefaultRepresentationFixtureCount = {proofs['defaultRepresentationFixtureCount']};
+        internal const int DefaultRepresentationQueryCount = {proofs['defaultRepresentationQueryCount']};
+        internal const int DefaultRepresentationCount = {proofs['defaultRepresentationCount']};
+        internal const string DefaultRepresentationProofFingerprint =
+            "{proofs['defaultRepresentationProofFingerprint']}";
         internal const bool CanFreezeShadowKernel = false;
         internal const bool OpticalCalibrationProvenance = true;
         internal const bool OpticalUnboundedExplanationForbidden = true;
+        internal const int IndependentClosureWeightCount = 0;
+        internal const bool EpsilonClExists = false;
+        internal const int GaugePermutationCount = {proofs['gaugePermutationCount']};
+        internal const int GaugePointProbeCount = {proofs['gaugePointProbeCount']};
+        internal const int GaugeTransportFieldCount = {proofs['gaugeTransportFieldCount']};
+        internal const bool FreshSupportUniqueModuloGauge = true;
+        internal const bool FreshSupportNonEquivalentRejected = true;
+        internal const string CanonicalSerializationFingerprint =
+            "{proofs['canonicalSerializationFingerprint']}";
+        internal const string CertificateProofFingerprint =
+            "{proofs['certificateProofFingerprint']}";
 
         internal static readonly string[] ExpressionFingerprints =
         {{
 {expression_fingerprints}
         }};
 
+        internal static readonly SigmaMerkabaIrNode[] IrNodes =
+        {{
+{node_lines}
+        }};
+
+        internal static readonly int[] IrOperands = {{ {operand_lines} }};
+
+        internal static readonly SigmaMerkabaExpression[] Expressions =
+        {{
+{expression_lines}
+        }};
+
+        internal static readonly SigmaMerkabaEntryPoint[] EntryPoints =
+        {{
+{entry_lines}
+        }};
+
 {cs_array('DiffractionMatrix', 'sbyte', descriptor['diffractionMatrix'])}
+
+{cs_array('InformationMetric', 'short', descriptor['informationMetric'])}
 
         // Orientation-independent recurrence invariant A_k^2 = -(2^k-1)I.
 {cs_array('ShellSquareByRank', 'sbyte', descriptor['shellSquareByRank'], 4)}
@@ -1104,8 +1993,6 @@ namespace Genesis.RoomScan.SigmaPrism
 
         // P_visible = VisibleProjectorNumerator256 / 256.
 {cs_array('VisibleProjectorNumerator256', 'sbyte', descriptor['visibleProjectorNumerator256'])}
-
-{cs_array('BaseGaugeNormalForm', 'int', (value for entry in proofs['baseGaugeNormalForm'] for value in entry), 9)}
 
         internal static int BasisSign(int left, int right)
         {{
@@ -1145,15 +2032,24 @@ namespace Genesis.RoomScan.SigmaPrism
 
         internal static bool IsZEmpty(SigmaS16 value) => value.IsZero;
 
-        internal static SigmaNativeQueryClaim ReverseActionFor(
-            SigmaNativeQueryClaim measuredRole) => measuredRole switch
+        internal static SigmaS16 DecodeDefaultRepresentation(
+            SigmaDefaultBackingKind backing)
         {{
-            SigmaNativeQueryClaim.PreHitExclusion =>
-                SigmaNativeQueryClaim.PreHitExclusion,
-            SigmaNativeQueryClaim.FirstHitMould =>
-                SigmaNativeQueryClaim.FirstHitMould,
-            _ => SigmaNativeQueryClaim.NoClaim,
-        }};
+            if ((uint)backing > (uint)SigmaDefaultBackingKind.NullCodec)
+                throw new ArgumentOutOfRangeException(nameof(backing));
+            return SigmaS16.Zero;
+        }}
+
+        internal static SigmaDirectionalActionWitness BuildDirectionalAction(
+            SigmaNativeQueryClaim measuredRole, SigmaQ48Interval queryDirection,
+            SigmaQ48Interval residual)
+        {{
+            if (measuredRole == SigmaNativeQueryClaim.NoClaim)
+                return new SigmaDirectionalActionWitness(measuredRole,
+                    queryDirection, residual, new SigmaQ48Interval(0L, 0L), false);
+            return new SigmaDirectionalActionWitness(measuredRole, queryDirection,
+                residual, MultiplyOutward(queryDirection, residual), true);
+        }}
 
         internal static bool CanOmitQueryRegion(bool allDefault,
             bool defaultBoundaryClosed, bool fingerprintsMatch) =>
@@ -1176,6 +2072,336 @@ namespace Genesis.RoomScan.SigmaPrism
                 ? SigmaMerkabaRelationClass.DefaultSat
                 : SigmaMerkabaRelationClass.Unresolved;
 
+        internal static SigmaExactFactorClass ClassifyExactZeroFactor(
+            SigmaQ48Interval factor)
+        {{
+            if (factor.IsEmpty || factor.Upper < 0L || factor.Lower > 0L)
+                return SigmaExactFactorClass.ProvenIncompatible;
+            if (factor.Lower == 0L && factor.Upper == 0L)
+                return SigmaExactFactorClass.ProvenExactClosed;
+            return SigmaExactFactorClass.Unresolved;
+        }}
+
+        internal static long[] ApplyInformationMetric(long[] value)
+        {{
+            if (value == null || value.Length != 16)
+                throw new ArgumentException("G requires one full S16 value.", nameof(value));
+            var output = new long[16];
+            for (int row = 0; row < 16; ++row)
+            {{
+                BigInteger sum = BigInteger.Zero;
+                for (int column = 0; column < 16; ++column)
+                    sum += (BigInteger)InformationMetric[(row << 4) + column] *
+                           value[column];
+                output[row] = CheckedLong(sum);
+            }}
+            return output;
+        }}
+
+        internal static bool TryNormalizePrimitiveDefect(SigmaS16 defect,
+            out SigmaQ48Interval[] normalized, out bool diffractionKernel)
+        {{
+            long[] raw = defect.ToArray();
+            normalized = new SigmaQ48Interval[16];
+            BigInteger content = BigInteger.Zero;
+            for (int lane = 0; lane < 16; ++lane)
+                content = BigInteger.GreatestCommonDivisor(content,
+                    BigInteger.Abs(new BigInteger(raw[lane])));
+            if (content.IsZero)
+            {{
+                for (int lane = 0; lane < 16; ++lane)
+                    normalized[lane] = new SigmaQ48Interval(0L, 0L);
+                diffractionKernel = false;
+                return true;
+            }}
+            var primitive = new BigInteger[16];
+            for (int lane = 0; lane < 16; ++lane)
+                primitive[lane] = raw[lane] / content;
+            BigInteger normSquare = BigInteger.Zero;
+            for (int row = 0; row < 16; ++row)
+                for (int column = 0; column < 16; ++column)
+                    normSquare += primitive[row] *
+                        InformationMetric[(row << 4) + column] * primitive[column];
+            if (normSquare.IsZero)
+            {{
+                diffractionKernel = true;
+                for (int lane = 0; lane < 16; ++lane)
+                    normalized[lane] = SigmaQ48Interval.Full;
+                return false;
+            }}
+            if (normSquare.Sign < 0)
+                throw new InvalidOperationException("Generated G is not PSD.");
+            BigInteger scaledSquare = normSquare * SigmaNumericDomain.One *
+                SigmaNumericDomain.One;
+            BigInteger normLower = FloorSqrt(scaledSquare);
+            BigInteger normUpper = normLower * normLower == scaledSquare
+                ? normLower : normLower + BigInteger.One;
+            if (normLower.IsZero)
+                throw new InvalidOperationException("Positive primitive norm rounded to zero.");
+            for (int lane = 0; lane < 16; ++lane)
+            {{
+                BigInteger numerator = (BigInteger)raw[lane] * SigmaNumericDomain.One;
+                BigInteger lower = raw[lane] >= 0L
+                    ? DivideFloor(numerator, normUpper)
+                    : DivideFloor(numerator, normLower);
+                BigInteger upper = raw[lane] >= 0L
+                    ? DivideCeiling(numerator, normLower)
+                    : DivideCeiling(numerator, normUpper);
+                normalized[lane] = new SigmaQ48Interval(
+                    CheckedLong(lower), CheckedLong(upper));
+            }}
+            diffractionKernel = false;
+            return true;
+        }}
+
+        internal static IReadOnlyList<SigmaMinimizedFactor> MinimizeCertificates(
+            IEnumerable<SigmaCertificateFactor> source)
+        {{
+            if (source == null) throw new ArgumentNullException(nameof(source));
+            var result = new List<SigmaMinimizedFactor>();
+            foreach (SigmaCertificateFactor factor in source.OrderBy(
+                value => value.ContextKey, StringComparer.Ordinal).ThenBy(
+                value => value.Lower).ThenBy(value => value.Upper))
+            {{
+                int duplicate = result.FindIndex(value =>
+                    value.Factor.ContextKey == factor.ContextKey &&
+                    value.Factor.Lower == factor.Lower &&
+                    value.Factor.Upper == factor.Upper);
+                if (duplicate >= 0)
+                {{
+                    SigmaMinimizedFactor old = result[duplicate];
+                    result[duplicate] = new SigmaMinimizedFactor(old.Factor,
+                        checked(old.Multiplicity + 1));
+                    continue;
+                }}
+                if (result.Any(value => value.Factor.ContextKey == factor.ContextKey &&
+                    value.Factor.Lower >= factor.Lower &&
+                    value.Factor.Upper <= factor.Upper))
+                    continue;
+                result.RemoveAll(value =>
+                    value.Factor.ContextKey == factor.ContextKey &&
+                    factor.Lower >= value.Factor.Lower &&
+                    factor.Upper <= value.Factor.Upper);
+                result.Add(new SigmaMinimizedFactor(factor, 1));
+            }}
+            return result.OrderBy(value => value.Factor.ContextKey,
+                StringComparer.Ordinal).ThenBy(value => value.Factor.Lower)
+                .ThenBy(value => value.Factor.Upper).ToArray();
+        }}
+
+        internal static SigmaGaugeCell[] SplitGaugeCell(SigmaGaugeCell parent)
+        {{
+            int level = checked(parent.Level + 1);
+            return new[]
+            {{
+                new SigmaGaugeCell(checked(parent.U * 2), checked(parent.V * 2),
+                    level, parent.PayloadFingerprint),
+                new SigmaGaugeCell(checked(parent.U * 2 + 1), checked(parent.V * 2),
+                    level, parent.PayloadFingerprint),
+                new SigmaGaugeCell(checked(parent.U * 2), checked(parent.V * 2 + 1),
+                    level, parent.PayloadFingerprint),
+                new SigmaGaugeCell(checked(parent.U * 2 + 1),
+                    checked(parent.V * 2 + 1), level, parent.PayloadFingerprint),
+            }};
+        }}
+
+        internal static IReadOnlyList<SigmaGaugeCell> NormalizeGauge(
+            IEnumerable<SigmaGaugeCell> source)
+        {{
+            if (source == null) throw new ArgumentNullException(nameof(source));
+            var cells = source.ToList();
+            for (int left = 0; left < cells.Count; ++left)
+                for (int right = left + 1; right < cells.Count; ++right)
+                    if (DyadicCellsOverlap(cells[left], cells[right]))
+                        throw new InvalidOperationException(
+                            "Gauge cells must be one disjoint half-open partition.");
+            bool changed;
+            do
+            {{
+                changed = false;
+                foreach (SigmaGaugeCell child in cells.OrderByDescending(c => c.Level)
+                    .ThenBy(c => c.U).ThenBy(c => c.V).ToArray())
+                {{
+                    if (child.Level == 0) continue;
+                    long parentU = FloorDivideByTwo(child.U);
+                    long parentV = FloorDivideByTwo(child.V);
+                    int level = child.Level - 1;
+                    SigmaGaugeCell[] siblings =
+                        SplitGaugeCell(new SigmaGaugeCell(parentU, parentV, level,
+                            child.PayloadFingerprint));
+                    if (siblings.All(sibling => cells.Any(candidate =>
+                        SameGaugeCell(candidate, sibling))))
+                    {{
+                        cells.RemoveAll(candidate => siblings.Any(sibling =>
+                            SameGaugeCell(candidate, sibling)));
+                        cells.Add(new SigmaGaugeCell(parentU, parentV, level,
+                            child.PayloadFingerprint));
+                        changed = true;
+                        break;
+                    }}
+                }}
+            }} while (changed);
+            if (cells.Count == 0) return Array.Empty<SigmaGaugeCell>();
+            SigmaGaugeCell minimum = cells.Aggregate((left, right) =>
+                CompareDyadicLower(left, right) <= 0 ? left : right);
+            long translateU = FloorDyadic(minimum.U, minimum.Level);
+            long translateV = FloorDyadic(minimum.V, minimum.Level);
+            return cells.Select(cell => new SigmaGaugeCell(
+                    checked(cell.U - translateU * (1L << cell.Level)),
+                    checked(cell.V - translateV * (1L << cell.Level)),
+                    cell.Level, cell.PayloadFingerprint))
+                .OrderBy(cell => cell.Level).ThenBy(cell => SignedMorton(cell.U,
+                    cell.V)).ThenBy(cell => cell.U).ThenBy(cell => cell.V)
+                .ThenBy(cell => cell.PayloadFingerprint, StringComparer.Ordinal)
+                .ToArray();
+        }}
+
+        internal static bool TryNormalizeFreshSupport(
+            IEnumerable<IEnumerable<SigmaGaugeCell>> alternatives,
+            out string canonicalSerialization)
+        {{
+            if (alternatives == null)
+                throw new ArgumentNullException(nameof(alternatives));
+            string[] normalized = alternatives.Select(CanonicalGaugeSerialization)
+                .ToArray();
+            if (normalized.Length == 0)
+            {{
+                canonicalSerialization = string.Empty;
+                return false;
+            }}
+            string expected = normalized[0];
+            canonicalSerialization = expected;
+            return normalized.All(value => string.Equals(value,
+                expected, StringComparison.Ordinal));
+        }}
+
+        internal static string CanonicalGaugeSerialization(
+            IEnumerable<SigmaGaugeCell> source) => string.Join(";",
+                NormalizeGauge(source).Select(cell =>
+                    $"{{cell.Level}}:{{cell.U}}:{{cell.V}}:{{cell.PayloadFingerprint}}"));
+
+        private static SigmaQ48Interval MultiplyOutward(SigmaQ48Interval left,
+            SigmaQ48Interval right)
+        {{
+            long[] lower = {{
+                SigmaNumericDomain.QMulLower(left.Lower, right.Lower),
+                SigmaNumericDomain.QMulLower(left.Lower, right.Upper),
+                SigmaNumericDomain.QMulLower(left.Upper, right.Lower),
+                SigmaNumericDomain.QMulLower(left.Upper, right.Upper),
+            }};
+            long[] upper = {{
+                SigmaNumericDomain.QMulUpper(left.Lower, right.Lower),
+                SigmaNumericDomain.QMulUpper(left.Lower, right.Upper),
+                SigmaNumericDomain.QMulUpper(left.Upper, right.Lower),
+                SigmaNumericDomain.QMulUpper(left.Upper, right.Upper),
+            }};
+            return new SigmaQ48Interval(lower.Min(), upper.Max());
+        }}
+
+        private static bool SameGaugeCell(SigmaGaugeCell left, SigmaGaugeCell right) =>
+            left.U == right.U && left.V == right.V && left.Level == right.Level &&
+            string.Equals(left.PayloadFingerprint, right.PayloadFingerprint,
+                StringComparison.Ordinal);
+
+        private static bool DyadicCellsOverlap(SigmaGaugeCell left,
+            SigmaGaugeCell right)
+        {{
+            int common = Math.Max(left.Level, right.Level);
+            int leftShift = common - left.Level;
+            int rightShift = common - right.Level;
+            BigInteger leftU0 = (BigInteger)left.U << leftShift;
+            BigInteger leftU1 = ((BigInteger)left.U + BigInteger.One) << leftShift;
+            BigInteger rightU0 = (BigInteger)right.U << rightShift;
+            BigInteger rightU1 = ((BigInteger)right.U + BigInteger.One) << rightShift;
+            BigInteger leftV0 = (BigInteger)left.V << leftShift;
+            BigInteger leftV1 = ((BigInteger)left.V + BigInteger.One) << leftShift;
+            BigInteger rightV0 = (BigInteger)right.V << rightShift;
+            BigInteger rightV1 = ((BigInteger)right.V + BigInteger.One) << rightShift;
+            return leftU0 < rightU1 && rightU0 < leftU1 &&
+                   leftV0 < rightV1 && rightV0 < leftV1;
+        }}
+
+        private static int CompareDyadicLower(SigmaGaugeCell left, SigmaGaugeCell right)
+        {{
+            int common = Math.Max(left.Level, right.Level);
+            BigInteger leftU = (BigInteger)left.U << (common - left.Level);
+            BigInteger rightU = (BigInteger)right.U << (common - right.Level);
+            int compare = leftU.CompareTo(rightU);
+            if (compare != 0) return compare;
+            BigInteger leftV = (BigInteger)left.V << (common - left.Level);
+            BigInteger rightV = (BigInteger)right.V << (common - right.Level);
+            return leftV.CompareTo(rightV);
+        }}
+
+        private static long FloorDyadic(long numerator, int level)
+        {{
+            if (level == 0) return numerator;
+            long denominator = 1L << level;
+            long quotient = numerator / denominator;
+            long remainder = numerator % denominator;
+            return remainder < 0L ? checked(quotient - 1L) : quotient;
+        }}
+
+        private static long FloorDivideByTwo(long value) =>
+            value >= 0L || (value & 1L) == 0L ? value / 2L : value / 2L - 1L;
+
+        private static ulong SignedMorton(long u, long v)
+        {{
+            ulong x = u >= 0L ? checked((ulong)u * 2UL) :
+                checked((ulong)(-(u + 1L)) * 2UL + 1UL);
+            ulong y = v >= 0L ? checked((ulong)v * 2UL) :
+                checked((ulong)(-(v + 1L)) * 2UL + 1UL);
+            ulong output = 0UL;
+            for (int bit = 0; bit < 32; ++bit)
+            {{
+                output |= ((x >> bit) & 1UL) << (bit * 2);
+                output |= ((y >> bit) & 1UL) << (bit * 2 + 1);
+            }}
+            return output;
+        }}
+
+        private static BigInteger FloorSqrt(BigInteger value)
+        {{
+            if (value.Sign < 0) throw new ArgumentOutOfRangeException(nameof(value));
+            if (value.IsZero) return BigInteger.Zero;
+            BigInteger root = BigInteger.One << ((BitLength(value) + 1) / 2);
+            while (true)
+            {{
+                BigInteger next = (root + value / root) >> 1;
+                if (next >= root) return root;
+                root = next;
+            }}
+        }}
+
+        private static int BitLength(BigInteger value)
+        {{
+            byte[] bytes = value.ToByteArray();
+            int bits = (bytes.Length - 1) * 8;
+            byte high = bytes[bytes.Length - 1];
+            while (high != 0) {{ ++bits; high >>= 1; }}
+            return bits;
+        }}
+
+        private static BigInteger DivideFloor(BigInteger numerator,
+            BigInteger denominator)
+        {{
+            BigInteger quotient = BigInteger.DivRem(numerator, denominator,
+                out BigInteger remainder);
+            if (!remainder.IsZero && numerator.Sign != denominator.Sign)
+                --quotient;
+            return quotient;
+        }}
+
+        private static BigInteger DivideCeiling(BigInteger numerator,
+            BigInteger denominator) => -DivideFloor(-numerator, denominator);
+
+        private static long CheckedLong(BigInteger value)
+        {{
+            if (value < long.MinValue || value > long.MaxValue)
+                throw new OverflowException("Generated exact operation overflow.");
+            return (long)value;
+        }}
+
         private static void RequireAddress(int value)
         {{
             if ((uint)value >= 16u)
@@ -1188,18 +2414,44 @@ namespace Genesis.RoomScan.SigmaPrism
 
 def render_merkaba_hlsl(descriptor: dict) -> str:
     proofs = descriptor["proofs"]
+    ir = descriptor["ir"]
     diffraction = ", ".join(str(value) for value in descriptor["diffractionMatrix"])
+    metric = ", ".join(str(value) for value in descriptor["informationMetric"])
     shadow = ", ".join(str(value) for value in descriptor["shadowNumerator4"])
     visible = ", ".join(
         str(value) for value in descriptor["visibleProjectorNumerator256"])
     words = ", ".join(
         f"0x{value:08x}u" for value in fingerprint_words(descriptor["fingerprint"]))
+    opcode_macros = "\n".join(
+        f"#define SIGMA_MERKABA_IR_{name} {index}u"
+        for index, name in enumerate(ir["opcodes"]))
+    node_a = ",\n    ".join(
+        f"uint4({node['opcode']}u, {node['outputKind']}u, "
+        f"{node['reverseRule']}u, {node['operandStart']}u)"
+        for node in ir["nodes"])
+    node_b = ",\n    ".join(
+        f"int4({node['operandCount']}, {node['argument0']}, "
+        f"{node['argument1']}, 0)" for node in ir["nodes"])
+    operands = ", ".join(f"{value}u" for value in ir["operands"])
+    expression_a = ",\n    ".join(
+        f"int4({entry['arity']}, {entry['neighbourhood']}, "
+        f"{entry['nodeStart']}, {entry['nodeCount']})"
+        for entry in ir["expressions"])
+    expression_b = ",\n    ".join(
+        f"int4({entry['rootNode']}, 0, 0, 0)" for entry in ir["expressions"])
+    entry_points = ",\n    ".join(
+        f"int4({entry['forwardExpression']}, {entry['reverseExpression']}, "
+        f"{entry['reducer']}, 0)" for entry in ir["entryPoints"])
     return f"""// <auto-generated by Tools/sigma/generate_sigma_operators.py>
 // Canonical baseline: CPQ4-2026-08-25-S16-v8.3. Do not edit by hand.
 #ifndef SIGMA_GENERATED_MERKABA_PROGRAM_INCLUDED
 #define SIGMA_GENERATED_MERKABA_PROGRAM_INCLUDED
 
-#include "SigmaGeneratedTables.hlsl"
+#include "../../../Runtime/Resources/SigmaPrism/Sedenion16.hlsl"
+#include "../../../Runtime/Resources/SigmaPrism/SigmaExactCompare.hlsl"
+#include "../../../Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedTables.hlsl"
+
+{opcode_macros}
 
 #define SIGMA_MERKABA_RELATION_DEFAULT_SAT 0u
 #define SIGMA_MERKABA_RELATION_REGULAR 1u
@@ -1213,6 +2465,10 @@ def render_merkaba_hlsl(descriptor: dict) -> str:
 #define SIGMA_NATIVE_QUERY_PRE_HIT_EXCLUSION 1u
 #define SIGMA_NATIVE_QUERY_FIRST_HIT_MOULD 2u
 
+#define SIGMA_DEFAULT_LOGICAL_UNBACKED 0u
+#define SIGMA_DEFAULT_EXPLICIT_ZEMPTY 1u
+#define SIGMA_DEFAULT_NULL_CODEC 2u
+
 #define SIGMA_MERKABA_DIRECT_S16_DEPENDENCIES_RETAINED 1u
 #define SIGMA_MERKABA_LEGACY_Z_NULL_ACCEPTED 0u
 #define SIGMA_MERKABA_ALL_DEFAULT_ACTIVE_WORK 0u
@@ -1224,12 +2480,35 @@ def render_merkaba_hlsl(descriptor: dict) -> str:
 #define SIGMA_MERKABA_REFINEMENT_CHILD_COUNT 4u
 #define SIGMA_MERKABA_REPRESENTATION_DEFAULT_PARITY 1u
 #define SIGMA_MERKABA_CAN_FREEZE_SHADOW_KERNEL 0u
+#define SIGMA_MERKABA_IR_NODE_COUNT {len(ir['nodes'])}u
+#define SIGMA_MERKABA_IR_OPERAND_COUNT {len(ir['operands'])}u
+#define SIGMA_MERKABA_EXPRESSION_COUNT {len(ir['expressions'])}u
+#define SIGMA_MERKABA_ENTRY_POINT_COUNT {len(ir['entryPoints'])}u
+#define SIGMA_MERKABA_INDEPENDENT_CLOSURE_WEIGHT_COUNT 0u
+#define SIGMA_MERKABA_EPSILON_CL_EXISTS 0u
 
 static const uint SIGMA_MERKABA_PROGRAM_FINGERPRINT[8] = {{ {words} }};
 static const int SIGMA_MERKABA_DIFFRACTION[256] = {{ {diffraction} }};
+static const int SIGMA_MERKABA_INFORMATION_METRIC[256] = {{ {metric} }};
 static const int SIGMA_MERKABA_SHELL_SQUARE_BY_RANK[4] = {{ -1, -3, -7, -15 }};
 static const int SIGMA_MERKABA_SHADOW_NUMERATOR4[64] = {{ {shadow} }};
 static const int SIGMA_MERKABA_VISIBLE_PROJECTOR_NUMERATOR256[256] = {{ {visible} }};
+static const uint4 SIGMA_MERKABA_IR_NODE_A[{len(ir['nodes'])}] = {{
+    {node_a}
+}};
+static const int4 SIGMA_MERKABA_IR_NODE_B[{len(ir['nodes'])}] = {{
+    {node_b}
+}};
+static const uint SIGMA_MERKABA_IR_OPERANDS[{len(ir['operands'])}] = {{ {operands} }};
+static const int4 SIGMA_MERKABA_IR_EXPRESSION_A[{len(ir['expressions'])}] = {{
+    {expression_a}
+}};
+static const int4 SIGMA_MERKABA_IR_EXPRESSION_B[{len(ir['expressions'])}] = {{
+    {expression_b}
+}};
+static const int4 SIGMA_MERKABA_IR_ENTRY_POINTS[{len(ir['entryPoints'])}] = {{
+    {entry_points}
+}};
 
 int SigmaMerkabaBasisSign(uint left, uint right)
 {{
@@ -1269,18 +2548,50 @@ bool SigmaMerkabaIsZEmpty(uint2 state[16])
     return nonzero == 0u;
 }}
 
-uint SigmaMerkabaReverseActionFor(uint measuredRole)
+struct SigmaMerkabaDirectionalActionWitness
 {{
-    return measuredRole == SIGMA_NATIVE_QUERY_PRE_HIT_EXCLUSION ?
-        SIGMA_NATIVE_QUERY_PRE_HIT_EXCLUSION :
-        (measuredRole == SIGMA_NATIVE_QUERY_FIRST_HIT_MOULD ?
-            SIGMA_NATIVE_QUERY_FIRST_HIT_MOULD : SIGMA_NATIVE_QUERY_NO_CLAIM);
+    uint role;
+    uint active;
+    uint2 lower;
+    uint2 upper;
+}};
+
+SigmaMerkabaDirectionalActionWitness SigmaMerkabaBuildDirectionalAction(
+    uint measuredRole, uint2 directionLower, uint2 directionUpper,
+    uint2 residualLower, uint2 residualUpper, inout uint valid)
+{{
+    SigmaMerkabaDirectionalActionWitness output;
+    output.role = measuredRole;
+    output.active = measuredRole == SIGMA_NATIVE_QUERY_NO_CLAIM ? 0u : 1u;
+    if (output.active == 0u)
+    {{
+        output.lower = uint2(0u, 0u);
+        output.upper = uint2(0u, 0u);
+        return output;
+    }}
+    uint2 lo00 = SigmaQ48MulLower(directionLower, residualLower, valid);
+    uint2 lo01 = SigmaQ48MulLower(directionLower, residualUpper, valid);
+    uint2 lo10 = SigmaQ48MulLower(directionUpper, residualLower, valid);
+    uint2 lo11 = SigmaQ48MulLower(directionUpper, residualUpper, valid);
+    uint2 hi00 = SigmaQ48MulUpper(directionLower, residualLower, valid);
+    uint2 hi01 = SigmaQ48MulUpper(directionLower, residualUpper, valid);
+    uint2 hi10 = SigmaQ48MulUpper(directionUpper, residualLower, valid);
+    uint2 hi11 = SigmaQ48MulUpper(directionUpper, residualUpper, valid);
+    output.lower = SigmaQ48Min(SigmaQ48Min(lo00, lo01), SigmaQ48Min(lo10, lo11));
+    output.upper = SigmaQ48Max(SigmaQ48Max(hi00, hi01), SigmaQ48Max(hi10, hi11));
+    return output;
 }}
 
 bool SigmaMerkabaCanOmitQueryRegion(bool allDefault,
     bool defaultBoundaryClosed, bool fingerprintsMatch)
 {{
     return allDefault && defaultBoundaryClosed && fingerprintsMatch;
+}}
+
+uint2 SigmaMerkabaDecodeDefaultLane(uint backingKind, uint lane)
+{{
+    bool valid = backingKind <= SIGMA_DEFAULT_NULL_CODEC && lane < 16u;
+    return valid ? uint2(0u, 0u) : uint2(0xffffffffu, 0xffffffffu);
 }}
 
 uint SigmaMerkabaClassifyZeroDivisor(bool leftNonzero, bool rightNonzero,
@@ -1294,6 +2605,85 @@ uint SigmaMerkabaClassifyZeroDivisor(bool leftNonzero, bool rightNonzero,
 }}
 
 #endif
+"""
+
+
+def render_merkaba_fixture(descriptor: dict) -> str:
+    return f"""// <auto-generated by Tools/sigma/generate_sigma_operators.py>
+// N1R Editor/Vulkan parity fixture only; never part of the live runtime graph.
+#pragma kernel MerkabaProgramParity
+#pragma kernel MerkabaMatrixAndIrParity
+#pragma kernel MerkabaDirectionalActionParity
+#pragma target 5.0
+
+#include "SigmaGeneratedMerkabaProgram.hlsl"
+
+RWStructuredBuffer<uint4> _MerkabaResults;
+RWStructuredBuffer<uint4> _MerkabaMatrixResults;
+RWStructuredBuffer<uint4> _MerkabaIrResults;
+RWStructuredBuffer<uint4> _MerkabaActionResults;
+
+[numthreads(16, 16, 1)]
+void MerkabaProgramParity(uint3 id : SV_DispatchThreadID)
+{{
+    uint a = id.x;
+    uint b = id.y;
+    uint c = id.z;
+    uint offset = (c * 16u + b) * 16u + a;
+    _MerkabaResults[offset] = uint4(
+        asuint(SigmaMerkabaAssociatorCoefficient(a, b, c)),
+        asuint(SigmaMerkabaPlaquetteHolonomy(a, c, b)),
+        asuint(SigmaMerkabaShadowNumerator(a, c & 3u)),
+        asuint(SigmaMerkabaBasisSign(a, b)));
+}}
+
+[numthreads(16, 16, 1)]
+void MerkabaMatrixAndIrParity(uint3 id : SV_DispatchThreadID)
+{{
+    uint offset = id.x * 16u + id.y;
+    _MerkabaMatrixResults[offset] = uint4(
+        asuint(SIGMA_MERKABA_DIFFRACTION[offset]),
+        asuint(SIGMA_MERKABA_INFORMATION_METRIC[offset]),
+        asuint(SIGMA_MERKABA_VISIBLE_PROJECTOR_NUMERATOR256[offset]),
+        SIGMA_MERKABA_INDEPENDENT_CLOSURE_WEIGHT_COUNT |
+            (SIGMA_MERKABA_EPSILON_CL_EXISTS << 16u));
+    if (offset < SIGMA_MERKABA_IR_NODE_COUNT)
+    {{
+        _MerkabaIrResults[offset * 2u] = SIGMA_MERKABA_IR_NODE_A[offset];
+        _MerkabaIrResults[offset * 2u + 1u] =
+            asuint(SIGMA_MERKABA_IR_NODE_B[offset]);
+    }}
+}}
+
+[numthreads(1, 1, 1)]
+void MerkabaDirectionalActionParity(uint3 id : SV_DispatchThreadID)
+{{
+    uint valid = 1u;
+    uint2 zero = uint2(0u, 0u);
+    uint2 one = uint2(0u, 0x00010000u);
+    uint2 half = uint2(0u, 0x00008000u);
+    SigmaMerkabaDirectionalActionWitness none =
+        SigmaMerkabaBuildDirectionalAction(SIGMA_NATIVE_QUERY_NO_CLAIM,
+            one, one, half, half, valid);
+    SigmaMerkabaDirectionalActionWitness mould =
+        SigmaMerkabaBuildDirectionalAction(SIGMA_NATIVE_QUERY_FIRST_HIT_MOULD,
+            one, one, half, half, valid);
+    _MerkabaActionResults[0] = uint4(none.role, none.active,
+        none.lower.x | none.lower.y, none.upper.x | none.upper.y);
+    _MerkabaActionResults[1] = uint4(mould.role, mould.active,
+        mould.lower.x, mould.lower.y);
+    _MerkabaActionResults[2] = uint4(mould.upper.x, mould.upper.y, valid,
+        SIGMA_MERKABA_QUERY_SUPPORT_FALSE_NEGATIVES);
+    uint2 unbacked = SigmaMerkabaDecodeDefaultLane(
+        SIGMA_DEFAULT_LOGICAL_UNBACKED, 7u);
+    uint2 explicitDefault = SigmaMerkabaDecodeDefaultLane(
+        SIGMA_DEFAULT_EXPLICIT_ZEMPTY, 7u);
+    uint2 nullCodec = SigmaMerkabaDecodeDefaultLane(
+        SIGMA_DEFAULT_NULL_CODEC, 7u);
+    _MerkabaActionResults[3] = uint4(unbacked.x | unbacked.y,
+        explicitDefault.x | explicitDefault.y, nullCodec.x | nullCodec.y,
+        SIGMA_MERKABA_REPRESENTATION_DEFAULT_PARITY);
+}}
 """
 
 
@@ -1336,6 +2726,7 @@ def render_authority_manifest(descriptor: dict) -> str:
         "otherToeSectorsImported": False,
         "e22InventoryCount": 0,
         "directS16DependenciesRetained": True,
+        "executableIr": descriptor["ir"],
         "expressionInventory": descriptor["expressions"],
         "reverseRules": descriptor["reverseRules"],
         "queryFamilies": descriptor["queryFamilies"],
@@ -1347,6 +2738,7 @@ def render_authority_manifest(descriptor: dict) -> str:
         "generatedOutputs": [
             CS_MERKABA_OUTPUT.relative_to(ROOT).as_posix(),
             HLSL_MERKABA_OUTPUT.relative_to(ROOT).as_posix(),
+            HLSL_MERKABA_FIXTURE_OUTPUT.relative_to(ROOT).as_posix(),
         ],
         "proofs": descriptor["proofs"],
     }
@@ -1567,6 +2959,8 @@ def main() -> int:
                             render_merkaba_cs(merkaba), args.check)
     valid &= check_or_write(HLSL_MERKABA_OUTPUT,
                             render_merkaba_hlsl(merkaba), args.check)
+    valid &= check_or_write(HLSL_MERKABA_FIXTURE_OUTPUT,
+                            render_merkaba_fixture(merkaba), args.check)
     valid &= check_or_write(AUTHORITY_MANIFEST_OUTPUT,
                             render_authority_manifest(merkaba), args.check)
     return 0 if valid else 1

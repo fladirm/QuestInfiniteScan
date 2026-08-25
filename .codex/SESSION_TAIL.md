@@ -2,18 +2,18 @@
 
 ## User
 
-Supplied the authoritative scanner-facing `I_TOE — S16 / K16 native closure
-algebra capsule`, explicitly replacing the 800 KiB monograph for N1R. Required
-the capsule to be integrated in the workspace and N1R to continue exactly from
-workspace `new_spec.md` and `.codex/S4-08.6_NATIVE_CLOSURE_PLAN.md`.
+Resolved the native modal blocker from the declared canonical source by supplying
+the missing scanner capsule law: `G=2A^TA=-2A^2`, primitive-normalized link,
+associator and plaquette closure defects, their direct sum and the explicit absence
+of `epsilon_cl` or fitted closure weights. Required every previously audited N1R
+P0 gate and the production-LOC stop rule to be closed before N2R.
 
 ## Assistant
 
-Integrated only that capsule plus independent `I_Q`/`I_REP` workspace schemas into
-the sole generator. N1R now emits one 19-expression provenance inventory and
-CPU/HLSL program `ce356a59...193343`, retains direct S16 where coupling is
-unproved, refuses to invent a shell orientation or native modal tolerance, rejects
-legacy `ZNullDyad`, and has no live runtime call site. Generator/static gates and
-the warm Unity 6000.5.9f1 Vulkan corpus pass `85/85` (`8/8` N1R); production diff
-is `+392/-0`. Controls/code graph and the separate N1R checkpoint commit are the
-remaining closeout actions.
+Amended only the workspace scanner capsule plus independent `I_Q/I_REP`, rebuilt
+the sole generator into a numeric bracketed CPU/HLSL IR and replaced the audited
+tautological/toy gates with actual reverse, query-support, default, certificate and
+recursive gauge proofs. Unity Vulkan passes 87/87. Generated N1 plans are test-only
+until consumed. The corrective checkpoint is production `+0/-392` versus rejected
+`b541635`; cumulative N1R is exactly +0/-0 versus N0R. N2R and live mutation
+remain unopened.

@@ -94,9 +94,22 @@
   },
   "nativeModalRelation": {
     "source": "I_TOE_SECTION_8",
-    "residual": "EXACT_BRACKETED_U_J_MINUS_U_I_TRANSPORTED_BY_U_IJ",
-    "admissibleRegion": "FINGERPRINTED_OUTWARD_Q48_REGION_DERIVED_FROM_G_AND_EPSILON_CL",
-    "exactZero": "ADMISSIBLE",
+    "informationMetric": "G_EQUALS_2_AT_A_EQUALS_MINUS_2_A_SQUARED_FOR_DIFFRACTION_A",
+    "linkDefect": "D_IJ_EQUALS_U_J_MINUS_U_IJ_U_I",
+    "primitiveRepresentative": "DIVIDE_NONZERO_Q16_48_RAW_COEFFICIENT_VECTOR_BY_ITS_POSITIVE_INTEGER_CONTENT_GCD",
+    "linkNormalization": "D_HAT_IJ_EQUALS_D_IJ_DIV_PRIMITIVE_G_NORM",
+    "associatorNormalization": "A_HAT_IJK_EQUALS_EXPLICITLY_BRACKETED_A_IJK_DIV_PRIMITIVE_G_NORM",
+    "plaquetteNormalization": "F_HAT_EQUALS_W_MINUS_IDENTITY_DIV_2",
+    "closureDefect": "DIRECT_SUM_OF_NORMALIZED_LINK_ASSOCIATOR_AND_PLAQUETTE_FACTORS",
+    "independentContinuousWeights": false,
+    "epsilonClParameter": false,
+    "lowering": "CHECKED_Q16_48_POINTS_AND_OUTWARD_Q16_48_INTERVALS_ON_THE_SAME_EXPRESSION_TREE",
+    "exactZeroClassification": {
+      "intervalExcludesZero": "PROVEN_INCOMPATIBLE",
+      "singletonZero": "PROVEN_EXACT_CLOSED",
+      "nonSingletonContainsZero": "UNRESOLVED_RETAIN_FACTOR",
+      "zeroPrimitiveGNorm": "UNRESOLVED_RETAIN_DIFFRACTION_KERNEL_FACTOR"
+    },
     "missingOrUnprovedRegion": "UNRESOLVED",
     "xyzOrPixelCriterion": false
   },

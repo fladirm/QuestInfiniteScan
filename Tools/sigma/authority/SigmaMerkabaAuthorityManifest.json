@@ -10,182 +10,921 @@
   },
   "directS16DependenciesRetained": true,
   "e22InventoryCount": 0,
+  "executableIr": {
+    "actionExpression": 9,
+    "entryPoints": [
+      {
+        "forwardExpression": 7,
+        "id": "SENSOR_LEFT",
+        "reducer": 1,
+        "reverseExpression": 8
+      },
+      {
+        "forwardExpression": 7,
+        "id": "SENSOR_RIGHT",
+        "reducer": 1,
+        "reverseExpression": 8
+      },
+      {
+        "forwardExpression": 7,
+        "id": "EYE_PAIR",
+        "reducer": 1,
+        "reverseExpression": -1
+      },
+      {
+        "forwardExpression": 3,
+        "id": "INTRINSIC_RELATION",
+        "reducer": 3,
+        "reverseExpression": 3
+      },
+      {
+        "forwardExpression": 7,
+        "id": "PREDICTION_SUPPORT",
+        "reducer": 1,
+        "reverseExpression": 8
+      },
+      {
+        "forwardExpression": 7,
+        "id": "EXPORT",
+        "reducer": 4,
+        "reverseExpression": -1
+      },
+      {
+        "forwardExpression": 7,
+        "id": "DEBUG",
+        "reducer": 0,
+        "reverseExpression": -1
+      }
+    ],
+    "expressions": [
+      {
+        "arity": 2,
+        "fingerprint": "b91cd86f7094c1f8a578e4832d65664dc2c0df429f3f68f7f24cfd2146937bc2",
+        "id": "K16_BASIS_PRODUCT",
+        "neighbourhood": 0,
+        "nodeCount": 3,
+        "nodeStart": 0,
+        "rootNode": 2,
+        "source": "I_TOE:1"
+      },
+      {
+        "arity": 3,
+        "fingerprint": "73b9182646f5ed0944877ce7ca110a867110e758b86ca664702547cc643543c6",
+        "id": "K16_ASSOCIATOR",
+        "neighbourhood": 6,
+        "nodeCount": 8,
+        "nodeStart": 3,
+        "rootNode": 10,
+        "source": "I_TOE:2"
+      },
+      {
+        "arity": 1,
+        "fingerprint": "9025eae958439910cd679affeadfdad096112e88857885f303522e9b60561af4",
+        "id": "K16_DIFFRACTION",
+        "neighbourhood": 0,
+        "nodeCount": 2,
+        "nodeStart": 11,
+        "rootNode": 12,
+        "source": "I_TOE:3"
+      },
+      {
+        "arity": 2,
+        "fingerprint": "9158ee73b5b233b16d9f285b93bcd7f3e38ee451471f9915d24586baa9ee49b2",
+        "id": "NORMALIZED_LINK_DEFECT",
+        "neighbourhood": 5,
+        "nodeCount": 8,
+        "nodeStart": 13,
+        "rootNode": 20,
+        "source": "I_TOE:8"
+      },
+      {
+        "arity": 3,
+        "fingerprint": "3c6060e4ad21afeb503e0cf56e16f903e15cc741d95684bbd7f9a15ed66bddd4",
+        "id": "NORMALIZED_ASSOCIATOR_DEFECT",
+        "neighbourhood": 6,
+        "nodeCount": 4,
+        "nodeStart": 21,
+        "rootNode": 24,
+        "source": "I_TOE:8"
+      },
+      {
+        "arity": 4,
+        "fingerprint": "ae9df092254fa2f3458bd515240b77f7a08e40b00d6338ffefdd5ae6e91249f7",
+        "id": "NORMALIZED_PLAQUETTE_DEFECT",
+        "neighbourhood": 7,
+        "nodeCount": 2,
+        "nodeStart": 25,
+        "rootNode": 26,
+        "source": "I_TOE:8"
+      },
+      {
+        "arity": -1,
+        "fingerprint": "22e4d71601f681b8e9b8d58d831924eea9bac54dd5946faf4f578199256405ef",
+        "id": "NATIVE_CLOSURE_DEFECT",
+        "neighbourhood": 1,
+        "nodeCount": 1,
+        "nodeStart": 27,
+        "rootNode": 27,
+        "source": "I_TOE:8"
+      },
+      {
+        "arity": -1,
+        "fingerprint": "e020886e0c588931be838b531582387c245b8be22b3f1a8361f6740c53b0810b",
+        "id": "SENSOR_SCENE_SHADOW",
+        "neighbourhood": 3,
+        "nodeCount": 5,
+        "nodeStart": 28,
+        "rootNode": 32,
+        "source": "I_Q:SENSOR_LEFT_RIGHT"
+      },
+      {
+        "arity": -1,
+        "fingerprint": "b702ddab4bb0a5ceff2b11dcbf6061f8a73cb4251c3225857a9d1abf234172c1",
+        "id": "EXACT_SENSOR_REVERSE",
+        "neighbourhood": 3,
+        "nodeCount": 2,
+        "nodeStart": 33,
+        "rootNode": 34,
+        "source": "I_Q:reverseContractor"
+      },
+      {
+        "arity": 3,
+        "fingerprint": "223b5cd6eb5673f86730310508ed8c24fe1c6b25c5369075a75feab98e57ece5",
+        "id": "DIRECTIONAL_FIRST_HIT_ACTION",
+        "neighbourhood": 3,
+        "nodeCount": 4,
+        "nodeStart": 35,
+        "rootNode": 38,
+        "source": "I_Q:sceneReduction+reverseContractor"
+      },
+      {
+        "arity": 2,
+        "fingerprint": "eb23225cae17976a828b14b6a8057b4aa383bb67efb9b898f6d97ad5dba07104",
+        "id": "OPTICAL_NUISANCE",
+        "neighbourhood": 9,
+        "nodeCount": 3,
+        "nodeStart": 39,
+        "rootNode": 41,
+        "source": "I_Q:photometricNuisance"
+      },
+      {
+        "arity": -1,
+        "fingerprint": "fb1ac06cabd5144b85e6b15037311740695c5c303f8c5db938e52bbd0e97627c",
+        "id": "NATIVE_INFORMATION_PULLBACK",
+        "neighbourhood": 1,
+        "nodeCount": 1,
+        "nodeStart": 42,
+        "rootNode": 42,
+        "source": "I_Q:certificate"
+      },
+      {
+        "arity": -1,
+        "fingerprint": "bcfb71f013a0e7c72f7bbc28d868ab8ddade1e3296588a6ed03ebc44cc89bb90",
+        "id": "CERTIFICATE_MINIMIZER",
+        "neighbourhood": 8,
+        "nodeCount": 1,
+        "nodeStart": 43,
+        "rootNode": 43,
+        "source": "I_Q:certificate"
+      },
+      {
+        "arity": 1,
+        "fingerprint": "8edc0ad17fb34cdc8e62dc6d136b8e142a50aecd990f810898f6b8dbc7a67029",
+        "id": "DYADIC_GAUGE_NORMALIZER",
+        "neighbourhood": 8,
+        "nodeCount": 3,
+        "nodeStart": 44,
+        "rootNode": 46,
+        "source": "I_REP:kappa+normalizer"
+      },
+      {
+        "arity": -1,
+        "fingerprint": "b7a5ea3922830c638dd011e0c40c97fefbdcbe2e4dbc81474498785fa99148c7",
+        "id": "ZEMPTY_DEFAULT",
+        "neighbourhood": 4,
+        "nodeCount": 1,
+        "nodeStart": 47,
+        "rootNode": 47,
+        "source": "I_Q:defaultSemantics+I_REP:defaultRepresentations"
+      }
+    ],
+    "fingerprint": "328e7e499ae890fc3ae77027d55bd71df67699884707162b8cf0374837d82e6a",
+    "gaugeExpression": 13,
+    "neighbourhoods": [
+      "LOCAL",
+      "LOCAL_CONTEXT",
+      "FULL_LOCAL_STATE",
+      "WHOLE_QUERY",
+      "WHOLE_PROGRAM",
+      "INTRINSIC_PAIR",
+      "INTRINSIC_TRIPLE",
+      "PLAQUETTE",
+      "FINITE_SUPPORT",
+      "COHERENT_EYE"
+    ],
+    "nodes": [
+      {
+        "argument0": 0,
+        "argument1": 0,
+        "opcode": 0,
+        "operandCount": 0,
+        "operandStart": 0,
+        "outputKind": 0,
+        "reverseRule": 1
+      },
+      {
+        "argument0": 1,
+        "argument1": 0,
+        "opcode": 0,
+        "operandCount": 0,
+        "operandStart": 0,
+        "outputKind": 0,
+        "reverseRule": 1
+      },
+      {
+        "argument0": 0,
+        "argument1": 0,
+        "opcode": 5,
+        "operandCount": 2,
+        "operandStart": 0,
+        "outputKind": 0,
+        "reverseRule": 2
+      },
+      {
+        "argument0": 0,
+        "argument1": 0,
+        "opcode": 0,
+        "operandCount": 0,
+        "operandStart": 2,
+        "outputKind": 0,
+        "reverseRule": 1
+      },
+      {
+        "argument0": 1,
+        "argument1": 0,
+        "opcode": 0,
+        "operandCount": 0,
+        "operandStart": 2,
+        "outputKind": 0,
+        "reverseRule": 1
+      },
+      {
+        "argument0": 2,
+        "argument1": 0,
+        "opcode": 0,
+        "operandCount": 0,
+        "operandStart": 2,
+        "outputKind": 0,
+        "reverseRule": 1
+      },
+      {
+        "argument0": 0,
+        "argument1": 0,
+        "opcode": 6,
+        "operandCount": 2,
+        "operandStart": 2,
+        "outputKind": 0,
+        "reverseRule": 4
+      },
+      {
+        "argument0": 0,
+        "argument1": 0,
+        "opcode": 6,
+        "operandCount": 2,
+        "operandStart": 4,
+        "outputKind": 0,
+        "reverseRule": 4
+      },
+      {
+        "argument0": 0,
+        "argument1": 0,
+        "opcode": 6,
+        "operandCount": 2,
+        "operandStart": 6,
+        "outputKind": 0,
+        "reverseRule": 4
+      },
+      {
+        "argument0": 0,
+        "argument1": 0,
+        "opcode": 6,
+        "operandCount": 2,
+        "operandStart": 8,
+        "outputKind": 0,
+        "reverseRule": 4
+      },
+      {
+        "argument0": 0,
+        "argument1": 0,
+        "opcode": 7,
+        "operandCount": 2,
+        "operandStart": 10,
+        "outputKind": 0,
+        "reverseRule": 3
+      },
+      {
+        "argument0": 0,
+        "argument1": 0,
+        "opcode": 0,
+        "operandCount": 0,
+        "operandStart": 12,
+        "outputKind": 0,
+        "reverseRule": 1
+      },
+      {
+        "argument0": 0,
+        "argument1": 0,
+        "opcode": 8,
+        "operandCount": 1,
+        "operandStart": 12,
+        "outputKind": 0,
+        "reverseRule": 5
+      },
+      {
+        "argument0": 0,
+        "argument1": 0,
+        "opcode": 0,
+        "operandCount": 0,
+        "operandStart": 13,
+        "outputKind": 0,
+        "reverseRule": 1
+      },
+      {
+        "argument0": 1,
+        "argument1": 0,
+        "opcode": 0,
+        "operandCount": 0,
+        "operandStart": 13,
+        "outputKind": 0,
+        "reverseRule": 1
+      },
+      {
+        "argument0": 0,
+        "argument1": 0,
+        "opcode": 10,
+        "operandCount": 1,
+        "operandStart": 13,
+        "outputKind": 0,
+        "reverseRule": 2
+      },
+      {
+        "argument0": 0,
+        "argument1": 0,
+        "opcode": 7,
+        "operandCount": 2,
+        "operandStart": 14,
+        "outputKind": 0,
+        "reverseRule": 3
+      },
+      {
+        "argument0": 0,
+        "argument1": 0,
+        "opcode": 11,
+        "operandCount": 1,
+        "operandStart": 16,
+        "outputKind": 0,
+        "reverseRule": 9
+      },
+      {
+        "argument0": 0,
+        "argument1": 0,
+        "opcode": 9,
+        "operandCount": 1,
+        "operandStart": 17,
+        "outputKind": 0,
+        "reverseRule": 5
+      },
+      {
+        "argument0": 0,
+        "argument1": 0,
+        "opcode": 12,
+        "operandCount": 2,
+        "operandStart": 18,
+        "outputKind": 1,
+        "reverseRule": 9
+      },
+      {
+        "argument0": 0,
+        "argument1": 0,
+        "opcode": 13,
+        "operandCount": 2,
+        "operandStart": 20,
+        "outputKind": 3,
+        "reverseRule": 9
+      },
+      {
+        "argument0": 0,
+        "argument1": 0,
+        "opcode": 11,
+        "operandCount": 1,
+        "operandStart": 22,
+        "outputKind": 0,
+        "reverseRule": 9
+      },
+      {
+        "argument0": 0,
+        "argument1": 0,
+        "opcode": 9,
+        "operandCount": 1,
+        "operandStart": 23,
+        "outputKind": 0,
+        "reverseRule": 5
+      },
+      {
+        "argument0": 0,
+        "argument1": 0,
+        "opcode": 12,
+        "operandCount": 2,
+        "operandStart": 24,
+        "outputKind": 1,
+        "reverseRule": 9
+      },
+      {
+        "argument0": 0,
+        "argument1": 0,
+        "opcode": 13,
+        "operandCount": 2,
+        "operandStart": 26,
+        "outputKind": 3,
+        "reverseRule": 9
+      },
+      {
+        "argument0": 0,
+        "argument1": 0,
+        "opcode": 14,
+        "operandCount": 0,
+        "operandStart": 28,
+        "outputKind": 1,
+        "reverseRule": 5
+      },
+      {
+        "argument0": 0,
+        "argument1": 0,
+        "opcode": 15,
+        "operandCount": 1,
+        "operandStart": 28,
+        "outputKind": 3,
+        "reverseRule": 9
+      },
+      {
+        "argument0": 0,
+        "argument1": 0,
+        "opcode": 16,
+        "operandCount": 3,
+        "operandStart": 29,
+        "outputKind": 3,
+        "reverseRule": 9
+      },
+      {
+        "argument0": 0,
+        "argument1": 0,
+        "opcode": 1,
+        "operandCount": 0,
+        "operandStart": 32,
+        "outputKind": 8,
+        "reverseRule": 6
+      },
+      {
+        "argument0": 1,
+        "argument1": 0,
+        "opcode": 2,
+        "operandCount": 0,
+        "operandStart": 32,
+        "outputKind": 1,
+        "reverseRule": 8
+      },
+      {
+        "argument0": 0,
+        "argument1": 0,
+        "opcode": 17,
+        "operandCount": 1,
+        "operandStart": 32,
+        "outputKind": 2,
+        "reverseRule": 5
+      },
+      {
+        "argument0": 0,
+        "argument1": 0,
+        "opcode": 18,
+        "operandCount": 2,
+        "operandStart": 33,
+        "outputKind": 4,
+        "reverseRule": 8
+      },
+      {
+        "argument0": 1,
+        "argument1": 0,
+        "opcode": 19,
+        "operandCount": 1,
+        "operandStart": 35,
+        "outputKind": 4,
+        "reverseRule": 6
+      },
+      {
+        "argument0": 0,
+        "argument1": 0,
+        "opcode": 3,
+        "operandCount": 0,
+        "operandStart": 36,
+        "outputKind": 1,
+        "reverseRule": 1
+      },
+      {
+        "argument0": 0,
+        "argument1": 0,
+        "opcode": 20,
+        "operandCount": 2,
+        "operandStart": 36,
+        "outputKind": 5,
+        "reverseRule": 6
+      },
+      {
+        "argument0": 0,
+        "argument1": 0,
+        "opcode": 4,
+        "operandCount": 0,
+        "operandStart": 38,
+        "outputKind": 9,
+        "reverseRule": 7
+      },
+      {
+        "argument0": 1,
+        "argument1": 0,
+        "opcode": 3,
+        "operandCount": 0,
+        "operandStart": 38,
+        "outputKind": 1,
+        "reverseRule": 1
+      },
+      {
+        "argument0": 2,
+        "argument1": 0,
+        "opcode": 3,
+        "operandCount": 0,
+        "operandStart": 38,
+        "outputKind": 1,
+        "reverseRule": 1
+      },
+      {
+        "argument0": 0,
+        "argument1": 0,
+        "opcode": 21,
+        "operandCount": 3,
+        "operandStart": 38,
+        "outputKind": 6,
+        "reverseRule": 9
+      },
+      {
+        "argument0": 0,
+        "argument1": 0,
+        "opcode": 3,
+        "operandCount": 0,
+        "operandStart": 41,
+        "outputKind": 1,
+        "reverseRule": 1
+      },
+      {
+        "argument0": 1,
+        "argument1": 0,
+        "opcode": 2,
+        "operandCount": 0,
+        "operandStart": 41,
+        "outputKind": 1,
+        "reverseRule": 8
+      },
+      {
+        "argument0": 0,
+        "argument1": 0,
+        "opcode": 22,
+        "operandCount": 2,
+        "operandStart": 41,
+        "outputKind": 3,
+        "reverseRule": 9
+      },
+      {
+        "argument0": 0,
+        "argument1": 0,
+        "opcode": 23,
+        "operandCount": 1,
+        "operandStart": 43,
+        "outputKind": 7,
+        "reverseRule": 9
+      },
+      {
+        "argument0": 0,
+        "argument1": 0,
+        "opcode": 24,
+        "operandCount": 0,
+        "operandStart": 44,
+        "outputKind": 7,
+        "reverseRule": 9
+      },
+      {
+        "argument0": 0,
+        "argument1": 0,
+        "opcode": 1,
+        "operandCount": 0,
+        "operandStart": 44,
+        "outputKind": 8,
+        "reverseRule": 1
+      },
+      {
+        "argument0": 0,
+        "argument1": 0,
+        "opcode": 25,
+        "operandCount": 1,
+        "operandStart": 44,
+        "outputKind": 8,
+        "reverseRule": 1
+      },
+      {
+        "argument0": 0,
+        "argument1": 0,
+        "opcode": 26,
+        "operandCount": 1,
+        "operandStart": 45,
+        "outputKind": 8,
+        "reverseRule": 1
+      },
+      {
+        "argument0": 0,
+        "argument1": 0,
+        "opcode": 27,
+        "operandCount": 0,
+        "operandStart": 46,
+        "outputKind": 0,
+        "reverseRule": 1
+      }
+    ],
+    "opcodes": [
+      "INPUT_S16",
+      "INPUT_FIELD",
+      "INPUT_QUERY",
+      "INPUT_INTERVAL",
+      "INPUT_ROLE",
+      "BASIS_PRODUCT",
+      "S16_MULTIPLY",
+      "S16_SUBTRACT",
+      "DIFFRACTION_APPLY",
+      "INFORMATION_METRIC_APPLY",
+      "SIGN_TRANSPORT",
+      "PRIMITIVE_REPRESENTATIVE",
+      "OUTWARD_G_NORM",
+      "NORMALIZE_FACTOR",
+      "PLAQUETTE_HOLONOMY",
+      "PLAQUETTE_NORMALIZE_HALF",
+      "DIRECT_SUM",
+      "MERKABA_SHADOW",
+      "CALIBRATED_QUERY_CONTRACT",
+      "SCENE_REDUCE",
+      "PREIMAGE_UNION",
+      "FIRST_HIT_ACTION",
+      "OPTICAL_NUISANCE_CONTRACT",
+      "INFORMATION_PULLBACK",
+      "CERTIFICATE_MINIMIZE",
+      "DYADIC_DECODE",
+      "GAUGE_NORMALIZE",
+      "ZEMPTY_DEFAULT",
+      "RELATION_CLASSIFY"
+    ],
+    "operands": [
+      0,
+      1,
+      3,
+      4,
+      6,
+      5,
+      4,
+      5,
+      3,
+      8,
+      7,
+      9,
+      11,
+      13,
+      14,
+      15,
+      16,
+      17,
+      17,
+      18,
+      16,
+      19,
+      10,
+      21,
+      21,
+      22,
+      10,
+      23,
+      25,
+      20,
+      24,
+      26,
+      28,
+      30,
+      29,
+      31,
+      32,
+      33,
+      35,
+      36,
+      37,
+      39,
+      40,
+      34,
+      44,
+      45
+    ],
+    "reducers": [
+      "NONE",
+      "DIRECT_ORDER_FIRST_HIT_OCCLUSION",
+      "EXACT_DIRECT_SUM",
+      "NATIVE_RELATION_CONTEXT",
+      "EXPORT_RELATION_GATED"
+    ],
+    "reverseRules": [
+      "NONE",
+      "EXACT_IDENTITY",
+      "EXACT_INVERSE_PERMUTATION",
+      "OUTWARD_ADD_SUB",
+      "OUTWARD_PRODUCT_ZERO_BRANCH_UNION",
+      "REVERSE_SAME_BRACKET_TREE",
+      "RETAIN_SUPPORT_DISJUNCTION",
+      "NO_CLAIM",
+      "REVERSE_CALIBRATED_QUERY",
+      "RETAIN_FACTOR"
+    ],
+    "valueKinds": [
+      "S16",
+      "Q48_INTERVAL",
+      "S16_INTERVAL",
+      "RELATION_FACTOR",
+      "SCENE_SHADOW",
+      "PREIMAGE_UNION",
+      "ACTION_WITNESS",
+      "CERTIFICATE",
+      "GAUGE_FIELD",
+      "QUERY_ROLE",
+      "BOOLEAN"
+    ],
+    "zEmptyExpression": 14
+  },
   "expressionInventory": [
     {
       "arity": 2,
-      "bracket": "mul(e_a,e_b)",
-      "fingerprint": "a809fc06c3567806c9918f7b9537228f9609b021360aedbc9f685253df73e4e4",
-      "formula": "epsilon(a,b)*e_(a XOR b)",
+      "fingerprint": "b91cd86f7094c1f8a578e4832d65664dc2c0df429f3f68f7f24cfd2146937bc2",
       "id": "K16_BASIS_PRODUCT",
-      "neighbourhood": "LOCAL",
+      "neighbourhood": 0,
+      "nodeCount": 3,
+      "nodeStart": 0,
+      "rootNode": 2,
       "source": "I_TOE:1"
     },
     {
       "arity": 3,
-      "bracket": "(a*b)*c-a*(b*c)",
-      "fingerprint": "045dfeb49609dbd1babe32b6d45c595e71e857fc3b3eee2931be0bfb8468b81a",
-      "formula": "Omega(a,b,c)*e_(a XOR b XOR c)",
+      "fingerprint": "73b9182646f5ed0944877ce7ca110a867110e758b86ca664702547cc643543c6",
       "id": "K16_ASSOCIATOR",
-      "neighbourhood": "LOCAL_CONTEXT",
+      "neighbourhood": 6,
+      "nodeCount": 8,
+      "nodeStart": 3,
+      "rootNode": 10,
       "source": "I_TOE:2"
     },
     {
-      "arity": 2,
-      "bracket": "epsilon_ab*L_(a XOR b)-L_a*L_b",
-      "fingerprint": "02e36cd4e30248c477ebe5d13cec2527634c528d6ff38ae124fd30e101f909d5",
-      "formula": "sum_(a<b) D_ab",
+      "arity": 1,
+      "fingerprint": "9025eae958439910cd679affeadfdad096112e88857885f303522e9b60561af4",
       "id": "K16_DIFFRACTION",
-      "neighbourhood": "LOCAL",
+      "neighbourhood": 0,
+      "nodeCount": 2,
+      "nodeStart": 11,
+      "rootNode": 12,
       "source": "I_TOE:3"
     },
     {
       "arity": 2,
-      "bracket": "mul(a,b)",
-      "fingerprint": "f5b63d09ef28f0b1e5b289399734f10a16703e4808c82078236eaa4c037d54a3",
-      "formula": "a!=0 and b!=0 and a*b==0; distinct from ker(A)",
-      "id": "K16_ZERO_DIVISOR",
-      "neighbourhood": "LOCAL_RELATION",
-      "source": "I_TOE:4+A_S16"
-    },
-    {
-      "arity": 1,
-      "bracket": "recursive_block_matrix",
-      "fingerprint": "a42bc1b364a8669182e77df2664212bd2daadded33323d4adf5eea8cc1752ddc",
-      "formula": "A4^2=-15I16",
-      "id": "K16_SHELL",
-      "neighbourhood": "LOCAL",
-      "source": "I_TOE:5"
-    },
-    {
-      "arity": 1,
-      "bracket": "C16*u0",
-      "fingerprint": "7ca81f3b66e907c70eb62794864be89700034da1e2baafd373cd43df4fd84d8a",
-      "formula": "C16*u0=lambda0*u0; observer shadow is not full mode",
-      "id": "K16_CLOSURE_EIGENMODE",
-      "neighbourhood": "FULL_LOCAL_STATE",
-      "source": "I_TOE:6"
-    },
-    {
-      "arity": 1,
-      "bracket": "P_t*s(address)",
-      "fingerprint": "4c0abf5aa7007026169ae2f5f7e5d4bafdbe1380255d83e5555c2bdcb6ba8969",
-      "formula": "F_M=16P_t",
-      "id": "MERKABA_SHADOW",
-      "neighbourhood": "LOCAL",
-      "source": "I_TOE:6"
-    },
-    {
-      "arity": 1,
-      "bracket": "P*C*(I-P)",
-      "fingerprint": "8e0f9efe3b9b3ee55b6ba7a9a65971e544b79d520a2a199705c901989f23e058",
-      "formula": "omit_kernel_only_if_Cvk=Ckv=0",
-      "id": "SHADOW_COUPLING",
-      "neighbourhood": "COMPLETE_PROGRAM",
-      "source": "I_TOE:7"
-    },
-    {
-      "arity": 3,
-      "bracket": "ordered_plaquette",
-      "fingerprint": "90c6c34f3edbffb29793e1b86845dce4210f268ba9ebb0092a5967dad306e1b5",
-      "formula": "Ua(b)Uc(b XOR a)Ua(b XOR c)^-1Uc(b)^-1",
-      "id": "SIGN_TRANSPORT",
-      "neighbourhood": "GENERATED_CONTEXT",
+      "fingerprint": "9158ee73b5b233b16d9f285b93bcd7f3e38ee451471f9915d24586baa9ee49b2",
+      "id": "NORMALIZED_LINK_DEFECT",
+      "neighbourhood": 5,
+      "nodeCount": 8,
+      "nodeStart": 13,
+      "rootNode": 20,
       "source": "I_TOE:8"
     },
     {
-      "arity": 2,
-      "bracket": "sub(u_j,transport(U_ij,u_i))",
-      "fingerprint": "b40a58614f4e3d1c97606e6c1b5e332d20ef18b161479084722f9b358ab075f1",
-      "formula": "exact_residual_in_fingerprinted_Q48_region; missing_region=UNRESOLVED",
-      "id": "NATIVE_MODAL_RELATION",
-      "neighbourhood": "GENERATED_INTRINSIC_CONTEXT",
-      "source": "I_TOE:8+I_Q:nativeModalRelation"
+      "arity": 3,
+      "fingerprint": "3c6060e4ad21afeb503e0cf56e16f903e15cc741d95684bbd7f9a15ed66bddd4",
+      "id": "NORMALIZED_ASSOCIATOR_DEFECT",
+      "neighbourhood": 6,
+      "nodeCount": 4,
+      "nodeStart": 21,
+      "rootNode": 24,
+      "source": "I_TOE:8"
+    },
+    {
+      "arity": 4,
+      "fingerprint": "ae9df092254fa2f3458bd515240b77f7a08e40b00d6338ffefdd5ae6e91249f7",
+      "id": "NORMALIZED_PLAQUETTE_DEFECT",
+      "neighbourhood": 7,
+      "nodeCount": 2,
+      "nodeStart": 25,
+      "rootNode": 26,
+      "source": "I_TOE:8"
     },
     {
       "arity": -1,
-      "bracket": "project_then_reduce",
-      "fingerprint": "55c246334e9d544800c8613a09682c780067f13b5d51f55ca8abf3e143693c83",
-      "formula": "finite_footprint+order+first_hit+occlusion",
-      "id": "SENSOR_SHADOW",
-      "neighbourhood": "WHOLE_QUERY",
+      "fingerprint": "22e4d71601f681b8e9b8d58d831924eea9bac54dd5946faf4f578199256405ef",
+      "id": "NATIVE_CLOSURE_DEFECT",
+      "neighbourhood": 1,
+      "nodeCount": 1,
+      "nodeStart": 27,
+      "rootNode": 27,
+      "source": "I_TOE:8"
+    },
+    {
+      "arity": -1,
+      "fingerprint": "e020886e0c588931be838b531582387c245b8be22b3f1a8361f6740c53b0810b",
+      "id": "SENSOR_SCENE_SHADOW",
+      "neighbourhood": 3,
+      "nodeCount": 5,
+      "nodeStart": 28,
+      "rootNode": 32,
       "source": "I_Q:SENSOR_LEFT_RIGHT"
     },
     {
       "arity": -1,
-      "bracket": "source_tree_reverse",
-      "fingerprint": "9967d9d64822b42b06d31ede15cb6ec6e5d19d71909002d9536c63285d3d65ac",
-      "formula": "preimage_union_outward_intervals",
-      "id": "EXACT_REVERSE",
-      "neighbourhood": "QUERY_SUPPORT_UNION",
+      "fingerprint": "b702ddab4bb0a5ceff2b11dcbf6061f8a73cb4251c3225857a9d1abf234172c1",
+      "id": "EXACT_SENSOR_REVERSE",
+      "neighbourhood": 3,
+      "nodeCount": 2,
+      "nodeStart": 33,
+      "rootNode": 34,
       "source": "I_Q:reverseContractor"
     },
     {
-      "arity": 1,
-      "bracket": "decode_before_query",
-      "fingerprint": "5fdfeeac6d410f01f88cd3cbdc643cc4ae1eddcf9f4c3884301a45d517d637eb",
-      "formula": "piecewise_constant_full_S16",
-      "id": "DYADIC_REPRESENTATION",
-      "neighbourhood": "HALF_OPEN_DYADIC_CELL",
-      "source": "I_REP:kappa"
-    },
-    {
-      "arity": -1,
-      "bracket": "decode_default_then_evaluate",
-      "fingerprint": "89eed565c48831d548157ade8be873b50a149b6666f84c72c4b870dcdd0f2eaa",
-      "formula": "unbacked=allocated=NULL=algebra_zero; all_default=DEFAULT_SAT",
-      "id": "ZEMPTY_DEFAULT",
-      "neighbourhood": "WHOLE_PROGRAM",
-      "source": "I_Q:defaultSemantics+I_REP:defaultRepresentations"
-    },
-    {
-      "arity": -1,
-      "bracket": "reverse_source_tree",
-      "fingerprint": "f11ac6b09a4057cb492156e52cbc10e6bbd2fae153954cac57dcc391e57f0d15",
-      "formula": "pre_hit_exclusion+first_hit_mould; behind_hit=NO_CLAIM",
+      "arity": 3,
+      "fingerprint": "223b5cd6eb5673f86730310508ed8c24fe1c6b25c5369075a75feab98e57ece5",
       "id": "DIRECTIONAL_FIRST_HIT_ACTION",
-      "neighbourhood": "WHOLE_QUERY_PREIMAGE",
+      "neighbourhood": 3,
+      "nodeCount": 4,
+      "nodeStart": 35,
+      "rootNode": 38,
       "source": "I_Q:sceneReduction+reverseContractor"
     },
     {
-      "arity": -1,
-      "bracket": "bounded_transfer_then_joint_reverse",
-      "fingerprint": "a63a9e8bc82a520515e1a90f74481cede342ccb2e04c1f14f3c428790c06782b",
-      "formula": "bounded_calibrated_monotone_Q48_transfer",
+      "arity": 2,
+      "fingerprint": "eb23225cae17976a828b14b6a8057b4aa383bb67efb9b898f6d97ad5dba07104",
       "id": "OPTICAL_NUISANCE",
-      "neighbourhood": "COHERENT_EYE_SHADOW",
+      "neighbourhood": 9,
+      "nodeCount": 3,
+      "nodeStart": 39,
+      "rootNode": 41,
       "source": "I_Q:photometricNuisance"
     },
     {
       "arity": -1,
-      "bracket": "retain_coupled_or_disjunctive_factor",
-      "fingerprint": "8249fcda193e2358e9100e471056d312818b3030d6cf5cea45f4bed3602a8cd7",
-      "formula": "directional_exact_factor_not_scalar_confidence",
+      "fingerprint": "fb1ac06cabd5144b85e6b15037311740695c5c303f8c5db938e52bbd0e97627c",
       "id": "NATIVE_INFORMATION_PULLBACK",
-      "neighbourhood": "COMPLETE_CONSTRAINT_FACTOR",
+      "neighbourhood": 1,
+      "nodeCount": 1,
+      "nodeStart": 42,
+      "rootNode": 42,
       "source": "I_Q:certificate"
     },
     {
       "arity": -1,
-      "bracket": "canonical_factor_order_then_exact_dominance",
-      "fingerprint": "16f8eead432af30d31a94f2529d4a91a07fa44ce03d3da00493f2889e681c449",
-      "formula": "deduplicate_only_same_scope_class; retain_coupling_and_disjunction",
+      "fingerprint": "bcfb71f013a0e7c72f7bbc28d868ab8ddade1e3296588a6ed03ebc44cc89bb90",
       "id": "CERTIFICATE_MINIMIZER",
-      "neighbourhood": "ACCUMULATED_EVIDENCE",
+      "neighbourhood": 8,
+      "nodeCount": 1,
+      "nodeStart": 43,
+      "rootNode": 43,
       "source": "I_Q:certificate"
     },
     {
+      "arity": 1,
+      "fingerprint": "8edc0ad17fb34cdc8e62dc6d136b8e142a50aecd990f810898f6b8dbc7a67029",
+      "id": "DYADIC_GAUGE_NORMALIZER",
+      "neighbourhood": 8,
+      "nodeCount": 3,
+      "nodeStart": 44,
+      "rootNode": 46,
+      "source": "I_REP:kappa+normalizer"
+    },
+    {
       "arity": -1,
-      "bracket": "normalize_before_serialize",
-      "fingerprint": "8aa307a776f8b93f39b91d33363bb2f7eb6f0ea14a0bafda303771b2a8ec8dcd",
-      "formula": "global_translation_normal_form+exact_dyadic_split_collapse",
-      "id": "CANONICAL_GAUGE_NORMALIZER",
-      "neighbourhood": "FINITE_NONDEFAULT_SUPPORT",
-      "source": "I_REP:gaugeFamily+normalizer"
+      "fingerprint": "b7a5ea3922830c638dd011e0c40c97fefbdcbe2e4dbc81474498785fa99148c7",
+      "id": "ZEMPTY_DEFAULT",
+      "neighbourhood": 4,
+      "nodeCount": 1,
+      "nodeStart": 47,
+      "rootNode": 47,
+      "source": "I_Q:defaultSemantics+I_REP:defaultRepresentations"
     }
   ],
   "generatedOutputs": [
-    "Runtime/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.cs",
-    "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.hlsl"
+    "Tests/Editor/Generated/SigmaGeneratedMerkabaProgram.cs",
+    "Tests/Editor/Generated/SigmaGeneratedMerkabaProgram.hlsl",
+    "Tests/Editor/Generated/SigmaMerkabaProgramFixture.compute"
   ],
   "inputs": {
     "algebraCoreSha256": "f7524a2d348cda462a2c6fa4804cf6be33c2554a69c6ecf67a11ef97009529cc",
@@ -195,20 +934,20 @@
     },
     "closurePlan": {
       "path": ".codex/S4-08.6_NATIVE_CLOSURE_PLAN.md",
-      "sha256": "db976e44c50445f5279a75742baa23290e51c2af4352ef650789b2862d625f7b"
+      "sha256": "a4b19bebb8624c54748b0d5f6fb982e2d7425686d141e88b493f96533ce7549e"
     },
     "generatorSource": {
       "path": "Tools/sigma/generate_sigma_operators.py",
-      "sha256": "02d1f49e9f05d62e8fd139b849a04e5263cbf5e440176566ae374b0efedbac94",
+      "sha256": "fc95b501830c053c274f9c42f5eb7eb5dd88cc902b9805756d0116060888b50c",
       "version": "CPQ4-S16-GEN-1"
     },
     "queryBoundary": {
       "path": "Tools/sigma/authority/I_Q_SIGMA_PRISM_V1.json",
-      "sha256": "cf7cb9581324e14016b813191d800fd3e7eca32c83740bcae58bb3a3adf36840"
+      "sha256": "6acc84ff3bb7b7ef5ed4fdc76b02e65fdc487dfc8711090ed4219251cd9876a2"
     },
     "representation": {
       "path": "Tools/sigma/authority/I_REP_SIGMA_PRISM_V1.json",
-      "sha256": "b41ecfc0700cef61525bcb78dc65a7c8dc3b8643c6ea702424ca273f7b176a7a"
+      "sha256": "32cf4621c8ccfb75e5bb6a7659b4ee7a2238b5fa24d4b3e526742e91ed0a2fa9"
     },
     "toeCapsule": {
       "admittedSections": [
@@ -224,7 +963,7 @@
       "declaredUpstreamSha256": "9d2e3604846305cfe5244a4ef49f169632c60582cf895256fadc36426dc5786f",
       "declaredUpstreamSource": "PROJECTION_ALGEBRA_TOE_CANONICAL.md",
       "path": "Tools/sigma/authority/I_TOE_S16_K16_NATIVE_CLOSURE.md",
-      "sha256": "36a584dcff0c0c340d491ab476aa7428f7b1edf0c97e1407022e0f71181fdee1"
+      "sha256": "9cdc8b1f3bfecfa3a49805be82ea786cdbf681ee8ffbdab0733d18dc24cfffef"
     }
   },
   "otherToeSectorsImported": false,
@@ -246,7 +985,7 @@
     "unboundedParameterRegion": "FORBIDDEN_TO_PROVE_COMPATIBILITY_OR_MUTATION",
     "whiteBalance": "BOUNDED_PER_CHANNEL_GAIN"
   },
-  "programFingerprint": "ce356a5913c689908325a2f79bcf2350bc28691e917e3d0d71d7c51417193343",
+  "programFingerprint": "2595954ac6f0a2f1a096c7bdde8661c892820101d67ab90b4aeb49fbd4882bc1",
   "programVersion": "CPQ4-S16-MERKABA-N1R-1",
   "proofs": {
     "allDefaultActiveWork": 0,
@@ -259,49 +998,68 @@
     "associatorNonzero": 1848,
     "baseGaugeNormalForm": [
       [
+        1,
+        -5,
         0,
-        0,
-        0,
-        7
+        "f5bc02c18ce8d01a846da0609b49ebe68364bba29a4bcfcc19f2c32fec333ee5"
       ],
       [
         1,
         0,
-        0,
-        9
-      ],
-      [
-        2,
         1,
-        0,
-        11
+        "7698855c2348217a4378457e60d887564c6b9dd070fbd31f8c7d38d9834b8801"
       ]
     ],
     "behindHitAction": "NO_CLAIM",
+    "bracketNegativeControls": 1,
     "canFreezeShadowKernel": false,
+    "canonicalSerializationFingerprint": "1859b980a60ffc87df4fecac9647a8e475727c7618f76aacdb929976061e795d",
+    "certificateFeasibleAssignmentCount": 18,
+    "certificateProofFingerprint": "0b0317cf6c99954e32819303ebb6e400101a7a3d75b2d1b858f22f0fbb006cd3",
     "completeProgramFibreSelector": "IDENTITY_ONLY_UNLESS_EQUIVALENCE_PROVED",
     "coupledFactorInputCount": 2,
     "coupledFactorMinimizedCount": 2,
+    "defaultRepresentationCount": 3,
+    "defaultRepresentationFixtureCount": 21,
+    "defaultRepresentationProofFingerprint": "4aa45c31a02ec4da9713f0dc8d5daa2cedf855ca16cb55d605a5c864f52779d6",
+    "defaultRepresentationQueryCount": 7,
     "diffractionSkew": true,
     "directS16DependenciesRetained": true,
     "duplicateFixtureCount": 10000,
-    "duplicateMinimizedFactorCount": 1,
+    "duplicateMinimizedFactorCount": 3,
+    "duplicateMultiplicity": 10000,
     "e22InventoryCount": 0,
-    "gaugePermutationCount": 6,
+    "freshSupportNonEquivalentRejected": true,
+    "freshSupportUniqueModuloGauge": true,
+    "gaugePermutationCount": 24,
+    "gaugePointProbeCount": 16,
+    "gaugeTransportFieldCount": 6,
+    "independentClosureWeights": 0,
+    "informationMetricIdentity": "G=2*A^T*A=-2*A^2",
     "legacyZNullAccepted": false,
     "missingOpticalMetadata": "NO_OPTICAL_CLAIM",
     "mixedDefaultSupportBehaviour": "DESCRIPTOR_EVALUATION_REQUIRED",
     "negativeHolonomy": 2688,
     "opticalCalibrationProvenance": true,
     "opticalUnboundedExplanationForbidden": true,
+    "querySupportEvaluationFingerprint": "954946fef09a0afff529e39e3e7c931dc91608a749e0ff5ff72a2cd7be27b5d5",
     "querySupportFalseNegatives": 0,
-    "querySupportFixtureCount": 32,
+    "querySupportFixtureCount": 512,
+    "querySupportNonresidentFixtureCount": 128,
+    "querySupportOmittedIdentityFixtures": 8,
+    "querySupportRefinedFixtureCount": 256,
     "refinementExactHalfOpenCover": true,
     "refinementExactMeasure": true,
     "refinementPointwiseFullS16": true,
     "refinementProlongation": "FOUR_EXACT_FULL_S16_COPIES",
     "representationDefaultParity": true,
-    "reverseIntervalSoundFixtureCount": 1972,
+    "reverseIntervalSoundFixtureCount": 5615,
+    "reverseIrAmbiguousPreimageOutputCount": 31,
+    "reverseIrAssociatorFingerprint": "73b9182646f5ed0944877ce7ca110a867110e758b86ca664702547cc643543c6",
+    "reverseIrForwardFixtureCount": 4913,
+    "reverseIrMaxPreimageCount": 3065,
+    "reverseIrPreimageOutputCount": 31,
+    "reverseSceneDisjunctionCount": 16,
     "reverseZeroBranchRetained": true,
     "shadowFrame": "16P_t",
     "shadowKernelDecouplingProof": false,
@@ -406,7 +1164,8 @@
       "backing": "SIGNED_INT64_UV_PLUS_UNSIGNED_DYADIC_LEVEL",
       "baseLevel": 0,
       "cellDomain": "HALF_OPEN_DYADIC_SQUARE",
-      "chi": "CELL_CENTRE_IN_INTRINSIC_DYADIC_COORDINATES"
+      "chi": "CELL_CENTRE_IN_INTRINSIC_DYADIC_COORDINATES",
+      "maximumLevel": 62
     },
     "authority": {
       "canonicalSpec": "new_spec.md",
@@ -454,7 +1213,7 @@
     "normalizer": {
       "cellOrder": "LEVEL_THEN_SIGNED_MORTON_THEN_U_THEN_V",
       "collapse": "RECURSIVE_EQUAL_FOUR_CHILD_COLLAPSE",
-      "translation": "SUBTRACT_LEXICOGRAPHIC_MINIMUM_NONDEFAULT_CELL_LOWER_COORDINATE",
+      "translation": "SUBTRACT_INTEGER_FLOOR_OF_LEXICOGRAPHIC_MINIMUM_NONDEFAULT_DYADIC_LOWER_COORDINATE",
       "unresolvedRule": "NO_UNIQUE_NORMAL_FORM_MEANS_NO_PUBLICATION"
     },
     "refinement": {
@@ -486,30 +1245,16 @@
     }
   },
   "reverseRules": [
-    {
-      "opcode": "PERMUTE_SIGN",
-      "rule": "EXACT_INVERSE_PERMUTATION"
-    },
-    {
-      "opcode": "ADD_SUB",
-      "rule": "OUTWARD_INTERVAL_BACKPROPAGATION"
-    },
-    {
-      "opcode": "QMUL_QDIV",
-      "rule": "OUTWARD_INTERVAL_WITH_ZERO_BRANCH_UNION"
-    },
-    {
-      "opcode": "BRACKETED_PRODUCT",
-      "rule": "REVERSE_SAME_EXPRESSION_TREE"
-    },
-    {
-      "opcode": "SCENE_REDUCE",
-      "rule": "RETAIN_SUPPORT_DISJUNCTION"
-    },
-    {
-      "opcode": "BEHIND_HIT",
-      "rule": "NO_CLAIM"
-    }
+    "NONE",
+    "EXACT_IDENTITY",
+    "EXACT_INVERSE_PERMUTATION",
+    "OUTWARD_ADD_SUB",
+    "OUTWARD_PRODUCT_ZERO_BRANCH_UNION",
+    "REVERSE_SAME_BRACKET_TREE",
+    "RETAIN_SUPPORT_DISJUNCTION",
+    "NO_CLAIM",
+    "REVERSE_CALIBRATED_QUERY",
+    "RETAIN_FACTOR"
   ],
   "sceneReduction": {
     "behindHit": "NO_CLAIM",

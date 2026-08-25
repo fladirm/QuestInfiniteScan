@@ -230,7 +230,7 @@ branch/chart decisions remain in Git history only.
 
 - `Tools/sigma/authority/I_TOE_S16_K16_NATIVE_CLOSURE.md` is the sole admitted
   TOE input. Its workspace SHA-256 is
-  `36a584dcff0c0c340d491ab476aa7428f7b1edf0c97e1407022e0f71181fdee1`;
+  `9cdc8b1f3bfecfa3a49805be82ea786cdbf681ee8ffbdab0733d18dc24cfffef`;
   the declared upstream monograph SHA-256 is
   `9d2e3604846305cfe5244a4ef49f169632c60582cf895256fadc36426dc5786f`.
 - Only capsule sections 1–8 enter the generated program. Cosmology, particles,
@@ -243,15 +243,30 @@ branch/chart decisions remain in Git history only.
 - The capsule fixes `A_k^2=-(2^k-1)I` but not one `A_1` orientation. Generated
   code retains only the orientation-independent `-1/-3/-7/-15` recurrence and
   never manufactures a concrete shell matrix.
-- Capsule section 8 leaves the native modal metric/tolerance parametric. The
-  generated exact Q48 admissible region is a fingerprinted query input; missing
-  or unproved input yields `UNRESOLVED`, never an invented XYZ/contact rule.
-- The new representation proves algebra zero as `ZEmpty`; the legacy nonzero
-  `ZNullDyad` is explicitly rejected until a complete-program proof exists.
-- The sole generator hashes its own source and emits the complete expression,
-  reverse-rule, query, representation and provenance inventory into the authority
-  manifest. N1R introduces no live mutation; the generated authority is consumed
-  only by parity fixtures until a later accepted cutover.
+- Capsule section 8 freezes diffraction `G=2A^TA=-2A^2`, exact link defect,
+  primitive-normalized link and associator factors, `(W-I)/2` plaquette defect and
+  their direct sum. There is no `epsilon_cl`, fitted tolerance or independent
+  continuous closure weight.
+- Q16.48 lowering retains outward normalized defect intervals: zero-excluding is
+  incompatible, singleton zero exact-closed, zero-containing non-singleton
+  unresolved. Zero primitive `G`-norm remains an unresolved diffraction-kernel
+  factor.
+- Algebra zero is the proved `ZEmpty` representation and legacy nonzero
+  `ZNullDyad` is rejected. Three backing spellings abstract-interpret identically
+  through all seven generated forward query entries.
+- The sole self-hashed generator emits numeric CPU/HLSL expression, reduction and
+  reverse plans with arity, neighbourhood, brackets and provenance. Program
+  fingerprint is
+  `2595954ac6f0a2f1a096c7bdde8661c892820101d67ab90b4aeb49fbd4882bc1`.
+- N1R generated execution plans are test-only to preserve the production-LOC
+  stop rule until a run has an immediate consuming/deletion path. Production
+  `Runtime/SigmaPrism + Runtime/Resources/SigmaPrism` is byte-equal to N0R and
+  `cac9ab0`. The corrective commit is `+0/-392` production LOC versus rejected
+  parent `b541635`; cumulative N1R is 17274 authoritative LOC, gross/new/net
+  `0/0/0` versus `cac9ab0` and net `+601` versus the 16673-LOC `d3b83e1`
+  baseline. These are an N1 run cursor, not a claim that final N7 deletion gates
+  have passed.
+- N1R introduces no live mutation; N2R remains unopened.
 
 ## Explicit supersession
 

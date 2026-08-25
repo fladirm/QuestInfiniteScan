@@ -1,14 +1,10 @@
 #pragma kernel NumericParity
 #pragma kernel AlgebraParity
 #pragma kernel BasisTableParity
-#pragma kernel MerkabaProgramParity
-#pragma kernel MerkabaMatrixParity
-#pragma kernel MerkabaDefaultParity
 #pragma kernel CanonicalSelfTest
 #pragma target 5.0
 
 #include "SigmaOperatorPlan.hlsl"
-#include "Generated/SigmaGeneratedMerkabaProgram.hlsl"
 
 StructuredBuffer<uint4> _NumericPairs;
 StructuredBuffer<uint> _ShiftCounts;
@@ -18,9 +14,6 @@ StructuredBuffer<uint2> _AlgebraInput;
 RWStructuredBuffer<uint4> _AlgebraResults;
 
 RWStructuredBuffer<uint2> _BasisResults;
-RWStructuredBuffer<uint4> _MerkabaResults;
-RWStructuredBuffer<uint4> _MerkabaMatrixResults;
-RWStructuredBuffer<uint4> _MerkabaDefaultResult;
 RWStructuredBuffer<uint> _CapabilityGate;
 
 #define SIGMA_NUMERIC_RESULT_COUNT 12u
@@ -115,58 +108,6 @@ void BasisTableParity(uint3 id : SV_DispatchThreadID)
     uint offset = left * 16u + right;
     _BasisResults[offset] = uint2(SigmaMulBasisIndex(left, right),
         asuint(SigmaMulBasisSign(left, right)));
-}
-
-[numthreads(16, 16, 1)]
-void MerkabaProgramParity(uint3 id : SV_DispatchThreadID)
-{
-    uint a = id.x;
-    uint b = id.y;
-    uint c = id.z;
-    uint offset = (c * 16u + b) * 16u + a;
-    _MerkabaResults[offset] = uint4(
-        asuint(SigmaMerkabaAssociatorCoefficient(a, b, c)),
-        asuint(SigmaMerkabaPlaquetteHolonomy(a, c, b)),
-        asuint(SigmaMerkabaShadowNumerator(a, c & 3u)),
-        asuint(SigmaMerkabaBasisSign(a, b)));
-}
-
-[numthreads(16, 16, 1)]
-void MerkabaMatrixParity(uint3 id : SV_DispatchThreadID)
-{
-    uint matrixOffset = id.x * 16u + id.y;
-    _MerkabaMatrixResults[matrixOffset] = uint4(
-        asuint(SIGMA_MERKABA_DIFFRACTION[matrixOffset]),
-        asuint(SIGMA_MERKABA_VISIBLE_PROJECTOR_NUMERATOR256[matrixOffset]),
-        asuint(SIGMA_MERKABA_SHELL_SQUARE_BY_RANK[id.x & 3u]),
-        SIGMA_MERKABA_CAN_FREEZE_SHADOW_KERNEL);
-}
-
-[numthreads(1, 1, 1)]
-void MerkabaDefaultParity(uint3 id : SV_DispatchThreadID)
-{
-    uint2 state[16];
-    [unroll]
-    for (uint lane = 0u; lane < 16u; ++lane)
-        state[lane] = uint2(0u, 0u);
-    bool zeroAccepted = SigmaMerkabaIsZEmpty(state);
-    state[7] = uint2(1u, 0u);
-    bool nonzeroRejected = !SigmaMerkabaIsZEmpty(state);
-    uint omitMask = 0u;
-    omitMask |= SigmaMerkabaCanOmitQueryRegion(true, true, true) ? 1u : 0u;
-    omitMask |= SigmaMerkabaCanOmitQueryRegion(false, true, true) ? 0u : 2u;
-    omitMask |= SigmaMerkabaCanOmitQueryRegion(true, false, true) ? 0u : 4u;
-    omitMask |= SigmaMerkabaCanOmitQueryRegion(true, true, false) ? 0u : 8u;
-    _MerkabaDefaultResult[0] = uint4(
-        zeroAccepted ? 1u : 0u,
-        nonzeroRejected ? 1u : 0u,
-        SigmaMerkabaReverseActionFor(SIGMA_NATIVE_QUERY_NO_CLAIM),
-        omitMask);
-    _MerkabaDefaultResult[1] = uint4(
-        SigmaMerkabaClassifyZeroDivisor(true, true, true, false),
-        SigmaMerkabaClassifyZeroDivisor(true, true, false, true),
-        SigmaMerkabaClassifyZeroDivisor(false, true, true, false),
-        SIGMA_MERKABA_REPRESENTATION_DEFAULT_PARITY);
 }
 
 [numthreads(1, 1, 1)]

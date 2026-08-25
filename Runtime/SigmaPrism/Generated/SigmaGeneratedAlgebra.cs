@@ -15,8 +15,6 @@ namespace Genesis.RoomScan.SigmaPrism
         internal const string NumericFingerprint = "01e3adab0934feff195ede86ad64e29612b14e929323d9203e93aa7359e772f2";
         internal const string MultiplicationFingerprint = "1b2e8721a74135cd268195d1cd8026f35962861e2eeb15fe573d2f550765d378";
         internal const string AnnihilatorFingerprint = "9401c2ff61f239d110624c6d694e842a59c2f891bae94e5e835056c15ec9dcaa";
-        internal const string ZeroDivisorRelationFingerprint = "723cf40350ec73b410492b00e724686406156fcc0303796fbd483e0794ff3d18";
-        internal const string NativeCoreFingerprint = "f7524a2d348cda462a2c6fa4804cf6be33c2554a69c6ecf67a11ef97009529cc";
         internal const string ReadoutFingerprint = "7adce81b1b98734e80f5be120633470647a5d3fe91329ec13edef3b2a1d50d65";
         internal const string OperatorFingerprint = "8188e64c65da75e3cd1ba061615af7ca3ca4cc7654e10efa6bc4e4cd06a6fffd";
         internal const string BundleFingerprint = "976425702f4426d07ccad591c185a8c7841721a7cebb2d7aa6dfd283ade09e2e";

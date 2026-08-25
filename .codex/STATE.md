@@ -8,7 +8,7 @@ Updated: 2026-08-26 (Europe/Prague)
 - Branch: `feat/sigma-prism-16-cpq4-20260822`.
 - Runtime replacement baseline: `cac9ab012f4ce574e5eb9bee88290982fd9c4fe8`.
 - Accepted primitive milestones: S4‑00 through S4‑07 where compatible with v8.3.
-- Active node: S4‑08; N1R accepted, no subsequent run active.
+- Active node: S4‑08; corrective N1R is accepted and no subsequent run is active.
 - Active repair: S4‑08.6 one-medium native closure.
 - Frozen plan: `.codex/S4-08.6_NATIVE_CLOSURE_PLAN.md`.
 - Sole routine cursor: `.codex/S4-08.6_RESUME.md`.
@@ -111,46 +111,89 @@ There is no physical chart/sheet/branch/hypothesis/materialization/topology worl
 Preservation is defined on complete-program equivalence fibres, not one query
 kernel.
 
-## N1R accepted checkpoint
+## N1R accepted corrective checkpoint
 
-N1R consumes only the workspace scanner capsule
-`Tools/sigma/authority/I_TOE_S16_K16_NATIVE_CLOSURE.md`, whose workspace SHA-256
-is `36a584dcff0c0c340d491ab476aa7428f7b1edf0c97e1407022e0f71181fdee1`
-and whose declared upstream monograph SHA-256 is
-`9d2e3604846305cfe5244a4ef49f169632c60582cf895256fadc36426dc5786f`.
-No other TOE sector or `~/Stažené` copy is an input.
+The source audit revoked the premature `b541635` acceptance. The corrective N1R
+keeps its valid K16 basis and closes the audited false-green gates without opening
+N2R or changing live reconstruction.
 
-The sole generator now hashes itself, the capsule, exact `I_Q`/`I_REP`, canonical
-spec/plan and an S16 native-core fingerprint which deliberately excludes legacy
-`G/F/RGB` readout authority. It emits one auditable 19-expression provenance
-inventory plus CPU/HLSL tables under program fingerprint
-`ce356a5913c689908325a2f79bcf2350bc28691e917e3d0d71d7c51417193343`.
-
-Source-faithful fail-closed boundaries are explicit:
+The sole TOE input is
+`Tools/sigma/authority/I_TOE_S16_K16_NATIVE_CLOSURE.md`:
 
 ```text
-E22 inventory                         absent; direct full S16 retained
-shadow-kernel decoupling proof        absent; transparent modes not frozen
-shell A1 orientation                  absent; only -1/-3/-7/-15 invariant emitted
-native modal G/epsilon region         parametric fingerprinted Q48 input;
-                                      missing/unproved means UNRESOLVED
-ZEmpty                                algebra zero in the new representation
-legacy nonzero ZNullDyad              rejected as no-manifestation authority
-all-default                           DEFAULT_SAT, reducer identity, zero work
-behind-hit                            NO_CLAIM / zero reverse action
+workspace SHA-256   9cdc8b1f3bfecfa3a49805be82ea786cdbf681ee8ffbdab0733d18dc24cfffef
+upstream SHA-256    9d2e3604846305cfe5244a4ef49f169632c60582cf895256fadc36426dc5786f
 ```
 
-No production controller references the new program; N1R adds no live mutation,
-fallback or second graph. Focused generator/JSON/UAV gates pass. Unity
-`6000.5.9f1`, Vulkan EditMode warm run is `85/85` passed, including `8/8` N1R
-tests and exhaustive CPU/HLSL basis-context parity. The preceding cold-import run
-was `84/85`; its sole failure was an unrelated legacy test timeout during a
-392-second first shader import, and the immediate warm rerun passed all 85.
+Capsule §8 now supplies the canonical native closure law:
 
-N1R production diff versus `df5200f`/`cac9ab0` is `+392/-0` LOC: 229 generated
-C#, 100 generated HLSL, 59 parity-fixture lines and four native-core fingerprint
-lines. This is the generated replacement authority required before the N3 hard
-cut; no subsequent run is active in this checkpoint.
+```text
+G = 2 A^T A = -2 A^2                 (A is diffraction, not shell)
+d_ij = u_j - U_ij u_i
+primitive-normalized link/associator factors
+F_hat = (W-I)/2
+D_cl = direct sum of the exact normalized factors
+independent closure weights = 0
+epsilon_cl parameter = absent
+```
+
+The same bracket tree is lowered with checked Q16.48 points and outward intervals.
+An interval excluding zero is incompatible, singleton zero is exact-closed and a
+non-singleton interval containing zero remains unresolved. A zero primitive
+`G`-norm remains an explicit diffraction-kernel factor.
+
+The self-hashed sole generator emits a numeric CPU/HLSL relation plan under program
+fingerprint `2595954ac6f0a2f1a096c7bdde8661c892820101d67ab90b4aeb49fbd4882bc1`:
+
+```text
+opcodes / nodes / operands              29 / 48 / 46
+expressions / query entry points        15 / 7
+E22 inventory                           0; direct full S16 retained
+shadow-decoupling proof                 absent; hidden modes not frozen
+associator nonzero basis triples        1848
+negative sign-holonomy fixtures         2688
+```
+
+Corrective proof gates:
+
+```text
+actual bracket-DAG forward/reverse domain    4913 zero+basis triples
+set-valued associator output classes         31/31 ambiguous, max preimage 3065
+total reverse/scene/interval fixtures         5615
+query-support exhaustive fixtures            512, false negatives 0
+refined / nonresident support fixtures        256 / 128
+default spellings x query entries             3 x 7 = 21
+duplicate revisit certificate                 10000 -> 1 factor + multiplicity
+coupled/disjunctive certificate factors       2 retained
+recursive dyadic gauge orders                 24
+transported gauge payload fields              6
+fresh non-equivalent support                  rejected
+```
+
+The query-support proof independently evaluates generated Merkaba shadows plus
+the retained direct-S16 intrinsic route. Default parity abstract-interprets each
+actual forward entry DAG. The certificate minimizer is executable and compared
+against exhaustive feasible assignments. Gauge proof covers recursive dyadic
+split/collapse, disconnected support, state/factor/relation/evidence/information/
+bandwidth transport, exact measure, allocation translation and order.
+
+Generated N1R execution plans live only under `Tests/Editor/Generated`; moving the
+previous disconnected generated files out of `Runtime` makes production
+`Runtime/SigmaPrism + Runtime/Resources/SigmaPrism` exactly `+0/-0` versus N0R
+`df5200f`. There is no live call site, mutation path or second generator.
+
+Verified on Unity `6000.5.9f1` with Vulkan:
+
+```text
+EditMode                              87/87 passed, 0 failed
+focused N1R tests                    10/10 passed
+generator regeneration/check         passed
+compute UAV <= 8                     passed
+production equality vs df5200f       passed
+git diff hygiene                     passed
+```
+
+N2R is pending and has not started.
 
 ## N0R implementation-safety correction
 
@@ -188,20 +231,37 @@ Verified locally:
 TASK_DAG JSON                     valid
 Markdown fences                  balanced
 git diff --check                 clean
-Runtime/Resources diff           zero
-code graph                       current, 107 files
+Runtime/Resources vs df5200f     byte-identical
+code graph                       current, 108 files
 validate_goal_state              green, active S4-08
 ```
 
 ## LOC cursor
 
 ```text
-gross production deletion vs cac9ab0  >=10000
-new production code                   <=4000
-net vs cac9ab0                         <=-6100
-net vs d3b83e1                         <=-5500
-retired live symbols/fallbacks         0
+N1R current production LOC                  17274
+corrective checkpoint vs b541635            +0 / -392 / net -392
+N1R run delta vs df5200f                    +0 / -0 / net 0
+N1R gross deletion vs cac9ab0               0
+N1R new production vs cac9ab0               0
+N1R net vs cac9ab0                          0
+N1R net vs d3b83e1                          +601
+
+final gross deletion vs cac9ab0             >=10000
+final new production                         <=4000
+final net vs cac9ab0                         <=-6100
+final net vs d3b83e1                         <=-5500
+final retired live symbols/fallbacks         0
 ```
+
+The corrective checkpoint deletes exactly the rejected 392-line disconnected N1
+runtime/fixture addition from parent `b541635`. The authoritative baseline totals
+are `17274` at `cac9ab0` and `16673` at `d3b83e1`. Corrected cumulative N1R is
+byte-identical to both `df5200f` and `cac9ab0`, so its gross/new/net against
+`cac9ab0` is zero; `+601` against `d3b83e1` is the baseline-total difference.
+N1R is not the final replacement deletion cut and claims none of the N7 size
+gates. Its own corrective commit is production-negative and cumulative N1R has no
+disconnected production addition.
 
 N3R is one joint publication-capable sensor/native-relation cutover; it deletes
 both old inverse and old topology/edge paths in the same commit. N4R–N6R delete

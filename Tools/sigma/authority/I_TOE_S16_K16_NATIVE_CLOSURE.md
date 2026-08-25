@@ -335,22 +335,92 @@ W_{ac}(b)
 W_{ac}(b)\in\{+1,-1\}.
 \]
 
-For neighbouring full closure modes `u_i,u_j`, native modal stitching is a
-relation evaluated through transport `U_ij`; conceptually the canonical TOE writes
+The substrate information metric is the Hessian diffraction quadratic form
 
 \[
-\lVert u_j-U_{ij}u_i\rVert_G\le\epsilon_{cl}.
+\boxed{G=2A^TA=-2A^2},
 \]
 
-For Sigma-PRISM this is relation-program input, not permission to create a
-persistent topology graph, chart database or seam object. The generated program
-evaluates the required context directly over full S16 values and retains the
-supplied product brackets and holonomy context.
+where `A` is the diffraction operator from Section 3, not the shell operator
+`\mathscr A` from Section 5. The second equality follows from `A^T=-A`.
 
-The scanner specification may replace the displayed continuum-style norm/tolerance
-form by an exact Q16.48 admissible relation only when that exact lowering is derived
-from this native relation and fingerprinted. It may not invent an XYZ/contact
-criterion.
+For neighbouring full closure modes `u_i,u_j`, the exact link defect is
+
+\[
+\boxed{d_{ij}=u_j-U_{ij}u_i}.
+\]
+
+Let `d_{ij}^{prim}` be the canonical primitive representative supplied by the
+native closure construction. Its primitive-normalized factor is
+
+\[
+\boxed{
+\widehat d_{ij}
+=\frac{d_{ij}}{\lVert d_{ij}^{prim}\rVert_G}
+}.
+\]
+
+The same primitive normalization is applied to the explicitly bracketed
+associator defect `\mathfrak A_{ijk}`:
+
+\[
+\boxed{
+\widehat{\mathfrak A}_{ijk}
+=\frac{\mathfrak A_{ijk}}
+       {\lVert\mathfrak A_{ijk}^{prim}\rVert_G}
+}.
+\]
+
+For a plaquette, the exact normalized holonomy defect is
+
+\[
+\boxed{
+\widehat F_\square=\frac{W_\square-I}{2}
+}.
+\]
+
+The complete native closure defect is the direct sum
+
+\[
+\boxed{
+\mathfrak D_{cl}
+=
+\bigoplus_{\langle ij\rangle}\widehat d_{ij}
+\oplus
+\bigoplus_{\langle ijk\rangle}\widehat{\mathfrak A}_{ijk}
+\oplus
+\bigoplus_{\square}\widehat F_\square
+},
+\]
+
+with closure functional
+
+\[
+\boxed{S_C=\lVert\mathfrak D_{cl}\rVert^2}.
+\]
+
+This functional has no independent continuous closure weights. In particular,
+`epsilon_cl` is not a native scanner admissibility parameter and no fitted Q48
+tolerance may replace the exact factors above.
+
+For Sigma-PRISM these expressions are relation-program input, not permission to
+create a persistent topology graph, chart database or seam object. The generated
+program evaluates the required context directly over full S16 values and retains
+every supplied product bracket and holonomy context.
+
+The finite exact lowering evaluates the same expression tree with checked Q16.48
+point arithmetic and outward interval arithmetic. It retains the normalized defect
+interval as a feasible-set factor; it does not collapse it to confidence or a
+tolerance test. For an exact-zero closure branch:
+
+- an interval excluding zero proves incompatibility;
+- singleton zero proves exact closure;
+- a non-singleton interval containing zero remains unresolved and is retained.
+
+If the primitive `G`-norm is zero, normalization is not divided through or silently
+discarded. The diffraction-kernel factor remains explicit and unresolved unless a
+separate exact relation proves its disposition. No XYZ/contact criterion may be
+invented at this boundary.
 
 ## 9. Authority boundary for N1R
 
