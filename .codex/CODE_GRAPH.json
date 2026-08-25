@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "source_digest": "793745d3dbcfc2185ceb5f06b6c7f3b1aa39fcc325a4991d8fea5062c57153e8",
+  "source_digest": "479f22c2eb121b171e15f5fd6f8a928ba5c14aa6eb0781ca699179b4a4ac8ad0",
   "scope": [
     "Runtime/**/*.cs",
     "Runtime/Resources/SigmaPrism/**/*.*",

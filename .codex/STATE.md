@@ -47,9 +47,11 @@ IntrinsicTopology owns no topology/geometry state.
 Current pool/NULL codec use generated ZNullDyad.
 ```
 
-The source does not prove the authoritative TOE program, E22 faithfulness,
-full-query validity of current `ZNullDyad`, complete shadow-mode coupling/fibres or
-the final refinement transform.
+The source does not prove the authoritative TOE program, contextual
+separation/complete-law sufficiency of an arbitrary-arity E22 inventory,
+full-query validity and all-default quiescence of current `ZNullDyad`, complete
+shadow-mode coupling/fibres or an exact carrier-reparameterization theorem against
+the complete program.
 
 ## Frozen v8.2 model
 
@@ -58,13 +60,19 @@ CANONICAL
     one Psi : one carrier Sigma_2 -> S16
 
 LAW
-    one authoritative generated Merkaba relation-program IR M
+    M = Compile(A_S16, I_TOE, I_Q)
+    with algebra/TOE/query-boundary provenance
 
 QUERY
     sensor / eye / relation / prediction / export = M_q[Psi]
 
 SCAN
-    exact reverse evaluation of the same program
+    exact reverse evaluation of the same program;
+    directional pre-hit/first-hit mould action, zero behind hit
+
+INFORMATION
+    exact feasible-set/coupled-factor certificate per active locality;
+    optional proved directional compression, never scalar confidence
 
 AMBIGUITY
     transient contractor disjunction; persisted constraint/evidence only
@@ -73,7 +81,8 @@ CLOSE
     both-eye constraints + native relations -> one NativeCloseCommit
 
 DEFAULT
-    z_empty is a full-program-proven S16 value; backing absence is representation
+    ZEmpty has representation parity + all-default quiescence;
+    supported->ZEmpty remains a physical mutation
 
 REFINE
     contract S16 or increase sampling density of the same Psi
@@ -90,16 +99,52 @@ kernel.
 
 N0R v8.2 is accepted with zero Runtime/Resources diff. N1R is the sole active run:
 
-1. locate and hash the supplied authoritative TOE artifact;
-2. generate one relation-program IR with all arities/brackets/couplings;
+1. locate/hash the supplied authoritative TOE artifact and freeze/hash `I_Q`;
+2. generate one provenance-bearing relation-program IR with all
+   arities/brackets/couplings;
 3. generate query reductions and exact reverse contractors;
-4. prove E22 faithfulness or retain direct S16 dependencies;
-5. prove full-query `z_empty` or block;
-6. prove complete-program fibre/coupling rules;
-7. import the authoritative sampling-refinement transform;
-8. establish CPU/HLSL parity without live mutation.
+4. generate exact directional mould action, behind-hit zero action and native
+   uncertainty/information pullback;
+5. prove locality certificate compression preserves coupled/disjunctive exactness;
+6. prove contextual E22 separation/complete-law sufficiency or retain direct S16;
+7. prove `ZEmpty` representation parity plus all-default quiescence or block;
+8. prove complete-program fibre/coupling rules;
+9. derive/freeze lossless carrier-reparameterization against complete `M`;
+10. establish CPU/HLSL parity without live mutation.
 
 Do not infer missing law from current B/G/F/RGB/topology code.
+
+## N0R implementation-safety correction
+
+The accepted N0R ontology is unchanged, but its implementation contract is now
+closed against the reviewed gaps:
+
+```text
+ZEmpty backing equivalence != physical support removal
+all-default neighbourhood = reducer identity + DEFAULT_SAT + zero work
+arbitrary-arity E22 requires contextual separation/complete-law proof
+M = Compile(A_S16, I_TOE, I_Q) with explicit provenance
+coordinate locality is fast relation support, not exclusive topology
+N3R jointly cuts sensor inverse + native relation before publication
+64x64 page / 8x8 codec block is frozen for S4-08.6 parity
+exact directional pre-hit/first-hit mould action; zero behind hit
+exact locality feasible-set/coupled-factor information; no scalar confidence
+```
+
+Changed documentation/control files are `new_spec.md`, `analyza.md`, the frozen
+plan/resume and GOAL/STATE/TASK_DAG/DECISIONS plus regenerated code graph. Runtime
+and Resources remain byte-untouched.
+
+Verified locally:
+
+```text
+TASK_DAG JSON                     valid
+Markdown fences                  balanced
+git diff --check                 clean
+Runtime/Resources diff           zero
+code graph                       current, 107 files
+validate_goal_state              green, active S4-08
+```
 
 ## LOC cursor
 
@@ -111,11 +156,13 @@ net vs d3b83e1                         <=-5500
 retired live symbols/fallbacks         0
 ```
 
-N3R–N7R delete each replaced branch in the same commit.
+N3R is one joint publication-capable sensor/native-relation cutover; it deletes
+both old inverse and old topology/edge paths in the same commit. N4R–N6R delete
+each subsequently replaced branch immediately.
 
 ## Completion gate
 
-Only N8R closes S4‑08. It requires exact oracle/Vulkan/LOC/code-graph gates,
+Only N7R closes S4‑08. It requires exact oracle/Vulkan/LOC/code-graph gates,
 same-commit source archive and Release APK, Quest installation and physical corpus,
 truthful kernel times, `NativeCloseCommit <=1500 ms`, wall `<=1800 ms`, bounded
 memory and no revision/segment latency slope.

@@ -51,7 +51,7 @@ They are not worlds.
 | Relation is algebraic | transition is conjugate(a) times b; associator and annihilator actions are exact | topology cannot own independent state |
 | Operator plans are immutable exact DAGs | bracket descriptor and outputs participate in fingerprints | one generated IR may emit specialized plans without creating subsystems |
 | Carrier coordinate is signed-64 (u,v) | SigmaCarrierPageCoordinate stores two long values | pages and surface objects are not domain identity |
-| Adjacency is intrinsic | forward halo explicitly keys signed-64 Sigma_2 coordinates | relation work follows carrier locality, not XYZ proximity |
+| Coordinate-local relation is backing-independent | forward halo keys signed-64 Sigma_2 coordinates rather than page location | coordinate locality is a valid fast relation domain; source does not prove it is the exclusive native relation support |
 | Current topology oracle owns no state | SigmaIntrinsicTopology says it owns no topology/geometry state | keep relation math, delete topology authority |
 | Current backing uses a generated nonzero null dyad | pool initialization and NULL codec use SigmaS16Operators.NullState | a sparse native default is plausible and already reflected in backing |
 
@@ -61,33 +61,51 @@ The same source does not prove:
 
 - that current ZNullDyad is no-manifestation for every sensor, eye, relation and
   export query;
-- that exactly 22 TOE relations faithfully encode the complete native law;
+- that an arbitrary-arity E22 family contextually separates S16 and is sufficient
+  for the complete native law;
 - that current independent Geometry/RGB/Topology plans are the authoritative TOE
   Merkaba program;
 - that a kernel of one partial readout is dynamically decoupled from visible
   response;
-- that current gauge refinement implements authoritative modal/sampling
-  refinement.
+- that current gauge refinement satisfies an exact carrier-reparameterization
+  theorem against the complete generated program;
+- which camera/finite-footprint/export laws belong to immutable query-boundary
+  input rather than TOE native law;
+- that all-default neighbourhoods are exactly quiescent for every relation arity.
 
 These are N1R proof gates. They cannot be inferred from current runtime behaviour.
 
-### 1.3 Three corrections to the external review
+### 1.3 Implementation-safety conclusions after review
 
-The external review is directionally correct but needs three precision limits.
+The one-medium ontology remains accepted. Five contracts had to be tightened
+before N1R:
 
-First, current G z_null = 0 plus NULL codec parity proves only geometry-null backing.
-The physical default z_empty is accepted only after full-program
-sensor/eye/relation/export proof.
+1. `ZEmpty` is a logical value whose *backing representations* must be equivalent.
+   Changing supported state to `ZEmpty` is physical and may reveal farther
+   first-hit support. An all-default neighbourhood must be exactly quiescent.
+2. E22 faithfulness is well-typed only for a unary inventory. Arbitrary-arity
+   relations require contextual separation across every operand position and
+   proof of complete-law sufficiency; otherwise direct S16 dependencies remain.
+3. Sensor pullback and required native relations cannot publish in separate live
+   cuts. N3R is one joint `NativeCloseCommit` cutover and deletes both legacy
+   authorities in the same commit.
+4. Coordinate locality is the primary sparse relation domain, not an exclusive
+   ontology. Descriptor-proven seam/gauge/nonlocal tuples may be derived from
+   `Psi + M`, but no persistent relation graph is allowed.
+5. S4‑08.6 freezes the current `64×64` page and `8×8` codec-block ABI. Backing
+   bytes are compared only within that ABI; a future page-geometry migration needs
+   canonical logical serialization.
 
-Second, one program means one semantic IR and fingerprint authority. It does not
-mean one giant DAG or one GPU dispatch. Query-specialized plans and project/reduce
-kernels remain legal compiler products.
+Three associated boundaries are also explicit. One IR compiles algebra, native
+TOE law and query-boundary schemas with provenance. Depth/optical leaves are
+separately retained and non-bootstrap/non-weighted while sharing eye context. The
+sampling transform is a representation theorem proved against complete `M`, not
+necessarily a named TOE equation.
 
-Third, duplicate avoidance is not automatic. Exact idempotence keeps the current
-field when it already satisfies the observation. A new default-to-supported update
-requires proof that every surviving physical preimage needs it. Deterministic
-address selection is legal only across a full-program gauge-equivalence class.
-Non-equivalent ambiguity remains unresolved evidence.
+One program still means one semantic IR/fingerprint authority, not one giant DAG
+or one dispatch. Exact idempotence still prevents gratuitous duplication, while a
+new default-to-supported update remains unresolved until every surviving physical
+preimage requires it modulo full-program gauge equivalence.
 
 ---
 
@@ -95,15 +113,18 @@ Non-equivalent ambiguity remains unresolved evidence.
 
 ### 2.1 One generated relation program
 
-Let I_TOE be the authoritative supplied Merkaba/eigenmode construction and
-A_S16 the exact signed-XOR algebra. The sole generated authority is
+Let `I_TOE` be the authoritative supplied Merkaba/eigenmode construction,
+`A_S16` the exact signed-XOR algebra and `I_Q` the frozen sensor/eye/intrinsic/
+export/debug boundary schemas. The sole generated authority is
 
 \[
-\mathfrak M=\operatorname{Compile}(I_{TOE},\mathcal A_{S16}).
+\mathfrak M=
+\operatorname{Compile}(\mathcal A_{S16},I_{TOE},I_Q).
 \]
 
 It is one relation-program IR with explicit arity, carrier neighbourhood, brackets,
-coupling, reductions and reverse contractors.
+coupling, reductions, reverse contractors and per-expression algebra/TOE/query
+provenance.
 
 For query q:
 
@@ -155,14 +176,17 @@ decoupling proof. It is not a universal ontology.
 
 ### 2.4 Native default and sparse storage
 
-The authoritative law must derive and fingerprint z_empty in S16 such that it makes
-no sensor/eye/export manifestation where default is required. Intrinsic relation
-with a supported neighbour may still yield a descriptor-defined null/contact
-result; unbacked and allocated z_empty must be exactly identical in that context.
+The authoritative program must derive and fingerprint mathematical
+`z_varnothing`, generated as code symbol `ZEmpty`. Unbacked, explicit `ZEmpty` and
+NULL-decoded representations of the same logical field must be query-identical in
+every intrinsic context.
 
-After that proof, unbacked logical carrier space, allocated z_empty and NULL codec
-decode are representations of the same field value. There is no physical ABSENT
-state and no materialization ontology.
+This is not a theorem that replacing supported state by `ZEmpty` leaves a scene
+shadow unchanged. That physical mutation may reveal farther support. Separately,
+an all-default neighbourhood must yield reducer identity, `DEFAULT_SAT` and no
+active work, while a mixed default/support boundary may retain defined native
+semantics. After these proofs, there is no physical ABSENT state or materialization
+ontology.
 
 ### 2.5 Two refinement regimes
 
@@ -170,10 +194,16 @@ One: more queries contract S16 values at existing sampling.
 
 Two: accumulated shadows prove field variation finer than current intrinsic
 sampling. The runtime then increases sampling density of the same Psi through an
-exact gauge reparameterization, transports evidence/relations and forward-verifies
-all retained queries.
+exact gauge reparameterization whose representation theorem is proved against the
+complete program, transports evidence/relations and forward-verifies all retained
+queries.
 
 Neither regime creates physical germs, charts, child surfaces or a detail world.
+
+The measured facts and historical disposition labels in §§4‑8 remain forensic
+evidence from the pre-correction audit. Any old target name such as `Stitch22`, a
+latent journal or a germ owner is superseded by `new_spec.md` and is not a planned
+runtime authority.
 
 ---
 ## 4. Device evidence and measured baseline
@@ -430,8 +460,8 @@ pending/branch/chart ontology in the replacement.
 
 | Current production authority | Current defect | Target meaning | Required action |
 |---|---|---|---|
-| BuildDepthSourceCells | depth-specific S16 world; hard-coded sector gaps | reverse leaves of sensor query | delete after generated reverse parity |
-| BuildRgbSourceCells | depth-conditioned RGB domain; 937 ms | independent optical leaves of same reverse query | delete after oracle parity |
+| BuildDepthSourceCells | depth-specific S16 world; hard-coded sector gaps | exact directional pre-hit/first-hit reverse action of sensor query | delete after generated reverse parity |
+| BuildRgbSourceCells | depth-conditioned RGB domain; 937 ms | separately retained non-bootstrap optical action of the same coherent eye query | delete after oracle parity |
 | BuildFrameProposals | unconditional NOVEL and incomplete pending support | disposable reverse support work | delete |
 | pending projection winner | one candidate destroys union coverage | compact possible preimage ranges in scratch | delete semantic winner |
 | EvaluateCandidateMeets | providers x segments repeat physics | ContractNativeQuery over one query-support worklist | replace and delete |
@@ -442,7 +472,7 @@ pending/branch/chart ontology in the replacement.
 | page halo continuity | backing segment leaks into readout | query evaluates intrinsic coordinates independent of backing | delete physical authority |
 | page publication scans | identity reconstructed after old graph | direct sparse NativeStateDelta commit | minimize/delete |
 | root-last publication | correct immutable visibility primitive | same | keep |
-| exact carrier/codec | correct storage substrate once z_empty is proven | sparse representation of one Psi | keep/strengthen |
+| exact carrier/codec | correct storage substrate once ZEmpty is proven | sparse representation of one Psi | keep/strengthen |
 | evidence ownership | incomplete certificate boundary | exact constraint/certificate proof | keep/strengthen |
 
 ---
@@ -455,8 +485,8 @@ Only the following physical stages remain:
 |---|---|---|---|---|
 | EvaluateNativeQuery | Psi root, program entry, query, exact support worklist | generated local expression evaluation | local contributions | compiler lowering |
 | ReduceNativeQuery | contributions | overlap/order/first-hit/occlusion/footprint reduction | whole-query shadow and reverse-support ranges | compiler lowering |
-| ContractNativeQuery | measured shadows, forward witnesses, retained constraints | reverse same expressions/brackets; branch scratch | contracted admissible sets | reverse lowering |
-| CloseNativeConstraints | prior, both-eye leaves, accumulated constraints, native relations | one feasible closure and common-delta test | sparse deltas or unresolved constraint update | lowering of sole semantic close |
+| ContractNativeQuery | measured shadows, forward witnesses, retained constraints | reverse same expressions/brackets; exact directional action/information pullback; branch scratch | contracted admissible sets + proof factors | reverse lowering |
+| CloseNativeConstraints | prior, both-eye leaves, accumulated feasible-set/information certificates, native relations | one feasible closure and common-delta test | sparse deltas or unresolved constraint update | lowering of sole semantic close |
 | ResolveContractorOverflow | coupled/cross-block frontier | continuation of same contractor | more closure work | indirect/cold lowering |
 | PrepareChangedPages | compact deltas | allocate shadow generations for touched pages | mappings | storage |
 | ScatterChangedStates | full S16 deltas | exact state scatter | closed page state | storage |
@@ -472,20 +502,23 @@ authority.
 ### 12.1 Immutable evidence
 
 NativeObservationGpu carries sensor side, independence class, pose/calibration
-epoch, footprint, depth/order region, optical relation region, first-hit role and
-raw reference.
+epoch, footprint, depth/order region, optical relation region, first-hit role,
+exact sensor uncertainty law, range/incidence/baseline, pose uncertainty,
+sharpness/motion/exposure validity and raw reference.
 
 It carries no candidate/native/gauge key.
 
 ### 12.2 Reverse scratch
 
 ReverseWorkGpu may carry a possible support address/range, branch mask, program
-cursor, exact bounds and witness. It is disposable and has no physical identity.
+cursor, exact bounds, directional reverse-action witness and exact information
+factor. It is disposable and has no physical identity.
 
 ### 12.3 Cross-frame unresolved state
 
 UnresolvedConstraintRecord persists exact program cursor/fingerprint, admissible
-set/disjunction encoding, source evidence references and provenance.
+set/disjunction encoding, source evidence references, directional/coupled-factor
+certificate refs, best-supported bandwidth and provenance.
 
 It has no branch ID, chart, extent or canonical address.
 
@@ -532,6 +565,38 @@ response under another query or native relation. Therefore:
 
 This is the precise native-S16 meaning of multi-pass tomography.
 
+### 14.1 Restored native pressure/compression principles
+
+Two useful reconstruction behaviours from the historical mapper are retained as
+mathematics of the one reverse program, not as donor data structures.
+
+The first is directional injection/mould correction. Whole-query reduction
+provides a proven clear pre-hit sector, measured first-hit admissible stratum and
+behind-hit `NO_CLAIM`. Reversing that exact bracketed program yields a directional
+action/cotangent witness. False near support is constrained toward a common
+mould-consistent feasible field, but only a proved same-field deformation may move
+it; otherwise exact closure removes false support and admits new support through
+the normal proof. Nothing behind hit is carved or pulled.
+
+The second is locality information compression. The exact marginal of the global
+feasible certificate at one carrier locality becomes monotonically no broader
+under compatible static evidence. A directional information form `H_xi` may be a
+lossless proof compression, but the exact feasible-set intersection and retained
+cross-locality/disjunctive factors remain authoritative. Thus many weak far/
+grazing/blurred observations cannot broaden a locality already constrained by a
+close sharp view, while a genuinely tighter independent view improves it.
+
+These are one mechanism viewed from opposite sides:
+
+```text
+new observation       -> exact directional reverse action
+retained constraints  -> native locality compression/resistance
+joint feasible set    -> sole mutation authority
+```
+
+No ContactFilm, Grid16, pressure buffer, scalar confidence, gradient descent,
+carving or physical child cell returns.
+
 ---
 
 ## 15. Refinement and storage
@@ -542,8 +607,12 @@ If accumulated constraints fit the current sampling, only S16 admissible values
 contract.
 
 If they prove finer intrinsic variation, the implementation increases sampling
-density of the same Psi under an exact reparameterization. Existing manifestation
-must remain query-identical before new information is added.
+density of the same Psi under an exact reparameterization theorem proved against
+complete `M`. Full S16 state, feasible constraints, directional information,
+independent-view receipts, source evidence, native relations and best-supported
+bandwidth transport without loss. Existing manifestation/readouts must be
+bit-identical immediately after reparameterization and before new information is
+added.
 
 The existing codec modes support the desired storage character:
 
@@ -586,43 +655,47 @@ diff stays zero.
 
 ### N1R — authoritative generated Merkaba program
 
-Import and fingerprint the supplied TOE source. Generate one relation IR, query
-entry points, exact reverse contractors, complete coupling rules, E22 gate,
-full-program z_empty proof, exact-ZD distinction and refinement transform.
+Import/fingerprint algebra, supplied TOE native source and frozen query-boundary
+schemas with provenance. Generate one relation IR, exact directional reverse
+action, uncertainty/information pullback, complete coupling rules, contextual E22
+gate, `ZEmpty` representation/quiescence proof, exact-ZD distinction and the
+complete-program reparameterization theorem.
 
 No live mutation.
 
 ### N2R — forward/reverse oracle
 
 Implement non-mutating Evaluate/Reduce/Contract and exhaustive small-domain oracle
-parity. Prove disjunction, first-hit, coupling and default semantics.
+parity. Prove disjunction, first-hit mould/behind-hit zero action, multi-angle
+correction, directional information non-degradation, coupling, default semantics
+and exact refinement transport.
 
-### N3R — live stereo pullback
+### N3R — joint NativeCloseCommit live cutover
 
-Cut coherent RGB-D observations to the reverse program. Delete source-cell,
-proposal, provider x segment and old target-reduction paths.
+Cut coherent RGB-D observations and all required intrinsic/ZD/nonassoc relations
+to one publication-capable feasible closure using the generated directional
+action. Delete source-cell/proposal/provider×segment/target-reduction and the full
+optical-edge/XYZ/label/topology paths in the same commit. Fresh default support
+remains unresolved; no legacy NOVEL bridge.
 
-### N4R — native relation cutover
-
-Fold intrinsic/ZD/nonassoc predicates into the same closure. Delete full optical
-edge, label, XYZ qualifier and topology/stitch paths.
-
-### N5R — default support and sampling refinement
+### N4R — default support and sampling refinement
 
 Cut null-to-support, unresolved constraints, static exclusion and denser sampling
-to the same field. Delete pending/novel/chart/materialization machinery.
+to the same field. Persist only minimal exact feasible-set/directional-information
+certificates required for tomography, non-degradation and lossless refinement.
+Delete pending/novel/chart/materialization and old pressure/cell machinery.
 
-### N6R — sparse commit
+### N5R — sparse commit
 
 Publish compact full-S16 deltas directly to touched shadow pages and root last.
 Delete redundant mapping/sort/scan publication stages.
 
-### N7R — pure query readouts
+### N6R — pure query readouts
 
 Use the same program for eyes, prediction, relation diagnostics and export. Delete
 live mesh/halo/readout physical authority.
 
-### N8R — hard deletion and Quest closure
+### N7R — hard deletion and Quest closure
 
 Enforce LOC, exact oracle, Vulkan, same-commit archive/APK, full physical corpus,
 bounded memory, no latency slope and measured compute/wall gates. Stop before
@@ -637,8 +710,8 @@ S4-09.
 | one physical medium | no canonical state outside Psi |
 | one carrier | no physical chart/sheet/component entity |
 | one relation authority | every query plan fingerprints back to one IR |
-| canonical default | unbacked, allocated z_empty and NULL codec are query-identical, including boundary relations |
-| E22 safety | faithfulness or direct S16 dependencies retained |
+| canonical default | unbacked, allocated ZEmpty and NULL codec are query-identical; all-default is quiescent; physical support removal may reveal farther first hit |
+| E22 safety | contextual separation/complete-law sufficiency across supplied arities or direct S16 dependencies retained |
 | exact inverse | forward/reverse contractor soundness |
 | disjunction | ambiguous alternatives do not mutate |
 | common delta | every surviving branch yields byte-identical affected delta |
@@ -646,11 +719,15 @@ S4-09.
 | hidden coupling | transparent but coupled mode may refine |
 | fibre preservation | only complete-program invisible fibre is preserved |
 | first hit | whole-query reduction; behind-hit no evidence |
+| directional mould | pre-hit reverse action corrects view-axis artefact without carving or dragging unrelated sheets |
+| locality information | compatible evidence tightens/retains exact feasible set; weaker revisit never broadens stronger state |
+| optical resistance | dim/blurred/grazing evidence cannot overwrite tighter appearance by recency |
 | relation | exact ZD, near-singular, direct order and brackets remain distinct |
 | static correction | independent clear-path evidence can remove false support |
-| refinement | denser sampling preserves prior field before adding detail |
+| refinement | S16/constraints/directional information/evidence/relations/bandwidth transport; old readouts match before adding detail |
 | publication | root-last atomic sparse deltas |
-| storage | pages/segments/residency physically invisible |
+| relation support | coordinate-local plus descriptor-proven nonlocal tuples; no graph state |
+| storage | frozen 64x64/8x8 ABI; segments/residency physically invisible |
 | readouts | deleting caches changes no Psi/export |
 | performance | old top-three semantic systems absent |
 | LOC | hard negative gates pass |

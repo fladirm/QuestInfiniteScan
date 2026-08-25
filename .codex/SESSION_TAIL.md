@@ -2,18 +2,22 @@
 
 ## User
 
-Required a deeper source-grounded verdict before incorporation. The reviewed
-direction is to eliminate scanner ontology entirely: one carrier, one S16 field,
-one generated Merkaba relation program, exact reverse constraints, no persistent
-hypothesis/branch/chart/materialization objects, full-program hidden-mode coupling,
-native default backing and refinement as denser sampling of the same field.
+Reviewed full v8.2 spec/plan and required five implementation-safety corrections:
+backing-equivalent `ZEmpty` plus all-default quiescence, arity-correct contextual
+E22, one joint N3R sensor/relation cutover, non-exclusive coordinate-local relation
+support and a well-typed frozen page/block determinism ABI. Also required restoring
+two historical reconstruction principles without their old ontology: directional
+pre-hit injection/first-hit mould correction and monotonically compressed native
+per-locality information/resistance.
 
 ## Assistant
 
-Source audit accepts the core reduction with three gates: current `ZNullDyad` needs
-full sensor/eye/relation/export proof; one program means one semantic IR with
-specialized compiled plans, not one monolithic kernel; and duplicate/new-support
-decisions require exact feasibility plus full-program gauge equivalence. N0R v8.2
-has replaced spec, audit, plan and controls with zero runtime diff while preserving
-forensic §§4–8 byte-identically. N1R is the sole cursor and may not guess absent
-TOE law.
+Kept the one-medium ontology and integrated both principles inside the same exact
+generated reverse program. Directional action is a bracketed Q48 proof/scratch
+witness with behind-hit `NO_CLAIM`, never a pressure field, carving or gradient
+solver. Locality information is an exact feasible-set/coupled-factor certificate;
+`H_xi` is allowed only as lossless proved compression, never scalar confidence or
+mutation authority. Spec, audit, plan and controls now use N0R–N7R with joint N3R;
+64×64 pages and 8×8 codec blocks are frozen for this run. Runtime diff is zero,
+code graph is current and goal validation is green. Sole next action remains N1R:
+locate/hash native TOE input and freeze query-boundary schemas before generation.
