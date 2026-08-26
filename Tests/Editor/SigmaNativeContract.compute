@@ -1,25 +1,56 @@
 // N2R Editor/Vulkan oracle only. Branches are disposable and never publish Psi.
-#pragma kernel ContractNativeQuery
-#pragma kernel BuildContractOverflowArgs
-#pragma kernel ResolveContractorOverflow
+// The three fixed entry points are independent of candidate, relation, channel,
+// transfer-segment and execution-window cardinality.
+#pragma kernel ContractNativeQuery SIGMA_NATIVE_ORACLE_QUERY_MATH
+#pragma kernel BuildContractOverflowArgs SIGMA_NATIVE_ORACLE_OVERFLOW_ARGS_ONLY
+#pragma kernel ResolveContractorOverflow SIGMA_NATIVE_ORACLE_QUERY_MATH
 #pragma target 5.0
 
 #include "Generated/SigmaGeneratedMerkabaProgram.hlsl"
 
-#define SIGMA_NATIVE_CANDIDATE_RELATION_SAT 1u
-#define SIGMA_NATIVE_CANDIDATE_IDENTITY_TRANSPORT 2u
 #define SIGMA_NATIVE_OBSERVATION_ORDER 1u
 #define SIGMA_NATIVE_OBSERVATION_OPTICAL 2u
 #define SIGMA_NATIVE_OBSERVATION_OPTICAL_METADATA 4u
 
-StructuredBuffer<uint4> _NativeCandidates;
+// Candidate identity and relation truth are deliberately absent. Every decision
+// below is derived from complete keys/gauge records and the generated relation
+// program. Layouts are documented at their declarations.
+StructuredBuffer<uint4> _NativeCandidateKeys;
+// x=prior state, y=proposed state, z=relation right, w=relation context offsets.
+StructuredBuffer<uint4> _NativeCandidateStates;
+// Two records per candidate, prior then proposed: signed-64 u/v limbs.
+StructuredBuffer<uint4> _NativeCandidateGaugeCoordinates;
+// Two records per candidate, prior then proposed: level,payload-key lo/hi,reserved.
+StructuredBuffer<uint4> _NativeCandidateGaugeMetadata;
+// Complete generated relation witnesses produced by the fixed
+// EvaluateNativeRelation entry point over the same candidate worklist.
+StructuredBuffer<uint4> _NativeCandidateRelationResults;
+StructuredBuffer<uint4> _NativeCandidateRelationFactors;
+StructuredBuffer<uint4> _NativeCandidateRelationHashes;
 StructuredBuffer<uint> _NativeCandidateDeltaHashes;
 StructuredBuffer<uint2> _NativeStates;
 StructuredBuffer<uint2> _NativeQueryRows;
-StructuredBuffer<uint2> _NativeObservationIntervals;
+
+// Exact observation/query data.
+StructuredBuffer<uint2> _NativeObservationOrder;
+StructuredBuffer<uint2> _NativeMeasuredOptical;
+StructuredBuffer<uint2> _NativeDirection;
+StructuredBuffer<uint2> _NativePhotometricExposure;
+// Eight uint2 values per channel: gain L/U, illumination L/U,
+// white-balance L/U and offset L/U.
+StructuredBuffer<uint2> _NativePhotometricChannelParameters;
+// x=first segment, y=count for each channel.
+StructuredBuffer<uint2> _NativePhotometricTransferRanges;
+// Four uint2 values per segment: domain L/U, slope and offset.
+StructuredBuffer<uint2> _NativePhotometricTransferData;
+
 RWStructuredBuffer<uint4> _NativeBranchHeaders;
+RWStructuredBuffer<uint2> _NativeBranchSupports;
 RWStructuredBuffer<uint4> _NativeBranchActions;
+// Four records per candidate: order then three native optical points.
 RWStructuredBuffer<uint4> _NativeBranchPredictions;
+RWStructuredBuffer<uint4> _NativeBranchRelationFactors;
+RWStructuredBuffer<uint4> _NativeBranchRelationHashes;
 RWStructuredBuffer<uint> _NativeOverflowArgs;
 
 #include "Generated/SigmaNativeOracleMath.hlsl"
@@ -27,84 +58,223 @@ RWStructuredBuffer<uint> _NativeOverflowArgs;
 uint _NativeCandidateCount;
 uint _NativeHotCapacity;
 uint _NativeObservationFlags;
+uint _NativeEntryPointIndex;
 
-void SigmaNativeApplyOpticalNuisance(uint2 response, out uint2 lower,
-    out uint2 upper, inout uint valid)
+#if defined(SIGMA_NATIVE_ORACLE_QUERY_MATH)
+bool SigmaNativeContractKeyEqual(uint2 left, uint2 right)
 {
-    uint2 scaleLower = _NativeObservationIntervals[6];
-    uint2 scaleUpper = _NativeObservationIntervals[7];
-    uint2 lo0 = SigmaQ48MulLower(response, scaleLower, valid);
-    uint2 lo1 = SigmaQ48MulLower(response, scaleUpper, valid);
-    uint2 hi0 = SigmaQ48MulUpper(response, scaleLower, valid);
-    uint2 hi1 = SigmaQ48MulUpper(response, scaleUpper, valid);
-    lower = SigmaQ48AddChecked(SigmaQ48Min(lo0, lo1),
-        _NativeObservationIntervals[8], valid);
-    upper = SigmaQ48AddChecked(SigmaQ48Max(hi0, hi1),
-        _NativeObservationIntervals[9], valid);
+    return all(left == right);
+}
+
+bool SigmaNativeGaugeEqual(uint candidateIndex)
+{
+    uint priorIndex = candidateIndex * 2u;
+    uint proposedIndex = priorIndex + 1u;
+    return all(_NativeCandidateGaugeCoordinates[priorIndex] ==
+            _NativeCandidateGaugeCoordinates[proposedIndex]) &&
+        all(_NativeCandidateGaugeMetadata[priorIndex] ==
+            _NativeCandidateGaugeMetadata[proposedIndex]);
+}
+
+void SigmaNativeIntervalMultiply(uint2 leftLower, uint2 leftUpper,
+    uint2 rightLower, uint2 rightUpper, out uint2 outputLower,
+    out uint2 outputUpper, inout uint valid)
+{
+    uint2 lo00 = SigmaQ48MulLower(leftLower, rightLower, valid);
+    uint2 lo01 = SigmaQ48MulLower(leftLower, rightUpper, valid);
+    uint2 lo10 = SigmaQ48MulLower(leftUpper, rightLower, valid);
+    uint2 lo11 = SigmaQ48MulLower(leftUpper, rightUpper, valid);
+    uint2 hi00 = SigmaQ48MulUpper(leftLower, rightLower, valid);
+    uint2 hi01 = SigmaQ48MulUpper(leftLower, rightUpper, valid);
+    uint2 hi10 = SigmaQ48MulUpper(leftUpper, rightLower, valid);
+    uint2 hi11 = SigmaQ48MulUpper(leftUpper, rightUpper, valid);
+    outputLower = SigmaQ48Min(SigmaQ48Min(lo00, lo01), SigmaQ48Min(lo10, lo11));
+    outputUpper = SigmaQ48Max(SigmaQ48Max(hi00, hi01), SigmaQ48Max(hi10, hi11));
+}
+
+bool SigmaNativeTransferContains(uint2 value, uint2 lower, uint2 upper)
+{
+    return !SigmaI64Less(value, lower) && !SigmaI64Less(upper, value);
+}
+
+void SigmaNativeApplyOpticalNuisance(uint channel, uint2 response,
+    out uint2 lower, out uint2 upper, inout uint valid)
+{
+    uint2 stageLower = response;
+    uint2 stageUpper = response;
+    uint2 nextLower;
+    uint2 nextUpper;
+
+    SigmaNativeIntervalMultiply(stageLower, stageUpper,
+        _NativePhotometricExposure[0], _NativePhotometricExposure[1],
+        nextLower, nextUpper, valid);
+    stageLower = nextLower;
+    stageUpper = nextUpper;
+
+    uint parameterBase = channel * 8u;
+    [unroll]
+    for (uint factor = 0u; factor < 3u; ++factor)
+    {
+        uint parameter = parameterBase + factor * 2u;
+        SigmaNativeIntervalMultiply(stageLower, stageUpper,
+            _NativePhotometricChannelParameters[parameter],
+            _NativePhotometricChannelParameters[parameter + 1u],
+            nextLower, nextUpper, valid);
+        stageLower = nextLower;
+        stageUpper = nextUpper;
+    }
+    stageLower = SigmaQ48AddChecked(stageLower,
+        _NativePhotometricChannelParameters[parameterBase + 6u], valid);
+    stageUpper = SigmaQ48AddChecked(stageUpper,
+        _NativePhotometricChannelParameters[parameterBase + 7u], valid);
+
+    uint2 range = _NativePhotometricTransferRanges[channel];
+    bool foundLower = false;
+    bool foundUpper = false;
+    uint2 lowerSlope = uint2(0u, 0u);
+    uint2 lowerOffset = uint2(0u, 0u);
+    uint2 upperSlope = uint2(0u, 0u);
+    uint2 upperOffset = uint2(0u, 0u);
+    [loop]
+    for (uint local = 0u; local < range.y; ++local)
+    {
+        uint segment = range.x + local;
+        uint data = segment * 4u;
+        uint2 domainLower = _NativePhotometricTransferData[data];
+        uint2 domainUpper = _NativePhotometricTransferData[data + 1u];
+        bool containsLower = SigmaNativeTransferContains(stageLower,
+            domainLower, domainUpper);
+        bool containsUpper = SigmaNativeTransferContains(stageUpper,
+            domainLower, domainUpper);
+        if (containsLower && !foundLower)
+        {
+            foundLower = true;
+            lowerSlope = _NativePhotometricTransferData[data + 2u];
+            lowerOffset = _NativePhotometricTransferData[data + 3u];
+        }
+        // Deliberately retain the last segment at a shared boundary. Exact
+        // transfer continuity makes either segment equal there; this mirrors CPU.
+        if (containsUpper)
+        {
+            foundUpper = true;
+            upperSlope = _NativePhotometricTransferData[data + 2u];
+            upperOffset = _NativePhotometricTransferData[data + 3u];
+        }
+    }
+    valid &= (foundLower && foundUpper && range.y != 0u) ? 1u : 0u;
+    lower = SigmaQ48AddChecked(
+        SigmaQ48MulLower(stageLower, lowerSlope, valid), lowerOffset, valid);
+    upper = SigmaQ48AddChecked(
+        SigmaQ48MulUpper(stageUpper, upperSlope, valid), upperOffset, valid);
+}
+
+bool SigmaNativeRelationPermits(uint relationClass)
+{
+    return relationClass == SIGMA_MERKABA_RELATION_DEFAULT_SAT ||
+        relationClass == SIGMA_MERKABA_RELATION_REGULAR ||
+        relationClass == SIGMA_MERKABA_RELATION_EXACT_ZD ||
+        relationClass == SIGMA_MERKABA_RELATION_NEAR_SINGULAR_Q48;
+}
+
+bool SigmaNativeRelationPermitsIdentity(uint relationClass)
+{
+    return SigmaNativeRelationPermits(relationClass) &&
+        relationClass != SIGMA_MERKABA_RELATION_NEAR_SINGULAR_Q48;
 }
 
 void SigmaNativeContractOne(uint candidateIndex)
 {
-    uint4 candidate = _NativeCandidates[candidateIndex];
+    uint4 keys = _NativeCandidateKeys[candidateIndex];
+    uint4 statePlan = _NativeCandidateStates[candidateIndex];
     uint valid = 1u;
+    bool entryValid = _NativeEntryPointIndex < SIGMA_MERKABA_ENTRY_POINT_COUNT &&
+        SIGMA_MERKABA_IR_ENTRY_POINTS[_NativeEntryPointIndex].x == 7 &&
+        SIGMA_MERKABA_IR_ENTRY_POINTS[_NativeEntryPointIndex].y == 8;
+    valid &= entryValid ? 1u : 0u;
+
     uint2 proposedOrder;
-    uint2 proposedOptical;
-    SigmaNativeEvaluateState(candidate.z, proposedOrder, proposedOptical, valid);
+    uint2 proposedOptical[3];
+    SigmaNativeEvaluateState(statePlan.y, proposedOrder, proposedOptical, valid);
 
-    bool orderClaim = (_NativeObservationFlags & SIGMA_NATIVE_OBSERVATION_ORDER) != 0u;
-    bool opticalRequested =
-        (_NativeObservationFlags & SIGMA_NATIVE_OBSERVATION_OPTICAL) != 0u;
+    uint4 relation = _NativeCandidateRelationResults[candidateIndex];
+    uint4 relationFactors = _NativeCandidateRelationFactors[candidateIndex];
+    uint4 relationHashes = _NativeCandidateRelationHashes[candidateIndex];
+    valid &= relation.w != 0u ? 1u : 0u;
+
+    bool orderClaim = (_NativeObservationFlags &
+        SIGMA_NATIVE_OBSERVATION_ORDER) != 0u;
+    bool opticalRequested = (_NativeObservationFlags &
+        SIGMA_NATIVE_OBSERVATION_OPTICAL) != 0u;
     bool opticalClaim = opticalRequested &&
-        (_NativeObservationFlags & SIGMA_NATIVE_OBSERVATION_OPTICAL_METADATA) != 0u;
-    bool orderCompatible = !orderClaim || SigmaNativePointInInterval(proposedOrder,
-        _NativeObservationIntervals[0], _NativeObservationIntervals[1]);
-    uint2 predictedOpticalLower;
-    uint2 predictedOpticalUpper;
-    SigmaNativeApplyOpticalNuisance(proposedOptical, predictedOpticalLower,
-        predictedOpticalUpper, valid);
-    bool opticalCompatible = !opticalClaim ||
-        (!SigmaI64Less(predictedOpticalUpper, _NativeObservationIntervals[2]) &&
-         !SigmaI64Less(_NativeObservationIntervals[3], predictedOpticalLower));
+        (_NativeObservationFlags &
+            SIGMA_NATIVE_OBSERVATION_OPTICAL_METADATA) != 0u;
+    bool orderCompatible = !orderClaim || SigmaNativePointInInterval(
+        proposedOrder, _NativeObservationOrder[0], _NativeObservationOrder[1]);
+    bool opticalCompatible = true;
+    uint2 predictedOpticalLower[3];
+    uint2 predictedOpticalUpper[3];
+    [unroll]
+    for (uint channel = 0u; channel < SIGMA_NATIVE_OPTICAL_CHANNELS; ++channel)
+    {
+        SigmaNativeApplyOpticalNuisance(channel, proposedOptical[channel],
+            predictedOpticalLower[channel], predictedOpticalUpper[channel], valid);
+        uint evidence = channel * 2u;
+        opticalCompatible = opticalCompatible && (!opticalClaim ||
+            (!SigmaI64Less(predictedOpticalUpper[channel],
+                _NativeMeasuredOptical[evidence]) &&
+             !SigmaI64Less(_NativeMeasuredOptical[evidence + 1u],
+                predictedOpticalLower[channel])));
+    }
 
-    bool priorDefault = SigmaNativeStateIsZero(candidate.y);
+    bool priorDefault = SigmaNativeStateIsZero(statePlan.x);
     uint2 priorOrder = uint2(0u, 0u);
-    uint2 ignoredOptical = uint2(0u, 0u);
+    uint2 ignoredOptical[3];
     if (!priorDefault)
-        SigmaNativeEvaluateState(candidate.y, priorOrder, ignoredOptical, valid);
+        SigmaNativeEvaluateState(statePlan.x, priorOrder, ignoredOptical, valid);
     bool priorPreHit = !priorDefault &&
-        SigmaI64Less(priorOrder, _NativeObservationIntervals[0]);
+        SigmaI64Less(priorOrder, _NativeObservationOrder[0]);
     bool priorAtMould = !priorDefault && SigmaNativePointInInterval(priorOrder,
-        _NativeObservationIntervals[0], _NativeObservationIntervals[1]);
+        _NativeObservationOrder[0], _NativeObservationOrder[1]);
     uint role = priorDefault || priorAtMould
         ? SIGMA_NATIVE_QUERY_FIRST_HIT_MOULD
         : (priorPreHit ? SIGMA_NATIVE_QUERY_PRE_HIT_EXCLUSION
             : SIGMA_NATIVE_QUERY_NO_CLAIM);
 
-    uint2 residualLower = priorDefault ? _NativeObservationIntervals[0]
-        : SigmaQ48SubChecked(_NativeObservationIntervals[0], priorOrder, valid);
-    uint2 residualUpper = priorDefault ? _NativeObservationIntervals[1]
-        : SigmaQ48SubChecked(_NativeObservationIntervals[1], priorOrder, valid);
+    uint2 residualLower = priorDefault ? _NativeObservationOrder[0]
+        : SigmaQ48SubChecked(_NativeObservationOrder[0], priorOrder, valid);
+    uint2 residualUpper = priorDefault ? _NativeObservationOrder[1]
+        : SigmaQ48SubChecked(_NativeObservationOrder[1], priorOrder, valid);
     SigmaMerkabaDirectionalActionWitness action =
-        SigmaMerkabaBuildDirectionalAction(role,
-            _NativeObservationIntervals[4], _NativeObservationIntervals[5],
-            residualLower, residualUpper, valid);
+        SigmaMerkabaBuildDirectionalAction(role, _NativeDirection[0],
+            _NativeDirection[1], residualLower, residualUpper, valid);
 
-    bool relationSat = (candidate.w & SIGMA_NATIVE_CANDIDATE_RELATION_SAT) != 0u;
-    bool identityTransport =
-        (candidate.w & SIGMA_NATIVE_CANDIDATE_IDENTITY_TRANSPORT) != 0u;
+    bool sameSupport = SigmaNativeContractKeyEqual(keys.xy, keys.zw);
+    bool identityTransport = sameSupport && SigmaNativeGaugeEqual(candidateIndex) &&
+        SigmaNativeRelationPermitsIdentity(relation.x);
     bool rolePermits = role != SIGMA_NATIVE_QUERY_NO_CLAIM &&
         (role != SIGMA_NATIVE_QUERY_PRE_HIT_EXCLUSION || identityTransport);
-    bool viable = valid != 0u && relationSat && rolePermits &&
-        orderCompatible && opticalCompatible && (orderClaim || opticalClaim);
+    bool viable = valid != 0u && SigmaNativeRelationPermits(relation.x) &&
+        rolePermits && orderCompatible && opticalCompatible &&
+        (orderClaim || opticalClaim);
     uint branchFlags = (viable ? 1u : 0u) |
         (viable && action.active != 0u ? 2u : 0u) |
-        (role << 2u) | (opticalClaim ? 16u : 0u) | (valid != 0u ? 32u : 0u);
-    _NativeBranchHeaders[candidateIndex] = uint4(candidate.x, branchFlags,
-        _NativeCandidateDeltaHashes[candidateIndex], candidateIndex);
+        (role << 2u) | (opticalClaim ? 16u : 0u) |
+        (valid != 0u ? 32u : 0u) | (identityTransport ? 64u : 0u);
+    _NativeBranchHeaders[candidateIndex] = uint4(candidateIndex, branchFlags,
+        _NativeCandidateDeltaHashes[candidateIndex], relation.x);
+    _NativeBranchSupports[candidateIndex] = keys.zw;
     _NativeBranchActions[candidateIndex] = viable
         ? uint4(action.lower, action.upper) : uint4(0u, 0u, 0u, 0u);
-    _NativeBranchPredictions[candidateIndex] = uint4(proposedOrder,
-        proposedOptical);
+    _NativeBranchPredictions[candidateIndex * 4u] = uint4(proposedOrder,
+        uint2(0u, 0u));
+    [unroll]
+    for (uint outputChannel = 0u;
+        outputChannel < SIGMA_NATIVE_OPTICAL_CHANNELS; ++outputChannel)
+        _NativeBranchPredictions[candidateIndex * 4u + 1u + outputChannel] =
+            uint4(predictedOpticalLower[outputChannel],
+                predictedOpticalUpper[outputChannel]);
+    _NativeBranchRelationFactors[candidateIndex] = relationFactors;
+    _NativeBranchRelationHashes[candidateIndex] = relationHashes;
 }
 
 [numthreads(64, 1, 1)]
@@ -114,7 +284,9 @@ void ContractNativeQuery(uint3 id : SV_DispatchThreadID)
     if (id.x < hotCount)
         SigmaNativeContractOne(id.x);
 }
+#endif
 
+#if defined(SIGMA_NATIVE_ORACLE_OVERFLOW_ARGS_ONLY)
 [numthreads(1, 1, 1)]
 void BuildContractOverflowArgs(uint3 id : SV_DispatchThreadID)
 {
@@ -124,7 +296,9 @@ void BuildContractOverflowArgs(uint3 id : SV_DispatchThreadID)
     _NativeOverflowArgs[1] = 1u;
     _NativeOverflowArgs[2] = 1u;
 }
+#endif
 
+#if defined(SIGMA_NATIVE_ORACLE_QUERY_MATH)
 [numthreads(64, 1, 1)]
 void ResolveContractorOverflow(uint3 id : SV_DispatchThreadID)
 {
@@ -132,3 +306,4 @@ void ResolveContractorOverflow(uint3 id : SV_DispatchThreadID)
     if (candidateIndex < _NativeCandidateCount)
         SigmaNativeContractOne(candidateIndex);
 }
+#endif

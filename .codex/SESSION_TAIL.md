@@ -2,15 +2,21 @@
 
 ## User
 
-Required exact execution of N2R from the workspace canonical `new_spec.md` and
-`.codex/S4-08.6_NATIVE_CLOSURE_PLAN.md`, with no scope expansion or N3 cutover.
+Rejected N2R checkpoint `869f848` after source audit. Required the same N2R to be
+completed before N3: actual generated entry/reducer execution, complete native
+relation and fibre derivation, full-U64 refined support grouping, calibrated
+per-channel PWL optics and bounded CPU/Vulkan semantic coverage. Explicitly
+required hyperdimensional parallel kernels rather than a low-dispatch serial
+interpreter, while preserving Runtime `+0/-0` and the dispatch-collapse contract.
 
 ## Assistant
 
-Implemented the non-mutating N2R semantic oracle entirely under `Tests/Editor`:
-generated conservative support selection, full-S16 query evaluation, whole-query
-first-hit reduction, exact finite reverse/disjunction, per-query directional
-witness retention and indirect cold overflow. Added exhaustive/default/refined/
-nonresident, pressure-mould, optical, gauge, relation, certificate and 1/2/7-window
-CPU/Vulkan fixtures. Unity 6000.5.9f1 Vulkan passes 95/95, focused N2R 8/8;
-generator and UAV gates pass. Production remains exactly +0/-0 and N3R is unopened.
+Reopened only N2R. Replaced injected relation/identity truth with generated
+relation+gauge derivation; executed all generated field reducers; grouped full-U64
+supports before first-hit; executed the three-channel nuisance/PWL law; and added
+90 query plus 127 native-relation CPU/Vulkan cases with coherent stereo and
+indirect overflow. Relation lowering is one 256-thread workgroup per relation with
+the 16x16 product plane and 168 parallel annihilator actions. Reduction is one
+64-thread bitonic/segmented/minimum network. Focused Vulkan passes 12/12 and full
+EditMode 99/99; generator/UAV/runtime-equality gates pass, production remains
+17274 LOC at `+0/-0`, and N3R remains unopened.

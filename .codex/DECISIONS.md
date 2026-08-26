@@ -266,7 +266,33 @@ branch/chart decisions remain in Git history only.
   `0/0/0` versus `cac9ab0` and net `+601` versus the 16673-LOC `d3b83e1`
   baseline. These are an N1 run cursor, not a claim that final N7 deletion gates
   have passed.
-- N1R introduces no live mutation; N2R remains unopened.
+- N1R introduces no live mutation. At its checkpoint N2R remained unopened; the
+  later non-mutating oracle decision is ADR-S442.
+
+## ADR-S442 — N2R oracle executes the generated graph with bounded parallel lowering
+
+- The premature N2R checkpoint `869f848` is rejected. A generated entry point is
+  executable authority: its forward/reverse expression and reducer descriptors
+  drive evaluation; an entry-point name cannot be a label over one hand-written
+  sensor evaluator.
+- Native relation and complete-program identity transport are derived from the
+  generated relation factors plus exact gauge records. The contractor ABI carries
+  no authoritative `relation satisfied` or `identity transport` booleans.
+- Whole-query reduction groups refined contributions by the complete 64-bit
+  support identity before first-hit classification. A 32-bit support mask is not
+  a semantic representation.
+- The N2 proof graph has exactly four query/relation and three contractor/overflow
+  GPU entry points. Relation count maps to 256-thread workgroups containing the
+  16x16 signed-XOR product plane and all 168 annihilator actions; field reduction
+  uses one 64-thread bitonic/segmented/minimum network. Cardinality changes grids
+  and work items, never a dispatch sequence per relation, support, lane, bracket,
+  PWL segment or execution window. A serial interpreter is forbidden.
+- The optical contractor executes the calibrated per-channel exposure, gain,
+  illumination, white-balance, offset and monotone PWL transfer law. A fingerprint
+  without transfer evaluation has no proof value.
+- N2 remains non-mutating and production-neutral. Editor/Vulkan timings prove
+  semantic parity and graph shape only; product GPU comparison against the
+  `cac9ab0` profile begins when the generated graph becomes live on Quest in N3R.
 
 ## Explicit supersession
 
