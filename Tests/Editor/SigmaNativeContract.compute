@@ -28,8 +28,15 @@ StructuredBuffer<uint4> _NativeCandidateRelationResults;
 StructuredBuffer<uint4> _NativeCandidateRelationFactors;
 StructuredBuffer<uint4> _NativeCandidateRelationHashes;
 StructuredBuffer<uint> _NativeCandidateDeltaHashes;
-StructuredBuffer<uint2> _NativeStates;
+RWStructuredBuffer<uint2> _NativeStates;
 StructuredBuffer<uint2> _NativeQueryRows;
+
+// Fresh-admission input is immutable coherent query evidence. It contains no
+// proposed state, gauge address or relation truth. Per branch: one header,
+// 2 eyes x (4 leaves x 4 row coefficients), and 2 eyes x 4 measured intervals.
+StructuredBuffer<uint4> _NativeFreshObservationHeaders;
+StructuredBuffer<uint2> _NativeFreshQueryRows;
+StructuredBuffer<uint2> _NativeFreshMeasuredLeaves;
 
 // Exact observation/query data.
 StructuredBuffer<uint2> _NativeObservationOrder;
@@ -59,8 +66,348 @@ uint _NativeCandidateCount;
 uint _NativeHotCapacity;
 uint _NativeObservationFlags;
 uint _NativeEntryPointIndex;
+uint _NativeContractMode;
+uint _NativeFreshBranchCount;
+uint _NativeFreshLeftEntryPointIndex;
+uint _NativeFreshRightEntryPointIndex;
+
+#define SIGMA_NATIVE_CONTRACT_CANDIDATES 0u
+#define SIGMA_NATIVE_CONTRACT_FRESH_LIFT 1u
+#define SIGMA_NATIVE_CONTRACT_FRESH_UNION 2u
+#define SIGMA_NATIVE_FRESH_HOT_BRANCH_CAPACITY 4u
+#define SIGMA_NATIVE_FRESH_ADMITTED 1u
+#define SIGMA_NATIVE_FRESH_UNRESOLVED 0u
+#define SIGMA_NATIVE_FRESH_COLD_CONTINUATION 2u
+#define SIGMA_NATIVE_FRESH_COHERENT 1u
+#define SIGMA_NATIVE_FRESH_LEFT_FIRST_HIT 2u
+#define SIGMA_NATIVE_FRESH_RIGHT_FIRST_HIT 4u
+#define SIGMA_NATIVE_FRESH_LEFT_EVIDENCE 8u
+#define SIGMA_NATIVE_FRESH_RIGHT_EVIDENCE 16u
 
 #if defined(SIGMA_NATIVE_ORACLE_QUERY_MATH)
+groupshared uint SigmaNativeFreshLeafAxis[8];
+groupshared uint SigmaNativeFreshLeafEye[8];
+groupshared uint2 SigmaNativeFreshLeafLower[8];
+groupshared uint2 SigmaNativeFreshLeafUpper[8];
+groupshared uint2 SigmaNativeFreshAxisLower[4];
+groupshared uint2 SigmaNativeFreshAxisUpper[4];
+groupshared uint2 SigmaNativeFreshSelected[4];
+groupshared uint2 SigmaNativeFreshState[16];
+groupshared uint2 SigmaNativeFreshForward[4];
+groupshared uint SigmaNativeFreshScratch[64];
+groupshared uint SigmaNativeFreshPhaseValid;
+
+bool SigmaNativeFreshQ48Equal(uint2 left, uint2 right)
+{
+    return all(left == right);
+}
+
+bool SigmaNativeFreshEntryValid(uint entryPointIndex)
+{
+    return entryPointIndex < SIGMA_MERKABA_ENTRY_POINT_COUNT &&
+        SIGMA_MERKABA_IR_ENTRY_POINTS[entryPointIndex].x == 7 &&
+        SIGMA_MERKABA_IR_ENTRY_POINTS[entryPointIndex].y == 8 &&
+        SIGMA_MERKABA_IR_ENTRY_POINTS[entryPointIndex].z == 1;
+}
+
+uint2 SigmaNativeFreshLiftWeight(int numerator)
+{
+    // numerator / 64 in Q16.48 => numerator * 2^42.
+    return uint2(0u, asuint(numerator * 1024));
+}
+
+uint SigmaNativeFreshReduceAnd(uint threadIndex)
+{
+    GroupMemoryBarrierWithGroupSync();
+    [unroll]
+    for (uint stride = 32u; stride != 0u; stride >>= 1u)
+    {
+        if (threadIndex < stride)
+            SigmaNativeFreshScratch[threadIndex] &=
+                SigmaNativeFreshScratch[threadIndex + stride];
+        GroupMemoryBarrierWithGroupSync();
+    }
+    return SigmaNativeFreshScratch[0];
+}
+
+uint SigmaNativeFreshReduceOr(uint threadIndex)
+{
+    GroupMemoryBarrierWithGroupSync();
+    [unroll]
+    for (uint stride = 32u; stride != 0u; stride >>= 1u)
+    {
+        if (threadIndex < stride)
+            SigmaNativeFreshScratch[threadIndex] |=
+                SigmaNativeFreshScratch[threadIndex + stride];
+        GroupMemoryBarrierWithGroupSync();
+    }
+    return SigmaNativeFreshScratch[0];
+}
+
+void SigmaNativeFreshLiftBranch(uint branchIndex, uint threadIndex)
+{
+    uint4 header = _NativeFreshObservationHeaders[branchIndex];
+    uint requiredFlags = SIGMA_NATIVE_FRESH_COHERENT |
+        SIGMA_NATIVE_FRESH_LEFT_FIRST_HIT |
+        SIGMA_NATIVE_FRESH_RIGHT_FIRST_HIT |
+        SIGMA_NATIVE_FRESH_LEFT_EVIDENCE |
+        SIGMA_NATIVE_FRESH_RIGHT_EVIDENCE;
+    bool contextValid = (header.x & requiredFlags) == requiredFlags &&
+        (header.y != 0u || header.z != 0u) && header.w != 0u &&
+        SigmaNativeFreshEntryValid(_NativeFreshLeftEntryPointIndex) &&
+        SigmaNativeFreshEntryValid(_NativeFreshRightEntryPointIndex);
+
+    SigmaNativeFreshScratch[threadIndex] = 1u;
+    if (threadIndex < 8u)
+    {
+        uint eye = threadIndex >> 2u;
+        uint leaf = threadIndex & 3u;
+        uint rowBase = branchIndex * 32u + eye * 16u + leaf * 4u;
+        uint axis = 4u;
+        int sign = 0;
+        uint leafValid = contextValid ? 1u : 0u;
+        [unroll]
+        for (uint candidateAxis = 0u; candidateAxis < 4u; ++candidateAxis)
+        {
+            uint2 coefficient = _NativeFreshQueryRows[rowBase + candidateAxis];
+            if (any(coefficient != 0u))
+            {
+                bool positive = SigmaNativeFreshQ48Equal(coefficient,
+                    uint2(0u, 0x00010000u));
+                bool negative = SigmaNativeFreshQ48Equal(coefficient,
+                    uint2(0u, 0xffff0000u));
+                if (axis != 4u || (!positive && !negative))
+                    leafValid = 0u;
+                else
+                {
+                    axis = candidateAxis;
+                    sign = positive ? 1 : -1;
+                }
+            }
+        }
+        leafValid &= axis < 4u ? 1u : 0u;
+        uint measurementBase = branchIndex * 16u + eye * 8u + leaf * 2u;
+        uint2 measuredLower = _NativeFreshMeasuredLeaves[measurementBase];
+        uint2 measuredUpper = _NativeFreshMeasuredLeaves[measurementBase + 1u];
+        leafValid &= !SigmaI64Less(measuredUpper, measuredLower) ? 1u : 0u;
+        uint negateValid = 1u;
+        uint2 pulledLower = measuredLower;
+        uint2 pulledUpper = measuredUpper;
+        if (sign < 0)
+        {
+            pulledLower = SigmaQ48NegateChecked(measuredUpper, negateValid);
+            pulledUpper = SigmaQ48NegateChecked(measuredLower, negateValid);
+        }
+        leafValid &= negateValid;
+        SigmaNativeFreshLeafAxis[threadIndex] = axis;
+        SigmaNativeFreshLeafEye[threadIndex] = eye;
+        SigmaNativeFreshLeafLower[threadIndex] = pulledLower;
+        SigmaNativeFreshLeafUpper[threadIndex] = pulledUpper;
+        SigmaNativeFreshScratch[threadIndex] = leafValid;
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    if (threadIndex < 4u)
+    {
+        uint2 lower = uint2(0u, 0x80000000u);
+        uint2 upper = uint2(0xffffffffu, 0x7fffffffu);
+        uint eyeMask = 0u;
+        uint axisValid = contextValid ? 1u : 0u;
+        [unroll]
+        for (uint sourceLeaf = 0u; sourceLeaf < 8u; ++sourceLeaf)
+        {
+            if (SigmaNativeFreshLeafAxis[sourceLeaf] == threadIndex)
+            {
+                axisValid &= SigmaNativeFreshScratch[sourceLeaf];
+                lower = SigmaQ48Max(lower,
+                    SigmaNativeFreshLeafLower[sourceLeaf]);
+                upper = SigmaQ48Min(upper,
+                    SigmaNativeFreshLeafUpper[sourceLeaf]);
+                eyeMask |= 1u << SigmaNativeFreshLeafEye[sourceLeaf];
+            }
+        }
+        axisValid &= (eyeMask == 3u && !SigmaI64Less(upper, lower)) ? 1u : 0u;
+        SigmaNativeFreshAxisLower[threadIndex] = lower;
+        SigmaNativeFreshAxisUpper[threadIndex] = upper;
+        SigmaNativeFreshScratch[threadIndex] = axisValid;
+    }
+    else
+        SigmaNativeFreshScratch[threadIndex] = 1u;
+    uint axisPhaseValid = SigmaNativeFreshReduceAnd(threadIndex);
+
+    if (threadIndex == 0u)
+    {
+        uint selectorValid = axisPhaseValid;
+        uint2 lower[4];
+        uint2 upper[4];
+        uint2 selected[4];
+        [unroll]
+        for (uint axisCopy = 0u; axisCopy < 4u; ++axisCopy)
+        {
+            lower[axisCopy] = SigmaNativeFreshAxisLower[axisCopy];
+            upper[axisCopy] = SigmaNativeFreshAxisUpper[axisCopy];
+            selected[axisCopy] = uint2(0u, 0u);
+        }
+        bool selectedValid = SigmaMerkabaSelectFreshTangent(lower, upper,
+            selected, selectorValid);
+        SigmaNativeFreshPhaseValid = selectedValid && selectorValid != 0u
+            ? 1u : 0u;
+        [unroll]
+        for (uint selectedAxis = 0u; selectedAxis < 4u; ++selectedAxis)
+            SigmaNativeFreshSelected[selectedAxis] = selected[selectedAxis];
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    SigmaNativeFreshScratch[threadIndex] = 1u;
+    if (threadIndex < 16u)
+    {
+        uint laneValid = SigmaNativeFreshPhaseValid;
+        uint2 laneValue = uint2(0u, 0u);
+        [unroll]
+        for (uint liftAxis = 0u; liftAxis < 4u; ++liftAxis)
+        {
+            uint2 weight = SigmaNativeFreshLiftWeight(
+                SigmaMerkabaShadowNumerator(threadIndex, liftAxis));
+            laneValue = SigmaQ48AddChecked(laneValue,
+                SigmaQ48MulNearestEven(SigmaNativeFreshSelected[liftAxis],
+                    weight, laneValid), laneValid);
+        }
+        SigmaNativeFreshState[threadIndex] = laneValue;
+        _NativeStates[branchIndex * 16u + threadIndex] = laneValue;
+        SigmaNativeFreshScratch[threadIndex] = laneValid;
+    }
+    uint liftValid = SigmaNativeFreshReduceAnd(threadIndex);
+
+    SigmaNativeFreshScratch[threadIndex] = threadIndex < 16u &&
+        any(SigmaNativeFreshState[threadIndex] != 0u) ? 1u : 0u;
+    uint stateNonzero = SigmaNativeFreshReduceOr(threadIndex);
+    if (threadIndex == 0u)
+    {
+        SigmaNativeFreshPhaseValid &= liftValid & stateNonzero;
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    if (threadIndex < 4u)
+    {
+        uint forwardValid = SigmaNativeFreshPhaseValid;
+        uint2 sum = uint2(0u, 0u);
+        [unroll]
+        for (uint forwardLane = 0u; forwardLane < 16u; ++forwardLane)
+        {
+            uint2 weight = SigmaNativeShadowWeight(
+                SigmaMerkabaShadowNumerator(forwardLane, threadIndex));
+            sum = SigmaQ48AddChecked(sum,
+                SigmaQ48MulNearestEven(SigmaNativeFreshState[forwardLane],
+                    weight, forwardValid), forwardValid);
+        }
+        SigmaNativeFreshForward[threadIndex] = sum;
+        SigmaNativeFreshScratch[threadIndex] = forwardValid;
+    }
+    else
+        SigmaNativeFreshScratch[threadIndex] = 1u;
+    uint forwardPhaseValid = SigmaNativeFreshReduceAnd(threadIndex);
+
+    SigmaNativeFreshScratch[threadIndex] = 1u;
+    if (threadIndex < 8u)
+    {
+        uint eye = threadIndex >> 2u;
+        uint leaf = threadIndex & 3u;
+        uint rowBase = branchIndex * 32u + eye * 16u + leaf * 4u;
+        uint leafForwardValid = forwardPhaseValid;
+        uint2 predicted = uint2(0u, 0u);
+        [unroll]
+        for (uint forwardAxis = 0u; forwardAxis < 4u; ++forwardAxis)
+            predicted = SigmaQ48AddChecked(predicted,
+                SigmaQ48MulNearestEven(SigmaNativeFreshForward[forwardAxis],
+                    _NativeFreshQueryRows[rowBase + forwardAxis],
+                    leafForwardValid), leafForwardValid);
+        uint measurementBase = branchIndex * 16u + eye * 8u + leaf * 2u;
+        leafForwardValid &= SigmaNativePointInInterval(predicted,
+            _NativeFreshMeasuredLeaves[measurementBase],
+            _NativeFreshMeasuredLeaves[measurementBase + 1u]) ? 1u : 0u;
+        SigmaNativeFreshScratch[threadIndex] = leafForwardValid;
+    }
+    uint rawForwardValid = SigmaNativeFreshReduceAnd(threadIndex);
+
+    if (threadIndex == 0u)
+    {
+        SigmaNativeFreshPhaseValid &= rawForwardValid;
+        _NativeBranchHeaders[branchIndex] = uint4(branchIndex,
+            SigmaNativeFreshPhaseValid,
+            header.x, 0u);
+    }
+    if (threadIndex < 4u)
+        _NativeBranchPredictions[branchIndex * 4u + threadIndex] = uint4(
+            SigmaNativeFreshSelected[threadIndex], 0u, 0u);
+    GroupMemoryBarrierWithGroupSync();
+    if (SigmaNativeFreshPhaseValid == 0u && threadIndex < 16u)
+        _NativeStates[branchIndex * 16u + threadIndex] = uint2(0u, 0u);
+}
+
+void SigmaNativeFreshFinalize(uint threadIndex)
+{
+    uint branchCount = _NativeFreshBranchCount;
+    bool bounded = branchCount > 0u &&
+        branchCount <= SIGMA_NATIVE_FRESH_HOT_BRANCH_CAPACITY;
+    uint branch = threadIndex >> 4u;
+    uint lane = threadIndex & 15u;
+    bool activeBranch = bounded && branch < branchCount;
+    // HLSL does not promise short-circuit resource loads. Clamp inactive lanes
+    // to branch zero so the fixed four-branch collective never probes beyond
+    // the physically allocated buffers when branchCount is one to three.
+    uint safeBranch = activeBranch ? branch : 0u;
+    bool branchValid = activeBranch &&
+        _NativeBranchHeaders[safeBranch].y != 0u &&
+        _NativeCandidateRelationResults[safeBranch].w != 0u &&
+        _NativeCandidateRelationResults[safeBranch].x ==
+            SIGMA_MERKABA_RELATION_NO_RELATION;
+    bool laneEqual = !activeBranch || all(
+        _NativeStates[safeBranch * 16u + lane] == _NativeStates[lane]);
+    SigmaNativeFreshScratch[threadIndex] =
+        branchValid && laneEqual ? 0u : (activeBranch ? 1u : 0u);
+    GroupMemoryBarrierWithGroupSync();
+
+    [unroll]
+    for (uint stride = 8u; stride != 0u; stride >>= 1u)
+    {
+        if (lane < stride)
+            SigmaNativeFreshScratch[branch * 16u + lane] |=
+                SigmaNativeFreshScratch[branch * 16u + lane + stride];
+        GroupMemoryBarrierWithGroupSync();
+    }
+
+    if (threadIndex == 0u)
+    {
+        uint mismatch = bounded ? 0u : 1u;
+        [unroll]
+        for (uint branchProbe = 0u;
+            branchProbe < SIGMA_NATIVE_FRESH_HOT_BRANCH_CAPACITY; ++branchProbe)
+            if (branchProbe < branchCount)
+                mismatch |= SigmaNativeFreshScratch[branchProbe * 16u];
+        SigmaNativeFreshPhaseValid = mismatch == 0u ? 1u : 0u;
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    uint admissionOffset = branchCount * 16u;
+    if (threadIndex < 16u)
+        _NativeStates[admissionOffset + threadIndex] =
+            SigmaNativeFreshPhaseValid != 0u
+            ? _NativeStates[threadIndex] : uint2(0u, 0u);
+    if (threadIndex == 0u)
+    {
+        uint status = SigmaNativeFreshPhaseValid != 0u
+            ? SIGMA_NATIVE_FRESH_ADMITTED : SIGMA_NATIVE_FRESH_UNRESOLVED;
+        uint relation = SigmaNativeFreshPhaseValid != 0u
+            ? SIGMA_MERKABA_RELATION_NO_RELATION
+            : SIGMA_MERKABA_RELATION_UNRESOLVED;
+        uint coldReason = branchCount > SIGMA_NATIVE_FRESH_HOT_BRANCH_CAPACITY
+            ? SIGMA_NATIVE_FRESH_COLD_CONTINUATION : 0u;
+        _NativeBranchHeaders[branchCount] = uint4(status, relation,
+            branchCount, coldReason);
+        _NativeBranchSupports[branchCount] = uint2(0u, 0u);
+    }
+}
+
 bool SigmaNativeContractKeyEqual(uint2 left, uint2 right)
 {
     return all(left == right);
@@ -282,8 +629,21 @@ void SigmaNativeContractOne(uint candidateIndex)
 }
 
 [numthreads(64, 1, 1)]
-void ContractNativeQuery(uint3 id : SV_DispatchThreadID)
+void ContractNativeQuery(uint3 id : SV_DispatchThreadID,
+    uint3 groupId : SV_GroupID, uint3 groupThreadId : SV_GroupThreadID)
 {
+    if (_NativeContractMode == SIGMA_NATIVE_CONTRACT_FRESH_LIFT)
+    {
+        if (groupId.x < _NativeFreshBranchCount)
+            SigmaNativeFreshLiftBranch(groupId.x, groupThreadId.x);
+        return;
+    }
+    if (_NativeContractMode == SIGMA_NATIVE_CONTRACT_FRESH_UNION)
+    {
+        if (groupId.x == 0u)
+            SigmaNativeFreshFinalize(groupThreadId.x);
+        return;
+    }
     uint hotCount = min(_NativeCandidateCount, _NativeHotCapacity);
     if (id.x < hotCount)
         SigmaNativeContractOne(id.x);

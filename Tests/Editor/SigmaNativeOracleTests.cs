@@ -70,6 +70,31 @@ namespace Genesis.RoomScan.Tests
             internal bool RequiresColdContinuation { get; }
         }
 
+        private sealed class GpuFreshAdmission
+        {
+            internal GpuFreshAdmission(uint status, SigmaS16 state,
+                SigmaMerkabaRelationClass relation, long supportU, long supportV,
+                uint branchCount, uint coldReason)
+            {
+                Status = status;
+                State = state;
+                Relation = relation;
+                SupportU = supportU;
+                SupportV = supportV;
+                BranchCount = branchCount;
+                ColdReason = coldReason;
+            }
+
+            internal uint Status { get; }
+            internal SigmaS16 State { get; }
+            internal SigmaMerkabaRelationClass Relation { get; }
+            internal long SupportU { get; }
+            internal long SupportV { get; }
+            internal uint BranchCount { get; }
+            internal uint ColdReason { get; }
+            internal bool Admitted => Status == 1u;
+        }
+
         [Test]
         public void WholeQueryReductionOwnsFirstHitDisjunctionAndDefault()
         {
@@ -179,6 +204,133 @@ namespace Genesis.RoomScan.Tests
                     new[] { translated, new SigmaGaugeCell(8, 8, 0,
                         "fresh-full-s16") },
                 }, out _), Is.False, "Non-equivalent fresh placement stays unresolved.");
+        }
+
+        [Test]
+        public void FreshBaseAdmissionStartsAtCoherentObservationAndMatchesVulkan()
+        {
+            long[] target =
+            {
+                SigmaNumericDomain.One,
+                -SigmaNumericDomain.One,
+                SigmaNumericDomain.Half,
+                -SigmaNumericDomain.Half,
+            };
+            long[] otherTarget =
+            {
+                SigmaNumericDomain.Half,
+                SigmaNumericDomain.Half,
+                -SigmaNumericDomain.Half,
+                -SigmaNumericDomain.Half,
+            };
+            SigmaNativeFreshObservationBranch a = FreshObservation(target, 41UL,
+                provenanceOrdinal: 1);
+            SigmaNativeFreshObservationBranch b = FreshObservation(target, 41UL,
+                provenanceOrdinal: 2);
+            SigmaNativeFreshObservationBranch other = FreshObservation(otherTarget,
+                41UL, provenanceOrdinal: 3);
+
+            Assert.That(SigmaMerkabaSemanticOracle.TryResolveFreshBaseAdmission(
+                new[] { a }, out SigmaFreshBaseAdmission cpuUnique), Is.True);
+            Assert.That(cpuUnique.State.IsZero, Is.False,
+                "An all-ZEmpty prior is implicit; no proposed state enters N2.");
+            Assert.That(cpuUnique.Support.Count, Is.EqualTo(1));
+            Assert.That(cpuUnique.Support[0].U, Is.Zero);
+            Assert.That(cpuUnique.Support[0].V, Is.Zero);
+            Assert.That(cpuUnique.Support[0].Level, Is.Zero);
+            AssertFreshGpuMatchesCpu(RunGpuFreshAdmission(new[] { a }), cpuUnique,
+                expectedBranchCount: 1);
+
+            Assert.That(SigmaMerkabaSemanticOracle.TryResolveFreshBaseAdmission(
+                new[] { a, b }, out SigmaFreshBaseAdmission cpuCommon), Is.True);
+            GpuFreshAdmission gpuAB = RunGpuFreshAdmission(new[] { a, b });
+            GpuFreshAdmission gpuBA = RunGpuFreshAdmission(new[] { b, a });
+            AssertFreshGpuMatchesCpu(gpuAB, cpuCommon, expectedBranchCount: 2);
+            AssertFreshGpuMatchesCpu(gpuBA, cpuCommon, expectedBranchCount: 2);
+            Assert.That(gpuBA.State, Is.EqualTo(gpuAB.State),
+                "Reverse-branch/allocation order may not choose fresh physics.");
+
+            Assert.That(SigmaMerkabaSemanticOracle.TryResolveFreshBaseAdmission(
+                new[] { a, other }, out _), Is.False);
+            Assert.That(RunGpuFreshAdmission(new[] { a, other }).Admitted, Is.False,
+                "Non-equivalent surviving preimages remain unresolved.");
+
+            SigmaNativeFreshObservationBranch rightDiscriminates = FreshObservation(
+                target, 42UL, provenanceOrdinal: 4, leftBroad: true);
+            Assert.That(SigmaMerkabaSemanticOracle.TryResolveFreshBaseAdmission(
+                new[] { rightDiscriminates }, out SigmaFreshBaseAdmission cpuRight),
+                Is.True);
+            AssertFreshGpuMatchesCpu(RunGpuFreshAdmission(
+                new[] { rightDiscriminates }), cpuRight, expectedBranchCount: 1);
+            SigmaNativeFreshObservationBranch rightChanges = FreshObservation(
+                otherTarget, 43UL, provenanceOrdinal: 5, leftBroad: true);
+            Assert.That(SigmaMerkabaSemanticOracle.TryResolveFreshBaseAdmission(
+                new[] { rightChanges }, out SigmaFreshBaseAdmission cpuRightChanged),
+                Is.True);
+            Assert.That(cpuRightChanged.State, Is.Not.EqualTo(cpuRight.State),
+                "Changing only the exact right-eye shadow must change the lift.");
+
+            SigmaNativeFreshObservationBranch signedRight = FreshObservation(
+                target, 43UL, provenanceOrdinal: 8, negateRightRows: true);
+            Assert.That(SigmaMerkabaSemanticOracle.TryResolveFreshBaseAdmission(
+                new[] { signedRight }, out SigmaFreshBaseAdmission cpuSigned),
+                Is.True);
+            AssertFreshGpuMatchesCpu(RunGpuFreshAdmission(
+                new[] { signedRight }), cpuSigned, expectedBranchCount: 1);
+            Assert.That(cpuSigned.State, Is.EqualTo(cpuUnique.State),
+                "Signed query-row routing may not change the physical preimage.");
+
+            int[] lattice = { -1, 0, 1 };
+            long[][] tangentCorpus =
+                (from x0 in lattice
+                 from x1 in lattice
+                 from x2 in lattice
+                 from x3 in lattice
+                 where x0 + x1 + x2 + x3 == 0 &&
+                       (x0 != 0 || x1 != 0 || x2 != 0 || x3 != 0)
+                 select new[]
+                 {
+                     Raw(x0, 2), Raw(x1, 2), Raw(x2, 2), Raw(x3, 2),
+                 }).ToArray();
+            Assert.That(tangentCorpus.Length, Is.EqualTo(18));
+            for (int index = 0; index < tangentCorpus.Length; ++index)
+            {
+                SigmaNativeFreshObservationBranch fixture = FreshObservation(
+                    tangentCorpus[index], (ulong)(100 + index),
+                    provenanceOrdinal: 1000 + index,
+                    negateRightRows: (index & 1) != 0);
+                Assert.That(SigmaMerkabaSemanticOracle.TryResolveFreshBaseAdmission(
+                    new[] { fixture }, out SigmaFreshBaseAdmission cpuFixture),
+                    Is.True, $"fresh tangent fixture {index}");
+                AssertFreshGpuMatchesCpu(RunGpuFreshAdmission(
+                    new[] { fixture }), cpuFixture, expectedBranchCount: 1);
+            }
+
+            SigmaNativeFreshObservationBranch behind = FreshObservation(target,
+                44UL, provenanceOrdinal: 6, rightFirstHit: false);
+            Assert.That(SigmaMerkabaSemanticOracle.TryResolveFreshBaseAdmission(
+                new[] { behind }, out _), Is.False);
+            Assert.That(RunGpuFreshAdmission(new[] { behind }).Admitted, Is.False,
+                "Behind/no-first-hit evidence cannot mint support.");
+
+            SigmaNativeFreshObservationBranch noEvidence = FreshObservation(target,
+                45UL, provenanceOrdinal: 7, evidence: false);
+            Assert.That(SigmaMerkabaSemanticOracle.TryResolveFreshBaseAdmission(
+                new[] { noEvidence }, out _), Is.False);
+            Assert.That(RunGpuFreshAdmission(new[] { noEvidence }).Admitted, Is.False);
+
+            SigmaNativeFreshObservationBranch[] cold = Enumerable.Range(0, 5)
+                .Select(index => FreshObservation(target, 46UL,
+                    provenanceOrdinal: 100 + index)).ToArray();
+            Assert.That(SigmaMerkabaSemanticOracle.TryResolveFreshBaseAdmission(
+                cold, out _), Is.True,
+                "The semantic program has a common result beyond the hot bound.");
+            GpuFreshAdmission coldGpu = RunGpuFreshAdmission(cold);
+            Assert.That(coldGpu.Admitted, Is.False,
+                "The bounded hot collective may never truncate five branches into support.");
+            Assert.That(coldGpu.BranchCount, Is.EqualTo(5u));
+            Assert.That(coldGpu.ColdReason, Is.EqualTo(2u),
+                "Overflow must be explicit retained cold continuation, not a false answer.");
         }
 
         [Test]
@@ -495,6 +647,12 @@ namespace Genesis.RoomScan.Tests
                 "void ContractNativeQuery"));
             Assert.That(contract, Does.Contain("[numthreads(64, 1, 1)]\n" +
                 "void ResolveContractorOverflow"));
+            Assert.That(contract, Does.Contain(
+                "SigmaNativeFreshLiftBranch(groupId.x, groupThreadId.x)"));
+            Assert.That(contract, Does.Contain(
+                "SigmaNativeFreshFinalize(groupThreadId.x)"));
+            Assert.That(contract, Does.Not.Contain(
+                "for (uint freshBranch"));
             Assert.That(query, Does.Not.Contain("for (uint action"));
             Assert.That(query, Does.Not.Contain("for (uint relationIndex"));
             Assert.That(query, Does.Not.Contain("for (uint member"));
@@ -933,6 +1091,222 @@ namespace Genesis.RoomScan.Tests
             AssertGpuRelationsMatchCpu(queryShader, relations, cpu);
         }
 
+        private static GpuFreshAdmission RunGpuFreshAdmission(
+            SigmaNativeFreshObservationBranch[] branches)
+        {
+            Assert.That(branches, Is.Not.Null.And.Not.Empty);
+            int branchCount = branches.Length;
+            int admissionStateOffset = branchCount * SigmaS16.LaneCount;
+            int zeroStateOffset = (branchCount + 1) * SigmaS16.LaneCount;
+            UInt4[] freshHeaders = branches.Select((branch, index) =>
+            {
+                uint flags = 1u |
+                    (branch.LeftFirstHit ? 2u : 0u) |
+                    (branch.RightFirstHit ? 4u : 0u) |
+                    (branch.Left.OrderEvidence && branch.Left.OpticalEvidence
+                        ? 8u : 0u) |
+                    (branch.Right.OrderEvidence && branch.Right.OpticalEvidence
+                        ? 16u : 0u);
+                ulong revision = branch.CoherentContext.ObservationRevision;
+                uint provenance = Convert.ToUInt32(
+                    branch.ProvenanceFingerprint.Substring(56, 8), 16);
+                return new UInt4
+                {
+                    X = flags,
+                    Y = (uint)revision,
+                    Z = (uint)(revision >> 32),
+                    W = provenance == 0u ? (uint)index + 1u : provenance,
+                };
+            }).ToArray();
+            UInt2[] freshRows = branches.SelectMany(branch =>
+                    PackRows(branch.Left).Concat(PackRows(branch.Right)))
+                .ToArray();
+            UInt2[] freshMeasurements = branches.SelectMany(branch =>
+                    PackFreshMeasurements(branch.Left).Concat(
+                        PackFreshMeasurements(branch.Right)))
+                .ToArray();
+
+            var zeroStates = Enumerable.Repeat(SigmaS16.Zero,
+                branchCount + 2).ToArray();
+            UInt4[] relationInputs = Enumerable.Range(0, branchCount)
+                .Select(index => new UInt4
+                {
+                    X = (uint)(index * SigmaS16.LaneCount),
+                    Y = 0u,
+                }).ToArray();
+            UInt4[] relationPlans = Enumerable.Range(0, branchCount)
+                .Select(_ => new UInt4
+                {
+                    X = (uint)zeroStateOffset,
+                    Y = (uint)zeroStateOffset,
+                    Z = 0u,
+                    W = 0u,
+                }).ToArray();
+            UInt4[] nearIntervals = Enumerable.Repeat(
+                PackInterval(SigmaQ48Interval.Empty), branchCount).ToArray();
+
+            ComputeShader queryShader = LoadShader("SigmaNativeQuery");
+            ComputeShader contractShader = LoadShader("SigmaNativeContract");
+            int contract = contractShader.FindKernel("ContractNativeQuery");
+            int relation = queryShader.FindKernel("EvaluateNativeRelation");
+
+            using GraphicsBuffer stateBuffer = Buffer(PackStates(zeroStates));
+            using GraphicsBuffer freshHeaderBuffer = Buffer(freshHeaders);
+            using GraphicsBuffer freshRowBuffer = Buffer(freshRows);
+            using GraphicsBuffer freshMeasurementBuffer = Buffer(freshMeasurements);
+            using GraphicsBuffer relationInputBuffer = Buffer(relationInputs);
+            using GraphicsBuffer relationPlanBuffer = Buffer(relationPlans);
+            using GraphicsBuffer nearBuffer = Buffer(nearIntervals);
+            using GraphicsBuffer relationResults = Buffer<UInt4>(branchCount);
+            using GraphicsBuffer relationFactors = Buffer<UInt4>(branchCount);
+            using GraphicsBuffer relationHashes = Buffer<UInt4>(branchCount);
+            using GraphicsBuffer relationNorms = Buffer<UInt4>(branchCount * 4);
+            using GraphicsBuffer outputHeaders = Buffer<UInt4>(branchCount + 1);
+            using GraphicsBuffer outputSupports = Buffer<UInt2>(branchCount + 1);
+            using GraphicsBuffer outputActions = Buffer<UInt4>(
+                Math.Max(1, branchCount));
+            using GraphicsBuffer outputPredictions = Buffer<UInt4>(
+                Math.Max(4, branchCount * 4));
+            using GraphicsBuffer outputRelationFactors = Buffer<UInt4>(
+                Math.Max(1, branchCount));
+            using GraphicsBuffer outputRelationHashes = Buffer<UInt4>(
+                Math.Max(1, branchCount));
+
+            // The same entry point also owns the accepted candidate contractor.
+            // Bind one inert record for those statically reachable resources;
+            // fresh mode never reads identity/proposed-state inputs.
+            using GraphicsBuffer dummyKey = Buffer(new UInt4[1]);
+            using GraphicsBuffer dummyCandidateState = Buffer(new UInt4[1]);
+            using GraphicsBuffer dummyGaugeCoordinate = Buffer(new UInt4[2]);
+            using GraphicsBuffer dummyGaugeMetadata = Buffer(new UInt4[2]);
+            using GraphicsBuffer dummyHash = Buffer(new uint[1]);
+            using GraphicsBuffer dummyRows = Buffer(new UInt2[16]);
+            using GraphicsBuffer dummyOrder = Buffer(new UInt2[2]);
+            using GraphicsBuffer dummyOptical = Buffer(new UInt2[6]);
+            using GraphicsBuffer dummyDirection = Buffer(new UInt2[2]);
+            using GraphicsBuffer dummyExposure = Buffer(new UInt2[2]);
+            using GraphicsBuffer dummyChannels = Buffer(new UInt2[24]);
+            using GraphicsBuffer dummyTransferRanges = Buffer(new UInt2[3]);
+            using GraphicsBuffer dummyTransferData = Buffer(new UInt2[4]);
+
+            contractShader.SetBuffer(contract, "_NativeCandidateKeys", dummyKey);
+            contractShader.SetBuffer(contract, "_NativeCandidateStates",
+                dummyCandidateState);
+            contractShader.SetBuffer(contract, "_NativeCandidateGaugeCoordinates",
+                dummyGaugeCoordinate);
+            contractShader.SetBuffer(contract, "_NativeCandidateGaugeMetadata",
+                dummyGaugeMetadata);
+            contractShader.SetBuffer(contract, "_NativeCandidateRelationResults",
+                relationResults);
+            contractShader.SetBuffer(contract, "_NativeCandidateRelationFactors",
+                relationFactors);
+            contractShader.SetBuffer(contract, "_NativeCandidateRelationHashes",
+                relationHashes);
+            contractShader.SetBuffer(contract, "_NativeCandidateDeltaHashes",
+                dummyHash);
+            contractShader.SetBuffer(contract, "_NativeStates", stateBuffer);
+            contractShader.SetBuffer(contract, "_NativeQueryRows", dummyRows);
+            contractShader.SetBuffer(contract, "_NativeFreshObservationHeaders",
+                freshHeaderBuffer);
+            contractShader.SetBuffer(contract, "_NativeFreshQueryRows",
+                freshRowBuffer);
+            contractShader.SetBuffer(contract, "_NativeFreshMeasuredLeaves",
+                freshMeasurementBuffer);
+            contractShader.SetBuffer(contract, "_NativeObservationOrder",
+                dummyOrder);
+            contractShader.SetBuffer(contract, "_NativeMeasuredOptical",
+                dummyOptical);
+            contractShader.SetBuffer(contract, "_NativeDirection", dummyDirection);
+            contractShader.SetBuffer(contract, "_NativePhotometricExposure",
+                dummyExposure);
+            contractShader.SetBuffer(contract,
+                "_NativePhotometricChannelParameters", dummyChannels);
+            contractShader.SetBuffer(contract,
+                "_NativePhotometricTransferRanges", dummyTransferRanges);
+            contractShader.SetBuffer(contract, "_NativePhotometricTransferData",
+                dummyTransferData);
+            contractShader.SetBuffer(contract, "_NativeBranchHeaders",
+                outputHeaders);
+            contractShader.SetBuffer(contract, "_NativeBranchSupports",
+                outputSupports);
+            contractShader.SetBuffer(contract, "_NativeBranchActions",
+                outputActions);
+            contractShader.SetBuffer(contract, "_NativeBranchPredictions",
+                outputPredictions);
+            contractShader.SetBuffer(contract, "_NativeBranchRelationFactors",
+                outputRelationFactors);
+            contractShader.SetBuffer(contract, "_NativeBranchRelationHashes",
+                outputRelationHashes);
+            contractShader.SetInt("_NativeFreshBranchCount", branchCount);
+            contractShader.SetInt("_NativeFreshLeftEntryPointIndex",
+                EntryPointIndex(branches[0].Left));
+            contractShader.SetInt("_NativeFreshRightEntryPointIndex",
+                EntryPointIndex(branches[0].Right));
+            contractShader.SetInt("_NativeCandidateCount", 0);
+            contractShader.SetInt("_NativeHotCapacity", 0);
+            contractShader.SetInt("_NativeContractMode", 1);
+
+            // One workgroup per reverse branch. The 64 threads map eight raw
+            // leaves, four axes and sixteen S16 lanes; branch count changes the
+            // dispatch grid, never the command sequence.
+            contractShader.Dispatch(contract, branchCount, 1, 1);
+
+            queryShader.SetBuffer(relation, "_NativeStates", stateBuffer);
+            queryShader.SetBuffer(relation, "_NativeRelationInputs",
+                relationInputBuffer);
+            queryShader.SetBuffer(relation, "_NativeRelationPlans",
+                relationPlanBuffer);
+            queryShader.SetBuffer(relation, "_NativeRelationNearIntervals",
+                nearBuffer);
+            queryShader.SetBuffer(relation, "_NativeRelationResults",
+                relationResults);
+            queryShader.SetBuffer(relation, "_NativeRelationFactors",
+                relationFactors);
+            queryShader.SetBuffer(relation, "_NativeRelationHashes",
+                relationHashes);
+            queryShader.SetBuffer(relation, "_NativeRelationNorms", relationNorms);
+            queryShader.SetInt("_NativeEntryPointIndex", Array.FindIndex(
+                SigmaGeneratedMerkabaProgram.EntryPoints,
+                value => value.Id == "INTRINSIC_RELATION"));
+            queryShader.SetInt("_NativeRelationCount", branchCount);
+            // Existing 256-thread hyperdimensional relation workgroups derive
+            // the boundary witness; no host truth or per-relation dispatch exists.
+            queryShader.Dispatch(relation, branchCount, 1, 1);
+
+            contractShader.SetInt("_NativeContractMode", 2);
+            // One bounded collective compares all complete branch states and
+            // emits a common relative support result or UNRESOLVED.
+            contractShader.Dispatch(contract, 1, 1, 1);
+
+            UInt4 header = Read<UInt4>(outputHeaders, branchCount + 1)[branchCount];
+            UInt2[] packedStates = Read<UInt2>(stateBuffer,
+                (branchCount + 2) * SigmaS16.LaneCount);
+            var lanes = new long[SigmaS16.LaneCount];
+            for (int lane = 0; lane < lanes.Length; ++lane)
+                lanes[lane] = Unpack(packedStates[admissionStateOffset + lane]);
+            UInt2 support = Read<UInt2>(outputSupports,
+                branchCount + 1)[branchCount];
+            return new GpuFreshAdmission(header.X, SigmaS16.FromArray(lanes),
+                (SigmaMerkabaRelationClass)header.Y,
+                unchecked((long)(ulong)support.X),
+                unchecked((long)(ulong)support.Y), header.Z, header.W);
+        }
+
+        private static void AssertFreshGpuMatchesCpu(GpuFreshAdmission gpu,
+            SigmaFreshBaseAdmission cpu, int expectedBranchCount)
+        {
+            Assert.That(gpu.Admitted, Is.True);
+            Assert.That(gpu.Status,
+                Is.EqualTo((uint)SigmaFreshAdmissionStatus.Admitted));
+            Assert.That(gpu.State, Is.EqualTo(cpu.State));
+            Assert.That(gpu.Relation, Is.EqualTo(cpu.BoundaryRelation));
+            Assert.That(gpu.SupportU, Is.Zero);
+            Assert.That(gpu.SupportV, Is.Zero);
+            Assert.That(gpu.BranchCount, Is.EqualTo((uint)expectedBranchCount));
+            Assert.That(gpu.ColdReason, Is.Zero,
+                "Bounded one-to-four branch proof must remain on the fixed hot graph.");
+        }
+
         private static int[] RunGpuContractOverflow(ComputeShader queryShader,
             ComputeShader contractShader, SigmaNativeOracleQuery query,
             SigmaNativePreimageCandidate[] cpuCandidates = null,
@@ -1045,6 +1419,9 @@ namespace Genesis.RoomScan.Tests
                 candidateCount);
             using GraphicsBuffer branchRelationHashes = Buffer<UInt4>(
                 candidateCount);
+            using GraphicsBuffer freshHeaderDummy = Buffer(new UInt4[1]);
+            using GraphicsBuffer freshRowDummy = Buffer(new UInt2[32]);
+            using GraphicsBuffer freshMeasurementDummy = Buffer(new UInt2[16]);
             using var args = new GraphicsBuffer(GraphicsBuffer.Target.Structured |
                 GraphicsBuffer.Target.IndirectArguments, 3, sizeof(uint));
 
@@ -1096,6 +1473,18 @@ namespace Genesis.RoomScan.Tests
                     hashBuffer);
                 contractShader.SetBuffer(kernel, "_NativeStates", stateBuffer);
                 contractShader.SetBuffer(kernel, "_NativeQueryRows", rowBuffer);
+                if (kernel == hot)
+                {
+                    // ContractNativeQuery also owns the bounded fresh-lift mode.
+                    // Candidate mode never reads these inputs, but Vulkan requires
+                    // every statically reachable resource to be bound.
+                    contractShader.SetBuffer(kernel,
+                        "_NativeFreshObservationHeaders", freshHeaderDummy);
+                    contractShader.SetBuffer(kernel, "_NativeFreshQueryRows",
+                        freshRowDummy);
+                    contractShader.SetBuffer(kernel,
+                        "_NativeFreshMeasuredLeaves", freshMeasurementDummy);
+                }
                 contractShader.SetBuffer(kernel, "_NativeObservationOrder",
                     orderBuffer);
                 contractShader.SetBuffer(kernel, "_NativeMeasuredOptical",
@@ -1125,6 +1514,8 @@ namespace Genesis.RoomScan.Tests
             contractShader.SetBuffer(build, "_NativeOverflowArgs", args);
             contractShader.SetInt("_NativeCandidateCount", candidateCount);
             contractShader.SetInt("_NativeHotCapacity", 2);
+            contractShader.SetInt("_NativeContractMode", 0);
+            contractShader.SetInt("_NativeFreshBranchCount", 0);
             uint observationFlags = (query.OrderEvidence ? 1u : 0u) |
                 (query.OpticalEvidence ? 2u : 0u) |
                 (query.PhotometricLaw.HasBoundedClaim ? 4u : 0u);
@@ -1675,6 +2066,68 @@ namespace Genesis.RoomScan.Tests
             }
             return SigmaS16.FromArray(lanes);
         }
+
+        private static SigmaNativeFreshObservationBranch FreshObservation(
+            IReadOnlyList<long> target, ulong revision, int provenanceOrdinal,
+            bool leftBroad = false, bool rightFirstHit = true,
+            bool evidence = true, bool negateRightRows = false)
+        {
+            Assert.That(target.Count, Is.EqualTo(4));
+            Assert.That(target.Aggregate(0L, SigmaNumericDomain.QAdd), Is.Zero,
+                "Fresh fixture must lie in the exact Merkaba tangent sector.");
+            IReadOnlyList<long>[] leftRows =
+            {
+                Axis(0), Axis(1), Axis(2), Axis(3),
+            };
+            IReadOnlyList<long>[] rightRows =
+            {
+                Axis(2), Axis(3), Axis(0), Axis(1),
+            };
+            SigmaQ48Interval[] leftMeasured = leftBroad
+                ? Enumerable.Repeat(SigmaQ48Interval.Full, 4).ToArray()
+                : target.Select(Point).ToArray();
+            SigmaQ48Interval[] rightMeasured =
+            {
+                Point(target[2]), Point(target[3]), Point(target[0]),
+                Point(target[1]),
+            };
+            if (negateRightRows)
+            {
+                rightRows = rightRows.Select(row => (IReadOnlyList<long>)row
+                    .Select(SigmaNumericDomain.QNegate).ToArray()).ToArray();
+                rightMeasured = rightMeasured.Select(value =>
+                    new SigmaQ48Interval(
+                        SigmaNumericDomain.QNegate(value.Upper),
+                        SigmaNumericDomain.QNegate(value.Lower))).ToArray();
+            }
+            SigmaNativePhotometricLaw law = Law(true, 1, 1);
+            SigmaNativeOracleQuery left = FreshQuery("SENSOR_LEFT", leftRows,
+                leftMeasured, evidence, law);
+            SigmaNativeOracleQuery right = FreshQuery("SENSOR_RIGHT", rightRows,
+                rightMeasured, evidence, law);
+            return new SigmaNativeFreshObservationBranch(left, right,
+                new SigmaNativeCoherentQueryContext(revision, GaugeFingerprint),
+                leftFirstHit: true, rightFirstHit: rightFirstHit,
+                provenanceOrdinal.ToString("x64"));
+        }
+
+        private static SigmaNativeOracleQuery FreshQuery(string entry,
+            IReadOnlyList<long>[] rows, IReadOnlyList<SigmaQ48Interval> measured,
+            bool evidence, SigmaNativePhotometricLaw law)
+        {
+            Assert.That(rows, Has.Length.EqualTo(4));
+            Assert.That(measured.Count, Is.EqualTo(4));
+            return new SigmaNativeOracleQuery(entry, 0, rows[0],
+                new[] { rows[1], rows[2], rows[3] }, measured[0],
+                new[] { measured[1], measured[2], measured[3] },
+                Point(SigmaNumericDomain.One), evidence, evidence, law);
+        }
+
+        private static UInt2[] PackFreshMeasurements(
+            SigmaNativeOracleQuery query) => new[] { query.MeasuredOrder }
+            .Concat(query.MeasuredOptical)
+            .SelectMany(value => new[] { Pack(value.Lower), Pack(value.Upper) })
+            .ToArray();
 
         private static SigmaNativeOracleQuery LeftQuery(SigmaQ48Interval order,
             SigmaQ48Interval optical, bool orderEvidence,

@@ -287,6 +287,45 @@ namespace Genesis.RoomScan.SigmaPrism
         internal SigmaNativeOracleQuery[] Views => new[] { Left, Right };
     }
 
+    // N2R proof-only input. This is one disposable reverse-program alternative
+    // over one immutable coherent stereo observation; it owns no support,
+    // proposed S16 value, gauge address or physical branch identity.
+    internal readonly struct SigmaNativeFreshObservationBranch
+    {
+        internal SigmaNativeFreshObservationBranch(SigmaNativeOracleQuery left,
+            SigmaNativeOracleQuery right,
+            SigmaNativeCoherentQueryContext coherentContext,
+            bool leftFirstHit, bool rightFirstHit,
+            string provenanceFingerprint)
+        {
+            Left = left ?? throw new ArgumentNullException(nameof(left));
+            Right = right ?? throw new ArgumentNullException(nameof(right));
+            CoherentContext = coherentContext;
+            LeftFirstHit = leftFirstHit;
+            RightFirstHit = rightFirstHit;
+            ProvenanceFingerprint = provenanceFingerprint ??
+                throw new ArgumentNullException(nameof(provenanceFingerprint));
+            if (!string.Equals(Left.EntryPoint.Id, "SENSOR_LEFT",
+                    StringComparison.Ordinal) ||
+                !string.Equals(Right.EntryPoint.Id, "SENSOR_RIGHT",
+                    StringComparison.Ordinal))
+                throw new ArgumentException(
+                    "Fresh admission requires coherent left/right sensor entries.");
+            if (CoherentContext.ObservationRevision == 0 ||
+                CoherentContext.PoseCalibrationFingerprint == null ||
+                ProvenanceFingerprint.Length != 64)
+                throw new ArgumentException(
+                    "Fresh observation context/provenance is incomplete.");
+        }
+
+        internal SigmaNativeOracleQuery Left { get; }
+        internal SigmaNativeOracleQuery Right { get; }
+        internal SigmaNativeCoherentQueryContext CoherentContext { get; }
+        internal bool LeftFirstHit { get; }
+        internal bool RightFirstHit { get; }
+        internal string ProvenanceFingerprint { get; }
+    }
+
     internal readonly struct SigmaNativeOracleCell
     {
         internal SigmaNativeOracleCell(ulong supportKey, int footprint,
@@ -762,6 +801,165 @@ namespace Genesis.RoomScan.SigmaPrism
                 shadow[axis] = sum;
             }
             return shadow;
+        }
+
+        internal static bool TryResolveFreshBaseAdmission(
+            IEnumerable<SigmaNativeFreshObservationBranch> source,
+            out SigmaFreshBaseAdmission admission)
+        {
+            if (source == null) throw new ArgumentNullException(nameof(source));
+            var generatedBranches = new List<SigmaFreshShadowBranch>();
+            var retained = new List<SigmaNativeFreshObservationBranch>();
+            try
+            {
+                foreach (SigmaNativeFreshObservationBranch branch in source)
+                {
+                    if (!TryBuildFreshShadowBranch(branch,
+                            out SigmaFreshShadowBranch generated))
+                    {
+                        return SigmaGeneratedMerkabaProgram
+                            .TryResolveFreshBaseAdmission(
+                                Array.Empty<SigmaFreshShadowBranch>(), out admission);
+                    }
+                    retained.Add(branch);
+                    generatedBranches.Add(generated);
+                }
+                if (!SigmaGeneratedMerkabaProgram.TryResolveFreshBaseAdmission(
+                        generatedBranches, out admission))
+                    return false;
+                // The pullback is not publication-capable until the selected full
+                // S16 state replays through both original query rows. This keeps
+                // the N2 oracle rooted in coherent observation evidence rather
+                // than in the intermediate four-axis cell.
+                SigmaS16 selectedState = admission.State;
+                if (retained.Any(branch =>
+                        !FreshStateSatisfiesQuery(selectedState, branch.Left) ||
+                        !FreshStateSatisfiesQuery(selectedState, branch.Right)))
+                {
+                    return SigmaGeneratedMerkabaProgram
+                        .TryResolveFreshBaseAdmission(
+                            Array.Empty<SigmaFreshShadowBranch>(), out admission);
+                }
+                return true;
+            }
+            catch (OverflowException)
+            {
+                return SigmaGeneratedMerkabaProgram.TryResolveFreshBaseAdmission(
+                    Array.Empty<SigmaFreshShadowBranch>(), out admission);
+            }
+        }
+
+        private static bool TryBuildFreshShadowBranch(
+            SigmaNativeFreshObservationBranch source,
+            out SigmaFreshShadowBranch branch)
+        {
+            branch = default;
+            if (!source.LeftFirstHit || !source.RightFirstHit ||
+                source.CoherentContext.ObservationRevision == 0 ||
+                !IsExactIdentityFreshOpticalLaw(source.Left.PhotometricLaw) ||
+                !IsExactIdentityFreshOpticalLaw(source.Right.PhotometricLaw))
+                return false;
+            var axes = Enumerable.Repeat(SigmaQ48Interval.Full, 4).ToArray();
+            int seenAxes = 0;
+            if (!TryPullBackFreshQuery(source.Left, axes, ref seenAxes) ||
+                !TryPullBackFreshQuery(source.Right, axes, ref seenAxes) ||
+                seenAxes != 15 || axes.Any(value => value.IsEmpty))
+                return false;
+            branch = new SigmaFreshShadowBranch(axes, 3u, true,
+                source.ProvenanceFingerprint);
+            return true;
+        }
+
+        private static bool TryPullBackFreshQuery(SigmaNativeOracleQuery query,
+            SigmaQ48Interval[] axes, ref int seenAxes)
+        {
+            RequireReverseExpression(query.EntryPoint);
+            if (!query.OrderEvidence || !query.OpticalEvidence)
+                return false;
+            var rows = new IReadOnlyList<long>[4];
+            var measured = new SigmaQ48Interval[4];
+            rows[0] = query.OrderRow;
+            measured[0] = query.MeasuredOrder;
+            for (int channel = 0; channel <
+                    SigmaNativePhotometricLaw.ChannelCount; ++channel)
+            {
+                rows[channel + 1] = query.OpticalRows[channel];
+                measured[channel + 1] = query.MeasuredOptical[channel];
+            }
+            for (int leaf = 0; leaf < rows.Length; ++leaf)
+            {
+                if (measured[leaf].IsEmpty || !TrySignedAxisRow(rows[leaf],
+                        measured[leaf], out int axis,
+                        out SigmaQ48Interval pulledBack))
+                    return false;
+                axes[axis] = axes[axis].Intersect(pulledBack);
+                seenAxes |= 1 << axis;
+                if (axes[axis].IsEmpty)
+                    return false;
+            }
+            return true;
+        }
+
+        private static bool TrySignedAxisRow(IReadOnlyList<long> row,
+            SigmaQ48Interval measured, out int axis,
+            out SigmaQ48Interval pulledBack)
+        {
+            axis = -1;
+            int sign = 0;
+            pulledBack = SigmaQ48Interval.Empty;
+            if (row == null || row.Count != 4)
+                return false;
+            for (int index = 0; index < row.Count; ++index)
+            {
+                if (row[index] == 0L)
+                    continue;
+                if (axis >= 0 || (row[index] != SigmaNumericDomain.One &&
+                    row[index] != -SigmaNumericDomain.One))
+                    return false;
+                axis = index;
+                sign = row[index] > 0L ? 1 : -1;
+            }
+            if (axis < 0)
+                return false;
+            pulledBack = sign > 0 ? measured : new SigmaQ48Interval(
+                SigmaNumericDomain.QNegate(measured.Upper),
+                SigmaNumericDomain.QNegate(measured.Lower));
+            return true;
+        }
+
+        private static bool IsExactIdentityFreshOpticalLaw(
+            SigmaNativePhotometricLaw law)
+        {
+            if (law == null || !law.HasBoundedClaim ||
+                law.Exposure != Point(SigmaNumericDomain.One))
+                return false;
+            return law.Channels.All(channel =>
+                channel.Gain == Point(SigmaNumericDomain.One) &&
+                channel.Illumination == Point(SigmaNumericDomain.One) &&
+                channel.WhiteBalance == Point(SigmaNumericDomain.One) &&
+                channel.Offset == Point(0L) &&
+                channel.Transfer.All(segment =>
+                    segment.Slope == SigmaNumericDomain.One &&
+                    segment.Offset == 0L));
+        }
+
+        private static bool FreshStateSatisfiesQuery(SigmaS16 state,
+            SigmaNativeOracleQuery query)
+        {
+            long[] shadow = EvaluateMerkabaShadow(state);
+            if (!query.MeasuredOrder.Contains(DotPoint(shadow, query.OrderRow)))
+                return false;
+            for (int channel = 0; channel <
+                    SigmaNativePhotometricLaw.ChannelCount; ++channel)
+            {
+                SigmaQ48Interval native = Point(DotPoint(shadow,
+                    query.OpticalRows[channel]));
+                if (!query.PhotometricLaw.TryApply(channel, native,
+                        out SigmaQ48Interval observed) ||
+                    observed.Intersect(query.MeasuredOptical[channel]).IsEmpty)
+                    return false;
+            }
+            return true;
         }
 
         internal static SigmaNativeContribution? EvaluateNativeQuery(

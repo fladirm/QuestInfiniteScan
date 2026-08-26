@@ -8,9 +8,8 @@ Updated: 2026-08-26 (Europe/Prague)
 - Branch: `feat/sigma-prism-16-cpq4-20260822`.
 - Runtime replacement baseline: `cac9ab012f4ce574e5eb9bee88290982fd9c4fe8`.
 - Accepted primitive milestones: S4‑00 through S4‑07 where compatible with v8.3.
-- Active node: S4‑08. Corrective N1R now includes the generated coherent-
-  observation-to-relative-support constructor. The narrow corrective N2R proof of
-  that new operation is the sole next run; N3R remains paused until it passes.
+- Active node: S4‑08. Corrective N1R and its narrow non-mutating N2R proof are
+  accepted. N3R resumes from its prior hard stop and is the sole active run.
 - Active repair: S4‑08.6 one-medium native closure.
 - Frozen plan: `.codex/S4-08.6_NATIVE_CLOSURE_PLAN.md`.
 - Sole routine cursor: `.codex/S4-08.6_RESUME.md`.
@@ -202,7 +201,7 @@ production equality vs a129a85/cac9ab0 passed
 git diff hygiene                     passed
 ```
 
-## N2R corrected non-mutating oracle checkpoint (fresh-admission supplement pending)
+## N2R corrected non-mutating oracle checkpoint
 
 Source audit revoked both the premature `869f848` checkpoint and the still-
 incomplete correction at `b4d88d6`. The superseding checkpoint retains the
@@ -258,6 +257,26 @@ quadratic form and is checked byte-for-byte against CPU `BigInteger` `G` norms f
 fractional, multi-lane and large valid coefficients. Exact zero, diffraction
 kernel, incompatible, ZD, near-singular and nonassociative classes remain distinct.
 
+The corrective N1R-3 fresh expression is now consumed from raw coherent observation
+input rather than an externally supplied proposed state/gauge. CPU and Vulkan both
+perform exact signed-axis pullback of the separately retained order plus three
+optical leaves from each eye, intersect the common four-axis shadow cell, select
+the generated tangent representative, lift all 16 S16 lanes through the dual frame,
+forward-replay both original query rows and derive the mixed-ZEmpty boundary through
+the existing full native-relation entry point. Unique and complete-union-common
+results admit one relative `chi_0/kappa_0` cell; non-equivalent alternatives,
+missing evidence and behind/no-first-hit inputs remain unresolved.
+The CPU↔Vulkan matrix additionally covers all 18 nonzero half-step points of the
+`{-1,0,1}^4` tangent lattice, alternating positive/negative right-eye row routing.
+
+The Vulkan lowering adds no entry point. One 64-thread workgroup maps the eight
+coherent leaves, four shadow axes and sixteen S16 lanes for each reverse branch;
+one existing 256-thread relation group derives each boundary; one fixed 64-thread
+collective emits common-result or unresolved. Thus the bounded fresh proof is
+exactly three dispatches over two existing kernel names. Branch cardinality changes
+workgroups only. More than four hot branches is never truncated: it emits an
+explicit retained cold-continuation reason.
+
 Accepted exact fixture groups cover:
 
 ```text
@@ -280,11 +299,11 @@ duplicate compatible revisits                                              10000
 Verified on Unity `6000.5.9f1` with Vulkan:
 
 ```text
-EditMode                             101/101 passed, 0 failed
-focused N2R fixture groups            14/14 passed
+EditMode                             103/103 passed, 0 failed
+focused N2R fixture groups            15/15 passed
 generator regeneration/check         passed; N1 fingerprint unchanged
 compute UAV <= 8                     passed
-production equality vs eacf261       passed
+production equality vs 63c042a       passed
 Runtime/Resources live call sites    0
 git diff hygiene                     passed
 ```
@@ -298,14 +317,12 @@ constant-catalog size diagnostic remains a compiler lowering warning, not hidden
 serial work; its complete table is exercised bitwise. Existing production-shader
 warnings are outside this production-neutral N2 diff.
 
-N2R adds 5,003 non-production oracle/test source lines plus 27 Unity metadata
-lines relative to `eacf261`. The final corrective diff over rejected `b4d88d6` is
-`+1,085/-233` test/oracle source lines. Production remains exactly `+0/-0`; the
+The fresh-admission supplement adds `+1013/-2` non-production oracle/test source
+lines over corrective N1R `63c042a`; no Unity asset or entry point is added. The
+earlier N2R oracle remains confined to Editor/Vulkan proof code. Production remains
+exactly `+0/-0`; the
 accepted runtime is untouched. These Editor timings validate semantics and graph
-shape only; Release Quest GPU timing begins with the live N3 cutover. Because the
-corrective N1 checkpoint changes the program fingerprint and adds the fresh-
-admission expression, N2R now requires one narrow superseding CPU/Vulkan proof of
-that expression from coherent observation input before N3 can resume.
+shape only; Release Quest GPU timing begins with the live N3 cutover.
 
 ## Corrective N1R fresh-support authority
 
@@ -345,9 +362,8 @@ uninitialized diagnostic in every N2 consumer.
 
 This is still an authority/test-generated N1 cut: Runtime/Resources remain
 byte-identical to `a129a85` and `cac9ab0`, at the frozen 17,274 production LOC.
-The next required step is the narrow non-mutating N2 CPU/Vulkan proof starting from
-raw coherent observation branches. N3 may resume only after that proof and may
-only bind this generated operation; it may not recreate the constructor in live
+The corrective N2 checkpoint now proves this operation from raw coherent
+observation branches. N3 may bind it but may not recreate the constructor in live
 host/shader code.
 
 ## N0R implementation-safety correction
@@ -400,6 +416,7 @@ corrective N1R authority/test diff            +1677 / -136 / net +1541
 N2R run delta vs eacf261                    +0 / -0 / net 0
 N2R non-production source / metadata        +5003 / +27
 N2R correction vs rejected b4d88d6           +1085 / -233
+fresh N2 supplement vs 63c042a                +1013 / -2 test source
 corrective checkpoint vs b541635            +0 / -392 / net -392
 N1R run delta vs df5200f                    +0 / -0 / net 0
 N2R gross deletion vs cac9ab0               0

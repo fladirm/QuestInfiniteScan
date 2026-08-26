@@ -325,10 +325,15 @@ branch/chart decisions remain in Git history only.
   is a proof of a nonzero normalized factor even if an outward enclosure contains
   zero. Uncertain interval defects retain interval classification; diffraction-
   kernel factors remain unresolved.
-- The corrective N2 supplement must prove this generated operation from coherent
+- The corrective N2 supplement proves this generated operation from coherent raw
   observation input with branch-parallel workgroups and bounded collective union
-  reduction. N3 may bind it only after that checkpoint and may not recreate it in
-  host or live shader code.
+  reduction. Its hot proof graph is exactly three dispatches over the existing
+  Contract/Relation entry points; branch count changes workgroups, not submissions.
+  Unique/common/order/right-eye cases match CPU and Vulkan; ambiguity, behind-hit
+  and missing evidence remain unresolved. More than four hot alternatives emits an
+  explicit cold-continuation reason rather than truncating or minting support.
+- N3 may bind this accepted operation only after the corrective N2 checkpoint and
+  may not recreate it in host or live shader code.
 
 ## Explicit supersession
 
