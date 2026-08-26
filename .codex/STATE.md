@@ -9,22 +9,22 @@ Updated: 2026-08-26 (Europe/Prague)
 - Runtime replacement baseline: `cac9ab012f4ce574e5eb9bee88290982fd9c4fe8`.
 - Accepted primitive milestones: S4‑00 through S4‑07 where compatible with v8.3.
 - Active node: S4‑08. Corrective N1R-4 and N2R-4 are accepted. N3R has completed
-  its live joint-close cutover and Quest recovery/device gates. N4R is in
-  progress and is not accepted; S4-09 remains unopened.
+  its live joint-close cutover and Quest recovery/device gates. N4R is stopped
+  at a newly proven authority gate and is not accepted; S4-09 remains unopened.
 - Active repair: S4‑08.6 one-medium native closure.
 - Frozen plan: `.codex/S4-08.6_NATIVE_CLOSURE_PLAN.md`.
 - Sole routine cursor: `.codex/S4-08.6_RESUME.md`.
 - Forensic facts and replacement matrix: `analyza.md`.
 - S4‑09 remains pending/unopened.
 
-## N4R in-progress audit checkpoint
+## N4R stopped forensic checkpoint
 
-The working tree implements the structural N4 representation slice without
+The forensic working tree implements the structural N4 representation slice without
 changing the fixed native graph: exact `chi/kappa` representation records,
 four-way repeatable arbitrary-parent refinement, atomic state/gauge/certificate
 publication, representation-aware codec parity, static exclusion and an exact
 durable unresolved-constraint journal. The live graph remains nine native
-dispatches. Unity Vulkan EditMode passes 74/74, generator/check/UAV/diff gates
+dispatches. Unity Vulkan EditMode passes 78/78, generator/check/UAV/diff gates
 pass, and the Release APK builds and installs.
 
 N4R is deliberately not accepted. Quest evidence exposed a deterministic
@@ -47,11 +47,31 @@ performs the same whole-journal sort. The cost therefore grows with historical
 unresolved evidence and is delivered in 16-record bursts by the completion
 batch. This violates the N4 bounded-proof/no-history-hot-path contract.
 
-Exact next action: preserve journal semantics and file compatibility while
-replacing per-record global scan/sort with an exact context index and immutable
-cached canonical encodings; capture only immutable snapshots on the frame thread
-and perform canonical ordering/serialization on the persistence worker. Re-run
-Unity/Vulkan and Quest start plus 16-boundary cadence before N4 acceptance.
+The history-scaling implementation defect has a bounded-certificate correction in
+the forensic tree, together with parallel normalized refinement/certificate
+transport. That work is deliberately not accepted because the full-frame audit
+proved a prior semantic omission:
+
+```text
+many simultaneous unattached footprint groups
+    -> one exact relative finite Sigma_2 support pattern
+    -> canonical normalized state/gauge/certificate delta
+```
+
+is not defined by the frozen generated authority. The accepted authority proves
+only alternative preimages of one coherent footprint group yielding one relative
+level-zero cell. It neither derives relative coordinates for several fresh
+supports nor proves a canonical independent-component translation gauge.
+
+Exact audit: `.codex/S4-08.6_N4R_PRE_CLOSURE_AUDIT.md`.
+
+Exact next action is an explicit user/authority definition of the native map from
+a proved multi-support Merkaba relation context to relative `Sigma_2`
+incidence/displacement, plus the canonical normalization/equivalence rule for
+disconnected components. After that definition only, perform a narrow
+production-neutral corrective N1 codegen theorem and corrective N2 CPU/Vulkan
+oracle. N4 runtime remains closed; no pixel, XYZ, hash, page, allocation or
+workgroup-order placement helper is permitted.
 
 ## Device-proven starting point
 

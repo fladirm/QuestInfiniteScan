@@ -1833,10 +1833,10 @@ The hard staged budgets are:
 N3R warm ordinary base-density chi_0/kappa_0 scan
     D_budget <= 80
 
-N4R warm ordinary same-sampling informative scan
+N4R complete coherent 320x320 warm same-sampling informative scan
     D_budget <= 64
 
-N5R same warm-resident ordinary fixture
+N5R same complete full-frame warm-resident fixture
     D_budget <= 56
 
 N6R/N7R stable exact no-change revisit
@@ -2296,6 +2296,12 @@ There is no publication-capable sensor-only intermediate run.
 
 ## N4R — durable constraints, exact gauge density and certificate cutover
 
+- hard-cut the N3 one-centre-footprint bootstrap from the production scanner;
+- consume the complete coherent bounded `320x320` RGB-D observation domain and
+  exclude only footprints rejected by the frozen validity/footprint law;
+- lower full-frame cardinality to compact GPU worklists, parallel workgroups and a
+  fixed bounded direct/indirect graph; a CPU pixel loop, dispatch per pixel/support/
+  locality, or serial full-frame interpreter is forbidden;
 - implement proven `ZEmpty` backing equivalence and all-default quiescence;
 - replace N3 in-session retention with durable/reclaimable unresolved constraint
   records and deterministic exact certificate minimization;
@@ -2308,7 +2314,14 @@ There is no publication-capable sensor-only intermediate run.
 - make `chi/kappa` gauge metadata and fingerprints mandatory carrier/codec ABI;
 - implement static false-support correction through exact mould/exclusion closure;
 - delete pending projection/retention, global pixel bbox and physical chart logic.
-- require `D_budget<=64` for a warm ordinary same-sampling frame; genuine regional
+- require one ordinary coherent device frame to report valid input footprints,
+  compact query work items, touched localities, state/gauge deltas, unresolved
+  frontier and refinement localities;
+- prove spatially separated admissions/contractions, simultaneous unchanged/
+  contracted/unresolved localities, area pre-hit exclusion, behind-hit `NO_CLAIM`,
+  spatial `chi/kappa` refinement and non-degrading repeated full-frame passes;
+- require `D_budget<=64` for the complete warm bounded `320x320` same-sampling
+  frame; genuine regional
   refinement is separately reason-coded cold work and is absent from the next
   equivalent warm frame.
 
@@ -2323,11 +2336,16 @@ There is no publication-capable sensor-only intermediate run.
 - root exchange atomically selects gauge/state/certificate/directory and remains
   last;
 - delete superseded second mapping/sort/publication orchestration.
-- require `D_budget<=56` on the same warm ordinary fixture; changing resident
+- use exactly the accepted N4 full-frame ingress; N5 may not fall back to the N3
+  one-footprint bootstrap;
+- require `D_budget<=56` on the same full-frame warm ordinary fixture; changing resident
   segment/page count at fixed visible work leaves the hot sequence unchanged.
 
 ## N6R — pure readouts
 
+- do not change scanner ingress semantics, resolution or work cardinality; the
+  full-frame scanner is already an accepted N4/N5 input and N6 adds only pure
+  readout consumers;
 - eye, prediction, relation, debug and export use generated query plans;
 - remove live mesh/halo/readout state that claims continuity or physical authority;
 - keep only disposable caches and on-demand rich export;

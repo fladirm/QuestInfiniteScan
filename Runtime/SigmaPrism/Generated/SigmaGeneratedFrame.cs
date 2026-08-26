@@ -80,6 +80,15 @@ namespace Genesis.RoomScan.SigmaPrism
         Coupled = 4,
         Minimized = 8,
     }
+    internal enum SigmaNativeConstraintProofFlags : uint
+    {
+        None = 0,
+        BoundLocality = 1,
+        LosslessPullback = 2,
+        Coupled = 4,
+        Disjunctive = 8,
+        RawRequired = 16,
+    }
     [System.Flags]
     internal enum SigmaNativeObservationFlags : uint
     {
@@ -161,6 +170,8 @@ namespace Genesis.RoomScan.SigmaPrism
         internal SigmaFrameUInt4Gpu Relation;
         internal SigmaFrameUInt4Gpu Evidence;
         internal SigmaFrameUInt4Gpu Provenance;
+        internal SigmaFrameUInt4Gpu Frontier;
+        internal SigmaFrameUInt4Gpu Program;
     }
     [StructLayout(LayoutKind.Sequential, Pack = 4)]
     internal struct SigmaNativeFieldRevisionGpu
@@ -174,7 +185,7 @@ namespace Genesis.RoomScan.SigmaPrism
     internal static class SigmaGeneratedFrame
     {
         internal const string AbiVersion = "CPQ4-S16-NATIVE-FRAME-3";
-        internal const string AbiFingerprint = "42e4972705fc18be473f1ff7ba6584e33ea91cb3f4a5633329981d7a8abba74c";
+        internal const string AbiFingerprint = "11ff34b759ef0ab82649cbbccc888ba171b66b364be19d1cb9055440efe5a62e";
         internal const int SensorSideCount = 2;
         internal const int LeafCount = 4;
         internal const int LaneCount = 16;
@@ -187,7 +198,7 @@ namespace Genesis.RoomScan.SigmaPrism
         internal const int NativeReverseWorkStride = 64;
         internal const int NativeStateDeltaStride = 208;
         internal const int NativeGaugeDeltaStride = 64;
-        internal const int UnresolvedConstraintStride = 64;
+        internal const int UnresolvedConstraintStride = 96;
         internal const int NativeFieldRevisionStride = 64;
         internal const int SensorLeftEntryPoint = 0;
         internal const int SensorRightEntryPoint = 1;
@@ -203,9 +214,105 @@ namespace Genesis.RoomScan.SigmaPrism
         internal const int CompletionFrame = 0;
         internal const int CompletionRoot = 8;
         internal const int CompletionUnresolved = 10;
-        internal const int CompletionObservationHeaders = 18;
-        internal const int CompletionRoomRays = 22;
-        internal const int CompletionCodeLeaves = 28;
-        internal const int CompletionWordCount = 44;
+        internal const int CompletionObservationHeaders = 22;
+        internal const int CompletionRoomRays = 26;
+        internal const int CompletionCodeLeaves = 32;
+        internal const int CompletionCertificate = 48;
+        internal const int CompletionWordCount = 80;
+
+        // Generated lossless meet for one already-bound four-axis locality
+        // certificate. Raw observation/ray ownership may transfer to this
+        // certificate only after the caller has proved BoundLocality and
+        // LosslessPullback and excluded coupled/disjunctive factors.
+        internal static bool TryMeetLocalityCertificates(
+            SigmaFrameUInt4Gpu[] left, SigmaFrameUInt4Gpu[] right,
+            out SigmaFrameUInt4Gpu[] result)
+        {
+            const int wordCount = 16;
+            const int identity = 0;
+            const int context = 1;
+            const int independence = 2;
+            const int relation = 3;
+            const int axis0 = 4;
+            const int information0 = 8;
+            const int receipts0 = 12;
+            result = null;
+            if (left == null || right == null || left.Length != wordCount ||
+                right.Length != wordCount)
+                return false;
+            uint required = (uint)(SigmaNativeCertificateFlags.Valid |
+                SigmaNativeCertificateFlags.Directional |
+                SigmaNativeCertificateFlags.Minimized);
+            if ((left[identity].X & required) != required ||
+                (right[identity].X & required) != required ||
+                left[identity].Y != right[identity].Y ||
+                ((left[identity].X ^ right[identity].X) &
+                    (uint)SigmaNativeCertificateFlags.Coupled) != 0u ||
+                !CertificateWordEqual(left[context], right[context]) ||
+                !CertificateWordEqual(left[relation], right[relation]) ||
+                !CertificateWordEqual(left[receipts0], right[receipts0]) ||
+                !CertificateWordEqual(left[receipts0 + 1], right[receipts0 + 1]) ||
+                !CertificateWordEqual(left[receipts0 + 3], right[receipts0 + 3]))
+                return false;
+
+            result = (SigmaFrameUInt4Gpu[])left.Clone();
+            result[identity].X = left[identity].X | right[identity].X;
+            result[identity].Z = 1u;
+            result[identity].W = 0u;
+            result[independence] = default;
+            for (int axis = 0; axis < 4; ++axis)
+            {
+                long leftLower = CertificateRaw(left[axis0 + axis].X,
+                    left[axis0 + axis].Y);
+                long rightLower = CertificateRaw(right[axis0 + axis].X,
+                    right[axis0 + axis].Y);
+                long leftUpper = CertificateRaw(left[axis0 + axis].Z,
+                    left[axis0 + axis].W);
+                long rightUpper = CertificateRaw(right[axis0 + axis].Z,
+                    right[axis0 + axis].W);
+                long lower = leftLower >= rightLower ? leftLower : rightLower;
+                long upper = leftUpper <= rightUpper ? leftUpper : rightUpper;
+                if (lower > upper)
+                {
+                    result = null;
+                    return false;
+                }
+                result[axis0 + axis] = CertificateInterval(lower, upper);
+                ulong width = unchecked((ulong)upper - (ulong)lower);
+                long boundedWidth = width <= long.MaxValue
+                    ? (long)width : long.MaxValue;
+                result[information0 + axis] = new SigmaFrameUInt4Gpu
+                {
+                    X = unchecked((uint)boundedWidth),
+                    Y = unchecked((uint)(boundedWidth >> 32)),
+                    Z = (uint)axis,
+                    W = 3u,
+                };
+            }
+            result[receipts0 + 2] = new SigmaFrameUInt4Gpu
+            {
+                X = left[receipts0 + 2].X | right[receipts0 + 2].X,
+                Y = left[receipts0 + 2].Y | right[receipts0 + 2].Y,
+                Z = left[receipts0 + 2].Z | right[receipts0 + 2].Z,
+                W = left[receipts0 + 2].W | right[receipts0 + 2].W,
+            };
+            return true;
+        }
+
+        private static bool CertificateWordEqual(SigmaFrameUInt4Gpu left,
+            SigmaFrameUInt4Gpu right) => left.X == right.X &&
+            left.Y == right.Y && left.Z == right.Z && left.W == right.W;
+
+        private static long CertificateRaw(uint low, uint high) => unchecked(
+            (long)((ulong)high << 32 | low));
+
+        private static SigmaFrameUInt4Gpu CertificateInterval(long lower,
+            long upper) => new SigmaFrameUInt4Gpu
+        {
+            X = unchecked((uint)lower),
+            Y = unchecked((uint)(lower >> 32)),
+            Z = unchecked((uint)upper),
+            W = unchecked((uint)(upper >> 32)),
+        };
     }
 }

@@ -153,6 +153,10 @@ void SigmaNativeWriteCompletionUnresolved(
         unresolved.Evidence);
     SigmaNativeWriteCompletion4(SIGMA_COMPLETION_UNRESOLVED + 6u,
         unresolved.Provenance);
+    SigmaNativeWriteCompletion4(SIGMA_COMPLETION_UNRESOLVED + 8u,
+        unresolved.Frontier);
+    SigmaNativeWriteCompletion4(SIGMA_COMPLETION_UNRESOLVED + 10u,
+        unresolved.Program);
 }
 
 uint2 SigmaNativeQ48FromFloat(float value, inout uint valid)
@@ -561,7 +565,7 @@ SigmaNativeStateDeltaGpu SigmaNativeBuildStateDelta(uint4 coordinate,
 
 SigmaUnresolvedConstraintGpu SigmaNativeBuildRetainedConstraint(
     SigmaNativeObservationGpu observation, uint4 admission,
-    uint transportClass, uint reason)
+    uint transportClass, uint reason, uint4 frontier, uint level)
 {
     SigmaUnresolvedConstraintGpu retained;
     retained.Observation = observation.Identity;
@@ -570,6 +574,33 @@ SigmaUnresolvedConstraintGpu SigmaNativeBuildRetainedConstraint(
     retained.Evidence = observation.Evidence;
     retained.Provenance = uint4(admission.z, reason,
         _NativeRevision, _NativeCalibrationEpoch);
+    retained.Frontier = frontier;
+    uint certificateFlags = _NativeLocalityCertificateWords[
+        SIGMA_CERTIFICATE_WORD_COUNT + SIGMA_CERTIFICATE_IDENTITY].x;
+    bool boundLocality = (observation.Identity.w &
+        SIGMA_NATIVE_OBSERVATION_PRIOR_SUPPORT) != 0u;
+    bool losslessPullback =
+        (certificateFlags & (SIGMA_NATIVE_CERTIFICATE_FLAGS_VALID |
+            SIGMA_NATIVE_CERTIFICATE_FLAGS_DIRECTIONAL |
+            SIGMA_NATIVE_CERTIFICATE_FLAGS_MINIMIZED)) ==
+        (SIGMA_NATIVE_CERTIFICATE_FLAGS_VALID |
+            SIGMA_NATIVE_CERTIFICATE_FLAGS_DIRECTIONAL |
+            SIGMA_NATIVE_CERTIFICATE_FLAGS_MINIMIZED);
+    bool coupled = transportClass == SIGMA_MERKABA_RELATION_UNRESOLVED ||
+        _NativeRelationResults[0u].x == SIGMA_MERKABA_RELATION_UNRESOLVED ||
+        _NativeRelationResults[1u].x == SIGMA_MERKABA_RELATION_UNRESOLVED;
+    bool disjunctive = admission.z > 1u;
+    uint proofFlags = (boundLocality
+        ? SIGMA_NATIVE_CONSTRAINT_PROOF_FLAGS_BOUND_LOCALITY : 0u) |
+        (losslessPullback
+        ? SIGMA_NATIVE_CONSTRAINT_PROOF_FLAGS_LOSSLESS_PULLBACK : 0u) |
+        (coupled ? SIGMA_NATIVE_CONSTRAINT_PROOF_FLAGS_COUPLED : 0u) |
+        (disjunctive ? SIGMA_NATIVE_CONSTRAINT_PROOF_FLAGS_DISJUNCTIVE : 0u);
+    if (!boundLocality || !losslessPullback || coupled || disjunctive)
+        proofFlags |= SIGMA_NATIVE_CONSTRAINT_PROOF_FLAGS_RAW_REQUIRED;
+    retained.Program = uint4(SIGMA_MERKABA_PROGRAM_FINGERPRINT[0u],
+        SIGMA_CERTIFICATE_FINGERPRINT[0u], level,
+        proofFlags);
     return retained;
 }
 
@@ -612,10 +643,7 @@ void PrepareNativeRevision(uint3 threadId : SV_GroupThreadID)
     if (threadIndex < SIGMA_CERTIFICATE_WORD_COUNT)
     {
         uint nextAddress = SIGMA_CERTIFICATE_WORD_COUNT + threadIndex;
-        if (threadIndex == SIGMA_CERTIFICATE_INDEPENDENCE)
-            _NativeLocalityCertificateWords[nextAddress] =
-                _NativePrepareObservations[0u].Evidence;
-        else if (threadIndex == SIGMA_CERTIFICATE_RELATION)
+        if (threadIndex == SIGMA_CERTIFICATE_RELATION)
             _NativeLocalityCertificateWords[nextAddress] = uint4(
                 _NativeRelationResults[0u].x,
                 _NativeRelationResults[1u].x,
@@ -686,6 +714,15 @@ void PrepareNativeRevision(uint3 threadId : SV_GroupThreadID)
             SigmaNativeTransportAdmissible(transportClass));
     bool refinementRequested = hasCurrent && admission.w ==
         SIGMA_NATIVE_COLD_REASON_REPRESENTATION_REFINEMENT;
+    uint4 retainedFrontier = _NativePrepareObservations[0u].Footprint;
+    uint retainedLevel = 0u;
+    if (hasCurrent && frame.Evidence.y < _NativeTargetPageCapacity &&
+        frame.Evidence.z < SIGMA_PAGE_SAMPLE_COUNT)
+    {
+        retainedLevel = _NativeSourceCarrierRepresentation[
+            SigmaCarrierRepresentationAddress(frame.Evidence.y,
+                frame.Evidence.z, SIGMA_REPRESENTATION_GAUGE_PLAN)].x;
+    }
     // N3 owns only the N1/N2-proved all-ZEmpty base-density embedding.
     // A second unattached support remains unresolved until N4 representation
     // refinement; it must never overwrite the already published gauge origin.
@@ -860,7 +897,8 @@ void PrepareNativeRevision(uint3 threadId : SV_GroupThreadID)
                     SigmaNativeBuildRetainedConstraint(
                         _NativePrepareObservations[0u], admission,
                         transportClass,
-                        SIGMA_NATIVE_COLD_REASON_REPRESENTATION_REFINEMENT);
+                        SIGMA_NATIVE_COLD_REASON_REPRESENTATION_REFINEMENT,
+                        retainedFrontier, retainedLevel);
                 _NativeUnresolved[0u] = unresolved;
                 SigmaNativeWriteCompletionUnresolved(unresolved);
                 SigmaNativeWriteCompletionFrame(frame,
@@ -945,7 +983,9 @@ void PrepareNativeRevision(uint3 threadId : SV_GroupThreadID)
                     SigmaNativeBuildRetainedConstraint(
                         _NativePrepareObservations[0u], admission,
                         transportClass,
-                        SIGMA_NATIVE_COLD_REASON_REPRESENTATION_REFINEMENT);
+                        SIGMA_NATIVE_COLD_REASON_REPRESENTATION_REFINEMENT,
+                        SigmaNativeRefinementChildCoordinate[admission.z],
+                        SigmaNativeRefinementChildLevel[admission.z]);
                 _NativeUnresolved[0u] = retained;
                 SigmaNativeWriteCompletionUnresolved(retained);
                 frame.Identity.w =
@@ -1039,7 +1079,8 @@ void PrepareNativeRevision(uint3 threadId : SV_GroupThreadID)
                         SigmaNativeBuildRetainedConstraint(
                             _NativePrepareObservations[0u], admission,
                             transportClass,
-                            SIGMA_NATIVE_COLD_REASON_STATIC_EXCLUSION);
+                            SIGMA_NATIVE_COLD_REASON_STATIC_EXCLUSION,
+                            retainedFrontier, retainedLevel);
                     _NativeUnresolved[0u] = retained;
                     SigmaNativeWriteCompletionUnresolved(retained);
                     frame.Identity.w =
@@ -1069,7 +1110,8 @@ void PrepareNativeRevision(uint3 threadId : SV_GroupThreadID)
             SigmaUnresolvedConstraintGpu unresolved =
                 SigmaNativeBuildRetainedConstraint(
                     _NativePrepareObservations[0u], admission, transportClass,
-                    SIGMA_NATIVE_COLD_REASON_STATIC_EXCLUSION);
+                    SIGMA_NATIVE_COLD_REASON_STATIC_EXCLUSION,
+                    retainedFrontier, retainedLevel);
             _NativeUnresolved[0u] = unresolved;
             SigmaNativeWriteCompletionUnresolved(unresolved);
             SigmaNativeWriteCompletionFrame(frame,
@@ -1092,7 +1134,7 @@ void PrepareNativeRevision(uint3 threadId : SV_GroupThreadID)
         SigmaUnresolvedConstraintGpu unresolved =
             SigmaNativeBuildRetainedConstraint(
                 _NativePrepareObservations[0u], admission,
-                transportClass, admission.w);
+                transportClass, admission.w, retainedFrontier, retainedLevel);
         _NativeUnresolved[0u] = unresolved;
         SigmaNativeWriteCompletionUnresolved(unresolved);
         SigmaNativeWriteCompletionFrame(frame,

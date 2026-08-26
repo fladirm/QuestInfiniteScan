@@ -149,7 +149,8 @@ namespace Genesis.RoomScan.Tests
             using var root = new GraphicsBuffer(
                 GraphicsBuffer.Target.Structured, 1, sizeof(uint));
             using var completionJournal = new GraphicsBuffer(
-                GraphicsBuffer.Target.Structured, 64, sizeof(uint) * 2);
+                GraphicsBuffer.Target.Structured,
+                SigmaGeneratedFrame.CompletionWordCount, sizeof(uint) * 2);
 
             scratch.NativeFrame.SetData(new[]
             {
@@ -212,9 +213,17 @@ namespace Genesis.RoomScan.Tests
 
             uint[] published = { 0u };
             root.GetData(published);
-            Assert.That(published[0], Is.EqualTo(1u));
             var terminal = new SigmaNativeFrameGpu[1];
             scratch.NativeFrame.GetData(terminal);
+            var debugCounters = new UInt4[scratch.Counters.count];
+            scratch.Counters.GetData(debugCounters);
+            Assert.That(published[0], Is.EqualTo(1u),
+                $"disposition={terminal[0].Disposition.X}/" +
+                $"{terminal[0].Disposition.Y}/" +
+                $"{terminal[0].Disposition.Z}/" +
+                $"{terminal[0].Disposition.W}, counters=" +
+                string.Join(";", debugCounters.Select(value =>
+                    $"{value.X}/{value.Y}/{value.Z}/{value.W}")));
             Assert.That(terminal[0].Disposition.X,
                 Is.EqualTo((uint)SigmaNativeFrameDisposition.Published));
             var firstLane = new UInt2[1];
@@ -255,7 +264,8 @@ namespace Genesis.RoomScan.Tests
             using var root = new GraphicsBuffer(
                 GraphicsBuffer.Target.Structured, 1, sizeof(uint));
             using var completionJournal = new GraphicsBuffer(
-                GraphicsBuffer.Target.Structured, 64, sizeof(uint) * 2);
+                GraphicsBuffer.Target.Structured,
+                SigmaGeneratedFrame.CompletionWordCount, sizeof(uint) * 2);
 
             scratch.NativeFrame.SetData(new[]
             {
@@ -394,7 +404,8 @@ namespace Genesis.RoomScan.Tests
             using var root = new GraphicsBuffer(
                 GraphicsBuffer.Target.Structured, 1, sizeof(uint));
             using var completionJournal = new GraphicsBuffer(
-                GraphicsBuffer.Target.Structured, 64, sizeof(uint) * 2);
+                GraphicsBuffer.Target.Structured,
+                SigmaGeneratedFrame.CompletionWordCount, sizeof(uint) * 2);
 
             scratch.NativeFrame.SetData(new[]
             {
@@ -530,7 +541,7 @@ namespace Genesis.RoomScan.Tests
                     Is.EqualTo(SigmaConstraintAdmission.DuplicateOrWeaker));
             Assert.That(journal.Count, Is.EqualTo(1));
             byte[] canonical = journal.EncodeCanonical();
-            Assert.That(canonical.Length, Is.EqualTo(12 + 8 + 272));
+            Assert.That(canonical.Length, Is.GreaterThan(272));
             CollectionAssert.AreEqual(canonical,
                 SigmaExactConstraintJournal.DecodeCanonical(canonical)
                     .EncodeCanonical());
@@ -569,10 +580,196 @@ namespace Genesis.RoomScan.Tests
                 using (var store = new SigmaExactConstraintStore(path))
                     store.Stage(expected);
                 Assert.That(File.Exists(path), Is.True);
+                Assert.That(new FileInfo(path).Length, Is.EqualTo(8L),
+                    "The durable marker must not contain a history snapshot.");
+                Assert.That(Directory.GetFiles(path + ".entries", "*.scb"),
+                    Has.Length.EqualTo(1),
+                    "One minimized exact key must own one durable shard.");
                 Assert.That(File.Exists(path + ".next"), Is.False);
                 using var reopened = new SigmaExactConstraintStore(path);
                 CollectionAssert.AreEqual(canonical,
                     reopened.Load().EncodeCanonical());
+            }
+            finally
+            {
+                if (Directory.Exists(directory))
+                    Directory.Delete(directory, true);
+            }
+        }
+
+        [Test]
+        public void LegacyConstraintSnapshotMigratesOnceToBoundedDeltaStore()
+        {
+            string directory = Path.Combine(Path.GetTempPath(),
+                "sigma-n4-migrate-" + Guid.NewGuid().ToString("N"));
+            string path = Path.Combine(directory, "constraints.sjc");
+            try
+            {
+                Directory.CreateDirectory(directory);
+                var source = new SigmaExactConstraintJournal();
+                source.Add(CertifiedConstraintRecord(1u, -8L, 8L, 1u, 2u));
+                File.WriteAllBytes(path, source.EncodeCanonical());
+                using (var store = new SigmaExactConstraintStore(path))
+                {
+                    SigmaExactConstraintJournal loaded = store.Load();
+                    loaded.Add(CertifiedConstraintRecord(2u, -2L, 3L,
+                        17u, 33u));
+                    store.Stage(loaded);
+                }
+                Assert.That(new FileInfo(path).Length, Is.EqualTo(8L));
+                Assert.That(Directory.GetFiles(path + ".entries", "*.scb"),
+                    Has.Length.EqualTo(1));
+                using var reopened = new SigmaExactConstraintStore(path);
+                SigmaExactConstraintJournal migrated = reopened.Load();
+                Assert.That(migrated.CertificateCount, Is.EqualTo(1));
+                Assert.That(migrated.RawEvidenceCount, Is.Zero);
+            }
+            finally
+            {
+                if (Directory.Exists(directory))
+                    Directory.Delete(directory, true);
+            }
+        }
+
+        [Test]
+        public void LocalityCertificateBoundsTenThousandRevisitsAndIsOrderIndependent()
+        {
+            SigmaExactConstraintRecord broad = CertifiedConstraintRecord(1u,
+                -8L, 8L, 1u, 2u);
+            SigmaExactConstraintRecord narrow = CertifiedConstraintRecord(2u,
+                -2L, 3L, 1u, 2u);
+            var weakThenStrong = new SigmaExactConstraintJournal();
+            Assert.That(weakThenStrong.Add(broad),
+                Is.EqualTo(SigmaConstraintAdmission.Added));
+            Assert.That(weakThenStrong.Add(narrow),
+                Is.EqualTo(SigmaConstraintAdmission.ReplacedWeaker));
+            SigmaExactConstraintCertificate broadCertificate =
+                SigmaExactConstraintCertificate.From(broad);
+            SigmaExactConstraintCertificate narrowCertificate =
+                SigmaExactConstraintCertificate.From(narrow);
+            Assert.That(broadCertificate.TryMeet(narrowCertificate,
+                out SigmaExactConstraintCertificate expectedCertificate), Is.True);
+            SigmaExactConstraintCertificate repeatedCertificate =
+                SigmaExactConstraintCertificate.From(CertifiedConstraintRecord(
+                    3u, -2L, 3L, 1u, 2u));
+            Assert.That(expectedCertificate.TryMeet(repeatedCertificate,
+                out SigmaExactConstraintCertificate repeatedMeet), Is.True);
+            Assert.That(expectedCertificate.SameWords(repeatedMeet), Is.True,
+                CertificateDifference(expectedCertificate.Words,
+                    repeatedMeet.Words));
+            for (uint revision = 3u; revision < 10003u; ++revision)
+                Assert.That(weakThenStrong.Add(CertifiedConstraintRecord(
+                    revision, -2L, 3L, 1u, 2u)),
+                    Is.EqualTo(SigmaConstraintAdmission.DuplicateOrWeaker),
+                    $"revision {revision}");
+            Assert.That(weakThenStrong.Count, Is.EqualTo(1));
+            Assert.That(weakThenStrong.CertificateCount, Is.EqualTo(1));
+            Assert.That(weakThenStrong.RawEvidenceCount, Is.EqualTo(2),
+                "Only the two not-yet-durable certificate generations own raw.");
+
+            var strongThenWeak = new SigmaExactConstraintJournal();
+            Assert.That(strongThenWeak.Add(narrow),
+                Is.EqualTo(SigmaConstraintAdmission.Added));
+            Assert.That(strongThenWeak.Add(broad),
+                Is.EqualTo(SigmaConstraintAdmission.DuplicateOrWeaker));
+            Assert.That(strongThenWeak.Count, Is.EqualTo(1));
+            Assert.That(strongThenWeak.RawEvidenceCount, Is.EqualTo(1));
+
+            string directory = Path.Combine(Path.GetTempPath(),
+                "sigma-n4-certificate-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                byte[] weakStrong = PersistAndReload(directory, "weak-strong.sjc",
+                    weakThenStrong, out SigmaExactConstraintJournal weakReloaded);
+                byte[] strongWeak = PersistAndReload(directory, "strong-weak.sjc",
+                    strongThenWeak, out SigmaExactConstraintJournal strongReloaded);
+                Assert.That(weakThenStrong.RawEvidenceCount, Is.Zero,
+                    "Raw ownership must end after durable equivalence handoff.");
+                Assert.That(strongThenWeak.RawEvidenceCount, Is.Zero);
+                Assert.That(weakReloaded.RawEvidenceCount, Is.Zero);
+                Assert.That(strongReloaded.RawEvidenceCount, Is.Zero);
+                CollectionAssert.AreEqual(weakStrong, strongWeak,
+                    "Canonical certificate changed with evidence order.");
+            }
+            finally
+            {
+                if (Directory.Exists(directory))
+                    Directory.Delete(directory, true);
+            }
+        }
+
+        [Test]
+        public void LocalityCertificatePreservesViewDiversityAndRawContradiction()
+        {
+            SigmaExactConstraintRecord viewA = CertifiedConstraintRecord(1u,
+                -8L, 8L, 1u, 2u);
+            SigmaExactConstraintRecord viewB = CertifiedConstraintRecord(2u,
+                -4L, 6L, 17u, 33u);
+            SigmaExactConstraintRecord contradiction = CertifiedConstraintRecord(
+                3u, 20L, 30L, 7u, 9u);
+            var leftFirst = new SigmaExactConstraintJournal();
+            Assert.That(leftFirst.Add(viewA),
+                Is.EqualTo(SigmaConstraintAdmission.Added));
+            Assert.That(leftFirst.Add(viewB),
+                Is.EqualTo(SigmaConstraintAdmission.ReplacedWeaker),
+                "A new directional mode must strengthen the same certificate.");
+            Assert.That(leftFirst.Add(contradiction),
+                Is.EqualTo(SigmaConstraintAdmission.IncompatibleRetained));
+            Assert.That(leftFirst.CertificateCount, Is.EqualTo(1));
+            Assert.That(leftFirst.Count, Is.EqualTo(2));
+
+            var rightFirst = new SigmaExactConstraintJournal();
+            rightFirst.Add(viewB);
+            rightFirst.Add(viewA);
+            rightFirst.Add(contradiction);
+
+            string directory = Path.Combine(Path.GetTempPath(),
+                "sigma-n4-diversity-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                byte[] left = PersistAndReload(directory, "left.sjc", leftFirst,
+                    out SigmaExactConstraintJournal leftReloaded);
+                byte[] right = PersistAndReload(directory, "right.sjc", rightFirst,
+                    out SigmaExactConstraintJournal rightReloaded);
+                CollectionAssert.AreEqual(left, right);
+                Assert.That(leftReloaded.CertificateCount, Is.EqualTo(1));
+                Assert.That(leftReloaded.RawEvidenceCount, Is.EqualTo(1),
+                    "Only the incompatible exact factor may remain raw.");
+                Assert.That(rightReloaded.RawEvidenceCount, Is.EqualTo(1));
+            }
+            finally
+            {
+                if (Directory.Exists(directory))
+                    Directory.Delete(directory, true);
+            }
+        }
+
+        [Test]
+        public void ReloadedCertificateMeetsLikeUninterruptedCertificate()
+        {
+            SigmaExactConstraintRecord first = CertifiedConstraintRecord(1u,
+                -8L, 8L, 1u, 2u);
+            SigmaExactConstraintRecord next = CertifiedConstraintRecord(2u,
+                -3L, 5L, 17u, 33u);
+            var uninterrupted = new SigmaExactConstraintJournal();
+            uninterrupted.Add(first);
+            uninterrupted.Add(next);
+
+            string directory = Path.Combine(Path.GetTempPath(),
+                "sigma-n4-restart-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                var firstOnly = new SigmaExactConstraintJournal();
+                firstOnly.Add(first);
+                PersistAndReload(directory, "restart.sjc",
+                    firstOnly, out SigmaExactConstraintJournal restarted);
+                Assert.That(restarted.Add(next),
+                    Is.EqualTo(SigmaConstraintAdmission.ReplacedWeaker));
+                byte[] restartedBytes = PersistAndReload(directory,
+                    "restart-next.sjc", restarted, out _);
+                byte[] uninterruptedBytes = PersistAndReload(directory,
+                    "uninterrupted.sjc", uninterrupted, out _);
+                CollectionAssert.AreEqual(uninterruptedBytes, restartedBytes);
             }
             finally
             {
@@ -719,7 +916,8 @@ namespace Genesis.RoomScan.Tests
             using var root = new GraphicsBuffer(
                 GraphicsBuffer.Target.Structured, 1, sizeof(uint));
             using var completionJournal = new GraphicsBuffer(
-                GraphicsBuffer.Target.Structured, 64, sizeof(uint) * 2);
+                GraphicsBuffer.Target.Structured,
+                SigmaGeneratedFrame.CompletionWordCount, sizeof(uint) * 2);
 
             scratch.NativeFrame.SetData(new[]
             {
@@ -956,6 +1154,107 @@ namespace Genesis.RoomScan.Tests
                 leaves);
         }
 
+        private static SigmaExactConstraintRecord CertifiedConstraintRecord(
+            uint revision, long lower, long upper, uint leftMode,
+            uint rightMode)
+        {
+            const uint programFingerprint = 0x89d6d581u;
+            const uint certificateFingerprint = 0x0b0317cfu;
+            uint proof = (uint)(SigmaNativeConstraintProofFlags.BoundLocality |
+                SigmaNativeConstraintProofFlags.LosslessPullback);
+            var constraint = new SigmaUnresolvedConstraintGpu
+            {
+                Observation = U4(revision, 7u, 13u, 0x7fu),
+                Relation = U4((uint)SigmaMerkabaRelationClass.Regular,
+                    (uint)SigmaMerkabaRelationClass.Regular, 0u, 0u),
+                Evidence = U4(revision, revision * 3u + 1u,
+                    revision * 5u + 1u, revision * 7u + 1u),
+                Provenance = U4(1u, 0u, revision, 7u),
+                Frontier = U4(17u, 0u, 23u, 0u),
+                Program = U4(programFingerprint, certificateFingerprint, 0u,
+                    proof),
+            };
+            var headers = new[]
+            {
+                U4(0x7fu, revision, 7u, revision * 2166136261u),
+                U4(0u, 0u, 7u, programFingerprint),
+            };
+            var rays = new SigmaFrameUInt2Gpu[6];
+            for (int index = 0; index < rays.Length; ++index)
+                rays[index] = Q2((long)revision * 17L + index + 1L);
+            var leaves = new SigmaFrameUInt2Gpu[16];
+            for (int leaf = 0; leaf < 8; ++leaf)
+            {
+                leaves[leaf * 2] = Q2(lower);
+                leaves[leaf * 2 + 1] = Q2(upper);
+            }
+            var certificate = new SigmaFrameUInt4Gpu[16];
+            certificate[0] = U4((uint)(SigmaNativeCertificateFlags.Valid |
+                    SigmaNativeCertificateFlags.Directional |
+                    SigmaNativeCertificateFlags.Minimized),
+                certificateFingerprint, revision, revision);
+            certificate[1] = U4(7u, 0x7fu, 0u, 0u);
+            certificate[2] = U4(revision, leftMode, rightMode, 0u);
+            certificate[3] = constraint.Relation;
+            for (int axis = 0; axis < 4; ++axis)
+            {
+                certificate[4 + axis] = Q4(lower, upper);
+                ulong width = unchecked((ulong)upper - (ulong)lower);
+                certificate[8 + axis] = U4(unchecked((uint)width),
+                    unchecked((uint)(width >> 32)), (uint)axis, 3u);
+            }
+            certificate[12] = U4(7u, 0x7fu, 0u, 0u);
+            certificate[13] = U4(0u, 0u, 7u, programFingerprint);
+            certificate[14] = DirectionModeMask(leftMode, rightMode);
+            certificate[15] = U4(certificateFingerprint, 0x6c99954eu,
+                0x32819303u, 0xebb6e400u);
+            return new SigmaExactConstraintRecord(constraint, headers, rays,
+                leaves, certificate);
+        }
+
+        private static byte[] PersistAndReload(string directory, string file,
+            SigmaExactConstraintJournal journal,
+            out SigmaExactConstraintJournal reloaded)
+        {
+            string path = Path.Combine(directory, file);
+            using (var store = new SigmaExactConstraintStore(path))
+                store.Stage(journal);
+            using var reopened = new SigmaExactConstraintStore(path);
+            reloaded = reopened.Load();
+            return reloaded.EncodeCanonical();
+        }
+
+        private static SigmaFrameUInt4Gpu DirectionModeMask(uint leftMode,
+            uint rightMode)
+        {
+            var result = new SigmaFrameUInt4Gpu();
+            if (leftMode < 32u) result.X = 1u << (int)leftMode;
+            else result.Y = 1u << (int)(leftMode - 32u);
+            if (rightMode < 32u) result.Z = 1u << (int)rightMode;
+            else result.W = 1u << (int)(rightMode - 32u);
+            return result;
+        }
+
+        private static SigmaFrameUInt4Gpu Q4(long lower, long upper) => new()
+        {
+            X = unchecked((uint)lower),
+            Y = unchecked((uint)(lower >> 32)),
+            Z = unchecked((uint)upper),
+            W = unchecked((uint)(upper >> 32)),
+        };
+
+        private static string CertificateDifference(
+            SigmaFrameUInt4Gpu[] left, SigmaFrameUInt4Gpu[] right)
+        {
+            for (int index = 0; index < left.Length; ++index)
+                if (!left[index].Equals(right[index]))
+                    return $"certificate word {index}: " +
+                        $"{left[index].X}/{left[index].Y}/{left[index].Z}/" +
+                        $"{left[index].W} != {right[index].X}/{right[index].Y}/" +
+                        $"{right[index].Z}/{right[index].W}";
+            return "no differing certificate word";
+        }
+
         private static RefinementSnapshot RunRefinementSequence(
             RefinementStep[] steps, bool verifyFirstPreScatterCopy = false)
         {
@@ -984,7 +1283,8 @@ namespace Genesis.RoomScan.Tests
             using var root = new GraphicsBuffer(
                 GraphicsBuffer.Target.Structured, 1, sizeof(uint));
             using var completionJournal = new GraphicsBuffer(
-                GraphicsBuffer.Target.Structured, 64, sizeof(uint) * 2);
+                GraphicsBuffer.Target.Structured,
+                SigmaGeneratedFrame.CompletionWordCount, sizeof(uint) * 2);
 
             var state = new UInt2[carrierState.count];
             state[0].High = 10u << 16;

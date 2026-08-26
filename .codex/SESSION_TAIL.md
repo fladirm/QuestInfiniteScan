@@ -2,29 +2,31 @@
 
 ## Exchange 1 — user
 
-Ran the N4 working Release APK and reported a visible pause at scan start and then
-approximately once per 16 frames. Required an audit before any hotfix and stated
-that resident GPU memory size is irrelevant unless it causes a real capacity
-fault.
+Required stopping N4 implementation because the attempted one-footprint to full
+320x320 expansion exposed a missing semantic boundary. Requested a bounded audit
+of simultaneous existing/fresh support association, relative intrinsic placement,
+normalization, certificate closure and sparse deltas, with no placement helper or
+new runtime code.
 
 ## Exchange 1 — assistant
 
-Device/source audit ruled out completion payload size and carrier memory. The
-16-record batch is about 5.5 KiB and the native graph remains nine dispatches.
-Quest timestamps show 0.800 s between revisions 2032/2033 and 0.854 s between
-2160/2161; the maximum completion wall reached 4.432 s while the durable journal
-grew past 2600 unique unresolved factors.
+Stopped runtime implementation. The audit proved that accepted N1/N2 construct
+alternative preimages of one coherent footprint and normalize one relative
+level-zero cell, but do not construct an observation-order-independent finite
+relative `Sigma_2` pattern for several simultaneously unattached supports. The
+exact result is recorded in `.codex/S4-08.6_N4R_PRE_CLOSURE_AUDIT.md`; dirty N4 is
+forensic and not accepted.
 
 ## Exchange 2 — user
 
-Asked why the mechanism exists, whether it is only logging, and requested a
-commit/push suitable for external analysis.
+Requested the precise missing definition rather than an ad-hoc Codex decision,
+and explicitly requested a dirty forensic commit and push.
 
 ## Exchange 2 — assistant
 
-Clarified that it is canonical unresolved-evidence persistence, not a physical
-world or mere log. The source defect is a history-wide main-thread algorithm:
-every Add scans and globally sorts the journal, and each comparator regenerates
-allocated 272-byte canonical records; startup Load repeats the same sort. The
-working checkpoint is being recorded explicitly as N4R in progress/not accepted,
-with exact indexed/cached journal lowering as the next action.
+The only required physical definition is the native map from a proved
+multi-support Merkaba relation context to relative `Sigma_2`
+incidence/displacement, plus the canonical normalization/equivalence rule for
+disconnected components. Controls mark N4 stopped at this authority gate; no
+pixel/XYZ/hash/page/allocation/workgroup-order fallback is authorized. The entire
+dirty N4 state is preserved as a not-accepted forensic checkpoint for push.

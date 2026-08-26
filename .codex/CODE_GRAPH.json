@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "source_digest": "d2a8aece81fcb975cc11d2b4a6ea68938f47df89b89c6b67a039d1e8cbefd661",
+  "source_digest": "9d57ca558b0eced9259facf00e96f17951596a781d986ced2e9fb5b5677df82f",
   "scope": [
     "Runtime/**/*.cs",
     "Runtime/Resources/SigmaPrism/**/*.*",
@@ -11,8 +11,8 @@
   ],
   "summary": {
     "files": 103,
-    "symbols": 1600,
-    "methods_and_functions": 1309,
+    "symbols": 1661,
+    "methods_and_functions": 1365,
     "gpu_kernels": 29,
     "event_links": 5
   },
@@ -2541,49 +2541,49 @@
       "file": "Runtime/Resources/SigmaPrism/SigmaFrameAbi.hlsl",
       "name": "SigmaNativeFieldRevisionGpu",
       "kind": "struct",
-      "line": 125
+      "line": 134
     },
     {
       "id": "Runtime/Resources/SigmaPrism/SigmaFrameAbi.hlsl::SigmaNativeFrameGpu",
       "file": "Runtime/Resources/SigmaPrism/SigmaFrameAbi.hlsl",
       "name": "SigmaNativeFrameGpu",
       "kind": "struct",
-      "line": 73
+      "line": 80
     },
     {
       "id": "Runtime/Resources/SigmaPrism/SigmaFrameAbi.hlsl::SigmaNativeGaugeDeltaGpu",
       "file": "Runtime/Resources/SigmaPrism/SigmaFrameAbi.hlsl",
       "name": "SigmaNativeGaugeDeltaGpu",
       "kind": "struct",
-      "line": 111
+      "line": 118
     },
     {
       "id": "Runtime/Resources/SigmaPrism/SigmaFrameAbi.hlsl::SigmaNativeObservationGpu",
       "file": "Runtime/Resources/SigmaPrism/SigmaFrameAbi.hlsl",
       "name": "SigmaNativeObservationGpu",
       "kind": "struct",
-      "line": 81
+      "line": 88
     },
     {
       "id": "Runtime/Resources/SigmaPrism/SigmaFrameAbi.hlsl::SigmaNativeReverseWorkGpu",
       "file": "Runtime/Resources/SigmaPrism/SigmaFrameAbi.hlsl",
       "name": "SigmaNativeReverseWorkGpu",
       "kind": "struct",
-      "line": 88
+      "line": 95
     },
     {
       "id": "Runtime/Resources/SigmaPrism/SigmaFrameAbi.hlsl::SigmaNativeStateDeltaGpu",
       "file": "Runtime/Resources/SigmaPrism/SigmaFrameAbi.hlsl",
       "name": "SigmaNativeStateDeltaGpu",
       "kind": "struct",
-      "line": 95
+      "line": 102
     },
     {
       "id": "Runtime/Resources/SigmaPrism/SigmaFrameAbi.hlsl::SigmaUnresolvedConstraintGpu",
       "file": "Runtime/Resources/SigmaPrism/SigmaFrameAbi.hlsl",
       "name": "SigmaUnresolvedConstraintGpu",
       "kind": "struct",
-      "line": 118
+      "line": 125
     },
     {
       "id": "Runtime/Resources/SigmaPrism/SigmaGeometryReadout.hlsl::SigmaGeometryReadoutExact@19",
@@ -2656,11 +2656,11 @@
       "line": 53
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::ContractNativeQuery@615",
+      "id": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::ContractNativeQuery@673",
       "file": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute",
       "name": "ContractNativeQuery",
       "kind": "gpu_function",
-      "line": 615
+      "line": 673
     },
     {
       "id": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshEntryValid@95",
@@ -2677,25 +2677,25 @@
       "line": 71
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshFinalize@543",
+      "id": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshFinalize@601",
       "file": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute",
       "name": "SigmaNativeFreshFinalize",
       "kind": "gpu_function",
-      "line": 543
+      "line": 601
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshLiftBranch@145",
+      "id": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshLiftBranch@173",
       "file": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute",
       "name": "SigmaNativeFreshLiftBranch",
       "kind": "gpu_function",
-      "line": 145
+      "line": 173
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshLiftWeight@111",
+      "id": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshLiftWeight@139",
       "file": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute",
       "name": "SigmaNativeFreshLiftWeight",
       "kind": "gpu_function",
-      "line": 111
+      "line": 139
     },
     {
       "id": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshLoad2@77",
@@ -2712,11 +2712,25 @@
       "line": 83
     },
     {
+      "id": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshModeMask@129",
+      "file": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute",
+      "name": "SigmaNativeFreshModeMask",
+      "kind": "gpu_function",
+      "line": 129
+    },
+    {
       "id": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshPermutationAxis@103",
       "file": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute",
       "name": "SigmaNativeFreshPermutationAxis",
       "kind": "gpu_function",
       "line": 103
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshPermutationMode@111",
+      "file": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute",
+      "name": "SigmaNativeFreshPermutationMode",
+      "kind": "gpu_function",
+      "line": 111
     },
     {
       "id": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshQ48Equal@90",
@@ -2726,32 +2740,39 @@
       "line": 90
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshReduceAnd@117",
+      "id": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshReduceAnd@145",
       "file": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute",
       "name": "SigmaNativeFreshReduceAnd",
       "kind": "gpu_function",
-      "line": 117
+      "line": 145
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshReduceOr@131",
+      "id": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshReduceOr@159",
       "file": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute",
       "name": "SigmaNativeFreshReduceOr",
       "kind": "gpu_function",
-      "line": 131
+      "line": 159
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::if@504",
+      "id": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::if@538",
       "file": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute",
       "name": "if",
       "kind": "gpu_function",
-      "line": 504
+      "line": 538
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::if@511",
+      "id": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::if@545",
       "file": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute",
       "name": "if",
       "kind": "gpu_function",
-      "line": 511
+      "line": 545
+    },
+    {
+      "id": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::if@562",
+      "file": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute",
+      "name": "if",
+      "kind": "gpu_function",
+      "line": 562
     },
     {
       "id": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::kernel:ContractNativeQuery",
@@ -2761,53 +2782,53 @@
       "line": 4
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::BuildNativeObservation@357",
+      "id": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::BuildNativeObservation@361",
       "file": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute",
       "name": "BuildNativeObservation",
       "kind": "gpu_function",
-      "line": 357
+      "line": 361
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::CloseAndPublishNativeRevision@1354",
+      "id": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::CloseAndPublishNativeRevision@1396",
       "file": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute",
       "name": "CloseAndPublishNativeRevision",
       "kind": "gpu_function",
-      "line": 1354
+      "line": 1396
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::PrepareNativePage@1196",
+      "id": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::PrepareNativePage@1238",
       "file": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute",
       "name": "PrepareNativePage",
       "kind": "gpu_function",
-      "line": 1196
+      "line": 1238
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::PrepareNativeRevision@575",
+      "id": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::PrepareNativeRevision@606",
       "file": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute",
       "name": "PrepareNativeRevision",
       "kind": "gpu_function",
-      "line": 575
+      "line": 606
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::ScatterNativeState@1293",
+      "id": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::ScatterNativeState@1335",
       "file": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute",
       "name": "ScatterNativeState",
       "kind": "gpu_function",
-      "line": 1293
+      "line": 1335
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeBuildRetainedConstraint@561",
+      "id": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeBuildRetainedConstraint@565",
       "file": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute",
       "name": "SigmaNativeBuildRetainedConstraint",
       "kind": "gpu_function",
-      "line": 561
+      "line": 565
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeBuildStateDelta@532",
+      "id": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeBuildStateDelta@536",
       "file": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute",
       "name": "SigmaNativeBuildStateDelta",
       "kind": "gpu_function",
-      "line": 532
+      "line": 536
     },
     {
       "id": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeCompletionAddress@117",
@@ -2817,95 +2838,95 @@
       "line": 117
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeCurrentPrediction@302",
+      "id": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeCurrentPrediction@306",
       "file": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute",
       "name": "SigmaNativeCurrentPrediction",
       "kind": "gpu_function",
-      "line": 302
+      "line": 306
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeDeltaLane@1281",
+      "id": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeDeltaLane@1323",
       "file": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute",
       "name": "SigmaNativeDeltaLane",
       "kind": "gpu_function",
-      "line": 1281
+      "line": 1323
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeDepthRayCenter@167",
+      "id": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeDepthRayCenter@171",
       "file": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute",
       "name": "SigmaNativeDepthRayCenter",
       "kind": "gpu_function",
-      "line": 167
+      "line": 171
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeDepthRayDx@173",
+      "id": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeDepthRayDx@177",
       "file": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute",
       "name": "SigmaNativeDepthRayDx",
       "kind": "gpu_function",
-      "line": 173
+      "line": 177
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeDepthRayDy@179",
+      "id": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeDepthRayDy@183",
       "file": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute",
       "name": "SigmaNativeDepthRayDy",
       "kind": "gpu_function",
-      "line": 179
+      "line": 183
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeOpticalBounds@260",
+      "id": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeOpticalBounds@264",
       "file": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute",
       "name": "SigmaNativeOpticalBounds",
       "kind": "gpu_function",
-      "line": 260
+      "line": 264
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeProjectRgb@236",
+      "id": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeProjectRgb@240",
       "file": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute",
       "name": "SigmaNativeProjectRgb",
       "kind": "gpu_function",
-      "line": 236
+      "line": 240
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeProjectionDepthBounds@201",
+      "id": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeProjectionDepthBounds@205",
       "file": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute",
       "name": "SigmaNativeProjectionDepthBounds",
       "kind": "gpu_function",
-      "line": 201
+      "line": 205
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeQ48FromFloat@157",
+      "id": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeQ48FromFloat@161",
       "file": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute",
       "name": "SigmaNativeQ48FromFloat",
       "kind": "gpu_function",
-      "line": 157
+      "line": 161
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeRgbCalibrationValue@162",
+      "id": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeRgbCalibrationValue@166",
       "file": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute",
       "name": "SigmaNativeRgbCalibrationValue",
       "kind": "gpu_function",
-      "line": 162
+      "line": 166
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeRgbLoad@254",
+      "id": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeRgbLoad@258",
       "file": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute",
       "name": "SigmaNativeRgbLoad",
       "kind": "gpu_function",
-      "line": 254
+      "line": 258
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeRoomRayComponent@185",
+      "id": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeRoomRayComponent@189",
       "file": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute",
       "name": "SigmaNativeRoomRayComponent",
       "kind": "gpu_function",
-      "line": 185
+      "line": 189
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeTransportAdmissible@524",
+      "id": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeTransportAdmissible@528",
       "file": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute",
       "name": "SigmaNativeTransportAdmissible",
       "kind": "gpu_function",
-      "line": 524
+      "line": 528
     },
     {
       "id": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeWriteCompletion4@122",
@@ -2929,11 +2950,11 @@
       "line": 144
     },
     {
-      "id": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::if@1064",
+      "id": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::if@1105",
       "file": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute",
       "name": "if",
       "kind": "gpu_function",
-      "line": 1064
+      "line": 1105
     },
     {
       "id": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::kernel:BuildNativeObservation",
@@ -4672,6 +4693,27 @@
       "line": 6
     },
     {
+      "id": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs::CertificateInterval@308",
+      "file": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs",
+      "name": "CertificateInterval",
+      "kind": "method",
+      "line": 308
+    },
+    {
+      "id": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs::CertificateRaw@305",
+      "file": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs",
+      "name": "CertificateRaw",
+      "kind": "method",
+      "line": 305
+    },
+    {
+      "id": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs::CertificateWordEqual@301",
+      "file": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs",
+      "name": "CertificateWordEqual",
+      "kind": "method",
+      "line": 301
+    },
+    {
       "id": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs::SigmaFrameUInt2Gpu",
       "file": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs",
       "name": "SigmaFrameUInt2Gpu",
@@ -4690,7 +4732,7 @@
       "file": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs",
       "name": "SigmaGeneratedFrame",
       "kind": "class",
-      "line": 173
+      "line": 184
     },
     {
       "id": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs::SigmaNativeCertificateFlags",
@@ -4707,18 +4749,25 @@
       "line": 52
     },
     {
+      "id": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs::SigmaNativeConstraintProofFlags",
+      "file": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs",
+      "name": "SigmaNativeConstraintProofFlags",
+      "kind": "enum",
+      "line": 83
+    },
+    {
       "id": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs::SigmaNativeDeltaFlags",
       "file": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs",
       "name": "SigmaNativeDeltaFlags",
       "kind": "enum",
-      "line": 97
+      "line": 106
     },
     {
       "id": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs::SigmaNativeFieldRevisionGpu",
       "file": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs",
       "name": "SigmaNativeFieldRevisionGpu",
       "kind": "struct",
-      "line": 166
+      "line": 177
     },
     {
       "id": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs::SigmaNativeFirstHitRole",
@@ -4739,7 +4788,7 @@
       "file": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs",
       "name": "SigmaNativeFrameGpu",
       "kind": "struct",
-      "line": 109
+      "line": 118
     },
     {
       "id": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs::SigmaNativeGaugeCellFlags",
@@ -4753,7 +4802,7 @@
       "file": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs",
       "name": "SigmaNativeGaugeDeltaGpu",
       "kind": "struct",
-      "line": 150
+      "line": 159
     },
     {
       "id": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs::SigmaNativeLeafKind",
@@ -4767,21 +4816,21 @@
       "file": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs",
       "name": "SigmaNativeObservationFlags",
       "kind": "enum",
-      "line": 84
+      "line": 93
     },
     {
       "id": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs::SigmaNativeObservationGpu",
       "file": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs",
       "name": "SigmaNativeObservationGpu",
       "kind": "struct",
-      "line": 117
+      "line": 126
     },
     {
       "id": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs::SigmaNativeReverseWorkGpu",
       "file": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs",
       "name": "SigmaNativeReverseWorkGpu",
       "kind": "struct",
-      "line": 125
+      "line": 134
     },
     {
       "id": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs::SigmaNativeRevisionState",
@@ -4802,14 +4851,21 @@
       "file": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs",
       "name": "SigmaNativeStateDeltaGpu",
       "kind": "struct",
-      "line": 133
+      "line": 142
     },
     {
       "id": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs::SigmaUnresolvedConstraintGpu",
       "file": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs",
       "name": "SigmaUnresolvedConstraintGpu",
       "kind": "struct",
-      "line": 158
+      "line": 167
+    },
+    {
+      "id": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs::TryMeetLocalityCertificates@227",
+      "file": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs",
+      "name": "TryMeetLocalityCertificates",
+      "kind": "method",
+      "line": 227
     },
     {
       "id": "Runtime/SigmaPrism/SigmaBackendCapabilities.cs::Lower@104",
@@ -5463,333 +5519,641 @@
       "line": 6
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::AcquireSegment@658",
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::AcknowledgeDurable@843",
+      "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
+      "name": "AcknowledgeDurable",
+      "kind": "method",
+      "line": 843
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::AcquireSegment@1308",
       "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
       "name": "AcquireSegment",
       "kind": "method",
-      "line": 658
+      "line": 1308
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Add@308",
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Add@714",
       "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
       "name": "Add",
       "kind": "method",
-      "line": 308
+      "line": 714
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Cancel@586",
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::AddDecodedEntry@905",
+      "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
+      "name": "AddDecodedEntry",
+      "kind": "method",
+      "line": 905
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::AddDecodedRaw@892",
+      "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
+      "name": "AddDecodedRaw",
+      "kind": "method",
+      "line": 892
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::AddPersistedEntry@832",
+      "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
+      "name": "AddPersistedEntry",
+      "kind": "method",
+      "line": 832
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::AddRaw@854",
+      "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
+      "name": "AddRaw",
+      "kind": "method",
+      "line": 854
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::ApplyShardDelta@214",
+      "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
+      "name": "ApplyShardDelta",
+      "kind": "method",
+      "line": 214
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::BucketName@286",
+      "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
+      "name": "BucketName",
+      "kind": "method",
+      "line": 286
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::BuildCanonicalBytes@450",
+      "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
+      "name": "BuildCanonicalBytes",
+      "kind": "method",
+      "line": 450
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::BuildKey@618",
+      "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
+      "name": "BuildKey",
+      "kind": "method",
+      "line": 618
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::BuildRawContextBytes@470",
+      "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
+      "name": "BuildRawContextBytes",
+      "kind": "method",
+      "line": 470
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Cancel@1236",
       "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
       "name": "Cancel",
       "kind": "method",
-      "line": 586
+      "line": 1236
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::CanonicalBytes@219",
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::CanonicalBytes@413",
       "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
       "name": "CanonicalBytes",
       "kind": "method",
-      "line": 219
+      "line": 413
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Clear@390",
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::CertificateEntry@965",
+      "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
+      "name": "CertificateEntry",
+      "kind": "method",
+      "line": 965
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Clear@798",
       "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
       "name": "Clear",
       "kind": "method",
-      "line": 390
+      "line": 798
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::CompareEntries@392",
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Coalesce@241",
       "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
-      "name": "CompareEntries",
+      "name": "Coalesce",
       "kind": "method",
-      "line": 392
+      "line": 241
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::CompareRecords@399",
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::CompareTo@680",
       "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
-      "name": "CompareRecords",
+      "name": "CompareTo",
       "kind": "method",
-      "line": 399
+      "line": 680
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::CompleteReadback@677",
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::CompleteReadback@1327",
       "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
       "name": "CompleteReadback",
       "kind": "method",
-      "line": 677
+      "line": 1327
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Decode@449",
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::CountKind@921",
+      "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
+      "name": "CountKind",
+      "kind": "method",
+      "line": 921
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::CountRawEvidence@929",
+      "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
+      "name": "CountRawEvidence",
+      "kind": "method",
+      "line": 929
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Decode@1091",
       "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
       "name": "Decode",
       "kind": "method",
-      "line": 449
+      "line": 1091
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::DecodeCanonical@360",
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::DecodeCanonical@763",
       "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
       "name": "DecodeCanonical",
       "kind": "method",
-      "line": 360
+      "line": 763
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Dispose@643",
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Dispose@108",
       "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
       "name": "Dispose",
       "kind": "method",
-      "line": 643
+      "line": 108
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Dispose@79",
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Dispose@1293",
       "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
       "name": "Dispose",
       "kind": "method",
-      "line": 79
+      "line": 1293
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::EncodeCanonical@342",
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::EncodeBucket@255",
+      "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
+      "name": "EncodeBucket",
+      "kind": "method",
+      "line": 255
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::EncodeCanonical@745",
       "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
       "name": "EncodeCanonical",
       "kind": "method",
-      "line": 342
+      "line": 745
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::EnsureShardStore@188",
+      "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
+      "name": "EnsureShardStore",
+      "kind": "method",
+      "line": 188
     },
     {
       "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Entry",
       "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
       "name": "Entry",
-      "kind": "struct",
-      "line": 417
+      "kind": "class",
+      "line": 942
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Equal@268",
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Equal@639",
       "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
       "name": "Equal",
+      "kind": "method",
+      "line": 639
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Equals@668",
+      "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
+      "name": "Equals",
+      "kind": "method",
+      "line": 668
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Equals@677",
+      "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
+      "name": "Equals",
+      "kind": "method",
+      "line": 677
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::FlushOpenAfterGpuIdle@1257",
+      "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
+      "name": "FlushOpenAfterGpuIdle",
+      "kind": "method",
+      "line": 1257
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::FormatLogLine@496",
+      "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
+      "name": "FormatLogLine",
+      "kind": "method",
+      "line": 496
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::From@567",
+      "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
+      "name": "From",
+      "kind": "method",
+      "line": 567
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::FromCanonicalBytes@440",
+      "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
+      "name": "FromCanonicalBytes",
+      "kind": "method",
+      "line": 440
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::FromPersisted@582",
+      "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
+      "name": "FromPersisted",
+      "kind": "method",
+      "line": 582
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::GetHashCode@679",
+      "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
+      "name": "GetHashCode",
+      "kind": "method",
+      "line": 679
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::IsShardMarker@311",
+      "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
+      "name": "IsShardMarker",
+      "kind": "method",
+      "line": 311
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Load@55",
+      "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
+      "name": "Load",
+      "kind": "method",
+      "line": 55
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::LoadShards@173",
+      "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
+      "name": "LoadShards",
+      "kind": "method",
+      "line": 173
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::MarkerBytes@303",
+      "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
+      "name": "MarkerBytes",
+      "kind": "method",
+      "line": 303
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::NoBroaderThan@396",
+      "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
+      "name": "NoBroaderThan",
+      "kind": "method",
+      "line": 396
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Raw@530",
+      "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
+      "name": "Raw",
+      "kind": "method",
+      "line": 530
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::RawEntry@960",
+      "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
+      "name": "RawEntry",
+      "kind": "method",
+      "line": 960
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Read2@545",
+      "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
+      "name": "Read2",
+      "kind": "method",
+      "line": 545
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Read4@549",
+      "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
+      "name": "Read4",
+      "kind": "method",
+      "line": 549
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Read@1006",
+      "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
+      "name": "Read",
+      "kind": "method",
+      "line": 1006
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Read@502",
+      "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
+      "name": "Read",
+      "kind": "method",
+      "line": 502
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::ReadBucket@268",
+      "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
+      "name": "ReadBucket",
       "kind": "method",
       "line": 268
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Equal@270",
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::ReadWord@1051",
       "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
-      "name": "Equal",
+      "name": "ReadWord",
       "kind": "method",
-      "line": 270
+      "line": 1051
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::FlushOpenAfterGpuIdle@607",
-      "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
-      "name": "FlushOpenAfterGpuIdle",
-      "kind": "method",
-      "line": 607
-    },
-    {
-      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::FormatLogLine@237",
-      "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
-      "name": "FormatLogLine",
-      "kind": "method",
-      "line": 237
-    },
-    {
-      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Load@39",
-      "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
-      "name": "Load",
-      "kind": "method",
-      "line": 39
-    },
-    {
-      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::NoBroaderThan@202",
-      "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
-      "name": "NoBroaderThan",
-      "kind": "method",
-      "line": 202
-    },
-    {
-      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Raw@265",
-      "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
-      "name": "Raw",
-      "kind": "method",
-      "line": 265
-    },
-    {
-      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Read2@285",
-      "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
-      "name": "Read2",
-      "kind": "method",
-      "line": 285
-    },
-    {
-      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Read4@289",
-      "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
-      "name": "Read4",
-      "kind": "method",
-      "line": 289
-    },
-    {
-      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Read@243",
-      "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
-      "name": "Read",
-      "kind": "method",
-      "line": 243
-    },
-    {
-      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::RecordSealedReadback@565",
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::RecordSealedReadback@1215",
       "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
       "name": "RecordSealedReadback",
       "kind": "method",
-      "line": 565
+      "line": 1215
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Require@412",
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Require@1154",
       "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
       "name": "Require",
       "kind": "method",
-      "line": 412
+      "line": 1154
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Require@504",
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Require@338",
       "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
       "name": "Require",
       "kind": "method",
-      "line": 504
+      "line": 338
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Require@937",
+      "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
+      "name": "Require",
+      "kind": "method",
+      "line": 937
     },
     {
       "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Reservation",
       "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
       "name": "Reservation",
       "kind": "struct",
-      "line": 528
+      "line": 1178
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Reserve@546",
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Reserve@1196",
       "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
       "name": "Reserve",
       "kind": "method",
-      "line": 546
+      "line": 1196
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Reset@740",
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Reset@1390",
       "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
       "name": "Reset",
       "kind": "method",
-      "line": 740
+      "line": 1390
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::SameContextAndIndependence@176",
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::SameContextAndIndependence@391",
       "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
       "name": "SameContextAndIndependence",
       "kind": "method",
-      "line": 176
+      "line": 391
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::SameWords@609",
+      "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
+      "name": "SameWords",
+      "kind": "method",
+      "line": 609
     },
     {
       "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Segment",
       "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
       "name": "Segment",
       "kind": "class",
-      "line": 732
+      "line": 1382
     },
     {
       "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::SigmaConstraintAdmission",
       "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
       "name": "SigmaConstraintAdmission",
       "kind": "enum",
-      "line": 11
+      "line": 12
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::SigmaConstraintByteKey",
+      "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
+      "name": "SigmaConstraintByteKey",
+      "kind": "class",
+      "line": 649
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::SigmaConstraintEntryKind",
+      "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
+      "name": "SigmaConstraintEntryKind",
+      "kind": "enum",
+      "line": 19
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::SigmaConstraintJournalDelta",
+      "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
+      "name": "SigmaConstraintJournalDelta",
+      "kind": "struct",
+      "line": 1059
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::SigmaExactConstraintCertificate",
+      "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
+      "name": "SigmaExactConstraintCertificate",
+      "kind": "class",
+      "line": 555
     },
     {
       "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::SigmaExactConstraintJournal",
       "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
       "name": "SigmaExactConstraintJournal",
       "kind": "class",
-      "line": 301
+      "line": 698
     },
     {
       "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::SigmaExactConstraintRecord",
       "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
       "name": "SigmaExactConstraintRecord",
       "kind": "class",
-      "line": 149
+      "line": 349
     },
     {
       "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::SigmaExactConstraintStore",
       "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
       "name": "SigmaExactConstraintStore",
       "kind": "class",
-      "line": 23
+      "line": 31
     },
     {
       "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::SigmaNativeCompletionRecord",
       "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
       "name": "SigmaNativeCompletionRecord",
       "kind": "class",
-      "line": 435
+      "line": 1077
     },
     {
       "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::SigmaNativeCompletionTransfer",
       "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
       "name": "SigmaNativeCompletionTransfer",
       "kind": "class",
-      "line": 518
+      "line": 1168
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Stage@53",
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Snapshot@594",
+      "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
+      "name": "Snapshot",
+      "kind": "method",
+      "line": 594
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Snapshot@981",
+      "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
+      "name": "Snapshot",
+      "kind": "method",
+      "line": 981
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::SnapshotEntries@820",
+      "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
+      "name": "SnapshotEntries",
+      "kind": "method",
+      "line": 820
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Stage@80",
       "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
       "name": "Stage",
       "kind": "method",
-      "line": 53
+      "line": 80
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::ThrowIfDisposed@725",
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::TakePendingDeltas@806",
+      "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
+      "name": "TakePendingDeltas",
+      "kind": "method",
+      "line": 806
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::ThrowIfDisposed@1375",
       "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
       "name": "ThrowIfDisposed",
       "kind": "method",
-      "line": 725
+      "line": 1375
     },
     {
       "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::TransferResult",
       "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
       "name": "TransferResult",
       "kind": "struct",
-      "line": 747
+      "line": 1397
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::TryDequeue@625",
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::TryCreateCertificate@415",
+      "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
+      "name": "TryCreateCertificate",
+      "kind": "method",
+      "line": 415
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::TryDequeue@1275",
       "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
       "name": "TryDequeue",
       "kind": "method",
-      "line": 625
+      "line": 1275
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::TryGetFault@70",
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::TryGetFault@99",
       "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
       "name": "TryGetFault",
       "kind": "method",
-      "line": 70
+      "line": 99
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Write@273",
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::TryMeet@597",
+      "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
+      "name": "TryMeet",
+      "kind": "method",
+      "line": 597
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::WithCertificate@970",
+      "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
+      "name": "WithCertificate",
+      "kind": "method",
+      "line": 970
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::WithoutRaw@979",
+      "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
+      "name": "WithoutRaw",
+      "kind": "method",
+      "line": 979
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Write@533",
       "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
       "name": "Write",
       "kind": "method",
-      "line": 273
+      "line": 533
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Write@278",
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Write@538",
       "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
       "name": "Write",
       "kind": "method",
-      "line": 278
+      "line": 538
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::WriteAtomic@124",
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Write@643",
+      "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
+      "name": "Write",
+      "kind": "method",
+      "line": 643
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Write@984",
+      "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
+      "name": "Write",
+      "kind": "method",
+      "line": 984
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::WriteAtomic@319",
       "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
       "name": "WriteAtomic",
       "kind": "method",
-      "line": 124
+      "line": 319
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::WritePending@91",
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::WritePending@120",
       "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
       "name": "WritePending",
       "kind": "method",
-      "line": 91
+      "line": 120
+    },
+    {
+      "id": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::WriteWord@1044",
+      "file": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs",
+      "name": "WriteWord",
+      "kind": "method",
+      "line": 1044
     },
     {
       "id": "Runtime/SigmaPrism/SigmaGeometryReadout.cs::LiftFixture@61",
@@ -9824,116 +10188,144 @@
       "line": 969
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::BindPublication@836",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::BindPublication@1034",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "BindPublication",
       "kind": "method",
-      "line": 836
+      "line": 1034
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::Compare@1407",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::CertificateDifference@1245",
+      "file": "Tests/Editor/SigmaNativeFrameTests.cs",
+      "name": "CertificateDifference",
+      "kind": "method",
+      "line": 1245
+    },
+    {
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::CertifiedConstraintRecord@1156",
+      "file": "Tests/Editor/SigmaNativeFrameTests.cs",
+      "name": "CertifiedConstraintRecord",
+      "kind": "method",
+      "line": 1156
+    },
+    {
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::Compare@1707",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "Compare",
       "kind": "method",
-      "line": 1407
+      "line": 1707
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::CompletionTransferBatchesWithoutBecomingIngressOwnership@585",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::CompletionTransferBatchesWithoutBecomingIngressOwnership@782",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "CompletionTransferBatchesWithoutBecomingIngressOwnership",
       "kind": "method",
-      "line": 585
+      "line": 782
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::ConstraintRecord@928",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::ConstraintRecord@1126",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "ConstraintRecord",
       "kind": "method",
-      "line": 928
+      "line": 1126
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::Count@827",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::Count@1025",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "Count",
       "kind": "method",
-      "line": 827
+      "line": 1025
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::Equals@1395",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::DirectionModeMask@1226",
+      "file": "Tests/Editor/SigmaNativeFrameTests.cs",
+      "name": "DirectionModeMask",
+      "kind": "method",
+      "line": 1226
+    },
+    {
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::Equals@1695",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "Equals",
       "kind": "method",
-      "line": 1395
+      "line": 1695
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::Equals@1398",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::Equals@1698",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "Equals",
       "kind": "method",
-      "line": 1398
+      "line": 1698
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::ExactConstraintJournalMinimizesWithoutBranchIdentity@516",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::ExactConstraintJournalMinimizesWithoutBranchIdentity@527",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "ExactConstraintJournalMinimizesWithoutBranchIdentity",
       "kind": "method",
-      "line": 516
+      "line": 527
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::FeasibleCurrentStateIsBytePreservedAndDoesNotClonePage@231",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::FeasibleCurrentStateIsBytePreservedAndDoesNotClonePage@240",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "FeasibleCurrentStateIsBytePreservedAndDoesNotClonePage",
       "kind": "method",
-      "line": 231
+      "line": 240
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::FindGaugeSample@1230",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::FindGaugeSample@1530",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "FindGaugeSample",
       "kind": "method",
-      "line": 1230
+      "line": 1530
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::Flatten@1274",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::Flatten@1574",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "Flatten",
       "kind": "method",
-      "line": 1274
+      "line": 1574
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::Flatten@1285",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::Flatten@1585",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "Flatten",
       "kind": "method",
-      "line": 1285
+      "line": 1585
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::From@1389",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::From@1689",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "From",
       "kind": "method",
-      "line": 1389
+      "line": 1689
     },
     {
       "id": "Tests/Editor/SigmaNativeFrameTests.cs::GaugeKey",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "GaugeKey",
       "kind": "struct",
-      "line": 1368
+      "line": 1668
     },
     {
       "id": "Tests/Editor/SigmaNativeFrameTests.cs::GaugeKeyComparer",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "GaugeKeyComparer",
       "kind": "class",
-      "line": 1403
+      "line": 1703
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::GetHashCode@1400",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::GetHashCode@1700",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "GetHashCode",
       "kind": "method",
-      "line": 1400
+      "line": 1700
+    },
+    {
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::LegacyConstraintSnapshotMigratesOnceToBoundedDeltaStore@601",
+      "file": "Tests/Editor/SigmaNativeFrameTests.cs",
+      "name": "LegacyConstraintSnapshotMigratesOnceToBoundedDeltaStore",
+      "kind": "method",
+      "line": 601
     },
     {
       "id": "Tests/Editor/SigmaNativeFrameTests.cs::LiveGraphIsOneBoundedNativeCloseAndLegacyAbiIsAbsent@17",
@@ -9950,39 +10342,60 @@
       "line": 92
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::LoadShader@683",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::LoadShader@880",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "LoadShader",
       "kind": "method",
-      "line": 683
+      "line": 880
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::MinimizedConstraintJournalPersistsAtomicallyOffFrameThread@558",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::LocalityCertificateBoundsTenThousandRevisitsAndIsOrderIndependent@635",
+      "file": "Tests/Editor/SigmaNativeFrameTests.cs",
+      "name": "LocalityCertificateBoundsTenThousandRevisitsAndIsOrderIndependent",
+      "kind": "method",
+      "line": 635
+    },
+    {
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::LocalityCertificatePreservesViewDiversityAndRawContradiction@702",
+      "file": "Tests/Editor/SigmaNativeFrameTests.cs",
+      "name": "LocalityCertificatePreservesViewDiversityAndRawContradiction",
+      "kind": "method",
+      "line": 702
+    },
+    {
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::MinimizedConstraintJournalPersistsAtomicallyOffFrameThread@569",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "MinimizedConstraintJournalPersistsAtomicallyOffFrameThread",
       "kind": "method",
-      "line": 558
+      "line": 569
     },
     {
       "id": "Tests/Editor/SigmaNativeFrameTests.cs::PageMeta",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "PageMeta",
       "kind": "struct",
-      "line": 1460
+      "line": 1760
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::PreRootFaultLeavesStateGaugeCertificateAndRootUntouched@370",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::PersistAndReload@1214",
+      "file": "Tests/Editor/SigmaNativeFrameTests.cs",
+      "name": "PersistAndReload",
+      "kind": "method",
+      "line": 1214
+    },
+    {
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::PreRootFaultLeavesStateGaugeCertificateAndRootUntouched@380",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "PreRootFaultLeavesStateGaugeCertificateAndRootUntouched",
       "kind": "method",
-      "line": 370
+      "line": 380
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::PrepareRefinementScratch@1111",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::PrepareRefinementScratch@1411",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "PrepareRefinementScratch",
       "kind": "method",
-      "line": 1111
+      "line": 1411
     },
     {
       "id": "Tests/Editor/SigmaNativeFrameTests.cs::ProvenFreshAdmissionPublishesExactlyOneRoot@125",
@@ -9992,88 +10405,102 @@
       "line": 125
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::Q2@1298",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::Q2@1598",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "Q2",
       "kind": "method",
-      "line": 1298
+      "line": 1598
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::ReadCertificate@1262",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::Q4@1237",
+      "file": "Tests/Editor/SigmaNativeFrameTests.cs",
+      "name": "Q4",
+      "kind": "method",
+      "line": 1237
+    },
+    {
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::ReadCertificate@1562",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "ReadCertificate",
       "kind": "method",
-      "line": 1262
+      "line": 1562
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::ReadPageMeta@1222",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::ReadPageMeta@1522",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "ReadPageMeta",
       "kind": "method",
-      "line": 1222
+      "line": 1522
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::ReadState@1252",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::ReadState@1552",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "ReadState",
       "kind": "method",
-      "line": 1252
+      "line": 1552
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::RefinementCopiesTheCompletePriorBeforeAddingDetail@643",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::RefinementCopiesTheCompletePriorBeforeAddingDetail@840",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "RefinementCopiesTheCompletePriorBeforeAddingDetail",
       "kind": "method",
-      "line": 643
+      "line": 840
     },
     {
       "id": "Tests/Editor/SigmaNativeFrameTests.cs::RefinementSnapshot",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "RefinementSnapshot",
       "kind": "class",
-      "line": 1322
+      "line": 1622
     },
     {
       "id": "Tests/Editor/SigmaNativeFrameTests.cs::RefinementStep",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "RefinementStep",
       "kind": "struct",
-      "line": 1307
+      "line": 1607
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::RepeatedRefinementNormalizesIndependentlyOfSplitOrder@608",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::ReloadedCertificateMeetsLikeUninterruptedCertificate@748",
+      "file": "Tests/Editor/SigmaNativeFrameTests.cs",
+      "name": "ReloadedCertificateMeetsLikeUninterruptedCertificate",
+      "kind": "method",
+      "line": 748
+    },
+    {
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::RepeatedRefinementNormalizesIndependentlyOfSplitOrder@805",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "RepeatedRefinementNormalizesIndependentlyOfSplitOrder",
       "kind": "method",
-      "line": 608
+      "line": 805
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::RunRefinementSequence@958",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::RunRefinementSequence@1257",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "RunRefinementSequence",
       "kind": "method",
-      "line": 958
+      "line": 1257
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::RunStaticExclusion@696",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::RunStaticExclusion@893",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "RunStaticExclusion",
       "kind": "method",
-      "line": 696
+      "line": 893
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::SetEqualCertificates@905",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::SetEqualCertificates@1103",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "SetEqualCertificates",
       "kind": "method",
-      "line": 905
+      "line": 1103
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::SetValidNextCertificate@888",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::SetValidNextCertificate@1086",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "SetValidNextCertificate",
       "kind": "method",
-      "line": 888
+      "line": 1086
     },
     {
       "id": "Tests/Editor/SigmaNativeFrameTests.cs::SigmaNativeFrameTests",
@@ -10083,67 +10510,67 @@
       "line": 14
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::SignedMorton@1420",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::SignedMorton@1720",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "SignedMorton",
       "kind": "method",
-      "line": 1420
+      "line": 1720
     },
     {
       "id": "Tests/Editor/SigmaNativeFrameTests.cs::StaticExclusionSnapshot",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "StaticExclusionSnapshot",
       "kind": "class",
-      "line": 1344
+      "line": 1644
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::StereoStaticExclusionPublishesOnlyZEmptyAtTheSameGauge@343",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::StereoStaticExclusionPublishesOnlyZEmptyAtTheSameGauge@353",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "StereoStaticExclusionPublishesOnlyZEmptyAtTheSameGauge",
       "kind": "method",
-      "line": 343
+      "line": 353
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::ToRaw@1381",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::ToRaw@1681",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "ToRaw",
       "kind": "method",
-      "line": 1381
+      "line": 1681
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::ToString@1401",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::ToString@1701",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "ToString",
       "kind": "method",
-      "line": 1401
+      "line": 1701
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::U4@1304",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::U4@1604",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "U4",
       "kind": "method",
-      "line": 1304
+      "line": 1604
     },
     {
       "id": "Tests/Editor/SigmaNativeFrameTests.cs::UInt2",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "UInt2",
       "kind": "struct",
-      "line": 1444
+      "line": 1744
     },
     {
       "id": "Tests/Editor/SigmaNativeFrameTests.cs::UInt4",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "UInt4",
       "kind": "struct",
-      "line": 1451
+      "line": 1751
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::WriteRepresentationCell@1183",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::WriteRepresentationCell@1483",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "WriteRepresentationCell",
       "kind": "method",
-      "line": 1183
+      "line": 1483
     },
     {
       "id": "Tests/Editor/SigmaNativeOracleTests.cs::AssertFreshGpuMatchesCpu@1392",
@@ -10927,749 +11354,749 @@
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaAssembledSensorEye",
       "kind": "struct",
-      "line": 2299
+      "line": 2307
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaCertificateFactor",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaCertificateFactor",
       "kind": "struct",
-      "line": 2136
+      "line": 2144
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaDefaultBackingKind",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaDefaultBackingKind",
       "kind": "enum",
-      "line": 2048
+      "line": 2056
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaDirectionalActionWitness",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaDirectionalActionWitness",
       "kind": "struct",
-      "line": 2118
+      "line": 2126
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaExactFactorClass",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaExactFactorClass",
       "kind": "enum",
-      "line": 2041
+      "line": 2049
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaFrameUInt2Gpu",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaFrameUInt2Gpu",
       "kind": "struct",
-      "line": 4213
+      "line": 4315
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaFrameUInt4Gpu",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaFrameUInt4Gpu",
       "kind": "struct",
-      "line": 4220
+      "line": 4322
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaFreshAdmissionStatus",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaFreshAdmissionStatus",
       "kind": "enum",
-      "line": 2055
+      "line": 2063
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaFreshBaseAdmission",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaFreshBaseAdmission",
       "kind": "struct",
-      "line": 2351
+      "line": 2359
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaFreshShadowBranch",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaFreshShadowBranch",
       "kind": "struct",
-      "line": 2330
+      "line": 2338
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaGaugeCell",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaGaugeCell",
       "kind": "struct",
-      "line": 2166
+      "line": 2174
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaGeneratedAlgebra",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaGeneratedAlgebra",
       "kind": "class",
-      "line": 1801
+      "line": 1809
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaGeneratedFrame",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaGeneratedFrame",
       "kind": "class",
-      "line": 4231
+      "line": 4333
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaGeneratedMerkabaProgram",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaGeneratedMerkabaProgram",
       "kind": "class",
-      "line": 2369
+      "line": 2377
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaInstrumentEyeBoundary",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaInstrumentEyeBoundary",
       "kind": "class",
-      "line": 2227
+      "line": 2235
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaInstrumentFootprint",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaInstrumentFootprint",
       "kind": "struct",
-      "line": 2197
+      "line": 2205
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaInstrumentLeafKind",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaInstrumentLeafKind",
       "kind": "enum",
-      "line": 2182
+      "line": 2190
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaInstrumentOpticalTransfer",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaInstrumentOpticalTransfer",
       "kind": "enum",
-      "line": 2190
+      "line": 2198
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaMerkabaEntryPoint",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaMerkabaEntryPoint",
       "kind": "struct",
-      "line": 2104
+      "line": 2112
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaMerkabaExpression",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaMerkabaExpression",
       "kind": "struct",
-      "line": 2084
+      "line": 2092
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaMerkabaIrNode",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaMerkabaIrNode",
       "kind": "struct",
-      "line": 2061
+      "line": 2069
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaMerkabaIrOpcode",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaMerkabaIrOpcode",
       "kind": "enum",
-      "line": 2009
+      "line": 2017
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaMerkabaRelationClass",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaMerkabaRelationClass",
       "kind": "enum",
-      "line": 2023
+      "line": 2031
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaMerkabaReverseRule",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaMerkabaReverseRule",
       "kind": "enum",
-      "line": 2018
+      "line": 2026
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaMerkabaValueKind",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaMerkabaValueKind",
       "kind": "enum",
-      "line": 2013
+      "line": 2021
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaMinimizedFactor",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaMinimizedFactor",
       "kind": "struct",
-      "line": 2158
+      "line": 2166
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaNativeQueryClaim",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaNativeQueryClaim",
       "kind": "enum",
-      "line": 2034
+      "line": 2042
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::action_expression@471",
+      "id": "Tools/sigma/generate_sigma_operators.py::action_expression@479",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "action_expression",
       "kind": "function",
-      "line": 471
+      "line": 479
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::add_expression@344",
+      "id": "Tools/sigma/generate_sigma_operators.py::add_expression@352",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "add_expression",
       "kind": "function",
-      "line": 344
+      "line": 352
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::add_node@327",
+      "id": "Tools/sigma/generate_sigma_operators.py::add_node@335",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "add_node",
       "kind": "function",
-      "line": 327
+      "line": 335
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::associator_expression@374",
+      "id": "Tools/sigma/generate_sigma_operators.py::associator_expression@382",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "associator_expression",
       "kind": "function",
-      "line": 374
+      "line": 382
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::basis_product@146",
+      "id": "Tools/sigma/generate_sigma_operators.py::basis_product@154",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "basis_product",
       "kind": "function",
-      "line": 146
+      "line": 154
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::build_descriptor@1570",
+      "id": "Tools/sigma/generate_sigma_operators.py::build_descriptor@1578",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "build_descriptor",
       "kind": "function",
-      "line": 1570
+      "line": 1578
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::build_executable_merkaba_ir@278",
+      "id": "Tools/sigma/generate_sigma_operators.py::build_executable_merkaba_ir@286",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "build_executable_merkaba_ir",
       "kind": "function",
-      "line": 278
+      "line": 286
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::build_merkaba_descriptor@1255",
+      "id": "Tools/sigma/generate_sigma_operators.py::build_merkaba_descriptor@1263",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "build_merkaba_descriptor",
       "kind": "function",
-      "line": 1255
+      "line": 1263
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::certificate_minimizer_proof@904",
+      "id": "Tools/sigma/generate_sigma_operators.py::certificate_minimizer_proof@912",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "certificate_minimizer_proof",
       "kind": "function",
-      "line": 904
+      "line": 912
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::check_or_write@4306",
+      "id": "Tools/sigma/generate_sigma_operators.py::check_or_write@4503",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "check_or_write",
       "kind": "function",
-      "line": 4306
+      "line": 4503
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::chunks@1772",
+      "id": "Tools/sigma/generate_sigma_operators.py::chunks@1780",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "chunks",
       "kind": "function",
-      "line": 1772
+      "line": 1780
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::collapse_once@975",
+      "id": "Tools/sigma/generate_sigma_operators.py::collapse_once@983",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "collapse_once",
       "kind": "function",
-      "line": 975
+      "line": 983
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::conjugate_sign@163",
+      "id": "Tools/sigma/generate_sigma_operators.py::conjugate_sign@171",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "conjugate_sign",
-      "kind": "function",
-      "line": 163
-    },
-    {
-      "id": "Tools/sigma/generate_sigma_operators.py::cs_array@1777",
-      "file": "Tools/sigma/generate_sigma_operators.py",
-      "name": "cs_array",
-      "kind": "function",
-      "line": 1777
-    },
-    {
-      "id": "Tools/sigma/generate_sigma_operators.py::default_representation_proof@817",
-      "file": "Tools/sigma/generate_sigma_operators.py",
-      "name": "default_representation_proof",
-      "kind": "function",
-      "line": 817
-    },
-    {
-      "id": "Tools/sigma/generate_sigma_operators.py::diffraction_expression@390",
-      "file": "Tools/sigma/generate_sigma_operators.py",
-      "name": "diffraction_expression",
-      "kind": "function",
-      "line": 390
-    },
-    {
-      "id": "Tools/sigma/generate_sigma_operators.py::diffraction_matrix@208",
-      "file": "Tools/sigma/generate_sigma_operators.py",
-      "name": "diffraction_matrix",
-      "kind": "function",
-      "line": 208
-    },
-    {
-      "id": "Tools/sigma/generate_sigma_operators.py::dyads@171",
-      "file": "Tools/sigma/generate_sigma_operators.py",
-      "name": "dyads",
       "kind": "function",
       "line": 171
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::evaluate_actual_associator@686",
+      "id": "Tools/sigma/generate_sigma_operators.py::cs_array@1785",
+      "file": "Tools/sigma/generate_sigma_operators.py",
+      "name": "cs_array",
+      "kind": "function",
+      "line": 1785
+    },
+    {
+      "id": "Tools/sigma/generate_sigma_operators.py::default_representation_proof@825",
+      "file": "Tools/sigma/generate_sigma_operators.py",
+      "name": "default_representation_proof",
+      "kind": "function",
+      "line": 825
+    },
+    {
+      "id": "Tools/sigma/generate_sigma_operators.py::diffraction_expression@398",
+      "file": "Tools/sigma/generate_sigma_operators.py",
+      "name": "diffraction_expression",
+      "kind": "function",
+      "line": 398
+    },
+    {
+      "id": "Tools/sigma/generate_sigma_operators.py::diffraction_matrix@216",
+      "file": "Tools/sigma/generate_sigma_operators.py",
+      "name": "diffraction_matrix",
+      "kind": "function",
+      "line": 216
+    },
+    {
+      "id": "Tools/sigma/generate_sigma_operators.py::dyads@179",
+      "file": "Tools/sigma/generate_sigma_operators.py",
+      "name": "dyads",
+      "kind": "function",
+      "line": 179
+    },
+    {
+      "id": "Tools/sigma/generate_sigma_operators.py::evaluate_actual_associator@694",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "evaluate_actual_associator",
       "kind": "function",
-      "line": 686
+      "line": 694
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::file_sha256@196",
+      "id": "Tools/sigma/generate_sigma_operators.py::file_sha256@204",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "file_sha256",
       "kind": "function",
-      "line": 196
+      "line": 204
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::fingerprint_words@1861",
+      "id": "Tools/sigma/generate_sigma_operators.py::fingerprint_words@1869",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "fingerprint_words",
       "kind": "function",
-      "line": 1861
+      "line": 1869
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::forward@1126",
+      "id": "Tools/sigma/generate_sigma_operators.py::forward@1134",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "forward",
       "kind": "function",
-      "line": 1126
+      "line": 1134
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::frame_abi_descriptor@4098",
+      "id": "Tools/sigma/generate_sigma_operators.py::frame_abi_descriptor@4199",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "frame_abi_descriptor",
       "kind": "function",
-      "line": 4098
+      "line": 4199
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::fresh_admission_expression@513",
+      "id": "Tools/sigma/generate_sigma_operators.py::fresh_admission_expression@521",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "fresh_admission_expression",
       "kind": "function",
-      "line": 513
+      "line": 521
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::fresh_base_admission_proof@1071",
+      "id": "Tools/sigma/generate_sigma_operators.py::fresh_base_admission_proof@1079",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "fresh_base_admission_proof",
       "kind": "function",
-      "line": 1071
+      "line": 1079
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::fresh_boundary_relation@1139",
+      "id": "Tools/sigma/generate_sigma_operators.py::fresh_boundary_relation@1147",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "fresh_boundary_relation",
       "kind": "function",
-      "line": 1139
+      "line": 1147
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::gauge_expression@502",
+      "id": "Tools/sigma/generate_sigma_operators.py::gauge_expression@510",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "gauge_expression",
       "kind": "function",
-      "line": 502
+      "line": 510
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::gauge_transport_proof@962",
+      "id": "Tools/sigma/generate_sigma_operators.py::gauge_transport_proof@970",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "gauge_transport_proof",
       "kind": "function",
-      "line": 962
+      "line": 970
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::hadamard_sign@167",
+      "id": "Tools/sigma/generate_sigma_operators.py::hadamard_sign@175",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "hadamard_sign",
       "kind": "function",
-      "line": 167
+      "line": 175
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::information_metric@259",
+      "id": "Tools/sigma/generate_sigma_operators.py::information_metric@267",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "information_metric",
       "kind": "function",
-      "line": 259
+      "line": 267
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::input_s16@365",
+      "id": "Tools/sigma/generate_sigma_operators.py::input_s16@373",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "input_s16",
       "kind": "function",
-      "line": 365
+      "line": 373
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::interpret_forward@838",
+      "id": "Tools/sigma/generate_sigma_operators.py::interpret_forward@846",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "interpret_forward",
       "kind": "function",
-      "line": 838
+      "line": 846
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::interval_add@606",
+      "id": "Tools/sigma/generate_sigma_operators.py::interval_add@614",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "interval_add",
       "kind": "function",
-      "line": 606
+      "line": 614
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::interval_mul@601",
+      "id": "Tools/sigma/generate_sigma_operators.py::interval_mul@609",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "interval_mul",
       "kind": "function",
-      "line": 601
+      "line": 609
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::interval_sub@609",
+      "id": "Tools/sigma/generate_sigma_operators.py::interval_sub@617",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "interval_sub",
       "kind": "function",
-      "line": 609
+      "line": 617
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::kernel:MerkabaDirectionalActionParity",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "MerkabaDirectionalActionParity",
       "kind": "gpu_kernel",
-      "line": 3809
+      "line": 3910
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::kernel:MerkabaFreshAdmissionParity",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "MerkabaFreshAdmissionParity",
       "kind": "gpu_kernel",
-      "line": 3810
+      "line": 3911
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::kernel:MerkabaGaugeParity",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "MerkabaGaugeParity",
       "kind": "gpu_kernel",
-      "line": 3812
+      "line": 3913
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::kernel:MerkabaInstrumentBoundaryParity",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "MerkabaInstrumentBoundaryParity",
       "kind": "gpu_kernel",
-      "line": 3811
+      "line": 3912
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::kernel:MerkabaMatrixAndIrParity",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "MerkabaMatrixAndIrParity",
       "kind": "gpu_kernel",
-      "line": 3808
+      "line": 3909
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::kernel:MerkabaProgramParity",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "MerkabaProgramParity",
       "kind": "gpu_kernel",
-      "line": 3807
+      "line": 3908
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::lift@1113",
+      "id": "Tools/sigma/generate_sigma_operators.py::lift@1121",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "lift",
       "kind": "function",
-      "line": 1113
+      "line": 1121
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::link_factor_expression@396",
+      "id": "Tools/sigma/generate_sigma_operators.py::link_factor_expression@404",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "link_factor_expression",
       "kind": "function",
-      "line": 396
+      "line": 404
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::main@4319",
+      "id": "Tools/sigma/generate_sigma_operators.py::main@4516",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "main",
       "kind": "function",
-      "line": 4319
+      "line": 4516
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::matrix_multiply@251",
+      "id": "Tools/sigma/generate_sigma_operators.py::matrix_multiply@259",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "matrix_multiply",
       "kind": "function",
-      "line": 251
+      "line": 259
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::merkaba_shadow_numerator@223",
+      "id": "Tools/sigma/generate_sigma_operators.py::merkaba_shadow_numerator@231",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "merkaba_shadow_numerator",
       "kind": "function",
-      "line": 223
+      "line": 231
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::minimize@914",
+      "id": "Tools/sigma/generate_sigma_operators.py::minimize@922",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "minimize",
       "kind": "function",
-      "line": 914
+      "line": 922
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::multiply_dyads@179",
+      "id": "Tools/sigma/generate_sigma_operators.py::multiply_dyads@187",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "multiply_dyads",
       "kind": "function",
-      "line": 179
+      "line": 187
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::multiply_s16@673",
+      "id": "Tools/sigma/generate_sigma_operators.py::multiply_s16@681",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "multiply_s16",
       "kind": "function",
-      "line": 673
+      "line": 681
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::nearest_even@1077",
+      "id": "Tools/sigma/generate_sigma_operators.py::nearest_even@1085",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "nearest_even",
       "kind": "function",
-      "line": 1077
+      "line": 1085
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::normalize@990",
+      "id": "Tools/sigma/generate_sigma_operators.py::normalize@998",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "normalize",
       "kind": "function",
-      "line": 990
+      "line": 998
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::normalized_associator_expression@414",
+      "id": "Tools/sigma/generate_sigma_operators.py::normalized_associator_expression@422",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "normalized_associator_expression",
       "kind": "function",
-      "line": 414
+      "line": 422
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::optical_expression@484",
+      "id": "Tools/sigma/generate_sigma_operators.py::optical_expression@492",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "optical_expression",
       "kind": "function",
-      "line": 484
+      "line": 492
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::packed_i64@3257",
+      "id": "Tools/sigma/generate_sigma_operators.py::packed_i64@3358",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "packed_i64",
       "kind": "function",
-      "line": 3257
+      "line": 3358
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::plaquette_expression@428",
+      "id": "Tools/sigma/generate_sigma_operators.py::plaquette_expression@436",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "plaquette_expression",
       "kind": "function",
-      "line": 428
+      "line": 436
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::qmul@1088",
+      "id": "Tools/sigma/generate_sigma_operators.py::qmul@1096",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "qmul",
       "kind": "function",
-      "line": 1088
+      "line": 1096
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::query_support_exhaustive_proof@757",
+      "id": "Tools/sigma/generate_sigma_operators.py::query_support_exhaustive_proof@765",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "query_support_exhaustive_proof",
       "kind": "function",
-      "line": 757
+      "line": 765
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::read_json@200",
+      "id": "Tools/sigma/generate_sigma_operators.py::read_json@208",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "read_json",
       "kind": "function",
-      "line": 200
+      "line": 208
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::render_authority_manifest@4022",
+      "id": "Tools/sigma/generate_sigma_operators.py::render_authority_manifest@4123",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "render_authority_manifest",
       "kind": "function",
-      "line": 4022
+      "line": 4123
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::render_cs@1786",
+      "id": "Tools/sigma/generate_sigma_operators.py::render_cs@1794",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "render_cs",
       "kind": "function",
-      "line": 1786
+      "line": 1794
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::render_frame_cs@4152",
+      "id": "Tools/sigma/generate_sigma_operators.py::render_frame_cs@4254",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "render_frame_cs",
       "kind": "function",
-      "line": 4152
+      "line": 4254
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::render_frame_hlsl@4250",
+      "id": "Tools/sigma/generate_sigma_operators.py::render_frame_hlsl@4447",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "render_frame_hlsl",
       "kind": "function",
-      "line": 4250
+      "line": 4447
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::render_hlsl@1904",
+      "id": "Tools/sigma/generate_sigma_operators.py::render_hlsl@1912",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "render_hlsl",
       "kind": "function",
-      "line": 1904
+      "line": 1912
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::render_hlsl_layout@1865",
+      "id": "Tools/sigma/generate_sigma_operators.py::render_hlsl_layout@1873",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "render_hlsl_layout",
       "kind": "function",
-      "line": 1865
+      "line": 1873
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::render_merkaba_cs@1961",
+      "id": "Tools/sigma/generate_sigma_operators.py::render_merkaba_cs@1969",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "render_merkaba_cs",
       "kind": "function",
-      "line": 1961
+      "line": 1969
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::render_merkaba_fixture@3802",
+      "id": "Tools/sigma/generate_sigma_operators.py::render_merkaba_fixture@3903",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "render_merkaba_fixture",
       "kind": "function",
-      "line": 3802
+      "line": 3903
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::render_merkaba_hlsl@3244",
+      "id": "Tools/sigma/generate_sigma_operators.py::render_merkaba_hlsl@3345",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "render_merkaba_hlsl",
       "kind": "function",
-      "line": 3244
+      "line": 3345
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::reverse_complete_tree_proof@594",
+      "id": "Tools/sigma/generate_sigma_operators.py::reverse_complete_tree_proof@602",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "reverse_complete_tree_proof",
       "kind": "function",
-      "line": 594
+      "line": 602
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::reverse_expression@460",
+      "id": "Tools/sigma/generate_sigma_operators.py::reverse_expression@468",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "reverse_expression",
       "kind": "function",
-      "line": 460
+      "line": 468
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::reverse_mul@612",
+      "id": "Tools/sigma/generate_sigma_operators.py::reverse_mul@620",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "reverse_mul",
       "kind": "function",
-      "line": 612
+      "line": 620
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::select_tangent@1094",
+      "id": "Tools/sigma/generate_sigma_operators.py::select_tangent@1102",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "select_tangent",
       "kind": "function",
-      "line": 1094
+      "line": 1102
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::sha256@191",
+      "id": "Tools/sigma/generate_sigma_operators.py::sha256@199",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "sha256",
       "kind": "function",
-      "line": 191
+      "line": 199
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::shadow_expression@444",
+      "id": "Tools/sigma/generate_sigma_operators.py::shadow_expression@452",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "shadow_expression",
       "kind": "function",
-      "line": 444
+      "line": 452
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::signed_morton@229",
+      "id": "Tools/sigma/generate_sigma_operators.py::signed_morton@237",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "signed_morton",
       "kind": "function",
-      "line": 229
+      "line": 237
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::split@970",
+      "id": "Tools/sigma/generate_sigma_operators.py::split@978",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "split",
       "kind": "function",
-      "line": 970
+      "line": 978
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::transpose@247",
+      "id": "Tools/sigma/generate_sigma_operators.py::transpose@255",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "transpose",
       "kind": "function",
-      "line": 247
+      "line": 255
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::uint_array@4083",
+      "id": "Tools/sigma/generate_sigma_operators.py::uint_array@4184",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "uint_array",
       "kind": "function",
-      "line": 4083
+      "line": 4184
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::upper_snake@4087",
+      "id": "Tools/sigma/generate_sigma_operators.py::upper_snake@4188",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "upper_snake",
       "kind": "function",
-      "line": 4087
+      "line": 4188
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::validate_descriptor@1746",
+      "id": "Tools/sigma/generate_sigma_operators.py::validate_descriptor@1754",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "validate_descriptor",
       "kind": "function",
-      "line": 1746
+      "line": 1754
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::zig_zag@233",
+      "id": "Tools/sigma/generate_sigma_operators.py::zig_zag@241",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "zig_zag",
       "kind": "function",
-      "line": 233
+      "line": 241
     },
     {
       "id": "Tools/unity/validate_sigma_compute_uav.py::function_bodies@46",
@@ -11995,7 +12422,7 @@
     },
     {
       "source": "Editor/MetaVrManifestPostprocessor.cs::UpgradeGeneratedManifest@35",
-      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Load@39",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Load@55",
       "kind": "calls"
     },
     {
@@ -12740,12 +13167,12 @@
     },
     {
       "source": "Runtime/Resources/SigmaPrism/ConeLut.compute::LocalRay@11",
-      "target": "Tools/sigma/generate_sigma_operators.py::normalize@990",
+      "target": "Tools/sigma/generate_sigma_operators.py::normalize@998",
       "kind": "calls"
     },
     {
       "source": "Runtime/Resources/SigmaPrism/ConeMath.hlsl::ConeSurfaceFootprint@15",
-      "target": "Tools/sigma/generate_sigma_operators.py::normalize@990",
+      "target": "Tools/sigma/generate_sigma_operators.py::normalize@998",
       "kind": "calls"
     },
     {
@@ -13465,12 +13892,12 @@
     },
     {
       "source": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecReadSigned@242",
-      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Load@39",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Load@55",
       "kind": "calls"
     },
     {
       "source": "Runtime/Resources/SigmaPrism/SigmaCarrierCodec.compute::SigmaCodecReadWidth@235",
-      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Load@39",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Load@55",
       "kind": "calls"
     },
     {
@@ -13784,112 +14211,127 @@
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::ContractNativeQuery@615",
-      "target": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshFinalize@543",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::ContractNativeQuery@673",
+      "target": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshFinalize@601",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::ContractNativeQuery@615",
-      "target": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshLiftBranch@145",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::ContractNativeQuery@673",
+      "target": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshLiftBranch@173",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshLiftBranch@145",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshLiftBranch@173",
       "target": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.hlsl::SigmaMerkabaAssembleInstrumentTangent@372",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshLiftBranch@145",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshLiftBranch@173",
       "target": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.hlsl::SigmaMerkabaBuildInstrumentRowPermutation@335",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshLiftBranch@145",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshLiftBranch@173",
       "target": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.hlsl::SigmaMerkabaSelectFreshTangent@414",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshLiftBranch@145",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshLiftBranch@173",
       "target": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.hlsl::SigmaMerkabaShadowNumerator@281",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshLiftBranch@145",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshLiftBranch@173",
       "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48AddChecked@135",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshLiftBranch@145",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshLiftBranch@173",
       "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48MulNearestEven@299",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshLiftBranch@145",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshLiftBranch@173",
       "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48NegateChecked@147",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshLiftBranch@145",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshLiftBranch@173",
       "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48SubChecked@154",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshLiftBranch@145",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshLiftBranch@173",
       "target": "Runtime/Resources/SigmaPrism/SigmaExactCompare.hlsl::SigmaI64Less@18",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshLiftBranch@145",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshLiftBranch@173",
       "target": "Runtime/Resources/SigmaPrism/SigmaExactCompare.hlsl::SigmaQ48Max@35",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshLiftBranch@145",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshLiftBranch@173",
       "target": "Runtime/Resources/SigmaPrism/SigmaExactCompare.hlsl::SigmaQ48Min@30",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshLiftBranch@145",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshLiftBranch@173",
       "target": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshEntryValid@95",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshLiftBranch@145",
-      "target": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshLiftWeight@111",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshLiftBranch@173",
+      "target": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshEvidenceAddress@71",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshLiftBranch@145",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshLiftBranch@173",
+      "target": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshLiftWeight@139",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshLiftBranch@173",
       "target": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshLoad2@77",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshLiftBranch@145",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshLiftBranch@173",
       "target": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshLoad4@83",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshLiftBranch@145",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshLiftBranch@173",
+      "target": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshModeMask@129",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshLiftBranch@173",
       "target": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshPermutationAxis@103",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshLiftBranch@145",
-      "target": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshReduceAnd@117",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshLiftBranch@173",
+      "target": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshPermutationMode@111",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshLiftBranch@145",
-      "target": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshReduceOr@131",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshLiftBranch@173",
+      "target": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshReduceAnd@145",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshLiftBranch@145",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshLiftBranch@173",
+      "target": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshReduceOr@159",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshLiftBranch@173",
       "target": "Runtime/Resources/SigmaPrism/SigmaNativeMath.hlsl::SigmaNativePointInInterval@132",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshLiftBranch@145",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshLiftBranch@173",
       "target": "Runtime/Resources/SigmaPrism/SigmaNativeMath.hlsl::SigmaNativeShadowWeight@46",
       "kind": "calls"
     },
@@ -13904,263 +14346,273 @@
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::if@511",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::if@545",
       "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48SubChecked@154",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::BuildNativeObservation@357",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::if@562",
+      "target": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshModeMask@129",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::if@562",
+      "target": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshPermutationMode@111",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::BuildNativeObservation@361",
       "target": "Runtime/Resources/SigmaPrism/SigmaCarrierAbi.hlsl::SigmaCarrierRepresentationAddress@49",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::BuildNativeObservation@357",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::BuildNativeObservation@361",
       "target": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeCompletionAddress@117",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::BuildNativeObservation@357",
-      "target": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeCurrentPrediction@302",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::BuildNativeObservation@361",
+      "target": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeCurrentPrediction@306",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::BuildNativeObservation@357",
-      "target": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeDepthRayCenter@167",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::BuildNativeObservation@361",
+      "target": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeDepthRayCenter@171",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::BuildNativeObservation@357",
-      "target": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeDepthRayDx@173",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::BuildNativeObservation@361",
+      "target": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeDepthRayDx@177",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::BuildNativeObservation@357",
-      "target": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeDepthRayDy@179",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::BuildNativeObservation@361",
+      "target": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeDepthRayDy@183",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::BuildNativeObservation@357",
-      "target": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeOpticalBounds@260",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::BuildNativeObservation@361",
+      "target": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeOpticalBounds@264",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::BuildNativeObservation@357",
-      "target": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeProjectRgb@236",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::BuildNativeObservation@361",
+      "target": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeProjectRgb@240",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::BuildNativeObservation@357",
-      "target": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeProjectionDepthBounds@201",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::BuildNativeObservation@361",
+      "target": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeProjectionDepthBounds@205",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::BuildNativeObservation@357",
-      "target": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeRoomRayComponent@185",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::BuildNativeObservation@361",
+      "target": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeRoomRayComponent@189",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::BuildNativeObservation@357",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::BuildNativeObservation@361",
       "target": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeWriteCompletion4@122",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::BuildNativeObservation@357",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::BuildNativeObservation@361",
       "target": "Runtime/Resources/SigmaPrism/SigmaPoseConsume.hlsl::SigmaPoseApplyWorld@95",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::CloseAndPublishNativeRevision@1354",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::CloseAndPublishNativeRevision@1396",
       "target": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeWriteCompletionFrame@129",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::PrepareNativePage@1196",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::PrepareNativePage@1238",
       "target": "Runtime/Resources/SigmaPrism/SigmaCarrierAbi.hlsl::SigmaCarrierRepresentationAddress@49",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::PrepareNativeRevision@575",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::PrepareNativeRevision@606",
       "target": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.hlsl::SigmaMerkabaGaugeLess@617",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::PrepareNativeRevision@575",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::PrepareNativeRevision@606",
       "target": "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.hlsl::SigmaMerkabaSplitDyadicGauge@545",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::PrepareNativeRevision@575",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::PrepareNativeRevision@606",
       "target": "Runtime/Resources/SigmaPrism/SigmaCarrierAbi.hlsl::SigmaCarrierRepresentationAddress@49",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::PrepareNativeRevision@575",
-      "target": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeBuildRetainedConstraint@561",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::PrepareNativeRevision@606",
+      "target": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeBuildRetainedConstraint@565",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::PrepareNativeRevision@575",
-      "target": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeBuildStateDelta@532",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::PrepareNativeRevision@606",
+      "target": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeBuildStateDelta@536",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::PrepareNativeRevision@575",
-      "target": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeTransportAdmissible@524",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::PrepareNativeRevision@606",
+      "target": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeTransportAdmissible@528",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::PrepareNativeRevision@575",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::PrepareNativeRevision@606",
       "target": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeWriteCompletionFrame@129",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::PrepareNativeRevision@575",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::PrepareNativeRevision@606",
       "target": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeWriteCompletionUnresolved@144",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::ScatterNativeState@1293",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::ScatterNativeState@1335",
       "target": "Runtime/Resources/SigmaPrism/SigmaCarrierAbi.hlsl::SigmaCarrierRepresentationAddress@49",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::ScatterNativeState@1293",
-      "target": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeDeltaLane@1281",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::ScatterNativeState@1335",
+      "target": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeDeltaLane@1323",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeCurrentPrediction@302",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeCurrentPrediction@306",
       "target": "Runtime/Resources/SigmaPrism/SigmaCarrierAbi.hlsl::SigmaCarrierRepresentationAddress@49",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeCurrentPrediction@302",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeCurrentPrediction@306",
       "target": "Runtime/Resources/SigmaPrism/SigmaCarrierAbi.hlsl::SigmaCarrierVisibleAtRoot@66",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeOpticalBounds@260",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeOpticalBounds@264",
       "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48AddChecked@135",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeOpticalBounds@260",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeOpticalBounds@264",
       "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48SubChecked@154",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeOpticalBounds@260",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeOpticalBounds@264",
       "target": "Runtime/Resources/SigmaPrism/SigmaExactCompare.hlsl::SigmaQ48Max@35",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeOpticalBounds@260",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeOpticalBounds@264",
       "target": "Runtime/Resources/SigmaPrism/SigmaExactCompare.hlsl::SigmaQ48Min@30",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeOpticalBounds@260",
-      "target": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeQ48FromFloat@157",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeOpticalBounds@264",
+      "target": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeQ48FromFloat@161",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeOpticalBounds@260",
-      "target": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeRgbCalibrationValue@162",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeOpticalBounds@264",
+      "target": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeRgbCalibrationValue@166",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeOpticalBounds@260",
-      "target": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeRgbLoad@254",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeOpticalBounds@264",
+      "target": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeRgbLoad@258",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeProjectionDepthBounds@201",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeProjectionDepthBounds@205",
       "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48AddChecked@135",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeProjectionDepthBounds@201",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeProjectionDepthBounds@205",
       "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48DivLower@623",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeProjectionDepthBounds@201",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeProjectionDepthBounds@205",
       "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48DivUpper@628",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeProjectionDepthBounds@201",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeProjectionDepthBounds@205",
       "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48MulLower@304",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeProjectionDepthBounds@201",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeProjectionDepthBounds@205",
       "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48MulUpper@309",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeProjectionDepthBounds@201",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeProjectionDepthBounds@205",
       "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48SubChecked@154",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeProjectionDepthBounds@201",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeProjectionDepthBounds@205",
       "target": "Runtime/Resources/SigmaPrism/SigmaExactCompare.hlsl::SigmaQ48Less@25",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeProjectionDepthBounds@201",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeProjectionDepthBounds@205",
       "target": "Runtime/Resources/SigmaPrism/SigmaExactCompare.hlsl::SigmaQ48Max@35",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeProjectionDepthBounds@201",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeProjectionDepthBounds@205",
       "target": "Runtime/Resources/SigmaPrism/SigmaExactCompare.hlsl::SigmaQ48Min@30",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeProjectionDepthBounds@201",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeProjectionDepthBounds@205",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseMath.hlsl::SigmaCalibrationValue@11",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeProjectionDepthBounds@201",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeProjectionDepthBounds@205",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseMath.hlsl::SigmaDepthHalfWidth@62",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeProjectionDepthBounds@201",
-      "target": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeQ48FromFloat@157",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeProjectionDepthBounds@205",
+      "target": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeQ48FromFloat@161",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeQ48FromFloat@157",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeQ48FromFloat@161",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseMath.hlsl::SigmaQ48FromFloatNearestEven@19",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeRgbLoad@254",
-      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Load@39",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeRgbLoad@258",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Load@55",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeRoomRayComponent@185",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeRoomRayComponent@189",
       "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48AddChecked@135",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeRoomRayComponent@185",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeRoomRayComponent@189",
       "target": "Runtime/Resources/SigmaPrism/Sedenion16.hlsl::SigmaQ48MulNearestEven@299",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeRoomRayComponent@185",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeRoomRayComponent@189",
       "target": "Runtime/Resources/SigmaPrism/SigmaInverseMath.hlsl::SigmaCalibrationValue@11",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeRoomRayComponent@185",
-      "target": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeQ48FromFloat@157",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeRoomRayComponent@189",
+      "target": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeQ48FromFloat@161",
       "kind": "calls"
     },
     {
@@ -14179,17 +14631,17 @@
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::if@1064",
-      "target": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeBuildRetainedConstraint@561",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::if@1105",
+      "target": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeBuildRetainedConstraint@565",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::if@1064",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::if@1105",
       "target": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeWriteCompletionFrame@129",
       "kind": "calls"
     },
     {
-      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::if@1064",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::if@1105",
       "target": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute::SigmaNativeWriteCompletionUnresolved@144",
       "kind": "calls"
     },
@@ -15025,7 +15477,7 @@
     },
     {
       "source": "Runtime/Resources/SigmaPrism/SigmaPredict.shader::PredictionFrag@152",
-      "target": "Tools/sigma/generate_sigma_operators.py::normalize@990",
+      "target": "Tools/sigma/generate_sigma_operators.py::normalize@998",
       "kind": "calls"
     },
     {
@@ -15035,7 +15487,7 @@
     },
     {
       "source": "Runtime/Resources/SigmaPrism/SigmaPredict.shader::SigmaContactNormal@87",
-      "target": "Tools/sigma/generate_sigma_operators.py::normalize@990",
+      "target": "Tools/sigma/generate_sigma_operators.py::normalize@998",
       "kind": "calls"
     },
     {
@@ -15045,7 +15497,7 @@
     },
     {
       "source": "Runtime/RoomScanInputHandler.cs::ClearAllBindings@85",
-      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Clear@390",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Clear@798",
       "kind": "calls"
     },
     {
@@ -15394,6 +15846,21 @@
       "kind": "calls"
     },
     {
+      "source": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs::TryMeetLocalityCertificates@227",
+      "target": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs::CertificateInterval@308",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs::TryMeetLocalityCertificates@227",
+      "target": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs::CertificateRaw@305",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs::TryMeetLocalityCertificates@227",
+      "target": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs::CertificateWordEqual@301",
+      "kind": "calls"
+    },
+    {
       "source": "Runtime/SigmaPrism/SigmaBackendCapabilities.cs::Lower@104",
       "target": "Runtime/SigmaPrism/SigmaBackendCapabilities.cs::LowerNode@132",
       "kind": "calls"
@@ -15535,7 +16002,7 @@
     },
     {
       "source": "Runtime/SigmaPrism/SigmaCarrier.cs::CollectReadableSegments@156",
-      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Clear@390",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Clear@798",
       "kind": "calls"
     },
     {
@@ -15555,7 +16022,7 @@
     },
     {
       "source": "Runtime/SigmaPrism/SigmaCarrier.cs::Dispose@194",
-      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Clear@390",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Clear@798",
       "kind": "calls"
     },
     {
@@ -15884,158 +16351,413 @@
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::AcquireSegment@658",
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::AcknowledgeDurable@843",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::WithoutRaw@979",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::AcquireSegment@1308",
       "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Segment",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Add@308",
-      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::CompareRecords@399",
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Add@714",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::AddRaw@854",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Add@308",
-      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::NoBroaderThan@202",
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Add@714",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::CertificateEntry@965",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::CanonicalBytes@219",
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Add@714",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::SameWords@609",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Add@714",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::TryCreateCertificate@415",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Add@714",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::TryMeet@597",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Add@714",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::WithCertificate@970",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::AddDecodedRaw@892",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::CanonicalBytes@413",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::AddDecodedRaw@892",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::RawEntry@960",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::AddDecodedRaw@892",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::SigmaConstraintByteKey",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::AddPersistedEntry@832",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::AddDecodedEntry@905",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::AddRaw@854",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::CanonicalBytes@413",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::AddRaw@854",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::NoBroaderThan@396",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::AddRaw@854",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::RawEntry@960",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::AddRaw@854",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::SigmaConstraintByteKey",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::ApplyShardDelta@214",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::BucketName@286",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::ApplyShardDelta@214",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::EncodeBucket@255",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::ApplyShardDelta@214",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::ReadBucket@268",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::ApplyShardDelta@214",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::WriteAtomic@319",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::ApplyShardDelta@214",
+      "target": "Runtime/SigmaPrism/SigmaS16.cs::Combine@421",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::BuildCanonicalBytes@450",
       "target": "Runtime/SigmaPrism/Capture/RigFrameSynchronizer.cs::Flush@228",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::CompareEntries@392",
-      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::CompareRecords@399",
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::BuildKey@618",
+      "target": "Runtime/SigmaPrism/Capture/RigFrameSynchronizer.cs::Flush@228",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::CompareRecords@399",
-      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::CanonicalBytes@219",
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::BuildRawContextBytes@470",
+      "target": "Runtime/SigmaPrism/Capture/RigFrameSynchronizer.cs::Flush@228",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::CompleteReadback@677",
-      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Clear@390",
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::CompareTo@680",
+      "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Min@170",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::CompleteReadback@677",
-      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Decode@449",
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::CompleteReadback@1327",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Clear@798",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::CompleteReadback@677",
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::CompleteReadback@1327",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Decode@1091",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::CompleteReadback@1327",
       "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::TransferResult",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Decode@449",
-      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Read4@289",
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Decode@1091",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Read4@549",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Decode@449",
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Decode@1091",
       "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::SigmaExactConstraintRecord",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Decode@449",
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Decode@1091",
       "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::SigmaNativeCompletionRecord",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::DecodeCanonical@360",
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::DecodeCanonical@763",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::AddDecodedEntry@905",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::DecodeCanonical@763",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::AddDecodedRaw@892",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::DecodeCanonical@763",
       "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::SigmaExactConstraintJournal",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Dispose@643",
-      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Clear@390",
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Dispose@1293",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Clear@798",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::EncodeCanonical@342",
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::EncodeBucket@255",
       "target": "Runtime/SigmaPrism/Capture/RigFrameSynchronizer.cs::Flush@228",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::EncodeCanonical@342",
-      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::CanonicalBytes@219",
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::EncodeCanonical@745",
+      "target": "Runtime/SigmaPrism/Capture/RigFrameSynchronizer.cs::Flush@228",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::FlushOpenAfterGpuIdle@607",
-      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::CompleteReadback@677",
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::EnsureShardStore@188",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::ApplyShardDelta@214",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Load@39",
-      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::DecodeCanonical@360",
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::EnsureShardStore@188",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::MarkerBytes@303",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Load@39",
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::EnsureShardStore@188",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::WriteAtomic@319",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::FlushOpenAfterGpuIdle@1257",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::CompleteReadback@1327",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::From@567",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::BuildKey@618",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::From@567",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::SigmaConstraintByteKey",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::From@567",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::SigmaExactConstraintCertificate",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::FromPersisted@582",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::SigmaExactConstraintCertificate",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Load@55",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::DecodeCanonical@763",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Load@55",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::IsShardMarker@311",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Load@55",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::LoadShards@173",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Load@55",
       "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::SigmaExactConstraintJournal",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::NoBroaderThan@202",
-      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::SameContextAndIndependence@176",
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Load@55",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::SnapshotEntries@820",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Read@243",
-      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Read2@285",
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::LoadShards@173",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::AddPersistedEntry@832",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Read@243",
-      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Read4@289",
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::LoadShards@173",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::ReadBucket@268",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Read@243",
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::LoadShards@173",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::SigmaExactConstraintJournal",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::NoBroaderThan@396",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::SameContextAndIndependence@391",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Read@1006",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::FromCanonicalBytes@440",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Read@1006",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::FromPersisted@582",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Read@1006",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::ReadWord@1051",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Read@1006",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::SigmaConstraintByteKey",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Read@502",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Read2@545",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Read@502",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Read4@549",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Read@502",
       "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::SigmaExactConstraintRecord",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::RecordSealedReadback@565",
-      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::CompleteReadback@677",
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::RecordSealedReadback@1215",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::CompleteReadback@1327",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::RecordSealedReadback@565",
-      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::ThrowIfDisposed@725",
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::RecordSealedReadback@1215",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::ThrowIfDisposed@1375",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Reserve@546",
-      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::AcquireSegment@658",
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Reserve@1196",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::AcquireSegment@1308",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Reserve@546",
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Reserve@1196",
       "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Reservation",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Reserve@546",
-      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::ThrowIfDisposed@725",
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Reserve@1196",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::ThrowIfDisposed@1375",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Stage@53",
-      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::EncodeCanonical@342",
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::SameWords@609",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Equal@639",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::WriteAtomic@124",
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Stage@80",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::TakePendingDeltas@806",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::TakePendingDeltas@806",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Clear@798",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::TakePendingDeltas@806",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::SigmaConstraintJournalDelta",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::TryMeet@597",
+      "target": "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs::TryMeetLocalityCertificates@227",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::TryMeet@597",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::SigmaExactConstraintCertificate",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::WithCertificate@970",
+      "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Copy@251",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Write@984",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::CanonicalBytes@413",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Write@984",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::WriteWord@1044",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::WriteAtomic@319",
       "target": "Runtime/SigmaPrism/Capture/RigFrameSynchronizer.cs::Flush@228",
       "kind": "calls"
     },
     {
-      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::WritePending@91",
-      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::WriteAtomic@124",
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::WritePending@120",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::AcknowledgeDurable@843",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::WritePending@120",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::ApplyShardDelta@214",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::WritePending@120",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Clear@798",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::WritePending@120",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Coalesce@241",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::WritePending@120",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::EnsureShardStore@188",
+      "kind": "calls"
+    },
+    {
+      "source": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::WritePending@120",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::WithoutRaw@979",
       "kind": "calls"
     },
     {
@@ -16115,7 +16837,7 @@
     },
     {
       "source": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::BeginProfiledSubmission@102",
-      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Clear@390",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Clear@798",
       "kind": "calls"
     },
     {
@@ -16125,7 +16847,7 @@
     },
     {
       "source": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::CancelSingleSubmission@172",
-      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Clear@390",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Clear@798",
       "kind": "calls"
     },
     {
@@ -16175,7 +16897,7 @@
     },
     {
       "source": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::Finish@341",
-      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Clear@390",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Clear@798",
       "kind": "calls"
     },
     {
@@ -16195,7 +16917,7 @@
     },
     {
       "source": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::Reset@58",
-      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Clear@390",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Clear@798",
       "kind": "calls"
     },
     {
@@ -16300,12 +17022,12 @@
     },
     {
       "source": "Runtime/SigmaPrism/SigmaInverseController.cs::DrainCompletionTransfers@383",
-      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Stage@53",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Stage@80",
       "kind": "calls"
     },
     {
       "source": "Runtime/SigmaPrism/SigmaInverseController.cs::DrainCompletionTransfers@383",
-      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::TryGetFault@70",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::TryGetFault@99",
       "kind": "calls"
     },
     {
@@ -16455,7 +17177,7 @@
     },
     {
       "source": "Runtime/SigmaPrism/SigmaInverseController.cs::LateUpdate@177",
-      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::FlushOpenAfterGpuIdle@607",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::FlushOpenAfterGpuIdle@1257",
       "kind": "calls"
     },
     {
@@ -16505,12 +17227,12 @@
     },
     {
       "source": "Runtime/SigmaPrism/SigmaInverseController.cs::OnDestroy@917",
-      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Clear@390",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Clear@798",
       "kind": "calls"
     },
     {
       "source": "Runtime/SigmaPrism/SigmaInverseController.cs::OnDestroy@917",
-      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Stage@53",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Stage@80",
       "kind": "calls"
     },
     {
@@ -16535,7 +17257,7 @@
     },
     {
       "source": "Runtime/SigmaPrism/SigmaInverseController.cs::OnModuleInitialize@106",
-      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Load@39",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Load@55",
       "kind": "calls"
     },
     {
@@ -16625,12 +17347,12 @@
     },
     {
       "source": "Runtime/SigmaPrism/SigmaInverseController.cs::SubmitIngress@246",
-      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::RecordSealedReadback@565",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::RecordSealedReadback@1215",
       "kind": "calls"
     },
     {
       "source": "Runtime/SigmaPrism/SigmaInverseController.cs::SubmitIngress@246",
-      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Reserve@546",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Reserve@1196",
       "kind": "calls"
     },
     {
@@ -17335,7 +18057,7 @@
     },
     {
       "source": "Runtime/SigmaPrism/SigmaRenderer.cs::DrawSegments@477",
-      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Clear@390",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Clear@798",
       "kind": "calls"
     },
     {
@@ -17360,7 +18082,7 @@
     },
     {
       "source": "Runtime/SigmaPrism/SigmaRenderer.cs::OnDestroy@604",
-      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Clear@390",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Clear@798",
       "kind": "calls"
     },
     {
@@ -17450,7 +18172,7 @@
     },
     {
       "source": "Runtime/SigmaPrism/SigmaRenderer.cs::RenderDirectCarrierPreview@564",
-      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Clear@390",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Clear@798",
       "kind": "calls"
     },
     {
@@ -18076,6 +18798,11 @@
     {
       "source": "Tests/Editor/SigmaAlgebraOperatorTests.cs::CompleteGeneratedZeroDivisorCatalogIsExactAndNonZero@134",
       "target": "Runtime/SigmaPrism/SigmaS16.cs::ToS16@170",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaAlgebraOperatorTests.cs::CompleteGeneratedZeroDivisorCatalogIsExactAndNonZero@134",
+      "target": "Tests/Editor/SigmaAlgebraOperatorTests.cs::CompareEntries@357",
       "kind": "calls"
     },
     {
@@ -18705,7 +19432,7 @@
     },
     {
       "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::CertificateMinimizerIsExactBoundedAndCouplingAware@443",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::Count@827",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::Count@1025",
       "kind": "calls"
     },
     {
@@ -18750,7 +19477,7 @@
     },
     {
       "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::ConstructiveCaptureBoundaryBuildsCalibratedEightLeafPair@116",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::Count@827",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::Count@1025",
       "kind": "calls"
     },
     {
@@ -18875,7 +19602,7 @@
     },
     {
       "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::GeneratedReverseDescriptorsRetainZeroBranchesAndSceneDisjunction@407",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::Count@827",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::Count@1025",
       "kind": "calls"
     },
     {
@@ -19359,83 +20086,143 @@
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::CompletionTransferBatchesWithoutBecomingIngressOwnership@585",
-      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Reserve@546",
-      "kind": "calls"
-    },
-    {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::CompletionTransferBatchesWithoutBecomingIngressOwnership@585",
-      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::SigmaNativeCompletionTransfer",
-      "kind": "calls"
-    },
-    {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::ConstraintRecord@928",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::CertifiedConstraintRecord@1156",
       "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::SigmaExactConstraintRecord",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::ConstraintRecord@928",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::Q2@1298",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::CertifiedConstraintRecord@1156",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::DirectionModeMask@1226",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::ConstraintRecord@928",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::U4@1304",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::CertifiedConstraintRecord@1156",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::Q2@1598",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::ExactConstraintJournalMinimizesWithoutBranchIdentity@516",
-      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::DecodeCanonical@360",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::CertifiedConstraintRecord@1156",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::Q4@1237",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::ExactConstraintJournalMinimizesWithoutBranchIdentity@516",
-      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::EncodeCanonical@342",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::CertifiedConstraintRecord@1156",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::U4@1604",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::ExactConstraintJournalMinimizesWithoutBranchIdentity@516",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::CompletionTransferBatchesWithoutBecomingIngressOwnership@782",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Reserve@1196",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::CompletionTransferBatchesWithoutBecomingIngressOwnership@782",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::SigmaNativeCompletionTransfer",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::ConstraintRecord@1126",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::SigmaExactConstraintRecord",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::ConstraintRecord@1126",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::Q2@1598",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::ConstraintRecord@1126",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::U4@1604",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::ExactConstraintJournalMinimizesWithoutBranchIdentity@527",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::DecodeCanonical@763",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::ExactConstraintJournalMinimizesWithoutBranchIdentity@527",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::EncodeCanonical@745",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::ExactConstraintJournalMinimizesWithoutBranchIdentity@527",
       "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::SigmaExactConstraintJournal",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::ExactConstraintJournalMinimizesWithoutBranchIdentity@516",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::ConstraintRecord@928",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::ExactConstraintJournalMinimizesWithoutBranchIdentity@527",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::ConstraintRecord@1126",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::FeasibleCurrentStateIsBytePreservedAndDoesNotClonePage@231",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::FeasibleCurrentStateIsBytePreservedAndDoesNotClonePage@240",
       "target": "Runtime/SigmaPrism/SigmaExactBackendGate.cs::Dispatch@45",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::FeasibleCurrentStateIsBytePreservedAndDoesNotClonePage@231",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::FeasibleCurrentStateIsBytePreservedAndDoesNotClonePage@240",
       "target": "Runtime/SigmaPrism/SigmaNativeFrameResources.cs::SigmaNativeFrameSlotResources",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::FeasibleCurrentStateIsBytePreservedAndDoesNotClonePage@231",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::FeasibleCurrentStateIsBytePreservedAndDoesNotClonePage@240",
       "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Max@172",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::FeasibleCurrentStateIsBytePreservedAndDoesNotClonePage@231",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::BindPublication@836",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::FeasibleCurrentStateIsBytePreservedAndDoesNotClonePage@240",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::BindPublication@1034",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::FeasibleCurrentStateIsBytePreservedAndDoesNotClonePage@231",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::SetEqualCertificates@905",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::FeasibleCurrentStateIsBytePreservedAndDoesNotClonePage@240",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::SetEqualCertificates@1103",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::FeasibleCurrentStateIsBytePreservedAndDoesNotClonePage@231",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::U4@1304",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::FeasibleCurrentStateIsBytePreservedAndDoesNotClonePage@240",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::U4@1604",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::LegacyConstraintSnapshotMigratesOnceToBoundedDeltaStore@601",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::EncodeCanonical@745",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::LegacyConstraintSnapshotMigratesOnceToBoundedDeltaStore@601",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Load@55",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::LegacyConstraintSnapshotMigratesOnceToBoundedDeltaStore@601",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::SigmaExactConstraintJournal",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::LegacyConstraintSnapshotMigratesOnceToBoundedDeltaStore@601",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::SigmaExactConstraintStore",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::LegacyConstraintSnapshotMigratesOnceToBoundedDeltaStore@601",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Stage@80",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::LegacyConstraintSnapshotMigratesOnceToBoundedDeltaStore@601",
+      "target": "Runtime/SigmaPrism/SigmaS16.cs::Combine@421",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::LegacyConstraintSnapshotMigratesOnceToBoundedDeltaStore@601",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::CertifiedConstraintRecord@1156",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaNativeFrameTests.cs::LiveGraphIsOneBoundedNativeCloseAndLegacyAbiIsAbsent@17",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::Count@827",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::Count@1025",
       "kind": "calls"
     },
     {
@@ -19449,83 +20236,163 @@
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::MinimizedConstraintJournalPersistsAtomicallyOffFrameThread@558",
-      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::EncodeCanonical@342",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::LocalityCertificateBoundsTenThousandRevisitsAndIsOrderIndependent@635",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::SameWords@609",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::MinimizedConstraintJournalPersistsAtomicallyOffFrameThread@558",
-      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Load@39",
-      "kind": "calls"
-    },
-    {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::MinimizedConstraintJournalPersistsAtomicallyOffFrameThread@558",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::LocalityCertificateBoundsTenThousandRevisitsAndIsOrderIndependent@635",
       "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::SigmaExactConstraintJournal",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::MinimizedConstraintJournalPersistsAtomicallyOffFrameThread@558",
-      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::SigmaExactConstraintStore",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::LocalityCertificateBoundsTenThousandRevisitsAndIsOrderIndependent@635",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::TryMeet@597",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::MinimizedConstraintJournalPersistsAtomicallyOffFrameThread@558",
-      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Stage@53",
-      "kind": "calls"
-    },
-    {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::MinimizedConstraintJournalPersistsAtomicallyOffFrameThread@558",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::LocalityCertificateBoundsTenThousandRevisitsAndIsOrderIndependent@635",
       "target": "Runtime/SigmaPrism/SigmaS16.cs::Combine@421",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::MinimizedConstraintJournalPersistsAtomicallyOffFrameThread@558",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::ConstraintRecord@928",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::LocalityCertificateBoundsTenThousandRevisitsAndIsOrderIndependent@635",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::CertificateDifference@1245",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::PreRootFaultLeavesStateGaugeCertificateAndRootUntouched@370",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::LocalityCertificateBoundsTenThousandRevisitsAndIsOrderIndependent@635",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::CertifiedConstraintRecord@1156",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::LocalityCertificateBoundsTenThousandRevisitsAndIsOrderIndependent@635",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::PersistAndReload@1214",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::LocalityCertificatePreservesViewDiversityAndRawContradiction@702",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::SigmaExactConstraintJournal",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::LocalityCertificatePreservesViewDiversityAndRawContradiction@702",
+      "target": "Runtime/SigmaPrism/SigmaS16.cs::Combine@421",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::LocalityCertificatePreservesViewDiversityAndRawContradiction@702",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::CertifiedConstraintRecord@1156",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::LocalityCertificatePreservesViewDiversityAndRawContradiction@702",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::PersistAndReload@1214",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::MinimizedConstraintJournalPersistsAtomicallyOffFrameThread@569",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::EncodeCanonical@745",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::MinimizedConstraintJournalPersistsAtomicallyOffFrameThread@569",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Load@55",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::MinimizedConstraintJournalPersistsAtomicallyOffFrameThread@569",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::SigmaExactConstraintJournal",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::MinimizedConstraintJournalPersistsAtomicallyOffFrameThread@569",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::SigmaExactConstraintStore",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::MinimizedConstraintJournalPersistsAtomicallyOffFrameThread@569",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Stage@80",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::MinimizedConstraintJournalPersistsAtomicallyOffFrameThread@569",
+      "target": "Runtime/SigmaPrism/SigmaS16.cs::Combine@421",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::MinimizedConstraintJournalPersistsAtomicallyOffFrameThread@569",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::ConstraintRecord@1126",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::PersistAndReload@1214",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::EncodeCanonical@745",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::PersistAndReload@1214",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Load@55",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::PersistAndReload@1214",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::SigmaExactConstraintStore",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::PersistAndReload@1214",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Stage@80",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::PersistAndReload@1214",
+      "target": "Runtime/SigmaPrism/SigmaS16.cs::Combine@421",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::PreRootFaultLeavesStateGaugeCertificateAndRootUntouched@380",
       "target": "Runtime/SigmaPrism/SigmaExactBackendGate.cs::Dispatch@45",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::PreRootFaultLeavesStateGaugeCertificateAndRootUntouched@370",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::PreRootFaultLeavesStateGaugeCertificateAndRootUntouched@380",
       "target": "Runtime/SigmaPrism/SigmaNativeFrameResources.cs::SigmaNativeFrameSlotResources",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::PreRootFaultLeavesStateGaugeCertificateAndRootUntouched@370",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::PreRootFaultLeavesStateGaugeCertificateAndRootUntouched@380",
       "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Max@172",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::PreRootFaultLeavesStateGaugeCertificateAndRootUntouched@370",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::BindPublication@836",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::PreRootFaultLeavesStateGaugeCertificateAndRootUntouched@380",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::BindPublication@1034",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::PreRootFaultLeavesStateGaugeCertificateAndRootUntouched@370",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::ReadPageMeta@1222",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::PreRootFaultLeavesStateGaugeCertificateAndRootUntouched@380",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::ReadPageMeta@1522",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::PreRootFaultLeavesStateGaugeCertificateAndRootUntouched@370",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::SetEqualCertificates@905",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::PreRootFaultLeavesStateGaugeCertificateAndRootUntouched@380",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::SetEqualCertificates@1103",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::PreRootFaultLeavesStateGaugeCertificateAndRootUntouched@370",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::U4@1304",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::PreRootFaultLeavesStateGaugeCertificateAndRootUntouched@380",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::U4@1604",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::PrepareRefinementScratch@1111",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::PrepareRefinementScratch@1411",
       "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Copy@251",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::PrepareRefinementScratch@1111",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::U4@1304",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::PrepareRefinementScratch@1411",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::U4@1604",
       "kind": "calls"
     },
     {
@@ -19545,162 +20412,192 @@
     },
     {
       "source": "Tests/Editor/SigmaNativeFrameTests.cs::ProvenFreshAdmissionPublishesExactlyOneRoot@125",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::BindPublication@836",
+      "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Select@182",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaNativeFrameTests.cs::ProvenFreshAdmissionPublishesExactlyOneRoot@125",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::SetValidNextCertificate@888",
+      "target": "Tests/Editor/SigmaMerkabaProgramTests.cs::Join@851",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaNativeFrameTests.cs::ProvenFreshAdmissionPublishesExactlyOneRoot@125",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::U4@1304",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::BindPublication@1034",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RefinementCopiesTheCompletePriorBeforeAddingDetail@643",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::ProvenFreshAdmissionPublishesExactlyOneRoot@125",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::SetValidNextCertificate@1086",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::ProvenFreshAdmissionPublishesExactlyOneRoot@125",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::U4@1604",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RefinementCopiesTheCompletePriorBeforeAddingDetail@840",
       "target": "Tests/Editor/SigmaNativeFrameTests.cs::GaugeKey",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RefinementCopiesTheCompletePriorBeforeAddingDetail@643",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RefinementCopiesTheCompletePriorBeforeAddingDetail@840",
       "target": "Tests/Editor/SigmaNativeFrameTests.cs::RefinementStep",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RefinementCopiesTheCompletePriorBeforeAddingDetail@643",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::RunRefinementSequence@958",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RefinementCopiesTheCompletePriorBeforeAddingDetail@840",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::RunRefinementSequence@1257",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RepeatedRefinementNormalizesIndependentlyOfSplitOrder@608",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::Count@827",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::ReloadedCertificateMeetsLikeUninterruptedCertificate@748",
+      "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::SigmaExactConstraintJournal",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RepeatedRefinementNormalizesIndependentlyOfSplitOrder@608",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::ReloadedCertificateMeetsLikeUninterruptedCertificate@748",
+      "target": "Runtime/SigmaPrism/SigmaS16.cs::Combine@421",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::ReloadedCertificateMeetsLikeUninterruptedCertificate@748",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::CertifiedConstraintRecord@1156",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::ReloadedCertificateMeetsLikeUninterruptedCertificate@748",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::PersistAndReload@1214",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RepeatedRefinementNormalizesIndependentlyOfSplitOrder@805",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::Count@1025",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RepeatedRefinementNormalizesIndependentlyOfSplitOrder@805",
       "target": "Tests/Editor/SigmaNativeFrameTests.cs::GaugeKey",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RepeatedRefinementNormalizesIndependentlyOfSplitOrder@608",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RepeatedRefinementNormalizesIndependentlyOfSplitOrder@805",
       "target": "Tests/Editor/SigmaNativeFrameTests.cs::RefinementStep",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RepeatedRefinementNormalizesIndependentlyOfSplitOrder@608",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::RunRefinementSequence@958",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RepeatedRefinementNormalizesIndependentlyOfSplitOrder@805",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::RunRefinementSequence@1257",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunRefinementSequence@958",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunRefinementSequence@1257",
       "target": "Runtime/SigmaPrism/SigmaExactBackendGate.cs::Dispatch@45",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunRefinementSequence@958",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunRefinementSequence@1257",
       "target": "Runtime/SigmaPrism/SigmaNativeFrameResources.cs::SigmaNativeFrameSlotResources",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunRefinementSequence@958",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunRefinementSequence@1257",
       "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Max@172",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunRefinementSequence@958",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::BindPublication@836",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunRefinementSequence@1257",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::BindPublication@1034",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunRefinementSequence@958",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::FindGaugeSample@1230",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunRefinementSequence@1257",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::FindGaugeSample@1530",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunRefinementSequence@958",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunRefinementSequence@1257",
       "target": "Tests/Editor/SigmaNativeFrameTests.cs::GaugeKey",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunRefinementSequence@958",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::PrepareRefinementScratch@1111",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunRefinementSequence@1257",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::PrepareRefinementScratch@1411",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunRefinementSequence@958",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::ReadCertificate@1262",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunRefinementSequence@1257",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::ReadCertificate@1562",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunRefinementSequence@958",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::ReadPageMeta@1222",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunRefinementSequence@1257",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::ReadPageMeta@1522",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunRefinementSequence@958",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunRefinementSequence@1257",
       "target": "Tests/Editor/SigmaNativeFrameTests.cs::RefinementSnapshot",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunRefinementSequence@958",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::WriteRepresentationCell@1183",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunRefinementSequence@1257",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::WriteRepresentationCell@1483",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunStaticExclusion@696",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunStaticExclusion@893",
       "target": "Runtime/SigmaPrism/SigmaExactBackendGate.cs::Dispatch@45",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunStaticExclusion@696",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunStaticExclusion@893",
       "target": "Runtime/SigmaPrism/SigmaNativeFrameResources.cs::SigmaNativeFrameSlotResources",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunStaticExclusion@696",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunStaticExclusion@893",
       "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Max@172",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunStaticExclusion@696",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::BindPublication@836",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunStaticExclusion@893",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::BindPublication@1034",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunStaticExclusion@696",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunStaticExclusion@893",
       "target": "Tests/Editor/SigmaNativeFrameTests.cs::GaugeKey",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunStaticExclusion@696",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::SetEqualCertificates@905",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunStaticExclusion@893",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::SetEqualCertificates@1103",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunStaticExclusion@696",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunStaticExclusion@893",
       "target": "Tests/Editor/SigmaNativeFrameTests.cs::StaticExclusionSnapshot",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunStaticExclusion@696",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::U4@1304",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunStaticExclusion@893",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::U4@1604",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunStaticExclusion@696",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::WriteRepresentationCell@1183",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunStaticExclusion@893",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::WriteRepresentationCell@1483",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::StereoStaticExclusionPublishesOnlyZEmptyAtTheSameGauge@343",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::RunStaticExclusion@696",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::StereoStaticExclusionPublishesOnlyZEmptyAtTheSameGauge@353",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::RunStaticExclusion@893",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::WriteRepresentationCell@1183",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::ToRaw@1381",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::WriteRepresentationCell@1483",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::ToRaw@1681",
       "kind": "calls"
     },
     {
@@ -19845,7 +20742,7 @@
     },
     {
       "source": "Tests/Editor/SigmaNativeOracleTests.cs::ExecutionWindowsAndOrderAreInvisibleAndScratchIsTestOnly@676",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::Count@827",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::Count@1025",
       "kind": "calls"
     },
     {
@@ -20065,12 +20962,12 @@
     },
     {
       "source": "Tests/Editor/SigmaNativeOracleTests.cs::OracleGpuGraphIsFixedParallelAndCardinalityInvariant@718",
-      "target": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshFinalize@543",
+      "target": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshFinalize@601",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaNativeOracleTests.cs::OracleGpuGraphIsFixedParallelAndCardinalityInvariant@718",
-      "target": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshLiftBranch@145",
+      "target": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute::SigmaNativeFreshLiftBranch@173",
       "kind": "calls"
     },
     {
@@ -20470,7 +21367,7 @@
     },
     {
       "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanFieldEntrypointsGroupRefinedU64SupportsBeforeReduction@874",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::Count@827",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::Count@1025",
       "kind": "calls"
     },
     {
@@ -20615,7 +21512,7 @@
     },
     {
       "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanReducerHandlesMoreThan64AndSignalsBoundedColdContinuation@1074",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::Count@827",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::Count@1025",
       "kind": "calls"
     },
     {
@@ -20900,7 +21797,7 @@
     },
     {
       "source": "Tools/generate_code_graph.py::is_hlsl_definition@110",
-      "target": "Tools/sigma/generate_sigma_operators.py::sha256@191",
+      "target": "Tools/sigma/generate_sigma_operators.py::sha256@199",
       "kind": "calls"
     },
     {
@@ -20909,13 +21806,13 @@
       "kind": "calls"
     },
     {
-      "source": "Tools/sigma/generate_sigma_operators.py::normalize@990",
-      "target": "Tools/sigma/generate_sigma_operators.py::sha256@191",
+      "source": "Tools/sigma/generate_sigma_operators.py::normalize@998",
+      "target": "Tools/sigma/generate_sigma_operators.py::sha256@199",
       "kind": "calls"
     },
     {
-      "source": "Tools/sigma/generate_sigma_operators.py::render_cs@1786",
-      "target": "Tools/sigma/generate_sigma_operators.py::cs_array@1777",
+      "source": "Tools/sigma/generate_sigma_operators.py::render_cs@1794",
+      "target": "Tools/sigma/generate_sigma_operators.py::cs_array@1785",
       "kind": "calls"
     },
     {

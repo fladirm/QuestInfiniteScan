@@ -374,6 +374,26 @@ branch/chart decisions remain in Git history only.
   preimage into an old geometry projection. The published root is authoritative
   even when the one-cell N3 bootstrap is visually imperceptible.
 
+## ADR-S445 — Full-frame fresh support is one set-level native operation
+
+- N3's one coherent footprint -> one relative level-zero cell is an accepted
+  bootstrap theorem, not a full-frame placement rule.
+- N4 may not map pixels, XYZ, tiles, hashes, page/sample addresses, allocation
+  order or workgroup completion order into physical `Sigma_2` incidence.
+- Before full-frame N4 runtime work resumes, the sole generated program must own
+  one constructive set-level operation that maps the whole coherent observation,
+  published field and retained exact frontier to either a common normalized finite
+  relative support/state/gauge/certificate delta or an exact unresolved union.
+- The missing authority must define how native multi-support relation context
+  yields relative `Sigma_2` incidence/displacement and how disconnected-component
+  translations are normalized or proved harmless gauge. A relation classifier on
+  already supplied tuples is insufficient.
+- Tiles/workgroups remain disposable execution partitions. They may change grid
+  cardinality but never normalized bytes or dispatch-sequence semantics.
+- The current N4 certificate/refinement tree is forensic evidence, not an accepted
+  checkpoint, until a narrow production-neutral corrective N1/N2 theorem/oracle
+  closes this authority gate.
+
 ## Explicit supersession
 
 - ADR-S404R, ADR-S423 through ADR-S435 and their V2 revisions are superseded by

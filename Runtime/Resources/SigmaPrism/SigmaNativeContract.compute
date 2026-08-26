@@ -18,7 +18,7 @@ RWStructuredBuffer<uint2> _NativeStates;
 // calibrated room-ray coefficients, and 2 eyes x 4 raw sensor-code intervals.
 // This is the same immutable journal record written by BuildNativeObservation;
 // no duplicate fresh-evidence buffers or transfer pass exist.
-StructuredBuffer<uint2> _NativeFreshEvidenceWords;
+RWStructuredBuffer<uint2> _NativeFreshEvidenceWords;
 
 RWStructuredBuffer<uint4> _NativeBranchHeaders;
 RWStructuredBuffer<uint2> _NativeBranchSupports;
@@ -107,6 +107,34 @@ uint SigmaNativeFreshPermutationAxis(uint eye, uint leaf)
     return leaf == 0u ? permutation.x :
         leaf == 1u ? permutation.y :
         leaf == 2u ? permutation.z : permutation.w;
+}
+
+uint SigmaNativeFreshPermutationMode(uint4 permutation, int globalSign)
+{
+    // Lehmer rank is collision-free over the generated four-axis permutation;
+    // the sign bit extends its 24 modes to the exact 48-mode row inventory.
+    uint rank = 0u;
+    uint factorial[4] = { 6u, 2u, 1u, 1u };
+    [unroll]
+    for (uint left = 0u; left < 4u; ++left)
+    {
+        uint smaller = 0u;
+        [unroll]
+        for (uint right = left + 1u; right < 4u; ++right)
+            smaller += permutation[right] < permutation[left] ? 1u : 0u;
+        rank += smaller * factorial[left];
+    }
+    return rank + (globalSign < 0 ? 24u : 0u);
+}
+
+uint2 SigmaNativeFreshModeMask(uint2 prior, uint mode)
+{
+    uint2 result = prior;
+    if (mode < 32u)
+        result.x |= 1u << mode;
+    else if (mode < 48u)
+        result.y |= 1u << (mode - 32u);
+    return result;
 }
 
 uint2 SigmaNativeFreshLiftWeight(int numerator)
@@ -498,7 +526,13 @@ void SigmaNativeFreshLiftBranch(uint branchIndex, uint threadIndex)
                 header.x & ~SIGMA_NATIVE_OBSERVATION_PRIOR_SUPPORT,
                 instrument.x, instrument.y);
         else if (threadIndex == SIGMA_CERTIFICATE_INDEPENDENCE)
-            certificateWord = uint4(header.w, 0u, 0u, 0u);
+            certificateWord = uint4(0u,
+                SigmaNativeFreshPermutationMode(
+                    SigmaNativeFreshEyePermutation[0u],
+                    SigmaNativeFreshEyeSign[0u]),
+                SigmaNativeFreshPermutationMode(
+                    SigmaNativeFreshEyePermutation[1u],
+                    SigmaNativeFreshEyeSign[1u]), 0u);
         else if (threadIndex == SIGMA_CERTIFICATE_RELATION)
             certificateWord = 0u;
         else if (threadIndex >= SIGMA_CERTIFICATE_AXIS0 &&
@@ -520,21 +554,45 @@ void SigmaNativeFreshLiftBranch(uint branchIndex, uint threadIndex)
                 ? uint4(width, axis, 3u) : 0u;
         }
         else if (threadIndex == SIGMA_CERTIFICATE_RECEIPTS0)
-            certificateWord = uint4(header.z, header.w,
-                header.x & ~SIGMA_NATIVE_OBSERVATION_PRIOR_SUPPORT, 0u);
+            certificateWord = uint4(header.z,
+                header.x & ~SIGMA_NATIVE_OBSERVATION_PRIOR_SUPPORT,
+                instrument.x, instrument.y);
         else if (threadIndex == SIGMA_CERTIFICATE_RECEIPTS0 + 1u)
             certificateWord = instrument;
         else if (threadIndex == SIGMA_CERTIFICATE_RECEIPTS0 + 2u)
-            certificateWord = _NativeLocalityCertificateWords[
-                SIGMA_CERTIFICATE_INDEPENDENCE];
+        {
+            uint4 priorModes = _NativeLocalityCertificateWords[
+                SIGMA_CERTIFICATE_RECEIPTS0 + 2u];
+            uint leftMode = SigmaNativeFreshPermutationMode(
+                SigmaNativeFreshEyePermutation[0u],
+                SigmaNativeFreshEyeSign[0u]);
+            uint rightMode = SigmaNativeFreshPermutationMode(
+                SigmaNativeFreshEyePermutation[1u],
+                SigmaNativeFreshEyeSign[1u]);
+            uint2 leftMask = SigmaNativeFreshModeMask(priorModes.xy, leftMode);
+            uint2 rightMask = SigmaNativeFreshModeMask(priorModes.zw, rightMode);
+            certificateWord = uint4(leftMask, rightMask);
+        }
         else if (threadIndex == SIGMA_CERTIFICATE_RECEIPTS0 + 3u)
             certificateWord = uint4(SIGMA_CERTIFICATE_FINGERPRINT[0u],
                 SIGMA_CERTIFICATE_FINGERPRINT[1u],
                 SIGMA_CERTIFICATE_FINGERPRINT[2u],
                 SIGMA_CERTIFICATE_FINGERPRINT[3u]);
-        _NativeLocalityCertificateWords[SIGMA_CERTIFICATE_WORD_COUNT +
-            threadIndex] = SigmaNativeFreshPhaseValid != 0u
+        uint4 persistedCertificate = SigmaNativeFreshPhaseValid != 0u
             ? certificateWord : 0u;
+        _NativeLocalityCertificateWords[SIGMA_CERTIFICATE_WORD_COUNT +
+            threadIndex] = persistedCertificate;
+        // The same lane writes its already-contracted proof into the cold
+        // persistence envelope.  This is not another pass or authority: the
+        // live carrier continues to consume LocalityCertificateWords directly.
+        if (branchIndex == 0u)
+        {
+            uint completion = SigmaNativeFreshEvidenceAddress(branchIndex,
+                SIGMA_COMPLETION_CERTIFICATE + threadIndex * 2u);
+            _NativeFreshEvidenceWords[completion] = persistedCertificate.xy;
+            _NativeFreshEvidenceWords[completion + 1u] =
+                persistedCertificate.zw;
+        }
     }
     GroupMemoryBarrierWithGroupSync();
     if (SigmaNativeFreshPhaseValid == 0u && threadIndex < 16u)
