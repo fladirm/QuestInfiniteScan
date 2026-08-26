@@ -1122,6 +1122,44 @@ Relation results may include generated classes such as regular, exact-ZD,
 near-singular, nonassociative-context, fold/crease, null/contact, no-relation and
 unresolved, but only where the authoritative program defines them.
 
+`Sigma_2` incidence is induced only by authoritative Merkaba eigenmode/modal
+stitching. For full modes and their complete bracketed native context, the sole
+generated program must evaluate an exact finite stitch set
+
+\[
+\mathcal S_{ij}=\operatorname{MerkabaStitch}(u_i,u_j,C_{ij}).
+\]
+
+An empty set proves no intrinsic incidence. A singleton after complete native
+closure proves one incidence/transport witness. A non-singleton set remains an
+exact disjunction and is `UNRESOLVED`. Sensor geometry, finite footprints,
+first-hit/order and pose may conservatively bound stitch candidates; they cannot
+mint incidence. T8/O6 shadow structure is usable as a port/boundary inventory only
+where an authoritative modal-stitching theorem constructively proves that role;
+it is never a stored polyhedron or an intuitive `+U/-U` port scheme.
+
+Multi-stitch composition preserves the same explicit bracket history. Closed
+patterns are admitted only when the complete associator/plaquette/holonomy law
+proves a common finite relative pattern. Inconsistent, non-singleton or
+insufficiently constrained loops remain unresolved; averaging, snapping, welding
+and coordinate repair are forbidden.
+
+For stitch-disconnected supported components, independent integer translation of
+each component is harmless representation gauge. This admits translation only:
+no rotation, reflection, axis permutation, sign flip or dyadic scaling. Components
+are transient normalization scratch, never persistent identity. Normalize each
+component with the existing `I_REP` translation normalizer, canonical-serialize
+its complete S16/chi/kappa/relation/certificate content, sort the component
+multiset by complete bytes and serialize the multiset without inventing physical
+distance. A later proved stitch joins and renormalizes the components as one
+pattern.
+
+Fold/two-sided/occlusion labels never act as displacement rules. A fold may remain
+stitched through its proved nontrivial transport; close sheets remain distinct
+without an explicit stitch. Occlusion alternatives remain disjunctive and later
+pre-hit/first-hit evidence contracts them under the already frozen directional
+law.
+
 There is no topology or stitch world. A generation-keyed relation cache is a
 disposable evaluation cache and owns no physical state.
 

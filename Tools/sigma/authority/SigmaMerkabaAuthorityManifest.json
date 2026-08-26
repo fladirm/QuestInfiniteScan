@@ -100,6 +100,61 @@
     "scalarConfidence": false,
     "weakerRule": "REMOVE_ONLY_EXACT_SUPERSET_WITH_IDENTICAL_SCOPE_AND_INDEPENDENCE_CLASS"
   },
+  "constructiveModalStitching": {
+    "authority": "SCANNER_LEVEL_I_Q_CONTACT_CONJUNCTION_WITH_I_TOE_NATIVE_RELATION_NOT_AN_UPSTREAM_TOE_CLAIM",
+    "contactCandidate": {
+      "arbitraryEpsilon": false,
+      "occludedOrUnseenBoundary": "RETAIN_CONTINUATION_AND_NO_CONTINUATION_DISJUNCTION",
+      "pixelAdjacencyAccelerationOnly": true,
+      "pixelAdjacencyAuthority": false,
+      "predicate": "EXACT_CLOSED_INTERVAL_INTERSECTION_OF_A_PAIR_OF_CALIBRATED_FIRST_HIT_BOUNDARY_SECTOR_ENVELOPES_IN_COMMON_ROOM_GAUGE",
+      "provablySeparated": "NO_CANDIDATE"
+    },
+    "firstHitPressure": {
+      "behindHit": "NO_CLAIM",
+      "firstHit": "CONTRACT_SURVIVING_MANIFESTATION_TO_MEASURED_MOULD",
+      "preHit": "ELIMINATE_IMPOSSIBLE_SUPPORT_OR_STITCH_CONTINUATION_BRANCH"
+    },
+    "forbidden": [
+      "XYZ_DISTANCE_STITCH",
+      "PIXEL_INCIDENCE",
+      "PERSISTENT_CONTACT_GRAPH",
+      "T8_O6_STORED_POLYHEDRON",
+      "HEURISTIC_PORT_MAPPING",
+      "COORDINATE_AVERAGE_OR_SNAP"
+    ],
+    "manifestationFootprint": {
+      "boundarySectors": [
+        "U_MINUS",
+        "U_PLUS",
+        "V_MINUS",
+        "V_PLUS"
+      ],
+      "canonicalState": false,
+      "construction": "FOUR_PARAMETRIC_CALIBRATED_FOOTPRINT_BOUNDARIES_PROPAGATED_WITH_OUTWARD_Q16_48_THROUGH_THE_FIRST_HIT_ORDER_AND_POSE_REGION",
+      "input": "ROOM_GAUGE_ORIGIN_CENTER_RAY_RAY_DIFFERENTIALS_FINITE_FOOTPRINT_DIRECT_ORDER_INTERVAL_POSE_EXTRINSIC_REGION_FIRST_HIT_ROLE",
+      "sigma2Address": false
+    },
+    "modalConjunction": {
+      "emptyWitnessSet": "NO_STITCH",
+      "input": "POSSIBLE_CONTACT_PLUS_COMPLETE_I_TOE_NATIVE_LINK_ASSOCIATOR_PLAQUETTE_HOLONOMY_CONTEXT",
+      "minimumResidualWinner": false,
+      "multipleNonEquivalentClasses": "UNRESOLVED_EXACT_DISJUNCTION",
+      "oneCompleteProgramEquivalentClass": "RESOLVED_STITCH",
+      "uncertainStitchedAndTorn": "UNRESOLVED_EXACT_DISJUNCTION"
+    },
+    "scope": "ONE_COHERENT_WHOLE_FRAME_PLUS_RETAINED_EXACT_FRONTIER",
+    "witness": [
+      "MATCHED_CALIBRATED_BOUNDARY_SECTORS",
+      "FULL_S16_SIGN_TRANSPORT",
+      "EXPLICIT_BRACKET_HISTORY",
+      "NORMALIZED_LINK_FACTOR",
+      "NORMALIZED_ASSOCIATOR_FACTOR",
+      "NORMALIZED_PLAQUETTE_HOLONOMY_FACTOR",
+      "DISTINCT_SUPPORT_CONTINUATION_DISPOSITION",
+      "EXACT_CERTIFICATE_PROVENANCE"
+    ]
+  },
   "directS16DependenciesRetained": true,
   "e22InventoryCount": 0,
   "executableIr": {
@@ -301,17 +356,28 @@
       },
       {
         "arity": -1,
-        "fingerprint": "846fe568432bf1ac9fe56c3821f17df5968991786a656eabbc2852e39be976e0",
+        "fingerprint": "d2f1b95397fb7ecd3b67ae7eb5bf9071e35a01969f492636cbf8830d6ed9c01c",
+        "id": "FRESH_SUPPORT_SET_ADMISSION",
+        "neighbourhood": 4,
+        "nodeCount": 10,
+        "nodeStart": 54,
+        "rootNode": 63,
+        "source": "I_Q:constructiveModalStitching+I_TOE:8+I_REP:stitchEmbedding"
+      },
+      {
+        "arity": -1,
+        "fingerprint": "f328411f11abadcd79fe237481e699f8ad2d201d6d9b53f98e775b56e8437484",
         "id": "ZEMPTY_DEFAULT",
         "neighbourhood": 4,
         "nodeCount": 1,
-        "nodeStart": 54,
-        "rootNode": 54,
+        "nodeStart": 64,
+        "rootNode": 64,
         "source": "I_Q:defaultSemantics+I_REP:defaultRepresentations"
       }
     ],
-    "fingerprint": "e437333485adcdf56c83b8020a733d3ac239558dee41ddb6a9136d9e1e8cddc7",
+    "fingerprint": "a0bedc0617af14d750781dadb3b17a8601f253b3a75fa3d0b0c30c24745e6a94",
     "freshAdmissionExpression": 14,
+    "freshSupportSetExpression": 15,
     "gaugeExpression": 13,
     "neighbourhoods": [
       "LOCAL",
@@ -815,9 +881,99 @@
       {
         "argument0": 0,
         "argument1": 0,
-        "opcode": 27,
+        "opcode": 1,
         "operandCount": 0,
         "operandStart": 58,
+        "outputKind": 8,
+        "reverseRule": 6
+      },
+      {
+        "argument0": 1,
+        "argument1": 0,
+        "opcode": 2,
+        "operandCount": 0,
+        "operandStart": 58,
+        "outputKind": 1,
+        "reverseRule": 8
+      },
+      {
+        "argument0": 0,
+        "argument1": 0,
+        "opcode": 35,
+        "operandCount": 3,
+        "operandStart": 58,
+        "outputKind": 5,
+        "reverseRule": 6
+      },
+      {
+        "argument0": 0,
+        "argument1": 0,
+        "opcode": 36,
+        "operandCount": 2,
+        "operandStart": 61,
+        "outputKind": 13,
+        "reverseRule": 6
+      },
+      {
+        "argument0": 0,
+        "argument1": 0,
+        "opcode": 37,
+        "operandCount": 4,
+        "operandStart": 63,
+        "outputKind": 14,
+        "reverseRule": 6
+      },
+      {
+        "argument0": 0,
+        "argument1": 0,
+        "opcode": 38,
+        "operandCount": 1,
+        "operandStart": 67,
+        "outputKind": 14,
+        "reverseRule": 6
+      },
+      {
+        "argument0": 0,
+        "argument1": 0,
+        "opcode": 39,
+        "operandCount": 1,
+        "operandStart": 68,
+        "outputKind": 15,
+        "reverseRule": 6
+      },
+      {
+        "argument0": 0,
+        "argument1": 0,
+        "opcode": 40,
+        "operandCount": 1,
+        "operandStart": 69,
+        "outputKind": 15,
+        "reverseRule": 1
+      },
+      {
+        "argument0": 0,
+        "argument1": 0,
+        "opcode": 24,
+        "operandCount": 1,
+        "operandStart": 70,
+        "outputKind": 7,
+        "reverseRule": 9
+      },
+      {
+        "argument0": 0,
+        "argument1": 0,
+        "opcode": 34,
+        "operandCount": 3,
+        "operandStart": 71,
+        "outputKind": 12,
+        "reverseRule": 12
+      },
+      {
+        "argument0": 0,
+        "argument1": 0,
+        "opcode": 27,
+        "operandCount": 0,
+        "operandStart": 74,
         "outputKind": 0,
         "reverseRule": 1
       }
@@ -857,7 +1013,13 @@
       "MERKABA_DUAL_FRAME_LIFT",
       "FORWARD_RELATION_VERIFY",
       "FRESH_BASE_PATTERN",
-      "COMMON_UNION_OR_UNRESOLVED"
+      "COMMON_UNION_OR_UNRESOLVED",
+      "WHOLE_FRAME_REVERSE_SET",
+      "CONTACT_CANDIDATE_SET",
+      "MERKABA_MODAL_STITCH",
+      "STITCH_LOOP_CLOSURE",
+      "FRESH_SUPPORT_SET_PATTERN",
+      "COMPONENT_TRANSLATION_NORMALIZE"
     ],
     "operands": [
       0,
@@ -917,7 +1079,23 @@
       51,
       49,
       52,
-      34
+      34,
+      54,
+      55,
+      34,
+      56,
+      55,
+      57,
+      20,
+      24,
+      26,
+      58,
+      59,
+      60,
+      59,
+      61,
+      62,
+      56
     ],
     "reducers": [
       "NONE",
@@ -954,9 +1132,12 @@
       "QUERY_ROLE",
       "BOOLEAN",
       "SHADOW_CELL",
-      "FRESH_ADMISSION"
+      "FRESH_ADMISSION",
+      "CONTACT_SET",
+      "STITCH_SET",
+      "INTRINSIC_PATTERN"
     ],
-    "zEmptyExpression": 15
+    "zEmptyExpression": 16
   },
   "expressionInventory": [
     {
@@ -1111,12 +1292,22 @@
     },
     {
       "arity": -1,
-      "fingerprint": "846fe568432bf1ac9fe56c3821f17df5968991786a656eabbc2852e39be976e0",
+      "fingerprint": "d2f1b95397fb7ecd3b67ae7eb5bf9071e35a01969f492636cbf8830d6ed9c01c",
+      "id": "FRESH_SUPPORT_SET_ADMISSION",
+      "neighbourhood": 4,
+      "nodeCount": 10,
+      "nodeStart": 54,
+      "rootNode": 63,
+      "source": "I_Q:constructiveModalStitching+I_TOE:8+I_REP:stitchEmbedding"
+    },
+    {
+      "arity": -1,
+      "fingerprint": "f328411f11abadcd79fe237481e699f8ad2d201d6d9b53f98e775b56e8437484",
       "id": "ZEMPTY_DEFAULT",
       "neighbourhood": 4,
       "nodeCount": 1,
-      "nodeStart": 54,
-      "rootNode": 54,
+      "nodeStart": 64,
+      "rootNode": 64,
       "source": "I_Q:defaultSemantics+I_REP:defaultRepresentations"
     }
   ],
@@ -1145,31 +1336,30 @@
   "generatedOutputs": [
     "Tests/Editor/Generated/SigmaGeneratedMerkabaProgram.cs",
     "Tests/Editor/Generated/SigmaGeneratedMerkabaProgram.hlsl",
-    "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.hlsl",
     "Tests/Editor/Generated/SigmaMerkabaProgramFixture.compute"
   ],
   "inputs": {
     "algebraCoreSha256": "f7524a2d348cda462a2c6fa4804cf6be33c2554a69c6ecf67a11ef97009529cc",
     "canonicalSpec": {
       "path": "new_spec.md",
-      "sha256": "3404211c6dcf0174bbe199b614771651a194176310bd622a3908319de1be62bf"
+      "sha256": "3696f8f2442ddc2e72ac10b57a48d8e54146246777305804124b16464bcf3a57"
     },
     "closurePlan": {
       "path": ".codex/S4-08.6_NATIVE_CLOSURE_PLAN.md",
-      "sha256": "1dddaca0d48879b0b0492b8955ca59e20e00216af877c3bf4ece84e5b89d958c"
+      "sha256": "008c806f53e3b9bfee988f2836aacff459430d7c45bd0bdfaac845171c905934"
     },
     "generatorSource": {
       "path": "Tools/sigma/generate_sigma_operators.py",
-      "sha256": "f96ae2e4c5312b9b93e7539a82d04e3943b40d4792faf52408abf9626b1e6a16",
+      "sha256": "5727b5af478d4da264f01ed32c860c654ad8d713774eb57fa5d31f0879d20993",
       "version": "CPQ4-S16-GEN-1"
     },
     "queryBoundary": {
       "path": "Tools/sigma/authority/I_Q_SIGMA_PRISM_V1.json",
-      "sha256": "e3e0e60770431f32d7d2a698ed5b75dedfc8498893cfbc47a80d2e726d575b7e"
+      "sha256": "d9c55d479140a85bb820adb427d09816d919459ab95a7195659f1b974c8f3812"
     },
     "representation": {
       "path": "Tools/sigma/authority/I_REP_SIGMA_PRISM_V1.json",
-      "sha256": "f5f3f42395e2e05779f5c7059bc2e273bcf334f2b73f8b5ac4520c1ea03ff133"
+      "sha256": "9418c4cb4033fee8b72cdd29c96cd60fb151e238a2d265359f5a0d4fe686a296"
     },
     "toeCapsule": {
       "admittedSections": [
@@ -1220,8 +1410,8 @@
     "unboundedParameterRegion": "FORBIDDEN_TO_PROVE_COMPATIBILITY_OR_MUTATION",
     "whiteBalance": "BOUNDED_PER_CHANNEL_GAIN"
   },
-  "programFingerprint": "8688a4ee5c6ad9dc6e6649ee6c661ee6a3c52916d8fefd43837d5c8f8f357afe",
-  "programVersion": "CPQ4-S16-MERKABA-N1R-4",
+  "programFingerprint": "1530c689b9d032a9034cd9efdd6a3ed277d5bc7b5dea64acdf123fed2ffe87f3",
+  "programVersion": "CPQ4-S16-MERKABA-N1R-5",
   "proofs": {
     "allDefaultActiveWork": 0,
     "allDefaultRelation": "DEFAULT_SAT",
@@ -1254,6 +1444,13 @@
     "certificateFeasibleAssignmentCount": 18,
     "certificateProofFingerprint": "0b0317cf6c99954e32819303ebb6e400101a7a3d75b2d1b858f22f0fbb006cd3",
     "completeProgramFibreSelector": "IDENTITY_ONLY_UNLESS_EQUIVALENCE_PROVED",
+    "constructiveStitchComponentGauge": "INDEPENDENT_INTEGER_TRANSLATION_ONLY",
+    "constructiveStitchContactEpsilonCount": 0,
+    "constructiveStitchExpressionFingerprint": "d2f1b95397fb7ecd3b67ae7eb5bf9071e35a01969f492636cbf8830d6ed9c01c",
+    "constructiveStitchNodeCount": 10,
+    "constructiveStitchPersistentComponentIdentity": false,
+    "constructiveStitchPixelOrXyzAuthorityCount": 0,
+    "constructiveStitchProofFingerprint": "6e2db5c4d9aead9ba694c77d61b891e938fbb9fbe78de19b4f999bb8d4d532f4",
     "coupledFactorInputCount": 2,
     "coupledFactorMinimizedCount": 2,
     "defaultRepresentationCount": 3,
@@ -1453,8 +1650,16 @@
     },
     "gaugeFamily": {
       "base": "GLOBAL_SIGNED_INTEGER_TRANSLATION",
-      "independentComponentTranslation": "NOT_ADMITTED_WITHOUT_RELATION_PROGRAM_PROOF",
+      "independentComponentGaugeGroup": "SIGNED_INTEGER_TRANSLATION_ONLY",
+      "independentComponentTranslation": "ADMITTED_FOR_EXACT_STITCH_DISCONNECTED_COMPONENTS_ONLY",
       "lossyResampling": "FORBIDDEN",
+      "notGauge": [
+        "ROTATION",
+        "REFLECTION",
+        "U_V_SWAP",
+        "SIGN_FLIP",
+        "DYADIC_SCALE"
+      ],
       "refinement": "PROVED_DYADIC_SPLIT_OR_EXACT_COLLAPSE"
     },
     "kappa": {
@@ -1498,6 +1703,40 @@
       "codecBlockGeometry": "8X8_FROZEN",
       "order": "NORMALIZED_GAUGE_RECORD_THEN_FULL_S16_THEN_GENERATIONS_AND_FINGERPRINTS",
       "pageGeometry": "64X64_FROZEN"
+    },
+    "stitchEmbedding": {
+      "componentNormalization": {
+        "components": "TRANSIENT_CONNECTED_COMPONENTS_OF_THE_EXACT_CURRENT_STITCH_SET",
+        "laterJoin": "DISCARD_INDEPENDENT_PACKING_AND_NORMALIZE_JOINED_PATTERN_AS_ONE_COMPONENT",
+        "multisetOrder": "COMPLETE_CANONICAL_BYTES_WITH_COMPLETE_DETERMINISTIC_TIE_RULE",
+        "packing": "DETERMINISTIC_NONOVERLAPPING_BACKING_PACK_WITH_ZERO_PHYSICAL_DISTANCE_MEANING",
+        "perComponent": "EXISTING_INTEGER_TRANSLATION_NORMAL_FORM",
+        "persistentComponentIdentity": false,
+        "serialization": "FULL_CHI_KAPPA_S16_STITCH_RELATION_CERTIFICATE_BYTES"
+      },
+      "fold": "MAY_REMAIN_STITCHED_WITH_NONTRIVIAL_NATIVE_TRANSPORT_WITHOUT_STATE_SMOOTHING",
+      "forbiddenAuthorities": [
+        "PIXEL",
+        "XYZ",
+        "PAGE",
+        "SAMPLE",
+        "HASH_PLACEMENT"
+      ],
+      "globalSolve": "SOLVE_ALL_RELATIVE_DYADIC_INCIDENCE_AND_ORIENTATION_CONSTRAINTS_SIMULTANEOUSLY",
+      "inconsistentOrNonSingleton": "UNRESOLVED_NO_COORDINATE_REPAIR",
+      "input": "EXACT_FINITE_MERKABA_STITCH_WITNESS_SET_FROM_I_Q_CONJUNCTION_WITH_I_TOE_NATIVE_RELATION",
+      "loopClosure": "EXACT_EMBEDDING_CONSISTENCY_AND_COMPLETE_BRACKET_ASSOCIATOR_PLAQUETTE_HOLONOMY_CLOSURE",
+      "normalIncidence": "ONE_LEVEL_L_DYADIC_CELL_BOUNDARY_SECTOR_TO_ONE_OTHER_LEVEL_L_BOUNDARY_SECTOR",
+      "nullNoContact": "NO_INCIDENCE",
+      "permutationInvariance": [
+        "FOOTPRINT_ENUMERATION",
+        "TILE_ORDER",
+        "WORKGROUP_ORDER",
+        "OBSERVATION_ORDER",
+        "ALLOCATION_ORDER"
+      ],
+      "physicalContent": "INTRINSIC_BOUNDARY_INCIDENCE_PLUS_NATIVE_ORIENTATION_TRANSPORT_NOT_ABSOLUTE_UV_DISTANCE",
+      "twoSided": "DISTINCT_SUPPORT_UNLESS_EXACT_NATIVE_CONTINUATION_WITNESS_EXISTS"
     }
   },
   "reverseRules": [
@@ -1515,6 +1754,15 @@
     "FORWARD_VERIFY_RETAIN",
     "COMMON_RESULT_OR_UNRESOLVED"
   ],
+  "runtimeActivation": {
+    "outputs": [
+      "Runtime/SigmaPrism/Generated/SigmaGeneratedFrame.cs",
+      "Runtime/Resources/SigmaPrism/SigmaFrameAbi.hlsl",
+      "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.hlsl"
+    ],
+    "productionDeltaRequiredDuringCorrectiveN1N2": "+0/-0",
+    "status": "DEFERRED_UNTIL_N4_LIVE_CUTOVER"
+  },
   "sceneReduction": {
     "behindHit": "NO_CLAIM",
     "branchSemantics": "UNION_UNTIL_EXACT_ELIMINATION_OR_COMMON_DELTA",

@@ -2,31 +2,30 @@
 
 ## Exchange 1 — user
 
-Required stopping N4 implementation because the attempted one-footprint to full
-320x320 expansion exposed a missing semantic boundary. Requested a bounded audit
-of simultaneous existing/fresh support association, relative intrinsic placement,
-normalization, certificate closure and sparse deltas, with no placement helper or
-new runtime code.
+Supplied the missing scanner-level constructive authority after the upstream audit:
+candidate incidence is exact calibrated finite first-hit boundary contact AND
+complete native Merkaba modal compatibility. Resolved stitches carry intrinsic
+incidence plus orientation/transport; ambiguity remains disjunctive. All stitches
+compose simultaneously with native loop closure. Stitch-disconnected components
+admit independent integer translation gauge only and normalize by complete bytes.
+No pixel/XYZ/page/hash/allocation/workgroup placement authority is allowed.
 
 ## Exchange 1 — assistant
 
-Stopped runtime implementation. The audit proved that accepted N1/N2 construct
-alternative preimages of one coherent footprint and normalize one relative
-level-zero cell, but do not construct an observation-order-independent finite
-relative `Sigma_2` pattern for several simultaneously unattached supports. The
-exact result is recorded in `.codex/S4-08.6_N4R_PRE_CLOSURE_AUDIT.md`; dirty N4 is
-forensic and not accepted.
+Implemented corrective N1R-5 only in `I_Q`/`I_REP`, the sole generator and
+Editor/Vulkan generated oracle assets. Added the executable set-level expression,
+exact contact/stitch classifier, simultaneous loop integration and transient
+component translation normalizer. Runtime activation is explicitly deferred and
+`Runtime/SigmaPrism` plus `Runtime/Resources/SigmaPrism` remain `+0/-0`.
 
 ## Exchange 2 — user
 
-Requested the precise missing definition rather than an ad-hoc Codex decision,
-and explicitly requested a dirty forensic commit and push.
+Asked for current state, ETA and progress.
 
 ## Exchange 2 — assistant
 
-The only required physical definition is the native map from a proved
-multi-support Merkaba relation context to relative `Sigma_2`
-incidence/displacement, plus the canonical normalization/equivalence rule for
-disconnected components. Controls mark N4 stopped at this authority gate; no
-pixel/XYZ/hash/page/allocation/workgroup-order fallback is authorized. The entire
-dirty N4 state is preserved as a not-accepted forensic checkpoint for push.
+Corrective N1R-5 gates pass locally: program fingerprint
+`1530c689b9d032a9034cd9efdd6a3ed277d5bc7b5dea64acdf123fed2ffe87f3`,
+Unity Vulkan EditMode `79/79`, deterministic generator/check, UAV validation and
+zero new stitch shader warnings. Corrective N2R-5 bounded CPU/Vulkan set oracle is
+the sole next gate; N4 remains stopped.

@@ -6,6 +6,7 @@
 #pragma kernel MerkabaFreshAdmissionParity
 #pragma kernel MerkabaInstrumentBoundaryParity
 #pragma kernel MerkabaGaugeParity
+#pragma kernel MerkabaStitchPrimitiveParity
 #pragma target 5.0
 
 #include "SigmaGeneratedMerkabaProgram.hlsl"
@@ -17,6 +18,7 @@ RWStructuredBuffer<uint4> _MerkabaActionResults;
 RWStructuredBuffer<uint4> _MerkabaFreshResults;
 RWStructuredBuffer<uint4> _MerkabaInstrumentResults;
 RWStructuredBuffer<uint4> _MerkabaGaugeResults;
+RWStructuredBuffer<uint4> _MerkabaStitchResults;
 
 uint4 _MerkabaGaugeParentCoordinate;
 uint _MerkabaGaugeParentLevel;
@@ -213,4 +215,42 @@ void MerkabaInstrumentBoundaryParity(uint3 id : SV_DispatchThreadID)
     for (uint leaf = 0u; leaf < 4u; ++leaf)
         _MerkabaInstrumentResults[4u + leaf] = uint4(
             measuredLower[leaf], measuredUpper[leaf]);
+}
+
+[numthreads(8, 1, 1)]
+void MerkabaStitchPrimitiveParity(uint3 id : SV_DispatchThreadID)
+{
+    uint lane = id.x;
+    uint2 zero = uint2(0u, 0u);
+    uint2 one = uint2(0u, 0x00010000u);
+    uint2 two = uint2(0u, 0x00020000u);
+    uint2 leftLower[3];
+    uint2 leftUpper[3];
+    uint2 rightLower[3];
+    uint2 rightUpper[3];
+    [unroll]
+    for (uint axis = 0u; axis < 3u; ++axis)
+    {
+        leftLower[axis] = zero;
+        leftUpper[axis] = one;
+        rightLower[axis] = lane == 1u ? two : one;
+        rightUpper[axis] = two;
+    }
+    uint leftClaim = lane == 2u ? SIGMA_NATIVE_QUERY_NO_CLAIM :
+        SIGMA_NATIVE_QUERY_FIRST_HIT_MOULD;
+    bool contact = SigmaMerkabaBoundaryEnvelopesContact(leftClaim,
+        SIGMA_NATIVE_QUERY_FIRST_HIT_MOULD, leftLower, leftUpper,
+        rightLower, rightUpper);
+    uint relation = lane == 5u ? SIGMA_MERKABA_RELATION_NEAR_SINGULAR_Q48 :
+        (lane == 6u ? SIGMA_MERKABA_RELATION_NO_RELATION :
+            SIGMA_MERKABA_RELATION_REGULAR);
+    uint2 bracket = lane == 7u ? uint2(0u, 0u) : uint2(0x12345678u, 1u);
+    uint port = lane == 4u ? SIGMA_STITCH_PORT_V_MINUS :
+        SIGMA_STITCH_PORT_U_PLUS;
+    int3 stitch = SigmaMerkabaClassifyModalStitch(relation,
+        SIGMA_EXACT_FACTOR_PROVEN_CLOSED,
+        SIGMA_EXACT_FACTOR_PROVEN_CLOSED,
+        SIGMA_EXACT_FACTOR_PROVEN_CLOSED, port, 1, bracket);
+    _MerkabaStitchResults[lane] = uint4(contact ? 1u : 0u, asuint(stitch.x),
+        asuint(stitch.y), asuint(stitch.z));
 }

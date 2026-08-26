@@ -386,8 +386,15 @@ branch/chart decisions remain in Git history only.
   relative support/state/gauge/certificate delta or an exact unresolved union.
 - The missing authority must define how native multi-support relation context
   yields relative `Sigma_2` incidence/displacement and how disconnected-component
-  translations are normalized or proved harmless gauge. A relation classifier on
-  already supplied tuples is insufficient.
+  translations are normalized. The latter is now frozen: independent integer
+  translation only, per-component translation normalization and complete-byte
+  multiset ordering; no rotation/reflection/axis permutation/sign/scale gauge and
+  no persistent component identity. A relation classifier on already supplied
+  tuples is insufficient.
+- Inspection of the approved upstream B.12--B.16 hard-stops corrective N1. B.14
+  assumes neighbouring modes and supplied `U_ij`; B.12 supplies sign transport
+  only after its bit generator/address are known. No approved equation constructs
+  `(native ports, U_ij, Sigma_2 incidence)` from two modes and complete context.
 - Tiles/workgroups remain disposable execution partitions. They may change grid
   cardinality but never normalized bytes or dispatch-sequence semantics.
 - The current N4 certificate/refinement tree is forensic evidence, not an accepted
@@ -401,3 +408,24 @@ branch/chart decisions remain in Git history only.
 - ADR-S415 through ADR-S422 remain superseded germ-first history.
 - ADR-S405 through ADR-S414 remain evidence for exact primitives and failed
   lowerings only.
+
+## ADR-S446 — Constructive incidence is query contact AND native modal stitch
+
+- Upstream B.12--B.16 remains authority for native sign transport, bracket,
+  associator and loop compatibility only; it is not retroactively claimed to
+  construct scanner incidence.
+- Scanner `I_Q` constructs an exact transient contact candidate only from
+  intersecting calibrated finite first-hit boundary envelopes. There is no fitted
+  epsilon, and pixel/XYZ proximity cannot prove incidence.
+- `I_TOE` then evaluates the complete native relation. No stitch, one equivalent
+  stitch class and multiple non-equivalent classes mean respectively no incidence,
+  resolved incidence and an exact unresolved disjunction.
+- A resolved stitch owns only relative dyadic boundary incidence plus exact
+  orientation/transport and bracketed proof context. All stitches are solved as
+  one constraint set; inconsistent loops remain unresolved without coordinate
+  repair.
+- Stitch-disconnected components admit independent signed integer translation
+  gauge only. Component identity is transient normalization scratch. Complete
+  normalized component bytes are multiset-sorted; packing distance is not physics.
+- The N1R-5 executable CPU/HLSL authority is test-only during corrective N1/N2.
+  Runtime activation is deferred to N4 after bounded CPU/Vulkan set-level proof.

@@ -209,6 +209,56 @@
     "missingOrUnprovedRegion": "UNRESOLVED",
     "xyzOrPixelCriterion": false
   },
+  "constructiveModalStitching": {
+    "authority": "SCANNER_LEVEL_I_Q_CONTACT_CONJUNCTION_WITH_I_TOE_NATIVE_RELATION_NOT_AN_UPSTREAM_TOE_CLAIM",
+    "scope": "ONE_COHERENT_WHOLE_FRAME_PLUS_RETAINED_EXACT_FRONTIER",
+    "manifestationFootprint": {
+      "input": "ROOM_GAUGE_ORIGIN_CENTER_RAY_RAY_DIFFERENTIALS_FINITE_FOOTPRINT_DIRECT_ORDER_INTERVAL_POSE_EXTRINSIC_REGION_FIRST_HIT_ROLE",
+      "boundarySectors": ["U_MINUS", "U_PLUS", "V_MINUS", "V_PLUS"],
+      "construction": "FOUR_PARAMETRIC_CALIBRATED_FOOTPRINT_BOUNDARIES_PROPAGATED_WITH_OUTWARD_Q16_48_THROUGH_THE_FIRST_HIT_ORDER_AND_POSE_REGION",
+      "canonicalState": false,
+      "sigma2Address": false
+    },
+    "contactCandidate": {
+      "predicate": "EXACT_CLOSED_INTERVAL_INTERSECTION_OF_A_PAIR_OF_CALIBRATED_FIRST_HIT_BOUNDARY_SECTOR_ENVELOPES_IN_COMMON_ROOM_GAUGE",
+      "provablySeparated": "NO_CANDIDATE",
+      "occludedOrUnseenBoundary": "RETAIN_CONTINUATION_AND_NO_CONTINUATION_DISJUNCTION",
+      "arbitraryEpsilon": false,
+      "pixelAdjacencyAuthority": false,
+      "pixelAdjacencyAccelerationOnly": true
+    },
+    "modalConjunction": {
+      "input": "POSSIBLE_CONTACT_PLUS_COMPLETE_I_TOE_NATIVE_LINK_ASSOCIATOR_PLAQUETTE_HOLONOMY_CONTEXT",
+      "emptyWitnessSet": "NO_STITCH",
+      "oneCompleteProgramEquivalentClass": "RESOLVED_STITCH",
+      "multipleNonEquivalentClasses": "UNRESOLVED_EXACT_DISJUNCTION",
+      "uncertainStitchedAndTorn": "UNRESOLVED_EXACT_DISJUNCTION",
+      "minimumResidualWinner": false
+    },
+    "witness": [
+      "MATCHED_CALIBRATED_BOUNDARY_SECTORS",
+      "FULL_S16_SIGN_TRANSPORT",
+      "EXPLICIT_BRACKET_HISTORY",
+      "NORMALIZED_LINK_FACTOR",
+      "NORMALIZED_ASSOCIATOR_FACTOR",
+      "NORMALIZED_PLAQUETTE_HOLONOMY_FACTOR",
+      "DISTINCT_SUPPORT_CONTINUATION_DISPOSITION",
+      "EXACT_CERTIFICATE_PROVENANCE"
+    ],
+    "firstHitPressure": {
+      "preHit": "ELIMINATE_IMPOSSIBLE_SUPPORT_OR_STITCH_CONTINUATION_BRANCH",
+      "firstHit": "CONTRACT_SURVIVING_MANIFESTATION_TO_MEASURED_MOULD",
+      "behindHit": "NO_CLAIM"
+    },
+    "forbidden": [
+      "XYZ_DISTANCE_STITCH",
+      "PIXEL_INCIDENCE",
+      "PERSISTENT_CONTACT_GRAPH",
+      "T8_O6_STORED_POLYHEDRON",
+      "HEURISTIC_PORT_MAPPING",
+      "COORDINATE_AVERAGE_OR_SNAP"
+    ]
+  },
   "photometricNuisance": {
     "law": "OBSERVED_C_IN_CALIBRATED_MONOTONE_TRANSFER_C(EXPOSURE_TIMES_GAIN_C_TIMES_ILLUMINATION_C_TIMES_NATIVE_RESPONSE_C_PLUS_OFFSET_C)",
     "parameterRepresentation": "BOUNDED_Q48_INTERVALS_PLUS_FINGERPRINTED_MONOTONE_PIECEWISE_LINEAR_TRANSFER",

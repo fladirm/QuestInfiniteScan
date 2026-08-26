@@ -45,6 +45,12 @@ namespace Genesis.RoomScan.SigmaPrism
         FORWARD_RELATION_VERIFY = 32u,
         FRESH_BASE_PATTERN = 33u,
         COMMON_UNION_OR_UNRESOLVED = 34u,
+        WHOLE_FRAME_REVERSE_SET = 35u,
+        CONTACT_CANDIDATE_SET = 36u,
+        MERKABA_MODAL_STITCH = 37u,
+        STITCH_LOOP_CLOSURE = 38u,
+        FRESH_SUPPORT_SET_PATTERN = 39u,
+        COMPONENT_TRANSLATION_NORMALIZE = 40u,
     }
 
     internal enum SigmaMerkabaValueKind : uint
@@ -62,6 +68,9 @@ namespace Genesis.RoomScan.SigmaPrism
         BOOLEAN = 10u,
         SHADOW_CELL = 11u,
         FRESH_ADMISSION = 12u,
+        CONTACT_SET = 13u,
+        STITCH_SET = 14u,
+        INTRINSIC_PATTERN = 15u,
     }
 
     internal enum SigmaMerkabaReverseRule : uint
@@ -238,6 +247,124 @@ namespace Genesis.RoomScan.SigmaPrism
         internal long V { get; }
         internal int Level { get; }
         internal string PayloadFingerprint { get; }
+    }
+
+    internal enum SigmaStitchPort : uint
+    {
+        UMinus = 0u,
+        UPlus = 1u,
+        VMinus = 2u,
+        VPlus = 3u,
+    }
+
+    internal enum SigmaStitchResolution : uint
+    {
+        NoStitch = 0u,
+        Resolved = 1u,
+        Unresolved = 2u,
+    }
+
+    internal readonly struct SigmaStitchBoundaryEnvelope
+    {
+        internal SigmaStitchBoundaryEnvelope(SigmaStitchPort port,
+            IReadOnlyList<SigmaQ48Interval> roomBounds)
+        {
+            if (roomBounds == null || roomBounds.Count != 3)
+                throw new ArgumentException(
+                    "A stitch boundary envelope has three room-gauge axes.",
+                    nameof(roomBounds));
+            Port = port;
+            RoomBounds = roomBounds.ToArray();
+        }
+        internal SigmaStitchPort Port { get; }
+        internal SigmaQ48Interval[] RoomBounds { get; }
+    }
+
+    internal readonly struct SigmaStitchContactCandidate
+    {
+        internal SigmaStitchContactCandidate(ulong leftKey, ulong rightKey,
+            SigmaStitchPort leftPort, SigmaStitchPort rightPort)
+        {
+            if (leftKey == rightKey)
+                throw new ArgumentException("A stitch requires distinct supports.");
+            LeftKey = leftKey;
+            RightKey = rightKey;
+            LeftPort = leftPort;
+            RightPort = rightPort;
+        }
+        internal ulong LeftKey { get; }
+        internal ulong RightKey { get; }
+        internal SigmaStitchPort LeftPort { get; }
+        internal SigmaStitchPort RightPort { get; }
+    }
+
+    internal readonly struct SigmaResolvedStitch
+    {
+        internal SigmaResolvedStitch(SigmaStitchContactCandidate contact,
+            int deltaU, int deltaV, int transportSign,
+            ulong bracketFingerprint, SigmaMerkabaRelationClass relationClass)
+        {
+            Contact = contact;
+            DeltaU = deltaU;
+            DeltaV = deltaV;
+            TransportSign = transportSign;
+            BracketFingerprint = bracketFingerprint;
+            RelationClass = relationClass;
+        }
+        internal SigmaStitchContactCandidate Contact { get; }
+        internal int DeltaU { get; }
+        internal int DeltaV { get; }
+        internal int TransportSign { get; }
+        internal ulong BracketFingerprint { get; }
+        internal SigmaMerkabaRelationClass RelationClass { get; }
+    }
+
+    internal readonly struct SigmaStitchLocality
+    {
+        internal SigmaStitchLocality(ulong scratchKey, int level,
+            string completePayloadFingerprint)
+        {
+            if ((uint)level > 62u)
+                throw new ArgumentOutOfRangeException(nameof(level));
+            ScratchKey = scratchKey;
+            Level = level;
+            CompletePayloadFingerprint = completePayloadFingerprint ??
+                throw new ArgumentNullException(nameof(completePayloadFingerprint));
+        }
+        internal ulong ScratchKey { get; }
+        internal int Level { get; }
+        internal string CompletePayloadFingerprint { get; }
+    }
+
+    internal readonly struct SigmaStitchLoopConstraint
+    {
+        internal SigmaStitchLoopConstraint(SigmaExactFactorClass embeddingClass,
+            SigmaExactFactorClass nativeClosureClass, ulong bracketFingerprint)
+        {
+            EmbeddingClass = embeddingClass;
+            NativeClosureClass = nativeClosureClass;
+            BracketFingerprint = bracketFingerprint;
+        }
+        internal SigmaExactFactorClass EmbeddingClass { get; }
+        internal SigmaExactFactorClass NativeClosureClass { get; }
+        internal ulong BracketFingerprint { get; }
+    }
+
+    internal readonly struct SigmaStitchPattern
+    {
+        internal SigmaStitchPattern(SigmaStitchResolution resolution,
+            IReadOnlyList<SigmaGaugeCell> packedCells, int componentCount,
+            string canonicalSerialization)
+        {
+            Resolution = resolution;
+            PackedCells = packedCells ?? Array.Empty<SigmaGaugeCell>();
+            ComponentCount = componentCount;
+            CanonicalSerialization = canonicalSerialization ?? string.Empty;
+        }
+        internal SigmaStitchResolution Resolution { get; }
+        internal IReadOnlyList<SigmaGaugeCell> PackedCells { get; }
+        internal int ComponentCount { get; }
+        internal string CanonicalSerialization { get; }
     }
 
     internal enum SigmaInstrumentLeafKind : uint
@@ -429,25 +556,25 @@ namespace Genesis.RoomScan.SigmaPrism
 
     internal static class SigmaGeneratedMerkabaProgram
     {
-        internal const string ProgramVersion = "CPQ4-S16-MERKABA-N1R-4";
+        internal const string ProgramVersion = "CPQ4-S16-MERKABA-N1R-5";
         internal const string NumericDomainId = "num.fixed.q16_48.checked.nearest_even";
-        internal const string ProgramFingerprint = "8688a4ee5c6ad9dc6e6649ee6c661ee6a3c52916d8fefd43837d5c8f8f357afe";
+        internal const string ProgramFingerprint = "1530c689b9d032a9034cd9efdd6a3ed277d5bc7b5dea64acdf123fed2ffe87f3";
         internal const string CaptureBoundaryFingerprint =
             "2b492bf2deba23077ff873275f8672a3949e460a2b1ec2429c199fcd62691ba2";
         internal const int CaptureBoundaryLeafCount =
             8;
         internal const string DeclaredToeUpstreamFingerprint = "9d2e3604846305cfe5244a4ef49f169632c60582cf895256fadc36426dc5786f";
-        internal const string GeneratorSourceInputFingerprint = "f96ae2e4c5312b9b93e7539a82d04e3943b40d4792faf52408abf9626b1e6a16";
+        internal const string GeneratorSourceInputFingerprint = "5727b5af478d4da264f01ed32c860c654ad8d713774eb57fa5d31f0879d20993";
         internal const string ToeCapsuleInputFingerprint = "9cdc8b1f3bfecfa3a49805be82ea786cdbf681ee8ffbdab0733d18dc24cfffef";
         internal const string ToeUpstreamDeclaredInputFingerprint = "9d2e3604846305cfe5244a4ef49f169632c60582cf895256fadc36426dc5786f";
-        internal const string IQInputFingerprint = "e3e0e60770431f32d7d2a698ed5b75dedfc8498893cfbc47a80d2e726d575b7e";
-        internal const string IRepresentationInputFingerprint = "f5f3f42395e2e05779f5c7059bc2e273bcf334f2b73f8b5ac4520c1ea03ff133";
-        internal const string CanonicalSpecInputFingerprint = "3404211c6dcf0174bbe199b614771651a194176310bd622a3908319de1be62bf";
-        internal const string ClosurePlanInputFingerprint = "1dddaca0d48879b0b0492b8955ca59e20e00216af877c3bf4ece84e5b89d958c";
+        internal const string IQInputFingerprint = "d9c55d479140a85bb820adb427d09816d919459ab95a7195659f1b974c8f3812";
+        internal const string IRepresentationInputFingerprint = "9418c4cb4033fee8b72cdd29c96cd60fb151e238a2d265359f5a0d4fe686a296";
+        internal const string CanonicalSpecInputFingerprint = "3696f8f2442ddc2e72ac10b57a48d8e54146246777305804124b16464bcf3a57";
+        internal const string ClosurePlanInputFingerprint = "008c806f53e3b9bfee988f2836aacff459430d7c45bd0bdfaac845171c905934";
         internal const string AlgebraCoreInputFingerprint = "f7524a2d348cda462a2c6fa4804cf6be33c2554a69c6ecf67a11ef97009529cc";
-        internal const int ExpressionCount = 16;
-        internal const int IrNodeCount = 55;
-        internal const int IrOperandCount = 58;
+        internal const int ExpressionCount = 17;
+        internal const int IrNodeCount = 65;
+        internal const int IrOperandCount = 74;
         internal const int EntryPointCount = 7;
         internal const int AssociatorNonzeroBasisTriples = 1848;
         internal const bool ShadowKernelDecouplingProofSupplied = false;
@@ -533,7 +660,8 @@ namespace Genesis.RoomScan.SigmaPrism
             "bcfb71f013a0e7c72f7bbc28d868ab8ddade1e3296588a6ed03ebc44cc89bb90",
             "8edc0ad17fb34cdc8e62dc6d136b8e142a50aecd990f810898f6b8dbc7a67029",
             "53c74195524b312a9c0e1de73b1f55f067f7df1c86533b2bfc695457be92eec6",
-            "846fe568432bf1ac9fe56c3821f17df5968991786a656eabbc2852e39be976e0"
+            "d2f1b95397fb7ecd3b67ae7eb5bf9071e35a01969f492636cbf8830d6ed9c01c",
+            "f328411f11abadcd79fe237481e699f8ad2d201d6d9b53f98e775b56e8437484"
         };
 
         internal static readonly SigmaMerkabaIrNode[] IrNodes =
@@ -592,10 +720,20 @@ namespace Genesis.RoomScan.SigmaPrism
             new SigmaMerkabaIrNode((SigmaMerkabaIrOpcode)33u, (SigmaMerkabaValueKind)8u, (SigmaMerkabaReverseRule)9u, 52, 2, 0, 1),
             new SigmaMerkabaIrNode((SigmaMerkabaIrOpcode)26u, (SigmaMerkabaValueKind)8u, (SigmaMerkabaReverseRule)1u, 54, 1, 0, 0),
             new SigmaMerkabaIrNode((SigmaMerkabaIrOpcode)34u, (SigmaMerkabaValueKind)12u, (SigmaMerkabaReverseRule)12u, 55, 3, 0, 0),
-            new SigmaMerkabaIrNode((SigmaMerkabaIrOpcode)27u, (SigmaMerkabaValueKind)0u, (SigmaMerkabaReverseRule)1u, 58, 0, 0, 0)
+            new SigmaMerkabaIrNode((SigmaMerkabaIrOpcode)1u, (SigmaMerkabaValueKind)8u, (SigmaMerkabaReverseRule)6u, 58, 0, 0, 0),
+            new SigmaMerkabaIrNode((SigmaMerkabaIrOpcode)2u, (SigmaMerkabaValueKind)1u, (SigmaMerkabaReverseRule)8u, 58, 0, 1, 0),
+            new SigmaMerkabaIrNode((SigmaMerkabaIrOpcode)35u, (SigmaMerkabaValueKind)5u, (SigmaMerkabaReverseRule)6u, 58, 3, 0, 0),
+            new SigmaMerkabaIrNode((SigmaMerkabaIrOpcode)36u, (SigmaMerkabaValueKind)13u, (SigmaMerkabaReverseRule)6u, 61, 2, 0, 0),
+            new SigmaMerkabaIrNode((SigmaMerkabaIrOpcode)37u, (SigmaMerkabaValueKind)14u, (SigmaMerkabaReverseRule)6u, 63, 4, 0, 0),
+            new SigmaMerkabaIrNode((SigmaMerkabaIrOpcode)38u, (SigmaMerkabaValueKind)14u, (SigmaMerkabaReverseRule)6u, 67, 1, 0, 0),
+            new SigmaMerkabaIrNode((SigmaMerkabaIrOpcode)39u, (SigmaMerkabaValueKind)15u, (SigmaMerkabaReverseRule)6u, 68, 1, 0, 0),
+            new SigmaMerkabaIrNode((SigmaMerkabaIrOpcode)40u, (SigmaMerkabaValueKind)15u, (SigmaMerkabaReverseRule)1u, 69, 1, 0, 0),
+            new SigmaMerkabaIrNode((SigmaMerkabaIrOpcode)24u, (SigmaMerkabaValueKind)7u, (SigmaMerkabaReverseRule)9u, 70, 1, 0, 0),
+            new SigmaMerkabaIrNode((SigmaMerkabaIrOpcode)34u, (SigmaMerkabaValueKind)12u, (SigmaMerkabaReverseRule)12u, 71, 3, 0, 0),
+            new SigmaMerkabaIrNode((SigmaMerkabaIrOpcode)27u, (SigmaMerkabaValueKind)0u, (SigmaMerkabaReverseRule)1u, 74, 0, 0, 0)
         };
 
-        internal static readonly int[] IrOperands = { 0, 1, 3, 4, 6, 5, 4, 5, 3, 8, 7, 9, 11, 13, 14, 15, 16, 17, 17, 18, 16, 19, 10, 21, 21, 22, 10, 23, 25, 20, 24, 26, 28, 30, 29, 31, 32, 33, 35, 36, 37, 39, 40, 34, 44, 45, 34, 47, 48, 49, 47, 20, 49, 50, 51, 49, 52, 34 };
+        internal static readonly int[] IrOperands = { 0, 1, 3, 4, 6, 5, 4, 5, 3, 8, 7, 9, 11, 13, 14, 15, 16, 17, 17, 18, 16, 19, 10, 21, 21, 22, 10, 23, 25, 20, 24, 26, 28, 30, 29, 31, 32, 33, 35, 36, 37, 39, 40, 34, 44, 45, 34, 47, 48, 49, 47, 20, 49, 50, 51, 49, 52, 34, 54, 55, 34, 56, 55, 57, 20, 24, 26, 58, 59, 60, 59, 61, 62, 56 };
 
         internal static readonly SigmaMerkabaExpression[] Expressions =
         {
@@ -614,7 +752,8 @@ namespace Genesis.RoomScan.SigmaPrism
             new SigmaMerkabaExpression("CERTIFICATE_MINIMIZER", "I_Q:certificate", -1, 8, 43, 1, 43, "bcfb71f013a0e7c72f7bbc28d868ab8ddade1e3296588a6ed03ebc44cc89bb90"),
             new SigmaMerkabaExpression("DYADIC_GAUGE_NORMALIZER", "I_REP:kappa+normalizer", 1, 8, 44, 3, 46, "8edc0ad17fb34cdc8e62dc6d136b8e142a50aecd990f810898f6b8dbc7a67029"),
             new SigmaMerkabaExpression("FRESH_BASE_ADMISSION", "I_TOE:6+I_Q:freshBaseAdmission+I_REP:freshSupport", -1, 4, 47, 7, 53, "53c74195524b312a9c0e1de73b1f55f067f7df1c86533b2bfc695457be92eec6"),
-            new SigmaMerkabaExpression("ZEMPTY_DEFAULT", "I_Q:defaultSemantics+I_REP:defaultRepresentations", -1, 4, 54, 1, 54, "846fe568432bf1ac9fe56c3821f17df5968991786a656eabbc2852e39be976e0")
+            new SigmaMerkabaExpression("FRESH_SUPPORT_SET_ADMISSION", "I_Q:constructiveModalStitching+I_TOE:8+I_REP:stitchEmbedding", -1, 4, 54, 10, 63, "d2f1b95397fb7ecd3b67ae7eb5bf9071e35a01969f492636cbf8830d6ed9c01c"),
+            new SigmaMerkabaExpression("ZEMPTY_DEFAULT", "I_Q:defaultSemantics+I_REP:defaultRepresentations", -1, 4, 64, 1, 64, "f328411f11abadcd79fe237481e699f8ad2d201d6d9b53f98e775b56e8437484")
         };
 
         internal static readonly SigmaMerkabaEntryPoint[] EntryPoints =
@@ -1131,6 +1270,252 @@ namespace Genesis.RoomScan.SigmaPrism
             if (factor.Lower == 0L && factor.Upper == 0L)
                 return SigmaExactFactorClass.ProvenExactClosed;
             return SigmaExactFactorClass.Unresolved;
+        }
+
+        internal static SigmaStitchContactCandidate[] BuildExactContactCandidates(
+            ulong leftKey, SigmaNativeQueryClaim leftClaim,
+            IEnumerable<SigmaStitchBoundaryEnvelope> leftBoundaries,
+            ulong rightKey, SigmaNativeQueryClaim rightClaim,
+            IEnumerable<SigmaStitchBoundaryEnvelope> rightBoundaries)
+        {
+            if (leftBoundaries == null)
+                throw new ArgumentNullException(nameof(leftBoundaries));
+            if (rightBoundaries == null)
+                throw new ArgumentNullException(nameof(rightBoundaries));
+            if (leftKey == rightKey ||
+                leftClaim != SigmaNativeQueryClaim.FirstHitMould ||
+                rightClaim != SigmaNativeQueryClaim.FirstHitMould)
+                return Array.Empty<SigmaStitchContactCandidate>();
+            SigmaStitchBoundaryEnvelope[] left = leftBoundaries.OrderBy(
+                value => value.Port).ToArray();
+            SigmaStitchBoundaryEnvelope[] right = rightBoundaries.OrderBy(
+                value => value.Port).ToArray();
+            var output = new List<SigmaStitchContactCandidate>();
+            foreach (SigmaStitchBoundaryEnvelope a in left)
+                foreach (SigmaStitchBoundaryEnvelope b in right)
+                    if (a.RoomBounds.Length == 3 && b.RoomBounds.Length == 3 &&
+                        Enumerable.Range(0, 3).All(axis =>
+                            !a.RoomBounds[axis].Intersect(
+                                b.RoomBounds[axis]).IsEmpty))
+                        output.Add(new SigmaStitchContactCandidate(leftKey,
+                            rightKey, a.Port, b.Port));
+            return output.OrderBy(value => value.LeftPort).ThenBy(
+                value => value.RightPort).ToArray();
+        }
+
+        internal static SigmaStitchResolution ClassifyModalStitch(
+            SigmaStitchContactCandidate contact,
+            SigmaMerkabaRelationClass relationClass,
+            SigmaExactFactorClass linkClass,
+            SigmaExactFactorClass associatorClass,
+            SigmaExactFactorClass plaquetteClass,
+            int transportSign, ulong bracketFingerprint,
+            out SigmaResolvedStitch stitch)
+        {
+            stitch = default;
+            if (transportSign != -1 && transportSign != 1)
+                return SigmaStitchResolution.Unresolved;
+            if (relationClass == SigmaMerkabaRelationClass.NoRelation ||
+                relationClass == SigmaMerkabaRelationClass.DefaultSat)
+                return SigmaStitchResolution.NoStitch;
+            if (relationClass == SigmaMerkabaRelationClass.Unresolved ||
+                relationClass == SigmaMerkabaRelationClass.NearSingularQ48 ||
+                linkClass == SigmaExactFactorClass.Unresolved ||
+                associatorClass == SigmaExactFactorClass.Unresolved ||
+                plaquetteClass == SigmaExactFactorClass.Unresolved)
+                return SigmaStitchResolution.Unresolved;
+            if (relationClass == SigmaMerkabaRelationClass.NonassociativeContext ||
+                linkClass == SigmaExactFactorClass.ProvenIncompatible ||
+                associatorClass == SigmaExactFactorClass.ProvenIncompatible ||
+                plaquetteClass == SigmaExactFactorClass.ProvenIncompatible)
+                return SigmaStitchResolution.NoStitch;
+            if (bracketFingerprint == 0UL)
+                return SigmaStitchResolution.Unresolved;
+            int deltaU = 0;
+            int deltaV = 0;
+            switch (contact.LeftPort)
+            {
+                case SigmaStitchPort.UMinus: deltaU = -1; break;
+                case SigmaStitchPort.UPlus: deltaU = 1; break;
+                case SigmaStitchPort.VMinus: deltaV = -1; break;
+                case SigmaStitchPort.VPlus: deltaV = 1; break;
+                default: return SigmaStitchResolution.Unresolved;
+            }
+            stitch = new SigmaResolvedStitch(contact, deltaU, deltaV,
+                transportSign, bracketFingerprint, relationClass);
+            return SigmaStitchResolution.Resolved;
+        }
+
+        internal static bool TryIntegrateStitchPattern(
+            IEnumerable<SigmaStitchLocality> localitySource,
+            IEnumerable<SigmaResolvedStitch> stitchSource,
+            IEnumerable<SigmaStitchLoopConstraint> loopSource,
+            out SigmaStitchPattern pattern)
+        {
+            if (localitySource == null)
+                throw new ArgumentNullException(nameof(localitySource));
+            if (stitchSource == null)
+                throw new ArgumentNullException(nameof(stitchSource));
+            if (loopSource == null)
+                throw new ArgumentNullException(nameof(loopSource));
+            SigmaStitchLocality[] localities = localitySource.ToArray();
+            SigmaResolvedStitch[] stitches = stitchSource.OrderBy(
+                CanonicalStitchSerialization, StringComparer.Ordinal).ToArray();
+            SigmaStitchLoopConstraint[] loops = loopSource.ToArray();
+            pattern = new SigmaStitchPattern(SigmaStitchResolution.Unresolved,
+                Array.Empty<SigmaGaugeCell>(), 0, string.Empty);
+            if (localities.Length == 0 || localities.Select(value =>
+                    value.ScratchKey).Distinct().Count() != localities.Length ||
+                loops.Any(value => value.EmbeddingClass !=
+                        SigmaExactFactorClass.ProvenExactClosed ||
+                    value.NativeClosureClass !=
+                        SigmaExactFactorClass.ProvenExactClosed ||
+                    value.BracketFingerprint == 0UL))
+                return false;
+            var byKey = localities.ToDictionary(value => value.ScratchKey);
+            if (stitches.Any(value =>
+                    !byKey.ContainsKey(value.Contact.LeftKey) ||
+                    !byKey.ContainsKey(value.Contact.RightKey)))
+                return false;
+
+            var positions = new Dictionary<ulong, (long U, long V)>();
+            var componentByKey = new Dictionary<ulong, int>();
+            int componentCount = 0;
+            foreach (SigmaStitchLocality seed in localities.OrderBy(value =>
+                         value.CompletePayloadFingerprint, StringComparer.Ordinal))
+            {
+                if (positions.ContainsKey(seed.ScratchKey)) continue;
+                int component = componentCount++;
+                positions.Add(seed.ScratchKey, (0L, 0L));
+                componentByKey.Add(seed.ScratchKey, component);
+                bool changed;
+                do
+                {
+                    changed = false;
+                    foreach (SigmaResolvedStitch edge in stitches)
+                    {
+                        bool hasLeft = positions.TryGetValue(edge.Contact.LeftKey,
+                            out (long U, long V) left);
+                        bool hasRight = positions.TryGetValue(edge.Contact.RightKey,
+                            out (long U, long V) right);
+                        if (!hasLeft && !hasRight) continue;
+                        if (hasLeft && !hasRight)
+                        {
+                            positions.Add(edge.Contact.RightKey,
+                                (checked(left.U + edge.DeltaU),
+                                 checked(left.V + edge.DeltaV)));
+                            componentByKey.Add(edge.Contact.RightKey, component);
+                            changed = true;
+                        }
+                        else if (!hasLeft && hasRight)
+                        {
+                            positions.Add(edge.Contact.LeftKey,
+                                (checked(right.U - edge.DeltaU),
+                                 checked(right.V - edge.DeltaV)));
+                            componentByKey.Add(edge.Contact.LeftKey, component);
+                            changed = true;
+                        }
+                        else if (right.U != checked(left.U + edge.DeltaU) ||
+                                 right.V != checked(left.V + edge.DeltaV))
+                            return false;
+                    }
+                } while (changed);
+            }
+
+            var components = new List<(string Canonical,
+                IReadOnlyList<SigmaGaugeCell> Cells)>();
+            for (int component = 0; component < componentCount; ++component)
+            {
+                SigmaGaugeCell[] cells = localities.Where(value =>
+                        componentByKey[value.ScratchKey] == component).Select(value =>
+                    {
+                        (long U, long V) position = positions[value.ScratchKey];
+                        return new SigmaGaugeCell(position.U, position.V,
+                            value.Level, value.CompletePayloadFingerprint);
+                    }).ToArray();
+                IReadOnlyList<SigmaGaugeCell> normalized = NormalizeGauge(cells);
+                string cellBytes = CanonicalGaugeSerialization(normalized);
+                var keys = componentByKey.Where(value => value.Value == component)
+                    .Select(value => value.Key).ToHashSet();
+                long componentMinimumU = cells.Min(value => value.U);
+                long componentMinimumV = cells.Min(value => value.V);
+                string edgeBytes = string.Join(";", stitches.Where(value =>
+                        keys.Contains(value.Contact.LeftKey) &&
+                        keys.Contains(value.Contact.RightKey)).Select(
+                            value => CanonicalIntegratedStitchSerialization(value,
+                                byKey, positions, componentMinimumU,
+                                componentMinimumV)).OrderBy(value => value,
+                                StringComparer.Ordinal));
+                components.Add(($"{cellBytes}#{edgeBytes}", normalized));
+            }
+            components.Sort((left, right) => string.CompareOrdinal(
+                left.Canonical, right.Canonical));
+            var packed = new List<SigmaGaugeCell>();
+            long cursor = 0L;
+            foreach ((string Canonical, IReadOnlyList<SigmaGaugeCell> Cells) part
+                     in components)
+            {
+                long width = part.Cells.Count == 0 ? 0L : checked(
+                    part.Cells.Max(value => value.U) -
+                    part.Cells.Min(value => value.U) + 1L);
+                long minimumU = part.Cells.Count == 0 ? 0L :
+                    part.Cells.Min(value => value.U);
+                long minimumV = part.Cells.Count == 0 ? 0L :
+                    part.Cells.Min(value => value.V);
+                packed.AddRange(part.Cells.Select(value => new SigmaGaugeCell(
+                    checked(value.U - minimumU + cursor),
+                    checked(value.V - minimumV), value.Level,
+                    value.PayloadFingerprint)));
+                cursor = checked(cursor + width + 1L);
+            }
+            string canonical = string.Join("||", components.Select(value =>
+                value.Canonical));
+            pattern = new SigmaStitchPattern(SigmaStitchResolution.Resolved,
+                packed.OrderBy(value => value.Level).ThenBy(value => value.U)
+                    .ThenBy(value => value.V).ThenBy(value =>
+                        value.PayloadFingerprint, StringComparer.Ordinal).ToArray(),
+                componentCount, canonical);
+            return true;
+        }
+
+        internal static string CanonicalStitchSerialization(
+            SigmaResolvedStitch stitch)
+        {
+            return $"{(uint)stitch.Contact.LeftPort}:" +
+                $"{(uint)stitch.Contact.RightPort}:{stitch.DeltaU}:" +
+                $"{stitch.DeltaV}:{stitch.TransportSign}:" +
+                $"{stitch.BracketFingerprint:x16}:{(uint)stitch.RelationClass}";
+        }
+
+        private static string CanonicalIntegratedStitchSerialization(
+            SigmaResolvedStitch stitch,
+            IReadOnlyDictionary<ulong, SigmaStitchLocality> localities,
+            IReadOnlyDictionary<ulong, (long U, long V)> positions,
+            long minimumU, long minimumV)
+        {
+            SigmaStitchLocality left = localities[stitch.Contact.LeftKey];
+            SigmaStitchLocality right = localities[stitch.Contact.RightKey];
+            (long U, long V) leftPosition = positions[stitch.Contact.LeftKey];
+            (long U, long V) rightPosition = positions[stitch.Contact.RightKey];
+            string leftToken = $"{leftPosition.U - minimumU}:" +
+                $"{leftPosition.V - minimumV}:{left.Level}:" +
+                left.CompletePayloadFingerprint;
+            string rightToken = $"{rightPosition.U - minimumU}:" +
+                $"{rightPosition.V - minimumV}:{right.Level}:" +
+                right.CompletePayloadFingerprint;
+            bool forward = string.CompareOrdinal(leftToken, rightToken) <= 0;
+            string first = forward ? leftToken : rightToken;
+            string second = forward ? rightToken : leftToken;
+            SigmaStitchPort firstPort = forward ? stitch.Contact.LeftPort :
+                stitch.Contact.RightPort;
+            SigmaStitchPort secondPort = forward ? stitch.Contact.RightPort :
+                stitch.Contact.LeftPort;
+            int du = forward ? stitch.DeltaU : -stitch.DeltaU;
+            int dv = forward ? stitch.DeltaV : -stitch.DeltaV;
+            return $"{first}>{second}:{(uint)firstPort}:" +
+                $"{(uint)secondPort}:{du}:{dv}:" +
+                $"{stitch.TransportSign}:{stitch.BracketFingerprint:x16}:" +
+                $"{(uint)stitch.RelationClass}";
         }
 
         internal static long[] ApplyInformationMetric(long[] value)

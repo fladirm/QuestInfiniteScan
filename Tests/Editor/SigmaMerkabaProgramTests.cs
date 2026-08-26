@@ -24,7 +24,7 @@ namespace Genesis.RoomScan.Tests
         public void AuthorityBoundaryAndExecutableIrAreFrozen()
         {
             Assert.That(SigmaGeneratedMerkabaProgram.ProgramVersion,
-                Is.EqualTo("CPQ4-S16-MERKABA-N1R-4"));
+                Is.EqualTo("CPQ4-S16-MERKABA-N1R-5"));
             Assert.That(SigmaGeneratedMerkabaProgram.NumericDomainId,
                 Is.EqualTo(SigmaNumericDomain.Id));
             Assert.That(SigmaGeneratedMerkabaProgram.DeclaredToeUpstreamFingerprint,
@@ -98,9 +98,19 @@ namespace Genesis.RoomScan.Tests
                 SigmaMerkabaIrOpcode.FORWARD_RELATION_VERIFY,
                 SigmaMerkabaIrOpcode.FRESH_BASE_PATTERN,
                 SigmaMerkabaIrOpcode.COMMON_UNION_OR_UNRESOLVED,
+                SigmaMerkabaIrOpcode.WHOLE_FRAME_REVERSE_SET,
+                SigmaMerkabaIrOpcode.CONTACT_CANDIDATE_SET,
+                SigmaMerkabaIrOpcode.MERKABA_MODAL_STITCH,
+                SigmaMerkabaIrOpcode.STITCH_LOOP_CLOSURE,
+                SigmaMerkabaIrOpcode.FRESH_SUPPORT_SET_PATTERN,
+                SigmaMerkabaIrOpcode.COMPONENT_TRANSLATION_NORMALIZE,
             }, SigmaGeneratedMerkabaProgram.IrNodes.Select(node => node.Opcode));
             Assert.That(SigmaGeneratedMerkabaProgram.Expressions.Any(expression =>
                 expression.Id == "FRESH_BASE_ADMISSION"), Is.True);
+            Assert.That(SigmaGeneratedMerkabaProgram.Expressions.Any(expression =>
+                expression.Id == "FRESH_SUPPORT_SET_ADMISSION" &&
+                expression.Source.Contains("constructiveModalStitching") &&
+                expression.Source.Contains("stitchEmbedding")), Is.True);
             Assert.That(SigmaGeneratedMerkabaProgram.EntryPoints.Select(entry => entry.Id),
                 Is.EquivalentTo(new[]
                 {
@@ -110,6 +120,108 @@ namespace Genesis.RoomScan.Tests
             Assert.That(SigmaGeneratedMerkabaProgram.EntryPoints
                 .Where(entry => entry.Id.StartsWith("SENSOR", StringComparison.Ordinal))
                 .All(entry => entry.ReverseExpression >= 0), Is.True);
+        }
+
+        [Test]
+        public void ConstructiveModalStitchingBuildsOnlyExactContactAndNormalizesComponents()
+        {
+            SigmaQ48Interval zeroToOne = new(0L, SigmaNumericDomain.One);
+            SigmaQ48Interval oneToTwo = new(SigmaNumericDomain.One,
+                SigmaNumericDomain.FromInteger(2));
+            SigmaQ48Interval twoToThree = new(SigmaNumericDomain.FromInteger(2),
+                SigmaNumericDomain.FromInteger(3));
+            SigmaStitchBoundaryEnvelope Boundary(SigmaStitchPort port,
+                SigmaQ48Interval region) => new(port,
+                    new[] { region, region, region });
+
+            SigmaStitchContactCandidate[] contact = SigmaGeneratedMerkabaProgram
+                .BuildExactContactCandidates(11UL,
+                    SigmaNativeQueryClaim.FirstHitMould,
+                    new[] { Boundary(SigmaStitchPort.UPlus, zeroToOne) },
+                    22UL, SigmaNativeQueryClaim.FirstHitMould,
+                    new[] { Boundary(SigmaStitchPort.UMinus, oneToTwo) });
+            Assert.That(contact, Has.Length.EqualTo(1));
+            Assert.That(SigmaGeneratedMerkabaProgram.BuildExactContactCandidates(
+                11UL, SigmaNativeQueryClaim.FirstHitMould,
+                new[] { Boundary(SigmaStitchPort.UPlus, zeroToOne) }, 22UL,
+                SigmaNativeQueryClaim.FirstHitMould,
+                new[] { Boundary(SigmaStitchPort.UMinus, twoToThree) }), Is.Empty);
+            Assert.That(SigmaGeneratedMerkabaProgram.BuildExactContactCandidates(
+                11UL, SigmaNativeQueryClaim.NoClaim,
+                new[] { Boundary(SigmaStitchPort.UPlus, zeroToOne) }, 22UL,
+                SigmaNativeQueryClaim.FirstHitMould,
+                new[] { Boundary(SigmaStitchPort.UMinus, oneToTwo) }), Is.Empty);
+
+            Assert.That(SigmaGeneratedMerkabaProgram.ClassifyModalStitch(
+                contact[0], SigmaMerkabaRelationClass.Regular,
+                SigmaExactFactorClass.ProvenExactClosed,
+                SigmaExactFactorClass.ProvenExactClosed,
+                SigmaExactFactorClass.ProvenExactClosed, 1, 0x1234UL,
+                out SigmaResolvedStitch ab), Is.EqualTo(
+                    SigmaStitchResolution.Resolved));
+            Assert.That((ab.DeltaU, ab.DeltaV), Is.EqualTo((1, 0)));
+            Assert.That(SigmaGeneratedMerkabaProgram.ClassifyModalStitch(
+                contact[0], SigmaMerkabaRelationClass.NearSingularQ48,
+                SigmaExactFactorClass.ProvenExactClosed,
+                SigmaExactFactorClass.ProvenExactClosed,
+                SigmaExactFactorClass.ProvenExactClosed, 1, 0x1234UL, out _),
+                Is.EqualTo(SigmaStitchResolution.Unresolved));
+            Assert.That(SigmaGeneratedMerkabaProgram.ClassifyModalStitch(
+                contact[0], SigmaMerkabaRelationClass.NoRelation,
+                SigmaExactFactorClass.ProvenExactClosed,
+                SigmaExactFactorClass.ProvenExactClosed,
+                SigmaExactFactorClass.ProvenExactClosed, 1, 0x1234UL, out _),
+                Is.EqualTo(SigmaStitchResolution.NoStitch));
+
+            var bcContact = new SigmaStitchContactCandidate(22UL, 33UL,
+                SigmaStitchPort.VPlus, SigmaStitchPort.VMinus);
+            Assert.That(SigmaGeneratedMerkabaProgram.ClassifyModalStitch(
+                bcContact, SigmaMerkabaRelationClass.ExactZeroDivisor,
+                SigmaExactFactorClass.ProvenExactClosed,
+                SigmaExactFactorClass.ProvenExactClosed,
+                SigmaExactFactorClass.ProvenExactClosed, -1, 0x5678UL,
+                out SigmaResolvedStitch bc), Is.EqualTo(
+                    SigmaStitchResolution.Resolved));
+            SigmaStitchLocality[] localities =
+            {
+                new(11UL, 0, "state-b"),
+                new(22UL, 0, "state-a"),
+                new(33UL, 0, "state-c"),
+                new(44UL, 0, "disconnected"),
+            };
+            SigmaStitchLoopConstraint exactLoop = new(
+                SigmaExactFactorClass.ProvenExactClosed,
+                SigmaExactFactorClass.ProvenExactClosed, 0x9abcUL);
+            Assert.That(SigmaGeneratedMerkabaProgram.TryIntegrateStitchPattern(
+                localities, new[] { ab, bc }, new[] { exactLoop },
+                out SigmaStitchPattern pattern), Is.True);
+            Assert.That(pattern.Resolution, Is.EqualTo(
+                SigmaStitchResolution.Resolved));
+            Assert.That(pattern.ComponentCount, Is.EqualTo(2));
+            Assert.That(pattern.PackedCells.Count, Is.EqualTo(4));
+
+            Assert.That(SigmaGeneratedMerkabaProgram.TryIntegrateStitchPattern(
+                localities.Reverse(), new[] { bc, ab }, new[] { exactLoop },
+                out SigmaStitchPattern permuted), Is.True);
+            Assert.That(permuted.CanonicalSerialization,
+                Is.EqualTo(pattern.CanonicalSerialization));
+            CollectionAssert.AreEqual(pattern.PackedCells.Select(value =>
+                $"{value.Level}:{value.U}:{value.V}:{value.PayloadFingerprint}"),
+                permuted.PackedCells.Select(value =>
+                $"{value.Level}:{value.U}:{value.V}:{value.PayloadFingerprint}"));
+
+            var conflictingContact = new SigmaStitchContactCandidate(11UL, 33UL,
+                SigmaStitchPort.UMinus, SigmaStitchPort.UPlus);
+            Assert.That(SigmaGeneratedMerkabaProgram.ClassifyModalStitch(
+                conflictingContact, SigmaMerkabaRelationClass.Regular,
+                SigmaExactFactorClass.ProvenExactClosed,
+                SigmaExactFactorClass.ProvenExactClosed,
+                SigmaExactFactorClass.ProvenExactClosed, 1, 0xdef0UL,
+                out SigmaResolvedStitch conflict), Is.EqualTo(
+                    SigmaStitchResolution.Resolved));
+            Assert.That(SigmaGeneratedMerkabaProgram.TryIntegrateStitchPattern(
+                localities, new[] { ab, bc, conflict }, new[] { exactLoop },
+                out _), Is.False, "An inconsistent loop must remain unresolved.");
         }
 
         [Test]
@@ -653,6 +765,7 @@ namespace Genesis.RoomScan.Tests
             int instrumentKernel = shader.FindKernel(
                 "MerkabaInstrumentBoundaryParity");
             int gaugeKernel = shader.FindKernel("MerkabaGaugeParity");
+            int stitchKernel = shader.FindKernel("MerkabaStitchPrimitiveParity");
             var results = new UInt4[16 * 16 * 16];
             var matrices = new UInt4[16 * 16];
             var ir = new UInt4[SigmaGeneratedMerkabaProgram.IrNodeCount * 2];
@@ -660,6 +773,7 @@ namespace Genesis.RoomScan.Tests
             var fresh = new UInt4[23];
             var instrument = new UInt4[8];
             var gauge = new UInt4[40];
+            var stitch = new UInt4[8];
             using var resultBuffer = Buffer(results.Length);
             using var matrixBuffer = Buffer(matrices.Length);
             using var irBuffer = Buffer(ir.Length);
@@ -667,6 +781,7 @@ namespace Genesis.RoomScan.Tests
             using var freshBuffer = Buffer(fresh.Length);
             using var instrumentBuffer = Buffer(instrument.Length);
             using var gaugeBuffer = Buffer(gauge.Length);
+            using var stitchBuffer = Buffer(stitch.Length);
             shader.SetBuffer(programKernel, "_MerkabaResults", resultBuffer);
             shader.Dispatch(programKernel, 1, 1, 16);
             shader.SetBuffer(matrixKernel, "_MerkabaMatrixResults", matrixBuffer);
@@ -683,6 +798,8 @@ namespace Genesis.RoomScan.Tests
             shader.SetInts("_MerkabaGaugeParentCoordinate", 5, 0, -3, -1);
             shader.SetInt("_MerkabaGaugeParentLevel", 0);
             shader.Dispatch(gaugeKernel, 1, 1, 1);
+            shader.SetBuffer(stitchKernel, "_MerkabaStitchResults", stitchBuffer);
+            shader.Dispatch(stitchKernel, 1, 1, 1);
             resultBuffer.GetData(results);
             matrixBuffer.GetData(matrices);
             irBuffer.GetData(ir);
@@ -690,6 +807,25 @@ namespace Genesis.RoomScan.Tests
             freshBuffer.GetData(fresh);
             instrumentBuffer.GetData(instrument);
             gaugeBuffer.GetData(gauge);
+            stitchBuffer.GetData(stitch);
+
+            Assert.That(stitch[0].X, Is.EqualTo(1u));
+            Assert.That(stitch[1].X, Is.Zero);
+            Assert.That(stitch[2].X, Is.Zero);
+            Assert.That(stitch[3].Y,
+                Is.EqualTo((uint)SigmaStitchResolution.Resolved));
+            Assert.That(unchecked((int)stitch[3].Z), Is.EqualTo(1));
+            Assert.That(unchecked((int)stitch[3].W), Is.Zero);
+            Assert.That(stitch[4].Y,
+                Is.EqualTo((uint)SigmaStitchResolution.Resolved));
+            Assert.That(unchecked((int)stitch[4].Z), Is.Zero);
+            Assert.That(unchecked((int)stitch[4].W), Is.EqualTo(-1));
+            Assert.That(stitch[5].Y,
+                Is.EqualTo((uint)SigmaStitchResolution.Unresolved));
+            Assert.That(stitch[6].Y,
+                Is.EqualTo((uint)SigmaStitchResolution.NoStitch));
+            Assert.That(stitch[7].Y,
+                Is.EqualTo((uint)SigmaStitchResolution.Unresolved));
 
             for (int c = 0; c < 16; ++c)
             for (int b = 0; b < 16; ++b)
