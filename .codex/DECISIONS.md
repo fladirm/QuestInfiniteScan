@@ -271,10 +271,15 @@ branch/chart decisions remain in Git history only.
 
 ## ADR-S442 — N2R oracle executes the generated graph with bounded parallel lowering
 
-- The premature N2R checkpoint `869f848` is rejected. A generated entry point is
-  executable authority: its forward/reverse expression and reducer descriptors
-  drive evaluation; an entry-point name cannot be a label over one hand-written
-  sensor evaluator.
+- The premature N2R checkpoint `869f848` and incomplete correction `b4d88d6` are
+  rejected. A generated entry point is executable authority: its forward/reverse
+  expression, actual arity and reducer descriptors drive evaluation; an entry-
+  point name cannot label one hand-written sensor evaluator.
+- `NONE/DEBUG`, direct-order first-hit and `EXPORT_RELATION_GATED` are distinct
+  reductions. DEBUG returns only its requested generated relation; export keeps
+  manifestation and gates connectivity through the generated native-relation
+  class. `EYE_PAIR` is one coherent observation context with two retinal query
+  rows, evaluated together rather than impersonated by one generic query.
 - Native relation and complete-program identity transport are derived from the
   generated relation factors plus exact gauge records. The contractor ABI carries
   no authoritative `relation satisfied` or `identity transport` booleans.
@@ -283,10 +288,15 @@ branch/chart decisions remain in Git history only.
   a semantic representation.
 - The N2 proof graph has exactly four query/relation and three contractor/overflow
   GPU entry points. Relation count maps to 256-thread workgroups containing the
-  16x16 signed-XOR product plane and all 168 annihilator actions; field reduction
-  uses one 64-thread bitonic/segmented/minimum network. Cardinality changes grids
+  16x16 signed-XOR product plane, exact signed 256-bit Q16.48 `G` reduction and all
+  168 annihilator actions; field reduction uses one 128-thread bitonic/segmented/
+  minimum network. Cardinality changes grids
   and work items, never a dispatch sequence per relation, support, lane, bracket,
   PWL segment or execution window. A serial interpreter is forbidden.
+- The hot reducer handles up to 128 contributions without truncation. Larger
+  bounded oracle input emits an explicit reason-coded cold-continuation receipt;
+  it never silently drops support 128+, and cold handling may not become an added
+  hot dispatch chain.
 - The optical contractor executes the calibrated per-channel exposure, gain,
   illumination, white-balance, offset and monotone PWL transfer law. A fingerprint
   without transfer evaluation has no proof value.

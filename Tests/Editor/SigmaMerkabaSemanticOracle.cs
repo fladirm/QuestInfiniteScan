@@ -15,6 +15,12 @@ namespace Genesis.RoomScan.SigmaPrism
         Ambiguous,
     }
 
+    internal enum SigmaNativeDebugRequest
+    {
+        None,
+        NativeRelationClass,
+    }
+
     internal readonly struct SigmaNativePhotometricSegment
     {
         internal SigmaNativePhotometricSegment(long domainLower, long domainUpper,
@@ -168,13 +174,18 @@ namespace Genesis.RoomScan.SigmaPrism
             SigmaQ48Interval measuredOrder,
             IReadOnlyList<SigmaQ48Interval> measuredOptical,
             SigmaQ48Interval direction, bool orderEvidence,
-            bool opticalEvidence, SigmaNativePhotometricLaw photometricLaw)
+            bool opticalEvidence, SigmaNativePhotometricLaw photometricLaw,
+            SigmaNativeDebugRequest debugRequest = SigmaNativeDebugRequest.None)
         {
             EntryPoint = SigmaGeneratedMerkabaProgram.EntryPoints.SingleOrDefault(
                 entry => string.Equals(entry.Id, entryPoint,
                     StringComparison.Ordinal));
             if (EntryPoint.Id == null)
                 throw new ArgumentException("Query is not a generated entry point.",
+                    nameof(entryPoint));
+            if (string.Equals(EntryPoint.Id, "EYE_PAIR", StringComparison.Ordinal))
+                throw new ArgumentException(
+                    "EYE_PAIR requires two coherent query descriptors.",
                     nameof(entryPoint));
             if (orderRow == null || orderRow.Count != 4)
                 throw new ArgumentException("Order contraction has four rows.",
@@ -198,6 +209,13 @@ namespace Genesis.RoomScan.SigmaPrism
             OrderEvidence = orderEvidence;
             OpticalEvidence = opticalEvidence;
             PhotometricLaw = photometricLaw;
+            DebugRequest = debugRequest;
+            bool debugEntry = string.Equals(EntryPoint.Id, "DEBUG",
+                StringComparison.Ordinal);
+            if (debugEntry != (DebugRequest != SigmaNativeDebugRequest.None))
+                throw new ArgumentException(
+                    "DEBUG alone requires one explicit generated relation request.",
+                    nameof(debugRequest));
         }
 
         internal SigmaMerkabaEntryPoint EntryPoint { get; }
@@ -210,18 +228,82 @@ namespace Genesis.RoomScan.SigmaPrism
         internal bool OrderEvidence { get; }
         internal bool OpticalEvidence { get; }
         internal SigmaNativePhotometricLaw PhotometricLaw { get; }
+        internal SigmaNativeDebugRequest DebugRequest { get; }
+    }
+
+    internal readonly struct SigmaNativeCoherentQueryContext
+    {
+        internal SigmaNativeCoherentQueryContext(ulong observationRevision,
+            string poseCalibrationFingerprint)
+        {
+            if (observationRevision == 0)
+                throw new ArgumentOutOfRangeException(nameof(observationRevision));
+            if (poseCalibrationFingerprint == null ||
+                poseCalibrationFingerprint.Length != 64)
+                throw new ArgumentException(
+                    "A coherent pair requires one frozen pose/calibration fingerprint.",
+                    nameof(poseCalibrationFingerprint));
+            ObservationRevision = observationRevision;
+            PoseCalibrationFingerprint = poseCalibrationFingerprint;
+        }
+
+        internal ulong ObservationRevision { get; }
+        internal string PoseCalibrationFingerprint { get; }
+    }
+
+    internal sealed class SigmaNativeEyePairQuery
+    {
+        internal SigmaNativeEyePairQuery(SigmaNativeOracleQuery left,
+            SigmaNativeOracleQuery right,
+            SigmaNativeCoherentQueryContext coherentContext)
+        {
+            Left = left ?? throw new ArgumentNullException(nameof(left));
+            Right = right ?? throw new ArgumentNullException(nameof(right));
+            CoherentContext = coherentContext;
+            if (CoherentContext.ObservationRevision == 0 ||
+                CoherentContext.PoseCalibrationFingerprint == null)
+                throw new ArgumentException(
+                    "EYE_PAIR cannot be formed from two unpaired query shadows.",
+                    nameof(coherentContext));
+            if (!string.Equals(Left.EntryPoint.Id, "SENSOR_LEFT",
+                    StringComparison.Ordinal) ||
+                !string.Equals(Right.EntryPoint.Id, "SENSOR_RIGHT",
+                    StringComparison.Ordinal))
+                throw new ArgumentException(
+                    "EYE_PAIR requires coherent left and right query descriptors.");
+            EntryPoint = SigmaGeneratedMerkabaProgram.EntryPoints.Single(value =>
+                string.Equals(value.Id, "EYE_PAIR", StringComparison.Ordinal));
+            if (EntryPoint.ForwardExpression != Left.EntryPoint.ForwardExpression ||
+                EntryPoint.ForwardExpression != Right.EntryPoint.ForwardExpression ||
+                EntryPoint.Reducer != 1)
+                throw new InvalidOperationException(
+                    "Generated EYE_PAIR does not share the frozen retinal expression/reducer.");
+        }
+
+        internal SigmaMerkabaEntryPoint EntryPoint { get; }
+        internal SigmaNativeOracleQuery Left { get; }
+        internal SigmaNativeOracleQuery Right { get; }
+        internal SigmaNativeCoherentQueryContext CoherentContext { get; }
+        internal SigmaNativeOracleQuery[] Views => new[] { Left, Right };
     }
 
     internal readonly struct SigmaNativeOracleCell
     {
         internal SigmaNativeOracleCell(ulong supportKey, int footprint,
-            SigmaGaugeCell gauge, SigmaS16 state, bool resident = true)
+            SigmaGaugeCell gauge, SigmaS16 state, bool resident = true,
+            SigmaNativeRelationInput? queryRelation = null)
         {
             SupportKey = supportKey;
             Footprint = footprint;
             Gauge = gauge;
             State = state;
             Resident = resident;
+            QueryRelation = queryRelation ?? new SigmaNativeRelationInput(state,
+                state, SigmaS16.Zero, 0, 0, 0, 0, 0);
+            if (QueryRelation.Left != state)
+                throw new ArgumentException(
+                    "A query relation must evaluate the cell's full S16 state.",
+                    nameof(queryRelation));
         }
 
         internal ulong SupportKey { get; }
@@ -229,6 +311,7 @@ namespace Genesis.RoomScan.SigmaPrism
         internal SigmaGaugeCell Gauge { get; }
         internal SigmaS16 State { get; }
         internal bool Resident { get; }
+        internal SigmaNativeRelationInput QueryRelation { get; }
         internal long Measure
         {
             get
@@ -285,7 +368,8 @@ namespace Genesis.RoomScan.SigmaPrism
         internal SigmaNativeContribution(ulong supportKey, int footprint,
             SigmaQ48Interval order,
             IReadOnlyList<SigmaQ48Interval> weightedOptical,
-            long measure, int sourceCell)
+            long measure, int sourceCell,
+            SigmaMerkabaRelationClass relationClass)
         {
             SupportKey = supportKey;
             Footprint = footprint;
@@ -297,6 +381,7 @@ namespace Genesis.RoomScan.SigmaPrism
                     nameof(weightedOptical));
             Measure = measure;
             SourceCell = sourceCell;
+            RelationClass = relationClass;
         }
 
         internal ulong SupportKey { get; }
@@ -305,6 +390,7 @@ namespace Genesis.RoomScan.SigmaPrism
         internal SigmaQ48Interval[] WeightedOptical { get; }
         internal long Measure { get; }
         internal int SourceCell { get; }
+        internal SigmaMerkabaRelationClass RelationClass { get; }
     }
 
     internal readonly struct SigmaNativeSceneShadow : IEquatable<SigmaNativeSceneShadow>
@@ -312,7 +398,9 @@ namespace Genesis.RoomScan.SigmaPrism
         internal SigmaNativeSceneShadow(int reducer, int footprint,
             ulong[] firstSupports, ulong[] behindSupports,
             SigmaQ48Interval order,
-            IReadOnlyList<SigmaQ48Interval> optical)
+            IReadOnlyList<SigmaQ48Interval> optical,
+            ulong[] relationSupports = null,
+            SigmaMerkabaRelationClass[] relationClasses = null)
         {
             Reducer = reducer;
             Footprint = footprint;
@@ -324,6 +412,12 @@ namespace Genesis.RoomScan.SigmaPrism
             if (Optical.Length != SigmaNativePhotometricLaw.ChannelCount)
                 throw new ArgumentException("Reduced query has three channels.",
                     nameof(optical));
+            RelationSupports = relationSupports ?? Array.Empty<ulong>();
+            RelationClasses = relationClasses ??
+                Array.Empty<SigmaMerkabaRelationClass>();
+            if (RelationSupports.Length != RelationClasses.Length)
+                throw new ArgumentException(
+                    "Every relation support requires one generated relation class.");
         }
 
         internal int Reducer { get; }
@@ -332,17 +426,41 @@ namespace Genesis.RoomScan.SigmaPrism
         internal ulong[] BehindSupports { get; }
         internal SigmaQ48Interval Order { get; }
         internal SigmaQ48Interval[] Optical { get; }
-        internal bool IsDefault => FirstSupports.Length == 0;
+        internal ulong[] RelationSupports { get; }
+        internal SigmaMerkabaRelationClass[] RelationClasses { get; }
+        internal bool IsDefault => FirstSupports.Length == 0 &&
+            RelationSupports.Length == 0;
 
         public bool Equals(SigmaNativeSceneShadow other) =>
             Reducer == other.Reducer && Footprint == other.Footprint &&
             Order == other.Order && Optical.SequenceEqual(other.Optical) &&
             FirstSupports.SequenceEqual(other.FirstSupports) &&
-            BehindSupports.SequenceEqual(other.BehindSupports);
+            BehindSupports.SequenceEqual(other.BehindSupports) &&
+            RelationSupports.SequenceEqual(other.RelationSupports) &&
+            RelationClasses.SequenceEqual(other.RelationClasses);
         public override bool Equals(object obj) =>
             obj is SigmaNativeSceneShadow other && Equals(other);
         public override int GetHashCode() => HashCode.Combine(Reducer, Footprint,
             Order, Optical.Length, FirstSupports.Length, BehindSupports.Length);
+    }
+
+    internal readonly struct SigmaNativeEyePairShadow :
+        IEquatable<SigmaNativeEyePairShadow>
+    {
+        internal SigmaNativeEyePairShadow(SigmaNativeSceneShadow left,
+            SigmaNativeSceneShadow right)
+        {
+            Left = left;
+            Right = right;
+        }
+
+        internal SigmaNativeSceneShadow Left { get; }
+        internal SigmaNativeSceneShadow Right { get; }
+        public bool Equals(SigmaNativeEyePairShadow other) =>
+            Left.Equals(other.Left) && Right.Equals(other.Right);
+        public override bool Equals(object obj) =>
+            obj is SigmaNativeEyePairShadow other && Equals(other);
+        public override int GetHashCode() => HashCode.Combine(Left, Right);
     }
 
     internal readonly struct SigmaNativeDeltaWitness : IEquatable<SigmaNativeDeltaWitness>
@@ -432,7 +550,7 @@ namespace Genesis.RoomScan.SigmaPrism
     {
         internal SigmaNativeRelationFactor(SigmaS16 raw,
             SigmaQ48Interval[] normalized, bool diffractionKernel,
-            SigmaExactFactorClass factorClass)
+            SigmaExactFactorClass factorClass, BigInteger normSquare)
         {
             Raw = raw;
             Normalized = normalized ?? throw new ArgumentNullException(
@@ -442,20 +560,25 @@ namespace Genesis.RoomScan.SigmaPrism
                     nameof(normalized));
             DiffractionKernel = diffractionKernel;
             FactorClass = factorClass;
+            if (normSquare.Sign < 0)
+                throw new ArgumentOutOfRangeException(nameof(normSquare));
+            NormSquare = normSquare;
         }
 
         internal SigmaS16 Raw { get; }
         internal SigmaQ48Interval[] Normalized { get; }
         internal bool DiffractionKernel { get; }
         internal SigmaExactFactorClass FactorClass { get; }
+        internal BigInteger NormSquare { get; }
         public bool Equals(SigmaNativeRelationFactor other) => Raw == other.Raw &&
             DiffractionKernel == other.DiffractionKernel &&
             FactorClass == other.FactorClass &&
+            NormSquare == other.NormSquare &&
             Normalized.SequenceEqual(other.Normalized);
         public override bool Equals(object obj) =>
             obj is SigmaNativeRelationFactor other && Equals(other);
         public override int GetHashCode() => HashCode.Combine(Raw,
-            DiffractionKernel, FactorClass);
+            DiffractionKernel, FactorClass, NormSquare);
     }
 
     internal readonly struct SigmaNativeRelationWitness :
@@ -643,11 +766,16 @@ namespace Genesis.RoomScan.SigmaPrism
 
         internal static SigmaNativeContribution? EvaluateNativeQuery(
             SigmaNativeOracleCell cell, int sourceCell,
-            SigmaNativeOracleQuery query)
+            SigmaNativeOracleQuery query) => EvaluateNativeQuery(cell,
+                sourceCell, query, query.EntryPoint);
+
+        private static SigmaNativeContribution? EvaluateNativeQuery(
+            SigmaNativeOracleCell cell, int sourceCell,
+            SigmaNativeOracleQuery query, SigmaMerkabaEntryPoint entryPoint)
         {
-            RequireForwardExpression(query.EntryPoint, 7,
+            RequireForwardExpression(entryPoint, 7,
                 SigmaMerkabaIrOpcode.SCENE_REDUCE);
-            if (query.EntryPoint.Reducer == 3)
+            if (entryPoint.Reducer == 3)
                 throw new InvalidOperationException(
                     "Intrinsic relation entry point requires a native context tuple.");
             if (cell.State.IsZero || cell.Footprint != query.Footprint)
@@ -657,8 +785,13 @@ namespace Genesis.RoomScan.SigmaPrism
             SigmaQ48Interval[] weightedOptical = query.OpticalRows.Select(row =>
                 Point(SigmaNumericDomain.QMul(DotPoint(shadow, row),
                     cell.Measure))).ToArray();
+            SigmaMerkabaRelationClass relationClass = entryPoint.Reducer == 0 ||
+                entryPoint.Reducer == 4
+                ? EvaluateNativeRelation(cell.QueryRelation).RelationClass
+                : SigmaMerkabaRelationClass.Unresolved;
             return new SigmaNativeContribution(cell.SupportKey, cell.Footprint,
-                Point(order), weightedOptical, cell.Measure, sourceCell);
+                Point(order), weightedOptical, cell.Measure, sourceCell,
+                relationClass);
         }
 
         internal static SigmaNativeSceneShadow EvaluateAndReduce(
@@ -671,14 +804,40 @@ namespace Genesis.RoomScan.SigmaPrism
             return ReduceNativeQuery(contributions, query);
         }
 
+        internal static SigmaNativeEyePairShadow EvaluateAndReduceEyePair(
+            IReadOnlyList<SigmaNativeOracleCell> cells,
+            IEnumerable<int> selectedCells, SigmaNativeEyePairQuery query)
+        {
+            int[] selected = selectedCells.ToArray();
+            SigmaNativeSceneShadow[] shadows = query.Views.Select(view =>
+            {
+                SigmaNativeContribution[] contributions = selected.Select(index =>
+                        EvaluateNativeQuery(cells[index], index, view,
+                            query.EntryPoint))
+                    .Where(value => value.HasValue).Select(value => value.Value)
+                    .ToArray();
+                return ReduceNativeQuery(contributions, view, query.EntryPoint);
+            }).ToArray();
+            return new SigmaNativeEyePairShadow(shadows[0], shadows[1]);
+        }
+
         internal static SigmaNativeSceneShadow ReduceNativeQuery(
             IEnumerable<SigmaNativeContribution> source,
-            SigmaNativeOracleQuery query)
+            SigmaNativeOracleQuery query) => ReduceNativeQuery(source, query,
+                query.EntryPoint);
+
+        private static SigmaNativeSceneShadow ReduceNativeQuery(
+            IEnumerable<SigmaNativeContribution> source,
+            SigmaNativeOracleQuery query, SigmaMerkabaEntryPoint entryPoint)
         {
-            int reducer = query.EntryPoint.Reducer;
+            int reducer = entryPoint.Reducer;
             if (reducer != 0 && reducer != 1 && reducer != 4)
                 throw new InvalidOperationException(
                     $"Reducer {reducer} is not a field-shadow reducer.");
+            if (reducer == 0 &&
+                query.DebugRequest != SigmaNativeDebugRequest.NativeRelationClass)
+                throw new InvalidOperationException(
+                    "Reducer NONE requires the query-defined native relation projection.");
             var supports = source.Where(value => value.Footprint == query.Footprint)
                 .GroupBy(value => value.SupportKey).Select(group =>
                 {
@@ -691,32 +850,60 @@ namespace Genesis.RoomScan.SigmaPrism
                         .Select(channel => DivideOutward(SumOutward(values.Select(
                             value => value.WeightedOptical[channel])), Point(measure)))
                         .ToArray();
-                    return (Support: group.Key, Order: order, Optical: optical);
+                    SigmaMerkabaRelationClass relation = values.All(value =>
+                            value.RelationClass == values[0].RelationClass)
+                        ? values[0].RelationClass
+                        : SigmaMerkabaRelationClass.Unresolved;
+                    bool permitsConnectivity = values.All(value =>
+                        RelationPermitsClosure(value.RelationClass));
+                    return (Support: group.Key, Order: order, Optical: optical,
+                        Relation: relation,
+                        PermitsConnectivity: permitsConnectivity);
                 }).OrderBy(value => value.Support).ToArray();
             if (supports.Length == 0)
                 return new SigmaNativeSceneShadow(reducer, query.Footprint,
                     Array.Empty<ulong>(), Array.Empty<ulong>(),
                     SigmaQ48Interval.Empty, EmptyOptical());
 
-            var first = reducer == 1
-                ? supports.Where(candidate => supports.All(other =>
+            var first = reducer switch
+            {
+                0 => Array.Empty<(ulong Support, SigmaQ48Interval Order,
+                    SigmaQ48Interval[] Optical,
+                    SigmaMerkabaRelationClass Relation,
+                    bool PermitsConnectivity)>(),
+                1 => supports.Where(candidate => supports.All(other =>
                     other.Support == candidate.Support ||
-                    !ProvenStrictlyBefore(other.Order, candidate.Order))).ToArray()
-                : supports;
+                    !ProvenStrictlyBefore(other.Order, candidate.Order))).ToArray(),
+                4 => supports,
+                _ => throw new InvalidOperationException(),
+            };
             ulong[] firstKeys = first.Select(value => value.Support)
                 .OrderBy(value => value).ToArray();
             ulong[] behind = reducer == 1
                 ? supports.Select(value => value.Support).Except(firstKeys)
                     .OrderBy(value => value).ToArray()
                 : Array.Empty<ulong>();
-            SigmaQ48Interval[] opticalResult = Enumerable.Range(0,
-                    SigmaNativePhotometricLaw.ChannelCount)
-                .Select(channel => Hull(first.Select(value =>
-                    value.Optical[channel]))).ToArray();
+            SigmaQ48Interval[] opticalResult = reducer == 0
+                ? EmptyOptical()
+                : Enumerable.Range(0, SigmaNativePhotometricLaw.ChannelCount)
+                    .Select(channel => Hull(first.Select(value =>
+                        value.Optical[channel]))).ToArray();
+            var relationResults = reducer switch
+            {
+                0 => supports,
+                4 => supports.Where(value => value.PermitsConnectivity).ToArray(),
+                _ => Array.Empty<(ulong Support, SigmaQ48Interval Order,
+                    SigmaQ48Interval[] Optical,
+                    SigmaMerkabaRelationClass Relation,
+                    bool PermitsConnectivity)>(),
+            };
             return new SigmaNativeSceneShadow(reducer, query.Footprint,
                 firstKeys, behind,
-                Hull(first.Select(value => value.Order)),
-                opticalResult);
+                reducer == 0 ? SigmaQ48Interval.Empty :
+                    Hull(first.Select(value => value.Order)),
+                opticalResult,
+                relationResults.Select(value => value.Support).ToArray(),
+                relationResults.Select(value => value.Relation).ToArray());
         }
 
         internal static SigmaNativeContractResult ContractNativeQuery(
@@ -970,6 +1157,7 @@ namespace Genesis.RoomScan.SigmaPrism
 
         private static SigmaNativeRelationFactor NormalizeFactor(SigmaS16 raw)
         {
+            BigInteger normSquare = ComputeRawInformationNormSquare(raw);
             bool normalized = SigmaGeneratedMerkabaProgram.TryNormalizePrimitiveDefect(
                 raw, out SigmaQ48Interval[] intervals, out bool diffractionKernel);
             SigmaExactFactorClass factorClass = diffractionKernel || !normalized
@@ -977,7 +1165,21 @@ namespace Genesis.RoomScan.SigmaPrism
                 : AggregateFactorClasses(intervals.Select(
                     SigmaGeneratedMerkabaProgram.ClassifyExactZeroFactor).ToArray());
             return new SigmaNativeRelationFactor(raw, intervals,
-                diffractionKernel, factorClass);
+                diffractionKernel, factorClass, normSquare);
+        }
+
+        internal static BigInteger ComputeRawInformationNormSquare(SigmaS16 raw)
+        {
+            BigInteger result = BigInteger.Zero;
+            for (int row = 0; row < SigmaS16.LaneCount; ++row)
+            {
+                BigInteger diffraction = BigInteger.Zero;
+                for (int column = 0; column < SigmaS16.LaneCount; ++column)
+                    diffraction += (BigInteger)SigmaGeneratedMerkabaProgram
+                        .DiffractionMatrix[(row << 4) + column] * raw[column];
+                result += diffraction * diffraction;
+            }
+            return result << 1;
         }
 
         private static SigmaExactFactorClass AggregateFactorClasses(
@@ -990,6 +1192,13 @@ namespace Genesis.RoomScan.SigmaPrism
                 ? SigmaExactFactorClass.Unresolved
                 : SigmaExactFactorClass.ProvenExactClosed;
         }
+
+        internal static bool RelationPermitsClosure(
+            SigmaMerkabaRelationClass relationClass) => relationClass ==
+                SigmaMerkabaRelationClass.DefaultSat ||
+            relationClass == SigmaMerkabaRelationClass.Regular ||
+            relationClass == SigmaMerkabaRelationClass.ExactZeroDivisor ||
+            relationClass == SigmaMerkabaRelationClass.NearSingularQ48;
 
         private static void FindAnnihilator(SigmaS16 transition,
             out int exactAction, out BigInteger minimumResidual)

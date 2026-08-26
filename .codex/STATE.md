@@ -195,32 +195,42 @@ git diff hygiene                     passed
 
 ## N2R corrected non-mutating oracle checkpoint
 
-The source audit revoked the premature N2R acceptance at `869f848`. The corrected
-checkpoint retains its non-mutating scope, consumes the N1R generated program only
-from the Editor/Vulkan test assembly and closes every audited semantic false-green.
-It adds no runtime call site, canonical buffer, mutation path, publication path or
-legacy cutover. The CPU semantic evaluator and Vulkan fixtures implement:
+Source audit revoked both the premature `869f848` checkpoint and the still-
+incomplete correction at `b4d88d6`. The superseding checkpoint retains the
+non-mutating scope, consumes the N1R generated program only from the Editor/Vulkan
+test assembly and closes every audited semantic false-green. It adds no runtime
+call site, canonical buffer, mutation path, publication path or legacy cutover.
+The CPU semantic evaluator and Vulkan fixtures implement:
 
 ```text
 SelectNativeQuerySupport       generated conservative all-default bound
 EvaluateNativeQuery            generated entry-point full-S16 query contraction
-ReduceNativeQuery              64-thread U64 support grouping + first-hit reduction
+ReduceNativeQuery             128-thread U64 grouping + descriptor-owned reduction
 EvaluateNativeRelation         complete relation factors + ZD/near/nonassoc classes
 ContractNativeQuery            exact preimage filtering + directional/PWL action
 ResolveContractorOverflow      cold indirect continuation of the same contractor
 ```
 
-Evaluation now follows each actual generated entry-point expression/reducer instead
-of treating the entry point as a label. The field reducer groups refined children
-by the complete 64-bit support key before first-hit classification; keys `1`, `33`
-and `2^40+1` remain distinct. The joint contractor derives native-relation and
-identity-preserving transport from the frozen relation/gauge records rather than
-accepting external truth booleans, retains one action/claim witness per coherent
-query and executes the calibrated three-channel exposure/gain/illumination/
-white-balance/offset plus monotone PWL transfer law. Right-eye evidence therefore
-cannot collapse into the left lookup. Alternative supports survive only in
-disposable test-assembly scratch. No semantic branch type or shader is present
-under production `Runtime/SigmaPrism` or `Runtime/Resources/SigmaPrism`.
+Evaluation follows each actual generated entry-point expression and reducer instead
+of treating the entry point as a label. `NONE/DEBUG` emits only the explicitly
+requested generated relation projection; `EXPORT_RELATION_GATED` keeps manifested
+supports and emits connectivity only for descriptor-permitted native relations;
+neither aliases the first-hit reducer. `EYE_PAIR` is one generated invocation over
+two query rows in the dispatch Y dimension and retains one shared immutable
+observation-revision/pose-calibration context plus distinct left/right results.
+
+The field reducer groups refined children by the complete 64-bit support key before
+first-hit classification; keys `1`, `33` and `2^40+1` remain distinct. It handles
+128 same-support and 96 mixed-support contributions inside one fixed workgroup; 129
+contributions fail closed into an explicit reason-coded cold-continuation receipt
+rather than truncating. The joint contractor derives native-relation and identity-
+preserving transport from frozen relation/gauge records rather than accepting truth
+booleans, retains one action/claim witness per coherent query and executes the
+calibrated three-channel exposure/gain/illumination/white-balance/offset plus
+monotone PWL transfer law. Right-eye evidence therefore cannot collapse into the
+left lookup. Alternative supports survive only in disposable test-assembly scratch.
+No semantic branch type or shader is present under production `Runtime/SigmaPrism`
+or `Runtime/Resources/SigmaPrism`.
 
 The GPU lowering is cardinality-parallel rather than a serial interpreter:
 
@@ -229,9 +239,15 @@ fixed oracle entry points                    4 query/relation + 3 contract/overf
 native relation mapping                      1 workgroup per relation, 256 threads
 signed-XOR product plane                     16 x 16 pair terms in parallel
 annihilator catalogue                        168 actions in parallel in same group
-field reduction                              64-thread bitonic + segmented scans
+field reduction                             128-thread bitonic + segmented scans
 dispatch-per relation/lane/support/segment   none
 ```
+
+The relation factor lowering no longer accepts only integral `[-32,32]` lattice
+states. One 16x16 metric plane reduces the exact signed 256-bit raw Q16.48
+quadratic form and is checked byte-for-byte against CPU `BigInteger` `G` norms for
+fractional, multi-lane and large valid coefficients. Exact zero, diffraction
+kernel, incompatible, ZD, near-singular and nonassociative classes remain distinct.
 
 Accepted exact fixture groups cover:
 
@@ -241,9 +257,11 @@ right-eye-only discrimination / two sheets / joint-direction intersection passed
 whole-query first hit / behind NO_CLAIM / farther-hit reveal              passed
 near-false mould / unrelated-sheet rejection / two-direction equilibrium  passed
 strong/weak geometry+optical order / missing metadata / calibrated light   passed
-all six field entries x 15 nonempty worlds                                90 parity cases
-complete native relation Cartesian corpus                                 127 tuples
+five single-query field entries x 15 nonempty worlds                      75 parity cases
+coherent two-query EYE_PAIR + EXPORT/DEBUG reducer distinction              passed
+complete native relation corpus incl. fractional/multi-lane/large Q48      130 tuples
 uniform/refined same-support reduction and U64 support identities           passed
+128 same-support / 96 mixed / 129 explicit cold continuation               passed
 resident/nonresident and 1/2/7 reversed execution windows                  passed
 three-channel two-segment PWL law + hot/indirect overflow                   passed
 support-index exhaustive mixed/refined/nonresident worlds                  256
@@ -253,8 +271,8 @@ duplicate compatible revisits                                              10000
 Verified on Unity `6000.5.9f1` with Vulkan:
 
 ```text
-EditMode                              99/99 passed, 0 failed
-focused N2R fixture groups            12/12 passed
+EditMode                             101/101 passed, 0 failed
+focused N2R fixture groups            14/14 passed
 generator regeneration/check         passed; N1 fingerprint unchanged
 compute UAV <= 8                     passed
 production equality vs eacf261       passed
@@ -265,12 +283,15 @@ git diff hygiene                     passed
 The Vulkan compiler's generated directional-action diagnostic is constructionally
 closed rather than ignored: the generated function assigns all witness fields on
 both paths, and the GPU corpus explicitly checks initialized pre-hit, `NO_CLAIM`
-and first-hit-mould roles plus both interval endpoints. The previously observed
-N2 reducer `SigmaU64ShiftRight`/comparator uninitialized warnings are absent.
+and first-hit-mould roles plus both interval endpoints. The corrected reducer and
+exact U256 relation math emit no uninitialized-variable diagnostic. The known
+constant-catalog size diagnostic remains a compiler lowering warning, not hidden
+serial work; its complete table is exercised bitwise. Existing production-shader
+warnings are outside this production-neutral N2 diff.
 
-N2R adds 4,151 non-production oracle/test source lines plus 27 Unity metadata
-lines relative to `eacf261`. The corrective diff over rejected `869f848` is
-`+2741/-396` test/oracle source lines. Production remains exactly `+0/-0`; the
+N2R adds 5,003 non-production oracle/test source lines plus 27 Unity metadata
+lines relative to `eacf261`. The final corrective diff over rejected `b4d88d6` is
+`+1,085/-233` test/oracle source lines. Production remains exactly `+0/-0`; the
 accepted runtime is untouched. These Editor timings validate semantics and graph
 shape only; Release Quest GPU timing begins with the live N3 cutover. N3R is
 pending and has not started.
@@ -321,8 +342,8 @@ validate_goal_state              green, active S4-08
 ```text
 N2R current production LOC                  17274
 N2R run delta vs eacf261                    +0 / -0 / net 0
-N2R non-production source / metadata        +4151 / +27
-N2R correction vs rejected 869f848           +2741 / -396
+N2R non-production source / metadata        +5003 / +27
+N2R correction vs rejected b4d88d6           +1085 / -233
 corrective checkpoint vs b541635            +0 / -392 / net -392
 N1R run delta vs df5200f                    +0 / -0 / net 0
 N2R gross deletion vs cac9ab0               0

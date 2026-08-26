@@ -19,22 +19,32 @@ StructuredBuffer<uint4> _NativeSamples;
 StructuredBuffer<uint2> _NativeStates;
 StructuredBuffer<uint2> _NativeMeasures;
 StructuredBuffer<uint2> _NativeQueryRows;
+StructuredBuffer<uint> _NativeQueryFootprints;
 StructuredBuffer<uint4> _NativeRelationInputs;
 StructuredBuffer<uint4> _NativeRelationPlans;
 StructuredBuffer<uint4> _NativeRelationNearIntervals;
 RWStructuredBuffer<uint> _NativeWorklist;
 RWStructuredBuffer<uint> _NativeCounters;
+#if defined(SIGMA_NATIVE_ORACLE_QUERY_MATH)
 RWStructuredBuffer<uint4> _NativeContributionHeaders;
 RWStructuredBuffer<uint4> _NativeContributionOrderMeasures;
 RWStructuredBuffer<uint2> _NativeContributionOptical;
-RWStructuredBuffer<uint4> _NativeGroupHeaders;
-RWStructuredBuffer<uint4> _NativeGroupOrders;
-RWStructuredBuffer<uint2> _NativeGroupOptical;
+RWStructuredBuffer<uint> _NativeContributionRelations;
+#else
+StructuredBuffer<uint4> _NativeContributionHeaders;
+StructuredBuffer<uint4> _NativeContributionOrderMeasures;
+StructuredBuffer<uint2> _NativeContributionOptical;
+StructuredBuffer<uint> _NativeContributionRelations;
+#endif
 RWStructuredBuffer<uint2> _NativeReducedSupports;
+RWStructuredBuffer<uint2> _NativeReducedRelationSupports;
+RWStructuredBuffer<uint> _NativeReducedRelationClasses;
 RWStructuredBuffer<uint4> _NativeReducedRecords;
+RWStructuredBuffer<uint4> _NativeReduceOverflowRecords;
 RWStructuredBuffer<uint4> _NativeRelationResults;
 RWStructuredBuffer<uint4> _NativeRelationFactors;
 RWStructuredBuffer<uint4> _NativeRelationHashes;
+RWStructuredBuffer<uint4> _NativeRelationNorms;
 
 #include "Generated/SigmaNativeOracleMath.hlsl"
 
@@ -45,6 +55,9 @@ uint _NativeContributionCount;
 uint _NativeFootprint;
 uint _NativeEntryPointIndex;
 uint _NativeRelationCount;
+uint _NativeQueryCount;
+uint _NativeContributionStride;
+uint _NativeDebugRequest;
 
 bool SigmaNativeKeyLess(uint2 left, uint2 right)
 {
@@ -57,7 +70,9 @@ bool SigmaNativeKeyEqual(uint2 left, uint2 right)
 }
 
 #if defined(SIGMA_NATIVE_ORACLE_REDUCE_ONLY)
-#define SIGMA_NATIVE_REDUCE_WIDTH 64u
+#define SIGMA_NATIVE_REDUCE_WIDTH 128u
+#define SIGMA_NATIVE_REDUCED_RECORD_STRIDE 6u
+#define SIGMA_NATIVE_REDUCE_COLD_CONTINUATION_REQUIRED 1u
 
 groupshared uint4 SigmaNativeReduceHeaders[SIGMA_NATIVE_REDUCE_WIDTH];
 groupshared uint4 SigmaNativeReduceOrderMeasures[SIGMA_NATIVE_REDUCE_WIDTH];
@@ -67,7 +82,10 @@ groupshared uint SigmaNativeReduceSources[SIGMA_NATIVE_REDUCE_WIDTH];
 groupshared uint SigmaNativeReducePrefix[SIGMA_NATIVE_REDUCE_WIDTH];
 groupshared uint SigmaNativeReduceFirst[SIGMA_NATIVE_REDUCE_WIDTH];
 groupshared uint SigmaNativeReduceValid[SIGMA_NATIVE_REDUCE_WIDTH];
+groupshared uint SigmaNativeReduceRelations[SIGMA_NATIVE_REDUCE_WIDTH];
+groupshared uint2 SigmaNativeReduceGroupKeys[SIGMA_NATIVE_REDUCE_WIDTH];
 groupshared uint4 SigmaNativeReduceGroupOrders[SIGMA_NATIVE_REDUCE_WIDTH];
+groupshared uint SigmaNativeReduceRelationCount;
 groupshared uint2 SigmaNativeReduceGroupOptical[
     SIGMA_NATIVE_REDUCE_WIDTH * SIGMA_NATIVE_OPTICAL_CHANNELS * 2u];
 
@@ -173,9 +191,11 @@ void SelectNativeQuerySupport(uint3 id : SV_DispatchThreadID)
 void EvaluateNativeQuery(uint3 id : SV_DispatchThreadID)
 {
     uint localIndex = id.x;
-    if (localIndex >= _NativeWorkCount)
+    uint queryIndex = id.y;
+    if (localIndex >= _NativeWorkCount || queryIndex >= _NativeQueryCount)
         return;
     uint workIndex = _NativeWorkOffset + localIndex;
+    uint outputIndex = queryIndex * _NativeContributionStride + workIndex;
     uint sampleIndex = _NativeWorklist[workIndex];
     uint4 sample = _NativeSamples[sampleIndex];
     bool entryValid = _NativeEntryPointIndex < SIGMA_MERKABA_ENTRY_POINT_COUNT &&
@@ -183,50 +203,90 @@ void EvaluateNativeQuery(uint3 id : SV_DispatchThreadID)
     uint valid = entryValid ? 1u : 0u;
     uint2 order;
     uint2 optical[3];
-    SigmaNativeEvaluateState(sample.w, order, optical, valid);
+    SigmaNativeEvaluateStateAtRows(sample.w, queryIndex * 16u, order, optical,
+        valid);
     uint2 measure = _NativeMeasures[sampleIndex];
     bool active = valid != 0u && !SigmaNativeStateIsZero(sample.w) &&
-        sample.z == _NativeFootprint;
-    _NativeContributionHeaders[workIndex] = uint4(sample.xy, sample.z,
+        sample.z == _NativeQueryFootprints[queryIndex];
+    _NativeContributionHeaders[outputIndex] = uint4(sample.xy, sample.z,
         active ? 1u : 0u);
-    _NativeContributionOrderMeasures[workIndex] = uint4(order, measure);
+    _NativeContributionOrderMeasures[outputIndex] = uint4(order, measure);
+    uint reducer = entryValid
+        ? (uint)SIGMA_MERKABA_IR_ENTRY_POINTS[_NativeEntryPointIndex].z
+        : 0xffffffffu;
+    uint relationClass = (reducer == 0u || reducer == 4u) &&
+            _NativeRelationResults[sampleIndex].w != 0u
+        ? _NativeRelationResults[sampleIndex].x
+        : SIGMA_MERKABA_RELATION_UNRESOLVED;
+    _NativeContributionRelations[outputIndex] = relationClass;
     [unroll]
     for (uint channel = 0u; channel < SIGMA_NATIVE_OPTICAL_CHANNELS; ++channel)
     {
         uint2 weighted = SigmaQ48MulNearestEven(optical[channel], measure, valid);
-        _NativeContributionOptical[workIndex * SIGMA_NATIVE_OPTICAL_CHANNELS +
-            channel] = weighted;
+        _NativeContributionOptical[outputIndex *
+            SIGMA_NATIVE_OPTICAL_CHANNELS + channel] = weighted;
     }
     if (valid == 0u)
-        _NativeContributionHeaders[workIndex].w = 0u;
+        _NativeContributionHeaders[outputIndex].w = 0u;
 }
 #endif
 
 #if defined(SIGMA_NATIVE_ORACLE_REDUCE_ONLY)
-[numthreads(64, 1, 1)]
-void ReduceNativeQuery(uint3 groupThreadId : SV_GroupThreadID)
+[numthreads(128, 1, 1)]
+void ReduceNativeQuery(uint3 groupId : SV_GroupID,
+    uint3 groupThreadId : SV_GroupThreadID)
 {
     uint threadIndex = groupThreadId.x;
+    uint queryIndex = groupId.y;
+    if (queryIndex >= _NativeQueryCount)
+        return;
     uint reducer = _NativeEntryPointIndex < SIGMA_MERKABA_ENTRY_POINT_COUNT
         ? (uint)SIGMA_MERKABA_IR_ENTRY_POINTS[_NativeEntryPointIndex].z
         : 0xffffffffu;
-    bool reducerValid = reducer == 0u || reducer == 1u || reducer == 4u;
+    bool reducerValid = reducer == 1u || reducer == 4u ||
+        (reducer == 0u && _NativeDebugRequest == 1u);
+    uint recordOffset = queryIndex * SIGMA_NATIVE_REDUCED_RECORD_STRIDE;
+    bool overflow = _NativeContributionCount > SIGMA_NATIVE_REDUCE_WIDTH;
+    if (overflow)
+    {
+        if (threadIndex == 0u)
+        {
+            _NativeReduceOverflowRecords[queryIndex] = uint4(
+                _NativeContributionCount, SIGMA_NATIVE_REDUCE_WIDTH,
+                SIGMA_NATIVE_REDUCE_COLD_CONTINUATION_REQUIRED, 1u);
+            _NativeReducedRecords[recordOffset] = uint4(0u, 0u, 0u,
+                2u | (reducer << 8u));
+            _NativeReducedRecords[recordOffset + 5u] = uint4(0u, 1u,
+                SIGMA_NATIVE_REDUCE_COLD_CONTINUATION_REQUIRED, 0u);
+        }
+        return;
+    }
+    if (threadIndex == 0u)
+        _NativeReduceOverflowRecords[queryIndex] = uint4(0u, 0u, 0u, 0u);
+    uint inputBase = queryIndex * _NativeContributionStride;
+    uint supportBase = queryIndex * _NativeContributionStride * 2u;
+    uint relationBase = queryIndex * _NativeContributionStride;
+    uint footprint = _NativeQueryFootprints[queryIndex];
     bool present = threadIndex < _NativeContributionCount;
-    uint4 header = present ? _NativeContributionHeaders[threadIndex]
+    uint inputIndex = inputBase + threadIndex;
+    uint4 header = present ? _NativeContributionHeaders[inputIndex]
         : uint4(0xffffffffu, 0xffffffffu, 0xffffffffu, 0u);
-    bool active = present && header.w != 0u && header.z == _NativeFootprint;
+    bool active = present && header.w != 0u && header.z == footprint;
     header.w = active ? 1u : 0u;
     SigmaNativeReduceHeaders[threadIndex] = header;
     SigmaNativeReduceOrderMeasures[threadIndex] = present
-        ? _NativeContributionOrderMeasures[threadIndex]
+        ? _NativeContributionOrderMeasures[inputIndex]
         : uint4(0u, 0u, 0u, 0u);
+    SigmaNativeReduceRelations[threadIndex] = present
+        ? _NativeContributionRelations[inputIndex]
+        : SIGMA_MERKABA_RELATION_UNRESOLVED;
     [unroll]
     for (uint loadChannel = 0u;
         loadChannel < SIGMA_NATIVE_OPTICAL_CHANNELS; ++loadChannel)
     {
         SigmaNativeReduceOptical[threadIndex * SIGMA_NATIVE_OPTICAL_CHANNELS +
             loadChannel] = present
-            ? _NativeContributionOptical[threadIndex *
+            ? _NativeContributionOptical[inputIndex *
                 SIGMA_NATIVE_OPTICAL_CHANNELS + loadChannel]
             : uint2(0u, 0u);
     }
@@ -259,6 +319,9 @@ void ReduceNativeQuery(uint3 groupThreadId : SV_GroupThreadID)
                 ? SigmaNativeReduceOrderMeasures[partner]
                 : SigmaNativeReduceOrderMeasures[threadIndex];
             uint selectedSource = takePartner ? partnerSource : selfSource;
+            uint selectedRelation = takePartner
+                ? SigmaNativeReduceRelations[partner]
+                : SigmaNativeReduceRelations[threadIndex];
             uint2 selectedOptical[3];
             [unroll]
             for (uint sortChannel = 0u;
@@ -270,6 +333,7 @@ void ReduceNativeQuery(uint3 groupThreadId : SV_GroupThreadID)
             SigmaNativeReduceHeaders[threadIndex] = selectedHeader;
             SigmaNativeReduceOrderMeasures[threadIndex] = selectedOrder;
             SigmaNativeReduceSources[threadIndex] = selectedSource;
+            SigmaNativeReduceRelations[threadIndex] = selectedRelation;
             [unroll]
             for (uint storeChannel = 0u;
                 storeChannel < SIGMA_NATIVE_OPTICAL_CHANNELS; ++storeChannel)
@@ -297,6 +361,7 @@ void ReduceNativeQuery(uint3 groupThreadId : SV_GroupThreadID)
         uint4 combinedOrder = SigmaNativeReduceGroupOrders[threadIndex];
         uint2 combinedMeasure = SigmaNativeReduceOrderMeasures[threadIndex].zw;
         uint combinedValid = SigmaNativeReduceValid[threadIndex];
+        uint combinedRelation = SigmaNativeReduceRelations[threadIndex];
         uint2 combinedOptical[3];
         [unroll]
         for (uint copyChannel = 0u;
@@ -317,6 +382,8 @@ void ReduceNativeQuery(uint3 groupThreadId : SV_GroupThreadID)
             combinedMeasure = SigmaQ48AddChecked(combinedMeasure,
                 SigmaNativeReduceOrderMeasures[partner].zw, combinedValid);
             combinedValid &= SigmaNativeReduceValid[partner];
+            if (combinedRelation != SigmaNativeReduceRelations[partner])
+                combinedRelation = SIGMA_MERKABA_RELATION_UNRESOLVED;
             [unroll]
             for (uint segmentChannel = 0u;
                 segmentChannel < SIGMA_NATIVE_OPTICAL_CHANNELS; ++segmentChannel)
@@ -329,6 +396,7 @@ void ReduceNativeQuery(uint3 groupThreadId : SV_GroupThreadID)
         SigmaNativeReduceGroupOrders[threadIndex] = combinedOrder;
         SigmaNativeReduceOrderMeasures[threadIndex].zw = combinedMeasure;
         SigmaNativeReduceValid[threadIndex] = combinedValid;
+        SigmaNativeReduceRelations[threadIndex] = combinedRelation;
         [unroll]
         for (uint writeChannel = 0u;
             writeChannel < SIGMA_NATIVE_OPTICAL_CHANNELS; ++writeChannel)
@@ -361,6 +429,7 @@ void ReduceNativeQuery(uint3 groupThreadId : SV_GroupThreadID)
     uint4 completedOrder = SigmaNativeReduceGroupOrders[threadIndex];
     uint2 completedMeasure = SigmaNativeReduceOrderMeasures[threadIndex].zw;
     uint completedValid = SigmaNativeReduceValid[threadIndex];
+    uint completedRelation = SigmaNativeReduceRelations[threadIndex];
     uint2 completedOptical[3];
     [unroll]
     for (uint captureChannel = 0u;
@@ -371,9 +440,9 @@ void ReduceNativeQuery(uint3 groupThreadId : SV_GroupThreadID)
 
     if (groupEnd)
     {
-        _NativeGroupHeaders[groupIndex] = uint4(completedKey, completedValid, 0u);
-        _NativeGroupOrders[groupIndex] = completedOrder;
+        SigmaNativeReduceGroupKeys[groupIndex] = completedKey;
         SigmaNativeReduceGroupOrders[groupIndex] = completedOrder;
+        SigmaNativeReduceRelations[groupIndex] = completedRelation;
         [unroll]
         for (uint reduceChannel = 0u;
             reduceChannel < SIGMA_NATIVE_OPTICAL_CHANNELS; ++reduceChannel)
@@ -384,8 +453,6 @@ void ReduceNativeQuery(uint3 groupThreadId : SV_GroupThreadID)
                 reduceChannel) * 2u;
             SigmaNativeReduceGroupOptical[offset] = lower;
             SigmaNativeReduceGroupOptical[offset + 1u] = lower;
-            _NativeGroupOptical[offset] = lower;
-            _NativeGroupOptical[offset + 1u] = lower;
         }
         SigmaNativeReduceValid[groupIndex] = completedValid;
     }
@@ -409,9 +476,10 @@ void ReduceNativeQuery(uint3 groupThreadId : SV_GroupThreadID)
         GroupMemoryBarrierWithGroupSync();
     }
     uint2 minimumUpper = SigmaNativeReduceOrderMeasures[0].xy;
-    bool first = threadIndex < groupCount && (reducer != 1u ||
-        !SigmaI64Less(minimumUpper,
-            SigmaNativeReduceGroupOrders[threadIndex].xy));
+    bool first = threadIndex < groupCount &&
+        (reducer == 4u || (reducer == 1u &&
+            !SigmaI64Less(minimumUpper,
+                SigmaNativeReduceGroupOrders[threadIndex].xy)));
     SigmaNativeReduceFirst[threadIndex] = first ? 1u : 0u;
     SigmaNativeReducePrefix[threadIndex] = first ? 1u : 0u;
     GroupMemoryBarrierWithGroupSync();
@@ -426,17 +494,53 @@ void ReduceNativeQuery(uint3 groupThreadId : SV_GroupThreadID)
         GroupMemoryBarrierWithGroupSync();
     }
     uint firstCount = SigmaNativeReducePrefix[SIGMA_NATIVE_REDUCE_WIDTH - 1u];
-    uint behindCount = groupCount - firstCount;
+    uint behindCount = reducer == 1u ? groupCount - firstCount : 0u;
     if (threadIndex < groupCount)
     {
         uint firstBefore = threadIndex == 0u
             ? 0u : SigmaNativeReducePrefix[threadIndex - 1u];
         if (first)
-            _NativeReducedSupports[firstBefore] =
-                _NativeGroupHeaders[threadIndex].xy;
-        else
-            _NativeReducedSupports[_NativeContributionCount +
-                threadIndex - firstBefore] = _NativeGroupHeaders[threadIndex].xy;
+            _NativeReducedSupports[supportBase + firstBefore] =
+                SigmaNativeReduceGroupKeys[threadIndex];
+        else if (reducer == 1u)
+            _NativeReducedSupports[supportBase + _NativeContributionStride +
+                threadIndex - firstBefore] =
+                SigmaNativeReduceGroupKeys[threadIndex];
+    }
+
+    uint relationClass = threadIndex < groupCount
+        ? SigmaNativeReduceRelations[threadIndex]
+        : SIGMA_MERKABA_RELATION_UNRESOLVED;
+    bool permitsRelation = relationClass == SIGMA_MERKABA_RELATION_DEFAULT_SAT ||
+        relationClass == SIGMA_MERKABA_RELATION_REGULAR ||
+        relationClass == SIGMA_MERKABA_RELATION_EXACT_ZD ||
+        relationClass == SIGMA_MERKABA_RELATION_NEAR_SINGULAR_Q48;
+    bool relationSelected = threadIndex < groupCount &&
+        (reducer == 0u || (reducer == 4u && permitsRelation));
+    SigmaNativeReducePrefix[threadIndex] = relationSelected ? 1u : 0u;
+    GroupMemoryBarrierWithGroupSync();
+    [unroll]
+    for (uint relationStride = 1u;
+        relationStride < SIGMA_NATIVE_REDUCE_WIDTH; relationStride <<= 1u)
+    {
+        uint add = threadIndex >= relationStride
+            ? SigmaNativeReducePrefix[threadIndex - relationStride] : 0u;
+        GroupMemoryBarrierWithGroupSync();
+        SigmaNativeReducePrefix[threadIndex] += add;
+        GroupMemoryBarrierWithGroupSync();
+    }
+    if (threadIndex == 0u)
+        SigmaNativeReduceRelationCount = SigmaNativeReducePrefix[
+            SIGMA_NATIVE_REDUCE_WIDTH - 1u];
+    GroupMemoryBarrierWithGroupSync();
+    uint relationCount = SigmaNativeReduceRelationCount;
+    if (relationSelected)
+    {
+        uint relationIndex = SigmaNativeReducePrefix[threadIndex] - 1u;
+        _NativeReducedRelationSupports[relationBase + relationIndex] =
+            SigmaNativeReduceGroupKeys[threadIndex];
+        _NativeReducedRelationClasses[relationBase + relationIndex] =
+            relationClass;
     }
 
     uint4 groupOrder = threadIndex < groupCount && first
@@ -504,10 +608,11 @@ void ReduceNativeQuery(uint3 groupThreadId : SV_GroupThreadID)
         uint activeContributionCount = SigmaNativeReducePrefix[0];
         bool validResult = reducerValid && groupCount != 0u &&
             SigmaNativeReduceValid[0] != 0u;
-        _NativeReducedRecords[0] = uint4(firstCount, behindCount, groupCount,
+        _NativeReducedRecords[recordOffset] = uint4(firstCount, behindCount,
+            groupCount,
             (validResult ? 1u : 0u) | (reducer << 8u) |
             (activeContributionCount << 16u));
-        _NativeReducedRecords[1] = validResult
+        _NativeReducedRecords[recordOffset + 1u] = validResult && reducer != 0u
             ? SigmaNativeReduceGroupOrders[0]
             : uint4(1u, 0u, 0u, 0u);
         [unroll]
@@ -515,11 +620,14 @@ void ReduceNativeQuery(uint3 groupThreadId : SV_GroupThreadID)
             outputChannel < SIGMA_NATIVE_OPTICAL_CHANNELS; ++outputChannel)
         {
             uint offset = outputChannel * 2u;
-            _NativeReducedRecords[2u + outputChannel] = validResult
+            _NativeReducedRecords[recordOffset + 2u + outputChannel] =
+                validResult && reducer != 0u
                 ? uint4(SigmaNativeReduceGroupOptical[offset],
                     SigmaNativeReduceGroupOptical[offset + 1u])
                 : uint4(1u, 0u, 0u, 0u);
         }
+        _NativeReducedRecords[recordOffset + 5u] = uint4(relationCount, 0u,
+            0u, queryIndex);
     }
 }
 #endif
