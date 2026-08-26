@@ -230,6 +230,15 @@ namespace Genesis.RoomScan.Tests
             SigmaNativeFreshObservationBranch other = FreshObservation(otherTarget,
                 41UL, provenanceOrdinal: 3);
 
+            Assert.That(a.TryAssembleQueries(out SigmaNativeOracleQuery rawLeft,
+                out SigmaNativeOracleQuery rawRight), Is.True);
+            CollectionAssert.AreNotEqual(rawLeft.OrderRow, rawRight.OrderRow,
+                "Independent calibrated eye rays must generate distinct routing.");
+            Assert.That(a.InstrumentLeft.Footprint.SolidAngle, Is.GreaterThan(0L));
+            Assert.That(a.InstrumentRight.Footprint.SolidAngle, Is.GreaterThan(0L));
+            Assert.That(a.InstrumentLeft.MetricDirectOrder.IsEmpty, Is.False);
+            Assert.That(a.InstrumentRight.MetricDirectOrder.IsEmpty, Is.False);
+
             Assert.That(SigmaMerkabaSemanticOracle.TryResolveFreshBaseAdmission(
                 new[] { a }, out SigmaFreshBaseAdmission cpuUnique), Is.True);
             Assert.That(cpuUnique.State.IsZero, Is.False,
@@ -318,6 +327,13 @@ namespace Genesis.RoomScan.Tests
             Assert.That(SigmaMerkabaSemanticOracle.TryResolveFreshBaseAdmission(
                 new[] { noEvidence }, out _), Is.False);
             Assert.That(RunGpuFreshAdmission(new[] { noEvidence }).Admitted, Is.False);
+
+            SigmaNativeFreshObservationBranch unsupported = FreshObservation(target,
+                45UL, provenanceOrdinal: 9, unsupportedOptical: true);
+            Assert.That(SigmaMerkabaSemanticOracle.TryResolveFreshBaseAdmission(
+                new[] { unsupported }, out _), Is.False);
+            Assert.That(RunGpuFreshAdmission(new[] { unsupported }).Admitted,
+                Is.False, "Unbounded/unsupported optical transfer must fail closed.");
 
             SigmaNativeFreshObservationBranch[] cold = Enumerable.Range(0, 5)
                 .Select(index => FreshObservation(target, 46UL,
@@ -1098,32 +1114,46 @@ namespace Genesis.RoomScan.Tests
             int branchCount = branches.Length;
             int admissionStateOffset = branchCount * SigmaS16.LaneCount;
             int zeroStateOffset = (branchCount + 1) * SigmaS16.LaneCount;
-            UInt4[] freshHeaders = branches.Select((branch, index) =>
+            UInt4[] freshHeaders = branches.SelectMany((branch, index) =>
             {
                 uint flags = 1u |
                     (branch.LeftFirstHit ? 2u : 0u) |
                     (branch.RightFirstHit ? 4u : 0u) |
-                    (branch.Left.OrderEvidence && branch.Left.OpticalEvidence
-                        ? 8u : 0u) |
-                    (branch.Right.OrderEvidence && branch.Right.OpticalEvidence
-                        ? 16u : 0u);
+                    (branch.LeftEvidence ? 8u : 0u) |
+                    (branch.RightEvidence ? 16u : 0u);
                 ulong revision = branch.CoherentContext.ObservationRevision;
                 uint provenance = Convert.ToUInt32(
                     branch.ProvenanceFingerprint.Substring(56, 8), 16);
-                return new UInt4
+                ulong epoch = branch.InstrumentLeft.CalibrationEpoch;
+                uint foldedEpoch = (uint)epoch ^ (uint)(epoch >> 32);
+                uint poseProvenance = Convert.ToUInt32(
+                    branch.InstrumentLeft.PoseCalibrationFingerprint
+                        .Substring(56, 8), 16);
+                return new[]
                 {
-                    X = flags,
-                    Y = (uint)revision,
-                    Z = (uint)(revision >> 32),
-                    W = provenance == 0u ? (uint)index + 1u : provenance,
+                    new UInt4
+                    {
+                        X = flags,
+                        Y = (uint)revision,
+                        Z = (uint)(revision >> 32),
+                        W = provenance == 0u ? (uint)index + 1u : provenance,
+                    },
+                    new UInt4
+                    {
+                        X = (uint)branch.InstrumentLeft.OpticalTransfer,
+                        Y = (uint)branch.InstrumentRight.OpticalTransfer,
+                        Z = foldedEpoch == 0u ? 1u : foldedEpoch,
+                        W = poseProvenance == 0u ? 1u : poseProvenance,
+                    },
                 };
             }).ToArray();
-            UInt2[] freshRows = branches.SelectMany(branch =>
-                    PackRows(branch.Left).Concat(PackRows(branch.Right)))
+            UInt2[] freshRays = branches.SelectMany(branch =>
+                    branch.InstrumentLeft.Footprint.Ray.Concat(
+                        branch.InstrumentRight.Footprint.Ray).Select(Pack))
                 .ToArray();
-            UInt2[] freshMeasurements = branches.SelectMany(branch =>
-                    PackFreshMeasurements(branch.Left).Concat(
-                        PackFreshMeasurements(branch.Right)))
+            UInt2[] freshCodes = branches.SelectMany(branch =>
+                    PackInstrumentCodes(branch.InstrumentLeft).Concat(
+                        PackInstrumentCodes(branch.InstrumentRight)))
                 .ToArray();
 
             var zeroStates = Enumerable.Repeat(SigmaS16.Zero,
@@ -1152,8 +1182,8 @@ namespace Genesis.RoomScan.Tests
 
             using GraphicsBuffer stateBuffer = Buffer(PackStates(zeroStates));
             using GraphicsBuffer freshHeaderBuffer = Buffer(freshHeaders);
-            using GraphicsBuffer freshRowBuffer = Buffer(freshRows);
-            using GraphicsBuffer freshMeasurementBuffer = Buffer(freshMeasurements);
+            using GraphicsBuffer freshRayBuffer = Buffer(freshRays);
+            using GraphicsBuffer freshCodeBuffer = Buffer(freshCodes);
             using GraphicsBuffer relationInputBuffer = Buffer(relationInputs);
             using GraphicsBuffer relationPlanBuffer = Buffer(relationPlans);
             using GraphicsBuffer nearBuffer = Buffer(nearIntervals);
@@ -1208,10 +1238,10 @@ namespace Genesis.RoomScan.Tests
             contractShader.SetBuffer(contract, "_NativeQueryRows", dummyRows);
             contractShader.SetBuffer(contract, "_NativeFreshObservationHeaders",
                 freshHeaderBuffer);
-            contractShader.SetBuffer(contract, "_NativeFreshQueryRows",
-                freshRowBuffer);
-            contractShader.SetBuffer(contract, "_NativeFreshMeasuredLeaves",
-                freshMeasurementBuffer);
+            contractShader.SetBuffer(contract, "_NativeFreshRoomRays",
+                freshRayBuffer);
+            contractShader.SetBuffer(contract, "_NativeFreshCodeLeaves",
+                freshCodeBuffer);
             contractShader.SetBuffer(contract, "_NativeObservationOrder",
                 dummyOrder);
             contractShader.SetBuffer(contract, "_NativeMeasuredOptical",
@@ -1239,9 +1269,9 @@ namespace Genesis.RoomScan.Tests
                 outputRelationHashes);
             contractShader.SetInt("_NativeFreshBranchCount", branchCount);
             contractShader.SetInt("_NativeFreshLeftEntryPointIndex",
-                EntryPointIndex(branches[0].Left));
+                EntryPointIndex("SENSOR_LEFT"));
             contractShader.SetInt("_NativeFreshRightEntryPointIndex",
-                EntryPointIndex(branches[0].Right));
+                EntryPointIndex("SENSOR_RIGHT"));
             contractShader.SetInt("_NativeCandidateCount", 0);
             contractShader.SetInt("_NativeHotCapacity", 0);
             contractShader.SetInt("_NativeContractMode", 1);
@@ -1419,9 +1449,9 @@ namespace Genesis.RoomScan.Tests
                 candidateCount);
             using GraphicsBuffer branchRelationHashes = Buffer<UInt4>(
                 candidateCount);
-            using GraphicsBuffer freshHeaderDummy = Buffer(new UInt4[1]);
-            using GraphicsBuffer freshRowDummy = Buffer(new UInt2[32]);
-            using GraphicsBuffer freshMeasurementDummy = Buffer(new UInt2[16]);
+            using GraphicsBuffer freshHeaderDummy = Buffer(new UInt4[2]);
+            using GraphicsBuffer freshRayDummy = Buffer(new UInt2[6]);
+            using GraphicsBuffer freshCodeDummy = Buffer(new UInt2[16]);
             using var args = new GraphicsBuffer(GraphicsBuffer.Target.Structured |
                 GraphicsBuffer.Target.IndirectArguments, 3, sizeof(uint));
 
@@ -1480,10 +1510,10 @@ namespace Genesis.RoomScan.Tests
                     // every statically reachable resource to be bound.
                     contractShader.SetBuffer(kernel,
                         "_NativeFreshObservationHeaders", freshHeaderDummy);
-                    contractShader.SetBuffer(kernel, "_NativeFreshQueryRows",
-                        freshRowDummy);
-                    contractShader.SetBuffer(kernel,
-                        "_NativeFreshMeasuredLeaves", freshMeasurementDummy);
+                    contractShader.SetBuffer(kernel, "_NativeFreshRoomRays",
+                        freshRayDummy);
+                    contractShader.SetBuffer(kernel, "_NativeFreshCodeLeaves",
+                        freshCodeDummy);
                 }
                 contractShader.SetBuffer(kernel, "_NativeObservationOrder",
                     orderBuffer);
@@ -2070,62 +2100,106 @@ namespace Genesis.RoomScan.Tests
         private static SigmaNativeFreshObservationBranch FreshObservation(
             IReadOnlyList<long> target, ulong revision, int provenanceOrdinal,
             bool leftBroad = false, bool rightFirstHit = true,
-            bool evidence = true, bool negateRightRows = false)
+            bool evidence = true, bool negateRightRows = false,
+            bool unsupportedOptical = false)
         {
             Assert.That(target.Count, Is.EqualTo(4));
             Assert.That(target.Aggregate(0L, SigmaNumericDomain.QAdd), Is.Zero,
                 "Fresh fixture must lie in the exact Merkaba tangent sector.");
-            IReadOnlyList<long>[] leftRows =
+
+            var intrinsics = new RigIntrinsics(
+                new UnityEngine.Vector2(286f, 282f),
+                new UnityEngine.Vector2(159.5f, 119.5f),
+                new Vector2Int(320, 240), new Vector2Int(320, 240),
+                Pose.identity,
+                new UnityEngine.Vector4(-0.51f, 0.51f, 0.405f, -0.405f),
+                0x5a17UL);
+            UnityEngine.Vector2 nearFar = new(0.1f, 10f);
+
+            SigmaInstrumentEyeBoundary BuildInstrument(string side, int pixelX,
+                UnityEngine.Quaternion roomRotation, bool broad, bool firstHit,
+                int ordinal)
             {
-                Axis(0), Axis(1), Axis(2), Axis(3),
-            };
-            IReadOnlyList<long>[] rightRows =
-            {
-                Axis(2), Axis(3), Axis(0), Axis(1),
-            };
-            SigmaQ48Interval[] leftMeasured = leftBroad
-                ? Enumerable.Repeat(SigmaQ48Interval.Full, 4).ToArray()
-                : target.Select(Point).ToArray();
-            SigmaQ48Interval[] rightMeasured =
-            {
-                Point(target[2]), Point(target[3]), Point(target[0]),
-                Point(target[1]),
-            };
-            if (negateRightRows)
-            {
-                rightRows = rightRows.Select(row => (IReadOnlyList<long>)row
-                    .Select(SigmaNumericDomain.QNegate).ToArray()).ToArray();
-                rightMeasured = rightMeasured.Select(value =>
-                    new SigmaQ48Interval(
-                        SigmaNumericDomain.QNegate(value.Upper),
-                        SigmaNumericDomain.QNegate(value.Lower))).ToArray();
+                RigCalibrationMath.ConeRayReference cone =
+                    RigCalibrationMath.ConeRayAtPixel(intrinsics, pixelX, 120);
+                UnityEngine.Vector3 roomRayFloat = roomRotation * cone.Center;
+                UnityEngine.Vector3 roomDxFloat = roomRotation * cone.DifferentialX;
+                UnityEngine.Vector3 roomDyFloat = roomRotation * cone.DifferentialY;
+                long[] roomRay =
+                {
+                    SigmaNumericDomain.Quantize(roomRayFloat.x),
+                    SigmaNumericDomain.Quantize(roomRayFloat.y),
+                    SigmaNumericDomain.Quantize(roomRayFloat.z),
+                };
+                Assert.That(SigmaGeneratedMerkabaProgram
+                    .TryBuildCalibratedRowPermutation(roomRay,
+                        out int[] permutation, out _), Is.True);
+                var exactCodes = new SigmaQ48Interval[4];
+                for (int leaf = 0; leaf < exactCodes.Length; ++leaf)
+                {
+                    long code = SigmaNumericDomain.QAdd(
+                        SigmaNumericDomain.Half,
+                        SigmaNumericDomain.QShiftRight(
+                            target[permutation[leaf]], 3));
+                    exactCodes[leaf] = Point(code);
+                }
+                SigmaQ48Interval[] codes = broad
+                    ? Enumerable.Repeat(new SigmaQ48Interval(0L,
+                        SigmaNumericDomain.One), 4).ToArray()
+                    : exactCodes;
+                float rawDepth = (float)SigmaNumericDomain.ToDouble(
+                    exactCodes[0].Lower);
+                float metricRange = RigCalibrationMath
+                    .RangeFromProjectionDepth01(rawDepth, nearFar, cone.Center);
+                Assert.That(metricRange, Is.GreaterThan(0f));
+                var footprint = new SigmaInstrumentFootprint(roomRay,
+                    new[]
+                    {
+                        SigmaNumericDomain.Quantize(roomDxFloat.x),
+                        SigmaNumericDomain.Quantize(roomDxFloat.y),
+                        SigmaNumericDomain.Quantize(roomDxFloat.z),
+                    },
+                    new[]
+                    {
+                        SigmaNumericDomain.Quantize(roomDyFloat.x),
+                        SigmaNumericDomain.Quantize(roomDyFloat.y),
+                        SigmaNumericDomain.Quantize(roomDyFloat.z),
+                    }, SigmaNumericDomain.Quantize(cone.HalfAngleX),
+                    SigmaNumericDomain.Quantize(cone.HalfAngleY),
+                    SigmaNumericDomain.Quantize(cone.SolidAngle));
+                string provenance = ordinal.ToString("x64");
+                return new SigmaInstrumentEyeBoundary(side, revision, 9UL,
+                    ordinal * 4L + 1L, ordinal * 4L + 2L,
+                    1000000L + ordinal * 10L,
+                    1000001L + ordinal * 10L,
+                    intrinsics.Signature, intrinsics.Signature,
+                    GaugeFingerprint, footprint, codes[0],
+                    Point(SigmaNumericDomain.Quantize(metricRange)),
+                    codes.Skip(1).ToArray(), unsupportedOptical
+                        ? SigmaInstrumentOpticalTransfer.Unsupported
+                        : SigmaInstrumentOpticalTransfer.SrgbDecodedLinear,
+                    firstHit, provenance);
             }
+
+            SigmaInstrumentEyeBoundary left = BuildInstrument("LEFT", 146,
+                UnityEngine.Quaternion.Euler(0f, -18f, 0f), leftBroad, true,
+                provenanceOrdinal * 2 + 1);
+            SigmaInstrumentEyeBoundary right = BuildInstrument("RIGHT", 178,
+                UnityEngine.Quaternion.Euler(0f,
+                    negateRightRows ? 198f : 18f, 0f),
+                broad: false, firstHit: rightFirstHit,
+                ordinal: provenanceOrdinal * 2 + 2);
             SigmaNativePhotometricLaw law = Law(true, 1, 1);
-            SigmaNativeOracleQuery left = FreshQuery("SENSOR_LEFT", leftRows,
-                leftMeasured, evidence, law);
-            SigmaNativeOracleQuery right = FreshQuery("SENSOR_RIGHT", rightRows,
-                rightMeasured, evidence, law);
             return new SigmaNativeFreshObservationBranch(left, right,
                 new SigmaNativeCoherentQueryContext(revision, GaugeFingerprint),
-                leftFirstHit: true, rightFirstHit: rightFirstHit,
+                evidence, evidence, law, law,
                 provenanceOrdinal.ToString("x64"));
         }
 
-        private static SigmaNativeOracleQuery FreshQuery(string entry,
-            IReadOnlyList<long>[] rows, IReadOnlyList<SigmaQ48Interval> measured,
-            bool evidence, SigmaNativePhotometricLaw law)
-        {
-            Assert.That(rows, Has.Length.EqualTo(4));
-            Assert.That(measured.Count, Is.EqualTo(4));
-            return new SigmaNativeOracleQuery(entry, 0, rows[0],
-                new[] { rows[1], rows[2], rows[3] }, measured[0],
-                new[] { measured[1], measured[2], measured[3] },
-                Point(SigmaNumericDomain.One), evidence, evidence, law);
-        }
-
-        private static UInt2[] PackFreshMeasurements(
-            SigmaNativeOracleQuery query) => new[] { query.MeasuredOrder }
-            .Concat(query.MeasuredOptical)
+        private static UInt2[] PackInstrumentCodes(
+            SigmaInstrumentEyeBoundary instrument) =>
+            new[] { instrument.ProjectionDepth01 }
+            .Concat(instrument.OpticalCode)
             .SelectMany(value => new[] { Pack(value.Lower), Pack(value.Upper) })
             .ToArray();
 
@@ -2414,6 +2488,10 @@ namespace Genesis.RoomScan.Tests
         private static int EntryPointIndex(SigmaNativeOracleQuery query) =>
             Array.FindIndex(SigmaGeneratedMerkabaProgram.EntryPoints, value =>
                 value.Id == query.EntryPoint.Id);
+
+        private static int EntryPointIndex(string entryPoint) =>
+            Array.FindIndex(SigmaGeneratedMerkabaProgram.EntryPoints, value =>
+                value.Id == entryPoint);
 
         private static void AssertGpuShadowEqual(GpuShadow expected,
             GpuShadow actual)

@@ -292,38 +292,97 @@ namespace Genesis.RoomScan.SigmaPrism
     // proposed S16 value, gauge address or physical branch identity.
     internal readonly struct SigmaNativeFreshObservationBranch
     {
-        internal SigmaNativeFreshObservationBranch(SigmaNativeOracleQuery left,
-            SigmaNativeOracleQuery right,
+        internal SigmaNativeFreshObservationBranch(
+            SigmaInstrumentEyeBoundary instrumentLeft,
+            SigmaInstrumentEyeBoundary instrumentRight,
             SigmaNativeCoherentQueryContext coherentContext,
-            bool leftFirstHit, bool rightFirstHit,
+            bool leftEvidence, bool rightEvidence,
+            SigmaNativePhotometricLaw leftPhotometricLaw,
+            SigmaNativePhotometricLaw rightPhotometricLaw,
             string provenanceFingerprint)
         {
-            Left = left ?? throw new ArgumentNullException(nameof(left));
-            Right = right ?? throw new ArgumentNullException(nameof(right));
+            InstrumentLeft = instrumentLeft ??
+                throw new ArgumentNullException(nameof(instrumentLeft));
+            InstrumentRight = instrumentRight ??
+                throw new ArgumentNullException(nameof(instrumentRight));
             CoherentContext = coherentContext;
-            LeftFirstHit = leftFirstHit;
-            RightFirstHit = rightFirstHit;
+            LeftEvidence = leftEvidence;
+            RightEvidence = rightEvidence;
+            LeftPhotometricLaw = leftPhotometricLaw ??
+                throw new ArgumentNullException(nameof(leftPhotometricLaw));
+            RightPhotometricLaw = rightPhotometricLaw ??
+                throw new ArgumentNullException(nameof(rightPhotometricLaw));
             ProvenanceFingerprint = provenanceFingerprint ??
                 throw new ArgumentNullException(nameof(provenanceFingerprint));
-            if (!string.Equals(Left.EntryPoint.Id, "SENSOR_LEFT",
+            if (!string.Equals(InstrumentLeft.Side, "LEFT",
                     StringComparison.Ordinal) ||
-                !string.Equals(Right.EntryPoint.Id, "SENSOR_RIGHT",
+                !string.Equals(InstrumentRight.Side, "RIGHT",
                     StringComparison.Ordinal))
                 throw new ArgumentException(
-                    "Fresh admission requires coherent left/right sensor entries.");
+                    "Fresh admission requires raw left/right instrument sides.");
             if (CoherentContext.ObservationRevision == 0 ||
                 CoherentContext.PoseCalibrationFingerprint == null ||
-                ProvenanceFingerprint.Length != 64)
+                ProvenanceFingerprint.Length != 64 ||
+                InstrumentLeft.ObservationRevision !=
+                    CoherentContext.ObservationRevision ||
+                InstrumentRight.ObservationRevision !=
+                    CoherentContext.ObservationRevision ||
+                InstrumentLeft.CalibrationEpoch !=
+                    InstrumentRight.CalibrationEpoch ||
+                !string.Equals(InstrumentLeft.PoseCalibrationFingerprint,
+                    CoherentContext.PoseCalibrationFingerprint,
+                    StringComparison.Ordinal) ||
+                !string.Equals(InstrumentRight.PoseCalibrationFingerprint,
+                    CoherentContext.PoseCalibrationFingerprint,
+                    StringComparison.Ordinal))
                 throw new ArgumentException(
                     "Fresh observation context/provenance is incomplete.");
         }
 
-        internal SigmaNativeOracleQuery Left { get; }
-        internal SigmaNativeOracleQuery Right { get; }
+        internal SigmaInstrumentEyeBoundary InstrumentLeft { get; }
+        internal SigmaInstrumentEyeBoundary InstrumentRight { get; }
         internal SigmaNativeCoherentQueryContext CoherentContext { get; }
-        internal bool LeftFirstHit { get; }
-        internal bool RightFirstHit { get; }
+        internal bool LeftEvidence { get; }
+        internal bool RightEvidence { get; }
+        internal SigmaNativePhotometricLaw LeftPhotometricLaw { get; }
+        internal SigmaNativePhotometricLaw RightPhotometricLaw { get; }
+        internal bool LeftFirstHit => InstrumentLeft.FirstHit;
+        internal bool RightFirstHit => InstrumentRight.FirstHit;
         internal string ProvenanceFingerprint { get; }
+
+        internal bool TryAssembleQueries(out SigmaNativeOracleQuery left,
+            out SigmaNativeOracleQuery right)
+        {
+            left = null;
+            right = null;
+            if (!SigmaGeneratedMerkabaProgram.TryAssembleSensorEye(
+                    InstrumentLeft, out SigmaAssembledSensorEye assembledLeft) ||
+                !SigmaGeneratedMerkabaProgram.TryAssembleSensorEye(
+                    InstrumentRight, out SigmaAssembledSensorEye assembledRight))
+                return false;
+            int footprint = unchecked((int)(CoherentContext.ObservationRevision &
+                int.MaxValue));
+            left = BuildQuery("SENSOR_LEFT", assembledLeft, footprint,
+                LeftEvidence, LeftPhotometricLaw);
+            right = BuildQuery("SENSOR_RIGHT", assembledRight, footprint,
+                RightEvidence, RightPhotometricLaw);
+            return true;
+        }
+
+        private static SigmaNativeOracleQuery BuildQuery(string entryPoint,
+            SigmaAssembledSensorEye assembled, int footprint, bool evidence,
+            SigmaNativePhotometricLaw photometricLaw) =>
+            new(entryPoint, footprint, assembled.Rows[0],
+                new IReadOnlyList<long>[]
+                {
+                    assembled.Rows[1], assembled.Rows[2], assembled.Rows[3],
+                }, assembled.Measured[0],
+                new[]
+                {
+                    assembled.Measured[1], assembled.Measured[2],
+                    assembled.Measured[3],
+                }, assembled.MetricDirectOrder, evidence, evidence,
+                photometricLaw);
     }
 
     internal readonly struct SigmaNativeOracleCell
@@ -809,19 +868,22 @@ namespace Genesis.RoomScan.SigmaPrism
         {
             if (source == null) throw new ArgumentNullException(nameof(source));
             var generatedBranches = new List<SigmaFreshShadowBranch>();
-            var retained = new List<SigmaNativeFreshObservationBranch>();
+            var retained = new List<(SigmaNativeOracleQuery Left,
+                SigmaNativeOracleQuery Right)>();
             try
             {
                 foreach (SigmaNativeFreshObservationBranch branch in source)
                 {
                     if (!TryBuildFreshShadowBranch(branch,
-                            out SigmaFreshShadowBranch generated))
+                            out SigmaFreshShadowBranch generated,
+                            out SigmaNativeOracleQuery left,
+                            out SigmaNativeOracleQuery right))
                     {
                         return SigmaGeneratedMerkabaProgram
                             .TryResolveFreshBaseAdmission(
                                 Array.Empty<SigmaFreshShadowBranch>(), out admission);
                     }
-                    retained.Add(branch);
+                    retained.Add((left, right));
                     generatedBranches.Add(generated);
                 }
                 if (!SigmaGeneratedMerkabaProgram.TryResolveFreshBaseAdmission(
@@ -851,18 +913,23 @@ namespace Genesis.RoomScan.SigmaPrism
 
         private static bool TryBuildFreshShadowBranch(
             SigmaNativeFreshObservationBranch source,
-            out SigmaFreshShadowBranch branch)
+            out SigmaFreshShadowBranch branch,
+            out SigmaNativeOracleQuery left,
+            out SigmaNativeOracleQuery right)
         {
             branch = default;
+            left = null;
+            right = null;
             if (!source.LeftFirstHit || !source.RightFirstHit ||
                 source.CoherentContext.ObservationRevision == 0 ||
-                !IsExactIdentityFreshOpticalLaw(source.Left.PhotometricLaw) ||
-                !IsExactIdentityFreshOpticalLaw(source.Right.PhotometricLaw))
+                !source.TryAssembleQueries(out left, out right) ||
+                !IsExactIdentityFreshOpticalLaw(left.PhotometricLaw) ||
+                !IsExactIdentityFreshOpticalLaw(right.PhotometricLaw))
                 return false;
             var axes = Enumerable.Repeat(SigmaQ48Interval.Full, 4).ToArray();
             int seenAxes = 0;
-            if (!TryPullBackFreshQuery(source.Left, axes, ref seenAxes) ||
-                !TryPullBackFreshQuery(source.Right, axes, ref seenAxes) ||
+            if (!TryPullBackFreshQuery(left, axes, ref seenAxes) ||
+                !TryPullBackFreshQuery(right, axes, ref seenAxes) ||
                 seenAxes != 15 || axes.Any(value => value.IsEmpty))
                 return false;
             branch = new SigmaFreshShadowBranch(axes, 3u, true,

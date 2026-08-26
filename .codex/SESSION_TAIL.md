@@ -2,31 +2,29 @@
 
 ## Exchange 1 — user
 
-Clarified that no external input is missing: existing coherent capture,
-calibration, cone/footprint, depth encoding and photometric pipeline data must be
-assembled into the single authoritative `I_Q` boundary. Explicitly forbade
-identity/same-eye rows, fixed footprints or widths, depth-only admission and any
-host-prebuilt proposed S16/gauge/relation truth. Required corrective N1, then raw
-CPU/Vulkan N2, then exact resumption of the shelved N3 cutover.
+Required continuation without repeated state reload after compaction and demanded
+that existing capture/calibration fields be assembled into the authoritative I_Q
+boundary, with no identity rows, fixed footprints, depth-only exception or
+host-prebuilt query/S16/gauge/relation truth.
 
 ## Exchange 1 — assistant
 
-Shelved N3 including untracked generated/live files and mapped only the directly
-relevant capture/calibration sources. Confirmed PCA exposes post-ISP textures but
-not raw exposure/gain/white-balance metadata; the existing calibrated cone,
-metric-order and 2x2 post-sampler hull remain available.
+Completed corrective N1R-4 at `c3ac16a`: one generated CPU/HLSL adapter maps
+calibrated room-gauge cone rays, finite footprints, metric order and raw depth/RGB
+code regions into eight retained leaves. Focused CPU/Vulkan passes 12/12;
+Runtime/Resources remain +0/-0.
 
 ## Exchange 2 — user
 
-Required implementation to continue without repeatedly reloading the entire
-repository/context after compaction.
+Requested concrete status and ETA through final N3R without weakening fixed run
+gates or regrowing sequential kernels/dispatches.
 
 ## Exchange 2 — assistant
 
-Implemented corrective N1R-4 directly: `I_Q` now constructively maps raw capture
-fields into eight retained leaves, derives calibrated signed/permuted Merkaba rows
-from the actual cone ray with fixed bounded Q48 logic, retains metric order and
-finite footprint, and fingerprints the bounded post-ISP missing-metadata route.
-The sole generator emits CPU/HLSL adapter plans; focused CPU/Vulkan parity passes
-12/12, generator/check and diff gates pass, and Runtime/Resources remain `+0/-0`.
-The N1 checkpoint is being committed before the narrow N2 consumer correction.
+Completed corrective N2R-4 implementation and verification. Fresh admission now
+starts from raw left/right instrument boundaries on CPU and Vulkan. The existing
+64-thread contractor workgroup generates all eight leaves; the graph remains
+Contract->Relation->Contract, three dispatches over two entry points. Focused N2
+passes 15/15 and full EditMode Vulkan 104/104 with Runtime/Resources +0/-0. Next
+action is the separate N2 checkpoint commit, then exact restoration/resumption of
+the shelved N3R cutover.

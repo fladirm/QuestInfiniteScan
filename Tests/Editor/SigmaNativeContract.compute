@@ -31,12 +31,14 @@ StructuredBuffer<uint> _NativeCandidateDeltaHashes;
 RWStructuredBuffer<uint2> _NativeStates;
 StructuredBuffer<uint2> _NativeQueryRows;
 
-// Fresh-admission input is immutable coherent query evidence. It contains no
-// proposed state, gauge address or relation truth. Per branch: one header,
-// 2 eyes x (4 leaves x 4 row coefficients), and 2 eyes x 4 measured intervals.
+// Fresh-admission input is immutable coherent instrument evidence. It contains
+// no prebuilt Merkaba rows, proposed state, gauge address or relation truth.
+// Per branch: two headers, 2 eyes x 3 calibrated room-ray coefficients, and
+// 2 eyes x 4 raw sensor-code intervals. The generated boundary program builds
+// all eight signed/permuted leaves inside this existing workgroup.
 StructuredBuffer<uint4> _NativeFreshObservationHeaders;
-StructuredBuffer<uint2> _NativeFreshQueryRows;
-StructuredBuffer<uint2> _NativeFreshMeasuredLeaves;
+StructuredBuffer<uint2> _NativeFreshRoomRays;
+StructuredBuffer<uint2> _NativeFreshCodeLeaves;
 
 // Exact observation/query data.
 StructuredBuffer<uint2> _NativeObservationOrder;
@@ -89,6 +91,10 @@ groupshared uint SigmaNativeFreshLeafAxis[8];
 groupshared uint SigmaNativeFreshLeafEye[8];
 groupshared uint2 SigmaNativeFreshLeafLower[8];
 groupshared uint2 SigmaNativeFreshLeafUpper[8];
+groupshared uint4 SigmaNativeFreshEyePermutation[2];
+groupshared int SigmaNativeFreshEyeSign[2];
+groupshared uint2 SigmaNativeFreshInstrumentLower[8];
+groupshared uint2 SigmaNativeFreshInstrumentUpper[8];
 groupshared uint2 SigmaNativeFreshAxisLower[4];
 groupshared uint2 SigmaNativeFreshAxisUpper[4];
 groupshared uint2 SigmaNativeFreshSelected[4];
@@ -108,6 +114,14 @@ bool SigmaNativeFreshEntryValid(uint entryPointIndex)
         SIGMA_MERKABA_IR_ENTRY_POINTS[entryPointIndex].x == 7 &&
         SIGMA_MERKABA_IR_ENTRY_POINTS[entryPointIndex].y == 8 &&
         SIGMA_MERKABA_IR_ENTRY_POINTS[entryPointIndex].z == 1;
+}
+
+uint SigmaNativeFreshPermutationAxis(uint eye, uint leaf)
+{
+    uint4 permutation = SigmaNativeFreshEyePermutation[eye];
+    return leaf == 0u ? permutation.x :
+        leaf == 1u ? permutation.y :
+        leaf == 2u ? permutation.z : permutation.w;
 }
 
 uint2 SigmaNativeFreshLiftWeight(int numerator)
@@ -146,63 +160,91 @@ uint SigmaNativeFreshReduceOr(uint threadIndex)
 
 void SigmaNativeFreshLiftBranch(uint branchIndex, uint threadIndex)
 {
-    uint4 header = _NativeFreshObservationHeaders[branchIndex];
+    uint4 header = _NativeFreshObservationHeaders[branchIndex * 2u];
+    uint4 instrument = _NativeFreshObservationHeaders[branchIndex * 2u + 1u];
     uint requiredFlags = SIGMA_NATIVE_FRESH_COHERENT |
         SIGMA_NATIVE_FRESH_LEFT_FIRST_HIT |
         SIGMA_NATIVE_FRESH_RIGHT_FIRST_HIT |
         SIGMA_NATIVE_FRESH_LEFT_EVIDENCE |
         SIGMA_NATIVE_FRESH_RIGHT_EVIDENCE;
+    bool transferValid = instrument.x <= 1u && instrument.y <= 1u;
     bool contextValid = (header.x & requiredFlags) == requiredFlags &&
         (header.y != 0u || header.z != 0u) && header.w != 0u &&
+        instrument.z != 0u && instrument.w != 0u && transferValid &&
         SigmaNativeFreshEntryValid(_NativeFreshLeftEntryPointIndex) &&
         SigmaNativeFreshEntryValid(_NativeFreshRightEntryPointIndex);
 
     SigmaNativeFreshScratch[threadIndex] = 1u;
+    if (threadIndex < 2u)
+    {
+        uint eye = threadIndex;
+        uint rayBase = branchIndex * 6u + eye * 3u;
+        uint2 roomRay[3];
+        [unroll]
+        for (uint component = 0u; component < 3u; ++component)
+            roomRay[component] = _NativeFreshRoomRays[rayBase + component];
+        uint valid = contextValid ? 1u : 0u;
+        uint4 permutation = uint4(0u, 0u, 0u, 0u);
+        int globalSign = 0;
+        SigmaMerkabaBuildInstrumentRowPermutation(roomRay, permutation,
+            globalSign, valid);
+        uint2 codeLower[4];
+        uint2 codeUpper[4];
+        uint codeBase = branchIndex * 16u + eye * 8u;
+        [unroll]
+        for (uint leaf = 0u; leaf < 4u; ++leaf)
+        {
+            codeLower[leaf] = _NativeFreshCodeLeaves[codeBase + leaf * 2u];
+            codeUpper[leaf] = _NativeFreshCodeLeaves[codeBase + leaf * 2u + 1u];
+        }
+        uint2 measuredLower[4];
+        uint2 measuredUpper[4];
+        SigmaMerkabaAssembleInstrumentTangent(codeLower, codeUpper,
+            globalSign, measuredLower, measuredUpper, valid);
+        SigmaNativeFreshEyePermutation[eye] = permutation;
+        SigmaNativeFreshEyeSign[eye] = globalSign;
+        [unroll]
+        for (uint measuredLeaf = 0u; measuredLeaf < 4u; ++measuredLeaf)
+        {
+            uint destination = eye * 4u + measuredLeaf;
+            SigmaNativeFreshInstrumentLower[destination] =
+                measuredLower[measuredLeaf];
+            SigmaNativeFreshInstrumentUpper[destination] =
+                measuredUpper[measuredLeaf];
+        }
+        SigmaNativeFreshScratch[threadIndex] = valid;
+    }
+    GroupMemoryBarrierWithGroupSync();
+
     if (threadIndex < 8u)
     {
         uint eye = threadIndex >> 2u;
         uint leaf = threadIndex & 3u;
-        uint rowBase = branchIndex * 32u + eye * 16u + leaf * 4u;
-        uint axis = 4u;
-        int sign = 0;
-        uint leafValid = contextValid ? 1u : 0u;
-        [unroll]
-        for (uint candidateAxis = 0u; candidateAxis < 4u; ++candidateAxis)
-        {
-            uint2 coefficient = _NativeFreshQueryRows[rowBase + candidateAxis];
-            if (any(coefficient != 0u))
-            {
-                bool positive = SigmaNativeFreshQ48Equal(coefficient,
-                    uint2(0u, 0x00010000u));
-                bool negative = SigmaNativeFreshQ48Equal(coefficient,
-                    uint2(0u, 0xffff0000u));
-                if (axis != 4u || (!positive && !negative))
-                    leafValid = 0u;
-                else
-                {
-                    axis = candidateAxis;
-                    sign = positive ? 1 : -1;
-                }
-            }
-        }
+        uint axis = SigmaNativeFreshPermutationAxis(eye, leaf);
+        uint leafValid = contextValid &&
+            SigmaNativeFreshEyeSign[eye] != 0 ? 1u : 0u;
         leafValid &= axis < 4u ? 1u : 0u;
-        uint measurementBase = branchIndex * 16u + eye * 8u + leaf * 2u;
-        uint2 measuredLower = _NativeFreshMeasuredLeaves[measurementBase];
-        uint2 measuredUpper = _NativeFreshMeasuredLeaves[measurementBase + 1u];
+        uint2 measuredLower = SigmaNativeFreshInstrumentLower[threadIndex];
+        uint2 measuredUpper = SigmaNativeFreshInstrumentUpper[threadIndex];
         leafValid &= !SigmaI64Less(measuredUpper, measuredLower) ? 1u : 0u;
-        uint negateValid = 1u;
-        uint2 pulledLower = measuredLower;
-        uint2 pulledUpper = measuredUpper;
-        if (sign < 0)
-        {
-            pulledLower = SigmaQ48NegateChecked(measuredUpper, negateValid);
-            pulledUpper = SigmaQ48NegateChecked(measuredLower, negateValid);
-        }
-        leafValid &= negateValid;
         SigmaNativeFreshLeafAxis[threadIndex] = axis;
         SigmaNativeFreshLeafEye[threadIndex] = eye;
-        SigmaNativeFreshLeafLower[threadIndex] = pulledLower;
-        SigmaNativeFreshLeafUpper[threadIndex] = pulledUpper;
+        // Generated assembly already applies the calibrated global row sign;
+        // pull it back once to the common native axis for the stereo meet.
+        uint pullValid = leafValid;
+        if (SigmaNativeFreshEyeSign[eye] < 0)
+        {
+            SigmaNativeFreshLeafLower[threadIndex] =
+                SigmaQ48NegateChecked(measuredUpper, pullValid);
+            SigmaNativeFreshLeafUpper[threadIndex] =
+                SigmaQ48NegateChecked(measuredLower, pullValid);
+        }
+        else
+        {
+            SigmaNativeFreshLeafLower[threadIndex] = measuredLower;
+            SigmaNativeFreshLeafUpper[threadIndex] = measuredUpper;
+        }
+        leafValid &= pullValid;
         SigmaNativeFreshScratch[threadIndex] = leafValid;
     }
     GroupMemoryBarrierWithGroupSync();
@@ -312,19 +354,14 @@ void SigmaNativeFreshLiftBranch(uint branchIndex, uint threadIndex)
     {
         uint eye = threadIndex >> 2u;
         uint leaf = threadIndex & 3u;
-        uint rowBase = branchIndex * 32u + eye * 16u + leaf * 4u;
         uint leafForwardValid = forwardPhaseValid;
-        uint2 predicted = uint2(0u, 0u);
-        [unroll]
-        for (uint forwardAxis = 0u; forwardAxis < 4u; ++forwardAxis)
-            predicted = SigmaQ48AddChecked(predicted,
-                SigmaQ48MulNearestEven(SigmaNativeFreshForward[forwardAxis],
-                    _NativeFreshQueryRows[rowBase + forwardAxis],
-                    leafForwardValid), leafForwardValid);
-        uint measurementBase = branchIndex * 16u + eye * 8u + leaf * 2u;
+        uint axis = SigmaNativeFreshPermutationAxis(eye, leaf);
+        uint2 predicted = SigmaNativeFreshForward[axis];
+        if (SigmaNativeFreshEyeSign[eye] < 0)
+            predicted = SigmaQ48NegateChecked(predicted, leafForwardValid);
         leafForwardValid &= SigmaNativePointInInterval(predicted,
-            _NativeFreshMeasuredLeaves[measurementBase],
-            _NativeFreshMeasuredLeaves[measurementBase + 1u]) ? 1u : 0u;
+            SigmaNativeFreshInstrumentLower[threadIndex],
+            SigmaNativeFreshInstrumentUpper[threadIndex]) ? 1u : 0u;
         SigmaNativeFreshScratch[threadIndex] = leafForwardValid;
     }
     uint rawForwardValid = SigmaNativeFreshReduceAnd(threadIndex);

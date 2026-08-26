@@ -8,9 +8,9 @@ Updated: 2026-08-26 (Europe/Prague)
 - Branch: `feat/sigma-prism-16-cpq4-20260822`.
 - Runtime replacement baseline: `cac9ab012f4ce574e5eb9bee88290982fd9c4fe8`.
 - Accepted primitive milestones: S4‑00 through S4‑07 where compatible with v8.3.
-- Active node: S4‑08. Corrective N1R-4 constructive `I_Q` boundary is accepted.
-  The prior N2R-3 proof is invalidated by the new program fingerprint; narrow
-  non-mutating corrective N2R is active. N3R remains shelved at its hard stop.
+- Active node: S4‑08. Corrective N1R-4 constructive `I_Q` boundary and its
+  production-neutral N2R-4 consumer proof are accepted. N3R is the sole next run
+  and resumes from its shelved hard stop.
 - Active repair: S4‑08.6 one-medium native closure.
 - Frozen plan: `.codex/S4-08.6_NATIVE_CLOSURE_PLAN.md`.
 - Sole routine cursor: `.codex/S4-08.6_RESUME.md`.
@@ -334,7 +334,7 @@ duplicate compatible revisits                                              10000
 Verified on Unity `6000.5.9f1` with Vulkan:
 
 ```text
-EditMode                             103/103 passed, 0 failed
+EditMode                             104/104 passed, 0 failed
 focused N2R fixture groups            15/15 passed
 generator regeneration/check         passed; N1 fingerprint unchanged
 compute UAV <= 8                     passed
@@ -352,8 +352,9 @@ constant-catalog size diagnostic remains a compiler lowering warning, not hidden
 serial work; its complete table is exercised bitwise. Existing production-shader
 warnings are outside this production-neutral N2 diff.
 
-The fresh-admission supplement adds `+1013/-2` non-production oracle/test source
-lines over corrective N1R `63c042a`; no Unity asset or entry point is added. The
+The N2R-4 raw-boundary supplement adds `+333/-151` non-production oracle/test
+source lines over corrective N1R-4 `c3ac16a`; no Unity asset or entry point is
+added. The
 earlier N2R oracle remains confined to Editor/Vulkan proof code. Production remains
 exactly `+0/-0`; the
 accepted runtime is untouched. These Editor timings validate semantics and graph
@@ -397,9 +398,11 @@ uninitialized diagnostic in every N2 consumer.
 
 This is still an authority/test-generated N1 cut: Runtime/Resources remain
 byte-identical to `a129a85` and `cac9ab0`, at the frozen 17,274 production LOC.
-The corrective N2 checkpoint now proves this operation from raw coherent
-observation branches. N3 may bind it but may not recreate the constructor in live
-host/shader code.
+The corrective N2 checkpoint now proves this operation from calibrated raw
+left/right instrument boundaries. Room-gauge cone rays and four code intervals
+per eye are assembled by the generated program inside the existing 64-thread
+contractor workgroup. N3 may bind it but may not recreate the adapter or
+constructor in live host/shader code.
 
 ## N0R implementation-safety correction
 
@@ -452,6 +455,7 @@ N2R run delta vs eacf261                    +0 / -0 / net 0
 N2R non-production source / metadata        +5003 / +27
 N2R correction vs rejected b4d88d6           +1085 / -233
 fresh N2 supplement vs 63c042a                +1013 / -2 test source
+N2R-4 raw boundary vs c3ac16a                 +333 / -151 / net +182 test-only
 corrective checkpoint vs b541635            +0 / -392 / net -392
 N1R run delta vs df5200f                    +0 / -0 / net 0
 N2R gross deletion vs cac9ab0               0
