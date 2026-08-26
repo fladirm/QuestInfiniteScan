@@ -9,13 +9,49 @@ Updated: 2026-08-26 (Europe/Prague)
 - Runtime replacement baseline: `cac9ab012f4ce574e5eb9bee88290982fd9c4fe8`.
 - Accepted primitive milestones: S4‑00 through S4‑07 where compatible with v8.3.
 - Active node: S4‑08. Corrective N1R-4 and N2R-4 are accepted. N3R has completed
-  its live joint-close cutover and Quest recovery/device gates; N4R is the sole
-  next run. S4-09 remains unopened.
+  its live joint-close cutover and Quest recovery/device gates. N4R is in
+  progress and is not accepted; S4-09 remains unopened.
 - Active repair: S4‑08.6 one-medium native closure.
 - Frozen plan: `.codex/S4-08.6_NATIVE_CLOSURE_PLAN.md`.
 - Sole routine cursor: `.codex/S4-08.6_RESUME.md`.
 - Forensic facts and replacement matrix: `analyza.md`.
 - S4‑09 remains pending/unopened.
+
+## N4R in-progress audit checkpoint
+
+The working tree implements the structural N4 representation slice without
+changing the fixed native graph: exact `chi/kappa` representation records,
+four-way repeatable arbitrary-parent refinement, atomic state/gauge/certificate
+publication, representation-aware codec parity, static exclusion and an exact
+durable unresolved-constraint journal. The live graph remains nine native
+dispatches. Unity Vulkan EditMode passes 74/74, generator/check/UAV/diff gates
+pass, and the Release APK builds and installs.
+
+N4R is deliberately not accepted. Quest evidence exposed a deterministic
+main/XR-thread history-scaling defect in the first journal implementation:
+
+```text
+completion batch                          16 records x 352 bytes
+journal at observed failure               >2600 unique unresolved factors
+revision 2032 -> 2033 gap                 0.800 s
+revision 2160 -> 2161 gap                 0.854 s
+observed native-close maximum             4.432 s
+GPU native-close dispatch count           9 (unchanged)
+```
+
+The transfer size and carrier memory are not the cause. After every admitted
+record, `SigmaExactConstraintJournal.Add` scans the full journal and calls
+`_entries.Sort(CompareEntries)`. The comparator regenerates allocated 272-byte
+canonical encodings for both operands on every comparison. Startup `Load()`
+performs the same whole-journal sort. The cost therefore grows with historical
+unresolved evidence and is delivered in 16-record bursts by the completion
+batch. This violates the N4 bounded-proof/no-history-hot-path contract.
+
+Exact next action: preserve journal semantics and file compatibility while
+replacing per-record global scan/sort with an exact context index and immutable
+cached canonical encodings; capture only immutable snapshots on the frame thread
+and perform canonical ordering/serialization on the persistence worker. Re-run
+Unity/Vulkan and Quest start plus 16-boundary cadence before N4 acceptance.
 
 ## Device-proven starting point
 

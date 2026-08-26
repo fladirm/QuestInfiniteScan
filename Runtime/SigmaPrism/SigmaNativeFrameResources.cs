@@ -16,6 +16,8 @@ namespace Genesis.RoomScan.SigmaPrism
         internal const int LiveFreshBranchCount = 1;
         internal const int RelationCapacity = LiveFreshBranchCount * 2;
         internal const int StatesPerSlot = LiveFreshBranchCount + 3;
+        internal const int RepresentationDeltaCapacity = 4;
+        internal const int CertificateWordCount = 16;
 
         internal SigmaNativeFrameSlotResources(int index)
         {
@@ -24,15 +26,6 @@ namespace Genesis.RoomScan.SigmaPrism
             Observation = Buffer<SigmaNativeObservationGpu>(1,
                 SigmaGeneratedFrame.NativeObservationStride,
                 $"native observation {index}");
-            // Two immutable instrument-context records per reverse branch.
-            // The generated contractor derives rows from calibrated room rays;
-            // no host/prebuilt Merkaba row crosses this boundary.
-            FreshObservationHeaders = CreateUInt4Buffer(FreshBranchCapacity * 2,
-                $"native fresh headers {index}");
-            FreshRoomRays = UInt2(FreshBranchCapacity * 6,
-                $"native fresh room rays {index}");
-            FreshCodeLeaves = UInt2(FreshBranchCapacity * 16,
-                $"native fresh code leaves {index}");
             States = UInt2(StatesPerSlot * SigmaS16.LaneCount,
                 $"native states {index}");
 
@@ -55,21 +48,20 @@ namespace Genesis.RoomScan.SigmaPrism
                 $"native branch headers {index}");
             BranchSupports = UInt2(FreshBranchCapacity + 1,
                 $"native branch supports {index}");
-            BranchActions = CreateUInt4Buffer(FreshBranchCapacity,
-                $"native branch actions {index}");
             BranchPredictions = CreateUInt4Buffer(FreshBranchCapacity * 4,
                 $"native branch predictions {index}");
-            BranchRelationFactors = CreateUInt4Buffer(FreshBranchCapacity,
-                $"native branch relation factors {index}");
-            BranchRelationHashes = CreateUInt4Buffer(FreshBranchCapacity,
-                $"native branch relation hashes {index}");
 
-            StateDelta = Buffer<SigmaNativeStateDeltaGpu>(1,
+            StateDelta = Buffer<SigmaNativeStateDeltaGpu>(
+                RepresentationDeltaCapacity,
                 SigmaGeneratedFrame.NativeStateDeltaStride,
                 $"native state delta {index}");
-            GaugeDelta = Buffer<SigmaNativeGaugeDeltaGpu>(1,
+            GaugeDelta = Buffer<SigmaNativeGaugeDeltaGpu>(
+                RepresentationDeltaCapacity,
                 SigmaGeneratedFrame.NativeGaugeDeltaStride,
                 $"native gauge delta {index}");
+            LocalityCertificateWords = CreateUInt4Buffer(
+                (RepresentationDeltaCapacity + 1) * CertificateWordCount,
+                $"native locality certificates {index}");
             Unresolved = Buffer<SigmaUnresolvedConstraintGpu>(1,
                 SigmaGeneratedFrame.UnresolvedConstraintStride,
                 $"native unresolved constraint {index}");
@@ -77,19 +69,12 @@ namespace Genesis.RoomScan.SigmaPrism
                 SigmaGeneratedFrame.NativeFieldRevisionStride,
                 $"native revisions {index}");
             Counters = CreateUInt4Buffer(4, $"native counters {index}");
-            DummyUInt4 = CreateUInt4Buffer(32, $"native uint4 scratch {index}");
-            DummyUInt2 = UInt2(64, $"native uint2 scratch {index}");
-            DummyUInt = new GraphicsBuffer(GraphicsBuffer.Target.Structured,
-                4, sizeof(uint)) { name = $"native uint scratch {index}" };
 
             InitializeRelationDescriptors();
         }
 
         internal GraphicsBuffer NativeFrame { get; }
         internal GraphicsBuffer Observation { get; }
-        internal GraphicsBuffer FreshObservationHeaders { get; }
-        internal GraphicsBuffer FreshRoomRays { get; }
-        internal GraphicsBuffer FreshCodeLeaves { get; }
         internal GraphicsBuffer States { get; }
         internal GraphicsBuffer RelationInputs { get; }
         internal GraphicsBuffer RelationPlans { get; }
@@ -100,42 +85,30 @@ namespace Genesis.RoomScan.SigmaPrism
         internal GraphicsBuffer RelationNorms { get; }
         internal GraphicsBuffer BranchHeaders { get; }
         internal GraphicsBuffer BranchSupports { get; }
-        internal GraphicsBuffer BranchActions { get; }
         internal GraphicsBuffer BranchPredictions { get; }
-        internal GraphicsBuffer BranchRelationFactors { get; }
-        internal GraphicsBuffer BranchRelationHashes { get; }
         internal GraphicsBuffer StateDelta { get; }
         internal GraphicsBuffer GaugeDelta { get; }
+        internal GraphicsBuffer LocalityCertificateWords { get; }
         internal GraphicsBuffer Unresolved { get; }
         internal GraphicsBuffer Revisions { get; }
         internal GraphicsBuffer Counters { get; }
-        internal GraphicsBuffer DummyUInt4 { get; }
-        internal GraphicsBuffer DummyUInt2 { get; }
-        internal GraphicsBuffer DummyUInt { get; }
         internal bool Leased { get; set; }
 
         internal long OwnedBytes =>
-            Bytes(NativeFrame) + Bytes(Observation) +
-            Bytes(FreshObservationHeaders) + Bytes(FreshRoomRays) +
-            Bytes(FreshCodeLeaves) + Bytes(States) +
+            Bytes(NativeFrame) + Bytes(Observation) + Bytes(States) +
             Bytes(RelationInputs) + Bytes(RelationPlans) +
             Bytes(RelationNearIntervals) + Bytes(RelationResults) +
             Bytes(RelationFactors) + Bytes(RelationHashes) +
             Bytes(RelationNorms) + Bytes(BranchHeaders) +
-            Bytes(BranchSupports) + Bytes(BranchActions) +
-            Bytes(BranchPredictions) + Bytes(BranchRelationFactors) +
-            Bytes(BranchRelationHashes) + Bytes(StateDelta) +
-            Bytes(GaugeDelta) + Bytes(Unresolved) + Bytes(Revisions) +
-            Bytes(Counters) + Bytes(DummyUInt4) + Bytes(DummyUInt2) +
-            Bytes(DummyUInt);
+            Bytes(BranchSupports) + Bytes(BranchPredictions) + Bytes(StateDelta) +
+            Bytes(GaugeDelta) + Bytes(LocalityCertificateWords) +
+            Bytes(Unresolved) + Bytes(Revisions) +
+            Bytes(Counters);
 
         public void Dispose()
         {
             NativeFrame.Dispose();
             Observation.Dispose();
-            FreshObservationHeaders.Dispose();
-            FreshRoomRays.Dispose();
-            FreshCodeLeaves.Dispose();
             States.Dispose();
             RelationInputs.Dispose();
             RelationPlans.Dispose();
@@ -146,18 +119,13 @@ namespace Genesis.RoomScan.SigmaPrism
             RelationNorms.Dispose();
             BranchHeaders.Dispose();
             BranchSupports.Dispose();
-            BranchActions.Dispose();
             BranchPredictions.Dispose();
-            BranchRelationFactors.Dispose();
-            BranchRelationHashes.Dispose();
             StateDelta.Dispose();
             GaugeDelta.Dispose();
+            LocalityCertificateWords.Dispose();
             Unresolved.Dispose();
             Revisions.Dispose();
             Counters.Dispose();
-            DummyUInt4.Dispose();
-            DummyUInt2.Dispose();
-            DummyUInt.Dispose();
         }
 
         private void InitializeRelationDescriptors()

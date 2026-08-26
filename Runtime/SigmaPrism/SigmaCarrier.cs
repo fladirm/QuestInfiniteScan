@@ -25,7 +25,8 @@ namespace Genesis.RoomScan.SigmaPrism
     public readonly struct SigmaCarrierReadBatch
     {
         internal SigmaCarrierReadBatch(int segmentIndex, int capacity,
-            int pairFirst, GraphicsBuffer state, GraphicsBuffer metadata,
+            int pairFirst, GraphicsBuffer state, GraphicsBuffer representation,
+            GraphicsBuffer metadata,
             GraphicsBuffer dirtyFlags, GraphicsBuffer readoutDirtyFlags,
             GraphicsBuffer publicationRoot)
         {
@@ -33,6 +34,7 @@ namespace Genesis.RoomScan.SigmaPrism
             PageCapacity = capacity;
             PairFirst = pairFirst;
             State = state;
+            Representation = representation;
             Metadata = metadata;
             DirtyFlags = dirtyFlags;
             ReadoutDirtyFlags = readoutDirtyFlags;
@@ -45,6 +47,7 @@ namespace Genesis.RoomScan.SigmaPrism
         public int PairCount => PageCapacity / 2;
         public ulong ReadoutRevision => 1UL;
         public GraphicsBuffer State { get; }
+        internal GraphicsBuffer Representation { get; }
         public GraphicsBuffer Metadata { get; }
         public GraphicsBuffer DirtyFlags { get; }
         public GraphicsBuffer ReadoutDirtyFlags { get; }
@@ -63,7 +66,13 @@ namespace Genesis.RoomScan.SigmaPrism
         public const int PackedLaneBytes = sizeof(uint) * 2;
         public const int PageLaneCount = SamplesPerPage * LanesPerSample;
         public const int DecodedPageBytes = PageLaneCount * PackedLaneBytes;
-        public const int PageMetadataStride = 12 * sizeof(uint);
+        public const int RepresentationWordsPerSample = 18;
+        public const int RepresentationWordBytes = sizeof(uint) * 4;
+        public const int RepresentationPageBytes = SamplesPerPage *
+            RepresentationWordsPerSample * RepresentationWordBytes;
+        public const int ResidentPageBytes = DecodedPageBytes +
+            RepresentationPageBytes;
+        public const int PageMetadataStride = 16 * sizeof(uint);
         public const int MaximumPagesPerSegment = 256;
         public const int DefaultDecodedBudgetMegabytes = 1024;
         // N3 owns only the base-density current/shadow pair.  The decoded
@@ -108,14 +117,16 @@ namespace Genesis.RoomScan.SigmaPrism
                 "InitializeGpuPool");
 
             long bindingLimit = SystemInfo.maxGraphicsBufferSize;
-            if (bindingLimit < DecodedPageBytes)
+            long largestPageBinding = Math.Max(DecodedPageBytes,
+                RepresentationPageBytes);
+            if (bindingLimit < largestPageBinding)
                 throw new InvalidOperationException(
                     $"Vulkan storage-buffer range {bindingLimit} cannot hold one " +
-                    $"{DecodedPageBytes}-byte Sigma page.");
+                    $"{largestPageBinding}-byte Sigma representation page.");
             _pagesPerSegment = ComputeSegmentPageCapacity(bindingLimit);
             _decodedBudgetPages = Math.Max(2,
                 checked((int)Math.Min(int.MaxValue,
-                    decodedBudgetMegabytes * MiB / DecodedPageBytes))) & ~1;
+                    decodedBudgetMegabytes * MiB / ResidentPageBytes))) & ~1;
             _publicationRoot = new GraphicsBuffer(GraphicsBuffer.Target.Structured,
                 1, sizeof(uint)) { name = "Sigma carrier publication root" };
             _publicationRoot.SetData(new uint[1]);
@@ -162,15 +173,19 @@ namespace Genesis.RoomScan.SigmaPrism
 
         public static int ComputeSegmentPageCapacity(long bindingLimit)
         {
-            if (bindingLimit < DecodedPageBytes)
+            long largestPageBinding = Math.Max(DecodedPageBytes,
+                RepresentationPageBytes);
+            if (bindingLimit < largestPageBinding)
                 throw new ArgumentOutOfRangeException(nameof(bindingLimit));
-            long aligned = bindingLimit / DecodedPageBytes * DecodedPageBytes;
-            if (aligned == bindingLimit && aligned >= 2L * DecodedPageBytes)
-                aligned -= DecodedPageBytes;
+            long aligned = bindingLimit / largestPageBinding *
+                largestPageBinding;
+            if (aligned == bindingLimit &&
+                aligned >= 2L * largestPageBinding)
+                aligned -= largestPageBinding;
             long maximum = checked((long)MaximumPagesPerSegment *
-                DecodedPageBytes);
+                largestPageBinding);
             int pages = checked((int)(Math.Min(maximum, aligned) /
-                DecodedPageBytes));
+                largestPageBinding));
             if (pages < 2)
                 throw new InvalidOperationException(
                     "A Sigma carrier segment requires one current/shadow pair.");
@@ -202,6 +217,8 @@ namespace Genesis.RoomScan.SigmaPrism
             _carrierShader.SetBuffer(_initializeGpuPoolKernel,
                 "_TargetCarrierState", segment.State);
             _carrierShader.SetBuffer(_initializeGpuPoolKernel,
+                "_TargetCarrierRepresentation", segment.Representation);
+            _carrierShader.SetBuffer(_initializeGpuPoolKernel,
                 "_PageMetadata", segment.Metadata);
             _carrierShader.SetBuffer(_initializeGpuPoolKernel,
                 "_DirtyFlags", segment.DirtyFlags);
@@ -218,7 +235,8 @@ namespace Genesis.RoomScan.SigmaPrism
                 pairFirst += _segments[index].Capacity / 2;
             CarrierSegment segment = _segments[segmentIndex];
             return new SigmaCarrierReadBatch(segmentIndex, segment.Capacity,
-                pairFirst, segment.State, segment.Metadata, segment.DirtyFlags,
+                pairFirst, segment.State, segment.Representation,
+                segment.Metadata, segment.DirtyFlags,
                 segment.ReadoutDirtyFlags, _publicationRoot);
         }
 
@@ -236,6 +254,11 @@ namespace Genesis.RoomScan.SigmaPrism
                 State = Create(GraphicsBuffer.Target.Structured,
                     checked(capacity * PageLaneCount), PackedLaneBytes,
                     $"Sigma carrier state {index}");
+                Representation = Create(GraphicsBuffer.Target.Structured,
+                    checked(capacity * SamplesPerPage *
+                        RepresentationWordsPerSample),
+                    RepresentationWordBytes,
+                    $"Sigma carrier representation {index}");
                 Metadata = Create(GraphicsBuffer.Target.Structured, capacity,
                     PageMetadataStride, $"Sigma carrier metadata {index}");
                 DirtyFlags = Create(GraphicsBuffer.Target.Structured, capacity,
@@ -249,6 +272,7 @@ namespace Genesis.RoomScan.SigmaPrism
 
             public int Capacity { get; }
             public GraphicsBuffer State { get; }
+            public GraphicsBuffer Representation { get; }
             public GraphicsBuffer Metadata { get; }
             public GraphicsBuffer DirtyFlags { get; }
             public GraphicsBuffer ReadoutDirtyFlags { get; }
@@ -256,6 +280,7 @@ namespace Genesis.RoomScan.SigmaPrism
             public void Dispose()
             {
                 State.Dispose();
+                Representation.Dispose();
                 Metadata.Dispose();
                 DirtyFlags.Dispose();
                 ReadoutDirtyFlags.Dispose();

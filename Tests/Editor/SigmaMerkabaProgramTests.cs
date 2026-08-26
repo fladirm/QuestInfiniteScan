@@ -502,6 +502,19 @@ namespace Genesis.RoomScan.Tests
             foreach (SigmaGaugeCell[] permutation in Permutations(children))
                 Assert.That(SigmaGeneratedMerkabaProgram.CanonicalGaugeSerialization(
                     permutation), Is.EqualTo(parentSerialization));
+            SigmaGaugeCell[] wide =
+            {
+                new(0L, 1L, 0, "wide-a"),
+                new(0L, 1L << 32, 0, "wide-b"),
+                new(1L, 0L, 0, "wide-c"),
+                new(1L << 32, 0L, 0, "wide-d"),
+            };
+            string wideNormal = SigmaGeneratedMerkabaProgram
+                .CanonicalGaugeSerialization(wide);
+            foreach (SigmaGaugeCell[] permutation in Permutations(wide))
+                Assert.That(SigmaGeneratedMerkabaProgram
+                    .CanonicalGaugeSerialization(permutation),
+                    Is.EqualTo(wideNormal));
             Assert.That(SigmaGeneratedMerkabaProgram.TryNormalizeFreshSupport(
                 new IEnumerable<SigmaGaugeCell>[] { children, translated },
                 out string freshSerialization), Is.True);
@@ -639,18 +652,21 @@ namespace Genesis.RoomScan.Tests
             int freshKernel = shader.FindKernel("MerkabaFreshAdmissionParity");
             int instrumentKernel = shader.FindKernel(
                 "MerkabaInstrumentBoundaryParity");
+            int gaugeKernel = shader.FindKernel("MerkabaGaugeParity");
             var results = new UInt4[16 * 16 * 16];
             var matrices = new UInt4[16 * 16];
             var ir = new UInt4[SigmaGeneratedMerkabaProgram.IrNodeCount * 2];
             var actions = new UInt4[4];
             var fresh = new UInt4[23];
             var instrument = new UInt4[8];
+            var gauge = new UInt4[40];
             using var resultBuffer = Buffer(results.Length);
             using var matrixBuffer = Buffer(matrices.Length);
             using var irBuffer = Buffer(ir.Length);
             using var actionBuffer = Buffer(actions.Length);
             using var freshBuffer = Buffer(fresh.Length);
             using var instrumentBuffer = Buffer(instrument.Length);
+            using var gaugeBuffer = Buffer(gauge.Length);
             shader.SetBuffer(programKernel, "_MerkabaResults", resultBuffer);
             shader.Dispatch(programKernel, 1, 1, 16);
             shader.SetBuffer(matrixKernel, "_MerkabaMatrixResults", matrixBuffer);
@@ -663,12 +679,17 @@ namespace Genesis.RoomScan.Tests
             shader.SetBuffer(instrumentKernel, "_MerkabaInstrumentResults",
                 instrumentBuffer);
             shader.Dispatch(instrumentKernel, 1, 1, 1);
+            shader.SetBuffer(gaugeKernel, "_MerkabaGaugeResults", gaugeBuffer);
+            shader.SetInts("_MerkabaGaugeParentCoordinate", 5, 0, -3, -1);
+            shader.SetInt("_MerkabaGaugeParentLevel", 0);
+            shader.Dispatch(gaugeKernel, 1, 1, 1);
             resultBuffer.GetData(results);
             matrixBuffer.GetData(matrices);
             irBuffer.GetData(ir);
             actionBuffer.GetData(actions);
             freshBuffer.GetData(fresh);
             instrumentBuffer.GetData(instrument);
+            gaugeBuffer.GetData(gauge);
 
             for (int c = 0; c < 16; ++c)
             for (int b = 0; b < 16; ++b)
@@ -789,10 +810,77 @@ namespace Genesis.RoomScan.Tests
                 Assert.That(Join(instrument[4 + leaf].Z,
                     instrument[4 + leaf].W), Is.EqualTo(expected));
             }
+            SigmaGaugeCell[] expectedChildren =
+                SigmaGeneratedMerkabaProgram.SplitGaugeCell(
+                    new SigmaGaugeCell(5L, -3L, 0, "gauge-parity"));
+            for (int child = 0; child < expectedChildren.Length; ++child)
+            {
+                Assert.That(Join(gauge[child * 2].X,
+                    gauge[child * 2].Y), Is.EqualTo(expectedChildren[child].U));
+                Assert.That(Join(gauge[child * 2].Z,
+                    gauge[child * 2].W), Is.EqualTo(expectedChildren[child].V));
+                Assert.That(gauge[child * 2 + 1].X,
+                    Is.EqualTo((uint)expectedChildren[child].Level));
+                Assert.That(gauge[child * 2 + 1].Y, Is.EqualTo(1u));
+                for (int peer = 0; peer < expectedChildren.Length; ++peer)
+                {
+                    UInt4 order = gauge[8 + child * 4 + peer];
+                    Assert.That(order.Y, Is.EqualTo(1u));
+                    Assert.That(order.X, Is.EqualTo(
+                        GaugeLess(expectedChildren[child], expectedChildren[peer])
+                            ? 1u : 0u));
+                }
+            }
+            SigmaGaugeCell[] wideCoordinates =
+            {
+                new(0L, 1L, 0, "wide-0"),
+                new(0L, 1L << 32, 0, "wide-1"),
+                new(1L, 0L, 0, "wide-2"),
+                new(1L << 32, 0L, 0, "wide-3"),
+            };
+            for (int index = 0; index < wideCoordinates.Length; ++index)
+            for (int peer = 0; peer < wideCoordinates.Length; ++peer)
+            {
+                UInt4 order = gauge[24 + index * 4 + peer];
+                Assert.That(order.Y, Is.EqualTo(1u));
+                Assert.That(order.X, Is.EqualTo(
+                    GaugeLess(wideCoordinates[index], wideCoordinates[peer])
+                        ? 1u : 0u));
+            }
         }
 
         private static long Join(uint low, uint high) =>
             unchecked((long)(((ulong)high << 32) | low));
+
+        private static bool GaugeLess(SigmaGaugeCell left, SigmaGaugeCell right)
+        {
+            if (left.Level != right.Level) return left.Level < right.Level;
+            System.Numerics.BigInteger leftMorton = SignedMorton(left.U, left.V);
+            System.Numerics.BigInteger rightMorton = SignedMorton(right.U, right.V);
+            if (leftMorton != rightMorton) return leftMorton < rightMorton;
+            if (left.U != right.U) return left.U < right.U;
+            return left.V < right.V;
+        }
+
+        private static System.Numerics.BigInteger SignedMorton(long u, long v)
+        {
+            System.Numerics.BigInteger x = u >= 0L
+                ? (System.Numerics.BigInteger)u * 2
+                : -(System.Numerics.BigInteger)u * 2 - 1;
+            System.Numerics.BigInteger y = v >= 0L
+                ? (System.Numerics.BigInteger)v * 2
+                : -(System.Numerics.BigInteger)v * 2 - 1;
+            System.Numerics.BigInteger result =
+                System.Numerics.BigInteger.Zero;
+            for (int bit = 0; bit < 64; ++bit)
+            {
+                result |= ((x >> bit) & System.Numerics.BigInteger.One) <<
+                    (bit * 2);
+                result |= ((y >> bit) & System.Numerics.BigInteger.One) <<
+                    (bit * 2 + 1);
+            }
+            return result;
+        }
 
         private static SigmaCertificateFactor Factor(string scope,
             string expression, string independence, string provenance,

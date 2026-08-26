@@ -132,22 +132,22 @@ void CanonicalSelfTest(uint3 id : SV_DispatchThreadID)
         uint2(0u, 0x00010000u), valid);
     gate &= (valid == 0u ? 1u : 0u);
 
-    uint2 nullState[16];
+    uint2 zeroDivisorWitness[16];
     [unroll]
     for (uint lane = 0u; lane < 16u; ++lane)
-        nullState[lane] = uint2(0u, 0u);
-    nullState[(uint)SIGMA_Z_NULL_DYAD.x] = SIGMA_Z_NULL_DYAD.y < 0 ?
+        zeroDivisorWitness[lane] = uint2(0u, 0u);
+    zeroDivisorWitness[(uint)SIGMA_Z_NULL_DYAD.x] = SIGMA_Z_NULL_DYAD.y < 0 ?
         uint2(0u, 0xffff0000u) : uint2(0u, 0x00010000u);
-    nullState[(uint)SIGMA_Z_NULL_DYAD.z] = SIGMA_Z_NULL_DYAD.w < 0 ?
+    zeroDivisorWitness[(uint)SIGMA_Z_NULL_DYAD.z] = SIGMA_Z_NULL_DYAD.w < 0 ?
         uint2(0u, 0xffff0000u) : uint2(0u, 0x00010000u);
     valid = 1u;
     uint2 geometry[4];
-    SigmaGeometryGPlan(nullState, geometry, valid);
+    SigmaGeometryGPlan(zeroDivisorWitness, geometry, valid);
     [unroll]
     for (uint lane = 0u; lane < 4u; ++lane)
         gate &= all(geometry[lane] == 0u) ? 1u : 0u;
     uint2 annihilated[16];
-    SigmaRightSignedDyadAction(nullState,
+    SigmaRightSignedDyadAction(zeroDivisorWitness,
         SIGMA_ANNIHILATOR_ACTIONS[SIGMA_Z_NULL_ANNIHILATOR_ACTION],
         annihilated, valid);
     [unroll]

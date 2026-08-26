@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Runtime.InteropServices;
 using UnityEngine;
 using UnityEngine.Experimental.Rendering;
@@ -47,9 +48,9 @@ namespace Genesis.RoomScan.SigmaPrism
 
         private readonly Queue<SigmaPredictionFrameLease> _pendingIngress =
             new();
-        private readonly Queue<SigmaUnresolvedEvidenceRecord> _unresolvedEvidence =
-            new();
-        private readonly List<SigmaNativeEvidenceReceipt> _evidenceReceipts =
+        private SigmaExactConstraintJournal _constraintJournal = new();
+        private SigmaExactConstraintStore _constraintStore;
+        private readonly SigmaNativeCompletionTransfer _completionTransfer =
             new();
         private readonly SigmaPackedQ48[] _calibrationUpload =
             new SigmaPackedQ48[CalibrationStride * 2];
@@ -62,7 +63,6 @@ namespace Genesis.RoomScan.SigmaPrism
         private SigmaRuntimeTelemetrySnapshot _runtimeTelemetry =
             SigmaRuntimeTelemetrySnapshot.Awaiting;
 
-        private RoomScanner _scanner;
         private SigmaCarrier _carrier;
         private SigmaRenderer _renderer;
         private SigmaRigBridge _rigBridge;
@@ -97,14 +97,10 @@ namespace Genesis.RoomScan.SigmaPrism
         public bool IsInitialized => _initialized && !_disposed;
         public long SubmittedFrames { get; private set; }
         public long CommittedFrames { get; private set; }
-        public long DroppedFrames { get; private set; }
         public long FailedFrames { get; private set; }
-        public long CommittedPageGenerations { get; private set; }
-        public long AllocatedGaugePages { get; private set; }
         public long PeakCompletionAgeFrames { get; private set; }
         public int CompletionTickets => CountCompletionTickets() +
             SigmaGpuRetirement.PendingCount;
-        public GraphicsBuffer PerformanceCounters => null;
         public SigmaRuntimeTelemetrySnapshot RuntimeTelemetry =>
             _runtimeTelemetry;
 
@@ -112,7 +108,11 @@ namespace Genesis.RoomScan.SigmaPrism
         {
             if (_initialized)
                 return;
-            _scanner = scanner ?? throw new ArgumentNullException(nameof(scanner));
+            if (scanner == null) throw new ArgumentNullException(nameof(scanner));
+            _constraintStore = new SigmaExactConstraintStore(Path.Combine(
+                Application.persistentDataPath, "SigmaPrism",
+                "unresolved-native-constraints.sjc"));
+            _constraintJournal = _constraintStore.Load();
             _carrier = scanner.Carrier ?? GetComponent<SigmaCarrier>();
             _renderer = scanner.SigmaRenderer ?? GetComponent<SigmaRenderer>();
             _rigBridge = scanner.RigBridge ?? GetComponent<SigmaRigBridge>();
@@ -120,6 +120,10 @@ namespace Genesis.RoomScan.SigmaPrism
                 throw new InvalidOperationException(
                     "Sigma inverse requires the exact backend gate.");
             SigmaGpuCompletion.RequireSupported();
+            if (!SystemInfo.supportsAsyncGPUReadback)
+                throw new InvalidOperationException(
+                    "Sigma exact persistence handoff requires asynchronous " +
+                    "GPU transfer support.");
 
             _normalizeShader = Resources.Load<ComputeShader>(
                 DepthNormalizeResource);
@@ -177,6 +181,9 @@ namespace Genesis.RoomScan.SigmaPrism
                 return;
 
             PollIngress();
+            DrainCompletionTransfers();
+            if (!_running && !HasInFlightIngress())
+                _completionTransfer.FlushOpenAfterGpuIdle();
             FrameTimingManager.CaptureFrameTimings();
             SigmaGpuKernelTelemetry.CaptureAndLogFrame();
             if (_completionFaulted)
@@ -260,6 +267,7 @@ namespace Genesis.RoomScan.SigmaPrism
             uint revision = 0u;
             bool profiling = false;
             bool submitted = false;
+            SigmaNativeCompletionTransfer.Reservation completion = default;
             try
             {
                 EnsureCalibration(source);
@@ -299,10 +307,14 @@ namespace Genesis.RoomScan.SigmaPrism
                 if (!_graph.TryAcquire(out ownedFrame))
                     return false;
 
+                completion = _completionTransfer.Reserve();
+
                 _graph.RecordNativeCloseCommit(command, ownedFrame, revision,
-                    source.CalibrationEpoch, input);
+                    source.CalibrationEpoch, input, completion.Buffer,
+                    completion.RecordIndex);
                 if (profiling)
                     SigmaGpuKernelTelemetry.RecordProfileEnd(command);
+                _completionTransfer.RecordSealedReadback(command, completion);
                 SigmaGpuCompletionTicket ticket =
                     SigmaGpuCompletion.RecordAfterAllWork(command);
                 Graphics.ExecuteCommandBuffer(command);
@@ -311,7 +323,6 @@ namespace Genesis.RoomScan.SigmaPrism
                     SigmaGpuKernelTelemetry.EndProfiledSubmission(revision,
                         true);
                 slot.Begin(prediction, correctedPrediction, luts, ownedFrame,
-                    ownedFrame.Resources.NativeFrame, _pool.PublicationRoot,
                     ticket, revision, Time.realtimeSinceStartupAsDouble);
                 correctedPrediction = null;
                 luts = null;
@@ -329,6 +340,8 @@ namespace Genesis.RoomScan.SigmaPrism
                 if (profiling && !submitted)
                     SigmaGpuKernelTelemetry.EndProfiledSubmission(revision,
                         false);
+                if (completion.IsValid && !submitted)
+                    _completionTransfer.Cancel(completion);
                 ownedFrame?.Dispose();
                 correctedPrediction?.Dispose();
                 luts?.Dispose();
@@ -364,24 +377,77 @@ namespace Genesis.RoomScan.SigmaPrism
                 }
                 _frameLatency.Add(slot.ElapsedMilliseconds(
                     Time.realtimeSinceStartupAsDouble));
-                SigmaFrameCompletionDisposition disposition =
-                    slot.CompletionDisposition;
-                if (disposition == SigmaFrameCompletionDisposition.Unresolved)
+                slot.Complete();
+            }
+        }
+
+        private void DrainCompletionTransfers()
+        {
+            bool journalChanged = false;
+            while (_completionTransfer.TryDequeue(
+                out SigmaNativeCompletionRecord completion,
+                out string transferError))
+            {
+                if (transferError != null)
                 {
-                    SigmaUnresolvedEvidenceRecord evidence =
-                        slot.DetachEvidence();
-                    _unresolvedEvidence.Enqueue(evidence);
-                    Logger.Info(evidence.FormatLogLine(slot.Revision));
+                    LatchCompletionFault(transferError);
+                    return;
                 }
-                _evidenceReceipts.Add(new SigmaNativeEvidenceReceipt(
-                    slot.Revision, disposition));
+                SigmaFrameCompletionDisposition disposition =
+                    ClassifyFrameCompletion(completion.Frame,
+                        completion.PublishedRoot, completion.Revision,
+                        out string classificationError);
+                if (disposition == SigmaFrameCompletionDisposition.Faulted)
+                {
+                    LatchCompletionFault(classificationError);
+                    return;
+                }
+                bool retainExactEvidence = disposition ==
+                    SigmaFrameCompletionDisposition.Unresolved ||
+                    (disposition == SigmaFrameCompletionDisposition.Published &&
+                    (completion.Frame.Identity.W == (uint)
+                        SigmaNativeColdReason.RepresentationRefinement ||
+                    completion.Frame.Identity.W == (uint)
+                        SigmaNativeColdReason.StaticExclusion));
+                if (retainExactEvidence)
+                {
+                    SigmaConstraintAdmission journalAdmission =
+                        _constraintJournal.Add(completion.Evidence);
+                    journalChanged |= journalAdmission !=
+                        SigmaConstraintAdmission.DuplicateOrWeaker;
+                    Logger.Info(completion.Evidence.FormatLogLine(
+                        completion.Revision) + $" journal={journalAdmission} " +
+                        $"retained={_constraintJournal.Count}");
+                }
                 _runtimeTelemetry = SigmaRuntimeTelemetrySnapshot.From(
-                    slot.Revision, slot.PublishedRoot, disposition,
-                    slot.TerminalFrame, CaptureTimingTelemetry());
+                    completion.Revision, completion.PublishedRoot, disposition,
+                    completion.Frame, CaptureTimingTelemetry());
                 Logger.Info(_runtimeTelemetry.FormatLogLine());
-                if (slot.Complete() == SigmaFrameCompletionDisposition.Published)
+                if (disposition == SigmaFrameCompletionDisposition.Published)
                     CommittedFrames++;
             }
+            try
+            {
+                if (journalChanged)
+                    _constraintStore.Stage(_constraintJournal);
+                if (_constraintStore.TryGetFault(out string persistenceError))
+                    LatchCompletionFault(persistenceError);
+            }
+            catch (Exception exception)
+            {
+                LatchCompletionFault("Exact constraint persistence failed: " +
+                    exception.Message);
+            }
+        }
+
+        private bool HasInFlightIngress()
+        {
+            if (_ingressSlots == null)
+                return false;
+            for (int index = 0; index < _ingressSlots.Length; ++index)
+                if (_ingressSlots[index].InFlight)
+                    return true;
+            return false;
         }
 
         private void LatchCompletionFault(string message)
@@ -859,7 +925,18 @@ namespace Genesis.RoomScan.SigmaPrism
             if (_renderer != null)
                 _renderer.PredictionReady -= OnPredictionReady;
             ReleasePendingIngress();
-            _unresolvedEvidence.Clear();
+            try
+            {
+                _constraintStore?.Stage(_constraintJournal);
+                _constraintStore?.Dispose();
+            }
+            catch (Exception exception)
+            {
+                Logger.Error("Exact constraint persistence teardown failed: " +
+                    exception.Message);
+            }
+            _constraintStore = null;
+            _constraintJournal.Clear();
 
             IngressSlot[] slots = _ingressSlots;
             _ingressSlots = null;
@@ -876,6 +953,7 @@ namespace Genesis.RoomScan.SigmaPrism
                         slots[index]?.Dispose();
                 coneLuts?.Retire();
                 graph?.Dispose();
+                _completionTransfer.Dispose();
             }
 
             if (_completionFaulted)
@@ -906,63 +984,6 @@ namespace Genesis.RoomScan.SigmaPrism
             public readonly uint High;
             public static SigmaPackedQ48 FromRaw(long raw) => new(
                 unchecked((uint)raw), unchecked((uint)(raw >> 32)));
-        }
-
-        private readonly struct SigmaNativeEvidenceReceipt
-        {
-            internal SigmaNativeEvidenceReceipt(uint revision,
-                SigmaFrameCompletionDisposition disposition)
-            {
-                Revision = revision;
-                Disposition = disposition;
-            }
-
-            internal uint Revision { get; }
-            internal SigmaFrameCompletionDisposition Disposition { get; }
-        }
-
-        /// <summary>
-        /// Small exact in-session journal record for an unresolved N3
-        /// observation.  It owns copied Q48/query bytes, never capture-ring
-        /// texture leases or physical identity.  N4 replaces this bounded
-        /// handoff representation with durable/reclaimable certificates.
-        /// </summary>
-        private sealed class SigmaUnresolvedEvidenceRecord
-        {
-            internal SigmaUnresolvedEvidenceRecord(
-                SigmaUnresolvedConstraintGpu constraint,
-                SigmaFrameUInt4Gpu[] observationHeaders,
-                SigmaFrameUInt2Gpu[] roomRays,
-                SigmaFrameUInt2Gpu[] codeLeaves)
-            {
-                Constraint = constraint;
-                ObservationHeaders = observationHeaders ?? throw new
-                    ArgumentNullException(nameof(observationHeaders));
-                RoomRays = roomRays ?? throw new
-                    ArgumentNullException(nameof(roomRays));
-                CodeLeaves = codeLeaves ?? throw new
-                    ArgumentNullException(nameof(codeLeaves));
-            }
-
-            internal SigmaUnresolvedConstraintGpu Constraint { get; }
-            internal SigmaFrameUInt4Gpu[] ObservationHeaders { get; }
-            internal SigmaFrameUInt2Gpu[] RoomRays { get; }
-            internal SigmaFrameUInt2Gpu[] CodeLeaves { get; }
-
-            internal string FormatLogLine(uint revision) =>
-                $"Sigma unresolved exact-record revision={revision} " +
-                $"observation={Constraint.Observation.X:x8}/" +
-                $"{Constraint.Observation.Y:x8}/" +
-                $"{Constraint.Observation.Z:x8}/" +
-                $"{Constraint.Observation.W:x8} relation=" +
-                $"{Constraint.Relation.X}/{Constraint.Relation.Y}/" +
-                $"{Constraint.Relation.Z}/{Constraint.Relation.W} " +
-                $"evidence={Constraint.Evidence.X:x8}/" +
-                $"{Constraint.Evidence.Y:x8}/" +
-                $"{Constraint.Evidence.Z:x8}/" +
-                $"{Constraint.Evidence.W:x8} admission=" +
-                $"{Constraint.Provenance.X}/{Constraint.Provenance.Y} " +
-                $"epoch={Constraint.Provenance.W}";
         }
 
         private sealed class LatencyTracker
@@ -1005,23 +1026,6 @@ namespace Genesis.RoomScan.SigmaPrism
             private ConeLutLease _coneLuts;
             private SigmaNativeFrameLease _ownedFrame;
             private SigmaGpuCompletionTicket _ticket;
-            private GraphicsBuffer _nativeFrame;
-            private GraphicsBuffer _publicationRoot;
-            private GraphicsBuffer _unresolved;
-            private GraphicsBuffer _freshObservationHeaders;
-            private GraphicsBuffer _freshRoomRays;
-            private GraphicsBuffer _freshCodeLeaves;
-            private AsyncGPUReadbackRequest _frameDispositionReadback;
-            private AsyncGPUReadbackRequest _publicationRootReadback;
-            private AsyncGPUReadbackRequest _unresolvedReadback;
-            private AsyncGPUReadbackRequest _freshObservationHeadersReadback;
-            private AsyncGPUReadbackRequest _freshRoomRaysReadback;
-            private AsyncGPUReadbackRequest _freshCodeLeavesReadback;
-            private bool _completionReadbackPending;
-            private SigmaFrameCompletionDisposition _completionDisposition;
-            private SigmaNativeFrameGpu _terminalFrame;
-            private uint _terminalPublishedRoot;
-            private SigmaUnresolvedEvidenceRecord _terminalUnresolvedEvidence;
             private double _submittedAt;
             private readonly int _index;
             private Vector2Int _resolution;
@@ -1054,15 +1058,10 @@ namespace Genesis.RoomScan.SigmaPrism
             internal bool InFlight { get; private set; }
             internal long AgeFrames { get; private set; }
             internal uint Revision { get; private set; }
-            internal SigmaFrameCompletionDisposition CompletionDisposition =>
-                _completionDisposition;
-            internal SigmaNativeFrameGpu TerminalFrame => _terminalFrame;
-            internal uint PublishedRoot => _terminalPublishedRoot;
 
             internal void Begin(SigmaPredictionFrameLease prediction,
                 SigmaPredictionFrameLease correctedPrediction,
                 ConeLutLease coneLuts, SigmaNativeFrameLease ownedFrame,
-                GraphicsBuffer nativeFrame, GraphicsBuffer publicationRoot,
                 SigmaGpuCompletionTicket ticket,
                 uint revision, double submittedAt)
             {
@@ -1074,131 +1073,19 @@ namespace Genesis.RoomScan.SigmaPrism
                 _coneLuts = coneLuts;
                 _ownedFrame = ownedFrame ?? throw new ArgumentNullException(
                     nameof(ownedFrame));
-                _nativeFrame = nativeFrame ?? throw new ArgumentNullException(
-                    nameof(nativeFrame));
-                _publicationRoot = publicationRoot ??
-                    throw new ArgumentNullException(nameof(publicationRoot));
-                _unresolved = _ownedFrame.Resources.Unresolved;
-                _freshObservationHeaders =
-                    _ownedFrame.Resources.FreshObservationHeaders;
-                _freshRoomRays = _ownedFrame.Resources.FreshRoomRays;
-                _freshCodeLeaves = _ownedFrame.Resources.FreshCodeLeaves;
                 _ticket = ticket;
                 _submittedAt = submittedAt;
                 Revision = revision;
-                _completionReadbackPending = false;
-                _completionDisposition =
-                    SigmaFrameCompletionDisposition.Faulted;
-                _terminalFrame = default;
-                _terminalPublishedRoot = 0u;
-                _terminalUnresolvedEvidence = null;
                 AgeFrames = 0L;
                 InFlight = true;
             }
 
             internal SigmaGpuCompletionStatus Poll(out string error)
             {
-                if (!_completionReadbackPending)
-                {
-                    SigmaGpuCompletionStatus fence = _ticket.Poll(out error);
-                    if (fence != SigmaGpuCompletionStatus.Complete)
-                        return fence;
-                    if (!SystemInfo.supportsAsyncGPUReadback)
-                    {
-                        error = "Published evidence ownership requires async " +
-                            "GPU readback support.";
-                        return SigmaGpuCompletionStatus.Faulted;
-                    }
-                    _frameDispositionReadback = AsyncGPUReadback.Request(
-                        _nativeFrame, SigmaGeneratedFrame.NativeFrameStride, 0);
-                    _publicationRootReadback = AsyncGPUReadback.Request(
-                        _publicationRoot, sizeof(uint), 0);
-                    _unresolvedReadback = AsyncGPUReadback.Request(_unresolved,
-                        SigmaGeneratedFrame.UnresolvedConstraintStride, 0);
-                    _freshObservationHeadersReadback =
-                        AsyncGPUReadback.Request(_freshObservationHeaders,
-                            sizeof(uint) * 4 * 2, 0);
-                    _freshRoomRaysReadback = AsyncGPUReadback.Request(
-                        _freshRoomRays, sizeof(uint) * 2 * 6, 0);
-                    _freshCodeLeavesReadback = AsyncGPUReadback.Request(
-                        _freshCodeLeaves, sizeof(uint) * 2 * 16, 0);
-                    // The fence proves every raw capture texture has been
-                    // consumed.  Release its ring ownership now; completion of
-                    // the tiny exact-record readbacks must never back-pressure
-                    // sensor ingress.
+                SigmaGpuCompletionStatus status = _ticket.Poll(out error);
+                if (status == SigmaGpuCompletionStatus.Complete)
                     ReleaseTransientInputs();
-                    _completionReadbackPending = true;
-                    error = null;
-                    return SigmaGpuCompletionStatus.Pending;
-                }
-
-                if (!_frameDispositionReadback.done ||
-                    !_publicationRootReadback.done ||
-                    !_unresolvedReadback.done ||
-                    !_freshObservationHeadersReadback.done ||
-                    !_freshRoomRaysReadback.done ||
-                    !_freshCodeLeavesReadback.done)
-                {
-                    error = null;
-                    return SigmaGpuCompletionStatus.Pending;
-                }
-                if (_frameDispositionReadback.hasError ||
-                    _publicationRootReadback.hasError ||
-                    _unresolvedReadback.hasError ||
-                    _freshObservationHeadersReadback.hasError ||
-                    _freshRoomRaysReadback.hasError ||
-                    _freshCodeLeavesReadback.hasError)
-                {
-                    error = "Published evidence ownership readback failed.";
-                    return SigmaGpuCompletionStatus.Faulted;
-                }
-
-                var frames = _frameDispositionReadback
-                    .GetData<SigmaNativeFrameGpu>();
-                var roots = _publicationRootReadback.GetData<uint>();
-                if (frames.Length != 1 || roots.Length != 1)
-                {
-                    error = "Published evidence ownership readback returned " +
-                        "an invalid record count.";
-                    return SigmaGpuCompletionStatus.Faulted;
-                }
-                _terminalFrame = frames[0];
-                _terminalPublishedRoot = roots[0];
-                _completionDisposition = ClassifyFrameCompletion(
-                    _terminalFrame, _terminalPublishedRoot, Revision,
-                    out error);
-                if (_completionDisposition ==
-                    SigmaFrameCompletionDisposition.Unresolved)
-                {
-                    var unresolved = _unresolvedReadback
-                        .GetData<SigmaUnresolvedConstraintGpu>();
-                    var headers = _freshObservationHeadersReadback
-                        .GetData<SigmaFrameUInt4Gpu>();
-                    var rays = _freshRoomRaysReadback
-                        .GetData<SigmaFrameUInt2Gpu>();
-                    var leaves = _freshCodeLeavesReadback
-                        .GetData<SigmaFrameUInt2Gpu>();
-                    if (unresolved.Length != 1 || headers.Length != 2 ||
-                        rays.Length != 6 || leaves.Length != 16)
-                    {
-                        error = "Unresolved evidence readback returned an " +
-                            "invalid exact-record shape.";
-                        return SigmaGpuCompletionStatus.Faulted;
-                    }
-                    var headerCopy = new SigmaFrameUInt4Gpu[headers.Length];
-                    var rayCopy = new SigmaFrameUInt2Gpu[rays.Length];
-                    var leafCopy = new SigmaFrameUInt2Gpu[leaves.Length];
-                    headers.CopyTo(headerCopy);
-                    rays.CopyTo(rayCopy);
-                    leaves.CopyTo(leafCopy);
-                    _terminalUnresolvedEvidence =
-                        new SigmaUnresolvedEvidenceRecord(unresolved[0],
-                            headerCopy, rayCopy, leafCopy);
-                }
-                return _completionDisposition ==
-                    SigmaFrameCompletionDisposition.Faulted
-                    ? SigmaGpuCompletionStatus.Faulted
-                    : SigmaGpuCompletionStatus.Complete;
+                return status;
             }
             internal void AdvanceAge() => AgeFrames++;
             internal double ElapsedMilliseconds(double completedAt) =>
@@ -1233,42 +1120,14 @@ namespace Genesis.RoomScan.SigmaPrism
                     $"Sigma ingress {_index} pose partial meets");
             }
 
-            internal SigmaUnresolvedEvidenceRecord DetachEvidence()
-            {
-                if (_completionDisposition !=
-                    SigmaFrameCompletionDisposition.Unresolved ||
-                    _terminalUnresolvedEvidence == null)
-                    throw new InvalidOperationException(
-                        "Only unresolved native evidence can be detached.");
-                SigmaUnresolvedEvidenceRecord result =
-                    _terminalUnresolvedEvidence;
-                _terminalUnresolvedEvidence = null;
-                return result;
-            }
-
-            internal SigmaFrameCompletionDisposition Complete()
+            internal void Complete()
             {
                 ReleaseTransientInputs();
-                SigmaFrameCompletionDisposition completed =
-                    _completionDisposition;
                 _ownedFrame?.Dispose();
                 _ownedFrame = null;
-                _nativeFrame = null;
-                _publicationRoot = null;
-                _unresolved = null;
-                _freshObservationHeaders = null;
-                _freshRoomRays = null;
-                _freshCodeLeaves = null;
-                _completionReadbackPending = false;
-                _completionDisposition =
-                    SigmaFrameCompletionDisposition.Faulted;
-                _terminalFrame = default;
-                _terminalPublishedRoot = 0u;
-                _terminalUnresolvedEvidence = null;
                 InFlight = false;
                 AgeFrames = 0L;
                 _submittedAt = 0.0;
-                return completed;
             }
 
             public void Dispose()
@@ -1276,13 +1135,6 @@ namespace Genesis.RoomScan.SigmaPrism
                 ReleaseTransientInputs();
                 _ownedFrame?.Dispose();
                 _ownedFrame = null;
-                _nativeFrame = null;
-                _publicationRoot = null;
-                _unresolved = null;
-                _freshObservationHeaders = null;
-                _freshRoomRays = null;
-                _freshCodeLeaves = null;
-                _terminalUnresolvedEvidence = null;
                 RawDepthCalibration?.Dispose();
                 RawRgbCalibration?.Dispose();
                 CorrectedDepthCalibration?.Dispose();

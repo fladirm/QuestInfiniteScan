@@ -1160,7 +1160,7 @@
     },
     "generatorSource": {
       "path": "Tools/sigma/generate_sigma_operators.py",
-      "sha256": "21f9d96cc737f346090af71e30b73204e0f64ffa3fa269ac46608bd763ba0500",
+      "sha256": "b8fca1b91ecd307768708f8bb644efb8c49f8437140196de9515acef8558bd93",
       "version": "CPQ4-S16-GEN-1"
     },
     "queryBoundary": {
@@ -1220,7 +1220,7 @@
     "unboundedParameterRegion": "FORBIDDEN_TO_PROVE_COMPATIBILITY_OR_MUTATION",
     "whiteBalance": "BOUNDED_PER_CHANNEL_GAIN"
   },
-  "programFingerprint": "9a077f38c84d44de1d0f5e886f8df55ddd1d287dbac740fe4885de34ade7b1d4",
+  "programFingerprint": "f7d138314bfd676c55818de7cd63611215f9e69facb9f1a13696f3668c2653c5",
   "programVersion": "CPQ4-S16-MERKABA-N1R-4",
   "proofs": {
     "allDefaultActiveWork": 0,

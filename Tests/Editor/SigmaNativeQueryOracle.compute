@@ -1,0 +1,646 @@
+// Disposable N2 whole-query oracle. Live player builds retain only the\n// hyperdimensional native-relation kernel.\n// N3R live native query lowering. It owns no canonical field or publication path.
+#pragma kernel SelectNativeQuerySupport SIGMA_NATIVE_ORACLE_SUPPORT_ONLY
+#pragma kernel EvaluateNativeQuery SIGMA_NATIVE_ORACLE_QUERY_MATH
+#pragma kernel ReduceNativeQuery SIGMA_NATIVE_ORACLE_REDUCE_ONLY
+#pragma kernel EvaluateNativeRelation SIGMA_NATIVE_ORACLE_RELATION_MATH
+#pragma target 5.0
+
+#include "../../Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.hlsl"
+
+#define SIGMA_NATIVE_SUMMARY_ALL_DEFAULT 1u
+#define SIGMA_NATIVE_SUMMARY_BOUNDARY_CLOSED 2u
+#define SIGMA_NATIVE_SUMMARY_PROGRAM_MATCH 4u
+#define SIGMA_NATIVE_SUMMARY_GAUGE_MATCH 8u
+#define SIGMA_NATIVE_SUMMARY_STALE 16u
+#define SIGMA_NATIVE_SUMMARY_NONRESIDENT 32u
+
+StructuredBuffer<uint4> _NativeSummaries;
+StructuredBuffer<uint4> _NativeSamples;
+StructuredBuffer<uint2> _NativeStates;
+StructuredBuffer<uint2> _NativeMeasures;
+StructuredBuffer<uint2> _NativeQueryRows;
+StructuredBuffer<uint> _NativeQueryFootprints;
+StructuredBuffer<uint4> _NativeRelationInputs;
+StructuredBuffer<uint4> _NativeRelationPlans;
+StructuredBuffer<uint4> _NativeRelationNearIntervals;
+RWStructuredBuffer<uint> _NativeWorklist;
+RWStructuredBuffer<uint> _NativeCounters;
+// Separate write/read aliases let the evaluator and reducer share storage
+// without making the reducer bind four inputs as UAVs on Quest Vulkan.
+RWStructuredBuffer<uint4> _NativeContributionHeadersWrite;
+RWStructuredBuffer<uint4> _NativeContributionOrderMeasuresWrite;
+RWStructuredBuffer<uint2> _NativeContributionOpticalWrite;
+RWStructuredBuffer<uint> _NativeContributionRelationsWrite;
+StructuredBuffer<uint4> _NativeContributionHeaders;
+StructuredBuffer<uint4> _NativeContributionOrderMeasures;
+StructuredBuffer<uint2> _NativeContributionOptical;
+StructuredBuffer<uint> _NativeContributionRelations;
+RWStructuredBuffer<uint2> _NativeReducedSupports;
+RWStructuredBuffer<uint2> _NativeReducedRelationSupports;
+RWStructuredBuffer<uint> _NativeReducedRelationClasses;
+RWStructuredBuffer<uint4> _NativeReducedRecords;
+RWStructuredBuffer<uint4> _NativeReduceOverflowRecords;
+RWStructuredBuffer<uint4> _NativeRelationResults;
+RWStructuredBuffer<uint4> _NativeRelationFactors;
+RWStructuredBuffer<uint4> _NativeRelationHashes;
+RWStructuredBuffer<uint4> _NativeRelationNorms;
+
+#include "../../Runtime/Resources/SigmaPrism/SigmaNativeMath.hlsl"
+
+uint _NativeSummaryCount;
+uint _NativeWorkOffset;
+uint _NativeWorkCount;
+uint _NativeContributionCount;
+uint _NativeFootprint;
+uint _NativeEntryPointIndex;
+uint _NativeRelationCount;
+uint _NativeQueryCount;
+uint _NativeContributionStride;
+uint _NativeDebugRequest;
+
+bool SigmaNativeKeyLess(uint2 left, uint2 right)
+{
+    return left.y != right.y ? left.y < right.y : left.x < right.x;
+}
+
+bool SigmaNativeKeyEqual(uint2 left, uint2 right)
+{
+    return all(left == right);
+}
+
+#if defined(SIGMA_NATIVE_ORACLE_REDUCE_ONLY)
+#define SIGMA_NATIVE_REDUCE_WIDTH 128u
+#define SIGMA_NATIVE_REDUCED_RECORD_STRIDE 6u
+#define SIGMA_NATIVE_REDUCE_COLD_CONTINUATION_REQUIRED 1u
+
+groupshared uint4 SigmaNativeReduceHeaders[SIGMA_NATIVE_REDUCE_WIDTH];
+groupshared uint4 SigmaNativeReduceOrderMeasures[SIGMA_NATIVE_REDUCE_WIDTH];
+groupshared uint2 SigmaNativeReduceOptical[
+    SIGMA_NATIVE_REDUCE_WIDTH * SIGMA_NATIVE_OPTICAL_CHANNELS];
+groupshared uint SigmaNativeReduceSources[SIGMA_NATIVE_REDUCE_WIDTH];
+groupshared uint SigmaNativeReducePrefix[SIGMA_NATIVE_REDUCE_WIDTH];
+groupshared uint SigmaNativeReduceFirst[SIGMA_NATIVE_REDUCE_WIDTH];
+groupshared uint SigmaNativeReduceValid[SIGMA_NATIVE_REDUCE_WIDTH];
+groupshared uint SigmaNativeReduceRelations[SIGMA_NATIVE_REDUCE_WIDTH];
+groupshared uint2 SigmaNativeReduceGroupKeys[SIGMA_NATIVE_REDUCE_WIDTH];
+groupshared uint4 SigmaNativeReduceGroupOrders[SIGMA_NATIVE_REDUCE_WIDTH];
+groupshared uint SigmaNativeReduceRelationCount;
+groupshared uint2 SigmaNativeReduceGroupOptical[
+    SIGMA_NATIVE_REDUCE_WIDTH * SIGMA_NATIVE_OPTICAL_CHANNELS * 2u];
+
+bool SigmaNativeReduceItemLess(uint4 leftHeader, uint leftSource,
+    uint4 rightHeader, uint rightSource)
+{
+    bool leftActive = leftHeader.w != 0u;
+    bool rightActive = rightHeader.w != 0u;
+    bool less = false;
+    if (leftActive != rightActive)
+        less = leftActive;
+    else if (!leftActive)
+        less = leftSource < rightSource;
+    else if (!SigmaNativeKeyEqual(leftHeader.xy, rightHeader.xy))
+        less = SigmaNativeKeyLess(leftHeader.xy, rightHeader.xy);
+    else
+        less = leftSource < rightSource;
+    return less;
+}
+
+uint2 SigmaNativeShiftRightInitialized(uint2 value, uint count)
+{
+    uint2 result = uint2(0u, 0u);
+    if (count == 0u)
+        result = value;
+    else if (count < 32u)
+        result = uint2((value.x >> count) | (value.y << (32u - count)),
+            value.y >> count);
+    else if (count < 64u)
+        result = uint2(value.y >> (count - 32u), 0u);
+    return result;
+}
+
+uint2 SigmaNativeShiftLeftInitialized(uint2 value, uint count)
+{
+    uint2 result = uint2(0u, 0u);
+    if (count == 0u)
+        result = value;
+    else if (count < 32u)
+        result = uint2(value.x << count,
+            (value.y << count) | (value.x >> (32u - count)));
+    else if (count < 64u)
+        result = uint2(0u, value.x << (count - 32u));
+    return result;
+}
+
+uint2 SigmaNativeDivideExactDyadicMeasure(uint2 numerator, uint2 denominator,
+    inout uint valid)
+{
+    bool positive = (denominator.y & 0x80000000u) == 0u &&
+        any(denominator != 0u);
+    bool oneBit = countbits(denominator.x) + countbits(denominator.y) == 1u;
+    uint exponent = denominator.x != 0u
+        ? (uint)firstbitlow(denominator.x)
+        : 32u + (uint)firstbitlow(denominator.y);
+    bool boundedMeasure = positive && oneBit && exponent <= 48u;
+    valid &= boundedMeasure ? 1u : 0u;
+    uint shift = boundedMeasure ? 48u - exponent : 0u;
+    bool negative = (numerator.y & 0x80000000u) != 0u;
+    uint2 magnitude = SigmaU64AbsSigned(numerator);
+    uint2 signedLimit = negative ? uint2(0u, 0x80000000u) :
+        uint2(0xffffffffu, 0x7fffffffu);
+    uint2 permitted = SigmaNativeShiftRightInitialized(signedLimit, shift);
+    valid &= !SigmaU64Less(permitted, magnitude) ? 1u : 0u;
+    uint2 shifted = SigmaNativeShiftLeftInitialized(magnitude, shift);
+    return negative ? SigmaU64NegateRaw(shifted) : shifted;
+}
+#endif
+#if defined(SIGMA_NATIVE_ORACLE_SUPPORT_ONLY)
+[numthreads(64, 1, 1)]
+void SelectNativeQuerySupport(uint3 id : SV_DispatchThreadID)
+{
+    uint summaryIndex = id.x;
+    if (summaryIndex >= _NativeSummaryCount)
+        return;
+    uint4 summary = _NativeSummaries[summaryIndex];
+    uint flags = summary.y;
+    bool allDefault = (flags & SIGMA_NATIVE_SUMMARY_ALL_DEFAULT) != 0u;
+    bool boundaryClosed =
+        (flags & SIGMA_NATIVE_SUMMARY_BOUNDARY_CLOSED) != 0u;
+    bool fingerprintsMatch =
+        (flags & (SIGMA_NATIVE_SUMMARY_PROGRAM_MATCH |
+                  SIGMA_NATIVE_SUMMARY_GAUGE_MATCH)) ==
+        (SIGMA_NATIVE_SUMMARY_PROGRAM_MATCH |
+         SIGMA_NATIVE_SUMMARY_GAUGE_MATCH) &&
+        (flags & SIGMA_NATIVE_SUMMARY_STALE) == 0u;
+    bool omit = SigmaMerkabaCanOmitQueryRegion(allDefault, boundaryClosed,
+        fingerprintsMatch);
+    if (!omit)
+    {
+        uint outputIndex;
+        InterlockedAdd(_NativeCounters[0], 1u, outputIndex);
+        _NativeWorklist[outputIndex] = summary.x;
+        if ((flags & SIGMA_NATIVE_SUMMARY_NONRESIDENT) != 0u)
+            InterlockedAdd(_NativeCounters[1], 1u);
+    }
+}
+#endif
+
+#if defined(SIGMA_NATIVE_ORACLE_QUERY_MATH)
+[numthreads(64, 1, 1)]
+void EvaluateNativeQuery(uint3 id : SV_DispatchThreadID)
+{
+    uint localIndex = id.x;
+    uint queryIndex = id.y;
+    if (localIndex >= _NativeWorkCount || queryIndex >= _NativeQueryCount)
+        return;
+    uint workIndex = _NativeWorkOffset + localIndex;
+    uint outputIndex = queryIndex * _NativeContributionStride + workIndex;
+    uint sampleIndex = _NativeWorklist[workIndex];
+    uint4 sample = _NativeSamples[sampleIndex];
+    bool entryValid = _NativeEntryPointIndex < SIGMA_MERKABA_ENTRY_POINT_COUNT &&
+        SIGMA_MERKABA_IR_ENTRY_POINTS[_NativeEntryPointIndex].x == 7;
+    uint valid = entryValid ? 1u : 0u;
+    uint2 order;
+    uint2 optical[3];
+    SigmaNativeEvaluateStateAtRows(sample.w, queryIndex * 16u, order, optical,
+        valid);
+    uint2 measure = _NativeMeasures[sampleIndex];
+    bool active = valid != 0u && !SigmaNativeStateIsZero(sample.w) &&
+        sample.z == _NativeQueryFootprints[queryIndex];
+    _NativeContributionHeadersWrite[outputIndex] = uint4(sample.xy, sample.z,
+        active ? 1u : 0u);
+    _NativeContributionOrderMeasuresWrite[outputIndex] = uint4(order, measure);
+    uint reducer = entryValid
+        ? (uint)SIGMA_MERKABA_IR_ENTRY_POINTS[_NativeEntryPointIndex].z
+        : 0xffffffffu;
+    uint relationClass = (reducer == 0u || reducer == 4u) &&
+            _NativeRelationResults[sampleIndex].w != 0u
+        ? _NativeRelationResults[sampleIndex].x
+        : SIGMA_MERKABA_RELATION_UNRESOLVED;
+    _NativeContributionRelationsWrite[outputIndex] = relationClass;
+    [unroll]
+    for (uint channel = 0u; channel < SIGMA_NATIVE_OPTICAL_CHANNELS; ++channel)
+    {
+        uint2 weighted = SigmaQ48MulNearestEven(optical[channel], measure, valid);
+        _NativeContributionOpticalWrite[outputIndex *
+            SIGMA_NATIVE_OPTICAL_CHANNELS + channel] = weighted;
+    }
+    if (valid == 0u)
+        _NativeContributionHeadersWrite[outputIndex].w = 0u;
+}
+#endif
+
+#if defined(SIGMA_NATIVE_ORACLE_REDUCE_ONLY)
+[numthreads(128, 1, 1)]
+void ReduceNativeQuery(uint3 groupId : SV_GroupID,
+    uint3 groupThreadId : SV_GroupThreadID)
+{
+    uint threadIndex = groupThreadId.x;
+    uint queryIndex = groupId.y;
+    if (queryIndex >= _NativeQueryCount)
+        return;
+    uint reducer = _NativeEntryPointIndex < SIGMA_MERKABA_ENTRY_POINT_COUNT
+        ? (uint)SIGMA_MERKABA_IR_ENTRY_POINTS[_NativeEntryPointIndex].z
+        : 0xffffffffu;
+    bool reducerValid = reducer == 1u || reducer == 4u ||
+        (reducer == 0u && _NativeDebugRequest == 1u);
+    uint recordOffset = queryIndex * SIGMA_NATIVE_REDUCED_RECORD_STRIDE;
+    bool overflow = _NativeContributionCount > SIGMA_NATIVE_REDUCE_WIDTH;
+    if (overflow)
+    {
+        if (threadIndex == 0u)
+        {
+            _NativeReduceOverflowRecords[queryIndex] = uint4(
+                _NativeContributionCount, SIGMA_NATIVE_REDUCE_WIDTH,
+                SIGMA_NATIVE_REDUCE_COLD_CONTINUATION_REQUIRED, 1u);
+            _NativeReducedRecords[recordOffset] = uint4(0u, 0u, 0u,
+                2u | (reducer << 8u));
+            _NativeReducedRecords[recordOffset + 5u] = uint4(0u, 1u,
+                SIGMA_NATIVE_REDUCE_COLD_CONTINUATION_REQUIRED, 0u);
+        }
+        return;
+    }
+    if (threadIndex == 0u)
+        _NativeReduceOverflowRecords[queryIndex] = uint4(0u, 0u, 0u, 0u);
+    uint inputBase = queryIndex * _NativeContributionStride;
+    uint supportBase = queryIndex * _NativeContributionStride * 2u;
+    uint relationBase = queryIndex * _NativeContributionStride;
+    uint footprint = _NativeQueryFootprints[queryIndex];
+    bool present = threadIndex < _NativeContributionCount;
+    uint inputIndex = inputBase + threadIndex;
+    uint4 header = present ? _NativeContributionHeaders[inputIndex]
+        : uint4(0xffffffffu, 0xffffffffu, 0xffffffffu, 0u);
+    bool active = present && header.w != 0u && header.z == footprint;
+    header.w = active ? 1u : 0u;
+    SigmaNativeReduceHeaders[threadIndex] = header;
+    SigmaNativeReduceOrderMeasures[threadIndex] = present
+        ? _NativeContributionOrderMeasures[inputIndex]
+        : uint4(0u, 0u, 0u, 0u);
+    SigmaNativeReduceRelations[threadIndex] = present
+        ? _NativeContributionRelations[inputIndex]
+        : SIGMA_MERKABA_RELATION_UNRESOLVED;
+    [unroll]
+    for (uint loadChannel = 0u;
+        loadChannel < SIGMA_NATIVE_OPTICAL_CHANNELS; ++loadChannel)
+    {
+        SigmaNativeReduceOptical[threadIndex * SIGMA_NATIVE_OPTICAL_CHANNELS +
+            loadChannel] = present
+            ? _NativeContributionOptical[inputIndex *
+                SIGMA_NATIVE_OPTICAL_CHANNELS + loadChannel]
+            : uint2(0u, 0u);
+    }
+    SigmaNativeReduceSources[threadIndex] = threadIndex;
+    GroupMemoryBarrierWithGroupSync();
+
+    // One fixed bitonic network groups the complete 64-bit support identity.
+    // Support cardinality changes data inside this workgroup, never dispatch count.
+    [unroll]
+    for (uint span = 2u; span <= SIGMA_NATIVE_REDUCE_WIDTH; span <<= 1u)
+    {
+        [unroll]
+        for (uint stride = span >> 1u; stride != 0u; stride >>= 1u)
+        {
+            uint partner = threadIndex ^ stride;
+            uint4 selfHeader = SigmaNativeReduceHeaders[threadIndex];
+            uint4 partnerHeader = SigmaNativeReduceHeaders[partner];
+            uint selfSource = SigmaNativeReduceSources[threadIndex];
+            uint partnerSource = SigmaNativeReduceSources[partner];
+            bool ascending = (threadIndex & span) == 0u;
+            bool lowerLane = threadIndex < partner;
+            bool wantMinimum = ascending == lowerLane;
+            bool partnerLess = SigmaNativeReduceItemLess(
+                partnerHeader, partnerSource, selfHeader, selfSource);
+            bool selfLess = SigmaNativeReduceItemLess(
+                selfHeader, selfSource, partnerHeader, partnerSource);
+            bool takePartner = wantMinimum ? partnerLess : selfLess;
+            uint4 selectedHeader = takePartner ? partnerHeader : selfHeader;
+            uint4 selectedOrder = takePartner
+                ? SigmaNativeReduceOrderMeasures[partner]
+                : SigmaNativeReduceOrderMeasures[threadIndex];
+            uint selectedSource = takePartner ? partnerSource : selfSource;
+            uint selectedRelation = takePartner
+                ? SigmaNativeReduceRelations[partner]
+                : SigmaNativeReduceRelations[threadIndex];
+            uint2 selectedOptical[3];
+            [unroll]
+            for (uint sortChannel = 0u;
+                sortChannel < SIGMA_NATIVE_OPTICAL_CHANNELS; ++sortChannel)
+                selectedOptical[sortChannel] = SigmaNativeReduceOptical[
+                    (takePartner ? partner : threadIndex) *
+                        SIGMA_NATIVE_OPTICAL_CHANNELS + sortChannel];
+            GroupMemoryBarrierWithGroupSync();
+            SigmaNativeReduceHeaders[threadIndex] = selectedHeader;
+            SigmaNativeReduceOrderMeasures[threadIndex] = selectedOrder;
+            SigmaNativeReduceSources[threadIndex] = selectedSource;
+            SigmaNativeReduceRelations[threadIndex] = selectedRelation;
+            [unroll]
+            for (uint storeChannel = 0u;
+                storeChannel < SIGMA_NATIVE_OPTICAL_CHANNELS; ++storeChannel)
+                SigmaNativeReduceOptical[threadIndex *
+                    SIGMA_NATIVE_OPTICAL_CHANNELS + storeChannel] =
+                    selectedOptical[storeChannel];
+            GroupMemoryBarrierWithGroupSync();
+        }
+    }
+
+    bool sortedActive = SigmaNativeReduceHeaders[threadIndex].w != 0u;
+    uint4 sourceOrderMeasure = SigmaNativeReduceOrderMeasures[threadIndex];
+    SigmaNativeReduceGroupOrders[threadIndex] = sortedActive
+        ? uint4(sourceOrderMeasure.xy, sourceOrderMeasure.xy)
+        : uint4(0xffffffffu, 0x7fffffffu, 0u, 0x80000000u);
+    SigmaNativeReduceValid[threadIndex] = 1u;
+    GroupMemoryBarrierWithGroupSync();
+
+    // Inclusive segmented scans aggregate every refined child in parallel.
+    // No support lane serially traverses the contribution universe.
+    [unroll]
+    for (uint segmentStride = 1u;
+        segmentStride < SIGMA_NATIVE_REDUCE_WIDTH; segmentStride <<= 1u)
+    {
+        uint4 combinedOrder = SigmaNativeReduceGroupOrders[threadIndex];
+        uint2 combinedMeasure = SigmaNativeReduceOrderMeasures[threadIndex].zw;
+        uint combinedValid = SigmaNativeReduceValid[threadIndex];
+        uint combinedRelation = SigmaNativeReduceRelations[threadIndex];
+        uint2 combinedOptical[3];
+        [unroll]
+        for (uint copyChannel = 0u;
+            copyChannel < SIGMA_NATIVE_OPTICAL_CHANNELS; ++copyChannel)
+            combinedOptical[copyChannel] = SigmaNativeReduceOptical[threadIndex *
+                SIGMA_NATIVE_OPTICAL_CHANNELS + copyChannel];
+
+        bool combine = threadIndex >= segmentStride && sortedActive &&
+            SigmaNativeReduceHeaders[threadIndex - segmentStride].w != 0u &&
+            SigmaNativeKeyEqual(SigmaNativeReduceHeaders[threadIndex].xy,
+                SigmaNativeReduceHeaders[threadIndex - segmentStride].xy);
+        if (combine)
+        {
+            uint partner = threadIndex - segmentStride;
+            uint4 partnerOrder = SigmaNativeReduceGroupOrders[partner];
+            combinedOrder.xy = SigmaQ48Min(combinedOrder.xy, partnerOrder.xy);
+            combinedOrder.zw = SigmaQ48Max(combinedOrder.zw, partnerOrder.zw);
+            combinedMeasure = SigmaQ48AddChecked(combinedMeasure,
+                SigmaNativeReduceOrderMeasures[partner].zw, combinedValid);
+            combinedValid &= SigmaNativeReduceValid[partner];
+            if (combinedRelation != SigmaNativeReduceRelations[partner])
+                combinedRelation = SIGMA_MERKABA_RELATION_UNRESOLVED;
+            [unroll]
+            for (uint segmentChannel = 0u;
+                segmentChannel < SIGMA_NATIVE_OPTICAL_CHANNELS; ++segmentChannel)
+                combinedOptical[segmentChannel] = SigmaQ48AddChecked(
+                    combinedOptical[segmentChannel], SigmaNativeReduceOptical[
+                        partner * SIGMA_NATIVE_OPTICAL_CHANNELS + segmentChannel],
+                    combinedValid);
+        }
+        GroupMemoryBarrierWithGroupSync();
+        SigmaNativeReduceGroupOrders[threadIndex] = combinedOrder;
+        SigmaNativeReduceOrderMeasures[threadIndex].zw = combinedMeasure;
+        SigmaNativeReduceValid[threadIndex] = combinedValid;
+        SigmaNativeReduceRelations[threadIndex] = combinedRelation;
+        [unroll]
+        for (uint writeChannel = 0u;
+            writeChannel < SIGMA_NATIVE_OPTICAL_CHANNELS; ++writeChannel)
+            SigmaNativeReduceOptical[threadIndex * SIGMA_NATIVE_OPTICAL_CHANNELS +
+                writeChannel] = combinedOptical[writeChannel];
+        GroupMemoryBarrierWithGroupSync();
+    }
+
+    bool nextDiffers = true;
+    if (threadIndex + 1u < SIGMA_NATIVE_REDUCE_WIDTH)
+        nextDiffers = SigmaNativeReduceHeaders[threadIndex + 1u].w == 0u ||
+            !SigmaNativeKeyEqual(SigmaNativeReduceHeaders[threadIndex].xy,
+                SigmaNativeReduceHeaders[threadIndex + 1u].xy);
+    bool groupEnd = sortedActive && nextDiffers;
+    SigmaNativeReducePrefix[threadIndex] = groupEnd ? 1u : 0u;
+    GroupMemoryBarrierWithGroupSync();
+    [unroll]
+    for (uint prefixStride = 1u; prefixStride < SIGMA_NATIVE_REDUCE_WIDTH;
+        prefixStride <<= 1u)
+    {
+        uint add = threadIndex >= prefixStride
+            ? SigmaNativeReducePrefix[threadIndex - prefixStride] : 0u;
+        GroupMemoryBarrierWithGroupSync();
+        SigmaNativeReducePrefix[threadIndex] += add;
+        GroupMemoryBarrierWithGroupSync();
+    }
+    uint groupCount = SigmaNativeReducePrefix[SIGMA_NATIVE_REDUCE_WIDTH - 1u];
+    uint groupIndex = groupEnd ? SigmaNativeReducePrefix[threadIndex] - 1u : 0u;
+    uint2 completedKey = SigmaNativeReduceHeaders[threadIndex].xy;
+    uint4 completedOrder = SigmaNativeReduceGroupOrders[threadIndex];
+    uint2 completedMeasure = SigmaNativeReduceOrderMeasures[threadIndex].zw;
+    uint completedValid = SigmaNativeReduceValid[threadIndex];
+    uint completedRelation = SigmaNativeReduceRelations[threadIndex];
+    uint2 completedOptical[3];
+    [unroll]
+    for (uint captureChannel = 0u;
+        captureChannel < SIGMA_NATIVE_OPTICAL_CHANNELS; ++captureChannel)
+        completedOptical[captureChannel] = SigmaNativeReduceOptical[threadIndex *
+            SIGMA_NATIVE_OPTICAL_CHANNELS + captureChannel];
+    GroupMemoryBarrierWithGroupSync();
+
+    if (groupEnd)
+    {
+        SigmaNativeReduceGroupKeys[groupIndex] = completedKey;
+        SigmaNativeReduceGroupOrders[groupIndex] = completedOrder;
+        SigmaNativeReduceRelations[groupIndex] = completedRelation;
+        [unroll]
+        for (uint reduceChannel = 0u;
+            reduceChannel < SIGMA_NATIVE_OPTICAL_CHANNELS; ++reduceChannel)
+        {
+            uint2 lower = SigmaNativeDivideExactDyadicMeasure(
+                completedOptical[reduceChannel], completedMeasure, completedValid);
+            uint offset = (groupIndex * SIGMA_NATIVE_OPTICAL_CHANNELS +
+                reduceChannel) * 2u;
+            SigmaNativeReduceGroupOptical[offset] = lower;
+            SigmaNativeReduceGroupOptical[offset + 1u] = lower;
+        }
+        SigmaNativeReduceValid[groupIndex] = completedValid;
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    // Reducer 1 first-hit is equivalent to comparing every support lower bound
+    // against the global minimum support upper bound. Compute that bound once in
+    // a fixed parallel tree instead of an O(supports^2) serial scan.
+    SigmaNativeReduceOrderMeasures[threadIndex] = threadIndex < groupCount
+        ? uint4(SigmaNativeReduceGroupOrders[threadIndex].zw, 0u, 0u)
+        : uint4(0xffffffffu, 0x7fffffffu, 0u, 0u);
+    GroupMemoryBarrierWithGroupSync();
+    [unroll]
+    for (uint minimumStride = SIGMA_NATIVE_REDUCE_WIDTH >> 1u;
+        minimumStride != 0u; minimumStride >>= 1u)
+    {
+        if (threadIndex < minimumStride)
+            SigmaNativeReduceOrderMeasures[threadIndex].xy = SigmaQ48Min(
+                SigmaNativeReduceOrderMeasures[threadIndex].xy,
+                SigmaNativeReduceOrderMeasures[threadIndex + minimumStride].xy);
+        GroupMemoryBarrierWithGroupSync();
+    }
+    uint2 minimumUpper = SigmaNativeReduceOrderMeasures[0].xy;
+    bool first = threadIndex < groupCount &&
+        (reducer == 4u || (reducer == 1u &&
+            !SigmaI64Less(minimumUpper,
+                SigmaNativeReduceGroupOrders[threadIndex].xy)));
+    SigmaNativeReduceFirst[threadIndex] = first ? 1u : 0u;
+    SigmaNativeReducePrefix[threadIndex] = first ? 1u : 0u;
+    GroupMemoryBarrierWithGroupSync();
+    [unroll]
+    for (uint firstStride = 1u; firstStride < SIGMA_NATIVE_REDUCE_WIDTH;
+        firstStride <<= 1u)
+    {
+        uint add = threadIndex >= firstStride
+            ? SigmaNativeReducePrefix[threadIndex - firstStride] : 0u;
+        GroupMemoryBarrierWithGroupSync();
+        SigmaNativeReducePrefix[threadIndex] += add;
+        GroupMemoryBarrierWithGroupSync();
+    }
+    uint firstCount = SigmaNativeReducePrefix[SIGMA_NATIVE_REDUCE_WIDTH - 1u];
+    uint behindCount = reducer == 1u ? groupCount - firstCount : 0u;
+    if (threadIndex < groupCount)
+    {
+        uint firstBefore = threadIndex == 0u
+            ? 0u : SigmaNativeReducePrefix[threadIndex - 1u];
+        if (first)
+            _NativeReducedSupports[supportBase + firstBefore] =
+                SigmaNativeReduceGroupKeys[threadIndex];
+        else if (reducer == 1u)
+            _NativeReducedSupports[supportBase + _NativeContributionStride +
+                threadIndex - firstBefore] =
+                SigmaNativeReduceGroupKeys[threadIndex];
+    }
+
+    uint relationClass = threadIndex < groupCount
+        ? SigmaNativeReduceRelations[threadIndex]
+        : SIGMA_MERKABA_RELATION_UNRESOLVED;
+    bool permitsRelation = relationClass == SIGMA_MERKABA_RELATION_DEFAULT_SAT ||
+        relationClass == SIGMA_MERKABA_RELATION_REGULAR ||
+        relationClass == SIGMA_MERKABA_RELATION_EXACT_ZD ||
+        relationClass == SIGMA_MERKABA_RELATION_NEAR_SINGULAR_Q48;
+    bool relationSelected = threadIndex < groupCount &&
+        (reducer == 0u || (reducer == 4u && permitsRelation));
+    SigmaNativeReducePrefix[threadIndex] = relationSelected ? 1u : 0u;
+    GroupMemoryBarrierWithGroupSync();
+    [unroll]
+    for (uint relationStride = 1u;
+        relationStride < SIGMA_NATIVE_REDUCE_WIDTH; relationStride <<= 1u)
+    {
+        uint add = threadIndex >= relationStride
+            ? SigmaNativeReducePrefix[threadIndex - relationStride] : 0u;
+        GroupMemoryBarrierWithGroupSync();
+        SigmaNativeReducePrefix[threadIndex] += add;
+        GroupMemoryBarrierWithGroupSync();
+    }
+    if (threadIndex == 0u)
+        SigmaNativeReduceRelationCount = SigmaNativeReducePrefix[
+            SIGMA_NATIVE_REDUCE_WIDTH - 1u];
+    GroupMemoryBarrierWithGroupSync();
+    uint relationCount = SigmaNativeReduceRelationCount;
+    if (relationSelected)
+    {
+        uint relationIndex = SigmaNativeReducePrefix[threadIndex] - 1u;
+        _NativeReducedRelationSupports[relationBase + relationIndex] =
+            SigmaNativeReduceGroupKeys[threadIndex];
+        _NativeReducedRelationClasses[relationBase + relationIndex] =
+            relationClass;
+    }
+
+    uint4 groupOrder = threadIndex < groupCount && first
+        ? SigmaNativeReduceGroupOrders[threadIndex]
+        : uint4(0xffffffffu, 0x7fffffffu, 0u, 0x80000000u);
+    SigmaNativeReduceGroupOrders[threadIndex] = groupOrder;
+    [unroll]
+    for (uint resultChannel = 0u;
+        resultChannel < SIGMA_NATIVE_OPTICAL_CHANNELS; ++resultChannel)
+    {
+        uint sourceOffset = (threadIndex * SIGMA_NATIVE_OPTICAL_CHANNELS +
+            resultChannel) * 2u;
+        SigmaNativeReduceGroupOptical[sourceOffset] =
+            threadIndex < groupCount && first
+                ? SigmaNativeReduceGroupOptical[sourceOffset]
+                : uint2(0xffffffffu, 0x7fffffffu);
+        SigmaNativeReduceGroupOptical[sourceOffset + 1u] =
+            threadIndex < groupCount && first
+                ? SigmaNativeReduceGroupOptical[sourceOffset + 1u]
+                : uint2(0u, 0x80000000u);
+    }
+    SigmaNativeReduceValid[threadIndex] = threadIndex < groupCount
+        ? SigmaNativeReduceValid[threadIndex] : 1u;
+    SigmaNativeReducePrefix[threadIndex] = sortedActive ? 1u : 0u;
+    GroupMemoryBarrierWithGroupSync();
+
+    [unroll]
+    for (uint reduceStride = SIGMA_NATIVE_REDUCE_WIDTH >> 1u;
+        reduceStride != 0u; reduceStride >>= 1u)
+    {
+        if (threadIndex < reduceStride)
+        {
+            uint partner = threadIndex + reduceStride;
+            SigmaNativeReduceGroupOrders[threadIndex].xy = SigmaQ48Min(
+                SigmaNativeReduceGroupOrders[threadIndex].xy,
+                SigmaNativeReduceGroupOrders[partner].xy);
+            SigmaNativeReduceGroupOrders[threadIndex].zw = SigmaQ48Max(
+                SigmaNativeReduceGroupOrders[threadIndex].zw,
+                SigmaNativeReduceGroupOrders[partner].zw);
+            [unroll]
+            for (uint hullChannel = 0u;
+                hullChannel < SIGMA_NATIVE_OPTICAL_CHANNELS; ++hullChannel)
+            {
+                uint destination = (threadIndex *
+                    SIGMA_NATIVE_OPTICAL_CHANNELS + hullChannel) * 2u;
+                uint source = (partner * SIGMA_NATIVE_OPTICAL_CHANNELS +
+                    hullChannel) * 2u;
+                SigmaNativeReduceGroupOptical[destination] = SigmaQ48Min(
+                    SigmaNativeReduceGroupOptical[destination],
+                    SigmaNativeReduceGroupOptical[source]);
+                SigmaNativeReduceGroupOptical[destination + 1u] = SigmaQ48Max(
+                    SigmaNativeReduceGroupOptical[destination + 1u],
+                    SigmaNativeReduceGroupOptical[source + 1u]);
+            }
+            SigmaNativeReduceValid[threadIndex] &=
+                SigmaNativeReduceValid[partner];
+            SigmaNativeReducePrefix[threadIndex] +=
+                SigmaNativeReducePrefix[partner];
+        }
+        GroupMemoryBarrierWithGroupSync();
+    }
+
+    if (threadIndex == 0u)
+    {
+        uint activeContributionCount = SigmaNativeReducePrefix[0];
+        bool validResult = reducerValid && groupCount != 0u &&
+            SigmaNativeReduceValid[0] != 0u;
+        _NativeReducedRecords[recordOffset] = uint4(firstCount, behindCount,
+            groupCount,
+            (validResult ? 1u : 0u) | (reducer << 8u) |
+            (activeContributionCount << 16u));
+        _NativeReducedRecords[recordOffset + 1u] = validResult && reducer != 0u
+            ? SigmaNativeReduceGroupOrders[0]
+            : uint4(1u, 0u, 0u, 0u);
+        [unroll]
+        for (uint outputChannel = 0u;
+            outputChannel < SIGMA_NATIVE_OPTICAL_CHANNELS; ++outputChannel)
+        {
+            uint offset = outputChannel * 2u;
+            _NativeReducedRecords[recordOffset + 2u + outputChannel] =
+                validResult && reducer != 0u
+                ? uint4(SigmaNativeReduceGroupOptical[offset],
+                    SigmaNativeReduceGroupOptical[offset + 1u])
+                : uint4(1u, 0u, 0u, 0u);
+        }
+        _NativeReducedRecords[recordOffset + 5u] = uint4(relationCount, 0u,
+            0u, queryIndex);
+    }
+}
+#endif
+
+#if defined(SIGMA_NATIVE_ORACLE_RELATION_MATH)
+[numthreads(256, 1, 1)]
+void EvaluateNativeRelation(uint3 groupId : SV_GroupID,
+    uint3 groupThreadId : SV_GroupThreadID)
+{
+    uint index = groupId.x;
+    if (index >= _NativeRelationCount)
+        return;
+    bool entryValid = _NativeEntryPointIndex < SIGMA_MERKABA_ENTRY_POINT_COUNT &&
+        SIGMA_MERKABA_IR_ENTRY_POINTS[_NativeEntryPointIndex].x == 3 &&
+        SIGMA_MERKABA_IR_ENTRY_POINTS[_NativeEntryPointIndex].z == 3;
+    SigmaNativeEvaluateRelationGroup(index, groupThreadId.x, entryValid);
+}
+#endif

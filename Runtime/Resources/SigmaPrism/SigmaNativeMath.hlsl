@@ -42,7 +42,7 @@ uint4 SigmaU128Add64(uint4 value, uint2 addend, inout uint valid)
 #define SIGMA_NATIVE_FACTOR_EXACT_CLOSED 1u
 #define SIGMA_NATIVE_FACTOR_UNRESOLVED 2u
 
-#if defined(SIGMA_NATIVE_ORACLE_QUERY_MATH)
+#if defined(SIGMA_NATIVE_ORACLE_QUERY_MATH) || defined(SIGMA_NATIVE_FRESH_MATH)
 uint2 SigmaNativeShadowWeight(int numerator)
 {
     // numerator / 4 in Q16.48 => numerator * 2^46; low limb is zero.
@@ -127,7 +127,8 @@ void SigmaNativeEvaluateState(uint stateOffset, out uint2 order,
 #endif
 
 #if defined(SIGMA_NATIVE_ORACLE_QUERY_MATH) || \
-    defined(SIGMA_NATIVE_ORACLE_RELATION_MATH)
+    defined(SIGMA_NATIVE_ORACLE_RELATION_MATH) || \
+    defined(SIGMA_NATIVE_FRESH_MATH)
 bool SigmaNativePointInInterval(uint2 value, uint2 lower, uint2 upper)
 {
     return !SigmaI64Less(value, lower) && !SigmaI64Less(upper, value);

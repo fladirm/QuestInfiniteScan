@@ -219,11 +219,16 @@ namespace Genesis.RoomScan.SigmaPrism
     {
         public static string BundleFingerprint => SigmaGeneratedAlgebra.BundleFingerprint;
 
-        public static SigmaSignedDyad NullDyad => new(
+        public static SigmaSignedDyad ZeroDivisorDonorDyad => new(
             SigmaGeneratedAlgebra.ZNullDyad[0], SigmaGeneratedAlgebra.ZNullDyad[1],
             SigmaGeneratedAlgebra.ZNullDyad[2], SigmaGeneratedAlgebra.ZNullDyad[3]);
 
-        public static SigmaS16 NullState => NullDyad.ToS16();
+        // The generated dyad above is an exact zero-divisor witness only.  It is
+        // not the native no-manifestation state.  N1R proves the complete-program
+        // ZEmpty representative to be algebraic zero; sparse backing and the NULL
+        // codec must therefore decode to these exact bytes in every context.
+        public static SigmaS16 ZEmpty => SigmaS16.Zero;
+        public static SigmaS16 NullState => ZEmpty;
 
         public static int BasisProductIndex(int left, int right)
         {

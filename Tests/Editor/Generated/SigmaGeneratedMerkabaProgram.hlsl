@@ -86,7 +86,7 @@
 #define SIGMA_FRESH_EXTERNAL_RELATION_TRUTH_INPUT_COUNT 0u
 #define SIGMA_INSTRUMENT_BOUNDARY_LEAF_COUNT 8u
 
-static const uint SIGMA_MERKABA_PROGRAM_FINGERPRINT[8] = { 0x9a077f38u, 0xc84d44deu, 0x1d0f5e88u, 0x6f8df55du, 0xdd1d287du, 0xbac740feu, 0x4885de34u, 0xade7b1d4u };
+static const uint SIGMA_MERKABA_PROGRAM_FINGERPRINT[8] = { 0xf7d13831u, 0x4bfd676cu, 0x55818de7u, 0xcd636112u, 0x15f9e69fu, 0xacb9f1a1u, 0x3696f366u, 0x8c2653c5u };
 static const int SIGMA_MERKABA_DIFFRACTION[256] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 8, 0, 0, 8, 0, 0, -12, 4, 0, 4, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 8, 0, 0, -12, 4, 4, 4, 0, 0, 0, -8, 0, 0, 0, 8, 0, 0, 0, 4, 0, -12, 4, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -12, 4, 4, 4, 0, 0, 0, -8, 0, 0, 8, 0, 0, 4, 0, 4, 0, -12, 0, 4, 0, -8, 0, 0, 0, -8, 0, 8, 0, 4, 4, 0, 0, 4, -12, 0, 0, 0, -8, 0, 0, 0, -8, 0, 0, 0, 4, 4, 0, 0, 4, -12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 12, 0, -4, 0, -4, -4, 0, 0, 0, 4, 4, 4, -4, 4, 4, 0, -4, 12, 0, 0, 0, -4, -4, 0, -4, 0, 4, 4, 4, -4, 4, 0, 0, -4, 12, 0, -4, 0, -4, 0, -4, -4, 0, 4, 4, 4, -4, 0, -4, -4, -4, 12, 0, 0, 0, 0, -4, -4, -4, 0, 4, 4, 4, 0, 0, -4, 0, -4, 12, -4, 0, 0, 4, -4, -4, -4, 0, 4, 4, 0, 0, 0, -4, -4, 0, 12, -4, 0, -4, 4, -4, -4, -4, 0, 4, 0, -4, 0, 0, -4, -4, 0, 12, 0, -4, -4, 4, -4, -4, -4, 0 };
 static const int SIGMA_MERKABA_INFORMATION_METRIC[256] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 640, -64, -64, -64, -64, -64, -192, 0, -32, 96, 256, 32, -192, 256, 32, 0, -64, 512, -64, -64, -64, 64, -64, 0, -64, 32, 96, 96, 32, -256, 256, 0, -64, -64, 640, -64, -64, -64, -64, 0, -288, -64, -32, 160, 320, 32, -192, 0, -64, -64, -64, 384, -64, -64, -64, 0, -64, -64, -64, 96, 160, 96, 32, 0, -64, -64, -64, -64, 640, -64, -192, 0, 160, -128, -352, -64, -32, 320, 96, 0, -64, 64, -64, -64, -64, 768, -64, 0, -224, 96, -128, -64, -288, -96, 320, 0, -192, -64, -64, -64, -192, -64, 640, 0, 64, -224, 160, -64, 0, -288, -32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -32, -64, -288, -64, 160, -224, 64, 0, 576, -32, -96, -96, -96, -32, -96, 0, 96, 32, -64, -64, -128, 96, -224, 0, -32, 576, -32, -32, -160, -96, -32, 0, 256, 96, -32, -64, -352, -128, 160, 0, -96, -32, 576, 32, -96, -160, -96, 0, 32, 96, 160, 96, -64, -64, -64, 0, -96, -32, 32, 576, 32, -32, -96, 0, -192, 32, 320, 160, -32, -288, 0, 0, -96, -160, -96, 32, 576, -32, -96, 0, 256, -256, 32, 96, 320, -96, -288, 0, -32, -96, -160, -32, -32, 576, -32, 0, 32, 256, -192, 32, 96, 320, -32, 0, -96, -32, -96, -96, -96, -32, 576 };
 static const int SIGMA_MERKABA_SHELL_SQUARE_BY_RANK[4] = { -1, -3, -7, -15 };
@@ -541,6 +541,102 @@ bool SigmaMerkabaIsZEmpty(uint2 state[16])
     for (uint lane = 0u; lane < 16u; ++lane)
         nonzero |= state[lane].x | state[lane].y;
     return nonzero == 0u;
+}
+
+bool SigmaMerkabaSplitDyadicGauge(uint4 parentCoordinate, uint parentLevel,
+    uint childIndex, out uint4 childCoordinate, out uint childLevel)
+{
+    uint valid = parentLevel < 62u && childIndex < 4u ? 1u : 0u;
+    uint2 u = SigmaQ48ShiftLeftChecked(parentCoordinate.xy, 1u, valid);
+    uint2 v = SigmaQ48ShiftLeftChecked(parentCoordinate.zw, 1u, valid);
+    if ((childIndex & 1u) != 0u)
+        u = SigmaQ48AddChecked(u, uint2(1u, 0u), valid);
+    if ((childIndex & 2u) != 0u)
+        v = SigmaQ48AddChecked(v, uint2(1u, 0u), valid);
+    childCoordinate = uint4(u, v);
+    childLevel = parentLevel + 1u;
+    return valid != 0u;
+}
+
+uint2 SigmaMerkabaGaugeZigZag(uint2 coordinate, inout uint valid)
+{
+    uint2 output = uint2(0u, 0u);
+    if ((coordinate.y & 0x80000000u) == 0u)
+    {
+        output = SigmaU64ShiftLeftRaw(coordinate, 1u);
+    }
+    else
+    {
+        uint carry = 0u;
+        uint2 shifted = SigmaU64Add(coordinate, uint2(1u, 0u), carry);
+        shifted = SigmaU64NegateRaw(shifted);
+        shifted = SigmaU64ShiftLeftRaw(shifted, 1u);
+        output = SigmaU64Add(shifted, uint2(1u, 0u), carry);
+        valid &= carry == 0u ? 1u : 0u;
+    }
+    return output;
+}
+
+uint SigmaMerkabaGaugeSpread16(uint value)
+{
+    value &= 0x0000ffffu;
+    value = (value | (value << 8u)) & 0x00ff00ffu;
+    value = (value | (value << 4u)) & 0x0f0f0f0fu;
+    value = (value | (value << 2u)) & 0x33333333u;
+    return (value | (value << 1u)) & 0x55555555u;
+}
+
+uint4 SigmaMerkabaGaugeSignedMorton(uint2 u, uint2 v, inout uint valid)
+{
+    uint2 x = SigmaMerkabaGaugeZigZag(u, valid);
+    uint2 y = SigmaMerkabaGaugeZigZag(v, valid);
+    return uint4(
+        SigmaMerkabaGaugeSpread16(x.x) |
+            (SigmaMerkabaGaugeSpread16(y.x) << 1u),
+        SigmaMerkabaGaugeSpread16(x.x >> 16u) |
+            (SigmaMerkabaGaugeSpread16(y.x >> 16u) << 1u),
+        SigmaMerkabaGaugeSpread16(x.y) |
+            (SigmaMerkabaGaugeSpread16(y.y) << 1u),
+        SigmaMerkabaGaugeSpread16(x.y >> 16u) |
+            (SigmaMerkabaGaugeSpread16(y.y >> 16u) << 1u));
+}
+
+bool SigmaMerkabaGaugeMortonLess(uint4 left, uint4 right)
+{
+    bool less = false;
+    if (left.w != right.w)
+        less = left.w < right.w;
+    else if (left.z != right.z)
+        less = left.z < right.z;
+    else if (left.y != right.y)
+        less = left.y < right.y;
+    else
+        less = left.x < right.x;
+    return less;
+}
+
+bool SigmaMerkabaGaugeLess(uint4 leftCoordinate, uint leftLevel,
+    uint4 rightCoordinate, uint rightLevel, inout uint valid)
+{
+    bool less = false;
+    if (leftLevel != rightLevel)
+    {
+        less = leftLevel < rightLevel;
+    }
+    else
+    {
+        uint4 leftMorton = SigmaMerkabaGaugeSignedMorton(leftCoordinate.xy,
+            leftCoordinate.zw, valid);
+        uint4 rightMorton = SigmaMerkabaGaugeSignedMorton(rightCoordinate.xy,
+            rightCoordinate.zw, valid);
+        if (any(leftMorton != rightMorton))
+            less = SigmaMerkabaGaugeMortonLess(leftMorton, rightMorton);
+        else if (!SigmaU64Equal(leftCoordinate.xy, rightCoordinate.xy))
+            less = SigmaI64Less(leftCoordinate.xy, rightCoordinate.xy);
+        else
+            less = SigmaI64Less(leftCoordinate.zw, rightCoordinate.zw);
+    }
+    return less;
 }
 
 void SigmaMerkabaBuildDirectionalAction(

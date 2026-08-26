@@ -217,6 +217,10 @@ namespace Genesis.RoomScan.Tests
             }
             CollectionAssert.AreEqual(new long[4],
                 SigmaS16Operators.GeometryReadout(SigmaS16Operators.NullState));
+            Assert.That(SigmaS16Operators.ZEmpty.IsZero, Is.True);
+            Assert.That(SigmaS16Operators.ZeroDivisorDonorDyad.ToS16().IsZero,
+                Is.False,
+                "The generated zero-divisor donor is not ZEmpty.");
 
             SigmaS16 roundTripSource = DeterministicState(63);
             SigmaS16 operatorCoordinates = SigmaS16Operators.HadamardB(roundTripSource);

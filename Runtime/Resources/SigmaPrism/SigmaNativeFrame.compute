@@ -30,9 +30,6 @@ Texture2DArray<uint4> _NativePredStateKey;
 
 RWStructuredBuffer<SigmaNativeFrameGpu> _NativeFrames;
 RWStructuredBuffer<SigmaNativeObservationGpu> _NativeObservations;
-RWStructuredBuffer<uint4> _NativeFreshObservationHeaders;
-RWStructuredBuffer<uint2> _NativeFreshRoomRays;
-RWStructuredBuffer<uint2> _NativeFreshCodeLeaves;
 RWStructuredBuffer<uint2> _NativeStates;
 StructuredBuffer<uint4> _NativeBranchHeaders;
 StructuredBuffer<uint4> _NativeRelationResults;
@@ -40,16 +37,31 @@ StructuredBuffer<uint4> _NativeRelationFactors;
 StructuredBuffer<uint4> _NativeRelationHashes;
 RWStructuredBuffer<SigmaNativeStateDeltaGpu> _NativeStateDeltas;
 RWStructuredBuffer<SigmaNativeGaugeDeltaGpu> _NativeGaugeDeltas;
+RWStructuredBuffer<uint4> _NativeLocalityCertificateWords;
 RWStructuredBuffer<SigmaUnresolvedConstraintGpu> _NativeUnresolved;
 RWStructuredBuffer<SigmaNativeFieldRevisionGpu> _NativeRevisions;
 RWStructuredBuffer<uint4> _NativeCounters;
+RWStructuredBuffer<uint2> _NativeCompletionJournal;
+
+// Close is a root-last scalar publication kernel.  Bind its immutable inputs as
+// SRVs so the six true mutation targets stay below Quest's eight-UAV limit; do
+// not split publication into another dispatch merely to satisfy descriptor
+// pressure.
+StructuredBuffer<SigmaNativeObservationGpu> _NativeCloseObservations;
+StructuredBuffer<SigmaNativeStateDeltaGpu> _NativeCloseStateDeltas;
+StructuredBuffer<uint4> _NativeCloseLocalityCertificateWords;
+StructuredBuffer<uint4> _NativeCloseCounters;
+StructuredBuffer<SigmaNativeObservationGpu> _NativePrepareObservations;
+StructuredBuffer<uint2> _NativePrepareStates;
 
 // Read aliases keep the observation kernel below Quest's eight-UAV binding
 // ceiling without splitting the semantic close into another dispatch.
 StructuredBuffer<uint2> _NativeSourceCarrierState;
+StructuredBuffer<uint4> _NativeSourceCarrierRepresentation;
 StructuredBuffer<SigmaCarrierPageMetaGpu> _NativeSourcePageMetadata;
 StructuredBuffer<uint> _NativeSourcePublicationRoot;
 RWStructuredBuffer<uint2> _TargetCarrierState;
+RWStructuredBuffer<uint4> _TargetCarrierRepresentation;
 RWStructuredBuffer<SigmaCarrierPageMetaGpu> _TargetPageMetadata;
 RWStructuredBuffer<uint> _TargetDirtyFlags;
 RWStructuredBuffer<uint> _TargetReadoutDirtyFlags;
@@ -70,6 +82,7 @@ uint _NativeCalibrationEpoch;
 uint4 _NativeIndependenceKeys;
 uint _NativeTargetSegmentIndex;
 uint _NativeTargetPageCapacity;
+uint _NativeCompletionRecordIndex;
 
 #define SIGMA_NATIVE_LIVE_BRANCH_COUNT 1u
 #define SIGMA_NATIVE_ADMISSION_STATE_OFFSET 16u
@@ -84,6 +97,16 @@ groupshared uint SigmaNativeCurrentGeneration;
 groupshared uint SigmaNativeCurrentRevision;
 groupshared uint4 SigmaNativeCurrentCoordinate;
 groupshared uint SigmaNativeHasCurrentSupport;
+groupshared uint SigmaNativeStateUnchanged;
+groupshared uint SigmaNativeCertificateUnchanged;
+groupshared uint4 SigmaNativeRefinementChildCoordinate[4];
+groupshared uint SigmaNativeRefinementChildLevel[4];
+groupshared uint SigmaNativeRefinementRankPartials[4 * 64];
+groupshared SigmaNativeFrameGpu SigmaNativeSharedFrame;
+groupshared uint4 SigmaNativeSharedAdmission;
+groupshared uint SigmaNativeSharedTransportClass;
+groupshared uint SigmaNativeRefinementCollective;
+groupshared uint SigmaNativeRefinementValid;
 
 #define SIGMA_NATIVE_RGB_CAL_STRIDE 8u
 #define SIGMA_NATIVE_RGB_CAL_BASE_WIDTH 3u
@@ -91,6 +114,46 @@ groupshared uint SigmaNativeHasCurrentSupport;
 #define SIGMA_NATIVE_RGB_CAL_FOOTPRINT_WIDTH 6u
 
 StructuredBuffer<uint2> _RgbCalibrationQ48;
+
+uint SigmaNativeCompletionAddress(uint word)
+{
+    return _NativeCompletionRecordIndex * SIGMA_COMPLETION_WORD_COUNT + word;
+}
+
+void SigmaNativeWriteCompletion4(uint word, uint4 value)
+{
+    uint address = SigmaNativeCompletionAddress(word);
+    _NativeCompletionJournal[address] = value.xy;
+    _NativeCompletionJournal[address + 1u] = value.zw;
+}
+
+void SigmaNativeWriteCompletionFrame(SigmaNativeFrameGpu frame,
+    uint publishedRoot)
+{
+    SigmaNativeWriteCompletion4(SIGMA_COMPLETION_FRAME, frame.Identity);
+    SigmaNativeWriteCompletion4(SIGMA_COMPLETION_FRAME + 2u,
+        frame.Disposition);
+    SigmaNativeWriteCompletion4(SIGMA_COMPLETION_FRAME + 4u,
+        frame.Evidence);
+    SigmaNativeWriteCompletion4(SIGMA_COMPLETION_FRAME + 6u,
+        frame.Publication);
+    SigmaNativeWriteCompletion4(SIGMA_COMPLETION_ROOT,
+        uint4(publishedRoot, frame.Identity.x, frame.Disposition.x,
+            frame.Identity.w));
+}
+
+void SigmaNativeWriteCompletionUnresolved(
+    SigmaUnresolvedConstraintGpu unresolved)
+{
+    SigmaNativeWriteCompletion4(SIGMA_COMPLETION_UNRESOLVED,
+        unresolved.Observation);
+    SigmaNativeWriteCompletion4(SIGMA_COMPLETION_UNRESOLVED + 2u,
+        unresolved.Relation);
+    SigmaNativeWriteCompletion4(SIGMA_COMPLETION_UNRESOLVED + 4u,
+        unresolved.Evidence);
+    SigmaNativeWriteCompletion4(SIGMA_COMPLETION_UNRESOLVED + 6u,
+        unresolved.Provenance);
+}
 
 uint2 SigmaNativeQ48FromFloat(float value, inout uint valid)
 {
@@ -273,7 +336,21 @@ bool SigmaNativeCurrentPrediction(uint2 pixel, out uint slot,
             sibling = _NativeSourcePageMetadata[siblingSlot];
         valid = root != 0u && page.generation == generation &&
             page.revision == revision &&
+            page.representationFingerprint ==
+                (SIGMA_CHI_FINGERPRINT[0u] ^ SIGMA_KAPPA_FINGERPRINT[0u] ^
+                    SIGMA_CERTIFICATE_FINGERPRINT[0u]) &&
             SigmaCarrierVisibleAtRoot(page, sibling, hasSibling, root);
+        if (valid)
+        {
+            uint gaugeAddress = SigmaCarrierRepresentationAddress(slot,
+                sample, SIGMA_REPRESENTATION_GAUGE_COORDINATE);
+            uint4 gaugeCoordinate =
+                _NativeSourceCarrierRepresentation[gaugeAddress];
+            uint4 gaugePlan = _NativeSourceCarrierRepresentation[
+                gaugeAddress + 1u];
+            valid = (gaugePlan.y & SIGMA_NATIVE_GAUGE_CELL_FLAGS_ACTIVE) != 0u;
+            coordinate = valid ? gaugeCoordinate : uint4(0u, 0u, 0u, 0u);
+        }
     }
     return valid;
 }
@@ -283,6 +360,12 @@ void BuildNativeObservation(uint3 threadId : SV_GroupThreadID)
 {
     uint threadIndex = threadId.x;
     uint2 pixel = (_NativeResolution - 1u) / 2u;
+    // The compact persistence envelope is fully overwritten for every frame.
+    // Its first 18 words are terminal-only; raw calibrated evidence occupies
+    // the remaining disjoint words and is written by the lanes that derive it.
+    if (threadIndex < SIGMA_COMPLETION_OBSERVATION_HEADERS)
+        _NativeCompletionJournal[SigmaNativeCompletionAddress(threadIndex)] =
+            uint2(0u, 0u);
     if (threadIndex == 0u)
     {
         SigmaNativeHasCurrentSupport = SigmaNativeCurrentPrediction(pixel,
@@ -296,6 +379,9 @@ void BuildNativeObservation(uint3 threadId : SV_GroupThreadID)
     }
     if (threadIndex < 64u)
         _NativeStates[threadIndex] = uint2(0u, 0u);
+    _NativeLocalityCertificateWords[threadIndex] = 0u;
+    if (threadIndex < 16u)
+        _NativeLocalityCertificateWords[threadIndex + 64u] = 0u;
     GroupMemoryBarrierWithGroupSync();
 
     if (threadIndex < 16u && SigmaNativeHasCurrentSupport != 0u)
@@ -304,6 +390,11 @@ void BuildNativeObservation(uint3 threadId : SV_GroupThreadID)
             SigmaNativeCurrentSample * SIGMA_FRAME_LANE_COUNT + threadIndex;
         _NativeStates[SIGMA_NATIVE_PRIOR_STATE_OFFSET + threadIndex] =
             _NativeSourceCarrierState[source];
+        uint certificateSource = SigmaCarrierRepresentationAddress(
+            SigmaNativeCurrentSlot, SigmaNativeCurrentSample,
+            SIGMA_REPRESENTATION_CERTIFICATE + threadIndex);
+        _NativeLocalityCertificateWords[threadIndex] =
+            _NativeSourceCarrierRepresentation[certificateSource];
     }
 
     SigmaNativeObservationValid[threadIndex] = 1u;
@@ -318,8 +409,10 @@ void BuildNativeObservation(uint3 threadId : SV_GroupThreadID)
             all(isfinite(ray)) && all(isfinite(rayDx)) &&
             all(isfinite(rayDy)) && ray.z > 0.0 &&
             ray.w > 0.0 && rayDx.w > 0.0 && rayDy.w > 0.0 ? 1u : 0u;
-        _NativeFreshRoomRays[threadIndex] = SigmaNativeRoomRayComponent(
-            eye, component, ray.xyz, valid);
+        uint2 roomRay = SigmaNativeRoomRayComponent(eye, component,
+            ray.xyz, valid);
+        _NativeCompletionJournal[SigmaNativeCompletionAddress(
+            SIGMA_COMPLETION_ROOM_RAYS + threadIndex)] = roomRay;
         SigmaNativeObservationValid[threadIndex] = valid;
     }
     if (threadIndex < 8u)
@@ -356,10 +449,14 @@ void BuildNativeObservation(uint3 threadId : SV_GroupThreadID)
                 valid);
         }
         uint measurement = eye * 8u + leaf * 2u;
-        _NativeFreshCodeLeaves[measurement] = valid != 0u
+        uint2 storedLower = valid != 0u
             ? lower : uint2(0xffffffffu, 0x7fffffffu);
-        _NativeFreshCodeLeaves[measurement + 1u] = valid != 0u
+        uint2 storedUpper = valid != 0u
             ? upper : uint2(0u, 0x80000000u);
+        _NativeCompletionJournal[SigmaNativeCompletionAddress(
+            SIGMA_COMPLETION_CODE_LEAVES + measurement)] = storedLower;
+        _NativeCompletionJournal[SigmaNativeCompletionAddress(
+            SIGMA_COMPLETION_CODE_LEAVES + measurement + 1u)] = storedUpper;
         SigmaNativeObservationValid[8u + threadIndex] = valid;
     }
     GroupMemoryBarrierWithGroupSync();
@@ -389,12 +486,16 @@ void BuildNativeObservation(uint3 threadId : SV_GroupThreadID)
             (_NativeIndependenceKeys.z * 2166136261u) ^
             _NativeIndependenceKeys.w;
         provenance = provenance == 0u ? 1u : provenance;
-        _NativeFreshObservationHeaders[0u] = uint4(flags,
-            _NativeRevision, _NativeCalibrationEpoch, provenance);
-        _NativeFreshObservationHeaders[1u] = uint4(
+        uint4 observationHeader = uint4(flags, _NativeRevision,
+            _NativeCalibrationEpoch, provenance);
+        uint4 instrumentHeader = uint4(
             _NativeOpticalTransfers.x, _NativeOpticalTransfers.y,
             _NativeCalibrationEpoch,
             SIGMA_MERKABA_PROGRAM_FINGERPRINT[0u]);
+        SigmaNativeWriteCompletion4(SIGMA_COMPLETION_OBSERVATION_HEADERS,
+            observationHeader);
+        SigmaNativeWriteCompletion4(
+            SIGMA_COMPLETION_OBSERVATION_HEADERS + 2u, instrumentHeader);
 
         SigmaNativeFrameGpu frame;
         frame.Identity = uint4(_NativeRevision, _NativeCalibrationEpoch,
@@ -429,15 +530,70 @@ bool SigmaNativeTransportAdmissible(uint relationClass)
         relationClass == SIGMA_MERKABA_RELATION_NONASSOCIATIVE_CONTEXT;
 }
 
+SigmaNativeStateDeltaGpu SigmaNativeBuildStateDelta(uint4 coordinate,
+    uint4 generation, uint4 changed, uint4 witness, uint4 receipts,
+    uint stateOffset)
+{
+    SigmaNativeStateDeltaGpu delta;
+    delta.Coordinate = coordinate;
+    delta.Generation = generation;
+    delta.Changed = changed;
+    delta.Witness = witness;
+    delta.Receipts = receipts;
+    delta.State01 = uint4(_NativePrepareStates[stateOffset],
+        _NativePrepareStates[stateOffset + 1u]);
+    delta.State23 = uint4(_NativePrepareStates[stateOffset + 2u],
+        _NativePrepareStates[stateOffset + 3u]);
+    delta.State45 = uint4(_NativePrepareStates[stateOffset + 4u],
+        _NativePrepareStates[stateOffset + 5u]);
+    delta.State67 = uint4(_NativePrepareStates[stateOffset + 6u],
+        _NativePrepareStates[stateOffset + 7u]);
+    delta.State89 = uint4(_NativePrepareStates[stateOffset + 8u],
+        _NativePrepareStates[stateOffset + 9u]);
+    delta.State1011 = uint4(_NativePrepareStates[stateOffset + 10u],
+        _NativePrepareStates[stateOffset + 11u]);
+    delta.State1213 = uint4(_NativePrepareStates[stateOffset + 12u],
+        _NativePrepareStates[stateOffset + 13u]);
+    delta.State1415 = uint4(_NativePrepareStates[stateOffset + 14u],
+        _NativePrepareStates[stateOffset + 15u]);
+    return delta;
+}
+
+SigmaUnresolvedConstraintGpu SigmaNativeBuildRetainedConstraint(
+    SigmaNativeObservationGpu observation, uint4 admission,
+    uint transportClass, uint reason)
+{
+    SigmaUnresolvedConstraintGpu retained;
+    retained.Observation = observation.Identity;
+    retained.Relation = uint4(admission.y, transportClass,
+        _NativeRelationFactors[0u].w, _NativeRelationFactors[1u].w);
+    retained.Evidence = observation.Evidence;
+    retained.Provenance = uint4(admission.z, reason,
+        _NativeRevision, _NativeCalibrationEpoch);
+    return retained;
+}
+
 [numthreads(64, 1, 1)]
 void PrepareNativeRevision(uint3 threadId : SV_GroupThreadID)
 {
     uint threadIndex = threadId.x;
+    if (threadIndex < 4u)
+    {
+        _NativeStateDeltas[threadIndex] = (SigmaNativeStateDeltaGpu)0;
+        _NativeGaugeDeltas[threadIndex] = (SigmaNativeGaugeDeltaGpu)0;
+        // This kernel owns the revision outputs. Do not depend on scratch-pool
+        // clear state or on a preceding observation path to make unused delta
+        // classes zero; stale gauge counts could otherwise overwrite a copied
+        // gauge during a state-only/static-exclusion revision.
+        _NativeCounters[threadIndex] = uint4(0u, 0u, 0u, 0u);
+    }
     SigmaNativeObservationValid[threadIndex] = 0u;
     if (threadIndex < 16u)
         SigmaNativeObservationValid[threadIndex] = all(
-            _NativeStates[SIGMA_NATIVE_ADMISSION_STATE_OFFSET + threadIndex] ==
-            _NativeStates[SIGMA_NATIVE_PRIOR_STATE_OFFSET + threadIndex])
+            _NativePrepareStates[
+                SIGMA_NATIVE_ADMISSION_STATE_OFFSET + threadIndex] ==
+            _NativePrepareStates[
+                SIGMA_NATIVE_PRIOR_STATE_OFFSET + threadIndex])
             ? 1u : 0u;
     GroupMemoryBarrierWithGroupSync();
     [unroll]
@@ -449,44 +605,510 @@ void PrepareNativeRevision(uint3 threadId : SV_GroupThreadID)
         GroupMemoryBarrierWithGroupSync();
     }
 
-    if (threadIndex != 0u)
-        return;
-    SigmaNativeFrameGpu frame = _NativeFrames[0u];
-    if (frame.Identity.x != _NativeRevision ||
-        frame.Disposition.x != SIGMA_NATIVE_FRAME_DISPOSITION_GPU_OWNED)
-        return;
-    uint4 admission = _NativeBranchHeaders[SIGMA_NATIVE_LIVE_BRANCH_COUNT];
+    if (threadIndex == 0u)
+        SigmaNativeStateUnchanged = SigmaNativeObservationValid[0u];
+    GroupMemoryBarrierWithGroupSync();
+
+    if (threadIndex < SIGMA_CERTIFICATE_WORD_COUNT)
+    {
+        uint nextAddress = SIGMA_CERTIFICATE_WORD_COUNT + threadIndex;
+        if (threadIndex == SIGMA_CERTIFICATE_INDEPENDENCE)
+            _NativeLocalityCertificateWords[nextAddress] =
+                _NativePrepareObservations[0u].Evidence;
+        else if (threadIndex == SIGMA_CERTIFICATE_RELATION)
+            _NativeLocalityCertificateWords[nextAddress] = uint4(
+                _NativeRelationResults[0u].x,
+                _NativeRelationResults[1u].x,
+                _NativeRelationFactors[0u].w,
+                _NativeRelationFactors[1u].w);
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    bool semanticCertificateWord =
+        threadIndex >= SIGMA_CERTIFICATE_RELATION &&
+        threadIndex < SIGMA_CERTIFICATE_RECEIPTS0;
+    SigmaNativeObservationValid[threadIndex] =
+        !semanticCertificateWord || all(
+            _NativeLocalityCertificateWords[threadIndex] ==
+            _NativeLocalityCertificateWords[
+                SIGMA_CERTIFICATE_WORD_COUNT + threadIndex]) ? 1u : 0u;
+    GroupMemoryBarrierWithGroupSync();
+    [unroll]
+    for (uint certificateStride = 32u; certificateStride != 0u;
+        certificateStride >>= 1u)
+    {
+        if (threadIndex < certificateStride)
+            SigmaNativeObservationValid[threadIndex] &=
+                SigmaNativeObservationValid[threadIndex + certificateStride];
+        GroupMemoryBarrierWithGroupSync();
+    }
+    if (threadIndex == 0u)
+    {
+        uint priorFlags = _NativeLocalityCertificateWords[
+            SIGMA_CERTIFICATE_IDENTITY].x;
+        SigmaNativeCertificateUnchanged =
+            _NativeFrames[0u].Evidence.x == SIGMA_NATIVE_CURRENT_SUPPORT &&
+            (priorFlags & SIGMA_NATIVE_CERTIFICATE_FLAGS_VALID) != 0u &&
+            SigmaNativeObservationValid[0u] != 0u ? 1u : 0u;
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    if (threadIndex == 0u)
+    {
+        SigmaNativeSharedFrame = _NativeFrames[0u];
+        SigmaNativeSharedAdmission =
+            _NativeBranchHeaders[SIGMA_NATIVE_LIVE_BRANCH_COUNT];
+        SigmaNativeSharedTransportClass = _NativeRelationResults[1u].x;
+        bool sharedCurrent = SigmaNativeSharedFrame.Evidence.x ==
+            SIGMA_NATIVE_CURRENT_SUPPORT;
+        bool sharedTransport = !sharedCurrent ||
+            (_NativeRelationResults[1u].w != 0u &&
+                SigmaNativeTransportAdmissible(
+                    SigmaNativeSharedTransportClass));
+        SigmaNativeRefinementCollective =
+            SigmaNativeSharedFrame.Identity.x == _NativeRevision &&
+            SigmaNativeSharedFrame.Disposition.x ==
+                SIGMA_NATIVE_FRAME_DISPOSITION_GPU_OWNED &&
+            SigmaNativeSharedAdmission.x == SIGMA_FRESH_ADMISSION_ADMITTED &&
+            sharedTransport &&
+            (sharedCurrent || SigmaNativeSharedFrame.Publication.x == 0u) &&
+            sharedCurrent && SigmaNativeSharedAdmission.w ==
+                SIGMA_NATIVE_COLD_REASON_REPRESENTATION_REFINEMENT ? 1u : 0u;
+    }
+    GroupMemoryBarrierWithGroupSync();
+    SigmaNativeFrameGpu frame = SigmaNativeSharedFrame;
+    uint4 admission = SigmaNativeSharedAdmission;
     bool admitted = admission.x == SIGMA_FRESH_ADMISSION_ADMITTED;
     bool hasCurrent = frame.Evidence.x == SIGMA_NATIVE_CURRENT_SUPPORT;
-    uint transportClass = _NativeRelationResults[1u].x;
+    uint transportClass = SigmaNativeSharedTransportClass;
     bool transport = !hasCurrent ||
         (_NativeRelationResults[1u].w != 0u &&
             SigmaNativeTransportAdmissible(transportClass));
+    bool refinementRequested = hasCurrent && admission.w ==
+        SIGMA_NATIVE_COLD_REASON_REPRESENTATION_REFINEMENT;
     // N3 owns only the N1/N2-proved all-ZEmpty base-density embedding.
     // A second unattached support remains unresolved until N4 representation
     // refinement; it must never overwrite the already published gauge origin.
     bool freshBootstrap = hasCurrent || frame.Publication.x == 0u;
+    bool frameOwned = frame.Identity.x == _NativeRevision &&
+        frame.Disposition.x == SIGMA_NATIVE_FRAME_DISPOSITION_GPU_OWNED;
+
+    // A cold split is normalized collectively.  Each of the 64 lanes ranks the
+    // four new cells against a disjoint slice of the already-normalized prefix;
+    // cardinality changes arithmetic work, never submissions or host loops.
+    if (SigmaNativeRefinementCollective != 0u)
+    {
+        uint sourceSlot = frame.Evidence.y;
+        uint targetSlot = sourceSlot ^ 1u;
+        uint sample = frame.Evidence.z;
+        uint generation = frame.Evidence.w + 1u;
+        uint refinedChild = admission.z;
+        SigmaCarrierPageMetaGpu sourceMetadata =
+            _NativeSourcePageMetadata[sourceSlot];
+        uint activeSampleCount = sourceMetadata.activeSampleCount;
+        uint4 priorGaugeCoordinate = _NativeSourceCarrierRepresentation[
+            SigmaCarrierRepresentationAddress(sourceSlot, sample,
+                SIGMA_REPRESENTATION_GAUGE_COORDINATE)];
+        uint4 priorGaugePlan = _NativeSourceCarrierRepresentation[
+            SigmaCarrierRepresentationAddress(sourceSlot, sample,
+                SIGMA_REPRESENTATION_GAUGE_PLAN)];
+
+        uint localValid = targetSlot < _NativeTargetPageCapacity &&
+            generation != 0u && activeSampleCount != 0u &&
+            activeSampleCount <= SIGMA_PAGE_SAMPLE_COUNT - 3u &&
+            sourceMetadata.certificateCount == activeSampleCount &&
+            sample < activeSampleCount &&
+            refinedChild < 4u &&
+            (SigmaNativeStateUnchanged == 0u ||
+                SigmaNativeCertificateUnchanged == 0u) &&
+            (priorGaugePlan.y & SIGMA_NATIVE_GAUGE_CELL_FLAGS_ACTIVE) != 0u &&
+            priorGaugePlan.x < 62u &&
+            (_NativeLocalityCertificateWords[
+                SIGMA_CERTIFICATE_IDENTITY].x &
+                SIGMA_NATIVE_CERTIFICATE_FLAGS_VALID) != 0u ? 1u : 0u;
+        localValid &= (_NativeLocalityCertificateWords[
+            SIGMA_CERTIFICATE_WORD_COUNT + SIGMA_CERTIFICATE_IDENTITY].x &
+            SIGMA_NATIVE_CERTIFICATE_FLAGS_VALID) != 0u ? 1u : 0u;
+
+        if (threadIndex < 4u)
+        {
+            uint childValid = localValid;
+            childValid &= SigmaMerkabaSplitDyadicGauge(priorGaugeCoordinate,
+                priorGaugePlan.x, threadIndex,
+                SigmaNativeRefinementChildCoordinate[threadIndex],
+                SigmaNativeRefinementChildLevel[threadIndex]) ? 1u : 0u;
+            localValid &= childValid;
+        }
+        GroupMemoryBarrierWithGroupSync();
+
+        for (uint sourceSample = threadIndex;
+            sourceSample < activeSampleCount; sourceSample += 64u)
+        {
+            uint sourceAddress = SigmaCarrierRepresentationAddress(sourceSlot,
+                sourceSample, SIGMA_REPRESENTATION_GAUGE_COORDINATE);
+            uint4 sourcePlan = _NativeSourceCarrierRepresentation[
+                sourceAddress + SIGMA_REPRESENTATION_GAUGE_PLAN];
+            uint4 sourceCertificate = _NativeSourceCarrierRepresentation[
+                sourceAddress + SIGMA_REPRESENTATION_CERTIFICATE];
+            localValid &=
+                (sourcePlan.y & SIGMA_NATIVE_GAUGE_CELL_FLAGS_ACTIVE) != 0u &&
+                (sourceCertificate.x &
+                    SIGMA_NATIVE_CERTIFICATE_FLAGS_VALID) != 0u ? 1u : 0u;
+            if (sourceSample != 0u)
+            {
+                uint previousAddress = SigmaCarrierRepresentationAddress(
+                    sourceSlot, sourceSample - 1u,
+                    SIGMA_REPRESENTATION_GAUGE_COORDINATE);
+                uint4 previousCoordinate =
+                    _NativeSourceCarrierRepresentation[previousAddress];
+                uint4 previousPlan = _NativeSourceCarrierRepresentation[
+                    previousAddress + SIGMA_REPRESENTATION_GAUGE_PLAN];
+                uint orderValid = localValid;
+                bool ordered = SigmaMerkabaGaugeLess(previousCoordinate,
+                    previousPlan.x,
+                    _NativeSourceCarrierRepresentation[sourceAddress],
+                    sourcePlan.x, orderValid);
+                localValid &= ordered ? orderValid : 0u;
+            }
+        }
+
+        [unroll]
+        for (uint child = 0u; child < 4u; ++child)
+        {
+            uint rank = 0u;
+            for (uint sourceSample = threadIndex;
+                sourceSample < activeSampleCount; sourceSample += 64u)
+            {
+                if (sourceSample == sample)
+                    continue;
+                uint sourceAddress = SigmaCarrierRepresentationAddress(
+                    sourceSlot, sourceSample,
+                    SIGMA_REPRESENTATION_GAUGE_COORDINATE);
+                uint4 sourceCoordinate =
+                    _NativeSourceCarrierRepresentation[sourceAddress];
+                uint4 sourcePlan = _NativeSourceCarrierRepresentation[
+                    sourceAddress + SIGMA_REPRESENTATION_GAUGE_PLAN];
+                uint orderValid = localValid;
+                bool before = SigmaMerkabaGaugeLess(sourceCoordinate,
+                    sourcePlan.x,
+                    SigmaNativeRefinementChildCoordinate[child],
+                    SigmaNativeRefinementChildLevel[child], orderValid);
+                localValid &= orderValid;
+                rank += before ? 1u : 0u;
+            }
+            if (threadIndex == 0u)
+            {
+                [unroll]
+                for (uint peer = 0u; peer < 4u; ++peer)
+                {
+                    if (peer == child)
+                        continue;
+                    uint orderValid = localValid;
+                    bool before = SigmaMerkabaGaugeLess(
+                        SigmaNativeRefinementChildCoordinate[peer],
+                        SigmaNativeRefinementChildLevel[peer],
+                        SigmaNativeRefinementChildCoordinate[child],
+                        SigmaNativeRefinementChildLevel[child], orderValid);
+                    localValid &= orderValid;
+                    rank += before ? 1u : 0u;
+                }
+            }
+            SigmaNativeRefinementRankPartials[child * 64u + threadIndex] = rank;
+        }
+        SigmaNativeObservationValid[threadIndex] = localValid;
+        GroupMemoryBarrierWithGroupSync();
+        [unroll]
+        for (uint stride = 32u; stride != 0u; stride >>= 1u)
+        {
+            if (threadIndex < stride)
+            {
+                SigmaNativeObservationValid[threadIndex] &=
+                    SigmaNativeObservationValid[threadIndex + stride];
+                [unroll]
+                for (uint child = 0u; child < 4u; ++child)
+                    SigmaNativeRefinementRankPartials[child * 64u + threadIndex] +=
+                        SigmaNativeRefinementRankPartials[
+                            child * 64u + threadIndex + stride];
+            }
+            GroupMemoryBarrierWithGroupSync();
+        }
+
+        if (threadIndex == 0u)
+        {
+            SigmaNativeRefinementValid = SigmaNativeObservationValid[0u];
+            uint childRank[4];
+            [unroll]
+            for (uint child = 0u; child < 4u; ++child)
+            {
+                childRank[child] =
+                    SigmaNativeRefinementRankPartials[child * 64u];
+                SigmaNativeRefinementValid &= childRank[child] <
+                    activeSampleCount + 3u ? 1u : 0u;
+                [unroll]
+                for (uint priorChild = 0u; priorChild < child; ++priorChild)
+                    SigmaNativeRefinementValid &= childRank[child] !=
+                        childRank[priorChild] ? 1u : 0u;
+            }
+            if (SigmaNativeRefinementValid == 0u)
+            {
+                frame.Disposition = uint4(
+                    SIGMA_NATIVE_FRAME_DISPOSITION_UNRESOLVED,
+                    0u, 0u,
+                    SIGMA_NATIVE_COLD_REASON_REPRESENTATION_REFINEMENT);
+                _NativeFrames[0u] = frame;
+                SigmaUnresolvedConstraintGpu unresolved =
+                    SigmaNativeBuildRetainedConstraint(
+                        _NativePrepareObservations[0u], admission,
+                        transportClass,
+                        SIGMA_NATIVE_COLD_REASON_REPRESENTATION_REFINEMENT);
+                _NativeUnresolved[0u] = unresolved;
+                SigmaNativeWriteCompletionUnresolved(unresolved);
+                SigmaNativeWriteCompletionFrame(frame,
+                    _NativeSourcePublicationRoot[0u]);
+                _NativeCounters[0u].y = 1u;
+            }
+        }
+        GroupMemoryBarrierWithGroupSync();
+
+        if (SigmaNativeRefinementValid != 0u)
+        {
+            uint4 relationWitness = uint4(admission.y, transportClass,
+                _NativeRelationHashes[0u].x,
+                _NativeRelationHashes[1u].x);
+            if (threadIndex < 4u)
+            {
+                uint child = threadIndex;
+                uint childRank =
+                    SigmaNativeRefinementRankPartials[child * 64u];
+                uint4 childChanged = uint4(
+                    SIGMA_NATIVE_DELTA_RESOLVED |
+                    SIGMA_NATIVE_DELTA_COMMON |
+                    SIGMA_NATIVE_DELTA_STATE_CHANGED |
+                    SIGMA_NATIVE_DELTA_GAUGE_CHANGED |
+                    SIGMA_NATIVE_DELTA_EVIDENCE_RETAINED,
+                    _NativeRevision, frame.Publication.x, 1u);
+                _NativeStateDeltas[child] = SigmaNativeBuildStateDelta(
+                    SigmaNativeRefinementChildCoordinate[child],
+                    uint4(targetSlot, childRank, generation,
+                    sourceSlot), childChanged, relationWitness,
+                    _NativePrepareObservations[0u].Evidence,
+                    child == refinedChild
+                        ? SIGMA_NATIVE_ADMISSION_STATE_OFFSET
+                        : SIGMA_NATIVE_PRIOR_STATE_OFFSET);
+                SigmaNativeGaugeDeltaGpu childGauge;
+                childGauge.Coordinate =
+                    SigmaNativeRefinementChildCoordinate[child];
+                childGauge.Prior = child == 0u ? priorGaugePlan : 0u;
+                childGauge.Next = uint4(
+                    SigmaNativeRefinementChildLevel[child],
+                    SIGMA_NATIVE_GAUGE_CELL_FLAGS_ACTIVE |
+                    SIGMA_NATIVE_GAUGE_CELL_FLAGS_NORMALIZED |
+                    SIGMA_NATIVE_GAUGE_CELL_FLAGS_REFINED,
+                    SIGMA_CHI_FINGERPRINT[0u],
+                    SIGMA_KAPPA_FINGERPRINT[0u]);
+                childGauge.Witness = relationWitness;
+                _NativeGaugeDeltas[child] = childGauge;
+            }
+
+            // One lane owns one (child, certificate-word) transport.  All
+            // source words are loaded before any destination is written because
+            // child zero's destination aliases the immutable next-certificate
+            // scratch range.  This is a 64-lane fixed transpose, not a serial
+            // child/word loop and not another dispatch.
+            uint certificateChild = threadIndex /
+                SIGMA_CERTIFICATE_WORD_COUNT;
+            uint certificateWord = threadIndex %
+                SIGMA_CERTIFICATE_WORD_COUNT;
+            uint certificateSource = certificateChild == refinedChild
+                ? SIGMA_CERTIFICATE_WORD_COUNT : 0u;
+            uint4 transportedCertificate = _NativeLocalityCertificateWords[
+                certificateSource + certificateWord];
+            if (certificateWord == SIGMA_CERTIFICATE_IDENTITY)
+            {
+                transportedCertificate.x |=
+                    SIGMA_NATIVE_CERTIFICATE_FLAGS_MINIMIZED;
+                transportedCertificate.w = _NativeLocalityCertificateWords[
+                    SIGMA_CERTIFICATE_IDENTITY].w + 1u;
+            }
+            if (certificateWord >= SIGMA_CERTIFICATE_INFORMATION0 &&
+                certificateWord < SIGMA_CERTIFICATE_RECEIPTS0)
+                transportedCertificate.w = (transportedCertificate.w & 0xffu) |
+                    (SigmaNativeRefinementChildLevel[certificateChild] << 8u);
+            GroupMemoryBarrierWithGroupSync();
+            _NativeLocalityCertificateWords[
+                SIGMA_CERTIFICATE_WORD_COUNT * (certificateChild + 1u) +
+                certificateWord] = transportedCertificate;
+
+            if (threadIndex == 0u)
+            {
+                SigmaUnresolvedConstraintGpu retained =
+                    SigmaNativeBuildRetainedConstraint(
+                        _NativePrepareObservations[0u], admission,
+                        transportClass,
+                        SIGMA_NATIVE_COLD_REASON_REPRESENTATION_REFINEMENT);
+                _NativeUnresolved[0u] = retained;
+                SigmaNativeWriteCompletionUnresolved(retained);
+                frame.Identity.w =
+                    SIGMA_NATIVE_COLD_REASON_REPRESENTATION_REFINEMENT;
+                frame.Disposition = uint4(
+                    SIGMA_NATIVE_FRAME_DISPOSITION_RESOLVED, 4u, 4u, 0u);
+                frame.Publication.y = targetSlot;
+                frame.Publication.w = generation;
+                _NativeFrames[0u] = frame;
+                _NativeCounters[0u].x = 4u;
+                _NativeCounters[1u].x = 4u;
+                _NativeCounters[2u].x = 4u;
+                _NativeCounters[3u].x =
+                    SIGMA_NATIVE_COLD_REASON_REPRESENTATION_REFINEMENT;
+            }
+        }
+        return;
+    }
+
+    // Exact same-epoch stereo pass-through can retire the contradicted current
+    // manifestation.  The farther measured mould remains retained evidence;
+    // it is never embedded into this gauge without an independent relation
+    // proof.  All 16 certificate words move with the ZEmpty state in this same
+    // collective and become visible only at the existing root-last publish.
+    bool staticExclusion = frameOwned && admitted && hasCurrent && !transport &&
+        admission.w == SIGMA_NATIVE_COLD_REASON_STATIC_EXCLUSION;
+    if (staticExclusion)
+    {
+        uint priorCertificateGeneration = _NativeLocalityCertificateWords[
+            SIGMA_CERTIFICATE_IDENTITY].w;
+        uint nextFlags = _NativeLocalityCertificateWords[
+            SIGMA_CERTIFICATE_WORD_COUNT +
+            SIGMA_CERTIFICATE_IDENTITY].x;
+        SigmaNativeObservationValid[threadIndex] =
+            priorCertificateGeneration != 0xffffffffu &&
+            (nextFlags & SIGMA_NATIVE_CERTIFICATE_FLAGS_VALID) != 0u ? 1u : 0u;
+        GroupMemoryBarrierWithGroupSync();
+        [unroll]
+        for (uint proofStride = 32u; proofStride != 0u; proofStride >>= 1u)
+        {
+            if (threadIndex < proofStride)
+                SigmaNativeObservationValid[threadIndex] &=
+                    SigmaNativeObservationValid[threadIndex + proofStride];
+            GroupMemoryBarrierWithGroupSync();
+        }
+        if (SigmaNativeObservationValid[0u] != 0u)
+        {
+            if (threadIndex == SIGMA_CERTIFICATE_IDENTITY)
+            {
+                uint nextIdentityAddress = SIGMA_CERTIFICATE_WORD_COUNT +
+                    SIGMA_CERTIFICATE_IDENTITY;
+                uint4 nextIdentity = _NativeLocalityCertificateWords[
+                    nextIdentityAddress];
+                nextIdentity.x |= SIGMA_NATIVE_CERTIFICATE_FLAGS_MINIMIZED;
+                nextIdentity.w = priorCertificateGeneration + 1u;
+                _NativeLocalityCertificateWords[nextIdentityAddress] =
+                    nextIdentity;
+            }
+            GroupMemoryBarrierWithGroupSync();
+            if (threadIndex == 0u)
+            {
+                uint sourceSlot = frame.Evidence.y;
+                uint targetSlot = sourceSlot ^ 1u;
+                uint sample = frame.Evidence.z;
+                uint generation = frame.Evidence.w + 1u;
+                if (targetSlot >= _NativeTargetPageCapacity || generation == 0u)
+                {
+                    frame.Disposition = uint4(
+                        SIGMA_NATIVE_FRAME_DISPOSITION_FAULTED,
+                        0u, 0u, 0x00000001u);
+                    _NativeCounters[0u].w = 1u;
+                }
+                else
+                {
+                    uint4 witness = uint4(admission.y, transportClass,
+                        _NativeRelationHashes[0u].x,
+                        _NativeRelationHashes[1u].x);
+                    uint4 changed = uint4(
+                        SIGMA_NATIVE_DELTA_RESOLVED |
+                        SIGMA_NATIVE_DELTA_COMMON |
+                        SIGMA_NATIVE_DELTA_STATE_CHANGED |
+                        SIGMA_NATIVE_DELTA_EVIDENCE_RETAINED,
+                        _NativeRevision, frame.Publication.x, 1u);
+                    _NativeStateDeltas[0u] = SigmaNativeBuildStateDelta(
+                        _NativePrepareObservations[0u].Footprint,
+                        uint4(targetSlot, sample, generation, sourceSlot),
+                        changed, witness,
+                        _NativePrepareObservations[0u].Evidence,
+                        SIGMA_NATIVE_ZERO_STATE_OFFSET);
+                    SigmaUnresolvedConstraintGpu retained =
+                        SigmaNativeBuildRetainedConstraint(
+                            _NativePrepareObservations[0u], admission,
+                            transportClass,
+                            SIGMA_NATIVE_COLD_REASON_STATIC_EXCLUSION);
+                    _NativeUnresolved[0u] = retained;
+                    SigmaNativeWriteCompletionUnresolved(retained);
+                    frame.Identity.w =
+                        SIGMA_NATIVE_COLD_REASON_STATIC_EXCLUSION;
+                    frame.Disposition = uint4(
+                        SIGMA_NATIVE_FRAME_DISPOSITION_RESOLVED,
+                        1u, 0u, 0u);
+                    frame.Publication.y = targetSlot;
+                    frame.Publication.w = generation;
+                    _NativeCounters[0u].x = 1u;
+                    _NativeCounters[2u].x = 1u;
+                    _NativeCounters[3u].x =
+                        SIGMA_NATIVE_COLD_REASON_STATIC_EXCLUSION;
+                }
+                _NativeFrames[0u] = frame;
+                if (frame.Disposition.x ==
+                    SIGMA_NATIVE_FRAME_DISPOSITION_FAULTED)
+                    SigmaNativeWriteCompletionFrame(frame,
+                        _NativeSourcePublicationRoot[0u]);
+            }
+        }
+        else if (threadIndex == 0u)
+        {
+            frame.Disposition = uint4(
+                SIGMA_NATIVE_FRAME_DISPOSITION_UNRESOLVED,
+                0u, 0u, SIGMA_NATIVE_COLD_REASON_STATIC_EXCLUSION);
+            SigmaUnresolvedConstraintGpu unresolved =
+                SigmaNativeBuildRetainedConstraint(
+                    _NativePrepareObservations[0u], admission, transportClass,
+                    SIGMA_NATIVE_COLD_REASON_STATIC_EXCLUSION);
+            _NativeUnresolved[0u] = unresolved;
+            SigmaNativeWriteCompletionUnresolved(unresolved);
+            SigmaNativeWriteCompletionFrame(frame,
+                _NativeSourcePublicationRoot[0u]);
+            _NativeCounters[0u].y = 1u;
+            _NativeFrames[0u] = frame;
+        }
+        return;
+    }
+
+    if (threadIndex != 0u)
+        return;
+    if (!frameOwned)
+        return;
     if (!admitted || !transport || !freshBootstrap)
     {
         frame.Disposition = uint4(SIGMA_NATIVE_FRAME_DISPOSITION_UNRESOLVED,
             0u, 0u, admission.w);
         _NativeFrames[0u] = frame;
-        SigmaUnresolvedConstraintGpu unresolved;
-        unresolved.Observation = _NativeObservations[0u].Identity;
-        unresolved.Relation = uint4(admission.y, transportClass,
-            _NativeRelationFactors[0u].w, _NativeRelationFactors[1u].w);
-        unresolved.Evidence = _NativeObservations[0u].Evidence;
-        unresolved.Provenance = uint4(admission.z, admission.w,
-            _NativeRevision, _NativeCalibrationEpoch);
+        SigmaUnresolvedConstraintGpu unresolved =
+            SigmaNativeBuildRetainedConstraint(
+                _NativePrepareObservations[0u], admission,
+                transportClass, admission.w);
         _NativeUnresolved[0u] = unresolved;
+        SigmaNativeWriteCompletionUnresolved(unresolved);
+        SigmaNativeWriteCompletionFrame(frame,
+            _NativeSourcePublicationRoot[0u]);
         _NativeCounters[0u].y = 1u;
         return;
     }
-    if (hasCurrent && SigmaNativeObservationValid[0u] != 0u)
+    if (!refinementRequested && hasCurrent &&
+        SigmaNativeStateUnchanged != 0u &&
+        SigmaNativeCertificateUnchanged != 0u)
     {
         frame.Disposition = uint4(SIGMA_NATIVE_FRAME_DISPOSITION_NO_CHANGE,
             0u, 0u, 0u);
         _NativeFrames[0u] = frame;
+        SigmaNativeWriteCompletionFrame(frame,
+            _NativeSourcePublicationRoot[0u]);
         _NativeCounters[0u].z = 1u;
         return;
     }
@@ -500,50 +1122,76 @@ void PrepareNativeRevision(uint3 threadId : SV_GroupThreadID)
         frame.Disposition = uint4(SIGMA_NATIVE_FRAME_DISPOSITION_FAULTED,
             0u, 0u, 0x00000001u);
         _NativeFrames[0u] = frame;
+        SigmaNativeWriteCompletionFrame(frame,
+            _NativeSourcePublicationRoot[0u]);
         _NativeCounters[0u].w = 1u;
         return;
     }
+    uint4 priorGaugeCoordinate = 0u;
+    uint4 priorGaugePlan = 0u;
+    if (hasCurrent)
+    {
+        priorGaugeCoordinate = _NativeSourceCarrierRepresentation[
+            SigmaCarrierRepresentationAddress(sourceSlot, sample,
+                SIGMA_REPRESENTATION_GAUGE_COORDINATE)];
+        priorGaugePlan = _NativeSourceCarrierRepresentation[
+            SigmaCarrierRepresentationAddress(sourceSlot, sample,
+                SIGMA_REPRESENTATION_GAUGE_PLAN)];
+    }
+    bool stateChanged = !hasCurrent || SigmaNativeStateUnchanged == 0u;
+    bool gaugeChanged = !hasCurrent;
+    bool certificateChanged = !hasCurrent ||
+        SigmaNativeCertificateUnchanged == 0u;
+    uint deltaFlags = SIGMA_NATIVE_DELTA_RESOLVED |
+        SIGMA_NATIVE_DELTA_COMMON | SIGMA_NATIVE_DELTA_EVIDENCE_RETAINED;
+    if (stateChanged)
+        deltaFlags |= SIGMA_NATIVE_DELTA_STATE_CHANGED;
+    if (gaugeChanged)
+        deltaFlags |= SIGMA_NATIVE_DELTA_GAUGE_CHANGED;
 
-    SigmaNativeStateDeltaGpu delta;
-    delta.Coordinate = hasCurrent ? _NativeObservations[0u].Footprint :
+    uint4 deltaCoordinate = hasCurrent
+        ? _NativePrepareObservations[0u].Footprint :
         uint4(0u, 0u, 0u, 0u);
-    delta.Generation = uint4(targetSlot, sample, generation, sourceSlot);
-    delta.Changed = uint4(SIGMA_NATIVE_DELTA_RESOLVED |
-        SIGMA_NATIVE_DELTA_COMMON | SIGMA_NATIVE_DELTA_STATE_CHANGED |
-        SIGMA_NATIVE_DELTA_EVIDENCE_RETAINED, _NativeRevision,
-        frame.Publication.x, 1u);
-    delta.Witness = uint4(admission.y, transportClass,
+    uint4 deltaGeneration = uint4(targetSlot, sample, generation, sourceSlot);
+    uint4 deltaChanged = uint4(deltaFlags, _NativeRevision,
+        frame.Publication.x, certificateChanged ? 1u : 0u);
+    uint4 deltaWitness = uint4(admission.y, transportClass,
         _NativeRelationHashes[0u].x, _NativeRelationHashes[1u].x);
-    delta.Receipts = _NativeObservations[0u].Evidence;
-    // Fixed ABI packing is explicit: no dynamic lane loop or branch ladder is
-    // left for the driver to serialize.
-    delta.State01 = uint4(_NativeStates[SIGMA_NATIVE_ADMISSION_STATE_OFFSET],
-        _NativeStates[SIGMA_NATIVE_ADMISSION_STATE_OFFSET + 1u]);
-    delta.State23 = uint4(_NativeStates[SIGMA_NATIVE_ADMISSION_STATE_OFFSET + 2u],
-        _NativeStates[SIGMA_NATIVE_ADMISSION_STATE_OFFSET + 3u]);
-    delta.State45 = uint4(_NativeStates[SIGMA_NATIVE_ADMISSION_STATE_OFFSET + 4u],
-        _NativeStates[SIGMA_NATIVE_ADMISSION_STATE_OFFSET + 5u]);
-    delta.State67 = uint4(_NativeStates[SIGMA_NATIVE_ADMISSION_STATE_OFFSET + 6u],
-        _NativeStates[SIGMA_NATIVE_ADMISSION_STATE_OFFSET + 7u]);
-    delta.State89 = uint4(_NativeStates[SIGMA_NATIVE_ADMISSION_STATE_OFFSET + 8u],
-        _NativeStates[SIGMA_NATIVE_ADMISSION_STATE_OFFSET + 9u]);
-    delta.State1011 = uint4(
-        _NativeStates[SIGMA_NATIVE_ADMISSION_STATE_OFFSET + 10u],
-        _NativeStates[SIGMA_NATIVE_ADMISSION_STATE_OFFSET + 11u]);
-    delta.State1213 = uint4(
-        _NativeStates[SIGMA_NATIVE_ADMISSION_STATE_OFFSET + 12u],
-        _NativeStates[SIGMA_NATIVE_ADMISSION_STATE_OFFSET + 13u]);
-    delta.State1415 = uint4(
-        _NativeStates[SIGMA_NATIVE_ADMISSION_STATE_OFFSET + 14u],
-        _NativeStates[SIGMA_NATIVE_ADMISSION_STATE_OFFSET + 15u]);
+    SigmaNativeStateDeltaGpu delta = SigmaNativeBuildStateDelta(
+        deltaCoordinate, deltaGeneration, deltaChanged, deltaWitness,
+        _NativePrepareObservations[0u].Evidence,
+        SIGMA_NATIVE_ADMISSION_STATE_OFFSET);
     _NativeStateDeltas[0u] = delta;
-    _NativeGaugeDeltas[0u] = (SigmaNativeGaugeDeltaGpu)0;
+    uint4 nextGaugeCoordinate = hasCurrent ? priorGaugeCoordinate :
+        delta.Coordinate;
+    uint4 nextGaugePlan = hasCurrent ? priorGaugePlan : uint4(0u,
+        SIGMA_NATIVE_GAUGE_CELL_FLAGS_ACTIVE |
+        SIGMA_NATIVE_GAUGE_CELL_FLAGS_NORMALIZED,
+        SIGMA_CHI_FINGERPRINT[0u], SIGMA_KAPPA_FINGERPRINT[0u]);
+    SigmaNativeGaugeDeltaGpu gaugeDelta;
+    gaugeDelta.Coordinate = nextGaugeCoordinate;
+    gaugeDelta.Prior = priorGaugePlan;
+    gaugeDelta.Next = nextGaugePlan;
+    gaugeDelta.Witness = delta.Witness;
+    _NativeGaugeDeltas[0u] = gaugeDelta;
+
+    uint4 certificateIdentity = _NativeLocalityCertificateWords[
+        SIGMA_CERTIFICATE_WORD_COUNT + SIGMA_CERTIFICATE_IDENTITY];
+    uint priorCertificateGeneration = hasCurrent ?
+        _NativeLocalityCertificateWords[SIGMA_CERTIFICATE_IDENTITY].w : 0u;
+    certificateIdentity.w = certificateChanged
+        ? priorCertificateGeneration + 1u : priorCertificateGeneration;
+    _NativeLocalityCertificateWords[
+        SIGMA_CERTIFICATE_WORD_COUNT + SIGMA_CERTIFICATE_IDENTITY] =
+        certificateIdentity;
     frame.Disposition = uint4(SIGMA_NATIVE_FRAME_DISPOSITION_RESOLVED,
-        1u, 0u, 0u);
+        stateChanged ? 1u : 0u, gaugeChanged ? 1u : 0u, 0u);
     frame.Publication.y = targetSlot;
     frame.Publication.w = generation;
     _NativeFrames[0u] = frame;
-    _NativeCounters[0u].x = 1u;
+    _NativeCounters[0u].x = stateChanged ? 1u : 0u;
+    _NativeCounters[1u].x = gaugeChanged ? 1u : 0u;
+    _NativeCounters[2u].x = certificateChanged ? 1u : 0u;
 }
 
 [numthreads(256, 1, 1)]
@@ -554,16 +1202,81 @@ void PrepareNativePage(uint3 groupId : SV_GroupID,
     if (frame.Disposition.x != SIGMA_NATIVE_FRAME_DISPOSITION_RESOLVED)
         return;
     uint laneAddress = groupId.x * 256u + threadId.x;
-    if (laneAddress >= SIGMA_PAGE_LANE_COUNT)
-        return;
     SigmaNativeStateDeltaGpu delta = _NativeStateDeltas[0u];
     uint targetSlot = delta.Generation.x;
     uint sourceSlot = delta.Generation.w;
-    uint target = targetSlot * SIGMA_PAGE_LANE_COUNT + laneAddress;
-    uint source = sourceSlot != SIGMA_FRAME_INVALID
-        ? sourceSlot * SIGMA_PAGE_LANE_COUNT + laneAddress : 0u;
-    _TargetCarrierState[target] = sourceSlot != SIGMA_FRAME_INVALID
-        ? _TargetCarrierState[source] : uint2(0u, 0u);
+    bool refinement = frame.Identity.w ==
+        SIGMA_NATIVE_COLD_REASON_REPRESENTATION_REFINEMENT;
+    uint parentSample = frame.Evidence.z;
+    uint sourceActiveCount = sourceSlot != SIGMA_FRAME_INVALID
+        ? _NativeSourcePageMetadata[sourceSlot].activeSampleCount : 0u;
+    uint targetActiveCount = refinement ? sourceActiveCount + 3u :
+        sourceActiveCount;
+    if (laneAddress < SIGMA_PAGE_LANE_COUNT)
+    {
+        uint targetSample = laneAddress / SIGMA_FRAME_LANE_COUNT;
+        uint lane = laneAddress % SIGMA_FRAME_LANE_COUNT;
+        uint sourceSample = targetSample;
+        bool copied = sourceSlot != SIGMA_FRAME_INVALID;
+        if (refinement)
+        {
+            uint childrenBefore = 0u;
+            bool child = false;
+            [unroll]
+            for (uint childIndex = 0u; childIndex < 4u; ++childIndex)
+            {
+                uint childRank = _NativeStateDeltas[childIndex].Generation.y;
+                child = child || targetSample == childRank;
+                childrenBefore += childRank < targetSample ? 1u : 0u;
+            }
+            uint sourceRank = targetSample - childrenBefore;
+            sourceSample = child ? parentSample :
+                (sourceRank < parentSample ? sourceRank : sourceRank + 1u);
+            copied = targetSample < targetActiveCount;
+            sourceSample = copied ? sourceSample : 0u;
+        }
+        uint target = targetSlot * SIGMA_PAGE_LANE_COUNT + laneAddress;
+        uint source = sourceSlot != SIGMA_FRAME_INVALID
+            ? sourceSlot * SIGMA_PAGE_LANE_COUNT +
+                sourceSample * SIGMA_FRAME_LANE_COUNT + lane : 0u;
+        _TargetCarrierState[target] = copied
+            ? _TargetCarrierState[source] : uint2(0u, 0u);
+    }
+    uint representationWordCount = SIGMA_PAGE_SAMPLE_COUNT *
+        SIGMA_REPRESENTATION_WORDS_PER_SAMPLE;
+    if (laneAddress < representationWordCount)
+    {
+        uint targetSample = laneAddress /
+            SIGMA_REPRESENTATION_WORDS_PER_SAMPLE;
+        uint word = laneAddress % SIGMA_REPRESENTATION_WORDS_PER_SAMPLE;
+        uint sourceSample = targetSample;
+        bool copied = sourceSlot != SIGMA_FRAME_INVALID;
+        if (refinement)
+        {
+            uint childrenBefore = 0u;
+            bool child = false;
+            [unroll]
+            for (uint childIndex = 0u; childIndex < 4u; ++childIndex)
+            {
+                uint childRank = _NativeStateDeltas[childIndex].Generation.y;
+                child = child || targetSample == childRank;
+                childrenBefore += childRank < targetSample ? 1u : 0u;
+            }
+            uint sourceRank = targetSample - childrenBefore;
+            sourceSample = child ? parentSample :
+                (sourceRank < parentSample ? sourceRank : sourceRank + 1u);
+            copied = targetSample < targetActiveCount;
+            sourceSample = copied ? sourceSample : 0u;
+        }
+        uint targetRepresentation = targetSlot * representationWordCount +
+            laneAddress;
+        uint sourceRepresentation = sourceSlot != SIGMA_FRAME_INVALID
+            ? SigmaCarrierRepresentationAddress(sourceSlot, sourceSample, word)
+            : 0u;
+        _TargetCarrierRepresentation[targetRepresentation] =
+            copied
+            ? _TargetCarrierRepresentation[sourceRepresentation] : 0u;
+    }
 }
 
 uint2 SigmaNativeDeltaLane(SigmaNativeStateDeltaGpu delta, uint lane)
@@ -578,17 +1291,65 @@ uint2 SigmaNativeDeltaLane(SigmaNativeStateDeltaGpu delta, uint lane)
     return (lane & 1u) == 0u ? pair.xy : pair.zw;
 }
 
-[numthreads(16, 1, 1)]
+[numthreads(128, 1, 1)]
 void ScatterNativeState(uint3 threadId : SV_GroupThreadID)
 {
     SigmaNativeFrameGpu frame = _NativeFrames[0u];
     if (frame.Disposition.x != SIGMA_NATIVE_FRAME_DISPOSITION_RESOLVED)
         return;
-    SigmaNativeStateDeltaGpu delta = _NativeStateDeltas[0u];
-    uint lane = threadId.x;
-    uint destination = delta.Generation.x * SIGMA_PAGE_LANE_COUNT +
-        delta.Generation.y * SIGMA_FRAME_LANE_COUNT + lane;
-    _TargetCarrierState[destination] = SigmaNativeDeltaLane(delta, lane);
+    uint local = threadId.x;
+    uint stateCount = _NativeCounters[0u].x;
+    uint gaugeCount = _NativeCounters[1u].x;
+    uint certificateCount = _NativeCounters[2u].x;
+    uint representationCount = max(gaugeCount, certificateCount);
+    uint stateWordCount = stateCount * SIGMA_FRAME_LANE_COUNT;
+    if (local < stateWordCount)
+    {
+        uint stateDeltaIndex = local / SIGMA_FRAME_LANE_COUNT;
+        uint stateLane = local % SIGMA_FRAME_LANE_COUNT;
+        SigmaNativeStateDeltaGpu stateDelta =
+            _NativeStateDeltas[stateDeltaIndex];
+        uint destination = stateDelta.Generation.x * SIGMA_PAGE_LANE_COUNT +
+            stateDelta.Generation.y * SIGMA_FRAME_LANE_COUNT + stateLane;
+        _TargetCarrierState[destination] =
+            SigmaNativeDeltaLane(stateDelta, stateLane);
+    }
+    uint representationWordCount = representationCount *
+        SIGMA_REPRESENTATION_WORDS_PER_SAMPLE;
+    if (local < representationWordCount)
+    {
+        uint representationDeltaIndex = local /
+            SIGMA_REPRESENTATION_WORDS_PER_SAMPLE;
+        uint representationWord = local %
+            SIGMA_REPRESENTATION_WORDS_PER_SAMPLE;
+        SigmaNativeStateDeltaGpu representationDelta =
+            _NativeStateDeltas[representationDeltaIndex];
+        bool certificateWord = representationWord >=
+            SIGMA_REPRESENTATION_CERTIFICATE;
+        bool writeGauge = representationDeltaIndex < gaugeCount;
+        bool writeCertificate = representationDeltaIndex < certificateCount;
+        if ((!certificateWord && writeGauge) ||
+            (certificateWord && writeCertificate))
+        {
+            SigmaNativeGaugeDeltaGpu gauge =
+                _NativeGaugeDeltas[representationDeltaIndex];
+            uint4 value = representationWord ==
+                SIGMA_REPRESENTATION_GAUGE_COORDINATE
+                ? gauge.Coordinate :
+                (representationWord == SIGMA_REPRESENTATION_GAUGE_PLAN
+                ? gauge.Next :
+                _NativeLocalityCertificateWords[
+                    SIGMA_CERTIFICATE_WORD_COUNT *
+                        (representationDeltaIndex + 1u) +
+                    representationWord -
+                    SIGMA_REPRESENTATION_CERTIFICATE]);
+            _TargetCarrierRepresentation[
+                SigmaCarrierRepresentationAddress(
+                    representationDelta.Generation.x,
+                    representationDelta.Generation.y,
+                    representationWord)] = value;
+        }
+    }
 }
 
 [numthreads(1, 1, 1)]
@@ -597,22 +1358,48 @@ void CloseAndPublishNativeRevision(uint3 id : SV_DispatchThreadID)
     SigmaNativeFrameGpu frame = _NativeFrames[0u];
     if (frame.Disposition.x != SIGMA_NATIVE_FRAME_DISPOSITION_RESOLVED)
         return;
-    SigmaNativeStateDeltaGpu delta = _NativeStateDeltas[0u];
+    SigmaNativeStateDeltaGpu delta = _NativeCloseStateDeltas[0u];
     uint targetSlot = delta.Generation.x;
     SigmaCarrierPageMetaGpu metadata;
-    metadata.pageXLo = delta.Coordinate.x;
-    metadata.pageXHi = delta.Coordinate.y;
-    metadata.pageYLo = delta.Coordinate.z;
-    metadata.pageYHi = delta.Coordinate.w;
+    uint sourceSlot = delta.Generation.w;
+    SigmaCarrierPageMetaGpu sourceMetadata = (SigmaCarrierPageMetaGpu)0;
+    if (sourceSlot != SIGMA_FRAME_INVALID)
+        sourceMetadata = _TargetPageMetadata[sourceSlot];
+    metadata.pageXLo = sourceSlot != SIGMA_FRAME_INVALID
+        ? sourceMetadata.pageXLo : delta.Coordinate.x;
+    metadata.pageXHi = sourceSlot != SIGMA_FRAME_INVALID
+        ? sourceMetadata.pageXHi : delta.Coordinate.y;
+    metadata.pageYLo = sourceSlot != SIGMA_FRAME_INVALID
+        ? sourceMetadata.pageYLo : delta.Coordinate.z;
+    metadata.pageYHi = sourceSlot != SIGMA_FRAME_INVALID
+        ? sourceMetadata.pageYHi : delta.Coordinate.w;
     metadata.generation = delta.Generation.z;
     metadata.revision = _NativeRevision;
     metadata.certificateOffsetLo = 0u;
     metadata.certificateOffsetHi = 0u;
-    metadata.certificateCount = 1u;
+    metadata.certificateCount = sourceSlot == SIGMA_FRAME_INVALID ? 1u :
+        sourceMetadata.certificateCount;
+    if (frame.Identity.w ==
+        SIGMA_NATIVE_COLD_REASON_REPRESENTATION_REFINEMENT)
+        metadata.certificateCount += 3u;
     metadata.flags = SIGMA_PAGE_ALLOCATED | SIGMA_PAGE_PUBLISHED |
         SIGMA_PAGE_DIRTY;
-    metadata.reserved0 = SIGMA_FRAME_INVALID;
-    metadata.reserved1 = 0u;
+    metadata.gaugeGeneration = sourceMetadata.gaugeGeneration +
+        (frame.Disposition.z != 0u ? 1u : 0u);
+    metadata.certificateGeneration =
+        _NativeCloseLocalityCertificateWords[
+            SIGMA_CERTIFICATE_WORD_COUNT +
+            SIGMA_CERTIFICATE_IDENTITY].w;
+    metadata.representationFlags = SIGMA_REPRESENTATION_HAS_GAUGE |
+        SIGMA_REPRESENTATION_HAS_CERTIFICATE;
+    metadata.representationFingerprint = SIGMA_CHI_FINGERPRINT[0u] ^
+        SIGMA_KAPPA_FINGERPRINT[0u] ^ SIGMA_CERTIFICATE_FINGERPRINT[0u];
+    metadata.activeSampleCount = sourceSlot == SIGMA_FRAME_INVALID ? 1u :
+        sourceMetadata.activeSampleCount;
+    if (frame.Identity.w ==
+        SIGMA_NATIVE_COLD_REASON_REPRESENTATION_REFINEMENT)
+        metadata.activeSampleCount += 3u;
+    metadata.reserved0 = 0u;
     _TargetPageMetadata[targetSlot] = metadata;
     _TargetDirtyFlags[targetSlot] = 1u;
     _TargetReadoutDirtyFlags[targetSlot] = 1u;
@@ -621,15 +1408,17 @@ void CloseAndPublishNativeRevision(uint3 id : SV_DispatchThreadID)
     SigmaNativeFieldRevisionGpu revision;
     revision.Identity = uint4(_NativeRevision, frame.Publication.x,
         SIGMA_NATIVE_REVISION_STATE_PUBLISHED, _NativeCalibrationEpoch);
-    revision.Changed = uint4(1u, 0u, targetSlot, delta.Generation.z);
-    revision.Evidence = _NativeObservations[0u].Evidence;
-    revision.Publication = uint4(0u, 0u, 0u, 0u);
+    revision.Changed = uint4(_NativeCloseCounters[0u].x,
+        _NativeCloseCounters[1u].x, _NativeCloseCounters[2u].x, 0u);
+    revision.Evidence = _NativeCloseObservations[0u].Evidence;
+    revision.Publication = uint4(targetSlot, delta.Generation.z,
+        metadata.gaugeGeneration, metadata.certificateGeneration);
     _NativeRevisions[revisionSlot] = revision;
-    frame.Disposition = uint4(SIGMA_NATIVE_FRAME_DISPOSITION_PUBLISHED,
-        1u, 0u, 0u);
+    frame.Disposition.x = SIGMA_NATIVE_FRAME_DISPOSITION_PUBLISHED;
     frame.Publication = uint4(frame.Publication.x, _NativeRevision,
         targetSlot, delta.Generation.z);
     _NativeFrames[0u] = frame;
     uint previous;
     InterlockedExchange(_PublishedRevisionRoot[0u], _NativeRevision, previous);
+    SigmaNativeWriteCompletionFrame(frame, _NativeRevision);
 }

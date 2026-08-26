@@ -48,14 +48,7 @@ uint SigmaCodecSharedIndex(uint lane, uint sample)
 
 uint2 SigmaCodecNullLane(uint lane)
 {
-    uint2 value = uint2(0u, 0u);
-    if (lane == (uint)SIGMA_Z_NULL_DYAD.x)
-        value = SIGMA_Z_NULL_DYAD.y < 0 ? uint2(0u, 0xffff0000u) :
-            uint2(0u, 0x00010000u);
-    if (lane == (uint)SIGMA_Z_NULL_DYAD.z)
-        value = SIGMA_Z_NULL_DYAD.w < 0 ? uint2(0u, 0xffff0000u) :
-            uint2(0u, 0x00010000u);
-    return value;
+    return uint2(0u, 0u);
 }
 
 uint SigmaCodecPageSample(uint block, uint sample)

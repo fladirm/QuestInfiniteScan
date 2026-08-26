@@ -6,6 +6,7 @@
 
 StructuredBuffer<uint> _SigmaExactBackendGate;
 RWStructuredBuffer<uint2> _TargetCarrierState;
+RWStructuredBuffer<uint4> _TargetCarrierRepresentation;
 RWStructuredBuffer<SigmaCarrierPageMetaGpu> _PageMetadata;
 RWStructuredBuffer<uint> _DirtyFlags;
 RWStructuredBuffer<uint> _ReadoutDirtyFlags;
@@ -15,12 +16,8 @@ uint _GpuPoolPageCount;
 
 uint2 SigmaCarrierNullLane(uint lane)
 {
-    if (lane == (uint)SIGMA_Z_NULL_DYAD.x)
-        return SIGMA_Z_NULL_DYAD.y < 0 ? uint2(0u, 0xffff0000u) :
-            uint2(0u, 0x00010000u);
-    if (lane == (uint)SIGMA_Z_NULL_DYAD.z)
-        return SIGMA_Z_NULL_DYAD.w < 0 ? uint2(0u, 0xffff0000u) :
-            uint2(0u, 0x00010000u);
+    // Complete-program ZEmpty is algebraic zero.  SIGMA_Z_NULL_DYAD remains
+    // available to the generated algebra solely as a zero-divisor witness.
     return uint2(0u, 0u);
 }
 
@@ -39,6 +36,11 @@ void InitializeGpuPool(uint3 groupId : SV_GroupID,
     [unroll]
     for (uint lane = 0u; lane < SIGMA_LANE_COUNT; ++lane)
         _TargetCarrierState[stateBase + lane] = SigmaCarrierNullLane(lane);
+    uint representationBase = (pageSlot * SIGMA_PAGE_SAMPLE_COUNT + sample) *
+        SIGMA_REPRESENTATION_WORDS_PER_SAMPLE;
+    [unroll]
+    for (uint word = 0u; word < SIGMA_REPRESENTATION_WORDS_PER_SAMPLE; ++word)
+        _TargetCarrierRepresentation[representationBase + word] = 0u;
 
     if (sample == 0u)
     {

@@ -166,16 +166,24 @@ namespace Genesis.RoomScan.SigmaPrism
 
         internal void RecordNativeCloseCommit(CommandBuffer command,
             SigmaNativeFrameLease lease, uint revision, uint calibrationEpoch,
-            in SigmaNativeFrameInput input)
+            in SigmaNativeFrameInput input, GraphicsBuffer completionJournal,
+            int completionRecordIndex)
         {
             if (command == null) throw new ArgumentNullException(nameof(command));
             if (lease == null) throw new ArgumentNullException(nameof(lease));
+            if (completionJournal == null)
+                throw new ArgumentNullException(nameof(completionJournal));
             if (revision == 0u) throw new ArgumentOutOfRangeException(nameof(revision));
+            if (completionRecordIndex < 0)
+                throw new ArgumentOutOfRangeException(
+                    nameof(completionRecordIndex));
             SigmaNativeFrameSlotResources slot = lease.Resources;
-            BindFrameKernels(command, slot, revision, calibrationEpoch, input);
+            BindFrameKernels(command, slot, revision, calibrationEpoch, input,
+                completionJournal, completionRecordIndex);
             command.DispatchComputeProfiled(_frame, _buildObservation, 1, 1, 1);
 
-            BindContract(command, slot);
+            BindContract(command, slot, completionJournal,
+                completionRecordIndex);
             command.SetComputeIntParam(_contract, "_NativeContractMode", 1);
             command.SetComputeIntParam(_contract, "_NativeFreshBranchCount",
                 SigmaNativeFrameSlotResources.LiveFreshBranchCount);
@@ -198,7 +206,9 @@ namespace Genesis.RoomScan.SigmaPrism
 
             command.DispatchComputeProfiled(_frame, _prepareRevision, 1, 1, 1);
             command.DispatchComputeProfiled(_frame, _preparePage,
-                SigmaCarrier.PageLaneCount / 256, 1, 1);
+                Math.Max(SigmaCarrier.PageLaneCount,
+                    SigmaCarrier.SamplesPerPage *
+                    SigmaCarrier.RepresentationWordsPerSample) / 256, 1, 1);
             command.DispatchComputeProfiled(_frame, _scatterState, 1, 1, 1);
             command.DispatchComputeProfiled(_frame, _closePublish, 1, 1, 1);
         }
@@ -214,7 +224,8 @@ namespace Genesis.RoomScan.SigmaPrism
 
         private void BindFrameKernels(CommandBuffer command,
             SigmaNativeFrameSlotResources slot, uint revision,
-            uint calibrationEpoch, in SigmaNativeFrameInput input)
+            uint calibrationEpoch, in SigmaNativeFrameInput input,
+            GraphicsBuffer completionJournal, int completionRecordIndex)
         {
             int[] kernels = { _buildObservation, _prepareRevision, _preparePage,
                 _scatterState, _closePublish };
@@ -234,13 +245,6 @@ namespace Genesis.RoomScan.SigmaPrism
                 command.SetComputeBufferParam(_frame, kernel,
                     "_NativeObservations", slot.Observation);
                 command.SetComputeBufferParam(_frame, kernel,
-                    "_NativeFreshObservationHeaders",
-                    slot.FreshObservationHeaders);
-                command.SetComputeBufferParam(_frame, kernel,
-                    "_NativeFreshRoomRays", slot.FreshRoomRays);
-                command.SetComputeBufferParam(_frame, kernel,
-                    "_NativeFreshCodeLeaves", slot.FreshCodeLeaves);
-                command.SetComputeBufferParam(_frame, kernel,
                     "_NativeStates", slot.States);
                 command.SetComputeBufferParam(_frame, kernel,
                     "_NativeBranchHeaders", slot.BranchHeaders);
@@ -255,13 +259,21 @@ namespace Genesis.RoomScan.SigmaPrism
                 command.SetComputeBufferParam(_frame, kernel,
                     "_NativeGaugeDeltas", slot.GaugeDelta);
                 command.SetComputeBufferParam(_frame, kernel,
+                    "_NativeLocalityCertificateWords",
+                    slot.LocalityCertificateWords);
+                command.SetComputeBufferParam(_frame, kernel,
                     "_NativeUnresolved", slot.Unresolved);
                 command.SetComputeBufferParam(_frame, kernel,
                     "_NativeRevisions", slot.Revisions);
                 command.SetComputeBufferParam(_frame, kernel,
                     "_NativeCounters", slot.Counters);
                 command.SetComputeBufferParam(_frame, kernel,
+                    "_NativeCompletionJournal", completionJournal);
+                command.SetComputeBufferParam(_frame, kernel,
                     "_NativeSourceCarrierState", input.Carrier.State);
+                command.SetComputeBufferParam(_frame, kernel,
+                    "_NativeSourceCarrierRepresentation",
+                    input.Carrier.Representation);
                 command.SetComputeBufferParam(_frame, kernel,
                     "_NativeSourcePageMetadata", input.Carrier.Metadata);
                 command.SetComputeBufferParam(_frame, kernel,
@@ -269,6 +281,9 @@ namespace Genesis.RoomScan.SigmaPrism
                     input.Carrier.PublicationRoot);
                 command.SetComputeBufferParam(_frame, kernel,
                     "_TargetCarrierState", input.Carrier.State);
+                command.SetComputeBufferParam(_frame, kernel,
+                    "_TargetCarrierRepresentation",
+                    input.Carrier.Representation);
                 command.SetComputeBufferParam(_frame, kernel,
                     "_TargetPageMetadata", input.Carrier.Metadata);
                 command.SetComputeBufferParam(_frame, kernel,
@@ -278,6 +293,19 @@ namespace Genesis.RoomScan.SigmaPrism
                 command.SetComputeBufferParam(_frame, kernel,
                     "_PublishedRevisionRoot", input.Carrier.PublicationRoot);
             }
+            command.SetComputeBufferParam(_frame, _closePublish,
+                "_NativeCloseObservations", slot.Observation);
+            command.SetComputeBufferParam(_frame, _closePublish,
+                "_NativeCloseStateDeltas", slot.StateDelta);
+            command.SetComputeBufferParam(_frame, _closePublish,
+                "_NativeCloseLocalityCertificateWords",
+                slot.LocalityCertificateWords);
+            command.SetComputeBufferParam(_frame, _closePublish,
+                "_NativeCloseCounters", slot.Counters);
+            command.SetComputeBufferParam(_frame, _prepareRevision,
+                "_NativePrepareObservations", slot.Observation);
+            command.SetComputeBufferParam(_frame, _prepareRevision,
+                "_NativePrepareStates", slot.States);
             command.SetComputeTextureParam(_frame, _buildObservation,
                 "_NativeMetricDepth", input.MetricDepth);
             command.SetComputeTextureParam(_frame, _buildObservation,
@@ -358,72 +386,30 @@ namespace Genesis.RoomScan.SigmaPrism
                 input.Carrier.SegmentIndex);
             command.SetComputeIntParam(_frame, "_NativeTargetPageCapacity",
                 input.Carrier.PageCapacity);
+            command.SetComputeIntParam(_frame, "_NativeCompletionRecordIndex",
+                completionRecordIndex);
         }
 
         private void BindContract(CommandBuffer command,
-            SigmaNativeFrameSlotResources slot)
+            SigmaNativeFrameSlotResources slot, GraphicsBuffer completionJournal,
+            int completionRecordIndex)
         {
             int kernel = _contractNative;
             command.SetComputeBufferParam(_contract, kernel,
-                "_NativeReverseKeys", slot.DummyUInt4);
-            command.SetComputeBufferParam(_contract, kernel,
-                "_NativeReverseStates", slot.DummyUInt4);
-            command.SetComputeBufferParam(_contract, kernel,
-                "_NativeReverseGaugeCoordinates", slot.DummyUInt4);
-            command.SetComputeBufferParam(_contract, kernel,
-                "_NativeReverseGaugeMetadata", slot.DummyUInt4);
-            command.SetComputeBufferParam(_contract, kernel,
                 "_NativeReverseRelationResults", slot.RelationResults);
-            command.SetComputeBufferParam(_contract, kernel,
-                "_NativeReverseRelationFactors", slot.RelationFactors);
-            command.SetComputeBufferParam(_contract, kernel,
-                "_NativeReverseRelationHashes", slot.RelationHashes);
-            command.SetComputeBufferParam(_contract, kernel,
-                "_NativeReverseDeltaHashes", slot.DummyUInt);
             command.SetComputeBufferParam(_contract, kernel,
                 "_NativeStates", slot.States);
             command.SetComputeBufferParam(_contract, kernel,
-                "_NativeQueryRows", slot.DummyUInt2);
-            command.SetComputeBufferParam(_contract, kernel,
-                "_NativeFreshObservationHeaders",
-                slot.FreshObservationHeaders);
-            command.SetComputeBufferParam(_contract, kernel,
-                "_NativeFreshRoomRays", slot.FreshRoomRays);
-            command.SetComputeBufferParam(_contract, kernel,
-                "_NativeFreshCodeLeaves", slot.FreshCodeLeaves);
-            command.SetComputeBufferParam(_contract, kernel,
-                "_NativeObservationOrder", slot.DummyUInt2);
-            command.SetComputeBufferParam(_contract, kernel,
-                "_NativeMeasuredOptical", slot.DummyUInt2);
-            command.SetComputeBufferParam(_contract, kernel,
-                "_NativeDirection", slot.DummyUInt2);
-            command.SetComputeBufferParam(_contract, kernel,
-                "_NativePhotometricExposure", slot.DummyUInt2);
-            command.SetComputeBufferParam(_contract, kernel,
-                "_NativePhotometricChannelParameters", slot.DummyUInt2);
-            command.SetComputeBufferParam(_contract, kernel,
-                "_NativePhotometricTransferRanges", slot.DummyUInt2);
-            command.SetComputeBufferParam(_contract, kernel,
-                "_NativePhotometricTransferData", slot.DummyUInt2);
+                "_NativeFreshEvidenceWords", completionJournal);
             command.SetComputeBufferParam(_contract, kernel,
                 "_NativeBranchHeaders", slot.BranchHeaders);
             command.SetComputeBufferParam(_contract, kernel,
                 "_NativeBranchSupports", slot.BranchSupports);
             command.SetComputeBufferParam(_contract, kernel,
-                "_NativeBranchActions", slot.BranchActions);
-            command.SetComputeBufferParam(_contract, kernel,
                 "_NativeBranchPredictions", slot.BranchPredictions);
             command.SetComputeBufferParam(_contract, kernel,
-                "_NativeBranchRelationFactors", slot.BranchRelationFactors);
-            command.SetComputeBufferParam(_contract, kernel,
-                "_NativeBranchRelationHashes", slot.BranchRelationHashes);
-            command.SetComputeBufferParam(_contract, kernel,
-                "_NativeOverflowArgs", slot.DummyUInt);
-            command.SetComputeIntParam(_contract, "_NativeReverseCount", 0);
-            command.SetComputeIntParam(_contract, "_NativeHotCapacity", 0);
-            command.SetComputeIntParam(_contract, "_NativeObservationFlags", 0);
-            command.SetComputeIntParam(_contract, "_NativeEntryPointIndex",
-                SigmaGeneratedFrame.SensorLeftEntryPoint);
+                "_NativeLocalityCertificateWords",
+                slot.LocalityCertificateWords);
             command.SetComputeIntParam(_contract,
                 "_NativeFreshLeftEntryPointIndex",
                 SigmaGeneratedFrame.SensorLeftEntryPoint);
@@ -434,6 +420,8 @@ namespace Genesis.RoomScan.SigmaPrism
                 "_NativeFreshPriorStateOffset",
                 SigmaNativeFrameSlotResources.LiveFreshBranchCount *
                     SigmaS16.LaneCount + 2 * SigmaS16.LaneCount);
+            command.SetComputeIntParam(_contract,
+                "_NativeCompletionRecordIndex", completionRecordIndex);
         }
 
         private void BindRelation(CommandBuffer command,

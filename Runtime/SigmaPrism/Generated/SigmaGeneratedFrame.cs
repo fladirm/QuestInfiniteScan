@@ -56,6 +56,7 @@ namespace Genesis.RoomScan.SigmaPrism
         RepresentationRefinement = 2,
         PageFault = 3,
         GaugeNormalization = 4,
+        StaticExclusion = 5,
     }
     internal enum SigmaNativeRevisionState : uint
     {
@@ -63,6 +64,21 @@ namespace Genesis.RoomScan.SigmaPrism
         Building = 1,
         Closed = 2,
         Published = 3,
+    }
+    internal enum SigmaNativeGaugeCellFlags : uint
+    {
+        Inactive = 0,
+        Active = 1,
+        Normalized = 2,
+        Refined = 4,
+    }
+    internal enum SigmaNativeCertificateFlags : uint
+    {
+        None = 0,
+        Valid = 1,
+        Directional = 2,
+        Coupled = 4,
+        Minimized = 8,
     }
     [System.Flags]
     internal enum SigmaNativeObservationFlags : uint
@@ -157,8 +173,8 @@ namespace Genesis.RoomScan.SigmaPrism
 
     internal static class SigmaGeneratedFrame
     {
-        internal const string AbiVersion = "CPQ4-S16-NATIVE-FRAME-1";
-        internal const string AbiFingerprint = "886541c896d7e227888fd9e371ae879a188a9976d2d726bd76ae5fd3cd524222";
+        internal const string AbiVersion = "CPQ4-S16-NATIVE-FRAME-3";
+        internal const string AbiFingerprint = "42e4972705fc18be473f1ff7ba6584e33ea91cb3f4a5633329981d7a8abba74c";
         internal const int SensorSideCount = 2;
         internal const int LeafCount = 4;
         internal const int LaneCount = 16;
@@ -180,5 +196,16 @@ namespace Genesis.RoomScan.SigmaPrism
         internal const int PredictionSupportEntryPoint = 4;
         internal const int ExportEntryPoint = 5;
         internal const int DebugEntryPoint = 6;
+        internal const string RepresentationFingerprint = "f5f3f42395e2e05779f5c7059bc2e273bcf334f2b73f8b5ac4520c1ea03ff133";
+        internal const string ChiFingerprint = "5110ca344a24bc1eed22b03c8ef7cd68dbc4f588b5a58448d2702b5e8d74474a";
+        internal const string KappaFingerprint = "08f90f9c72d0ae1e9055eafaf65f315354fc429bae3bb6e9ca1bb64eb9037e93";
+        internal const string CertificateFingerprint = "0b0317cf6c99954e32819303ebb6e400101a7a3d75b2d1b858f22f0fbb006cd3";
+        internal const int CompletionFrame = 0;
+        internal const int CompletionRoot = 8;
+        internal const int CompletionUnresolved = 10;
+        internal const int CompletionObservationHeaders = 18;
+        internal const int CompletionRoomRays = 22;
+        internal const int CompletionCodeLeaves = 28;
+        internal const int CompletionWordCount = 44;
     }
 }

@@ -55,8 +55,42 @@ namespace Genesis.RoomScan.SigmaPrism
         public int SampleIndex { get; }
     }
 
+    /// <summary>
+    /// Sparse exact backing record for one sampled chi/kappa locality.  The
+    /// payload is the generated 18 x uint4 representation ABI (gauge followed
+    /// by its minimized locality certificate); absence decodes to all-zero
+    /// inactive backing and has no independent physical meaning.
+    /// </summary>
+    public readonly struct SigmaCarrierRepresentationRecord
+    {
+        public const int WordCount = SigmaCarrier.RepresentationWordsPerSample * 4;
+
+        public SigmaCarrierRepresentationRecord(int sampleIndex, uint[] words)
+        {
+            if ((uint)sampleIndex >= SigmaDecodedPage.SampleCount)
+                throw new ArgumentOutOfRangeException(nameof(sampleIndex));
+            if (words == null || words.Length != WordCount)
+                throw new ArgumentException(
+                    $"A representation record contains exactly {WordCount} words.",
+                    nameof(words));
+            SampleIndex = sampleIndex;
+            Words = (uint[])words.Clone();
+        }
+
+        public int SampleIndex { get; }
+        public uint[] Words { get; }
+        public uint[] CopyWords() => (uint[])Words.Clone();
+    }
+
     public sealed class SigmaDecodedPage
     {
+        private const uint CompleteRepresentationFlags = 3u;
+        private const uint ActiveGaugeFlags =
+            (uint)(SigmaNativeGaugeCellFlags.Active |
+                SigmaNativeGaugeCellFlags.Normalized);
+        private const uint RequiredCertificateFlags =
+            (uint)(SigmaNativeCertificateFlags.Valid |
+                SigmaNativeCertificateFlags.Minimized);
         public const int PageSize = 64;
         public const int BlockSize = 8;
         public const int BlocksPerAxis = PageSize / BlockSize;
@@ -68,7 +102,11 @@ namespace Genesis.RoomScan.SigmaPrism
 
         public SigmaDecodedPage(SigmaCarrierPageCoordinate coordinate,
             uint generation, uint revision, ulong certificateOffset,
-            uint certificateCount, SigmaS16[] samples)
+            uint certificateCount, uint gaugeGeneration,
+            uint certificateGeneration, uint representationFlags,
+            uint activeSampleCount,
+            SigmaCarrierRepresentationRecord[] representation,
+            SigmaS16[] samples)
         {
             if (samples == null)
                 throw new ArgumentNullException(nameof(samples));
@@ -80,7 +118,21 @@ namespace Genesis.RoomScan.SigmaPrism
             Revision = revision;
             CertificateOffset = certificateOffset;
             CertificateCount = certificateCount;
+            GaugeGeneration = gaugeGeneration;
+            CertificateGeneration = certificateGeneration;
+            RepresentationFlags = representationFlags;
+            _representation = ValidateRepresentation(representation);
+            if (activeSampleCount > SampleCount)
+                throw new ArgumentOutOfRangeException(nameof(activeSampleCount));
+            if (representationFlags != 0u &&
+                (activeSampleCount != _representation.Length ||
+                    certificateCount != activeSampleCount))
+                throw new ArgumentException("Active samples, gauge records and " +
+                    "locality certificates must remain one-to-one.",
+                    nameof(activeSampleCount));
+            ActiveSampleCount = activeSampleCount;
             _samples = (SigmaS16[])samples.Clone();
+            ValidateRepresentationStateCoverage();
         }
 
         public SigmaCarrierPageCoordinate Coordinate { get; }
@@ -88,6 +140,11 @@ namespace Genesis.RoomScan.SigmaPrism
         public uint Revision { get; }
         public ulong CertificateOffset { get; }
         public uint CertificateCount { get; }
+        public uint GaugeGeneration { get; }
+        public uint CertificateGeneration { get; }
+        public uint RepresentationFlags { get; }
+        public uint ActiveSampleCount { get; }
+        private readonly SigmaCarrierRepresentationRecord[] _representation;
         public SigmaS16 this[int x, int y]
         {
             get
@@ -99,6 +156,15 @@ namespace Genesis.RoomScan.SigmaPrism
         }
 
         public SigmaS16[] CopySamples() => (SigmaS16[])_samples.Clone();
+        public SigmaCarrierRepresentationRecord[] CopyRepresentation()
+        {
+            var copy = new SigmaCarrierRepresentationRecord[_representation.Length];
+            for (int index = 0; index < copy.Length; ++index)
+                copy[index] = new SigmaCarrierRepresentationRecord(
+                    _representation[index].SampleIndex,
+                    _representation[index].CopyWords());
+            return copy;
+        }
 
         public SigmaS16[] CopyBlock(int blockIndex)
         {
@@ -115,6 +181,88 @@ namespace Genesis.RoomScan.SigmaPrism
             }
             return block;
         }
+
+        private static SigmaCarrierRepresentationRecord[] ValidateRepresentation(
+            SigmaCarrierRepresentationRecord[] source)
+        {
+            if (source == null)
+                throw new ArgumentNullException(nameof(source));
+            var copy = (SigmaCarrierRepresentationRecord[])source.Clone();
+            Array.Sort(copy, (left, right) =>
+                left.SampleIndex.CompareTo(right.SampleIndex));
+            for (int index = 0; index < copy.Length; ++index)
+            {
+                if (index != 0 && copy[index - 1].SampleIndex ==
+                    copy[index].SampleIndex)
+                    throw new ArgumentException(
+                        "Duplicate representation sample record.", nameof(source));
+                if (copy[index].SampleIndex != index)
+                    throw new ArgumentException(
+                        "Active representation samples must form a dense prefix.",
+                        nameof(source));
+                bool nonzero = false;
+                uint[] words = copy[index].Words;
+                for (int word = 0; word < words.Length; ++word)
+                    nonzero |= words[word] != 0u;
+                if (!nonzero)
+                    throw new ArgumentException(
+                        "Inactive all-zero representation records must be omitted.",
+                        nameof(source));
+                copy[index] = new SigmaCarrierRepresentationRecord(
+                    copy[index].SampleIndex, words);
+            }
+            return copy;
+        }
+
+        private void ValidateRepresentationStateCoverage()
+        {
+            if (RepresentationFlags == 0u)
+            {
+                if (ActiveSampleCount != 0u || CertificateCount != 0u ||
+                    GaugeGeneration != 0u || CertificateGeneration != 0u ||
+                    _representation.Length != 0)
+                    throw new ArgumentException(
+                        "Default backing cannot carry partial representation metadata.");
+                for (int sample = 0; sample < _samples.Length; ++sample)
+                    if (!_samples[sample].IsZero)
+                        throw new ArgumentException(
+                            "A non-ZEmpty state requires its exact chi/kappa record.");
+                return;
+            }
+            if (RepresentationFlags != CompleteRepresentationFlags ||
+                ActiveSampleCount == 0u || GaugeGeneration == 0u ||
+                CertificateGeneration == 0u)
+                throw new ArgumentException(
+                    "A represented page requires complete gauge and certificate metadata.");
+            for (int sample = checked((int)ActiveSampleCount);
+                sample < _samples.Length; ++sample)
+                if (!_samples[sample].IsZero)
+                    throw new ArgumentException(
+                        "State outside the active chi/kappa prefix is not addressable.");
+            uint chiWord = FingerprintWord0(SigmaGeneratedFrame.ChiFingerprint);
+            uint kappaWord = FingerprintWord0(
+                SigmaGeneratedFrame.KappaFingerprint);
+            for (int index = 0; index < _representation.Length; ++index)
+            {
+                uint[] words = _representation[index].Words;
+                uint level = words[4];
+                uint gaugeFlags = words[5];
+                uint certificateFlags = words[8];
+                uint certificateGeneration = words[11];
+                if (level > 62u ||
+                    (gaugeFlags & ActiveGaugeFlags) != ActiveGaugeFlags ||
+                    words[6] != chiWord || words[7] != kappaWord ||
+                    (certificateFlags & RequiredCertificateFlags) !=
+                        RequiredCertificateFlags ||
+                    certificateGeneration == 0u ||
+                    certificateGeneration > CertificateGeneration)
+                    throw new ArgumentException(
+                        "Representation record failed its exact gauge/certificate contract.");
+            }
+        }
+
+        private static uint FingerprintWord0(string fingerprint) =>
+            Convert.ToUInt32(fingerprint.Substring(0, 8), 16);
     }
 
     public readonly struct SigmaEncodedBlock
@@ -139,7 +287,7 @@ namespace Genesis.RoomScan.SigmaPrism
     {
         public const uint PageMagic = 0x50363153u; // S16P little-endian
         public const uint SnapshotMagic = 0x43363153u; // S16C little-endian
-        public const uint SchemaVersion = 6u;
+        public const uint SchemaVersion = 7u;
         public const int RawBlockBytes =
             SigmaDecodedPage.SamplesPerBlock * SigmaS16.LaneCount * sizeof(long);
         public const int ConstantBlockBytes = SigmaS16.LaneCount * sizeof(long);
@@ -231,8 +379,26 @@ namespace Genesis.RoomScan.SigmaPrism
             writer.Write(page.Revision);
             writer.Write(page.CertificateOffset);
             writer.Write(page.CertificateCount);
+            writer.Write(page.GaugeGeneration);
+            writer.Write(page.CertificateGeneration);
+            writer.Write(page.RepresentationFlags);
+            writer.Write(page.ActiveSampleCount);
             WriteFingerprint(writer, SigmaS16Operators.BundleFingerprint);
             WriteFingerprint(writer, SigmaOperatorPlans.PlanBundleFingerprint);
+            WriteFingerprint(writer, SigmaGeneratedFrame.RepresentationFingerprint);
+            WriteFingerprint(writer, SigmaGeneratedFrame.ChiFingerprint);
+            WriteFingerprint(writer, SigmaGeneratedFrame.KappaFingerprint);
+            WriteFingerprint(writer, SigmaGeneratedFrame.CertificateFingerprint);
+            SigmaCarrierRepresentationRecord[] representation =
+                page.CopyRepresentation();
+            writer.Write((uint)representation.Length);
+            for (int index = 0; index < representation.Length; ++index)
+            {
+                writer.Write((ushort)representation[index].SampleIndex);
+                uint[] words = representation[index].Words;
+                for (int word = 0; word < words.Length; ++word)
+                    writer.Write(words[word]);
+            }
             for (int block = 0; block < blocks.Length; ++block)
                 writer.Write((byte)blocks[block].Mode);
             for (int index = 0; index < offsets.Length; ++index)
@@ -257,10 +423,38 @@ namespace Genesis.RoomScan.SigmaPrism
             uint revision = reader.ReadUInt32();
             ulong certificateOffset = reader.ReadUInt64();
             uint certificateCount = reader.ReadUInt32();
+            uint gaugeGeneration = reader.ReadUInt32();
+            uint certificateGeneration = reader.ReadUInt32();
+            uint representationFlags = reader.ReadUInt32();
+            uint activeSampleCount = reader.ReadUInt32();
             Require(ReadFingerprint(reader) == SigmaS16Operators.BundleFingerprint,
                 "Sigma algebra fingerprint mismatch.");
             Require(ReadFingerprint(reader) == SigmaOperatorPlans.PlanBundleFingerprint,
                 "Sigma plan fingerprint mismatch.");
+            Require(ReadFingerprint(reader) ==
+                SigmaGeneratedFrame.RepresentationFingerprint,
+                "Sigma representation fingerprint mismatch.");
+            Require(ReadFingerprint(reader) == SigmaGeneratedFrame.ChiFingerprint,
+                "Sigma chi fingerprint mismatch.");
+            Require(ReadFingerprint(reader) == SigmaGeneratedFrame.KappaFingerprint,
+                "Sigma kappa fingerprint mismatch.");
+            Require(ReadFingerprint(reader) ==
+                SigmaGeneratedFrame.CertificateFingerprint,
+                "Sigma certificate fingerprint mismatch.");
+            uint representationCount = reader.ReadUInt32();
+            Require(representationCount <= SigmaDecodedPage.SampleCount,
+                "Sigma representation record count is invalid.");
+            var representation = new SigmaCarrierRepresentationRecord[
+                representationCount];
+            for (int index = 0; index < representation.Length; ++index)
+            {
+                int sampleIndex = reader.ReadUInt16();
+                var words = new uint[SigmaCarrierRepresentationRecord.WordCount];
+                for (int word = 0; word < words.Length; ++word)
+                    words[word] = reader.ReadUInt32();
+                representation[index] = new SigmaCarrierRepresentationRecord(
+                    sampleIndex, words);
+            }
             var modes = new SigmaBlockMode[SigmaDecodedPage.BlockCount];
             for (int block = 0; block < modes.Length; ++block)
             {
@@ -291,7 +485,9 @@ namespace Genesis.RoomScan.SigmaPrism
                 StoreBlock(pageSamples, block, decoded);
             }
             return new SigmaDecodedPage(coordinate, generation, revision,
-                certificateOffset, certificateCount, pageSamples);
+                certificateOffset, certificateCount, gaugeGeneration,
+                certificateGeneration, representationFlags, activeSampleCount,
+                representation, pageSamples);
         }
 
         public static byte[] EncodeSnapshot(IReadOnlyList<SigmaDecodedPage> pages)
@@ -313,6 +509,10 @@ namespace Genesis.RoomScan.SigmaPrism
             writer.Write(SchemaVersion);
             WriteFingerprint(writer, SigmaS16Operators.BundleFingerprint);
             WriteFingerprint(writer, SigmaOperatorPlans.PlanBundleFingerprint);
+            WriteFingerprint(writer, SigmaGeneratedFrame.RepresentationFingerprint);
+            WriteFingerprint(writer, SigmaGeneratedFrame.ChiFingerprint);
+            WriteFingerprint(writer, SigmaGeneratedFrame.KappaFingerprint);
+            WriteFingerprint(writer, SigmaGeneratedFrame.CertificateFingerprint);
             writer.Write((uint)sorted.Count);
             for (int index = 0; index < sorted.Count; ++index)
             {
@@ -337,6 +537,16 @@ namespace Genesis.RoomScan.SigmaPrism
                 "Snapshot algebra fingerprint mismatch.");
             Require(ReadFingerprint(reader) == SigmaOperatorPlans.PlanBundleFingerprint,
                 "Snapshot plan fingerprint mismatch.");
+            Require(ReadFingerprint(reader) ==
+                SigmaGeneratedFrame.RepresentationFingerprint,
+                "Snapshot representation fingerprint mismatch.");
+            Require(ReadFingerprint(reader) == SigmaGeneratedFrame.ChiFingerprint,
+                "Snapshot chi fingerprint mismatch.");
+            Require(ReadFingerprint(reader) == SigmaGeneratedFrame.KappaFingerprint,
+                "Snapshot kappa fingerprint mismatch.");
+            Require(ReadFingerprint(reader) ==
+                SigmaGeneratedFrame.CertificateFingerprint,
+                "Snapshot certificate fingerprint mismatch.");
             uint count = reader.ReadUInt32();
             Require(count <= (uint)int.MaxValue,
                 "Sigma snapshot page count is invalid.");

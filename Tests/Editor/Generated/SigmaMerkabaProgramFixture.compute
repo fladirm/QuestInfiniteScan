@@ -5,6 +5,7 @@
 #pragma kernel MerkabaDirectionalActionParity
 #pragma kernel MerkabaFreshAdmissionParity
 #pragma kernel MerkabaInstrumentBoundaryParity
+#pragma kernel MerkabaGaugeParity
 #pragma target 5.0
 
 #include "SigmaGeneratedMerkabaProgram.hlsl"
@@ -15,6 +16,10 @@ RWStructuredBuffer<uint4> _MerkabaIrResults;
 RWStructuredBuffer<uint4> _MerkabaActionResults;
 RWStructuredBuffer<uint4> _MerkabaFreshResults;
 RWStructuredBuffer<uint4> _MerkabaInstrumentResults;
+RWStructuredBuffer<uint4> _MerkabaGaugeResults;
+
+uint4 _MerkabaGaugeParentCoordinate;
+uint _MerkabaGaugeParentLevel;
 
 [numthreads(16, 16, 1)]
 void MerkabaProgramParity(uint3 id : SV_DispatchThreadID)
@@ -28,6 +33,44 @@ void MerkabaProgramParity(uint3 id : SV_DispatchThreadID)
         asuint(SigmaMerkabaPlaquetteHolonomy(a, c, b)),
         asuint(SigmaMerkabaShadowNumerator(a, c & 3u)),
         asuint(SigmaMerkabaBasisSign(a, b)));
+}
+
+[numthreads(4, 1, 1)]
+void MerkabaGaugeParity(uint3 id : SV_DispatchThreadID)
+{
+    uint4 coordinate;
+    uint level;
+    bool valid = SigmaMerkabaSplitDyadicGauge(_MerkabaGaugeParentCoordinate,
+        _MerkabaGaugeParentLevel, id.x, coordinate, level);
+    _MerkabaGaugeResults[id.x * 2u] = coordinate;
+    _MerkabaGaugeResults[id.x * 2u + 1u] = uint4(level,
+        valid ? 1u : 0u, id.x, 0u);
+    [unroll]
+    for (uint peer = 0u; peer < 4u; ++peer)
+    {
+        uint4 peerCoordinate;
+        uint peerLevel;
+        uint orderValid = valid ? 1u : 0u;
+        orderValid &= SigmaMerkabaSplitDyadicGauge(
+            _MerkabaGaugeParentCoordinate, _MerkabaGaugeParentLevel, peer,
+            peerCoordinate, peerLevel) ? 1u : 0u;
+        bool less = SigmaMerkabaGaugeLess(coordinate, level,
+            peerCoordinate, peerLevel, orderValid);
+        _MerkabaGaugeResults[8u + id.x * 4u + peer] = uint4(
+            less ? 1u : 0u, orderValid, id.x, peer);
+    }
+    const uint4 wideCoordinates[4] = {
+        uint4(0u, 0u, 1u, 0u), uint4(0u, 0u, 0u, 1u),
+        uint4(1u, 0u, 0u, 0u), uint4(0u, 1u, 0u, 0u) };
+    [unroll]
+    for (uint widePeer = 0u; widePeer < 4u; ++widePeer)
+    {
+        uint wideValid = 1u;
+        bool wideLess = SigmaMerkabaGaugeLess(wideCoordinates[id.x], 0u,
+            wideCoordinates[widePeer], 0u, wideValid);
+        _MerkabaGaugeResults[24u + id.x * 4u + widePeer] = uint4(
+            wideLess ? 1u : 0u, wideValid, id.x, widePeer);
+    }
 }
 
 [numthreads(16, 16, 1)]

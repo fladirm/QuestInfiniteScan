@@ -64,16 +64,68 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
+        public void DefaultBackingIsZEmptyAndStateWithoutGaugeIsRejected()
+        {
+            var empty = new SigmaS16[SigmaDecodedPage.SampleCount];
+            var page = new SigmaDecodedPage(
+                new SigmaCarrierPageCoordinate(0, 0), 1u, 1u, 0u, 0u,
+                0u, 0u, 0u, 0u,
+                Array.Empty<SigmaCarrierRepresentationRecord>(), empty);
+            byte[] encoded = SigmaCarrierCodec.EncodePage(page);
+            SigmaDecodedPage decoded = SigmaCarrierCodec.DecodePage(encoded);
+            Assert.That(decoded.ActiveSampleCount, Is.Zero);
+            Assert.That(decoded.CopyRepresentation(), Is.Empty);
+            Assert.That(decoded.CopySamples(), Is.All.EqualTo(
+                SigmaS16Operators.ZEmpty));
+
+            empty[0] = State(1L);
+            Assert.Throws<ArgumentException>(() => new SigmaDecodedPage(
+                new SigmaCarrierPageCoordinate(0, 0), 1u, 1u, 0u, 0u,
+                0u, 0u, 0u, 0u,
+                Array.Empty<SigmaCarrierRepresentationRecord>(), empty));
+        }
+
+        [Test]
         public void PageAndSortedSnapshotRestartAreByteIdentical()
         {
-            SigmaDecodedPage pageA = MakeMixedPage(
-                new SigmaCarrierPageCoordinate(17, -9), 3u, 11u, 1234UL, 7u);
-            SigmaDecodedPage pageB = MakeMixedPage(
-                new SigmaCarrierPageCoordinate(-2, -9), 5u, 12u, 4567UL, 9u);
+            var representationWords = new uint[
+                SigmaCarrierRepresentationRecord.WordCount];
+            representationWords[0] = 17u;
+            representationWords[4] = 3u;
+            representationWords[5] =
+                (uint)(SigmaNativeGaugeCellFlags.Active |
+                    SigmaNativeGaugeCellFlags.Normalized);
+            representationWords[6] = Convert.ToUInt32(
+                SigmaGeneratedFrame.ChiFingerprint.Substring(0, 8), 16);
+            representationWords[7] = Convert.ToUInt32(
+                SigmaGeneratedFrame.KappaFingerprint.Substring(0, 8), 16);
+            representationWords[8] =
+                (uint)(SigmaNativeCertificateFlags.Valid |
+                    SigmaNativeCertificateFlags.Minimized);
+            representationWords[11] = 5u;
+            var pageASamples = new SigmaS16[SigmaDecodedPage.SampleCount];
+            pageASamples[0] = State(17L);
+            SigmaDecodedPage pageA = new SigmaDecodedPage(
+                new SigmaCarrierPageCoordinate(17, -9), 3u, 11u, 1234UL,
+                1u, 2u, 5u, 3u, 1u,
+                new[]
+                {
+                    new SigmaCarrierRepresentationRecord(0,
+                        representationWords),
+                }, pageASamples);
+            SigmaDecodedPage pageB = MakeRepresentedPage(
+                new SigmaCarrierPageCoordinate(-2, -9), 5u, 12u, 4567UL,
+                9u, 23L);
             byte[] encodedA = SigmaCarrierCodec.EncodePage(pageA);
             SigmaDecodedPage decodedA = SigmaCarrierCodec.DecodePage(encodedA);
             CollectionAssert.AreEqual(encodedA, SigmaCarrierCodec.EncodePage(decodedA));
             CollectionAssert.AreEqual(pageA.CopySamples(), decodedA.CopySamples());
+            Assert.That(decodedA.GaugeGeneration, Is.EqualTo(2u));
+            Assert.That(decodedA.CertificateGeneration, Is.EqualTo(5u));
+            Assert.That(decodedA.RepresentationFlags, Is.EqualTo(3u));
+            Assert.That(decodedA.ActiveSampleCount, Is.EqualTo(1u));
+            CollectionAssert.AreEqual(representationWords,
+                decodedA.CopyRepresentation()[0].Words);
 
             byte[] snapshot = SigmaCarrierCodec.EncodeSnapshot(
                 new[] { pageA, pageB });
@@ -92,9 +144,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(shader, Is.Not.Null);
             int encodeKernel = shader.FindKernel("EncodePageBlocks");
             int decodeKernel = shader.FindKernel("DecodePageBlocks");
-            SigmaDecodedPage page = MakeMixedPage(
-                new SigmaCarrierPageCoordinate(0, 0), 1u, 1u, 0UL, 0u);
-            SigmaS16[] samples = page.CopySamples();
+            SigmaS16[] samples = MakeMixedSamples();
             UInt2[] packed = PackPage(samples);
             var decoded = new UInt2[packed.Length];
             var descriptors = new UInt4[SigmaDecodedPage.BlockCount];
@@ -128,7 +178,7 @@ namespace Genesis.RoomScan.Tests
             for (int block = 0; block < SigmaDecodedPage.BlockCount; ++block)
             {
                 SigmaEncodedBlock expected = SigmaCarrierCodec.EncodeBlock(
-                    page.CopyBlock(block));
+                    CopyBlock(samples, block));
                 UInt4 actual = descriptors[block];
                 Assert.That(actual.W & 1u, Is.EqualTo(1u),
                     $"valid block {block}, flags={actual.W}");
@@ -155,15 +205,18 @@ namespace Genesis.RoomScan.Tests
         public void SegmentSizingRespectsBindingLimitAndGenerationPairs()
         {
             Assert.That(SigmaCarrier.DecodedPageBytes, Is.EqualTo(524288));
+            Assert.That(SigmaCarrier.RepresentationPageBytes,
+                Is.EqualTo(1179648));
+            Assert.That(SigmaCarrier.ResidentPageBytes, Is.EqualTo(1703936));
             Assert.That(SigmaCarrier.DefaultDecodedBudgetMegabytes,
                 Is.EqualTo(1024));
             Assert.That(SigmaCarrier.InitialResidentPageCapacity,
                 Is.EqualTo(2),
                 "The decoded budget is a ceiling, not a cold-start allocation.");
             long decodedPages = (long)SigmaCarrier.DefaultDecodedBudgetMegabytes *
-                1024L * 1024L / SigmaCarrier.DecodedPageBytes;
-            Assert.That(decodedPages, Is.EqualTo(2048));
-            Assert.That(decodedPages / 2L, Is.EqualTo(1024));
+                1024L * 1024L / SigmaCarrier.ResidentPageBytes;
+            Assert.That(decodedPages, Is.EqualTo(630));
+            Assert.That(decodedPages / 2L, Is.EqualTo(315));
 
             int wideSegment = SigmaCarrier.ComputeSegmentPageCapacity(
                 1024L * 1024L * 1024L);
@@ -171,14 +224,17 @@ namespace Genesis.RoomScan.Tests
                 128L * 1024L * 1024L);
             Assert.That(wideSegment,
                 Is.EqualTo(SigmaCarrier.MaximumPagesPerSegment));
-            Assert.That(exact128MiBSegment, Is.EqualTo(254));
+            Assert.That(exact128MiBSegment, Is.EqualTo(112));
             Assert.That((decodedPages + wideSegment - 1L) / wideSegment,
-                Is.EqualTo(8));
+                Is.EqualTo(3));
             Assert.That((decodedPages + exact128MiBSegment - 1L) /
-                exact128MiBSegment, Is.EqualTo(9));
-            Assert.Throws<InvalidOperationException>(() =>
+                exact128MiBSegment, Is.EqualTo(6));
+            Assert.Throws<ArgumentOutOfRangeException>(() =>
                 SigmaCarrier.ComputeSegmentPageCapacity(
                     SigmaCarrier.DecodedPageBytes));
+            Assert.Throws<InvalidOperationException>(() =>
+                SigmaCarrier.ComputeSegmentPageCapacity(
+                    SigmaCarrier.RepresentationPageBytes));
         }
 
         private static void AssertAddress(long x, long y, long pageX, long pageY,
@@ -268,9 +324,7 @@ namespace Genesis.RoomScan.Tests
             return block;
         }
 
-        private static SigmaDecodedPage MakeMixedPage(
-            SigmaCarrierPageCoordinate coordinate, uint generation, uint revision,
-            ulong certificateOffset, uint certificateCount)
+        private static SigmaS16[] MakeMixedSamples()
         {
             var page = new SigmaS16[SigmaDecodedPage.SampleCount];
             SigmaS16[][] fixtures =
@@ -280,8 +334,38 @@ namespace Genesis.RoomScan.Tests
             };
             for (int block = 0; block < SigmaDecodedPage.BlockCount; ++block)
                 StoreBlock(page, block, fixtures[block % fixtures.Length]);
+            return page;
+        }
+
+        private static SigmaDecodedPage MakeRepresentedPage(
+            SigmaCarrierPageCoordinate coordinate, uint generation,
+            uint revision, ulong certificateOffset,
+            uint certificateGeneration, long stateValue)
+        {
+            var samples = new SigmaS16[SigmaDecodedPage.SampleCount];
+            samples[0] = State(stateValue);
+            var words = new uint[SigmaCarrierRepresentationRecord.WordCount];
+            words[4] = 0u;
+            words[5] = (uint)(SigmaNativeGaugeCellFlags.Active |
+                SigmaNativeGaugeCellFlags.Normalized);
+            words[6] = Convert.ToUInt32(
+                SigmaGeneratedFrame.ChiFingerprint.Substring(0, 8), 16);
+            words[7] = Convert.ToUInt32(
+                SigmaGeneratedFrame.KappaFingerprint.Substring(0, 8), 16);
+            words[8] = (uint)(SigmaNativeCertificateFlags.Valid |
+                SigmaNativeCertificateFlags.Minimized);
+            words[11] = certificateGeneration;
             return new SigmaDecodedPage(coordinate, generation, revision,
-                certificateOffset, certificateCount, page);
+                certificateOffset, 1u, 1u, certificateGeneration, 3u, 1u,
+                new[] { new SigmaCarrierRepresentationRecord(0, words) },
+                samples);
+        }
+
+        private static SigmaS16 State(long value)
+        {
+            var lanes = new long[SigmaS16.LaneCount];
+            lanes[0] = value;
+            return SigmaS16.FromArray(lanes);
         }
 
         private static void StoreBlock(SigmaS16[] page, int blockIndex,
@@ -294,6 +378,18 @@ namespace Genesis.RoomScan.Tests
                 for (int u = 0; u < 8; ++u)
                     page[(blockY * 8 + v) * 64 + blockX * 8 + u] = block[v * 8 + u];
             }
+        }
+
+        private static SigmaS16[] CopyBlock(SigmaS16[] page, int blockIndex)
+        {
+            var block = new SigmaS16[SigmaDecodedPage.SamplesPerBlock];
+            int blockX = blockIndex & 7;
+            int blockY = blockIndex >> 3;
+            for (int v = 0; v < 8; ++v)
+                for (int u = 0; u < 8; ++u)
+                    block[v * 8 + u] = page[
+                        (blockY * 8 + v) * 64 + blockX * 8 + u];
+            return block;
         }
 
         private static UInt2[] PackPage(SigmaS16[] samples)

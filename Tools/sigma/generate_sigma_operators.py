@@ -44,7 +44,7 @@ HLSL_MERKABA_FIXTURE_OUTPUT = (ROOT / "Tests" / "Editor" / "Generated" /
                                "SigmaMerkabaProgramFixture.compute")
 NUMERIC_ID = "num.fixed.q16_48.checked.nearest_even"
 GENERATOR_VERSION = "CPQ4-S16-GEN-1"
-FRAME_ABI_VERSION = "CPQ4-S16-NATIVE-FRAME-1"
+FRAME_ABI_VERSION = "CPQ4-S16-NATIVE-FRAME-3"
 MERKABA_PROGRAM_VERSION = "CPQ4-S16-MERKABA-N1R-4"
 TOE_UPSTREAM_SHA256 = "9d2e3604846305cfe5244a4ef49f169632c60582cf895256fadc36426dc5786f"
 LANES = 16
@@ -99,12 +99,26 @@ FRAME_ENUMS = {
         "RepresentationRefinement": 2,
         "PageFault": 3,
         "GaugeNormalization": 4,
+        "StaticExclusion": 5,
     },
     "SigmaNativeRevisionState": {
         "Free": 0,
         "Building": 1,
         "Closed": 2,
         "Published": 3,
+    },
+    "SigmaNativeGaugeCellFlags": {
+        "Inactive": 0,
+        "Active": 1,
+        "Normalized": 2,
+        "Refined": 4,
+    },
+    "SigmaNativeCertificateFlags": {
+        "None": 0,
+        "Valid": 1,
+        "Directional": 2,
+        "Coupled": 4,
+        "Minimized": 8,
     },
 }
 
@@ -3162,17 +3176,17 @@ namespace Genesis.RoomScan.SigmaPrism
         private static long FloorDivideByTwo(long value) =>
             value >= 0L || (value & 1L) == 0L ? value / 2L : value / 2L - 1L;
 
-        private static ulong SignedMorton(long u, long v)
+        private static BigInteger SignedMorton(long u, long v)
         {{
-            ulong x = u >= 0L ? checked((ulong)u * 2UL) :
-                checked((ulong)(-(u + 1L)) * 2UL + 1UL);
-            ulong y = v >= 0L ? checked((ulong)v * 2UL) :
-                checked((ulong)(-(v + 1L)) * 2UL + 1UL);
-            ulong output = 0UL;
-            for (int bit = 0; bit < 32; ++bit)
+            BigInteger x = u >= 0L ? (BigInteger)u * 2 :
+                -(BigInteger)u * 2 - 1;
+            BigInteger y = v >= 0L ? (BigInteger)v * 2 :
+                -(BigInteger)v * 2 - 1;
+            BigInteger output = BigInteger.Zero;
+            for (int bit = 0; bit < 64; ++bit)
             {{
-                output |= ((x >> bit) & 1UL) << (bit * 2);
-                output |= ((y >> bit) & 1UL) << (bit * 2 + 1);
+                output |= ((x >> bit) & BigInteger.One) << (bit * 2);
+                output |= ((y >> bit) & BigInteger.One) << (bit * 2 + 1);
             }}
             return output;
         }}
@@ -3636,6 +3650,102 @@ bool SigmaMerkabaIsZEmpty(uint2 state[16])
     return nonzero == 0u;
 }}
 
+bool SigmaMerkabaSplitDyadicGauge(uint4 parentCoordinate, uint parentLevel,
+    uint childIndex, out uint4 childCoordinate, out uint childLevel)
+{{
+    uint valid = parentLevel < 62u && childIndex < 4u ? 1u : 0u;
+    uint2 u = SigmaQ48ShiftLeftChecked(parentCoordinate.xy, 1u, valid);
+    uint2 v = SigmaQ48ShiftLeftChecked(parentCoordinate.zw, 1u, valid);
+    if ((childIndex & 1u) != 0u)
+        u = SigmaQ48AddChecked(u, uint2(1u, 0u), valid);
+    if ((childIndex & 2u) != 0u)
+        v = SigmaQ48AddChecked(v, uint2(1u, 0u), valid);
+    childCoordinate = uint4(u, v);
+    childLevel = parentLevel + 1u;
+    return valid != 0u;
+}}
+
+uint2 SigmaMerkabaGaugeZigZag(uint2 coordinate, inout uint valid)
+{{
+    uint2 output = uint2(0u, 0u);
+    if ((coordinate.y & 0x80000000u) == 0u)
+    {{
+        output = SigmaU64ShiftLeftRaw(coordinate, 1u);
+    }}
+    else
+    {{
+        uint carry = 0u;
+        uint2 shifted = SigmaU64Add(coordinate, uint2(1u, 0u), carry);
+        shifted = SigmaU64NegateRaw(shifted);
+        shifted = SigmaU64ShiftLeftRaw(shifted, 1u);
+        output = SigmaU64Add(shifted, uint2(1u, 0u), carry);
+        valid &= carry == 0u ? 1u : 0u;
+    }}
+    return output;
+}}
+
+uint SigmaMerkabaGaugeSpread16(uint value)
+{{
+    value &= 0x0000ffffu;
+    value = (value | (value << 8u)) & 0x00ff00ffu;
+    value = (value | (value << 4u)) & 0x0f0f0f0fu;
+    value = (value | (value << 2u)) & 0x33333333u;
+    return (value | (value << 1u)) & 0x55555555u;
+}}
+
+uint4 SigmaMerkabaGaugeSignedMorton(uint2 u, uint2 v, inout uint valid)
+{{
+    uint2 x = SigmaMerkabaGaugeZigZag(u, valid);
+    uint2 y = SigmaMerkabaGaugeZigZag(v, valid);
+    return uint4(
+        SigmaMerkabaGaugeSpread16(x.x) |
+            (SigmaMerkabaGaugeSpread16(y.x) << 1u),
+        SigmaMerkabaGaugeSpread16(x.x >> 16u) |
+            (SigmaMerkabaGaugeSpread16(y.x >> 16u) << 1u),
+        SigmaMerkabaGaugeSpread16(x.y) |
+            (SigmaMerkabaGaugeSpread16(y.y) << 1u),
+        SigmaMerkabaGaugeSpread16(x.y >> 16u) |
+            (SigmaMerkabaGaugeSpread16(y.y >> 16u) << 1u));
+}}
+
+bool SigmaMerkabaGaugeMortonLess(uint4 left, uint4 right)
+{{
+    bool less = false;
+    if (left.w != right.w)
+        less = left.w < right.w;
+    else if (left.z != right.z)
+        less = left.z < right.z;
+    else if (left.y != right.y)
+        less = left.y < right.y;
+    else
+        less = left.x < right.x;
+    return less;
+}}
+
+bool SigmaMerkabaGaugeLess(uint4 leftCoordinate, uint leftLevel,
+    uint4 rightCoordinate, uint rightLevel, inout uint valid)
+{{
+    bool less = false;
+    if (leftLevel != rightLevel)
+    {{
+        less = leftLevel < rightLevel;
+    }}
+    else
+    {{
+        uint4 leftMorton = SigmaMerkabaGaugeSignedMorton(leftCoordinate.xy,
+            leftCoordinate.zw, valid);
+        uint4 rightMorton = SigmaMerkabaGaugeSignedMorton(rightCoordinate.xy,
+            rightCoordinate.zw, valid);
+        if (any(leftMorton != rightMorton))
+            less = SigmaMerkabaGaugeMortonLess(leftMorton, rightMorton);
+        else if (!SigmaU64Equal(leftCoordinate.xy, rightCoordinate.xy))
+            less = SigmaI64Less(leftCoordinate.xy, rightCoordinate.xy);
+        else
+            less = SigmaI64Less(leftCoordinate.zw, rightCoordinate.zw);
+    }}
+    return less;
+}}
+
 void SigmaMerkabaBuildDirectionalAction(
     uint measuredRole, uint2 directionLower, uint2 directionUpper,
     uint2 residualLower, uint2 residualUpper,
@@ -3699,6 +3809,7 @@ def render_merkaba_fixture(descriptor: dict) -> str:
 #pragma kernel MerkabaDirectionalActionParity
 #pragma kernel MerkabaFreshAdmissionParity
 #pragma kernel MerkabaInstrumentBoundaryParity
+#pragma kernel MerkabaGaugeParity
 #pragma target 5.0
 
 #include "SigmaGeneratedMerkabaProgram.hlsl"
@@ -3709,6 +3820,10 @@ RWStructuredBuffer<uint4> _MerkabaIrResults;
 RWStructuredBuffer<uint4> _MerkabaActionResults;
 RWStructuredBuffer<uint4> _MerkabaFreshResults;
 RWStructuredBuffer<uint4> _MerkabaInstrumentResults;
+RWStructuredBuffer<uint4> _MerkabaGaugeResults;
+
+uint4 _MerkabaGaugeParentCoordinate;
+uint _MerkabaGaugeParentLevel;
 
 [numthreads(16, 16, 1)]
 void MerkabaProgramParity(uint3 id : SV_DispatchThreadID)
@@ -3722,6 +3837,44 @@ void MerkabaProgramParity(uint3 id : SV_DispatchThreadID)
         asuint(SigmaMerkabaPlaquetteHolonomy(a, c, b)),
         asuint(SigmaMerkabaShadowNumerator(a, c & 3u)),
         asuint(SigmaMerkabaBasisSign(a, b)));
+}}
+
+[numthreads(4, 1, 1)]
+void MerkabaGaugeParity(uint3 id : SV_DispatchThreadID)
+{{
+    uint4 coordinate;
+    uint level;
+    bool valid = SigmaMerkabaSplitDyadicGauge(_MerkabaGaugeParentCoordinate,
+        _MerkabaGaugeParentLevel, id.x, coordinate, level);
+    _MerkabaGaugeResults[id.x * 2u] = coordinate;
+    _MerkabaGaugeResults[id.x * 2u + 1u] = uint4(level,
+        valid ? 1u : 0u, id.x, 0u);
+    [unroll]
+    for (uint peer = 0u; peer < 4u; ++peer)
+    {{
+        uint4 peerCoordinate;
+        uint peerLevel;
+        uint orderValid = valid ? 1u : 0u;
+        orderValid &= SigmaMerkabaSplitDyadicGauge(
+            _MerkabaGaugeParentCoordinate, _MerkabaGaugeParentLevel, peer,
+            peerCoordinate, peerLevel) ? 1u : 0u;
+        bool less = SigmaMerkabaGaugeLess(coordinate, level,
+            peerCoordinate, peerLevel, orderValid);
+        _MerkabaGaugeResults[8u + id.x * 4u + peer] = uint4(
+            less ? 1u : 0u, orderValid, id.x, peer);
+    }}
+    const uint4 wideCoordinates[4] = {{
+        uint4(0u, 0u, 1u, 0u), uint4(0u, 0u, 0u, 1u),
+        uint4(1u, 0u, 0u, 0u), uint4(0u, 1u, 0u, 0u) }};
+    [unroll]
+    for (uint widePeer = 0u; widePeer < 4u; ++widePeer)
+    {{
+        uint wideValid = 1u;
+        bool wideLess = SigmaMerkabaGaugeLess(wideCoordinates[id.x], 0u,
+            wideCoordinates[widePeer], 0u, wideValid);
+        _MerkabaGaugeResults[24u + id.x * 4u + widePeer] = uint4(
+            wideLess ? 1u : 0u, wideValid, id.x, widePeer);
+    }}
 }}
 
 [numthreads(16, 16, 1)]
@@ -3945,6 +4098,15 @@ def upper_snake(value: str) -> str:
 
 
 def frame_abi_descriptor(merkaba: dict) -> dict:
+    chi_fingerprint = sha256({
+        "address": merkaba["representation"]["address"],
+        "gaugeFamily": merkaba["representation"]["gaugeFamily"],
+        "normalizer": merkaba["representation"]["normalizer"],
+    })
+    kappa_fingerprint = sha256({
+        "kappa": merkaba["representation"]["kappa"],
+        "refinement": merkaba["representation"]["refinement"],
+    })
     descriptor = {
         "version": FRAME_ABI_VERSION,
         "laneCount": LANES,
@@ -3967,6 +4129,22 @@ def frame_abi_descriptor(merkaba: dict) -> dict:
         "entryPoints": {
             entry["id"]: index
             for index, entry in enumerate(merkaba["ir"]["entryPoints"])
+        },
+        "representationFingerprint": merkaba["inputs"]["iRepresentation"],
+        "chiFingerprint": chi_fingerprint,
+        "kappaFingerprint": kappa_fingerprint,
+        "certificateFingerprint": merkaba["proofs"]["certificateProofFingerprint"],
+        # One compact uint2 record is the only GPU->host persistence envelope.
+        # It is drained asynchronously in batches and is never a prerequisite
+        # for ingress recycling or canonical publication.
+        "completion": {
+            "Frame": 0,
+            "Root": 8,
+            "Unresolved": 10,
+            "ObservationHeaders": 18,
+            "RoomRays": 22,
+            "CodeLeaves": 28,
+            "WordCount": 44,
         },
     }
     descriptor["fingerprint"] = sha256(descriptor)
@@ -4014,6 +4192,15 @@ def render_frame_cs(frame: dict) -> str:
     entry_point_lines = "\n".join(
         f"        internal const int {''.join(part.title() for part in name.split('_'))}EntryPoint = {index};"
         for name, index in frame["entryPoints"].items())
+    representation_constants = "\n".join((
+        f'        internal const string RepresentationFingerprint = "{frame["representationFingerprint"]}";',
+        f'        internal const string ChiFingerprint = "{frame["chiFingerprint"]}";',
+        f'        internal const string KappaFingerprint = "{frame["kappaFingerprint"]}";',
+        f'        internal const string CertificateFingerprint = "{frame["certificateFingerprint"]}";',
+    ))
+    completion_constants = "\n".join(
+        f"        internal const int Completion{name} = {value};"
+        for name, value in frame["completion"].items())
 
     return f"""// <auto-generated by Tools/sigma/generate_sigma_operators.py>
 // Canonical baseline: CPQ4-2026-08-24-S16-v7. Do not edit by hand.
@@ -4055,6 +4242,8 @@ namespace Genesis.RoomScan.SigmaPrism
         internal const uint Invalid = 0xffffffffu;
 {stride_lines}
 {entry_point_lines}
+{representation_constants}
+{completion_constants}
     }}
 }}
 """
@@ -4083,6 +4272,12 @@ def render_frame_hlsl(frame: dict) -> str:
 
     fingerprint_words_text = ", ".join(
         f"0x{word:08x}u" for word in fingerprint_words(frame["fingerprint"]))
+    chi_words = ", ".join(
+        f"0x{word:08x}u" for word in fingerprint_words(frame["chiFingerprint"]))
+    kappa_words = ", ".join(
+        f"0x{word:08x}u" for word in fingerprint_words(frame["kappaFingerprint"]))
+    certificate_words = ", ".join(
+        f"0x{word:08x}u" for word in fingerprint_words(frame["certificateFingerprint"]))
     return f"""// <auto-generated by Tools/sigma/generate_sigma_operators.py>
 // Canonical baseline: CPQ4-2026-08-24-S16-v7. Do not edit by hand.
 #ifndef SIGMA_FRAME_ABI_INCLUDED
@@ -4094,9 +4289,15 @@ def render_frame_hlsl(frame: dict) -> str:
 #define SIGMA_NATIVE_LEAF_COUNT {frame['leafCount']}u
 #define SIGMA_FRAME_LANE_COUNT {frame['laneCount']}u
 #define SIGMA_FRAME_INVALID 0xffffffffu
+{chr(10).join(
+    f'#define SIGMA_COMPLETION_{upper_snake(name)} {value}u'
+    for name, value in frame['completion'].items())}
 {chr(10).join(macro_lines)}
 
 static const uint SIGMA_FRAME_ABI_FINGERPRINT[8] = {{ {fingerprint_words_text} }};
+static const uint SIGMA_CHI_FINGERPRINT[8] = {{ {chi_words} }};
+static const uint SIGMA_KAPPA_FINGERPRINT[8] = {{ {kappa_words} }};
+static const uint SIGMA_CERTIFICATE_FINGERPRINT[8] = {{ {certificate_words} }};
 
 {chr(10).join(struct_text)}
 
