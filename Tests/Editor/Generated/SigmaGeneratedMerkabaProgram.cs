@@ -39,6 +39,12 @@ namespace Genesis.RoomScan.SigmaPrism
         GAUGE_NORMALIZE = 26u,
         ZEMPTY_DEFAULT = 27u,
         RELATION_CLASSIFY = 28u,
+        SHADOW_CELL_INTERSECT = 29u,
+        TANGENT_MIN_CHANGE_SELECT = 30u,
+        MERKABA_DUAL_FRAME_LIFT = 31u,
+        FORWARD_RELATION_VERIFY = 32u,
+        FRESH_BASE_PATTERN = 33u,
+        COMMON_UNION_OR_UNRESOLVED = 34u,
     }
 
     internal enum SigmaMerkabaValueKind : uint
@@ -54,6 +60,8 @@ namespace Genesis.RoomScan.SigmaPrism
         GAUGE_FIELD = 8u,
         QUERY_ROLE = 9u,
         BOOLEAN = 10u,
+        SHADOW_CELL = 11u,
+        FRESH_ADMISSION = 12u,
     }
 
     internal enum SigmaMerkabaReverseRule : uint
@@ -68,6 +76,9 @@ namespace Genesis.RoomScan.SigmaPrism
         NO_CLAIM = 7u,
         REVERSE_CALIBRATED_QUERY = 8u,
         RETAIN_FACTOR = 9u,
+        MINIMUM_CHANGE_ON_RESOLVED_FIBRE = 10u,
+        FORWARD_VERIFY_RETAIN = 11u,
+        COMMON_RESULT_OR_UNRESOLVED = 12u,
     }
 
     internal enum SigmaMerkabaRelationClass : uint
@@ -100,6 +111,12 @@ namespace Genesis.RoomScan.SigmaPrism
         LogicalUnbacked = 0u,
         ExplicitZEmpty = 1u,
         NullCodec = 2u,
+    }
+
+    internal enum SigmaFreshAdmissionStatus : uint
+    {
+        Unresolved = 0u,
+        Admitted = 1u,
     }
 
     internal readonly struct SigmaMerkabaIrNode
@@ -223,23 +240,62 @@ namespace Genesis.RoomScan.SigmaPrism
         internal string PayloadFingerprint { get; }
     }
 
+    internal readonly struct SigmaFreshShadowBranch
+    {
+        internal SigmaFreshShadowBranch(IEnumerable<SigmaQ48Interval> shadowAxes,
+            uint firstHitEyeMask, bool coherent, string provenanceFingerprint)
+        {
+            if (shadowAxes == null) throw new ArgumentNullException(nameof(shadowAxes));
+            ShadowAxes = shadowAxes.ToArray();
+            if (ShadowAxes.Length != 4)
+                throw new ArgumentException("A Merkaba shadow has four axes.",
+                    nameof(shadowAxes));
+            FirstHitEyeMask = firstHitEyeMask;
+            Coherent = coherent;
+            ProvenanceFingerprint = provenanceFingerprint ??
+                throw new ArgumentNullException(nameof(provenanceFingerprint));
+        }
+        internal SigmaQ48Interval[] ShadowAxes { get; }
+        internal uint FirstHitEyeMask { get; }
+        internal bool Coherent { get; }
+        internal string ProvenanceFingerprint { get; }
+    }
+
+    internal readonly struct SigmaFreshBaseAdmission
+    {
+        internal SigmaFreshBaseAdmission(SigmaFreshAdmissionStatus status,
+            SigmaS16 state, IReadOnlyList<SigmaGaugeCell> support,
+            SigmaMerkabaRelationClass boundaryRelation,
+            string canonicalSerialization)
+        {
+            Status = status; State = state; Support = support;
+            BoundaryRelation = boundaryRelation;
+            CanonicalSerialization = canonicalSerialization;
+        }
+        internal SigmaFreshAdmissionStatus Status { get; }
+        internal SigmaS16 State { get; }
+        internal IReadOnlyList<SigmaGaugeCell> Support { get; }
+        internal SigmaMerkabaRelationClass BoundaryRelation { get; }
+        internal string CanonicalSerialization { get; }
+    }
+
     internal static class SigmaGeneratedMerkabaProgram
     {
-        internal const string ProgramVersion = "CPQ4-S16-MERKABA-N1R-1";
+        internal const string ProgramVersion = "CPQ4-S16-MERKABA-N1R-3";
         internal const string NumericDomainId = "num.fixed.q16_48.checked.nearest_even";
-        internal const string ProgramFingerprint = "2595954ac6f0a2f1a096c7bdde8661c892820101d67ab90b4aeb49fbd4882bc1";
+        internal const string ProgramFingerprint = "c98855216dd16d059ebaf0c33652250b7acac4681b01e0d585ab0ba28de67af3";
         internal const string DeclaredToeUpstreamFingerprint = "9d2e3604846305cfe5244a4ef49f169632c60582cf895256fadc36426dc5786f";
-        internal const string GeneratorSourceInputFingerprint = "fc95b501830c053c274f9c42f5eb7eb5dd88cc902b9805756d0116060888b50c";
+        internal const string GeneratorSourceInputFingerprint = "ecc1543fd0698ed527657a39b167eceaabb6b813be7df30f939b8dcfe02e2359";
         internal const string ToeCapsuleInputFingerprint = "9cdc8b1f3bfecfa3a49805be82ea786cdbf681ee8ffbdab0733d18dc24cfffef";
         internal const string ToeUpstreamDeclaredInputFingerprint = "9d2e3604846305cfe5244a4ef49f169632c60582cf895256fadc36426dc5786f";
-        internal const string IQInputFingerprint = "6acc84ff3bb7b7ef5ed4fdc76b02e65fdc487dfc8711090ed4219251cd9876a2";
-        internal const string IRepresentationInputFingerprint = "32cf4621c8ccfb75e5bb6a7659b4ee7a2238b5fa24d4b3e526742e91ed0a2fa9";
+        internal const string IQInputFingerprint = "56731a252dafee7bc71f9ee53fa1a4e16713b5b68b9f8b4fff108460c21faef5";
+        internal const string IRepresentationInputFingerprint = "f5f3f42395e2e05779f5c7059bc2e273bcf334f2b73f8b5ac4520c1ea03ff133";
         internal const string CanonicalSpecInputFingerprint = "20d15b4936aba2bca72e951b5534160d44c4cb44713b43a6effc9c93df826d69";
         internal const string ClosurePlanInputFingerprint = "a4b19bebb8624c54748b0d5f6fb982e2d7425686d141e88b493f96533ce7549e";
         internal const string AlgebraCoreInputFingerprint = "f7524a2d348cda462a2c6fa4804cf6be33c2554a69c6ecf67a11ef97009529cc";
-        internal const int ExpressionCount = 15;
-        internal const int IrNodeCount = 48;
-        internal const int IrOperandCount = 46;
+        internal const int ExpressionCount = 16;
+        internal const int IrNodeCount = 55;
+        internal const int IrOperandCount = 58;
         internal const int EntryPointCount = 7;
         internal const int AssociatorNonzeroBasisTriples = 1848;
         internal const bool ShadowKernelDecouplingProofSupplied = false;
@@ -293,6 +349,16 @@ namespace Genesis.RoomScan.SigmaPrism
         internal const int GaugeTransportFieldCount = 6;
         internal const bool FreshSupportUniqueModuloGauge = true;
         internal const bool FreshSupportNonEquivalentRejected = true;
+        internal const int FreshAdmissionFixtureCount = 127;
+        internal const int FreshAdmissionAdmittedFixtureCount = 125;
+        internal const int FreshAdmissionUnresolvedFixtureCount = 2;
+        internal const int FreshAdmissionDualFrameRoundTripCount = 125;
+        internal const int FreshAdmissionBoundaryResolvedFixtureCount = 125;
+        internal const int FreshAdmissionExactPointDefectFixtureCount = 1;
+        internal const int FreshAdmissionExternalRelationTruthInputCount = 0;
+        internal const int FreshAdmissionCommonPermutationCount = 2;
+        internal const string FreshAdmissionProofFingerprint =
+            "94fec47737ba70e20132ef51f08ec2cdbd81f5c25aac2e6ead1b4c52dce5f17a";
         internal const string CanonicalSerializationFingerprint =
             "1859b980a60ffc87df4fecac9647a8e475727c7618f76aacdb929976061e795d";
         internal const string CertificateProofFingerprint =
@@ -314,7 +380,8 @@ namespace Genesis.RoomScan.SigmaPrism
             "fb1ac06cabd5144b85e6b15037311740695c5c303f8c5db938e52bbd0e97627c",
             "bcfb71f013a0e7c72f7bbc28d868ab8ddade1e3296588a6ed03ebc44cc89bb90",
             "8edc0ad17fb34cdc8e62dc6d136b8e142a50aecd990f810898f6b8dbc7a67029",
-            "b7a5ea3922830c638dd011e0c40c97fefbdcbe2e4dbc81474498785fa99148c7"
+            "53c74195524b312a9c0e1de73b1f55f067f7df1c86533b2bfc695457be92eec6",
+            "846fe568432bf1ac9fe56c3821f17df5968991786a656eabbc2852e39be976e0"
         };
 
         internal static readonly SigmaMerkabaIrNode[] IrNodes =
@@ -366,10 +433,17 @@ namespace Genesis.RoomScan.SigmaPrism
             new SigmaMerkabaIrNode((SigmaMerkabaIrOpcode)1u, (SigmaMerkabaValueKind)8u, (SigmaMerkabaReverseRule)1u, 44, 0, 0, 0),
             new SigmaMerkabaIrNode((SigmaMerkabaIrOpcode)25u, (SigmaMerkabaValueKind)8u, (SigmaMerkabaReverseRule)1u, 44, 1, 0, 0),
             new SigmaMerkabaIrNode((SigmaMerkabaIrOpcode)26u, (SigmaMerkabaValueKind)8u, (SigmaMerkabaReverseRule)1u, 45, 1, 0, 0),
-            new SigmaMerkabaIrNode((SigmaMerkabaIrOpcode)27u, (SigmaMerkabaValueKind)0u, (SigmaMerkabaReverseRule)1u, 46, 0, 0, 0)
+            new SigmaMerkabaIrNode((SigmaMerkabaIrOpcode)29u, (SigmaMerkabaValueKind)11u, (SigmaMerkabaReverseRule)6u, 46, 1, 0, 0),
+            new SigmaMerkabaIrNode((SigmaMerkabaIrOpcode)30u, (SigmaMerkabaValueKind)11u, (SigmaMerkabaReverseRule)10u, 47, 1, 0, 0),
+            new SigmaMerkabaIrNode((SigmaMerkabaIrOpcode)31u, (SigmaMerkabaValueKind)0u, (SigmaMerkabaReverseRule)5u, 48, 1, 0, 0),
+            new SigmaMerkabaIrNode((SigmaMerkabaIrOpcode)32u, (SigmaMerkabaValueKind)10u, (SigmaMerkabaReverseRule)11u, 49, 3, 0, 0),
+            new SigmaMerkabaIrNode((SigmaMerkabaIrOpcode)33u, (SigmaMerkabaValueKind)8u, (SigmaMerkabaReverseRule)9u, 52, 2, 0, 1),
+            new SigmaMerkabaIrNode((SigmaMerkabaIrOpcode)26u, (SigmaMerkabaValueKind)8u, (SigmaMerkabaReverseRule)1u, 54, 1, 0, 0),
+            new SigmaMerkabaIrNode((SigmaMerkabaIrOpcode)34u, (SigmaMerkabaValueKind)12u, (SigmaMerkabaReverseRule)12u, 55, 3, 0, 0),
+            new SigmaMerkabaIrNode((SigmaMerkabaIrOpcode)27u, (SigmaMerkabaValueKind)0u, (SigmaMerkabaReverseRule)1u, 58, 0, 0, 0)
         };
 
-        internal static readonly int[] IrOperands = { 0, 1, 3, 4, 6, 5, 4, 5, 3, 8, 7, 9, 11, 13, 14, 15, 16, 17, 17, 18, 16, 19, 10, 21, 21, 22, 10, 23, 25, 20, 24, 26, 28, 30, 29, 31, 32, 33, 35, 36, 37, 39, 40, 34, 44, 45 };
+        internal static readonly int[] IrOperands = { 0, 1, 3, 4, 6, 5, 4, 5, 3, 8, 7, 9, 11, 13, 14, 15, 16, 17, 17, 18, 16, 19, 10, 21, 21, 22, 10, 23, 25, 20, 24, 26, 28, 30, 29, 31, 32, 33, 35, 36, 37, 39, 40, 34, 44, 45, 34, 47, 48, 49, 47, 20, 49, 50, 51, 49, 52, 34 };
 
         internal static readonly SigmaMerkabaExpression[] Expressions =
         {
@@ -387,7 +461,8 @@ namespace Genesis.RoomScan.SigmaPrism
             new SigmaMerkabaExpression("NATIVE_INFORMATION_PULLBACK", "I_Q:certificate", -1, 1, 42, 1, 42, "fb1ac06cabd5144b85e6b15037311740695c5c303f8c5db938e52bbd0e97627c"),
             new SigmaMerkabaExpression("CERTIFICATE_MINIMIZER", "I_Q:certificate", -1, 8, 43, 1, 43, "bcfb71f013a0e7c72f7bbc28d868ab8ddade1e3296588a6ed03ebc44cc89bb90"),
             new SigmaMerkabaExpression("DYADIC_GAUGE_NORMALIZER", "I_REP:kappa+normalizer", 1, 8, 44, 3, 46, "8edc0ad17fb34cdc8e62dc6d136b8e142a50aecd990f810898f6b8dbc7a67029"),
-            new SigmaMerkabaExpression("ZEMPTY_DEFAULT", "I_Q:defaultSemantics+I_REP:defaultRepresentations", -1, 4, 47, 1, 47, "b7a5ea3922830c638dd011e0c40c97fefbdcbe2e4dbc81474498785fa99148c7")
+            new SigmaMerkabaExpression("FRESH_BASE_ADMISSION", "I_TOE:6+I_Q:freshBaseAdmission+I_REP:freshSupport", -1, 4, 47, 7, 53, "53c74195524b312a9c0e1de73b1f55f067f7df1c86533b2bfc695457be92eec6"),
+            new SigmaMerkabaExpression("ZEMPTY_DEFAULT", "I_Q:defaultSemantics+I_REP:defaultRepresentations", -1, 4, 54, 1, 54, "846fe568432bf1ac9fe56c3821f17df5968991786a656eabbc2852e39be976e0")
         };
 
         internal static readonly SigmaMerkabaEntryPoint[] EntryPoints =
@@ -511,6 +586,207 @@ namespace Genesis.RoomScan.SigmaPrism
             if ((uint)axis >= 4u)
                 throw new ArgumentOutOfRangeException(nameof(axis));
             return ShadowNumerator4[(address << 2) + axis];
+        }
+
+        internal static long[] EvaluateMerkabaShadow(SigmaS16 state)
+        {
+            var output = new long[4];
+            for (int axis = 0; axis < 4; ++axis)
+            {
+                long sum = 0L;
+                for (int address = 0; address < 16; ++address)
+                {
+                    long coefficient = SigmaNumericDomain.FromRatio(
+                        ShadowNumerator(address, axis), 4L);
+                    sum = SigmaNumericDomain.QAdd(sum,
+                        SigmaNumericDomain.QMul(state[address], coefficient));
+                }
+                output[axis] = sum;
+            }
+            return output;
+        }
+
+        internal static SigmaS16 LiftMerkabaShadow(IReadOnlyList<long> shadow)
+        {
+            if (shadow == null) throw new ArgumentNullException(nameof(shadow));
+            if (shadow.Count != 4)
+                throw new ArgumentException("A Merkaba shadow has four axes.",
+                    nameof(shadow));
+            var lanes = new long[16];
+            for (int address = 0; address < 16; ++address)
+            {
+                long sum = 0L;
+                for (int axis = 0; axis < 4; ++axis)
+                {
+                    long coefficient = SigmaNumericDomain.FromRatio(
+                        ShadowNumerator(address, axis), 64L);
+                    sum = SigmaNumericDomain.QAdd(sum,
+                        SigmaNumericDomain.QMul(shadow[axis], coefficient));
+                }
+                lanes[address] = sum;
+            }
+            return SigmaS16.FromArray(lanes);
+        }
+
+        internal static bool TryResolveFreshBaseAdmission(
+            IEnumerable<SigmaFreshShadowBranch> branches,
+            out SigmaFreshBaseAdmission admission)
+        {
+            if (branches == null) throw new ArgumentNullException(nameof(branches));
+            SigmaFreshBaseAdmission? common = null;
+            int count = 0;
+            foreach (SigmaFreshShadowBranch branch in branches)
+            {
+                ++count;
+                if (!TryResolveFreshBranch(branch, out SigmaFreshBaseAdmission current))
+                {
+                    admission = UnresolvedFreshAdmission();
+                    return false;
+                }
+                if (common.HasValue &&
+                    (common.Value.State != current.State ||
+                     common.Value.BoundaryRelation != current.BoundaryRelation ||
+                     !string.Equals(common.Value.CanonicalSerialization,
+                         current.CanonicalSerialization, StringComparison.Ordinal)))
+                {
+                    admission = UnresolvedFreshAdmission();
+                    return false;
+                }
+                common = current;
+            }
+            if (count == 0 || !common.HasValue)
+            {
+                admission = UnresolvedFreshAdmission();
+                return false;
+            }
+            admission = common.Value;
+            return true;
+        }
+
+        private static bool TryResolveFreshBranch(SigmaFreshShadowBranch branch,
+            out SigmaFreshBaseAdmission admission)
+        {
+            admission = UnresolvedFreshAdmission();
+            if (!branch.Coherent || (branch.FirstHitEyeMask & 3u) != 3u ||
+                string.IsNullOrEmpty(branch.ProvenanceFingerprint) ||
+                branch.ShadowAxes == null || branch.ShadowAxes.Length != 4)
+                return false;
+            try
+            {
+                if (!TrySelectTangentMinimumChange(branch.ShadowAxes,
+                    out long[] selected))
+                    return false;
+                SigmaS16 state = LiftMerkabaShadow(selected);
+                if (state.IsZero)
+                    return false;
+                long[] forward = EvaluateMerkabaShadow(state);
+                for (int axis = 0; axis < 4; ++axis)
+                    if (!branch.ShadowAxes[axis].Contains(forward[axis]))
+                        return false;
+                SigmaMerkabaRelationClass boundaryRelation =
+                    EvaluateFreshBoundaryRelation(state);
+                if (boundaryRelation == SigmaMerkabaRelationClass.Unresolved ||
+                    boundaryRelation == SigmaMerkabaRelationClass.DefaultSat)
+                    return false;
+                string stateBytes = string.Join(",", state.ToArray().Select(value =>
+                    unchecked((ulong)value).ToString("x16")));
+                string payload = ProgramFingerprint + ":" +
+                    ((uint)boundaryRelation).ToString("x8") + ":" + stateBytes;
+                IReadOnlyList<SigmaGaugeCell> support = NormalizeGauge(new[]
+                {
+                    new SigmaGaugeCell(0L, 0L, 0, payload),
+                });
+                string serialization = ((uint)boundaryRelation).ToString("x8") +
+                    "|" + stateBytes + "|" +
+                    CanonicalGaugeSerialization(support);
+                admission = new SigmaFreshBaseAdmission(
+                    SigmaFreshAdmissionStatus.Admitted, state, support,
+                    boundaryRelation,
+                    serialization);
+                return true;
+            }
+            catch (OverflowException)
+            {
+                return false;
+            }
+        }
+
+        private static bool TrySelectTangentMinimumChange(
+            IReadOnlyList<SigmaQ48Interval> bounds, out long[] selected)
+        {
+            selected = new long[4];
+            if (bounds == null || bounds.Count != 4 || bounds.Any(value => value.IsEmpty))
+                return false;
+            BigInteger residual = BigInteger.Zero;
+            for (int axis = 0; axis < 4; ++axis)
+            {
+                selected[axis] = SigmaNumericDomain.QClamp(0L,
+                    bounds[axis].Lower, bounds[axis].Upper);
+                residual += selected[axis];
+            }
+            if (residual.Sign > 0)
+            {
+                for (int axis = 0; axis < 4 && residual.Sign > 0; ++axis)
+                {
+                    BigInteger capacity = (BigInteger)selected[axis] -
+                        bounds[axis].Lower;
+                    BigInteger adjustment = BigInteger.Min(residual, capacity);
+                    selected[axis] = CheckedLong((BigInteger)selected[axis] - adjustment);
+                    residual -= adjustment;
+                }
+            }
+            else if (residual.Sign < 0)
+            {
+                BigInteger deficit = -residual;
+                for (int axis = 0; axis < 4 && deficit.Sign > 0; ++axis)
+                {
+                    BigInteger capacity = (BigInteger)bounds[axis].Upper -
+                        selected[axis];
+                    BigInteger adjustment = BigInteger.Min(deficit, capacity);
+                    selected[axis] = CheckedLong((BigInteger)selected[axis] + adjustment);
+                    deficit -= adjustment;
+                }
+                residual = -deficit;
+            }
+            return residual.IsZero;
+        }
+
+        private static SigmaFreshBaseAdmission UnresolvedFreshAdmission() =>
+            new SigmaFreshBaseAdmission(SigmaFreshAdmissionStatus.Unresolved,
+                SigmaS16.Zero, Array.Empty<SigmaGaugeCell>(),
+                SigmaMerkabaRelationClass.Unresolved, string.Empty);
+
+        internal static SigmaMerkabaRelationClass EvaluateFreshBoundaryRelation(
+            SigmaS16 state)
+        {
+            if (state.IsZero)
+                return SigmaMerkabaRelationClass.DefaultSat;
+
+            if (Enumerable.Range(0, 16).Any(address =>
+                    SignTransport(0, address) != 1) ||
+                PlaquetteHolonomy(0, 0, 0) != 1 ||
+                !SigmaS16Operators.Associator(state, SigmaS16.Zero,
+                    SigmaS16.Zero).IsZero)
+                throw new InvalidOperationException(
+                    "Generated fresh base relation specialization is invalid.");
+
+            // This is the exact generated NATIVE_CLOSURE_DEFECT specialization
+            // for (state, ZEmpty, ZEmpty) in the canonical chi0/kappa0 base
+            // context. U_0 is identity, [state,0,0]=0 and W_00(0)=+1, so the
+            // normalized link d=-state is the sole nonzero factor. A nonzero
+            // diffraction-kernel link remains unresolved; otherwise the
+            // resolved mixed boundary is an exact NO_RELATION termination.
+            SigmaS16 link = SigmaS16Operators.Subtract(SigmaS16.Zero, state);
+            if (!TryNormalizePrimitiveDefect(link,
+                    out _,
+                    out bool diffractionKernel) || diffractionKernel)
+                return SigmaMerkabaRelationClass.Unresolved;
+            // The raw Q16.48 numerator remains an exact factor witness. Once
+            // its primitive G norm is positive, a nonzero raw link proves the
+            // normalized exact point is nonzero even if its outward enclosure
+            // contains zero at Q48 resolution. Uncertain input intervals still
+            // use ClassifyExactZeroFactor and remain unresolved when they span 0.
+            return SigmaMerkabaRelationClass.NoRelation;
         }
 
         internal static bool IsZEmpty(SigmaS16 value) => value.IsZero;

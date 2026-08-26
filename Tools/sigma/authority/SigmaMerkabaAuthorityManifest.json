@@ -199,16 +199,27 @@
       },
       {
         "arity": -1,
-        "fingerprint": "b7a5ea3922830c638dd011e0c40c97fefbdcbe2e4dbc81474498785fa99148c7",
+        "fingerprint": "53c74195524b312a9c0e1de73b1f55f067f7df1c86533b2bfc695457be92eec6",
+        "id": "FRESH_BASE_ADMISSION",
+        "neighbourhood": 4,
+        "nodeCount": 7,
+        "nodeStart": 47,
+        "rootNode": 53,
+        "source": "I_TOE:6+I_Q:freshBaseAdmission+I_REP:freshSupport"
+      },
+      {
+        "arity": -1,
+        "fingerprint": "846fe568432bf1ac9fe56c3821f17df5968991786a656eabbc2852e39be976e0",
         "id": "ZEMPTY_DEFAULT",
         "neighbourhood": 4,
         "nodeCount": 1,
-        "nodeStart": 47,
-        "rootNode": 47,
+        "nodeStart": 54,
+        "rootNode": 54,
         "source": "I_Q:defaultSemantics+I_REP:defaultRepresentations"
       }
     ],
-    "fingerprint": "328e7e499ae890fc3ae77027d55bd71df67699884707162b8cf0374837d82e6a",
+    "fingerprint": "e437333485adcdf56c83b8020a733d3ac239558dee41ddb6a9136d9e1e8cddc7",
+    "freshAdmissionExpression": 14,
     "gaugeExpression": 13,
     "neighbourhoods": [
       "LOCAL",
@@ -649,9 +660,72 @@
       {
         "argument0": 0,
         "argument1": 0,
+        "opcode": 29,
+        "operandCount": 1,
+        "operandStart": 46,
+        "outputKind": 11,
+        "reverseRule": 6
+      },
+      {
+        "argument0": 0,
+        "argument1": 0,
+        "opcode": 30,
+        "operandCount": 1,
+        "operandStart": 47,
+        "outputKind": 11,
+        "reverseRule": 10
+      },
+      {
+        "argument0": 0,
+        "argument1": 0,
+        "opcode": 31,
+        "operandCount": 1,
+        "operandStart": 48,
+        "outputKind": 0,
+        "reverseRule": 5
+      },
+      {
+        "argument0": 0,
+        "argument1": 0,
+        "opcode": 32,
+        "operandCount": 3,
+        "operandStart": 49,
+        "outputKind": 10,
+        "reverseRule": 11
+      },
+      {
+        "argument0": 0,
+        "argument1": 1,
+        "opcode": 33,
+        "operandCount": 2,
+        "operandStart": 52,
+        "outputKind": 8,
+        "reverseRule": 9
+      },
+      {
+        "argument0": 0,
+        "argument1": 0,
+        "opcode": 26,
+        "operandCount": 1,
+        "operandStart": 54,
+        "outputKind": 8,
+        "reverseRule": 1
+      },
+      {
+        "argument0": 0,
+        "argument1": 0,
+        "opcode": 34,
+        "operandCount": 3,
+        "operandStart": 55,
+        "outputKind": 12,
+        "reverseRule": 12
+      },
+      {
+        "argument0": 0,
+        "argument1": 0,
         "opcode": 27,
         "operandCount": 0,
-        "operandStart": 46,
+        "operandStart": 58,
         "outputKind": 0,
         "reverseRule": 1
       }
@@ -685,7 +759,13 @@
       "DYADIC_DECODE",
       "GAUGE_NORMALIZE",
       "ZEMPTY_DEFAULT",
-      "RELATION_CLASSIFY"
+      "RELATION_CLASSIFY",
+      "SHADOW_CELL_INTERSECT",
+      "TANGENT_MIN_CHANGE_SELECT",
+      "MERKABA_DUAL_FRAME_LIFT",
+      "FORWARD_RELATION_VERIFY",
+      "FRESH_BASE_PATTERN",
+      "COMMON_UNION_OR_UNRESOLVED"
     ],
     "operands": [
       0,
@@ -733,7 +813,19 @@
       40,
       34,
       44,
-      45
+      45,
+      34,
+      47,
+      48,
+      49,
+      47,
+      20,
+      49,
+      50,
+      51,
+      49,
+      52,
+      34
     ],
     "reducers": [
       "NONE",
@@ -752,7 +844,10 @@
       "RETAIN_SUPPORT_DISJUNCTION",
       "NO_CLAIM",
       "REVERSE_CALIBRATED_QUERY",
-      "RETAIN_FACTOR"
+      "RETAIN_FACTOR",
+      "MINIMUM_CHANGE_ON_RESOLVED_FIBRE",
+      "FORWARD_VERIFY_RETAIN",
+      "COMMON_RESULT_OR_UNRESOLVED"
     ],
     "valueKinds": [
       "S16",
@@ -765,9 +860,11 @@
       "CERTIFICATE",
       "GAUGE_FIELD",
       "QUERY_ROLE",
-      "BOOLEAN"
+      "BOOLEAN",
+      "SHADOW_CELL",
+      "FRESH_ADMISSION"
     ],
-    "zEmptyExpression": 14
+    "zEmptyExpression": 15
   },
   "expressionInventory": [
     {
@@ -912,15 +1009,47 @@
     },
     {
       "arity": -1,
-      "fingerprint": "b7a5ea3922830c638dd011e0c40c97fefbdcbe2e4dbc81474498785fa99148c7",
+      "fingerprint": "53c74195524b312a9c0e1de73b1f55f067f7df1c86533b2bfc695457be92eec6",
+      "id": "FRESH_BASE_ADMISSION",
+      "neighbourhood": 4,
+      "nodeCount": 7,
+      "nodeStart": 47,
+      "rootNode": 53,
+      "source": "I_TOE:6+I_Q:freshBaseAdmission+I_REP:freshSupport"
+    },
+    {
+      "arity": -1,
+      "fingerprint": "846fe568432bf1ac9fe56c3821f17df5968991786a656eabbc2852e39be976e0",
       "id": "ZEMPTY_DEFAULT",
       "neighbourhood": 4,
       "nodeCount": 1,
-      "nodeStart": 47,
-      "rootNode": 47,
+      "nodeStart": 54,
+      "rootNode": 54,
       "source": "I_Q:defaultSemantics+I_REP:defaultRepresentations"
     }
   ],
+  "freshBaseAdmission": {
+    "behindHit": "NO_SUPPORT_ADMISSION",
+    "branchCell": "FOUR_AXIS_OUTWARD_Q48_MERKABA_SHADOW_INTERVALS_PLUS_FIRST_HIT_ROLES_AND_PROVENANCE",
+    "candidateObject": false,
+    "dualFrameLift": "S_B_EQUALS_SUM_AXIS_SHADOW_NUMERATOR4_B_AXIS_TIMES_Y_AXIS_DIV_64_WITH_CHECKED_NEAREST_EVEN_Q16_48",
+    "forwardVerification": "RE_EVALUATE_THE_GENERATED_MERKABA_SHADOW_AND_EVERY_RETAINED_SENSOR_RELATION_INTERVAL",
+    "input": "COHERENT_LEFT_RIGHT_SENSOR_REVERSE_BRANCHES",
+    "kernelRepresentative": "PRESERVE_ZEMPTY_REPRESENTATIVE_SUBJECT_TO_COMPLETE_PROGRAM_FORWARD_AND_NATIVE_RELATION_VERIFICATION",
+    "leafBootstrap": false,
+    "missingEyeFirstHit": "UNRESOLVED",
+    "nonEquivalentBranches": "UNRESOLVED",
+    "pixelOrXyzAuthority": false,
+    "publicationRule": "UNIQUE_OR_COMPLETE_UNION_COMMON_FULL_S16_AND_SUPPORT_RESULT_MODULO_ADMITTED_GLOBAL_TRANSLATION",
+    "relationVerification": "EVALUATE_THE_GENERATED_COMPLETE_NATIVE_RELATION_FROM_THE_LIFTED_FULL_S16_STATE_ZEMPTY_NEIGHBOUR_CONTEXT_AND_CANONICAL_BASE_RELATION_CONTEXT_WITH_NO_EXTERNAL_RELATION_CLASS_OR_TRUTH_BOOLEAN",
+    "scope": "ALL_ZEMPTY_FIELD_ONE_COHERENT_FOOTPRINT_GROUP_AT_CHI0_KAPPA0",
+    "selector": "MINIMUM_CHANGE_FROM_ZEMPTY_THEN_AXIS_LEXICOGRAPHIC_INSIDE_THE_RESOLVED_SHADOW_CELL",
+    "shadowCellConstruction": "INTERSECT_ALL_DEPTH_ORDER_AND_OPTICAL_RELATION_LEAVES_AFTER_EACH_LEAF_REVERSES_THROUGH_ITS_OWN_CALIBRATED_QUERY_EXPRESSION",
+    "supportPattern": "ONE_RELATIVE_LEVEL_ZERO_CHI0_KAPPA0_CELL_PLUS_ITS_GENERATED_RESOLVED_BOUNDARY_RELATION_WITNESS_DERIVED_FROM_THE_COHERENT_FOOTPRINT_GROUP",
+    "tangentConstraint": "SUM_OF_FOUR_MERKABA_SHADOW_COORDINATES_EQUALS_ZERO",
+    "weightedFusion": false,
+    "zeroSelectedState": "NO_SUPPORT_ADMISSION"
+  },
   "generatedOutputs": [
     "Tests/Editor/Generated/SigmaGeneratedMerkabaProgram.cs",
     "Tests/Editor/Generated/SigmaGeneratedMerkabaProgram.hlsl",
@@ -938,16 +1067,16 @@
     },
     "generatorSource": {
       "path": "Tools/sigma/generate_sigma_operators.py",
-      "sha256": "fc95b501830c053c274f9c42f5eb7eb5dd88cc902b9805756d0116060888b50c",
+      "sha256": "ecc1543fd0698ed527657a39b167eceaabb6b813be7df30f939b8dcfe02e2359",
       "version": "CPQ4-S16-GEN-1"
     },
     "queryBoundary": {
       "path": "Tools/sigma/authority/I_Q_SIGMA_PRISM_V1.json",
-      "sha256": "6acc84ff3bb7b7ef5ed4fdc76b02e65fdc487dfc8711090ed4219251cd9876a2"
+      "sha256": "56731a252dafee7bc71f9ee53fa1a4e16713b5b68b9f8b4fff108460c21faef5"
     },
     "representation": {
       "path": "Tools/sigma/authority/I_REP_SIGMA_PRISM_V1.json",
-      "sha256": "32cf4621c8ccfb75e5bb6a7659b4ee7a2238b5fa24d4b3e526742e91ed0a2fa9"
+      "sha256": "f5f3f42395e2e05779f5c7059bc2e273bcf334f2b73f8b5ac4520c1ea03ff133"
     },
     "toeCapsule": {
       "admittedSections": [
@@ -985,8 +1114,8 @@
     "unboundedParameterRegion": "FORBIDDEN_TO_PROVE_COMPATIBILITY_OR_MUTATION",
     "whiteBalance": "BOUNDED_PER_CHANNEL_GAIN"
   },
-  "programFingerprint": "2595954ac6f0a2f1a096c7bdde8661c892820101d67ab90b4aeb49fbd4882bc1",
-  "programVersion": "CPQ4-S16-MERKABA-N1R-1",
+  "programFingerprint": "c98855216dd16d059ebaf0c33652250b7acac4681b01e0d585ab0ba28de67af3",
+  "programVersion": "CPQ4-S16-MERKABA-N1R-3",
   "proofs": {
     "allDefaultActiveWork": 0,
     "allDefaultRelation": "DEFAULT_SAT",
@@ -1029,6 +1158,22 @@
     "duplicateMinimizedFactorCount": 3,
     "duplicateMultiplicity": 10000,
     "e22InventoryCount": 0,
+    "freshAdmissionAdmittedFixtureCount": 125,
+    "freshAdmissionBasePattern": [
+      [
+        0,
+        0,
+        0
+      ]
+    ],
+    "freshAdmissionBoundaryResolvedFixtureCount": 125,
+    "freshAdmissionCommonPermutationCount": 2,
+    "freshAdmissionDualFrameRoundTripCount": 125,
+    "freshAdmissionExactPointDefectFixtureCount": 1,
+    "freshAdmissionExternalRelationTruthInputCount": 0,
+    "freshAdmissionFixtureCount": 127,
+    "freshAdmissionProofFingerprint": "94fec47737ba70e20132ef51f08ec2cdbd81f5c25aac2e6ead1b4c52dce5f17a",
+    "freshAdmissionUnresolvedFixtureCount": 2,
     "freshSupportNonEquivalentRejected": true,
     "freshSupportUniqueModuloGauge": true,
     "gaugePermutationCount": 24,
@@ -1191,9 +1336,12 @@
     },
     "freshSupport": {
       "ambiguousNonEquivalentPlacement": "UNRESOLVED",
-      "input": "RESOLVED_RELATIVE_BASE_DENSITY_PATTERN",
+      "baseCase": "ONE_COHERENT_FOOTPRINT_GROUP_DERIVES_ONE_LEVEL_ZERO_CHI0_KAPPA0_CELL",
+      "commonUnionRule": "EVERY_SURVIVING_REVERSE_BRANCH_NORMALIZES_TO_IDENTICAL_FULL_S16_AND_SUPPORT_BYTES",
+      "input": "GENERATED_FRESH_BASE_ADMISSION_RELATIVE_PATTERN_FROM_I_Q",
       "normalization": "GLOBAL_TRANSLATION_NORMAL_FORM",
-      "pixelOrXyzAuthority": false
+      "pixelOrXyzAuthority": false,
+      "stateSource": "GENERATED_DUAL_FRAME_FULL_S16_LIFT_WITH_FORWARD_AND_INTERNALLY_DERIVED_NATIVE_RELATION_VERIFICATION"
     },
     "gaugeFamily": {
       "base": "GLOBAL_SIGNED_INTEGER_TRANSLATION",
@@ -1254,7 +1402,10 @@
     "RETAIN_SUPPORT_DISJUNCTION",
     "NO_CLAIM",
     "REVERSE_CALIBRATED_QUERY",
-    "RETAIN_FACTOR"
+    "RETAIN_FACTOR",
+    "MINIMUM_CHANGE_ON_RESOLVED_FIBRE",
+    "FORWARD_VERIFY_RETAIN",
+    "COMMON_RESULT_OR_UNRESOLVED"
   ],
   "sceneReduction": {
     "behindHit": "NO_CLAIM",

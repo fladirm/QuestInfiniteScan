@@ -244,9 +244,13 @@ void SigmaNativeContractOne(uint candidateIndex)
         : SigmaQ48SubChecked(_NativeObservationOrder[0], priorOrder, valid);
     uint2 residualUpper = priorDefault ? _NativeObservationOrder[1]
         : SigmaQ48SubChecked(_NativeObservationOrder[1], priorOrder, valid);
-    SigmaMerkabaDirectionalActionWitness action =
-        SigmaMerkabaBuildDirectionalAction(role, _NativeDirection[0],
-            _NativeDirection[1], residualLower, residualUpper, valid);
+    uint actionRole;
+    uint actionActive;
+    uint2 actionLower;
+    uint2 actionUpper;
+    SigmaMerkabaBuildDirectionalAction(role, _NativeDirection[0],
+        _NativeDirection[1], residualLower, residualUpper, actionRole,
+        actionActive, actionLower, actionUpper, valid);
 
     bool sameSupport = SigmaNativeContractKeyEqual(keys.xy, keys.zw);
     bool identityTransport = sameSupport && SigmaNativeGaugeEqual(candidateIndex) &&
@@ -257,14 +261,14 @@ void SigmaNativeContractOne(uint candidateIndex)
         rolePermits && orderCompatible && opticalCompatible &&
         (orderClaim || opticalClaim);
     uint branchFlags = (viable ? 1u : 0u) |
-        (viable && action.active != 0u ? 2u : 0u) |
+        (viable && actionActive != 0u ? 2u : 0u) |
         (role << 2u) | (opticalClaim ? 16u : 0u) |
         (valid != 0u ? 32u : 0u) | (identityTransport ? 64u : 0u);
     _NativeBranchHeaders[candidateIndex] = uint4(candidateIndex, branchFlags,
         _NativeCandidateDeltaHashes[candidateIndex], relation.x);
     _NativeBranchSupports[candidateIndex] = keys.zw;
     _NativeBranchActions[candidateIndex] = viable
-        ? uint4(action.lower, action.upper) : uint4(0u, 0u, 0u, 0u);
+        ? uint4(actionLower, actionUpper) : uint4(0u, 0u, 0u, 0u);
     _NativeBranchPredictions[candidateIndex * 4u] = uint4(proposedOrder,
         uint2(0u, 0u));
     [unroll]

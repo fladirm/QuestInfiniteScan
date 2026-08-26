@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import itertools
 import json
+import math
 import sys
 from functools import lru_cache
 from fractions import Fraction
@@ -41,7 +42,7 @@ HLSL_MERKABA_FIXTURE_OUTPUT = (ROOT / "Tests" / "Editor" / "Generated" /
 NUMERIC_ID = "num.fixed.q16_48.checked.nearest_even"
 GENERATOR_VERSION = "CPQ4-S16-GEN-1"
 FRAME_ABI_VERSION = "CPQ4-S16-FRAME-1"
-MERKABA_PROGRAM_VERSION = "CPQ4-S16-MERKABA-N1R-1"
+MERKABA_PROGRAM_VERSION = "CPQ4-S16-MERKABA-N1R-3"
 TOE_UPSTREAM_SHA256 = "9d2e3604846305cfe5244a4ef49f169632c60582cf895256fadc36426dc5786f"
 LANES = 16
 
@@ -272,11 +273,15 @@ def build_executable_merkaba_ir() -> dict:
         "PREIMAGE_UNION", "FIRST_HIT_ACTION", "OPTICAL_NUISANCE_CONTRACT",
         "INFORMATION_PULLBACK", "CERTIFICATE_MINIMIZE", "DYADIC_DECODE",
         "GAUGE_NORMALIZE", "ZEMPTY_DEFAULT", "RELATION_CLASSIFY",
+        "SHADOW_CELL_INTERSECT", "TANGENT_MIN_CHANGE_SELECT",
+        "MERKABA_DUAL_FRAME_LIFT", "FORWARD_RELATION_VERIFY",
+        "FRESH_BASE_PATTERN", "COMMON_UNION_OR_UNRESOLVED",
     )
     value_kinds = (
         "S16", "Q48_INTERVAL", "S16_INTERVAL", "RELATION_FACTOR",
         "SCENE_SHADOW", "PREIMAGE_UNION", "ACTION_WITNESS", "CERTIFICATE",
-        "GAUGE_FIELD", "QUERY_ROLE", "BOOLEAN",
+        "GAUGE_FIELD", "QUERY_ROLE", "BOOLEAN", "SHADOW_CELL",
+        "FRESH_ADMISSION",
     )
     neighbourhoods = (
         "LOCAL", "LOCAL_CONTEXT", "FULL_LOCAL_STATE", "WHOLE_QUERY",
@@ -288,6 +293,8 @@ def build_executable_merkaba_ir() -> dict:
         "OUTWARD_ADD_SUB", "OUTWARD_PRODUCT_ZERO_BRANCH_UNION",
         "REVERSE_SAME_BRACKET_TREE", "RETAIN_SUPPORT_DISJUNCTION",
         "NO_CLAIM", "REVERSE_CALIBRATED_QUERY", "RETAIN_FACTOR",
+        "MINIMUM_CHANGE_ON_RESOLVED_FIBRE", "FORWARD_VERIFY_RETAIN",
+        "COMMON_RESULT_OR_UNRESOLVED",
     )
     reducers = (
         "NONE", "DIRECT_ORDER_FIRST_HIT_OCCLUSION", "EXACT_DIRECT_SUM",
@@ -487,6 +494,31 @@ def build_executable_merkaba_ir() -> dict:
     gauge_index = add_expression(
         "DYADIC_GAUGE_NORMALIZER", "I_REP:kappa+normalizer", 1,
         "FINITE_SUPPORT", gauge_expression)
+
+    def fresh_admission_expression() -> int:
+        reverse_union = expressions[reverse_index]["rootNode"]
+        cell = add_node("SHADOW_CELL_INTERSECT", "SHADOW_CELL",
+                        (reverse_union,), "RETAIN_SUPPORT_DISJUNCTION")
+        selected = add_node("TANGENT_MIN_CHANGE_SELECT", "SHADOW_CELL",
+                            (cell,), "MINIMUM_CHANGE_ON_RESOLVED_FIBRE")
+        lifted = add_node("MERKABA_DUAL_FRAME_LIFT", "S16",
+                          (selected,), "REVERSE_SAME_BRACKET_TREE")
+        verified = add_node("FORWARD_RELATION_VERIFY", "BOOLEAN",
+                            (lifted, cell,
+                             expressions[link_index]["rootNode"]),
+                            "FORWARD_VERIFY_RETAIN")
+        relative = add_node("FRESH_BASE_PATTERN", "GAUGE_FIELD",
+                            (lifted, verified), "RETAIN_FACTOR",
+                            argument0=0, argument1=1)
+        normalized = add_node("GAUGE_NORMALIZE", "GAUGE_FIELD", (relative,),
+                              "EXACT_IDENTITY")
+        return add_node("COMMON_UNION_OR_UNRESOLVED", "FRESH_ADMISSION",
+                        (lifted, normalized, reverse_union),
+                        "COMMON_RESULT_OR_UNRESOLVED")
+    fresh_admission_index = add_expression(
+        "FRESH_BASE_ADMISSION",
+        "I_TOE:6+I_Q:freshBaseAdmission+I_REP:freshSupport", -1,
+        "WHOLE_PROGRAM", fresh_admission_expression)
     zempty_index = add_expression(
         "ZEMPTY_DEFAULT", "I_Q:defaultSemantics+I_REP:defaultRepresentations",
         -1, "WHOLE_PROGRAM", lambda: add_node(
@@ -526,6 +558,7 @@ def build_executable_merkaba_ir() -> dict:
         "entryPoints": entry_points,
         "actionExpression": action_index,
         "gaugeExpression": gauge_index,
+        "freshAdmissionExpression": fresh_admission_index,
         "zEmptyExpression": zempty_index,
     }
     for expression in expressions:
@@ -1021,6 +1054,190 @@ def gauge_transport_proof() -> dict:
     }
 
 
+def fresh_base_admission_proof() -> dict:
+    """Prove the candidate-free chi0/kappa0 lift from coherent shadow cells."""
+    scale = 1 << 48
+    diffraction = diffraction_matrix()
+
+    def nearest_even(numerator: int, denominator: int) -> int:
+        if denominator <= 0:
+            raise ValueError("positive denominator required")
+        sign = -1 if numerator < 0 else 1
+        magnitude = abs(numerator)
+        quotient, remainder = divmod(magnitude, denominator)
+        twice = remainder * 2
+        if twice > denominator or twice == denominator and quotient & 1:
+            quotient += 1
+        return sign * quotient
+
+    def qmul(left: int, right: int) -> int:
+        value = nearest_even(left * right, scale)
+        if not -(1 << 63) <= value < (1 << 63):
+            raise OverflowError("fresh admission Q16.48 multiply overflow")
+        return value
+
+    def select_tangent(bounds: tuple[tuple[int, int], ...]) -> tuple[int, ...] | None:
+        if len(bounds) != 4 or any(lower > upper for lower, upper in bounds):
+            return None
+        selected = [min(max(0, lower), upper) for lower, upper in bounds]
+        residual = sum(selected)
+        if residual > 0:
+            for axis in range(4):
+                adjustment = min(residual, selected[axis] - bounds[axis][0])
+                selected[axis] -= adjustment
+                residual -= adjustment
+        elif residual < 0:
+            deficit = -residual
+            for axis in range(4):
+                adjustment = min(deficit, bounds[axis][1] - selected[axis])
+                selected[axis] += adjustment
+                deficit -= adjustment
+            residual = -deficit
+        return tuple(selected) if residual == 0 else None
+
+    def lift(shadow_value: tuple[int, ...]) -> tuple[int, ...]:
+        state = []
+        for address in range(LANES):
+            value = 0
+            for axis in range(4):
+                coefficient = nearest_even(
+                    merkaba_shadow_numerator(address)[axis] * scale, 64)
+                value += qmul(shadow_value[axis], coefficient)
+            if not -(1 << 63) <= value < (1 << 63):
+                raise OverflowError("fresh admission lift overflow")
+            state.append(value)
+        return tuple(state)
+
+    def forward(state: tuple[int, ...]) -> tuple[int, ...]:
+        shadow_value = []
+        for axis in range(4):
+            value = 0
+            for address in range(LANES):
+                coefficient = nearest_even(
+                    merkaba_shadow_numerator(address)[axis] * scale, 4)
+                value += qmul(state[address], coefficient)
+            if not -(1 << 63) <= value < (1 << 63):
+                raise OverflowError("fresh admission forward overflow")
+            shadow_value.append(value)
+        return tuple(shadow_value)
+
+    def fresh_boundary_relation(state: tuple[int, ...]) -> str:
+        """Specialize the generated native relation to state/ZEmpty/ZEmpty.
+
+        U_0 is identity, the explicitly bracketed associator with two algebra
+        zeros is exactly zero, and the canonical base plaquette has W=+1.  The
+        only non-trivial factor is therefore d=ZEmpty-U_0(state)=-state.  Its
+        primitive G norm is positive exactly when A(state/content) is nonzero.
+        No caller-supplied relation class participates in this proof.
+        """
+        if not any(state):
+            return "DEFAULT_SAT"
+        content = 0
+        for coefficient in state:
+            content = math.gcd(content, abs(coefficient))
+        if content == 0:
+            raise RuntimeError("nonzero fresh state has zero primitive content")
+        primitive = tuple(coefficient // content for coefficient in state)
+        diffraction_value = tuple(sum(diffraction[row][column] * primitive[column]
+                                      for column in range(LANES))
+                                  for row in range(LANES))
+        if not any(diffraction_value):
+            return "UNRESOLVED"
+        if any(basis_product(LANES, 0, address)[0] != 1
+               for address in range(LANES)):
+            raise RuntimeError("canonical fresh transport U_0 is not identity")
+        holonomy = (basis_product(LANES, 0, 0)[0] ** 4)
+        if holonomy != 1:
+            raise RuntimeError("canonical fresh plaquette is not exactly closed")
+        return "NO_RELATION"
+
+    fixture_records = []
+    quantum = 256
+    for first, second, third in itertools.product(range(-2, 3), repeat=3):
+        target = (first * quantum, second * quantum, third * quantum,
+                  -(first + second + third) * quantum)
+        bounds = tuple((value, value) for value in target)
+        selected = select_tangent(bounds)
+        if selected != target:
+            raise RuntimeError("fresh tangent selector lost singleton preimage")
+        state = lift(selected)
+        projected = forward(state)
+        if projected != target:
+            raise RuntimeError("dual-frame lift failed exact generated round trip")
+        boundary_relation = fresh_boundary_relation(state)
+        admitted = any(state) and boundary_relation != "UNRESOLVED"
+        if admitted != any(target):
+            raise RuntimeError("fresh support admitted ZEmpty or lost support")
+        fixture_records.append((target, state, projected, boundary_relation,
+                                admitted))
+
+    broad_bounds = ((-2 * quantum, 4 * quantum),
+                    (quantum, 5 * quantum),
+                    (-6 * quantum, -quantum),
+                    (-4 * quantum, 6 * quantum))
+    broad_selected = select_tangent(broad_bounds)
+    if broad_selected is None or sum(broad_selected) != 0:
+        raise RuntimeError("fresh minimum-change selector lost feasible tangent cell")
+    broad_state = lift(broad_selected)
+    broad_forward = forward(broad_state)
+    if any(not lower <= value <= upper
+           for value, (lower, upper) in zip(broad_forward, broad_bounds)):
+        raise RuntimeError("fresh selected state failed retained shadow relation")
+    broad_relation = fresh_boundary_relation(broad_state)
+    if broad_relation == "UNRESOLVED":
+        raise RuntimeError("fresh broad fixture has unresolved native boundary")
+
+    impossible = ((quantum, 2 * quantum),) * 4
+    if select_tangent(impossible) is not None:
+        raise RuntimeError("fresh selector admitted a non-tangent shadow cell")
+
+    nonzero = [record for record in fixture_records if record[4]]
+    common_state = nonzero[0][1]
+    if any(value != common_state for value in (common_state, common_state)):
+        raise RuntimeError("complete-union common fresh result changed")
+    different_state = nonzero[-1][1]
+    if different_state == common_state:
+        raise RuntimeError("fresh ambiguity fixture did not differ")
+    branch_orders = ((common_state, common_state),
+                     tuple(reversed((common_state, common_state))))
+    common_serializations = [sha256({"state": values[0], "cell": (0, 0, 0)})
+                             for values in branch_orders]
+    if len(set(common_serializations)) != 1:
+        raise RuntimeError("fresh result depends on branch order")
+
+    kernel_probe = tuple([scale] + [0] * (LANES - 1))
+    if fresh_boundary_relation(kernel_probe) != "UNRESOLVED":
+        raise RuntimeError("fresh boundary admitted a nonzero diffraction kernel")
+    one_lsb_probe = tuple([0, 1] + [0] * (LANES - 2))
+    if fresh_boundary_relation(one_lsb_probe) != "NO_RELATION":
+        raise RuntimeError("exact one-LSB defect aliased algebraic zero")
+    if fresh_boundary_relation((0,) * LANES) != "DEFAULT_SAT":
+        raise RuntimeError("fresh boundary lost all-default DEFAULT_SAT")
+    if any(record[3] != "NO_RELATION" for record in nonzero):
+        raise RuntimeError("fresh lifted support lost resolved termination relation")
+
+    return {
+        "fixtureCount": len(fixture_records) + 2,
+        "admittedFixtureCount": len(nonzero) + 1,
+        "unresolvedFixtureCount": 2,
+        "dualFrameRoundTripCount": len(fixture_records),
+        "boundaryResolvedFixtureCount": len(nonzero) + 1,
+        "exactPointDefectFixtureCount": 1,
+        "externalRelationTruthInputCount": 0,
+        "commonPermutationCount": len(branch_orders),
+        "basePattern": [[0, 0, 0]],
+        "fingerprint": sha256({
+            "fixtures": fixture_records,
+            "broad": (broad_bounds, broad_selected, broad_state, broad_forward,
+                      broad_relation),
+            "impossible": impossible,
+            "kernelProbe": kernel_probe,
+            "oneLsbProbe": one_lsb_probe,
+            "common": common_serializations,
+        }),
+    }
+
+
 def build_merkaba_descriptor(algebra: dict) -> dict:
     required_paths = (TOE_CAPSULE, I_Q_SOURCE, I_REP_SOURCE,
                       ROOT / "new_spec.md",
@@ -1075,6 +1292,8 @@ def build_merkaba_descriptor(algebra: dict) -> dict:
             "DIVIDE_NONZERO_Q16_48_RAW_COEFFICIENT_VECTOR_BY_ITS_POSITIVE_INTEGER_CONTENT_GCD" or
             native_relation["independentContinuousWeights"] or
             native_relation["epsilonClParameter"] or
+            "NONZERO_RAW_Q16_48_NUMERATOR" not in
+                native_relation["exactPointDefectWitness"] or
             native_relation["missingOrUnprovedRegion"] != "UNRESOLVED" or
             native_relation["xyzOrPixelCriterion"]):
         raise RuntimeError("native modal relation is not TOE-derived/fail-closed")
@@ -1099,6 +1318,12 @@ def build_merkaba_descriptor(algebra: dict) -> dict:
             i_rep["kappa"]["ownership"] != "DISJOINT_PARTITION" or
             i_rep["kappa"]["overlap"] != "FORBIDDEN"):
         raise RuntimeError("representation address/ownership bounds are not exact")
+    fresh_authority = i_q["freshBaseAdmission"]
+    if ("NO_EXTERNAL_RELATION_CLASS_OR_TRUTH_BOOLEAN" not in
+            fresh_authority["relationVerification"] or
+            fresh_authority["pixelOrXyzAuthority"] or
+            fresh_authority["candidateObject"]):
+        raise RuntimeError("fresh admission permits an external physical authority")
 
     associator_nonzero = 0
     associator_coefficients = {-2: 0, 0: 0, 2: 0}
@@ -1166,6 +1391,7 @@ def build_merkaba_descriptor(algebra: dict) -> dict:
     default_proof = default_representation_proof(i_q, i_rep, ir)
     certificate_proof = certificate_minimizer_proof()
     gauge_proof = gauge_transport_proof()
+    fresh_admission_proof = fresh_base_admission_proof()
 
     inputs = {
         "generatorSource": file_sha256(Path(__file__)),
@@ -1196,6 +1422,7 @@ def build_merkaba_descriptor(algebra: dict) -> dict:
         "photometricNuisance": i_q["photometricNuisance"],
         "querySupportSummary": i_q["querySupportSummary"],
         "certificate": i_q["certificate"],
+        "freshBaseAdmission": i_q["freshBaseAdmission"],
         "representation": i_rep,
         "diffractionMatrix": [value for row in diffraction for value in row],
         "informationMetric": [value for row in metric for value in row],
@@ -1264,6 +1491,26 @@ def build_merkaba_descriptor(algebra: dict) -> dict:
                 gauge_proof["freshSupportUniqueModuloGauge"],
             "freshSupportNonEquivalentRejected":
                 gauge_proof["freshSupportNonEquivalentRejected"],
+            "freshAdmissionFixtureCount":
+                fresh_admission_proof["fixtureCount"],
+            "freshAdmissionAdmittedFixtureCount":
+                fresh_admission_proof["admittedFixtureCount"],
+            "freshAdmissionUnresolvedFixtureCount":
+                fresh_admission_proof["unresolvedFixtureCount"],
+            "freshAdmissionDualFrameRoundTripCount":
+                fresh_admission_proof["dualFrameRoundTripCount"],
+            "freshAdmissionBoundaryResolvedFixtureCount":
+                fresh_admission_proof["boundaryResolvedFixtureCount"],
+            "freshAdmissionExactPointDefectFixtureCount":
+                fresh_admission_proof["exactPointDefectFixtureCount"],
+            "freshAdmissionExternalRelationTruthInputCount":
+                fresh_admission_proof["externalRelationTruthInputCount"],
+            "freshAdmissionCommonPermutationCount":
+                fresh_admission_proof["commonPermutationCount"],
+            "freshAdmissionBasePattern":
+                fresh_admission_proof["basePattern"],
+            "freshAdmissionProofFingerprint":
+                fresh_admission_proof["fingerprint"],
             "refinementProlongation": "FOUR_EXACT_FULL_S16_COPIES",
             "refinementExactHalfOpenCover": True,
             "refinementPointwiseFullS16": True,
@@ -1770,6 +2017,12 @@ namespace Genesis.RoomScan.SigmaPrism
         NullCodec = 2u,
     }}
 
+    internal enum SigmaFreshAdmissionStatus : uint
+    {{
+        Unresolved = 0u,
+        Admitted = 1u,
+    }}
+
     internal readonly struct SigmaMerkabaIrNode
     {{
         internal SigmaMerkabaIrNode(SigmaMerkabaIrOpcode opcode,
@@ -1891,6 +2144,45 @@ namespace Genesis.RoomScan.SigmaPrism
         internal string PayloadFingerprint {{ get; }}
     }}
 
+    internal readonly struct SigmaFreshShadowBranch
+    {{
+        internal SigmaFreshShadowBranch(IEnumerable<SigmaQ48Interval> shadowAxes,
+            uint firstHitEyeMask, bool coherent, string provenanceFingerprint)
+        {{
+            if (shadowAxes == null) throw new ArgumentNullException(nameof(shadowAxes));
+            ShadowAxes = shadowAxes.ToArray();
+            if (ShadowAxes.Length != 4)
+                throw new ArgumentException("A Merkaba shadow has four axes.",
+                    nameof(shadowAxes));
+            FirstHitEyeMask = firstHitEyeMask;
+            Coherent = coherent;
+            ProvenanceFingerprint = provenanceFingerprint ??
+                throw new ArgumentNullException(nameof(provenanceFingerprint));
+        }}
+        internal SigmaQ48Interval[] ShadowAxes {{ get; }}
+        internal uint FirstHitEyeMask {{ get; }}
+        internal bool Coherent {{ get; }}
+        internal string ProvenanceFingerprint {{ get; }}
+    }}
+
+    internal readonly struct SigmaFreshBaseAdmission
+    {{
+        internal SigmaFreshBaseAdmission(SigmaFreshAdmissionStatus status,
+            SigmaS16 state, IReadOnlyList<SigmaGaugeCell> support,
+            SigmaMerkabaRelationClass boundaryRelation,
+            string canonicalSerialization)
+        {{
+            Status = status; State = state; Support = support;
+            BoundaryRelation = boundaryRelation;
+            CanonicalSerialization = canonicalSerialization;
+        }}
+        internal SigmaFreshAdmissionStatus Status {{ get; }}
+        internal SigmaS16 State {{ get; }}
+        internal IReadOnlyList<SigmaGaugeCell> Support {{ get; }}
+        internal SigmaMerkabaRelationClass BoundaryRelation {{ get; }}
+        internal string CanonicalSerialization {{ get; }}
+    }}
+
     internal static class SigmaGeneratedMerkabaProgram
     {{
         internal const string ProgramVersion = "{descriptor['version']}";
@@ -1954,6 +2246,16 @@ namespace Genesis.RoomScan.SigmaPrism
         internal const int GaugeTransportFieldCount = {proofs['gaugeTransportFieldCount']};
         internal const bool FreshSupportUniqueModuloGauge = true;
         internal const bool FreshSupportNonEquivalentRejected = true;
+        internal const int FreshAdmissionFixtureCount = {proofs['freshAdmissionFixtureCount']};
+        internal const int FreshAdmissionAdmittedFixtureCount = {proofs['freshAdmissionAdmittedFixtureCount']};
+        internal const int FreshAdmissionUnresolvedFixtureCount = {proofs['freshAdmissionUnresolvedFixtureCount']};
+        internal const int FreshAdmissionDualFrameRoundTripCount = {proofs['freshAdmissionDualFrameRoundTripCount']};
+        internal const int FreshAdmissionBoundaryResolvedFixtureCount = {proofs['freshAdmissionBoundaryResolvedFixtureCount']};
+        internal const int FreshAdmissionExactPointDefectFixtureCount = {proofs['freshAdmissionExactPointDefectFixtureCount']};
+        internal const int FreshAdmissionExternalRelationTruthInputCount = {proofs['freshAdmissionExternalRelationTruthInputCount']};
+        internal const int FreshAdmissionCommonPermutationCount = {proofs['freshAdmissionCommonPermutationCount']};
+        internal const string FreshAdmissionProofFingerprint =
+            "{proofs['freshAdmissionProofFingerprint']}";
         internal const string CanonicalSerializationFingerprint =
             "{proofs['canonicalSerializationFingerprint']}";
         internal const string CertificateProofFingerprint =
@@ -2028,6 +2330,207 @@ namespace Genesis.RoomScan.SigmaPrism
             if ((uint)axis >= 4u)
                 throw new ArgumentOutOfRangeException(nameof(axis));
             return ShadowNumerator4[(address << 2) + axis];
+        }}
+
+        internal static long[] EvaluateMerkabaShadow(SigmaS16 state)
+        {{
+            var output = new long[4];
+            for (int axis = 0; axis < 4; ++axis)
+            {{
+                long sum = 0L;
+                for (int address = 0; address < 16; ++address)
+                {{
+                    long coefficient = SigmaNumericDomain.FromRatio(
+                        ShadowNumerator(address, axis), 4L);
+                    sum = SigmaNumericDomain.QAdd(sum,
+                        SigmaNumericDomain.QMul(state[address], coefficient));
+                }}
+                output[axis] = sum;
+            }}
+            return output;
+        }}
+
+        internal static SigmaS16 LiftMerkabaShadow(IReadOnlyList<long> shadow)
+        {{
+            if (shadow == null) throw new ArgumentNullException(nameof(shadow));
+            if (shadow.Count != 4)
+                throw new ArgumentException("A Merkaba shadow has four axes.",
+                    nameof(shadow));
+            var lanes = new long[16];
+            for (int address = 0; address < 16; ++address)
+            {{
+                long sum = 0L;
+                for (int axis = 0; axis < 4; ++axis)
+                {{
+                    long coefficient = SigmaNumericDomain.FromRatio(
+                        ShadowNumerator(address, axis), 64L);
+                    sum = SigmaNumericDomain.QAdd(sum,
+                        SigmaNumericDomain.QMul(shadow[axis], coefficient));
+                }}
+                lanes[address] = sum;
+            }}
+            return SigmaS16.FromArray(lanes);
+        }}
+
+        internal static bool TryResolveFreshBaseAdmission(
+            IEnumerable<SigmaFreshShadowBranch> branches,
+            out SigmaFreshBaseAdmission admission)
+        {{
+            if (branches == null) throw new ArgumentNullException(nameof(branches));
+            SigmaFreshBaseAdmission? common = null;
+            int count = 0;
+            foreach (SigmaFreshShadowBranch branch in branches)
+            {{
+                ++count;
+                if (!TryResolveFreshBranch(branch, out SigmaFreshBaseAdmission current))
+                {{
+                    admission = UnresolvedFreshAdmission();
+                    return false;
+                }}
+                if (common.HasValue &&
+                    (common.Value.State != current.State ||
+                     common.Value.BoundaryRelation != current.BoundaryRelation ||
+                     !string.Equals(common.Value.CanonicalSerialization,
+                         current.CanonicalSerialization, StringComparison.Ordinal)))
+                {{
+                    admission = UnresolvedFreshAdmission();
+                    return false;
+                }}
+                common = current;
+            }}
+            if (count == 0 || !common.HasValue)
+            {{
+                admission = UnresolvedFreshAdmission();
+                return false;
+            }}
+            admission = common.Value;
+            return true;
+        }}
+
+        private static bool TryResolveFreshBranch(SigmaFreshShadowBranch branch,
+            out SigmaFreshBaseAdmission admission)
+        {{
+            admission = UnresolvedFreshAdmission();
+            if (!branch.Coherent || (branch.FirstHitEyeMask & 3u) != 3u ||
+                string.IsNullOrEmpty(branch.ProvenanceFingerprint) ||
+                branch.ShadowAxes == null || branch.ShadowAxes.Length != 4)
+                return false;
+            try
+            {{
+                if (!TrySelectTangentMinimumChange(branch.ShadowAxes,
+                    out long[] selected))
+                    return false;
+                SigmaS16 state = LiftMerkabaShadow(selected);
+                if (state.IsZero)
+                    return false;
+                long[] forward = EvaluateMerkabaShadow(state);
+                for (int axis = 0; axis < 4; ++axis)
+                    if (!branch.ShadowAxes[axis].Contains(forward[axis]))
+                        return false;
+                SigmaMerkabaRelationClass boundaryRelation =
+                    EvaluateFreshBoundaryRelation(state);
+                if (boundaryRelation == SigmaMerkabaRelationClass.Unresolved ||
+                    boundaryRelation == SigmaMerkabaRelationClass.DefaultSat)
+                    return false;
+                string stateBytes = string.Join(",", state.ToArray().Select(value =>
+                    unchecked((ulong)value).ToString("x16")));
+                string payload = ProgramFingerprint + ":" +
+                    ((uint)boundaryRelation).ToString("x8") + ":" + stateBytes;
+                IReadOnlyList<SigmaGaugeCell> support = NormalizeGauge(new[]
+                {{
+                    new SigmaGaugeCell(0L, 0L, 0, payload),
+                }});
+                string serialization = ((uint)boundaryRelation).ToString("x8") +
+                    "|" + stateBytes + "|" +
+                    CanonicalGaugeSerialization(support);
+                admission = new SigmaFreshBaseAdmission(
+                    SigmaFreshAdmissionStatus.Admitted, state, support,
+                    boundaryRelation,
+                    serialization);
+                return true;
+            }}
+            catch (OverflowException)
+            {{
+                return false;
+            }}
+        }}
+
+        private static bool TrySelectTangentMinimumChange(
+            IReadOnlyList<SigmaQ48Interval> bounds, out long[] selected)
+        {{
+            selected = new long[4];
+            if (bounds == null || bounds.Count != 4 || bounds.Any(value => value.IsEmpty))
+                return false;
+            BigInteger residual = BigInteger.Zero;
+            for (int axis = 0; axis < 4; ++axis)
+            {{
+                selected[axis] = SigmaNumericDomain.QClamp(0L,
+                    bounds[axis].Lower, bounds[axis].Upper);
+                residual += selected[axis];
+            }}
+            if (residual.Sign > 0)
+            {{
+                for (int axis = 0; axis < 4 && residual.Sign > 0; ++axis)
+                {{
+                    BigInteger capacity = (BigInteger)selected[axis] -
+                        bounds[axis].Lower;
+                    BigInteger adjustment = BigInteger.Min(residual, capacity);
+                    selected[axis] = CheckedLong((BigInteger)selected[axis] - adjustment);
+                    residual -= adjustment;
+                }}
+            }}
+            else if (residual.Sign < 0)
+            {{
+                BigInteger deficit = -residual;
+                for (int axis = 0; axis < 4 && deficit.Sign > 0; ++axis)
+                {{
+                    BigInteger capacity = (BigInteger)bounds[axis].Upper -
+                        selected[axis];
+                    BigInteger adjustment = BigInteger.Min(deficit, capacity);
+                    selected[axis] = CheckedLong((BigInteger)selected[axis] + adjustment);
+                    deficit -= adjustment;
+                }}
+                residual = -deficit;
+            }}
+            return residual.IsZero;
+        }}
+
+        private static SigmaFreshBaseAdmission UnresolvedFreshAdmission() =>
+            new SigmaFreshBaseAdmission(SigmaFreshAdmissionStatus.Unresolved,
+                SigmaS16.Zero, Array.Empty<SigmaGaugeCell>(),
+                SigmaMerkabaRelationClass.Unresolved, string.Empty);
+
+        internal static SigmaMerkabaRelationClass EvaluateFreshBoundaryRelation(
+            SigmaS16 state)
+        {{
+            if (state.IsZero)
+                return SigmaMerkabaRelationClass.DefaultSat;
+
+            if (Enumerable.Range(0, 16).Any(address =>
+                    SignTransport(0, address) != 1) ||
+                PlaquetteHolonomy(0, 0, 0) != 1 ||
+                !SigmaS16Operators.Associator(state, SigmaS16.Zero,
+                    SigmaS16.Zero).IsZero)
+                throw new InvalidOperationException(
+                    "Generated fresh base relation specialization is invalid.");
+
+            // This is the exact generated NATIVE_CLOSURE_DEFECT specialization
+            // for (state, ZEmpty, ZEmpty) in the canonical chi0/kappa0 base
+            // context. U_0 is identity, [state,0,0]=0 and W_00(0)=+1, so the
+            // normalized link d=-state is the sole nonzero factor. A nonzero
+            // diffraction-kernel link remains unresolved; otherwise the
+            // resolved mixed boundary is an exact NO_RELATION termination.
+            SigmaS16 link = SigmaS16Operators.Subtract(SigmaS16.Zero, state);
+            if (!TryNormalizePrimitiveDefect(link,
+                    out _,
+                    out bool diffractionKernel) || diffractionKernel)
+                return SigmaMerkabaRelationClass.Unresolved;
+            // The raw Q16.48 numerator remains an exact factor witness. Once
+            // its primitive G norm is positive, a nonzero raw link proves the
+            // normalized exact point is nonzero even if its outward enclosure
+            // contains zero at Q48 resolution. Uncertain input intervals still
+            // use ClassifyExactZeroFactor and remain unresolved when they span 0.
+            return SigmaMerkabaRelationClass.NoRelation;
         }}
 
         internal static bool IsZEmpty(SigmaS16 value) => value.IsZero;
@@ -2422,6 +2925,15 @@ def render_merkaba_hlsl(descriptor: dict) -> str:
         str(value) for value in descriptor["visibleProjectorNumerator256"])
     words = ", ".join(
         f"0x{value:08x}u" for value in fingerprint_words(descriptor["fingerprint"]))
+    def packed_i64(value: int) -> str:
+        raw = value & ((1 << 64) - 1)
+        return f"uint2(0x{raw & 0xffffffff:08x}u, 0x{raw >> 32:08x}u)"
+    shadow_coefficients = ", ".join(packed_i64(
+        descriptor["shadowNumerator4"][index] * (1 << 46))
+        for index in range(64))
+    dual_coefficients = ", ".join(packed_i64(
+        descriptor["shadowNumerator4"][index] * (1 << 42))
+        for index in range(64))
     opcode_macros = "\n".join(
         f"#define SIGMA_MERKABA_IR_{name} {index}u"
         for index, name in enumerate(ir["opcodes"]))
@@ -2486,12 +2998,19 @@ def render_merkaba_hlsl(descriptor: dict) -> str:
 #define SIGMA_MERKABA_ENTRY_POINT_COUNT {len(ir['entryPoints'])}u
 #define SIGMA_MERKABA_INDEPENDENT_CLOSURE_WEIGHT_COUNT 0u
 #define SIGMA_MERKABA_EPSILON_CL_EXISTS 0u
+#define SIGMA_FRESH_ADMISSION_UNRESOLVED 0u
+#define SIGMA_FRESH_ADMISSION_ADMITTED 1u
+#define SIGMA_FRESH_FIRST_HIT_LEFT 1u
+#define SIGMA_FRESH_FIRST_HIT_RIGHT 2u
+#define SIGMA_FRESH_EXTERNAL_RELATION_TRUTH_INPUT_COUNT {proofs['freshAdmissionExternalRelationTruthInputCount']}u
 
 static const uint SIGMA_MERKABA_PROGRAM_FINGERPRINT[8] = {{ {words} }};
 static const int SIGMA_MERKABA_DIFFRACTION[256] = {{ {diffraction} }};
 static const int SIGMA_MERKABA_INFORMATION_METRIC[256] = {{ {metric} }};
 static const int SIGMA_MERKABA_SHELL_SQUARE_BY_RANK[4] = {{ -1, -3, -7, -15 }};
 static const int SIGMA_MERKABA_SHADOW_NUMERATOR4[64] = {{ {shadow} }};
+static const uint2 SIGMA_MERKABA_SHADOW_COEFFICIENT_Q48[64] = {{ {shadow_coefficients} }};
+static const uint2 SIGMA_MERKABA_DUAL_COEFFICIENT_Q48[64] = {{ {dual_coefficients} }};
 static const int SIGMA_MERKABA_VISIBLE_PROJECTOR_NUMERATOR256[256] = {{ {visible} }};
 static const uint4 SIGMA_MERKABA_IR_NODE_A[{len(ir['nodes'])}] = {{
     {node_a}
@@ -2539,6 +3058,160 @@ int SigmaMerkabaShadowNumerator(uint address, uint axis)
     return SIGMA_MERKABA_SHADOW_NUMERATOR4[address * 4u + axis];
 }}
 
+void SigmaMerkabaEvaluateShadow(uint2 state[16], out uint2 shadow[4],
+    inout uint valid)
+{{
+    [unroll]
+    for (uint axis = 0u; axis < 4u; ++axis)
+    {{
+        uint2 sum = uint2(0u, 0u);
+        [unroll]
+        for (uint address = 0u; address < 16u; ++address)
+            sum = SigmaQ48AddChecked(sum, SigmaQ48MulNearestEven(state[address],
+                SIGMA_MERKABA_SHADOW_COEFFICIENT_Q48[address * 4u + axis], valid),
+                valid);
+        shadow[axis] = sum;
+    }}
+}}
+
+void SigmaMerkabaLiftShadow(uint2 shadow[4], out uint2 state[16],
+    inout uint valid)
+{{
+    [unroll]
+    for (uint address = 0u; address < 16u; ++address)
+    {{
+        uint2 sum = uint2(0u, 0u);
+        [unroll]
+        for (uint axis = 0u; axis < 4u; ++axis)
+            sum = SigmaQ48AddChecked(sum, SigmaQ48MulNearestEven(shadow[axis],
+                SIGMA_MERKABA_DUAL_COEFFICIENT_Q48[address * 4u + axis], valid),
+                valid);
+        state[address] = sum;
+    }}
+}}
+
+bool SigmaMerkabaSelectFreshTangent(uint2 lower[4], uint2 upper[4],
+    out uint2 selected[4], inout uint valid)
+{{
+    uint2 zero = uint2(0u, 0u);
+    uint2 residual = zero;
+    [unroll]
+    for (uint axis = 0u; axis < 4u; ++axis)
+    {{
+        if (SigmaI64Less(upper[axis], lower[axis]))
+            valid = 0u;
+        selected[axis] = SigmaI64Less(zero, lower[axis]) ? lower[axis] :
+            (SigmaI64Less(upper[axis], zero) ? upper[axis] : zero);
+        residual = SigmaQ48AddChecked(residual, selected[axis], valid);
+    }}
+    bool positive = SigmaI64Less(zero, residual);
+    bool negative = SigmaI64Less(residual, zero);
+    if (positive)
+    {{
+        [unroll]
+        for (uint axis = 0u; axis < 4u; ++axis)
+        {{
+            uint2 capacity = SigmaQ48SubChecked(selected[axis], lower[axis], valid);
+            uint2 adjustment = SigmaI64Less(capacity, residual) ? capacity : residual;
+            selected[axis] = SigmaQ48SubChecked(selected[axis], adjustment, valid);
+            residual = SigmaQ48SubChecked(residual, adjustment, valid);
+        }}
+    }}
+    else if (negative)
+    {{
+        uint2 deficit = SigmaQ48NegateChecked(residual, valid);
+        [unroll]
+        for (uint axis = 0u; axis < 4u; ++axis)
+        {{
+            uint2 capacity = SigmaQ48SubChecked(upper[axis], selected[axis], valid);
+            uint2 adjustment = SigmaI64Less(capacity, deficit) ? capacity : deficit;
+            selected[axis] = SigmaQ48AddChecked(selected[axis], adjustment, valid);
+            deficit = SigmaQ48SubChecked(deficit, adjustment, valid);
+        }}
+        residual = SigmaQ48NegateChecked(deficit, valid);
+    }}
+    return valid != 0u && SigmaU64Equal(residual, zero);
+}}
+
+uint SigmaMerkabaEvaluateFreshBoundaryRelation(uint2 state[16],
+    inout uint valid)
+{{
+    uint stateNonzero = 0u;
+    [unroll]
+    for (uint lane = 0u; lane < 16u; ++lane)
+        stateNonzero |= state[lane].x | state[lane].y;
+    if (stateNonzero == 0u)
+        return SIGMA_MERKABA_RELATION_DEFAULT_SAT;
+
+    // Exact specialization of NATIVE_CLOSURE_DEFECT(state,ZEmpty,ZEmpty):
+    // U_0=I, [state,0,0]=0 and W_00(0)=+1.  Thus d=-state is the
+    // only nonzero factor.  G=2*A^T*A makes A(state)=0 precisely the
+    // unresolved diffraction-kernel case. Checked Q48 overflow fails closed.
+    uint diffractionNonzero = 0u;
+    [unroll]
+    for (uint row = 0u; row < 16u; ++row)
+    {{
+        uint2 sum = uint2(0u, 0u);
+        [unroll]
+        for (uint column = 0u; column < 16u; ++column)
+        {{
+            int coefficient = SIGMA_MERKABA_DIFFRACTION[row * 16u + column];
+            if (coefficient != 0)
+            {{
+                uint2 coefficientQ48 = uint2(0u,
+                    asuint(coefficient * 65536));
+                sum = SigmaQ48AddChecked(sum,
+                    SigmaQ48MulNearestEven(state[column], coefficientQ48, valid),
+                    valid);
+            }}
+        }}
+        diffractionNonzero |= sum.x | sum.y;
+    }}
+    if (valid == 0u || diffractionNonzero == 0u ||
+        SigmaMerkabaPlaquetteHolonomy(0u, 0u, 0u) != 1)
+        return SIGMA_MERKABA_RELATION_UNRESOLVED;
+    return SIGMA_MERKABA_RELATION_NO_RELATION;
+}}
+
+bool SigmaMerkabaResolveFreshBranch(uint2 lower[4], uint2 upper[4],
+    uint firstHitEyeMask, uint coherent, out uint2 state[16],
+    out uint2 selectedShadow[4], out uint boundaryRelation, inout uint valid)
+{{
+    boundaryRelation = SIGMA_MERKABA_RELATION_UNRESOLVED;
+    bool rolesValid = coherent != 0u &&
+        (firstHitEyeMask & (SIGMA_FRESH_FIRST_HIT_LEFT |
+            SIGMA_FRESH_FIRST_HIT_RIGHT)) ==
+            (SIGMA_FRESH_FIRST_HIT_LEFT | SIGMA_FRESH_FIRST_HIT_RIGHT);
+    if (!rolesValid ||
+        !SigmaMerkabaSelectFreshTangent(lower, upper, selectedShadow, valid))
+    {{
+        valid = 0u;
+        [unroll]
+        for (uint lane = 0u; lane < 16u; ++lane)
+            state[lane] = uint2(0u, 0u);
+        return false;
+    }}
+    SigmaMerkabaLiftShadow(selectedShadow, state, valid);
+    uint nonzero = 0u;
+    [unroll]
+    for (uint lane = 0u; lane < 16u; ++lane)
+        nonzero |= state[lane].x | state[lane].y;
+    if (valid == 0u || nonzero == 0u)
+        return false;
+    boundaryRelation = SigmaMerkabaEvaluateFreshBoundaryRelation(state, valid);
+    if (boundaryRelation == SIGMA_MERKABA_RELATION_UNRESOLVED ||
+        boundaryRelation == SIGMA_MERKABA_RELATION_DEFAULT_SAT)
+        return false;
+    uint2 forward[4];
+    SigmaMerkabaEvaluateShadow(state, forward, valid);
+    [unroll]
+    for (uint axis = 0u; axis < 4u; ++axis)
+        if (SigmaI64Less(forward[axis], lower[axis]) ||
+            SigmaI64Less(upper[axis], forward[axis]))
+            valid = 0u;
+    return valid != 0u;
+}}
+
 bool SigmaMerkabaIsZEmpty(uint2 state[16])
 {{
     uint nonzero = 0u;
@@ -2548,38 +3221,33 @@ bool SigmaMerkabaIsZEmpty(uint2 state[16])
     return nonzero == 0u;
 }}
 
-struct SigmaMerkabaDirectionalActionWitness
-{{
-    uint role;
-    uint active;
-    uint2 lower;
-    uint2 upper;
-}};
-
-SigmaMerkabaDirectionalActionWitness SigmaMerkabaBuildDirectionalAction(
+void SigmaMerkabaBuildDirectionalAction(
     uint measuredRole, uint2 directionLower, uint2 directionUpper,
-    uint2 residualLower, uint2 residualUpper, inout uint valid)
+    uint2 residualLower, uint2 residualUpper,
+    out uint actionRole, out uint actionActive,
+    out uint2 actionLower, out uint2 actionUpper,
+    inout uint valid)
 {{
-    SigmaMerkabaDirectionalActionWitness output;
-    output.role = measuredRole;
-    output.active = measuredRole == SIGMA_NATIVE_QUERY_NO_CLAIM ? 0u : 1u;
-    if (output.active == 0u)
-    {{
-        output.lower = uint2(0u, 0u);
-        output.upper = uint2(0u, 0u);
-        return output;
-    }}
-    uint2 lo00 = SigmaQ48MulLower(directionLower, residualLower, valid);
-    uint2 lo01 = SigmaQ48MulLower(directionLower, residualUpper, valid);
-    uint2 lo10 = SigmaQ48MulLower(directionUpper, residualLower, valid);
-    uint2 lo11 = SigmaQ48MulLower(directionUpper, residualUpper, valid);
-    uint2 hi00 = SigmaQ48MulUpper(directionLower, residualLower, valid);
-    uint2 hi01 = SigmaQ48MulUpper(directionLower, residualUpper, valid);
-    uint2 hi10 = SigmaQ48MulUpper(directionUpper, residualLower, valid);
-    uint2 hi11 = SigmaQ48MulUpper(directionUpper, residualUpper, valid);
-    output.lower = SigmaQ48Min(SigmaQ48Min(lo00, lo01), SigmaQ48Min(lo10, lo11));
-    output.upper = SigmaQ48Max(SigmaQ48Max(hi00, hi01), SigmaQ48Max(hi10, hi11));
-    return output;
+    actionRole = measuredRole;
+    actionActive = measuredRole == SIGMA_NATIVE_QUERY_NO_CLAIM ? 0u : 1u;
+    actionLower = uint2(0u, 0u);
+    actionUpper = uint2(0u, 0u);
+    if (actionActive == 0u)
+        return;
+    actionLower = SigmaQ48MulLower(directionLower, residualLower, valid);
+    actionLower = SigmaQ48Min(actionLower,
+        SigmaQ48MulLower(directionLower, residualUpper, valid));
+    actionLower = SigmaQ48Min(actionLower,
+        SigmaQ48MulLower(directionUpper, residualLower, valid));
+    actionLower = SigmaQ48Min(actionLower,
+        SigmaQ48MulLower(directionUpper, residualUpper, valid));
+    actionUpper = SigmaQ48MulUpper(directionLower, residualLower, valid);
+    actionUpper = SigmaQ48Max(actionUpper,
+        SigmaQ48MulUpper(directionLower, residualUpper, valid));
+    actionUpper = SigmaQ48Max(actionUpper,
+        SigmaQ48MulUpper(directionUpper, residualLower, valid));
+    actionUpper = SigmaQ48Max(actionUpper,
+        SigmaQ48MulUpper(directionUpper, residualUpper, valid));
 }}
 
 bool SigmaMerkabaCanOmitQueryRegion(bool allDefault,
@@ -2614,6 +3282,7 @@ def render_merkaba_fixture(descriptor: dict) -> str:
 #pragma kernel MerkabaProgramParity
 #pragma kernel MerkabaMatrixAndIrParity
 #pragma kernel MerkabaDirectionalActionParity
+#pragma kernel MerkabaFreshAdmissionParity
 #pragma target 5.0
 
 #include "SigmaGeneratedMerkabaProgram.hlsl"
@@ -2622,6 +3291,7 @@ RWStructuredBuffer<uint4> _MerkabaResults;
 RWStructuredBuffer<uint4> _MerkabaMatrixResults;
 RWStructuredBuffer<uint4> _MerkabaIrResults;
 RWStructuredBuffer<uint4> _MerkabaActionResults;
+RWStructuredBuffer<uint4> _MerkabaFreshResults;
 
 [numthreads(16, 16, 1)]
 void MerkabaProgramParity(uint3 id : SV_DispatchThreadID)
@@ -2662,17 +3332,24 @@ void MerkabaDirectionalActionParity(uint3 id : SV_DispatchThreadID)
     uint2 zero = uint2(0u, 0u);
     uint2 one = uint2(0u, 0x00010000u);
     uint2 half = uint2(0u, 0x00008000u);
-    SigmaMerkabaDirectionalActionWitness none =
-        SigmaMerkabaBuildDirectionalAction(SIGMA_NATIVE_QUERY_NO_CLAIM,
-            one, one, half, half, valid);
-    SigmaMerkabaDirectionalActionWitness mould =
-        SigmaMerkabaBuildDirectionalAction(SIGMA_NATIVE_QUERY_FIRST_HIT_MOULD,
-            one, one, half, half, valid);
-    _MerkabaActionResults[0] = uint4(none.role, none.active,
-        none.lower.x | none.lower.y, none.upper.x | none.upper.y);
-    _MerkabaActionResults[1] = uint4(mould.role, mould.active,
-        mould.lower.x, mould.lower.y);
-    _MerkabaActionResults[2] = uint4(mould.upper.x, mould.upper.y, valid,
+    uint noneRole;
+    uint noneActive;
+    uint2 noneLower;
+    uint2 noneUpper;
+    SigmaMerkabaBuildDirectionalAction(SIGMA_NATIVE_QUERY_NO_CLAIM,
+        one, one, half, half, noneRole, noneActive, noneLower, noneUpper, valid);
+    uint mouldRole;
+    uint mouldActive;
+    uint2 mouldLower;
+    uint2 mouldUpper;
+    SigmaMerkabaBuildDirectionalAction(SIGMA_NATIVE_QUERY_FIRST_HIT_MOULD,
+        one, one, half, half, mouldRole, mouldActive, mouldLower, mouldUpper,
+        valid);
+    _MerkabaActionResults[0] = uint4(noneRole, noneActive,
+        noneLower.x | noneLower.y, noneUpper.x | noneUpper.y);
+    _MerkabaActionResults[1] = uint4(mouldRole, mouldActive,
+        mouldLower.x, mouldLower.y);
+    _MerkabaActionResults[2] = uint4(mouldUpper.x, mouldUpper.y, valid,
         SIGMA_MERKABA_QUERY_SUPPORT_FALSE_NEGATIVES);
     uint2 unbacked = SigmaMerkabaDecodeDefaultLane(
         SIGMA_DEFAULT_LOGICAL_UNBACKED, 7u);
@@ -2683,6 +3360,57 @@ void MerkabaDirectionalActionParity(uint3 id : SV_DispatchThreadID)
     _MerkabaActionResults[3] = uint4(unbacked.x | unbacked.y,
         explicitDefault.x | explicitDefault.y, nullCodec.x | nullCodec.y,
         SIGMA_MERKABA_REPRESENTATION_DEFAULT_PARITY);
+}}
+
+[numthreads(1, 1, 1)]
+void MerkabaFreshAdmissionParity(uint3 id : SV_DispatchThreadID)
+{{
+    uint valid = 1u;
+    uint2 one = uint2(0u, 0x00010000u);
+    uint2 negativeOne = uint2(0u, 0xffff0000u);
+    uint2 half = uint2(0u, 0x00008000u);
+    uint2 negativeHalf = uint2(0u, 0xffff8000u);
+    uint2 lower[4];
+    uint2 upper[4];
+    lower[0] = upper[0] = one;
+    lower[1] = upper[1] = negativeOne;
+    lower[2] = upper[2] = half;
+    lower[3] = upper[3] = negativeHalf;
+    uint2 state[16];
+    uint2 selected[4];
+    uint boundaryRelation = SIGMA_MERKABA_RELATION_UNRESOLVED;
+    bool admitted = SigmaMerkabaResolveFreshBranch(lower, upper,
+        SIGMA_FRESH_FIRST_HIT_LEFT | SIGMA_FRESH_FIRST_HIT_RIGHT, 1u,
+        state, selected, boundaryRelation, valid);
+    uint2 forward[4];
+    SigmaMerkabaEvaluateShadow(state, forward, valid);
+    [unroll]
+    for (uint axis = 0u; axis < 4u; ++axis)
+        _MerkabaFreshResults[axis] = uint4(selected[axis], forward[axis]);
+    [unroll]
+    for (uint lane = 0u; lane < 16u; ++lane)
+        _MerkabaFreshResults[4u + lane] = uint4(state[lane], 0u, 0u);
+    _MerkabaFreshResults[20] = uint4(admitted ? 1u : 0u, valid,
+        SIGMA_FRESH_ADMISSION_ADMITTED, boundaryRelation);
+    uint2 kernelState[16];
+    [unroll]
+    for (uint kernelLane = 0u; kernelLane < 16u; ++kernelLane)
+        kernelState[kernelLane] = uint2(0u, 0u);
+    kernelState[0] = one;
+    uint kernelValid = 1u;
+    uint kernelRelation = SigmaMerkabaEvaluateFreshBoundaryRelation(
+        kernelState, kernelValid);
+    _MerkabaFreshResults[21] = uint4(SIGMA_MERKABA_EXPRESSION_COUNT,
+        SIGMA_FRESH_EXTERNAL_RELATION_TRUTH_INPUT_COUNT,
+        kernelRelation, kernelValid);
+    [unroll]
+    for (uint tinyLane = 0u; tinyLane < 16u; ++tinyLane)
+        kernelState[tinyLane] = uint2(0u, 0u);
+    kernelState[1] = uint2(1u, 0u);
+    uint tinyValid = 1u;
+    uint tinyRelation = SigmaMerkabaEvaluateFreshBoundaryRelation(
+        kernelState, tinyValid);
+    _MerkabaFreshResults[22] = uint4(tinyRelation, tinyValid, 0u, 0u);
 }}
 """
 
@@ -2731,6 +3459,7 @@ def render_authority_manifest(descriptor: dict) -> str:
         "reverseRules": descriptor["reverseRules"],
         "queryFamilies": descriptor["queryFamilies"],
         "sceneReduction": descriptor["sceneReduction"],
+        "freshBaseAdmission": descriptor["freshBaseAdmission"],
         "photometricNuisance": descriptor["photometricNuisance"],
         "querySupportSummary": descriptor["querySupportSummary"],
         "certificate": descriptor["certificate"],

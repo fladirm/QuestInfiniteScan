@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "source_digest": "a3d3e68c16c73dae59a5ae287071ac5c477acae0e5d25037c498e7816a023dc6",
+  "source_digest": "48c4c8dc2cb2e3bcc963881ac2f6fc2ea9d5d28ff70b84984867aa804fabcf59",
   "scope": [
     "Runtime/**/*.cs",
     "Runtime/Resources/SigmaPrism/**/*.*",
@@ -11,9 +11,9 @@
   ],
   "summary": {
     "files": 110,
-    "symbols": 1868,
-    "methods_and_functions": 1517,
-    "gpu_kernels": 76,
+    "symbols": 1882,
+    "methods_and_functions": 1528,
+    "gpu_kernels": 77,
     "event_links": 5
   },
   "files": [
@@ -11469,88 +11469,102 @@
       "line": 24
     },
     {
-      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::Buffer@553",
+      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::Buffer@670",
       "file": "Tests/Editor/SigmaMerkabaProgramTests.cs",
       "name": "Buffer",
       "kind": "method",
-      "line": 553
+      "line": 670
     },
     {
-      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::CertificateMinimizerIsExactBoundedAndCouplingAware@323",
+      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::CertificateMinimizerIsExactBoundedAndCouplingAware@331",
       "file": "Tests/Editor/SigmaMerkabaProgramTests.cs",
       "name": "CertificateMinimizerIsExactBoundedAndCouplingAware",
       "kind": "method",
-      "line": 323
+      "line": 331
     },
     {
-      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::DirectionalActionCarriesIntervalsAndStopsAtFirstHit@260",
+      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::DirectionalActionCarriesIntervalsAndStopsAtFirstHit@268",
       "file": "Tests/Editor/SigmaMerkabaProgramTests.cs",
       "name": "DirectionalActionCarriesIntervalsAndStopsAtFirstHit",
       "kind": "method",
-      "line": 260
+      "line": 268
     },
     {
-      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::ExactZeroDivisorAndOneLsbResidualDoNotAlias@416",
+      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::ExactZeroDivisorAndOneLsbResidualDoNotAlias@491",
       "file": "Tests/Editor/SigmaMerkabaProgramTests.cs",
       "name": "ExactZeroDivisorAndOneLsbResidualDoNotAlias",
       "kind": "method",
-      "line": 416
+      "line": 491
     },
     {
-      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::Factor@524",
+      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::Factor@641",
       "file": "Tests/Editor/SigmaMerkabaProgramTests.cs",
       "name": "Factor",
       "kind": "method",
-      "line": 524
+      "line": 641
     },
     {
-      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::GaugeSplitTransportCollapseAndNormalizationAreConstructive@353",
+      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::FreshAdmissionIsGeneratedFromShadowPreimageNotProposedState@424",
+      "file": "Tests/Editor/SigmaMerkabaProgramTests.cs",
+      "name": "FreshAdmissionIsGeneratedFromShadowPreimageNotProposedState",
+      "kind": "method",
+      "line": 424
+    },
+    {
+      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::GaugeSplitTransportCollapseAndNormalizationAreConstructive@361",
       "file": "Tests/Editor/SigmaMerkabaProgramTests.cs",
       "name": "GaugeSplitTransportCollapseAndNormalizationAreConstructive",
       "kind": "method",
-      "line": 353
+      "line": 361
     },
     {
-      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::GeneratedHlslMatchesCpuTablesIrAndDirectionalAction@441",
+      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::GeneratedHlslMatchesCpuTablesIrAndDirectionalAction@516",
       "file": "Tests/Editor/SigmaMerkabaProgramTests.cs",
       "name": "GeneratedHlslMatchesCpuTablesIrAndDirectionalAction",
       "kind": "method",
-      "line": 441
+      "line": 516
     },
     {
-      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::GeneratedReverseDescriptorsRetainZeroBranchesAndSceneDisjunction@287",
+      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::GeneratedReverseDescriptorsRetainZeroBranchesAndSceneDisjunction@295",
       "file": "Tests/Editor/SigmaMerkabaProgramTests.cs",
       "name": "GeneratedReverseDescriptorsRetainZeroBranchesAndSceneDisjunction",
       "kind": "method",
-      "line": 287
+      "line": 295
     },
     {
-      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::Permutations@530",
+      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::Join@638",
+      "file": "Tests/Editor/SigmaMerkabaProgramTests.cs",
+      "name": "Join",
+      "kind": "method",
+      "line": 638
+    },
+    {
+      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::Permutations@647",
       "file": "Tests/Editor/SigmaMerkabaProgramTests.cs",
       "name": "Permutations",
       "kind": "method",
-      "line": 530
+      "line": 647
     },
     {
-      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::Permute@538",
+      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::Permute@655",
       "file": "Tests/Editor/SigmaMerkabaProgramTests.cs",
       "name": "Permute",
       "kind": "method",
-      "line": 538
+      "line": 655
     },
     {
-      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::QuerySupportSummaryMatchesIndependentExhaustiveEvaluation@226",
+      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::QuerySupportSummaryMatchesIndependentExhaustiveEvaluation@234",
       "file": "Tests/Editor/SigmaMerkabaProgramTests.cs",
       "name": "QuerySupportSummaryMatchesIndependentExhaustiveEvaluation",
       "kind": "method",
-      "line": 226
+      "line": 234
     },
     {
-      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::ShadowKernelDefaultAndExactFactorClassesFailClosed@172",
+      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::ShadowKernelDefaultAndExactFactorClassesFailClosed@180",
       "file": "Tests/Editor/SigmaMerkabaProgramTests.cs",
       "name": "ShadowKernelDefaultAndExactFactorClassesFailClosed",
       "kind": "method",
-      "line": 172
+      "line": 180
     },
     {
       "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::SigmaMerkabaProgramTests",
@@ -11560,11 +11574,11 @@
       "line": 12
     },
     {
-      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::SignedXorAssociatorDiffractionMetricAndHolonomyAreExact@104",
+      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::SignedXorAssociatorDiffractionMetricAndHolonomyAreExact@112",
       "file": "Tests/Editor/SigmaMerkabaProgramTests.cs",
       "name": "SignedXorAssociatorDiffractionMetricAndHolonomyAreExact",
       "kind": "method",
-      "line": 104
+      "line": 112
     },
     {
       "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::UInt4",
@@ -12971,616 +12985,700 @@
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaCertificateFactor",
       "kind": "struct",
-      "line": 1847
+      "line": 2100
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaDefaultBackingKind",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaDefaultBackingKind",
       "kind": "enum",
-      "line": 1765
+      "line": 2012
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaDirectionalActionWitness",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaDirectionalActionWitness",
       "kind": "struct",
-      "line": 1829
+      "line": 2082
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaExactFactorClass",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaExactFactorClass",
       "kind": "enum",
-      "line": 1758
+      "line": 2005
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaFrameUInt2Gpu",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaFrameUInt2Gpu",
       "kind": "struct",
-      "line": 2835
+      "line": 3564
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaFrameUInt4Gpu",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaFrameUInt4Gpu",
       "kind": "struct",
-      "line": 2842
+      "line": 3571
+    },
+    {
+      "id": "Tools/sigma/generate_sigma_operators.py::SigmaFreshAdmissionStatus",
+      "file": "Tools/sigma/generate_sigma_operators.py",
+      "name": "SigmaFreshAdmissionStatus",
+      "kind": "enum",
+      "line": 2019
+    },
+    {
+      "id": "Tools/sigma/generate_sigma_operators.py::SigmaFreshBaseAdmission",
+      "file": "Tools/sigma/generate_sigma_operators.py",
+      "name": "SigmaFreshBaseAdmission",
+      "kind": "struct",
+      "line": 2167
+    },
+    {
+      "id": "Tools/sigma/generate_sigma_operators.py::SigmaFreshShadowBranch",
+      "file": "Tools/sigma/generate_sigma_operators.py",
+      "name": "SigmaFreshShadowBranch",
+      "kind": "struct",
+      "line": 2146
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaGaugeCell",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaGaugeCell",
       "kind": "struct",
-      "line": 1877
+      "line": 2130
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaGeneratedAlgebra",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaGeneratedAlgebra",
       "kind": "class",
-      "line": 1518
+      "line": 1765
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaGeneratedFrame",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaGeneratedFrame",
       "kind": "class",
-      "line": 2853
+      "line": 3582
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaGeneratedMerkabaProgram",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaGeneratedMerkabaProgram",
       "kind": "class",
-      "line": 1893
-    },
-    {
-      "id": "Tools/sigma/generate_sigma_operators.py::SigmaMerkabaDirectionalActionWitness",
-      "file": "Tools/sigma/generate_sigma_operators.py",
-      "name": "SigmaMerkabaDirectionalActionWitness",
-      "kind": "struct",
-      "line": 2550
+      "line": 2185
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaMerkabaEntryPoint",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaMerkabaEntryPoint",
       "kind": "struct",
-      "line": 1815
+      "line": 2068
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaMerkabaExpression",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaMerkabaExpression",
       "kind": "struct",
-      "line": 1795
+      "line": 2048
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaMerkabaIrNode",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaMerkabaIrNode",
       "kind": "struct",
-      "line": 1772
+      "line": 2025
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaMerkabaIrOpcode",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaMerkabaIrOpcode",
       "kind": "enum",
-      "line": 1726
+      "line": 1973
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaMerkabaRelationClass",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaMerkabaRelationClass",
       "kind": "enum",
-      "line": 1740
+      "line": 1987
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaMerkabaReverseRule",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaMerkabaReverseRule",
       "kind": "enum",
-      "line": 1735
+      "line": 1982
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaMerkabaValueKind",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaMerkabaValueKind",
       "kind": "enum",
-      "line": 1730
+      "line": 1977
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaMinimizedFactor",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaMinimizedFactor",
       "kind": "struct",
-      "line": 1869
+      "line": 2122
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaNativeQueryClaim",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaNativeQueryClaim",
       "kind": "enum",
-      "line": 1751
+      "line": 1998
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::action_expression@448",
+      "id": "Tools/sigma/generate_sigma_operators.py::action_expression@455",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "action_expression",
       "kind": "function",
-      "line": 448
+      "line": 455
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::add_expression@321",
+      "id": "Tools/sigma/generate_sigma_operators.py::add_expression@328",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "add_expression",
       "kind": "function",
-      "line": 321
+      "line": 328
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::add_node@304",
+      "id": "Tools/sigma/generate_sigma_operators.py::add_node@311",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "add_node",
       "kind": "function",
-      "line": 304
+      "line": 311
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::associator_expression@351",
+      "id": "Tools/sigma/generate_sigma_operators.py::associator_expression@358",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "associator_expression",
       "kind": "function",
-      "line": 351
+      "line": 358
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::basis_product@129",
+      "id": "Tools/sigma/generate_sigma_operators.py::basis_product@130",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "basis_product",
       "kind": "function",
-      "line": 129
+      "line": 130
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::build_descriptor@1287",
+      "id": "Tools/sigma/generate_sigma_operators.py::build_descriptor@1534",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "build_descriptor",
       "kind": "function",
-      "line": 1287
+      "line": 1534
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::build_executable_merkaba_ir@261",
+      "id": "Tools/sigma/generate_sigma_operators.py::build_executable_merkaba_ir@262",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "build_executable_merkaba_ir",
       "kind": "function",
-      "line": 261
+      "line": 262
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::build_merkaba_descriptor@1022",
+      "id": "Tools/sigma/generate_sigma_operators.py::build_merkaba_descriptor@1239",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "build_merkaba_descriptor",
       "kind": "function",
-      "line": 1022
+      "line": 1239
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::certificate_minimizer_proof@855",
+      "id": "Tools/sigma/generate_sigma_operators.py::certificate_minimizer_proof@888",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "certificate_minimizer_proof",
       "kind": "function",
-      "line": 855
+      "line": 888
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::check_or_write@2914",
+      "id": "Tools/sigma/generate_sigma_operators.py::check_or_write@3643",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "check_or_write",
       "kind": "function",
-      "line": 2914
+      "line": 3643
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::chunks@1489",
+      "id": "Tools/sigma/generate_sigma_operators.py::chunks@1736",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "chunks",
       "kind": "function",
-      "line": 1489
+      "line": 1736
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::collapse_once@926",
+      "id": "Tools/sigma/generate_sigma_operators.py::collapse_once@959",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "collapse_once",
       "kind": "function",
-      "line": 926
+      "line": 959
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::conjugate_sign@146",
+      "id": "Tools/sigma/generate_sigma_operators.py::conjugate_sign@147",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "conjugate_sign",
       "kind": "function",
-      "line": 146
+      "line": 147
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::cs_array@1494",
+      "id": "Tools/sigma/generate_sigma_operators.py::cs_array@1741",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "cs_array",
       "kind": "function",
-      "line": 1494
+      "line": 1741
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::default_representation_proof@768",
+      "id": "Tools/sigma/generate_sigma_operators.py::default_representation_proof@801",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "default_representation_proof",
       "kind": "function",
-      "line": 768
+      "line": 801
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::diffraction_expression@367",
+      "id": "Tools/sigma/generate_sigma_operators.py::diffraction_expression@374",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "diffraction_expression",
       "kind": "function",
-      "line": 367
+      "line": 374
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::diffraction_matrix@191",
+      "id": "Tools/sigma/generate_sigma_operators.py::diffraction_matrix@192",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "diffraction_matrix",
       "kind": "function",
-      "line": 191
+      "line": 192
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::dyads@154",
+      "id": "Tools/sigma/generate_sigma_operators.py::dyads@155",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "dyads",
       "kind": "function",
-      "line": 154
+      "line": 155
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::evaluate_actual_associator@637",
+      "id": "Tools/sigma/generate_sigma_operators.py::evaluate_actual_associator@670",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "evaluate_actual_associator",
       "kind": "function",
-      "line": 637
+      "line": 670
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::file_sha256@179",
+      "id": "Tools/sigma/generate_sigma_operators.py::file_sha256@180",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "file_sha256",
       "kind": "function",
-      "line": 179
+      "line": 180
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::fingerprint_words@1578",
+      "id": "Tools/sigma/generate_sigma_operators.py::fingerprint_words@1825",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "fingerprint_words",
       "kind": "function",
-      "line": 1578
+      "line": 1825
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::frame_abi_descriptor@2761",
+      "id": "Tools/sigma/generate_sigma_operators.py::forward@1110",
+      "file": "Tools/sigma/generate_sigma_operators.py",
+      "name": "forward",
+      "kind": "function",
+      "line": 1110
+    },
+    {
+      "id": "Tools/sigma/generate_sigma_operators.py::frame_abi_descriptor@3490",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "frame_abi_descriptor",
       "kind": "function",
-      "line": 2761
+      "line": 3490
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::gauge_expression@479",
+      "id": "Tools/sigma/generate_sigma_operators.py::fresh_admission_expression@497",
+      "file": "Tools/sigma/generate_sigma_operators.py",
+      "name": "fresh_admission_expression",
+      "kind": "function",
+      "line": 497
+    },
+    {
+      "id": "Tools/sigma/generate_sigma_operators.py::fresh_base_admission_proof@1055",
+      "file": "Tools/sigma/generate_sigma_operators.py",
+      "name": "fresh_base_admission_proof",
+      "kind": "function",
+      "line": 1055
+    },
+    {
+      "id": "Tools/sigma/generate_sigma_operators.py::fresh_boundary_relation@1123",
+      "file": "Tools/sigma/generate_sigma_operators.py",
+      "name": "fresh_boundary_relation",
+      "kind": "function",
+      "line": 1123
+    },
+    {
+      "id": "Tools/sigma/generate_sigma_operators.py::gauge_expression@486",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "gauge_expression",
       "kind": "function",
-      "line": 479
+      "line": 486
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::gauge_transport_proof@913",
+      "id": "Tools/sigma/generate_sigma_operators.py::gauge_transport_proof@946",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "gauge_transport_proof",
       "kind": "function",
-      "line": 913
+      "line": 946
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::hadamard_sign@150",
+      "id": "Tools/sigma/generate_sigma_operators.py::hadamard_sign@151",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "hadamard_sign",
       "kind": "function",
-      "line": 150
+      "line": 151
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::information_metric@242",
+      "id": "Tools/sigma/generate_sigma_operators.py::information_metric@243",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "information_metric",
       "kind": "function",
-      "line": 242
+      "line": 243
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::input_s16@342",
+      "id": "Tools/sigma/generate_sigma_operators.py::input_s16@349",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "input_s16",
       "kind": "function",
-      "line": 342
+      "line": 349
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::interpret_forward@789",
+      "id": "Tools/sigma/generate_sigma_operators.py::interpret_forward@822",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "interpret_forward",
       "kind": "function",
-      "line": 789
+      "line": 822
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::interval_add@557",
+      "id": "Tools/sigma/generate_sigma_operators.py::interval_add@590",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "interval_add",
       "kind": "function",
-      "line": 557
+      "line": 590
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::interval_mul@552",
+      "id": "Tools/sigma/generate_sigma_operators.py::interval_mul@585",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "interval_mul",
       "kind": "function",
-      "line": 552
+      "line": 585
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::interval_sub@560",
+      "id": "Tools/sigma/generate_sigma_operators.py::interval_sub@593",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "interval_sub",
       "kind": "function",
-      "line": 560
+      "line": 593
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::kernel:MerkabaDirectionalActionParity",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "MerkabaDirectionalActionParity",
       "kind": "gpu_kernel",
-      "line": 2616
+      "line": 3284
+    },
+    {
+      "id": "Tools/sigma/generate_sigma_operators.py::kernel:MerkabaFreshAdmissionParity",
+      "file": "Tools/sigma/generate_sigma_operators.py",
+      "name": "MerkabaFreshAdmissionParity",
+      "kind": "gpu_kernel",
+      "line": 3285
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::kernel:MerkabaMatrixAndIrParity",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "MerkabaMatrixAndIrParity",
       "kind": "gpu_kernel",
-      "line": 2615
+      "line": 3283
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::kernel:MerkabaProgramParity",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "MerkabaProgramParity",
       "kind": "gpu_kernel",
-      "line": 2614
+      "line": 3282
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::link_factor_expression@373",
+      "id": "Tools/sigma/generate_sigma_operators.py::lift@1097",
+      "file": "Tools/sigma/generate_sigma_operators.py",
+      "name": "lift",
+      "kind": "function",
+      "line": 1097
+    },
+    {
+      "id": "Tools/sigma/generate_sigma_operators.py::link_factor_expression@380",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "link_factor_expression",
       "kind": "function",
-      "line": 373
+      "line": 380
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::main@2927",
+      "id": "Tools/sigma/generate_sigma_operators.py::main@3656",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "main",
       "kind": "function",
-      "line": 2927
+      "line": 3656
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::matrix_multiply@234",
+      "id": "Tools/sigma/generate_sigma_operators.py::matrix_multiply@235",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "matrix_multiply",
       "kind": "function",
-      "line": 234
+      "line": 235
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::merkaba_shadow_numerator@206",
+      "id": "Tools/sigma/generate_sigma_operators.py::merkaba_shadow_numerator@207",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "merkaba_shadow_numerator",
       "kind": "function",
-      "line": 206
+      "line": 207
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::minimize@865",
+      "id": "Tools/sigma/generate_sigma_operators.py::minimize@898",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "minimize",
       "kind": "function",
-      "line": 865
+      "line": 898
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::multiply_dyads@162",
+      "id": "Tools/sigma/generate_sigma_operators.py::multiply_dyads@163",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "multiply_dyads",
       "kind": "function",
-      "line": 162
+      "line": 163
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::multiply_s16@624",
+      "id": "Tools/sigma/generate_sigma_operators.py::multiply_s16@657",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "multiply_s16",
       "kind": "function",
-      "line": 624
+      "line": 657
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::normalize@941",
+      "id": "Tools/sigma/generate_sigma_operators.py::nearest_even@1061",
+      "file": "Tools/sigma/generate_sigma_operators.py",
+      "name": "nearest_even",
+      "kind": "function",
+      "line": 1061
+    },
+    {
+      "id": "Tools/sigma/generate_sigma_operators.py::normalize@974",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "normalize",
       "kind": "function",
-      "line": 941
+      "line": 974
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::normalized_associator_expression@391",
+      "id": "Tools/sigma/generate_sigma_operators.py::normalized_associator_expression@398",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "normalized_associator_expression",
       "kind": "function",
-      "line": 391
+      "line": 398
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::optical_expression@461",
+      "id": "Tools/sigma/generate_sigma_operators.py::optical_expression@468",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "optical_expression",
       "kind": "function",
-      "line": 461
+      "line": 468
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::plaquette_expression@405",
+      "id": "Tools/sigma/generate_sigma_operators.py::packed_i64@2928",
+      "file": "Tools/sigma/generate_sigma_operators.py",
+      "name": "packed_i64",
+      "kind": "function",
+      "line": 2928
+    },
+    {
+      "id": "Tools/sigma/generate_sigma_operators.py::plaquette_expression@412",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "plaquette_expression",
       "kind": "function",
-      "line": 405
+      "line": 412
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::query_support_exhaustive_proof@708",
+      "id": "Tools/sigma/generate_sigma_operators.py::qmul@1072",
+      "file": "Tools/sigma/generate_sigma_operators.py",
+      "name": "qmul",
+      "kind": "function",
+      "line": 1072
+    },
+    {
+      "id": "Tools/sigma/generate_sigma_operators.py::query_support_exhaustive_proof@741",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "query_support_exhaustive_proof",
       "kind": "function",
-      "line": 708
+      "line": 741
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::read_json@183",
+      "id": "Tools/sigma/generate_sigma_operators.py::read_json@184",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "read_json",
       "kind": "function",
-      "line": 183
+      "line": 184
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::render_authority_manifest@2688",
+      "id": "Tools/sigma/generate_sigma_operators.py::render_authority_manifest@3416",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "render_authority_manifest",
       "kind": "function",
-      "line": 2688
+      "line": 3416
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::render_cs@1503",
+      "id": "Tools/sigma/generate_sigma_operators.py::render_cs@1750",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "render_cs",
       "kind": "function",
-      "line": 1503
+      "line": 1750
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::render_frame_cs@2786",
+      "id": "Tools/sigma/generate_sigma_operators.py::render_frame_cs@3515",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "render_frame_cs",
       "kind": "function",
-      "line": 2786
+      "line": 3515
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::render_frame_hlsl@2869",
+      "id": "Tools/sigma/generate_sigma_operators.py::render_frame_hlsl@3598",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "render_frame_hlsl",
       "kind": "function",
-      "line": 2869
+      "line": 3598
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::render_hlsl@1621",
+      "id": "Tools/sigma/generate_sigma_operators.py::render_hlsl@1868",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "render_hlsl",
       "kind": "function",
-      "line": 1621
+      "line": 1868
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::render_hlsl_layout@1582",
+      "id": "Tools/sigma/generate_sigma_operators.py::render_hlsl_layout@1829",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "render_hlsl_layout",
       "kind": "function",
-      "line": 1582
+      "line": 1829
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::render_merkaba_cs@1678",
+      "id": "Tools/sigma/generate_sigma_operators.py::render_merkaba_cs@1925",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "render_merkaba_cs",
       "kind": "function",
-      "line": 1678
+      "line": 1925
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::render_merkaba_fixture@2609",
+      "id": "Tools/sigma/generate_sigma_operators.py::render_merkaba_fixture@3277",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "render_merkaba_fixture",
       "kind": "function",
-      "line": 2609
+      "line": 3277
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::render_merkaba_hlsl@2413",
+      "id": "Tools/sigma/generate_sigma_operators.py::render_merkaba_hlsl@2916",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "render_merkaba_hlsl",
       "kind": "function",
-      "line": 2413
+      "line": 2916
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::reverse_complete_tree_proof@545",
+      "id": "Tools/sigma/generate_sigma_operators.py::reverse_complete_tree_proof@578",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "reverse_complete_tree_proof",
       "kind": "function",
-      "line": 545
+      "line": 578
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::reverse_expression@437",
+      "id": "Tools/sigma/generate_sigma_operators.py::reverse_expression@444",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "reverse_expression",
       "kind": "function",
-      "line": 437
+      "line": 444
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::reverse_mul@563",
+      "id": "Tools/sigma/generate_sigma_operators.py::reverse_mul@596",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "reverse_mul",
       "kind": "function",
-      "line": 563
+      "line": 596
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::sha256@174",
+      "id": "Tools/sigma/generate_sigma_operators.py::select_tangent@1078",
+      "file": "Tools/sigma/generate_sigma_operators.py",
+      "name": "select_tangent",
+      "kind": "function",
+      "line": 1078
+    },
+    {
+      "id": "Tools/sigma/generate_sigma_operators.py::sha256@175",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "sha256",
       "kind": "function",
-      "line": 174
+      "line": 175
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::shadow_expression@421",
+      "id": "Tools/sigma/generate_sigma_operators.py::shadow_expression@428",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "shadow_expression",
       "kind": "function",
-      "line": 421
+      "line": 428
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::signed_morton@212",
+      "id": "Tools/sigma/generate_sigma_operators.py::signed_morton@213",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "signed_morton",
       "kind": "function",
-      "line": 212
+      "line": 213
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::split@921",
+      "id": "Tools/sigma/generate_sigma_operators.py::split@954",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "split",
       "kind": "function",
-      "line": 921
+      "line": 954
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::transpose@230",
+      "id": "Tools/sigma/generate_sigma_operators.py::transpose@231",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "transpose",
       "kind": "function",
-      "line": 230
+      "line": 231
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::uint_array@2746",
+      "id": "Tools/sigma/generate_sigma_operators.py::uint_array@3475",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "uint_array",
       "kind": "function",
-      "line": 2746
+      "line": 3475
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::upper_snake@2750",
+      "id": "Tools/sigma/generate_sigma_operators.py::upper_snake@3479",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "upper_snake",
       "kind": "function",
-      "line": 2750
+      "line": 3479
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::validate_descriptor@1463",
+      "id": "Tools/sigma/generate_sigma_operators.py::validate_descriptor@1710",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "validate_descriptor",
       "kind": "function",
-      "line": 1463
+      "line": 1710
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::zig_zag@216",
+      "id": "Tools/sigma/generate_sigma_operators.py::zig_zag@217",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "zig_zag",
       "kind": "function",
-      "line": 216
+      "line": 217
     },
     {
       "id": "Tools/unity/validate_sigma_compute_uav.py::function_bodies@46",
@@ -14225,6 +14323,11 @@
       "kind": "calls"
     },
     {
+      "source": "Editor/VRProjectBootstrap.cs::BuildChecks@201",
+      "target": "Tests/Editor/SigmaMerkabaProgramTests.cs::Join@638",
+      "kind": "calls"
+    },
+    {
       "source": "Editor/VRProjectBootstrap.cs::DescribeLoaders@544",
       "target": "Editor/VRProjectBootstrap.cs::GetXRManager@553",
       "kind": "calls"
@@ -14235,8 +14338,18 @@
       "kind": "calls"
     },
     {
+      "source": "Editor/VRProjectBootstrap.cs::DescribeLoaders@544",
+      "target": "Tests/Editor/SigmaMerkabaProgramTests.cs::Join@638",
+      "kind": "calls"
+    },
+    {
       "source": "Editor/VRProjectBootstrap.cs::DescribeTouchProfiles@667",
       "target": "Editor/VRProjectBootstrap.cs::IsFeatureEnabled@637",
+      "kind": "calls"
+    },
+    {
+      "source": "Editor/VRProjectBootstrap.cs::DescribeTouchProfiles@667",
+      "target": "Tests/Editor/SigmaMerkabaProgramTests.cs::Join@638",
       "kind": "calls"
     },
     {
@@ -14257,6 +14370,11 @@
     {
       "source": "Editor/VRProjectBootstrap.cs::RequireQuestScanningFeatures@100",
       "target": "Editor/VRProjectBootstrap.cs::Audit@84",
+      "kind": "calls"
+    },
+    {
+      "source": "Editor/VRProjectBootstrap.cs::RequireQuestScanningFeatures@100",
+      "target": "Tests/Editor/SigmaMerkabaProgramTests.cs::Join@638",
       "kind": "calls"
     },
     {
@@ -14626,12 +14744,12 @@
     },
     {
       "source": "Runtime/Resources/SigmaPrism/ConeLut.compute::LocalRay@11",
-      "target": "Tools/sigma/generate_sigma_operators.py::normalize@941",
+      "target": "Tools/sigma/generate_sigma_operators.py::normalize@974",
       "kind": "calls"
     },
     {
       "source": "Runtime/Resources/SigmaPrism/ConeMath.hlsl::ConeSurfaceFootprint@15",
-      "target": "Tools/sigma/generate_sigma_operators.py::normalize@941",
+      "target": "Tools/sigma/generate_sigma_operators.py::normalize@974",
       "kind": "calls"
     },
     {
@@ -17571,7 +17689,7 @@
     },
     {
       "source": "Runtime/Resources/SigmaPrism/SigmaPredict.shader::PredictionFrag@152",
-      "target": "Tools/sigma/generate_sigma_operators.py::normalize@941",
+      "target": "Tools/sigma/generate_sigma_operators.py::normalize@974",
       "kind": "calls"
     },
     {
@@ -17581,7 +17699,7 @@
     },
     {
       "source": "Runtime/Resources/SigmaPrism/SigmaPredict.shader::SigmaContactNormal@87",
-      "target": "Tools/sigma/generate_sigma_operators.py::normalize@941",
+      "target": "Tools/sigma/generate_sigma_operators.py::normalize@974",
       "kind": "calls"
     },
     {
@@ -20760,6 +20878,11 @@
       "kind": "calls"
     },
     {
+      "source": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::ComputePlanBundleFingerprint@630",
+      "target": "Tests/Editor/SigmaMerkabaProgramTests.cs::Join@638",
+      "kind": "calls"
+    },
+    {
       "source": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::DenseProduct@606",
       "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::FixedReduction@196",
       "kind": "calls"
@@ -23285,6 +23408,11 @@
       "kind": "calls"
     },
     {
+      "source": "Tests/Editor/SigmaFrameInverseTests.cs::TargetReductionIsExactPermutationAndWindowInvariant@380",
+      "target": "Tests/Editor/SigmaMerkabaProgramTests.cs::Join@638",
+      "kind": "calls"
+    },
+    {
       "source": "Tests/Editor/SigmaFrameInverseTests.cs::UnobservedAdjacencyMakesNoTransitionClaim@488",
       "target": "Tests/Editor/SigmaFrameInverseTests.cs::ClosureTarget",
       "kind": "calls"
@@ -23610,97 +23738,127 @@
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::CertificateMinimizerIsExactBoundedAndCouplingAware@323",
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::CertificateMinimizerIsExactBoundedAndCouplingAware@331",
       "target": "Runtime/SigmaPrism/SigmaFrameGraph.cs::Single@1667",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::DirectionalActionCarriesIntervalsAndStopsAtFirstHit@260",
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::DirectionalActionCarriesIntervalsAndStopsAtFirstHit@268",
       "target": "Runtime/SigmaPrism/SigmaNumericDomain.cs::SigmaQ48Interval",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::ExactZeroDivisorAndOneLsbResidualDoNotAlias@416",
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::ExactZeroDivisorAndOneLsbResidualDoNotAlias@491",
       "target": "Runtime/SigmaPrism/SigmaS16.cs::DenseReferenceMultiply@255",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::ExactZeroDivisorAndOneLsbResidualDoNotAlias@416",
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::ExactZeroDivisorAndOneLsbResidualDoNotAlias@491",
       "target": "Runtime/SigmaPrism/SigmaS16.cs::FromArray@82",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::ExactZeroDivisorAndOneLsbResidualDoNotAlias@416",
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::ExactZeroDivisorAndOneLsbResidualDoNotAlias@491",
       "target": "Runtime/SigmaPrism/SigmaS16.cs::GetZeroDivisorEntry@367",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::ExactZeroDivisorAndOneLsbResidualDoNotAlias@416",
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::ExactZeroDivisorAndOneLsbResidualDoNotAlias@491",
       "target": "Runtime/SigmaPrism/SigmaS16.cs::ToS16@170",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::GaugeSplitTransportCollapseAndNormalizationAreConstructive@353",
-      "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Select@182",
-      "kind": "calls"
-    },
-    {
-      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::GaugeSplitTransportCollapseAndNormalizationAreConstructive@353",
-      "target": "Tests/Editor/SigmaMerkabaProgramTests.cs::Permutations@530",
-      "kind": "calls"
-    },
-    {
-      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::GaugeSplitTransportCollapseAndNormalizationAreConstructive@353",
-      "target": "Tools/sigma/generate_sigma_operators.py::SigmaGaugeCell",
-      "kind": "calls"
-    },
-    {
-      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::GeneratedHlslMatchesCpuTablesIrAndDirectionalAction@441",
-      "target": "Runtime/SigmaPrism/SigmaExactBackendGate.cs::Dispatch@45",
-      "kind": "calls"
-    },
-    {
-      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::GeneratedHlslMatchesCpuTablesIrAndDirectionalAction@441",
-      "target": "Tests/Editor/SigmaMerkabaProgramTests.cs::Buffer@553",
-      "kind": "calls"
-    },
-    {
-      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::GeneratedReverseDescriptorsRetainZeroBranchesAndSceneDisjunction@287",
-      "target": "Runtime/SigmaPrism/SigmaFrameGraph.cs::Single@1667",
-      "kind": "calls"
-    },
-    {
-      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::Permutations@530",
-      "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Select@182",
-      "kind": "calls"
-    },
-    {
-      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::Permutations@530",
-      "target": "Tests/Editor/SigmaMerkabaProgramTests.cs::Permute@538",
-      "kind": "calls"
-    },
-    {
-      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::ShadowKernelDefaultAndExactFactorClassesFailClosed@172",
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::FreshAdmissionIsGeneratedFromShadowPreimageNotProposedState@424",
       "target": "Runtime/SigmaPrism/SigmaNumericDomain.cs::SigmaQ48Interval",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::ShadowKernelDefaultAndExactFactorClassesFailClosed@172",
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::FreshAdmissionIsGeneratedFromShadowPreimageNotProposedState@424",
+      "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Select@182",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::FreshAdmissionIsGeneratedFromShadowPreimageNotProposedState@424",
       "target": "Runtime/SigmaPrism/SigmaS16.cs::Basis@95",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::SignedXorAssociatorDiffractionMetricAndHolonomyAreExact@104",
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::FreshAdmissionIsGeneratedFromShadowPreimageNotProposedState@424",
+      "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::EvaluateMerkabaShadow@748",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::FreshAdmissionIsGeneratedFromShadowPreimageNotProposedState@424",
+      "target": "Tools/sigma/generate_sigma_operators.py::SigmaFreshShadowBranch",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::GaugeSplitTransportCollapseAndNormalizationAreConstructive@361",
+      "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Select@182",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::GaugeSplitTransportCollapseAndNormalizationAreConstructive@361",
+      "target": "Tests/Editor/SigmaMerkabaProgramTests.cs::Permutations@647",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::GaugeSplitTransportCollapseAndNormalizationAreConstructive@361",
+      "target": "Tools/sigma/generate_sigma_operators.py::SigmaGaugeCell",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::GeneratedHlslMatchesCpuTablesIrAndDirectionalAction@516",
+      "target": "Runtime/SigmaPrism/SigmaExactBackendGate.cs::Dispatch@45",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::GeneratedHlslMatchesCpuTablesIrAndDirectionalAction@516",
+      "target": "Tests/Editor/SigmaMerkabaProgramTests.cs::Buffer@670",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::GeneratedHlslMatchesCpuTablesIrAndDirectionalAction@516",
+      "target": "Tests/Editor/SigmaMerkabaProgramTests.cs::Join@638",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::GeneratedReverseDescriptorsRetainZeroBranchesAndSceneDisjunction@295",
+      "target": "Runtime/SigmaPrism/SigmaFrameGraph.cs::Single@1667",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::Permutations@647",
+      "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Select@182",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::Permutations@647",
+      "target": "Tests/Editor/SigmaMerkabaProgramTests.cs::Permute@655",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::ShadowKernelDefaultAndExactFactorClassesFailClosed@180",
+      "target": "Runtime/SigmaPrism/SigmaNumericDomain.cs::SigmaQ48Interval",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::ShadowKernelDefaultAndExactFactorClassesFailClosed@180",
+      "target": "Runtime/SigmaPrism/SigmaS16.cs::Basis@95",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::SignedXorAssociatorDiffractionMetricAndHolonomyAreExact@112",
       "target": "Runtime/SigmaPrism/SigmaS16.cs::Associator@336",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::SignedXorAssociatorDiffractionMetricAndHolonomyAreExact@104",
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::SignedXorAssociatorDiffractionMetricAndHolonomyAreExact@112",
       "target": "Runtime/SigmaPrism/SigmaS16.cs::Basis@95",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::SignedXorAssociatorDiffractionMetricAndHolonomyAreExact@104",
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::SignedXorAssociatorDiffractionMetricAndHolonomyAreExact@112",
       "target": "Runtime/SigmaPrism/SigmaS16.cs::BasisProductSign@234",
       "kind": "calls"
     },
@@ -23712,6 +23870,11 @@
     {
       "source": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::ComputeTransferFingerprint@154",
       "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Select@182",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::ComputeTransferFingerprint@154",
+      "target": "Tests/Editor/SigmaMerkabaProgramTests.cs::Join@638",
       "kind": "calls"
     },
     {
@@ -24081,7 +24244,7 @@
     },
     {
       "source": "Tests/Editor/SigmaNativeOracleTests.cs::AssertGpuRelationsMatchCpu@1246",
-      "target": "Tests/Editor/SigmaMerkabaProgramTests.cs::Buffer@553",
+      "target": "Tests/Editor/SigmaMerkabaProgramTests.cs::Buffer@670",
       "kind": "calls"
     },
     {
@@ -24411,7 +24574,7 @@
     },
     {
       "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuContractOverflow@935",
-      "target": "Tests/Editor/SigmaMerkabaProgramTests.cs::Buffer@553",
+      "target": "Tests/Editor/SigmaMerkabaProgramTests.cs::Buffer@670",
       "kind": "calls"
     },
     {
@@ -24501,7 +24664,7 @@
     },
     {
       "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuQuerySet@1387",
-      "target": "Tests/Editor/SigmaMerkabaProgramTests.cs::Buffer@553",
+      "target": "Tests/Editor/SigmaMerkabaProgramTests.cs::Buffer@670",
       "kind": "calls"
     },
     {
@@ -24731,7 +24894,7 @@
     },
     {
       "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanQueryContractOverflowAndWindowingMatchCpuOracle@508",
-      "target": "Tests/Editor/SigmaMerkabaProgramTests.cs::Buffer@553",
+      "target": "Tests/Editor/SigmaMerkabaProgramTests.cs::Buffer@670",
       "kind": "calls"
     },
     {
@@ -24951,7 +25114,7 @@
     },
     {
       "source": "Tests/Editor/SigmaPoseGaugeTests.cs::VulkanPoseKernelsSolveAndCorrectTheSameRigGauge@124",
-      "target": "Tests/Editor/SigmaMerkabaProgramTests.cs::Buffer@553",
+      "target": "Tests/Editor/SigmaMerkabaProgramTests.cs::Buffer@670",
       "kind": "calls"
     },
     {
@@ -25326,7 +25489,7 @@
     },
     {
       "source": "Tools/generate_code_graph.py::is_hlsl_definition@110",
-      "target": "Tools/sigma/generate_sigma_operators.py::sha256@174",
+      "target": "Tools/sigma/generate_sigma_operators.py::sha256@175",
       "kind": "calls"
     },
     {
@@ -25335,13 +25498,13 @@
       "kind": "calls"
     },
     {
-      "source": "Tools/sigma/generate_sigma_operators.py::normalize@941",
-      "target": "Tools/sigma/generate_sigma_operators.py::sha256@174",
+      "source": "Tools/sigma/generate_sigma_operators.py::normalize@974",
+      "target": "Tools/sigma/generate_sigma_operators.py::sha256@175",
       "kind": "calls"
     },
     {
-      "source": "Tools/sigma/generate_sigma_operators.py::render_cs@1503",
-      "target": "Tools/sigma/generate_sigma_operators.py::cs_array@1494",
+      "source": "Tools/sigma/generate_sigma_operators.py::render_cs@1750",
+      "target": "Tools/sigma/generate_sigma_operators.py::cs_array@1741",
       "kind": "calls"
     },
     {

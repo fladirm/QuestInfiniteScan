@@ -24,7 +24,7 @@ namespace Genesis.RoomScan.Tests
         public void AuthorityBoundaryAndExecutableIrAreFrozen()
         {
             Assert.That(SigmaGeneratedMerkabaProgram.ProgramVersion,
-                Is.EqualTo("CPQ4-S16-MERKABA-N1R-1"));
+                Is.EqualTo("CPQ4-S16-MERKABA-N1R-3"));
             Assert.That(SigmaGeneratedMerkabaProgram.NumericDomainId,
                 Is.EqualTo(SigmaNumericDomain.Id));
             Assert.That(SigmaGeneratedMerkabaProgram.DeclaredToeUpstreamFingerprint,
@@ -88,7 +88,15 @@ namespace Genesis.RoomScan.Tests
                 SigmaMerkabaIrOpcode.FIRST_HIT_ACTION,
                 SigmaMerkabaIrOpcode.CERTIFICATE_MINIMIZE,
                 SigmaMerkabaIrOpcode.GAUGE_NORMALIZE,
+                SigmaMerkabaIrOpcode.SHADOW_CELL_INTERSECT,
+                SigmaMerkabaIrOpcode.TANGENT_MIN_CHANGE_SELECT,
+                SigmaMerkabaIrOpcode.MERKABA_DUAL_FRAME_LIFT,
+                SigmaMerkabaIrOpcode.FORWARD_RELATION_VERIFY,
+                SigmaMerkabaIrOpcode.FRESH_BASE_PATTERN,
+                SigmaMerkabaIrOpcode.COMMON_UNION_OR_UNRESOLVED,
             }, SigmaGeneratedMerkabaProgram.IrNodes.Select(node => node.Opcode));
+            Assert.That(SigmaGeneratedMerkabaProgram.Expressions.Any(expression =>
+                expression.Id == "FRESH_BASE_ADMISSION"), Is.True);
             Assert.That(SigmaGeneratedMerkabaProgram.EntryPoints.Select(entry => entry.Id),
                 Is.EquivalentTo(new[]
                 {
@@ -413,6 +421,73 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
+        public void FreshAdmissionIsGeneratedFromShadowPreimageNotProposedState()
+        {
+            long[] target =
+            {
+                SigmaNumericDomain.One,
+                -SigmaNumericDomain.One,
+                SigmaNumericDomain.Half,
+                -SigmaNumericDomain.Half,
+            };
+            SigmaQ48Interval[] exact = target.Select(value =>
+                new SigmaQ48Interval(value, value)).ToArray();
+            var branch = new SigmaFreshShadowBranch(exact, 3u, true,
+                "left+right");
+            Assert.That(SigmaGeneratedMerkabaProgram.TryResolveFreshBaseAdmission(
+                new[] { branch, branch }, out SigmaFreshBaseAdmission admission),
+                Is.True);
+            Assert.That(admission.Status, Is.EqualTo(SigmaFreshAdmissionStatus.Admitted));
+            Assert.That(admission.State.IsZero, Is.False);
+            CollectionAssert.AreEqual(target,
+                SigmaGeneratedMerkabaProgram.EvaluateMerkabaShadow(admission.State));
+            Assert.That(admission.Support.Count, Is.EqualTo(1));
+            Assert.That(admission.Support[0].U, Is.Zero);
+            Assert.That(admission.Support[0].V, Is.Zero);
+            Assert.That(admission.Support[0].Level, Is.Zero);
+            Assert.That(admission.BoundaryRelation,
+                Is.EqualTo(SigmaMerkabaRelationClass.NoRelation),
+                "The mixed ZEmpty boundary must be derived by the generated law.");
+            Assert.That(SigmaGeneratedMerkabaProgram
+                    .FreshAdmissionExternalRelationTruthInputCount,
+                Is.Zero);
+
+            long[] otherTarget =
+            {
+                SigmaNumericDomain.Half,
+                SigmaNumericDomain.Half,
+                -SigmaNumericDomain.Half,
+                -SigmaNumericDomain.Half,
+            };
+            var other = new SigmaFreshShadowBranch(otherTarget.Select(value =>
+                new SigmaQ48Interval(value, value)), 3u, true, "other");
+            Assert.That(SigmaGeneratedMerkabaProgram.TryResolveFreshBaseAdmission(
+                new[] { branch, other }, out _), Is.False,
+                "Non-equivalent reverse branches must remain unresolved.");
+            Assert.That(SigmaGeneratedMerkabaProgram.TryResolveFreshBaseAdmission(
+                new[] { new SigmaFreshShadowBranch(exact, 1u, true, "left-only") },
+                out _), Is.False, "One eye cannot mint the coherent stereo base case.");
+            Assert.That(SigmaGeneratedMerkabaProgram.TryResolveFreshBaseAdmission(
+                new[] { new SigmaFreshShadowBranch(exact, 3u, false,
+                    "incoherent") }, out _), Is.False);
+            Assert.That(SigmaGeneratedMerkabaProgram.EvaluateFreshBoundaryRelation(
+                    SigmaS16.Zero),
+                Is.EqualTo(SigmaMerkabaRelationClass.DefaultSat));
+            Assert.That(SigmaGeneratedMerkabaProgram.EvaluateFreshBoundaryRelation(
+                    SigmaS16.Basis(0, SigmaNumericDomain.One)),
+                Is.EqualTo(SigmaMerkabaRelationClass.Unresolved),
+                "A nonzero diffraction-kernel boundary must fail closed.");
+            Assert.That(SigmaGeneratedMerkabaProgram.EvaluateFreshBoundaryRelation(
+                    SigmaS16.Basis(1, 1L)),
+                Is.EqualTo(SigmaMerkabaRelationClass.NoRelation),
+                "An exact one-LSB defect may not alias algebraic zero.");
+            Assert.That(SigmaGeneratedMerkabaProgram.FreshAdmissionDualFrameRoundTripCount,
+                Is.GreaterThan(100));
+            Assert.That(SigmaGeneratedMerkabaProgram.FreshAdmissionProofFingerprint,
+                Has.Length.EqualTo(64));
+        }
+
+        [Test]
         public void ExactZeroDivisorAndOneLsbResidualDoNotAlias()
         {
             SigmaZeroDivisorEntry entry = SigmaS16Operators.GetZeroDivisorEntry(0);
@@ -449,14 +524,17 @@ namespace Genesis.RoomScan.Tests
             int programKernel = shader.FindKernel("MerkabaProgramParity");
             int matrixKernel = shader.FindKernel("MerkabaMatrixAndIrParity");
             int actionKernel = shader.FindKernel("MerkabaDirectionalActionParity");
+            int freshKernel = shader.FindKernel("MerkabaFreshAdmissionParity");
             var results = new UInt4[16 * 16 * 16];
             var matrices = new UInt4[16 * 16];
             var ir = new UInt4[SigmaGeneratedMerkabaProgram.IrNodeCount * 2];
             var actions = new UInt4[4];
+            var fresh = new UInt4[23];
             using var resultBuffer = Buffer(results.Length);
             using var matrixBuffer = Buffer(matrices.Length);
             using var irBuffer = Buffer(ir.Length);
             using var actionBuffer = Buffer(actions.Length);
+            using var freshBuffer = Buffer(fresh.Length);
             shader.SetBuffer(programKernel, "_MerkabaResults", resultBuffer);
             shader.Dispatch(programKernel, 1, 1, 16);
             shader.SetBuffer(matrixKernel, "_MerkabaMatrixResults", matrixBuffer);
@@ -464,10 +542,13 @@ namespace Genesis.RoomScan.Tests
             shader.Dispatch(matrixKernel, 1, 1, 1);
             shader.SetBuffer(actionKernel, "_MerkabaActionResults", actionBuffer);
             shader.Dispatch(actionKernel, 1, 1, 1);
+            shader.SetBuffer(freshKernel, "_MerkabaFreshResults", freshBuffer);
+            shader.Dispatch(freshKernel, 1, 1, 1);
             resultBuffer.GetData(results);
             matrixBuffer.GetData(matrices);
             irBuffer.GetData(ir);
             actionBuffer.GetData(actions);
+            freshBuffer.GetData(fresh);
 
             for (int c = 0; c < 16; ++c)
             for (int b = 0; b < 16; ++b)
@@ -520,7 +601,43 @@ namespace Genesis.RoomScan.Tests
             Assert.That(actions[2].W, Is.Zero);
             Assert.That(actions[3].X | actions[3].Y | actions[3].Z, Is.Zero);
             Assert.That(actions[3].W, Is.EqualTo(1u));
+            long[] expectedShadow =
+            {
+                SigmaNumericDomain.One, -SigmaNumericDomain.One,
+                SigmaNumericDomain.Half, -SigmaNumericDomain.Half,
+            };
+            SigmaS16 expectedState = SigmaGeneratedMerkabaProgram
+                .LiftMerkabaShadow(expectedShadow);
+            for (int axis = 0; axis < 4; ++axis)
+            {
+                Assert.That(Join(fresh[axis].X, fresh[axis].Y),
+                    Is.EqualTo(expectedShadow[axis]));
+                Assert.That(Join(fresh[axis].Z, fresh[axis].W),
+                    Is.EqualTo(expectedShadow[axis]));
+            }
+            for (int lane = 0; lane < 16; ++lane)
+                Assert.That(Join(fresh[4 + lane].X, fresh[4 + lane].Y),
+                    Is.EqualTo(expectedState[lane]));
+            Assert.That(fresh[20].X, Is.EqualTo(1u));
+            Assert.That(fresh[20].Y, Is.EqualTo(1u));
+            Assert.That(fresh[20].Z,
+                Is.EqualTo((uint)SigmaFreshAdmissionStatus.Admitted));
+            Assert.That(fresh[20].W,
+                Is.EqualTo((uint)SigmaMerkabaRelationClass.NoRelation));
+            Assert.That(fresh[21].X,
+                Is.EqualTo((uint)SigmaGeneratedMerkabaProgram.ExpressionCount));
+            Assert.That(fresh[21].Y, Is.Zero,
+                "The GPU fresh program must not consume an external relation truth.");
+            Assert.That(fresh[21].Z,
+                Is.EqualTo((uint)SigmaMerkabaRelationClass.Unresolved));
+            Assert.That(fresh[21].W, Is.EqualTo(1u));
+            Assert.That(fresh[22].X,
+                Is.EqualTo((uint)SigmaMerkabaRelationClass.NoRelation));
+            Assert.That(fresh[22].Y, Is.EqualTo(1u));
         }
+
+        private static long Join(uint low, uint high) =>
+            unchecked((long)(((ulong)high << 32) | low));
 
         private static SigmaCertificateFactor Factor(string scope,
             string expression, string independence, string provenance,

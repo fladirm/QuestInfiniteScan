@@ -8,7 +8,9 @@ Updated: 2026-08-26 (Europe/Prague)
 - Branch: `feat/sigma-prism-16-cpq4-20260822`.
 - Runtime replacement baseline: `cac9ab012f4ce574e5eb9bee88290982fd9c4fe8`.
 - Accepted primitive milestones: S4‑00 through S4‑07 where compatible with v8.3.
-- Active node: S4‑08; N1R and the corrected non-mutating N2R oracle are accepted.
+- Active node: S4‑08. Corrective N1R now includes the generated coherent-
+  observation-to-relative-support constructor. The narrow corrective N2R proof of
+  that new operation is the sole next run; N3R remains paused until it passes.
 - Active repair: S4‑08.6 one-medium native closure.
 - Frozen plan: `.codex/S4-08.6_NATIVE_CLOSURE_PLAN.md`.
 - Sole routine cursor: `.codex/S4-08.6_RESUME.md`.
@@ -143,11 +145,11 @@ non-singleton interval containing zero remains unresolved. A zero primitive
 `G`-norm remains an explicit diffraction-kernel factor.
 
 The self-hashed sole generator emits a numeric CPU/HLSL relation plan under program
-fingerprint `2595954ac6f0a2f1a096c7bdde8661c892820101d67ab90b4aeb49fbd4882bc1`:
+fingerprint `c98855216dd16d059ebaf0c33652250b7acac4681b01e0d585ab0ba28de67af3`:
 
 ```text
-opcodes / nodes / operands              29 / 48 / 46
-expressions / query entry points        15 / 7
+opcodes / nodes / operands              35 / 55 / 58
+expressions / query entry points        16 / 7
 E22 inventory                           0; direct full S16 retained
 shadow-decoupling proof                 absent; hidden modes not frozen
 associator nonzero basis triples        1848
@@ -168,6 +170,12 @@ coupled/disjunctive certificate factors       2 retained
 recursive dyadic gauge orders                 24
 transported gauge payload fields              6
 fresh non-equivalent support                  rejected
+fresh shadow/preimage fixtures                127
+fresh admitted / unresolved                   125 / 2
+fresh dual-frame round trips                  125
+fresh mixed-boundary resolutions              125
+fresh external relation-truth inputs          0
+fresh exact one-LSB defect fixture             1
 ```
 
 The query-support proof independently evaluates generated Merkaba shadows plus
@@ -185,15 +193,16 @@ previous disconnected generated files out of `Runtime` makes production
 Verified on Unity `6000.5.9f1` with Vulkan:
 
 ```text
-EditMode                              87/87 passed, 0 failed
-focused N1R tests                    10/10 passed
+EditMode                              102/102 passed, 0 failed
+focused N1R tests                    11/11 passed
+N2 consumer recompile                14/14 passed; no generated action warning
 generator regeneration/check         passed
 compute UAV <= 8                     passed
-production equality vs df5200f       passed
+production equality vs a129a85/cac9ab0 passed
 git diff hygiene                     passed
 ```
 
-## N2R corrected non-mutating oracle checkpoint
+## N2R corrected non-mutating oracle checkpoint (fresh-admission supplement pending)
 
 Source audit revoked both the premature `869f848` checkpoint and the still-
 incomplete correction at `b4d88d6`. The superseding checkpoint retains the
@@ -293,8 +302,53 @@ N2R adds 5,003 non-production oracle/test source lines plus 27 Unity metadata
 lines relative to `eacf261`. The final corrective diff over rejected `b4d88d6` is
 `+1,085/-233` test/oracle source lines. Production remains exactly `+0/-0`; the
 accepted runtime is untouched. These Editor timings validate semantics and graph
-shape only; Release Quest GPU timing begins with the live N3 cutover. N3R is
-pending and has not started.
+shape only; Release Quest GPU timing begins with the live N3 cutover. Because the
+corrective N1 checkpoint changes the program fingerprint and adds the fresh-
+admission expression, N2R now requires one narrow superseding CPU/Vulkan proof of
+that expression from coherent observation input before N3 can resume.
+
+## Corrective N1R fresh-support authority
+
+The N3 preflight correctly exposed that the accepted program normalized only an
+externally supplied relative support pattern. This checkpoint closes that N1-owned
+omission inside the sole generated program. The new executable expression is:
+
+```text
+coherent left/right sensor reverse branches
+    -> intersect four exact outward Merkaba-shadow cells per branch
+    -> enforce the tangent sum constraint
+    -> deterministic minimum-change selector from ZEmpty inside the resolved fibre
+    -> exact dual-frame lift into one full S16 value
+    -> forward shadow verification
+    -> internally generated mixed (state,ZEmpty,ZEmpty) native-relation witness
+    -> one relative level-zero chi_0/kappa_0 support cell
+    -> unique/common complete-union result or UNRESOLVED
+```
+
+The generated ABI accepts no proposed S16 state, proposed gauge cell, boundary
+relation enum, relation-satisfied bit, identity-transport bit, pixel, XYZ or NOVEL
+kind. The canonical base relation context is evaluated from the lifted state and
+`ZEmpty` operands by the generated S16 relation code. Algebra-zero support is not
+admitted; a nonzero diffraction-kernel defect remains unresolved. A nonzero exact
+Q16.48 point numerator with positive primitive `G` norm remains provably nonzero
+even when an outward normalized enclosure contains zero, while uncertain interval
+factors retain the normal unresolved classification.
+
+All surviving reverse branches must serialize the same full-S16 state, relative
+support and generated relation witness modulo the admitted global translation
+gauge. Non-equivalent branches remain unresolved. The proof covers 125 admitted
+singleton shadow cells, common-result permutation, impossible/ambiguous cases,
+diffraction-kernel rejection and an exact one-LSB nonkernel boundary. The HLSL
+directional-action helper uses explicit initialized outputs rather than a returned
+aggregate; this changes no entry point or dispatch and removes the Vulkan
+uninitialized diagnostic in every N2 consumer.
+
+This is still an authority/test-generated N1 cut: Runtime/Resources remain
+byte-identical to `a129a85` and `cac9ab0`, at the frozen 17,274 production LOC.
+The next required step is the narrow non-mutating N2 CPU/Vulkan proof starting from
+raw coherent observation branches. N3 may resume only after that proof and may
+only bind this generated operation; it may not recreate the constructor in live
+host/shader code.
 
 ## N0R implementation-safety correction
 
@@ -340,7 +394,9 @@ validate_goal_state              green, active S4-08
 ## LOC cursor
 
 ```text
-N2R current production LOC                  17274
+corrective N1R current production LOC        17274
+corrective N1R vs a129a85 production         +0 / -0 / net 0
+corrective N1R authority/test diff            +1677 / -136 / net +1541
 N2R run delta vs eacf261                    +0 / -0 / net 0
 N2R non-production source / metadata        +5003 / +27
 N2R correction vs rejected b4d88d6           +1085 / -233

@@ -255,9 +255,9 @@ branch/chart decisions remain in Git history only.
   `ZNullDyad` is rejected. Three backing spellings abstract-interpret identically
   through all seven generated forward query entries.
 - The sole self-hashed generator emits numeric CPU/HLSL expression, reduction and
-  reverse plans with arity, neighbourhood, brackets and provenance. Program
-  fingerprint is
-  `2595954ac6f0a2f1a096c7bdde8661c892820101d67ab90b4aeb49fbd4882bc1`.
+  reverse plans with arity, neighbourhood, brackets and provenance. After the
+  corrective fresh-admission expression, program fingerprint is
+  `c98855216dd16d059ebaf0c33652250b7acac4681b01e0d585ab0ba28de67af3`.
 - N1R generated execution plans are test-only to preserve the production-LOC
   stop rule until a run has an immediate consuming/deletion path. Production
   `Runtime/SigmaPrism + Runtime/Resources/SigmaPrism` is byte-equal to N0R and
@@ -303,6 +303,32 @@ branch/chart decisions remain in Git history only.
 - N2 remains non-mutating and production-neutral. Editor/Vulkan timings prove
   semantic parity and graph shape only; product GPU comparison against the
   `cac9ab0` profile begins when the generated graph becomes live on Quest in N3R.
+
+## ADR-S443 — Fresh base admission is reverse-program output, never supplied identity
+
+- The N3 preflight correctly rejected an oracle that began with externally
+  proposed S16/gauge values. Base-density `ZEmpty -> supported` admission belongs
+  to the sole generated Merkaba reverse program and must exist before live N3.
+- For the frozen minimal fresh context, coherent left/right outward shadow cells
+  intersect, satisfy the four-axis tangent constraint, select the deterministic
+  minimum-change representative from `ZEmpty`, and lift through the exact dual
+  Merkaba frame into one full S16 state.
+- The generated program forward-verifies the lifted shadow and derives its mixed
+  `(state,ZEmpty,ZEmpty)` native relation internally. No boundary enum, relation-
+  satisfied/identity boolean, proposed state/gauge, pixel, XYZ, candidate kind or
+  NOVEL identity is an input.
+- The relative base pattern is exactly one level-zero `chi_0/kappa_0` cell for the
+  N3 vertical slice. All surviving reverse alternatives must serialize the same
+  full-S16 state, relative support and relation witness modulo the generated
+  global-translation gauge; otherwise the result is `UNRESOLVED`.
+- A nonzero exact Q16.48 point defect numerator with positive primitive `G` norm
+  is a proof of a nonzero normalized factor even if an outward enclosure contains
+  zero. Uncertain interval defects retain interval classification; diffraction-
+  kernel factors remain unresolved.
+- The corrective N2 supplement must prove this generated operation from coherent
+  observation input with branch-parallel workgroups and bounded collective union
+  reduction. N3 may bind it only after that checkpoint and may not recreate it in
+  host or live shader code.
 
 ## Explicit supersession
 

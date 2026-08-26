@@ -3,6 +3,7 @@
 #pragma kernel MerkabaProgramParity
 #pragma kernel MerkabaMatrixAndIrParity
 #pragma kernel MerkabaDirectionalActionParity
+#pragma kernel MerkabaFreshAdmissionParity
 #pragma target 5.0
 
 #include "SigmaGeneratedMerkabaProgram.hlsl"
@@ -11,6 +12,7 @@ RWStructuredBuffer<uint4> _MerkabaResults;
 RWStructuredBuffer<uint4> _MerkabaMatrixResults;
 RWStructuredBuffer<uint4> _MerkabaIrResults;
 RWStructuredBuffer<uint4> _MerkabaActionResults;
+RWStructuredBuffer<uint4> _MerkabaFreshResults;
 
 [numthreads(16, 16, 1)]
 void MerkabaProgramParity(uint3 id : SV_DispatchThreadID)
@@ -51,17 +53,24 @@ void MerkabaDirectionalActionParity(uint3 id : SV_DispatchThreadID)
     uint2 zero = uint2(0u, 0u);
     uint2 one = uint2(0u, 0x00010000u);
     uint2 half = uint2(0u, 0x00008000u);
-    SigmaMerkabaDirectionalActionWitness none =
-        SigmaMerkabaBuildDirectionalAction(SIGMA_NATIVE_QUERY_NO_CLAIM,
-            one, one, half, half, valid);
-    SigmaMerkabaDirectionalActionWitness mould =
-        SigmaMerkabaBuildDirectionalAction(SIGMA_NATIVE_QUERY_FIRST_HIT_MOULD,
-            one, one, half, half, valid);
-    _MerkabaActionResults[0] = uint4(none.role, none.active,
-        none.lower.x | none.lower.y, none.upper.x | none.upper.y);
-    _MerkabaActionResults[1] = uint4(mould.role, mould.active,
-        mould.lower.x, mould.lower.y);
-    _MerkabaActionResults[2] = uint4(mould.upper.x, mould.upper.y, valid,
+    uint noneRole;
+    uint noneActive;
+    uint2 noneLower;
+    uint2 noneUpper;
+    SigmaMerkabaBuildDirectionalAction(SIGMA_NATIVE_QUERY_NO_CLAIM,
+        one, one, half, half, noneRole, noneActive, noneLower, noneUpper, valid);
+    uint mouldRole;
+    uint mouldActive;
+    uint2 mouldLower;
+    uint2 mouldUpper;
+    SigmaMerkabaBuildDirectionalAction(SIGMA_NATIVE_QUERY_FIRST_HIT_MOULD,
+        one, one, half, half, mouldRole, mouldActive, mouldLower, mouldUpper,
+        valid);
+    _MerkabaActionResults[0] = uint4(noneRole, noneActive,
+        noneLower.x | noneLower.y, noneUpper.x | noneUpper.y);
+    _MerkabaActionResults[1] = uint4(mouldRole, mouldActive,
+        mouldLower.x, mouldLower.y);
+    _MerkabaActionResults[2] = uint4(mouldUpper.x, mouldUpper.y, valid,
         SIGMA_MERKABA_QUERY_SUPPORT_FALSE_NEGATIVES);
     uint2 unbacked = SigmaMerkabaDecodeDefaultLane(
         SIGMA_DEFAULT_LOGICAL_UNBACKED, 7u);
@@ -72,4 +81,55 @@ void MerkabaDirectionalActionParity(uint3 id : SV_DispatchThreadID)
     _MerkabaActionResults[3] = uint4(unbacked.x | unbacked.y,
         explicitDefault.x | explicitDefault.y, nullCodec.x | nullCodec.y,
         SIGMA_MERKABA_REPRESENTATION_DEFAULT_PARITY);
+}
+
+[numthreads(1, 1, 1)]
+void MerkabaFreshAdmissionParity(uint3 id : SV_DispatchThreadID)
+{
+    uint valid = 1u;
+    uint2 one = uint2(0u, 0x00010000u);
+    uint2 negativeOne = uint2(0u, 0xffff0000u);
+    uint2 half = uint2(0u, 0x00008000u);
+    uint2 negativeHalf = uint2(0u, 0xffff8000u);
+    uint2 lower[4];
+    uint2 upper[4];
+    lower[0] = upper[0] = one;
+    lower[1] = upper[1] = negativeOne;
+    lower[2] = upper[2] = half;
+    lower[3] = upper[3] = negativeHalf;
+    uint2 state[16];
+    uint2 selected[4];
+    uint boundaryRelation = SIGMA_MERKABA_RELATION_UNRESOLVED;
+    bool admitted = SigmaMerkabaResolveFreshBranch(lower, upper,
+        SIGMA_FRESH_FIRST_HIT_LEFT | SIGMA_FRESH_FIRST_HIT_RIGHT, 1u,
+        state, selected, boundaryRelation, valid);
+    uint2 forward[4];
+    SigmaMerkabaEvaluateShadow(state, forward, valid);
+    [unroll]
+    for (uint axis = 0u; axis < 4u; ++axis)
+        _MerkabaFreshResults[axis] = uint4(selected[axis], forward[axis]);
+    [unroll]
+    for (uint lane = 0u; lane < 16u; ++lane)
+        _MerkabaFreshResults[4u + lane] = uint4(state[lane], 0u, 0u);
+    _MerkabaFreshResults[20] = uint4(admitted ? 1u : 0u, valid,
+        SIGMA_FRESH_ADMISSION_ADMITTED, boundaryRelation);
+    uint2 kernelState[16];
+    [unroll]
+    for (uint kernelLane = 0u; kernelLane < 16u; ++kernelLane)
+        kernelState[kernelLane] = uint2(0u, 0u);
+    kernelState[0] = one;
+    uint kernelValid = 1u;
+    uint kernelRelation = SigmaMerkabaEvaluateFreshBoundaryRelation(
+        kernelState, kernelValid);
+    _MerkabaFreshResults[21] = uint4(SIGMA_MERKABA_EXPRESSION_COUNT,
+        SIGMA_FRESH_EXTERNAL_RELATION_TRUTH_INPUT_COUNT,
+        kernelRelation, kernelValid);
+    [unroll]
+    for (uint tinyLane = 0u; tinyLane < 16u; ++tinyLane)
+        kernelState[tinyLane] = uint2(0u, 0u);
+    kernelState[1] = uint2(1u, 0u);
+    uint tinyValid = 1u;
+    uint tinyRelation = SigmaMerkabaEvaluateFreshBoundaryRelation(
+        kernelState, tinyValid);
+    _MerkabaFreshResults[22] = uint4(tinyRelation, tinyValid, 0u, 0u);
 }
