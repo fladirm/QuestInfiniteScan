@@ -8,9 +8,9 @@ Updated: 2026-08-26 (Europe/Prague)
 - Branch: `feat/sigma-prism-16-cpq4-20260822`.
 - Runtime replacement baseline: `cac9ab012f4ce574e5eb9bee88290982fd9c4fe8`.
 - Accepted primitive milestones: S4‑00 through S4‑07 where compatible with v8.3.
-- Active node: S4‑08. Corrective N1R-4 constructive `I_Q` boundary and its
-  production-neutral N2R-4 consumer proof are accepted. N3R is the sole next run
-  and resumes from its shelved hard stop.
+- Active node: S4‑08. Corrective N1R-4 and N2R-4 are accepted. N3R has completed
+  its live joint-close cutover and Quest recovery/device gates; N4R is the sole
+  next run. S4-09 remains unopened.
 - Active repair: S4‑08.6 one-medium native closure.
 - Frozen plan: `.codex/S4-08.6_NATIVE_CLOSURE_PLAN.md`.
 - Sole routine cursor: `.codex/S4-08.6_RESUME.md`.
@@ -404,6 +404,66 @@ per eye are assembled by the generated program inside the existing 64-thread
 contractor workgroup. N3 may bind it but may not recreate the adapter or
 constructor in live host/shader code.
 
+## N3R accepted live NativeCloseCommit checkpoint
+
+N3R binds the N1R/N2R-proved calibrated fresh-admission expression into one live
+GPU close and hard-deletes the legacy proposal/source-cell/provider/topology/edge/
+sort publication graph. The live native close is a fixed nine-dispatch graph:
+
+```text
+BuildNativeObservation
+ContractNativeQuery                x2
+EvaluateNativeRelation             x2
+PrepareNativeRevision
+PrepareNativePage
+ScatterNativeState
+CloseAndPublishNativeRevision
+```
+
+Relation cardinality changes workgroups, not submissions. One 256-thread relation
+group evaluates the 16x16 signed-XOR plane, explicit bracket phases, exact G
+reductions and 168 annihilator actions in parallel. No per-page, per-support,
+per-relation, per-lane or per-segment dispatch loop exists. The profiled complete
+scan submission includes four retained instrument/pose preparation dispatches, so
+Quest records 13 dispatches across 11 entry points; the N3 native term is 9 and the
+normative `D_budget <= 80` gate passes.
+
+The decoded budget is now a ceiling rather than an eager allocation target. N3
+allocates only one two-page current/shadow pair. An unresolved terminal outcome
+copies a compact 272-byte exact record after the GPU fence and immediately releases
+the RGB/depth lease; it never queues capture textures. This removed the observed
+19-second cold allocation stall and eight-frame `RingExhausted` ownership leak.
+
+Quest Release evidence from the installed N3 APK:
+
+```text
+first graph ready -> first terminal receipt       about 114 ms
+first published root                              revision 9
+published delta                                   1 full-S16 state, 0 gauge
+first profiled unresolved submission              13 dispatches / 11 kernels
+GPU timestamp checksum                            0.670 ms
+second start profiled submission                  0.729 ms
+native-close wall                                 ~57-59 ms steady mean
+observed maximum                                  92.23 ms
+continuous receipts                               revisions 1..840
+stop/start continuation                           revision 582..840
+RingExhausted / canonical fault                   0 / 0
+Unity Vulkan EditMode                             65/65 passed
+generator / UAV / diff hygiene                    passed / passed / passed
+```
+
+The timestamp sample is an unresolved-path GPU measurement, not an informative-
+commit GPU claim. Revision 9 independently proves that fresh all-`ZEmpty` support
+can publish. Later unattached support remains deliberately unresolved in N3 because
+regional support/density and durable constraint closure begin in N4.
+
+The temporary preview is still the pre-N6 `SigmaGeometryReadout` consumer. N3
+publishes only one base-density sample, and the new Merkaba tangent lift is not
+equivalent to that legacy G projector (two of its four selected geometry rows are
+identically zero on the lift). A blank/imperceptible preview therefore does not
+mean the N3 root is absent; the authoritative generated eye/readout cutover remains
+N6 ownership and no readout heuristic is added to N3.
+
 ## N0R implementation-safety correction
 
 The accepted N0R ontology is unchanged, but its implementation contract is now
@@ -462,6 +522,11 @@ N2R gross deletion vs cac9ab0               0
 N2R new production vs cac9ab0               0
 N2R net vs cac9ab0                          0
 N2R net vs d3b83e1                          +601
+N3R Sigma production vs N2R              +2498 / -10008 / net -7510
+N3R all Runtime code incl. requested UX  +2607 / -10110 / net -7503
+current Sigma production LOC                              9764
+current gross/new/net vs cac9ab0             10008 / 2498 / -7510
+current net vs d3b83e1                                    -6909
 
 final gross deletion vs cac9ab0             >=10000
 final new production                         <=4000

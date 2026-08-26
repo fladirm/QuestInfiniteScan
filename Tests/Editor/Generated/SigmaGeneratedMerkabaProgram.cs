@@ -431,13 +431,13 @@ namespace Genesis.RoomScan.SigmaPrism
     {
         internal const string ProgramVersion = "CPQ4-S16-MERKABA-N1R-4";
         internal const string NumericDomainId = "num.fixed.q16_48.checked.nearest_even";
-        internal const string ProgramFingerprint = "89d6d581391978f78eb9fc3bd461a65d36575e69eb01ed0c6b4189c9e076e435";
+        internal const string ProgramFingerprint = "9a077f38c84d44de1d0f5e886f8df55ddd1d287dbac740fe4885de34ade7b1d4";
         internal const string CaptureBoundaryFingerprint =
             "2b492bf2deba23077ff873275f8672a3949e460a2b1ec2429c199fcd62691ba2";
         internal const int CaptureBoundaryLeafCount =
             8;
         internal const string DeclaredToeUpstreamFingerprint = "9d2e3604846305cfe5244a4ef49f169632c60582cf895256fadc36426dc5786f";
-        internal const string GeneratorSourceInputFingerprint = "e2299122decd655a4633bf7123106155f67c24f8283f6a6e1dfdaef72c693fc1";
+        internal const string GeneratorSourceInputFingerprint = "21f9d96cc737f346090af71e30b73204e0f64ffa3fa269ac46608bd763ba0500";
         internal const string ToeCapsuleInputFingerprint = "9cdc8b1f3bfecfa3a49805be82ea786cdbf681ee8ffbdab0733d18dc24cfffef";
         internal const string ToeUpstreamDeclaredInputFingerprint = "9d2e3604846305cfe5244a4ef49f169632c60582cf895256fadc36426dc5786f";
         internal const string IQInputFingerprint = "e3e0e60770431f32d7d2a698ed5b75dedfc8498893cfbc47a80d2e726d575b7e";

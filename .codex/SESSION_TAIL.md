@@ -2,29 +2,34 @@
 
 ## Exchange 1 — user
 
-Required continuation without repeated state reload after compaction and demanded
-that existing capture/calibration fields be assembled into the authoritative I_Q
-boundary, with no identity rows, fixed footprints, depth-only exception or
-host-prebuilt query/S16/gauge/relation truth.
+Ran the N3 Quest APK and reported a first-start UI stall, epoch 1 with no visible
+scan/readout, then exercised stop/start. Asked whether unresolved outcomes,
+readbacks, dispatch shape and renderer behaviour were correct, while requiring no
+serial shader or dispatch-zoo regression.
 
 ## Exchange 1 — assistant
 
-Completed corrective N1R-4 at `c3ac16a`: one generated CPU/HLSL adapter maps
-calibrated room-gauge cone rays, finite footprints, metric order and raw depth/RGB
-code regions into eight retained leaves. Focused CPU/Vulkan passes 12/12;
-Runtime/Resources remain +0/-0.
+Device evidence separated the issues. The fixed native close is nine dispatches
+and the complete profiled scan submission is 13 dispatches/11 entry points with
+0.670 ms unresolved-path GPU work. The original 19-second stall and eight-frame
+`RingExhausted` came from eager 1024 MiB carrier allocation plus unresolved records
+retaining full capture leases. N3 now allocates one two-page pair, copies a 272-byte
+exact unresolved record and releases capture textures after the fence/readback
+issue. Unity Vulkan passes 65/65 and the rebuilt APK is installed.
 
 ## Exchange 2 — user
 
-Requested concrete status and ETA through final N3R without weakening fixed run
-gates or regrowing sequential kernels/dispatches.
+Confirmed stop/start and asked why no readout was visible, whether the log showed
+that there was actually nothing to display, and requested final analysis, device
+logs, commit and push.
 
 ## Exchange 2 — assistant
 
-Completed corrective N2R-4 implementation and verification. Fresh admission now
-starts from raw left/right instrument boundaries on CPU and Vulkan. The existing
-64-thread contractor workgroup generates all eight leaves; the graph remains
-Contract->Relation->Contract, three dispatches over two entry points. Focused N2
-passes 15/15 and full EditMode Vulkan 104/104 with Runtime/Resources +0/-0. Next
-action is the separate N2 checkpoint commit, then exact restoration/resumption of
-the shelved N3R cutover.
+The second device interval ran revisions 582 through 840 with no ring exhaustion
+or fault; the first interval published one full-S16 delta/root at revision 9. N3
+therefore scans and publishes, but owns only one base-density bootstrap sample.
+The temporary preview still consumes the pre-N6 GeometryG projection, which is not
+equivalent to the new Merkaba tangent lift and is degenerate on two selected rows.
+Thus an empty-looking preview is not evidence of a missing root. N6 owns the
+generated eye/readout cutover; N3 is being checkpointed without inventing an
+interim geometry authority.

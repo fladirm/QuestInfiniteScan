@@ -1,7 +1,8 @@
 fileFormatVersion: 2
-guid: 790f3b734cc04b70a127bb1db9a1f8ba
+guid: 43fd2bf85a8743498e67693f153ae63a
 ComputeShaderImporter:
   externalObjects: {}
   preprocessorOverride: 0
+  userData: N3R live native query lowering
   assetBundleName:
   assetBundleVariant:

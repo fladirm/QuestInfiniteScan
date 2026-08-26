@@ -1219,20 +1219,20 @@ namespace Genesis.RoomScan.Tests
             using GraphicsBuffer dummyTransferRanges = Buffer(new UInt2[3]);
             using GraphicsBuffer dummyTransferData = Buffer(new UInt2[4]);
 
-            contractShader.SetBuffer(contract, "_NativeCandidateKeys", dummyKey);
-            contractShader.SetBuffer(contract, "_NativeCandidateStates",
+            contractShader.SetBuffer(contract, "_NativeReverseKeys", dummyKey);
+            contractShader.SetBuffer(contract, "_NativeReverseStates",
                 dummyCandidateState);
-            contractShader.SetBuffer(contract, "_NativeCandidateGaugeCoordinates",
+            contractShader.SetBuffer(contract, "_NativeReverseGaugeCoordinates",
                 dummyGaugeCoordinate);
-            contractShader.SetBuffer(contract, "_NativeCandidateGaugeMetadata",
+            contractShader.SetBuffer(contract, "_NativeReverseGaugeMetadata",
                 dummyGaugeMetadata);
-            contractShader.SetBuffer(contract, "_NativeCandidateRelationResults",
+            contractShader.SetBuffer(contract, "_NativeReverseRelationResults",
                 relationResults);
-            contractShader.SetBuffer(contract, "_NativeCandidateRelationFactors",
+            contractShader.SetBuffer(contract, "_NativeReverseRelationFactors",
                 relationFactors);
-            contractShader.SetBuffer(contract, "_NativeCandidateRelationHashes",
+            contractShader.SetBuffer(contract, "_NativeReverseRelationHashes",
                 relationHashes);
-            contractShader.SetBuffer(contract, "_NativeCandidateDeltaHashes",
+            contractShader.SetBuffer(contract, "_NativeReverseDeltaHashes",
                 dummyHash);
             contractShader.SetBuffer(contract, "_NativeStates", stateBuffer);
             contractShader.SetBuffer(contract, "_NativeQueryRows", dummyRows);
@@ -1272,7 +1272,7 @@ namespace Genesis.RoomScan.Tests
                 EntryPointIndex("SENSOR_LEFT"));
             contractShader.SetInt("_NativeFreshRightEntryPointIndex",
                 EntryPointIndex("SENSOR_RIGHT"));
-            contractShader.SetInt("_NativeCandidateCount", 0);
+            contractShader.SetInt("_NativeReverseCount", 0);
             contractShader.SetInt("_NativeHotCapacity", 0);
             contractShader.SetInt("_NativeContractMode", 1);
 
@@ -1485,21 +1485,21 @@ namespace Genesis.RoomScan.Tests
             int overflow = contractShader.FindKernel("ResolveContractorOverflow");
             foreach (int kernel in new[] { hot, overflow })
             {
-                contractShader.SetBuffer(kernel, "_NativeCandidateKeys", keyBuffer);
-                contractShader.SetBuffer(kernel, "_NativeCandidateStates",
+                contractShader.SetBuffer(kernel, "_NativeReverseKeys", keyBuffer);
+                contractShader.SetBuffer(kernel, "_NativeReverseStates",
                     candidateStateBuffer);
                 contractShader.SetBuffer(kernel,
-                    "_NativeCandidateGaugeCoordinates",
+                    "_NativeReverseGaugeCoordinates",
                     gaugeCoordinateBuffer);
-                contractShader.SetBuffer(kernel, "_NativeCandidateGaugeMetadata",
+                contractShader.SetBuffer(kernel, "_NativeReverseGaugeMetadata",
                     gaugeMetadataBuffer);
-                contractShader.SetBuffer(kernel, "_NativeCandidateRelationResults",
+                contractShader.SetBuffer(kernel, "_NativeReverseRelationResults",
                     relationResults);
-                contractShader.SetBuffer(kernel, "_NativeCandidateRelationFactors",
+                contractShader.SetBuffer(kernel, "_NativeReverseRelationFactors",
                     computedRelationFactors);
-                contractShader.SetBuffer(kernel, "_NativeCandidateRelationHashes",
+                contractShader.SetBuffer(kernel, "_NativeReverseRelationHashes",
                     computedRelationHashes);
-                contractShader.SetBuffer(kernel, "_NativeCandidateDeltaHashes",
+                contractShader.SetBuffer(kernel, "_NativeReverseDeltaHashes",
                     hashBuffer);
                 contractShader.SetBuffer(kernel, "_NativeStates", stateBuffer);
                 contractShader.SetBuffer(kernel, "_NativeQueryRows", rowBuffer);
@@ -1542,7 +1542,7 @@ namespace Genesis.RoomScan.Tests
                     branchRelationHashes);
             }
             contractShader.SetBuffer(build, "_NativeOverflowArgs", args);
-            contractShader.SetInt("_NativeCandidateCount", candidateCount);
+            contractShader.SetInt("_NativeReverseCount", candidateCount);
             contractShader.SetInt("_NativeHotCapacity", 2);
             contractShader.SetInt("_NativeContractMode", 0);
             contractShader.SetInt("_NativeFreshBranchCount", 0);
@@ -1909,11 +1909,11 @@ namespace Genesis.RoomScan.Tests
             shader.SetBuffer(evaluate, "_NativeQueryRows", rowBuffer);
             shader.SetBuffer(evaluate, "_NativeQueryFootprints", footprintBuffer);
             shader.SetBuffer(evaluate, "_NativeRelationResults", relationResults);
-            shader.SetBuffer(evaluate, "_NativeContributionHeaders", headers);
-            shader.SetBuffer(evaluate, "_NativeContributionOrderMeasures",
+            shader.SetBuffer(evaluate, "_NativeContributionHeadersWrite", headers);
+            shader.SetBuffer(evaluate, "_NativeContributionOrderMeasuresWrite",
                 orderMeasures);
-            shader.SetBuffer(evaluate, "_NativeContributionOptical", optical);
-            shader.SetBuffer(evaluate, "_NativeContributionRelations",
+            shader.SetBuffer(evaluate, "_NativeContributionOpticalWrite", optical);
+            shader.SetBuffer(evaluate, "_NativeContributionRelationsWrite",
                 contributionRelations);
             shader.SetInt("_NativeEntryPointIndex", Array.FindIndex(
                 SigmaGeneratedMerkabaProgram.EntryPoints,

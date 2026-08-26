@@ -1,7 +1,8 @@
 fileFormatVersion: 2
-guid: c7555e9c187a4ccbaaf1282f9bf10794
+guid: d6fe00f942044604b90e8159062e2f31
 ComputeShaderImporter:
   externalObjects: {}
   preprocessorOverride: 0
+  userData: N3R fixed NativeCloseCommit and root-last publication
   assetBundleName:
   assetBundleVariant:

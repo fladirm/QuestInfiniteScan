@@ -37,66 +37,70 @@ CS_MERKABA_OUTPUT = (ROOT / "Tests" / "Editor" / "Generated" /
                      "SigmaGeneratedMerkabaProgram.cs")
 HLSL_MERKABA_OUTPUT = (ROOT / "Tests" / "Editor" / "Generated" /
                        "SigmaGeneratedMerkabaProgram.hlsl")
+HLSL_RUNTIME_MERKABA_OUTPUT = (ROOT / "Runtime" / "Resources" /
+                               "SigmaPrism" / "Generated" /
+                               "SigmaGeneratedMerkabaProgram.hlsl")
 HLSL_MERKABA_FIXTURE_OUTPUT = (ROOT / "Tests" / "Editor" / "Generated" /
                                "SigmaMerkabaProgramFixture.compute")
 NUMERIC_ID = "num.fixed.q16_48.checked.nearest_even"
 GENERATOR_VERSION = "CPQ4-S16-GEN-1"
-FRAME_ABI_VERSION = "CPQ4-S16-FRAME-1"
+FRAME_ABI_VERSION = "CPQ4-S16-NATIVE-FRAME-1"
 MERKABA_PROGRAM_VERSION = "CPQ4-S16-MERKABA-N1R-4"
 TOE_UPSTREAM_SHA256 = "9d2e3604846305cfe5244a4ef49f169632c60582cf895256fadc36426dc5786f"
 LANES = 16
 
 FRAME_STRUCTS = (
-    ("SigmaOwnedFrameGpu", ("Identity", "Keys", "PoseSource")),
-    ("SigmaFrameCandidateGpu", ("Identity", "Handle", "Coordinate")),
-    ("SigmaFrameOutcomeGpu", ("Classification", "Evidence")),
-    ("SigmaPendingGaugeGpu", ("Identity", "Provenance", "LocalExtent")),
-    ("SigmaFrameDeltaGpu", ("Coordinate", "Candidate", "Evidence")),
-    ("SigmaDirtyEdgeGpu", ("Left", "Right", "Closure")),
-    ("SigmaFrameRevisionGpu", ("Identity", "ChangedPages", "WitnessJournal")),
+    ("SigmaNativeFrameGpu", ("Identity", "Disposition", "Evidence",
+                              "Publication")),
+    ("SigmaNativeObservationGpu", ("Identity", "Footprint", "Evidence",
+                                    "Query")),
+    ("SigmaNativeReverseWorkGpu", ("Identity", "Support", "Relation",
+                                    "Provenance")),
+    ("SigmaNativeStateDeltaGpu", ("Coordinate", "Generation", "Changed",
+                                   "Witness", "Receipts", "State01",
+                                   "State23", "State45", "State67",
+                                   "State89", "State1011", "State1213",
+                                   "State1415")),
+    ("SigmaNativeGaugeDeltaGpu", ("Coordinate", "Prior", "Next", "Witness")),
+    ("SigmaUnresolvedConstraintGpu", ("Observation", "Relation", "Evidence",
+                                      "Provenance")),
+    ("SigmaNativeFieldRevisionGpu", ("Identity", "Changed", "Evidence",
+                                     "Publication")),
 )
 
 FRAME_ENUMS = {
-    "SigmaFrameSource": {
-        "DepthLeft": 0,
-        "DepthRight": 1,
-        "RgbLeft": 2,
-        "RgbRight": 3,
+    "SigmaNativeSensorSide": {
+        "Left": 0,
+        "Right": 1,
     },
-    "SigmaFrameProposalKind": {
-        "None": 0,
-        "Current": 1,
-        "Pending": 2,
-        "Continuation": 3,
-        "Novel": 4,
+    "SigmaNativeLeafKind": {
+        "Order": 0,
+        "Optical0": 1,
+        "Optical1": 2,
+        "Optical2": 3,
     },
-    "SigmaFrameTargetKind": {
-        "None": 0,
-        "Canonical": 1,
-        "Pending": 2,
+    "SigmaNativeFirstHitRole": {
+        "NoClaim": 0,
+        "PreHitExclusion": 1,
+        "FirstHitMould": 2,
     },
-    "SigmaFrameClaimKind": {
-        "None": 0,
-        "Contact": 1,
-        "ProvenNull": 2,
-        "Conflict": 3,
-    },
-    "SigmaOwnedFrameState": {
+    "SigmaNativeFrameDisposition": {
         "Free": 0,
-        "Sealed": 1,
-        "SourceCells": 2,
+        "GpuOwned": 1,
+        "NoChange": 2,
         "Resolved": 3,
-        "Closed": 4,
-        "EvidenceRetained": 5,
+        "Unresolved": 4,
+        "Published": 5,
+        "Faulted": 6,
     },
-    "SigmaPendingGaugeState": {
-        "Free": 0,
-        "Open": 1,
-        "Supported": 2,
-        "Promoted": 3,
-        "Aborted": 4,
+    "SigmaNativeColdReason": {
+        "None": 0,
+        "ContractorOverflow": 1,
+        "RepresentationRefinement": 2,
+        "PageFault": 3,
+        "GaugeNormalization": 4,
     },
-    "SigmaFrameRevisionState": {
+    "SigmaNativeRevisionState": {
         "Free": 0,
         "Building": 1,
         "Closed": 2,
@@ -104,27 +108,25 @@ FRAME_ENUMS = {
     },
 }
 
-FRAME_OUTCOME_FLAGS = {
-    "Accepted": 1 << 0,
-    "Unchanged": 1 << 1,
-    "Conflict": 1 << 2,
-    "Exclusion": 1 << 3,
-    "Pending": 1 << 4,
-    "Deferred": 1 << 5,
+FRAME_OBSERVATION_FLAGS = {
+    "Coherent": 1 << 0,
+    "LeftFirstHit": 1 << 1,
+    "RightFirstHit": 1 << 2,
+    "LeftEvidence": 1 << 3,
+    "RightEvidence": 1 << 4,
+    "OpticalClaim": 1 << 5,
+    "PriorSupport": 1 << 6,
     "Fault": 1 << 31,
 }
 
-FRAME_CELL_FLAGS = {
-    "Constrained": 1 << 0,
-    "Observed": 1 << 1,
-    "Unobservable": 1 << 2,
-    "Independent": 1 << 3,
-    "Conflict": 1 << 4,
-    "Accepted": 1 << 5,
+FRAME_DELTA_FLAGS = {
+    "Resolved": 1 << 0,
+    "Common": 1 << 1,
+    "StateChanged": 1 << 2,
+    "GaugeChanged": 1 << 3,
+    "EvidenceRetained": 1 << 4,
     "Fault": 1 << 31,
 }
-
-FRAME_SOURCE_MASK_SHIFT = 8
 
 @lru_cache(maxsize=None)
 def basis_product(dimension: int, left: int, right: int) -> tuple[int, int]:
@@ -3227,7 +3229,8 @@ namespace Genesis.RoomScan.SigmaPrism
 """
 
 
-def render_merkaba_hlsl(descriptor: dict) -> str:
+def render_merkaba_hlsl(descriptor: dict, include_prefix: str =
+                        "../../../Runtime/Resources/SigmaPrism") -> str:
     proofs = descriptor["proofs"]
     ir = descriptor["ir"]
     diffraction = ", ".join(str(value) for value in descriptor["diffractionMatrix"])
@@ -3271,9 +3274,9 @@ def render_merkaba_hlsl(descriptor: dict) -> str:
 #ifndef SIGMA_GENERATED_MERKABA_PROGRAM_INCLUDED
 #define SIGMA_GENERATED_MERKABA_PROGRAM_INCLUDED
 
-#include "../../../Runtime/Resources/SigmaPrism/Sedenion16.hlsl"
-#include "../../../Runtime/Resources/SigmaPrism/SigmaExactCompare.hlsl"
-#include "../../../Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedTables.hlsl"
+#include "{include_prefix}/Sedenion16.hlsl"
+#include "{include_prefix}/SigmaExactCompare.hlsl"
+#include "{include_prefix}/Generated/SigmaGeneratedTables.hlsl"
 
 {opcode_macros}
 
@@ -3918,6 +3921,7 @@ def render_authority_manifest(descriptor: dict) -> str:
         "generatedOutputs": [
             CS_MERKABA_OUTPUT.relative_to(ROOT).as_posix(),
             HLSL_MERKABA_OUTPUT.relative_to(ROOT).as_posix(),
+            HLSL_RUNTIME_MERKABA_OUTPUT.relative_to(ROOT).as_posix(),
             HLSL_MERKABA_FIXTURE_OUTPUT.relative_to(ROOT).as_posix(),
         ],
         "proofs": descriptor["proofs"],
@@ -3940,11 +3944,12 @@ def upper_snake(value: str) -> str:
     return "".join(output)
 
 
-def frame_abi_descriptor() -> dict:
+def frame_abi_descriptor(merkaba: dict) -> dict:
     descriptor = {
         "version": FRAME_ABI_VERSION,
         "laneCount": LANES,
-        "sourceCount": len(FRAME_ENUMS["SigmaFrameSource"]),
+        "sensorSideCount": len(FRAME_ENUMS["SigmaNativeSensorSide"]),
+        "leafCount": len(FRAME_ENUMS["SigmaNativeLeafKind"]),
         "structs": [
             {
                 "name": name,
@@ -3954,12 +3959,15 @@ def frame_abi_descriptor() -> dict:
             for name, fields in FRAME_STRUCTS
         ],
         "enums": FRAME_ENUMS,
-        "outcomeFlags": FRAME_OUTCOME_FLAGS,
-        "cellFlags": FRAME_CELL_FLAGS,
+        "observationFlags": FRAME_OBSERVATION_FLAGS,
+        "deltaFlags": FRAME_DELTA_FLAGS,
         "packedQ48Stride": 8,
         "validityStride": 4,
         "provenanceStride": 16,
-        "sourceMaskShift": FRAME_SOURCE_MASK_SHIFT,
+        "entryPoints": {
+            entry["id"]: index
+            for index, entry in enumerate(merkaba["ir"]["entryPoints"])
+        },
     }
     descriptor["fingerprint"] = sha256(descriptor)
     return descriptor
@@ -3976,17 +3984,17 @@ def render_frame_cs(frame: dict) -> str:
 
     flag_members = "\n".join(
         f"        {name} = 0x{value:08x}u,"
-        for name, value in frame["outcomeFlags"].items())
+        for name, value in frame["observationFlags"].items())
     enum_text.append(
         "    [System.Flags]\n"
-        "    internal enum SigmaFrameOutcomeFlags : uint\n"
+        "    internal enum SigmaNativeObservationFlags : uint\n"
         f"    {{\n        None = 0u,\n{flag_members}\n    }}")
     cell_flag_members = "\n".join(
         f"        {name} = 0x{value:08x}u,"
-        for name, value in frame["cellFlags"].items())
+        for name, value in frame["deltaFlags"].items())
     enum_text.append(
         "    [System.Flags]\n"
-        "    internal enum SigmaFrameCellFlags : uint\n"
+        "    internal enum SigmaNativeDeltaFlags : uint\n"
         f"    {{\n        None = 0u,\n{cell_flag_members}\n    }}")
 
     struct_text = []
@@ -4003,6 +4011,9 @@ def render_frame_cs(frame: dict) -> str:
         f"        internal const int {entry['name'][5:-3]}Stride = "
         f"{entry['stride']};"
         for entry in frame["structs"])
+    entry_point_lines = "\n".join(
+        f"        internal const int {''.join(part.title() for part in name.split('_'))}EntryPoint = {index};"
+        for name, index in frame["entryPoints"].items())
 
     return f"""// <auto-generated by Tools/sigma/generate_sigma_operators.py>
 // Canonical baseline: CPQ4-2026-08-24-S16-v7. Do not edit by hand.
@@ -4035,14 +4046,15 @@ namespace Genesis.RoomScan.SigmaPrism
     {{
         internal const string AbiVersion = "{frame['version']}";
         internal const string AbiFingerprint = "{frame['fingerprint']}";
-        internal const int SourceCount = {frame['sourceCount']};
+        internal const int SensorSideCount = {frame['sensorSideCount']};
+        internal const int LeafCount = {frame['leafCount']};
         internal const int LaneCount = {frame['laneCount']};
         internal const int PackedQ48Stride = {frame['packedQ48Stride']};
         internal const int ValidityStride = {frame['validityStride']};
         internal const int ProvenanceStride = {frame['provenanceStride']};
-        internal const int SourceMaskShift = {frame['sourceMaskShift']};
         internal const uint Invalid = 0xffffffffu;
 {stride_lines}
+{entry_point_lines}
     }}
 }}
 """
@@ -4055,14 +4067,12 @@ def render_frame_hlsl(frame: dict) -> str:
         for name, value in values.items():
             macro_lines.append(
                 f"#define SIGMA_{prefix}_{upper_snake(name)} {value}u")
-    for name, value in frame["outcomeFlags"].items():
+    for name, value in frame["observationFlags"].items():
         macro_lines.append(
-            f"#define SIGMA_FRAME_OUTCOME_{upper_snake(name)} 0x{value:08x}u")
-    for name, value in frame["cellFlags"].items():
+            f"#define SIGMA_NATIVE_OBSERVATION_{upper_snake(name)} 0x{value:08x}u")
+    for name, value in frame["deltaFlags"].items():
         macro_lines.append(
-            f"#define SIGMA_FRAME_CELL_{upper_snake(name)} 0x{value:08x}u")
-    macro_lines.append(
-        f"#define SIGMA_FRAME_SOURCE_MASK_SHIFT {frame['sourceMaskShift']}u")
+            f"#define SIGMA_NATIVE_DELTA_{upper_snake(name)} 0x{value:08x}u")
 
     struct_text = []
     for entry in frame["structs"]:
@@ -4080,7 +4090,8 @@ def render_frame_hlsl(frame: dict) -> str:
 
 #include "SigmaCarrierAbi.hlsl"
 
-#define SIGMA_FRAME_SOURCE_COUNT {frame['sourceCount']}u
+#define SIGMA_NATIVE_SENSOR_SIDE_COUNT {frame['sensorSideCount']}u
+#define SIGMA_NATIVE_LEAF_COUNT {frame['leafCount']}u
 #define SIGMA_FRAME_LANE_COUNT {frame['laneCount']}u
 #define SIGMA_FRAME_INVALID 0xffffffffu
 {chr(10).join(macro_lines)}
@@ -4114,7 +4125,7 @@ def main() -> int:
     args = parser.parse_args()
     descriptor = build_descriptor()
     merkaba = build_merkaba_descriptor(descriptor)
-    frame = frame_abi_descriptor()
+    frame = frame_abi_descriptor(merkaba)
     if args.summary:
         print(json.dumps({
             "generator": descriptor["generatorVersion"],
@@ -4139,6 +4150,8 @@ def main() -> int:
                             render_merkaba_cs(merkaba), args.check)
     valid &= check_or_write(HLSL_MERKABA_OUTPUT,
                             render_merkaba_hlsl(merkaba), args.check)
+    valid &= check_or_write(HLSL_RUNTIME_MERKABA_OUTPUT,
+                            render_merkaba_hlsl(merkaba, ".."), args.check)
     valid &= check_or_write(HLSL_MERKABA_FIXTURE_OUTPUT,
                             render_merkaba_fixture(merkaba), args.check)
     valid &= check_or_write(AUTHORITY_MANIFEST_OUTPUT,

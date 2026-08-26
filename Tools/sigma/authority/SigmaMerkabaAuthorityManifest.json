@@ -1145,6 +1145,7 @@
   "generatedOutputs": [
     "Tests/Editor/Generated/SigmaGeneratedMerkabaProgram.cs",
     "Tests/Editor/Generated/SigmaGeneratedMerkabaProgram.hlsl",
+    "Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedMerkabaProgram.hlsl",
     "Tests/Editor/Generated/SigmaMerkabaProgramFixture.compute"
   ],
   "inputs": {
@@ -1159,7 +1160,7 @@
     },
     "generatorSource": {
       "path": "Tools/sigma/generate_sigma_operators.py",
-      "sha256": "e2299122decd655a4633bf7123106155f67c24f8283f6a6e1dfdaef72c693fc1",
+      "sha256": "21f9d96cc737f346090af71e30b73204e0f64ffa3fa269ac46608bd763ba0500",
       "version": "CPQ4-S16-GEN-1"
     },
     "queryBoundary": {
@@ -1219,7 +1220,7 @@
     "unboundedParameterRegion": "FORBIDDEN_TO_PROVE_COMPATIBILITY_OR_MUTATION",
     "whiteBalance": "BOUNDED_PER_CHANNEL_GAIN"
   },
-  "programFingerprint": "89d6d581391978f78eb9fc3bd461a65d36575e69eb01ed0c6b4189c9e076e435",
+  "programFingerprint": "9a077f38c84d44de1d0f5e886f8df55ddd1d287dbac740fe4885de34ade7b1d4",
   "programVersion": "CPQ4-S16-MERKABA-N1R-4",
   "proofs": {
     "allDefaultActiveWork": 0,

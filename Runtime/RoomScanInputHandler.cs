@@ -44,11 +44,8 @@ namespace Genesis.RoomScan
         [SerializeField, Tooltip("Controller button → action mappings. Editable at runtime.")]
         private List<ScanInputBinding> bindings = new()
         {
-            // Left thumbstick click. NOTE: OVRInput.Button.Start (left ≡) is
-            // NOT reserved by Horizon OS — only the right Meta/Oculus logo
-            // button is. We use thumbstick-click here instead so host apps
-            // remain free to wire Button.Start to their own pause menu, which
-            // is the standard convention on Quest titles.
+            // Left thumbstick preserves the established show/hide gesture.
+            // Pointer movement and click authority are right-controller only.
             new() { action = ScanAction.ToggleDebugMenu,     button = OVRInput.Button.PrimaryThumbstick, enabled = true },
             new() { action = ScanAction.CycleRenderMode,     button = OVRInput.Button.Three, enabled = true },
         };

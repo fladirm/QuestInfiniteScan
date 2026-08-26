@@ -157,6 +157,9 @@ namespace Genesis.RoomScan.Tests
             Assert.That(SigmaCarrier.DecodedPageBytes, Is.EqualTo(524288));
             Assert.That(SigmaCarrier.DefaultDecodedBudgetMegabytes,
                 Is.EqualTo(1024));
+            Assert.That(SigmaCarrier.InitialResidentPageCapacity,
+                Is.EqualTo(2),
+                "The decoded budget is a ceiling, not a cold-start allocation.");
             long decodedPages = (long)SigmaCarrier.DefaultDecodedBudgetMegabytes *
                 1024L * 1024L / SigmaCarrier.DecodedPageBytes;
             Assert.That(decodedPages, Is.EqualTo(2048));

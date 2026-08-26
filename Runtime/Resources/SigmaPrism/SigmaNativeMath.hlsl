@@ -1,12 +1,40 @@
-#ifndef SIGMA_NATIVE_ORACLE_MATH_INCLUDED
-#define SIGMA_NATIVE_ORACLE_MATH_INCLUDED
+#ifndef SIGMA_NATIVE_MATH_INCLUDED
+#define SIGMA_NATIVE_MATH_INCLUDED
 
-// N2R proof-only lowering. The generated N1 relation descriptors remain the
+// N3R exact lowering. The generated native relation descriptors remain the
 // authority; these fixed schedules execute their full-S16 primitives on Vulkan.
 // Kernel-local defines prevent the complete relation circuit from being cloned
 // into unrelated support/query/reduce variants.
 #if defined(SIGMA_NATIVE_ORACLE_RELATION_MATH)
-#include "../../../Runtime/Resources/SigmaPrism/SigmaTopologyMath.hlsl"
+static const uint4 SIGMA_U128_ZERO = uint4(0u, 0u, 0u, 0u);
+static const uint4 SIGMA_U128_MAX =
+    uint4(0xffffffffu, 0xffffffffu, 0xffffffffu, 0xffffffffu);
+
+bool SigmaU128Equal(uint4 left, uint4 right)
+{
+    return all(left == right);
+}
+
+uint4 SigmaU128Add64(uint4 value, uint2 addend, inout uint valid)
+{
+    uint previous = value.x;
+    value.x += addend.x;
+    uint carry = value.x < previous ? 1u : 0u;
+    previous = value.y;
+    value.y += addend.y;
+    uint nextCarry = value.y < previous ? 1u : 0u;
+    previous = value.y;
+    value.y += carry;
+    nextCarry |= value.y < previous ? 1u : 0u;
+    previous = value.z;
+    value.z += nextCarry;
+    carry = value.z < previous ? 1u : 0u;
+    previous = value.w;
+    value.w += carry;
+    if (value.w < previous)
+        valid = 0u;
+    return value;
+}
 #endif
 
 #define SIGMA_NATIVE_OPTICAL_CHANNELS 3u

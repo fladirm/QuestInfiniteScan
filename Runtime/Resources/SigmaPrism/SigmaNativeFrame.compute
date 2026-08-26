@@ -1,0 +1,635 @@
+// N3R fixed NativeCloseCommit frame boundary and root-last publication.
+// Work cardinality is carried by workgroups; no kernel is dispatched per page,
+// support, relation family, source leaf or S16 lane.
+#pragma kernel BuildNativeObservation
+#pragma kernel PrepareNativeRevision
+#pragma kernel PrepareNativePage
+#pragma kernel ScatterNativeState
+#pragma kernel CloseAndPublishNativeRevision
+#pragma target 5.0
+
+#include "SigmaFrameAbi.hlsl"
+#include "SigmaInverseMath.hlsl"
+#include "Generated/SigmaGeneratedMerkabaProgram.hlsl"
+#include "SigmaPoseConsume.hlsl"
+
+Texture2DArray<float> _NativeRawDepth;
+Texture2DArray<float2> _NativeMetricDepth;
+Texture2DArray<uint> _NativeDepthFlags;
+Texture2D<float4> _NativeDepthRayCenterLeft;
+Texture2D<float4> _NativeDepthRayCenterRight;
+Texture2D<float4> _NativeDepthRayDifferentialXLeft;
+Texture2D<float4> _NativeDepthRayDifferentialXRight;
+Texture2D<float4> _NativeDepthRayDifferentialYLeft;
+Texture2D<float4> _NativeDepthRayDifferentialYRight;
+Texture2D<float4> _NativeRgbLeft;
+Texture2D<float4> _NativeRgbRight;
+Texture2DArray<uint4> _NativePredCarrierPage;
+Texture2DArray<float4> _NativePredCarrierUvNormal;
+Texture2DArray<uint4> _NativePredStateKey;
+
+RWStructuredBuffer<SigmaNativeFrameGpu> _NativeFrames;
+RWStructuredBuffer<SigmaNativeObservationGpu> _NativeObservations;
+RWStructuredBuffer<uint4> _NativeFreshObservationHeaders;
+RWStructuredBuffer<uint2> _NativeFreshRoomRays;
+RWStructuredBuffer<uint2> _NativeFreshCodeLeaves;
+RWStructuredBuffer<uint2> _NativeStates;
+StructuredBuffer<uint4> _NativeBranchHeaders;
+StructuredBuffer<uint4> _NativeRelationResults;
+StructuredBuffer<uint4> _NativeRelationFactors;
+StructuredBuffer<uint4> _NativeRelationHashes;
+RWStructuredBuffer<SigmaNativeStateDeltaGpu> _NativeStateDeltas;
+RWStructuredBuffer<SigmaNativeGaugeDeltaGpu> _NativeGaugeDeltas;
+RWStructuredBuffer<SigmaUnresolvedConstraintGpu> _NativeUnresolved;
+RWStructuredBuffer<SigmaNativeFieldRevisionGpu> _NativeRevisions;
+RWStructuredBuffer<uint4> _NativeCounters;
+
+// Read aliases keep the observation kernel below Quest's eight-UAV binding
+// ceiling without splitting the semantic close into another dispatch.
+StructuredBuffer<uint2> _NativeSourceCarrierState;
+StructuredBuffer<SigmaCarrierPageMetaGpu> _NativeSourcePageMetadata;
+StructuredBuffer<uint> _NativeSourcePublicationRoot;
+RWStructuredBuffer<uint2> _TargetCarrierState;
+RWStructuredBuffer<SigmaCarrierPageMetaGpu> _TargetPageMetadata;
+RWStructuredBuffer<uint> _TargetDirtyFlags;
+RWStructuredBuffer<uint> _TargetReadoutDirtyFlags;
+RWStructuredBuffer<uint> _PublishedRevisionRoot;
+
+uint2 _NativeResolution;
+uint2 _NativeRgbLeftResolution;
+uint2 _NativeRgbRightResolution;
+uint2 _NativeOpticalTransfers;
+float4x4 _NativeRoomFromDepthLeft;
+float4x4 _NativeRoomFromDepthRight;
+float4x4 _NativeRgbFromRoomLeft;
+float4x4 _NativeRgbFromRoomRight;
+float4 _NativeRgbIntrinsicsLeft;
+float4 _NativeRgbIntrinsicsRight;
+uint _NativeRevision;
+uint _NativeCalibrationEpoch;
+uint4 _NativeIndependenceKeys;
+uint _NativeTargetSegmentIndex;
+uint _NativeTargetPageCapacity;
+
+#define SIGMA_NATIVE_LIVE_BRANCH_COUNT 1u
+#define SIGMA_NATIVE_ADMISSION_STATE_OFFSET 16u
+#define SIGMA_NATIVE_ZERO_STATE_OFFSET 32u
+#define SIGMA_NATIVE_PRIOR_STATE_OFFSET 48u
+#define SIGMA_NATIVE_CURRENT_SUPPORT 1u
+
+groupshared uint SigmaNativeObservationValid[64];
+groupshared uint SigmaNativeCurrentSlot;
+groupshared uint SigmaNativeCurrentSample;
+groupshared uint SigmaNativeCurrentGeneration;
+groupshared uint SigmaNativeCurrentRevision;
+groupshared uint4 SigmaNativeCurrentCoordinate;
+groupshared uint SigmaNativeHasCurrentSupport;
+
+#define SIGMA_NATIVE_RGB_CAL_STRIDE 8u
+#define SIGMA_NATIVE_RGB_CAL_BASE_WIDTH 3u
+#define SIGMA_NATIVE_RGB_CAL_POSE_WIDTH 5u
+#define SIGMA_NATIVE_RGB_CAL_FOOTPRINT_WIDTH 6u
+
+StructuredBuffer<uint2> _RgbCalibrationQ48;
+
+uint2 SigmaNativeQ48FromFloat(float value, inout uint valid)
+{
+    return SigmaQ48FromFloatNearestEven(value, valid);
+}
+
+uint2 SigmaNativeRgbCalibrationValue(uint eye, uint field)
+{
+    return _RgbCalibrationQ48[eye * SIGMA_NATIVE_RGB_CAL_STRIDE + field];
+}
+
+float4 SigmaNativeDepthRayCenter(uint eye, uint2 pixel)
+{
+    return eye == 0u ? _NativeDepthRayCenterLeft[pixel] :
+        _NativeDepthRayCenterRight[pixel];
+}
+
+float4 SigmaNativeDepthRayDx(uint eye, uint2 pixel)
+{
+    return eye == 0u ? _NativeDepthRayDifferentialXLeft[pixel] :
+        _NativeDepthRayDifferentialXRight[pixel];
+}
+
+float4 SigmaNativeDepthRayDy(uint eye, uint2 pixel)
+{
+    return eye == 0u ? _NativeDepthRayDifferentialYLeft[pixel] :
+        _NativeDepthRayDifferentialYRight[pixel];
+}
+
+uint2 SigmaNativeRoomRayComponent(uint eye, uint row, float3 localRay,
+    inout uint valid)
+{
+    uint2 result = SIGMA_Q48_ZERO;
+    [unroll]
+    for (uint column = 0u; column < 3u; ++column)
+    {
+        uint2 local = SigmaNativeQ48FromFloat(localRay[column], valid);
+        uint2 rotation = SigmaCalibrationValue(eye,
+            SIGMA_CAL_R00 + row * 3u + column);
+        result = SigmaQ48AddChecked(result,
+            SigmaQ48MulNearestEven(rotation, local, valid), valid);
+    }
+    return result;
+}
+
+bool SigmaNativeProjectionDepthBounds(uint eye, float rawDepth,
+    float metricRange, float localRayZ, out uint2 lower, out uint2 upper,
+    inout uint valid)
+{
+    uint2 rawPoint = SigmaNativeQ48FromFloat(rawDepth, valid);
+    uint2 range = SigmaNativeQ48FromFloat(metricRange, valid);
+    uint2 rayZ = SigmaNativeQ48FromFloat(localRayZ, valid);
+    uint2 width = SigmaDepthHalfWidth(eye, range, valid);
+    uint2 rangeLower = SigmaQ48Max(SIGMA_Q48_ZERO,
+        SigmaQ48SubChecked(range, width, valid));
+    uint2 rangeUpper = SigmaQ48AddChecked(range, width, valid);
+    uint2 nearValue = SigmaCalibrationValue(eye, SIGMA_CAL_NEAR);
+    uint2 farValue = SigmaCalibrationValue(eye, SIGMA_CAL_FAR);
+    uint2 farMinusNear = SigmaQ48SubChecked(farValue, nearValue, valid);
+    uint2 viewLower = SigmaQ48MulLower(rangeLower, rayZ, valid);
+    uint2 viewUpper = SigmaQ48MulUpper(rangeUpper, rayZ, valid);
+    viewLower = SigmaQ48Max(viewLower, nearValue);
+    viewUpper = SigmaQ48Max(viewUpper, viewLower);
+
+    uint2 lowerNumerator = SigmaQ48MulLower(farValue,
+        SigmaQ48SubChecked(viewLower, nearValue, valid), valid);
+    uint2 lowerDenominator = SigmaQ48MulUpper(viewLower,
+        farMinusNear, valid);
+    uint2 upperNumerator = SigmaQ48MulUpper(farValue,
+        SigmaQ48SubChecked(viewUpper, nearValue, valid), valid);
+    uint2 upperDenominator = SigmaQ48MulLower(viewUpper,
+        farMinusNear, valid);
+    lower = SigmaQ48DivLower(lowerNumerator, lowerDenominator, valid);
+    upper = SigmaQ48DivUpper(upperNumerator, upperDenominator, valid);
+    lower = SigmaQ48Max(SIGMA_Q48_ZERO, SigmaQ48Min(lower, rawPoint));
+    upper = SigmaQ48Min(SIGMA_Q48_ONE, SigmaQ48Max(upper, rawPoint));
+    valid &= !SigmaQ48Less(upper, lower) ? 1u : 0u;
+    return valid != 0u;
+}
+
+bool SigmaNativeProjectRgb(uint eye, float3 roomPoint, out float2 pixel)
+{
+    float4x4 rgbFromRoom = eye == 0u ? _NativeRgbFromRoomLeft :
+        _NativeRgbFromRoomRight;
+    float4 intrinsics = eye == 0u ? _NativeRgbIntrinsicsLeft :
+        _NativeRgbIntrinsicsRight;
+    uint2 resolution = eye == 0u ? _NativeRgbLeftResolution :
+        _NativeRgbRightResolution;
+    float3 optical = mul(rgbFromRoom, float4(roomPoint, 1.0)).xyz;
+    if (!all(isfinite(optical)) || optical.z <= 1e-6)
+    {
+        pixel = 0.0;
+        return false;
+    }
+    pixel = optical.xy / optical.z * intrinsics.xy + intrinsics.zw;
+    return all(pixel >= 0.5) && all(pixel <= (float2)resolution - 1.5);
+}
+
+float4 SigmaNativeRgbLoad(uint eye, int2 pixel)
+{
+    return eye == 0u ? _NativeRgbLeft.Load(int3(pixel, 0)) :
+        _NativeRgbRight.Load(int3(pixel, 0));
+}
+
+bool SigmaNativeOpticalBounds(uint eye, float2 pixel, uint channel,
+    out uint2 lower, out uint2 upper, inout uint valid)
+{
+    int2 p00 = int2(floor(pixel - 0.5));
+    float2 phase = frac(pixel - 0.5);
+    float4 c00 = SigmaNativeRgbLoad(eye, p00);
+    float4 c10 = SigmaNativeRgbLoad(eye, p00 + int2(1, 0));
+    float4 c01 = SigmaNativeRgbLoad(eye, p00 + int2(0, 1));
+    float4 c11 = SigmaNativeRgbLoad(eye, p00 + int2(1, 1));
+    if (!all(isfinite(c00)) || !all(isfinite(c10)) ||
+        !all(isfinite(c01)) || !all(isfinite(c11)))
+    {
+        valid = 0u;
+        lower = SIGMA_Q48_ZERO;
+        upper = SIGMA_Q48_ZERO;
+        return false;
+    }
+    float4 centre = lerp(lerp(c00, c10, phase.x),
+        lerp(c01, c11, phase.x), phase.y);
+    float4 minimum = min(min(c00, c10), min(c01, c11));
+    float4 maximum = max(max(c00, c10), max(c01, c11));
+    uint2 centreQ = SigmaNativeQ48FromFloat(saturate(centre[channel]), valid);
+    float hullRadius = max(abs(centre[channel] - minimum[channel]),
+        abs(maximum[channel] - centre[channel]));
+    uint2 hullQ = SigmaNativeQ48FromFloat(hullRadius, valid);
+    uint2 width = SigmaQ48AddChecked(
+        SigmaNativeRgbCalibrationValue(eye,
+            SIGMA_NATIVE_RGB_CAL_BASE_WIDTH),
+        SigmaNativeRgbCalibrationValue(eye,
+            SIGMA_NATIVE_RGB_CAL_POSE_WIDTH), valid);
+    width = SigmaQ48AddChecked(width,
+        SigmaNativeRgbCalibrationValue(eye,
+            SIGMA_NATIVE_RGB_CAL_FOOTPRINT_WIDTH), valid);
+    width = SigmaQ48AddChecked(width, hullQ, valid);
+    width = SigmaQ48AddChecked(width, uint2(1u, 0u), valid);
+    lower = SigmaQ48Max(SIGMA_Q48_ZERO,
+        SigmaQ48SubChecked(centreQ, width, valid));
+    upper = SigmaQ48Min(SIGMA_Q48_ONE,
+        SigmaQ48AddChecked(centreQ, width, valid));
+    return valid != 0u;
+}
+
+bool SigmaNativeCurrentPrediction(uint2 pixel, out uint slot,
+    out uint sample, out uint generation, out uint revision,
+    out uint4 coordinate)
+{
+    uint4 leftKey = _NativePredStateKey[uint3(pixel, 0u)];
+    uint4 rightKey = _NativePredStateKey[uint3(pixel, 1u)];
+    uint4 leftCoordinate = _NativePredCarrierPage[uint3(pixel, 0u)];
+    uint4 rightCoordinate = _NativePredCarrierPage[uint3(pixel, 1u)];
+    int2 leftLocal = int2(round(
+        _NativePredCarrierUvNormal[uint3(pixel, 0u)].xy));
+    int2 rightLocal = int2(round(
+        _NativePredCarrierUvNormal[uint3(pixel, 1u)].xy));
+    bool valid = all(leftKey == rightKey) &&
+        all(leftCoordinate == rightCoordinate) &&
+        all(leftLocal == rightLocal) && all(leftLocal >= 0) &&
+        all(leftLocal < (int2)SIGMA_PAGE_SIZE) &&
+        leftKey.x != 0u && leftKey.y != 0u &&
+        leftKey.z == _NativeTargetSegmentIndex &&
+        leftKey.w < _NativeTargetPageCapacity;
+    slot = valid ? leftKey.w : SIGMA_FRAME_INVALID;
+    sample = valid ? (uint)leftLocal.y * SIGMA_PAGE_SIZE +
+        (uint)leftLocal.x : 0u;
+    generation = valid ? leftKey.x : 0u;
+    revision = valid ? leftKey.y : 0u;
+    coordinate = valid ? leftCoordinate : uint4(0u, 0u, 0u, 0u);
+    if (valid)
+    {
+        uint root = _NativeSourcePublicationRoot[0u];
+        SigmaCarrierPageMetaGpu page = _NativeSourcePageMetadata[slot];
+        uint siblingSlot = slot ^ 1u;
+        bool hasSibling = siblingSlot < _NativeTargetPageCapacity;
+        SigmaCarrierPageMetaGpu sibling = (SigmaCarrierPageMetaGpu)0;
+        if (hasSibling)
+            sibling = _NativeSourcePageMetadata[siblingSlot];
+        valid = root != 0u && page.generation == generation &&
+            page.revision == revision &&
+            SigmaCarrierVisibleAtRoot(page, sibling, hasSibling, root);
+    }
+    return valid;
+}
+
+[numthreads(64, 1, 1)]
+void BuildNativeObservation(uint3 threadId : SV_GroupThreadID)
+{
+    uint threadIndex = threadId.x;
+    uint2 pixel = (_NativeResolution - 1u) / 2u;
+    if (threadIndex == 0u)
+    {
+        SigmaNativeHasCurrentSupport = SigmaNativeCurrentPrediction(pixel,
+            SigmaNativeCurrentSlot, SigmaNativeCurrentSample,
+            SigmaNativeCurrentGeneration, SigmaNativeCurrentRevision,
+            SigmaNativeCurrentCoordinate) ? 1u : 0u;
+        _NativeCounters[0u] = uint4(0u, 0u, 0u, 0u);
+        _NativeCounters[1u] = uint4(0u, 0u, 0u, 0u);
+        _NativeCounters[2u] = uint4(0u, 0u, 0u, 0u);
+        _NativeCounters[3u] = uint4(0u, 0u, 0u, 0u);
+    }
+    if (threadIndex < 64u)
+        _NativeStates[threadIndex] = uint2(0u, 0u);
+    GroupMemoryBarrierWithGroupSync();
+
+    if (threadIndex < 16u && SigmaNativeHasCurrentSupport != 0u)
+    {
+        uint source = SigmaNativeCurrentSlot * SIGMA_PAGE_LANE_COUNT +
+            SigmaNativeCurrentSample * SIGMA_FRAME_LANE_COUNT + threadIndex;
+        _NativeStates[SIGMA_NATIVE_PRIOR_STATE_OFFSET + threadIndex] =
+            _NativeSourceCarrierState[source];
+    }
+
+    SigmaNativeObservationValid[threadIndex] = 1u;
+    if (threadIndex < 6u)
+    {
+        uint eye = threadIndex / 3u;
+        uint component = threadIndex - eye * 3u;
+        float4 ray = SigmaNativeDepthRayCenter(eye, pixel);
+        float4 rayDx = SigmaNativeDepthRayDx(eye, pixel);
+        float4 rayDy = SigmaNativeDepthRayDy(eye, pixel);
+        uint valid = _SigmaExactBackendGate[0] != 0u &&
+            all(isfinite(ray)) && all(isfinite(rayDx)) &&
+            all(isfinite(rayDy)) && ray.z > 0.0 &&
+            ray.w > 0.0 && rayDx.w > 0.0 && rayDy.w > 0.0 ? 1u : 0u;
+        _NativeFreshRoomRays[threadIndex] = SigmaNativeRoomRayComponent(
+            eye, component, ray.xyz, valid);
+        SigmaNativeObservationValid[threadIndex] = valid;
+    }
+    if (threadIndex < 8u)
+    {
+        uint eye = threadIndex >> 2u;
+        uint leaf = threadIndex & 3u;
+        uint valid = _SigmaExactBackendGate[0] != 0u ? 1u : 0u;
+        float rawDepth = _NativeRawDepth[uint3(pixel, eye)];
+        float2 depth = _NativeMetricDepth[uint3(pixel, eye)];
+        float4 localRay = SigmaNativeDepthRayCenter(eye, pixel);
+        valid &= (_NativeDepthFlags[uint3(pixel, eye)] & 1u) != 0u &&
+            isfinite(rawDepth) && rawDepth > 0.0 && rawDepth < 1.0 &&
+            all(isfinite(depth)) && depth.x > 0.0 &&
+            all(isfinite(localRay)) && localRay.z > 0.0 ? 1u : 0u;
+        uint2 lower = SIGMA_Q48_ZERO;
+        uint2 upper = SIGMA_Q48_ZERO;
+        if (leaf == SIGMA_NATIVE_LEAF_KIND_ORDER)
+        {
+            SigmaNativeProjectionDepthBounds(eye, rawDepth, depth.x,
+                localRay.z, lower, upper, valid);
+        }
+        else
+        {
+            uint channel = leaf - 1u;
+            valid &= _NativeOpticalTransfers[eye] <= 1u ? 1u : 0u;
+            float4x4 roomFromDepth = eye == 0u
+                ? _NativeRoomFromDepthLeft : _NativeRoomFromDepthRight;
+            float3 roomPoint = mul(roomFromDepth,
+                float4(localRay.xyz * depth.x, 1.0)).xyz;
+            roomPoint = SigmaPoseApplyWorld(roomPoint);
+            float2 rgbPixel;
+            valid &= SigmaNativeProjectRgb(eye, roomPoint, rgbPixel) ? 1u : 0u;
+            SigmaNativeOpticalBounds(eye, rgbPixel, channel, lower, upper,
+                valid);
+        }
+        uint measurement = eye * 8u + leaf * 2u;
+        _NativeFreshCodeLeaves[measurement] = valid != 0u
+            ? lower : uint2(0xffffffffu, 0x7fffffffu);
+        _NativeFreshCodeLeaves[measurement + 1u] = valid != 0u
+            ? upper : uint2(0u, 0x80000000u);
+        SigmaNativeObservationValid[8u + threadIndex] = valid;
+    }
+    GroupMemoryBarrierWithGroupSync();
+    [unroll]
+    for (uint stride = 8u; stride != 0u; stride >>= 1u)
+    {
+        if (threadIndex < stride)
+            SigmaNativeObservationValid[threadIndex] &=
+                SigmaNativeObservationValid[threadIndex + stride];
+        GroupMemoryBarrierWithGroupSync();
+    }
+
+    if (threadIndex == 0u)
+    {
+        uint complete = SigmaNativeObservationValid[0u];
+        uint flags = SIGMA_NATIVE_OBSERVATION_COHERENT |
+            SIGMA_NATIVE_OBSERVATION_LEFT_FIRST_HIT |
+            SIGMA_NATIVE_OBSERVATION_RIGHT_FIRST_HIT;
+        if (SigmaNativeHasCurrentSupport != 0u)
+            flags |= SIGMA_NATIVE_OBSERVATION_PRIOR_SUPPORT;
+        if (complete != 0u)
+            flags |= SIGMA_NATIVE_OBSERVATION_LEFT_EVIDENCE |
+                SIGMA_NATIVE_OBSERVATION_RIGHT_EVIDENCE |
+                SIGMA_NATIVE_OBSERVATION_OPTICAL_CLAIM;
+        uint provenance = _NativeIndependenceKeys.x ^
+            (_NativeIndependenceKeys.y * 16777619u) ^
+            (_NativeIndependenceKeys.z * 2166136261u) ^
+            _NativeIndependenceKeys.w;
+        provenance = provenance == 0u ? 1u : provenance;
+        _NativeFreshObservationHeaders[0u] = uint4(flags,
+            _NativeRevision, _NativeCalibrationEpoch, provenance);
+        _NativeFreshObservationHeaders[1u] = uint4(
+            _NativeOpticalTransfers.x, _NativeOpticalTransfers.y,
+            _NativeCalibrationEpoch,
+            SIGMA_MERKABA_PROGRAM_FINGERPRINT[0u]);
+
+        SigmaNativeFrameGpu frame;
+        frame.Identity = uint4(_NativeRevision, _NativeCalibrationEpoch,
+            1u, 0u);
+        frame.Disposition = uint4(SIGMA_NATIVE_FRAME_DISPOSITION_GPU_OWNED,
+            1u, 0u, 0u);
+        frame.Evidence = uint4(SigmaNativeHasCurrentSupport,
+            SigmaNativeCurrentSlot, SigmaNativeCurrentSample,
+            SigmaNativeCurrentGeneration);
+        frame.Publication = uint4(_NativeSourcePublicationRoot[0u], 0u,
+            SigmaNativeCurrentRevision, 0u);
+        _NativeFrames[0u] = frame;
+
+        SigmaNativeObservationGpu observation;
+        observation.Identity = uint4(_NativeRevision,
+            _NativeCalibrationEpoch, provenance, flags);
+        observation.Footprint = SigmaNativeHasCurrentSupport != 0u
+            ? SigmaNativeCurrentCoordinate : uint4(0u, 0u, 0u, 0u);
+        observation.Evidence = _NativeIndependenceKeys;
+        observation.Query = uint4(pixel.x, pixel.y,
+            SIGMA_NATIVE_FIRST_HIT_ROLE_FIRST_HIT_MOULD,
+            SIGMA_NATIVE_FIRST_HIT_ROLE_FIRST_HIT_MOULD);
+        _NativeObservations[0u] = observation;
+    }
+}
+
+bool SigmaNativeTransportAdmissible(uint relationClass)
+{
+    return relationClass == SIGMA_MERKABA_RELATION_REGULAR ||
+        relationClass == SIGMA_MERKABA_RELATION_EXACT_ZD ||
+        relationClass == SIGMA_MERKABA_RELATION_NEAR_SINGULAR_Q48 ||
+        relationClass == SIGMA_MERKABA_RELATION_NONASSOCIATIVE_CONTEXT;
+}
+
+[numthreads(64, 1, 1)]
+void PrepareNativeRevision(uint3 threadId : SV_GroupThreadID)
+{
+    uint threadIndex = threadId.x;
+    SigmaNativeObservationValid[threadIndex] = 0u;
+    if (threadIndex < 16u)
+        SigmaNativeObservationValid[threadIndex] = all(
+            _NativeStates[SIGMA_NATIVE_ADMISSION_STATE_OFFSET + threadIndex] ==
+            _NativeStates[SIGMA_NATIVE_PRIOR_STATE_OFFSET + threadIndex])
+            ? 1u : 0u;
+    GroupMemoryBarrierWithGroupSync();
+    [unroll]
+    for (uint stride = 8u; stride != 0u; stride >>= 1u)
+    {
+        if (threadIndex < stride)
+            SigmaNativeObservationValid[threadIndex] &=
+                SigmaNativeObservationValid[threadIndex + stride];
+        GroupMemoryBarrierWithGroupSync();
+    }
+
+    if (threadIndex != 0u)
+        return;
+    SigmaNativeFrameGpu frame = _NativeFrames[0u];
+    if (frame.Identity.x != _NativeRevision ||
+        frame.Disposition.x != SIGMA_NATIVE_FRAME_DISPOSITION_GPU_OWNED)
+        return;
+    uint4 admission = _NativeBranchHeaders[SIGMA_NATIVE_LIVE_BRANCH_COUNT];
+    bool admitted = admission.x == SIGMA_FRESH_ADMISSION_ADMITTED;
+    bool hasCurrent = frame.Evidence.x == SIGMA_NATIVE_CURRENT_SUPPORT;
+    uint transportClass = _NativeRelationResults[1u].x;
+    bool transport = !hasCurrent ||
+        (_NativeRelationResults[1u].w != 0u &&
+            SigmaNativeTransportAdmissible(transportClass));
+    // N3 owns only the N1/N2-proved all-ZEmpty base-density embedding.
+    // A second unattached support remains unresolved until N4 representation
+    // refinement; it must never overwrite the already published gauge origin.
+    bool freshBootstrap = hasCurrent || frame.Publication.x == 0u;
+    if (!admitted || !transport || !freshBootstrap)
+    {
+        frame.Disposition = uint4(SIGMA_NATIVE_FRAME_DISPOSITION_UNRESOLVED,
+            0u, 0u, admission.w);
+        _NativeFrames[0u] = frame;
+        SigmaUnresolvedConstraintGpu unresolved;
+        unresolved.Observation = _NativeObservations[0u].Identity;
+        unresolved.Relation = uint4(admission.y, transportClass,
+            _NativeRelationFactors[0u].w, _NativeRelationFactors[1u].w);
+        unresolved.Evidence = _NativeObservations[0u].Evidence;
+        unresolved.Provenance = uint4(admission.z, admission.w,
+            _NativeRevision, _NativeCalibrationEpoch);
+        _NativeUnresolved[0u] = unresolved;
+        _NativeCounters[0u].y = 1u;
+        return;
+    }
+    if (hasCurrent && SigmaNativeObservationValid[0u] != 0u)
+    {
+        frame.Disposition = uint4(SIGMA_NATIVE_FRAME_DISPOSITION_NO_CHANGE,
+            0u, 0u, 0u);
+        _NativeFrames[0u] = frame;
+        _NativeCounters[0u].z = 1u;
+        return;
+    }
+
+    uint sourceSlot = hasCurrent ? frame.Evidence.y : SIGMA_FRAME_INVALID;
+    uint targetSlot = hasCurrent ? (sourceSlot ^ 1u) : 0u;
+    uint sample = hasCurrent ? frame.Evidence.z : 0u;
+    uint generation = hasCurrent ? frame.Evidence.w + 1u : 1u;
+    if (targetSlot >= _NativeTargetPageCapacity || generation == 0u)
+    {
+        frame.Disposition = uint4(SIGMA_NATIVE_FRAME_DISPOSITION_FAULTED,
+            0u, 0u, 0x00000001u);
+        _NativeFrames[0u] = frame;
+        _NativeCounters[0u].w = 1u;
+        return;
+    }
+
+    SigmaNativeStateDeltaGpu delta;
+    delta.Coordinate = hasCurrent ? _NativeObservations[0u].Footprint :
+        uint4(0u, 0u, 0u, 0u);
+    delta.Generation = uint4(targetSlot, sample, generation, sourceSlot);
+    delta.Changed = uint4(SIGMA_NATIVE_DELTA_RESOLVED |
+        SIGMA_NATIVE_DELTA_COMMON | SIGMA_NATIVE_DELTA_STATE_CHANGED |
+        SIGMA_NATIVE_DELTA_EVIDENCE_RETAINED, _NativeRevision,
+        frame.Publication.x, 1u);
+    delta.Witness = uint4(admission.y, transportClass,
+        _NativeRelationHashes[0u].x, _NativeRelationHashes[1u].x);
+    delta.Receipts = _NativeObservations[0u].Evidence;
+    // Fixed ABI packing is explicit: no dynamic lane loop or branch ladder is
+    // left for the driver to serialize.
+    delta.State01 = uint4(_NativeStates[SIGMA_NATIVE_ADMISSION_STATE_OFFSET],
+        _NativeStates[SIGMA_NATIVE_ADMISSION_STATE_OFFSET + 1u]);
+    delta.State23 = uint4(_NativeStates[SIGMA_NATIVE_ADMISSION_STATE_OFFSET + 2u],
+        _NativeStates[SIGMA_NATIVE_ADMISSION_STATE_OFFSET + 3u]);
+    delta.State45 = uint4(_NativeStates[SIGMA_NATIVE_ADMISSION_STATE_OFFSET + 4u],
+        _NativeStates[SIGMA_NATIVE_ADMISSION_STATE_OFFSET + 5u]);
+    delta.State67 = uint4(_NativeStates[SIGMA_NATIVE_ADMISSION_STATE_OFFSET + 6u],
+        _NativeStates[SIGMA_NATIVE_ADMISSION_STATE_OFFSET + 7u]);
+    delta.State89 = uint4(_NativeStates[SIGMA_NATIVE_ADMISSION_STATE_OFFSET + 8u],
+        _NativeStates[SIGMA_NATIVE_ADMISSION_STATE_OFFSET + 9u]);
+    delta.State1011 = uint4(
+        _NativeStates[SIGMA_NATIVE_ADMISSION_STATE_OFFSET + 10u],
+        _NativeStates[SIGMA_NATIVE_ADMISSION_STATE_OFFSET + 11u]);
+    delta.State1213 = uint4(
+        _NativeStates[SIGMA_NATIVE_ADMISSION_STATE_OFFSET + 12u],
+        _NativeStates[SIGMA_NATIVE_ADMISSION_STATE_OFFSET + 13u]);
+    delta.State1415 = uint4(
+        _NativeStates[SIGMA_NATIVE_ADMISSION_STATE_OFFSET + 14u],
+        _NativeStates[SIGMA_NATIVE_ADMISSION_STATE_OFFSET + 15u]);
+    _NativeStateDeltas[0u] = delta;
+    _NativeGaugeDeltas[0u] = (SigmaNativeGaugeDeltaGpu)0;
+    frame.Disposition = uint4(SIGMA_NATIVE_FRAME_DISPOSITION_RESOLVED,
+        1u, 0u, 0u);
+    frame.Publication.y = targetSlot;
+    frame.Publication.w = generation;
+    _NativeFrames[0u] = frame;
+    _NativeCounters[0u].x = 1u;
+}
+
+[numthreads(256, 1, 1)]
+void PrepareNativePage(uint3 groupId : SV_GroupID,
+    uint3 threadId : SV_GroupThreadID)
+{
+    SigmaNativeFrameGpu frame = _NativeFrames[0u];
+    if (frame.Disposition.x != SIGMA_NATIVE_FRAME_DISPOSITION_RESOLVED)
+        return;
+    uint laneAddress = groupId.x * 256u + threadId.x;
+    if (laneAddress >= SIGMA_PAGE_LANE_COUNT)
+        return;
+    SigmaNativeStateDeltaGpu delta = _NativeStateDeltas[0u];
+    uint targetSlot = delta.Generation.x;
+    uint sourceSlot = delta.Generation.w;
+    uint target = targetSlot * SIGMA_PAGE_LANE_COUNT + laneAddress;
+    uint source = sourceSlot != SIGMA_FRAME_INVALID
+        ? sourceSlot * SIGMA_PAGE_LANE_COUNT + laneAddress : 0u;
+    _TargetCarrierState[target] = sourceSlot != SIGMA_FRAME_INVALID
+        ? _TargetCarrierState[source] : uint2(0u, 0u);
+}
+
+uint2 SigmaNativeDeltaLane(SigmaNativeStateDeltaGpu delta, uint lane)
+{
+    uint4 pair = lane < 2u ? delta.State01 :
+        (lane < 4u ? delta.State23 :
+        (lane < 6u ? delta.State45 :
+        (lane < 8u ? delta.State67 :
+        (lane < 10u ? delta.State89 :
+        (lane < 12u ? delta.State1011 :
+        (lane < 14u ? delta.State1213 : delta.State1415))))));
+    return (lane & 1u) == 0u ? pair.xy : pair.zw;
+}
+
+[numthreads(16, 1, 1)]
+void ScatterNativeState(uint3 threadId : SV_GroupThreadID)
+{
+    SigmaNativeFrameGpu frame = _NativeFrames[0u];
+    if (frame.Disposition.x != SIGMA_NATIVE_FRAME_DISPOSITION_RESOLVED)
+        return;
+    SigmaNativeStateDeltaGpu delta = _NativeStateDeltas[0u];
+    uint lane = threadId.x;
+    uint destination = delta.Generation.x * SIGMA_PAGE_LANE_COUNT +
+        delta.Generation.y * SIGMA_FRAME_LANE_COUNT + lane;
+    _TargetCarrierState[destination] = SigmaNativeDeltaLane(delta, lane);
+}
+
+[numthreads(1, 1, 1)]
+void CloseAndPublishNativeRevision(uint3 id : SV_DispatchThreadID)
+{
+    SigmaNativeFrameGpu frame = _NativeFrames[0u];
+    if (frame.Disposition.x != SIGMA_NATIVE_FRAME_DISPOSITION_RESOLVED)
+        return;
+    SigmaNativeStateDeltaGpu delta = _NativeStateDeltas[0u];
+    uint targetSlot = delta.Generation.x;
+    SigmaCarrierPageMetaGpu metadata;
+    metadata.pageXLo = delta.Coordinate.x;
+    metadata.pageXHi = delta.Coordinate.y;
+    metadata.pageYLo = delta.Coordinate.z;
+    metadata.pageYHi = delta.Coordinate.w;
+    metadata.generation = delta.Generation.z;
+    metadata.revision = _NativeRevision;
+    metadata.certificateOffsetLo = 0u;
+    metadata.certificateOffsetHi = 0u;
+    metadata.certificateCount = 1u;
+    metadata.flags = SIGMA_PAGE_ALLOCATED | SIGMA_PAGE_PUBLISHED |
+        SIGMA_PAGE_DIRTY;
+    metadata.reserved0 = SIGMA_FRAME_INVALID;
+    metadata.reserved1 = 0u;
+    _TargetPageMetadata[targetSlot] = metadata;
+    _TargetDirtyFlags[targetSlot] = 1u;
+    _TargetReadoutDirtyFlags[targetSlot] = 1u;
+
+    uint revisionSlot = (_NativeRevision - 1u) & 1u;
+    SigmaNativeFieldRevisionGpu revision;
+    revision.Identity = uint4(_NativeRevision, frame.Publication.x,
+        SIGMA_NATIVE_REVISION_STATE_PUBLISHED, _NativeCalibrationEpoch);
+    revision.Changed = uint4(1u, 0u, targetSlot, delta.Generation.z);
+    revision.Evidence = _NativeObservations[0u].Evidence;
+    revision.Publication = uint4(0u, 0u, 0u, 0u);
+    _NativeRevisions[revisionSlot] = revision;
+    frame.Disposition = uint4(SIGMA_NATIVE_FRAME_DISPOSITION_PUBLISHED,
+        1u, 0u, 0u);
+    frame.Publication = uint4(frame.Publication.x, _NativeRevision,
+        targetSlot, delta.Generation.z);
+    _NativeFrames[0u] = frame;
+    uint previous;
+    InterlockedExchange(_PublishedRevisionRoot[0u], _NativeRevision, previous);
+}

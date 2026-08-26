@@ -358,6 +358,22 @@ branch/chart decisions remain in Git history only.
   generated construction and may not reproduce its logic as a parallel host or
   shader authority.
 
+## ADR-S444 — N3 fixed graph, lazy residency and evidence ownership
+
+- The N3 live `NativeCloseCommit` is a fixed nine-dispatch graph. Relation and
+  support cardinality map to parallel workgroups; host dispatch count never scales
+  with pages, segments, relations, supports, source leaves or S16 lanes.
+- The decoded-memory budget is a residency ceiling, not an eager allocation
+  target. N3 starts with one bounded two-page current/shadow pair; N5 owns pager
+  growth, eviction and rehydration.
+- A terminal `UNRESOLVED` outcome owns a copied compact exact record, never a
+  coherent capture lease or RGB/depth textures. Capture leases are released after
+  the GPU fence and readback issue on every terminal path.
+- N3's temporary visual preview remains a disposable legacy-G readout until N6.
+  It is not evidence or mutation authority and may not force the fresh Merkaba
+  preimage into an old geometry projection. The published root is authoritative
+  even when the one-cell N3 bootstrap is visually imperceptible.
+
 ## Explicit supersession
 
 - ADR-S404R, ADR-S423 through ADR-S435 and their V2 revisions are superseded by

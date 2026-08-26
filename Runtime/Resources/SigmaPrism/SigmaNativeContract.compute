@@ -1,4 +1,4 @@
-// N2R Editor/Vulkan oracle only. Branches are disposable and never publish Psi.
+// N3R live exact reverse lowering. Branches are disposable and never own Psi.
 // The three fixed entry points are independent of candidate, relation, channel,
 // transfer-segment and execution-window cardinality.
 #pragma kernel ContractNativeQuery SIGMA_NATIVE_ORACLE_QUERY_MATH
@@ -6,28 +6,30 @@
 #pragma kernel ResolveContractorOverflow SIGMA_NATIVE_ORACLE_QUERY_MATH
 #pragma target 5.0
 
+#include "SigmaFrameAbi.hlsl"
 #include "Generated/SigmaGeneratedMerkabaProgram.hlsl"
 
 #define SIGMA_NATIVE_OBSERVATION_ORDER 1u
 #define SIGMA_NATIVE_OBSERVATION_OPTICAL 2u
 #define SIGMA_NATIVE_OBSERVATION_OPTICAL_METADATA 4u
 
-// Candidate identity and relation truth are deliberately absent. Every decision
+// Object/candidate identity and external relation truth are deliberately absent.
+// Every decision
 // below is derived from complete keys/gauge records and the generated relation
 // program. Layouts are documented at their declarations.
-StructuredBuffer<uint4> _NativeCandidateKeys;
+StructuredBuffer<uint4> _NativeReverseKeys;
 // x=prior state, y=proposed state, z=relation right, w=relation context offsets.
-StructuredBuffer<uint4> _NativeCandidateStates;
+StructuredBuffer<uint4> _NativeReverseStates;
 // Two records per candidate, prior then proposed: signed-64 u/v limbs.
-StructuredBuffer<uint4> _NativeCandidateGaugeCoordinates;
+StructuredBuffer<uint4> _NativeReverseGaugeCoordinates;
 // Two records per candidate, prior then proposed: level,payload-key lo/hi,reserved.
-StructuredBuffer<uint4> _NativeCandidateGaugeMetadata;
+StructuredBuffer<uint4> _NativeReverseGaugeMetadata;
 // Complete generated relation witnesses produced by the fixed
-// EvaluateNativeRelation entry point over the same candidate worklist.
-StructuredBuffer<uint4> _NativeCandidateRelationResults;
-StructuredBuffer<uint4> _NativeCandidateRelationFactors;
-StructuredBuffer<uint4> _NativeCandidateRelationHashes;
-StructuredBuffer<uint> _NativeCandidateDeltaHashes;
+// EvaluateNativeRelation entry point over the same reverse worklist.
+StructuredBuffer<uint4> _NativeReverseRelationResults;
+StructuredBuffer<uint4> _NativeReverseRelationFactors;
+StructuredBuffer<uint4> _NativeReverseRelationHashes;
+StructuredBuffer<uint> _NativeReverseDeltaHashes;
 RWStructuredBuffer<uint2> _NativeStates;
 StructuredBuffer<uint2> _NativeQueryRows;
 
@@ -62,9 +64,9 @@ RWStructuredBuffer<uint4> _NativeBranchRelationFactors;
 RWStructuredBuffer<uint4> _NativeBranchRelationHashes;
 RWStructuredBuffer<uint> _NativeOverflowArgs;
 
-#include "Generated/SigmaNativeOracleMath.hlsl"
+#include "SigmaNativeMath.hlsl"
 
-uint _NativeCandidateCount;
+uint _NativeReverseCount;
 uint _NativeHotCapacity;
 uint _NativeObservationFlags;
 uint _NativeEntryPointIndex;
@@ -73,7 +75,7 @@ uint _NativeFreshBranchCount;
 uint _NativeFreshLeftEntryPointIndex;
 uint _NativeFreshRightEntryPointIndex;
 
-#define SIGMA_NATIVE_CONTRACT_CANDIDATES 0u
+#define SIGMA_NATIVE_CONTRACT_EXISTING 0u
 #define SIGMA_NATIVE_CONTRACT_FRESH_LIFT 1u
 #define SIGMA_NATIVE_CONTRACT_FRESH_UNION 2u
 #define SIGMA_NATIVE_FRESH_HOT_BRANCH_CAPACITY 4u
@@ -100,8 +102,12 @@ groupshared uint2 SigmaNativeFreshAxisUpper[4];
 groupshared uint2 SigmaNativeFreshSelected[4];
 groupshared uint2 SigmaNativeFreshState[16];
 groupshared uint2 SigmaNativeFreshForward[4];
+groupshared uint2 SigmaNativeFreshPriorForward[4];
 groupshared uint SigmaNativeFreshScratch[64];
 groupshared uint SigmaNativeFreshPhaseValid;
+groupshared uint SigmaNativeFreshUsePrior;
+
+uint _NativeFreshPriorStateOffset;
 
 bool SigmaNativeFreshQ48Equal(uint2 left, uint2 right)
 {
@@ -192,10 +198,12 @@ void SigmaNativeFreshLiftBranch(uint branchIndex, uint threadIndex)
         uint2 codeUpper[4];
         uint codeBase = branchIndex * 16u + eye * 8u;
         [unroll]
-        for (uint leaf = 0u; leaf < 4u; ++leaf)
+        for (uint instrumentLeaf = 0u; instrumentLeaf < 4u; ++instrumentLeaf)
         {
-            codeLower[leaf] = _NativeFreshCodeLeaves[codeBase + leaf * 2u];
-            codeUpper[leaf] = _NativeFreshCodeLeaves[codeBase + leaf * 2u + 1u];
+            codeLower[instrumentLeaf] =
+                _NativeFreshCodeLeaves[codeBase + instrumentLeaf * 2u];
+            codeUpper[instrumentLeaf] =
+                _NativeFreshCodeLeaves[codeBase + instrumentLeaf * 2u + 1u];
         }
         uint2 measuredLower[4];
         uint2 measuredUpper[4];
@@ -227,10 +235,6 @@ void SigmaNativeFreshLiftBranch(uint branchIndex, uint threadIndex)
         uint2 measuredLower = SigmaNativeFreshInstrumentLower[threadIndex];
         uint2 measuredUpper = SigmaNativeFreshInstrumentUpper[threadIndex];
         leafValid &= !SigmaI64Less(measuredUpper, measuredLower) ? 1u : 0u;
-        SigmaNativeFreshLeafAxis[threadIndex] = axis;
-        SigmaNativeFreshLeafEye[threadIndex] = eye;
-        // Generated assembly already applies the calibrated global row sign;
-        // pull it back once to the common native axis for the stereo meet.
         uint pullValid = leafValid;
         if (SigmaNativeFreshEyeSign[eye] < 0)
         {
@@ -245,6 +249,8 @@ void SigmaNativeFreshLiftBranch(uint branchIndex, uint threadIndex)
             SigmaNativeFreshLeafUpper[threadIndex] = measuredUpper;
         }
         leafValid &= pullValid;
+        SigmaNativeFreshLeafAxis[threadIndex] = axis;
+        SigmaNativeFreshLeafEye[threadIndex] = eye;
         SigmaNativeFreshScratch[threadIndex] = leafValid;
     }
     GroupMemoryBarrierWithGroupSync();
@@ -277,26 +283,85 @@ void SigmaNativeFreshLiftBranch(uint branchIndex, uint threadIndex)
         SigmaNativeFreshScratch[threadIndex] = 1u;
     uint axisPhaseValid = SigmaNativeFreshReduceAnd(threadIndex);
 
+    // If the complete current S16 representative already satisfies both raw
+    // calibrated eye shadows, retain all sixteen bytes—including shadow-hidden
+    // modes—instead of relifting a lower-dimensional representative.
+    bool priorRequested = (header.x &
+        SIGMA_NATIVE_OBSERVATION_PRIOR_SUPPORT) != 0u;
+    SigmaNativeFreshScratch[threadIndex] = threadIndex < 16u &&
+        any(_NativeStates[_NativeFreshPriorStateOffset + threadIndex] != 0u)
+        ? 1u : 0u;
+    uint priorNonzero = SigmaNativeFreshReduceOr(threadIndex);
+    if (threadIndex < 4u)
+    {
+        uint priorValid = priorRequested && priorNonzero != 0u ? 1u : 0u;
+        uint2 sum = uint2(0u, 0u);
+        [unroll]
+        for (uint priorLane = 0u; priorLane < 16u; ++priorLane)
+        {
+            uint2 weight = SigmaNativeShadowWeight(
+                SigmaMerkabaShadowNumerator(priorLane, threadIndex));
+            sum = SigmaQ48AddChecked(sum, SigmaQ48MulNearestEven(
+                _NativeStates[_NativeFreshPriorStateOffset + priorLane],
+                weight, priorValid), priorValid);
+        }
+        SigmaNativeFreshPriorForward[threadIndex] = sum;
+        SigmaNativeFreshScratch[threadIndex] = priorValid;
+    }
+    else
+        SigmaNativeFreshScratch[threadIndex] = 1u;
+    uint priorForwardValid = SigmaNativeFreshReduceAnd(threadIndex);
+
+    SigmaNativeFreshScratch[threadIndex] = 1u;
+    if (threadIndex < 8u)
+    {
+        uint eye = threadIndex >> 2u;
+        uint leaf = threadIndex & 3u;
+        uint priorLeafValid = priorForwardValid;
+        uint axis = SigmaNativeFreshPermutationAxis(eye, leaf);
+        uint2 predicted = SigmaNativeFreshPriorForward[axis];
+        if (SigmaNativeFreshEyeSign[eye] < 0)
+            predicted = SigmaQ48NegateChecked(predicted, priorLeafValid);
+        priorLeafValid &= SigmaNativePointInInterval(predicted,
+            SigmaNativeFreshInstrumentLower[threadIndex],
+            SigmaNativeFreshInstrumentUpper[threadIndex]) ? 1u : 0u;
+        SigmaNativeFreshScratch[threadIndex] = priorLeafValid;
+    }
+    uint priorRawValid = SigmaNativeFreshReduceAnd(threadIndex);
+
     if (threadIndex == 0u)
     {
+        SigmaNativeFreshUsePrior = priorRequested && priorNonzero != 0u &&
+            priorRawValid != 0u ? 1u : 0u;
         uint selectorValid = axisPhaseValid;
-        uint2 lower[4];
-        uint2 upper[4];
-        uint2 selected[4];
-        [unroll]
-        for (uint axisCopy = 0u; axisCopy < 4u; ++axisCopy)
+        bool selectedValid = SigmaNativeFreshUsePrior != 0u;
+        if (SigmaNativeFreshUsePrior != 0u)
         {
-            lower[axisCopy] = SigmaNativeFreshAxisLower[axisCopy];
-            upper[axisCopy] = SigmaNativeFreshAxisUpper[axisCopy];
-            selected[axisCopy] = uint2(0u, 0u);
+            [unroll]
+            for (uint priorAxis = 0u; priorAxis < 4u; ++priorAxis)
+                SigmaNativeFreshSelected[priorAxis] =
+                    SigmaNativeFreshPriorForward[priorAxis];
         }
-        bool selectedValid = SigmaMerkabaSelectFreshTangent(lower, upper,
-            selected, selectorValid);
+        else
+        {
+            uint2 lower[4];
+            uint2 upper[4];
+            uint2 selected[4];
+            [unroll]
+            for (uint axisCopy = 0u; axisCopy < 4u; ++axisCopy)
+            {
+                lower[axisCopy] = SigmaNativeFreshAxisLower[axisCopy];
+                upper[axisCopy] = SigmaNativeFreshAxisUpper[axisCopy];
+                selected[axisCopy] = uint2(0u, 0u);
+            }
+            selectedValid = SigmaMerkabaSelectFreshTangent(lower, upper,
+                selected, selectorValid);
+            [unroll]
+            for (uint selectedAxis = 0u; selectedAxis < 4u; ++selectedAxis)
+                SigmaNativeFreshSelected[selectedAxis] = selected[selectedAxis];
+        }
         SigmaNativeFreshPhaseValid = selectedValid && selectorValid != 0u
             ? 1u : 0u;
-        [unroll]
-        for (uint selectedAxis = 0u; selectedAxis < 4u; ++selectedAxis)
-            SigmaNativeFreshSelected[selectedAxis] = selected[selectedAxis];
     }
     GroupMemoryBarrierWithGroupSync();
 
@@ -304,15 +369,20 @@ void SigmaNativeFreshLiftBranch(uint branchIndex, uint threadIndex)
     if (threadIndex < 16u)
     {
         uint laneValid = SigmaNativeFreshPhaseValid;
-        uint2 laneValue = uint2(0u, 0u);
-        [unroll]
-        for (uint liftAxis = 0u; liftAxis < 4u; ++liftAxis)
+        uint2 laneValue = SigmaNativeFreshUsePrior != 0u
+            ? _NativeStates[_NativeFreshPriorStateOffset + threadIndex]
+            : uint2(0u, 0u);
+        if (SigmaNativeFreshUsePrior == 0u)
         {
-            uint2 weight = SigmaNativeFreshLiftWeight(
-                SigmaMerkabaShadowNumerator(threadIndex, liftAxis));
-            laneValue = SigmaQ48AddChecked(laneValue,
-                SigmaQ48MulNearestEven(SigmaNativeFreshSelected[liftAxis],
-                    weight, laneValid), laneValid);
+            [unroll]
+            for (uint liftAxis = 0u; liftAxis < 4u; ++liftAxis)
+            {
+                uint2 weight = SigmaNativeFreshLiftWeight(
+                    SigmaMerkabaShadowNumerator(threadIndex, liftAxis));
+                laneValue = SigmaQ48AddChecked(laneValue,
+                    SigmaQ48MulNearestEven(SigmaNativeFreshSelected[liftAxis],
+                        weight, laneValid), laneValid);
+            }
         }
         SigmaNativeFreshState[threadIndex] = laneValue;
         _NativeStates[branchIndex * 16u + threadIndex] = laneValue;
@@ -395,8 +465,8 @@ void SigmaNativeFreshFinalize(uint threadIndex)
     uint safeBranch = activeBranch ? branch : 0u;
     bool branchValid = activeBranch &&
         _NativeBranchHeaders[safeBranch].y != 0u &&
-        _NativeCandidateRelationResults[safeBranch].w != 0u &&
-        _NativeCandidateRelationResults[safeBranch].x ==
+        _NativeReverseRelationResults[safeBranch].w != 0u &&
+        _NativeReverseRelationResults[safeBranch].x ==
             SIGMA_MERKABA_RELATION_NO_RELATION;
     bool laneEqual = !activeBranch || all(
         _NativeStates[safeBranch * 16u + lane] == _NativeStates[lane]);
@@ -454,10 +524,10 @@ bool SigmaNativeGaugeEqual(uint candidateIndex)
 {
     uint priorIndex = candidateIndex * 2u;
     uint proposedIndex = priorIndex + 1u;
-    return all(_NativeCandidateGaugeCoordinates[priorIndex] ==
-            _NativeCandidateGaugeCoordinates[proposedIndex]) &&
-        all(_NativeCandidateGaugeMetadata[priorIndex] ==
-            _NativeCandidateGaugeMetadata[proposedIndex]);
+    return all(_NativeReverseGaugeCoordinates[priorIndex] ==
+            _NativeReverseGaugeCoordinates[proposedIndex]) &&
+        all(_NativeReverseGaugeMetadata[priorIndex] ==
+            _NativeReverseGaugeMetadata[proposedIndex]);
 }
 
 void SigmaNativeIntervalMultiply(uint2 leftLower, uint2 leftUpper,
@@ -568,8 +638,8 @@ bool SigmaNativeRelationPermitsIdentity(uint relationClass)
 
 void SigmaNativeContractOne(uint candidateIndex)
 {
-    uint4 keys = _NativeCandidateKeys[candidateIndex];
-    uint4 statePlan = _NativeCandidateStates[candidateIndex];
+    uint4 keys = _NativeReverseKeys[candidateIndex];
+    uint4 statePlan = _NativeReverseStates[candidateIndex];
     uint valid = 1u;
     bool entryValid = _NativeEntryPointIndex < SIGMA_MERKABA_ENTRY_POINT_COUNT &&
         SIGMA_MERKABA_IR_ENTRY_POINTS[_NativeEntryPointIndex].x == 7 &&
@@ -580,9 +650,9 @@ void SigmaNativeContractOne(uint candidateIndex)
     uint2 proposedOptical[3];
     SigmaNativeEvaluateState(statePlan.y, proposedOrder, proposedOptical, valid);
 
-    uint4 relation = _NativeCandidateRelationResults[candidateIndex];
-    uint4 relationFactors = _NativeCandidateRelationFactors[candidateIndex];
-    uint4 relationHashes = _NativeCandidateRelationHashes[candidateIndex];
+    uint4 relation = _NativeReverseRelationResults[candidateIndex];
+    uint4 relationFactors = _NativeReverseRelationFactors[candidateIndex];
+    uint4 relationHashes = _NativeReverseRelationHashes[candidateIndex];
     valid &= relation.w != 0u ? 1u : 0u;
 
     bool orderClaim = (_NativeObservationFlags &
@@ -649,7 +719,7 @@ void SigmaNativeContractOne(uint candidateIndex)
         (role << 2u) | (opticalClaim ? 16u : 0u) |
         (valid != 0u ? 32u : 0u) | (identityTransport ? 64u : 0u);
     _NativeBranchHeaders[candidateIndex] = uint4(candidateIndex, branchFlags,
-        _NativeCandidateDeltaHashes[candidateIndex], relation.x);
+        _NativeReverseDeltaHashes[candidateIndex], relation.x);
     _NativeBranchSupports[candidateIndex] = keys.zw;
     _NativeBranchActions[candidateIndex] = viable
         ? uint4(actionLower, actionUpper) : uint4(0u, 0u, 0u, 0u);
@@ -681,7 +751,7 @@ void ContractNativeQuery(uint3 id : SV_DispatchThreadID,
             SigmaNativeFreshFinalize(groupThreadId.x);
         return;
     }
-    uint hotCount = min(_NativeCandidateCount, _NativeHotCapacity);
+    uint hotCount = min(_NativeReverseCount, _NativeHotCapacity);
     if (id.x < hotCount)
         SigmaNativeContractOne(id.x);
 }
@@ -691,8 +761,8 @@ void ContractNativeQuery(uint3 id : SV_DispatchThreadID,
 [numthreads(1, 1, 1)]
 void BuildContractOverflowArgs(uint3 id : SV_DispatchThreadID)
 {
-    uint remaining = _NativeCandidateCount > _NativeHotCapacity
-        ? _NativeCandidateCount - _NativeHotCapacity : 0u;
+    uint remaining = _NativeReverseCount > _NativeHotCapacity
+        ? _NativeReverseCount - _NativeHotCapacity : 0u;
     _NativeOverflowArgs[0] = (remaining + 63u) / 64u;
     _NativeOverflowArgs[1] = 1u;
     _NativeOverflowArgs[2] = 1u;
@@ -704,7 +774,7 @@ void BuildContractOverflowArgs(uint3 id : SV_DispatchThreadID)
 void ResolveContractorOverflow(uint3 id : SV_DispatchThreadID)
 {
     uint candidateIndex = _NativeHotCapacity + id.x;
-    if (candidateIndex < _NativeCandidateCount)
+    if (candidateIndex < _NativeReverseCount)
         SigmaNativeContractOne(candidateIndex);
 }
 #endif

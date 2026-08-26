@@ -1,4 +1,4 @@
-// N2R Editor/Vulkan oracle only. It owns no canonical field or publication path.
+// N3R live native query lowering. It owns no canonical field or publication path.
 #pragma kernel SelectNativeQuerySupport SIGMA_NATIVE_ORACLE_SUPPORT_ONLY
 #pragma kernel EvaluateNativeQuery SIGMA_NATIVE_ORACLE_QUERY_MATH
 #pragma kernel ReduceNativeQuery SIGMA_NATIVE_ORACLE_REDUCE_ONLY
@@ -25,17 +25,16 @@ StructuredBuffer<uint4> _NativeRelationPlans;
 StructuredBuffer<uint4> _NativeRelationNearIntervals;
 RWStructuredBuffer<uint> _NativeWorklist;
 RWStructuredBuffer<uint> _NativeCounters;
-#if defined(SIGMA_NATIVE_ORACLE_QUERY_MATH)
-RWStructuredBuffer<uint4> _NativeContributionHeaders;
-RWStructuredBuffer<uint4> _NativeContributionOrderMeasures;
-RWStructuredBuffer<uint2> _NativeContributionOptical;
-RWStructuredBuffer<uint> _NativeContributionRelations;
-#else
+// Separate write/read aliases let the evaluator and reducer share storage
+// without making the reducer bind four inputs as UAVs on Quest Vulkan.
+RWStructuredBuffer<uint4> _NativeContributionHeadersWrite;
+RWStructuredBuffer<uint4> _NativeContributionOrderMeasuresWrite;
+RWStructuredBuffer<uint2> _NativeContributionOpticalWrite;
+RWStructuredBuffer<uint> _NativeContributionRelationsWrite;
 StructuredBuffer<uint4> _NativeContributionHeaders;
 StructuredBuffer<uint4> _NativeContributionOrderMeasures;
 StructuredBuffer<uint2> _NativeContributionOptical;
 StructuredBuffer<uint> _NativeContributionRelations;
-#endif
 RWStructuredBuffer<uint2> _NativeReducedSupports;
 RWStructuredBuffer<uint2> _NativeReducedRelationSupports;
 RWStructuredBuffer<uint> _NativeReducedRelationClasses;
@@ -46,7 +45,7 @@ RWStructuredBuffer<uint4> _NativeRelationFactors;
 RWStructuredBuffer<uint4> _NativeRelationHashes;
 RWStructuredBuffer<uint4> _NativeRelationNorms;
 
-#include "Generated/SigmaNativeOracleMath.hlsl"
+#include "SigmaNativeMath.hlsl"
 
 uint _NativeSummaryCount;
 uint _NativeWorkOffset;
@@ -208,9 +207,9 @@ void EvaluateNativeQuery(uint3 id : SV_DispatchThreadID)
     uint2 measure = _NativeMeasures[sampleIndex];
     bool active = valid != 0u && !SigmaNativeStateIsZero(sample.w) &&
         sample.z == _NativeQueryFootprints[queryIndex];
-    _NativeContributionHeaders[outputIndex] = uint4(sample.xy, sample.z,
+    _NativeContributionHeadersWrite[outputIndex] = uint4(sample.xy, sample.z,
         active ? 1u : 0u);
-    _NativeContributionOrderMeasures[outputIndex] = uint4(order, measure);
+    _NativeContributionOrderMeasuresWrite[outputIndex] = uint4(order, measure);
     uint reducer = entryValid
         ? (uint)SIGMA_MERKABA_IR_ENTRY_POINTS[_NativeEntryPointIndex].z
         : 0xffffffffu;
@@ -218,16 +217,16 @@ void EvaluateNativeQuery(uint3 id : SV_DispatchThreadID)
             _NativeRelationResults[sampleIndex].w != 0u
         ? _NativeRelationResults[sampleIndex].x
         : SIGMA_MERKABA_RELATION_UNRESOLVED;
-    _NativeContributionRelations[outputIndex] = relationClass;
+    _NativeContributionRelationsWrite[outputIndex] = relationClass;
     [unroll]
     for (uint channel = 0u; channel < SIGMA_NATIVE_OPTICAL_CHANNELS; ++channel)
     {
         uint2 weighted = SigmaQ48MulNearestEven(optical[channel], measure, valid);
-        _NativeContributionOptical[outputIndex *
+        _NativeContributionOpticalWrite[outputIndex *
             SIGMA_NATIVE_OPTICAL_CHANNELS + channel] = weighted;
     }
     if (valid == 0u)
-        _NativeContributionHeaders[outputIndex].w = 0u;
+        _NativeContributionHeadersWrite[outputIndex].w = 0u;
 }
 #endif
 

@@ -1,285 +1,8 @@
 using System;
 using System.Text;
-using UnityEngine;
-using UnityEngine.Rendering;
 
 namespace Genesis.RoomScan.SigmaPrism
 {
-    /// <summary>
-    /// Read-only diagnostics for the direct frame DAG. Tiny asynchronous samples
-    /// describe exact closure, the atomic revision root, topology and disposable
-    /// readout. They never schedule work or decide canonical state.
-    /// </summary>
-    internal sealed class SigmaDiagnosticTelemetry : IDisposable
-    {
-        private const float SampleIntervalSeconds = 0.0f;
-        private const int GateWords = 1;
-        private const int ClosureWords =
-            SigmaFrameResources.ClosureCounterRecords * 4;
-        private const int RevisionWords =
-            SigmaGeneratedFrame.FrameRevisionStride / sizeof(uint);
-        private const int DrawArgumentWords = 4;
-        private const int ReadoutVertexWords =
-            SigmaRenderer.ReadoutSamplesPerPage * 4;
-        private const uint InvalidPageSlot = uint.MaxValue;
-
-        private Batch _active;
-        private float _nextSampleTime;
-        private uint _sequence;
-        private uint _nextReadoutPageSlot = InvalidPageSlot;
-        private int _nextReadoutPageOrdinal;
-        private bool _disposed;
-        private bool _unsupportedReported;
-
-        internal SigmaRuntimeTelemetrySnapshot Snapshot { get; private set; } =
-            SigmaRuntimeTelemetrySnapshot.Awaiting;
-
-        internal bool IsDue(float unscaledTime) => !_disposed &&
-            _active == null && unscaledTime >= _nextSampleTime;
-
-        internal void Tick(float unscaledTime, long submittedFrames,
-            long committedFrames, uint hostRevision, uint pendingHighWater,
-            uint pendingCapacity, GraphicsBuffer gate,
-            GraphicsBuffer closureCounters, GraphicsBuffer revisions,
-            GraphicsBuffer revisionRoot,
-            GraphicsBuffer drawArguments, GraphicsBuffer currentPageSlots,
-            GraphicsBuffer readoutVertices, int readoutPageCapacity,
-            SigmaRuntimeTimingTelemetry timing)
-        {
-            if (!IsDue(unscaledTime))
-                return;
-            _nextSampleTime = unscaledTime + SampleIntervalSeconds;
-            if (!SystemInfo.supportsAsyncGPUReadback)
-            {
-                if (!_unsupportedReported)
-                {
-                    _unsupportedReported = true;
-                    Logger.Warning("Sigma direct telemetry is unavailable: " +
-                        "AsyncGPUReadback is unsupported; no synchronous " +
-                        "fallback is permitted.");
-                }
-                Snapshot = SigmaRuntimeTelemetrySnapshot.Unsupported;
-                return;
-            }
-            if (gate == null || closureCounters == null || revisions == null ||
-                revisionRoot == null)
-            {
-                Snapshot = SigmaRuntimeTelemetrySnapshot.MissingBuffers;
-                return;
-            }
-
-            var batch = new Batch(++_sequence, submittedFrames,
-                committedFrames, hostRevision, pendingHighWater,
-                pendingCapacity, readoutPageCapacity,
-                _nextReadoutPageSlot, timing);
-            _active = batch;
-            try
-            {
-                Request(batch, BufferKind.Gate, gate, GateWords);
-                Request(batch, BufferKind.Closure, closureCounters,
-                    ClosureWords);
-                Request(batch, BufferKind.Revisions, revisions,
-                    checked(revisions.count * RevisionWords));
-                Request(batch, BufferKind.RevisionRoot, revisionRoot, 1);
-                if (drawArguments != null && currentPageSlots != null &&
-                    readoutVertices != null && readoutPageCapacity > 0)
-                {
-                    Request(batch, BufferKind.DrawArguments, drawArguments,
-                        DrawArgumentWords);
-                    Request(batch, BufferKind.CurrentPageSlots,
-                        currentPageSlots, Math.Min(readoutPageCapacity,
-                            currentPageSlots.count));
-                    if (batch.SampledReadoutPageSlot != InvalidPageSlot)
-                    {
-                        int byteOffset = checked(
-                            (int)batch.SampledReadoutPageSlot *
-                            SigmaRenderer.ReadoutSamplesPerPage *
-                            sizeof(float) * 4);
-                        RequestRange(batch, BufferKind.ReadoutVertices,
-                            readoutVertices, ReadoutVertexWords, byteOffset);
-                    }
-                }
-            }
-            catch (Exception exception)
-            {
-                batch.Cancelled = true;
-                _active = null;
-                Snapshot = SigmaRuntimeTelemetrySnapshot.RequestFailed(
-                    exception.Message);
-                return;
-            }
-            if (batch.Remaining == 0)
-                FinalizeBatch(batch);
-        }
-
-        private void Request(Batch batch, BufferKind kind,
-            GraphicsBuffer buffer, int expectedWords)
-        {
-            batch.Remaining++;
-            AsyncGPUReadback.Request(buffer, request =>
-                Complete(batch, kind, expectedWords, request));
-        }
-
-        private void RequestRange(Batch batch, BufferKind kind,
-            GraphicsBuffer buffer, int expectedWords, int byteOffset)
-        {
-            batch.Remaining++;
-            AsyncGPUReadback.Request(buffer,
-                checked(expectedWords * sizeof(uint)), byteOffset, request =>
-                    Complete(batch, kind, expectedWords, request));
-        }
-
-        private void Complete(Batch batch, BufferKind kind,
-            int expectedWords, AsyncGPUReadbackRequest request)
-        {
-            if (_disposed || batch.Cancelled ||
-                !ReferenceEquals(_active, batch))
-                return;
-            uint[] words = null;
-            if (request.hasError)
-                batch.ErrorMask |= 1u << (int)kind;
-            else
-            {
-                try
-                {
-                    var source = request.GetData<uint>();
-                    if (source.Length < expectedWords)
-                        batch.ErrorMask |= 1u << (int)kind;
-                    else
-                    {
-                        words = new uint[expectedWords];
-                        for (int index = 0; index < expectedWords; ++index)
-                            words[index] = source[index];
-                    }
-                }
-                catch (Exception)
-                {
-                    batch.ErrorMask |= 1u << (int)kind;
-                }
-            }
-            batch.Set(kind, words);
-            batch.Remaining--;
-            if (batch.Remaining == 0)
-                FinalizeBatch(batch);
-        }
-
-        private void FinalizeBatch(Batch batch)
-        {
-            if (!ReferenceEquals(_active, batch))
-                return;
-            _active = null;
-            SelectNextReadoutPage(batch);
-            Snapshot = SigmaRuntimeTelemetrySnapshot.From(batch);
-            if (batch.ErrorMask == 0u)
-                Logger.Info(Snapshot.FormatLogLine());
-            else
-                Logger.Warning(Snapshot.FormatLogLine());
-        }
-
-        private void SelectNextReadoutPage(Batch batch)
-        {
-            uint pageCount = SigmaRenderer.VerticesPerCarrierPage == 0
-                ? 0u : Word(batch.DrawArguments, 0) /
-                    (uint)SigmaRenderer.VerticesPerCarrierPage;
-            int available = Math.Min(batch.CurrentPageSlots?.Length ?? 0,
-                pageCount > int.MaxValue ? int.MaxValue : (int)pageCount);
-            if (available == 0)
-            {
-                _nextReadoutPageSlot = InvalidPageSlot;
-                _nextReadoutPageOrdinal = 0;
-                return;
-            }
-            int ordinal = _nextReadoutPageOrdinal % available;
-            uint pageSlot = batch.CurrentPageSlots[ordinal];
-            _nextReadoutPageSlot = pageSlot < batch.ReadoutPageCapacity
-                ? pageSlot : InvalidPageSlot;
-            _nextReadoutPageOrdinal = (ordinal + 1) % available;
-        }
-
-        private static uint Word(uint[] words, int index) =>
-            words != null && (uint)index < (uint)words.Length
-                ? words[index] : 0u;
-
-        public void Dispose()
-        {
-            if (_disposed)
-                return;
-            _disposed = true;
-            if (_active != null)
-                _active.Cancelled = true;
-            _active = null;
-        }
-
-        internal enum BufferKind
-        {
-            Gate = 0,
-            Closure = 1,
-            Revisions = 2,
-            RevisionRoot = 3,
-            DrawArguments = 4,
-            CurrentPageSlots = 5,
-            ReadoutVertices = 6,
-        }
-
-        internal sealed class Batch
-        {
-            internal Batch(uint sequence, long submittedFrames,
-                long committedFrames, uint hostRevision,
-                uint pendingHighWater, uint pendingCapacity,
-                int readoutPageCapacity, uint sampledReadoutPageSlot,
-                SigmaRuntimeTimingTelemetry timing)
-            {
-                Sequence = sequence;
-                SubmittedFrames = submittedFrames;
-                CommittedFrames = committedFrames;
-                HostRevision = hostRevision;
-                PendingHighWater = pendingHighWater;
-                PendingCapacity = pendingCapacity;
-                ReadoutPageCapacity = readoutPageCapacity;
-                SampledReadoutPageSlot = sampledReadoutPageSlot;
-                Timing = timing;
-            }
-
-            internal uint Sequence { get; }
-            internal long SubmittedFrames { get; }
-            internal long CommittedFrames { get; }
-            internal uint HostRevision { get; }
-            internal uint PendingHighWater { get; }
-            internal uint PendingCapacity { get; }
-            internal int ReadoutPageCapacity { get; }
-            internal uint SampledReadoutPageSlot { get; }
-            internal SigmaRuntimeTimingTelemetry Timing { get; }
-            internal int Remaining { get; set; }
-            internal uint ErrorMask { get; set; }
-            internal bool Cancelled { get; set; }
-            internal uint[] Gate { get; private set; }
-            internal uint[] Closure { get; private set; }
-            internal uint[] Revisions { get; private set; }
-            internal uint[] RevisionRoot { get; private set; }
-            internal uint[] DrawArguments { get; private set; }
-            internal uint[] CurrentPageSlots { get; private set; }
-            internal uint[] ReadoutVertices { get; private set; }
-
-            internal void Set(BufferKind kind, uint[] words)
-            {
-                switch (kind)
-                {
-                    case BufferKind.Gate: Gate = words; break;
-                    case BufferKind.Closure: Closure = words; break;
-                    case BufferKind.Revisions: Revisions = words; break;
-                    case BufferKind.RevisionRoot: RevisionRoot = words; break;
-                    case BufferKind.DrawArguments: DrawArguments = words; break;
-                    case BufferKind.CurrentPageSlots:
-                        CurrentPageSlots = words;
-                        break;
-                    case BufferKind.ReadoutVertices:
-                        ReadoutVertices = words;
-                        break;
-                }
-            }
-        }
-    }
-
     public readonly struct SigmaStageLatencyTelemetry
     {
         internal SigmaStageLatencyTelemetry(long sampleCount, double lastMs,
@@ -336,274 +59,92 @@ namespace Genesis.RoomScan.SigmaPrism
             else
                 text.Append("unavailable");
             text.Append(' ');
-            Frame.AppendTo(text, "wall.direct");
+            Frame.AppendTo(text, "wall.native-close");
         }
     }
 
-    public readonly struct SigmaReadoutVertexTelemetry
-    {
-        internal SigmaReadoutVertexTelemetry(uint pageSlot, uint[] words)
-        {
-            PageSlot = pageSlot;
-            SampleCount = words?.Length / 4 ?? 0;
-            SupportedCount = 0;
-            InvalidCount = 0;
-            MinInformationMass = float.PositiveInfinity;
-            MaxInformationMass = float.NegativeInfinity;
-            MinPosition = new Vector3(float.PositiveInfinity,
-                float.PositiveInfinity, float.PositiveInfinity);
-            MaxPosition = new Vector3(float.NegativeInfinity,
-                float.NegativeInfinity, float.NegativeInfinity);
-            for (int sample = 0; sample < SampleCount; ++sample)
-            {
-                int offset = sample * 4;
-                float x = BitsToFloat(words[offset]);
-                float y = BitsToFloat(words[offset + 1]);
-                float z = BitsToFloat(words[offset + 2]);
-                float mass = BitsToFloat(words[offset + 3]);
-                if (!IsFinite(x) || !IsFinite(y) || !IsFinite(z) ||
-                    !IsFinite(mass))
-                {
-                    InvalidCount++;
-                    continue;
-                }
-                if (mass <= 0f)
-                    continue;
-                SupportedCount++;
-                MinInformationMass = Mathf.Min(MinInformationMass, mass);
-                MaxInformationMass = Mathf.Max(MaxInformationMass, mass);
-                Vector3 position = new(x, y, z);
-                MinPosition = Vector3.Min(MinPosition, position);
-                MaxPosition = Vector3.Max(MaxPosition, position);
-            }
-            if (SupportedCount == 0)
-            {
-                MinInformationMass = 0f;
-                MaxInformationMass = 0f;
-                MinPosition = Vector3.zero;
-                MaxPosition = Vector3.zero;
-            }
-        }
-
-        public uint PageSlot { get; }
-        public int SampleCount { get; }
-        public int SupportedCount { get; }
-        public int InvalidCount { get; }
-        public float MinInformationMass { get; }
-        public float MaxInformationMass { get; }
-        public Vector3 MinPosition { get; }
-        public Vector3 MaxPosition { get; }
-        public bool HasSample => PageSlot != InvalidPageSlot && SampleCount != 0;
-
-        internal void AppendTo(StringBuilder text)
-        {
-            if (!HasSample)
-            {
-                text.Append("pending");
-                return;
-            }
-            text.Append("page=").Append(PageSlot)
-                .Append(" support=").Append(SupportedCount).Append('/')
-                .Append(SampleCount).Append(" invalid=").Append(InvalidCount)
-                .Append(" info=").Append(MinInformationMass).Append("..")
-                .Append(MaxInformationMass).Append(" aabb=")
-                .Append(MinPosition).Append("..").Append(MaxPosition);
-        }
-
-        private static float BitsToFloat(uint bits) =>
-            BitConverter.Int32BitsToSingle(unchecked((int)bits));
-        private static bool IsFinite(float value) =>
-            !float.IsNaN(value) && !float.IsInfinity(value);
-        private const uint InvalidPageSlot = uint.MaxValue;
-    }
-
+    /// <summary>
+    /// Host-visible terminal receipt for one immutable NativeCloseCommit. This is
+    /// diagnostic state only; it neither mirrors nor owns canonical field state.
+    /// Per-kernel Vulkan timing and dispatch cardinality remain owned by
+    /// SigmaGpuKernelTelemetry.
+    /// </summary>
     public sealed class SigmaRuntimeTelemetrySnapshot
     {
         private SigmaRuntimeTelemetrySnapshot(bool hasSample, string status)
         {
             HasSample = hasSample;
             Status = status ?? string.Empty;
-            ReadoutVertices = new SigmaReadoutVertexTelemetry(
-                uint.MaxValue, Array.Empty<uint>());
         }
 
-        private SigmaRuntimeTelemetrySnapshot(SigmaDiagnosticTelemetry.Batch batch)
+        private SigmaRuntimeTelemetrySnapshot(uint revision, uint publishedRoot,
+            SigmaFrameCompletionDisposition disposition,
+            SigmaNativeFrameGpu frame, SigmaRuntimeTimingTelemetry timing)
         {
             HasSample = true;
-            Status = batch.ErrorMask == 0u ? "sampled" :
-                $"readback-error-mask=0x{batch.ErrorMask:X}";
-            Sequence = batch.Sequence;
-            ErrorMask = batch.ErrorMask;
-            SubmittedFrames = batch.SubmittedFrames;
-            CommittedFrames = batch.CommittedFrames;
-            HostRevision = batch.HostRevision;
-            GateWord = Word(batch.Gate, 0);
-            ReducedTargets = Word(batch.Closure, 0);
-            ClaimedEdges = Word(batch.Closure, 4);
-            ClosedEdges = Word(batch.Closure, 5);
-            UnresolvedEdges = Word(batch.Closure, 6);
-            DeferredOrRetentionFlags = Word(batch.Closure, 8);
-            ClosureFaultMask = Word(batch.Closure, 12);
-            RetainedPending = Word(batch.Closure, 13);
-            PromotedPendingHoles = Word(batch.Closure, 14);
-            ExistingPendingReused = Word(batch.Closure, 15);
-            PendingHighWater = batch.PendingHighWater;
-            PendingCapacity = batch.PendingCapacity;
-            ChangedTargets = Word(batch.Closure, 20);
-            NovelTargets = Word(batch.Closure, 21);
-            PublicationPages = Word(batch.Closure, 22);
-            ChangedPages = Word(batch.Closure, 23);
-            FaultMask = Word(batch.Closure, 24);
-            MissingPages = Word(batch.Closure, 25);
-            FreePagePairs = Word(batch.Closure, 26);
-            RevisionRoot = Word(batch.RevisionRoot, 0);
-            int revisionOffset = RevisionRoot == 0u ? -1 :
-                checked(((int)RevisionRoot - 1) *
-                    SigmaGeneratedFrame.FrameRevisionStride / sizeof(uint));
-            PublishedRevision = Word(batch.Revisions, revisionOffset);
-            BaseRevision = Word(batch.Revisions, revisionOffset + 1);
-            RevisionState = Word(batch.Revisions, revisionOffset + 2);
-            RevisionFrameSlot = Word(batch.Revisions, revisionOffset + 3);
-            RevisionChangedPages = Word(batch.Revisions, revisionOffset + 5);
-            RevisionSegment = Word(batch.Revisions, revisionOffset + 6);
-            RevisionPageCapacity = Word(batch.Revisions, revisionOffset + 7);
-            WitnessFrameSlot = Word(batch.Revisions, revisionOffset + 8);
-            WitnessFootprints = Word(batch.Revisions, revisionOffset + 9);
-            WitnessDirtyEdges = Word(batch.Revisions, revisionOffset + 10);
-            DrawVertexCount = Word(batch.DrawArguments, 0);
-            DrawInstanceCount = Word(batch.DrawArguments, 1);
-            ReadoutVertices = new SigmaReadoutVertexTelemetry(
-                batch.SampledReadoutPageSlot, batch.ReadoutVertices);
-            Timing = batch.Timing;
+            Revision = revision;
+            PublishedRoot = publishedRoot;
+            Disposition = disposition.ToString();
+            Status = disposition switch
+            {
+                SigmaFrameCompletionDisposition.Published => "published",
+                SigmaFrameCompletionDisposition.NoChange => "no-change",
+                SigmaFrameCompletionDisposition.Unresolved => "unresolved",
+                _ => "faulted"
+            };
+            GateWord = disposition == SigmaFrameCompletionDisposition.Faulted
+                ? 0u : 1u;
+            StateDeltaCount = disposition ==
+                SigmaFrameCompletionDisposition.Published ? 1u : 0u;
+            GaugeDeltaCount = frame.Disposition.Z;
+            UnresolvedConstraintCount = disposition ==
+                SigmaFrameCompletionDisposition.Unresolved ? 1u : 0u;
+            FaultMask = frame.Disposition.W;
+            NativeCloseDispatches = SigmaNativeFrameGraph.HotDispatchCount;
+            Timing = timing;
         }
 
         public static SigmaRuntimeTelemetrySnapshot Awaiting { get; } =
-            new(false, "awaiting-first-sample");
-        internal static SigmaRuntimeTelemetrySnapshot Unsupported { get; } =
-            new(false, "async-readback-unsupported");
-        internal static SigmaRuntimeTelemetrySnapshot MissingBuffers { get; } =
-            new(false, "diagnostic-buffers-missing");
-        internal static SigmaRuntimeTelemetrySnapshot RequestFailed(
-            string detail) => new(false, "request-failed: " + detail);
-        internal static SigmaRuntimeTelemetrySnapshot From(
-            SigmaDiagnosticTelemetry.Batch batch) => new(batch);
+            new(false, "awaiting-first-terminal-native-frame");
+
+        internal static SigmaRuntimeTelemetrySnapshot From(uint revision,
+            uint publishedRoot, SigmaFrameCompletionDisposition disposition,
+            SigmaNativeFrameGpu frame, SigmaRuntimeTimingTelemetry timing) =>
+            new(revision, publishedRoot, disposition, frame, timing);
 
         public bool HasSample { get; }
         public string Status { get; }
-        public uint Sequence { get; }
-        public uint ErrorMask { get; }
-        public long SubmittedFrames { get; }
-        public long CommittedFrames { get; }
-        public uint HostRevision { get; }
+        public string Disposition { get; }
+        public uint Revision { get; }
+        public uint PublishedRoot { get; }
         public uint GateWord { get; }
-        public uint ReducedTargets { get; }
-        public uint ClaimedEdges { get; }
-        public uint ClosedEdges { get; }
-        public uint UnresolvedEdges { get; }
-        public uint DeferredOrRetentionFlags { get; }
-        public uint ClosureFaultMask { get; }
-        public uint RetainedPending { get; }
-        public uint PromotedPendingHoles { get; }
-        public uint ExistingPendingReused { get; }
-        public uint PendingHighWater { get; }
-        public uint PendingCapacity { get; }
-        public uint ChangedTargets { get; }
-        public uint NovelTargets { get; }
-        public uint PublicationPages { get; }
-        public uint ChangedPages { get; }
+        public uint StateDeltaCount { get; }
+        public uint GaugeDeltaCount { get; }
+        public uint UnresolvedConstraintCount { get; }
         public uint FaultMask { get; }
-        public uint MissingPages { get; }
-        public uint FreePagePairs { get; }
-        public uint RevisionRoot { get; }
-        public uint PublishedRevision { get; }
-        public uint BaseRevision { get; }
-        public uint RevisionState { get; }
-        public uint RevisionFrameSlot { get; }
-        public uint RevisionChangedPages { get; }
-        public uint RevisionSegment { get; }
-        public uint RevisionPageCapacity { get; }
-        public uint WitnessFrameSlot { get; }
-        public uint WitnessFootprints { get; }
-        public uint WitnessDirtyEdges { get; }
-        public uint DrawVertexCount { get; }
-        public uint DrawInstanceCount { get; }
-        public uint ReadoutPageCount => SigmaRenderer.VerticesPerCarrierPage == 0
-            ? 0u : DrawVertexCount /
-                (uint)SigmaRenderer.VerticesPerCarrierPage;
-        public SigmaReadoutVertexTelemetry ReadoutVertices { get; }
+        public int NativeCloseDispatches { get; }
         public SigmaRuntimeTimingTelemetry Timing { get; }
 
-        public string Frontier
-        {
-            get
-            {
-                if (!HasSample || ErrorMask != 0u)
-                    return Status;
-                if (GateWord == 0u)
-                    return "exact-backend-gate";
-                if (ClosureFaultMask != 0u)
-                    return "exact-transition-closure-fault";
-                if (FaultMask != 0u)
-                    return "exact-frame-closure-fault";
-                if (SubmittedFrames == 0)
-                    return "coherent-frame-ingress";
-                if (PublishedRevision == 0u)
-                    return ChangedPages == 0u
-                        ? "exact-inverse-no-change" : "atomic-publication";
-                if (DrawVertexCount == 0u)
-                    return "world-readout";
-                if (ReadoutVertices.HasSample &&
-                    ReadoutVertices.SupportedCount == 0)
-                    return "geometry-readout-plan";
-                return "xr-preview";
-            }
-        }
+        public string Frontier => !HasSample ? Status :
+            FaultMask != 0u ? "native-close-fault" :
+            UnresolvedConstraintCount != 0u ? "unresolved-native-constraint" :
+            StateDeltaCount != 0u ? "root-last-publication" :
+            "exact-native-no-change";
 
         public string FormatLogLine()
         {
-            var text = new StringBuilder(900);
-            text.Append("Sigma direct #").Append(Sequence)
+            var text = new StringBuilder(320);
+            text.Append("Sigma native receipt revision=").Append(Revision)
                 .Append(" status=").Append(Status)
-                .Append(" frontier=").Append(Frontier)
-                .Append(" gate=").Append(GateWord)
-                .Append(" host=").Append(CommittedFrames).Append('/')
-                .Append(SubmittedFrames).Append(" hostRev=")
-                .Append(HostRevision).Append(" root=").Append(RevisionRoot)
-                .Append(" revision={id=").Append(PublishedRevision)
-                .Append(" base=").Append(BaseRevision)
-                .Append(" state=").Append(RevisionState)
-                .Append(" changed=").Append(RevisionChangedPages)
-                .Append(" segment=").Append(RevisionSegment)
-                .Append('/').Append(RevisionPageCapacity)
-                .Append(" witness=").Append(WitnessFrameSlot).Append(':')
-                .Append(WitnessFootprints).Append(':')
-                .Append(WitnessDirtyEdges).Append("} r3={targets=")
-                .Append(ReducedTargets).Append(" edges=")
-                .Append(ClaimedEdges).Append('/').Append(ClosedEdges)
-                .Append('/').Append(UnresolvedEdges).Append(" deferred=0x")
-                .Append(DeferredOrRetentionFlags.ToString("X"))
-                .Append(" pending=").Append(RetainedPending).Append('@')
-                .Append(PendingHighWater).Append('/').Append(PendingCapacity)
-                .Append(" holes=").Append(PromotedPendingHoles)
-                .Append(" reused=").Append(ExistingPendingReused)
-                .Append(" fault=0x").Append(ClosureFaultMask.ToString("X"))
-                .Append("} r4={targets=").Append(ChangedTargets)
-                .Append(" novel=").Append(NovelTargets).Append(" pages=")
-                .Append(PublicationPages).Append('/').Append(ChangedPages)
-                .Append(" missing=").Append(MissingPages).Append(" free=")
-                .Append(FreePagePairs).Append(" fault=0x")
-                .Append(FaultMask.ToString("X"))
-                .Append("} draw=")
-                .Append(DrawVertexCount).Append('v').Append('/')
-                .Append(ReadoutPageCount).Append("p vertices={");
-            ReadoutVertices.AppendTo(text);
-            text.Append("} timing={");
+                .Append(" root=").Append(PublishedRoot)
+                .Append(" stateDeltas=").Append(StateDeltaCount)
+                .Append(" gaugeDeltas=").Append(GaugeDeltaCount)
+                .Append(" unresolved=").Append(UnresolvedConstraintCount)
+                .Append(" fault=0x").Append(FaultMask.ToString("X8"))
+                .Append(" nativeCloseDispatches=")
+                .Append(NativeCloseDispatches).Append(' ');
             Timing.AppendTo(text);
-            return text.Append("}").ToString();
+            return text.ToString();
         }
-
-        private static uint Word(uint[] words, int index) =>
-            words != null && index >= 0 && index < words.Length
-                ? words[index] : 0u;
     }
 }

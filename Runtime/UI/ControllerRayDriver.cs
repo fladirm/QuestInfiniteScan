@@ -56,7 +56,8 @@ namespace Genesis.RoomScan.UI
             _rayHelper = new GameObject("ControllerRayHelper").transform;
             _rayHelper.SetParent(transform, false);
             _inputModule.rayTransform = _rayHelper;
-            _inputModule.joyPadClickButton = OVRInput.Button.PrimaryIndexTrigger;
+            _inputModule.joyPadClickButton =
+                OVRInput.Button.SecondaryIndexTrigger;
 
             _uiLayerMask = LayerMask.GetMask("Default", "UI");
 
@@ -78,7 +79,7 @@ namespace Genesis.RoomScan.UI
 
         private void Update()
         {
-            _activeController = ChooseBestController(_activeController);
+            _activeController = ChooseRightController();
             _hasTrackedPose = TryUpdateRayOrigin();
             if (_line != null)
                 _line.enabled = _hasTrackedPose;
@@ -99,26 +100,12 @@ namespace Genesis.RoomScan.UI
             if (_overlayMaterial != null) Destroy(_overlayMaterial);
         }
 
-        // ─── Controller Selection (adapted from Meta ImmersiveDebugger) ───
+        // ─── Right-controller UI authority ───
 
-        private static OVRInput.Controller ChooseBestController(OVRInput.Controller previous)
+        private static OVRInput.Controller ChooseRightController()
         {
-            var left = OVRInput.GetActiveControllerForHand(OVRInput.Handedness.LeftHanded);
-            var right = OVRInput.GetActiveControllerForHand(OVRInput.Handedness.RightHanded);
-
-            if (left != OVRInput.Controller.None &&
-                OVRInput.Get(OVRInput.Button.Any, left))
-                return left;
-            if (right != OVRInput.Controller.None &&
-                OVRInput.Get(OVRInput.Button.Any, right))
-                return right;
-            if (previous != OVRInput.Controller.None &&
-                (previous == left || previous == right))
-                return previous;
-            if (OVRInput.GetDominantHand() == OVRInput.Handedness.LeftHanded &&
-                left != OVRInput.Controller.None)
-                return left;
-            return right != OVRInput.Controller.None ? right : left;
+            return OVRInput.GetActiveControllerForHand(
+                OVRInput.Handedness.RightHanded);
         }
 
         // ─── Ray Transform ───

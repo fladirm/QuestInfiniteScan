@@ -77,12 +77,14 @@ namespace Genesis.RoomScan.UI
         {
             _visible = true;
             _root.style.display = DisplayStyle.Flex;
-            _follower?.SnapToView();
+            _follower?.SnapToLeftController();
             RefreshStatus();
         }
 
         public void Hide()
         {
+            // UI visibility is deliberately orthogonal to scanner lifecycle,
+            // canonical state and every derived readout.
             _visible = false;
             _root.style.display = DisplayStyle.None;
             _follower?.StopTracking();
@@ -170,22 +172,14 @@ namespace Genesis.RoomScan.UI
             string carrierText = carrier == null ? "missing" :
                 !carrier.IsInitialized ? "initializing" :
                 telemetry?.HasSample == true
-                    ? $"revision={telemetry.PublishedRevision} · " +
-                      $"readout={telemetry.ReadoutPageCount}p/" +
-                      $"{telemetry.DrawVertexCount}v · " +
-                      (telemetry.ReadoutVertices.HasSample
-                          ? $"support={telemetry.ReadoutVertices.SupportedCount}/" +
-                            $"{telemetry.ReadoutVertices.SampleCount}"
-                          : "support=pending")
+                    ? $"root={telemetry.PublishedRoot} · " +
+                      $"stateDelta={telemetry.StateDeltaCount} · " +
+                      $"gaugeDelta={telemetry.GaugeDeltaCount}"
                     : "ready · awaiting GPU telemetry";
             StatusKind carrierKind = carrier == null ? StatusKind.Error :
                 !carrier.IsInitialized ? StatusKind.Warning :
                 telemetry?.HasSample != true ? StatusKind.Warning :
-                telemetry.ReadoutVertices.HasSample &&
-                    telemetry.ReadoutVertices.SupportedCount != 0
-                    ? StatusKind.Good :
-                inverse != null && inverse.CommittedFrames != 0
-                    ? StatusKind.Warning : StatusKind.Neutral;
+                telemetry.FaultMask == 0u ? StatusKind.Good : StatusKind.Error;
             SetStatus(_carrierState, carrierText, carrierKind);
 
             if (inverse == null)
@@ -201,15 +195,15 @@ namespace Genesis.RoomScan.UI
             else
             {
                 string text = $"frames={inverse.CommittedFrames}/" +
-                    $"{inverse.SubmittedFrames} · rev=" +
-                    $"{telemetry.PublishedRevision} · changed=" +
-                    $"{telemetry.RevisionChangedPages} · edges=" +
-                    $"{telemetry.WitnessDirtyEdges} · " +
+                    $"{inverse.SubmittedFrames} · root=" +
+                    $"{telemetry.PublishedRoot} · stateΔ=" +
+                    $"{telemetry.StateDeltaCount} · unresolved=" +
+                    $"{telemetry.UnresolvedConstraintCount} · " +
+                    $"dispatch={telemetry.NativeCloseDispatches} · " +
                     $"ms={telemetry.Timing.Frame.LastMs:F1} · " +
                     $"at={telemetry.Frontier}";
                 SetStatus(_inverseState, text,
-                    inverse.FailedFrames == 0 && telemetry.ErrorMask == 0u &&
-                    telemetry.FaultMask == 0u
+                    inverse.FailedFrames == 0 && telemetry.FaultMask == 0u
                         ? StatusKind.Good : StatusKind.Warning);
             }
 

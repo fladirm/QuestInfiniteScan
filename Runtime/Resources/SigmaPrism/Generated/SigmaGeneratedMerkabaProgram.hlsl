@@ -3,9 +3,9 @@
 #ifndef SIGMA_GENERATED_MERKABA_PROGRAM_INCLUDED
 #define SIGMA_GENERATED_MERKABA_PROGRAM_INCLUDED
 
-#include "../../../Runtime/Resources/SigmaPrism/Sedenion16.hlsl"
-#include "../../../Runtime/Resources/SigmaPrism/SigmaExactCompare.hlsl"
-#include "../../../Runtime/Resources/SigmaPrism/Generated/SigmaGeneratedTables.hlsl"
+#include "../Sedenion16.hlsl"
+#include "../SigmaExactCompare.hlsl"
+#include "../Generated/SigmaGeneratedTables.hlsl"
 
 #define SIGMA_MERKABA_IR_INPUT_S16 0u
 #define SIGMA_MERKABA_IR_INPUT_FIELD 1u

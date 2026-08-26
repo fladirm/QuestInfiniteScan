@@ -21,52 +21,43 @@ namespace Genesis.RoomScan.SigmaPrism
         internal uint W;
     }
 
-    internal enum SigmaFrameSource : uint
+    internal enum SigmaNativeSensorSide : uint
     {
-        DepthLeft = 0,
-        DepthRight = 1,
-        RgbLeft = 2,
-        RgbRight = 3,
+        Left = 0,
+        Right = 1,
     }
-    internal enum SigmaFrameProposalKind : uint
+    internal enum SigmaNativeLeafKind : uint
     {
-        None = 0,
-        Current = 1,
-        Pending = 2,
-        Continuation = 3,
-        Novel = 4,
+        Order = 0,
+        Optical0 = 1,
+        Optical1 = 2,
+        Optical2 = 3,
     }
-    internal enum SigmaFrameTargetKind : uint
+    internal enum SigmaNativeFirstHitRole : uint
     {
-        None = 0,
-        Canonical = 1,
-        Pending = 2,
+        NoClaim = 0,
+        PreHitExclusion = 1,
+        FirstHitMould = 2,
     }
-    internal enum SigmaFrameClaimKind : uint
-    {
-        None = 0,
-        Contact = 1,
-        ProvenNull = 2,
-        Conflict = 3,
-    }
-    internal enum SigmaOwnedFrameState : uint
+    internal enum SigmaNativeFrameDisposition : uint
     {
         Free = 0,
-        Sealed = 1,
-        SourceCells = 2,
+        GpuOwned = 1,
+        NoChange = 2,
         Resolved = 3,
-        Closed = 4,
-        EvidenceRetained = 5,
+        Unresolved = 4,
+        Published = 5,
+        Faulted = 6,
     }
-    internal enum SigmaPendingGaugeState : uint
+    internal enum SigmaNativeColdReason : uint
     {
-        Free = 0,
-        Open = 1,
-        Supported = 2,
-        Promoted = 3,
-        Aborted = 4,
+        None = 0,
+        ContractorOverflow = 1,
+        RepresentationRefinement = 2,
+        PageFault = 3,
+        GaugeNormalization = 4,
     }
-    internal enum SigmaFrameRevisionState : uint
+    internal enum SigmaNativeRevisionState : uint
     {
         Free = 0,
         Building = 1,
@@ -74,96 +65,120 @@ namespace Genesis.RoomScan.SigmaPrism
         Published = 3,
     }
     [System.Flags]
-    internal enum SigmaFrameOutcomeFlags : uint
+    internal enum SigmaNativeObservationFlags : uint
     {
         None = 0u,
-        Accepted = 0x00000001u,
-        Unchanged = 0x00000002u,
-        Conflict = 0x00000004u,
-        Exclusion = 0x00000008u,
-        Pending = 0x00000010u,
-        Deferred = 0x00000020u,
+        Coherent = 0x00000001u,
+        LeftFirstHit = 0x00000002u,
+        RightFirstHit = 0x00000004u,
+        LeftEvidence = 0x00000008u,
+        RightEvidence = 0x00000010u,
+        OpticalClaim = 0x00000020u,
+        PriorSupport = 0x00000040u,
         Fault = 0x80000000u,
     }
     [System.Flags]
-    internal enum SigmaFrameCellFlags : uint
+    internal enum SigmaNativeDeltaFlags : uint
     {
         None = 0u,
-        Constrained = 0x00000001u,
-        Observed = 0x00000002u,
-        Unobservable = 0x00000004u,
-        Independent = 0x00000008u,
-        Conflict = 0x00000010u,
-        Accepted = 0x00000020u,
+        Resolved = 0x00000001u,
+        Common = 0x00000002u,
+        StateChanged = 0x00000004u,
+        GaugeChanged = 0x00000008u,
+        EvidenceRetained = 0x00000010u,
         Fault = 0x80000000u,
     }
 
     [StructLayout(LayoutKind.Sequential, Pack = 4)]
-    internal struct SigmaOwnedFrameGpu
+    internal struct SigmaNativeFrameGpu
     {
         internal SigmaFrameUInt4Gpu Identity;
-        internal SigmaFrameUInt4Gpu Keys;
-        internal SigmaFrameUInt4Gpu PoseSource;
-    }
-    [StructLayout(LayoutKind.Sequential, Pack = 4)]
-    internal struct SigmaFrameCandidateGpu
-    {
-        internal SigmaFrameUInt4Gpu Identity;
-        internal SigmaFrameUInt4Gpu Handle;
-        internal SigmaFrameUInt4Gpu Coordinate;
-    }
-    [StructLayout(LayoutKind.Sequential, Pack = 4)]
-    internal struct SigmaFrameOutcomeGpu
-    {
-        internal SigmaFrameUInt4Gpu Classification;
+        internal SigmaFrameUInt4Gpu Disposition;
         internal SigmaFrameUInt4Gpu Evidence;
+        internal SigmaFrameUInt4Gpu Publication;
     }
     [StructLayout(LayoutKind.Sequential, Pack = 4)]
-    internal struct SigmaPendingGaugeGpu
+    internal struct SigmaNativeObservationGpu
     {
         internal SigmaFrameUInt4Gpu Identity;
+        internal SigmaFrameUInt4Gpu Footprint;
+        internal SigmaFrameUInt4Gpu Evidence;
+        internal SigmaFrameUInt4Gpu Query;
+    }
+    [StructLayout(LayoutKind.Sequential, Pack = 4)]
+    internal struct SigmaNativeReverseWorkGpu
+    {
+        internal SigmaFrameUInt4Gpu Identity;
+        internal SigmaFrameUInt4Gpu Support;
+        internal SigmaFrameUInt4Gpu Relation;
         internal SigmaFrameUInt4Gpu Provenance;
-        internal SigmaFrameUInt4Gpu LocalExtent;
     }
     [StructLayout(LayoutKind.Sequential, Pack = 4)]
-    internal struct SigmaFrameDeltaGpu
+    internal struct SigmaNativeStateDeltaGpu
     {
         internal SigmaFrameUInt4Gpu Coordinate;
-        internal SigmaFrameUInt4Gpu Candidate;
-        internal SigmaFrameUInt4Gpu Evidence;
+        internal SigmaFrameUInt4Gpu Generation;
+        internal SigmaFrameUInt4Gpu Changed;
+        internal SigmaFrameUInt4Gpu Witness;
+        internal SigmaFrameUInt4Gpu Receipts;
+        internal SigmaFrameUInt4Gpu State01;
+        internal SigmaFrameUInt4Gpu State23;
+        internal SigmaFrameUInt4Gpu State45;
+        internal SigmaFrameUInt4Gpu State67;
+        internal SigmaFrameUInt4Gpu State89;
+        internal SigmaFrameUInt4Gpu State1011;
+        internal SigmaFrameUInt4Gpu State1213;
+        internal SigmaFrameUInt4Gpu State1415;
     }
     [StructLayout(LayoutKind.Sequential, Pack = 4)]
-    internal struct SigmaDirtyEdgeGpu
+    internal struct SigmaNativeGaugeDeltaGpu
     {
-        internal SigmaFrameUInt4Gpu Left;
-        internal SigmaFrameUInt4Gpu Right;
-        internal SigmaFrameUInt4Gpu Closure;
+        internal SigmaFrameUInt4Gpu Coordinate;
+        internal SigmaFrameUInt4Gpu Prior;
+        internal SigmaFrameUInt4Gpu Next;
+        internal SigmaFrameUInt4Gpu Witness;
     }
     [StructLayout(LayoutKind.Sequential, Pack = 4)]
-    internal struct SigmaFrameRevisionGpu
+    internal struct SigmaUnresolvedConstraintGpu
+    {
+        internal SigmaFrameUInt4Gpu Observation;
+        internal SigmaFrameUInt4Gpu Relation;
+        internal SigmaFrameUInt4Gpu Evidence;
+        internal SigmaFrameUInt4Gpu Provenance;
+    }
+    [StructLayout(LayoutKind.Sequential, Pack = 4)]
+    internal struct SigmaNativeFieldRevisionGpu
     {
         internal SigmaFrameUInt4Gpu Identity;
-        internal SigmaFrameUInt4Gpu ChangedPages;
-        internal SigmaFrameUInt4Gpu WitnessJournal;
+        internal SigmaFrameUInt4Gpu Changed;
+        internal SigmaFrameUInt4Gpu Evidence;
+        internal SigmaFrameUInt4Gpu Publication;
     }
 
     internal static class SigmaGeneratedFrame
     {
-        internal const string AbiVersion = "CPQ4-S16-FRAME-1";
-        internal const string AbiFingerprint = "1ab5f56a94f962cc75562f0e09a41be4b5047e05472c6e0988a230d74363a21e";
-        internal const int SourceCount = 4;
+        internal const string AbiVersion = "CPQ4-S16-NATIVE-FRAME-1";
+        internal const string AbiFingerprint = "886541c896d7e227888fd9e371ae879a188a9976d2d726bd76ae5fd3cd524222";
+        internal const int SensorSideCount = 2;
+        internal const int LeafCount = 4;
         internal const int LaneCount = 16;
         internal const int PackedQ48Stride = 8;
         internal const int ValidityStride = 4;
         internal const int ProvenanceStride = 16;
-        internal const int SourceMaskShift = 8;
         internal const uint Invalid = 0xffffffffu;
-        internal const int OwnedFrameStride = 48;
-        internal const int FrameCandidateStride = 48;
-        internal const int FrameOutcomeStride = 32;
-        internal const int PendingGaugeStride = 48;
-        internal const int FrameDeltaStride = 48;
-        internal const int DirtyEdgeStride = 48;
-        internal const int FrameRevisionStride = 48;
+        internal const int NativeFrameStride = 64;
+        internal const int NativeObservationStride = 64;
+        internal const int NativeReverseWorkStride = 64;
+        internal const int NativeStateDeltaStride = 208;
+        internal const int NativeGaugeDeltaStride = 64;
+        internal const int UnresolvedConstraintStride = 64;
+        internal const int NativeFieldRevisionStride = 64;
+        internal const int SensorLeftEntryPoint = 0;
+        internal const int SensorRightEntryPoint = 1;
+        internal const int EyePairEntryPoint = 2;
+        internal const int IntrinsicRelationEntryPoint = 3;
+        internal const int PredictionSupportEntryPoint = 4;
+        internal const int ExportEntryPoint = 5;
+        internal const int DebugEntryPoint = 6;
     }
 }
