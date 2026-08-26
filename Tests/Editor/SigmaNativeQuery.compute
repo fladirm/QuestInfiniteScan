@@ -1,0 +1,152 @@
+// N2R Editor/Vulkan oracle only. It owns no canonical field or publication path.
+#pragma kernel SelectNativeQuerySupport
+#pragma kernel EvaluateNativeQuery
+#pragma kernel ReduceNativeQuery
+#pragma target 5.0
+
+#include "Generated/SigmaGeneratedMerkabaProgram.hlsl"
+
+#define SIGMA_NATIVE_SUMMARY_ALL_DEFAULT 1u
+#define SIGMA_NATIVE_SUMMARY_BOUNDARY_CLOSED 2u
+#define SIGMA_NATIVE_SUMMARY_PROGRAM_MATCH 4u
+#define SIGMA_NATIVE_SUMMARY_GAUGE_MATCH 8u
+#define SIGMA_NATIVE_SUMMARY_STALE 16u
+#define SIGMA_NATIVE_SUMMARY_NONRESIDENT 32u
+
+StructuredBuffer<uint4> _NativeSummaries;
+StructuredBuffer<uint4> _NativeSamples;
+StructuredBuffer<uint2> _NativeStates;
+StructuredBuffer<uint2> _NativeMeasures;
+StructuredBuffer<uint2> _NativeQueryRows;
+RWStructuredBuffer<uint> _NativeWorklist;
+RWStructuredBuffer<uint> _NativeCounters;
+RWStructuredBuffer<uint4> _NativeContributionHeaders;
+RWStructuredBuffer<uint4> _NativeContributionValues;
+RWStructuredBuffer<uint2> _NativeContributionMeasures;
+RWStructuredBuffer<uint4> _NativeReducedHeaders;
+RWStructuredBuffer<uint4> _NativeReducedValues;
+
+#include "Generated/SigmaNativeOracleMath.hlsl"
+
+uint _NativeSummaryCount;
+uint _NativeWorkOffset;
+uint _NativeWorkCount;
+uint _NativeContributionCount;
+uint _NativeFootprint;
+
+[numthreads(64, 1, 1)]
+void SelectNativeQuerySupport(uint3 id : SV_DispatchThreadID)
+{
+    uint summaryIndex = id.x;
+    if (summaryIndex >= _NativeSummaryCount)
+        return;
+    uint4 summary = _NativeSummaries[summaryIndex];
+    uint flags = summary.y;
+    bool allDefault = (flags & SIGMA_NATIVE_SUMMARY_ALL_DEFAULT) != 0u;
+    bool boundaryClosed =
+        (flags & SIGMA_NATIVE_SUMMARY_BOUNDARY_CLOSED) != 0u;
+    bool fingerprintsMatch =
+        (flags & (SIGMA_NATIVE_SUMMARY_PROGRAM_MATCH |
+                  SIGMA_NATIVE_SUMMARY_GAUGE_MATCH)) ==
+        (SIGMA_NATIVE_SUMMARY_PROGRAM_MATCH |
+         SIGMA_NATIVE_SUMMARY_GAUGE_MATCH) &&
+        (flags & SIGMA_NATIVE_SUMMARY_STALE) == 0u;
+    bool omit = SigmaMerkabaCanOmitQueryRegion(allDefault, boundaryClosed,
+        fingerprintsMatch);
+    if (!omit)
+    {
+        uint outputIndex;
+        InterlockedAdd(_NativeCounters[0], 1u, outputIndex);
+        _NativeWorklist[outputIndex] = summary.x;
+        if ((flags & SIGMA_NATIVE_SUMMARY_NONRESIDENT) != 0u)
+            InterlockedAdd(_NativeCounters[1], 1u);
+    }
+}
+
+[numthreads(64, 1, 1)]
+void EvaluateNativeQuery(uint3 id : SV_DispatchThreadID)
+{
+    uint localIndex = id.x;
+    if (localIndex >= _NativeWorkCount)
+        return;
+    uint workIndex = _NativeWorkOffset + localIndex;
+    uint sampleIndex = _NativeWorklist[workIndex];
+    uint4 sample = _NativeSamples[sampleIndex];
+    uint valid = 1u;
+    uint2 order;
+    uint2 optical;
+    SigmaNativeEvaluateState(sample.z, order, optical, valid);
+    uint2 measure = _NativeMeasures[sampleIndex];
+    uint2 weightedOptical = SigmaQ48MulNearestEven(optical, measure, valid);
+    bool active = !SigmaNativeStateIsZero(sample.z) && sample.y == _NativeFootprint;
+    _NativeContributionHeaders[workIndex] = uint4(sample.x, sample.y,
+        active ? valid : 0u, sampleIndex);
+    _NativeContributionValues[workIndex] = uint4(order, weightedOptical);
+    _NativeContributionMeasures[workIndex] = measure;
+}
+
+[numthreads(1, 1, 1)]
+void ReduceNativeQuery(uint3 id : SV_DispatchThreadID)
+{
+    uint2 minimumOrder = uint2(0xffffffffu, 0x7fffffffu);
+    uint activeCount = 0u;
+    for (uint index = 0u; index < _NativeContributionCount; ++index)
+    {
+        uint4 header = _NativeContributionHeaders[index];
+        bool active = header.z != 0u && header.y == _NativeFootprint;
+        uint2 order = _NativeContributionValues[index].xy;
+        minimumOrder = active ? SigmaQ48Min(minimumOrder, order) : minimumOrder;
+        activeCount += active ? 1u : 0u;
+    }
+
+    uint firstMask = 0u;
+    uint behindMask = 0u;
+    uint firstCount = 0u;
+    uint2 opticalLower = uint2(0xffffffffu, 0x7fffffffu);
+    uint2 opticalUpper = uint2(0u, 0x80000000u);
+    for (uint index = 0u; index < _NativeContributionCount; ++index)
+    {
+        uint4 header = _NativeContributionHeaders[index];
+        bool active = header.z != 0u && header.y == _NativeFootprint;
+        uint2 order = _NativeContributionValues[index].xy;
+        bool first = active && SigmaU64Equal(order, minimumOrder);
+        bool behind = active && SigmaI64Less(minimumOrder, order);
+        uint supportBit = 1u << (header.x & 31u);
+        firstMask |= first ? supportBit : 0u;
+        behindMask |= behind ? supportBit : 0u;
+        firstCount += first ? 1u : 0u;
+        if (!first)
+            continue;
+
+        uint2 weighted = uint2(0u, 0u);
+        uint2 measure = uint2(0u, 0u);
+        uint sumValid = 1u;
+        for (uint other = 0u; other < _NativeContributionCount; ++other)
+        {
+            uint4 otherHeader = _NativeContributionHeaders[other];
+            bool same = otherHeader.z != 0u && otherHeader.y == _NativeFootprint &&
+                otherHeader.x == header.x;
+            uint4 otherValue = _NativeContributionValues[other];
+            weighted = same ? SigmaQ48AddChecked(weighted, otherValue.zw,
+                sumValid) : weighted;
+            measure = same ? SigmaQ48AddChecked(measure,
+                _NativeContributionMeasures[other], sumValid) : measure;
+        }
+        uint2 normalizedLower = SigmaQ48DivLower(weighted, measure, sumValid);
+        uint2 normalizedUpper = SigmaQ48DivUpper(weighted, measure, sumValid);
+        opticalLower = sumValid != 0u ? SigmaQ48Min(opticalLower,
+            normalizedLower) : opticalLower;
+        opticalUpper = sumValid != 0u ? SigmaQ48Max(opticalUpper,
+            normalizedUpper) : opticalUpper;
+    }
+
+    bool validResult = activeCount != 0u;
+    _NativeReducedHeaders[0] = uint4(firstMask, behindMask, firstCount,
+        validResult ? 1u : 0u);
+    _NativeReducedValues[0] = validResult
+        ? uint4(minimumOrder, opticalLower)
+        : uint4(0u, 0u, 1u, 0u);
+    _NativeReducedValues[1] = validResult
+        ? uint4(opticalUpper, activeCount, 0u)
+        : uint4(1u, 0u, 0u, 0u);
+}

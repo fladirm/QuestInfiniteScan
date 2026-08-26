@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "source_digest": "7ab216a8d6ca293b8ebc8588f4a308069e9ffd1429102a254f0ab735c1151b59",
+  "source_digest": "0f790dd208daf8c7753b23c879fe5dea0a409bf9ac340035d76678d46790e9da",
   "scope": [
     "Runtime/**/*.cs",
     "Runtime/Resources/SigmaPrism/**/*.*",
@@ -10,9 +10,9 @@
     "Tests/Editor/*.cs"
   ],
   "summary": {
-    "files": 108,
-    "symbols": 1727,
-    "methods_and_functions": 1402,
+    "files": 110,
+    "symbols": 1808,
+    "methods_and_functions": 1467,
     "gpu_kernels": 76,
     "event_links": 5
   },
@@ -515,6 +515,16 @@
     {
       "id": "file:Tests/Editor/SigmaMerkabaProgramTests.cs",
       "path": "Tests/Editor/SigmaMerkabaProgramTests.cs",
+      "language": "cs"
+    },
+    {
+      "id": "file:Tests/Editor/SigmaMerkabaSemanticOracle.cs",
+      "path": "Tests/Editor/SigmaMerkabaSemanticOracle.cs",
+      "language": "cs"
+    },
+    {
+      "id": "file:Tests/Editor/SigmaNativeOracleTests.cs",
+      "path": "Tests/Editor/SigmaNativeOracleTests.cs",
       "language": "cs"
     },
     {
@@ -11564,6 +11574,573 @@
       "line": 15
     },
     {
+      "id": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::AddOutward@544",
+      "file": "Tests/Editor/SigmaMerkabaSemanticOracle.cs",
+      "name": "AddOutward",
+      "kind": "method",
+      "line": 544
+    },
+    {
+      "id": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::Apply@42",
+      "file": "Tests/Editor/SigmaMerkabaSemanticOracle.cs",
+      "name": "Apply",
+      "kind": "method",
+      "line": 42
+    },
+    {
+      "id": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::CanOmit@151",
+      "file": "Tests/Editor/SigmaMerkabaSemanticOracle.cs",
+      "name": "CanOmit",
+      "kind": "method",
+      "line": 151
+    },
+    {
+      "id": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::ContractJoint@496",
+      "file": "Tests/Editor/SigmaMerkabaSemanticOracle.cs",
+      "name": "ContractJoint",
+      "kind": "method",
+      "line": 496
+    },
+    {
+      "id": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::ContractNativeQuery@441",
+      "file": "Tests/Editor/SigmaMerkabaSemanticOracle.cs",
+      "name": "ContractNativeQuery",
+      "kind": "method",
+      "line": 441
+    },
+    {
+      "id": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::DivideOutward@577",
+      "file": "Tests/Editor/SigmaMerkabaSemanticOracle.cs",
+      "name": "DivideOutward",
+      "kind": "method",
+      "line": 577
+    },
+    {
+      "id": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::DotPoint@619",
+      "file": "Tests/Editor/SigmaMerkabaSemanticOracle.cs",
+      "name": "DotPoint",
+      "kind": "method",
+      "line": 619
+    },
+    {
+      "id": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::Equals@204",
+      "file": "Tests/Editor/SigmaMerkabaSemanticOracle.cs",
+      "name": "Equals",
+      "kind": "method",
+      "line": 204
+    },
+    {
+      "id": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::Equals@210",
+      "file": "Tests/Editor/SigmaMerkabaSemanticOracle.cs",
+      "name": "Equals",
+      "kind": "method",
+      "line": 210
+    },
+    {
+      "id": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::Equals@228",
+      "file": "Tests/Editor/SigmaMerkabaSemanticOracle.cs",
+      "name": "Equals",
+      "kind": "method",
+      "line": 228
+    },
+    {
+      "id": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::Equals@230",
+      "file": "Tests/Editor/SigmaMerkabaSemanticOracle.cs",
+      "name": "Equals",
+      "kind": "method",
+      "line": 230
+    },
+    {
+      "id": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::Equals@332",
+      "file": "Tests/Editor/SigmaMerkabaSemanticOracle.cs",
+      "name": "Equals",
+      "kind": "method",
+      "line": 332
+    },
+    {
+      "id": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::Equals@335",
+      "file": "Tests/Editor/SigmaMerkabaSemanticOracle.cs",
+      "name": "Equals",
+      "kind": "method",
+      "line": 335
+    },
+    {
+      "id": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::EvaluateAndReduce@399",
+      "file": "Tests/Editor/SigmaMerkabaSemanticOracle.cs",
+      "name": "EvaluateAndReduce",
+      "kind": "method",
+      "line": 399
+    },
+    {
+      "id": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::EvaluateMerkabaShadow@365",
+      "file": "Tests/Editor/SigmaMerkabaSemanticOracle.cs",
+      "name": "EvaluateMerkabaShadow",
+      "kind": "method",
+      "line": 365
+    },
+    {
+      "id": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::EvaluateNativeQuery@383",
+      "file": "Tests/Editor/SigmaMerkabaSemanticOracle.cs",
+      "name": "EvaluateNativeQuery",
+      "kind": "method",
+      "line": 383
+    },
+    {
+      "id": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::EvaluateNativeRelation@530",
+      "file": "Tests/Editor/SigmaMerkabaSemanticOracle.cs",
+      "name": "EvaluateNativeRelation",
+      "kind": "method",
+      "line": 530
+    },
+    {
+      "id": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::GetHashCode@212",
+      "file": "Tests/Editor/SigmaMerkabaSemanticOracle.cs",
+      "name": "GetHashCode",
+      "kind": "method",
+      "line": 212
+    },
+    {
+      "id": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::GetHashCode@232",
+      "file": "Tests/Editor/SigmaMerkabaSemanticOracle.cs",
+      "name": "GetHashCode",
+      "kind": "method",
+      "line": 232
+    },
+    {
+      "id": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::GetHashCode@337",
+      "file": "Tests/Editor/SigmaMerkabaSemanticOracle.cs",
+      "name": "GetHashCode",
+      "kind": "method",
+      "line": 337
+    },
+    {
+      "id": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::Hull@603",
+      "file": "Tests/Editor/SigmaMerkabaSemanticOracle.cs",
+      "name": "Hull",
+      "kind": "method",
+      "line": 603
+    },
+    {
+      "id": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::MultiplyOutward@556",
+      "file": "Tests/Editor/SigmaMerkabaSemanticOracle.cs",
+      "name": "MultiplyOutward",
+      "kind": "method",
+      "line": 556
+    },
+    {
+      "id": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::Overlaps@612",
+      "file": "Tests/Editor/SigmaMerkabaSemanticOracle.cs",
+      "name": "Overlaps",
+      "kind": "method",
+      "line": 612
+    },
+    {
+      "id": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::Point@629",
+      "file": "Tests/Editor/SigmaMerkabaSemanticOracle.cs",
+      "name": "Point",
+      "kind": "method",
+      "line": 629
+    },
+    {
+      "id": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::ProvenStrictlyBefore@615",
+      "file": "Tests/Editor/SigmaMerkabaSemanticOracle.cs",
+      "name": "ProvenStrictlyBefore",
+      "kind": "method",
+      "line": 615
+    },
+    {
+      "id": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::ReduceNativeQuery@409",
+      "file": "Tests/Editor/SigmaMerkabaSemanticOracle.cs",
+      "name": "ReduceNativeQuery",
+      "kind": "method",
+      "line": 409
+    },
+    {
+      "id": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::RequireSensorExpressionShape@631",
+      "file": "Tests/Editor/SigmaMerkabaSemanticOracle.cs",
+      "name": "RequireSensorExpressionShape",
+      "kind": "method",
+      "line": 631
+    },
+    {
+      "id": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::SelectNativeQuerySupport@356",
+      "file": "Tests/Editor/SigmaMerkabaSemanticOracle.cs",
+      "name": "SelectNativeQuerySupport",
+      "kind": "method",
+      "line": 356
+    },
+    {
+      "id": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::SigmaMerkabaSemanticOracle",
+      "file": "Tests/Editor/SigmaMerkabaSemanticOracle.cs",
+      "name": "SigmaMerkabaSemanticOracle",
+      "kind": "class",
+      "line": 345
+    },
+    {
+      "id": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::SigmaNativeContractBranch",
+      "file": "Tests/Editor/SigmaMerkabaSemanticOracle.cs",
+      "name": "SigmaNativeContractBranch",
+      "kind": "struct",
+      "line": 257
+    },
+    {
+      "id": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::SigmaNativeContractResult",
+      "file": "Tests/Editor/SigmaMerkabaSemanticOracle.cs",
+      "name": "SigmaNativeContractResult",
+      "kind": "class",
+      "line": 297
+    },
+    {
+      "id": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::SigmaNativeContribution",
+      "file": "Tests/Editor/SigmaMerkabaSemanticOracle.cs",
+      "name": "SigmaNativeContribution",
+      "kind": "struct",
+      "line": 162
+    },
+    {
+      "id": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::SigmaNativeDeltaWitness",
+      "file": "Tests/Editor/SigmaMerkabaSemanticOracle.cs",
+      "name": "SigmaNativeDeltaWitness",
+      "kind": "struct",
+      "line": 215
+    },
+    {
+      "id": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::SigmaNativeOracleCell",
+      "file": "Tests/Editor/SigmaMerkabaSemanticOracle.cs",
+      "name": "SigmaNativeOracleCell",
+      "kind": "struct",
+      "line": 94
+    },
+    {
+      "id": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::SigmaNativeOracleQuery",
+      "file": "Tests/Editor/SigmaMerkabaSemanticOracle.cs",
+      "name": "SigmaNativeOracleQuery",
+      "kind": "class",
+      "line": 52
+    },
+    {
+      "id": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::SigmaNativeOracleResolution",
+      "file": "Tests/Editor/SigmaMerkabaSemanticOracle.cs",
+      "name": "SigmaNativeOracleResolution",
+      "kind": "enum",
+      "line": 7
+    },
+    {
+      "id": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::SigmaNativePhotometricLaw",
+      "file": "Tests/Editor/SigmaMerkabaSemanticOracle.cs",
+      "name": "SigmaNativePhotometricLaw",
+      "kind": "struct",
+      "line": 14
+    },
+    {
+      "id": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::SigmaNativePreimageCandidate",
+      "file": "Tests/Editor/SigmaMerkabaSemanticOracle.cs",
+      "name": "SigmaNativePreimageCandidate",
+      "kind": "struct",
+      "line": 234
+    },
+    {
+      "id": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::SigmaNativeQuerySupportSummary",
+      "file": "Tests/Editor/SigmaMerkabaSemanticOracle.cs",
+      "name": "SigmaNativeQuerySupportSummary",
+      "kind": "struct",
+      "line": 128
+    },
+    {
+      "id": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::SigmaNativeRelationWitness",
+      "file": "Tests/Editor/SigmaMerkabaSemanticOracle.cs",
+      "name": "SigmaNativeRelationWitness",
+      "kind": "struct",
+      "line": 318
+    },
+    {
+      "id": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::SigmaNativeSceneShadow",
+      "file": "Tests/Editor/SigmaMerkabaSemanticOracle.cs",
+      "name": "SigmaNativeSceneShadow",
+      "kind": "struct",
+      "line": 184
+    },
+    {
+      "id": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::SubtractOutward@550",
+      "file": "Tests/Editor/SigmaMerkabaSemanticOracle.cs",
+      "name": "SubtractOutward",
+      "kind": "method",
+      "line": 550
+    },
+    {
+      "id": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::SumOutward@599",
+      "file": "Tests/Editor/SigmaMerkabaSemanticOracle.cs",
+      "name": "SumOutward",
+      "kind": "method",
+      "line": 599
+    },
+    {
+      "id": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::SummarizeCell@347",
+      "file": "Tests/Editor/SigmaMerkabaSemanticOracle.cs",
+      "name": "SummarizeCell",
+      "kind": "method",
+      "line": 347
+    },
+    {
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::Axis@736",
+      "file": "Tests/Editor/SigmaNativeOracleTests.cs",
+      "name": "Axis",
+      "kind": "method",
+      "line": 736
+    },
+    {
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::Candidate@690",
+      "file": "Tests/Editor/SigmaNativeOracleTests.cs",
+      "name": "Candidate",
+      "kind": "method",
+      "line": 690
+    },
+    {
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::Cell@701",
+      "file": "Tests/Editor/SigmaNativeOracleTests.cs",
+      "name": "Cell",
+      "kind": "method",
+      "line": 701
+    },
+    {
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::CpuCandidate@695",
+      "file": "Tests/Editor/SigmaNativeOracleTests.cs",
+      "name": "CpuCandidate",
+      "kind": "method",
+      "line": 695
+    },
+    {
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::DirectionalMouldCorrectsNearSupportAndNeverActsBehindHit@152",
+      "file": "Tests/Editor/SigmaNativeOracleTests.cs",
+      "name": "DirectionalMouldCorrectsNearSupportAndNeverActsBehindHit",
+      "kind": "method",
+      "line": 152
+    },
+    {
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::Equals@33",
+      "file": "Tests/Editor/SigmaNativeOracleTests.cs",
+      "name": "Equals",
+      "kind": "method",
+      "line": 33
+    },
+    {
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::Equals@35",
+      "file": "Tests/Editor/SigmaNativeOracleTests.cs",
+      "name": "Equals",
+      "kind": "method",
+      "line": 35
+    },
+    {
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::EvaluateRelationWindows@590",
+      "file": "Tests/Editor/SigmaNativeOracleTests.cs",
+      "name": "EvaluateRelationWindows",
+      "kind": "method",
+      "line": 590
+    },
+    {
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::ExactInformationAndPhotometricLawPreventWeakRevisitDegradation@202",
+      "file": "Tests/Editor/SigmaNativeOracleTests.cs",
+      "name": "ExactInformationAndPhotometricLawPreventWeakRevisitDegradation",
+      "kind": "method",
+      "line": 202
+    },
+    {
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::ExecutionWindowsAndOrderAreInvisibleAndScratchIsTestOnly@396",
+      "file": "Tests/Editor/SigmaNativeOracleTests.cs",
+      "name": "ExecutionWindowsAndOrderAreInvisibleAndScratchIsTestOnly",
+      "kind": "method",
+      "line": 396
+    },
+    {
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::Factor@743",
+      "file": "Tests/Editor/SigmaNativeOracleTests.cs",
+      "name": "Factor",
+      "kind": "method",
+      "line": 743
+    },
+    {
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::GaugeRefinementRelationsAndCoupledShadowModesRemainOneField@271",
+      "file": "Tests/Editor/SigmaNativeOracleTests.cs",
+      "name": "GaugeRefinementRelationsAndCoupledShadowModesRemainOneField",
+      "kind": "method",
+      "line": 271
+    },
+    {
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::GetHashCode@37",
+      "file": "Tests/Editor/SigmaNativeOracleTests.cs",
+      "name": "GetHashCode",
+      "kind": "method",
+      "line": 37
+    },
+    {
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::GpuCandidate@756",
+      "file": "Tests/Editor/SigmaNativeOracleTests.cs",
+      "name": "GpuCandidate",
+      "kind": "method",
+      "line": 756
+    },
+    {
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::Law@728",
+      "file": "Tests/Editor/SigmaNativeOracleTests.cs",
+      "name": "Law",
+      "kind": "method",
+      "line": 728
+    },
+    {
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::LeftQuery@708",
+      "file": "Tests/Editor/SigmaNativeOracleTests.cs",
+      "name": "LeftQuery",
+      "kind": "method",
+      "line": 708
+    },
+    {
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::LoadShader@780",
+      "file": "Tests/Editor/SigmaNativeOracleTests.cs",
+      "name": "LoadShader",
+      "kind": "method",
+      "line": 780
+    },
+    {
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::Pack@771",
+      "file": "Tests/Editor/SigmaNativeOracleTests.cs",
+      "name": "Pack",
+      "kind": "method",
+      "line": 771
+    },
+    {
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::PackRows@765",
+      "file": "Tests/Editor/SigmaNativeOracleTests.cs",
+      "name": "PackRows",
+      "kind": "method",
+      "line": 765
+    },
+    {
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::PackStates@768",
+      "file": "Tests/Editor/SigmaNativeOracleTests.cs",
+      "name": "PackStates",
+      "kind": "method",
+      "line": 768
+    },
+    {
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::Point@739",
+      "file": "Tests/Editor/SigmaNativeOracleTests.cs",
+      "name": "Point",
+      "kind": "method",
+      "line": 739
+    },
+    {
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::Query@720",
+      "file": "Tests/Editor/SigmaNativeOracleTests.cs",
+      "name": "Query",
+      "kind": "method",
+      "line": 720
+    },
+    {
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::Raw@741",
+      "file": "Tests/Editor/SigmaNativeOracleTests.cs",
+      "name": "Raw",
+      "kind": "method",
+      "line": 741
+    },
+    {
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::ReduceWindows@658",
+      "file": "Tests/Editor/SigmaNativeOracleTests.cs",
+      "name": "ReduceWindows",
+      "kind": "method",
+      "line": 658
+    },
+    {
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::ReverseKeepsUnionAndResolvesOnlyUniqueOrCommonDelta@88",
+      "file": "Tests/Editor/SigmaNativeOracleTests.cs",
+      "name": "ReverseKeepsUnionAndResolvesOnlyUniqueOrCommonDelta",
+      "kind": "method",
+      "line": 88
+    },
+    {
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::RightQuery@714",
+      "file": "Tests/Editor/SigmaNativeOracleTests.cs",
+      "name": "RightQuery",
+      "kind": "method",
+      "line": 714
+    },
+    {
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuContractOverflow@493",
+      "file": "Tests/Editor/SigmaNativeOracleTests.cs",
+      "name": "RunGpuContractOverflow",
+      "kind": "method",
+      "line": 493
+    },
+    {
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuQuery@608",
+      "file": "Tests/Editor/SigmaNativeOracleTests.cs",
+      "name": "RunGpuQuery",
+      "kind": "method",
+      "line": 608
+    },
+    {
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::SigmaNativeOracleTests",
+      "file": "Tests/Editor/SigmaNativeOracleTests.cs",
+      "name": "SigmaNativeOracleTests",
+      "kind": "class",
+      "line": 12
+    },
+    {
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::SparseSupportIndexMatchesExhaustiveMixedRefinedAndNonresidentWorlds@358",
+      "file": "Tests/Editor/SigmaNativeOracleTests.cs",
+      "name": "SparseSupportIndexMatchesExhaustiveMixedRefinedAndNonresidentWorlds",
+      "kind": "method",
+      "line": 358
+    },
+    {
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::State@705",
+      "file": "Tests/Editor/SigmaNativeOracleTests.cs",
+      "name": "State",
+      "kind": "method",
+      "line": 705
+    },
+    {
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::Summary@747",
+      "file": "Tests/Editor/SigmaNativeOracleTests.cs",
+      "name": "Summary",
+      "kind": "method",
+      "line": 747
+    },
+    {
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::UInt2",
+      "file": "Tests/Editor/SigmaNativeOracleTests.cs",
+      "name": "UInt2",
+      "kind": "struct",
+      "line": 20
+    },
+    {
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::UInt4",
+      "file": "Tests/Editor/SigmaNativeOracleTests.cs",
+      "name": "UInt4",
+      "kind": "struct",
+      "line": 27
+    },
+    {
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::Unpack@777",
+      "file": "Tests/Editor/SigmaNativeOracleTests.cs",
+      "name": "Unpack",
+      "kind": "method",
+      "line": 777
+    },
+    {
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanQueryContractOverflowAndWindowingMatchCpuOracle@430",
+      "file": "Tests/Editor/SigmaNativeOracleTests.cs",
+      "name": "VulkanQueryContractOverflowAndWindowingMatchCpuOracle",
+      "kind": "method",
+      "line": 430
+    },
+    {
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::WholeQueryReductionOwnsFirstHitDisjunctionAndDefault@41",
+      "file": "Tests/Editor/SigmaNativeOracleTests.cs",
+      "name": "WholeQueryReductionOwnsFirstHitDisjunctionAndDefault",
+      "kind": "method",
+      "line": 41
+    },
+    {
       "id": "Tests/Editor/SigmaPoseGaugeTests.cs::BuildDepthCalibration@374",
       "file": "Tests/Editor/SigmaPoseGaugeTests.cs",
       "name": "BuildDepthCalibration",
@@ -20074,11 +20651,6 @@
     },
     {
       "source": "Runtime/SigmaPrism/SigmaRenderer.cs::RenderPrediction@311",
-      "target": "Runtime/SigmaPrism/SigmaPoseGauge.cs::Apply@50",
-      "kind": "calls"
-    },
-    {
-      "source": "Runtime/SigmaPrism/SigmaRenderer.cs::RenderPrediction@311",
       "target": "Runtime/SigmaPrism/SigmaPredictionFrame.cs::TryBegin@111",
       "kind": "calls"
     },
@@ -20788,11 +21360,6 @@
       "kind": "calls"
     },
     {
-      "source": "Runtime/UI/DebugMenuController.cs::OnEnable@42",
-      "target": "Runtime/UI/DebugMenuController.cs::Query@90",
-      "kind": "calls"
-    },
-    {
       "source": "Runtime/UI/DebugMenuController.cs::RefreshStatus@117",
       "target": "Runtime/UI/DebugMenuController.cs::SetStatus@253",
       "kind": "calls"
@@ -21334,22 +21901,12 @@
     },
     {
       "source": "Tests/Editor/SigmaDepthInverseTests.cs::EmptyMeetPreservesExactGapProvenanceAndCanonicalBytes@70",
-      "target": "Tests/Editor/SigmaDepthInverseTests.cs::Cell@139",
-      "kind": "calls"
-    },
-    {
-      "source": "Tests/Editor/SigmaDepthInverseTests.cs::EmptyMeetPreservesExactGapProvenanceAndCanonicalBytes@70",
       "target": "Tests/Editor/SigmaDepthInverseTests.cs::SupportedState@136",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaDepthInverseTests.cs::ExactMeetIsLeftRightOrderInvariantAndWeakEvidenceCannotPull@40",
       "target": "Runtime/SigmaPrism/SigmaDepthInverse.cs::MeetAndCommitSupported@167",
-      "kind": "calls"
-    },
-    {
-      "source": "Tests/Editor/SigmaDepthInverseTests.cs::ExactMeetIsLeftRightOrderInvariantAndWeakEvidenceCannotPull@40",
-      "target": "Tests/Editor/SigmaDepthInverseTests.cs::Cell@139",
       "kind": "calls"
     },
     {
@@ -21365,11 +21922,6 @@
     {
       "source": "Tests/Editor/SigmaDepthInverseTests.cs::FirstHitSectorsHaveExactCausalPartition@9",
       "target": "Runtime/SigmaPrism/SigmaDepthInverse.cs::MeetAndCommitSupported@167",
-      "kind": "calls"
-    },
-    {
-      "source": "Tests/Editor/SigmaDepthInverseTests.cs::FirstHitSectorsHaveExactCausalPartition@9",
-      "target": "Tests/Editor/SigmaDepthInverseTests.cs::Cell@139",
       "kind": "calls"
     },
     {
@@ -21390,11 +21942,6 @@
     {
       "source": "Tests/Editor/SigmaDepthInverseTests.cs::IndependentNarrowSupportRaisesResistanceWithoutMovingReadout@93",
       "target": "Runtime/SigmaPrism/SigmaS16.cs::GeometryReadout@315",
-      "kind": "calls"
-    },
-    {
-      "source": "Tests/Editor/SigmaDepthInverseTests.cs::IndependentNarrowSupportRaisesResistanceWithoutMovingReadout@93",
-      "target": "Tests/Editor/SigmaDepthInverseTests.cs::Cell@139",
       "kind": "calls"
     },
     {
@@ -21988,11 +22535,6 @@
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaFrameInverseTests.cs::RawDepthTexture@1968",
-      "target": "Runtime/SigmaPrism/SigmaPoseGauge.cs::Apply@50",
-      "kind": "calls"
-    },
-    {
       "source": "Tests/Editor/SigmaFrameInverseTests.cs::ReadSnapshot@1924",
       "target": "Runtime/SigmaPrism/SigmaFrameResources.cs::Provenance@218",
       "kind": "calls"
@@ -22035,11 +22577,6 @@
     {
       "source": "Tests/Editor/SigmaFrameInverseTests.cs::RecordProductionGraphOnly@1413",
       "target": "Runtime/SigmaPrism/SigmaFrameGraph.cs::SigmaFrameInverseInput",
-      "kind": "calls"
-    },
-    {
-      "source": "Tests/Editor/SigmaFrameInverseTests.cs::RgbTexture@1956",
-      "target": "Runtime/SigmaPrism/SigmaPoseGauge.cs::Apply@50",
       "kind": "calls"
     },
     {
@@ -22369,11 +22906,6 @@
     },
     {
       "source": "Tests/Editor/SigmaFrameInverseTests.cs::WholeFrameFourSourceInverseIsExactAndPartitionInvariant@181",
-      "target": "Tests/Editor/SigmaFrameInverseTests.cs::Candidate@1084",
-      "kind": "calls"
-    },
-    {
-      "source": "Tests/Editor/SigmaFrameInverseTests.cs::WholeFrameFourSourceInverseIsExactAndPartitionInvariant@181",
       "target": "Tests/Editor/SigmaFrameInverseTests.cs::ConstrainedLaneCount@1054",
       "kind": "calls"
     },
@@ -22663,11 +23195,6 @@
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::CertificateMinimizerIsExactBoundedAndCouplingAware@323",
-      "target": "Tests/Editor/SigmaMerkabaProgramTests.cs::Factor@524",
-      "kind": "calls"
-    },
-    {
       "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::DirectionalActionCarriesIntervalsAndStopsAtFirstHit@260",
       "target": "Runtime/SigmaPrism/SigmaNumericDomain.cs::SigmaQ48Interval",
       "kind": "calls"
@@ -22758,6 +23285,596 @@
       "kind": "calls"
     },
     {
+      "source": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::ContractJoint@496",
+      "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Select@182",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::ContractJoint@496",
+      "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::ContractNativeQuery@441",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::ContractJoint@496",
+      "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::SigmaNativeContractBranch",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::ContractJoint@496",
+      "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::SigmaNativeContractResult",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::ContractNativeQuery@441",
+      "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::DivideOutward@577",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::ContractNativeQuery@441",
+      "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::EvaluateNativeQuery@383",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::ContractNativeQuery@441",
+      "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::Overlaps@612",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::ContractNativeQuery@441",
+      "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::ProvenStrictlyBefore@615",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::ContractNativeQuery@441",
+      "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::SigmaNativeContractBranch",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::ContractNativeQuery@441",
+      "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::SigmaNativeContractResult",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::ContractNativeQuery@441",
+      "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::SubtractOutward@550",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::DivideOutward@577",
+      "target": "Runtime/SigmaPrism/SigmaNumericDomain.cs::QDivLower@83",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::DivideOutward@577",
+      "target": "Runtime/SigmaPrism/SigmaNumericDomain.cs::QDivUpper@92",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::DivideOutward@577",
+      "target": "Runtime/SigmaPrism/SigmaNumericDomain.cs::SigmaQ48Interval",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::DivideOutward@577",
+      "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Max@172",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::DivideOutward@577",
+      "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Min@170",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::DotPoint@619",
+      "target": "Runtime/SigmaPrism/SigmaNumericDomain.cs::QAdd@28",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::EvaluateAndReduce@399",
+      "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Select@182",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::EvaluateAndReduce@399",
+      "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::EvaluateNativeQuery@383",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::EvaluateAndReduce@399",
+      "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::ReduceNativeQuery@409",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::EvaluateMerkabaShadow@365",
+      "target": "Runtime/SigmaPrism/SigmaNumericDomain.cs::FromRatio@196",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::EvaluateMerkabaShadow@365",
+      "target": "Runtime/SigmaPrism/SigmaNumericDomain.cs::QAdd@28",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::EvaluateNativeQuery@383",
+      "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::DotPoint@619",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::EvaluateNativeQuery@383",
+      "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::EvaluateMerkabaShadow@365",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::EvaluateNativeQuery@383",
+      "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::RequireSensorExpressionShape@631",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::EvaluateNativeQuery@383",
+      "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::SigmaNativeContribution",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::EvaluateNativeRelation@530",
+      "target": "Runtime/SigmaPrism/SigmaS16.cs::Associator@336",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::EvaluateNativeRelation@530",
+      "target": "Runtime/SigmaPrism/SigmaS16.cs::Transition@333",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::EvaluateNativeRelation@530",
+      "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::SigmaNativeRelationWitness",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::Hull@603",
+      "target": "Runtime/SigmaPrism/SigmaNumericDomain.cs::SigmaQ48Interval",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::Hull@603",
+      "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Max@172",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::Hull@603",
+      "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Min@170",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::MultiplyOutward@556",
+      "target": "Runtime/SigmaPrism/SigmaNumericDomain.cs::QMulLower@75",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::MultiplyOutward@556",
+      "target": "Runtime/SigmaPrism/SigmaNumericDomain.cs::QMulUpper@79",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::MultiplyOutward@556",
+      "target": "Runtime/SigmaPrism/SigmaNumericDomain.cs::SigmaQ48Interval",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::MultiplyOutward@556",
+      "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Max@172",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::MultiplyOutward@556",
+      "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Min@170",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::ReduceNativeQuery@409",
+      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::Aggregate",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::ReduceNativeQuery@409",
+      "target": "Runtime/SigmaPrism/SigmaNumericDomain.cs::QAdd@28",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::ReduceNativeQuery@409",
+      "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Select@182",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::ReduceNativeQuery@409",
+      "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::DivideOutward@577",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::ReduceNativeQuery@409",
+      "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::Hull@603",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::ReduceNativeQuery@409",
+      "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::ProvenStrictlyBefore@615",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::ReduceNativeQuery@409",
+      "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::SigmaNativeSceneShadow",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::ReduceNativeQuery@409",
+      "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::SumOutward@599",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::RequireSensorExpressionShape@631",
+      "target": "Runtime/SigmaPrism/SigmaFrameGraph.cs::Single@1667",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::RequireSensorExpressionShape@631",
+      "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Select@182",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::SummarizeCell@347",
+      "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::SigmaNativeQuerySupportSummary",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::DirectionalMouldCorrectsNearSupportAndNeverActsBehindHit@152",
+      "target": "Runtime/SigmaPrism/SigmaFrameGraph.cs::Single@1667",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::DirectionalMouldCorrectsNearSupportAndNeverActsBehindHit@152",
+      "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::ContractJoint@496",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::DirectionalMouldCorrectsNearSupportAndNeverActsBehindHit@152",
+      "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::ContractNativeQuery@441",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::DirectionalMouldCorrectsNearSupportAndNeverActsBehindHit@152",
+      "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::SigmaNativeDeltaWitness",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::DirectionalMouldCorrectsNearSupportAndNeverActsBehindHit@152",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::LeftQuery@708",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::DirectionalMouldCorrectsNearSupportAndNeverActsBehindHit@152",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::RightQuery@714",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::EvaluateRelationWindows@590",
+      "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Select@182",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::EvaluateRelationWindows@590",
+      "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::EvaluateNativeRelation@530",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::ExactInformationAndPhotometricLawPreventWeakRevisitDegradation@202",
+      "target": "Runtime/SigmaPrism/SigmaFrameGraph.cs::Single@1667",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::ExactInformationAndPhotometricLawPreventWeakRevisitDegradation@202",
+      "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::ContractJoint@496",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::ExactInformationAndPhotometricLawPreventWeakRevisitDegradation@202",
+      "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::ContractNativeQuery@441",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::ExactInformationAndPhotometricLawPreventWeakRevisitDegradation@202",
+      "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::SigmaNativeDeltaWitness",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::ExactInformationAndPhotometricLawPreventWeakRevisitDegradation@202",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::Axis@736",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::ExactInformationAndPhotometricLawPreventWeakRevisitDegradation@202",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::Law@728",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::ExactInformationAndPhotometricLawPreventWeakRevisitDegradation@202",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::LeftQuery@708",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::ExecutionWindowsAndOrderAreInvisibleAndScratchIsTestOnly@396",
+      "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Select@182",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::ExecutionWindowsAndOrderAreInvisibleAndScratchIsTestOnly@396",
+      "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::EvaluateMerkabaShadow@365",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::ExecutionWindowsAndOrderAreInvisibleAndScratchIsTestOnly@396",
+      "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::EvaluateNativeRelation@530",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::ExecutionWindowsAndOrderAreInvisibleAndScratchIsTestOnly@396",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::LeftQuery@708",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::ExecutionWindowsAndOrderAreInvisibleAndScratchIsTestOnly@396",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::ReduceWindows@658",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::GaugeRefinementRelationsAndCoupledShadowModesRemainOneField@271",
+      "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Select@182",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::GaugeRefinementRelationsAndCoupledShadowModesRemainOneField@271",
+      "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::ContractNativeQuery@441",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::GaugeRefinementRelationsAndCoupledShadowModesRemainOneField@271",
+      "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::EvaluateAndReduce@399",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::GaugeRefinementRelationsAndCoupledShadowModesRemainOneField@271",
+      "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::EvaluateMerkabaShadow@365",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::GaugeRefinementRelationsAndCoupledShadowModesRemainOneField@271",
+      "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::EvaluateNativeRelation@530",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::GaugeRefinementRelationsAndCoupledShadowModesRemainOneField@271",
+      "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::SigmaNativeOracleCell",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::GaugeRefinementRelationsAndCoupledShadowModesRemainOneField@271",
+      "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::SigmaNativePreimageCandidate",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::GaugeRefinementRelationsAndCoupledShadowModesRemainOneField@271",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::EvaluateRelationWindows@590",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::GaugeRefinementRelationsAndCoupledShadowModesRemainOneField@271",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::LeftQuery@708",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::ReduceWindows@658",
+      "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::EvaluateNativeQuery@383",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::ReduceWindows@658",
+      "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::ReduceNativeQuery@409",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::ReverseKeepsUnionAndResolvesOnlyUniqueOrCommonDelta@88",
+      "target": "Runtime/SigmaPrism/SigmaFrameGraph.cs::Single@1667",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::ReverseKeepsUnionAndResolvesOnlyUniqueOrCommonDelta@88",
+      "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Select@182",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::ReverseKeepsUnionAndResolvesOnlyUniqueOrCommonDelta@88",
+      "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::ContractJoint@496",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::ReverseKeepsUnionAndResolvesOnlyUniqueOrCommonDelta@88",
+      "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::ContractNativeQuery@441",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::ReverseKeepsUnionAndResolvesOnlyUniqueOrCommonDelta@88",
+      "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::SigmaNativeDeltaWitness",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::ReverseKeepsUnionAndResolvesOnlyUniqueOrCommonDelta@88",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::LeftQuery@708",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::ReverseKeepsUnionAndResolvesOnlyUniqueOrCommonDelta@88",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::RightQuery@714",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::ReverseKeepsUnionAndResolvesOnlyUniqueOrCommonDelta@88",
+      "target": "Tools/sigma/generate_sigma_operators.py::SigmaGaugeCell",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuContractOverflow@493",
+      "target": "Runtime/SigmaPrism/SigmaExactBackendGate.cs::Dispatch@45",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuContractOverflow@493",
+      "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Select@182",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuContractOverflow@493",
+      "target": "Tests/Editor/SigmaMerkabaProgramTests.cs::Buffer@553",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuContractOverflow@493",
+      "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::ContractNativeQuery@441",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuContractOverflow@493",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::CpuCandidate@695",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuContractOverflow@493",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::GpuCandidate@756",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuContractOverflow@493",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::PackRows@765",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuContractOverflow@493",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::PackStates@768",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuQuery@608",
+      "target": "Runtime/SigmaPrism/SigmaExactBackendGate.cs::Dispatch@45",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuQuery@608",
+      "target": "Tests/Editor/SigmaMerkabaProgramTests.cs::Buffer@553",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuQuery@608",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::PackRows@765",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::SparseSupportIndexMatchesExhaustiveMixedRefinedAndNonresidentWorlds@358",
+      "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::EvaluateAndReduce@399",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::SparseSupportIndexMatchesExhaustiveMixedRefinedAndNonresidentWorlds@358",
+      "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::SelectNativeQuerySupport@356",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::SparseSupportIndexMatchesExhaustiveMixedRefinedAndNonresidentWorlds@358",
+      "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::SigmaNativeOracleCell",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::SparseSupportIndexMatchesExhaustiveMixedRefinedAndNonresidentWorlds@358",
+      "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::SigmaNativeQuerySupportSummary",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::SparseSupportIndexMatchesExhaustiveMixedRefinedAndNonresidentWorlds@358",
+      "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::SummarizeCell@347",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::SparseSupportIndexMatchesExhaustiveMixedRefinedAndNonresidentWorlds@358",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::LeftQuery@708",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::SparseSupportIndexMatchesExhaustiveMixedRefinedAndNonresidentWorlds@358",
+      "target": "Tools/sigma/generate_sigma_operators.py::SigmaGaugeCell",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanQueryContractOverflowAndWindowingMatchCpuOracle@430",
+      "target": "Runtime/SigmaPrism/SigmaExactBackendGate.cs::Dispatch@45",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanQueryContractOverflowAndWindowingMatchCpuOracle@430",
+      "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Select@182",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanQueryContractOverflowAndWindowingMatchCpuOracle@430",
+      "target": "Tests/Editor/SigmaMerkabaProgramTests.cs::Buffer@553",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanQueryContractOverflowAndWindowingMatchCpuOracle@430",
+      "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::SigmaNativeOracleCell",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanQueryContractOverflowAndWindowingMatchCpuOracle@430",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::LeftQuery@708",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanQueryContractOverflowAndWindowingMatchCpuOracle@430",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::LoadShader@780",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanQueryContractOverflowAndWindowingMatchCpuOracle@430",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::PackStates@768",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanQueryContractOverflowAndWindowingMatchCpuOracle@430",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuContractOverflow@493",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanQueryContractOverflowAndWindowingMatchCpuOracle@430",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuQuery@608",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanQueryContractOverflowAndWindowingMatchCpuOracle@430",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::Summary@747",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanQueryContractOverflowAndWindowingMatchCpuOracle@430",
+      "target": "Tools/sigma/generate_sigma_operators.py::SigmaGaugeCell",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::WholeQueryReductionOwnsFirstHitDisjunctionAndDefault@41",
+      "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::EvaluateAndReduce@399",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::WholeQueryReductionOwnsFirstHitDisjunctionAndDefault@41",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::LeftQuery@708",
+      "kind": "calls"
+    },
+    {
       "source": "Tests/Editor/SigmaPoseGaugeTests.cs::BuildDepthCalibration@374",
       "target": "Runtime/SigmaPrism/SigmaNumericDomain.cs::FromRatio@196",
       "kind": "calls"
@@ -22778,18 +23895,8 @@
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaPoseGaugeTests.cs::ExactGpuResultSelectsMinimumMagnitudeMeetPoint@46",
-      "target": "Runtime/SigmaPrism/SigmaPoseGauge.cs::Raw@31",
-      "kind": "calls"
-    },
-    {
       "source": "Tests/Editor/SigmaPoseGaugeTests.cs::FillPoseEye@319",
       "target": "Tests/Editor/SigmaPoseGaugeTests.cs::EncodeOctahedral@349",
-      "kind": "calls"
-    },
-    {
-      "source": "Tests/Editor/SigmaPoseGaugeTests.cs::UnresolvedMeetIsIdentityAndResolvedGaugePreservesRigExtrinsics@81",
-      "target": "Runtime/SigmaPrism/SigmaPoseGauge.cs::Apply@50",
       "kind": "calls"
     },
     {

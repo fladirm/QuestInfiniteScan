@@ -8,7 +8,7 @@ Updated: 2026-08-26 (Europe/Prague)
 - Branch: `feat/sigma-prism-16-cpq4-20260822`.
 - Runtime replacement baseline: `cac9ab012f4ce574e5eb9bee88290982fd9c4fe8`.
 - Accepted primitive milestones: S4‑00 through S4‑07 where compatible with v8.3.
-- Active node: S4‑08; corrective N1R is accepted and no subsequent run is active.
+- Active node: S4‑08; N1R and the non-mutating N2R oracle are accepted.
 - Active repair: S4‑08.6 one-medium native closure.
 - Frozen plan: `.codex/S4-08.6_NATIVE_CLOSURE_PLAN.md`.
 - Sole routine cursor: `.codex/S4-08.6_RESUME.md`.
@@ -193,7 +193,57 @@ production equality vs df5200f       passed
 git diff hygiene                     passed
 ```
 
-N2R is pending and has not started.
+## N2R accepted non-mutating oracle checkpoint
+
+N2R consumes the N1R generated program only from the Editor/Vulkan test assembly.
+It adds no runtime call site, canonical buffer, mutation path, publication path or
+legacy cutover. The CPU semantic evaluator and Vulkan fixtures implement:
+
+```text
+SelectNativeQuerySupport       generated conservative all-default bound
+EvaluateNativeQuery            full-S16 Merkaba shadow and exact query contraction
+ReduceNativeQuery              whole-footprint order/first-hit/support disjunction
+ContractNativeQuery            exact finite preimage filtering + directional action
+ResolveContractorOverflow      cold indirect continuation of the same contractor
+```
+
+The joint contractor retains one action/claim witness for every coherent query;
+right-eye evidence therefore cannot be collapsed into the left lookup. Alternative
+supports survive only in disposable test-assembly scratch. No semantic branch type
+or shader is present under `Runtime/SigmaPrism` or
+`Runtime/Resources/SigmaPrism`.
+
+Accepted exact fixture groups cover:
+
+```text
+one support / only-A / ambiguous union / common delta
+right-eye-only discrimination and two sheets at one footprint
+whole-query first hit, behind-hit NO_CLAIM and farther-hit reveal
+near-false to measured mould, unrelated-sheet rejection and two-direction equilibrium
+strong/weak geometry and optical order invariance, missing metadata and calibrated light
+complete-program coupled shadow mode retained through intrinsic relation query
+uniform/refined forward+reverse parity and relation/cache/window decomposition parity
+fresh-support normalized base gauge and non-equivalent rejection
+256 exhaustive mixed/default/refined/nonresident support-index worlds; stale fail-closed
+10000 weak/duplicate revisits minimized to the exhaustive feasible region
+CPU and Vulkan query/contract parity at 1/2/7 windows plus cold indirect overflow
+```
+
+Verified on Unity `6000.5.9f1` with Vulkan:
+
+```text
+EditMode                              95/95 passed, 0 failed
+focused N2R fixture groups            8/8 passed
+generator regeneration/check         passed; N1 fingerprint unchanged
+compute UAV <= 8                     passed
+production equality vs eacf261       passed
+Runtime/Resources live call sites    0
+git diff hygiene                     passed
+```
+
+N2R adds 1,806 non-production oracle/test source lines plus 27 Unity metadata
+lines. Production is exactly `+0/-0`; the accepted runtime remains untouched.
+N3R is pending and has not started.
 
 ## N0R implementation-safety correction
 
@@ -239,13 +289,15 @@ validate_goal_state              green, active S4-08
 ## LOC cursor
 
 ```text
-N1R current production LOC                  17274
+N2R current production LOC                  17274
+N2R run delta vs eacf261                    +0 / -0 / net 0
+N2R non-production source / metadata        +1806 / +27
 corrective checkpoint vs b541635            +0 / -392 / net -392
 N1R run delta vs df5200f                    +0 / -0 / net 0
-N1R gross deletion vs cac9ab0               0
-N1R new production vs cac9ab0               0
-N1R net vs cac9ab0                          0
-N1R net vs d3b83e1                          +601
+N2R gross deletion vs cac9ab0               0
+N2R new production vs cac9ab0               0
+N2R net vs cac9ab0                          0
+N2R net vs d3b83e1                          +601
 
 final gross deletion vs cac9ab0             >=10000
 final new production                         <=4000
@@ -259,9 +311,9 @@ runtime/fixture addition from parent `b541635`. The authoritative baseline total
 are `17274` at `cac9ab0` and `16673` at `d3b83e1`. Corrected cumulative N1R is
 byte-identical to both `df5200f` and `cac9ab0`, so its gross/new/net against
 `cac9ab0` is zero; `+601` against `d3b83e1` is the baseline-total difference.
-N1R is not the final replacement deletion cut and claims none of the N7 size
-gates. Its own corrective commit is production-negative and cumulative N1R has no
-disconnected production addition.
+N2R is not a production replacement cut and claims none of the N7 size gates. Its
+oracle code is confined to the test assembly and immediately exercises the N1R
+plans; cumulative N1R+N2R has no disconnected production addition.
 
 N3R is one joint publication-capable sensor/native-relation cutover; it deletes
 both old inverse and old topology/edge paths in the same commit. N4R–N6R delete

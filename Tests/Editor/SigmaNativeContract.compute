@@ -1,0 +1,134 @@
+// N2R Editor/Vulkan oracle only. Branches are disposable and never publish Psi.
+#pragma kernel ContractNativeQuery
+#pragma kernel BuildContractOverflowArgs
+#pragma kernel ResolveContractorOverflow
+#pragma target 5.0
+
+#include "Generated/SigmaGeneratedMerkabaProgram.hlsl"
+
+#define SIGMA_NATIVE_CANDIDATE_RELATION_SAT 1u
+#define SIGMA_NATIVE_CANDIDATE_IDENTITY_TRANSPORT 2u
+#define SIGMA_NATIVE_OBSERVATION_ORDER 1u
+#define SIGMA_NATIVE_OBSERVATION_OPTICAL 2u
+#define SIGMA_NATIVE_OBSERVATION_OPTICAL_METADATA 4u
+
+StructuredBuffer<uint4> _NativeCandidates;
+StructuredBuffer<uint> _NativeCandidateDeltaHashes;
+StructuredBuffer<uint2> _NativeStates;
+StructuredBuffer<uint2> _NativeQueryRows;
+StructuredBuffer<uint2> _NativeObservationIntervals;
+RWStructuredBuffer<uint4> _NativeBranchHeaders;
+RWStructuredBuffer<uint4> _NativeBranchActions;
+RWStructuredBuffer<uint4> _NativeBranchPredictions;
+RWStructuredBuffer<uint> _NativeOverflowArgs;
+
+#include "Generated/SigmaNativeOracleMath.hlsl"
+
+uint _NativeCandidateCount;
+uint _NativeHotCapacity;
+uint _NativeObservationFlags;
+
+void SigmaNativeApplyOpticalNuisance(uint2 response, out uint2 lower,
+    out uint2 upper, inout uint valid)
+{
+    uint2 scaleLower = _NativeObservationIntervals[6];
+    uint2 scaleUpper = _NativeObservationIntervals[7];
+    uint2 lo0 = SigmaQ48MulLower(response, scaleLower, valid);
+    uint2 lo1 = SigmaQ48MulLower(response, scaleUpper, valid);
+    uint2 hi0 = SigmaQ48MulUpper(response, scaleLower, valid);
+    uint2 hi1 = SigmaQ48MulUpper(response, scaleUpper, valid);
+    lower = SigmaQ48AddChecked(SigmaQ48Min(lo0, lo1),
+        _NativeObservationIntervals[8], valid);
+    upper = SigmaQ48AddChecked(SigmaQ48Max(hi0, hi1),
+        _NativeObservationIntervals[9], valid);
+}
+
+void SigmaNativeContractOne(uint candidateIndex)
+{
+    uint4 candidate = _NativeCandidates[candidateIndex];
+    uint valid = 1u;
+    uint2 proposedOrder;
+    uint2 proposedOptical;
+    SigmaNativeEvaluateState(candidate.z, proposedOrder, proposedOptical, valid);
+
+    bool orderClaim = (_NativeObservationFlags & SIGMA_NATIVE_OBSERVATION_ORDER) != 0u;
+    bool opticalRequested =
+        (_NativeObservationFlags & SIGMA_NATIVE_OBSERVATION_OPTICAL) != 0u;
+    bool opticalClaim = opticalRequested &&
+        (_NativeObservationFlags & SIGMA_NATIVE_OBSERVATION_OPTICAL_METADATA) != 0u;
+    bool orderCompatible = !orderClaim || SigmaNativePointInInterval(proposedOrder,
+        _NativeObservationIntervals[0], _NativeObservationIntervals[1]);
+    uint2 predictedOpticalLower;
+    uint2 predictedOpticalUpper;
+    SigmaNativeApplyOpticalNuisance(proposedOptical, predictedOpticalLower,
+        predictedOpticalUpper, valid);
+    bool opticalCompatible = !opticalClaim ||
+        (!SigmaI64Less(predictedOpticalUpper, _NativeObservationIntervals[2]) &&
+         !SigmaI64Less(_NativeObservationIntervals[3], predictedOpticalLower));
+
+    bool priorDefault = SigmaNativeStateIsZero(candidate.y);
+    uint2 priorOrder = uint2(0u, 0u);
+    uint2 ignoredOptical = uint2(0u, 0u);
+    if (!priorDefault)
+        SigmaNativeEvaluateState(candidate.y, priorOrder, ignoredOptical, valid);
+    bool priorPreHit = !priorDefault &&
+        SigmaI64Less(priorOrder, _NativeObservationIntervals[0]);
+    bool priorAtMould = !priorDefault && SigmaNativePointInInterval(priorOrder,
+        _NativeObservationIntervals[0], _NativeObservationIntervals[1]);
+    uint role = priorDefault || priorAtMould
+        ? SIGMA_NATIVE_QUERY_FIRST_HIT_MOULD
+        : (priorPreHit ? SIGMA_NATIVE_QUERY_PRE_HIT_EXCLUSION
+            : SIGMA_NATIVE_QUERY_NO_CLAIM);
+
+    uint2 residualLower = priorDefault ? _NativeObservationIntervals[0]
+        : SigmaQ48SubChecked(_NativeObservationIntervals[0], priorOrder, valid);
+    uint2 residualUpper = priorDefault ? _NativeObservationIntervals[1]
+        : SigmaQ48SubChecked(_NativeObservationIntervals[1], priorOrder, valid);
+    SigmaMerkabaDirectionalActionWitness action =
+        SigmaMerkabaBuildDirectionalAction(role,
+            _NativeObservationIntervals[4], _NativeObservationIntervals[5],
+            residualLower, residualUpper, valid);
+
+    bool relationSat = (candidate.w & SIGMA_NATIVE_CANDIDATE_RELATION_SAT) != 0u;
+    bool identityTransport =
+        (candidate.w & SIGMA_NATIVE_CANDIDATE_IDENTITY_TRANSPORT) != 0u;
+    bool rolePermits = role != SIGMA_NATIVE_QUERY_NO_CLAIM &&
+        (role != SIGMA_NATIVE_QUERY_PRE_HIT_EXCLUSION || identityTransport);
+    bool viable = valid != 0u && relationSat && rolePermits &&
+        orderCompatible && opticalCompatible && (orderClaim || opticalClaim);
+    uint branchFlags = (viable ? 1u : 0u) |
+        (viable && action.active != 0u ? 2u : 0u) |
+        (role << 2u) | (opticalClaim ? 16u : 0u) | (valid != 0u ? 32u : 0u);
+    _NativeBranchHeaders[candidateIndex] = uint4(candidate.x, branchFlags,
+        _NativeCandidateDeltaHashes[candidateIndex], candidateIndex);
+    _NativeBranchActions[candidateIndex] = viable
+        ? uint4(action.lower, action.upper) : uint4(0u, 0u, 0u, 0u);
+    _NativeBranchPredictions[candidateIndex] = uint4(proposedOrder,
+        proposedOptical);
+}
+
+[numthreads(64, 1, 1)]
+void ContractNativeQuery(uint3 id : SV_DispatchThreadID)
+{
+    uint hotCount = min(_NativeCandidateCount, _NativeHotCapacity);
+    if (id.x < hotCount)
+        SigmaNativeContractOne(id.x);
+}
+
+[numthreads(1, 1, 1)]
+void BuildContractOverflowArgs(uint3 id : SV_DispatchThreadID)
+{
+    uint remaining = _NativeCandidateCount > _NativeHotCapacity
+        ? _NativeCandidateCount - _NativeHotCapacity : 0u;
+    _NativeOverflowArgs[0] = (remaining + 63u) / 64u;
+    _NativeOverflowArgs[1] = 1u;
+    _NativeOverflowArgs[2] = 1u;
+}
+
+[numthreads(64, 1, 1)]
+void ResolveContractorOverflow(uint3 id : SV_DispatchThreadID)
+{
+    uint candidateIndex = _NativeHotCapacity + id.x;
+    if (candidateIndex < _NativeCandidateCount)
+        SigmaNativeContractOne(candidateIndex);
+}
