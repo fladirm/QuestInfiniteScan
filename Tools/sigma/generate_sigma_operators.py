@@ -42,7 +42,7 @@ HLSL_MERKABA_FIXTURE_OUTPUT = (ROOT / "Tests" / "Editor" / "Generated" /
 NUMERIC_ID = "num.fixed.q16_48.checked.nearest_even"
 GENERATOR_VERSION = "CPQ4-S16-GEN-1"
 FRAME_ABI_VERSION = "CPQ4-S16-FRAME-1"
-MERKABA_PROGRAM_VERSION = "CPQ4-S16-MERKABA-N1R-3"
+MERKABA_PROGRAM_VERSION = "CPQ4-S16-MERKABA-N1R-4"
 TOE_UPSTREAM_SHA256 = "9d2e3604846305cfe5244a4ef49f169632c60582cf895256fadc36426dc5786f"
 LANES = 16
 
@@ -1272,14 +1272,30 @@ def build_merkaba_descriptor(algebra: dict) -> dict:
         raise RuntimeError("unsupported I_Q schema")
     if i_rep.get("schemaVersion") != "CPQ4-IREP-1":
         raise RuntimeError("unsupported representation schema")
-    if i_q["photometricNuisance"]["metadataMissing"] != (
-            "NO_OPTICAL_CLAIM_WITH_MISSING_METADATA_PROVENANCE"):
-        raise RuntimeError("missing optical metadata must be NO_OPTICAL_CLAIM")
+    capture_boundary = i_q.get("captureBoundary")
+    if not isinstance(capture_boundary, dict):
+        raise RuntimeError("I_Q lacks the constructive Quest capture boundary")
+    expected_leaves = (
+        "LEFT_DEPTH_ORDER", "LEFT_OPTICAL_R", "LEFT_OPTICAL_G",
+        "LEFT_OPTICAL_B", "RIGHT_DEPTH_ORDER", "RIGHT_OPTICAL_R",
+        "RIGHT_OPTICAL_G", "RIGHT_OPTICAL_B")
+    if (tuple(capture_boundary.get("leafInventory", ())) != expected_leaves or
+            capture_boundary.get("rawOwner") != "StereoRigFrameLease" or
+            capture_boundary["nativeRowConstruction"].get(
+                "pixelOrXyzIdentity", True) or
+            capture_boundary["leafValueConstruction"].get(
+                "depthMayBootstrapOptical", True) or
+            capture_boundary["leafValueConstruction"].get(
+                "opticalMayBootstrapDepth", True)):
+        raise RuntimeError("I_Q capture adapter lost its eight-leaf/no-bootstrap law")
     nuisance = i_q["photometricNuisance"]
     if (nuisance["calibrationProvenance"] !=
-            "CAPTURE_CALIBRATION_EPOCH_FINGERPRINT" or
+            "CAPTURE_CALIBRATION_EPOCH_PLUS_GRAPHICS_FORMAT_AND_POST_SAMPLER_TRANSFER_FINGERPRINT" or
             nuisance["unboundedParameterRegion"] !=
             "FORBIDDEN_TO_PROVE_COMPATIBILITY_OR_MUTATION" or
+            nuisance["metadataMissing"] !=
+            "DERIVE_BOUNDED_POST_ISP_CODE_SPACE_REGION_FROM_GRAPHICS_FORMAT_AND_THE_CALIBRATED_2X2_FOOTPRINT_HULL_WITH_MISSING_RAW_METADATA_PROVENANCE" or
+            nuisance.get("missingMetadataMayProveSceneLinearRadiance", True) or
             not nuisance["requiredBoundedParameters"]):
         raise RuntimeError("photometric nuisance law is not calibrated/fail-closed")
     if i_q["querySupportSummary"]["falseNegatives"] != 0:
@@ -1418,6 +1434,7 @@ def build_merkaba_descriptor(algebra: dict) -> dict:
         "expressions": ir["expressions"],
         "reverseRules": ir["reverseRules"],
         "queryFamilies": i_q["queryFamilies"],
+        "captureBoundary": i_q["captureBoundary"],
         "sceneReduction": i_q["sceneReduction"],
         "photometricNuisance": i_q["photometricNuisance"],
         "querySupportSummary": i_q["querySupportSummary"],
@@ -1447,7 +1464,10 @@ def build_merkaba_descriptor(algebra: dict) -> dict:
             "allDefaultRelation": "DEFAULT_SAT",
             "allDefaultActiveWork": 0,
             "behindHitAction": "NO_CLAIM",
-            "missingOpticalMetadata": "NO_OPTICAL_CLAIM",
+            "missingOpticalMetadata":
+                "BOUNDED_POST_ISP_CODE_REGION_WITH_MISSING_RAW_METADATA_PROVENANCE",
+            "captureBoundaryLeafCount": len(expected_leaves),
+            "captureBoundaryFingerprint": sha256(i_q["captureBoundary"]),
             "querySupportFalseNegatives": support_proof["falseNegatives"],
             "querySupportFixtureCount": support_proof["fixtureCount"],
             "querySupportOmittedIdentityFixtures":
@@ -2144,6 +2164,154 @@ namespace Genesis.RoomScan.SigmaPrism
         internal string PayloadFingerprint {{ get; }}
     }}
 
+    internal enum SigmaInstrumentLeafKind : uint
+    {{
+        DepthOrder = 0u,
+        OpticalR = 1u,
+        OpticalG = 2u,
+        OpticalB = 3u,
+    }}
+
+    internal enum SigmaInstrumentOpticalTransfer : uint
+    {{
+        LinearUnorm = 0u,
+        SrgbDecodedLinear = 1u,
+        Unsupported = 0xffffffffu,
+    }}
+
+    internal readonly struct SigmaInstrumentFootprint
+    {{
+        internal SigmaInstrumentFootprint(IReadOnlyList<long> ray,
+            IReadOnlyList<long> differentialX,
+            IReadOnlyList<long> differentialY, long halfAngleX,
+            long halfAngleY, long solidAngle)
+        {{
+            if (ray == null || differentialX == null || differentialY == null ||
+                ray.Count != 3 || differentialX.Count != 3 ||
+                differentialY.Count != 3)
+                throw new ArgumentException(
+                    "A calibrated footprint requires three 3D Q48 vectors.");
+            Ray = ray.ToArray();
+            DifferentialX = differentialX.ToArray();
+            DifferentialY = differentialY.ToArray();
+            HalfAngleX = halfAngleX;
+            HalfAngleY = halfAngleY;
+            SolidAngle = solidAngle;
+        }}
+        internal long[] Ray {{ get; }}
+        internal long[] DifferentialX {{ get; }}
+        internal long[] DifferentialY {{ get; }}
+        internal long HalfAngleX {{ get; }}
+        internal long HalfAngleY {{ get; }}
+        internal long SolidAngle {{ get; }}
+    }}
+
+    // Immutable output of the repository's capture/calibration boundary. It
+    // deliberately contains no Merkaba row, S16 proposal or carrier address.
+    internal sealed class SigmaInstrumentEyeBoundary
+    {{
+        internal SigmaInstrumentEyeBoundary(string side,
+            ulong observationRevision, ulong calibrationEpoch,
+            long depthSourceSequence, long opticalSourceSequence,
+            long depthTimestampNanoseconds, long opticalTimestampNanoseconds,
+            ulong depthIntrinsicsSignature, ulong opticalIntrinsicsSignature,
+            string poseCalibrationFingerprint,
+            SigmaInstrumentFootprint footprint,
+            SigmaQ48Interval projectionDepth01,
+            SigmaQ48Interval metricDirectOrder,
+            IReadOnlyList<SigmaQ48Interval> opticalCode,
+            SigmaInstrumentOpticalTransfer opticalTransfer,
+            bool firstHit, string provenanceFingerprint)
+        {{
+            if (side != "LEFT" && side != "RIGHT")
+                throw new ArgumentException("Instrument side must be LEFT/RIGHT.",
+                    nameof(side));
+            if (observationRevision == 0UL || calibrationEpoch == 0UL ||
+                depthSourceSequence <= 0L || opticalSourceSequence <= 0L ||
+                depthTimestampNanoseconds <= 0L ||
+                opticalTimestampNanoseconds <= 0L ||
+                depthIntrinsicsSignature == 0UL ||
+                opticalIntrinsicsSignature == 0UL)
+                throw new ArgumentException(
+                    "Instrument observation provenance is incomplete.");
+            if (poseCalibrationFingerprint == null ||
+                poseCalibrationFingerprint.Length != 64 ||
+                provenanceFingerprint == null ||
+                provenanceFingerprint.Length != 64)
+                throw new ArgumentException(
+                    "Instrument fingerprints must be SHA-256 hex strings.");
+            if (opticalCode == null || opticalCode.Count != 3)
+                throw new ArgumentException(
+                    "One coherent eye boundary carries RGB code intervals.",
+                    nameof(opticalCode));
+            Side = side;
+            ObservationRevision = observationRevision;
+            CalibrationEpoch = calibrationEpoch;
+            DepthSourceSequence = depthSourceSequence;
+            OpticalSourceSequence = opticalSourceSequence;
+            DepthTimestampNanoseconds = depthTimestampNanoseconds;
+            OpticalTimestampNanoseconds = opticalTimestampNanoseconds;
+            DepthIntrinsicsSignature = depthIntrinsicsSignature;
+            OpticalIntrinsicsSignature = opticalIntrinsicsSignature;
+            PoseCalibrationFingerprint = poseCalibrationFingerprint;
+            Footprint = footprint;
+            ProjectionDepth01 = projectionDepth01;
+            MetricDirectOrder = metricDirectOrder;
+            OpticalCode = opticalCode.ToArray();
+            OpticalTransfer = opticalTransfer;
+            FirstHit = firstHit;
+            ProvenanceFingerprint = provenanceFingerprint;
+        }}
+        internal string Side {{ get; }}
+        internal ulong ObservationRevision {{ get; }}
+        internal ulong CalibrationEpoch {{ get; }}
+        internal long DepthSourceSequence {{ get; }}
+        internal long OpticalSourceSequence {{ get; }}
+        internal long DepthTimestampNanoseconds {{ get; }}
+        internal long OpticalTimestampNanoseconds {{ get; }}
+        internal ulong DepthIntrinsicsSignature {{ get; }}
+        internal ulong OpticalIntrinsicsSignature {{ get; }}
+        internal string PoseCalibrationFingerprint {{ get; }}
+        internal SigmaInstrumentFootprint Footprint {{ get; }}
+        internal SigmaQ48Interval ProjectionDepth01 {{ get; }}
+        internal SigmaQ48Interval MetricDirectOrder {{ get; }}
+        internal SigmaQ48Interval[] OpticalCode {{ get; }}
+        internal SigmaInstrumentOpticalTransfer OpticalTransfer {{ get; }}
+        internal bool FirstHit {{ get; }}
+        internal string ProvenanceFingerprint {{ get; }}
+    }}
+
+    internal readonly struct SigmaAssembledSensorEye
+    {{
+        internal SigmaAssembledSensorEye(string side,
+            IReadOnlyList<IReadOnlyList<long>> rows,
+            IReadOnlyList<SigmaQ48Interval> measured,
+            SigmaQ48Interval metricDirectOrder,
+            SigmaInstrumentFootprint footprint, bool firstHit,
+            string provenanceFingerprint)
+        {{
+            if (rows == null || rows.Count != 4 ||
+                rows.Any(row => row == null || row.Count != 4) ||
+                measured == null || measured.Count != 4)
+                throw new ArgumentException(
+                    "An assembled eye requires four four-axis leaves.");
+            Side = side;
+            Rows = rows.Select(row => row.ToArray()).ToArray();
+            Measured = measured.ToArray();
+            MetricDirectOrder = metricDirectOrder;
+            Footprint = footprint;
+            FirstHit = firstHit;
+            ProvenanceFingerprint = provenanceFingerprint;
+        }}
+        internal string Side {{ get; }}
+        internal long[][] Rows {{ get; }}
+        internal SigmaQ48Interval[] Measured {{ get; }}
+        internal SigmaQ48Interval MetricDirectOrder {{ get; }}
+        internal SigmaInstrumentFootprint Footprint {{ get; }}
+        internal bool FirstHit {{ get; }}
+        internal string ProvenanceFingerprint {{ get; }}
+    }}
+
     internal readonly struct SigmaFreshShadowBranch
     {{
         internal SigmaFreshShadowBranch(IEnumerable<SigmaQ48Interval> shadowAxes,
@@ -2188,6 +2356,10 @@ namespace Genesis.RoomScan.SigmaPrism
         internal const string ProgramVersion = "{descriptor['version']}";
         internal const string NumericDomainId = "{descriptor['numericDomain']}";
         internal const string ProgramFingerprint = "{descriptor['fingerprint']}";
+        internal const string CaptureBoundaryFingerprint =
+            "{proofs['captureBoundaryFingerprint']}";
+        internal const int CaptureBoundaryLeafCount =
+            {proofs['captureBoundaryLeafCount']};
         internal const string DeclaredToeUpstreamFingerprint = "{descriptor['inputs']['toeUpstreamDeclared']}";
 {input_lines}
         internal const int ExpressionCount = {len(ir['expressions'])};
@@ -2371,6 +2543,146 @@ namespace Genesis.RoomScan.SigmaPrism
             }}
             return SigmaS16.FromArray(lanes);
         }}
+
+        internal static bool TryAssembleSensorEye(
+            SigmaInstrumentEyeBoundary source,
+            out SigmaAssembledSensorEye assembled)
+        {{
+            assembled = default;
+            if (source == null ||
+                source.OpticalTransfer == SigmaInstrumentOpticalTransfer.Unsupported ||
+                source.ProjectionDepth01.IsEmpty ||
+                source.MetricDirectOrder.IsEmpty ||
+                source.OpticalCode.Any(value => value.IsEmpty) ||
+                source.Footprint.Ray == null ||
+                source.Footprint.Ray.Length != 3)
+                return false;
+            try
+            {{
+                var code = new SigmaQ48Interval[4];
+                code[0] = CentreUnitCode(source.ProjectionDepth01);
+                for (int channel = 0; channel < 3; ++channel)
+                    code[channel + 1] = CentreUnitCode(
+                        source.OpticalCode[channel]);
+
+                SigmaQ48Interval total = new SigmaQ48Interval(0L, 0L);
+                for (int leaf = 0; leaf < 4; ++leaf)
+                    total = AddOutward(total, code[leaf]);
+                var tangent = new SigmaQ48Interval[4];
+                for (int leaf = 0; leaf < 4; ++leaf)
+                    tangent[leaf] = SubtractOutward(
+                        ScalePowerOfTwoOutward(code[leaf], 2), total);
+
+                if (!TryBuildCalibratedRowPermutation(source.Footprint.Ray,
+                        out int[] permutation, out int globalSign))
+                    return false;
+                var rows = new IReadOnlyList<long>[4];
+                var measured = new SigmaQ48Interval[4];
+                for (int leaf = 0; leaf < 4; ++leaf)
+                {{
+                    var row = new long[4];
+                    row[permutation[leaf]] = globalSign > 0
+                        ? SigmaNumericDomain.One
+                        : SigmaNumericDomain.QNegate(SigmaNumericDomain.One);
+                    rows[leaf] = row;
+                    measured[leaf] = globalSign > 0
+                        ? tangent[leaf]
+                        : NegateOutward(tangent[leaf]);
+                }}
+                assembled = new SigmaAssembledSensorEye(source.Side, rows,
+                    measured, source.MetricDirectOrder, source.Footprint,
+                    source.FirstHit, source.ProvenanceFingerprint);
+                return true;
+            }}
+            catch (OverflowException)
+            {{
+                return false;
+            }}
+        }}
+
+        internal static bool TryBuildCalibratedRowPermutation(
+            IReadOnlyList<long> roomRay, out int[] permutation,
+            out int globalSign)
+        {{
+            permutation = Array.Empty<int>();
+            globalSign = 0;
+            if (roomRay == null || roomRay.Count != 3)
+                return false;
+            try
+            {{
+                long x = roomRay[0];
+                long y = roomRay[1];
+                long z = roomRay[2];
+                long[] pullback =
+                {{
+                    SigmaNumericDomain.QAdd(SigmaNumericDomain.QAdd(x, y), z),
+                    SigmaNumericDomain.QSub(SigmaNumericDomain.QSub(x, y), z),
+                    SigmaNumericDomain.QSub(SigmaNumericDomain.QSub(y, x), z),
+                    SigmaNumericDomain.QAdd(
+                        SigmaNumericDomain.QSub(0L, x),
+                        SigmaNumericDomain.QSub(z, y)),
+                }};
+                if (pullback.All(value => value == 0L))
+                    return false;
+                permutation = Enumerable.Range(0, 4)
+                    .OrderByDescending(axis => SigmaNumericDomain.QAbs(
+                        pullback[axis]))
+                    .ThenByDescending(axis => pullback[axis])
+                    .ThenBy(axis => axis)
+                    .ToArray();
+                globalSign = pullback[permutation[0]] < 0L ? -1 : 1;
+                return true;
+            }}
+            catch (OverflowException)
+            {{
+                permutation = Array.Empty<int>();
+                globalSign = 0;
+                return false;
+            }}
+        }}
+
+        private static SigmaQ48Interval CentreUnitCode(
+            SigmaQ48Interval value)
+        {{
+            if (value.IsEmpty || value.Lower < 0L ||
+                value.Upper > SigmaNumericDomain.One)
+                return SigmaQ48Interval.Empty;
+            return new SigmaQ48Interval(
+                SigmaNumericDomain.QSub(
+                    SigmaNumericDomain.QShiftLeft(value.Lower, 1),
+                    SigmaNumericDomain.One),
+                SigmaNumericDomain.QSub(
+                    SigmaNumericDomain.QShiftLeft(value.Upper, 1),
+                    SigmaNumericDomain.One));
+        }}
+
+        private static SigmaQ48Interval AddOutward(
+            SigmaQ48Interval left, SigmaQ48Interval right) =>
+            left.IsEmpty || right.IsEmpty ? SigmaQ48Interval.Empty :
+            new SigmaQ48Interval(
+                SigmaNumericDomain.QAdd(left.Lower, right.Lower),
+                SigmaNumericDomain.QAdd(left.Upper, right.Upper));
+
+        private static SigmaQ48Interval SubtractOutward(
+            SigmaQ48Interval left, SigmaQ48Interval right) =>
+            left.IsEmpty || right.IsEmpty ? SigmaQ48Interval.Empty :
+            new SigmaQ48Interval(
+                SigmaNumericDomain.QSub(left.Lower, right.Upper),
+                SigmaNumericDomain.QSub(left.Upper, right.Lower));
+
+        private static SigmaQ48Interval ScalePowerOfTwoOutward(
+            SigmaQ48Interval value, int shift) => value.IsEmpty
+                ? SigmaQ48Interval.Empty
+                : new SigmaQ48Interval(
+                    SigmaNumericDomain.QShiftLeft(value.Lower, shift),
+                    SigmaNumericDomain.QShiftLeft(value.Upper, shift));
+
+        private static SigmaQ48Interval NegateOutward(
+            SigmaQ48Interval value) => value.IsEmpty
+                ? SigmaQ48Interval.Empty
+                : new SigmaQ48Interval(
+                    SigmaNumericDomain.QNegate(value.Upper),
+                    SigmaNumericDomain.QNegate(value.Lower));
 
         internal static bool TryResolveFreshBaseAdmission(
             IEnumerable<SigmaFreshShadowBranch> branches,
@@ -2977,6 +3289,9 @@ def render_merkaba_hlsl(descriptor: dict) -> str:
 #define SIGMA_NATIVE_QUERY_PRE_HIT_EXCLUSION 1u
 #define SIGMA_NATIVE_QUERY_FIRST_HIT_MOULD 2u
 
+#define SIGMA_Q48_ZERO uint2(0u, 0u)
+#define SIGMA_Q48_ONE uint2(0u, 0x00010000u)
+
 #define SIGMA_DEFAULT_LOGICAL_UNBACKED 0u
 #define SIGMA_DEFAULT_EXPLICIT_ZEMPTY 1u
 #define SIGMA_DEFAULT_NULL_CODEC 2u
@@ -3003,6 +3318,7 @@ def render_merkaba_hlsl(descriptor: dict) -> str:
 #define SIGMA_FRESH_FIRST_HIT_LEFT 1u
 #define SIGMA_FRESH_FIRST_HIT_RIGHT 2u
 #define SIGMA_FRESH_EXTERNAL_RELATION_TRUTH_INPUT_COUNT {proofs['freshAdmissionExternalRelationTruthInputCount']}u
+#define SIGMA_INSTRUMENT_BOUNDARY_LEAF_COUNT {proofs['captureBoundaryLeafCount']}u
 
 static const uint SIGMA_MERKABA_PROGRAM_FINGERPRINT[8] = {{ {words} }};
 static const int SIGMA_MERKABA_DIFFRACTION[256] = {{ {diffraction} }};
@@ -3087,6 +3403,102 @@ void SigmaMerkabaLiftShadow(uint2 shadow[4], out uint2 state[16],
                 SIGMA_MERKABA_DUAL_COEFFICIENT_Q48[address * 4u + axis], valid),
                 valid);
         state[address] = sum;
+    }}
+}}
+
+void SigmaMerkabaInstrumentCompareSwap(inout uint left, inout uint right,
+    uint2 pullback[4])
+{{
+    uint2 leftMagnitude = SigmaU64AbsSigned(pullback[left]);
+    uint2 rightMagnitude = SigmaU64AbsSigned(pullback[right]);
+    bool rightComesFirst = !SigmaU64Equal(leftMagnitude, rightMagnitude)
+        ? SigmaU64Less(leftMagnitude, rightMagnitude)
+        : !SigmaU64Equal(pullback[left], pullback[right])
+            ? SigmaI64Less(pullback[left], pullback[right])
+            : right < left;
+    if (!rightComesFirst)
+        return;
+    uint temporary = left;
+    left = right;
+    right = temporary;
+}}
+
+bool SigmaMerkabaBuildInstrumentRowPermutation(uint2 roomRay[3],
+    inout uint4 permutation, out int globalSign, inout uint valid)
+{{
+    globalSign = 0;
+    uint2 x = roomRay[0];
+    uint2 y = roomRay[1];
+    uint2 z = roomRay[2];
+    uint2 pullback[4];
+    pullback[0] = SigmaQ48AddChecked(SigmaQ48AddChecked(x, y, valid), z, valid);
+    pullback[1] = SigmaQ48SubChecked(SigmaQ48SubChecked(x, y, valid), z, valid);
+    pullback[2] = SigmaQ48SubChecked(SigmaQ48SubChecked(y, x, valid), z, valid);
+    pullback[3] = SigmaQ48AddChecked(
+        SigmaQ48SubChecked(SIGMA_Q48_ZERO, x, valid),
+        SigmaQ48SubChecked(z, y, valid), valid);
+    uint axis0 = 0u;
+    uint axis1 = 1u;
+    uint axis2 = 2u;
+    uint axis3 = 3u;
+    // Fixed four-input sorting network. Query direction changes data only;
+    // it never changes scheduling or emits a dispatch per row.
+    SigmaMerkabaInstrumentCompareSwap(axis0, axis1, pullback);
+    SigmaMerkabaInstrumentCompareSwap(axis2, axis3, pullback);
+    SigmaMerkabaInstrumentCompareSwap(axis0, axis2, pullback);
+    SigmaMerkabaInstrumentCompareSwap(axis1, axis3, pullback);
+    SigmaMerkabaInstrumentCompareSwap(axis1, axis2, pullback);
+    permutation = uint4(axis0, axis1, axis2, axis3);
+    uint2 maximum = pullback[axis0];
+    if (valid == 0u || SigmaU64Equal(SigmaU64AbsSigned(maximum), SIGMA_Q48_ZERO))
+    {{
+        valid = 0u;
+        globalSign = 0;
+        return false;
+    }}
+    globalSign = (maximum.y & 0x80000000u) != 0u ? -1 : 1;
+    return true;
+}}
+
+void SigmaMerkabaAssembleInstrumentTangent(uint2 codeLower[4],
+    uint2 codeUpper[4], int globalSign, out uint2 measuredLower[4],
+    out uint2 measuredUpper[4], inout uint valid)
+{{
+    uint2 centredLower[4];
+    uint2 centredUpper[4];
+    uint2 totalLower = SIGMA_Q48_ZERO;
+    uint2 totalUpper = SIGMA_Q48_ZERO;
+    [unroll]
+    for (uint instrumentLeaf = 0u; instrumentLeaf < 4u; ++instrumentLeaf)
+    {{
+        if (SigmaQ48Less(codeLower[instrumentLeaf], SIGMA_Q48_ZERO) ||
+            SigmaQ48Less(SIGMA_Q48_ONE, codeUpper[instrumentLeaf]) ||
+            SigmaQ48Less(codeUpper[instrumentLeaf], codeLower[instrumentLeaf]))
+            valid = 0u;
+        centredLower[instrumentLeaf] = SigmaQ48SubChecked(
+            SigmaQ48ShiftLeftChecked(codeLower[instrumentLeaf], 1u, valid),
+            SIGMA_Q48_ONE, valid);
+        centredUpper[instrumentLeaf] = SigmaQ48SubChecked(
+            SigmaQ48ShiftLeftChecked(codeUpper[instrumentLeaf], 1u, valid),
+            SIGMA_Q48_ONE, valid);
+        totalLower = SigmaQ48AddChecked(totalLower,
+            centredLower[instrumentLeaf], valid);
+        totalUpper = SigmaQ48AddChecked(totalUpper,
+            centredUpper[instrumentLeaf], valid);
+    }}
+    [unroll]
+    for (uint outputLeaf = 0u; outputLeaf < 4u; ++outputLeaf)
+    {{
+        uint2 lower = SigmaQ48SubChecked(
+            SigmaQ48ShiftLeftChecked(centredLower[outputLeaf], 2u, valid),
+            totalUpper, valid);
+        uint2 upper = SigmaQ48SubChecked(
+            SigmaQ48ShiftLeftChecked(centredUpper[outputLeaf], 2u, valid),
+            totalLower, valid);
+        measuredLower[outputLeaf] = globalSign > 0
+            ? lower : SigmaQ48NegateChecked(upper, valid);
+        measuredUpper[outputLeaf] = globalSign > 0
+            ? upper : SigmaQ48NegateChecked(lower, valid);
     }}
 }}
 
@@ -3283,6 +3695,7 @@ def render_merkaba_fixture(descriptor: dict) -> str:
 #pragma kernel MerkabaMatrixAndIrParity
 #pragma kernel MerkabaDirectionalActionParity
 #pragma kernel MerkabaFreshAdmissionParity
+#pragma kernel MerkabaInstrumentBoundaryParity
 #pragma target 5.0
 
 #include "SigmaGeneratedMerkabaProgram.hlsl"
@@ -3292,6 +3705,7 @@ RWStructuredBuffer<uint4> _MerkabaMatrixResults;
 RWStructuredBuffer<uint4> _MerkabaIrResults;
 RWStructuredBuffer<uint4> _MerkabaActionResults;
 RWStructuredBuffer<uint4> _MerkabaFreshResults;
+RWStructuredBuffer<uint4> _MerkabaInstrumentResults;
 
 [numthreads(16, 16, 1)]
 void MerkabaProgramParity(uint3 id : SV_DispatchThreadID)
@@ -3412,6 +3826,42 @@ void MerkabaFreshAdmissionParity(uint3 id : SV_DispatchThreadID)
         kernelState, tinyValid);
     _MerkabaFreshResults[22] = uint4(tinyRelation, tinyValid, 0u, 0u);
 }}
+
+[numthreads(1, 1, 1)]
+void MerkabaInstrumentBoundaryParity(uint3 id : SV_DispatchThreadID)
+{{
+    uint valid = 1u;
+    uint2 ray[3];
+    ray[0] = uint2(0u, 0x00004000u);
+    ray[1] = uint2(0u, 0x00008000u);
+    ray[2] = uint2(0u, 0x00010000u);
+    uint4 permutation = uint4(0u, 1u, 2u, 3u);
+    int globalSign;
+    bool routed = SigmaMerkabaBuildInstrumentRowPermutation(ray,
+        permutation, globalSign, valid);
+    uint2 codeLower[4];
+    uint2 codeUpper[4];
+    codeLower[0] = codeUpper[0] = uint2(0u, 0x0000a000u);
+    codeLower[1] = codeUpper[1] = uint2(0u, 0x00006000u);
+    codeLower[2] = codeUpper[2] = uint2(0u, 0x00009000u);
+    codeLower[3] = codeUpper[3] = uint2(0u, 0x00007000u);
+    uint2 measuredLower[4];
+    uint2 measuredUpper[4];
+    SigmaMerkabaAssembleInstrumentTangent(codeLower, codeUpper,
+        globalSign, measuredLower, measuredUpper, valid);
+    _MerkabaInstrumentResults[0] = uint4(permutation.x,
+        asuint(globalSign), routed ? 1u : 0u, valid);
+    _MerkabaInstrumentResults[1] = uint4(permutation.y,
+        asuint(globalSign), routed ? 1u : 0u, valid);
+    _MerkabaInstrumentResults[2] = uint4(permutation.z,
+        asuint(globalSign), routed ? 1u : 0u, valid);
+    _MerkabaInstrumentResults[3] = uint4(permutation.w,
+        asuint(globalSign), routed ? 1u : 0u, valid);
+    [unroll]
+    for (uint leaf = 0u; leaf < 4u; ++leaf)
+        _MerkabaInstrumentResults[4u + leaf] = uint4(
+            measuredLower[leaf], measuredUpper[leaf]);
+}}
 """
 
 
@@ -3458,6 +3908,7 @@ def render_authority_manifest(descriptor: dict) -> str:
         "expressionInventory": descriptor["expressions"],
         "reverseRules": descriptor["reverseRules"],
         "queryFamilies": descriptor["queryFamilies"],
+        "captureBoundary": descriptor["captureBoundary"],
         "sceneReduction": descriptor["sceneReduction"],
         "freshBaseAdmission": descriptor["freshBaseAdmission"],
         "photometricNuisance": descriptor["photometricNuisance"],

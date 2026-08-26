@@ -55,6 +55,9 @@
 #define SIGMA_NATIVE_QUERY_PRE_HIT_EXCLUSION 1u
 #define SIGMA_NATIVE_QUERY_FIRST_HIT_MOULD 2u
 
+#define SIGMA_Q48_ZERO uint2(0u, 0u)
+#define SIGMA_Q48_ONE uint2(0u, 0x00010000u)
+
 #define SIGMA_DEFAULT_LOGICAL_UNBACKED 0u
 #define SIGMA_DEFAULT_EXPLICIT_ZEMPTY 1u
 #define SIGMA_DEFAULT_NULL_CODEC 2u
@@ -81,8 +84,9 @@
 #define SIGMA_FRESH_FIRST_HIT_LEFT 1u
 #define SIGMA_FRESH_FIRST_HIT_RIGHT 2u
 #define SIGMA_FRESH_EXTERNAL_RELATION_TRUTH_INPUT_COUNT 0u
+#define SIGMA_INSTRUMENT_BOUNDARY_LEAF_COUNT 8u
 
-static const uint SIGMA_MERKABA_PROGRAM_FINGERPRINT[8] = { 0xc9885521u, 0x6dd16d05u, 0x9ebaf0c3u, 0x3652250bu, 0x7acac468u, 0x1b01e0d5u, 0x85ab0ba2u, 0x8de67af3u };
+static const uint SIGMA_MERKABA_PROGRAM_FINGERPRINT[8] = { 0x89d6d581u, 0x391978f7u, 0x8eb9fc3bu, 0xd461a65du, 0x36575e69u, 0xeb01ed0cu, 0x6b4189c9u, 0xe076e435u };
 static const int SIGMA_MERKABA_DIFFRACTION[256] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 8, 0, 0, 8, 0, 0, -12, 4, 0, 4, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 8, 0, 0, -12, 4, 4, 4, 0, 0, 0, -8, 0, 0, 0, 8, 0, 0, 0, 4, 0, -12, 4, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -12, 4, 4, 4, 0, 0, 0, -8, 0, 0, 8, 0, 0, 4, 0, 4, 0, -12, 0, 4, 0, -8, 0, 0, 0, -8, 0, 8, 0, 4, 4, 0, 0, 4, -12, 0, 0, 0, -8, 0, 0, 0, -8, 0, 0, 0, 4, 4, 0, 0, 4, -12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 12, 0, -4, 0, -4, -4, 0, 0, 0, 4, 4, 4, -4, 4, 4, 0, -4, 12, 0, 0, 0, -4, -4, 0, -4, 0, 4, 4, 4, -4, 4, 0, 0, -4, 12, 0, -4, 0, -4, 0, -4, -4, 0, 4, 4, 4, -4, 0, -4, -4, -4, 12, 0, 0, 0, 0, -4, -4, -4, 0, 4, 4, 4, 0, 0, -4, 0, -4, 12, -4, 0, 0, 4, -4, -4, -4, 0, 4, 4, 0, 0, 0, -4, -4, 0, 12, -4, 0, -4, 4, -4, -4, -4, 0, 4, 0, -4, 0, 0, -4, -4, 0, 12, 0, -4, -4, 4, -4, -4, -4, 0 };
 static const int SIGMA_MERKABA_INFORMATION_METRIC[256] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 640, -64, -64, -64, -64, -64, -192, 0, -32, 96, 256, 32, -192, 256, 32, 0, -64, 512, -64, -64, -64, 64, -64, 0, -64, 32, 96, 96, 32, -256, 256, 0, -64, -64, 640, -64, -64, -64, -64, 0, -288, -64, -32, 160, 320, 32, -192, 0, -64, -64, -64, 384, -64, -64, -64, 0, -64, -64, -64, 96, 160, 96, 32, 0, -64, -64, -64, -64, 640, -64, -192, 0, 160, -128, -352, -64, -32, 320, 96, 0, -64, 64, -64, -64, -64, 768, -64, 0, -224, 96, -128, -64, -288, -96, 320, 0, -192, -64, -64, -64, -192, -64, 640, 0, 64, -224, 160, -64, 0, -288, -32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -32, -64, -288, -64, 160, -224, 64, 0, 576, -32, -96, -96, -96, -32, -96, 0, 96, 32, -64, -64, -128, 96, -224, 0, -32, 576, -32, -32, -160, -96, -32, 0, 256, 96, -32, -64, -352, -128, 160, 0, -96, -32, 576, 32, -96, -160, -96, 0, 32, 96, 160, 96, -64, -64, -64, 0, -96, -32, 32, 576, 32, -32, -96, 0, -192, 32, 320, 160, -32, -288, 0, 0, -96, -160, -96, 32, 576, -32, -96, 0, 256, -256, 32, 96, 320, -96, -288, 0, -32, -96, -160, -32, -32, 576, -32, 0, 32, 256, -192, 32, 96, 320, -32, 0, -96, -32, -96, -96, -96, -32, 576 };
 static const int SIGMA_MERKABA_SHELL_SQUARE_BY_RANK[4] = { -1, -3, -7, -15 };
@@ -309,6 +313,102 @@ void SigmaMerkabaLiftShadow(uint2 shadow[4], out uint2 state[16],
                 SIGMA_MERKABA_DUAL_COEFFICIENT_Q48[address * 4u + axis], valid),
                 valid);
         state[address] = sum;
+    }
+}
+
+void SigmaMerkabaInstrumentCompareSwap(inout uint left, inout uint right,
+    uint2 pullback[4])
+{
+    uint2 leftMagnitude = SigmaU64AbsSigned(pullback[left]);
+    uint2 rightMagnitude = SigmaU64AbsSigned(pullback[right]);
+    bool rightComesFirst = !SigmaU64Equal(leftMagnitude, rightMagnitude)
+        ? SigmaU64Less(leftMagnitude, rightMagnitude)
+        : !SigmaU64Equal(pullback[left], pullback[right])
+            ? SigmaI64Less(pullback[left], pullback[right])
+            : right < left;
+    if (!rightComesFirst)
+        return;
+    uint temporary = left;
+    left = right;
+    right = temporary;
+}
+
+bool SigmaMerkabaBuildInstrumentRowPermutation(uint2 roomRay[3],
+    inout uint4 permutation, out int globalSign, inout uint valid)
+{
+    globalSign = 0;
+    uint2 x = roomRay[0];
+    uint2 y = roomRay[1];
+    uint2 z = roomRay[2];
+    uint2 pullback[4];
+    pullback[0] = SigmaQ48AddChecked(SigmaQ48AddChecked(x, y, valid), z, valid);
+    pullback[1] = SigmaQ48SubChecked(SigmaQ48SubChecked(x, y, valid), z, valid);
+    pullback[2] = SigmaQ48SubChecked(SigmaQ48SubChecked(y, x, valid), z, valid);
+    pullback[3] = SigmaQ48AddChecked(
+        SigmaQ48SubChecked(SIGMA_Q48_ZERO, x, valid),
+        SigmaQ48SubChecked(z, y, valid), valid);
+    uint axis0 = 0u;
+    uint axis1 = 1u;
+    uint axis2 = 2u;
+    uint axis3 = 3u;
+    // Fixed four-input sorting network. Query direction changes data only;
+    // it never changes scheduling or emits a dispatch per row.
+    SigmaMerkabaInstrumentCompareSwap(axis0, axis1, pullback);
+    SigmaMerkabaInstrumentCompareSwap(axis2, axis3, pullback);
+    SigmaMerkabaInstrumentCompareSwap(axis0, axis2, pullback);
+    SigmaMerkabaInstrumentCompareSwap(axis1, axis3, pullback);
+    SigmaMerkabaInstrumentCompareSwap(axis1, axis2, pullback);
+    permutation = uint4(axis0, axis1, axis2, axis3);
+    uint2 maximum = pullback[axis0];
+    if (valid == 0u || SigmaU64Equal(SigmaU64AbsSigned(maximum), SIGMA_Q48_ZERO))
+    {
+        valid = 0u;
+        globalSign = 0;
+        return false;
+    }
+    globalSign = (maximum.y & 0x80000000u) != 0u ? -1 : 1;
+    return true;
+}
+
+void SigmaMerkabaAssembleInstrumentTangent(uint2 codeLower[4],
+    uint2 codeUpper[4], int globalSign, out uint2 measuredLower[4],
+    out uint2 measuredUpper[4], inout uint valid)
+{
+    uint2 centredLower[4];
+    uint2 centredUpper[4];
+    uint2 totalLower = SIGMA_Q48_ZERO;
+    uint2 totalUpper = SIGMA_Q48_ZERO;
+    [unroll]
+    for (uint instrumentLeaf = 0u; instrumentLeaf < 4u; ++instrumentLeaf)
+    {
+        if (SigmaQ48Less(codeLower[instrumentLeaf], SIGMA_Q48_ZERO) ||
+            SigmaQ48Less(SIGMA_Q48_ONE, codeUpper[instrumentLeaf]) ||
+            SigmaQ48Less(codeUpper[instrumentLeaf], codeLower[instrumentLeaf]))
+            valid = 0u;
+        centredLower[instrumentLeaf] = SigmaQ48SubChecked(
+            SigmaQ48ShiftLeftChecked(codeLower[instrumentLeaf], 1u, valid),
+            SIGMA_Q48_ONE, valid);
+        centredUpper[instrumentLeaf] = SigmaQ48SubChecked(
+            SigmaQ48ShiftLeftChecked(codeUpper[instrumentLeaf], 1u, valid),
+            SIGMA_Q48_ONE, valid);
+        totalLower = SigmaQ48AddChecked(totalLower,
+            centredLower[instrumentLeaf], valid);
+        totalUpper = SigmaQ48AddChecked(totalUpper,
+            centredUpper[instrumentLeaf], valid);
+    }
+    [unroll]
+    for (uint outputLeaf = 0u; outputLeaf < 4u; ++outputLeaf)
+    {
+        uint2 lower = SigmaQ48SubChecked(
+            SigmaQ48ShiftLeftChecked(centredLower[outputLeaf], 2u, valid),
+            totalUpper, valid);
+        uint2 upper = SigmaQ48SubChecked(
+            SigmaQ48ShiftLeftChecked(centredUpper[outputLeaf], 2u, valid),
+            totalLower, valid);
+        measuredLower[outputLeaf] = globalSign > 0
+            ? lower : SigmaQ48NegateChecked(upper, valid);
+        measuredUpper[outputLeaf] = globalSign > 0
+            ? upper : SigmaQ48NegateChecked(lower, valid);
     }
 }
 

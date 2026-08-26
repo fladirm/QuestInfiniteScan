@@ -1,4 +1,96 @@
 {
+  "captureBoundary": {
+    "authority": "ONE_GENERATED_FINGERPRINTED_QUEST_TO_MERKABA_ADAPTER",
+    "coherentFrameSources": {
+      "calibrationEpoch": "StereoRigFrameLease.CalibrationEpoch",
+      "extrinsics": "StereoRigFrameLease.Extrinsics",
+      "leftDepth": "StereoRigFrameLease.DepthLeft",
+      "leftOptical": "StereoRigFrameLease.RgbLeft",
+      "observationRevision": "StereoRigFrameLease.Sequence",
+      "pairingHealth": "StereoRigFrameLease.Health",
+      "rightDepth": "StereoRigFrameLease.DepthRight",
+      "rightOptical": "StereoRigFrameLease.RgbRight"
+    },
+    "finiteFootprint": {
+      "construction": "CALIBRATED_PIXEL_EDGES_AND_RAY_DIFFERENTIALS_NOT_A_CONSTANT_PIXEL_RADIUS",
+      "fields": [
+        "CENTER_RAY",
+        "RAY_DIFFERENTIAL_X",
+        "RAY_DIFFERENTIAL_Y",
+        "HALF_ANGLE_X",
+        "HALF_ANGLE_Y",
+        "SOLID_ANGLE"
+      ]
+    },
+    "instrumentMathSources": {
+      "clockPoseRegion": "RigPairingHealth.ClockUncertaintyNanoseconds",
+      "coneAndFootprint": "RigCalibrationMath.ConeRayAtPixel+ConeLut.compute",
+      "intrinsicsAndCrop": "RigCalibrationMath.FromPassthrough+FromDepthFov",
+      "opticalFiniteFootprint": "SigmaRgbInverseMath.SigmaBuildRgbMeasurement_2X2_HULL",
+      "projectionDepthToMetricOrder": "RigCalibrationMath.ViewZFromProjectionDepth01+RangeFromProjectionDepth01"
+    },
+    "leafInventory": [
+      "LEFT_DEPTH_ORDER",
+      "LEFT_OPTICAL_R",
+      "LEFT_OPTICAL_G",
+      "LEFT_OPTICAL_B",
+      "RIGHT_DEPTH_ORDER",
+      "RIGHT_OPTICAL_R",
+      "RIGHT_OPTICAL_G",
+      "RIGHT_OPTICAL_B"
+    ],
+    "leafValueConstruction": {
+      "codeLift": "EACH_OF_THE_FOUR_SEPARATELY_RETAINED_CODE_INTERVALS_MAPS_AFFINELY_FROM_ZERO_ONE_TO_MINUS_ONE_PLUS_ONE",
+      "depthCode": "RAW_PROJECTION_DEPTH01_INTERVAL_FROM_THE_DEPTH_TEXTURE",
+      "depthMayBootstrapOptical": false,
+      "directOrder": "OUTWARD_METRIC_RAY_RANGE_INTERVAL_FROM_THE_SAME_DEPTH_SAMPLE_AND_CALIBRATED_CONE",
+      "merkabaTangentEnvelope": "APPLY_FOUR_I_MINUS_ALL_ONES_OUTWARD_AFTER_LEAF_RETENTION_AND_KEEP_ALL_ORIGINAL_LEAF_FACTORS_FOR_FORWARD_VERIFICATION",
+      "opticalCode": "POST_SAMPLER_LINEAR_RGB_2X2_FOOTPRINT_HULL",
+      "opticalMayBootstrapDepth": false,
+      "orientation": "APPLY_THE_CALIBRATED_GLOBAL_SIGN_AND_PERMUTATION_TO_ROWS_AND_INTERVALS_TOGETHER"
+    },
+    "nativeRowConstruction": {
+      "pixelOrXyzIdentity": false,
+      "rayInput": "ROOM_GAUGE_CALIBRATED_CONE_CENTER_Q16_48",
+      "rowFamily": "ONE_GLOBAL_SIGN_TIMES_ONE_FOUR_AXIS_PERMUTATION_PRESERVING_THE_MERKABA_TANGENT_HYPERPLANE",
+      "selector": "SORT_BY_DESCENDING_ABSOLUTE_PULLBACK_THEN_DESCENDING_SIGNED_VALUE_THEN_AXIS_INDEX",
+      "tetrahedralPullback": [
+        "X_PLUS_Y_PLUS_Z",
+        "X_MINUS_Y_MINUS_Z",
+        "MINUS_X_PLUS_Y_MINUS_Z",
+        "MINUS_X_MINUS_Y_PLUS_Z"
+      ],
+      "tieRule": "CANONICAL_AXIS_INDEX_NOT_ALLOCATION_OR_OBSERVATION_ORDER",
+      "zeroRay": "UNRESOLVED"
+    },
+    "perViewSources": {
+      "depthEncoding": "GpuImageView.DepthEncoding",
+      "depthNearFar": "GpuImageView.DepthNearFar",
+      "graphicsFormat": "GpuImageView.GraphicsFormat",
+      "intrinsics": "GpuImageView.Intrinsics",
+      "pose": "GpuImageView.WorldFromCamera",
+      "sourceSequence": "GpuImageView.SourceSequence",
+      "timestamp": "GpuImageView.Timestamp"
+    },
+    "provenanceFingerprintInputs": [
+      "OBSERVATION_REVISION",
+      "CALIBRATION_EPOCH",
+      "ALL_FOUR_SOURCE_SEQUENCES",
+      "ALL_FOUR_TIMESTAMPS",
+      "ALL_FOUR_INTRINSIC_SIGNATURES",
+      "RIG_EXTRINSICS",
+      "DEPTH_ENCODING_AND_NEAR_FAR",
+      "RGB_GRAPHICS_FORMAT",
+      "PAIRING_HEALTH",
+      "PROGRAM_FINGERPRINT"
+    ],
+    "quantization": {
+      "intervals": "OUTWARD_Q16_48_AFTER_MONOTONE_ENDPOINT_EVALUATION",
+      "points": "EXACT_IEEE754_BINARY_DECODE_TO_CHECKED_NEAREST_EVEN_Q16_48_ONCE",
+      "postQuantization": "ONLY_CHECKED_Q16_48_POINT_AND_OUTWARD_INTERVAL_ARITHMETIC"
+    },
+    "rawOwner": "StereoRigFrameLease"
+  },
   "certificate": {
     "canonicalFactorOrder": "SCOPE_EXPRESSION_INDEPENDENCE_PROVENANCE_INTERVAL_LEXICOGRAPHIC",
     "completeProgramFibreSelector": "PRESERVE_PRIOR_ONLY_INSIDE_PROVED_COMPLETE_PROGRAM_EQUIVALENCE_FIBRE",
@@ -1067,12 +1159,12 @@
     },
     "generatorSource": {
       "path": "Tools/sigma/generate_sigma_operators.py",
-      "sha256": "ecc1543fd0698ed527657a39b167eceaabb6b813be7df30f939b8dcfe02e2359",
+      "sha256": "e2299122decd655a4633bf7123106155f67c24f8283f6a6e1dfdaef72c693fc1",
       "version": "CPQ4-S16-GEN-1"
     },
     "queryBoundary": {
       "path": "Tools/sigma/authority/I_Q_SIGMA_PRISM_V1.json",
-      "sha256": "56731a252dafee7bc71f9ee53fa1a4e16713b5b68b9f8b4fff108460c21faef5"
+      "sha256": "e3e0e60770431f32d7d2a698ed5b75dedfc8498893cfbc47a80d2e726d575b7e"
     },
     "representation": {
       "path": "Tools/sigma/authority/I_REP_SIGMA_PRISM_V1.json",
@@ -1097,12 +1189,25 @@
   },
   "otherToeSectorsImported": false,
   "photometricNuisance": {
-    "calibrationProvenance": "CAPTURE_CALIBRATION_EPOCH_FINGERPRINT",
+    "calibrationProvenance": "CAPTURE_CALIBRATION_EPOCH_PLUS_GRAPHICS_FORMAT_AND_POST_SAMPLER_TRANSFER_FINGERPRINT",
+    "derivedRegionSources": {
+      "baseCodeWidth": "EXISTING_SOURCE_BACKED_2_OVER_255",
+      "footprintCodeWidth": "EXISTING_SOURCE_BACKED_1_OVER_255",
+      "identityNuisanceParameters": "POST_ISP_CODE_DOMAIN_ONLY_NOT_A_SCENE_LINEAR_RADIANCE_CLAIM",
+      "poseClockWidth": "MIN_1_OVER_100_OF_HALF_CLOCK_UNCERTAINTY_SECONDS_WITH_EXISTING_1_OVER_2000_FLOOR",
+      "sampleHull": "BILINEAR_CENTER_PLUS_FOUR_2X2_SENSOR_SAMPLES"
+    },
     "law": "OBSERVED_C_IN_CALIBRATED_MONOTONE_TRANSFER_C(EXPOSURE_TIMES_GAIN_C_TIMES_ILLUMINATION_C_TIMES_NATIVE_RESPONSE_C_PLUS_OFFSET_C)",
-    "metadataMissing": "NO_OPTICAL_CLAIM_WITH_MISSING_METADATA_PROVENANCE",
+    "metadataMissing": "DERIVE_BOUNDED_POST_ISP_CODE_SPACE_REGION_FROM_GRAPHICS_FORMAT_AND_THE_CALIBRATED_2X2_FOOTPRINT_HULL_WITH_MISSING_RAW_METADATA_PROVENANCE",
     "metadataPresent": "REQUIRE_MATCHING_CALIBRATION_EPOCH_AND_BOUNDED_PARAMETERS",
-    "missingMetadataMayProveCompatibility": false,
+    "missingMetadataMayProveCompatibility": true,
+    "missingMetadataMayProveSceneLinearRadiance": false,
     "parameterRepresentation": "BOUNDED_Q48_INTERVALS_PLUS_FINGERPRINTED_MONOTONE_PIECEWISE_LINEAR_TRANSFER",
+    "postIspTransfer": {
+      "R8G8B8A8_SRGB": "IDENTITY_PWL_AFTER_MANDATORY_GRAPHICS_FORMAT_SRGB_DECODE",
+      "R8G8B8A8_UNorm": "IDENTITY_PWL_IN_SHADER_SAMPLED_LINEAR_CODE_DOMAIN",
+      "otherFormat": "NO_OPTICAL_CLAIM"
+    },
     "qualityScalarMutationAuthority": false,
     "requiredBoundedParameters": [
       "EXPOSURE",
@@ -1114,8 +1219,8 @@
     "unboundedParameterRegion": "FORBIDDEN_TO_PROVE_COMPATIBILITY_OR_MUTATION",
     "whiteBalance": "BOUNDED_PER_CHANNEL_GAIN"
   },
-  "programFingerprint": "c98855216dd16d059ebaf0c33652250b7acac4681b01e0d585ab0ba28de67af3",
-  "programVersion": "CPQ4-S16-MERKABA-N1R-3",
+  "programFingerprint": "89d6d581391978f78eb9fc3bd461a65d36575e69eb01ed0c6b4189c9e076e435",
+  "programVersion": "CPQ4-S16-MERKABA-N1R-4",
   "proofs": {
     "allDefaultActiveWork": 0,
     "allDefaultRelation": "DEFAULT_SAT",
@@ -1143,6 +1248,8 @@
     "bracketNegativeControls": 1,
     "canFreezeShadowKernel": false,
     "canonicalSerializationFingerprint": "1859b980a60ffc87df4fecac9647a8e475727c7618f76aacdb929976061e795d",
+    "captureBoundaryFingerprint": "2b492bf2deba23077ff873275f8672a3949e460a2b1ec2429c199fcd62691ba2",
+    "captureBoundaryLeafCount": 8,
     "certificateFeasibleAssignmentCount": 18,
     "certificateProofFingerprint": "0b0317cf6c99954e32819303ebb6e400101a7a3d75b2d1b858f22f0fbb006cd3",
     "completeProgramFibreSelector": "IDENTITY_ONLY_UNLESS_EQUIVALENCE_PROVED",
@@ -1182,7 +1289,7 @@
     "independentClosureWeights": 0,
     "informationMetricIdentity": "G=2*A^T*A=-2*A^2",
     "legacyZNullAccepted": false,
-    "missingOpticalMetadata": "NO_OPTICAL_CLAIM",
+    "missingOpticalMetadata": "BOUNDED_POST_ISP_CODE_REGION_WITH_MISSING_RAW_METADATA_PROVENANCE",
     "mixedDefaultSupportBehaviour": "DESCRIPTOR_EVALUATION_REQUIRED",
     "negativeHolonomy": 2688,
     "opticalCalibrationProvenance": true,

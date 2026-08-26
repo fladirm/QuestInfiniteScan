@@ -240,6 +240,154 @@ namespace Genesis.RoomScan.SigmaPrism
         internal string PayloadFingerprint { get; }
     }
 
+    internal enum SigmaInstrumentLeafKind : uint
+    {
+        DepthOrder = 0u,
+        OpticalR = 1u,
+        OpticalG = 2u,
+        OpticalB = 3u,
+    }
+
+    internal enum SigmaInstrumentOpticalTransfer : uint
+    {
+        LinearUnorm = 0u,
+        SrgbDecodedLinear = 1u,
+        Unsupported = 0xffffffffu,
+    }
+
+    internal readonly struct SigmaInstrumentFootprint
+    {
+        internal SigmaInstrumentFootprint(IReadOnlyList<long> ray,
+            IReadOnlyList<long> differentialX,
+            IReadOnlyList<long> differentialY, long halfAngleX,
+            long halfAngleY, long solidAngle)
+        {
+            if (ray == null || differentialX == null || differentialY == null ||
+                ray.Count != 3 || differentialX.Count != 3 ||
+                differentialY.Count != 3)
+                throw new ArgumentException(
+                    "A calibrated footprint requires three 3D Q48 vectors.");
+            Ray = ray.ToArray();
+            DifferentialX = differentialX.ToArray();
+            DifferentialY = differentialY.ToArray();
+            HalfAngleX = halfAngleX;
+            HalfAngleY = halfAngleY;
+            SolidAngle = solidAngle;
+        }
+        internal long[] Ray { get; }
+        internal long[] DifferentialX { get; }
+        internal long[] DifferentialY { get; }
+        internal long HalfAngleX { get; }
+        internal long HalfAngleY { get; }
+        internal long SolidAngle { get; }
+    }
+
+    // Immutable output of the repository's capture/calibration boundary. It
+    // deliberately contains no Merkaba row, S16 proposal or carrier address.
+    internal sealed class SigmaInstrumentEyeBoundary
+    {
+        internal SigmaInstrumentEyeBoundary(string side,
+            ulong observationRevision, ulong calibrationEpoch,
+            long depthSourceSequence, long opticalSourceSequence,
+            long depthTimestampNanoseconds, long opticalTimestampNanoseconds,
+            ulong depthIntrinsicsSignature, ulong opticalIntrinsicsSignature,
+            string poseCalibrationFingerprint,
+            SigmaInstrumentFootprint footprint,
+            SigmaQ48Interval projectionDepth01,
+            SigmaQ48Interval metricDirectOrder,
+            IReadOnlyList<SigmaQ48Interval> opticalCode,
+            SigmaInstrumentOpticalTransfer opticalTransfer,
+            bool firstHit, string provenanceFingerprint)
+        {
+            if (side != "LEFT" && side != "RIGHT")
+                throw new ArgumentException("Instrument side must be LEFT/RIGHT.",
+                    nameof(side));
+            if (observationRevision == 0UL || calibrationEpoch == 0UL ||
+                depthSourceSequence <= 0L || opticalSourceSequence <= 0L ||
+                depthTimestampNanoseconds <= 0L ||
+                opticalTimestampNanoseconds <= 0L ||
+                depthIntrinsicsSignature == 0UL ||
+                opticalIntrinsicsSignature == 0UL)
+                throw new ArgumentException(
+                    "Instrument observation provenance is incomplete.");
+            if (poseCalibrationFingerprint == null ||
+                poseCalibrationFingerprint.Length != 64 ||
+                provenanceFingerprint == null ||
+                provenanceFingerprint.Length != 64)
+                throw new ArgumentException(
+                    "Instrument fingerprints must be SHA-256 hex strings.");
+            if (opticalCode == null || opticalCode.Count != 3)
+                throw new ArgumentException(
+                    "One coherent eye boundary carries RGB code intervals.",
+                    nameof(opticalCode));
+            Side = side;
+            ObservationRevision = observationRevision;
+            CalibrationEpoch = calibrationEpoch;
+            DepthSourceSequence = depthSourceSequence;
+            OpticalSourceSequence = opticalSourceSequence;
+            DepthTimestampNanoseconds = depthTimestampNanoseconds;
+            OpticalTimestampNanoseconds = opticalTimestampNanoseconds;
+            DepthIntrinsicsSignature = depthIntrinsicsSignature;
+            OpticalIntrinsicsSignature = opticalIntrinsicsSignature;
+            PoseCalibrationFingerprint = poseCalibrationFingerprint;
+            Footprint = footprint;
+            ProjectionDepth01 = projectionDepth01;
+            MetricDirectOrder = metricDirectOrder;
+            OpticalCode = opticalCode.ToArray();
+            OpticalTransfer = opticalTransfer;
+            FirstHit = firstHit;
+            ProvenanceFingerprint = provenanceFingerprint;
+        }
+        internal string Side { get; }
+        internal ulong ObservationRevision { get; }
+        internal ulong CalibrationEpoch { get; }
+        internal long DepthSourceSequence { get; }
+        internal long OpticalSourceSequence { get; }
+        internal long DepthTimestampNanoseconds { get; }
+        internal long OpticalTimestampNanoseconds { get; }
+        internal ulong DepthIntrinsicsSignature { get; }
+        internal ulong OpticalIntrinsicsSignature { get; }
+        internal string PoseCalibrationFingerprint { get; }
+        internal SigmaInstrumentFootprint Footprint { get; }
+        internal SigmaQ48Interval ProjectionDepth01 { get; }
+        internal SigmaQ48Interval MetricDirectOrder { get; }
+        internal SigmaQ48Interval[] OpticalCode { get; }
+        internal SigmaInstrumentOpticalTransfer OpticalTransfer { get; }
+        internal bool FirstHit { get; }
+        internal string ProvenanceFingerprint { get; }
+    }
+
+    internal readonly struct SigmaAssembledSensorEye
+    {
+        internal SigmaAssembledSensorEye(string side,
+            IReadOnlyList<IReadOnlyList<long>> rows,
+            IReadOnlyList<SigmaQ48Interval> measured,
+            SigmaQ48Interval metricDirectOrder,
+            SigmaInstrumentFootprint footprint, bool firstHit,
+            string provenanceFingerprint)
+        {
+            if (rows == null || rows.Count != 4 ||
+                rows.Any(row => row == null || row.Count != 4) ||
+                measured == null || measured.Count != 4)
+                throw new ArgumentException(
+                    "An assembled eye requires four four-axis leaves.");
+            Side = side;
+            Rows = rows.Select(row => row.ToArray()).ToArray();
+            Measured = measured.ToArray();
+            MetricDirectOrder = metricDirectOrder;
+            Footprint = footprint;
+            FirstHit = firstHit;
+            ProvenanceFingerprint = provenanceFingerprint;
+        }
+        internal string Side { get; }
+        internal long[][] Rows { get; }
+        internal SigmaQ48Interval[] Measured { get; }
+        internal SigmaQ48Interval MetricDirectOrder { get; }
+        internal SigmaInstrumentFootprint Footprint { get; }
+        internal bool FirstHit { get; }
+        internal string ProvenanceFingerprint { get; }
+    }
+
     internal readonly struct SigmaFreshShadowBranch
     {
         internal SigmaFreshShadowBranch(IEnumerable<SigmaQ48Interval> shadowAxes,
@@ -281,14 +429,18 @@ namespace Genesis.RoomScan.SigmaPrism
 
     internal static class SigmaGeneratedMerkabaProgram
     {
-        internal const string ProgramVersion = "CPQ4-S16-MERKABA-N1R-3";
+        internal const string ProgramVersion = "CPQ4-S16-MERKABA-N1R-4";
         internal const string NumericDomainId = "num.fixed.q16_48.checked.nearest_even";
-        internal const string ProgramFingerprint = "c98855216dd16d059ebaf0c33652250b7acac4681b01e0d585ab0ba28de67af3";
+        internal const string ProgramFingerprint = "89d6d581391978f78eb9fc3bd461a65d36575e69eb01ed0c6b4189c9e076e435";
+        internal const string CaptureBoundaryFingerprint =
+            "2b492bf2deba23077ff873275f8672a3949e460a2b1ec2429c199fcd62691ba2";
+        internal const int CaptureBoundaryLeafCount =
+            8;
         internal const string DeclaredToeUpstreamFingerprint = "9d2e3604846305cfe5244a4ef49f169632c60582cf895256fadc36426dc5786f";
-        internal const string GeneratorSourceInputFingerprint = "ecc1543fd0698ed527657a39b167eceaabb6b813be7df30f939b8dcfe02e2359";
+        internal const string GeneratorSourceInputFingerprint = "e2299122decd655a4633bf7123106155f67c24f8283f6a6e1dfdaef72c693fc1";
         internal const string ToeCapsuleInputFingerprint = "9cdc8b1f3bfecfa3a49805be82ea786cdbf681ee8ffbdab0733d18dc24cfffef";
         internal const string ToeUpstreamDeclaredInputFingerprint = "9d2e3604846305cfe5244a4ef49f169632c60582cf895256fadc36426dc5786f";
-        internal const string IQInputFingerprint = "56731a252dafee7bc71f9ee53fa1a4e16713b5b68b9f8b4fff108460c21faef5";
+        internal const string IQInputFingerprint = "e3e0e60770431f32d7d2a698ed5b75dedfc8498893cfbc47a80d2e726d575b7e";
         internal const string IRepresentationInputFingerprint = "f5f3f42395e2e05779f5c7059bc2e273bcf334f2b73f8b5ac4520c1ea03ff133";
         internal const string CanonicalSpecInputFingerprint = "20d15b4936aba2bca72e951b5534160d44c4cb44713b43a6effc9c93df826d69";
         internal const string ClosurePlanInputFingerprint = "a4b19bebb8624c54748b0d5f6fb982e2d7425686d141e88b493f96533ce7549e";
@@ -627,6 +779,146 @@ namespace Genesis.RoomScan.SigmaPrism
             }
             return SigmaS16.FromArray(lanes);
         }
+
+        internal static bool TryAssembleSensorEye(
+            SigmaInstrumentEyeBoundary source,
+            out SigmaAssembledSensorEye assembled)
+        {
+            assembled = default;
+            if (source == null ||
+                source.OpticalTransfer == SigmaInstrumentOpticalTransfer.Unsupported ||
+                source.ProjectionDepth01.IsEmpty ||
+                source.MetricDirectOrder.IsEmpty ||
+                source.OpticalCode.Any(value => value.IsEmpty) ||
+                source.Footprint.Ray == null ||
+                source.Footprint.Ray.Length != 3)
+                return false;
+            try
+            {
+                var code = new SigmaQ48Interval[4];
+                code[0] = CentreUnitCode(source.ProjectionDepth01);
+                for (int channel = 0; channel < 3; ++channel)
+                    code[channel + 1] = CentreUnitCode(
+                        source.OpticalCode[channel]);
+
+                SigmaQ48Interval total = new SigmaQ48Interval(0L, 0L);
+                for (int leaf = 0; leaf < 4; ++leaf)
+                    total = AddOutward(total, code[leaf]);
+                var tangent = new SigmaQ48Interval[4];
+                for (int leaf = 0; leaf < 4; ++leaf)
+                    tangent[leaf] = SubtractOutward(
+                        ScalePowerOfTwoOutward(code[leaf], 2), total);
+
+                if (!TryBuildCalibratedRowPermutation(source.Footprint.Ray,
+                        out int[] permutation, out int globalSign))
+                    return false;
+                var rows = new IReadOnlyList<long>[4];
+                var measured = new SigmaQ48Interval[4];
+                for (int leaf = 0; leaf < 4; ++leaf)
+                {
+                    var row = new long[4];
+                    row[permutation[leaf]] = globalSign > 0
+                        ? SigmaNumericDomain.One
+                        : SigmaNumericDomain.QNegate(SigmaNumericDomain.One);
+                    rows[leaf] = row;
+                    measured[leaf] = globalSign > 0
+                        ? tangent[leaf]
+                        : NegateOutward(tangent[leaf]);
+                }
+                assembled = new SigmaAssembledSensorEye(source.Side, rows,
+                    measured, source.MetricDirectOrder, source.Footprint,
+                    source.FirstHit, source.ProvenanceFingerprint);
+                return true;
+            }
+            catch (OverflowException)
+            {
+                return false;
+            }
+        }
+
+        internal static bool TryBuildCalibratedRowPermutation(
+            IReadOnlyList<long> roomRay, out int[] permutation,
+            out int globalSign)
+        {
+            permutation = Array.Empty<int>();
+            globalSign = 0;
+            if (roomRay == null || roomRay.Count != 3)
+                return false;
+            try
+            {
+                long x = roomRay[0];
+                long y = roomRay[1];
+                long z = roomRay[2];
+                long[] pullback =
+                {
+                    SigmaNumericDomain.QAdd(SigmaNumericDomain.QAdd(x, y), z),
+                    SigmaNumericDomain.QSub(SigmaNumericDomain.QSub(x, y), z),
+                    SigmaNumericDomain.QSub(SigmaNumericDomain.QSub(y, x), z),
+                    SigmaNumericDomain.QAdd(
+                        SigmaNumericDomain.QSub(0L, x),
+                        SigmaNumericDomain.QSub(z, y)),
+                };
+                if (pullback.All(value => value == 0L))
+                    return false;
+                permutation = Enumerable.Range(0, 4)
+                    .OrderByDescending(axis => SigmaNumericDomain.QAbs(
+                        pullback[axis]))
+                    .ThenByDescending(axis => pullback[axis])
+                    .ThenBy(axis => axis)
+                    .ToArray();
+                globalSign = pullback[permutation[0]] < 0L ? -1 : 1;
+                return true;
+            }
+            catch (OverflowException)
+            {
+                permutation = Array.Empty<int>();
+                globalSign = 0;
+                return false;
+            }
+        }
+
+        private static SigmaQ48Interval CentreUnitCode(
+            SigmaQ48Interval value)
+        {
+            if (value.IsEmpty || value.Lower < 0L ||
+                value.Upper > SigmaNumericDomain.One)
+                return SigmaQ48Interval.Empty;
+            return new SigmaQ48Interval(
+                SigmaNumericDomain.QSub(
+                    SigmaNumericDomain.QShiftLeft(value.Lower, 1),
+                    SigmaNumericDomain.One),
+                SigmaNumericDomain.QSub(
+                    SigmaNumericDomain.QShiftLeft(value.Upper, 1),
+                    SigmaNumericDomain.One));
+        }
+
+        private static SigmaQ48Interval AddOutward(
+            SigmaQ48Interval left, SigmaQ48Interval right) =>
+            left.IsEmpty || right.IsEmpty ? SigmaQ48Interval.Empty :
+            new SigmaQ48Interval(
+                SigmaNumericDomain.QAdd(left.Lower, right.Lower),
+                SigmaNumericDomain.QAdd(left.Upper, right.Upper));
+
+        private static SigmaQ48Interval SubtractOutward(
+            SigmaQ48Interval left, SigmaQ48Interval right) =>
+            left.IsEmpty || right.IsEmpty ? SigmaQ48Interval.Empty :
+            new SigmaQ48Interval(
+                SigmaNumericDomain.QSub(left.Lower, right.Upper),
+                SigmaNumericDomain.QSub(left.Upper, right.Lower));
+
+        private static SigmaQ48Interval ScalePowerOfTwoOutward(
+            SigmaQ48Interval value, int shift) => value.IsEmpty
+                ? SigmaQ48Interval.Empty
+                : new SigmaQ48Interval(
+                    SigmaNumericDomain.QShiftLeft(value.Lower, shift),
+                    SigmaNumericDomain.QShiftLeft(value.Upper, shift));
+
+        private static SigmaQ48Interval NegateOutward(
+            SigmaQ48Interval value) => value.IsEmpty
+                ? SigmaQ48Interval.Empty
+                : new SigmaQ48Interval(
+                    SigmaNumericDomain.QNegate(value.Upper),
+                    SigmaNumericDomain.QNegate(value.Lower));
 
         internal static bool TryResolveFreshBaseAdmission(
             IEnumerable<SigmaFreshShadowBranch> branches,

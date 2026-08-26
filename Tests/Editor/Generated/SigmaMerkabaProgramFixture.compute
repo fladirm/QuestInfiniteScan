@@ -4,6 +4,7 @@
 #pragma kernel MerkabaMatrixAndIrParity
 #pragma kernel MerkabaDirectionalActionParity
 #pragma kernel MerkabaFreshAdmissionParity
+#pragma kernel MerkabaInstrumentBoundaryParity
 #pragma target 5.0
 
 #include "SigmaGeneratedMerkabaProgram.hlsl"
@@ -13,6 +14,7 @@ RWStructuredBuffer<uint4> _MerkabaMatrixResults;
 RWStructuredBuffer<uint4> _MerkabaIrResults;
 RWStructuredBuffer<uint4> _MerkabaActionResults;
 RWStructuredBuffer<uint4> _MerkabaFreshResults;
+RWStructuredBuffer<uint4> _MerkabaInstrumentResults;
 
 [numthreads(16, 16, 1)]
 void MerkabaProgramParity(uint3 id : SV_DispatchThreadID)
@@ -132,4 +134,40 @@ void MerkabaFreshAdmissionParity(uint3 id : SV_DispatchThreadID)
     uint tinyRelation = SigmaMerkabaEvaluateFreshBoundaryRelation(
         kernelState, tinyValid);
     _MerkabaFreshResults[22] = uint4(tinyRelation, tinyValid, 0u, 0u);
+}
+
+[numthreads(1, 1, 1)]
+void MerkabaInstrumentBoundaryParity(uint3 id : SV_DispatchThreadID)
+{
+    uint valid = 1u;
+    uint2 ray[3];
+    ray[0] = uint2(0u, 0x00004000u);
+    ray[1] = uint2(0u, 0x00008000u);
+    ray[2] = uint2(0u, 0x00010000u);
+    uint4 permutation = uint4(0u, 1u, 2u, 3u);
+    int globalSign;
+    bool routed = SigmaMerkabaBuildInstrumentRowPermutation(ray,
+        permutation, globalSign, valid);
+    uint2 codeLower[4];
+    uint2 codeUpper[4];
+    codeLower[0] = codeUpper[0] = uint2(0u, 0x0000a000u);
+    codeLower[1] = codeUpper[1] = uint2(0u, 0x00006000u);
+    codeLower[2] = codeUpper[2] = uint2(0u, 0x00009000u);
+    codeLower[3] = codeUpper[3] = uint2(0u, 0x00007000u);
+    uint2 measuredLower[4];
+    uint2 measuredUpper[4];
+    SigmaMerkabaAssembleInstrumentTangent(codeLower, codeUpper,
+        globalSign, measuredLower, measuredUpper, valid);
+    _MerkabaInstrumentResults[0] = uint4(permutation.x,
+        asuint(globalSign), routed ? 1u : 0u, valid);
+    _MerkabaInstrumentResults[1] = uint4(permutation.y,
+        asuint(globalSign), routed ? 1u : 0u, valid);
+    _MerkabaInstrumentResults[2] = uint4(permutation.z,
+        asuint(globalSign), routed ? 1u : 0u, valid);
+    _MerkabaInstrumentResults[3] = uint4(permutation.w,
+        asuint(globalSign), routed ? 1u : 0u, valid);
+    [unroll]
+    for (uint leaf = 0u; leaf < 4u; ++leaf)
+        _MerkabaInstrumentResults[4u + leaf] = uint4(
+            measuredLower[leaf], measuredUpper[leaf]);
 }

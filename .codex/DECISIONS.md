@@ -335,6 +335,29 @@ branch/chart decisions remain in Git history only.
 - N3 may bind this accepted operation only after the corrective N2 checkpoint and
   may not recreate it in host or live shader code.
 
+## ADR-S436V3 — Constructive Quest-to-Merkaba boundary
+
+- `StereoRigFrameLease` remains raw coherent capture ABI; it is not itself an
+  `I_Q` observation and may not carry host-manufactured Merkaba rows.
+- The sole generator now owns one fingerprinted adapter from existing per-view
+  pose/intrinsics/timestamp/format/depth fields plus the calibrated cone/footprint
+  and metric-order instrument math into exactly eight retained sensor leaves.
+- The calibrated room-gauge cone ray selects one canonical global-sign/four-axis
+  permutation through the integer tetrahedral pullback and a fixed comparison
+  network. Ties use axis order; no observation/allocation order, pixel identity,
+  XYZ identity or dispatch-per-row enters the selection.
+- Each leaf remains separately sourced. Only after retention does the common
+  generated expression form the outward `4I-11^T` Merkaba tangent envelope; all
+  original leaf factors remain required for forward verification.
+- PCA exposes post-ISP GPU textures but no raw exposure/gain/white-balance record.
+  Therefore the bounded fallback is the existing calibrated 2x2 post-sampler code
+  hull fingerprinted by graphics format and calibration provenance. It may prove
+  only a post-ISP code relation, never scene-linear radiance or arbitrary optical
+  compatibility.
+- Corrective N1/N2 remain production-neutral. Any live N3 consumer must bind this
+  generated construction and may not reproduce its logic as a parallel host or
+  shader authority.
+
 ## Explicit supersession
 
 - ADR-S404R, ADR-S423 through ADR-S435 and their V2 revisions are superseded by

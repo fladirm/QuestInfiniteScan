@@ -24,7 +24,7 @@ namespace Genesis.RoomScan.Tests
         public void AuthorityBoundaryAndExecutableIrAreFrozen()
         {
             Assert.That(SigmaGeneratedMerkabaProgram.ProgramVersion,
-                Is.EqualTo("CPQ4-S16-MERKABA-N1R-3"));
+                Is.EqualTo("CPQ4-S16-MERKABA-N1R-4"));
             Assert.That(SigmaGeneratedMerkabaProgram.NumericDomainId,
                 Is.EqualTo(SigmaNumericDomain.Id));
             Assert.That(SigmaGeneratedMerkabaProgram.DeclaredToeUpstreamFingerprint,
@@ -41,6 +41,10 @@ namespace Genesis.RoomScan.Tests
             Assert.That(SigmaGeneratedMerkabaProgram.E22InventoryCount, Is.Zero);
             Assert.That(SigmaGeneratedMerkabaProgram.DirectS16DependenciesRetained,
                 Is.True);
+            Assert.That(SigmaGeneratedMerkabaProgram.CaptureBoundaryLeafCount,
+                Is.EqualTo(8));
+            Assert.That(SigmaGeneratedMerkabaProgram.CaptureBoundaryFingerprint,
+                Has.Length.EqualTo(64));
 
             Assert.That(SigmaGeneratedMerkabaProgram.Expressions,
                 Has.Length.EqualTo(SigmaGeneratedMerkabaProgram.ExpressionCount));
@@ -106,6 +110,114 @@ namespace Genesis.RoomScan.Tests
             Assert.That(SigmaGeneratedMerkabaProgram.EntryPoints
                 .Where(entry => entry.Id.StartsWith("SENSOR", StringComparison.Ordinal))
                 .All(entry => entry.ReverseExpression >= 0), Is.True);
+        }
+
+        [Test]
+        public void ConstructiveCaptureBoundaryBuildsCalibratedEightLeafPair()
+        {
+            long[] target =
+            {
+                SigmaNumericDomain.One,
+                -SigmaNumericDomain.One,
+                SigmaNumericDomain.Half,
+                -SigmaNumericDomain.Half,
+            };
+            SigmaInstrumentEyeBoundary Build(string side, long[] ray, char marker)
+            {
+                Assert.That(SigmaGeneratedMerkabaProgram
+                    .TryBuildCalibratedRowPermutation(ray,
+                        out int[] permutation, out _), Is.True);
+                var code = new SigmaQ48Interval[4];
+                for (int leaf = 0; leaf < 4; ++leaf)
+                {
+                    long value = SigmaNumericDomain.QAdd(
+                        SigmaNumericDomain.Half,
+                        SigmaNumericDomain.QShiftRight(target[permutation[leaf]], 3));
+                    code[leaf] = new SigmaQ48Interval(value, value);
+                }
+                var footprint = new SigmaInstrumentFootprint(ray,
+                    new[] { SigmaNumericDomain.FromRatio(1, 100), 0L, 0L },
+                    new[] { 0L, SigmaNumericDomain.FromRatio(1, 100), 0L },
+                    SigmaNumericDomain.FromRatio(1, 1000),
+                    SigmaNumericDomain.FromRatio(1, 900),
+                    SigmaNumericDomain.FromRatio(1, 10000));
+                string fingerprint = new string(marker, 64);
+                return new SigmaInstrumentEyeBoundary(side, 73UL, 11UL,
+                    side == "LEFT" ? 101L : 102L,
+                    side == "LEFT" ? 201L : 202L,
+                    1000001L, 1000002L, 301UL, 401UL,
+                    fingerprint, footprint, code[0],
+                    new SigmaQ48Interval(SigmaNumericDomain.FromInteger(2),
+                        SigmaNumericDomain.FromInteger(2)),
+                    code.Skip(1).ToArray(),
+                    SigmaInstrumentOpticalTransfer.SrgbDecodedLinear,
+                    true, fingerprint);
+            }
+
+            SigmaInstrumentEyeBoundary left = Build("LEFT", new[]
+            {
+                SigmaNumericDomain.FromRatio(1, 5),
+                SigmaNumericDomain.FromRatio(1, 3),
+                SigmaNumericDomain.One,
+            }, 'a');
+            SigmaInstrumentEyeBoundary right = Build("RIGHT", new[]
+            {
+                SigmaNumericDomain.FromRatio(-1, 4),
+                SigmaNumericDomain.FromRatio(2, 5),
+                SigmaNumericDomain.One,
+            }, 'b');
+            Assert.That(SigmaGeneratedMerkabaProgram.TryAssembleSensorEye(
+                left, out SigmaAssembledSensorEye leftQuery), Is.True);
+            Assert.That(SigmaGeneratedMerkabaProgram.TryAssembleSensorEye(
+                right, out SigmaAssembledSensorEye rightQuery), Is.True);
+            Assert.That(leftQuery.Rows, Has.Length.EqualTo(4));
+            Assert.That(rightQuery.Rows, Has.Length.EqualTo(4));
+            Assert.That(leftQuery.Rows.SelectMany(row => row)
+                .Count(value => value != 0L), Is.EqualTo(4));
+            Assert.That(rightQuery.Rows.SelectMany(row => row)
+                .Count(value => value != 0L), Is.EqualTo(4));
+            Assert.That(leftQuery.Rows.SelectMany(row => row)
+                .All(value => value == 0L ||
+                    SigmaNumericDomain.QAbs(value) == SigmaNumericDomain.One),
+                Is.True);
+            Assert.That(leftQuery.Rows.Select(row => Array.FindIndex(row,
+                    value => value != 0L)), Is.EquivalentTo(new[] { 0, 1, 2, 3 }));
+            Assert.That(rightQuery.Rows.Select(row => Array.FindIndex(row,
+                    value => value != 0L)), Is.EquivalentTo(new[] { 0, 1, 2, 3 }));
+            CollectionAssert.AreNotEqual(
+                leftQuery.Rows.SelectMany(row => row).ToArray(),
+                rightQuery.Rows.SelectMany(row => row).ToArray(),
+                "Left/right calibrated rays must construct their own row routing.");
+
+            foreach (SigmaAssembledSensorEye query in new[] { leftQuery, rightQuery })
+            {
+                var pulledBack = new long[4];
+                for (int leaf = 0; leaf < 4; ++leaf)
+                {
+                    int axis = Array.FindIndex(query.Rows[leaf], value => value != 0L);
+                    int sign = query.Rows[leaf][axis] < 0L ? -1 : 1;
+                    Assert.That(query.Measured[leaf].Lower,
+                        Is.EqualTo(query.Measured[leaf].Upper));
+                    pulledBack[axis] = sign > 0
+                        ? query.Measured[leaf].Lower
+                        : SigmaNumericDomain.QNegate(query.Measured[leaf].Lower);
+                }
+                CollectionAssert.AreEqual(target, pulledBack);
+                Assert.That(query.MetricDirectOrder,
+                    Is.EqualTo(new SigmaQ48Interval(
+                        SigmaNumericDomain.FromInteger(2),
+                        SigmaNumericDomain.FromInteger(2))));
+                Assert.That(query.Footprint.SolidAngle, Is.GreaterThan(0L));
+            }
+
+            SigmaInstrumentEyeBoundary unsupported = new("LEFT", 73UL, 11UL,
+                101L, 201L, 1000001L, 1000002L, 301UL, 401UL,
+                new string('c', 64), left.Footprint, left.ProjectionDepth01,
+                left.MetricDirectOrder, left.OpticalCode,
+                SigmaInstrumentOpticalTransfer.Unsupported, true,
+                new string('c', 64));
+            Assert.That(SigmaGeneratedMerkabaProgram.TryAssembleSensorEye(
+                unsupported, out _), Is.False);
         }
 
         [Test]
@@ -525,16 +637,20 @@ namespace Genesis.RoomScan.Tests
             int matrixKernel = shader.FindKernel("MerkabaMatrixAndIrParity");
             int actionKernel = shader.FindKernel("MerkabaDirectionalActionParity");
             int freshKernel = shader.FindKernel("MerkabaFreshAdmissionParity");
+            int instrumentKernel = shader.FindKernel(
+                "MerkabaInstrumentBoundaryParity");
             var results = new UInt4[16 * 16 * 16];
             var matrices = new UInt4[16 * 16];
             var ir = new UInt4[SigmaGeneratedMerkabaProgram.IrNodeCount * 2];
             var actions = new UInt4[4];
             var fresh = new UInt4[23];
+            var instrument = new UInt4[8];
             using var resultBuffer = Buffer(results.Length);
             using var matrixBuffer = Buffer(matrices.Length);
             using var irBuffer = Buffer(ir.Length);
             using var actionBuffer = Buffer(actions.Length);
             using var freshBuffer = Buffer(fresh.Length);
+            using var instrumentBuffer = Buffer(instrument.Length);
             shader.SetBuffer(programKernel, "_MerkabaResults", resultBuffer);
             shader.Dispatch(programKernel, 1, 1, 16);
             shader.SetBuffer(matrixKernel, "_MerkabaMatrixResults", matrixBuffer);
@@ -544,11 +660,15 @@ namespace Genesis.RoomScan.Tests
             shader.Dispatch(actionKernel, 1, 1, 1);
             shader.SetBuffer(freshKernel, "_MerkabaFreshResults", freshBuffer);
             shader.Dispatch(freshKernel, 1, 1, 1);
+            shader.SetBuffer(instrumentKernel, "_MerkabaInstrumentResults",
+                instrumentBuffer);
+            shader.Dispatch(instrumentKernel, 1, 1, 1);
             resultBuffer.GetData(results);
             matrixBuffer.GetData(matrices);
             irBuffer.GetData(ir);
             actionBuffer.GetData(actions);
             freshBuffer.GetData(fresh);
+            instrumentBuffer.GetData(instrument);
 
             for (int c = 0; c < 16; ++c)
             for (int b = 0; b < 16; ++b)
@@ -634,6 +754,41 @@ namespace Genesis.RoomScan.Tests
             Assert.That(fresh[22].X,
                 Is.EqualTo((uint)SigmaMerkabaRelationClass.NoRelation));
             Assert.That(fresh[22].Y, Is.EqualTo(1u));
+
+            long[] instrumentRay =
+            {
+                SigmaNumericDomain.FromRatio(1, 4),
+                SigmaNumericDomain.Half,
+                SigmaNumericDomain.One,
+            };
+            Assert.That(SigmaGeneratedMerkabaProgram
+                .TryBuildCalibratedRowPermutation(instrumentRay,
+                    out int[] expectedPermutation, out int expectedSign), Is.True);
+            long[] expectedInstrumentShadow =
+            {
+                SigmaNumericDomain.One,
+                -SigmaNumericDomain.One,
+                SigmaNumericDomain.Half,
+                -SigmaNumericDomain.Half,
+            };
+            for (int leaf = 0; leaf < 4; ++leaf)
+            {
+                Assert.That(instrument[leaf].X,
+                    Is.EqualTo((uint)expectedPermutation[leaf]),
+                    $"leaf={leaf} cpu={string.Join(",", expectedPermutation)} " +
+                    $"gpu={string.Join(",", instrument.Take(4).Select(value => value.X))}");
+                Assert.That(unchecked((int)instrument[leaf].Y),
+                    Is.EqualTo(expectedSign));
+                Assert.That(instrument[leaf].Z, Is.EqualTo(1u));
+                Assert.That(instrument[leaf].W, Is.EqualTo(1u));
+                long expected = expectedSign > 0
+                    ? expectedInstrumentShadow[leaf]
+                    : SigmaNumericDomain.QNegate(expectedInstrumentShadow[leaf]);
+                Assert.That(Join(instrument[4 + leaf].X,
+                    instrument[4 + leaf].Y), Is.EqualTo(expected));
+                Assert.That(Join(instrument[4 + leaf].Z,
+                    instrument[4 + leaf].W), Is.EqualTo(expected));
+            }
         }
 
         private static long Join(uint low, uint high) =>

@@ -8,8 +8,9 @@ Updated: 2026-08-26 (Europe/Prague)
 - Branch: `feat/sigma-prism-16-cpq4-20260822`.
 - Runtime replacement baseline: `cac9ab012f4ce574e5eb9bee88290982fd9c4fe8`.
 - Accepted primitive milestones: S4‑00 through S4‑07 where compatible with v8.3.
-- Active node: S4‑08. Corrective N1R and its narrow non-mutating N2R proof are
-  accepted. N3R resumes from its prior hard stop and is the sole active run.
+- Active node: S4‑08. Corrective N1R-4 constructive `I_Q` boundary is accepted.
+  The prior N2R-3 proof is invalidated by the new program fingerprint; narrow
+  non-mutating corrective N2R is active. N3R remains shelved at its hard stop.
 - Active repair: S4‑08.6 one-medium native closure.
 - Frozen plan: `.codex/S4-08.6_NATIVE_CLOSURE_PLAN.md`.
 - Sole routine cursor: `.codex/S4-08.6_RESUME.md`.
@@ -111,6 +112,40 @@ PUBLISH
 There is no physical chart/sheet/branch/hypothesis/materialization/topology world.
 Preservation is defined on complete-program equivalence fibres, not one query
 kernel.
+
+## Corrective N1R-4 constructive capture boundary
+
+The sole generated program now owns the previously missing constructive `I_Q`
+adapter. Its immutable input is a quantized instrument boundary assembled from
+`StereoRigFrameLease`/`GpuImageView`, `RigCalibrationMath`/`ConeLut`, the depth
+encoding/range contract and the existing 2x2 optical footprint hull. It accepts no
+host-built query rows, proposed S16 state, gauge address or relation truth.
+
+For each eye it preserves four separately sourced leaves, derives one calibrated
+Merkaba signed-permutation routing from the actual room-gauge cone ray, retains the
+metric direct-order interval and finite cone footprint, and produces the exact
+outward tangent envelope used by the existing fresh-preimage expression. Raw
+photometric metadata absent from PCA is handled as a bounded post-ISP code-domain
+region fingerprinted by graphics format/calibration provenance; it is explicitly
+not a scene-linear-radiance claim.
+
+```text
+program version                    CPQ4-S16-MERKABA-N1R-4
+program fingerprint                89d6d581391978f78eb9fc3bd461a65d36575e69eb01ed0c6b4189c9e076e435
+capture-boundary fingerprint       2b492bf2deba23077ff873275f8672a3949e460a2b1ec2429c199fcd62691ba2
+generated leaves                   8
+focused N1 CPU/Vulkan              12/12 passed
+generator --check                  passed
+git diff --check                   passed
+Runtime/Resources production       +0 / -0; still 17274 LOC
+authority/test source              +1256 / -23 before controls
+```
+
+The earlier N2 result targets N1R-3 and is therefore no longer an acceptance
+witness for this fingerprint. Corrective N2 must start from raw coherent
+capture/calibration fixtures, execute this adapter on CPU and Vulkan, then enter
+the unchanged reverse/relation/admission oracle. N3 remains closed until that
+checkpoint is accepted.
 
 ## N1R accepted corrective checkpoint
 

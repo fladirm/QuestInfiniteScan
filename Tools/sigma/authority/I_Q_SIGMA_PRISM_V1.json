@@ -21,6 +21,79 @@
     "weightedFusion": false,
     "bootstrapBetweenLeaves": false
   },
+  "captureBoundary": {
+    "authority": "ONE_GENERATED_FINGERPRINTED_QUEST_TO_MERKABA_ADAPTER",
+    "rawOwner": "StereoRigFrameLease",
+    "coherentFrameSources": {
+      "observationRevision": "StereoRigFrameLease.Sequence",
+      "calibrationEpoch": "StereoRigFrameLease.CalibrationEpoch",
+      "extrinsics": "StereoRigFrameLease.Extrinsics",
+      "pairingHealth": "StereoRigFrameLease.Health",
+      "leftDepth": "StereoRigFrameLease.DepthLeft",
+      "rightDepth": "StereoRigFrameLease.DepthRight",
+      "leftOptical": "StereoRigFrameLease.RgbLeft",
+      "rightOptical": "StereoRigFrameLease.RgbRight"
+    },
+    "perViewSources": {
+      "timestamp": "GpuImageView.Timestamp",
+      "pose": "GpuImageView.WorldFromCamera",
+      "intrinsics": "GpuImageView.Intrinsics",
+      "graphicsFormat": "GpuImageView.GraphicsFormat",
+      "depthEncoding": "GpuImageView.DepthEncoding",
+      "depthNearFar": "GpuImageView.DepthNearFar",
+      "sourceSequence": "GpuImageView.SourceSequence"
+    },
+    "instrumentMathSources": {
+      "intrinsicsAndCrop": "RigCalibrationMath.FromPassthrough+FromDepthFov",
+      "coneAndFootprint": "RigCalibrationMath.ConeRayAtPixel+ConeLut.compute",
+      "projectionDepthToMetricOrder": "RigCalibrationMath.ViewZFromProjectionDepth01+RangeFromProjectionDepth01",
+      "opticalFiniteFootprint": "SigmaRgbInverseMath.SigmaBuildRgbMeasurement_2X2_HULL",
+      "clockPoseRegion": "RigPairingHealth.ClockUncertaintyNanoseconds"
+    },
+    "quantization": {
+      "points": "EXACT_IEEE754_BINARY_DECODE_TO_CHECKED_NEAREST_EVEN_Q16_48_ONCE",
+      "intervals": "OUTWARD_Q16_48_AFTER_MONOTONE_ENDPOINT_EVALUATION",
+      "postQuantization": "ONLY_CHECKED_Q16_48_POINT_AND_OUTWARD_INTERVAL_ARITHMETIC"
+    },
+    "leafInventory": [
+      "LEFT_DEPTH_ORDER", "LEFT_OPTICAL_R", "LEFT_OPTICAL_G", "LEFT_OPTICAL_B",
+      "RIGHT_DEPTH_ORDER", "RIGHT_OPTICAL_R", "RIGHT_OPTICAL_G", "RIGHT_OPTICAL_B"
+    ],
+    "nativeRowConstruction": {
+      "rayInput": "ROOM_GAUGE_CALIBRATED_CONE_CENTER_Q16_48",
+      "tetrahedralPullback": [
+        "X_PLUS_Y_PLUS_Z",
+        "X_MINUS_Y_MINUS_Z",
+        "MINUS_X_PLUS_Y_MINUS_Z",
+        "MINUS_X_MINUS_Y_PLUS_Z"
+      ],
+      "selector": "SORT_BY_DESCENDING_ABSOLUTE_PULLBACK_THEN_DESCENDING_SIGNED_VALUE_THEN_AXIS_INDEX",
+      "rowFamily": "ONE_GLOBAL_SIGN_TIMES_ONE_FOUR_AXIS_PERMUTATION_PRESERVING_THE_MERKABA_TANGENT_HYPERPLANE",
+      "tieRule": "CANONICAL_AXIS_INDEX_NOT_ALLOCATION_OR_OBSERVATION_ORDER",
+      "zeroRay": "UNRESOLVED",
+      "pixelOrXyzIdentity": false
+    },
+    "leafValueConstruction": {
+      "depthCode": "RAW_PROJECTION_DEPTH01_INTERVAL_FROM_THE_DEPTH_TEXTURE",
+      "directOrder": "OUTWARD_METRIC_RAY_RANGE_INTERVAL_FROM_THE_SAME_DEPTH_SAMPLE_AND_CALIBRATED_CONE",
+      "opticalCode": "POST_SAMPLER_LINEAR_RGB_2X2_FOOTPRINT_HULL",
+      "codeLift": "EACH_OF_THE_FOUR_SEPARATELY_RETAINED_CODE_INTERVALS_MAPS_AFFINELY_FROM_ZERO_ONE_TO_MINUS_ONE_PLUS_ONE",
+      "merkabaTangentEnvelope": "APPLY_FOUR_I_MINUS_ALL_ONES_OUTWARD_AFTER_LEAF_RETENTION_AND_KEEP_ALL_ORIGINAL_LEAF_FACTORS_FOR_FORWARD_VERIFICATION",
+      "orientation": "APPLY_THE_CALIBRATED_GLOBAL_SIGN_AND_PERMUTATION_TO_ROWS_AND_INTERVALS_TOGETHER",
+      "depthMayBootstrapOptical": false,
+      "opticalMayBootstrapDepth": false
+    },
+    "finiteFootprint": {
+      "fields": ["CENTER_RAY", "RAY_DIFFERENTIAL_X", "RAY_DIFFERENTIAL_Y", "HALF_ANGLE_X", "HALF_ANGLE_Y", "SOLID_ANGLE"],
+      "construction": "CALIBRATED_PIXEL_EDGES_AND_RAY_DIFFERENTIALS_NOT_A_CONSTANT_PIXEL_RADIUS"
+    },
+    "provenanceFingerprintInputs": [
+      "OBSERVATION_REVISION", "CALIBRATION_EPOCH", "ALL_FOUR_SOURCE_SEQUENCES",
+      "ALL_FOUR_TIMESTAMPS", "ALL_FOUR_INTRINSIC_SIGNATURES", "RIG_EXTRINSICS",
+      "DEPTH_ENCODING_AND_NEAR_FAR", "RGB_GRAPHICS_FORMAT", "PAIRING_HEALTH",
+      "PROGRAM_FINGERPRINT"
+    ]
+  },
   "queryFamilies": [
     {
       "id": "SENSOR_LEFT",
@@ -139,7 +212,7 @@
   "photometricNuisance": {
     "law": "OBSERVED_C_IN_CALIBRATED_MONOTONE_TRANSFER_C(EXPOSURE_TIMES_GAIN_C_TIMES_ILLUMINATION_C_TIMES_NATIVE_RESPONSE_C_PLUS_OFFSET_C)",
     "parameterRepresentation": "BOUNDED_Q48_INTERVALS_PLUS_FINGERPRINTED_MONOTONE_PIECEWISE_LINEAR_TRANSFER",
-    "calibrationProvenance": "CAPTURE_CALIBRATION_EPOCH_FINGERPRINT",
+    "calibrationProvenance": "CAPTURE_CALIBRATION_EPOCH_PLUS_GRAPHICS_FORMAT_AND_POST_SAMPLER_TRANSFER_FINGERPRINT",
     "requiredBoundedParameters": [
       "EXPOSURE",
       "GAIN_PER_CHANNEL",
@@ -150,8 +223,21 @@
     "unboundedParameterRegion": "FORBIDDEN_TO_PROVE_COMPATIBILITY_OR_MUTATION",
     "whiteBalance": "BOUNDED_PER_CHANNEL_GAIN",
     "metadataPresent": "REQUIRE_MATCHING_CALIBRATION_EPOCH_AND_BOUNDED_PARAMETERS",
-    "metadataMissing": "NO_OPTICAL_CLAIM_WITH_MISSING_METADATA_PROVENANCE",
-    "missingMetadataMayProveCompatibility": false,
+    "metadataMissing": "DERIVE_BOUNDED_POST_ISP_CODE_SPACE_REGION_FROM_GRAPHICS_FORMAT_AND_THE_CALIBRATED_2X2_FOOTPRINT_HULL_WITH_MISSING_RAW_METADATA_PROVENANCE",
+    "missingMetadataMayProveCompatibility": true,
+    "missingMetadataMayProveSceneLinearRadiance": false,
+    "postIspTransfer": {
+      "R8G8B8A8_UNorm": "IDENTITY_PWL_IN_SHADER_SAMPLED_LINEAR_CODE_DOMAIN",
+      "R8G8B8A8_SRGB": "IDENTITY_PWL_AFTER_MANDATORY_GRAPHICS_FORMAT_SRGB_DECODE",
+      "otherFormat": "NO_OPTICAL_CLAIM"
+    },
+    "derivedRegionSources": {
+      "sampleHull": "BILINEAR_CENTER_PLUS_FOUR_2X2_SENSOR_SAMPLES",
+      "baseCodeWidth": "EXISTING_SOURCE_BACKED_2_OVER_255",
+      "footprintCodeWidth": "EXISTING_SOURCE_BACKED_1_OVER_255",
+      "poseClockWidth": "MIN_1_OVER_100_OF_HALF_CLOCK_UNCERTAINTY_SECONDS_WITH_EXISTING_1_OVER_2000_FLOOR",
+      "identityNuisanceParameters": "POST_ISP_CODE_DOMAIN_ONLY_NOT_A_SCENE_LINEAR_RADIANCE_CLAIM"
+    },
     "qualityScalarMutationAuthority": false
   },
   "querySupportSummary": {
