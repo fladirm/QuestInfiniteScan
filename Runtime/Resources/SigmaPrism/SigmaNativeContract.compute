@@ -30,6 +30,7 @@ RWStructuredBuffer<uint2> _NativeBranchSupports;
 // Four records per candidate: order then three native optical points.
 RWStructuredBuffer<uint4> _NativeBranchPredictions;
 RWStructuredBuffer<uint4> _NativeLocalityCertificateWords;
+RWStructuredBuffer<uint4> _NativeCounters;
 
 #include "SigmaNativeMath.hlsl"
 
@@ -49,6 +50,11 @@ uint _NativeTileHeaderScratchOffset;
 uint _NativeTileFootprintScratchOffset;
 uint _NativeTileSupportSummaryScratchOffset;
 uint _NativeTileComponentSummaryScratchOffset;
+uint _NativeGlobalHeaderScratchOffset;
+uint _NativeActiveSupportMarkerScratchOffset;
+uint _NativeActiveSupportListScratchOffset;
+uint _NativeSupportLocatorCapacity;
+uint _NativeRevision;
 
 #define SIGMA_NATIVE_CONTRACT_FRESH_LIFT 1u
 #define SIGMA_NATIVE_CONTRACT_FRESH_UNION 2u
@@ -1143,6 +1149,35 @@ void SigmaN4TileMeetSupports(uint tile, uint local)
             uint2(key, leaderFootprint);
         _NativeCloseScratch[SigmaN4TileSupportAddress(tile, summary, 1u)] =
             uint2(count, valid);
+        if (key < _NativeSupportLocatorCapacity)
+        {
+            uint markerAddress = _NativeActiveSupportMarkerScratchOffset + key;
+            uint previous = _NativeCloseScratch[markerAddress].x;
+            if (previous != _NativeRevision)
+            {
+                uint observed;
+                InterlockedCompareExchange(
+                    _NativeCloseScratch[markerAddress].x, previous,
+                    _NativeRevision, observed);
+                if (observed == previous)
+                {
+                    uint activeIndex;
+                    InterlockedAdd(_NativeCounters[3u].w, 1u, activeIndex);
+                    if (activeIndex < _NativeFootprintCount)
+                    {
+                        uint activeAddress =
+                            _NativeActiveSupportListScratchOffset +
+                            activeIndex * 2u;
+                        _NativeCloseScratch[activeAddress] =
+                            uint2(key, leaderFootprint);
+                        _NativeCloseScratch[activeAddress + 1u] =
+                            uint2(0u, 0u);
+                        uint ignored;
+                        InterlockedAdd(_NativeCounters[3u].x, 1u, ignored);
+                    }
+                }
+            }
+        }
     }
     GroupMemoryBarrierWithGroupSync();
 }
@@ -1438,12 +1473,7 @@ void SigmaN4TileFinalizeComponents(uint tile, uint local)
              ((feasible & 6u) == 6u && eq12))) ||
         (feasibleCount == 3u &&
             ((eq01 && eq02) || (eq01 && eq12) || (eq02 && eq12)));
-    uint selectedOrbit = priorAliasOnly ? 0u :
-        ((feasible & 1u) != 0u ? 0u :
-        ((feasible & 2u) != 0u ? 1u : 2u));
     bool border = isRoot && (SigmaN4TileWideA[root].w & 1u) != 0u;
-    uint rootFlags = (oneClass ? 1u : 2u) | (border ? 4u : 0u) |
-        (selectedOrbit << 8u);
     SigmaN4TileSort[local] = uint2(isRoot && border ? 1u : 0u,
         isRoot && !border ? 1u : 0u);
     GroupMemoryBarrierWithGroupSync();
@@ -1475,14 +1505,17 @@ void SigmaN4TileFinalizeComponents(uint tile, uint local)
             SigmaN4TileWideA[root].z == SigmaN4TileWideA[root].y + 1u
             ? SigmaN4TileWideA[root].y : SIGMA_N4_TILE_INVALID;
         _NativeCloseScratch[SigmaN4TileComponentAddress(tile, slot, 0u)] =
-            uint2(footprint, rootFlags);
+            uint2(footprint, orbitReceipt);
         _NativeCloseScratch[SigmaN4TileComponentAddress(tile, slot, 1u)] =
-            uint2(anchor, SigmaN4TileWideA[root].x);
+            uint2(anchor, SigmaN4TileWideA[root].x |
+                (priorAliasOnly ? 1u << 16u : 0u) |
+                (oneClass ? 1u << 17u : 0u));
         SigmaN4TileFlags[root] = slot;
         if (!oneClass)
         {
             uint ignored;
-            InterlockedAdd(SigmaN4TileUnresolvedComponentCount, 1u, ignored);
+            InterlockedAdd(SigmaN4TileUnresolvedComponentCount,
+                border ? 1u : (1u << 16u), ignored);
         }
     }
     GroupMemoryBarrierWithGroupSync();
@@ -1606,6 +1639,15 @@ void ContractNativeQuery(uint3 id : SV_DispatchThreadID,
     if (groupId.x < tileCount)
         SigmaN4TileClose(groupId.x, groupThreadId.x);
 #else
+    if (groupId.x == 0u && groupThreadId.x == 0u &&
+        _NativeContractMode == SIGMA_NATIVE_CONTRACT_FRESH_LIFT)
+    {
+        _NativeCounters[3u] = uint4(1u, 1u, 1u, 0u);
+        _NativeCloseScratch[_NativeGlobalHeaderScratchOffset] = 0u;
+        _NativeCloseScratch[_NativeGlobalHeaderScratchOffset + 1u] = 0u;
+        _NativeCloseScratch[_NativeGlobalHeaderScratchOffset + 2u] = 0u;
+        _NativeCloseScratch[_NativeGlobalHeaderScratchOffset + 3u] = 0u;
+    }
     if (_NativeContractMode == SIGMA_NATIVE_CONTRACT_FRESH_LIFT)
     {
         if (_NativeFootprintCount == 0u)

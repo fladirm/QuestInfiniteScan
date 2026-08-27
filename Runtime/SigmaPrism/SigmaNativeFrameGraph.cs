@@ -186,7 +186,7 @@ namespace Genesis.RoomScan.SigmaPrism
             command.DispatchComputeProfiled(_frame, _buildObservation,
                 (slot.FootprintCapacity + 7) / 8, 1, 1);
 
-            BindContract(command, slot, input, completionJournal,
+            BindContract(command, slot, revision, input, completionJournal,
                 completionRecordIndex);
             command.SetKeyword(_contract, _tileCloseVariant, false);
             command.SetComputeIntParam(_contract, "_NativeContractMode", 1);
@@ -210,9 +210,9 @@ namespace Genesis.RoomScan.SigmaPrism
             // two workgroups in one dispatch, never two relation submissions.
             BindRelation(command, slot,
                 SigmaNativeFrameSlotResources.RelationCapacity);
-            command.SetComputeIntParam(_query, "_NativeRelationMode", 0);
+            command.SetComputeIntParam(_query, "_NativeRelationMode", 2);
             command.DispatchComputeProfiled(_query, _evaluateRelation,
-                SigmaNativeFrameSlotResources.RelationCapacity, 1, 1);
+                slot.Counters, 3u * sizeof(uint) * 4u);
 
             command.DispatchComputeProfiled(_frame, _prepareRevision, 1, 1, 1);
             command.DispatchComputeProfiled(_frame, _preparePage,
@@ -415,7 +415,8 @@ namespace Genesis.RoomScan.SigmaPrism
         }
 
         private void BindContract(CommandBuffer command,
-            SigmaNativeFrameSlotResources slot, in SigmaNativeFrameInput input,
+            SigmaNativeFrameSlotResources slot, uint revision,
+            in SigmaNativeFrameInput input,
             GraphicsBuffer completionJournal, int completionRecordIndex)
         {
             int kernel = _contractNative;
@@ -443,6 +444,8 @@ namespace Genesis.RoomScan.SigmaPrism
             command.SetComputeBufferParam(_contract, kernel,
                 "_NativeLocalityCertificateWords",
                 slot.LocalityCertificateWords);
+            command.SetComputeBufferParam(_contract, kernel,
+                "_NativeCounters", slot.Counters);
             command.SetComputeIntParam(_contract,
                 "_NativeFreshLeftEntryPointIndex",
                 SigmaGeneratedFrame.SensorLeftEntryPoint);
@@ -482,6 +485,20 @@ namespace Genesis.RoomScan.SigmaPrism
             command.SetComputeIntParam(_contract,
                 "_NativeTileComponentSummaryScratchOffset",
                 slot.TileComponentSummaryScratchOffset);
+            command.SetComputeIntParam(_contract,
+                "_NativeGlobalHeaderScratchOffset",
+                slot.GlobalHeaderScratchOffset);
+            command.SetComputeIntParam(_contract,
+                "_NativeActiveSupportMarkerScratchOffset",
+                slot.ActiveSupportMarkerScratchOffset);
+            command.SetComputeIntParam(_contract,
+                "_NativeActiveSupportListScratchOffset",
+                slot.ActiveSupportListScratchOffset);
+            command.SetComputeIntParam(_contract,
+                "_NativeSupportLocatorCapacity",
+                SigmaNativeFrameSlotResources.SupportLocatorCapacity);
+            command.SetComputeIntParam(_contract, "_NativeRevision",
+                unchecked((int)revision));
         }
 
         private void BindRelation(CommandBuffer command,
@@ -507,6 +524,11 @@ namespace Genesis.RoomScan.SigmaPrism
                 "_NativeObservations", slot.Observation);
             command.SetComputeBufferParam(_query, _evaluateRelation,
                 "_NativeCloseScratch", slot.CloseScratch);
+            command.SetComputeBufferParam(_query, _evaluateRelation,
+                "_NativeLocalityCertificateWords",
+                slot.LocalityCertificateWords);
+            command.SetComputeBufferParam(_query, _evaluateRelation,
+                "_NativeCounters", slot.Counters);
             command.SetComputeIntParam(_query, "_NativeEntryPointIndex",
                 SigmaGeneratedFrame.IntrinsicRelationEntryPoint);
             command.SetComputeIntParam(_query, "_NativeRelationCount", count);
@@ -516,10 +538,42 @@ namespace Genesis.RoomScan.SigmaPrism
                 slot.FootprintCapacity);
             command.SetComputeIntParam(_query, "_NativeFootprintStateOffset",
                 slot.FootprintStateOffset);
+            command.SetComputeIntParam(_query,
+                "_NativeFootprintCertificateOffset",
+                slot.FootprintCertificateOffset);
             command.SetComputeIntParam(_query, "_NativeBoundaryCount",
                 slot.BoundaryCapacity);
             command.SetComputeIntParam(_query, "_NativeBoundaryScratchOffset",
                 slot.BoundaryScratchOffset);
+            command.SetComputeIntParams(_query, "_NativeTileCount",
+                slot.TileCountX, slot.TileCountY);
+            command.SetComputeIntParam(_query,
+                "_NativeTileHeaderScratchOffset",
+                slot.TileHeaderScratchOffset);
+            command.SetComputeIntParam(_query,
+                "_NativeTileFootprintScratchOffset",
+                slot.TileFootprintScratchOffset);
+            command.SetComputeIntParam(_query,
+                "_NativeTileSupportSummaryScratchOffset",
+                slot.TileSupportSummaryScratchOffset);
+            command.SetComputeIntParam(_query,
+                "_NativeTileComponentSummaryScratchOffset",
+                slot.TileComponentSummaryScratchOffset);
+            command.SetComputeIntParam(_query,
+                "_NativeGlobalHeaderScratchOffset",
+                slot.GlobalHeaderScratchOffset);
+            command.SetComputeIntParam(_query,
+                "_NativeActiveSupportListScratchOffset",
+                slot.ActiveSupportListScratchOffset);
+            command.SetComputeIntParam(_query,
+                "_NativeGlobalParentScratchOffset",
+                slot.GlobalParentScratchOffset);
+            command.SetComputeIntParam(_query,
+                "_NativeGlobalTransformScratchOffset",
+                slot.GlobalTransformScratchOffset);
+            command.SetComputeIntParam(_query,
+                "_NativeGlobalBorderComponentCapacity",
+                slot.GlobalBorderComponentCapacity);
         }
 
         private static Vector4 Intrinsics(RigIntrinsics intrinsics) => new(

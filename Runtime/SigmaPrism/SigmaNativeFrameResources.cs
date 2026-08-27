@@ -26,6 +26,12 @@ namespace Genesis.RoomScan.SigmaPrism
         internal const int TileFootprintReceiptWordCount = 8;
         internal const int TileSupportSummaryWordCount = 2;
         internal const int TileComponentSummaryWordCount = 2;
+        internal const int TileBorderComponentCapacity = 60;
+        internal const int GlobalHeaderWordCount = 4;
+        internal const int GlobalTransformWordCount = 2;
+        internal const int ChartOrbitCount = 3;
+        internal const int SupportLocatorCapacity =
+            SigmaCarrier.MaximumPagesPerSegment * SigmaCarrier.SamplesPerPage;
 
         internal SigmaNativeFrameSlotResources(int index)
             : this(index, Vector2Int.one)
@@ -58,9 +64,23 @@ namespace Genesis.RoomScan.SigmaPrism
             TileComponentSummaryScratchOffset = checked(
                 TileSupportSummaryScratchOffset + TileCapacity *
                     TileFootprintCapacity * TileSupportSummaryWordCount);
-            int closeScratchCount = checked(TileComponentSummaryScratchOffset +
+            GlobalHeaderScratchOffset = checked(
+                TileComponentSummaryScratchOffset +
                 TileCapacity * TileFootprintCapacity *
                     TileComponentSummaryWordCount);
+            ActiveSupportMarkerScratchOffset = checked(
+                GlobalHeaderScratchOffset + GlobalHeaderWordCount);
+            ActiveSupportListScratchOffset = checked(
+                ActiveSupportMarkerScratchOffset + SupportLocatorCapacity);
+            GlobalParentScratchOffset = checked(
+                ActiveSupportListScratchOffset + FootprintCapacity * 2);
+            GlobalBorderComponentCapacity = checked(TileCapacity *
+                TileBorderComponentCapacity);
+            GlobalTransformScratchOffset = checked(GlobalParentScratchOffset +
+                GlobalBorderComponentCapacity);
+            int closeScratchCount = checked(GlobalTransformScratchOffset +
+                GlobalBorderComponentCapacity * ChartOrbitCount *
+                    GlobalTransformWordCount);
             NativeFrame = Buffer<SigmaNativeFrameGpu>(1,
                 SigmaGeneratedFrame.NativeFrameStride, $"native frame {index}");
             // Index zero remains the accepted N3 terminal consumer during CUT A;
@@ -114,7 +134,9 @@ namespace Genesis.RoomScan.SigmaPrism
             Revisions = Buffer<SigmaNativeFieldRevisionGpu>(2,
                 SigmaGeneratedFrame.NativeFieldRevisionStride,
                 $"native revisions {index}");
-            Counters = CreateUInt4Buffer(4, $"native counters {index}");
+            Counters = new GraphicsBuffer(GraphicsBuffer.Target.Structured |
+                GraphicsBuffer.Target.IndirectArguments, 4, sizeof(uint) * 4)
+                { name = $"native counters {index}" };
 
             InitializeRelationDescriptors();
         }
@@ -134,6 +156,12 @@ namespace Genesis.RoomScan.SigmaPrism
         internal int TileFootprintScratchOffset { get; }
         internal int TileSupportSummaryScratchOffset { get; }
         internal int TileComponentSummaryScratchOffset { get; }
+        internal int GlobalHeaderScratchOffset { get; }
+        internal int ActiveSupportMarkerScratchOffset { get; }
+        internal int ActiveSupportListScratchOffset { get; }
+        internal int GlobalParentScratchOffset { get; }
+        internal int GlobalTransformScratchOffset { get; }
+        internal int GlobalBorderComponentCapacity { get; }
         internal GraphicsBuffer States { get; }
         internal GraphicsBuffer RelationInputs { get; }
         internal GraphicsBuffer RelationPlans { get; }
