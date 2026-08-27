@@ -483,3 +483,18 @@ branch/chart decisions remain in Git history only.
   footprint complex. It proposes contact only; generated native closure decides
   incidence. Runtime remains only `FOOTPRINT -> BOUNDARY -> CLOSE`, with no graph,
   loop, component or placement manager authority.
+
+## ADR-S449 — Corrective N2 is a bounded parallel proof, not runtime topology
+
+- Corrective N2 lowers the generated constructive stitch theorem into exactly two
+  disposable Vulkan proof submissions: one 256-way native sector-pair evaluator
+  and one 256-way bounded set closure. Runtime/Resources and the accepted nine-
+  dispatch live graph remain unchanged.
+- One proof case fits in one workgroup, so its fixed eight-round label/potential
+  contractions use valid group-local barriers. They are not a data-dependent
+  solver, a cross-workgroup synchronization scheme or a physical component-size
+  limit.
+- N4 may reuse the proved algebra and finite orbit semantics, but not the bounded
+  case layout. Full-frame cardinality must become compact wide worklists and fixed
+  global synchronization boundaries, never dispatch-per-component or a serial
+  superkernel.

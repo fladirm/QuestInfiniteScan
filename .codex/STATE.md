@@ -9,9 +9,10 @@ Updated: 2026-08-27 (Europe/Prague)
 - Runtime replacement baseline: `cac9ab012f4ce574e5eb9bee88290982fd9c4fe8`.
 - Accepted primitive milestones: S4‑00 through S4‑07 where compatible with v8.3.
 - Active node: S4‑08. Corrective N1R-7 closes abstract native stitching and the
-  complete 24-assignment representation-only `Z² semidirect D4` chart theorem with Runtime/Resources
-  `+0/-0`; corrective N2R is the sole next gate. N3R remains the accepted live
-  bootstrap, N4R remains stopped/unaccepted, and S4-09 remains unopened.
+  complete 24-assignment representation-only `Z² semidirect D4` chart theorem.
+  Corrective N2R-7 now proves the same set operation on CPU and Vulkan with
+  Runtime/Resources `+0/-0`; N3R remains the accepted live bootstrap, N4R is the
+  sole active implementation cut, and S4-09 remains unopened.
 - Active repair: S4‑08.6 one-medium native closure.
 - Frozen plan: `.codex/S4-08.6_NATIVE_CLOSURE_PLAN.md`.
 - Sole routine cursor: `.codex/S4-08.6_RESUME.md`.
@@ -143,6 +144,47 @@ component, canonical-sorts the complete component byte multiset and performs no
 sequential insertion or physical packing inference. The HLSL primitive parity
 kernel exercises exact contact/no-contact/behind-hit and resolved/unresolved/
 no-stitch classification only; N2 owns the bounded parallel set-level oracle.
+
+## Accepted corrective N2R-7 bounded stitch oracle
+
+The disposable Editor/Vulkan oracle executes the N1R-7 constructive operation
+from actual full-S16 endpoint/contact/bracket inputs. It never accepts caller
+relation, factor, loop or chart truth. The proof graph is exactly two test-only
+dispatches:
+
+```text
+EvaluateNativeStitchPairs    one 256-thread workgroup per relation
+CloseNativeStitchCases       one 256-thread workgroup per bounded proof case
+```
+
+The pair pass evaluates all 16 abstract sector pairs, signed-XOR transport,
+forward/reverse link, endpoint associators and exact factor receipts in parallel.
+The close pass assigns 24 chart candidates across 192 concurrent locality lanes,
+uses two fixed eight-round group-local contraction schedules, emits every surviving
+candidate and leaves non-D4-equivalent classes unresolved. The rounds are neither
+data-dependent nor host-redispatched; no cross-workgroup barrier, per-component
+submission or serial graph interpreter is hidden in the fixture. The eight-locality
+bound and 32-bit chart scratch are oracle-only; levels outside that scratch domain
+fail closed rather than clamp.
+
+```text
+Unity 6000.5.9f1 Vulkan EditMode       80/80 passed
+generator/check                        passed
+compute UAV limit                      passed (<=8)
+both stitch entrypoints SPIR-V         compiled
+new stitch uninitialized warnings      0
+test/oracle source delta               +1182 / -1
+Runtime/Resources production delta     +0 / -0
+production dispatch graph              unchanged (nine native submissions)
+```
+
+The corpus covers reversal, sampling-side and edge-order permutations, all 24
+assignments/three D4 orbits, planar/rejoined/disconnected patterns, exact and
+incompatible nonassociative folds, open occlusion followed by side-view resolution,
+spatially separated equal modes, thin/two-sided support, consistent/inconsistent
+fundamental cycles and mixed level 0/1/2 normalization. N4 must consume the same
+semantics as compact wide worklists; none of the bounded oracle fixture limits or
+test-only entrypoints is production architecture.
 
 ## Device-proven starting point
 

@@ -747,6 +747,7 @@ namespace Genesis.RoomScan.Tests
             {
                 "SelectNativeQuerySupport", "EvaluateNativeQuery",
                 "ReduceNativeQuery", "EvaluateNativeRelation",
+                "EvaluateNativeStitchPairs", "CloseNativeStitchCases",
             }, Kernels(queryOracle));
             CollectionAssert.AreEqual(new[]
             {
@@ -756,6 +757,14 @@ namespace Genesis.RoomScan.Tests
                 "void EvaluateNativeRelation"));
             Assert.That(queryOracle, Does.Contain("[numthreads(128, 1, 1)]\n" +
                 "void ReduceNativeQuery"));
+            Assert.That(queryOracle, Does.Contain("[numthreads(256, 1, 1)]\n" +
+                "void EvaluateNativeStitchPairs"));
+            Assert.That(queryOracle, Does.Contain("[numthreads(256, 1, 1)]\n" +
+                "void CloseNativeStitchCases"));
+            Assert.That(queryOracle, Does.Contain(
+                "#define SIGMA_NATIVE_STITCH_ASSIGNMENT_COUNT 24u"));
+            Assert.That(queryOracle, Does.Contain(
+                "#define SIGMA_NATIVE_STITCH_ASSIGNMENT_LANES 192u"));
             Assert.That(contract, Does.Contain("[numthreads(64, 1, 1)]\n" +
                 "void ContractNativeQuery"));
             Assert.That(contract, Does.Not.Contain("SigmaNativeContractOne"));
@@ -768,11 +777,485 @@ namespace Genesis.RoomScan.Tests
                 "for (uint freshBranch"));
             Assert.That(queryOracle, Does.Not.Contain("for (uint action"));
             Assert.That(queryOracle, Does.Not.Contain("for (uint relationIndex"));
+            Assert.That(queryOracle, Does.Not.Contain("ChartSectorDirection"));
+            Assert.That(queryOracle, Does.Not.Contain("while ("));
+            Assert.That(queryOracle, Does.Not.Contain("InterlockedCompareExchange"));
             Assert.That(queryOracle, Does.Not.Contain("for (uint member"));
             Assert.That(queryOracle, Does.Not.Contain("for (uint other"));
             Assert.That(query, Does.Not.Contain("SigmaNativeTryIntegralQ48"));
             Assert.That(queryOracle, Does.Contain(
                 "SIGMA_NATIVE_REDUCE_COLD_CONTINUATION_REQUIRED"));
+        }
+
+        [Test]
+        public void VulkanConstructiveStitchSetMatchesGeneratedCpuAuthority()
+        {
+            const int maxNodes = 8;
+            const int pairStride = 3;
+            const int caseStride = 193;
+            const int assignmentCount = 24;
+            const int assignmentNodeStride = 8;
+            string Fingerprint(char marker) => new(marker, 64);
+            SigmaStitchContactBranch Contact() => new(new[]
+            {
+                Point(SigmaNumericDomain.One),
+                Point(SigmaNumericDomain.One),
+                Point(SigmaNumericDomain.One),
+            });
+            SigmaStitchLocality Locality(ulong key, SigmaS16 state, int level,
+                char marker) => new(key, level, state, Fingerprint(marker));
+            SigmaBoundaryNativeInput Edge(int ordinal, ulong left, ulong right,
+                char marker, SigmaS16 bracket = default,
+                bool openContinuation = false,
+                SigmaSampleBoundarySide leftSide = SigmaSampleBoundarySide.Right,
+                SigmaSampleBoundarySide rightSide = SigmaSampleBoundarySide.Left)
+            {
+                SigmaStitchContactBranch contact = Contact();
+                return new SigmaBoundaryNativeInput(new SigmaImplicitBoundaryRef(
+                    ordinal, left, right, leftSide, rightSide,
+                    openContinuation ? new[] { contact, contact } :
+                        new[] { contact }),
+                    new SigmaStitchNativeContext(bracket, Fingerprint(marker)));
+            }
+
+            SigmaStitchLocality a = Locality(11UL, State(1, 1), 0, 'a');
+            SigmaStitchLocality b = Locality(22UL, State(2, 1), 0, 'b');
+            SigmaStitchLocality c = Locality(33UL, State(11, 1), 0, 'c');
+            SigmaStitchLocality nonAssociativeLeft = Locality(44UL,
+                State(9, 1), 0, 'd');
+            SigmaStitchLocality nonAssociativeRight = Locality(55UL,
+                State(15, 1), 0, 'e');
+            SigmaStitchLocality incompatibleLeft = Locality(66UL,
+                State(0, 1), 0, 'f');
+            SigmaStitchLocality incompatibleRight = Locality(77UL,
+                State(7, 1), 0, 'g');
+            SigmaStitchLocality uncertainRight = Locality(88UL,
+                State(3, 1), 0, 'h');
+
+            // Four distinct full modes joined by one exact signed-XOR transport
+            // cycle.  This is a bounded frozen fixture, not a runtime search.
+            SigmaStitchLocality q0 = Locality(101UL, State(1, 1), 0, 'i');
+            SigmaStitchLocality q1 = Locality(102UL, State(2, 1), 0, 'j');
+            SigmaStitchLocality q2 = Locality(103UL, State(1, -1), 0, 'k');
+            SigmaStitchLocality q3 = Locality(104UL, State(13, -1), 0, 'l');
+
+            var fixtures = new List<(string Name,
+                SigmaStitchLocality[] Nodes,
+                SigmaBoundaryNativeInput[] Edges)>
+            {
+                ("unique-neighbour", new[] { a, b },
+                    new[] { Edge(0, 11UL, 22UL, 'm') }),
+                ("reversed-neighbour", new[] { b, a },
+                    new[] { Edge(0, 22UL, 11UL, 'm', leftSide:
+                        SigmaSampleBoundarySide.Left, rightSide:
+                        SigmaSampleBoundarySide.Right) }),
+                ("sample-side-permutation", new[] { a, b },
+                    new[] { Edge(0, 11UL, 22UL, 'm', leftSide:
+                        SigmaSampleBoundarySide.Down, rightSide:
+                        SigmaSampleBoundarySide.Up) }),
+                ("prior-disconnected-components", new[] { a, b },
+                    Array.Empty<SigmaBoundaryNativeInput>()),
+                ("chain-non-gauge-ambiguity", new[] { a, b, c }, new[]
+                {
+                    Edge(0, 11UL, 22UL, 'n'),
+                    Edge(1, 22UL, 33UL, 'o'),
+                }),
+                ("chain-edge-order-permutation", new[] { c, a, b }, new[]
+                {
+                    Edge(1, 22UL, 33UL, 'o'),
+                    Edge(0, 11UL, 22UL, 'n'),
+                }),
+                ("valid-nonassociative-fold", new[]
+                {
+                    nonAssociativeLeft, nonAssociativeRight,
+                }, new[]
+                {
+                    Edge(0, 44UL, 55UL, 'p', State(8, 1)),
+                }),
+                ("incompatible-bracket", new[]
+                {
+                    incompatibleLeft, incompatibleRight,
+                }, new[]
+                {
+                    Edge(0, 66UL, 77UL, 'q', State(1, 1)),
+                }),
+                ("uncertain-bracket", new[]
+                {
+                    incompatibleLeft, uncertainRight,
+                }, new[]
+                {
+                    Edge(0, 66UL, 88UL, 'r', State(9, 1)),
+                }),
+                ("spatially-separated-equal-modes", new[]
+                {
+                    Locality(201UL, State(1, 1), 0, 's'),
+                    Locality(202UL, State(1, 1), 0, 't'),
+                }, Array.Empty<SigmaBoundaryNativeInput>()),
+                ("thin-wall-two-sided", new[]
+                {
+                    Locality(211UL, State(1, 1), 0, 'u'),
+                    Locality(212UL, State(2, 1), 0, 'v'),
+                }, Array.Empty<SigmaBoundaryNativeInput>()),
+                ("occlusion-continuation-open", new[] { a, b },
+                    new[] { Edge(0, 11UL, 22UL, 'w',
+                        openContinuation: true) }),
+                ("later-side-view-resolves", new[] { a, b },
+                    new[] { Edge(0, 11UL, 22UL, 'x') }),
+                ("consistent-native-cycle", new[] { q0, q1, q2, q3 }, new[]
+                {
+                    Edge(0, 101UL, 102UL, 'y'),
+                    Edge(1, 102UL, 103UL, 'z'),
+                    Edge(2, 103UL, 104UL, 'A'),
+                    Edge(3, 104UL, 101UL, 'B'),
+                }),
+                ("inconsistent-fundamental-cycle", new[] { a, b, c }, new[]
+                {
+                    Edge(0, 11UL, 22UL, 'C'),
+                    Edge(1, 22UL, 33UL, 'D'),
+                    Edge(2, 11UL, 33UL, 'E'),
+                }),
+                ("mixed-level-disconnected", new[]
+                {
+                    Locality(301UL, State(1, 1), 0, 'F'),
+                    Locality(302UL, State(2, 1), 1, 'G'),
+                    Locality(303UL, State(4, 1), 2, 'H'),
+                }, Array.Empty<SigmaBoundaryNativeInput>()),
+            };
+
+            var states = new List<SigmaS16>();
+            var caseHeaders = new List<UInt4>();
+            var nodeHeaders = new List<UInt4>();
+            var edgeInputs = new List<UInt4>();
+            var contacts = new List<UInt2>();
+            var tags = new Dictionary<uint, string>();
+            var cpuPatterns = new List<SigmaStitchPattern>();
+            var cpuPairWitnesses = new List<SigmaStitchWitnessSet>();
+            var cpuEdgeWitnesses = new List<SigmaStitchWitnessSet>();
+            var fixtureEdgeOffsets = new List<int>();
+            uint nextTag = 1u;
+
+            foreach ((string name, SigmaStitchLocality[] nodes,
+                         SigmaBoundaryNativeInput[] edges) in fixtures)
+            {
+                Assert.That(nodes.Length, Is.InRange(1, maxNodes), name);
+                int nodeOffset = nodeHeaders.Count;
+                int edgeOffset = edgeInputs.Count;
+                fixtureEdgeOffsets.Add(edgeOffset);
+                var nodeByKey = new Dictionary<ulong, int>();
+                foreach (SigmaStitchLocality node in nodes)
+                {
+                    uint stateOffset = checked((uint)(states.Count *
+                        SigmaS16.LaneCount));
+                    states.Add(node.State);
+                    uint tag = nextTag++;
+                    tags.Add(tag, node.CompletePayloadFingerprint);
+                    nodeByKey.Add(node.ScratchKey, nodeHeaders.Count);
+                    nodeHeaders.Add(new UInt4
+                    {
+                        X = stateOffset,
+                        Y = checked((uint)node.Level),
+                        Z = tag,
+                    });
+                }
+                foreach (SigmaBoundaryNativeInput edge in edges)
+                {
+                    SigmaStitchContactBranch contact =
+                        edge.Boundary.ContactBranches[0];
+                    uint contactOffset = checked((uint)contacts.Count);
+                    for (int endpoint = 0; endpoint < 2; ++endpoint)
+                        foreach (SigmaQ48Interval axis in contact.RoomBounds)
+                        {
+                            contacts.Add(Pack(axis.Lower));
+                            contacts.Add(Pack(axis.Upper));
+                        }
+                    uint contextOffset = checked((uint)(states.Count *
+                        SigmaS16.LaneCount));
+                    states.Add(edge.NativeContext.BracketContext);
+                    bool open = edge.Boundary.ContactBranches.Length != 1;
+                    uint packed = contactOffset |
+                        ((uint)SigmaNativeQueryClaim.FirstHitMould << 20) |
+                        ((uint)SigmaNativeQueryClaim.FirstHitMould << 22) |
+                        (open ? 1u << 24 : 0u);
+                    edgeInputs.Add(new UInt4
+                    {
+                        X = checked((uint)nodeByKey[edge.Boundary.LeftKey]),
+                        Y = checked((uint)nodeByKey[edge.Boundary.RightKey]),
+                        Z = contextOffset,
+                        W = packed,
+                    });
+                    SigmaStitchLocality leftLocality = nodes.Single(value =>
+                        value.ScratchKey == edge.Boundary.LeftKey);
+                    SigmaStitchLocality rightLocality = nodes.Single(value =>
+                        value.ScratchKey == edge.Boundary.RightKey);
+                    SigmaStitchWitnessSet edgeWitness =
+                        SigmaGeneratedMerkabaProgram.EvaluateModalStitch(
+                            edge.Boundary, leftLocality, rightLocality,
+                            edge.NativeContext);
+                    var pairBoundary = new SigmaImplicitBoundaryRef(
+                        edge.Boundary.EdgeIndex, edge.Boundary.LeftKey,
+                        edge.Boundary.RightKey, edge.Boundary.LeftSide,
+                        edge.Boundary.RightSide,
+                        new[] { edge.Boundary.ContactBranches[0] });
+                    SigmaStitchWitnessSet pairWitness =
+                        SigmaGeneratedMerkabaProgram.EvaluateModalStitch(
+                            pairBoundary, leftLocality, rightLocality,
+                            edge.NativeContext);
+                    cpuEdgeWitnesses.Add(edgeWitness);
+                    cpuPairWitnesses.Add(pairWitness);
+                }
+                Assert.That(SigmaGeneratedMerkabaProgram
+                    .TryIntegrateStitchPattern(nodes, edges,
+                        out SigmaStitchPattern pattern), Is.True, name);
+                cpuPatterns.Add(pattern);
+                caseHeaders.Add(new UInt4
+                {
+                    X = checked((uint)nodeOffset),
+                    Y = checked((uint)nodes.Length),
+                    Z = checked((uint)edgeOffset),
+                    W = checked((uint)edges.Length),
+                });
+            }
+
+            ComputeShader shader = LoadShader("SigmaNativeQueryOracle");
+            using GraphicsBuffer stateBuffer = Buffer(PackStates(states));
+            using GraphicsBuffer caseHeaderBuffer = Buffer(caseHeaders.ToArray());
+            using GraphicsBuffer nodeHeaderBuffer = Buffer(nodeHeaders.ToArray());
+            using GraphicsBuffer edgeBuffer = Buffer(edgeInputs.Count == 0
+                ? new UInt4[1] : edgeInputs.ToArray());
+            using GraphicsBuffer contactBuffer = Buffer(contacts.Count == 0
+                ? new UInt2[1] : contacts.ToArray());
+            int pairCount = edgeInputs.Count * 16;
+            using GraphicsBuffer pairResultBuffer = Buffer<UInt4>(
+                Math.Max(1, pairCount * pairStride));
+            using GraphicsBuffer edgeResultBuffer = Buffer<UInt4>(
+                Math.Max(1, edgeInputs.Count));
+            using GraphicsBuffer caseResultBuffer = Buffer<UInt4>(
+                fixtures.Count * caseStride);
+
+            int pairKernel = shader.FindKernel("EvaluateNativeStitchPairs");
+            shader.SetBuffer(pairKernel, "_NativeStates", stateBuffer);
+            shader.SetBuffer(pairKernel, "_NativeStitchNodeHeaders",
+                nodeHeaderBuffer);
+            shader.SetBuffer(pairKernel, "_NativeStitchEdges", edgeBuffer);
+            shader.SetBuffer(pairKernel, "_NativeStitchContacts", contactBuffer);
+            shader.SetBuffer(pairKernel, "_NativeStitchPairResults",
+                pairResultBuffer);
+            shader.SetInt("_NativeStitchPairCount", pairCount);
+            shader.Dispatch(pairKernel, Math.Max(1, pairCount), 1, 1);
+
+            int closeKernel = shader.FindKernel("CloseNativeStitchCases");
+            shader.SetBuffer(closeKernel, "_NativeStitchCaseHeaders",
+                caseHeaderBuffer);
+            shader.SetBuffer(closeKernel, "_NativeStitchNodeHeaders",
+                nodeHeaderBuffer);
+            shader.SetBuffer(closeKernel, "_NativeStitchEdges", edgeBuffer);
+            shader.SetBuffer(closeKernel, "_NativeStitchPairResults",
+                pairResultBuffer);
+            shader.SetBuffer(closeKernel, "_NativeStitchEdgeResults",
+                edgeResultBuffer);
+            shader.SetBuffer(closeKernel, "_NativeStitchCaseResults",
+                caseResultBuffer);
+            shader.SetInt("_NativeStitchCaseCount", fixtures.Count);
+            shader.Dispatch(closeKernel, fixtures.Count, 1, 1);
+
+            UInt4[] pairResults = Read<UInt4>(pairResultBuffer,
+                Math.Max(1, pairCount * pairStride));
+            UInt4[] edgeResults = Read<UInt4>(edgeResultBuffer,
+                Math.Max(1, edgeInputs.Count));
+            UInt4[] caseResults = Read<UInt4>(caseResultBuffer,
+                fixtures.Count * caseStride);
+
+            int globalWitness = 0;
+            var canonicalByFixture = new Dictionary<string, string>(
+                StringComparer.Ordinal);
+            for (int fixtureIndex = 0; fixtureIndex < fixtures.Count;
+                 ++fixtureIndex)
+            {
+                (string name, SigmaStitchLocality[] nodes,
+                    SigmaBoundaryNativeInput[] edges) = fixtures[fixtureIndex];
+                int edgeOffset = fixtureEdgeOffsets[fixtureIndex];
+                var resolvedPairs = new List<(ulong Left, ulong Right)>();
+                for (int localEdge = 0; localEdge < edges.Length; ++localEdge)
+                {
+                    SigmaStitchWitnessSet cpuPair =
+                        cpuPairWitnesses[globalWitness];
+                    SigmaStitchWitnessSet cpuEdge =
+                        cpuEdgeWitnesses[globalWitness++];
+                    int globalEdge = edgeOffset + localEdge;
+                    for (int pair = 0; pair < 16; ++pair)
+                    {
+                        SigmaStitchRelationReceipt receipt =
+                            cpuPair.Receipts[pair];
+                        int record = (globalEdge * 16 + pair) * pairStride;
+                        UInt4 header = pairResults[record];
+                        UInt4 hashes = pairResults[record + 1];
+                        UInt4 factors = pairResults[record + 2];
+                        Assert.That(header.X,
+                            Is.EqualTo((uint)receipt.ClosureClass),
+                            $"{name} edge {localEdge} pair {pair} closure");
+                        Assert.That(header.Y & 0xffffu,
+                            Is.EqualTo((uint)receipt.LeftSector), name);
+                        Assert.That(header.Y >> 16,
+                            Is.EqualTo((uint)receipt.RightSector), name);
+                        Assert.That(header.Z,
+                            Is.EqualTo((uint)receipt.TransportAddress), name);
+                        Assert.That((header.W & 1u) != 0u ? -1 : 1,
+                            Is.EqualTo(receipt.ForwardTransportSign), name);
+                        Assert.That((header.W & 2u) != 0u ? -1 : 1,
+                            Is.EqualTo(receipt.ReverseTransportSign), name);
+                        Assert.That(header.W & 4u, Is.EqualTo(4u), name);
+                        Assert.That(hashes.X, Is.EqualTo(
+                            HashS16(receipt.LinkDefect)), name);
+                        Assert.That(hashes.Y, Is.EqualTo(
+                            HashS16(receipt.ReverseLinkDefect)), name);
+                        Assert.That(hashes.Z, Is.EqualTo(
+                            HashS16(receipt.AssociatorDefect)), name);
+                        Assert.That(hashes.W, Is.EqualTo(
+                            HashS16(receipt.ReverseAssociatorDefect)), name);
+                        Assert.That(factors.X & 0xfu,
+                            Is.EqualTo((uint)receipt.LinkClass), name);
+                        Assert.That((factors.X >> 4) & 0xfu,
+                            Is.EqualTo((uint)receipt.ReverseLinkClass), name);
+                        Assert.That((factors.X >> 8) & 0xfu,
+                            Is.EqualTo((uint)receipt.AssociatorClass), name);
+                        Assert.That((factors.X >> 12) & 0xfu,
+                            Is.EqualTo((uint)receipt.ReverseAssociatorClass),
+                            name);
+                    }
+                    UInt4 gpuEdge = edgeResults[globalEdge];
+                    Assert.That(gpuEdge.X,
+                        Is.EqualTo((uint)cpuEdge.Resolution),
+                        $"{name} edge result");
+                    if (cpuEdge.Resolution == SigmaStitchResolution.Resolved)
+                    {
+                        resolvedPairs.Add((edges[localEdge].Boundary.LeftKey,
+                            edges[localEdge].Boundary.RightKey));
+                        Assert.That(gpuEdge.Y & 0xffffu,
+                            Is.EqualTo((uint)cpuEdge.Resolved.LeftSector), name);
+                        Assert.That(gpuEdge.Y >> 16,
+                            Is.EqualTo((uint)cpuEdge.Resolved.RightSector), name);
+                        Assert.That(gpuEdge.Z,
+                            Is.EqualTo((uint)cpuEdge.Resolved.Receipt
+                                .TransportAddress),
+                            name);
+                    }
+                }
+
+                // Derive transient connected components only for canonical
+                // comparison. They are neither persisted nor supplied to GPU.
+                var parent = nodes.ToDictionary(value => value.ScratchKey,
+                    value => value.ScratchKey);
+                ulong Root(ulong key)
+                {
+                    while (parent[key] != key) key = parent[key];
+                    return key;
+                }
+                foreach ((ulong left, ulong right) in resolvedPairs)
+                {
+                    ulong leftRoot = Root(left);
+                    ulong rightRoot = Root(right);
+                    if (leftRoot != rightRoot) parent[rightRoot] = leftRoot;
+                }
+                ulong[][] components = nodes.GroupBy(value => Root(value.ScratchKey))
+                    .Select(group => group.Select(value => value.ScratchKey)
+                        .ToArray()).ToArray();
+
+                UInt4 resultHeader = caseResults[fixtureIndex * caseStride];
+                if (string.Equals(name, "unique-neighbour",
+                        StringComparison.Ordinal))
+                    Assert.That(Enumerable.Range(0, assignmentCount).Count(
+                            assignment => (resultHeader.W &
+                                (1u << assignment)) != 0u),
+                        Is.EqualTo(assignmentCount),
+                        "All 24 abstract-sector chart assignments, including " +
+                        "all eight images of every D4 orbit, must be evaluated.");
+                var gpuClasses = new HashSet<string>(StringComparer.Ordinal);
+                for (int assignment = 0; assignment < assignmentCount;
+                     ++assignment)
+                {
+                    if ((resultHeader.W & (1u << assignment)) == 0u) continue;
+                    var cellByKey = new Dictionary<ulong, SigmaGaugeCell>();
+                    for (int node = 0; node < nodes.Length; ++node)
+                    {
+                        UInt4 record = caseResults[fixtureIndex * caseStride + 1 +
+                            assignment * assignmentNodeStride + node];
+                        Assert.That(record.W, Is.Not.EqualTo(uint.MaxValue), name);
+                        cellByKey.Add(nodes[node].ScratchKey, new SigmaGaugeCell(
+                            unchecked((int)record.X), unchecked((int)record.Y),
+                            checked((int)record.Z), tags[record.W]));
+                    }
+                    string canonical = string.Join("||", components.Select(keys =>
+                            SigmaGeneratedMerkabaProgram
+                                .CanonicalD4GaugeSerialization(keys.Select(key =>
+                                    cellByKey[key])))
+                        .OrderBy(value => value, StringComparer.Ordinal));
+                    gpuClasses.Add(canonical);
+                }
+                SigmaStitchResolution gpuResolution =
+                    resultHeader.X == (uint)SigmaStitchResolution.Unresolved ||
+                    gpuClasses.Count != 1
+                        ? SigmaStitchResolution.Unresolved
+                        : SigmaStitchResolution.Resolved;
+                SigmaStitchPattern cpuPattern = cpuPatterns[fixtureIndex];
+                Assert.That(gpuResolution, Is.EqualTo(cpuPattern.Resolution),
+                    $"{name} set closure; validMask=0x{resultHeader.W:x8}, " +
+                    $"gpuClasses={gpuClasses.Count}");
+                if (cpuPattern.Resolution == SigmaStitchResolution.Resolved)
+                {
+                    Assert.That(resultHeader.Y,
+                        Is.EqualTo((uint)cpuPattern.ComponentCount), name);
+                    string cpuCanonical = string.Join("||", components.Select(keys =>
+                            SigmaGeneratedMerkabaProgram
+                                .CanonicalD4GaugeSerialization(keys.Select(key =>
+                                {
+                                    string payload = nodes.Single(value =>
+                                        value.ScratchKey == key)
+                                        .CompletePayloadFingerprint;
+                                    SigmaGaugeCell value = cpuPattern.PackedCells
+                                        .Single(candidate => candidate
+                                            .PayloadFingerprint.StartsWith(
+                                                payload + "@",
+                                                StringComparison.Ordinal));
+                                    return new SigmaGaugeCell(value.U, value.V,
+                                        value.Level, payload);
+                                })))
+                        .OrderBy(value => value, StringComparer.Ordinal));
+                    Assert.That(gpuClasses.Single(), Is.EqualTo(cpuCanonical),
+                        $"{name} canonical chart result");
+                    canonicalByFixture[name] = cpuCanonical;
+                }
+            }
+
+            Assert.That(canonicalByFixture["unique-neighbour"], Is.EqualTo(
+                canonicalByFixture["reversed-neighbour"]));
+            Assert.That(canonicalByFixture["unique-neighbour"], Is.EqualTo(
+                canonicalByFixture["sample-side-permutation"]));
+            Assert.That(cpuPatterns[fixtures.FindIndex(value => value.Name ==
+                "prior-disconnected-components")].ComponentCount,
+                Is.EqualTo(2));
+            Assert.That(cpuPatterns[fixtures.FindIndex(value => value.Name ==
+                "unique-neighbour")].ComponentCount, Is.EqualTo(1),
+                "A later exact stitch joins prior components without retaining " +
+                "a persistent component identity.");
+            Assert.That(cpuPatterns[fixtures.FindIndex(value => value.Name ==
+                "chain-edge-order-permutation")].Resolution, Is.EqualTo(
+                    cpuPatterns[fixtures.FindIndex(value => value.Name ==
+                        "chain-non-gauge-ambiguity")].Resolution));
+            Assert.That(cpuPatterns[fixtures.FindIndex(value => value.Name ==
+                "chain-non-gauge-ambiguity")].Resolution,
+                Is.EqualTo(SigmaStitchResolution.Unresolved));
+            Assert.That(cpuPatterns[fixtures.FindIndex(value => value.Name ==
+                "occlusion-continuation-open")].Resolution,
+                Is.EqualTo(SigmaStitchResolution.Unresolved));
+            Assert.That(cpuPatterns[fixtures.FindIndex(value => value.Name ==
+                "later-side-view-resolves")].Resolution,
+                Is.EqualTo(SigmaStitchResolution.Resolved));
+            Assert.That(cpuPatterns[fixtures.FindIndex(value => value.Name ==
+                "consistent-native-cycle")].Resolution,
+                Is.EqualTo(SigmaStitchResolution.Resolved));
+            Assert.That(cpuPatterns[fixtures.FindIndex(value => value.Name ==
+                "inconsistent-fundamental-cycle")].Resolution,
+                Is.EqualTo(SigmaStitchResolution.Unresolved));
         }
 
         [Test]
