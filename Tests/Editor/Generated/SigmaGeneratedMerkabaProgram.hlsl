@@ -43,11 +43,9 @@
 #define SIGMA_MERKABA_IR_FRESH_BASE_PATTERN 33u
 #define SIGMA_MERKABA_IR_COMMON_UNION_OR_UNRESOLVED 34u
 #define SIGMA_MERKABA_IR_WHOLE_FRAME_REVERSE_SET 35u
-#define SIGMA_MERKABA_IR_CONTACT_CANDIDATE_SET 36u
-#define SIGMA_MERKABA_IR_MERKABA_MODAL_STITCH 37u
-#define SIGMA_MERKABA_IR_STITCH_LOOP_CLOSURE 38u
-#define SIGMA_MERKABA_IR_FRESH_SUPPORT_SET_PATTERN 39u
-#define SIGMA_MERKABA_IR_COMPONENT_TRANSLATION_NORMALIZE 40u
+#define SIGMA_MERKABA_IR_FOOTPRINT_CONTRACT 36u
+#define SIGMA_MERKABA_IR_IMPLICIT_BOUNDARY_CONTRACT 37u
+#define SIGMA_MERKABA_IR_GLOBAL_EXACT_CLOSE 38u
 
 #define SIGMA_MERKABA_RELATION_DEFAULT_SAT 0u
 #define SIGMA_MERKABA_RELATION_REGULAR 1u
@@ -82,8 +80,8 @@
 #define SIGMA_MERKABA_REFINEMENT_CHILD_COUNT 4u
 #define SIGMA_MERKABA_REPRESENTATION_DEFAULT_PARITY 1u
 #define SIGMA_MERKABA_CAN_FREEZE_SHADOW_KERNEL 0u
-#define SIGMA_MERKABA_IR_NODE_COUNT 65u
-#define SIGMA_MERKABA_IR_OPERAND_COUNT 74u
+#define SIGMA_MERKABA_IR_NODE_COUNT 61u
+#define SIGMA_MERKABA_IR_OPERAND_COUNT 70u
 #define SIGMA_MERKABA_EXPRESSION_COUNT 17u
 #define SIGMA_MERKABA_ENTRY_POINT_COUNT 7u
 #define SIGMA_MERKABA_INDEPENDENT_CLOSURE_WEIGHT_COUNT 0u
@@ -94,15 +92,26 @@
 #define SIGMA_FRESH_FIRST_HIT_RIGHT 2u
 #define SIGMA_FRESH_EXTERNAL_RELATION_TRUTH_INPUT_COUNT 0u
 #define SIGMA_INSTRUMENT_BOUNDARY_LEAF_COUNT 8u
-#define SIGMA_STITCH_PORT_U_MINUS 0u
-#define SIGMA_STITCH_PORT_U_PLUS 1u
-#define SIGMA_STITCH_PORT_V_MINUS 2u
-#define SIGMA_STITCH_PORT_V_PLUS 3u
+#define SIGMA_SAMPLE_BOUNDARY_LEFT 0u
+#define SIGMA_SAMPLE_BOUNDARY_RIGHT 1u
+#define SIGMA_SAMPLE_BOUNDARY_UP 2u
+#define SIGMA_SAMPLE_BOUNDARY_DOWN 3u
 #define SIGMA_STITCH_NO_STITCH 0u
 #define SIGMA_STITCH_RESOLVED 1u
 #define SIGMA_STITCH_UNRESOLVED 2u
+#define SIGMA_STITCH_EXTERNAL_SEMANTIC_TRUTH_INPUT_COUNT 0u
+#define SIGMA_STITCH_CALLER_LOOP_TRUTH_INPUT_COUNT 0u
+#define SIGMA_STITCH_SAMPLE_SIDE_TO_DELTA_AUTHORITY_COUNT 0u
+#define SIGMA_STITCH_ABSTRACT_NATIVE_SECTOR_COUNT 4u
+#define SIGMA_STITCH_D4_CHART_IMAGE_COUNT 8u
+#define SIGMA_STITCH_NON_GAUGE_EMBEDDING_AMBIGUITY_COUNT 1u
+#define SIGMA_STITCH_IMPLICIT_BOUNDARY_COUNT_320 204160u
+#define SIGMA_STITCH_IMPLICIT_PLAQUETTE_COUNT_320 101761u
 
-static const uint SIGMA_MERKABA_PROGRAM_FINGERPRINT[8] = { 0x1530c689u, 0xb9d032a9u, 0x034cd9efu, 0xdd6a3ed2u, 0x77d5bc7bu, 0x5dea64acu, 0xdf123fedu, 0x2ffe87f3u };
+static const uint2 SIGMA_STITCH_GENERATED_BRACKET_FINGERPRINT =
+    uint2(0x212b1e76u, 0x6094d138u);
+
+static const uint SIGMA_MERKABA_PROGRAM_FINGERPRINT[8] = { 0xb11873e6u, 0x9d90cb44u, 0x6d2a23d1u, 0xbce661deu, 0x17bf9d5cu, 0x222a5528u, 0xa99705c7u, 0x53ca417bu };
 static const int SIGMA_MERKABA_DIFFRACTION[256] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 8, 0, 0, 8, 0, 0, -12, 4, 0, 4, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 8, 0, 0, -12, 4, 4, 4, 0, 0, 0, -8, 0, 0, 0, 8, 0, 0, 0, 4, 0, -12, 4, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -12, 4, 4, 4, 0, 0, 0, -8, 0, 0, 8, 0, 0, 4, 0, 4, 0, -12, 0, 4, 0, -8, 0, 0, 0, -8, 0, 8, 0, 4, 4, 0, 0, 4, -12, 0, 0, 0, -8, 0, 0, 0, -8, 0, 0, 0, 4, 4, 0, 0, 4, -12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 12, 0, -4, 0, -4, -4, 0, 0, 0, 4, 4, 4, -4, 4, 4, 0, -4, 12, 0, 0, 0, -4, -4, 0, -4, 0, 4, 4, 4, -4, 4, 0, 0, -4, 12, 0, -4, 0, -4, 0, -4, -4, 0, 4, 4, 4, -4, 0, -4, -4, -4, 12, 0, 0, 0, 0, -4, -4, -4, 0, 4, 4, 4, 0, 0, -4, 0, -4, 12, -4, 0, 0, 4, -4, -4, -4, 0, 4, 4, 0, 0, 0, -4, -4, 0, 12, -4, 0, -4, 4, -4, -4, -4, 0, 4, 0, -4, 0, 0, -4, -4, 0, 12, 0, -4, -4, 4, -4, -4, -4, 0 };
 static const int SIGMA_MERKABA_INFORMATION_METRIC[256] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 640, -64, -64, -64, -64, -64, -192, 0, -32, 96, 256, 32, -192, 256, 32, 0, -64, 512, -64, -64, -64, 64, -64, 0, -64, 32, 96, 96, 32, -256, 256, 0, -64, -64, 640, -64, -64, -64, -64, 0, -288, -64, -32, 160, 320, 32, -192, 0, -64, -64, -64, 384, -64, -64, -64, 0, -64, -64, -64, 96, 160, 96, 32, 0, -64, -64, -64, -64, 640, -64, -192, 0, 160, -128, -352, -64, -32, 320, 96, 0, -64, 64, -64, -64, -64, 768, -64, 0, -224, 96, -128, -64, -288, -96, 320, 0, -192, -64, -64, -64, -192, -64, 640, 0, 64, -224, 160, -64, 0, -288, -32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -32, -64, -288, -64, 160, -224, 64, 0, 576, -32, -96, -96, -96, -32, -96, 0, 96, 32, -64, -64, -128, 96, -224, 0, -32, 576, -32, -32, -160, -96, -32, 0, 256, 96, -32, -64, -352, -128, 160, 0, -96, -32, 576, 32, -96, -160, -96, 0, 32, 96, 160, 96, -64, -64, -64, 0, -96, -32, 32, 576, 32, -32, -96, 0, -192, 32, 320, 160, -32, -288, 0, 0, -96, -160, -96, 32, 576, -32, -96, 0, 256, -256, 32, 96, 320, -96, -288, 0, -32, -96, -160, -32, -32, 576, -32, 0, 32, 256, -192, 32, 96, 320, -32, 0, -96, -32, -96, -96, -96, -32, 576 };
 static const int SIGMA_MERKABA_SHELL_SQUARE_BY_RANK[4] = { -1, -3, -7, -15 };
@@ -110,7 +119,7 @@ static const int SIGMA_MERKABA_SHADOW_NUMERATOR4[64] = { 0, 0, 0, 0, -6, 2, 2, 2
 static const uint2 SIGMA_MERKABA_SHADOW_COEFFICIENT_Q48[64] = { uint2(0x00000000u, 0x00000000u), uint2(0x00000000u, 0x00000000u), uint2(0x00000000u, 0x00000000u), uint2(0x00000000u, 0x00000000u), uint2(0x00000000u, 0xfffe8000u), uint2(0x00000000u, 0x00008000u), uint2(0x00000000u, 0x00008000u), uint2(0x00000000u, 0x00008000u), uint2(0x00000000u, 0x00008000u), uint2(0x00000000u, 0xfffe8000u), uint2(0x00000000u, 0x00008000u), uint2(0x00000000u, 0x00008000u), uint2(0x00000000u, 0xffff0000u), uint2(0x00000000u, 0xffff0000u), uint2(0x00000000u, 0x00010000u), uint2(0x00000000u, 0x00010000u), uint2(0x00000000u, 0x00008000u), uint2(0x00000000u, 0x00008000u), uint2(0x00000000u, 0xfffe8000u), uint2(0x00000000u, 0x00008000u), uint2(0x00000000u, 0xffff0000u), uint2(0x00000000u, 0x00010000u), uint2(0x00000000u, 0xffff0000u), uint2(0x00000000u, 0x00010000u), uint2(0x00000000u, 0x00010000u), uint2(0x00000000u, 0xffff0000u), uint2(0x00000000u, 0xffff0000u), uint2(0x00000000u, 0x00010000u), uint2(0x00000000u, 0xffff8000u), uint2(0x00000000u, 0xffff8000u), uint2(0x00000000u, 0xffff8000u), uint2(0x00000000u, 0x00018000u), uint2(0x00000000u, 0x00008000u), uint2(0x00000000u, 0x00008000u), uint2(0x00000000u, 0x00008000u), uint2(0x00000000u, 0xfffe8000u), uint2(0x00000000u, 0xffff0000u), uint2(0x00000000u, 0x00010000u), uint2(0x00000000u, 0x00010000u), uint2(0x00000000u, 0xffff0000u), uint2(0x00000000u, 0x00010000u), uint2(0x00000000u, 0xffff0000u), uint2(0x00000000u, 0x00010000u), uint2(0x00000000u, 0xffff0000u), uint2(0x00000000u, 0xffff8000u), uint2(0x00000000u, 0xffff8000u), uint2(0x00000000u, 0x00018000u), uint2(0x00000000u, 0xffff8000u), uint2(0x00000000u, 0x00010000u), uint2(0x00000000u, 0x00010000u), uint2(0x00000000u, 0xffff0000u), uint2(0x00000000u, 0xffff0000u), uint2(0x00000000u, 0xffff8000u), uint2(0x00000000u, 0x00018000u), uint2(0x00000000u, 0xffff8000u), uint2(0x00000000u, 0xffff8000u), uint2(0x00000000u, 0x00018000u), uint2(0x00000000u, 0xffff8000u), uint2(0x00000000u, 0xffff8000u), uint2(0x00000000u, 0xffff8000u), uint2(0x00000000u, 0x00000000u), uint2(0x00000000u, 0x00000000u), uint2(0x00000000u, 0x00000000u), uint2(0x00000000u, 0x00000000u) };
 static const uint2 SIGMA_MERKABA_DUAL_COEFFICIENT_Q48[64] = { uint2(0x00000000u, 0x00000000u), uint2(0x00000000u, 0x00000000u), uint2(0x00000000u, 0x00000000u), uint2(0x00000000u, 0x00000000u), uint2(0x00000000u, 0xffffe800u), uint2(0x00000000u, 0x00000800u), uint2(0x00000000u, 0x00000800u), uint2(0x00000000u, 0x00000800u), uint2(0x00000000u, 0x00000800u), uint2(0x00000000u, 0xffffe800u), uint2(0x00000000u, 0x00000800u), uint2(0x00000000u, 0x00000800u), uint2(0x00000000u, 0xfffff000u), uint2(0x00000000u, 0xfffff000u), uint2(0x00000000u, 0x00001000u), uint2(0x00000000u, 0x00001000u), uint2(0x00000000u, 0x00000800u), uint2(0x00000000u, 0x00000800u), uint2(0x00000000u, 0xffffe800u), uint2(0x00000000u, 0x00000800u), uint2(0x00000000u, 0xfffff000u), uint2(0x00000000u, 0x00001000u), uint2(0x00000000u, 0xfffff000u), uint2(0x00000000u, 0x00001000u), uint2(0x00000000u, 0x00001000u), uint2(0x00000000u, 0xfffff000u), uint2(0x00000000u, 0xfffff000u), uint2(0x00000000u, 0x00001000u), uint2(0x00000000u, 0xfffff800u), uint2(0x00000000u, 0xfffff800u), uint2(0x00000000u, 0xfffff800u), uint2(0x00000000u, 0x00001800u), uint2(0x00000000u, 0x00000800u), uint2(0x00000000u, 0x00000800u), uint2(0x00000000u, 0x00000800u), uint2(0x00000000u, 0xffffe800u), uint2(0x00000000u, 0xfffff000u), uint2(0x00000000u, 0x00001000u), uint2(0x00000000u, 0x00001000u), uint2(0x00000000u, 0xfffff000u), uint2(0x00000000u, 0x00001000u), uint2(0x00000000u, 0xfffff000u), uint2(0x00000000u, 0x00001000u), uint2(0x00000000u, 0xfffff000u), uint2(0x00000000u, 0xfffff800u), uint2(0x00000000u, 0xfffff800u), uint2(0x00000000u, 0x00001800u), uint2(0x00000000u, 0xfffff800u), uint2(0x00000000u, 0x00001000u), uint2(0x00000000u, 0x00001000u), uint2(0x00000000u, 0xfffff000u), uint2(0x00000000u, 0xfffff000u), uint2(0x00000000u, 0xfffff800u), uint2(0x00000000u, 0x00001800u), uint2(0x00000000u, 0xfffff800u), uint2(0x00000000u, 0xfffff800u), uint2(0x00000000u, 0x00001800u), uint2(0x00000000u, 0xfffff800u), uint2(0x00000000u, 0xfffff800u), uint2(0x00000000u, 0xfffff800u), uint2(0x00000000u, 0x00000000u), uint2(0x00000000u, 0x00000000u), uint2(0x00000000u, 0x00000000u), uint2(0x00000000u, 0x00000000u) };
 static const int SIGMA_MERKABA_VISIBLE_PROJECTOR_NUMERATOR256[256] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 48, -16, 32, -16, 32, -32, 16, -16, 32, -32, 16, -32, 16, -48, 0, 0, -16, 48, 32, -16, -32, 32, 16, -16, -32, 32, 16, -32, -48, 16, 0, 0, 32, 32, 64, -32, 0, 0, 32, -32, 0, 0, 32, -64, -32, -32, 0, 0, -16, -16, -32, 48, 32, 32, 16, -16, -32, -32, -48, 32, 16, 16, 0, 0, 32, -32, 0, 32, 64, 0, 32, -32, 0, -64, -32, 0, 32, -32, 0, 0, -32, 32, 0, 32, 0, 64, 32, -32, -64, 0, -32, 0, -32, 32, 0, 0, 16, 16, 32, 16, 32, 32, 48, -48, -32, -32, -16, -32, -16, -16, 0, 0, -16, -16, -32, -16, -32, -32, -48, 48, 32, 32, 16, 32, 16, 16, 0, 0, 32, -32, 0, -32, 0, -64, -32, 32, 64, 0, 32, 0, 32, -32, 0, 0, -32, 32, 0, -32, -64, 0, -32, 32, 0, 64, 32, 0, -32, 32, 0, 0, 16, 16, 32, -48, -32, -32, -16, 16, 32, 32, 48, -32, -16, -16, 0, 0, -32, -32, -64, 32, 0, 0, -32, 32, 0, 0, -32, 64, 32, 32, 0, 0, 16, -48, -32, 16, 32, -32, -16, 16, 32, -32, -16, 32, 48, -16, 0, 0, -48, 16, -32, 16, -32, 32, -16, 16, -32, 32, -16, 32, -16, 48, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
-static const uint4 SIGMA_MERKABA_IR_NODE_A[65] = {
+static const uint4 SIGMA_MERKABA_IR_NODE_A[61] = {
     uint4(0u, 0u, 1u, 0u),
     uint4(0u, 0u, 1u, 0u),
     uint4(5u, 0u, 2u, 0u),
@@ -170,14 +179,10 @@ static const uint4 SIGMA_MERKABA_IR_NODE_A[65] = {
     uint4(35u, 5u, 6u, 58u),
     uint4(36u, 13u, 6u, 61u),
     uint4(37u, 14u, 6u, 63u),
-    uint4(38u, 14u, 6u, 67u),
-    uint4(39u, 15u, 6u, 68u),
-    uint4(40u, 15u, 1u, 69u),
-    uint4(24u, 7u, 9u, 70u),
-    uint4(34u, 12u, 12u, 71u),
-    uint4(27u, 0u, 1u, 74u)
+    uint4(38u, 12u, 12u, 67u),
+    uint4(27u, 0u, 1u, 70u)
 };
-static const int4 SIGMA_MERKABA_IR_NODE_B[65] = {
+static const int4 SIGMA_MERKABA_IR_NODE_B[61] = {
     int4(0, 0, 0, 0),
     int4(0, 1, 0, 0),
     int4(2, 0, 0, 0),
@@ -237,14 +242,10 @@ static const int4 SIGMA_MERKABA_IR_NODE_B[65] = {
     int4(3, 0, 0, 0),
     int4(2, 0, 0, 0),
     int4(4, 0, 0, 0),
-    int4(1, 0, 0, 0),
-    int4(1, 0, 0, 0),
-    int4(1, 0, 0, 0),
-    int4(1, 0, 0, 0),
     int4(3, 0, 0, 0),
     int4(0, 0, 0, 0)
 };
-static const uint SIGMA_MERKABA_IR_OPERANDS[74] = { 0u, 1u, 3u, 4u, 6u, 5u, 4u, 5u, 3u, 8u, 7u, 9u, 11u, 13u, 14u, 15u, 16u, 17u, 17u, 18u, 16u, 19u, 10u, 21u, 21u, 22u, 10u, 23u, 25u, 20u, 24u, 26u, 28u, 30u, 29u, 31u, 32u, 33u, 35u, 36u, 37u, 39u, 40u, 34u, 44u, 45u, 34u, 47u, 48u, 49u, 47u, 20u, 49u, 50u, 51u, 49u, 52u, 34u, 54u, 55u, 34u, 56u, 55u, 57u, 20u, 24u, 26u, 58u, 59u, 60u, 59u, 61u, 62u, 56u };
+static const uint SIGMA_MERKABA_IR_OPERANDS[70] = { 0u, 1u, 3u, 4u, 6u, 5u, 4u, 5u, 3u, 8u, 7u, 9u, 11u, 13u, 14u, 15u, 16u, 17u, 17u, 18u, 16u, 19u, 10u, 21u, 21u, 22u, 10u, 23u, 25u, 20u, 24u, 26u, 28u, 30u, 29u, 31u, 32u, 33u, 35u, 36u, 37u, 39u, 40u, 34u, 44u, 45u, 34u, 47u, 48u, 49u, 47u, 20u, 49u, 50u, 51u, 49u, 52u, 34u, 54u, 55u, 34u, 56u, 55u, 57u, 20u, 24u, 26u, 56u, 57u, 58u };
 static const int4 SIGMA_MERKABA_IR_EXPRESSION_A[17] = {
     int4(2, 0, 0, 3),
     int4(3, 6, 3, 8),
@@ -261,8 +262,8 @@ static const int4 SIGMA_MERKABA_IR_EXPRESSION_A[17] = {
     int4(-1, 8, 43, 1),
     int4(1, 8, 44, 3),
     int4(-1, 4, 47, 7),
-    int4(-1, 4, 54, 10),
-    int4(-1, 4, 64, 1)
+    int4(-1, 4, 54, 6),
+    int4(-1, 4, 60, 1)
 };
 static const int4 SIGMA_MERKABA_IR_EXPRESSION_B[17] = {
     int4(2, 0, 0, 0),
@@ -280,8 +281,8 @@ static const int4 SIGMA_MERKABA_IR_EXPRESSION_B[17] = {
     int4(43, 0, 0, 0),
     int4(46, 0, 0, 0),
     int4(53, 0, 0, 0),
-    int4(63, 0, 0, 0),
-    int4(64, 0, 0, 0)
+    int4(59, 0, 0, 0),
+    int4(60, 0, 0, 0)
 };
 static const int4 SIGMA_MERKABA_IR_ENTRY_POINTS[7] = {
     int4(7, 8, 1, 0),
@@ -743,40 +744,127 @@ bool SigmaMerkabaBoundaryEnvelopesContact(
     return contact;
 }
 
-int3 SigmaMerkabaClassifyModalStitch(
-    uint relationClass, uint linkClass, uint associatorClass,
-    uint plaquetteClass, uint leftPort, int transportSign,
-    uint2 bracketFingerprint)
+uint SigmaMerkabaNativeBoundarySectorAddress(uint ordinal)
 {
-    bool invalidContext = (transportSign != -1 && transportSign != 1) ||
-        leftPort > 3u ||
-        (bracketFingerprint.x == 0u && bracketFingerprint.y == 0u);
-    bool absentRelation = relationClass == SIGMA_MERKABA_RELATION_NO_RELATION ||
-        relationClass == SIGMA_MERKABA_RELATION_DEFAULT_SAT;
-    bool unresolvedFactor = relationClass == SIGMA_MERKABA_RELATION_UNRESOLVED ||
-        relationClass == SIGMA_MERKABA_RELATION_NEAR_SINGULAR_Q48 ||
-        linkClass == SIGMA_EXACT_FACTOR_UNRESOLVED ||
-        associatorClass == SIGMA_EXACT_FACTOR_UNRESOLVED ||
-        plaquetteClass == SIGMA_EXACT_FACTOR_UNRESOLVED;
-    bool incompatibleFactor =
-        relationClass == SIGMA_MERKABA_RELATION_NONASSOCIATIVE_CONTEXT ||
-        linkClass == SIGMA_EXACT_FACTOR_PROVEN_INCOMPATIBLE ||
-        associatorClass == SIGMA_EXACT_FACTOR_PROVEN_INCOMPATIBLE ||
-        plaquetteClass == SIGMA_EXACT_FACTOR_PROVEN_INCOMPATIBLE;
-    int2 relativeDelta = leftPort == SIGMA_STITCH_PORT_U_MINUS ? int2(-1, 0) :
-        (leftPort == SIGMA_STITCH_PORT_U_PLUS ? int2(1, 0) :
-        (leftPort == SIGMA_STITCH_PORT_V_MINUS ? int2(0, -1) : int2(0, 1)));
-    int3 result = int3(SIGMA_STITCH_RESOLVED,
-        relativeDelta.x, relativeDelta.y);
-    if (incompatibleFactor)
-        result = int3(SIGMA_STITCH_NO_STITCH, 0, 0);
-    if (unresolvedFactor)
-        result = int3(SIGMA_STITCH_UNRESOLVED, 0, 0);
-    if (absentRelation)
-        result = int3(SIGMA_STITCH_NO_STITCH, 0, 0);
-    if (invalidContext)
-        result = int3(SIGMA_STITCH_UNRESOLVED, 0, 0);
-    return result;
+    return ordinal < 4u ? (1u << ordinal) : 0u;
+}
+
+// The sector-pair transport is K16 address/sign geometry only.  It returns no
+// signed chart direction.  The swapped reverse is evaluated independently.
+void SigmaMerkabaEvaluateNativeStitchLink(uint2 left[16], uint2 right[16],
+    uint leftSectorOrdinal, uint rightSectorOrdinal,
+    out uint2 link[16], out uint2 reverseLink[16],
+    out uint transportAddress, out int forwardSign, out int reverseSign,
+    inout uint valid)
+{
+    uint leftAddress = SigmaMerkabaNativeBoundarySectorAddress(
+        leftSectorOrdinal);
+    uint rightAddress = SigmaMerkabaNativeBoundarySectorAddress(
+        rightSectorOrdinal);
+    valid &= leftAddress != 0u && rightAddress != 0u ? 1u : 0u;
+    transportAddress = leftAddress ^ rightAddress;
+    forwardSign = SigmaMerkabaBasisSign(leftAddress, transportAddress);
+    reverseSign = SigmaMerkabaBasisSign(rightAddress, transportAddress);
+    uint2 transportedLeft[16];
+    uint2 transportedRight[16];
+    SigmaRightBasisAction(left, transportAddress, transportedLeft, valid);
+    SigmaRightBasisAction(right, transportAddress, transportedRight, valid);
+    [unroll]
+    for (uint lane = 0u; lane < 16u; ++lane)
+    {
+        uint2 forwardValue = forwardSign < 0
+            ? SigmaQ48NegateChecked(transportedLeft[lane], valid)
+            : transportedLeft[lane];
+        uint2 reverseValue = reverseSign < 0
+            ? SigmaQ48NegateChecked(transportedRight[lane], valid)
+            : transportedRight[lane];
+        link[lane] = SigmaQ48SubChecked(right[lane], forwardValue, valid);
+        reverseLink[lane] = SigmaQ48SubChecked(left[lane], reverseValue, valid);
+    }
+}
+
+uint SigmaMerkabaClassifyPointNativeStitchPair(uint2 left[16],
+    uint2 right[16], uint leftSectorOrdinal, uint rightSectorOrdinal,
+    inout uint valid)
+{
+    uint2 link[16];
+    uint2 reverseLink[16];
+    uint transportAddress;
+    int forwardSign;
+    int reverseSign;
+    SigmaMerkabaEvaluateNativeStitchLink(left, right, leftSectorOrdinal,
+        rightSectorOrdinal, link, reverseLink, transportAddress,
+        forwardSign, reverseSign, valid);
+    bool closed = valid != 0u;
+    [unroll]
+    for (uint lane = 0u; lane < 16u; ++lane)
+        closed = closed && all(link[lane] == uint2(0u, 0u)) &&
+            all(reverseLink[lane] == uint2(0u, 0u));
+    return valid == 0u ? SIGMA_EXACT_FACTOR_UNRESOLVED :
+        (closed ? SIGMA_EXACT_FACTOR_PROVEN_CLOSED :
+            SIGMA_EXACT_FACTOR_PROVEN_INCOMPATIBLE);
+}
+
+// Four uint4 values are private bounded scratch for the sixteen abstract sector
+// pairs.  N2 fills them from the parallel full-S16/bracket evaluator; no host
+// relation truth enters this finalizer.
+uint4 SigmaMerkabaFinalizeNativeStitchSet(
+    uint4 closureClass0, uint4 closureClass1,
+    uint4 closureClass2, uint4 closureClass3)
+{
+    uint4 classes[4] = { closureClass0, closureClass1,
+        closureClass2, closureClass3 };
+    uint closedCount = 0u;
+    uint resolvedPair = 0u;
+    bool unresolved = false;
+    [unroll]
+    for (uint pair = 0u; pair < 16u; ++pair)
+    {
+        uint factorClass = classes[pair >> 2u][pair & 3u];
+        unresolved = unresolved ||
+            factorClass == SIGMA_EXACT_FACTOR_UNRESOLVED;
+        if (factorClass == SIGMA_EXACT_FACTOR_PROVEN_CLOSED)
+        {
+            resolvedPair = pair;
+            ++closedCount;
+        }
+    }
+    if (unresolved || closedCount > 1u)
+        return uint4(SIGMA_STITCH_UNRESOLVED, 0u, 0u, 0u);
+    if (closedCount == 0u)
+        return uint4(SIGMA_STITCH_NO_STITCH, 0u, 0u, 0u);
+    uint leftSector = resolvedPair >> 2u;
+    uint rightSector = resolvedPair & 3u;
+    uint transportAddress =
+        SigmaMerkabaNativeBoundarySectorAddress(leftSector) ^
+        SigmaMerkabaNativeBoundarySectorAddress(rightSector);
+    return uint4(SIGMA_STITCH_RESOLVED, leftSector, rightSector,
+        transportAddress);
+}
+
+static const int4 SIGMA_STITCH_CHART_D4[8] = {
+    int4(1, 0, 0, 1), int4(0, -1, 1, 0),
+    int4(-1, 0, 0, -1), int4(0, 1, -1, 0),
+    int4(-1, 0, 0, 1), int4(1, 0, 0, -1),
+    int4(0, 1, 1, 0), int4(0, -1, -1, 0) };
+
+int2 SigmaMerkabaTransformChartCellLower(int2 lower, uint d4Index,
+    inout uint valid)
+{
+    valid &= d4Index < 8u ? 1u : 0u;
+    int4 transform = SIGMA_STITCH_CHART_D4[min(d4Index, 7u)];
+    int source[2] = { lower.x, lower.y };
+    int2 output = int2(0, 0);
+    [unroll]
+    for (uint row = 0u; row < 2u; ++row)
+    {
+        int a = row == 0u ? transform.x : transform.z;
+        int b = row == 0u ? transform.y : transform.w;
+        int selected = a != 0 ? source[0] : source[1];
+        int sign = a != 0 ? a : b;
+        output[row] = sign > 0 ? selected : -selected - 1;
+    }
+    return output;
 }
 
 #endif

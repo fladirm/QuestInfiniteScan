@@ -102,14 +102,7 @@
   },
   "constructiveModalStitching": {
     "authority": "SCANNER_LEVEL_I_Q_CONTACT_CONJUNCTION_WITH_I_TOE_NATIVE_RELATION_NOT_AN_UPSTREAM_TOE_CLAIM",
-    "contactCandidate": {
-      "arbitraryEpsilon": false,
-      "occludedOrUnseenBoundary": "RETAIN_CONTINUATION_AND_NO_CONTINUATION_DISJUNCTION",
-      "pixelAdjacencyAccelerationOnly": true,
-      "pixelAdjacencyAuthority": false,
-      "predicate": "EXACT_CLOSED_INTERVAL_INTERSECTION_OF_A_PAIR_OF_CALIBRATED_FIRST_HIT_BOUNDARY_SECTOR_ENVELOPES_IN_COMMON_ROOM_GAUGE",
-      "provablySeparated": "NO_CANDIDATE"
-    },
+    "executableInput": "ACTUAL_FULL_S16_ENDPOINT_MODES_PLUS_CALIBRATED_SHARED_FOOTPRINT_BOUNDARY_CONTACT_CONTEXT_PLUS_EXPLICIT_NATIVE_BRACKET_CONTEXT",
     "firstHitPressure": {
       "behindHit": "NO_CLAIM",
       "firstHit": "CONTRACT_SURVIVING_MANIFESTATION_TO_MEASURED_MOULD",
@@ -118,34 +111,146 @@
     "forbidden": [
       "XYZ_DISTANCE_STITCH",
       "PIXEL_INCIDENCE",
+      "GENERAL_FRESH_CONTACT_GRAPH",
+      "CROSS_FRAME_PIXEL_ADJACENCY",
+      "SAMPLE_RIGHT_TO_SIGMA2_PLUS_U",
+      "SAMPLE_DOWN_TO_SIGMA2_PLUS_V",
+      "ONE_HOT_K16_GENERATOR_TO_SIGMA2_DELTA_TABLE",
+      "NATIVE_SECTOR_TO_PHYSICAL_UV_DIRECTION",
+      "CALLER_SUPPLIED_PLAQUETTE_C_OR_RELATION_TRUTH",
       "PERSISTENT_CONTACT_GRAPH",
       "T8_O6_STORED_POLYHEDRON",
       "HEURISTIC_PORT_MAPPING",
       "COORDINATE_AVERAGE_OR_SNAP"
     ],
-    "manifestationFootprint": {
-      "boundarySectors": [
-        "U_MINUS",
-        "U_PLUS",
-        "V_MINUS",
-        "V_PLUS"
+    "hotFusion": {
+      "boundary": "IMPLICIT_SHARED_BOUNDARY_CONTACT_PLUS_COMPLETE_GENERATED_NATIVE_STITCH",
+      "close": "ALL_PLAQUETTE_CYCLE_COMPONENT_POTENTIAL_NORMALIZATION_CERTIFICATE_DELTA_AND_ROOT_LAST_WORK",
+      "footprint": "CALIBRATED_REVERSE_PLUS_PREDICTION_SUPPORT",
+      "forbiddenCountCheats": [
+        "GLOBAL_SPIN_WAIT",
+        "COMPONENT_BY_COMPONENT_LOOP",
+        "SERIAL_PREFIX_OR_REDUCTION",
+        "UNBOUNDED_FIXED_POINT_ITERATION",
+        "DISPATCH_INDIRECT_RECURSION"
       ],
+      "forbiddenProductionStages": [
+        "BUILD_CANDIDATES",
+        "SORT_EDGES",
+        "BUILD_COMPONENTS",
+        "RESOLVE_LOOPS",
+        "PACK_COMPONENTS",
+        "FINALIZE_STITCHES"
+      ],
+      "mapIntoExistingEntrypoints": true,
+      "materializedSurvivorsOnly": [
+        "CHANGED_LOCALITY",
+        "UNRESOLVED_FRONTIER",
+        "CERTIFICATE_DELTA",
+        "EXACT_REQUIRED_STITCH_WITNESS"
+      ],
+      "n4DispatchBudgetMaximum": 64,
+      "newShaderFamilyPerPhase": false,
+      "parallelismDominatesLiteralCount": true,
+      "semanticPhases": [
+        "FOOTPRINT",
+        "BOUNDARY",
+        "CLOSE"
+      ],
+      "separateRuntimeSubsystems": false,
+      "serialGenericInterpreter": false,
+      "submissionCardinalityIndependentOf": [
+        "PIXEL_COUNT",
+        "STITCH_COUNT",
+        "TRANSIENT_COMPONENT_COUNT",
+        "PAGE_COUNT",
+        "SCAN_AGE_OR_HISTORY"
+      ],
+      "targetMaximumAdditionalHotSubmissionsBeyondAcceptedN3NativeGraph": 2,
+      "thirdFixedWidePass": "HARD_STOP_AND_REPORT_IRREDUCIBLE_CROSS_WORKGROUP_DEPENDENCY_BEFORE_RUNTIME_IMPLEMENTATION"
+    },
+    "implicitBoundaryField": {
+      "arbitraryEpsilon": false,
+      "bothEndpointFootprintsValid": true,
+      "crossFramePixelAdjacency": false,
+      "endpointDerivation": "ARITHMETICALLY_FROM_EDGE_INDEX_AND_COHERENT_FRAME_DIMENSIONS",
+      "endpointDisposition": [
+        "INVALID",
+        "EXISTING_SUPPORT",
+        "UNATTACHED_FIRST_HIT",
+        "UNRESOLVED_EXISTING"
+      ],
+      "endpointRouting": "ONE_GENERATED_BOUNDARY_EVALUATOR_FOR_EXISTING_EXISTING_EXISTING_FRESH_FRESH_FRESH_AND_UNRESOLVED_OR_GAP",
+      "existingToExistingRoute": "RETAINED_GENERATED_NATIVE_STITCH_RELATION_WITNESSES",
+      "freshFreshBoundaryCardinality": "(W-1)*H+W*(H-1)_ENUMERATED_ONCE_AS_RIGHT_AND_DOWN",
+      "freshFreshBroadPhase": "ONLY_SHARED_BOUNDARIES_OF_ADJACENT_VALID_COHERENT_SAMPLING_FOOTPRINTS_IN_THE_SAME_FRAME",
+      "full320BoundaryCardinality": 204160,
+      "horizontalBoundaryCardinality": "(W-1)*H",
+      "invalidGapOrOcclusionBridge": false,
+      "materializeCompleteBoundarySet": false,
+      "newToExistingRoute": "PREDICTION_SUPPORT_AND_FIRST_HIT_QUERY_NOT_CROSS_FRAME_PIXEL_ADJACENCY",
+      "nonAdjacentFreshDirectPair": "NO_DIRECT_BOUNDARY_TEST_RETAIN_DISCONNECTED_OR_OCCLUSION_DISJUNCTION",
+      "occludedOrUnseenBoundary": "RETAIN_CONTINUATION_AND_NO_CONTINUATION_DISJUNCTION",
+      "pixelAdjacencyAuthority": false,
+      "predicate": "EXACT_CLOSED_INTERVAL_INTERSECTION_OF_THE_TWO_CALIBRATED_FIRST_HIT_ENVELOPES_AT_ONE_SHARED_COHERENT_SAMPLING_BOUNDARY",
+      "provablySeparated": "NO_STITCH_WORK",
+      "sameCoherentFrameRequired": true,
+      "sampleDownImpliesSigma2PlusV": false,
+      "sampleRightImpliesSigma2PlusU": false,
+      "samplingAdjacencyMeaning": "BROAD_PHASE_ELIGIBILITY_ONLY_NEVER_SIGMA2_INCIDENCE_OR_RELATIVE_DELTA",
+      "samplingFootprintAdjacencyBroadPhaseOnly": true,
+      "verticalBoundaryCardinality": "W*(H-1)"
+    },
+    "manifestationFootprint": {
       "canonicalState": false,
       "construction": "FOUR_PARAMETRIC_CALIBRATED_FOOTPRINT_BOUNDARIES_PROPAGATED_WITH_OUTWARD_Q16_48_THROUGH_THE_FIRST_HIT_ORDER_AND_POSE_REGION",
       "input": "ROOM_GAUGE_ORIGIN_CENTER_RAY_RAY_DIFFERENTIALS_FINITE_FOOTPRINT_DIRECT_ORDER_INTERVAL_POSE_EXTRINSIC_REGION_FIRST_HIT_ROLE",
+      "samplingBoundarySides": [
+        "LEFT",
+        "RIGHT",
+        "UP",
+        "DOWN"
+      ],
+      "samplingSideMeaning": "TRANSIENT_SHARED_FOOTPRINT_BOUNDARY_ENUMERATION_ONLY_NOT_A_NATIVE_PORT_OR_SIGMA2_DIRECTION",
       "sigma2Address": false
     },
     "modalConjunction": {
+      "callerSuppliedBracketFingerprint": false,
+      "callerSuppliedLoopOrRelationTruth": false,
+      "callerSuppliedNativeGenerator": false,
+      "callerSuppliedPlaquetteC": false,
+      "callerSuppliedRelationOrFactorClass": false,
+      "callerSuppliedTransportSign": false,
+      "chartEmbeddingOwner": "I_REP_AFTER_ABSTRACT_STITCH_SET_CLOSURE",
       "emptyWitnessSet": "NO_STITCH",
-      "input": "POSSIBLE_CONTACT_PLUS_COMPLETE_I_TOE_NATIVE_LINK_ASSOCIATOR_PLAQUETTE_HOLONOMY_CONTEXT",
+      "evaluation": "SOLE_GENERATED_PROGRAM_COMPUTES_SIGN_TRANSPORT_LINK_ASSOCIATOR_PLAQUETTE_HOLONOMY_AND_RELATION_RECEIPTS_FROM_THE_RAW_INPUTS",
+      "generatedMatchedContinuationSectorWitnessSet": "EXACT_FINITE_SET_DERIVED_FROM_ACTUAL_FULL_S16_MODES_CALIBRATED_CONTACT_AND_EXPLICIT_NATIVE_BRACKET_CONTEXT",
+      "generatedSectorPairTransport": {
+        "authority": "I_TOE_SIGNED_XOR_BASIS_MULTIPLICATION_AND_EXPLICIT_BRACKETS",
+        "chartCoordinateMeaning": "NONE",
+        "forwardAction": "U_AB_OF_U_EQUALS_EPSILON_A_G_AB_TIMES_EXPLICIT_RIGHT_BRACKET_U_E_G_AB",
+        "leftSectorAddress": "A_IN_Z2_POWER_4_FROM_THE_GENERATED_CHARACTER_FRAME_SECTOR",
+        "reverseAction": "GENERATE_SEPARATELY_FROM_SWAPPED_B_A_AND_VERIFY_THE_EXACT_REVERSE_LINK",
+        "rightSectorAddress": "B_IN_Z2_POWER_4_FROM_THE_GENERATED_CHARACTER_FRAME_SECTOR",
+        "transportAddress": "G_AB_EQUALS_A_XOR_B"
+      },
+      "input": "POSSIBLE_CONTACT_PLUS_ACTUAL_FULL_S16_MODES_AND_RAW_COMPLETE_I_TOE_NATIVE_LINK_ASSOCIATOR_PLAQUETTE_HOLONOMY_CONTEXT",
       "minimumResidualWinner": false,
       "multipleNonEquivalentClasses": "UNRESOLVED_EXACT_DISJUNCTION",
+      "nativeBoundarySectorInventory": "FOUR_GENERATED_K16_CHARACTER_FRAME_SECTORS_FROM_I_TOE_SECTION_6_WITH_NO_UV_OR_SAMPLE_SIDE_MEANING",
+      "nativeSectorToUvEquationRequired": false,
+      "nonassociativity": "RETAIN_THE_GENERATED_EXPLICIT_BRACKET_PLAN_AND_CLASSIFY_ITS_ACTUAL_FACTOR_NEVER_MAP_A_NONASSOCIATIVE_LABEL_DIRECTLY_TO_TEAR",
       "oneCompleteProgramEquivalentClass": "RESOLVED_STITCH",
+      "physicalStitchContainsSignedDyadicDelta": false,
+      "physicalStitchOutput": "ABSTRACT_INTRINSIC_BOUNDARY_INCIDENCE_MATCHED_CONTINUATION_SECTORS_NATIVE_ORIENTATION_TRANSPORT_EXPLICIT_BRACKETS_AND_EXACT_FACTOR_RECEIPTS",
+      "staticOneHotOrSampleSideTransformMap": false,
       "uncertainStitchedAndTorn": "UNRESOLVED_EXACT_DISJUNCTION"
     },
     "scope": "ONE_COHERENT_WHOLE_FRAME_PLUS_RETAINED_EXACT_FRONTIER",
+    "semanticClasses": "OUTPUT_RECEIPTS_ONLY_NEVER_TRUSTED_INPUT",
+    "semanticTruthInputs": [],
     "witness": [
-      "MATCHED_CALIBRATED_BOUNDARY_SECTORS",
+      "MATCHED_NATIVE_BOUNDARY_CONTINUATION_SECTORS_DERIVED_AFTER_CONTACT_AND_CLOSURE",
       "FULL_S16_SIGN_TRANSPORT",
       "EXPLICIT_BRACKET_HISTORY",
       "NORMALIZED_LINK_FACTOR",
@@ -356,26 +461,26 @@
       },
       {
         "arity": -1,
-        "fingerprint": "d2f1b95397fb7ecd3b67ae7eb5bf9071e35a01969f492636cbf8830d6ed9c01c",
+        "fingerprint": "6094d138212b1e76ab93f5daa17a9096ced145030b3a294cf0e9508786906c22",
         "id": "FRESH_SUPPORT_SET_ADMISSION",
         "neighbourhood": 4,
-        "nodeCount": 10,
+        "nodeCount": 6,
         "nodeStart": 54,
-        "rootNode": 63,
+        "rootNode": 59,
         "source": "I_Q:constructiveModalStitching+I_TOE:8+I_REP:stitchEmbedding"
       },
       {
         "arity": -1,
-        "fingerprint": "f328411f11abadcd79fe237481e699f8ad2d201d6d9b53f98e775b56e8437484",
+        "fingerprint": "9626cd9b5fdec5efcad72ce438da8330b678973467db8d7bd7bea9494f39c745",
         "id": "ZEMPTY_DEFAULT",
         "neighbourhood": 4,
         "nodeCount": 1,
-        "nodeStart": 64,
-        "rootNode": 64,
+        "nodeStart": 60,
+        "rootNode": 60,
         "source": "I_Q:defaultSemantics+I_REP:defaultRepresentations"
       }
     ],
-    "fingerprint": "a0bedc0617af14d750781dadb3b17a8601f253b3a75fa3d0b0c30c24745e6a94",
+    "fingerprint": "2eb12bcf3a78c44e3f1347e49ad60d6f89e67fdca3bbfa525e8c8ab3247019bd",
     "freshAdmissionExpression": 14,
     "freshSupportSetExpression": 15,
     "gaugeExpression": 13,
@@ -927,44 +1032,8 @@
         "argument0": 0,
         "argument1": 0,
         "opcode": 38,
-        "operandCount": 1,
-        "operandStart": 67,
-        "outputKind": 14,
-        "reverseRule": 6
-      },
-      {
-        "argument0": 0,
-        "argument1": 0,
-        "opcode": 39,
-        "operandCount": 1,
-        "operandStart": 68,
-        "outputKind": 15,
-        "reverseRule": 6
-      },
-      {
-        "argument0": 0,
-        "argument1": 0,
-        "opcode": 40,
-        "operandCount": 1,
-        "operandStart": 69,
-        "outputKind": 15,
-        "reverseRule": 1
-      },
-      {
-        "argument0": 0,
-        "argument1": 0,
-        "opcode": 24,
-        "operandCount": 1,
-        "operandStart": 70,
-        "outputKind": 7,
-        "reverseRule": 9
-      },
-      {
-        "argument0": 0,
-        "argument1": 0,
-        "opcode": 34,
         "operandCount": 3,
-        "operandStart": 71,
+        "operandStart": 67,
         "outputKind": 12,
         "reverseRule": 12
       },
@@ -973,7 +1042,7 @@
         "argument1": 0,
         "opcode": 27,
         "operandCount": 0,
-        "operandStart": 74,
+        "operandStart": 70,
         "outputKind": 0,
         "reverseRule": 1
       }
@@ -1015,11 +1084,9 @@
       "FRESH_BASE_PATTERN",
       "COMMON_UNION_OR_UNRESOLVED",
       "WHOLE_FRAME_REVERSE_SET",
-      "CONTACT_CANDIDATE_SET",
-      "MERKABA_MODAL_STITCH",
-      "STITCH_LOOP_CLOSURE",
-      "FRESH_SUPPORT_SET_PATTERN",
-      "COMPONENT_TRANSLATION_NORMALIZE"
+      "FOOTPRINT_CONTRACT",
+      "IMPLICIT_BOUNDARY_CONTRACT",
+      "GLOBAL_EXACT_CLOSE"
     ],
     "operands": [
       0,
@@ -1089,13 +1156,9 @@
       20,
       24,
       26,
-      58,
-      59,
-      60,
-      59,
-      61,
-      62,
-      56
+      56,
+      57,
+      58
     ],
     "reducers": [
       "NONE",
@@ -1133,9 +1196,8 @@
       "BOOLEAN",
       "SHADOW_CELL",
       "FRESH_ADMISSION",
-      "CONTACT_SET",
-      "STITCH_SET",
-      "INTRINSIC_PATTERN"
+      "FOOTPRINT_FIELD",
+      "BOUNDARY_FIELD"
     ],
     "zEmptyExpression": 16
   },
@@ -1292,22 +1354,22 @@
     },
     {
       "arity": -1,
-      "fingerprint": "d2f1b95397fb7ecd3b67ae7eb5bf9071e35a01969f492636cbf8830d6ed9c01c",
+      "fingerprint": "6094d138212b1e76ab93f5daa17a9096ced145030b3a294cf0e9508786906c22",
       "id": "FRESH_SUPPORT_SET_ADMISSION",
       "neighbourhood": 4,
-      "nodeCount": 10,
+      "nodeCount": 6,
       "nodeStart": 54,
-      "rootNode": 63,
+      "rootNode": 59,
       "source": "I_Q:constructiveModalStitching+I_TOE:8+I_REP:stitchEmbedding"
     },
     {
       "arity": -1,
-      "fingerprint": "f328411f11abadcd79fe237481e699f8ad2d201d6d9b53f98e775b56e8437484",
+      "fingerprint": "9626cd9b5fdec5efcad72ce438da8330b678973467db8d7bd7bea9494f39c745",
       "id": "ZEMPTY_DEFAULT",
       "neighbourhood": 4,
       "nodeCount": 1,
-      "nodeStart": 64,
-      "rootNode": 64,
+      "nodeStart": 60,
+      "rootNode": 60,
       "source": "I_Q:defaultSemantics+I_REP:defaultRepresentations"
     }
   ],
@@ -1342,24 +1404,24 @@
     "algebraCoreSha256": "f7524a2d348cda462a2c6fa4804cf6be33c2554a69c6ecf67a11ef97009529cc",
     "canonicalSpec": {
       "path": "new_spec.md",
-      "sha256": "3696f8f2442ddc2e72ac10b57a48d8e54146246777305804124b16464bcf3a57"
+      "sha256": "49f6c6c8acdf797ea191d3dfa7cfaa8f52dc32cd5a0723bb3cd5ba6d4e1c9661"
     },
     "closurePlan": {
       "path": ".codex/S4-08.6_NATIVE_CLOSURE_PLAN.md",
-      "sha256": "008c806f53e3b9bfee988f2836aacff459430d7c45bd0bdfaac845171c905934"
+      "sha256": "549b31b6d79d8c4886d400081ad20b872ff3fd4fbb219a20f1559492a4a34cce"
     },
     "generatorSource": {
       "path": "Tools/sigma/generate_sigma_operators.py",
-      "sha256": "5727b5af478d4da264f01ed32c860c654ad8d713774eb57fa5d31f0879d20993",
+      "sha256": "f1ee29e3aa2a4cbacc182b7671963fe8506c6fe413a294a46cac6a9ffbcca6c6",
       "version": "CPQ4-S16-GEN-1"
     },
     "queryBoundary": {
       "path": "Tools/sigma/authority/I_Q_SIGMA_PRISM_V1.json",
-      "sha256": "d9c55d479140a85bb820adb427d09816d919459ab95a7195659f1b974c8f3812"
+      "sha256": "01068e0ca9a12abd80dc58aa172b04da295e3f5de2e235b7be334ced7e749eff"
     },
     "representation": {
       "path": "Tools/sigma/authority/I_REP_SIGMA_PRISM_V1.json",
-      "sha256": "9418c4cb4033fee8b72cdd29c96cd60fb151e238a2d265359f5a0d4fe686a296"
+      "sha256": "47ae5b6eec7c114801a9f1cf7718acc057e1878adf95aa2be2d6b029837d5080"
     },
     "toeCapsule": {
       "admittedSections": [
@@ -1410,8 +1472,8 @@
     "unboundedParameterRegion": "FORBIDDEN_TO_PROVE_COMPATIBILITY_OR_MUTATION",
     "whiteBalance": "BOUNDED_PER_CHANNEL_GAIN"
   },
-  "programFingerprint": "1530c689b9d032a9034cd9efdd6a3ed277d5bc7b5dea64acdf123fed2ffe87f3",
-  "programVersion": "CPQ4-S16-MERKABA-N1R-5",
+  "programFingerprint": "b11873e69d90cb446d2a23d1bce661de17bf9d5c222a5528a99705c753ca417b",
+  "programVersion": "CPQ4-S16-MERKABA-N1R-6",
   "proofs": {
     "allDefaultActiveWork": 0,
     "allDefaultRelation": "DEFAULT_SAT",
@@ -1444,13 +1506,25 @@
     "certificateFeasibleAssignmentCount": 18,
     "certificateProofFingerprint": "0b0317cf6c99954e32819303ebb6e400101a7a3d75b2d1b858f22f0fbb006cd3",
     "completeProgramFibreSelector": "IDENTITY_ONLY_UNLESS_EQUIVALENCE_PROVED",
-    "constructiveStitchComponentGauge": "INDEPENDENT_INTEGER_TRANSLATION_ONLY",
+    "constructiveStitchAbstractNativeSectorCount": 4,
+    "constructiveStitchCallerLoopTruthInputCount": 0,
+    "constructiveStitchComponentGauge": "INDEPENDENT_Z2_SEMIDIRECT_D4_CHART_GAUGE",
     "constructiveStitchContactEpsilonCount": 0,
-    "constructiveStitchExpressionFingerprint": "d2f1b95397fb7ecd3b67ae7eb5bf9071e35a01969f492636cbf8830d6ed9c01c",
-    "constructiveStitchNodeCount": 10,
+    "constructiveStitchD4ChartImageCount": 8,
+    "constructiveStitchExpressionFingerprint": "6094d138212b1e76ab93f5daa17a9096ced145030b3a294cf0e9508786906c22",
+    "constructiveStitchExternalSemanticTruthInputCount": 0,
+    "constructiveStitchFreshFreshBroadPhase": "SHARED_COHERENT_FOOTPRINT_BOUNDARY_ONLY",
+    "constructiveStitchHotSemanticPhaseCount": 3,
+    "constructiveStitchImplicitBoundaryCount320": 204160,
+    "constructiveStitchImplicitPlaquetteCount320": 101761,
+    "constructiveStitchMixedLevelTranslationProbeCount": 3,
+    "constructiveStitchNodeCount": 6,
+    "constructiveStitchNonGaugeEmbeddingAmbiguityCount": 1,
     "constructiveStitchPersistentComponentIdentity": false,
     "constructiveStitchPixelOrXyzAuthorityCount": 0,
-    "constructiveStitchProofFingerprint": "6e2db5c4d9aead9ba694c77d61b891e938fbb9fbe78de19b4f999bb8d4d532f4",
+    "constructiveStitchProofFingerprint": "b57aee130824f4729bc74b488dbce9159f8bac49e5ccf289786e65cfcc631251",
+    "constructiveStitchSamplingSideToDeltaAuthorityCount": 0,
+    "constructiveStitchTargetAdditionalHotSubmissionCount": 2,
     "coupledFactorInputCount": 2,
     "coupledFactorMinimizedCount": 2,
     "defaultRepresentationCount": 3,
@@ -1649,18 +1723,21 @@
       "stateSource": "GENERATED_DUAL_FRAME_FULL_S16_LIFT_WITH_FORWARD_AND_INTERNALLY_DERIVED_NATIVE_RELATION_VERIFICATION"
     },
     "gaugeFamily": {
-      "base": "GLOBAL_SIGNED_INTEGER_TRANSLATION",
-      "independentComponentGaugeGroup": "SIGNED_INTEGER_TRANSLATION_ONLY",
-      "independentComponentTranslation": "ADMITTED_FOR_EXACT_STITCH_DISCONNECTED_COMPONENTS_ONLY",
+      "base": "PER_STITCH_CONNECTED_COMPONENT_Z2_SEMIDIRECT_D4_SQUARE_DYADIC_CHART_GAUGE",
+      "d4": "EIGHT_SIGNED_AXIS_PERMUTATIONS_PRESERVING_THE_SQUARE_DYADIC_COMPLEX",
+      "d4Ownership": "REPRESENTATION_CHART_ONLY_NEVER_PHYSICAL_ROOM_S16_OR_NATIVE_TRANSPORT",
+      "independentComponentGaugeGroup": "PRODUCT_OVER_STITCH_DISCONNECTED_COMPONENTS_OF_Z2_SEMIDIRECT_D4",
+      "joinedComponentGauge": "ONE_COMMON_Z2_SEMIDIRECT_D4_AFTER_A_RESOLVED_STITCH_JOINS_COMPONENTS",
       "lossyResampling": "FORBIDDEN",
       "notGauge": [
-        "ROTATION",
-        "REFLECTION",
-        "U_V_SWAP",
-        "SIGN_FLIP",
-        "DYADIC_SCALE"
+        "DYADIC_SCALE",
+        "REFINEMENT_LEVEL",
+        "SUPPORTED_BANDWIDTH",
+        "LOSSY_RESAMPLING"
       ],
-      "refinement": "PROVED_DYADIC_SPLIT_OR_EXACT_COLLAPSE"
+      "physicalTransformAuthorityFromD4": false,
+      "refinement": "PROVED_DYADIC_SPLIT_OR_EXACT_COLLAPSE",
+      "translation": "SIGNED_INTEGER_Z2_CHART_TRANSLATION"
     },
     "kappa": {
       "defaultOutsideFiniteSupport": "ZEMPTY",
@@ -1673,7 +1750,17 @@
     },
     "normalizer": {
       "cellOrder": "LEVEL_THEN_SIGNED_MORTON_THEN_U_THEN_V",
+      "chartOrientation": "ENUMERATE_ALL_EIGHT_D4_IMAGES_AND_SELECT_LEXICOGRAPHICALLY_MINIMUM_COMPLETE_CANONICAL_BYTES_WITHIN_ONE_GAUGE_ORBIT",
       "collapse": "RECURSIVE_EQUAL_FOUR_CHILD_COLLAPSE",
+      "completeImageContent": [
+        "CHI_KAPPA",
+        "FULL_S16",
+        "STITCH_WITNESSES",
+        "NATIVE_TRANSPORT_BRACKET_RECEIPTS",
+        "CERTIFICATES",
+        "REFINEMENT_LEVELS"
+      ],
+      "nonGaugeEquivalentEmbeddingClasses": "UNRESOLVED_NEVER_LEXICOGRAPHIC_WINNER_SELECTION",
       "translation": "SUBTRACT_INTEGER_FLOOR_OF_LEXICOGRAPHIC_MINIMUM_NONDEFAULT_DYADIC_LOWER_COORDINATE",
       "unresolvedRule": "NO_UNIQUE_NORMAL_FORM_MEANS_NO_PUBLICATION"
     },
@@ -1705,12 +1792,26 @@
       "pageGeometry": "64X64_FROZEN"
     },
     "stitchEmbedding": {
+      "callerSuppliedLoopClassification": false,
+      "chartEmbedding": {
+        "constraintInput": "COMPLETE_RESOLVED_ABSTRACT_BOUNDARY_INCIDENCE_SET",
+        "d4TransformsPhysicalS16OrNativeWitness": false,
+        "enumeration": "FINITE_SQUARE_DYADIC_EMBEDDINGS_ADMITTED_BY_ALL_RESOLVED_BOUNDARY_IDENTIFICATIONS",
+        "nonGaugeEquivalentEmbeddingClasses": "UNRESOLVED",
+        "notPhysicalOrientationSelection": true,
+        "orientationQuotient": "ENUMERATE_ALL_EIGHT_D4_IMAGES",
+        "redundantPathRule": "EXACT_AGREEMENT_OR_UNRESOLVED_NO_COORDINATE_REPAIR",
+        "scratchRoot": "ARBITRARY_TRANSIENT_ROOT_HAS_NO_CANONICAL_MEANING",
+        "selection": "LEXICOGRAPHIC_MINIMUM_COMPLETE_CANONICAL_BYTE_STRING_WITHIN_ONE_GAUGE_ORBIT_ONLY",
+        "translationQuotient": "Z2"
+      },
       "componentNormalization": {
         "components": "TRANSIENT_CONNECTED_COMPONENTS_OF_THE_EXACT_CURRENT_STITCH_SET",
         "laterJoin": "DISCARD_INDEPENDENT_PACKING_AND_NORMALIZE_JOINED_PATTERN_AS_ONE_COMPONENT",
         "multisetOrder": "COMPLETE_CANONICAL_BYTES_WITH_COMPLETE_DETERMINISTIC_TIE_RULE",
         "packing": "DETERMINISTIC_NONOVERLAPPING_BACKING_PACK_WITH_ZERO_PHYSICAL_DISTANCE_MEANING",
-        "perComponent": "EXISTING_INTEGER_TRANSLATION_NORMAL_FORM",
+        "packingOwnership": "BACKING_ONLY_NEVER_AN_INPUT_TO_NATIVE_RELATION_OR_QUERY_PHYSICS",
+        "perComponent": "INDEPENDENT_Z2_SEMIDIRECT_D4_COMPLETE_BYTE_NORMAL_FORM",
         "persistentComponentIdentity": false,
         "serialization": "FULL_CHI_KAPPA_S16_STITCH_RELATION_CERTIFICATE_BYTES"
       },
@@ -1720,13 +1821,36 @@
         "XYZ",
         "PAGE",
         "SAMPLE",
+        "SAMPLE_BOUNDARY_SIDE",
         "HASH_PLACEMENT"
       ],
       "globalSolve": "SOLVE_ALL_RELATIVE_DYADIC_INCIDENCE_AND_ORIENTATION_CONSTRAINTS_SIMULTANEOUSLY",
       "inconsistentOrNonSingleton": "UNRESOLVED_NO_COORDINATE_REPAIR",
       "input": "EXACT_FINITE_MERKABA_STITCH_WITNESS_SET_FROM_I_Q_CONJUNCTION_WITH_I_TOE_NATIVE_RELATION",
-      "loopClosure": "EXACT_EMBEDDING_CONSISTENCY_AND_COMPLETE_BRACKET_ASSOCIATOR_PLAQUETTE_HOLONOMY_CLOSURE",
-      "normalIncidence": "ONE_LEVEL_L_DYADIC_CELL_BOUNDARY_SECTOR_TO_ONE_OTHER_LEVEL_L_BOUNDARY_SECTOR",
+      "loopClosure": "INSIDE_CLOSE_DERIVE_LOCAL_IMPLICIT_PLAQUETTES_AND_DETERMINISTIC_FUNDAMENTAL_CYCLES_FROM_ACTUAL_FULL_S16_STITCH_WITNESSES_THEN_EVALUATE_COMPLETE_BRACKET_ASSOCIATOR_PLAQUETTE_HOLONOMY_CLOSURE",
+      "mixedLevelTranslation": "A_BASE_INTEGER_TRANSLATION_T_ACTS_ON_LEVEL_L_NUMERATOR_AS_T_TIMES_2_POWER_L_AND_COMPONENT_EXTENTS_ARE_COMPUTED_IN_ONE_EXACT_BASE_DYADIC_SPACE",
+      "nativeRelativeTransportTheorem": {
+        "callerSuppliedNativeGenerator": false,
+        "callerSuppliedOrientationOrDelta": false,
+        "callerSuppliedPlaquetteCOrLoopClass": false,
+        "callerSuppliedRelationOrFactorClass": false,
+        "chartCoordinateAssignment": "ONLY_AFTER_ABSTRACT_INCIDENCE_CLOSURE_BY_CANONICAL_FINITE_SQUARE_DYADIC_EMBEDDING_MODULO_Z2_SEMIDIRECT_D4",
+        "generatedIntermediate": "EXACT_FINITE_MATCHED_NATIVE_CONTINUATION_SECTOR_WITNESS_SET_WITH_INTERNALLY_EVALUATED_SIGN_LINK_ASSOCIATOR_PLAQUETTE_HOLONOMY_RECEIPTS",
+        "input": "ACTUAL_FULL_S16_ENDPOINT_MODES_PLUS_CALIBRATED_SHARED_BOUNDARY_CONTACT_CONTEXT_PLUS_EXPLICIT_NATIVE_BRACKET_CONTEXT",
+        "nativeSectorPairToSignedUvRequired": false,
+        "nativeTransportRequired": true,
+        "output": "NO_STITCH_OR_UNRESOLVED_DISJUNCTION_OR_RESOLVED_ABSTRACT_BOUNDARY_INCIDENCE_NATIVE_TRANSPORT_WITNESS",
+        "sampleBoundarySideToDeltaMapAuthorized": false,
+        "samplingBoundarySideInputMeaning": "BROAD_PHASE_SHARED_FOOTPRINT_BOUNDARY_ONLY",
+        "samplingBoundarySideMayDetermineDelta": false,
+        "samplingBoundarySideMayDetermineNativePort": false,
+        "sectorPairTransport": "FOR_NATIVE_SECTOR_ADDRESSES_A_B_GENERATE_G_EQUALS_A_XOR_B_AND_U_AB_OF_U_EQUALS_EPSILON_A_G_TIMES_EXPLICIT_RIGHT_BRACKET_U_E_G_WITH_THE_SWAPPED_REVERSE_EVALUATED_SEPARATELY",
+        "sectorPairTransportProvenance": "I_TOE_SIGNED_XOR_ADDRESS_AND_SIGN_GEOMETRY_NOT_CHART_COORDINATES",
+        "staticOneHotGeneratorToDeltaMapAuthorized": false,
+        "unilateralSideMapping": false,
+        "unprovedOrientation": "UNRESOLVED"
+      },
+      "normalIncidence": "A_RESOLVED_NATIVE_WITNESS_IDENTIFIES_TWO_ABSTRACT_CONTINUATION_BOUNDARY_SECTORS_WITH_EXACT_NATIVE_TRANSPORT",
       "nullNoContact": "NO_INCIDENCE",
       "permutationInvariance": [
         "FOOTPRINT_ENUMERATION",
@@ -1735,8 +1859,11 @@
         "OBSERVATION_ORDER",
         "ALLOCATION_ORDER"
       ],
-      "physicalContent": "INTRINSIC_BOUNDARY_INCIDENCE_PLUS_NATIVE_ORIENTATION_TRANSPORT_NOT_ABSOLUTE_UV_DISTANCE",
-      "twoSided": "DISTINCT_SUPPORT_UNLESS_EXACT_NATIVE_CONTINUATION_WITNESS_EXISTS"
+      "physicalContent": "ABSTRACT_INTRINSIC_BOUNDARY_INCIDENCE_PLUS_NATIVE_ORIENTATION_TRANSPORT_NOT_ABSOLUTE_OR_SIGNED_UV_DIRECTION",
+      "runtimeFusion": "FOOTPRINT_BOUNDARY_CLOSE_ONLY_COMPONENT_POTENTIAL_LOOP_AND_PACKING_ARE_INTERNAL_CLOSE_MATHEMATICS_NOT_SUBSYSTEMS",
+      "twoSided": "DISTINCT_SUPPORT_UNLESS_EXACT_NATIVE_CONTINUATION_WITNESS_EXISTS",
+      "witnessComposition": "EXPLICITLY_BRACKETED_COMPOSE_WITHOUT_REASSOCIATION",
+      "witnessReversal": "SWAP_ENDPOINT_BOUNDARY_SECTORS_INVERT_NATIVE_TRANSPORT_AND_RETAIN_EXACT_REVERSED_BRACKET_TRANSPORT_REPRESENTATION"
     }
   },
   "reverseRules": [

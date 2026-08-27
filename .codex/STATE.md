@@ -8,9 +8,10 @@ Updated: 2026-08-26 (Europe/Prague)
 - Branch: `feat/sigma-prism-16-cpq4-20260822`.
 - Runtime replacement baseline: `cac9ab012f4ce574e5eb9bee88290982fd9c4fe8`.
 - Accepted primitive milestones: S4‑00 through S4‑07 where compatible with v8.3.
-- Active node: S4‑08. Corrective N1R-5 is accepted locally; corrective N2R-5 is
-  the sole next gate. N3R remains the accepted live bootstrap, N4R remains
-  stopped/unaccepted, and S4-09 remains unopened.
+- Active node: S4‑08. Corrective N1R-6 closes abstract native stitching and the
+  representation-only `Z² semidirect D4` chart theorem with Runtime/Resources
+  `+0/-0`; corrective N2R is the sole next gate. N3R remains the accepted live
+  bootstrap, N4R remains stopped/unaccepted, and S4-09 remains unopened.
 - Active repair: S4‑08.6 one-medium native closure.
 - Frozen plan: `.codex/S4-08.6_NATIVE_CLOSURE_PLAN.md`.
 - Sole routine cursor: `.codex/S4-08.6_RESUME.md`.
@@ -66,33 +67,53 @@ supports nor proves a canonical independent-component translation gauge.
 Exact audit: `.codex/S4-08.6_N4R_PRE_CLOSURE_AUDIT.md`.
 
 The user-supplied scanner-level authority resolves that upstream omission without
-claiming it was present in TOE. A stitch candidate now requires the conjunction of
-an exact calibrated finite first-hit boundary-envelope contact and the complete
-native Merkaba relation. Resolved stitches carry incidence plus orientation/
-transport; ambiguous classes remain a disjunction. Stitch loops are solved as one
-constraint set, and stitch-disconnected components admit independent signed integer
-translation gauge only, normalized by complete canonical component bytes. No
-rotation, reflection, axis swap, scaling or persistent component identity is gauge.
+claiming it was present in TOE. Exact calibrated shared-footprint contact is only
+fresh-frame broad phase; the generated K16 program internally evaluates all 16
+abstract continuation-sector pairs from full endpoint S16 states and an explicit
+bracket context. Sector-pair transport is the source-backed signed-XOR law
+`g=a xor b`, `U_ab(u)=epsilon(a,g)[u e_g]`; it has no sample-side or chart-axis
+meaning. No caller supplies relation/factor/loop truth.
 
-Corrective N1R-5 freezes this ownership in `I_Q`/`I_REP` and the sole generated
-program. The default generator emits the executable CPU/HLSL authority only under
-`Tests/Editor/Generated`; live Runtime activation is explicitly deferred to N4.
-Runtime/Resources remain `+0/-0`. Exact next action is corrective N2R-5 bounded
-CPU/Vulkan set-level oracle parity. N4 runtime remains closed; no pixel, XYZ, hash,
-page, allocation or workgroup-order placement helper is permitted.
+The physical result is abstract boundary incidence plus exact native transport,
+not a signed chart displacement. The separate chart theorem integrates finite
+incidence patterns and canonicalizes only the admitted representation orbit
+`Z² semidirect D4`. D4 acts on square-dyadic chart coordinates only; it never
+rotates physical S16/native witnesses, and dyadic level is not gauge. Distinct
+surviving embeddings outside one gauge orbit remain unresolved. Disconnected
+components are canonicalized independently and backing-packed only after their
+complete bytes are ordered; packing distance has no physical meaning.
 
-## Corrective N1R-5 constructive modal stitching
+Corrective N1R-6 also freezes the implicit full-frame broad phase and hot semantic
+shape `FOOTPRINT -> BOUNDARY -> CLOSE`: valid same-frame RIGHT/DOWN footprint
+boundaries are enumerated once, never materialized as a physical/contact graph,
+and never mapped to `Sigma_2` axes. Runtime activation remains N4 ownership.
+
+Verified corrective N1R-6 evidence:
 
 ```text
-program version                     CPQ4-S16-MERKABA-N1R-5
-program fingerprint                 1530c689b9d032a9034cd9efdd6a3ed277d5bc7b5dea64acdf123fed2ffe87f3
-IR                                   41 opcodes / 65 nodes / 74 operands
+Unity Vulkan EditMode                         79/79 passed
+generator/check + git diff hygiene           passed
+external stitch semantic-truth inputs        0
+sample-side/native-sector -> DeltaU/DeltaV    0
+caller loop/Plaquette truth                   0
+legacy Candidate/Pending/Novel/DirtyEdge      0
+Runtime/Resources production delta            +0 / -0
+```
+
+## Corrective N1R-6 abstract modal stitching and chart gauge
+
+```text
+program version                     CPQ4-S16-MERKABA-N1R-6
+program fingerprint                 b11873e69d90cb446d2a23d1bce661de17bf9d5c222a5528a99705c753ca417b
+IR                                   39 opcodes / 61 nodes / 70 operands
 expressions / entries / reducers     17 / 7 / 5
-fresh set expression fingerprint     d2f1b95397fb7ecd3b67ae7eb5bf9071e35a01969f492636cbf8830d6ed9c01c
-constructive stitch proof            6e2db5c4d9aead9ba694c77d61b891e938fbb9fbe78de19b4f999bb8d4d532f4
+constructive stitch proof            b57aee130824f4729bc74b488dbce9159f8bac49e5ccf289786e65cfcc631251
 contact epsilon count                0
 pixel/XYZ authority count            0
 persistent component identity        false
+chart gauge                           Z² semidirect D4
+implicit boundaries at 320x320        204160
+hot semantic phases                   3
 component gauge                      independent integer translation only
 Unity Vulkan EditMode                79/79 passed
 generator regeneration/check         passed
@@ -612,9 +633,10 @@ validate_goal_state              green, active S4-08
 ## LOC cursor
 
 ```text
-corrective N1R current production LOC        17274
-corrective N1R vs a129a85 production         +0 / -0 / net 0
-corrective N1R authority/test diff            +1677 / -136 / net +1541
+corrective N1R-6 current Sigma production LOC             9764
+corrective N1R-6 vs 86195c2 Runtime/Resources      +0 / -0 / net 0
+corrective N1R-6 tests/generator/authority       +3612 / -893 / net +2719
+corrective N1R-6 spec/controls/code graph         +856 / -359 / net +497
 N2R run delta vs eacf261                    +0 / -0 / net 0
 N2R non-production source / metadata        +5003 / +27
 N2R correction vs rejected b4d88d6           +1085 / -233

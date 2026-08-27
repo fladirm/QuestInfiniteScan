@@ -6,7 +6,7 @@
 #pragma kernel MerkabaFreshAdmissionParity
 #pragma kernel MerkabaInstrumentBoundaryParity
 #pragma kernel MerkabaGaugeParity
-#pragma kernel MerkabaStitchPrimitiveParity
+#pragma kernel MerkabaStitchSetParity
 #pragma target 5.0
 
 #include "SigmaGeneratedMerkabaProgram.hlsl"
@@ -19,6 +19,9 @@ RWStructuredBuffer<uint4> _MerkabaFreshResults;
 RWStructuredBuffer<uint4> _MerkabaInstrumentResults;
 RWStructuredBuffer<uint4> _MerkabaGaugeResults;
 RWStructuredBuffer<uint4> _MerkabaStitchResults;
+
+groupshared uint _MerkabaStitchForwardClasses[16];
+groupshared uint _MerkabaStitchReverseClasses[16];
 
 uint4 _MerkabaGaugeParentCoordinate;
 uint _MerkabaGaugeParentLevel;
@@ -217,40 +220,116 @@ void MerkabaInstrumentBoundaryParity(uint3 id : SV_DispatchThreadID)
             measuredLower[leaf], measuredUpper[leaf]);
 }
 
-[numthreads(8, 1, 1)]
-void MerkabaStitchPrimitiveParity(uint3 id : SV_DispatchThreadID)
+[numthreads(16, 1, 1)]
+void MerkabaStitchSetParity(uint3 id : SV_DispatchThreadID)
 {
-    uint lane = id.x;
+    uint pair = id.x;
+    uint leftSector = pair >> 2u;
+    uint rightSector = pair & 3u;
     uint2 zero = uint2(0u, 0u);
     uint2 one = uint2(0u, 0x00010000u);
     uint2 two = uint2(0u, 0x00020000u);
-    uint2 leftLower[3];
-    uint2 leftUpper[3];
-    uint2 rightLower[3];
-    uint2 rightUpper[3];
+    uint2 leftState[16];
+    uint2 rightState[16];
     [unroll]
-    for (uint axis = 0u; axis < 3u; ++axis)
+    for (uint stateLane = 0u; stateLane < 16u; ++stateLane)
     {
-        leftLower[axis] = zero;
-        leftUpper[axis] = one;
-        rightLower[axis] = lane == 1u ? two : one;
-        rightUpper[axis] = two;
+        leftState[stateLane] = zero;
+        rightState[stateLane] = zero;
     }
-    uint leftClaim = lane == 2u ? SIGMA_NATIVE_QUERY_NO_CLAIM :
-        SIGMA_NATIVE_QUERY_FIRST_HIT_MOULD;
-    bool contact = SigmaMerkabaBoundaryEnvelopesContact(leftClaim,
-        SIGMA_NATIVE_QUERY_FIRST_HIT_MOULD, leftLower, leftUpper,
-        rightLower, rightUpper);
-    uint relation = lane == 5u ? SIGMA_MERKABA_RELATION_NEAR_SINGULAR_Q48 :
-        (lane == 6u ? SIGMA_MERKABA_RELATION_NO_RELATION :
-            SIGMA_MERKABA_RELATION_REGULAR);
-    uint2 bracket = lane == 7u ? uint2(0u, 0u) : uint2(0x12345678u, 1u);
-    uint port = lane == 4u ? SIGMA_STITCH_PORT_V_MINUS :
-        SIGMA_STITCH_PORT_U_PLUS;
-    int3 stitch = SigmaMerkabaClassifyModalStitch(relation,
-        SIGMA_EXACT_FACTOR_PROVEN_CLOSED,
-        SIGMA_EXACT_FACTOR_PROVEN_CLOSED,
-        SIGMA_EXACT_FACTOR_PROVEN_CLOSED, port, 1, bracket);
-    _MerkabaStitchResults[lane] = uint4(contact ? 1u : 0u, asuint(stitch.x),
-        asuint(stitch.y), asuint(stitch.z));
+    leftState[1] = one;
+    rightState[2] = one;
+    uint forwardValid = 1u;
+    uint reverseValid = 1u;
+    uint forwardClass = SigmaMerkabaClassifyPointNativeStitchPair(
+        leftState, rightState, leftSector, rightSector, forwardValid);
+    uint reverseClass = SigmaMerkabaClassifyPointNativeStitchPair(
+        rightState, leftState, leftSector, rightSector, reverseValid);
+    _MerkabaStitchForwardClasses[pair] = forwardClass;
+    _MerkabaStitchReverseClasses[pair] = reverseClass;
+    _MerkabaStitchResults[pair] = uint4(forwardClass, forwardValid,
+        leftSector, rightSector);
+    _MerkabaStitchResults[16u + pair] = uint4(reverseClass, reverseValid,
+        leftSector, rightSector);
+
+    GroupMemoryBarrierWithGroupSync();
+    if (pair == 0u)
+    {
+        uint4 forward0 = uint4(_MerkabaStitchForwardClasses[0],
+            _MerkabaStitchForwardClasses[1],
+            _MerkabaStitchForwardClasses[2],
+            _MerkabaStitchForwardClasses[3]);
+        uint4 forward1 = uint4(_MerkabaStitchForwardClasses[4],
+            _MerkabaStitchForwardClasses[5],
+            _MerkabaStitchForwardClasses[6],
+            _MerkabaStitchForwardClasses[7]);
+        uint4 forward2 = uint4(_MerkabaStitchForwardClasses[8],
+            _MerkabaStitchForwardClasses[9],
+            _MerkabaStitchForwardClasses[10],
+            _MerkabaStitchForwardClasses[11]);
+        uint4 forward3 = uint4(_MerkabaStitchForwardClasses[12],
+            _MerkabaStitchForwardClasses[13],
+            _MerkabaStitchForwardClasses[14],
+            _MerkabaStitchForwardClasses[15]);
+        uint4 reverse0 = uint4(_MerkabaStitchReverseClasses[0],
+            _MerkabaStitchReverseClasses[1],
+            _MerkabaStitchReverseClasses[2],
+            _MerkabaStitchReverseClasses[3]);
+        uint4 reverse1 = uint4(_MerkabaStitchReverseClasses[4],
+            _MerkabaStitchReverseClasses[5],
+            _MerkabaStitchReverseClasses[6],
+            _MerkabaStitchReverseClasses[7]);
+        uint4 reverse2 = uint4(_MerkabaStitchReverseClasses[8],
+            _MerkabaStitchReverseClasses[9],
+            _MerkabaStitchReverseClasses[10],
+            _MerkabaStitchReverseClasses[11]);
+        uint4 reverse3 = uint4(_MerkabaStitchReverseClasses[12],
+            _MerkabaStitchReverseClasses[13],
+            _MerkabaStitchReverseClasses[14],
+            _MerkabaStitchReverseClasses[15]);
+        _MerkabaStitchResults[32] = SigmaMerkabaFinalizeNativeStitchSet(
+            forward0, forward1, forward2, forward3);
+        _MerkabaStitchResults[33] = SigmaMerkabaFinalizeNativeStitchSet(
+            reverse0, reverse1, reverse2, reverse3);
+
+        uint2 leftLower[3];
+        uint2 leftUpper[3];
+        uint2 rightLower[3];
+        uint2 rightUpper[3];
+        [unroll]
+        for (uint axis = 0u; axis < 3u; ++axis)
+        {
+            leftLower[axis] = zero;
+            leftUpper[axis] = one;
+            rightLower[axis] = one;
+            rightUpper[axis] = two;
+        }
+        _MerkabaStitchResults[34] = uint4(
+            SigmaMerkabaBoundaryEnvelopesContact(
+                SIGMA_NATIVE_QUERY_FIRST_HIT_MOULD,
+                SIGMA_NATIVE_QUERY_FIRST_HIT_MOULD,
+                leftLower, leftUpper, rightLower, rightUpper) ? 1u : 0u,
+            0u, 0u, 0u);
+        rightLower[0] = two;
+        _MerkabaStitchResults[35] = uint4(
+            SigmaMerkabaBoundaryEnvelopesContact(
+                SIGMA_NATIVE_QUERY_FIRST_HIT_MOULD,
+                SIGMA_NATIVE_QUERY_FIRST_HIT_MOULD,
+                leftLower, leftUpper, rightLower, rightUpper) ? 1u : 0u,
+            0u, 0u, 0u);
+        _MerkabaStitchResults[36] = uint4(
+            SigmaMerkabaBoundaryEnvelopesContact(
+                SIGMA_NATIVE_QUERY_NO_CLAIM,
+                SIGMA_NATIVE_QUERY_FIRST_HIT_MOULD,
+                leftLower, leftUpper, rightLower, rightUpper) ? 1u : 0u,
+            0u, 0u, 0u);
+    }
+    if (pair < 8u)
+    {
+        uint d4Valid = 1u;
+        int2 transformed = SigmaMerkabaTransformChartCellLower(
+            int2(2, -3), pair, d4Valid);
+        _MerkabaStitchResults[37u + pair] = uint4(
+            asuint(transformed.x), asuint(transformed.y), pair, d4Valid);
+    }
 }

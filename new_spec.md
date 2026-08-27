@@ -87,6 +87,21 @@ gauge only when the complete generated program proves equality of every physical
 query and native relation. The runtime stores and publishes one deterministic
 normal finite representative of that equivalence class.
 
+For the finite square-dyadic chart of one stitch-connected component, the frozen
+chart-coordinate gauge is
+
+\[
+\boxed{G_{chart}=\mathbb Z^2\rtimes D_4},
+\]
+
+where `Z²` is signed integer chart translation and `D4` is the eight signed axis
+permutations preserving the square dyadic complex. These rotations, reflections,
+axis swaps and sign changes act only on finite chart coordinates. They do not
+rotate or reflect the physical room, change S16 values or alter native transport.
+Dyadic level, refinement and supported bandwidth are not gauge and may not be
+rescaled away. Stitch-disconnected components carry an independent copy of this
+chart gauge until a proved stitch joins them.
+
 ---
 
 # 2. `Σ₂`, exact representation gauge and local sampling density
@@ -1138,21 +1153,95 @@ mint incidence. T8/O6 shadow structure is usable as a port/boundary inventory on
 where an authoritative modal-stitching theorem constructively proves that role;
 it is never a stored polyhedron or an intuitive `+U/-U` port scheme.
 
+This constructive neighbour rule is scanner-level `I_Q + I_REP` authority, not a
+claim that upstream TOE B.12--B.16 constructs scanner incidence. `I_TOE` supplies
+the exact native sign transport and full modal compatibility factors for a posed
+relation. `I_Q` supplies only calibrated finite-footprint contact eligibility and
+`I_REP` integrates the surviving native relative transports. No legacy topology,
+pixel-to-carrier mapping, XYZ proximity, page/sample address, hash or allocation
+order is an admissible fallback when that conjunction is unresolved.
+
+The constructive generated boundary is exactly:
+
+\[
+(u_i,u_j,C^{contact}_{ij},C^{bracket}_{ij})
+\longmapsto
+\{W^{sector}_{ij}\}_{exact}
+\longmapsto
+\{\mathrm{NO\_STITCH},\mathrm{UNRESOLVED},
+  \mathrm{RESOLVED}(W_{ij})\}.
+\]
+
+Here `u_i,u_j` are the actual full S16 modes, the contact context is the
+calibrated shared-footprint boundary evidence and the native context retains the
+explicit bracket history. `W_sector` is an exact matched native continuation-
+sector witness. Its physical content is abstract intrinsic boundary incidence,
+matched continuation sectors, native orientation/transport, explicit brackets and
+exact relation receipts. It does **not** contain or physically determine signed
+dyadic `DeltaU/DeltaV`. A sampling boundary side may select which measured
+manifestation boundary is tested; it cannot select a chart coordinate direction.
+Caller-supplied relation/factor classes, transport signs, `PlaquetteC`, loop
+classification or a preselected intrinsic delta are never semantic inputs.
+
+The generated transport between abstract native sector addresses `a,b` is the
+smallest direct lowering of the frozen K16 address/sign law:
+
+\[
+g_{ab}=a\oplus b,\qquad
+U_{ab}(u)=\varepsilon(a,g_{ab})\,[u e_{g_{ab}}],
+\]
+
+with the displayed right bracket retained explicitly. The reverse `b -> a` is
+generated and checked separately; it is not assumed from a scalar sign. This
+equation produces only a native transport receipt between abstract sectors. It
+has no chart-coordinate or sampling-side meaning.
+
+In particular, neither `{1,2,4,8} -> {+U,-U,+V,-V}` nor any equivalent one-hot,
+sample-side or image-direction table is authorized. No native-sector-to-`U/V`
+equation is required: chart coordinates are assigned only after the abstract
+incidence constraint set has resolved.
+
+Witness reversal swaps endpoint sectors, inverts native transport and retains the
+exact reversed bracket/transport representation. Witness composition is the
+explicitly bracketed generated `Compose(W_ij,W_jk)`; reassociation is forbidden.
+Loop closure remains the existing exact link/associator/plaquette/holonomy law.
+
+For every finite connected resolved stitch pattern, canonical chart embedding:
+
+1. chooses any transient scratch root;
+2. integrates the abstract boundary identifications and enumerates the finite
+   square-dyadic embeddings admitted by all resolved witnesses;
+3. rejects or retains `UNRESOLVED` when redundant paths are not exactly
+   consistent;
+4. translation-normalizes each admitted embedding;
+5. enumerates its eight `D4` chart images;
+6. serializes complete `chi/kappa`, full S16, stitch/native transport/bracket
+   receipts, certificates and refinement levels for every image; and
+7. selects the lexicographically minimum complete byte string.
+
+This is chart normalization, not selection of a physical orientation. Observation,
+edge/workgroup order, scratch root and initial chart orientation cannot affect the
+result. Lexicographic selection is legal only within one `Z² ⋊ D4` orbit. If the
+abstract constraints admit two surviving embedding classes not related by that
+chart gauge—for example a chain and a corner incidence—closure remains
+`UNRESOLVED`; it never chooses the smaller bytes. Applying a D4 chart image
+transports only chart coordinates and incidence serialization. It does not rotate,
+reflect or otherwise rewrite the physical S16/native-transport/bracket witness,
+whose complete-program result must remain identical.
+
 Multi-stitch composition preserves the same explicit bracket history. Closed
 patterns are admitted only when the complete associator/plaquette/holonomy law
 proves a common finite relative pattern. Inconsistent, non-singleton or
 insufficiently constrained loops remain unresolved; averaging, snapping, welding
 and coordinate repair are forbidden.
 
-For stitch-disconnected supported components, independent integer translation of
-each component is harmless representation gauge. This admits translation only:
-no rotation, reflection, axis permutation, sign flip or dyadic scaling. Components
-are transient normalization scratch, never persistent identity. Normalize each
-component with the existing `I_REP` translation normalizer, canonical-serialize
-its complete S16/chi/kappa/relation/certificate content, sort the component
-multiset by complete bytes and serialize the multiset without inventing physical
-distance. A later proved stitch joins and renormalizes the components as one
-pattern.
+For stitch-disconnected supported components, an independent `Z² ⋊ D4` chart
+action on each component is harmless representation gauge. Components are
+transient normalization scratch, never persistent identity. Canonicalize every
+component independently as above, sort the complete component byte strings and
+backing-pack the multiset without inventing physical distance. A later proved
+stitch removes the independent gauges and renormalizes the joined component once
+under one common `Z² ⋊ D4`. Dyadic scale remains non-gauge.
 
 Fold/two-sided/occlusion labels never act as displacement rules. A fold may remain
 stitched through its proved nontrivial transport; close sheets remain distinct
@@ -1535,6 +1624,118 @@ PrepareChangedRepresentation       indirect
 ScatterChangedStatesAndGauge       indirect
 CloseAndPublishRevision
 ```
+
+## 24.1 Full-frame sensor lowering is one implicit cell complex
+
+The complete coherent sensor domain is a disposable implicit square footprint
+complex, not a general contact graph. For valid finite footprints in the **same
+coherent frame**, fresh-to-fresh broad-phase owns only the undirected shared
+sampling boundaries
+
+\[
+N_{horizontal}=(W-1)H,\qquad
+N_{vertical}=W(H-1),\qquad
+N_{edge}=N_{horizontal}+N_{vertical}.
+\]
+
+Thus `320 x 320` has exactly `204160` possible `RIGHT`/`DOWN` boundaries and
+`319^2=101761` implicit local plaquettes. These counts are dispatch dimensions,
+not allocated node, edge or plaquette objects. An edge thread derives both endpoint
+footprints directly from its index. Invalid footprints and proven gaps contribute
+no bridging edge.
+
+Sampling-domain `LEFT/RIGHT/UP/DOWN` is `SampleBoundarySide`: transient `I_Q`
+broad-phase evidence only. It must never directly produce `Sigma_2` incidence,
+`DeltaU/DeltaV`, native port identity or physical orientation. Incidence and exact
+relative intrinsic transport exist only after the full-S16 generated Merkaba stitch
+relation admits them. Pixel adjacency proposes where local continuation can be
+tested; it never proves continuation.
+
+The implications `image RIGHT -> Sigma_2 +U` and
+`image DOWN -> Sigma_2 +V`, including renamed or permuted equivalents, are
+explicitly forbidden. There is no direct fresh-to-fresh candidate between
+nonadjacent sampling footprints. A gap, invalid footprint or unseen/occluded
+interval is not bridged; its alternatives remain disconnected/unresolved until a
+later observation or existing-support closure provides evidence.
+
+Routing is exhaustive and frozen:
+
+1. fresh observation to fresh observation in the same coherent frame uses only
+   the implicit shared-boundary broad-phase, calibrated contact evidence and the
+   generated native Merkaba stitch;
+2. a new observation to published `Psi` uses `PREDICTION_SUPPORT` plus the
+   first-hit query for contraction or attachment;
+3. existing support to existing support uses retained/generated native stitch
+   relation witnesses.
+
+Cross-frame pixel adjacency is forbidden.
+
+The hot coherent-frame execution has exactly three fused semantic phases:
+
+```text
+FOOTPRINT
+    per valid footprint: calibrated reverse contraction plus prediction-support
+    association; emit only transient INVALID / EXISTING_SUPPORT /
+    UNATTACHED_FIRST_HIT / UNRESOLVED_EXISTING state
+
+BOUNDARY
+    per implicit RIGHT/DOWN boundary: exact shared-footprint contact plus the
+    complete generated full-S16 Merkaba stitch; emit only no-stitch, a compact
+    unresolved factor or a resolved native relative-transport witness
+
+CLOSE
+    parallel exact consistency, chi/kappa potential integration, native
+    bracket/associator/plaquette/holonomy closure, certificate minimization,
+    compact state/gauge deltas and root-last publication
+```
+
+`Plaquette`, `fundamental cycle`, `component`, `potential`, `normalization` and
+`packing` name mathematics inside `CLOSE`; they are not runtime stages, managers,
+persistent identities or dispatch families. Local plaquettes are index-derived.
+Any nonlocal consistency still required after local closure is represented by a
+deterministic bounded fundamental-cycle reduction over resolved witnesses, never
+by a caller-supplied loop list. Intrinsic coordinates are exact integrated
+potentials of native relative transports. A redundant constraint either agrees
+exactly or remains incompatible/unresolved; there is no averaging, snapping or
+coordinate repair.
+
+Fresh endpoints and already supported endpoints use the same `BOUNDARY` evaluator.
+`EXISTING<->EXISTING`, `EXISTING<->FRESH`, `FRESH<->FRESH` and unresolved/gap
+routing are endpoint dispositions inside the generated operation, not separate
+pipelines. Existing support is found by `PREDICTION_SUPPORT`; cross-frame pixel
+adjacency is never used.
+
+No production hot-path object or buffer may represent a complete
+`ContactCandidate[]`, `StitchGraph`, `LoopConstraint[]`, persistent component,
+placement manager or topology graph. A transient witness may occupy compact scratch
+words for one dispatch lifetime. Only changed localities, unresolved frontier
+factors and certificate/state/gauge deltas survive compaction. Disconnected-
+component packing is backing-only and cannot feed query or relation physics.
+
+`FOOTPRINT`, `BOUNDARY` and `CLOSE` are logical fused phases to be mapped into the
+existing N3/N4 entry points; they are not a request for three new shader families.
+Full-frame admission changes workgroup cardinality and compact scratch, not the
+semantic submission graph. Relative to the accepted N3 native hot graph, the N4
+target is at most two additional bounded hot submissions for demonstrably necessary
+parallel compaction/global reduction.
+
+Hot work-submission cardinality is independent of pixel, stitch, transient
+component, page and scan-history counts. Those quantities may change grid/workgroup
+dimensions and bounded compact scratch only. The N4 `D_budget<=64` gate is
+unchanged.
+
+This target never authorizes serialization inside a giant kernel. No global
+spin/wait, component-by-component loop, serial prefix/reduction, unbounded
+fixed-point iteration or dispatch-indirect recursion may hide a required
+cross-workgroup synchronization boundary. One additional wide fixed parallel pass
+is preferable to serialized in-kernel work. If the exact generated full-frame
+closure demonstrably requires a third fixed global synchronization boundary, stop
+before runtime implementation and report the irreducible data dependency and why
+fusion or a bounded parallel scan changes semantics; do not silently relax the
+target and do not fake it by serializing. Production kernels named or
+equivalent to `BuildCandidates`, `SortEdges`, `BuildComponents`, `ResolveLoops`,
+`PackComponents` or `FinalizeStitches` are forbidden. A single serial interpreter
+hidden inside one kernel is equally forbidden.
 
 Names may change. Their semantic limits may not.
 
@@ -2274,6 +2475,10 @@ Deleting eye/prediction caches changes no canonical bytes or export result.
   confidence or loss of coupled/disjunctive constraints;
 - derive bounded deterministic evidence minimization and the carrier-
   reparameterization theorem against complete `𝔐`;
+- generate abstract native stitch reversal/composition and a separate canonical
+  square-dyadic chart embedding modulo `Z² ⋊ D4`; no native sector/sample side may
+  emit physical or chart `DeltaU/DeltaV` directly, and non-gauge-equivalent
+  surviving embeddings remain unresolved;
 - no live mutation.
 
 ## N2R — non-mutating forward/reverse oracle
@@ -2290,6 +2495,9 @@ Deleting eye/prediction caches changes no canonical bytes or export result.
 - prove sparse query-support completeness against exhaustive resident/nonresident
   small domains;
 - prove bounded certificate bytes under duplicate revisit permutations;
+- prove abstract-stitch reversal, bracketed composition, fold/nonassociation,
+  exact loop closure, all eight D4 chart images, disconnected-component gauge,
+  non-gauge ambiguity retention and mixed-level pointwise canonicalization;
 - compare against exhaustive small-domain oracle.
 
 ## N3R — joint NativeCloseCommit live cutover
@@ -2337,6 +2545,12 @@ There is no publication-capable sensor-only intermediate run.
 - hard-cut the N3 one-centre-footprint bootstrap from the production scanner;
 - consume the complete coherent bounded `320x320` RGB-D observation domain and
   exclude only footprints rejected by the frozen validity/footprint law;
+- lower that domain only through the fused `FOOTPRINT -> BOUNDARY -> CLOSE`
+  contract of Section 24.1: implicit footprint vertices, implicit `RIGHT/DOWN`
+  boundaries and no materialized general contact/stitch/loop/component graph;
+- run `PREDICTION_SUPPORT` inside `FOOTPRINT` and route all endpoint combinations
+  through the same native `BOUNDARY` evaluator; sampling sides never become
+  `Sigma_2` directions;
 - lower full-frame cardinality to compact GPU worklists, parallel workgroups and a
   fixed bounded direct/indirect graph; a CPU pixel loop, dispatch per pixel/support/
   locality, or serial full-frame interpreter is forbidden;
@@ -2361,7 +2575,12 @@ There is no publication-capable sensor-only intermediate run.
 - require `D_budget<=64` for the complete warm bounded `320x320` same-sampling
   frame; genuine regional
   refinement is separately reason-coded cold work and is absent from the next
-  equivalent warm frame.
+  equivalent warm frame;
+- target no more than two bounded hot submissions over the accepted N3 native
+  graph and map the three logical phases into existing entry points; if a third
+  fixed wide synchronization pass is mathematically irreducible, stop and justify
+  it before implementation. Neither timing, dispatch count nor `D_budget<=64`
+  permits serializing cross-workgroup closure inside one kernel.
 
 ## N5R — representation-aware sparse commit and durable pager
 

@@ -45,7 +45,7 @@ HLSL_MERKABA_FIXTURE_OUTPUT = (ROOT / "Tests" / "Editor" / "Generated" /
 NUMERIC_ID = "num.fixed.q16_48.checked.nearest_even"
 GENERATOR_VERSION = "CPQ4-S16-GEN-1"
 FRAME_ABI_VERSION = "CPQ4-S16-NATIVE-FRAME-3"
-MERKABA_PROGRAM_VERSION = "CPQ4-S16-MERKABA-N1R-5"
+MERKABA_PROGRAM_VERSION = "CPQ4-S16-MERKABA-N1R-6"
 TOE_UPSTREAM_SHA256 = "9d2e3604846305cfe5244a4ef49f169632c60582cf895256fadc36426dc5786f"
 LANES = 16
 
@@ -300,15 +300,14 @@ def build_executable_merkaba_ir() -> dict:
         "SHADOW_CELL_INTERSECT", "TANGENT_MIN_CHANGE_SELECT",
         "MERKABA_DUAL_FRAME_LIFT", "FORWARD_RELATION_VERIFY",
         "FRESH_BASE_PATTERN", "COMMON_UNION_OR_UNRESOLVED",
-        "WHOLE_FRAME_REVERSE_SET", "CONTACT_CANDIDATE_SET",
-        "MERKABA_MODAL_STITCH", "STITCH_LOOP_CLOSURE",
-        "FRESH_SUPPORT_SET_PATTERN", "COMPONENT_TRANSLATION_NORMALIZE",
+        "WHOLE_FRAME_REVERSE_SET", "FOOTPRINT_CONTRACT",
+        "IMPLICIT_BOUNDARY_CONTRACT", "GLOBAL_EXACT_CLOSE",
     )
     value_kinds = (
         "S16", "Q48_INTERVAL", "S16_INTERVAL", "RELATION_FACTOR",
         "SCENE_SHADOW", "PREIMAGE_UNION", "ACTION_WITNESS", "CERTIFICATE",
         "GAUGE_FIELD", "QUERY_ROLE", "BOOLEAN", "SHADOW_CELL",
-        "FRESH_ADMISSION", "CONTACT_SET", "STITCH_SET", "INTRINSIC_PATTERN",
+        "FRESH_ADMISSION", "FOOTPRINT_FIELD", "BOUNDARY_FIELD",
     )
     neighbourhoods = (
         "LOCAL", "LOCAL_CONTEXT", "FULL_LOCAL_STATE", "WHOLE_QUERY",
@@ -556,26 +555,17 @@ def build_executable_merkaba_ir() -> dict:
                                  (field, query,
                                   expressions[reverse_index]["rootNode"]),
                                  "RETAIN_SUPPORT_DISJUNCTION")
-        contacts = add_node("CONTACT_CANDIDATE_SET", "CONTACT_SET",
-                            (whole_reverse, query),
-                            "RETAIN_SUPPORT_DISJUNCTION")
-        stitches = add_node("MERKABA_MODAL_STITCH", "STITCH_SET",
-                            (contacts,
+        footprint = add_node("FOOTPRINT_CONTRACT", "FOOTPRINT_FIELD",
+                             (whole_reverse, query),
+                             "RETAIN_SUPPORT_DISJUNCTION")
+        boundary = add_node("IMPLICIT_BOUNDARY_CONTRACT", "BOUNDARY_FIELD",
+                            (footprint,
                              expressions[link_index]["rootNode"],
                              expressions[normalized_associator_index]["rootNode"],
                              expressions[plaquette_index]["rootNode"]),
                             "RETAIN_SUPPORT_DISJUNCTION")
-        closed = add_node("STITCH_LOOP_CLOSURE", "STITCH_SET", (stitches,),
-                          "RETAIN_SUPPORT_DISJUNCTION")
-        pattern = add_node("FRESH_SUPPORT_SET_PATTERN", "INTRINSIC_PATTERN",
-                           (closed,), "RETAIN_SUPPORT_DISJUNCTION")
-        normalized = add_node("COMPONENT_TRANSLATION_NORMALIZE",
-                              "INTRINSIC_PATTERN", (pattern,),
-                              "EXACT_IDENTITY")
-        certificate = add_node("CERTIFICATE_MINIMIZE", "CERTIFICATE",
-                               (closed,), "RETAIN_FACTOR")
-        return add_node("COMMON_UNION_OR_UNRESOLVED", "FRESH_ADMISSION",
-                        (normalized, certificate, whole_reverse),
+        return add_node("GLOBAL_EXACT_CLOSE", "FRESH_ADMISSION",
+                        (whole_reverse, footprint, boundary),
                         "COMMON_RESULT_OR_UNRESOLVED")
     fresh_support_set_index = add_expression(
         "FRESH_SUPPORT_SET_ADMISSION",
@@ -1303,35 +1293,136 @@ def fresh_base_admission_proof() -> dict:
 
 def constructive_stitch_authority_proof(i_q: dict, i_rep: dict,
                                          ir: dict) -> dict:
-    """Freeze the scanner-owned contact/modal/incidence conjunction shape."""
+    """Freeze abstract native incidence and representation-only D4 chart gauge."""
     authority = i_q["constructiveModalStitching"]
-    contact = authority["contactCandidate"]
+    boundary = authority["implicitBoundaryField"]
     modal = authority["modalConjunction"]
+    fusion = authority["hotFusion"]
     embedding = i_rep["stitchEmbedding"]
+    transport = embedding["nativeRelativeTransportTheorem"]
     gauge = i_rep["gaugeFamily"]
     if (authority["authority"] !=
             "SCANNER_LEVEL_I_Q_CONTACT_CONJUNCTION_WITH_I_TOE_NATIVE_RELATION_NOT_AN_UPSTREAM_TOE_CLAIM" or
-            contact["arbitraryEpsilon"] or
-            contact["pixelAdjacencyAuthority"] or
-            not contact["pixelAdjacencyAccelerationOnly"] or
+            authority["semanticTruthInputs"] != [] or
+            authority["semanticClasses"] !=
+            "OUTPUT_RECEIPTS_ONLY_NEVER_TRUSTED_INPUT" or
+            boundary["arbitraryEpsilon"] or
+            boundary["pixelAdjacencyAuthority"] or
+            not boundary["samplingFootprintAdjacencyBroadPhaseOnly"] or
+            boundary["crossFramePixelAdjacency"] or
+            boundary["freshFreshBroadPhase"] !=
+            "ONLY_SHARED_BOUNDARIES_OF_ADJACENT_VALID_COHERENT_SAMPLING_FOOTPRINTS_IN_THE_SAME_FRAME" or
+            boundary["samplingAdjacencyMeaning"] !=
+            "BROAD_PHASE_ELIGIBILITY_ONLY_NEVER_SIGMA2_INCIDENCE_OR_RELATIVE_DELTA" or
+            boundary["invalidGapOrOcclusionBridge"] or
+            boundary["materializeCompleteBoundarySet"] or
+            boundary["full320BoundaryCardinality"] != 204160 or
             modal["minimumResidualWinner"] or
+            modal["callerSuppliedRelationOrFactorClass"] or
+            modal["callerSuppliedTransportSign"] or
+            modal["callerSuppliedNativeGenerator"] or
+            modal["callerSuppliedBracketFingerprint"] or
+            modal["callerSuppliedPlaquetteC"] or
+            modal["callerSuppliedLoopOrRelationTruth"] or
+            modal["physicalStitchContainsSignedDyadicDelta"] or
+            modal["nativeSectorToUvEquationRequired"] or
+            modal["staticOneHotOrSampleSideTransformMap"] or
+            modal["generatedSectorPairTransport"]["transportAddress"] !=
+            "G_AB_EQUALS_A_XOR_B" or
+            modal["generatedSectorPairTransport"]["forwardAction"] !=
+            "U_AB_OF_U_EQUALS_EPSILON_A_G_AB_TIMES_EXPLICIT_RIGHT_BRACKET_U_E_G_AB" or
+            modal["generatedSectorPairTransport"]["chartCoordinateMeaning"] !=
+            "NONE" or
             gauge["independentComponentGaugeGroup"] !=
-            "SIGNED_INTEGER_TRANSLATION_ONLY" or
+            "PRODUCT_OVER_STITCH_DISCONNECTED_COMPONENTS_OF_Z2_SEMIDIRECT_D4" or
             set(gauge["notGauge"]) != {
-                "ROTATION", "REFLECTION", "U_V_SWAP", "SIGN_FLIP",
-                "DYADIC_SCALE"} or
-            embedding["componentNormalization"]["persistentComponentIdentity"]):
+                "DYADIC_SCALE", "REFINEMENT_LEVEL", "SUPPORTED_BANDWIDTH",
+                "LOSSY_RESAMPLING"} or
+            gauge["physicalTransformAuthorityFromD4"] or
+            not transport["nativeTransportRequired"] or
+            transport["samplingBoundarySideMayDetermineDelta"] or
+            transport["samplingBoundarySideMayDetermineNativePort"] or
+            transport["nativeSectorPairToSignedUvRequired"] or
+            transport["sectorPairTransport"] !=
+            "FOR_NATIVE_SECTOR_ADDRESSES_A_B_GENERATE_G_EQUALS_A_XOR_B_AND_U_AB_OF_U_EQUALS_EPSILON_A_G_TIMES_EXPLICIT_RIGHT_BRACKET_U_E_G_WITH_THE_SWAPPED_REVERSE_EVALUATED_SEPARATELY" or
+            transport["callerSuppliedOrientationOrDelta"] or
+            transport["callerSuppliedNativeGenerator"] or
+            transport["callerSuppliedRelationOrFactorClass"] or
+            transport["callerSuppliedPlaquetteCOrLoopClass"] or
+            transport["unilateralSideMapping"] or
+            i_rep["normalizer"]["nonGaugeEquivalentEmbeddingClasses"] !=
+            "UNRESOLVED_NEVER_LEXICOGRAPHIC_WINNER_SELECTION" or
+            embedding["chartEmbedding"]["nonGaugeEquivalentEmbeddingClasses"] !=
+            "UNRESOLVED" or
+            embedding["chartEmbedding"]["d4TransformsPhysicalS16OrNativeWitness"] or
+            embedding["callerSuppliedLoopClassification"] or
+            embedding["componentNormalization"]["persistentComponentIdentity"] or
+            fusion["semanticPhases"] != ["FOOTPRINT", "BOUNDARY", "CLOSE"] or
+            not fusion["mapIntoExistingEntrypoints"] or
+            fusion["newShaderFamilyPerPhase"] or
+            fusion["separateRuntimeSubsystems"] or
+            fusion["targetMaximumAdditionalHotSubmissionsBeyondAcceptedN3NativeGraph"] != 2 or
+            not fusion["parallelismDominatesLiteralCount"] or
+            fusion["serialGenericInterpreter"]):
         raise RuntimeError("constructive stitch authority admits heuristic identity/gauge")
+
+    width = height = 320
+    implicit_edges = (width - 1) * height + width * (height - 1)
+    implicit_plaquettes = (width - 1) * (height - 1)
+    if implicit_edges != 204160 or implicit_plaquettes != 101761:
+        raise RuntimeError("implicit coherent sampling-complex count drifted")
+
+    # K16 character sectors remain abstract native boundary labels.  They are not
+    # signed chart axes.  D4 is enumerated only after an abstract stitched pattern
+    # has closed, and acts only on chart coordinates.
+    abstract_sectors = (1, 2, 4, 8)
+    if modal["nativeBoundarySectorInventory"] != (
+            "FOUR_GENERATED_K16_CHARACTER_FRAME_SECTORS_FROM_I_TOE_SECTION_6_WITH_NO_UV_OR_SAMPLE_SIDE_MEANING"):
+        raise RuntimeError("native boundary sectors are not capsule-backed")
+    d4 = (
+        (1, 0, 0, 1), (0, -1, 1, 0), (-1, 0, 0, -1),
+        (0, 1, -1, 0), (-1, 0, 0, 1), (1, 0, 0, -1),
+        (0, 1, 1, 0), (0, -1, -1, 0),
+    )
+    if len(set(d4)) != 8 or any(abs(a * d - b * c) != 1
+                                for a, b, c, d in d4):
+        raise RuntimeError("D4 chart gauge is not the eight square isometries")
+    probe = ((0, 0), (2, 0), (2, 1))
+    d4_images = {
+        tuple((a * u + b * v, c * u + d * v) for u, v in probe)
+        for a, b, c, d in d4
+    }
+    if len(d4_images) != 8:
+        raise RuntimeError("D4 proof fixture does not distinguish eight images")
+    chain = frozenset(((0, 0), (1, 0), (2, 0)))
+    corner = frozenset(((0, 0), (1, 0), (1, 1)))
+    chain_orbit = {
+        frozenset((a * u + b * v, c * u + d * v) for u, v in chain)
+        for a, b, c, d in d4
+    }
+    if corner in chain_orbit:
+        raise RuntimeError("non-D4-equivalent incidence ambiguity was collapsed")
+
+    # One base integer translation is scaled in dyadic numerator space.  These
+    # probes are the constructive mixed-level representation invariant used by
+    # the generated CPU implementation and its DecodeField tests.
+    translation = -3
+    mixed_level_probes = []
+    for level in (0, 1, 2):
+        numerator = 5 * (1 << level)
+        translated = numerator + translation * (1 << level)
+        if Fraction(translated, 1 << level) != \
+                Fraction(numerator, 1 << level) + translation:
+            raise RuntimeError("mixed-level component translation changed field point")
+        mixed_level_probes.append((level, numerator, translated))
     expression = ir["expressions"][ir["freshSupportSetExpression"]]
     node_names = ir["opcodes"]
     owned = [node_names[ir["nodes"][index]["opcode"]]
              for index in range(expression["nodeStart"],
                                 expression["nodeStart"] + expression["nodeCount"])]
     required = [
-        "WHOLE_FRAME_REVERSE_SET", "CONTACT_CANDIDATE_SET",
-        "MERKABA_MODAL_STITCH", "STITCH_LOOP_CLOSURE",
-        "FRESH_SUPPORT_SET_PATTERN", "COMPONENT_TRANSLATION_NORMALIZE",
-        "CERTIFICATE_MINIMIZE", "COMMON_UNION_OR_UNRESOLVED",
+        "WHOLE_FRAME_REVERSE_SET", "FOOTPRINT_CONTRACT",
+        "IMPLICIT_BOUNDARY_CONTRACT", "GLOBAL_EXACT_CLOSE",
     ]
     if any(name not in owned for name in required):
         raise RuntimeError("set-level stitch expression is not executable in sole IR")
@@ -1341,13 +1432,32 @@ def constructive_stitch_authority_proof(i_q: dict, i_rep: dict,
         "nodeCount": expression["nodeCount"],
         "contactEpsilonCount": 0,
         "pixelOrXyzAuthorityCount": 0,
-        "componentGauge": "INDEPENDENT_INTEGER_TRANSLATION_ONLY",
+        "externalSemanticTruthInputCount": 0,
+        "callerLoopTruthInputCount": 0,
+        "samplingSideToDeltaAuthorityCount": 0,
+        "abstractNativeSectorCount": len(abstract_sectors),
+        "d4ChartImageCount": len(d4),
+        "nonGaugeEmbeddingAmbiguityCount": 1,
+        "implicitBoundaryCount320": implicit_edges,
+        "implicitPlaquetteCount320": implicit_plaquettes,
+        "hotSemanticPhaseCount": len(fusion["semanticPhases"]),
+        "targetAdditionalHotSubmissionCount":
+            fusion["targetMaximumAdditionalHotSubmissionsBeyondAcceptedN3NativeGraph"],
+        "mixedLevelTranslationProbeCount": len(mixed_level_probes),
+        "freshFreshBroadPhase": "SHARED_COHERENT_FOOTPRINT_BOUNDARY_ONLY",
+        "componentGauge": "INDEPENDENT_Z2_SEMIDIRECT_D4_CHART_GAUGE",
         "persistentComponentIdentity": False,
         "fingerprint": sha256({
             "authority": authority,
             "embedding": embedding,
             "expression": expression,
             "ownedOpcodes": owned,
+            "implicitCounts": (implicit_edges, implicit_plaquettes),
+            "abstractSectors": abstract_sectors,
+            "d4": d4,
+            "nonGaugeAmbiguity": (sorted(chain), sorted(corner)),
+            "fusion": fusion,
+            "mixedLevelProbes": mixed_level_probes,
         }),
     }
 
@@ -1457,10 +1567,11 @@ def build_merkaba_descriptor(algebra: dict) -> dict:
     stitch_authority = i_q["constructiveModalStitching"]
     if (stitch_authority["manifestationFootprint"]["canonicalState"] or
             stitch_authority["manifestationFootprint"]["sigma2Address"] or
-            stitch_authority["contactCandidate"]["arbitraryEpsilon"] or
-            stitch_authority["contactCandidate"]["pixelAdjacencyAuthority"] or
+            stitch_authority["implicitBoundaryField"]["arbitraryEpsilon"] or
+            stitch_authority["implicitBoundaryField"]["pixelAdjacencyAuthority"] or
             i_rep["stitchEmbedding"]["forbiddenAuthorities"] !=
-            ["PIXEL", "XYZ", "PAGE", "SAMPLE", "HASH_PLACEMENT"]):
+            ["PIXEL", "XYZ", "PAGE", "SAMPLE", "SAMPLE_BOUNDARY_SIDE",
+             "HASH_PLACEMENT"]):
         raise RuntimeError("constructive stitch authority mints physical identity")
 
     associator_nonzero = 0
@@ -1661,6 +1772,30 @@ def build_merkaba_descriptor(algebra: dict) -> dict:
                 stitch_authority_proof["nodeCount"],
             "constructiveStitchContactEpsilonCount": 0,
             "constructiveStitchPixelOrXyzAuthorityCount": 0,
+            "constructiveStitchExternalSemanticTruthInputCount":
+                stitch_authority_proof["externalSemanticTruthInputCount"],
+            "constructiveStitchCallerLoopTruthInputCount":
+                stitch_authority_proof["callerLoopTruthInputCount"],
+            "constructiveStitchSamplingSideToDeltaAuthorityCount":
+                stitch_authority_proof["samplingSideToDeltaAuthorityCount"],
+            "constructiveStitchAbstractNativeSectorCount":
+                stitch_authority_proof["abstractNativeSectorCount"],
+            "constructiveStitchD4ChartImageCount":
+                stitch_authority_proof["d4ChartImageCount"],
+            "constructiveStitchNonGaugeEmbeddingAmbiguityCount":
+                stitch_authority_proof["nonGaugeEmbeddingAmbiguityCount"],
+            "constructiveStitchImplicitBoundaryCount320":
+                stitch_authority_proof["implicitBoundaryCount320"],
+            "constructiveStitchImplicitPlaquetteCount320":
+                stitch_authority_proof["implicitPlaquetteCount320"],
+            "constructiveStitchHotSemanticPhaseCount":
+                stitch_authority_proof["hotSemanticPhaseCount"],
+            "constructiveStitchTargetAdditionalHotSubmissionCount":
+                stitch_authority_proof["targetAdditionalHotSubmissionCount"],
+            "constructiveStitchMixedLevelTranslationProbeCount":
+                stitch_authority_proof["mixedLevelTranslationProbeCount"],
+            "constructiveStitchFreshFreshBroadPhase":
+                stitch_authority_proof["freshFreshBroadPhase"],
             "constructiveStitchComponentGauge":
                 stitch_authority_proof["componentGauge"],
             "constructiveStitchPersistentComponentIdentity": False,
@@ -2082,6 +2217,8 @@ int SigmaHadamardSign(uint row, uint column)
 def render_merkaba_cs(descriptor: dict) -> str:
     proofs = descriptor["proofs"]
     ir = descriptor["ir"]
+    stitch_bracket_fingerprint = int(
+        proofs["constructiveStitchExpressionFingerprint"][:16], 16)
     expression_fingerprints = ",\n".join(
         f'            "{entry["fingerprint"]}"'
         for entry in descriptor["expressions"])
@@ -2299,12 +2436,42 @@ namespace Genesis.RoomScan.SigmaPrism
         internal string PayloadFingerprint {{ get; }}
     }}
 
-    internal enum SigmaStitchPort : uint
+    internal readonly struct SigmaChartD4Transform
     {{
-        UMinus = 0u,
-        UPlus = 1u,
-        VMinus = 2u,
-        VPlus = 3u,
+        internal SigmaChartD4Transform(int m00, int m01, int m10, int m11)
+        {{
+            int determinant = checked(m00 * m11 - m01 * m10);
+            if (Math.Abs(determinant) != 1 ||
+                Math.Abs(m00) + Math.Abs(m01) != 1 ||
+                Math.Abs(m10) + Math.Abs(m11) != 1)
+                throw new ArgumentException(
+                    "A chart D4 transform is one signed axis permutation.");
+            M00 = m00; M01 = m01; M10 = m10; M11 = m11;
+            Determinant = determinant;
+        }}
+        internal int M00 {{ get; }}
+        internal int M01 {{ get; }}
+        internal int M10 {{ get; }}
+        internal int M11 {{ get; }}
+        internal int Determinant {{ get; }}
+    }}
+
+    // Sampling sides exist only to derive one implicit shared-footprint boundary.
+    // They are not native ports and never encode a Sigma_2 direction.
+    internal enum SigmaSampleBoundarySide : uint
+    {{
+        Left = 0u,
+        Right = 1u,
+        Up = 2u,
+        Down = 3u,
+    }}
+
+    internal enum SigmaFootprintSupportDisposition : uint
+    {{
+        Invalid = 0u,
+        ExistingSupport = 1u,
+        UnattachedFirstHit = 2u,
+        UnresolvedExisting = 3u,
     }}
 
     internal enum SigmaStitchResolution : uint
@@ -2314,107 +2481,318 @@ namespace Genesis.RoomScan.SigmaPrism
         Unresolved = 2u,
     }}
 
+    // Generated K16 character-frame sectors.  These are abstract native
+    // boundary labels, never signed chart axes and never sampling sides.
+    internal enum SigmaNativeBoundarySector : uint
+    {{
+        Sector0 = 0u,
+        Sector1 = 1u,
+        Sector2 = 2u,
+        Sector3 = 3u,
+    }}
+
+    internal readonly struct SigmaStitchContactBranch
+    {{
+        internal SigmaStitchContactBranch(
+            IReadOnlyList<SigmaQ48Interval> roomBounds)
+        {{
+            if (roomBounds == null || roomBounds.Count != 3 ||
+                roomBounds.Any(value => value.IsEmpty))
+                throw new ArgumentException(
+                    "A contact branch requires three nonempty calibrated axes.",
+                    nameof(roomBounds));
+            RoomBounds = roomBounds.ToArray();
+        }}
+        internal SigmaQ48Interval[] RoomBounds {{ get; }}
+        internal string CanonicalSerialization => string.Join(",", RoomBounds
+            .Select(value => $"{{unchecked((ulong)value.Lower):x16}}-" +
+                $"{{unchecked((ulong)value.Upper):x16}}"));
+    }}
+
     internal readonly struct SigmaStitchBoundaryEnvelope
     {{
-        internal SigmaStitchBoundaryEnvelope(SigmaStitchPort port,
+        internal SigmaStitchBoundaryEnvelope(SigmaSampleBoundarySide side,
             IReadOnlyList<SigmaQ48Interval> roomBounds)
         {{
             if (roomBounds == null || roomBounds.Count != 3)
                 throw new ArgumentException(
                     "A stitch boundary envelope has three room-gauge axes.",
                     nameof(roomBounds));
-            Port = port;
+            Side = side;
             RoomBounds = roomBounds.ToArray();
         }}
-        internal SigmaStitchPort Port {{ get; }}
+        internal SigmaSampleBoundarySide Side {{ get; }}
         internal SigmaQ48Interval[] RoomBounds {{ get; }}
     }}
 
-    internal readonly struct SigmaStitchContactCandidate
+    // CPU semantic-oracle reference for one implicit boundary. Production derives
+    // this tuple arithmetically from edgeIndex and never materializes the full set.
+    internal readonly struct SigmaImplicitBoundaryRef
     {{
-        internal SigmaStitchContactCandidate(ulong leftKey, ulong rightKey,
-            SigmaStitchPort leftPort, SigmaStitchPort rightPort)
+        internal SigmaImplicitBoundaryRef(int edgeIndex, ulong leftKey,
+            ulong rightKey, SigmaSampleBoundarySide leftSide,
+            SigmaSampleBoundarySide rightSide,
+            IEnumerable<SigmaStitchContactBranch> contactBranches)
         {{
-            if (leftKey == rightKey)
+            if (edgeIndex < 0 || leftKey == rightKey)
                 throw new ArgumentException("A stitch requires distinct supports.");
+            ContactBranches = (contactBranches ?? throw new ArgumentNullException(
+                nameof(contactBranches))).OrderBy(value =>
+                    value.CanonicalSerialization, StringComparer.Ordinal).ToArray();
+            if (ContactBranches.Length == 0)
+                throw new ArgumentException(
+                    "An implicit boundary exists only with exact contact evidence.",
+                    nameof(contactBranches));
+            EdgeIndex = edgeIndex;
             LeftKey = leftKey;
             RightKey = rightKey;
-            LeftPort = leftPort;
-            RightPort = rightPort;
+            LeftSide = leftSide;
+            RightSide = rightSide;
         }}
+        internal int EdgeIndex {{ get; }}
         internal ulong LeftKey {{ get; }}
         internal ulong RightKey {{ get; }}
-        internal SigmaStitchPort LeftPort {{ get; }}
-        internal SigmaStitchPort RightPort {{ get; }}
+        internal SigmaSampleBoundarySide LeftSide {{ get; }}
+        internal SigmaSampleBoundarySide RightSide {{ get; }}
+        internal SigmaStitchContactBranch[] ContactBranches {{ get; }}
+    }}
+
+    internal sealed class SigmaFreshFootprintSample
+    {{
+        internal SigmaFreshFootprintSample(ulong coherentFrameKey,
+            int sampleX, int sampleY, ulong supportKey,
+            SigmaNativeQueryClaim claim,
+            SigmaFootprintSupportDisposition disposition,
+            IEnumerable<SigmaStitchBoundaryEnvelope> boundaries)
+        {{
+            if (coherentFrameKey == 0UL || supportKey == 0UL)
+                throw new ArgumentOutOfRangeException(nameof(coherentFrameKey));
+            if (sampleX < 0 || sampleY < 0)
+                throw new ArgumentOutOfRangeException(nameof(sampleX));
+            CoherentFrameKey = coherentFrameKey;
+            SampleX = sampleX;
+            SampleY = sampleY;
+            SupportKey = supportKey;
+            Claim = claim;
+            Disposition = disposition;
+            Boundaries = (boundaries ?? throw new ArgumentNullException(
+                nameof(boundaries))).OrderBy(value => value.Side).ToArray();
+        }}
+        internal ulong CoherentFrameKey {{ get; }}
+        internal int SampleX {{ get; }}
+        internal int SampleY {{ get; }}
+        internal ulong SupportKey {{ get; }}
+        internal SigmaNativeQueryClaim Claim {{ get; }}
+        internal SigmaFootprintSupportDisposition Disposition {{ get; }}
+        internal SigmaStitchBoundaryEnvelope[] Boundaries {{ get; }}
+        internal bool Valid => Disposition != SigmaFootprintSupportDisposition.Invalid;
+    }}
+
+    internal readonly struct SigmaStitchNativeContext
+    {{
+        internal SigmaStitchNativeContext(SigmaS16 bracketContext,
+            string provenanceFingerprint)
+        {{
+            if (provenanceFingerprint == null ||
+                provenanceFingerprint.Length != 64)
+                throw new ArgumentException(
+                    "Native stitch context requires a SHA-256 provenance receipt.",
+                    nameof(provenanceFingerprint));
+            BracketContext = bracketContext;
+            ProvenanceFingerprint = provenanceFingerprint;
+        }}
+        internal SigmaS16 BracketContext {{ get; }}
+        internal string ProvenanceFingerprint {{ get; }}
+    }}
+
+    internal readonly struct SigmaStitchRelationReceipt
+    {{
+        internal SigmaStitchRelationReceipt(
+            SigmaNativeBoundarySector leftSector,
+            SigmaNativeBoundarySector rightSector,
+            SigmaS16 linkDefect,
+            SigmaS16 reverseLinkDefect, SigmaS16 associatorDefect,
+            SigmaS16 reverseAssociatorDefect, SigmaS16 transition,
+            SigmaS16 reverseTransition,
+            IReadOnlyList<SigmaQ48Interval> normalizedLink,
+            IReadOnlyList<SigmaQ48Interval> normalizedReverseLink,
+            IReadOnlyList<SigmaQ48Interval> normalizedAssociator,
+            IReadOnlyList<SigmaQ48Interval> normalizedReverseAssociator,
+            SigmaExactFactorClass linkClass,
+            SigmaExactFactorClass reverseLinkClass,
+            SigmaExactFactorClass associatorClass,
+            SigmaExactFactorClass reverseAssociatorClass,
+            SigmaExactFactorClass closureClass,
+            SigmaMerkabaRelationClass relationClass, int transportAddress,
+            int forwardTransportSign, int reverseTransportSign,
+            bool nonassociativeBracketContext, int exactAnnihilatorAction,
+            int reverseExactAnnihilatorAction,
+            ulong bracketFingerprint, string provenanceFingerprint)
+        {{
+            LeftSector = leftSector;
+            RightSector = rightSector;
+            LinkDefect = linkDefect;
+            ReverseLinkDefect = reverseLinkDefect;
+            AssociatorDefect = associatorDefect;
+            ReverseAssociatorDefect = reverseAssociatorDefect;
+            Transition = transition;
+            ReverseTransition = reverseTransition;
+            NormalizedLink = normalizedLink?.ToArray() ??
+                Array.Empty<SigmaQ48Interval>();
+            NormalizedReverseLink = normalizedReverseLink?.ToArray() ??
+                Array.Empty<SigmaQ48Interval>();
+            NormalizedAssociator = normalizedAssociator?.ToArray() ??
+                Array.Empty<SigmaQ48Interval>();
+            NormalizedReverseAssociator = normalizedReverseAssociator?.ToArray() ??
+                Array.Empty<SigmaQ48Interval>();
+            LinkClass = linkClass;
+            ReverseLinkClass = reverseLinkClass;
+            AssociatorClass = associatorClass;
+            ReverseAssociatorClass = reverseAssociatorClass;
+            ClosureClass = closureClass;
+            RelationClass = relationClass;
+            TransportAddress = transportAddress;
+            ForwardTransportSign = forwardTransportSign;
+            ReverseTransportSign = reverseTransportSign;
+            NonassociativeBracketContext = nonassociativeBracketContext;
+            ExactAnnihilatorAction = exactAnnihilatorAction;
+            ReverseExactAnnihilatorAction = reverseExactAnnihilatorAction;
+            BracketFingerprint = bracketFingerprint;
+            ProvenanceFingerprint = provenanceFingerprint ?? string.Empty;
+        }}
+        internal SigmaNativeBoundarySector LeftSector {{ get; }}
+        internal SigmaNativeBoundarySector RightSector {{ get; }}
+        internal SigmaS16 LinkDefect {{ get; }}
+        internal SigmaS16 ReverseLinkDefect {{ get; }}
+        internal SigmaS16 AssociatorDefect {{ get; }}
+        internal SigmaS16 ReverseAssociatorDefect {{ get; }}
+        internal SigmaS16 Transition {{ get; }}
+        internal SigmaS16 ReverseTransition {{ get; }}
+        internal SigmaQ48Interval[] NormalizedLink {{ get; }}
+        internal SigmaQ48Interval[] NormalizedReverseLink {{ get; }}
+        internal SigmaQ48Interval[] NormalizedAssociator {{ get; }}
+        internal SigmaQ48Interval[] NormalizedReverseAssociator {{ get; }}
+        internal SigmaExactFactorClass LinkClass {{ get; }}
+        internal SigmaExactFactorClass ReverseLinkClass {{ get; }}
+        internal SigmaExactFactorClass AssociatorClass {{ get; }}
+        internal SigmaExactFactorClass ReverseAssociatorClass {{ get; }}
+        internal SigmaExactFactorClass ClosureClass {{ get; }}
+        internal SigmaMerkabaRelationClass RelationClass {{ get; }}
+        internal int TransportAddress {{ get; }}
+        internal int ForwardTransportSign {{ get; }}
+        internal int ReverseTransportSign {{ get; }}
+        internal int OrientationParity => checked(ForwardTransportSign *
+            ReverseTransportSign);
+        internal bool NonassociativeBracketContext {{ get; }}
+        internal int ExactAnnihilatorAction {{ get; }}
+        internal int ReverseExactAnnihilatorAction {{ get; }}
+        internal ulong BracketFingerprint {{ get; }}
+        internal string ProvenanceFingerprint {{ get; }}
     }}
 
     internal readonly struct SigmaResolvedStitch
     {{
-        internal SigmaResolvedStitch(SigmaStitchContactCandidate contact,
-            int deltaU, int deltaV, int transportSign,
-            ulong bracketFingerprint, SigmaMerkabaRelationClass relationClass)
+        internal SigmaResolvedStitch(SigmaImplicitBoundaryRef boundary,
+            SigmaStitchRelationReceipt receipt)
         {{
-            Contact = contact;
-            DeltaU = deltaU;
-            DeltaV = deltaV;
-            TransportSign = transportSign;
-            BracketFingerprint = bracketFingerprint;
-            RelationClass = relationClass;
+            Boundary = boundary;
+            Receipt = receipt;
         }}
-        internal SigmaStitchContactCandidate Contact {{ get; }}
-        internal int DeltaU {{ get; }}
-        internal int DeltaV {{ get; }}
-        internal int TransportSign {{ get; }}
-        internal ulong BracketFingerprint {{ get; }}
-        internal SigmaMerkabaRelationClass RelationClass {{ get; }}
+        internal SigmaImplicitBoundaryRef Boundary {{ get; }}
+        internal SigmaNativeBoundarySector LeftSector => Receipt.LeftSector;
+        internal SigmaNativeBoundarySector RightSector => Receipt.RightSector;
+        internal SigmaStitchRelationReceipt Receipt {{ get; }}
+        internal int OrientationParity => Receipt.OrientationParity;
+        internal ulong BracketFingerprint => Receipt.BracketFingerprint;
+        internal SigmaMerkabaRelationClass RelationClass => Receipt.RelationClass;
+    }}
+
+    internal sealed class SigmaStitchWitnessSet
+    {{
+        internal SigmaStitchWitnessSet(SigmaStitchResolution resolution,
+            IReadOnlyList<SigmaStitchRelationReceipt> receipts,
+            IReadOnlyList<SigmaResolvedStitch> resolvedAlternatives,
+            bool hasOpenFactor = false)
+        {{
+            Resolution = resolution;
+            Receipts = receipts?.ToArray() ??
+                Array.Empty<SigmaStitchRelationReceipt>();
+            ResolvedAlternatives = resolvedAlternatives?.ToArray() ??
+                Array.Empty<SigmaResolvedStitch>();
+            HasOpenFactor = hasOpenFactor;
+        }}
+        internal SigmaStitchResolution Resolution {{ get; }}
+        internal SigmaStitchRelationReceipt[] Receipts {{ get; }}
+        internal SigmaResolvedStitch[] ResolvedAlternatives {{ get; }}
+        internal bool HasOpenFactor {{ get; }}
+        internal SigmaResolvedStitch Resolved =>
+            Resolution == SigmaStitchResolution.Resolved &&
+            ResolvedAlternatives.Length == 1
+                ? ResolvedAlternatives[0]
+                : throw new InvalidOperationException(
+                    "Only one complete-program-equivalent stitch is resolved.");
     }}
 
     internal readonly struct SigmaStitchLocality
     {{
-        internal SigmaStitchLocality(ulong scratchKey, int level,
-            string completePayloadFingerprint)
+        internal SigmaStitchLocality(ulong scratchKey, int level, SigmaS16 state,
+            string certificateFingerprint)
         {{
-            if ((uint)level > 62u)
+            if (scratchKey == 0UL || (uint)level > 62u)
                 throw new ArgumentOutOfRangeException(nameof(level));
+            if (state.IsZero)
+                throw new ArgumentException(
+                    "A stitch locality is manifested full S16 support.",
+                    nameof(state));
+            if (certificateFingerprint == null ||
+                certificateFingerprint.Length != 64)
+                throw new ArgumentException(
+                    "A stitch locality requires an exact certificate fingerprint.",
+                    nameof(certificateFingerprint));
             ScratchKey = scratchKey;
             Level = level;
-            CompletePayloadFingerprint = completePayloadFingerprint ??
-                throw new ArgumentNullException(nameof(completePayloadFingerprint));
+            State = state;
+            CertificateFingerprint = certificateFingerprint;
+            CompletePayloadFingerprint = string.Join(",", state.ToArray().Select(
+                value => unchecked((ulong)value).ToString("x16"))) + ":" +
+                certificateFingerprint;
         }}
         internal ulong ScratchKey {{ get; }}
         internal int Level {{ get; }}
+        internal SigmaS16 State {{ get; }}
+        internal string CertificateFingerprint {{ get; }}
         internal string CompletePayloadFingerprint {{ get; }}
     }}
 
-    internal readonly struct SigmaStitchLoopConstraint
+    internal readonly struct SigmaBoundaryNativeInput
     {{
-        internal SigmaStitchLoopConstraint(SigmaExactFactorClass embeddingClass,
-            SigmaExactFactorClass nativeClosureClass, ulong bracketFingerprint)
+        internal SigmaBoundaryNativeInput(SigmaImplicitBoundaryRef boundary,
+            SigmaStitchNativeContext nativeContext)
         {{
-            EmbeddingClass = embeddingClass;
-            NativeClosureClass = nativeClosureClass;
-            BracketFingerprint = bracketFingerprint;
+            Boundary = boundary;
+            NativeContext = nativeContext;
         }}
-        internal SigmaExactFactorClass EmbeddingClass {{ get; }}
-        internal SigmaExactFactorClass NativeClosureClass {{ get; }}
-        internal ulong BracketFingerprint {{ get; }}
+        internal SigmaImplicitBoundaryRef Boundary {{ get; }}
+        internal SigmaStitchNativeContext NativeContext {{ get; }}
     }}
 
     internal readonly struct SigmaStitchPattern
     {{
         internal SigmaStitchPattern(SigmaStitchResolution resolution,
             IReadOnlyList<SigmaGaugeCell> packedCells, int componentCount,
-            string canonicalSerialization)
+            string canonicalSerialization, int embeddingClassCount = 0)
         {{
             Resolution = resolution;
             PackedCells = packedCells ?? Array.Empty<SigmaGaugeCell>();
             ComponentCount = componentCount;
             CanonicalSerialization = canonicalSerialization ?? string.Empty;
+            EmbeddingClassCount = embeddingClassCount;
         }}
         internal SigmaStitchResolution Resolution {{ get; }}
         internal IReadOnlyList<SigmaGaugeCell> PackedCells {{ get; }}
         internal int ComponentCount {{ get; }}
         internal string CanonicalSerialization {{ get; }}
+        internal int EmbeddingClassCount {{ get; }}
     }}
 
     internal enum SigmaInstrumentLeafKind : uint
@@ -2681,6 +3059,32 @@ namespace Genesis.RoomScan.SigmaPrism
         internal const int FreshAdmissionCommonPermutationCount = {proofs['freshAdmissionCommonPermutationCount']};
         internal const string FreshAdmissionProofFingerprint =
             "{proofs['freshAdmissionProofFingerprint']}";
+        internal const int ConstructiveStitchExternalSemanticTruthInputCount =
+            {proofs['constructiveStitchExternalSemanticTruthInputCount']};
+        internal const int ConstructiveStitchCallerLoopTruthInputCount =
+            {proofs['constructiveStitchCallerLoopTruthInputCount']};
+        internal const int ConstructiveStitchSamplingSideToDeltaAuthorityCount =
+            {proofs['constructiveStitchSamplingSideToDeltaAuthorityCount']};
+        internal const int ConstructiveStitchAbstractNativeSectorCount =
+            {proofs['constructiveStitchAbstractNativeSectorCount']};
+        internal const int ConstructiveStitchD4ChartImageCount =
+            {proofs['constructiveStitchD4ChartImageCount']};
+        internal const int ConstructiveStitchNonGaugeEmbeddingAmbiguityCount =
+            {proofs['constructiveStitchNonGaugeEmbeddingAmbiguityCount']};
+        internal const int ConstructiveStitchImplicitBoundaryCount320 =
+            {proofs['constructiveStitchImplicitBoundaryCount320']};
+        internal const int ConstructiveStitchImplicitPlaquetteCount320 =
+            {proofs['constructiveStitchImplicitPlaquetteCount320']};
+        internal const int ConstructiveStitchHotSemanticPhaseCount =
+            {proofs['constructiveStitchHotSemanticPhaseCount']};
+        internal const int ConstructiveStitchTargetAdditionalHotSubmissionCount =
+            {proofs['constructiveStitchTargetAdditionalHotSubmissionCount']};
+        internal const int ConstructiveStitchMixedLevelTranslationProbeCount =
+            {proofs['constructiveStitchMixedLevelTranslationProbeCount']};
+        internal const string ConstructiveStitchProofFingerprint =
+            "{proofs['constructiveStitchProofFingerprint']}";
+        internal const ulong GeneratedStitchBracketFingerprint =
+            0x{stitch_bracket_fingerprint:016x}UL;
         internal const string CanonicalSerializationFingerprint =
             "{proofs['canonicalSerializationFingerprint']}";
         internal const string CertificateProofFingerprint =
@@ -2720,6 +3124,20 @@ namespace Genesis.RoomScan.SigmaPrism
 
         // P_visible = VisibleProjectorNumerator256 / 256.
 {cs_array('VisibleProjectorNumerator256', 'sbyte', descriptor['visibleProjectorNumerator256'])}
+
+        // Representation-only square-chart gauge.  These matrices never act on
+        // physical S16 values or native transport receipts.
+        internal static readonly SigmaChartD4Transform[] ChartD4 =
+        {{
+            new SigmaChartD4Transform(1, 0, 0, 1),
+            new SigmaChartD4Transform(0, -1, 1, 0),
+            new SigmaChartD4Transform(-1, 0, 0, -1),
+            new SigmaChartD4Transform(0, 1, -1, 0),
+            new SigmaChartD4Transform(-1, 0, 0, 1),
+            new SigmaChartD4Transform(1, 0, 0, -1),
+            new SigmaChartD4Transform(0, 1, 1, 0),
+            new SigmaChartD4Transform(0, -1, -1, 0),
+        }};
 
         internal static int BasisSign(int left, int right)
         {{
@@ -3150,199 +3568,490 @@ namespace Genesis.RoomScan.SigmaPrism
             return SigmaExactFactorClass.Unresolved;
         }}
 
-        internal static SigmaStitchContactCandidate[] BuildExactContactCandidates(
-            ulong leftKey, SigmaNativeQueryClaim leftClaim,
-            IEnumerable<SigmaStitchBoundaryEnvelope> leftBoundaries,
-            ulong rightKey, SigmaNativeQueryClaim rightClaim,
-            IEnumerable<SigmaStitchBoundaryEnvelope> rightBoundaries)
+        internal static int ImplicitBoundaryCount(int width, int height)
         {{
-            if (leftBoundaries == null)
-                throw new ArgumentNullException(nameof(leftBoundaries));
-            if (rightBoundaries == null)
-                throw new ArgumentNullException(nameof(rightBoundaries));
-            if (leftKey == rightKey ||
-                leftClaim != SigmaNativeQueryClaim.FirstHitMould ||
-                rightClaim != SigmaNativeQueryClaim.FirstHitMould)
-                return Array.Empty<SigmaStitchContactCandidate>();
-            SigmaStitchBoundaryEnvelope[] left = leftBoundaries.OrderBy(
-                value => value.Port).ToArray();
-            SigmaStitchBoundaryEnvelope[] right = rightBoundaries.OrderBy(
-                value => value.Port).ToArray();
-            var output = new List<SigmaStitchContactCandidate>();
-            foreach (SigmaStitchBoundaryEnvelope a in left)
-                foreach (SigmaStitchBoundaryEnvelope b in right)
-                    if (a.RoomBounds.Length == 3 && b.RoomBounds.Length == 3 &&
-                        Enumerable.Range(0, 3).All(axis =>
-                            !a.RoomBounds[axis].Intersect(
-                                b.RoomBounds[axis]).IsEmpty))
-                        output.Add(new SigmaStitchContactCandidate(leftKey,
-                            rightKey, a.Port, b.Port));
-            return output.OrderBy(value => value.LeftPort).ThenBy(
-                value => value.RightPort).ToArray();
+            if (width <= 0 || height <= 0)
+                throw new ArgumentOutOfRangeException(nameof(width));
+            return checked((width - 1) * height + width * (height - 1));
         }}
 
-        internal static SigmaStitchResolution ClassifyModalStitch(
-            SigmaStitchContactCandidate contact,
-            SigmaMerkabaRelationClass relationClass,
-            SigmaExactFactorClass linkClass,
-            SigmaExactFactorClass associatorClass,
-            SigmaExactFactorClass plaquetteClass,
-            int transportSign, ulong bracketFingerprint,
-            out SigmaResolvedStitch stitch)
+        internal static bool TryDecodeImplicitBoundary(int edgeIndex, int width,
+            int height, out int leftX, out int leftY, out int rightX,
+            out int rightY, out SigmaSampleBoundarySide leftSide,
+            out SigmaSampleBoundarySide rightSide)
         {{
-            stitch = default;
-            if (transportSign != -1 && transportSign != 1)
-                return SigmaStitchResolution.Unresolved;
-            if (relationClass == SigmaMerkabaRelationClass.NoRelation ||
-                relationClass == SigmaMerkabaRelationClass.DefaultSat)
-                return SigmaStitchResolution.NoStitch;
-            if (relationClass == SigmaMerkabaRelationClass.Unresolved ||
-                relationClass == SigmaMerkabaRelationClass.NearSingularQ48 ||
-                linkClass == SigmaExactFactorClass.Unresolved ||
-                associatorClass == SigmaExactFactorClass.Unresolved ||
-                plaquetteClass == SigmaExactFactorClass.Unresolved)
-                return SigmaStitchResolution.Unresolved;
-            if (relationClass == SigmaMerkabaRelationClass.NonassociativeContext ||
-                linkClass == SigmaExactFactorClass.ProvenIncompatible ||
-                associatorClass == SigmaExactFactorClass.ProvenIncompatible ||
-                plaquetteClass == SigmaExactFactorClass.ProvenIncompatible)
-                return SigmaStitchResolution.NoStitch;
-            if (bracketFingerprint == 0UL)
-                return SigmaStitchResolution.Unresolved;
-            int deltaU = 0;
-            int deltaV = 0;
-            switch (contact.LeftPort)
+            leftX = leftY = rightX = rightY = 0;
+            leftSide = SigmaSampleBoundarySide.Right;
+            rightSide = SigmaSampleBoundarySide.Left;
+            int count = ImplicitBoundaryCount(width, height);
+            if ((uint)edgeIndex >= (uint)count) return false;
+            int horizontalCount = checked((width - 1) * height);
+            if (edgeIndex < horizontalCount)
             {{
-                case SigmaStitchPort.UMinus: deltaU = -1; break;
-                case SigmaStitchPort.UPlus: deltaU = 1; break;
-                case SigmaStitchPort.VMinus: deltaV = -1; break;
-                case SigmaStitchPort.VPlus: deltaV = 1; break;
-                default: return SigmaStitchResolution.Unresolved;
+                leftX = edgeIndex % (width - 1);
+                leftY = edgeIndex / (width - 1);
+                rightX = leftX + 1;
+                rightY = leftY;
+                return true;
             }}
-            stitch = new SigmaResolvedStitch(contact, deltaU, deltaV,
-                transportSign, bracketFingerprint, relationClass);
-            return SigmaStitchResolution.Resolved;
+            int vertical = edgeIndex - horizontalCount;
+            leftX = vertical % width;
+            leftY = vertical / width;
+            rightX = leftX;
+            rightY = leftY + 1;
+            leftSide = SigmaSampleBoundarySide.Down;
+            rightSide = SigmaSampleBoundarySide.Up;
+            return true;
+        }}
+
+        // Exhaustive CPU semantic reference only. Production edge work items are
+        // index-derived in BOUNDARY and never materialize this complete array.
+        internal static SigmaImplicitBoundaryRef[]
+            EnumerateImplicitBoundaryReference(
+                IEnumerable<SigmaFreshFootprintSample> source,
+                int width, int height)
+        {{
+            if (source == null) throw new ArgumentNullException(nameof(source));
+            SigmaFreshFootprintSample[] samples = source.ToArray();
+            if (samples.Length == 0) return Array.Empty<SigmaImplicitBoundaryRef>();
+            if (samples.Select(value => value.CoherentFrameKey).Distinct().Count() != 1)
+                throw new ArgumentException(
+                    "Implicit boundary reference accepts one coherent frame.",
+                    nameof(source));
+            if (samples.GroupBy(value => (value.SampleX, value.SampleY)).Any(
+                    group => group.Count() != 1))
+                throw new ArgumentException(
+                    "Coherent sampling coordinates must be unique execution keys.",
+                    nameof(source));
+            var byCoordinate = samples.ToDictionary(
+                value => (value.SampleX, value.SampleY));
+            if (samples.Any(value => value.SampleX >= width ||
+                    value.SampleY >= height))
+                throw new ArgumentException(
+                    "Sampling coordinates exceed the coherent domain.",
+                    nameof(source));
+            var output = new List<SigmaImplicitBoundaryRef>();
+            int boundaryCount = ImplicitBoundaryCount(width, height);
+            for (int edgeIndex = 0; edgeIndex < boundaryCount; ++edgeIndex)
+            {{
+                TryDecodeImplicitBoundary(edgeIndex, width, height,
+                    out int leftX, out int leftY, out int rightX,
+                    out int rightY, out SigmaSampleBoundarySide leftSide,
+                    out SigmaSampleBoundarySide rightSide);
+                if (!byCoordinate.TryGetValue((leftX, leftY),
+                        out SigmaFreshFootprintSample left) ||
+                    !byCoordinate.TryGetValue((rightX, rightY),
+                        out SigmaFreshFootprintSample right) ||
+                    !left.Valid || !right.Valid ||
+                    left.CoherentFrameKey != right.CoherentFrameKey ||
+                    left.Claim != SigmaNativeQueryClaim.FirstHitMould ||
+                    right.Claim != SigmaNativeQueryClaim.FirstHitMould)
+                    continue;
+                SigmaStitchBoundaryEnvelope[] leftBoundary =
+                    left.Boundaries.Where(value => value.Side == leftSide).ToArray();
+                SigmaStitchBoundaryEnvelope[] rightBoundary =
+                    right.Boundaries.Where(value => value.Side == rightSide).ToArray();
+                SigmaStitchContactBranch[] contactBranches = leftBoundary
+                    .SelectMany(a => rightBoundary.Select(b => Enumerable
+                        .Range(0, 3).Select(axis => a.RoomBounds[axis]
+                            .Intersect(b.RoomBounds[axis])).ToArray()))
+                    .Where(region => region.All(value => !value.IsEmpty))
+                    .Select(region => new SigmaStitchContactBranch(region))
+                    .GroupBy(value => value.CanonicalSerialization,
+                        StringComparer.Ordinal)
+                    .Select(group => group.First())
+                    .OrderBy(value => value.CanonicalSerialization,
+                        StringComparer.Ordinal).ToArray();
+                if (contactBranches.Length != 0)
+                    output.Add(new SigmaImplicitBoundaryRef(edgeIndex,
+                        left.SupportKey, right.SupportKey, leftSide, rightSide,
+                        contactBranches));
+            }}
+            return output.ToArray();
+        }}
+
+        internal static SigmaStitchWitnessSet EvaluateModalStitch(
+            SigmaImplicitBoundaryRef boundary, SigmaStitchLocality left,
+            SigmaStitchLocality right, SigmaStitchNativeContext nativeContext)
+        {{
+            if (boundary.LeftKey != left.ScratchKey ||
+                boundary.RightKey != right.ScratchKey)
+                throw new ArgumentException(
+                    "Stitch endpoints must match the implicit boundary.");
+            if (left.Level != right.Level)
+                return new SigmaStitchWitnessSet(
+                    SigmaStitchResolution.Unresolved,
+                    Array.Empty<SigmaStitchRelationReceipt>(),
+                    Array.Empty<SigmaResolvedStitch>(), true);
+            if (boundary.ContactBranches.Length != 1)
+                return new SigmaStitchWitnessSet(
+                    SigmaStitchResolution.Unresolved,
+                    Array.Empty<SigmaStitchRelationReceipt>(),
+                    Array.Empty<SigmaResolvedStitch>(), true);
+
+            var receipts = new List<SigmaStitchRelationReceipt>(16);
+            var alternatives = new List<SigmaResolvedStitch>(16);
+            bool hasUnresolved = false;
+            for (int leftOrdinal = 0; leftOrdinal < 4; ++leftOrdinal)
+            for (int rightOrdinal = 0; rightOrdinal < 4; ++rightOrdinal)
+            {{
+                var leftSector = (SigmaNativeBoundarySector)leftOrdinal;
+                var rightSector = (SigmaNativeBoundarySector)rightOrdinal;
+                SigmaStitchRelationReceipt receipt =
+                    EvaluateNativeStitchCandidate(left, right, nativeContext,
+                        leftSector, rightSector);
+                receipts.Add(receipt);
+                if (receipt.ClosureClass == SigmaExactFactorClass.Unresolved)
+                {{
+                    hasUnresolved = true;
+                    continue;
+                }}
+                if (receipt.ClosureClass ==
+                        SigmaExactFactorClass.ProvenIncompatible)
+                    continue;
+                alternatives.Add(new SigmaResolvedStitch(boundary, receipt));
+            }}
+            if (hasUnresolved)
+                return new SigmaStitchWitnessSet(
+                    SigmaStitchResolution.Unresolved, receipts, alternatives,
+                    true);
+            if (alternatives.Count == 0)
+                return new SigmaStitchWitnessSet(
+                    SigmaStitchResolution.NoStitch, receipts, alternatives);
+            IGrouping<string, SigmaResolvedStitch>[] classes = alternatives
+                .GroupBy(CanonicalStitchSerialization, StringComparer.Ordinal)
+                .ToArray();
+            if (classes.Length != 1)
+                return new SigmaStitchWitnessSet(
+                    SigmaStitchResolution.Unresolved, receipts, alternatives);
+            SigmaResolvedStitch resolved = classes[0]
+                .OrderBy(value => value.LeftSector)
+                .ThenBy(value => value.RightSector).First();
+            return new SigmaStitchWitnessSet(SigmaStitchResolution.Resolved,
+                receipts, new[] {{ resolved }});
+        }}
+
+        private static SigmaStitchRelationReceipt EvaluateNativeStitchCandidate(
+            SigmaStitchLocality left, SigmaStitchLocality right,
+            SigmaStitchNativeContext nativeContext,
+            SigmaNativeBoundarySector leftSector,
+            SigmaNativeBoundarySector rightSector)
+        {{
+            int leftAddress = NativeBoundaryAddress(leftSector);
+            int rightAddress = NativeBoundaryAddress(rightSector);
+            int transportAddress = leftAddress ^ rightAddress;
+            int forwardTransportSign = BasisSign(leftAddress,
+                transportAddress);
+            int reverseTransportSign = BasisSign(rightAddress,
+                transportAddress);
+            SigmaS16 transportedLeft = SigmaS16Operators.RightBasisAction(
+                left.State, transportAddress);
+            if (forwardTransportSign < 0)
+                transportedLeft = NegateS16(transportedLeft);
+            SigmaS16 link = SigmaS16Operators.Subtract(right.State,
+                transportedLeft);
+            SigmaS16 transportedRight = SigmaS16Operators.RightBasisAction(
+                right.State, transportAddress);
+            if (reverseTransportSign < 0)
+                transportedRight = NegateS16(transportedRight);
+            SigmaS16 reverseLink = SigmaS16Operators.Subtract(left.State,
+                transportedRight);
+            SigmaS16 leftBracket = SigmaS16Operators.Associator(left.State,
+                SigmaS16.Basis(leftAddress, SigmaNumericDomain.One),
+                nativeContext.BracketContext);
+            SigmaS16 rightBracket = SigmaS16Operators.Associator(right.State,
+                SigmaS16.Basis(rightAddress, SigmaNumericDomain.One),
+                nativeContext.BracketContext);
+            SigmaS16 associator = SigmaS16Operators.Subtract(rightBracket,
+                leftBracket);
+            SigmaS16 reverseAssociator = SigmaS16Operators.Subtract(leftBracket,
+                rightBracket);
+            bool nonassociativeContext = !leftBracket.IsZero ||
+                !rightBracket.IsZero;
+            SigmaExactFactorClass linkClass = NormalizeStitchFactor(link,
+                out SigmaQ48Interval[] normalizedLink);
+            SigmaExactFactorClass reverseLinkClass = NormalizeStitchFactor(
+                reverseLink, out SigmaQ48Interval[] normalizedReverseLink);
+            SigmaExactFactorClass associatorClass = NormalizeStitchFactor(
+                associator, out SigmaQ48Interval[] normalizedAssociator);
+            SigmaExactFactorClass reverseAssociatorClass = NormalizeStitchFactor(
+                reverseAssociator,
+                out SigmaQ48Interval[] normalizedReverseAssociator);
+            SigmaExactFactorClass closureClass = AggregateStitchFactors(
+                linkClass, reverseLinkClass, associatorClass,
+                reverseAssociatorClass);
+            SigmaS16 transition = SigmaS16Operators.Transition(left.State,
+                right.State);
+            SigmaS16 reverseTransition = SigmaS16Operators.Transition(right.State,
+                left.State);
+            int exactAnnihilator = FindExactStitchAnnihilator(transition);
+            int reverseExactAnnihilator = FindExactStitchAnnihilator(
+                reverseTransition);
+            bool exactZd = (!transition.IsZero && exactAnnihilator >= 0) ||
+                (!reverseTransition.IsZero && reverseExactAnnihilator >= 0);
+            SigmaMerkabaRelationClass relationClass = closureClass ==
+                    SigmaExactFactorClass.Unresolved
+                ? SigmaMerkabaRelationClass.Unresolved
+                : closureClass == SigmaExactFactorClass.ProvenIncompatible
+                    ? nonassociativeContext
+                        ? SigmaMerkabaRelationClass.NonassociativeContext
+                        : SigmaMerkabaRelationClass.NoRelation
+                    : nonassociativeContext
+                        ? SigmaMerkabaRelationClass.NonassociativeContext
+                        : exactZd
+                            ? SigmaMerkabaRelationClass.ExactZeroDivisor
+                            : SigmaMerkabaRelationClass.Regular;
+            return new SigmaStitchRelationReceipt(leftSector, rightSector,
+                link, reverseLink,
+                associator, reverseAssociator, transition, reverseTransition,
+                normalizedLink,
+                normalizedReverseLink, normalizedAssociator,
+                normalizedReverseAssociator, linkClass, reverseLinkClass,
+                associatorClass, reverseAssociatorClass,
+                closureClass, relationClass, transportAddress,
+                forwardTransportSign, reverseTransportSign,
+                nonassociativeContext,
+                exactAnnihilator, reverseExactAnnihilator,
+                GeneratedStitchBracketFingerprint,
+                nativeContext.ProvenanceFingerprint);
+        }}
+
+        private static int NativeBoundaryAddress(
+            SigmaNativeBoundarySector sector)
+        {{
+            int ordinal = (int)sector;
+            if ((uint)ordinal >= 4u)
+                throw new ArgumentOutOfRangeException(nameof(sector));
+            return 1 << ordinal;
+        }}
+
+        private sealed class SigmaComponentNormalForm
+        {{
+            internal SigmaComponentNormalForm(string canonical,
+                IReadOnlyList<SigmaGaugeCell> cells)
+            {{
+                Canonical = canonical;
+                Cells = cells?.ToArray() ?? Array.Empty<SigmaGaugeCell>();
+            }}
+            internal string Canonical {{ get; }}
+            internal SigmaGaugeCell[] Cells {{ get; }}
         }}
 
         internal static bool TryIntegrateStitchPattern(
             IEnumerable<SigmaStitchLocality> localitySource,
-            IEnumerable<SigmaResolvedStitch> stitchSource,
-            IEnumerable<SigmaStitchLoopConstraint> loopSource,
+            IEnumerable<SigmaBoundaryNativeInput> edgeSource,
             out SigmaStitchPattern pattern)
         {{
             if (localitySource == null)
                 throw new ArgumentNullException(nameof(localitySource));
-            if (stitchSource == null)
-                throw new ArgumentNullException(nameof(stitchSource));
-            if (loopSource == null)
-                throw new ArgumentNullException(nameof(loopSource));
+            if (edgeSource == null)
+                throw new ArgumentNullException(nameof(edgeSource));
             SigmaStitchLocality[] localities = localitySource.ToArray();
-            SigmaResolvedStitch[] stitches = stitchSource.OrderBy(
-                CanonicalStitchSerialization, StringComparer.Ordinal).ToArray();
-            SigmaStitchLoopConstraint[] loops = loopSource.ToArray();
+            SigmaBoundaryNativeInput[] edgeInputs = edgeSource.ToArray();
             pattern = new SigmaStitchPattern(SigmaStitchResolution.Unresolved,
                 Array.Empty<SigmaGaugeCell>(), 0, string.Empty);
             if (localities.Length == 0 || localities.Select(value =>
-                    value.ScratchKey).Distinct().Count() != localities.Length ||
-                loops.Any(value => value.EmbeddingClass !=
-                        SigmaExactFactorClass.ProvenExactClosed ||
-                    value.NativeClosureClass !=
-                        SigmaExactFactorClass.ProvenExactClosed ||
-                    value.BracketFingerprint == 0UL))
+                    value.ScratchKey).Distinct().Count() != localities.Length)
                 return false;
             var byKey = localities.ToDictionary(value => value.ScratchKey);
-            if (stitches.Any(value =>
-                    !byKey.ContainsKey(value.Contact.LeftKey) ||
-                    !byKey.ContainsKey(value.Contact.RightKey)))
+            if (edgeInputs.Any(value =>
+                    !byKey.ContainsKey(value.Boundary.LeftKey) ||
+                    !byKey.ContainsKey(value.Boundary.RightKey)))
                 return false;
 
+            var resolved = new List<SigmaResolvedStitch>();
+            foreach (SigmaBoundaryNativeInput edge in edgeInputs)
+            {{
+                SigmaStitchWitnessSet witnessSet = EvaluateModalStitch(
+                    edge.Boundary, byKey[edge.Boundary.LeftKey],
+                    byKey[edge.Boundary.RightKey], edge.NativeContext);
+                if (witnessSet.HasOpenFactor)
+                {{
+                    pattern = new SigmaStitchPattern(
+                        SigmaStitchResolution.Unresolved,
+                        Array.Empty<SigmaGaugeCell>(), 0, string.Empty,
+                        Math.Max(1, witnessSet.ResolvedAlternatives.Length));
+                    return true;
+                }}
+                if (witnessSet.Resolution == SigmaStitchResolution.Unresolved)
+                {{
+                    int classes = witnessSet.ResolvedAlternatives.Select(
+                            CanonicalStitchSerialization)
+                        .Distinct(StringComparer.Ordinal).Count();
+                    pattern = new SigmaStitchPattern(
+                        SigmaStitchResolution.Unresolved,
+                        Array.Empty<SigmaGaugeCell>(), 0, string.Empty,
+                        Math.Max(2, classes));
+                    return true;
+                }}
+                if (witnessSet.Resolution == SigmaStitchResolution.Resolved)
+                    resolved.Add(witnessSet.Resolved);
+            }}
+
+            var stitches = new List<SigmaResolvedStitch>();
+            foreach (IGrouping<(ulong A, ulong B), SigmaResolvedStitch> group in
+                     resolved.GroupBy(value => value.Boundary.LeftKey <
+                             value.Boundary.RightKey
+                         ? (value.Boundary.LeftKey, value.Boundary.RightKey)
+                         : (value.Boundary.RightKey, value.Boundary.LeftKey)))
+            {{
+                SigmaResolvedStitch[] alternatives = group.ToArray();
+                string[] classes = alternatives.Select(value =>
+                    CanonicalUnpositionedStitchSerialization(value, byKey))
+                    .Distinct(StringComparer.Ordinal).ToArray();
+                if (classes.Length != 1)
+                {{
+                    pattern = new SigmaStitchPattern(
+                        SigmaStitchResolution.Unresolved,
+                        Array.Empty<SigmaGaugeCell>(), 0, string.Empty,
+                        classes.Length);
+                    return true;
+                }}
+                stitches.Add(alternatives.OrderBy(value =>
+                    CanonicalUnpositionedStitchSerialization(value, byKey),
+                    StringComparer.Ordinal).First());
+            }}
+
+            var adjacency = localities.ToDictionary(value => value.ScratchKey,
+                _ => new List<(SigmaResolvedStitch Edge, bool Forward)>());
+            foreach (SigmaResolvedStitch edge in stitches)
+            {{
+                adjacency[edge.Boundary.LeftKey].Add((edge, true));
+                adjacency[edge.Boundary.RightKey].Add((edge, false));
+            }}
+            foreach (List<(SigmaResolvedStitch Edge, bool Forward)> list in
+                     adjacency.Values)
+                list.Sort((left, right) => string.CompareOrdinal(
+                    CanonicalStitchSerialization(left.Edge),
+                    CanonicalStitchSerialization(right.Edge)));
+
             var positions = new Dictionary<ulong, (long U, long V)>();
+            var chartFrames = new Dictionary<ulong, int>();
+            var transportedStates = new Dictionary<ulong, SigmaS16>();
             var componentByKey = new Dictionary<ulong, int>();
             int componentCount = 0;
             foreach (SigmaStitchLocality seed in localities.OrderBy(value =>
-                         value.CompletePayloadFingerprint, StringComparer.Ordinal))
+                         value.CompletePayloadFingerprint, StringComparer.Ordinal)
+                     .ThenBy(value => value.Level))
             {{
                 if (positions.ContainsKey(seed.ScratchKey)) continue;
                 int component = componentCount++;
                 positions.Add(seed.ScratchKey, (0L, 0L));
+                chartFrames.Add(seed.ScratchKey, 0);
+                transportedStates.Add(seed.ScratchKey, seed.State);
                 componentByKey.Add(seed.ScratchKey, component);
-                bool changed;
-                do
+                var queue = new Queue<ulong>();
+                queue.Enqueue(seed.ScratchKey);
+                while (queue.Count != 0)
                 {{
-                    changed = false;
-                    foreach (SigmaResolvedStitch edge in stitches)
+                    ulong key = queue.Dequeue();
+                    (long U, long V) current = positions[key];
+                    int currentFrame = chartFrames[key];
+                    foreach ((SigmaResolvedStitch Edge, bool Forward) step in
+                             adjacency[key])
                     {{
-                        bool hasLeft = positions.TryGetValue(edge.Contact.LeftKey,
-                            out (long U, long V) left);
-                        bool hasRight = positions.TryGetValue(edge.Contact.RightKey,
-                            out (long U, long V) right);
-                        if (!hasLeft && !hasRight) continue;
-                        if (hasLeft && !hasRight)
+                        ulong next = step.Forward ? step.Edge.Boundary.RightKey :
+                            step.Edge.Boundary.LeftKey;
+                        SigmaNativeBoundarySector currentSector = step.Forward
+                            ? step.Edge.LeftSector : step.Edge.RightSector;
+                        SigmaNativeBoundarySector nextSector = step.Forward
+                            ? step.Edge.RightSector : step.Edge.LeftSector;
+                        (int U, int V) direction = ChartSectorDirection(
+                            currentFrame, currentSector);
+                        (long U, long V) proposed = (
+                            checked(current.U + direction.U),
+                            checked(current.V + direction.V));
+                        if (!TryResolveAdjacentChartFrame(currentFrame,
+                                currentSector, nextSector,
+                                step.Edge.OrientationParity,
+                                out int proposedFrame))
                         {{
-                            positions.Add(edge.Contact.RightKey,
-                                (checked(left.U + edge.DeltaU),
-                                 checked(left.V + edge.DeltaV)));
-                            componentByKey.Add(edge.Contact.RightKey, component);
-                            changed = true;
+                            pattern = new SigmaStitchPattern(
+                                SigmaStitchResolution.Unresolved,
+                                Array.Empty<SigmaGaugeCell>(), componentCount,
+                                string.Empty, 2);
+                            return true;
                         }}
-                        else if (!hasLeft && hasRight)
+                        SigmaS16 proposedState = ApplyNativeStitchTransport(
+                            transportedStates[key], step.Edge.Receipt,
+                            step.Forward);
+                        if (proposedState != byKey[next].State)
                         {{
-                            positions.Add(edge.Contact.LeftKey,
-                                (checked(right.U - edge.DeltaU),
-                                 checked(right.V - edge.DeltaV)));
-                            componentByKey.Add(edge.Contact.LeftKey, component);
-                            changed = true;
+                            pattern = new SigmaStitchPattern(
+                                SigmaStitchResolution.Unresolved,
+                                Array.Empty<SigmaGaugeCell>(), componentCount,
+                                string.Empty, 2);
+                            return true;
                         }}
-                        else if (right.U != checked(left.U + edge.DeltaU) ||
-                                 right.V != checked(left.V + edge.DeltaV))
-                            return false;
+                        if (!positions.TryGetValue(next,
+                                out (long U, long V) existing))
+                        {{
+                            positions.Add(next, proposed);
+                            chartFrames.Add(next, proposedFrame);
+                            transportedStates.Add(next, proposedState);
+                            componentByKey.Add(next, component);
+                            queue.Enqueue(next);
+                        }}
+                        else if (componentByKey[next] != component ||
+                                 existing != proposed ||
+                                 chartFrames[next] != proposedFrame ||
+                                 transportedStates[next] != proposedState)
+                        {{
+                            pattern = new SigmaStitchPattern(
+                                SigmaStitchResolution.Unresolved,
+                                Array.Empty<SigmaGaugeCell>(), componentCount,
+                                string.Empty, 2);
+                            return true;
+                        }}
                     }}
-                }} while (changed);
+                }}
             }}
 
-            var components = new List<(string Canonical,
-                IReadOnlyList<SigmaGaugeCell> Cells)>();
-            for (int component = 0; component < componentCount; ++component)
+            var components = new List<SigmaComponentNormalForm>();
+            try
             {{
-                SigmaGaugeCell[] cells = localities.Where(value =>
-                        componentByKey[value.ScratchKey] == component).Select(value =>
-                    {{
-                        (long U, long V) position = positions[value.ScratchKey];
-                        return new SigmaGaugeCell(position.U, position.V,
-                            value.Level, value.CompletePayloadFingerprint);
-                    }}).ToArray();
-                IReadOnlyList<SigmaGaugeCell> normalized = NormalizeGauge(cells);
-                string cellBytes = CanonicalGaugeSerialization(normalized);
-                var keys = componentByKey.Where(value => value.Value == component)
-                    .Select(value => value.Key).ToHashSet();
-                long componentMinimumU = cells.Min(value => value.U);
-                long componentMinimumV = cells.Min(value => value.V);
-                string edgeBytes = string.Join(";", stitches.Where(value =>
-                        keys.Contains(value.Contact.LeftKey) &&
-                        keys.Contains(value.Contact.RightKey)).Select(
-                            value => CanonicalIntegratedStitchSerialization(value,
-                                byKey, positions, componentMinimumU,
-                                componentMinimumV)).OrderBy(value => value,
-                                StringComparer.Ordinal));
-                components.Add(($"{{cellBytes}}#{{edgeBytes}}", normalized));
+                for (int component = 0; component < componentCount; ++component)
+                {{
+                    ulong[] keys = componentByKey.Where(value =>
+                            value.Value == component).Select(value => value.Key)
+                        .ToArray();
+                    SigmaResolvedStitch[] componentStitches = stitches.Where(value =>
+                            componentByKey[value.Boundary.LeftKey] == component &&
+                            componentByKey[value.Boundary.RightKey] == component)
+                        .ToArray();
+                    components.Add(CanonicalizeStitchComponent(keys,
+                        componentStitches, byKey, positions));
+                }}
+            }}
+            catch (InvalidOperationException)
+            {{
+                pattern = new SigmaStitchPattern(
+                    SigmaStitchResolution.Unresolved,
+                    Array.Empty<SigmaGaugeCell>(), componentCount,
+                    string.Empty, 2);
+                return true;
             }}
             components.Sort((left, right) => string.CompareOrdinal(
                 left.Canonical, right.Canonical));
+
             var packed = new List<SigmaGaugeCell>();
             long cursor = 0L;
-            foreach ((string Canonical, IReadOnlyList<SigmaGaugeCell> Cells) part
-                     in components)
+            foreach (SigmaComponentNormalForm part in components)
             {{
-                long width = part.Cells.Count == 0 ? 0L : checked(
-                    part.Cells.Max(value => value.U) -
-                    part.Cells.Min(value => value.U) + 1L);
-                long minimumU = part.Cells.Count == 0 ? 0L :
-                    part.Cells.Min(value => value.U);
-                long minimumV = part.Cells.Count == 0 ? 0L :
-                    part.Cells.Min(value => value.V);
+                long minimumU = part.Cells.Length == 0 ? 0L : part.Cells.Min(
+                    value => FloorDyadic(value.U, value.Level));
+                long minimumV = part.Cells.Length == 0 ? 0L : part.Cells.Min(
+                    value => FloorDyadic(value.V, value.Level));
+                long maximumU = part.Cells.Length == 0 ? 0L : part.Cells.Max(
+                    value => CeilingDyadic(checked(value.U + 1L), value.Level));
+                long width = checked(maximumU - minimumU);
+                long translateU = checked(cursor - minimumU);
+                long translateV = checked(-minimumV);
                 packed.AddRange(part.Cells.Select(value => new SigmaGaugeCell(
-                    checked(value.U - minimumU + cursor),
-                    checked(value.V - minimumV), value.Level,
+                    checked(value.U + ScaleBaseTranslation(translateU,
+                        value.Level)),
+                    checked(value.V + ScaleBaseTranslation(translateV,
+                        value.Level)), value.Level,
                     value.PayloadFingerprint)));
                 cursor = checked(cursor + width + 1L);
             }}
@@ -3352,48 +4061,358 @@ namespace Genesis.RoomScan.SigmaPrism
                 packed.OrderBy(value => value.Level).ThenBy(value => value.U)
                     .ThenBy(value => value.V).ThenBy(value =>
                         value.PayloadFingerprint, StringComparer.Ordinal).ToArray(),
-                componentCount, canonical);
+                componentCount, canonical, 1);
             return true;
         }}
 
         internal static string CanonicalStitchSerialization(
             SigmaResolvedStitch stitch)
         {{
-            return $"{{(uint)stitch.Contact.LeftPort}}:" +
-                $"{{(uint)stitch.Contact.RightPort}}:{{stitch.DeltaU}}:" +
-                $"{{stitch.DeltaV}}:{{stitch.TransportSign}}:" +
-                $"{{stitch.BracketFingerprint:x16}}:{{(uint)stitch.RelationClass}}";
+            string contact = string.Join("|", stitch.Boundary.ContactBranches
+                .Select(value => value.CanonicalSerialization));
+            // A resolved abstract incidence and its exact reversal are the same
+            // undirected stitch.  Direction remains present in both serialized
+            // receipt halves; it must not leak endpoint enumeration order into
+            // the canonical witness key.
+            return $"{{contact}}:" +
+                CanonicalStitchReceiptSerialization(stitch.Receipt);
+        }}
+
+        private static SigmaComponentNormalForm CanonicalizeStitchComponent(
+            IReadOnlyList<ulong> keys,
+            IReadOnlyList<SigmaResolvedStitch> stitches,
+            IReadOnlyDictionary<ulong, SigmaStitchLocality> localities,
+            IReadOnlyDictionary<ulong, (long U, long V)> positions)
+        {{
+            SigmaComponentNormalForm best = null;
+            for (int transformIndex = 0;
+                 transformIndex < ChartD4.Length; ++transformIndex)
+            {{
+                var transformed = new Dictionary<ulong, (long U, long V)>();
+                foreach (ulong key in keys)
+                {{
+                    SigmaStitchLocality locality = localities[key];
+                    transformed.Add(key, TransformDyadicCellLower(
+                        positions[key], locality.Level,
+                        ChartD4[transformIndex]));
+                }}
+                SigmaGaugeCell minimum = keys.Select(key => new SigmaGaugeCell(
+                        transformed[key].U, transformed[key].V,
+                        localities[key].Level,
+                        CompleteLocalityPayload(key, stitches, localities)))
+                    .Aggregate((left, right) =>
+                        CompareDyadicLower(left, right) <= 0 ? left : right);
+                long translationU = FloorDyadic(minimum.U, minimum.Level);
+                long translationV = FloorDyadic(minimum.V, minimum.Level);
+                var normalizedPositions =
+                    new Dictionary<ulong, (long U, long V)>();
+                foreach (ulong key in keys)
+                {{
+                    SigmaStitchLocality locality = localities[key];
+                    (long U, long V) value = transformed[key];
+                    normalizedPositions.Add(key, (
+                        checked(value.U - ScaleBaseTranslation(translationU,
+                            locality.Level)),
+                        checked(value.V - ScaleBaseTranslation(translationV,
+                            locality.Level))));
+                }}
+                SigmaGaugeCell[] normalized = keys.Select(key =>
+                {{
+                    SigmaStitchLocality locality = localities[key];
+                    (long U, long V) value = normalizedPositions[key];
+                    return new SigmaGaugeCell(value.U, value.V, locality.Level,
+                        CompleteLocalityPayload(key, stitches, localities));
+                }}).OrderBy(value => value.Level)
+                    .ThenBy(value => SignedMorton(value.U, value.V))
+                    .ThenBy(value => value.U).ThenBy(value => value.V)
+                    .ThenBy(value => value.PayloadFingerprint,
+                        StringComparer.Ordinal).ToArray();
+                for (int left = 0; left < normalized.Length; ++left)
+                    for (int right = left + 1; right < normalized.Length; ++right)
+                        if (DyadicCellsOverlap(normalized[left], normalized[right]))
+                            throw new InvalidOperationException(
+                                "A chart embedding overlaps distinct localities.");
+                string cellBytes = string.Join(";", normalized.Select(value =>
+                    $"{{value.Level}}:{{value.U}}:{{value.V}}:" +
+                    value.PayloadFingerprint));
+                string edgeBytes = string.Join(";", stitches.Select(value =>
+                        CanonicalIntegratedStitchSerialization(value, localities,
+                            normalizedPositions))
+                    .OrderBy(value => value, StringComparer.Ordinal));
+                string canonical = $"{{cellBytes}}#{{edgeBytes}}";
+                if (best == null || string.CompareOrdinal(canonical,
+                        best.Canonical) < 0)
+                    best = new SigmaComponentNormalForm(canonical, normalized);
+            }}
+            return best ?? throw new InvalidOperationException(
+                "D4 chart orbit was empty.");
+        }}
+
+        private static string CompleteLocalityPayload(ulong key,
+            IReadOnlyList<SigmaResolvedStitch> stitches,
+            IReadOnlyDictionary<ulong, SigmaStitchLocality> localities)
+        {{
+            string incident = string.Join(",", stitches.Where(value =>
+                    value.Boundary.LeftKey == key ||
+                    value.Boundary.RightKey == key)
+                .Select(value => CanonicalUnpositionedStitchSerialization(
+                    value, localities))
+                .OrderBy(value => value, StringComparer.Ordinal));
+            return $"{{localities[key].CompletePayloadFingerprint}}@{{incident}}";
+        }}
+
+        private static string CanonicalUnpositionedStitchSerialization(
+            SigmaResolvedStitch stitch,
+            IReadOnlyDictionary<ulong, SigmaStitchLocality> localities)
+        {{
+            SigmaStitchLocality left = localities[stitch.Boundary.LeftKey];
+            SigmaStitchLocality right = localities[stitch.Boundary.RightKey];
+            string leftToken = $"{{left.Level}}:{{left.CompletePayloadFingerprint}}";
+            string rightToken = $"{{right.Level}}:{{right.CompletePayloadFingerprint}}";
+            string forward = $"{{leftToken}}>{{rightToken}}:" +
+                DirectedStitchWitnessSerialization(stitch.Receipt, true);
+            string reverse = $"{{rightToken}}>{{leftToken}}:" +
+                DirectedStitchWitnessSerialization(stitch.Receipt, false);
+            return string.CompareOrdinal(forward, reverse) <= 0 ? forward : reverse;
         }}
 
         private static string CanonicalIntegratedStitchSerialization(
             SigmaResolvedStitch stitch,
             IReadOnlyDictionary<ulong, SigmaStitchLocality> localities,
-            IReadOnlyDictionary<ulong, (long U, long V)> positions,
-            long minimumU, long minimumV)
+            IReadOnlyDictionary<ulong, (long U, long V)> positions)
         {{
-            SigmaStitchLocality left = localities[stitch.Contact.LeftKey];
-            SigmaStitchLocality right = localities[stitch.Contact.RightKey];
-            (long U, long V) leftPosition = positions[stitch.Contact.LeftKey];
-            (long U, long V) rightPosition = positions[stitch.Contact.RightKey];
-            string leftToken = $"{{leftPosition.U - minimumU}}:" +
-                $"{{leftPosition.V - minimumV}}:{{left.Level}}:" +
-                left.CompletePayloadFingerprint;
-            string rightToken = $"{{rightPosition.U - minimumU}}:" +
-                $"{{rightPosition.V - minimumV}}:{{right.Level}}:" +
-                right.CompletePayloadFingerprint;
-            bool forward = string.CompareOrdinal(leftToken, rightToken) <= 0;
-            string first = forward ? leftToken : rightToken;
-            string second = forward ? rightToken : leftToken;
-            SigmaStitchPort firstPort = forward ? stitch.Contact.LeftPort :
-                stitch.Contact.RightPort;
-            SigmaStitchPort secondPort = forward ? stitch.Contact.RightPort :
-                stitch.Contact.LeftPort;
-            int du = forward ? stitch.DeltaU : -stitch.DeltaU;
-            int dv = forward ? stitch.DeltaV : -stitch.DeltaV;
-            return $"{{first}}>{{second}}:{{(uint)firstPort}}:" +
-                $"{{(uint)secondPort}}:{{du}}:{{dv}}:" +
-                $"{{stitch.TransportSign}}:{{stitch.BracketFingerprint:x16}}:" +
-                $"{{(uint)stitch.RelationClass}}";
+            SigmaStitchLocality left = localities[stitch.Boundary.LeftKey];
+            SigmaStitchLocality right = localities[stitch.Boundary.RightKey];
+            (long U, long V) leftPosition = positions[stitch.Boundary.LeftKey];
+            (long U, long V) rightPosition = positions[stitch.Boundary.RightKey];
+            string leftToken = $"{{leftPosition.U}}:{{leftPosition.V}}:" +
+                $"{{left.Level}}:{{left.CompletePayloadFingerprint}}";
+            string rightToken = $"{{rightPosition.U}}:{{rightPosition.V}}:" +
+                $"{{right.Level}}:{{right.CompletePayloadFingerprint}}";
+            string forward = $"{{leftToken}}>{{rightToken}}:" +
+                DirectedStitchWitnessSerialization(stitch.Receipt, true);
+            string reverse = $"{{rightToken}}>{{leftToken}}:" +
+                DirectedStitchWitnessSerialization(stitch.Receipt, false);
+            return string.CompareOrdinal(forward, reverse) <= 0 ? forward : reverse;
+        }}
+
+        private static string CanonicalStitchReceiptSerialization(
+            SigmaStitchRelationReceipt receipt)
+        {{
+            string forward = DirectedStitchWitnessSerialization(receipt, true);
+            string reverse = DirectedStitchWitnessSerialization(receipt, false);
+            return string.CompareOrdinal(forward, reverse) <= 0
+                ? $"{{forward}}/{{reverse}}" : $"{{reverse}}/{{forward}}";
+        }}
+
+        private static string DirectedStitchWitnessSerialization(
+            SigmaStitchRelationReceipt receipt, bool forward)
+        {{
+            SigmaS16 link = forward ? receipt.LinkDefect :
+                receipt.ReverseLinkDefect;
+            SigmaS16 associator = forward ? receipt.AssociatorDefect :
+                receipt.ReverseAssociatorDefect;
+            IReadOnlyList<SigmaQ48Interval> normalizedLink = forward
+                ? receipt.NormalizedLink : receipt.NormalizedReverseLink;
+            IReadOnlyList<SigmaQ48Interval> normalizedAssociator = forward
+                ? receipt.NormalizedAssociator :
+                    receipt.NormalizedReverseAssociator;
+            SigmaExactFactorClass linkClass = forward ? receipt.LinkClass :
+                receipt.ReverseLinkClass;
+            SigmaExactFactorClass associatorClass = forward
+                ? receipt.AssociatorClass : receipt.ReverseAssociatorClass;
+            SigmaNativeBoundarySector from = forward ? receipt.LeftSector :
+                receipt.RightSector;
+            SigmaNativeBoundarySector to = forward ? receipt.RightSector :
+                receipt.LeftSector;
+            int sign = forward ? receipt.ForwardTransportSign :
+                receipt.ReverseTransportSign;
+            return $"{{(uint)from}}>{{(uint)to}}:" +
+                $"{{receipt.TransportAddress}}:{{sign}}:" +
+                CanonicalDirectionalFactorSerialization(link, associator,
+                    normalizedLink, normalizedAssociator, linkClass,
+                    associatorClass) +
+                $":{{(uint)receipt.ClosureClass}}:" +
+                $"{{(uint)receipt.RelationClass}}:" +
+                $"{{(receipt.NonassociativeBracketContext ? 1 : 0)}}:" +
+                $"{{receipt.BracketFingerprint:x16}}:" +
+                receipt.ProvenanceFingerprint;
+        }}
+
+        private static string CanonicalDirectionalFactorSerialization(
+            SigmaS16 link, SigmaS16 associator,
+            IReadOnlyList<SigmaQ48Interval> normalizedLink,
+            IReadOnlyList<SigmaQ48Interval> normalizedAssociator,
+            SigmaExactFactorClass linkClass,
+            SigmaExactFactorClass associatorClass)
+        {{
+            string Raw(SigmaS16 value) => string.Join(",", value.ToArray().Select(
+                lane => unchecked((ulong)lane).ToString("x16")));
+            string Intervals(IReadOnlyList<SigmaQ48Interval> values) =>
+                string.Join(",", values.Select(value =>
+                    $"{{unchecked((ulong)value.Lower):x16}}-" +
+                    $"{{unchecked((ulong)value.Upper):x16}}"));
+            return $"{{(uint)linkClass}}:{{Raw(link)}}:{{Intervals(normalizedLink)}}:" +
+                $"{{(uint)associatorClass}}:{{Raw(associator)}}:" +
+                Intervals(normalizedAssociator);
+        }}
+
+        private static SigmaS16 ApplyNativeStitchTransport(SigmaS16 state,
+            SigmaStitchRelationReceipt receipt, bool forward)
+        {{
+            SigmaS16 transported = SigmaS16Operators.RightBasisAction(state,
+                receipt.TransportAddress);
+            int sign = forward ? receipt.ForwardTransportSign :
+                receipt.ReverseTransportSign;
+            return sign < 0 ? NegateS16(transported) : transported;
+        }}
+
+        // The local sector-to-square-side convention lives only inside chart
+        // embedding.  Global D4 enumeration removes that arbitrary chart frame;
+        // no sector or sampling side ever leaves the stitch as a signed U/V delta.
+        private static (int U, int V) ChartSectorDirection(int frameIndex,
+            SigmaNativeBoundarySector sector)
+        {{
+            int ordinal = (int)sector;
+            if ((uint)frameIndex >= (uint)ChartD4.Length ||
+                (uint)ordinal >= 4u)
+                throw new ArgumentOutOfRangeException(nameof(frameIndex));
+            int[] baseU = {{ 1, 0, -1, 0 }};
+            int[] baseV = {{ 0, 1, 0, -1 }};
+            SigmaChartD4Transform frame = ChartD4[frameIndex];
+            return (checked(frame.M00 * baseU[ordinal] +
+                    frame.M01 * baseV[ordinal]),
+                checked(frame.M10 * baseU[ordinal] +
+                    frame.M11 * baseV[ordinal]));
+        }}
+
+        private static bool TryResolveAdjacentChartFrame(int currentFrame,
+            SigmaNativeBoundarySector currentSector,
+            SigmaNativeBoundarySector nextSector, int orientationParity,
+            out int nextFrame)
+        {{
+            nextFrame = -1;
+            (int U, int V) direction = ChartSectorDirection(currentFrame,
+                currentSector);
+            int requiredDeterminant = checked(
+                ChartD4[currentFrame].Determinant * orientationParity);
+            for (int candidate = 0; candidate < ChartD4.Length; ++candidate)
+            {{
+                (int U, int V) candidateDirection = ChartSectorDirection(
+                    candidate, nextSector);
+                if (candidateDirection.U != -direction.U ||
+                    candidateDirection.V != -direction.V ||
+                    ChartD4[candidate].Determinant != requiredDeterminant)
+                    continue;
+                if (nextFrame >= 0)
+                    return false;
+                nextFrame = candidate;
+            }}
+            return nextFrame >= 0;
+        }}
+
+        private static (long U, long V) TransformDyadicCellLower(
+            (long U, long V) source, int level,
+            SigmaChartD4Transform transform)
+        {{
+            long TransformAxis(int fromU, int fromV)
+            {{
+                if (fromU == 1) return source.U;
+                if (fromU == -1) return checked(-source.U - 1L);
+                if (fromV == 1) return source.V;
+                if (fromV == -1) return checked(-source.V - 1L);
+                throw new InvalidOperationException(
+                    "A D4 row must select one signed chart axis.");
+            }}
+            _ = level;
+            return (TransformAxis(transform.M00, transform.M01),
+                TransformAxis(transform.M10, transform.M11));
+        }}
+
+        internal static string CanonicalD4GaugeSerialization(
+            IEnumerable<SigmaGaugeCell> source)
+        {{
+            if (source == null) throw new ArgumentNullException(nameof(source));
+            SigmaGaugeCell[] cells = source.ToArray();
+            if (cells.Length == 0) return string.Empty;
+            return ChartD4.Select(transform => CanonicalGaugeSerialization(
+                    cells.Select(cell =>
+                    {{
+                        (long U, long V) lower = TransformDyadicCellLower(
+                            (cell.U, cell.V), cell.Level, transform);
+                        return new SigmaGaugeCell(lower.U, lower.V, cell.Level,
+                            cell.PayloadFingerprint);
+                    }})))
+                .OrderBy(value => value, StringComparer.Ordinal).First();
+        }}
+
+        internal static SigmaGaugeCell[] ApplyChartD4(
+            IEnumerable<SigmaGaugeCell> source, int transformIndex)
+        {{
+            if (source == null) throw new ArgumentNullException(nameof(source));
+            if ((uint)transformIndex >= (uint)ChartD4.Length)
+                throw new ArgumentOutOfRangeException(nameof(transformIndex));
+            return source.Select(cell =>
+            {{
+                (long U, long V) lower = TransformDyadicCellLower(
+                    (cell.U, cell.V), cell.Level, ChartD4[transformIndex]);
+                return new SigmaGaugeCell(lower.U, lower.V, cell.Level,
+                    cell.PayloadFingerprint);
+            }}).ToArray();
+        }}
+
+        internal static bool TryCanonicalizeChartEmbeddingClasses(
+            IEnumerable<IEnumerable<SigmaGaugeCell>> alternatives,
+            out string canonicalSerialization)
+        {{
+            if (alternatives == null)
+                throw new ArgumentNullException(nameof(alternatives));
+            string[] classes = alternatives.Select(
+                    CanonicalD4GaugeSerialization)
+                .Distinct(StringComparer.Ordinal).ToArray();
+            canonicalSerialization = classes.Length == 1
+                ? classes[0] : string.Empty;
+            return classes.Length == 1;
+        }}
+
+        private static SigmaExactFactorClass NormalizeStitchFactor(
+            SigmaS16 raw, out SigmaQ48Interval[] normalized)
+        {{
+            if (!TryNormalizePrimitiveDefect(raw, out normalized,
+                    out bool diffractionKernel) || diffractionKernel)
+                return SigmaExactFactorClass.Unresolved;
+            return AggregateStitchFactors(normalized.Select(
+                ClassifyExactZeroFactor).ToArray());
+        }}
+
+        private static SigmaExactFactorClass AggregateStitchFactors(
+            params SigmaExactFactorClass[] factors)
+        {{
+            if (factors.Any(value =>
+                    value == SigmaExactFactorClass.ProvenIncompatible))
+                return SigmaExactFactorClass.ProvenIncompatible;
+            return factors.Any(value => value == SigmaExactFactorClass.Unresolved)
+                ? SigmaExactFactorClass.Unresolved
+                : SigmaExactFactorClass.ProvenExactClosed;
+        }}
+
+        private static int FindExactStitchAnnihilator(SigmaS16 transition)
+        {{
+            if (transition.IsZero) return -1;
+            for (int action = 0;
+                 action < SigmaGeneratedAlgebra.AnnihilatorActionCount; ++action)
+                if (SigmaS16Operators.RightSignedDyadAction(transition,
+                        SigmaS16Operators.GetAnnihilatorAction(action)).IsZero)
+                    return action;
+            return -1;
+        }}
+
+        private static SigmaS16 NegateS16(SigmaS16 value)
+        {{
+            var lanes = new long[SigmaS16.LaneCount];
+            for (int lane = 0; lane < lanes.Length; ++lane)
+                lanes[lane] = SigmaNumericDomain.QNegate(value[lane]);
+            return SigmaS16.FromArray(lanes);
         }}
 
         internal static long[] ApplyInformationMetric(long[] value)
@@ -3749,6 +4768,13 @@ namespace Genesis.RoomScan.SigmaPrism
             return remainder < 0L ? checked(quotient - 1L) : quotient;
         }}
 
+        private static long CeilingDyadic(long numerator, int level) =>
+            CheckedLong(DivideCeiling(new BigInteger(numerator),
+                BigInteger.One << level));
+
+        private static long ScaleBaseTranslation(long translation, int level) =>
+            CheckedLong(new BigInteger(translation) << level);
+
         private static long FloorDivideByTwo(long value) =>
             value >= 0L || (value & 1L) == 0L ? value / 2L : value / 2L - 1L;
 
@@ -3830,6 +4856,10 @@ def render_merkaba_hlsl(descriptor: dict, include_prefix: str =
         str(value) for value in descriptor["visibleProjectorNumerator256"])
     words = ", ".join(
         f"0x{value:08x}u" for value in fingerprint_words(descriptor["fingerprint"]))
+    stitch_bracket_fingerprint = int(
+        proofs["constructiveStitchExpressionFingerprint"][:16], 16)
+    stitch_bracket_low = stitch_bracket_fingerprint & 0xffffffff
+    stitch_bracket_high = stitch_bracket_fingerprint >> 32
     def packed_i64(value: int) -> str:
         raw = value & ((1 << 64) - 1)
         return f"uint2(0x{raw & 0xffffffff:08x}u, 0x{raw >> 32:08x}u)"
@@ -3915,13 +4945,24 @@ def render_merkaba_hlsl(descriptor: dict, include_prefix: str =
 #define SIGMA_FRESH_FIRST_HIT_RIGHT 2u
 #define SIGMA_FRESH_EXTERNAL_RELATION_TRUTH_INPUT_COUNT {proofs['freshAdmissionExternalRelationTruthInputCount']}u
 #define SIGMA_INSTRUMENT_BOUNDARY_LEAF_COUNT {proofs['captureBoundaryLeafCount']}u
-#define SIGMA_STITCH_PORT_U_MINUS 0u
-#define SIGMA_STITCH_PORT_U_PLUS 1u
-#define SIGMA_STITCH_PORT_V_MINUS 2u
-#define SIGMA_STITCH_PORT_V_PLUS 3u
+#define SIGMA_SAMPLE_BOUNDARY_LEFT 0u
+#define SIGMA_SAMPLE_BOUNDARY_RIGHT 1u
+#define SIGMA_SAMPLE_BOUNDARY_UP 2u
+#define SIGMA_SAMPLE_BOUNDARY_DOWN 3u
 #define SIGMA_STITCH_NO_STITCH 0u
 #define SIGMA_STITCH_RESOLVED 1u
 #define SIGMA_STITCH_UNRESOLVED 2u
+#define SIGMA_STITCH_EXTERNAL_SEMANTIC_TRUTH_INPUT_COUNT 0u
+#define SIGMA_STITCH_CALLER_LOOP_TRUTH_INPUT_COUNT 0u
+#define SIGMA_STITCH_SAMPLE_SIDE_TO_DELTA_AUTHORITY_COUNT 0u
+#define SIGMA_STITCH_ABSTRACT_NATIVE_SECTOR_COUNT {proofs['constructiveStitchAbstractNativeSectorCount']}u
+#define SIGMA_STITCH_D4_CHART_IMAGE_COUNT {proofs['constructiveStitchD4ChartImageCount']}u
+#define SIGMA_STITCH_NON_GAUGE_EMBEDDING_AMBIGUITY_COUNT {proofs['constructiveStitchNonGaugeEmbeddingAmbiguityCount']}u
+#define SIGMA_STITCH_IMPLICIT_BOUNDARY_COUNT_320 {proofs['constructiveStitchImplicitBoundaryCount320']}u
+#define SIGMA_STITCH_IMPLICIT_PLAQUETTE_COUNT_320 {proofs['constructiveStitchImplicitPlaquetteCount320']}u
+
+static const uint2 SIGMA_STITCH_GENERATED_BRACKET_FINGERPRINT =
+    uint2(0x{stitch_bracket_low:08x}u, 0x{stitch_bracket_high:08x}u);
 
 static const uint SIGMA_MERKABA_PROGRAM_FINGERPRINT[8] = {{ {words} }};
 static const int SIGMA_MERKABA_DIFFRACTION[256] = {{ {diffraction} }};
@@ -4398,40 +5439,127 @@ bool SigmaMerkabaBoundaryEnvelopesContact(
     return contact;
 }}
 
-int3 SigmaMerkabaClassifyModalStitch(
-    uint relationClass, uint linkClass, uint associatorClass,
-    uint plaquetteClass, uint leftPort, int transportSign,
-    uint2 bracketFingerprint)
+uint SigmaMerkabaNativeBoundarySectorAddress(uint ordinal)
 {{
-    bool invalidContext = (transportSign != -1 && transportSign != 1) ||
-        leftPort > 3u ||
-        (bracketFingerprint.x == 0u && bracketFingerprint.y == 0u);
-    bool absentRelation = relationClass == SIGMA_MERKABA_RELATION_NO_RELATION ||
-        relationClass == SIGMA_MERKABA_RELATION_DEFAULT_SAT;
-    bool unresolvedFactor = relationClass == SIGMA_MERKABA_RELATION_UNRESOLVED ||
-        relationClass == SIGMA_MERKABA_RELATION_NEAR_SINGULAR_Q48 ||
-        linkClass == SIGMA_EXACT_FACTOR_UNRESOLVED ||
-        associatorClass == SIGMA_EXACT_FACTOR_UNRESOLVED ||
-        plaquetteClass == SIGMA_EXACT_FACTOR_UNRESOLVED;
-    bool incompatibleFactor =
-        relationClass == SIGMA_MERKABA_RELATION_NONASSOCIATIVE_CONTEXT ||
-        linkClass == SIGMA_EXACT_FACTOR_PROVEN_INCOMPATIBLE ||
-        associatorClass == SIGMA_EXACT_FACTOR_PROVEN_INCOMPATIBLE ||
-        plaquetteClass == SIGMA_EXACT_FACTOR_PROVEN_INCOMPATIBLE;
-    int2 relativeDelta = leftPort == SIGMA_STITCH_PORT_U_MINUS ? int2(-1, 0) :
-        (leftPort == SIGMA_STITCH_PORT_U_PLUS ? int2(1, 0) :
-        (leftPort == SIGMA_STITCH_PORT_V_MINUS ? int2(0, -1) : int2(0, 1)));
-    int3 result = int3(SIGMA_STITCH_RESOLVED,
-        relativeDelta.x, relativeDelta.y);
-    if (incompatibleFactor)
-        result = int3(SIGMA_STITCH_NO_STITCH, 0, 0);
-    if (unresolvedFactor)
-        result = int3(SIGMA_STITCH_UNRESOLVED, 0, 0);
-    if (absentRelation)
-        result = int3(SIGMA_STITCH_NO_STITCH, 0, 0);
-    if (invalidContext)
-        result = int3(SIGMA_STITCH_UNRESOLVED, 0, 0);
-    return result;
+    return ordinal < 4u ? (1u << ordinal) : 0u;
+}}
+
+// The sector-pair transport is K16 address/sign geometry only.  It returns no
+// signed chart direction.  The swapped reverse is evaluated independently.
+void SigmaMerkabaEvaluateNativeStitchLink(uint2 left[16], uint2 right[16],
+    uint leftSectorOrdinal, uint rightSectorOrdinal,
+    out uint2 link[16], out uint2 reverseLink[16],
+    out uint transportAddress, out int forwardSign, out int reverseSign,
+    inout uint valid)
+{{
+    uint leftAddress = SigmaMerkabaNativeBoundarySectorAddress(
+        leftSectorOrdinal);
+    uint rightAddress = SigmaMerkabaNativeBoundarySectorAddress(
+        rightSectorOrdinal);
+    valid &= leftAddress != 0u && rightAddress != 0u ? 1u : 0u;
+    transportAddress = leftAddress ^ rightAddress;
+    forwardSign = SigmaMerkabaBasisSign(leftAddress, transportAddress);
+    reverseSign = SigmaMerkabaBasisSign(rightAddress, transportAddress);
+    uint2 transportedLeft[16];
+    uint2 transportedRight[16];
+    SigmaRightBasisAction(left, transportAddress, transportedLeft, valid);
+    SigmaRightBasisAction(right, transportAddress, transportedRight, valid);
+    [unroll]
+    for (uint lane = 0u; lane < 16u; ++lane)
+    {{
+        uint2 forwardValue = forwardSign < 0
+            ? SigmaQ48NegateChecked(transportedLeft[lane], valid)
+            : transportedLeft[lane];
+        uint2 reverseValue = reverseSign < 0
+            ? SigmaQ48NegateChecked(transportedRight[lane], valid)
+            : transportedRight[lane];
+        link[lane] = SigmaQ48SubChecked(right[lane], forwardValue, valid);
+        reverseLink[lane] = SigmaQ48SubChecked(left[lane], reverseValue, valid);
+    }}
+}}
+
+uint SigmaMerkabaClassifyPointNativeStitchPair(uint2 left[16],
+    uint2 right[16], uint leftSectorOrdinal, uint rightSectorOrdinal,
+    inout uint valid)
+{{
+    uint2 link[16];
+    uint2 reverseLink[16];
+    uint transportAddress;
+    int forwardSign;
+    int reverseSign;
+    SigmaMerkabaEvaluateNativeStitchLink(left, right, leftSectorOrdinal,
+        rightSectorOrdinal, link, reverseLink, transportAddress,
+        forwardSign, reverseSign, valid);
+    bool closed = valid != 0u;
+    [unroll]
+    for (uint lane = 0u; lane < 16u; ++lane)
+        closed = closed && all(link[lane] == uint2(0u, 0u)) &&
+            all(reverseLink[lane] == uint2(0u, 0u));
+    return valid == 0u ? SIGMA_EXACT_FACTOR_UNRESOLVED :
+        (closed ? SIGMA_EXACT_FACTOR_PROVEN_CLOSED :
+            SIGMA_EXACT_FACTOR_PROVEN_INCOMPATIBLE);
+}}
+
+// Four uint4 values are private bounded scratch for the sixteen abstract sector
+// pairs.  N2 fills them from the parallel full-S16/bracket evaluator; no host
+// relation truth enters this finalizer.
+uint4 SigmaMerkabaFinalizeNativeStitchSet(
+    uint4 closureClass0, uint4 closureClass1,
+    uint4 closureClass2, uint4 closureClass3)
+{{
+    uint4 classes[4] = {{ closureClass0, closureClass1,
+        closureClass2, closureClass3 }};
+    uint closedCount = 0u;
+    uint resolvedPair = 0u;
+    bool unresolved = false;
+    [unroll]
+    for (uint pair = 0u; pair < 16u; ++pair)
+    {{
+        uint factorClass = classes[pair >> 2u][pair & 3u];
+        unresolved = unresolved ||
+            factorClass == SIGMA_EXACT_FACTOR_UNRESOLVED;
+        if (factorClass == SIGMA_EXACT_FACTOR_PROVEN_CLOSED)
+        {{
+            resolvedPair = pair;
+            ++closedCount;
+        }}
+    }}
+    if (unresolved || closedCount > 1u)
+        return uint4(SIGMA_STITCH_UNRESOLVED, 0u, 0u, 0u);
+    if (closedCount == 0u)
+        return uint4(SIGMA_STITCH_NO_STITCH, 0u, 0u, 0u);
+    uint leftSector = resolvedPair >> 2u;
+    uint rightSector = resolvedPair & 3u;
+    uint transportAddress =
+        SigmaMerkabaNativeBoundarySectorAddress(leftSector) ^
+        SigmaMerkabaNativeBoundarySectorAddress(rightSector);
+    return uint4(SIGMA_STITCH_RESOLVED, leftSector, rightSector,
+        transportAddress);
+}}
+
+static const int4 SIGMA_STITCH_CHART_D4[8] = {{
+    int4(1, 0, 0, 1), int4(0, -1, 1, 0),
+    int4(-1, 0, 0, -1), int4(0, 1, -1, 0),
+    int4(-1, 0, 0, 1), int4(1, 0, 0, -1),
+    int4(0, 1, 1, 0), int4(0, -1, -1, 0) }};
+
+int2 SigmaMerkabaTransformChartCellLower(int2 lower, uint d4Index,
+    inout uint valid)
+{{
+    valid &= d4Index < 8u ? 1u : 0u;
+    int4 transform = SIGMA_STITCH_CHART_D4[min(d4Index, 7u)];
+    int source[2] = {{ lower.x, lower.y }};
+    int2 output = int2(0, 0);
+    [unroll]
+    for (uint row = 0u; row < 2u; ++row)
+    {{
+        int a = row == 0u ? transform.x : transform.z;
+        int b = row == 0u ? transform.y : transform.w;
+        int selected = a != 0 ? source[0] : source[1];
+        int sign = a != 0 ? a : b;
+        output[row] = sign > 0 ? selected : -selected - 1;
+    }}
+    return output;
 }}
 
 #endif
@@ -4447,7 +5575,7 @@ def render_merkaba_fixture(descriptor: dict) -> str:
 #pragma kernel MerkabaFreshAdmissionParity
 #pragma kernel MerkabaInstrumentBoundaryParity
 #pragma kernel MerkabaGaugeParity
-#pragma kernel MerkabaStitchPrimitiveParity
+#pragma kernel MerkabaStitchSetParity
 #pragma target 5.0
 
 #include "SigmaGeneratedMerkabaProgram.hlsl"
@@ -4460,6 +5588,9 @@ RWStructuredBuffer<uint4> _MerkabaFreshResults;
 RWStructuredBuffer<uint4> _MerkabaInstrumentResults;
 RWStructuredBuffer<uint4> _MerkabaGaugeResults;
 RWStructuredBuffer<uint4> _MerkabaStitchResults;
+
+groupshared uint _MerkabaStitchForwardClasses[16];
+groupshared uint _MerkabaStitchReverseClasses[16];
 
 uint4 _MerkabaGaugeParentCoordinate;
 uint _MerkabaGaugeParentLevel;
@@ -4658,42 +5789,118 @@ void MerkabaInstrumentBoundaryParity(uint3 id : SV_DispatchThreadID)
             measuredLower[leaf], measuredUpper[leaf]);
 }}
 
-[numthreads(8, 1, 1)]
-void MerkabaStitchPrimitiveParity(uint3 id : SV_DispatchThreadID)
+[numthreads(16, 1, 1)]
+void MerkabaStitchSetParity(uint3 id : SV_DispatchThreadID)
 {{
-    uint lane = id.x;
+    uint pair = id.x;
+    uint leftSector = pair >> 2u;
+    uint rightSector = pair & 3u;
     uint2 zero = uint2(0u, 0u);
     uint2 one = uint2(0u, 0x00010000u);
     uint2 two = uint2(0u, 0x00020000u);
-    uint2 leftLower[3];
-    uint2 leftUpper[3];
-    uint2 rightLower[3];
-    uint2 rightUpper[3];
+    uint2 leftState[16];
+    uint2 rightState[16];
     [unroll]
-    for (uint axis = 0u; axis < 3u; ++axis)
+    for (uint stateLane = 0u; stateLane < 16u; ++stateLane)
     {{
-        leftLower[axis] = zero;
-        leftUpper[axis] = one;
-        rightLower[axis] = lane == 1u ? two : one;
-        rightUpper[axis] = two;
+        leftState[stateLane] = zero;
+        rightState[stateLane] = zero;
     }}
-    uint leftClaim = lane == 2u ? SIGMA_NATIVE_QUERY_NO_CLAIM :
-        SIGMA_NATIVE_QUERY_FIRST_HIT_MOULD;
-    bool contact = SigmaMerkabaBoundaryEnvelopesContact(leftClaim,
-        SIGMA_NATIVE_QUERY_FIRST_HIT_MOULD, leftLower, leftUpper,
-        rightLower, rightUpper);
-    uint relation = lane == 5u ? SIGMA_MERKABA_RELATION_NEAR_SINGULAR_Q48 :
-        (lane == 6u ? SIGMA_MERKABA_RELATION_NO_RELATION :
-            SIGMA_MERKABA_RELATION_REGULAR);
-    uint2 bracket = lane == 7u ? uint2(0u, 0u) : uint2(0x12345678u, 1u);
-    uint port = lane == 4u ? SIGMA_STITCH_PORT_V_MINUS :
-        SIGMA_STITCH_PORT_U_PLUS;
-    int3 stitch = SigmaMerkabaClassifyModalStitch(relation,
-        SIGMA_EXACT_FACTOR_PROVEN_CLOSED,
-        SIGMA_EXACT_FACTOR_PROVEN_CLOSED,
-        SIGMA_EXACT_FACTOR_PROVEN_CLOSED, port, 1, bracket);
-    _MerkabaStitchResults[lane] = uint4(contact ? 1u : 0u, asuint(stitch.x),
-        asuint(stitch.y), asuint(stitch.z));
+    leftState[1] = one;
+    rightState[2] = one;
+    uint forwardValid = 1u;
+    uint reverseValid = 1u;
+    uint forwardClass = SigmaMerkabaClassifyPointNativeStitchPair(
+        leftState, rightState, leftSector, rightSector, forwardValid);
+    uint reverseClass = SigmaMerkabaClassifyPointNativeStitchPair(
+        rightState, leftState, leftSector, rightSector, reverseValid);
+    _MerkabaStitchForwardClasses[pair] = forwardClass;
+    _MerkabaStitchReverseClasses[pair] = reverseClass;
+    _MerkabaStitchResults[pair] = uint4(forwardClass, forwardValid,
+        leftSector, rightSector);
+    _MerkabaStitchResults[16u + pair] = uint4(reverseClass, reverseValid,
+        leftSector, rightSector);
+
+    GroupMemoryBarrierWithGroupSync();
+    if (pair == 0u)
+    {{
+        uint4 forward0 = uint4(_MerkabaStitchForwardClasses[0],
+            _MerkabaStitchForwardClasses[1],
+            _MerkabaStitchForwardClasses[2],
+            _MerkabaStitchForwardClasses[3]);
+        uint4 forward1 = uint4(_MerkabaStitchForwardClasses[4],
+            _MerkabaStitchForwardClasses[5],
+            _MerkabaStitchForwardClasses[6],
+            _MerkabaStitchForwardClasses[7]);
+        uint4 forward2 = uint4(_MerkabaStitchForwardClasses[8],
+            _MerkabaStitchForwardClasses[9],
+            _MerkabaStitchForwardClasses[10],
+            _MerkabaStitchForwardClasses[11]);
+        uint4 forward3 = uint4(_MerkabaStitchForwardClasses[12],
+            _MerkabaStitchForwardClasses[13],
+            _MerkabaStitchForwardClasses[14],
+            _MerkabaStitchForwardClasses[15]);
+        uint4 reverse0 = uint4(_MerkabaStitchReverseClasses[0],
+            _MerkabaStitchReverseClasses[1],
+            _MerkabaStitchReverseClasses[2],
+            _MerkabaStitchReverseClasses[3]);
+        uint4 reverse1 = uint4(_MerkabaStitchReverseClasses[4],
+            _MerkabaStitchReverseClasses[5],
+            _MerkabaStitchReverseClasses[6],
+            _MerkabaStitchReverseClasses[7]);
+        uint4 reverse2 = uint4(_MerkabaStitchReverseClasses[8],
+            _MerkabaStitchReverseClasses[9],
+            _MerkabaStitchReverseClasses[10],
+            _MerkabaStitchReverseClasses[11]);
+        uint4 reverse3 = uint4(_MerkabaStitchReverseClasses[12],
+            _MerkabaStitchReverseClasses[13],
+            _MerkabaStitchReverseClasses[14],
+            _MerkabaStitchReverseClasses[15]);
+        _MerkabaStitchResults[32] = SigmaMerkabaFinalizeNativeStitchSet(
+            forward0, forward1, forward2, forward3);
+        _MerkabaStitchResults[33] = SigmaMerkabaFinalizeNativeStitchSet(
+            reverse0, reverse1, reverse2, reverse3);
+
+        uint2 leftLower[3];
+        uint2 leftUpper[3];
+        uint2 rightLower[3];
+        uint2 rightUpper[3];
+        [unroll]
+        for (uint axis = 0u; axis < 3u; ++axis)
+        {{
+            leftLower[axis] = zero;
+            leftUpper[axis] = one;
+            rightLower[axis] = one;
+            rightUpper[axis] = two;
+        }}
+        _MerkabaStitchResults[34] = uint4(
+            SigmaMerkabaBoundaryEnvelopesContact(
+                SIGMA_NATIVE_QUERY_FIRST_HIT_MOULD,
+                SIGMA_NATIVE_QUERY_FIRST_HIT_MOULD,
+                leftLower, leftUpper, rightLower, rightUpper) ? 1u : 0u,
+            0u, 0u, 0u);
+        rightLower[0] = two;
+        _MerkabaStitchResults[35] = uint4(
+            SigmaMerkabaBoundaryEnvelopesContact(
+                SIGMA_NATIVE_QUERY_FIRST_HIT_MOULD,
+                SIGMA_NATIVE_QUERY_FIRST_HIT_MOULD,
+                leftLower, leftUpper, rightLower, rightUpper) ? 1u : 0u,
+            0u, 0u, 0u);
+        _MerkabaStitchResults[36] = uint4(
+            SigmaMerkabaBoundaryEnvelopesContact(
+                SIGMA_NATIVE_QUERY_NO_CLAIM,
+                SIGMA_NATIVE_QUERY_FIRST_HIT_MOULD,
+                leftLower, leftUpper, rightLower, rightUpper) ? 1u : 0u,
+            0u, 0u, 0u);
+    }}
+    if (pair < 8u)
+    {{
+        uint d4Valid = 1u;
+        int2 transformed = SigmaMerkabaTransformChartCellLower(
+            int2(2, -3), pair, d4Valid);
+        _MerkabaStitchResults[37u + pair] = uint4(
+            asuint(transformed.x), asuint(transformed.y), pair, d4Valid);
+    }}
 }}
 """
 

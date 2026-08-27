@@ -429,3 +429,48 @@ branch/chart decisions remain in Git history only.
   normalized component bytes are multiset-sorted; packing distance is not physics.
 - The N1R-5 executable CPU/HLSL authority is test-only during corrective N1/N2.
   Runtime activation is deferred to N4 after bounded CPU/Vulkan set-level proof.
+
+## ADR-S447 — Implicit footprint complex and unresolved native orientation boundary
+
+- A coherent fresh frame is a disposable implicit square footprint complex, not a
+  general contact graph. Fresh broad phase enumerates each `RIGHT`/`DOWN` shared
+  footprint boundary exactly once; for `320x320` this is `204160` boundaries and
+  `101761` implicit plaquettes. Neither collection is materialized as world state.
+- The only hot semantic phases are `FOOTPRINT -> BOUNDARY -> CLOSE`, mapped into
+  the existing native graph. Plaquette, cycle, component, potential, normalization
+  and packing are mathematics inside `CLOSE`, never managers, identities, object
+  ABIs or dispatch families. Cardinality changes workgroups, not submissions.
+- Sampling `LEFT/RIGHT/UP/DOWN` is broad-phase query orientation only. It cannot
+  produce a native port, `Sigma_2` incidence or `DeltaU/DeltaV`.
+- N1R-5's executable acceptance is revoked. Removing caller-supplied factor/loop
+  truth is insufficient while a caller-supplied `PlaquetteC` still chooses a
+  native branch or an unproved fixed `{1,2,4,8}->{+U,-U,+V,-V}` table supplies
+  intrinsic direction.
+- Corrective N1 is hard-stopped until scanner authority provides the exact
+  matched-native-sector/transport-to-signed-dyadic-transform equation and its
+  reversal/composition law, or explicitly declares and justifies a complete
+  representation theorem. Pixel, XYZ, sample side, page/address, allocation order
+  and every legacy topology path remain forbidden fallbacks.
+
+## ADR-S448 — Abstract native incidence precedes `Z² semidirect D4` chart embedding
+
+- ADR-S447's final hard stop is resolved by removing its over-strong requirement:
+  a native Merkaba stitch does not output physical `DeltaU/DeltaV`. It outputs an
+  abstract matched continuation-sector incidence plus exact signed-XOR native
+  transport, brackets and factor receipts.
+- The generated pair transport is source-backed K16 algebra:
+  `g=a xor b`, `U_ab(u)=epsilon(a,g)[u e_g]`; the swapped reverse is evaluated
+  independently. Native sectors and sample boundary sides have no chart-axis
+  meaning and no static mapping to signed U/V exists.
+- Finite square-dyadic coordinates are a separate representation embedding. One
+  stitch-connected component is quotient by `Z² semidirect D4`; disconnected
+  components receive independent copies of that chart gauge until a later stitch
+  joins them. Dyadic scale/level is not gauge.
+- D4 changes chart incidence representation only. It never transforms physical
+  S16/native transport. Lexical byte minimization is legal only within one admitted
+  chart-gauge orbit; non-D4-equivalent surviving incidence patterns remain exact
+  unresolved alternatives.
+- Full-frame fresh broad phase remains the disposable implicit RIGHT/DOWN finite-
+  footprint complex. It proposes contact only; generated native closure decides
+  incidence. Runtime remains only `FOOTPRINT -> BOUNDARY -> CLOSE`, with no graph,
+  loop, component or placement manager authority.
