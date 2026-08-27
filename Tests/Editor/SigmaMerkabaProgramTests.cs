@@ -24,7 +24,7 @@ namespace Genesis.RoomScan.Tests
         public void AuthorityBoundaryAndExecutableIrAreFrozen()
         {
             Assert.That(SigmaGeneratedMerkabaProgram.ProgramVersion,
-                Is.EqualTo("CPQ4-S16-MERKABA-N1R-6"));
+                Is.EqualTo("CPQ4-S16-MERKABA-N1R-7"));
             Assert.That(SigmaGeneratedMerkabaProgram.NumericDomainId,
                 Is.EqualTo(SigmaNumericDomain.Id));
             Assert.That(SigmaGeneratedMerkabaProgram.DeclaredToeUpstreamFingerprint,
@@ -179,7 +179,22 @@ namespace Genesis.RoomScan.Tests
             Assert.That(SigmaGeneratedMerkabaProgram
                 .ConstructiveStitchAbstractNativeSectorCount, Is.EqualTo(4));
             Assert.That(SigmaGeneratedMerkabaProgram
+                .ConstructiveStitchAbstractSectorChartAssignmentCount,
+                Is.EqualTo(24));
+            Assert.That(SigmaGeneratedMerkabaProgram
+                .ConstructiveStitchAbstractSectorChartAssignmentOrbitCount,
+                Is.EqualTo(3));
+            Assert.That(SigmaGeneratedMerkabaProgram
                 .ConstructiveStitchD4ChartImageCount, Is.EqualTo(8));
+            Assert.That(SigmaGeneratedMerkabaProgram
+                .NativeSectorChartAssignmentCount, Is.EqualTo(24));
+            Assert.That(SigmaGeneratedMerkabaProgram
+                .NativeSectorChartOrbitCount, Is.EqualTo(3));
+            CollectionAssert.AreEqual(new[] { 8, 8, 8 },
+                Enumerable.Range(0, 24).GroupBy(index =>
+                        SigmaGeneratedMerkabaProgram
+                            .NativeSectorChartOrbitAt(index))
+                    .Select(group => group.Count()).OrderBy(value => value));
             Assert.That(SigmaGeneratedMerkabaProgram
                 .EnumerateImplicitBoundaryReference(new[]
                 {
@@ -260,6 +275,18 @@ namespace Genesis.RoomScan.Tests
             Assert.That(SigmaGeneratedMerkabaProgram.CanonicalStitchSerialization(
                     baSet.Resolved), Is.EqualTo(
                     SigmaGeneratedMerkabaProgram.CanonicalStitchSerialization(ab)));
+            SigmaStitchWitnessSet sampleSidePermutation =
+                SigmaGeneratedMerkabaProgram.EvaluateModalStitch(
+                    new SigmaImplicitBoundaryRef(0, 11UL, 22UL,
+                        SigmaSampleBoundarySide.Down,
+                        SigmaSampleBoundarySide.Up, new[] { Contact() }),
+                    a, b, Context('x'));
+            Assert.That(sampleSidePermutation.Resolution,
+                Is.EqualTo(SigmaStitchResolution.Resolved));
+            Assert.That(SigmaGeneratedMerkabaProgram.CanonicalStitchSerialization(
+                    sampleSidePermutation.Resolved), Is.EqualTo(
+                    SigmaGeneratedMerkabaProgram.CanonicalStitchSerialization(ab)),
+                "Sampling sides may propose contact but cannot choose a chart orbit.");
 
             SigmaStitchLocality c = Locality(33UL, 11, 0, 'c');
             SigmaStitchLocality[] localities =
@@ -277,12 +304,13 @@ namespace Genesis.RoomScan.Tests
                     SigmaSampleBoundarySide.Down,
                     SigmaSampleBoundarySide.Up),
             };
+            SigmaBoundaryNativeInput[] oneEdge = { edges[0] };
             Assert.That(SigmaGeneratedMerkabaProgram.TryIntegrateStitchPattern(
-                localities, edges, out SigmaStitchPattern pattern), Is.True);
+                localities, oneEdge, out SigmaStitchPattern pattern), Is.True);
             Assert.That(pattern.Resolution, Is.EqualTo(
                 SigmaStitchResolution.Resolved));
             Assert.That(pattern.EmbeddingClassCount, Is.EqualTo(1));
-            Assert.That(pattern.ComponentCount, Is.EqualTo(3));
+            Assert.That(pattern.ComponentCount, Is.EqualTo(4));
             Assert.That(pattern.PackedCells.Count, Is.EqualTo(5));
             Assert.That(pattern.PackedCells.Where(value => value.Level > 0)
                 .All(value => value.U % (1L << value.Level) == 0L &&
@@ -290,7 +318,7 @@ namespace Genesis.RoomScan.Tests
                 "Backing translation must remain one exact integer at every level.");
 
             Assert.That(SigmaGeneratedMerkabaProgram.TryIntegrateStitchPattern(
-                localities.Reverse(), edges.Reverse(),
+                localities.Reverse(), oneEdge.Reverse(),
                 out SigmaStitchPattern permuted), Is.True);
             Assert.That(permuted.Resolution, Is.EqualTo(
                 SigmaStitchResolution.Resolved));
@@ -303,10 +331,7 @@ namespace Genesis.RoomScan.Tests
 
             SigmaBoundaryNativeInput[] reversedEdges =
             {
-                Edge(0, 33UL, 22UL, 'q',
-                    SigmaSampleBoundarySide.Up,
-                    SigmaSampleBoundarySide.Down),
-                Edge(1, 22UL, 11UL, 'p',
+                Edge(0, 22UL, 11UL, 'p',
                     SigmaSampleBoundarySide.Left,
                     SigmaSampleBoundarySide.Right),
             };
@@ -318,6 +343,16 @@ namespace Genesis.RoomScan.Tests
             Assert.That(reversed.CanonicalSerialization,
                 Is.EqualTo(pattern.CanonicalSerialization),
                 "Reversing equivalent stitch enumeration cannot change bytes.");
+
+            Assert.That(SigmaGeneratedMerkabaProgram.TryIntegrateStitchPattern(
+                localities, edges,
+                out SigmaStitchPattern nonGaugeAmbiguity), Is.True);
+            Assert.That(nonGaugeAmbiguity.Resolution, Is.EqualTo(
+                SigmaStitchResolution.Unresolved),
+                "Straight and corner embeddings are distinct D4 orbits; no " +
+                "fixed native-sector chart convention may select one.");
+            Assert.That(nonGaugeAmbiguity.EmbeddingClassCount,
+                Is.GreaterThanOrEqualTo(2));
 
             Assert.That(SigmaGeneratedMerkabaProgram.TryIntegrateStitchPattern(
                 localities, edges.Append(Edge(2, 11UL, 33UL, 'r')),

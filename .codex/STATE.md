@@ -1,6 +1,6 @@
 # Sigma‑PRISM‑16 implementation state
 
-Updated: 2026-08-26 (Europe/Prague)
+Updated: 2026-08-27 (Europe/Prague)
 
 ## Authority
 
@@ -8,8 +8,8 @@ Updated: 2026-08-26 (Europe/Prague)
 - Branch: `feat/sigma-prism-16-cpq4-20260822`.
 - Runtime replacement baseline: `cac9ab012f4ce574e5eb9bee88290982fd9c4fe8`.
 - Accepted primitive milestones: S4‑00 through S4‑07 where compatible with v8.3.
-- Active node: S4‑08. Corrective N1R-6 closes abstract native stitching and the
-  representation-only `Z² semidirect D4` chart theorem with Runtime/Resources
+- Active node: S4‑08. Corrective N1R-7 closes abstract native stitching and the
+  complete 24-assignment representation-only `Z² semidirect D4` chart theorem with Runtime/Resources
   `+0/-0`; corrective N2R is the sole next gate. N3R remains the accepted live
   bootstrap, N4R remains stopped/unaccepted, and S4-09 remains unopened.
 - Active repair: S4‑08.6 one-medium native closure.
@@ -83,12 +83,12 @@ surviving embeddings outside one gauge orbit remain unresolved. Disconnected
 components are canonicalized independently and backing-packed only after their
 complete bytes are ordered; packing distance has no physical meaning.
 
-Corrective N1R-6 also freezes the implicit full-frame broad phase and hot semantic
+Corrective N1R-7 also freezes the implicit full-frame broad phase and hot semantic
 shape `FOOTPRINT -> BOUNDARY -> CLOSE`: valid same-frame RIGHT/DOWN footprint
 boundaries are enumerated once, never materialized as a physical/contact graph,
 and never mapped to `Sigma_2` axes. Runtime activation remains N4 ownership.
 
-Verified corrective N1R-6 evidence:
+Verified corrective N1R-7 evidence:
 
 ```text
 Unity Vulkan EditMode                         79/79 passed
@@ -100,21 +100,23 @@ legacy Candidate/Pending/Novel/DirtyEdge      0
 Runtime/Resources production delta            +0 / -0
 ```
 
-## Corrective N1R-6 abstract modal stitching and chart gauge
+## Corrective N1R-7 abstract modal stitching and chart gauge
 
 ```text
-program version                     CPQ4-S16-MERKABA-N1R-6
-program fingerprint                 b11873e69d90cb446d2a23d1bce661de17bf9d5c222a5528a99705c753ca417b
+program version                     CPQ4-S16-MERKABA-N1R-7
+program fingerprint                 d034ec802cf860977d1ede3a4822fceeeb4ec48fe852369d478f3153ba14dc68
 IR                                   39 opcodes / 61 nodes / 70 operands
 expressions / entries / reducers     17 / 7 / 5
-constructive stitch proof            b57aee130824f4729bc74b488dbce9159f8bac49e5ccf289786e65cfcc631251
+constructive stitch proof            3e13b56d0cd06b864ef946ecc7abc83a390a76c6dc9015e1aad04a1ba6d8dc22
 contact epsilon count                0
 pixel/XYZ authority count            0
 persistent component identity        false
 chart gauge                           Z² semidirect D4
+abstract-sector chart assignments     24
+assignment D4 orbits                  3 x 8
 implicit boundaries at 320x320        204160
 hot semantic phases                   3
-component gauge                      independent integer translation only
+component gauge                      independent Z² semidirect D4
 Unity Vulkan EditMode                79/79 passed
 generator regeneration/check         passed
 compute UAV gate                      passed (<=8)
@@ -626,17 +628,17 @@ TASK_DAG JSON                     valid
 Markdown fences                  balanced
 git diff --check                 clean
 Runtime/Resources vs df5200f     byte-identical
-code graph                       current, 108 files
+code graph                       current, 103 files, 362aab58b2df
 validate_goal_state              green, active S4-08
 ```
 
 ## LOC cursor
 
 ```text
-corrective N1R-6 current Sigma production LOC             9764
-corrective N1R-6 vs 86195c2 Runtime/Resources      +0 / -0 / net 0
-corrective N1R-6 tests/generator/authority       +3612 / -893 / net +2719
-corrective N1R-6 spec/controls/code graph         +856 / -359 / net +497
+corrective N1R-7 current Sigma production LOC             9764
+corrective N1R-7 vs 1842841 Runtime/Resources      +0 / -0 / net 0
+corrective N1R-7 tests/generator/authority         +785 / -251 / net +534
+corrective N1R-7 spec/controls/code graph          +299 / -242 / net +57
 N2R run delta vs eacf261                    +0 / -0 / net 0
 N2R non-production source / metadata        +5003 / +27
 N2R correction vs rejected b4d88d6           +1085 / -233

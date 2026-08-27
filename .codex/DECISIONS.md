@@ -470,6 +470,11 @@ branch/chart decisions remain in Git history only.
   S16/native transport. Lexical byte minimization is legal only within one admitted
   chart-gauge orbit; non-D4-equivalent surviving incidence patterns remain exact
   unresolved alternatives.
+- Four abstract native sectors have 24 possible square-side assignments, which
+  split into three D4 orbits of eight. No fixed sector-to-side chart convention is
+  authority: the generated normalizer enumerates the complete finite assignment
+  set, resolves only one surviving orbit and retains multiple surviving orbit
+  classes as `UNRESOLVED`. Sampling boundary sides cannot choose an orbit.
 - Full-frame fresh broad phase remains the disposable implicit RIGHT/DOWN finite-
   footprint complex. It proposes contact only; generated native closure decides
   incidence. Runtime remains only `FOOTPRINT -> BOUNDARY -> CLOSE`, with no graph,

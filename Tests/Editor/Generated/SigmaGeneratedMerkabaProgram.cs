@@ -794,21 +794,21 @@ namespace Genesis.RoomScan.SigmaPrism
 
     internal static class SigmaGeneratedMerkabaProgram
     {
-        internal const string ProgramVersion = "CPQ4-S16-MERKABA-N1R-6";
+        internal const string ProgramVersion = "CPQ4-S16-MERKABA-N1R-7";
         internal const string NumericDomainId = "num.fixed.q16_48.checked.nearest_even";
-        internal const string ProgramFingerprint = "b11873e69d90cb446d2a23d1bce661de17bf9d5c222a5528a99705c753ca417b";
+        internal const string ProgramFingerprint = "d034ec802cf860977d1ede3a4822fceeeb4ec48fe852369d478f3153ba14dc68";
         internal const string CaptureBoundaryFingerprint =
             "2b492bf2deba23077ff873275f8672a3949e460a2b1ec2429c199fcd62691ba2";
         internal const int CaptureBoundaryLeafCount =
             8;
         internal const string DeclaredToeUpstreamFingerprint = "9d2e3604846305cfe5244a4ef49f169632c60582cf895256fadc36426dc5786f";
-        internal const string GeneratorSourceInputFingerprint = "f1ee29e3aa2a4cbacc182b7671963fe8506c6fe413a294a46cac6a9ffbcca6c6";
+        internal const string GeneratorSourceInputFingerprint = "af0e7c867bd50e4ae7ec068d7819394b378c8290a402261ca68d265887db99d7";
         internal const string ToeCapsuleInputFingerprint = "9cdc8b1f3bfecfa3a49805be82ea786cdbf681ee8ffbdab0733d18dc24cfffef";
         internal const string ToeUpstreamDeclaredInputFingerprint = "9d2e3604846305cfe5244a4ef49f169632c60582cf895256fadc36426dc5786f";
         internal const string IQInputFingerprint = "01068e0ca9a12abd80dc58aa172b04da295e3f5de2e235b7be334ced7e749eff";
-        internal const string IRepresentationInputFingerprint = "47ae5b6eec7c114801a9f1cf7718acc057e1878adf95aa2be2d6b029837d5080";
-        internal const string CanonicalSpecInputFingerprint = "49f6c6c8acdf797ea191d3dfa7cfaa8f52dc32cd5a0723bb3cd5ba6d4e1c9661";
-        internal const string ClosurePlanInputFingerprint = "549b31b6d79d8c4886d400081ad20b872ff3fd4fbb219a20f1559492a4a34cce";
+        internal const string IRepresentationInputFingerprint = "76e118d642d566532cbd81405d9ff80a04c18a6f9b814989afea8176ab644757";
+        internal const string CanonicalSpecInputFingerprint = "7f41a3e24b5c95dda1537b987dff54c0d95481990a3ef830f17148a0f68fde69";
+        internal const string ClosurePlanInputFingerprint = "6ea515da4b9e721da484251eab914ff9b37ad314fec035209f8b2b5e2e6b4345";
         internal const string AlgebraCoreInputFingerprint = "f7524a2d348cda462a2c6fa4804cf6be33c2554a69c6ecf67a11ef97009529cc";
         internal const int ExpressionCount = 17;
         internal const int IrNodeCount = 61;
@@ -884,6 +884,10 @@ namespace Genesis.RoomScan.SigmaPrism
             0;
         internal const int ConstructiveStitchAbstractNativeSectorCount =
             4;
+        internal const int ConstructiveStitchAbstractSectorChartAssignmentCount =
+            24;
+        internal const int ConstructiveStitchAbstractSectorChartAssignmentOrbitCount =
+            3;
         internal const int ConstructiveStitchD4ChartImageCount =
             8;
         internal const int ConstructiveStitchNonGaugeEmbeddingAmbiguityCount =
@@ -899,7 +903,7 @@ namespace Genesis.RoomScan.SigmaPrism
         internal const int ConstructiveStitchMixedLevelTranslationProbeCount =
             3;
         internal const string ConstructiveStitchProofFingerprint =
-            "b57aee130824f4729bc74b488dbce9159f8bac49e5ccf289786e65cfcc631251";
+            "3e13b56d0cd06b864ef946ecc7abc83a390a76c6dc9015e1aad04a1ba6d8dc22";
         internal const ulong GeneratedStitchBracketFingerprint =
             0x6094d138212b1e76UL;
         internal const string CanonicalSerializationFingerprint =
@@ -1116,6 +1120,30 @@ namespace Genesis.RoomScan.SigmaPrism
             new SigmaChartD4Transform(0, 1, 1, 0),
             new SigmaChartD4Transform(0, -1, -1, 0),
         };
+
+        // Every bijection from the four abstract native boundary sectors to the
+        // four square-chart directions is a representation candidate.  D4 acts
+        // on the direction values after this complete 4! enumeration; it cannot
+        // authorize one hidden sector-to-side convention.
+        internal static readonly int[][] NativeSectorChartAssignments =
+            BuildNativeSectorChartAssignments();
+
+        internal static int NativeSectorChartAssignmentCount =>
+            NativeSectorChartAssignments.Length;
+
+        internal static int NativeSectorChartOrbitCount =>
+            NativeSectorChartAssignments.Select(
+                    CanonicalNativeSectorChartAssignment)
+                .Distinct(StringComparer.Ordinal).Count();
+
+        internal static string NativeSectorChartOrbitAt(int assignmentIndex)
+        {
+            if ((uint)assignmentIndex >=
+                (uint)NativeSectorChartAssignments.Length)
+                throw new ArgumentOutOfRangeException(nameof(assignmentIndex));
+            return CanonicalNativeSectorChartAssignment(
+                NativeSectorChartAssignments[assignmentIndex]);
+        }
 
         internal static int BasisSign(int left, int right)
         {
@@ -1903,111 +1931,63 @@ namespace Genesis.RoomScan.SigmaPrism
                     CanonicalStitchSerialization(left.Edge),
                     CanonicalStitchSerialization(right.Edge)));
 
-            var positions = new Dictionary<ulong, (long U, long V)>();
-            var chartFrames = new Dictionary<ulong, int>();
-            var transportedStates = new Dictionary<ulong, SigmaS16>();
             var componentByKey = new Dictionary<ulong, int>();
             int componentCount = 0;
             foreach (SigmaStitchLocality seed in localities.OrderBy(value =>
                          value.CompletePayloadFingerprint, StringComparer.Ordinal)
                      .ThenBy(value => value.Level))
             {
-                if (positions.ContainsKey(seed.ScratchKey)) continue;
+                if (componentByKey.ContainsKey(seed.ScratchKey)) continue;
                 int component = componentCount++;
-                positions.Add(seed.ScratchKey, (0L, 0L));
-                chartFrames.Add(seed.ScratchKey, 0);
-                transportedStates.Add(seed.ScratchKey, seed.State);
                 componentByKey.Add(seed.ScratchKey, component);
                 var queue = new Queue<ulong>();
                 queue.Enqueue(seed.ScratchKey);
                 while (queue.Count != 0)
                 {
                     ulong key = queue.Dequeue();
-                    (long U, long V) current = positions[key];
-                    int currentFrame = chartFrames[key];
                     foreach ((SigmaResolvedStitch Edge, bool Forward) step in
                              adjacency[key])
                     {
                         ulong next = step.Forward ? step.Edge.Boundary.RightKey :
                             step.Edge.Boundary.LeftKey;
-                        SigmaNativeBoundarySector currentSector = step.Forward
-                            ? step.Edge.LeftSector : step.Edge.RightSector;
-                        SigmaNativeBoundarySector nextSector = step.Forward
-                            ? step.Edge.RightSector : step.Edge.LeftSector;
-                        (int U, int V) direction = ChartSectorDirection(
-                            currentFrame, currentSector);
-                        (long U, long V) proposed = (
-                            checked(current.U + direction.U),
-                            checked(current.V + direction.V));
-                        if (!TryResolveAdjacentChartFrame(currentFrame,
-                                currentSector, nextSector,
-                                step.Edge.OrientationParity,
-                                out int proposedFrame))
+                        if (componentByKey.TryGetValue(next,
+                                out int existingComponent))
                         {
-                            pattern = new SigmaStitchPattern(
-                                SigmaStitchResolution.Unresolved,
-                                Array.Empty<SigmaGaugeCell>(), componentCount,
-                                string.Empty, 2);
-                            return true;
+                            if (existingComponent != component)
+                                throw new InvalidOperationException(
+                                    "A stitch cannot cross two derived components.");
+                            continue;
                         }
-                        SigmaS16 proposedState = ApplyNativeStitchTransport(
-                            transportedStates[key], step.Edge.Receipt,
-                            step.Forward);
-                        if (proposedState != byKey[next].State)
-                        {
-                            pattern = new SigmaStitchPattern(
-                                SigmaStitchResolution.Unresolved,
-                                Array.Empty<SigmaGaugeCell>(), componentCount,
-                                string.Empty, 2);
-                            return true;
-                        }
-                        if (!positions.TryGetValue(next,
-                                out (long U, long V) existing))
-                        {
-                            positions.Add(next, proposed);
-                            chartFrames.Add(next, proposedFrame);
-                            transportedStates.Add(next, proposedState);
-                            componentByKey.Add(next, component);
-                            queue.Enqueue(next);
-                        }
-                        else if (componentByKey[next] != component ||
-                                 existing != proposed ||
-                                 chartFrames[next] != proposedFrame ||
-                                 transportedStates[next] != proposedState)
-                        {
-                            pattern = new SigmaStitchPattern(
-                                SigmaStitchResolution.Unresolved,
-                                Array.Empty<SigmaGaugeCell>(), componentCount,
-                                string.Empty, 2);
-                            return true;
-                        }
+                        componentByKey.Add(next, component);
+                        queue.Enqueue(next);
                     }
                 }
             }
 
             var components = new List<SigmaComponentNormalForm>();
-            try
+            for (int component = 0; component < componentCount; ++component)
             {
-                for (int component = 0; component < componentCount; ++component)
+                ulong[] keys = componentByKey.Where(value =>
+                        value.Value == component).Select(value => value.Key)
+                    .ToArray();
+                SigmaResolvedStitch[] componentStitches = stitches.Where(value =>
+                        componentByKey[value.Boundary.LeftKey] == component &&
+                        componentByKey[value.Boundary.RightKey] == component)
+                    .ToArray();
+                int embeddingClassCount = 0;
+                if (!TryValidateNativeStitchTransport(keys, adjacency, byKey) ||
+                    !TryEnumerateComponentChartEmbeddings(keys,
+                        componentStitches, adjacency, byKey,
+                        out SigmaComponentNormalForm componentForm,
+                        out embeddingClassCount))
                 {
-                    ulong[] keys = componentByKey.Where(value =>
-                            value.Value == component).Select(value => value.Key)
-                        .ToArray();
-                    SigmaResolvedStitch[] componentStitches = stitches.Where(value =>
-                            componentByKey[value.Boundary.LeftKey] == component &&
-                            componentByKey[value.Boundary.RightKey] == component)
-                        .ToArray();
-                    components.Add(CanonicalizeStitchComponent(keys,
-                        componentStitches, byKey, positions));
+                    pattern = new SigmaStitchPattern(
+                        SigmaStitchResolution.Unresolved,
+                        Array.Empty<SigmaGaugeCell>(), componentCount,
+                        string.Empty, Math.Max(2, embeddingClassCount));
+                    return true;
                 }
-            }
-            catch (InvalidOperationException)
-            {
-                pattern = new SigmaStitchPattern(
-                    SigmaStitchResolution.Unresolved,
-                    Array.Empty<SigmaGaugeCell>(), componentCount,
-                    string.Empty, 2);
-                return true;
+                components.Add(componentForm);
             }
             components.Sort((left, right) => string.CompareOrdinal(
                 left.Canonical, right.Canonical));
@@ -2245,48 +2225,250 @@ namespace Genesis.RoomScan.SigmaPrism
             return sign < 0 ? NegateS16(transported) : transported;
         }
 
-        // The local sector-to-square-side convention lives only inside chart
-        // embedding.  Global D4 enumeration removes that arbitrary chart frame;
-        // no sector or sampling side ever leaves the stitch as a signed U/V delta.
-        private static (int U, int V) ChartSectorDirection(int frameIndex,
-            SigmaNativeBoundarySector sector)
+        private static int[][] BuildNativeSectorChartAssignments()
         {
-            int ordinal = (int)sector;
-            if ((uint)frameIndex >= (uint)ChartD4.Length ||
-                (uint)ordinal >= 4u)
-                throw new ArgumentOutOfRangeException(nameof(frameIndex));
-            int[] baseU = { 1, 0, -1, 0 };
-            int[] baseV = { 0, 1, 0, -1 };
-            SigmaChartD4Transform frame = ChartD4[frameIndex];
-            return (checked(frame.M00 * baseU[ordinal] +
-                    frame.M01 * baseV[ordinal]),
-                checked(frame.M10 * baseU[ordinal] +
-                    frame.M11 * baseV[ordinal]));
+            var result = new List<int[]>(24);
+            for (int a = 0; a < 4; ++a)
+            for (int b = 0; b < 4; ++b)
+            for (int c = 0; c < 4; ++c)
+            for (int d = 0; d < 4; ++d)
+            {
+                if (a == b || a == c || a == d || b == c || b == d ||
+                    c == d)
+                    continue;
+                result.Add(new[] { a, b, c, d });
+            }
+            if (result.Count != 24)
+                throw new InvalidOperationException(
+                    "Four abstract sectors require all 4! chart assignments.");
+            return result.ToArray();
         }
 
-        private static bool TryResolveAdjacentChartFrame(int currentFrame,
-            SigmaNativeBoundarySector currentSector,
-            SigmaNativeBoundarySector nextSector, int orientationParity,
-            out int nextFrame)
+        private static (int U, int V) ChartDirection(int direction)
         {
-            nextFrame = -1;
-            (int U, int V) direction = ChartSectorDirection(currentFrame,
-                currentSector);
-            int requiredDeterminant = checked(
-                ChartD4[currentFrame].Determinant * orientationParity);
-            for (int candidate = 0; candidate < ChartD4.Length; ++candidate)
+            return direction switch
             {
-                (int U, int V) candidateDirection = ChartSectorDirection(
-                    candidate, nextSector);
-                if (candidateDirection.U != -direction.U ||
-                    candidateDirection.V != -direction.V ||
-                    ChartD4[candidate].Determinant != requiredDeterminant)
-                    continue;
-                if (nextFrame >= 0)
-                    return false;
-                nextFrame = candidate;
+                0 => (1, 0),
+                1 => (0, 1),
+                2 => (-1, 0),
+                3 => (0, -1),
+                _ => throw new ArgumentOutOfRangeException(nameof(direction)),
+            };
+        }
+
+        private static int ChartDirectionOrdinal(int u, int v)
+        {
+            if (u == 1 && v == 0) return 0;
+            if (u == 0 && v == 1) return 1;
+            if (u == -1 && v == 0) return 2;
+            if (u == 0 && v == -1) return 3;
+            throw new InvalidOperationException(
+                "A square-chart boundary direction must be one signed axis.");
+        }
+
+        private static int TransformChartDirection(int direction,
+            SigmaChartD4Transform transform)
+        {
+            (int U, int V) value = ChartDirection(direction);
+            return ChartDirectionOrdinal(
+                checked(transform.M00 * value.U + transform.M01 * value.V),
+                checked(transform.M10 * value.U + transform.M11 * value.V));
+        }
+
+        private static string CanonicalNativeSectorChartAssignment(
+            IReadOnlyList<int> assignment)
+        {
+            if (assignment == null || assignment.Count != 4 ||
+                assignment.Distinct().Count() != 4 ||
+                assignment.Any(value => (uint)value >= 4u))
+                throw new ArgumentException(
+                    "A sector chart assignment is one complete four-way bijection.",
+                    nameof(assignment));
+            return ChartD4.Select(transform => string.Join(",",
+                    assignment.Select(direction =>
+                        TransformChartDirection(direction, transform))))
+                .OrderBy(value => value, StringComparer.Ordinal).First();
+        }
+
+        private static bool TryValidateNativeStitchTransport(
+            IReadOnlyList<ulong> keys,
+            IReadOnlyDictionary<ulong,
+                List<(SigmaResolvedStitch Edge, bool Forward)>> adjacency,
+            IReadOnlyDictionary<ulong, SigmaStitchLocality> localities)
+        {
+            if (keys.Count == 0) return false;
+            var transported = new Dictionary<ulong, SigmaS16>();
+            ulong seed = keys.OrderBy(key =>
+                    localities[key].CompletePayloadFingerprint,
+                    StringComparer.Ordinal).ThenBy(key => localities[key].Level)
+                .First();
+            transported.Add(seed, localities[seed].State);
+            var queue = new Queue<ulong>();
+            queue.Enqueue(seed);
+            while (queue.Count != 0)
+            {
+                ulong current = queue.Dequeue();
+                foreach ((SigmaResolvedStitch Edge, bool Forward) step in
+                         adjacency[current])
+                {
+                    ulong next = step.Forward ? step.Edge.Boundary.RightKey :
+                        step.Edge.Boundary.LeftKey;
+                    SigmaS16 proposed = ApplyNativeStitchTransport(
+                        transported[current], step.Edge.Receipt, step.Forward);
+                    if (proposed != localities[next].State)
+                        return false;
+                    if (transported.TryGetValue(next, out SigmaS16 existing))
+                    {
+                        if (existing != proposed) return false;
+                        continue;
+                    }
+                    transported.Add(next, proposed);
+                    queue.Enqueue(next);
+                }
             }
-            return nextFrame >= 0;
+            return transported.Count == keys.Count;
+        }
+
+        private static bool TryEnumerateComponentChartEmbeddings(
+            IReadOnlyList<ulong> keys,
+            IReadOnlyList<SigmaResolvedStitch> stitches,
+            IReadOnlyDictionary<ulong,
+                List<(SigmaResolvedStitch Edge, bool Forward)>> adjacency,
+            IReadOnlyDictionary<ulong, SigmaStitchLocality> localities,
+            out SigmaComponentNormalForm normalForm,
+            out int embeddingClassCount)
+        {
+            normalForm = null;
+            embeddingClassCount = 0;
+            if (keys.Count == 0) return false;
+            if (stitches.Any(edge => localities[edge.Boundary.LeftKey].Level !=
+                    localities[edge.Boundary.RightKey].Level))
+                return false;
+
+            ulong root = keys.OrderBy(key =>
+                    localities[key].CompletePayloadFingerprint,
+                    StringComparer.Ordinal).ThenBy(key => localities[key].Level)
+                .First();
+            var orbitClasses = new Dictionary<string, SigmaComponentNormalForm>(
+                StringComparer.Ordinal);
+            foreach (int[] rootAssignment in NativeSectorChartAssignments)
+            {
+                var positions = new Dictionary<ulong, (long U, long V)>
+                {
+                    [root] = (0L, 0L),
+                };
+                var assignments = new Dictionary<ulong, int[]>
+                {
+                    [root] = rootAssignment,
+                };
+                EnumerateComponentChartEmbeddings(keys, stitches, adjacency,
+                    localities, positions, assignments, orbitClasses);
+                if (orbitClasses.Count > 1) break;
+            }
+            embeddingClassCount = orbitClasses.Count;
+            if (orbitClasses.Count != 1) return false;
+            normalForm = orbitClasses.Values.Single();
+            return true;
+        }
+
+        private static void EnumerateComponentChartEmbeddings(
+            IReadOnlyList<ulong> keys,
+            IReadOnlyList<SigmaResolvedStitch> stitches,
+            IReadOnlyDictionary<ulong,
+                List<(SigmaResolvedStitch Edge, bool Forward)>> adjacency,
+            IReadOnlyDictionary<ulong, SigmaStitchLocality> localities,
+            Dictionary<ulong, (long U, long V)> positions,
+            Dictionary<ulong, int[]> assignments,
+            Dictionary<string, SigmaComponentNormalForm> orbitClasses)
+        {
+            if (orbitClasses.Count > 1) return;
+            if (positions.Count == keys.Count)
+            {
+                SigmaComponentNormalForm candidate;
+                try
+                {
+                    candidate = CanonicalizeStitchComponent(keys, stitches,
+                        localities, positions);
+                }
+                catch (InvalidOperationException)
+                {
+                    return;
+                }
+                orbitClasses.TryAdd(candidate.Canonical, candidate);
+                return;
+            }
+
+            ulong next = keys.Where(key => !positions.ContainsKey(key))
+                .Select(key => new
+                {
+                    Key = key,
+                    AssignedNeighbours = adjacency[key].Count(step =>
+                        positions.ContainsKey(step.Forward
+                            ? step.Edge.Boundary.RightKey
+                            : step.Edge.Boundary.LeftKey)),
+                })
+                .Where(value => value.AssignedNeighbours != 0)
+                .OrderByDescending(value => value.AssignedNeighbours)
+                .ThenBy(value => localities[value.Key].CompletePayloadFingerprint,
+                    StringComparer.Ordinal)
+                .ThenBy(value => value.Key).First().Key;
+
+            foreach (int[] assignment in NativeSectorChartAssignments)
+            {
+                bool hasProposed = false;
+                (long U, long V) proposed = default;
+                bool admissible = true;
+                foreach ((SigmaResolvedStitch Edge, bool Forward) step in
+                         adjacency[next])
+                {
+                    ulong neighbour = step.Forward
+                        ? step.Edge.Boundary.RightKey
+                        : step.Edge.Boundary.LeftKey;
+                    if (!positions.ContainsKey(neighbour)) continue;
+                    SigmaNativeBoundarySector nextSector = step.Forward
+                        ? step.Edge.LeftSector : step.Edge.RightSector;
+                    SigmaNativeBoundarySector neighbourSector = step.Forward
+                        ? step.Edge.RightSector : step.Edge.LeftSector;
+                    int neighbourDirection = assignments[neighbour][
+                        (int)neighbourSector];
+                    if (assignment[(int)nextSector] !=
+                        ((neighbourDirection + 2) & 3))
+                    {
+                        admissible = false;
+                        break;
+                    }
+                    (int U, int V) direction = ChartDirection(
+                        neighbourDirection);
+                    (long U, long V) fromNeighbour = (
+                        checked(positions[neighbour].U + direction.U),
+                        checked(positions[neighbour].V + direction.V));
+                    if (hasProposed && proposed != fromNeighbour)
+                    {
+                        admissible = false;
+                        break;
+                    }
+                    proposed = fromNeighbour;
+                    hasProposed = true;
+                }
+                if (!admissible || !hasProposed) continue;
+
+                SigmaStitchLocality nextLocality = localities[next];
+                var candidateCell = new SigmaGaugeCell(proposed.U, proposed.V,
+                    nextLocality.Level, nextLocality.CompletePayloadFingerprint);
+                if (positions.Any(pair => DyadicCellsOverlap(candidateCell,
+                        new SigmaGaugeCell(pair.Value.U, pair.Value.V,
+                            localities[pair.Key].Level,
+                            localities[pair.Key].CompletePayloadFingerprint))))
+                    continue;
+
+                positions.Add(next, proposed);
+                assignments.Add(next, assignment);
+                EnumerateComponentChartEmbeddings(keys, stitches, adjacency,
+                    localities, positions, assignments, orbitClasses);
+                assignments.Remove(next);
+                positions.Remove(next);
+                if (orbitClasses.Count > 1) return;
+            }
         }
 
         private static (long U, long V) TransformDyadicCellLower(

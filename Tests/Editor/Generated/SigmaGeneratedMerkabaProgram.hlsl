@@ -103,6 +103,8 @@
 #define SIGMA_STITCH_CALLER_LOOP_TRUTH_INPUT_COUNT 0u
 #define SIGMA_STITCH_SAMPLE_SIDE_TO_DELTA_AUTHORITY_COUNT 0u
 #define SIGMA_STITCH_ABSTRACT_NATIVE_SECTOR_COUNT 4u
+#define SIGMA_STITCH_ABSTRACT_SECTOR_CHART_ASSIGNMENT_COUNT 24u
+#define SIGMA_STITCH_ABSTRACT_SECTOR_CHART_ORBIT_COUNT 3u
 #define SIGMA_STITCH_D4_CHART_IMAGE_COUNT 8u
 #define SIGMA_STITCH_NON_GAUGE_EMBEDDING_AMBIGUITY_COUNT 1u
 #define SIGMA_STITCH_IMPLICIT_BOUNDARY_COUNT_320 204160u
@@ -111,7 +113,7 @@
 static const uint2 SIGMA_STITCH_GENERATED_BRACKET_FINGERPRINT =
     uint2(0x212b1e76u, 0x6094d138u);
 
-static const uint SIGMA_MERKABA_PROGRAM_FINGERPRINT[8] = { 0xb11873e6u, 0x9d90cb44u, 0x6d2a23d1u, 0xbce661deu, 0x17bf9d5cu, 0x222a5528u, 0xa99705c7u, 0x53ca417bu };
+static const uint SIGMA_MERKABA_PROGRAM_FINGERPRINT[8] = { 0xd034ec80u, 0x2cf86097u, 0x7d1ede3au, 0x4822fceeu, 0xeb4ec48fu, 0xe852369du, 0x478f3153u, 0xba14dc68u };
 static const int SIGMA_MERKABA_DIFFRACTION[256] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 8, 0, 0, 8, 0, 0, -12, 4, 0, 4, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 8, 0, 0, -12, 4, 4, 4, 0, 0, 0, -8, 0, 0, 0, 8, 0, 0, 0, 4, 0, -12, 4, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -12, 4, 4, 4, 0, 0, 0, -8, 0, 0, 8, 0, 0, 4, 0, 4, 0, -12, 0, 4, 0, -8, 0, 0, 0, -8, 0, 8, 0, 4, 4, 0, 0, 4, -12, 0, 0, 0, -8, 0, 0, 0, -8, 0, 0, 0, 4, 4, 0, 0, 4, -12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 12, 0, -4, 0, -4, -4, 0, 0, 0, 4, 4, 4, -4, 4, 4, 0, -4, 12, 0, 0, 0, -4, -4, 0, -4, 0, 4, 4, 4, -4, 4, 0, 0, -4, 12, 0, -4, 0, -4, 0, -4, -4, 0, 4, 4, 4, -4, 0, -4, -4, -4, 12, 0, 0, 0, 0, -4, -4, -4, 0, 4, 4, 4, 0, 0, -4, 0, -4, 12, -4, 0, 0, 4, -4, -4, -4, 0, 4, 4, 0, 0, 0, -4, -4, 0, 12, -4, 0, -4, 4, -4, -4, -4, 0, 4, 0, -4, 0, 0, -4, -4, 0, 12, 0, -4, -4, 4, -4, -4, -4, 0 };
 static const int SIGMA_MERKABA_INFORMATION_METRIC[256] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 640, -64, -64, -64, -64, -64, -192, 0, -32, 96, 256, 32, -192, 256, 32, 0, -64, 512, -64, -64, -64, 64, -64, 0, -64, 32, 96, 96, 32, -256, 256, 0, -64, -64, 640, -64, -64, -64, -64, 0, -288, -64, -32, 160, 320, 32, -192, 0, -64, -64, -64, 384, -64, -64, -64, 0, -64, -64, -64, 96, 160, 96, 32, 0, -64, -64, -64, -64, 640, -64, -192, 0, 160, -128, -352, -64, -32, 320, 96, 0, -64, 64, -64, -64, -64, 768, -64, 0, -224, 96, -128, -64, -288, -96, 320, 0, -192, -64, -64, -64, -192, -64, 640, 0, 64, -224, 160, -64, 0, -288, -32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -32, -64, -288, -64, 160, -224, 64, 0, 576, -32, -96, -96, -96, -32, -96, 0, 96, 32, -64, -64, -128, 96, -224, 0, -32, 576, -32, -32, -160, -96, -32, 0, 256, 96, -32, -64, -352, -128, 160, 0, -96, -32, 576, 32, -96, -160, -96, 0, 32, 96, 160, 96, -64, -64, -64, 0, -96, -32, 32, 576, 32, -32, -96, 0, -192, 32, 320, 160, -32, -288, 0, 0, -96, -160, -96, 32, 576, -32, -96, 0, 256, -256, 32, 96, 320, -96, -288, 0, -32, -96, -160, -32, -32, 576, -32, 0, 32, 256, -192, 32, 96, 320, -32, 0, -96, -32, -96, -96, -96, -32, 576 };
 static const int SIGMA_MERKABA_SHELL_SQUARE_BY_RANK[4] = { -1, -3, -7, -15 };
@@ -847,6 +849,48 @@ static const int4 SIGMA_STITCH_CHART_D4[8] = {
     int4(-1, 0, 0, -1), int4(0, 1, -1, 0),
     int4(-1, 0, 0, 1), int4(1, 0, 0, -1),
     int4(0, 1, 1, 0), int4(0, -1, -1, 0) };
+
+// Complete finite representation candidates.  No entry is authoritative by
+// itself: closure must enumerate them and quotient only each eight-image D4
+// orbit.  Distinct surviving orbit classes remain unresolved.
+static const uint4 SIGMA_STITCH_NATIVE_SECTOR_CHART_ASSIGNMENTS[24] = {
+    uint4(0u, 1u, 2u, 3u),
+    uint4(0u, 1u, 3u, 2u),
+    uint4(0u, 2u, 1u, 3u),
+    uint4(0u, 2u, 3u, 1u),
+    uint4(0u, 3u, 1u, 2u),
+    uint4(0u, 3u, 2u, 1u),
+    uint4(1u, 0u, 2u, 3u),
+    uint4(1u, 0u, 3u, 2u),
+    uint4(1u, 2u, 0u, 3u),
+    uint4(1u, 2u, 3u, 0u),
+    uint4(1u, 3u, 0u, 2u),
+    uint4(1u, 3u, 2u, 0u),
+    uint4(2u, 0u, 1u, 3u),
+    uint4(2u, 0u, 3u, 1u),
+    uint4(2u, 1u, 0u, 3u),
+    uint4(2u, 1u, 3u, 0u),
+    uint4(2u, 3u, 0u, 1u),
+    uint4(2u, 3u, 1u, 0u),
+    uint4(3u, 0u, 1u, 2u),
+    uint4(3u, 0u, 2u, 1u),
+    uint4(3u, 1u, 0u, 2u),
+    uint4(3u, 1u, 2u, 0u),
+    uint4(3u, 2u, 0u, 1u),
+    uint4(3u, 2u, 1u, 0u) };
+
+int2 SigmaMerkabaSectorChartCandidateDirection(uint assignmentIndex,
+    uint sectorOrdinal, inout uint valid)
+{
+    valid &= assignmentIndex < 24u && sectorOrdinal < 4u ? 1u : 0u;
+    uint4 assignment = SIGMA_STITCH_NATIVE_SECTOR_CHART_ASSIGNMENTS[
+        min(assignmentIndex, 23u)];
+    uint direction = assignment[min(sectorOrdinal, 3u)];
+    if (direction == 0u) return int2(1, 0);
+    if (direction == 1u) return int2(0, 1);
+    if (direction == 2u) return int2(-1, 0);
+    return int2(0, -1);
+}
 
 int2 SigmaMerkabaTransformChartCellLower(int2 lower, uint d4Index,
     inout uint valid)

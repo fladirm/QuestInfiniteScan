@@ -1404,15 +1404,15 @@
     "algebraCoreSha256": "f7524a2d348cda462a2c6fa4804cf6be33c2554a69c6ecf67a11ef97009529cc",
     "canonicalSpec": {
       "path": "new_spec.md",
-      "sha256": "49f6c6c8acdf797ea191d3dfa7cfaa8f52dc32cd5a0723bb3cd5ba6d4e1c9661"
+      "sha256": "7f41a3e24b5c95dda1537b987dff54c0d95481990a3ef830f17148a0f68fde69"
     },
     "closurePlan": {
       "path": ".codex/S4-08.6_NATIVE_CLOSURE_PLAN.md",
-      "sha256": "549b31b6d79d8c4886d400081ad20b872ff3fd4fbb219a20f1559492a4a34cce"
+      "sha256": "6ea515da4b9e721da484251eab914ff9b37ad314fec035209f8b2b5e2e6b4345"
     },
     "generatorSource": {
       "path": "Tools/sigma/generate_sigma_operators.py",
-      "sha256": "f1ee29e3aa2a4cbacc182b7671963fe8506c6fe413a294a46cac6a9ffbcca6c6",
+      "sha256": "af0e7c867bd50e4ae7ec068d7819394b378c8290a402261ca68d265887db99d7",
       "version": "CPQ4-S16-GEN-1"
     },
     "queryBoundary": {
@@ -1421,7 +1421,7 @@
     },
     "representation": {
       "path": "Tools/sigma/authority/I_REP_SIGMA_PRISM_V1.json",
-      "sha256": "47ae5b6eec7c114801a9f1cf7718acc057e1878adf95aa2be2d6b029837d5080"
+      "sha256": "76e118d642d566532cbd81405d9ff80a04c18a6f9b814989afea8176ab644757"
     },
     "toeCapsule": {
       "admittedSections": [
@@ -1472,8 +1472,8 @@
     "unboundedParameterRegion": "FORBIDDEN_TO_PROVE_COMPATIBILITY_OR_MUTATION",
     "whiteBalance": "BOUNDED_PER_CHANNEL_GAIN"
   },
-  "programFingerprint": "b11873e69d90cb446d2a23d1bce661de17bf9d5c222a5528a99705c753ca417b",
-  "programVersion": "CPQ4-S16-MERKABA-N1R-6",
+  "programFingerprint": "d034ec802cf860977d1ede3a4822fceeeb4ec48fe852369d478f3153ba14dc68",
+  "programVersion": "CPQ4-S16-MERKABA-N1R-7",
   "proofs": {
     "allDefaultActiveWork": 0,
     "allDefaultRelation": "DEFAULT_SAT",
@@ -1507,6 +1507,8 @@
     "certificateProofFingerprint": "0b0317cf6c99954e32819303ebb6e400101a7a3d75b2d1b858f22f0fbb006cd3",
     "completeProgramFibreSelector": "IDENTITY_ONLY_UNLESS_EQUIVALENCE_PROVED",
     "constructiveStitchAbstractNativeSectorCount": 4,
+    "constructiveStitchAbstractSectorChartAssignmentCount": 24,
+    "constructiveStitchAbstractSectorChartAssignmentOrbitCount": 3,
     "constructiveStitchCallerLoopTruthInputCount": 0,
     "constructiveStitchComponentGauge": "INDEPENDENT_Z2_SEMIDIRECT_D4_CHART_GAUGE",
     "constructiveStitchContactEpsilonCount": 0,
@@ -1522,7 +1524,7 @@
     "constructiveStitchNonGaugeEmbeddingAmbiguityCount": 1,
     "constructiveStitchPersistentComponentIdentity": false,
     "constructiveStitchPixelOrXyzAuthorityCount": 0,
-    "constructiveStitchProofFingerprint": "b57aee130824f4729bc74b488dbce9159f8bac49e5ccf289786e65cfcc631251",
+    "constructiveStitchProofFingerprint": "3e13b56d0cd06b864ef946ecc7abc83a390a76c6dc9015e1aad04a1ba6d8dc22",
     "constructiveStitchSamplingSideToDeltaAuthorityCount": 0,
     "constructiveStitchTargetAdditionalHotSubmissionCount": 2,
     "coupledFactorInputCount": 2,
@@ -1749,6 +1751,9 @@
       "reconstruction": "ONE_FULL_S16_VALUE_OVER_EACH_OWNED_CELL"
     },
     "normalizer": {
+      "abstractSectorChartAssignmentCount": 24,
+      "abstractSectorChartAssignments": "ENUMERATE_ALL_4_FACTORIAL_24_BIJECTIONS_BEFORE_QUOTIENT",
+      "abstractSectorChartD4OrbitCount": 3,
       "cellOrder": "LEVEL_THEN_SIGNED_MORTON_THEN_U_THEN_V",
       "chartOrientation": "ENUMERATE_ALL_EIGHT_D4_IMAGES_AND_SELECT_LEXICOGRAPHICALLY_MINIMUM_COMPLETE_CANONICAL_BYTES_WITHIN_ONE_GAUGE_ORBIT",
       "collapse": "RECURSIVE_EQUAL_FOUR_CHILD_COLLAPSE",
@@ -1760,6 +1765,7 @@
         "CERTIFICATES",
         "REFINEMENT_LEVELS"
       ],
+      "fixedNativeSectorToSquareSideConvention": false,
       "nonGaugeEquivalentEmbeddingClasses": "UNRESOLVED_NEVER_LEXICOGRAPHIC_WINNER_SELECTION",
       "translation": "SUBTRACT_INTEGER_FLOOR_OF_LEXICOGRAPHIC_MINIMUM_NONDEFAULT_DYADIC_LOWER_COORDINATE",
       "unresolvedRule": "NO_UNIQUE_NORMAL_FORM_MEANS_NO_PUBLICATION"
@@ -1794,6 +1800,8 @@
     "stitchEmbedding": {
       "callerSuppliedLoopClassification": false,
       "chartEmbedding": {
+        "abstractSectorAssignment": "ENUMERATE_ALL_24_BIJECTIONS_FROM_FOUR_ABSTRACT_NATIVE_SECTORS_TO_FOUR_SQUARE_BOUNDARY_DIRECTIONS",
+        "assignmentGaugeQuotient": "D4_COLLAPSES_EIGHT_IMAGES_OF_ONE_ASSIGNMENT_ORBIT_BUT_DOES_NOT_COLLAPSE_THE_THREE_POSSIBLE_CYCLIC_OPPOSITION_CLASSES",
         "constraintInput": "COMPLETE_RESOLVED_ABSTRACT_BOUNDARY_INCIDENCE_SET",
         "d4TransformsPhysicalS16OrNativeWitness": false,
         "enumeration": "FINITE_SQUARE_DYADIC_EMBEDDINGS_ADMITTED_BY_ALL_RESOLVED_BOUNDARY_IDENTIFICATIONS",
@@ -1801,8 +1809,10 @@
         "notPhysicalOrientationSelection": true,
         "orientationQuotient": "ENUMERATE_ALL_EIGHT_D4_IMAGES",
         "redundantPathRule": "EXACT_AGREEMENT_OR_UNRESOLVED_NO_COORDINATE_REPAIR",
+        "samplingBoundarySideSelectsAssignment": false,
         "scratchRoot": "ARBITRARY_TRANSIENT_ROOT_HAS_NO_CANONICAL_MEANING",
         "selection": "LEXICOGRAPHIC_MINIMUM_COMPLETE_CANONICAL_BYTE_STRING_WITHIN_ONE_GAUGE_ORBIT_ONLY",
+        "survivingAssignmentOrbitRule": "ONE_D4_ORBIT_RESOLVED_MORE_THAN_ONE_D4_ORBIT_UNRESOLVED",
         "translationQuotient": "Z2"
       },
       "componentNormalization": {

@@ -1201,6 +1201,17 @@ sample-side or image-direction table is authorized. No native-sector-to-`U/V`
 equation is required: chart coordinates are assigned only after the abstract
 incidence constraint set has resolved.
 
+This prohibition also applies to a single hidden chart convention. Four abstract
+native sectors admit `4! = 24` bijections onto the four square-chart boundary
+directions. `D4` has eight elements and therefore quotients those assignments into
+three possible cyclic/opposition orbit classes; it does **not** make all 24
+assignments equivalent. Canonical embedding enumerates all 24 assignments (or an
+exactly equivalent complete finite representation), quotients only the eight
+images inside each `D4` orbit, and applies the complete stitch/transport/loop law
+to every surviving class. One surviving orbit is resolvable; two or more surviving
+non-`D4`-equivalent orbits are `UNRESOLVED`. `SampleBoundarySide` never selects an
+assignment class.
+
 Witness reversal swaps endpoint sectors, inverts native transport and retains the
 exact reversed bracket/transport representation. Witness composition is the
 explicitly bracketed generated `Compose(W_ij,W_jk)`; reassociation is forbidden.
@@ -1209,8 +1220,9 @@ Loop closure remains the existing exact link/associator/plaquette/holonomy law.
 For every finite connected resolved stitch pattern, canonical chart embedding:
 
 1. chooses any transient scratch root;
-2. integrates the abstract boundary identifications and enumerates the finite
-   square-dyadic embeddings admitted by all resolved witnesses;
+2. enumerates all 24 abstract-sector-to-square-boundary assignments, integrates
+   the abstract boundary identifications and retains every finite square-dyadic
+   embedding admitted by all resolved witnesses;
 3. rejects or retains `UNRESOLVED` when redundant paths are not exactly
    consistent;
 4. translation-normalizes each admitted embedding;
