@@ -73,8 +73,32 @@ groupshared uint SigmaN4BoundaryReverseHash[16];
 groupshared uint SigmaN4BoundaryContact;
 groupshared uint SigmaN4BoundaryEndpointClass;
 groupshared uint4 SigmaN4GlobalCertificate[256];
-groupshared uint4 SigmaN4GlobalMeta[256];
-groupshared uint2 SigmaN4GlobalState[256];
+
+// BOUNDARY and GLOBAL_CLOSE are mutually exclusive modes of this one existing
+// dispatch.  Reuse the boundary plane's shared storage during global close so
+// the complete kernel remains below Adreno/Vulkan's 32 KiB workgroup limit.
+uint4 SigmaN4LoadGlobalMeta(uint index)
+{
+    return uint4(SigmaN4BoundaryForwardLink[index],
+        SigmaN4BoundaryReverseLink[index]);
+}
+
+void SigmaN4StoreGlobalMeta(uint index, uint4 value)
+{
+    SigmaN4BoundaryForwardLink[index] = value.xy;
+    SigmaN4BoundaryReverseLink[index] = value.zw;
+}
+
+uint2 SigmaN4LoadGlobalState(uint index)
+{
+    return uint2(SigmaN4BoundaryLaneValid[index], SigmaN4BoundaryAny[index]);
+}
+
+void SigmaN4StoreGlobalState(uint index, uint2 value)
+{
+    SigmaN4BoundaryLaneValid[index] = value.x;
+    SigmaN4BoundaryAny[index] = value.y;
+}
 
 uint SigmaN4FootprintAddress(uint footprint, uint word)
 {
@@ -516,8 +540,8 @@ void SigmaN4ReduceActiveSupport(uint activeIndex, uint threadIndex)
         valid &= tileValid;
     }
     SigmaN4GlobalCertificate[threadIndex] = merged;
-    SigmaN4GlobalState[threadIndex] = mergedState;
-    SigmaN4GlobalMeta[threadIndex] = uint4(leader, count, valid, have);
+    SigmaN4StoreGlobalState(threadIndex, mergedState);
+    SigmaN4StoreGlobalMeta(threadIndex, uint4(leader, count, valid, have));
     GroupMemoryBarrierWithGroupSync();
 
     [unroll]
@@ -526,16 +550,16 @@ void SigmaN4ReduceActiveSupport(uint activeIndex, uint threadIndex)
         if (shard < stride)
         {
             uint otherIndex = (shard + stride) * 16u + word;
-            uint4 ownMeta = SigmaN4GlobalMeta[threadIndex];
-            uint4 otherMeta = SigmaN4GlobalMeta[otherIndex];
+            uint4 ownMeta = SigmaN4LoadGlobalMeta(threadIndex);
+            uint4 otherMeta = SigmaN4LoadGlobalMeta(otherIndex);
             if (otherMeta.w != 0u)
             {
                 if (ownMeta.w == 0u)
                 {
                     SigmaN4GlobalCertificate[threadIndex] =
                         SigmaN4GlobalCertificate[otherIndex];
-                    SigmaN4GlobalState[threadIndex] =
-                        SigmaN4GlobalState[otherIndex];
+                    SigmaN4StoreGlobalState(threadIndex,
+                        SigmaN4LoadGlobalState(otherIndex));
                     ownMeta = otherMeta;
                 }
                 else
@@ -543,8 +567,8 @@ void SigmaN4ReduceActiveSupport(uint activeIndex, uint threadIndex)
                     ownMeta.z &= SigmaN4GlobalCertificateCompatible(word,
                         SigmaN4GlobalCertificate[threadIndex],
                         SigmaN4GlobalCertificate[otherIndex]) &&
-                        all(SigmaN4GlobalState[threadIndex] ==
-                            SigmaN4GlobalState[otherIndex]) ? 1u : 0u;
+                        all(SigmaN4LoadGlobalState(threadIndex) ==
+                            SigmaN4LoadGlobalState(otherIndex)) ? 1u : 0u;
                     SigmaN4GlobalCertificate[threadIndex] =
                         SigmaN4GlobalCertificateReduce(word,
                             SigmaN4GlobalCertificate[threadIndex],
@@ -553,7 +577,7 @@ void SigmaN4ReduceActiveSupport(uint activeIndex, uint threadIndex)
                     ownMeta.y += otherMeta.y;
                     ownMeta.z &= otherMeta.z;
                 }
-                SigmaN4GlobalMeta[threadIndex] = ownMeta;
+                SigmaN4StoreGlobalMeta(threadIndex, ownMeta);
             }
         }
         GroupMemoryBarrierWithGroupSync();
@@ -561,7 +585,7 @@ void SigmaN4ReduceActiveSupport(uint activeIndex, uint threadIndex)
 
     if (shard == 0u)
     {
-        uint4 meta = SigmaN4GlobalMeta[word];
+        uint4 meta = SigmaN4LoadGlobalMeta(word);
         uint4 value = SigmaN4GlobalCertificate[word];
         if (word >= SIGMA_CERTIFICATE_INFORMATION0 &&
             word < SIGMA_CERTIFICATE_RECEIPTS0)
@@ -580,17 +604,17 @@ void SigmaN4ReduceActiveSupport(uint activeIndex, uint threadIndex)
             _NativeLocalityCertificateWords[
                 _NativeFootprintCertificateOffset +
                 meta.x * SIGMA_CERTIFICATE_WORD_COUNT + word] = value;
-        SigmaN4GlobalMeta[word] = meta;
+        SigmaN4StoreGlobalMeta(word, meta);
     }
     GroupMemoryBarrierWithGroupSync();
     if (threadIndex == 0u)
     {
-        uint4 meta = SigmaN4GlobalMeta[0u];
+        uint4 meta = SigmaN4LoadGlobalMeta(0u);
         uint combinedValid = meta.z;
         [unroll]
         for (uint certificateWord = 1u; certificateWord < 16u;
              ++certificateWord)
-            combinedValid &= SigmaN4GlobalMeta[certificateWord].z;
+            combinedValid &= SigmaN4LoadGlobalMeta(certificateWord).z;
         _NativeCloseScratch[activeAddress] = uint2(support, meta.x);
         _NativeCloseScratch[activeAddress + 1u] =
             uint2(meta.y, combinedValid);
@@ -1110,15 +1134,16 @@ void SigmaN4GlobalGeometryClose(uint threadIndex)
         resolved += oneClass ? 1u : 0u;
         unresolved += oneClass ? 0u : 1u;
     }
-    SigmaN4GlobalMeta[threadIndex] = uint4(resolved, unresolved,
-        borderNodes, 0u);
+    SigmaN4StoreGlobalMeta(threadIndex, uint4(resolved, unresolved,
+        borderNodes, 0u));
     GroupMemoryBarrierWithGroupSync();
     [loop]
     for (uint stride = 128u; stride != 0u; stride >>= 1u)
     {
         if (threadIndex < stride)
-            SigmaN4GlobalMeta[threadIndex] +=
-                SigmaN4GlobalMeta[threadIndex + stride];
+            SigmaN4StoreGlobalMeta(threadIndex,
+                SigmaN4LoadGlobalMeta(threadIndex) +
+                SigmaN4LoadGlobalMeta(threadIndex + stride));
         GroupMemoryBarrierWithGroupSync();
     }
     if (threadIndex == 0u)
@@ -1138,10 +1163,10 @@ void SigmaN4GlobalGeometryClose(uint threadIndex)
             interiorUnresolved += unresolvedInterior;
         }
         _NativeCloseScratch[_NativeGlobalHeaderScratchOffset] = uint2(
-            _NativeCounters[3u].w, SigmaN4GlobalMeta[0u].z);
+            _NativeCounters[3u].w, SigmaN4LoadGlobalMeta(0u).z);
         _NativeCloseScratch[_NativeGlobalHeaderScratchOffset + 1u] = uint2(
-            SigmaN4GlobalMeta[0u].x + interiorResolved,
-            SigmaN4GlobalMeta[0u].y + interiorUnresolved);
+            SigmaN4LoadGlobalMeta(0u).x + interiorResolved,
+            SigmaN4LoadGlobalMeta(0u).y + interiorUnresolved);
         _NativeCloseScratch[_NativeGlobalHeaderScratchOffset + 2u] =
             uint2(crossCount, 0u);
     }
@@ -1165,7 +1190,7 @@ void EvaluateNativeRelation(uint3 groupId : SV_GroupID,
     {
         if (index == 0u)
             SigmaN4GlobalGeometryClose(groupThreadId.x);
-        else if (index <= _NativeCounters[3u].w)
+        else
             SigmaN4ReduceActiveSupport(index - 1u, groupThreadId.x);
         return;
     }

@@ -2,25 +2,28 @@
 
 ## Exchange 1 — user
 
-Rejected the first N2R-7 checkpoint because the GPU emitted only a whole-case
-assignment mask while the C# harness performed the authoritative component-wise
-D4 quotient and repaired the semantic disposition. Required the correction inside
-the existing close dispatch with no new kernel, dispatch or production mutation.
+Required a clean N4R restart from accepted `b4399db`, preserving the existing
+nine-dispatch graph and lowering full `320x320` ingress through one 16x16 tile
+level plus a fixed global summary close. Explicitly forbade the rejected `1abb`
+kernel/shader/component zoo and required a hard stop if accepted N1 did not expose
+enough executable data for complete canonical component ordering.
 
 ## Exchange 1 — assistant
 
-Corrected the existing bounded close workgroup to derive transient components,
-component-local assignment masks and D4-orbit receipts, and to emit the final GPU
-disposition. Added the decisive disconnected-different-orbits and later-join
-fixtures; the CPU harness now only independently asserts receipts and disposition.
+Implemented and checkpointed CUT A--D in local WIP commits `05b43f5` and
+`a637252`. Production Vulkan tests pass full-frame footprint/boundary, 400-tile
+local close, cross-tile join, disconnected components and inconsistent redundant
+edge while the hot graph remains exactly nine dispatches and adds no kernel or
+shader family.
 
 ## Exchange 2 — user
 
-Demanded immediate closure after the corrective N2 work had taken too long.
+Asked to continue N4R after the partial checkpoints.
 
 ## Exchange 2 — assistant
 
-Focused Vulkan parity and the full Unity Vulkan suite pass 80/80. The proof graph
-remains exactly two test-only dispatches, Runtime/Resources remain +0/-0, generator,
-UAV and diff gates pass, and the superseding N2 checkpoint is being committed and
-pushed before N4 resumes.
+Confirmed the explicit CUT E hard stop: the generated runtime lacks N1's complete
+component canonical serializer/comparator, and the six-word production boundary
+receipt retains only compact masks/hashes rather than the full S16 factor,
+interval, provenance and certificate payload required by the accepted canonical
+order. No ad-hoc hash/tile winner or CUT E mutation was added.

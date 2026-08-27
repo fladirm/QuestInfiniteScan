@@ -19,6 +19,56 @@ Updated: 2026-08-27 (Europe/Prague)
 - Forensic facts and replacement matrix: `analyza.md`.
 - S4‑09 remains pending/unopened.
 
+## N4R clean-restart CUT D checkpoint and CUT E hard stop
+
+The clean N4R restart is preserved in local forensic commits `05b43f5` and
+`a637252` above accepted base `b4399db`.  CUT A through CUT D now lower the full
+`320x320` footprint domain into the existing nine-dispatch graph: 102400
+footprints, 204160 implicit RIGHT/DOWN boundaries, one 16x16/256-thread local
+close over 400 tiles, and one fixed global-summary close.  No production kernel,
+shader family, dispatch, manager or persistent topology/component object was
+added.  Authority JSON/capsule and the generator are byte-identical to
+`b4399db`.
+
+Verified cached Vulkan evidence:
+
+```text
+SigmaNativeFrameTests                         18/18 passed
+ProductionGlobalCloseJoinsTiles...            passed, 0.062 s GPU/test body
+cross-tile resolved join                       one resolved component
+disconnected tile-local cycles                 two independently resolved components
+inconsistent redundant seam                    UNRESOLVED
+HotDispatchCount                               9
+new production kernel/helper shader            0 / 0
+production diff vs b4399db                     +3338 / -264 / net +3074
+generated runtime activation                   +237 / -16 / net +221
+handwritten production                         +3101 / -248 / net +2853
+```
+
+N4R is now stopped exactly at the plan's CUT E canonical-comparator hard gate.
+The accepted N1 CPU authority canonicalizes a component from complete locality
+payload plus complete directed stitch receipts: raw full-S16 forward/reverse link
+and associator factors, their normalized Q48 intervals/classes, transport,
+brackets, provenance, `chi/kappa`, certificates and refinement level.  The
+accepted generated runtime HLSL exposes the 24 assignments/D4 actions but no
+GPU-executable complete component canonical serializer/comparator.  The current
+production boundary receipt is only six `uint2` words containing disposition,
+sector/masks, two 32-bit factor hashes, sign bits, contact and bracket ID.  It has
+already discarded information required by the accepted complete-byte order.
+
+Consequently `PrepareNativeRevision` cannot legally canonical-sort and backing-
+pack disconnected components.  Pixel/tile/scratch order or a hash winner would
+violate N1R and the explicit N4 restart directive.  Exact missing primitive:
+
+```text
+generated GPU-executable complete stitch-component canonical serialization /
+comparison receipt, preserving the accepted N1 complete payload semantics
+```
+
+No CUT E publication/refinement edit is legal until that primitive is exposed by
+the sole generated program and proved CPU/Vulkan; the frozen N4 authority files
+and generator have not been changed.
+
 ## N4R stopped forensic checkpoint
 
 The forensic working tree implements the structural N4 representation slice without
