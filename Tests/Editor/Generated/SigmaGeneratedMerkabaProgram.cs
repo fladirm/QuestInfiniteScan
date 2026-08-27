@@ -796,13 +796,13 @@ namespace Genesis.RoomScan.SigmaPrism
     {
         internal const string ProgramVersion = "CPQ4-S16-MERKABA-N1R-7";
         internal const string NumericDomainId = "num.fixed.q16_48.checked.nearest_even";
-        internal const string ProgramFingerprint = "d034ec802cf860977d1ede3a4822fceeeb4ec48fe852369d478f3153ba14dc68";
+        internal const string ProgramFingerprint = "948a856d1bfe7a760d0c1e1b1624343e2d07cafed5548295c7aeee1034a4b3a6";
         internal const string CaptureBoundaryFingerprint =
             "2b492bf2deba23077ff873275f8672a3949e460a2b1ec2429c199fcd62691ba2";
         internal const int CaptureBoundaryLeafCount =
             8;
         internal const string DeclaredToeUpstreamFingerprint = "9d2e3604846305cfe5244a4ef49f169632c60582cf895256fadc36426dc5786f";
-        internal const string GeneratorSourceInputFingerprint = "af0e7c867bd50e4ae7ec068d7819394b378c8290a402261ca68d265887db99d7";
+        internal const string GeneratorSourceInputFingerprint = "555fecbfe9705fa969167ca049fe7ef8c2db9451324fb87ef9b2e685433ae3bd";
         internal const string ToeCapsuleInputFingerprint = "9cdc8b1f3bfecfa3a49805be82ea786cdbf681ee8ffbdab0733d18dc24cfffef";
         internal const string ToeUpstreamDeclaredInputFingerprint = "9d2e3604846305cfe5244a4ef49f169632c60582cf895256fadc36426dc5786f";
         internal const string IQInputFingerprint = "01068e0ca9a12abd80dc58aa172b04da295e3f5de2e235b7be334ced7e749eff";
@@ -2345,45 +2345,14 @@ namespace Genesis.RoomScan.SigmaPrism
                     localities[edge.Boundary.RightKey].Level))
                 return false;
 
-            ulong root = keys.OrderBy(key =>
-                    localities[key].CompletePayloadFingerprint,
-                    StringComparer.Ordinal).ThenBy(key => localities[key].Level)
-                .First();
             var orbitClasses = new Dictionary<string, SigmaComponentNormalForm>(
                 StringComparer.Ordinal);
             foreach (int[] rootAssignment in NativeSectorChartAssignments)
             {
-                var positions = new Dictionary<ulong, (long U, long V)>
-                {
-                    [root] = (0L, 0L),
-                };
-                var assignments = new Dictionary<ulong, int[]>
-                {
-                    [root] = rootAssignment,
-                };
-                EnumerateComponentChartEmbeddings(keys, stitches, adjacency,
-                    localities, positions, assignments, orbitClasses);
-                if (orbitClasses.Count > 1) break;
-            }
-            embeddingClassCount = orbitClasses.Count;
-            if (orbitClasses.Count != 1) return false;
-            normalForm = orbitClasses.Values.Single();
-            return true;
-        }
-
-        private static void EnumerateComponentChartEmbeddings(
-            IReadOnlyList<ulong> keys,
-            IReadOnlyList<SigmaResolvedStitch> stitches,
-            IReadOnlyDictionary<ulong,
-                List<(SigmaResolvedStitch Edge, bool Forward)>> adjacency,
-            IReadOnlyDictionary<ulong, SigmaStitchLocality> localities,
-            Dictionary<ulong, (long U, long V)> positions,
-            Dictionary<ulong, int[]> assignments,
-            Dictionary<string, SigmaComponentNormalForm> orbitClasses)
-        {
-            if (orbitClasses.Count > 1) return;
-            if (positions.Count == keys.Count)
-            {
+                if (!TryBuildComponentChartEmbedding(keys, adjacency,
+                        localities, rootAssignment,
+                        out Dictionary<ulong, (long U, long V)> positions))
+                    continue;
                 SigmaComponentNormalForm candidate;
                 try
                 {
@@ -2392,83 +2361,116 @@ namespace Genesis.RoomScan.SigmaPrism
                 }
                 catch (InvalidOperationException)
                 {
-                    return;
+                    continue;
                 }
-                orbitClasses.TryAdd(candidate.Canonical, candidate);
-                return;
+                if (!orbitClasses.ContainsKey(candidate.Canonical))
+                    orbitClasses.Add(candidate.Canonical, candidate);
+                if (orbitClasses.Count > 1) break;
             }
+            embeddingClassCount = orbitClasses.Count;
+            if (orbitClasses.Count != 1) return false;
+            normalForm = orbitClasses.Values.Single();
+            return true;
+        }
 
-            ulong next = keys.Where(key => !positions.ContainsKey(key))
-                .Select(key => new
-                {
-                    Key = key,
-                    AssignedNeighbours = adjacency[key].Count(step =>
-                        positions.ContainsKey(step.Forward
-                            ? step.Edge.Boundary.RightKey
-                            : step.Edge.Boundary.LeftKey)),
-                })
-                .Where(value => value.AssignedNeighbours != 0)
-                .OrderByDescending(value => value.AssignedNeighbours)
-                .ThenBy(value => localities[value.Key].CompletePayloadFingerprint,
-                    StringComparer.Ordinal)
-                .ThenBy(value => value.Key).First().Key;
-
-            foreach (int[] assignment in NativeSectorChartAssignments)
+        private static bool TryBuildComponentChartEmbedding(
+            IReadOnlyList<ulong> keys,
+            IReadOnlyDictionary<ulong,
+                List<(SigmaResolvedStitch Edge, bool Forward)>> adjacency,
+            IReadOnlyDictionary<ulong, SigmaStitchLocality> localities,
+            IReadOnlyList<int> rootAssignment,
+            out Dictionary<ulong, (long U, long V)> positions)
+        {
+            positions = new Dictionary<ulong, (long U, long V)>();
+            if (rootAssignment == null || rootAssignment.Count != 4)
+                return false;
+            var frames = new Dictionary<ulong, int>();
+            ulong root = keys.OrderBy(key =>
+                    localities[key].CompletePayloadFingerprint,
+                    StringComparer.Ordinal).ThenBy(key => localities[key].Level)
+                .First();
+            positions.Add(root, (0L, 0L));
+            frames.Add(root, 0);
+            var queue = new Queue<ulong>();
+            queue.Enqueue(root);
+            while (queue.Count != 0)
             {
-                bool hasProposed = false;
-                (long U, long V) proposed = default;
-                bool admissible = true;
+                ulong currentKey = queue.Dequeue();
                 foreach ((SigmaResolvedStitch Edge, bool Forward) step in
-                         adjacency[next])
+                         adjacency[currentKey])
                 {
-                    ulong neighbour = step.Forward
+                    ulong nextKey = step.Forward
                         ? step.Edge.Boundary.RightKey
                         : step.Edge.Boundary.LeftKey;
-                    if (!positions.ContainsKey(neighbour)) continue;
-                    SigmaNativeBoundarySector nextSector = step.Forward
+                    SigmaNativeBoundarySector currentSector = step.Forward
                         ? step.Edge.LeftSector : step.Edge.RightSector;
-                    SigmaNativeBoundarySector neighbourSector = step.Forward
+                    SigmaNativeBoundarySector nextSector = step.Forward
                         ? step.Edge.RightSector : step.Edge.LeftSector;
-                    int neighbourDirection = assignments[neighbour][
-                        (int)neighbourSector];
-                    if (assignment[(int)nextSector] !=
-                        ((neighbourDirection + 2) & 3))
+                    (int U, int V) direction = SectorChartCandidateDirection(
+                        rootAssignment, frames[currentKey], currentSector);
+                    (long U, long V) proposed = (
+                        checked(positions[currentKey].U + direction.U),
+                        checked(positions[currentKey].V + direction.V));
+                    if (!TryResolveAdjacentCandidateFrame(rootAssignment,
+                            frames[currentKey], currentSector, nextSector,
+                            step.Edge.OrientationParity,
+                            out int proposedFrame))
+                        return false;
+                    if (positions.TryGetValue(nextKey,
+                            out (long U, long V) existing))
                     {
-                        admissible = false;
-                        break;
+                        if (existing != proposed ||
+                            frames[nextKey] != proposedFrame)
+                            return false;
+                        continue;
                     }
-                    (int U, int V) direction = ChartDirection(
-                        neighbourDirection);
-                    (long U, long V) fromNeighbour = (
-                        checked(positions[neighbour].U + direction.U),
-                        checked(positions[neighbour].V + direction.V));
-                    if (hasProposed && proposed != fromNeighbour)
-                    {
-                        admissible = false;
-                        break;
-                    }
-                    proposed = fromNeighbour;
-                    hasProposed = true;
+                    positions.Add(nextKey, proposed);
+                    frames.Add(nextKey, proposedFrame);
+                    queue.Enqueue(nextKey);
                 }
-                if (!admissible || !hasProposed) continue;
-
-                SigmaStitchLocality nextLocality = localities[next];
-                var candidateCell = new SigmaGaugeCell(proposed.U, proposed.V,
-                    nextLocality.Level, nextLocality.CompletePayloadFingerprint);
-                if (positions.Any(pair => DyadicCellsOverlap(candidateCell,
-                        new SigmaGaugeCell(pair.Value.U, pair.Value.V,
-                            localities[pair.Key].Level,
-                            localities[pair.Key].CompletePayloadFingerprint))))
-                    continue;
-
-                positions.Add(next, proposed);
-                assignments.Add(next, assignment);
-                EnumerateComponentChartEmbeddings(keys, stitches, adjacency,
-                    localities, positions, assignments, orbitClasses);
-                assignments.Remove(next);
-                positions.Remove(next);
-                if (orbitClasses.Count > 1) return;
             }
+            return positions.Count == keys.Count;
+        }
+
+        private static (int U, int V) SectorChartCandidateDirection(
+            IReadOnlyList<int> rootAssignment, int frameIndex,
+            SigmaNativeBoundarySector sector)
+        {
+            int ordinal = (int)sector;
+            if (rootAssignment == null || rootAssignment.Count != 4 ||
+                (uint)frameIndex >= (uint)ChartD4.Length ||
+                (uint)ordinal >= 4u)
+                throw new ArgumentOutOfRangeException(nameof(frameIndex));
+            (int U, int V) source = ChartDirection(rootAssignment[ordinal]);
+            SigmaChartD4Transform frame = ChartD4[frameIndex];
+            return (checked(frame.M00 * source.U + frame.M01 * source.V),
+                checked(frame.M10 * source.U + frame.M11 * source.V));
+        }
+
+        private static bool TryResolveAdjacentCandidateFrame(
+            IReadOnlyList<int> rootAssignment, int currentFrame,
+            SigmaNativeBoundarySector currentSector,
+            SigmaNativeBoundarySector nextSector, int orientationParity,
+            out int nextFrame)
+        {
+            nextFrame = -1;
+            (int U, int V) direction = SectorChartCandidateDirection(
+                rootAssignment, currentFrame, currentSector);
+            int requiredDeterminant = checked(
+                ChartD4[currentFrame].Determinant * orientationParity);
+            for (int candidate = 0; candidate < ChartD4.Length; ++candidate)
+            {
+                (int U, int V) candidateDirection =
+                    SectorChartCandidateDirection(rootAssignment, candidate,
+                        nextSector);
+                if (candidateDirection.U != -direction.U ||
+                    candidateDirection.V != -direction.V ||
+                    ChartD4[candidate].Determinant != requiredDeterminant)
+                    continue;
+                if (nextFrame >= 0) return false;
+                nextFrame = candidate;
+            }
+            return nextFrame >= 0;
         }
 
         private static (long U, long V) TransformDyadicCellLower(

@@ -104,7 +104,7 @@ Runtime/Resources production delta            +0 / -0
 
 ```text
 program version                     CPQ4-S16-MERKABA-N1R-7
-program fingerprint                 d034ec802cf860977d1ede3a4822fceeeb4ec48fe852369d478f3153ba14dc68
+program fingerprint                 948a856d1bfe7a760d0c1e1b1624343e2d07cafed5548295c7aeee1034a4b3a6
 IR                                   39 opcodes / 61 nodes / 70 operands
 expressions / entries / reducers     17 / 7 / 5
 constructive stitch proof            3e13b56d0cd06b864ef946ecc7abc83a390a76c6dc9015e1aad04a1ba6d8dc22
@@ -628,7 +628,7 @@ TASK_DAG JSON                     valid
 Markdown fences                  balanced
 git diff --check                 clean
 Runtime/Resources vs df5200f     byte-identical
-code graph                       current, 103 files, 362aab58b2df
+code graph                       current, 103 files, 5c6645942471
 validate_goal_state              green, active S4-08
 ```
 

@@ -12,8 +12,10 @@ one non-D4-equivalent orbit survives, while preserving Runtime/Resources `+0/-0`
 
 Accepted the audit and reopened N1 only. Removed the fixed sector-direction/frame
 solver, generated all 24 bijections, proved three orbits of eight, changed pattern
-integration to retain distinct chart-orbit alternatives, added straight-vs-corner
-and sample-side negative controls, and regenerated program version N1R-7. Unity
+integration to enumerate one component-wide assignment while deriving locality
+frames from the native orientation witness, retained distinct chart-orbit
+alternatives, added straight-vs-corner and sample-side negative controls, and
+regenerated program version N1R-7. Unity
 Vulkan EditMode passes 79/79; generator/check/UAV and Runtime `+0/-0` gates pass.
 
 ## Exchange 2 — user

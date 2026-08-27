@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "source_digest": "362aab58b2df745beab419467f9d5549fe8fd35e4a6d41df4b6a1572d06d9747",
+  "source_digest": "5c66459424719e00750423bb8645d49b8ebf77ac9d3c7605be820e09e3a5ca53",
   "scope": [
     "Runtime/**/*.cs",
     "Runtime/Resources/SigmaPrism/**/*.*",
@@ -11424,14 +11424,14 @@
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaFrameUInt2Gpu",
       "kind": "struct",
-      "line": 6363
+      "line": 6365
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaFrameUInt4Gpu",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaFrameUInt4Gpu",
       "kind": "struct",
-      "line": 6370
+      "line": 6372
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaFreshAdmissionStatus",
@@ -11480,7 +11480,7 @@
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "SigmaGeneratedFrame",
       "kind": "class",
-      "line": 6381
+      "line": 6383
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::SigmaGeneratedMerkabaProgram",
@@ -11735,11 +11735,11 @@
       "line": 941
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::check_or_write@6551",
+      "id": "Tools/sigma/generate_sigma_operators.py::check_or_write@6553",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "check_or_write",
       "kind": "function",
-      "line": 6551
+      "line": 6553
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::chunks@2075",
@@ -11833,11 +11833,11 @@
       "line": 1163
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::frame_abi_descriptor@6247",
+      "id": "Tools/sigma/generate_sigma_operators.py::frame_abi_descriptor@6249",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "frame_abi_descriptor",
       "kind": "function",
-      "line": 6247
+      "line": 6249
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::fresh_admission_expression@523",
@@ -11935,49 +11935,49 @@
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "MerkabaDirectionalActionParity",
       "kind": "gpu_kernel",
-      "line": 5829
+      "line": 5831
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::kernel:MerkabaFreshAdmissionParity",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "MerkabaFreshAdmissionParity",
       "kind": "gpu_kernel",
-      "line": 5830
+      "line": 5832
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::kernel:MerkabaGaugeParity",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "MerkabaGaugeParity",
       "kind": "gpu_kernel",
-      "line": 5832
+      "line": 5834
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::kernel:MerkabaInstrumentBoundaryParity",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "MerkabaInstrumentBoundaryParity",
       "kind": "gpu_kernel",
-      "line": 5831
+      "line": 5833
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::kernel:MerkabaMatrixAndIrParity",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "MerkabaMatrixAndIrParity",
       "kind": "gpu_kernel",
-      "line": 5828
+      "line": 5830
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::kernel:MerkabaProgramParity",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "MerkabaProgramParity",
       "kind": "gpu_kernel",
-      "line": 5827
+      "line": 5829
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::kernel:MerkabaStitchSetParity",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "MerkabaStitchSetParity",
       "kind": "gpu_kernel",
-      "line": 5833
+      "line": 5835
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::lift@1150",
@@ -11994,11 +11994,11 @@
       "line": 406
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::main@6564",
+      "id": "Tools/sigma/generate_sigma_operators.py::main@6566",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "main",
       "kind": "function",
-      "line": 6564
+      "line": 6566
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::matrix_multiply@259",
@@ -12064,11 +12064,11 @@
       "line": 494
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::packed_i64@5097",
+      "id": "Tools/sigma/generate_sigma_operators.py::packed_i64@5099",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "packed_i64",
       "kind": "function",
-      "line": 5097
+      "line": 5099
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::plaquette_expression@438",
@@ -12099,11 +12099,11 @@
       "line": 208
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::render_authority_manifest@6161",
+      "id": "Tools/sigma/generate_sigma_operators.py::render_authority_manifest@6163",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "render_authority_manifest",
       "kind": "function",
-      "line": 6161
+      "line": 6163
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::render_cs@2089",
@@ -12113,18 +12113,18 @@
       "line": 2089
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::render_frame_cs@6302",
+      "id": "Tools/sigma/generate_sigma_operators.py::render_frame_cs@6304",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "render_frame_cs",
       "kind": "function",
-      "line": 6302
+      "line": 6304
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::render_frame_hlsl@6495",
+      "id": "Tools/sigma/generate_sigma_operators.py::render_frame_hlsl@6497",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "render_frame_hlsl",
       "kind": "function",
-      "line": 6495
+      "line": 6497
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::render_hlsl@2207",
@@ -12148,18 +12148,18 @@
       "line": 2264
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::render_merkaba_fixture@5822",
+      "id": "Tools/sigma/generate_sigma_operators.py::render_merkaba_fixture@5824",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "render_merkaba_fixture",
       "kind": "function",
-      "line": 5822
+      "line": 5824
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::render_merkaba_hlsl@5077",
+      "id": "Tools/sigma/generate_sigma_operators.py::render_merkaba_hlsl@5079",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "render_merkaba_hlsl",
       "kind": "function",
-      "line": 5077
+      "line": 5079
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::reverse_complete_tree_proof@631",
@@ -12232,18 +12232,18 @@
       "line": 255
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::uint_array@6232",
+      "id": "Tools/sigma/generate_sigma_operators.py::uint_array@6234",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "uint_array",
       "kind": "function",
-      "line": 6232
+      "line": 6234
     },
     {
-      "id": "Tools/sigma/generate_sigma_operators.py::upper_snake@6236",
+      "id": "Tools/sigma/generate_sigma_operators.py::upper_snake@6238",
       "file": "Tools/sigma/generate_sigma_operators.py",
       "name": "upper_snake",
       "kind": "function",
-      "line": 6236
+      "line": 6238
     },
     {
       "id": "Tools/sigma/generate_sigma_operators.py::validate_descriptor@2049",

@@ -475,6 +475,10 @@ branch/chart decisions remain in Git history only.
   authority: the generated normalizer enumerates the complete finite assignment
   set, resolves only one surviving orbit and retains multiple surviving orbit
   classes as `UNRESOLVED`. Sampling boundary sides cannot choose an orbit.
+- The assignment candidate is component-wide chart representation. Local chart
+  frames are then derived from matched sectors plus the exact native orientation
+  witness. It is neither one globally fixed native-sector convention nor an
+  independently chosen chart assignment at every locality.
 - Full-frame fresh broad phase remains the disposable implicit RIGHT/DOWN finite-
   footprint complex. It proposes contact only; generated native closure decides
   incidence. Runtime remains only `FOOTPRINT -> BOUNDARY -> CLOSE`, with no graph,
