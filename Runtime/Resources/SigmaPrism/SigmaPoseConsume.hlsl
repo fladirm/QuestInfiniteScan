@@ -38,6 +38,8 @@ void SigmaPoseTwist(out float3 translation, out float3 rotation)
 void SigmaPoseRodriguesCoefficients(float3 rotation,
     out float sineOverAngle, out float oneMinusCosineOverAngleSquared)
 {
+    sineOverAngle = 0.0;
+    oneMinusCosineOverAngleSquared = 0.0;
     float thetaSquared = dot(rotation, rotation);
     if (thetaSquared < 1e-10)
     {
@@ -95,16 +97,19 @@ float3 SigmaPoseUnapplyVectorWorld(float3 correctedWorldVector)
 
 float3 SigmaPoseApplyWorld(float3 rawWorld)
 {
-    if (_PoseResult[0u].x == 0u)
-        return rawWorld;
-    float3 translation;
-    float3 rotation;
-    SigmaPoseTwist(translation, rotation);
-    float3 reference = mul(_PoseConsumeReferenceFromWorld,
-        float4(rawWorld, 1.0)).xyz;
-    reference = SigmaPoseRotate(reference, rotation, false) + translation;
-    return mul(_PoseConsumeWorldFromReference,
-        float4(reference, 1.0)).xyz;
+    float3 result = rawWorld;
+    if (_PoseResult[0u].x != 0u)
+    {
+        float3 translation = 0.0;
+        float3 rotation = 0.0;
+        SigmaPoseTwist(translation, rotation);
+        float3 reference = mul(_PoseConsumeReferenceFromWorld,
+            float4(rawWorld, 1.0)).xyz;
+        reference = SigmaPoseRotate(reference, rotation, false) + translation;
+        result = mul(_PoseConsumeWorldFromReference,
+            float4(reference, 1.0)).xyz;
+    }
+    return result;
 }
 
 float3 SigmaPoseUnapplyWorld(float3 correctedWorld)

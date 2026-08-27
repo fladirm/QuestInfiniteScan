@@ -185,7 +185,7 @@ namespace Genesis.RoomScan.SigmaPrism
     internal static class SigmaGeneratedFrame
     {
         internal const string AbiVersion = "CPQ4-S16-NATIVE-FRAME-3";
-        internal const string AbiFingerprint = "11ff34b759ef0ab82649cbbccc888ba171b66b364be19d1cb9055440efe5a62e";
+        internal const string AbiFingerprint = "f61af2ad50d8a1dce2b7606d57e0e034e1be4af93cc4d12f18c14b835e8e77cb";
         internal const int SensorSideCount = 2;
         internal const int LeafCount = 4;
         internal const int LaneCount = 16;
@@ -207,8 +207,8 @@ namespace Genesis.RoomScan.SigmaPrism
         internal const int PredictionSupportEntryPoint = 4;
         internal const int ExportEntryPoint = 5;
         internal const int DebugEntryPoint = 6;
-        internal const string RepresentationFingerprint = "f5f3f42395e2e05779f5c7059bc2e273bcf334f2b73f8b5ac4520c1ea03ff133";
-        internal const string ChiFingerprint = "5110ca344a24bc1eed22b03c8ef7cd68dbc4f588b5a58448d2702b5e8d74474a";
+        internal const string RepresentationFingerprint = "76e118d642d566532cbd81405d9ff80a04c18a6f9b814989afea8176ab644757";
+        internal const string ChiFingerprint = "68d0869ad458143b7e73366bf286245eefb0dec8f681d3bd32a3e7cddc6edd25";
         internal const string KappaFingerprint = "08f90f9c72d0ae1e9055eafaf65f315354fc429bae3bb6e9ca1bb64eb9037e93";
         internal const string CertificateFingerprint = "0b0317cf6c99954e32819303ebb6e400101a7a3d75b2d1b858f22f0fbb006cd3";
         internal const int CompletionFrame = 0;

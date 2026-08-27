@@ -73,8 +73,8 @@
 #define SIGMA_NATIVE_DELTA_EVIDENCE_RETAINED 0x00000010u
 #define SIGMA_NATIVE_DELTA_FAULT 0x80000000u
 
-static const uint SIGMA_FRAME_ABI_FINGERPRINT[8] = { 0x11ff34b7u, 0x59ef0ab8u, 0x2649cbbcu, 0xcc888ba1u, 0x71b66b36u, 0x4be19d1cu, 0xb9055440u, 0xefe5a62eu };
-static const uint SIGMA_CHI_FINGERPRINT[8] = { 0x5110ca34u, 0x4a24bc1eu, 0xed22b03cu, 0x8ef7cd68u, 0xdbc4f588u, 0xb5a58448u, 0xd2702b5eu, 0x8d74474au };
+static const uint SIGMA_FRAME_ABI_FINGERPRINT[8] = { 0xf61af2adu, 0x50d8a1dcu, 0xe2b7606du, 0x57e0e034u, 0xe1be4af9u, 0x3cc4d12fu, 0x18c14b83u, 0x5e8e77cbu };
+static const uint SIGMA_CHI_FINGERPRINT[8] = { 0x68d0869au, 0xd458143bu, 0x7e73366bu, 0xf286245eu, 0xefb0dec8u, 0xf681d3bdu, 0x32a3e7cdu, 0xdc6edd25u };
 static const uint SIGMA_KAPPA_FINGERPRINT[8] = { 0x08f90f9cu, 0x72d0ae1eu, 0x9055eafau, 0xf65f3153u, 0x54fc429bu, 0xae3bb6e9u, 0xca1bb64eu, 0xb9037e93u };
 static const uint SIGMA_CERTIFICATE_FINGERPRINT[8] = { 0x0b0317cfu, 0x6c99954eu, 0x32819303u, 0xebb6e400u, 0x101a7a3du, 0x75b2d1b8u, 0x58f22f0fu, 0xbb006cd3u };
 

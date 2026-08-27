@@ -3,21 +3,374 @@
 #pragma kernel EvaluateNativeRelation SIGMA_NATIVE_ORACLE_RELATION_MATH
 #pragma target 5.0
 
+#include "SigmaFrameAbi.hlsl"
 #include "Generated/SigmaGeneratedMerkabaProgram.hlsl"
 
 StructuredBuffer<uint2> _NativeStates;
 StructuredBuffer<uint4> _NativeRelationInputs;
 StructuredBuffer<uint4> _NativeRelationPlans;
 StructuredBuffer<uint4> _NativeRelationNearIntervals;
+StructuredBuffer<SigmaNativeObservationGpu> _NativeObservations;
 RWStructuredBuffer<uint4> _NativeRelationResults;
 RWStructuredBuffer<uint4> _NativeRelationFactors;
 RWStructuredBuffer<uint4> _NativeRelationHashes;
 RWStructuredBuffer<uint4> _NativeRelationNorms;
+RWStructuredBuffer<uint2> _NativeCloseScratch;
 
 #include "SigmaNativeMath.hlsl"
 
 uint _NativeEntryPointIndex;
 uint _NativeRelationCount;
+uint _NativeRelationMode;
+uint2 _NativeResolution;
+uint _NativeFootprintCount;
+uint _NativeFootprintStateOffset;
+uint _NativeBoundaryCount;
+uint _NativeBoundaryScratchOffset;
+
+#define SIGMA_NATIVE_RELATION_MODE_STANDARD 0u
+#define SIGMA_NATIVE_RELATION_MODE_BOUNDARY 1u
+#define SIGMA_N4_FOOTPRINT_BOUNDARY_ENVELOPES 26u
+#define SIGMA_N4_FOOTPRINT_EVIDENCE_WORDS 52u
+#define SIGMA_N4_BOUNDARY_RECEIPT_WORDS 6u
+#define SIGMA_N4_SAMPLE_SIDE_LEFT 0u
+#define SIGMA_N4_SAMPLE_SIDE_RIGHT 1u
+#define SIGMA_N4_SAMPLE_SIDE_UP 2u
+#define SIGMA_N4_SAMPLE_SIDE_DOWN 3u
+
+groupshared uint2 SigmaN4BoundaryLeftState[16];
+groupshared uint2 SigmaN4BoundaryRightState[16];
+groupshared uint2 SigmaN4BoundaryForwardLink[256];
+groupshared uint2 SigmaN4BoundaryReverseLink[256];
+groupshared uint SigmaN4BoundaryLaneValid[256];
+groupshared uint SigmaN4BoundaryAny[256];
+groupshared uint SigmaN4BoundaryForwardClass[16];
+groupshared uint SigmaN4BoundaryReverseClass[16];
+groupshared uint SigmaN4BoundaryForwardHash[16];
+groupshared uint SigmaN4BoundaryReverseHash[16];
+groupshared uint SigmaN4BoundaryContact;
+groupshared uint SigmaN4BoundaryEndpointClass;
+
+uint SigmaN4FootprintAddress(uint footprint, uint word)
+{
+    return footprint * SIGMA_N4_FOOTPRINT_EVIDENCE_WORDS + word;
+}
+
+uint SigmaN4BoundaryReceiptAddress(uint boundary, uint word)
+{
+    return _NativeBoundaryScratchOffset +
+        boundary * SIGMA_N4_BOUNDARY_RECEIPT_WORDS + word;
+}
+
+void SigmaN4StoreBoundaryReceipt(uint boundary, uint4 header,
+    uint4 factors, uint4 witness)
+{
+    uint address = SigmaN4BoundaryReceiptAddress(boundary, 0u);
+    _NativeCloseScratch[address] = header.xy;
+    _NativeCloseScratch[address + 1u] = header.zw;
+    _NativeCloseScratch[address + 2u] = factors.xy;
+    _NativeCloseScratch[address + 3u] = factors.zw;
+    _NativeCloseScratch[address + 4u] = witness.xy;
+    _NativeCloseScratch[address + 5u] = witness.zw;
+}
+
+void SigmaN4DecodeBoundary(uint boundary, out uint left, out uint right,
+    out uint leftSide, out uint rightSide)
+{
+    uint horizontal = (_NativeResolution.x - 1u) * _NativeResolution.y;
+    if (boundary < horizontal)
+    {
+        uint y = boundary / (_NativeResolution.x - 1u);
+        uint x = boundary - y * (_NativeResolution.x - 1u);
+        left = y * _NativeResolution.x + x;
+        right = left + 1u;
+        leftSide = SIGMA_N4_SAMPLE_SIDE_RIGHT;
+        rightSide = SIGMA_N4_SAMPLE_SIDE_LEFT;
+    }
+    else
+    {
+        uint local = boundary - horizontal;
+        uint y = local / _NativeResolution.x;
+        uint x = local - y * _NativeResolution.x;
+        left = y * _NativeResolution.x + x;
+        right = left + _NativeResolution.x;
+        leftSide = SIGMA_N4_SAMPLE_SIDE_DOWN;
+        rightSide = SIGMA_N4_SAMPLE_SIDE_UP;
+    }
+}
+
+uint2 SigmaN4BoundaryFactor(uint index, bool reverse)
+{
+    return reverse ? SigmaN4BoundaryReverseLink[index] :
+        SigmaN4BoundaryForwardLink[index];
+}
+
+void SigmaN4SignedU128Add(inout uint4 magnitude, inout uint negative,
+    uint4 term, uint termNegative, inout uint valid)
+{
+    bool termZero = all(term == 0u);
+    bool magnitudeZero = all(magnitude == 0u);
+    if (termZero)
+        return;
+    if (magnitudeZero)
+    {
+        magnitude = term;
+        negative = termNegative;
+        return;
+    }
+    if (negative == termNegative)
+    {
+        uint carry;
+        magnitude = SigmaNativeU128AddCarry(magnitude, term, carry);
+        valid &= carry == 0u ? 1u : 0u;
+        return;
+    }
+    bool magnitudeLess = SigmaNativeU128LessInitialized(magnitude, term);
+    magnitude = magnitudeLess
+        ? SigmaNativeU128Subtract(term, magnitude)
+        : SigmaNativeU128Subtract(magnitude, term);
+    if (magnitudeLess)
+        negative = termNegative;
+    if (all(magnitude == 0u))
+        negative = 0u;
+}
+
+void SigmaN4ClassifyBoundaryFactors(bool reverse, uint threadIndex)
+{
+    uint pair = threadIndex >> 4u;
+    uint row = threadIndex & 15u;
+    uint2 raw = SigmaN4BoundaryFactor(threadIndex, reverse);
+    uint4 diffraction = 0u;
+    uint negative = 0u;
+    uint valid = SigmaN4BoundaryLaneValid[threadIndex];
+
+    // G=2*A^T*A, so for an exact raw factor d:
+    //   d==0       -> exact closed
+    //   d!=0,A*d=0 -> diffraction-kernel / unresolved
+    //   A*d!=0     -> incompatible.
+    // Evaluating one exact diffraction row per lane avoids the much heavier
+    // dense d^T*G*d expansion while preserving the generated theorem exactly.
+    [loop]
+    for (uint column = 0u; column < 16u; ++column)
+    {
+        int coefficient =
+            SIGMA_MERKABA_DIFFRACTION[row * 16u + column];
+        if (coefficient != 0)
+        {
+            uint2 value = SigmaN4BoundaryFactor(pair * 16u + column,
+                reverse);
+            uint coefficientMagnitude = coefficient < 0
+                ? (uint)(-coefficient) : (uint)coefficient;
+            SigmaU128 product = SigmaU64MultiplyWide(
+                SigmaU64AbsSigned(value), uint2(coefficientMagnitude, 0u));
+            uint termNegative = ((value.y >> 31u) ^
+                (coefficient < 0 ? 1u : 0u)) & 1u;
+            SigmaN4SignedU128Add(diffraction, negative, product.word,
+                termNegative, valid);
+        }
+    }
+    SigmaN4BoundaryAny[threadIndex] =
+        (any(raw != 0u) ? 1u : 0u) |
+        (any(diffraction != 0u) ? 2u : 0u) |
+        (valid == 0u ? 4u : 0u);
+    GroupMemoryBarrierWithGroupSync();
+
+    [unroll]
+    for (uint stride = 8u; stride != 0u; stride >>= 1u)
+    {
+        if (row < stride)
+            SigmaN4BoundaryAny[threadIndex] |=
+                SigmaN4BoundaryAny[threadIndex + stride];
+        GroupMemoryBarrierWithGroupSync();
+    }
+
+    if (row == 0u)
+    {
+        uint classification = SigmaN4BoundaryAny[threadIndex];
+        bool rawNonzero = (classification & 1u) != 0u;
+        bool diffractionNonzero = (classification & 2u) != 0u;
+        bool invalid = (classification & 4u) != 0u;
+        uint factorClass = !rawNonzero
+            ? SIGMA_NATIVE_FACTOR_EXACT_CLOSED
+            : (invalid || !diffractionNonzero
+                ? SIGMA_NATIVE_FACTOR_UNRESOLVED :
+                SIGMA_NATIVE_FACTOR_INCOMPATIBLE);
+        uint hash = 2166136261u;
+        [loop]
+        for (uint valueLane = 0u; valueLane < 16u; ++valueLane)
+        {
+            uint2 value = SigmaN4BoundaryFactor(pair * 16u + valueLane,
+                reverse);
+            hash = (hash ^ value.x) * 16777619u;
+            hash = (hash ^ value.y) * 16777619u;
+        }
+        if (reverse)
+        {
+            SigmaN4BoundaryReverseClass[pair] = factorClass;
+            SigmaN4BoundaryReverseHash[pair] = hash;
+        }
+        else
+        {
+            SigmaN4BoundaryForwardClass[pair] = factorClass;
+            SigmaN4BoundaryForwardHash[pair] = hash;
+        }
+    }
+    GroupMemoryBarrierWithGroupSync();
+}
+
+void SigmaN4EvaluateImplicitBoundary(uint boundary, uint threadIndex)
+{
+    uint left;
+    uint right;
+    uint leftSide;
+    uint rightSide;
+    SigmaN4DecodeBoundary(boundary, left, right, leftSide, rightSide);
+    if (threadIndex < 16u)
+    {
+        SigmaN4BoundaryLeftState[threadIndex] = _NativeStates[
+            _NativeFootprintStateOffset + left * 16u + threadIndex];
+        SigmaN4BoundaryRightState[threadIndex] = _NativeStates[
+            _NativeFootprintStateOffset + right * 16u + threadIndex];
+    }
+    if (threadIndex == 0u)
+    {
+        uint leftFlags = _NativeObservations[left + 1u].Identity.w;
+        uint rightFlags = _NativeObservations[right + 1u].Identity.w;
+        uint required = SIGMA_NATIVE_OBSERVATION_LEFT_EVIDENCE |
+            SIGMA_NATIVE_OBSERVATION_RIGHT_EVIDENCE |
+            SIGMA_NATIVE_OBSERVATION_LEFT_FIRST_HIT |
+            SIGMA_NATIVE_OBSERVATION_RIGHT_FIRST_HIT;
+        uint2 leftLower[3];
+        uint2 leftUpper[3];
+        uint2 rightLower[3];
+        uint2 rightUpper[3];
+        [unroll]
+        for (uint axis = 0u; axis < 3u; ++axis)
+        {
+            uint leftAddress = SigmaN4FootprintAddress(left,
+                SIGMA_N4_FOOTPRINT_BOUNDARY_ENVELOPES + leftSide * 6u +
+                    axis * 2u);
+            uint rightAddress = SigmaN4FootprintAddress(right,
+                SIGMA_N4_FOOTPRINT_BOUNDARY_ENVELOPES + rightSide * 6u +
+                    axis * 2u);
+            leftLower[axis] = _NativeCloseScratch[leftAddress];
+            leftUpper[axis] = _NativeCloseScratch[leftAddress + 1u];
+            rightLower[axis] = _NativeCloseScratch[rightAddress];
+            rightUpper[axis] = _NativeCloseScratch[rightAddress + 1u];
+        }
+        bool validEndpoints = (leftFlags & required) == required &&
+            (rightFlags & required) == required;
+        uint leftLevel = _NativeCloseScratch[SigmaN4FootprintAddress(left,
+            SIGMA_N4_FOOTPRINT_EVIDENCE_WORDS - 1u)].y;
+        uint rightLevel = _NativeCloseScratch[SigmaN4FootprintAddress(right,
+            SIGMA_N4_FOOTPRINT_EVIDENCE_WORDS - 1u)].y;
+        SigmaN4BoundaryContact = validEndpoints &&
+            SigmaMerkabaBoundaryEnvelopesContact(
+                SIGMA_NATIVE_QUERY_FIRST_HIT_MOULD,
+                SIGMA_NATIVE_QUERY_FIRST_HIT_MOULD,
+                leftLower, leftUpper, rightLower, rightUpper) ? 1u : 0u;
+        SigmaN4BoundaryEndpointClass = !validEndpoints ? 0u :
+            (leftLevel == rightLevel ? 1u : 2u);
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    if (SigmaN4BoundaryEndpointClass == 0u || SigmaN4BoundaryContact == 0u)
+    {
+        if (threadIndex == 0u)
+            SigmaN4StoreBoundaryReceipt(boundary,
+                uint4(SIGMA_STITCH_NO_STITCH, 0u, 0u, 0u), 0u,
+                uint4(SIGMA_STITCH_GENERATED_BRACKET_FINGERPRINT, 0u, 0u));
+        return;
+    }
+    if (SigmaN4BoundaryEndpointClass == 2u)
+    {
+        if (threadIndex == 0u)
+            SigmaN4StoreBoundaryReceipt(boundary,
+                uint4(SIGMA_STITCH_UNRESOLVED, 0u, 0u, 0u),
+                uint4(0u, 0xffffu, 0u, 0u),
+                uint4(SIGMA_STITCH_GENERATED_BRACKET_FINGERPRINT, 0u, 1u));
+        return;
+    }
+
+    uint pair = threadIndex >> 4u;
+    uint lane = threadIndex & 15u;
+    uint leftSector = pair >> 2u;
+    uint rightSector = pair & 3u;
+    uint leftAddress = SigmaMerkabaNativeBoundarySectorAddress(leftSector);
+    uint rightAddress = SigmaMerkabaNativeBoundarySectorAddress(rightSector);
+    uint transport = leftAddress ^ rightAddress;
+    int forwardSign = SigmaMerkabaBasisSign(leftAddress, transport) *
+        SigmaMulBasisSign(transport ^ lane, transport);
+    int reverseSign = SigmaMerkabaBasisSign(rightAddress, transport) *
+        SigmaMulBasisSign(transport ^ lane, transport);
+    uint laneValid = 1u;
+    uint2 forward = SigmaN4BoundaryLeftState[transport ^ lane];
+    uint2 reverse = SigmaN4BoundaryRightState[transport ^ lane];
+    if (forwardSign < 0)
+        forward = SigmaQ48NegateChecked(forward, laneValid);
+    if (reverseSign < 0)
+        reverse = SigmaQ48NegateChecked(reverse, laneValid);
+    SigmaN4BoundaryForwardLink[threadIndex] = SigmaQ48SubChecked(
+        SigmaN4BoundaryRightState[lane], forward, laneValid);
+    SigmaN4BoundaryReverseLink[threadIndex] = SigmaQ48SubChecked(
+        SigmaN4BoundaryLeftState[lane], reverse, laneValid);
+    SigmaN4BoundaryLaneValid[threadIndex] = laneValid;
+    GroupMemoryBarrierWithGroupSync();
+
+    SigmaN4ClassifyBoundaryFactors(false, threadIndex);
+    SigmaN4ClassifyBoundaryFactors(true, threadIndex);
+    if (threadIndex == 0u)
+    {
+        uint4 closure0 = 0u;
+        uint4 closure1 = 0u;
+        uint4 closure2 = 0u;
+        uint4 closure3 = 0u;
+        uint resolvedMask = 0u;
+        uint unresolvedMask = 0u;
+        [unroll]
+        for (uint pairIndex = 0u; pairIndex < 16u; ++pairIndex)
+        {
+            uint factorClass = SigmaNativeAggregateFactorClass(
+                SigmaN4BoundaryForwardClass[pairIndex],
+                SigmaN4BoundaryReverseClass[pairIndex],
+                SIGMA_NATIVE_FACTOR_EXACT_CLOSED);
+            uint closureLane = pairIndex & 3u;
+            if ((pairIndex >> 2u) == 0u)
+                closure0[closureLane] = factorClass;
+            else if ((pairIndex >> 2u) == 1u)
+                closure1[closureLane] = factorClass;
+            else if ((pairIndex >> 2u) == 2u)
+                closure2[closureLane] = factorClass;
+            else
+                closure3[closureLane] = factorClass;
+            resolvedMask |= factorClass == SIGMA_NATIVE_FACTOR_EXACT_CLOSED
+                ? 1u << pairIndex : 0u;
+            unresolvedMask |= factorClass == SIGMA_NATIVE_FACTOR_UNRESOLVED
+                ? 1u << pairIndex : 0u;
+        }
+        uint4 result = SigmaMerkabaFinalizeNativeStitchSet(
+            closure0, closure1, closure2, closure3);
+        uint selectedPair = result.y * 4u + result.z;
+        uint selectedForwardHash = result.x == SIGMA_STITCH_RESOLVED
+            ? SigmaN4BoundaryForwardHash[selectedPair] : 0u;
+        uint selectedReverseHash = result.x == SIGMA_STITCH_RESOLVED
+            ? SigmaN4BoundaryReverseHash[selectedPair] : 0u;
+        uint leftAddress = SigmaMerkabaNativeBoundarySectorAddress(result.y);
+        uint rightAddress = SigmaMerkabaNativeBoundarySectorAddress(result.z);
+        uint transportAddress = leftAddress ^ rightAddress;
+        uint signBits = result.x == SIGMA_STITCH_RESOLVED
+            ? (SigmaMerkabaBasisSign(leftAddress, transportAddress) < 0
+                    ? 1u : 0u) |
+                (SigmaMerkabaBasisSign(rightAddress, transportAddress) < 0
+                    ? 2u : 0u)
+            : 0u;
+        SigmaN4StoreBoundaryReceipt(boundary, result,
+            uint4(resolvedMask, unresolvedMask, selectedForwardHash,
+                selectedReverseHash),
+            uint4(SIGMA_STITCH_GENERATED_BRACKET_FINGERPRINT,
+                signBits, SigmaN4BoundaryContact));
+    }
+}
 
 #if defined(SIGMA_NATIVE_ORACLE_RELATION_MATH)
 [numthreads(256, 1, 1)]
@@ -25,6 +378,14 @@ void EvaluateNativeRelation(uint3 groupId : SV_GroupID,
     uint3 groupThreadId : SV_GroupThreadID)
 {
     uint index = groupId.x;
+    if (_NativeRelationMode == SIGMA_NATIVE_RELATION_MODE_BOUNDARY)
+    {
+        if (index == 0u)
+            SigmaNativeEvaluateRelationGroup(0u, groupThreadId.x, true);
+        else if (index <= _NativeBoundaryCount)
+            SigmaN4EvaluateImplicitBoundary(index - 1u, groupThreadId.x);
+        return;
+    }
     if (index >= _NativeRelationCount)
         return;
     bool entryValid = _NativeEntryPointIndex < SIGMA_MERKABA_ENTRY_POINT_COUNT &&

@@ -765,7 +765,10 @@ namespace Genesis.RoomScan.Tests
                 "#define SIGMA_NATIVE_STITCH_ASSIGNMENT_COUNT 24u"));
             Assert.That(queryOracle, Does.Contain(
                 "#define SIGMA_NATIVE_STITCH_ASSIGNMENT_LANES 192u"));
-            Assert.That(contract, Does.Contain("[numthreads(64, 1, 1)]\n" +
+            Assert.That(contract, Does.Contain(
+                "#if defined(SIGMA_N4_TILE_CLOSE_VARIANT)\n" +
+                "[numthreads(256, 1, 1)]\n#else\n" +
+                "[numthreads(64, 1, 1)]\n#endif\n" +
                 "void ContractNativeQuery"));
             Assert.That(contract, Does.Not.Contain("SigmaNativeContractOne"));
             Assert.That(contract, Does.Not.Contain("_NativeReverseKeys"));
@@ -1909,6 +1912,9 @@ namespace Genesis.RoomScan.Tests
 
             ComputeShader queryShader = LoadShader("SigmaNativeQuery");
             ComputeShader contractShader = LoadShader("SigmaNativeContract");
+            UnityEngine.Rendering.LocalKeyword tileCloseVariant = new(contractShader,
+                "SIGMA_N4_TILE_CLOSE_VARIANT");
+            contractShader.SetKeyword(tileCloseVariant, false);
             int contract = contractShader.FindKernel("ContractNativeQuery");
             int relation = queryShader.FindKernel("EvaluateNativeRelation");
 
@@ -1925,6 +1931,9 @@ namespace Genesis.RoomScan.Tests
             using GraphicsBuffer outputSupports = Buffer<UInt2>(branchCount + 1);
             using GraphicsBuffer outputPredictions = Buffer<UInt4>(
                 Math.Max(4, branchCount * 4));
+            using GraphicsBuffer observations = new(
+                GraphicsBuffer.Target.Structured, 1,
+                SigmaGeneratedFrame.NativeObservationStride);
             // Fresh all-ZEmpty admission has no prior locality certificate.
             // GraphicsBuffer contents are undefined until initialized; an
             // uninitialized valid bit would invent a prior constraint and make
@@ -1935,6 +1944,14 @@ namespace Genesis.RoomScan.Tests
                 relationResults);
             contractShader.SetBuffer(contract, "_NativeStates", stateBuffer);
             contractShader.SetBuffer(contract, "_NativeFreshEvidenceWords",
+                freshEvidenceBuffer);
+            contractShader.SetBuffer(contract, "_NativeObservations",
+                observations);
+            contractShader.SetBuffer(contract, "_NativeSourceCarrierState",
+                stateBuffer);
+            contractShader.SetBuffer(contract,
+                "_NativeSourceCarrierRepresentation", certificateWords);
+            contractShader.SetBuffer(contract, "_NativeCloseScratch",
                 freshEvidenceBuffer);
             contractShader.SetBuffer(contract, "_NativeBranchHeaders",
                 outputHeaders);
@@ -1954,7 +1971,8 @@ namespace Genesis.RoomScan.Tests
                 (branchCount + 2) * SigmaS16.LaneCount);
             contractShader.SetInt("_NativeCompletionRecordIndex", 0);
 
-            // One workgroup per reverse branch. The 64 threads map eight raw
+            // One workgroup per reverse branch. The first 64 of the fixed 256
+            // threads map eight raw
             // leaves, four axes and sixteen S16 lanes; branch count changes the
             // dispatch grid, never the command sequence.
             contractShader.Dispatch(contract, branchCount, 1, 1);
@@ -1973,6 +1991,9 @@ namespace Genesis.RoomScan.Tests
             queryShader.SetBuffer(relation, "_NativeRelationHashes",
                 relationHashes);
             queryShader.SetBuffer(relation, "_NativeRelationNorms", relationNorms);
+            queryShader.SetBuffer(relation, "_NativeObservations", observations);
+            queryShader.SetBuffer(relation, "_NativeCloseScratch",
+                freshEvidenceBuffer);
             queryShader.SetInt("_NativeEntryPointIndex", Array.FindIndex(
                 SigmaGeneratedMerkabaProgram.EntryPoints,
                 value => value.Id == "INTRINSIC_RELATION"));

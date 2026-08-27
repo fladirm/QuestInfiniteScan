@@ -2,6 +2,7 @@
 // own Psi. One fixed kernel serves lift and union phases; branch cardinality
 // changes workgroups, never the submission sequence.
 #pragma kernel ContractNativeQuery SIGMA_NATIVE_FRESH_MATH
+#pragma multi_compile_local _ SIGMA_N4_TILE_CLOSE_VARIANT
 #pragma target 5.0
 
 #include "SigmaFrameAbi.hlsl"
@@ -19,6 +20,10 @@ RWStructuredBuffer<uint2> _NativeStates;
 // This is the same immutable journal record written by BuildNativeObservation;
 // no duplicate fresh-evidence buffers or transfer pass exist.
 RWStructuredBuffer<uint2> _NativeFreshEvidenceWords;
+StructuredBuffer<SigmaNativeObservationGpu> _NativeObservations;
+StructuredBuffer<uint2> _NativeSourceCarrierState;
+StructuredBuffer<uint4> _NativeSourceCarrierRepresentation;
+RWStructuredBuffer<uint2> _NativeCloseScratch;
 
 RWStructuredBuffer<uint4> _NativeBranchHeaders;
 RWStructuredBuffer<uint2> _NativeBranchSupports;
@@ -33,9 +38,21 @@ uint _NativeFreshBranchCount;
 uint _NativeFreshLeftEntryPointIndex;
 uint _NativeFreshRightEntryPointIndex;
 uint _NativeCompletionRecordIndex;
+uint _NativeFootprintCount;
+uint _NativeFootprintStateOffset;
+uint _NativeFootprintCertificateOffset;
+uint2 _NativeResolution;
+uint2 _NativeTileCount;
+uint _NativeBoundaryCount;
+uint _NativeBoundaryScratchOffset;
+uint _NativeTileHeaderScratchOffset;
+uint _NativeTileFootprintScratchOffset;
+uint _NativeTileSupportSummaryScratchOffset;
+uint _NativeTileComponentSummaryScratchOffset;
 
 #define SIGMA_NATIVE_CONTRACT_FRESH_LIFT 1u
 #define SIGMA_NATIVE_CONTRACT_FRESH_UNION 2u
+#define SIGMA_NATIVE_CONTRACT_TILE_CLOSE 3u
 #define SIGMA_NATIVE_FRESH_HOT_BRANCH_CAPACITY 4u
 #define SIGMA_NATIVE_FRESH_ADMITTED 1u
 #define SIGMA_NATIVE_FRESH_UNRESOLVED 0u
@@ -45,8 +62,29 @@ uint _NativeCompletionRecordIndex;
 #define SIGMA_NATIVE_FRESH_RIGHT_FIRST_HIT 4u
 #define SIGMA_NATIVE_FRESH_LEFT_EVIDENCE 8u
 #define SIGMA_NATIVE_FRESH_RIGHT_EVIDENCE 16u
+#define SIGMA_NATIVE_FRESH_SOURCE_COMPLETION 0u
+#define SIGMA_NATIVE_FRESH_SOURCE_FOOTPRINT 1u
+#define SIGMA_N4_FOOTPRINT_HEADER 0u
+#define SIGMA_N4_FOOTPRINT_INSTRUMENT 2u
+#define SIGMA_N4_FOOTPRINT_ROOM_RAYS 4u
+#define SIGMA_N4_FOOTPRINT_CODE_LEAVES 10u
+#define SIGMA_N4_FOOTPRINT_SUPPORT 50u
+#define SIGMA_N4_FOOTPRINT_EVIDENCE_WORDS 52u
+#define SIGMA_N4_BOUNDARY_RECEIPT_WORDS 6u
+#define SIGMA_N4_TILE_SIZE 16u
+#define SIGMA_N4_TILE_FOOTPRINT_CAPACITY 256u
+#define SIGMA_N4_TILE_HEADER_WORDS 2u
+#define SIGMA_N4_TILE_FOOTPRINT_RECEIPT_WORDS 8u
+#define SIGMA_N4_TILE_SUPPORT_SUMMARY_WORDS 2u
+#define SIGMA_N4_TILE_COMPONENT_SUMMARY_WORDS 2u
+#define SIGMA_N4_TILE_ORBIT_COUNT 3u
+#define SIGMA_N4_TILE_LABEL_ROUNDS 9u
+#define SIGMA_N4_TILE_INVALID 0xffffffffu
 
 #if defined(SIGMA_NATIVE_FRESH_MATH)
+groupshared uint SigmaNativeFreshScratch[256];
+
+#if !defined(SIGMA_N4_TILE_CLOSE_VARIANT)
 groupshared uint SigmaNativeFreshLeafAxis[8];
 groupshared uint SigmaNativeFreshLeafEye[8];
 groupshared uint2 SigmaNativeFreshLeafLower[8];
@@ -61,30 +99,57 @@ groupshared uint2 SigmaNativeFreshSelected[4];
 groupshared uint2 SigmaNativeFreshState[16];
 groupshared uint2 SigmaNativeFreshForward[4];
 groupshared uint2 SigmaNativeFreshPriorForward[4];
-groupshared uint SigmaNativeFreshScratch[64];
+groupshared uint2 SigmaNativeFreshPriorState[16];
+groupshared uint4 SigmaNativeFreshPriorCertificate[16];
 groupshared uint SigmaNativeFreshPhaseValid;
 groupshared uint SigmaNativeFreshHasPrior;
 groupshared uint SigmaNativeFreshUsePrior;
 groupshared uint SigmaNativeFreshStaticExclusion;
+groupshared uint SigmaNativeFreshPriorSlot;
+groupshared uint SigmaNativeFreshPriorSample;
+#endif
 
+#if defined(SIGMA_N4_TILE_CLOSE_VARIANT)
+// One 16x16 tile is the only N4 local execution partition. These arrays are
+// disposable workgroup scratch, never persistent topology/component state.
+// WideA/B are deliberately reused by chart propagation and certificate meets.
+groupshared uint2 SigmaN4TileSort[256];
+groupshared uint2 SigmaN4TileLabel[256];
+groupshared uint4 SigmaN4TileWideA[256];
+groupshared uint4 SigmaN4TileWideB[256];
+groupshared uint SigmaN4TileFlags[256];
+groupshared uint SigmaN4TileComponentOrbits[256];
+groupshared uint SigmaN4TileSupportSummaryCount;
+groupshared uint SigmaN4TileComponentCount;
+groupshared uint SigmaN4TileBorderComponentCount;
+groupshared uint SigmaN4TileUnresolvedComponentCount;
+groupshared uint SigmaN4TileOrbitAssignment[3];
+#endif
+
+#if !defined(SIGMA_N4_TILE_CLOSE_VARIANT)
 uint _NativeFreshPriorStateOffset;
 
-uint SigmaNativeFreshEvidenceAddress(uint branchIndex, uint word)
+uint SigmaNativeFreshEvidenceAddress(uint sourceKind, uint sourceIndex,
+    uint word)
 {
-    return (_NativeCompletionRecordIndex + branchIndex) *
-        SIGMA_COMPLETION_WORD_COUNT + word;
+    return sourceKind == SIGMA_NATIVE_FRESH_SOURCE_COMPLETION
+        ? (_NativeCompletionRecordIndex + sourceIndex) *
+            SIGMA_COMPLETION_WORD_COUNT + word
+        : sourceIndex * SIGMA_N4_FOOTPRINT_EVIDENCE_WORDS + word;
 }
 
-uint2 SigmaNativeFreshLoad2(uint branchIndex, uint word)
+uint2 SigmaNativeFreshLoad2(uint sourceKind, uint sourceIndex, uint word)
 {
-    return _NativeFreshEvidenceWords[
-        SigmaNativeFreshEvidenceAddress(branchIndex, word)];
+    uint address = SigmaNativeFreshEvidenceAddress(sourceKind, sourceIndex,
+        word);
+    return sourceKind == SIGMA_NATIVE_FRESH_SOURCE_COMPLETION
+        ? _NativeFreshEvidenceWords[address] : _NativeCloseScratch[address];
 }
 
-uint4 SigmaNativeFreshLoad4(uint branchIndex, uint word)
+uint4 SigmaNativeFreshLoad4(uint sourceKind, uint sourceIndex, uint word)
 {
-    uint2 lower = SigmaNativeFreshLoad2(branchIndex, word);
-    uint2 upper = SigmaNativeFreshLoad2(branchIndex, word + 1u);
+    uint2 lower = SigmaNativeFreshLoad2(sourceKind, sourceIndex, word);
+    uint2 upper = SigmaNativeFreshLoad2(sourceKind, sourceIndex, word + 1u);
     return uint4(lower, upper);
 }
 
@@ -171,12 +236,22 @@ uint SigmaNativeFreshReduceOr(uint threadIndex)
     return SigmaNativeFreshScratch[0];
 }
 
-void SigmaNativeFreshLiftBranch(uint branchIndex, uint threadIndex)
+void SigmaNativeFreshLiftSource(uint sourceKind, uint sourceIndex,
+    uint stateOffset, uint certificateOffset, uint threadIndex,
+    bool writeLegacyReceipt)
 {
-    uint4 header = SigmaNativeFreshLoad4(branchIndex,
-        SIGMA_COMPLETION_OBSERVATION_HEADERS);
-    uint4 instrument = SigmaNativeFreshLoad4(branchIndex,
-        SIGMA_COMPLETION_OBSERVATION_HEADERS + 2u);
+    uint headerWord = sourceKind == SIGMA_NATIVE_FRESH_SOURCE_COMPLETION
+        ? SIGMA_COMPLETION_OBSERVATION_HEADERS : SIGMA_N4_FOOTPRINT_HEADER;
+    uint instrumentWord = sourceKind == SIGMA_NATIVE_FRESH_SOURCE_COMPLETION
+        ? SIGMA_COMPLETION_OBSERVATION_HEADERS + 2u :
+            SIGMA_N4_FOOTPRINT_INSTRUMENT;
+    uint roomRayWord = sourceKind == SIGMA_NATIVE_FRESH_SOURCE_COMPLETION
+        ? SIGMA_COMPLETION_ROOM_RAYS : SIGMA_N4_FOOTPRINT_ROOM_RAYS;
+    uint codeLeafWord = sourceKind == SIGMA_NATIVE_FRESH_SOURCE_COMPLETION
+        ? SIGMA_COMPLETION_CODE_LEAVES : SIGMA_N4_FOOTPRINT_CODE_LEAVES;
+    uint4 header = SigmaNativeFreshLoad4(sourceKind, sourceIndex, headerWord);
+    uint4 instrument = SigmaNativeFreshLoad4(sourceKind, sourceIndex,
+        instrumentWord);
     uint requiredFlags = SIGMA_NATIVE_FRESH_COHERENT |
         SIGMA_NATIVE_FRESH_LEFT_FIRST_HIT |
         SIGMA_NATIVE_FRESH_RIGHT_FIRST_HIT |
@@ -189,6 +264,52 @@ void SigmaNativeFreshLiftBranch(uint branchIndex, uint threadIndex)
         SigmaNativeFreshEntryValid(_NativeFreshLeftEntryPointIndex) &&
         SigmaNativeFreshEntryValid(_NativeFreshRightEntryPointIndex);
 
+    if (threadIndex == 0u)
+    {
+        SigmaNativeFreshPriorSlot = 0u;
+        SigmaNativeFreshPriorSample = 0u;
+        if (sourceKind == SIGMA_NATIVE_FRESH_SOURCE_FOOTPRINT)
+        {
+            uint2 support = SigmaNativeFreshLoad2(sourceKind, sourceIndex,
+                SIGMA_N4_FOOTPRINT_SUPPORT);
+            SigmaNativeFreshPriorSlot = support.x;
+            SigmaNativeFreshPriorSample = support.y;
+        }
+    }
+    GroupMemoryBarrierWithGroupSync();
+    if (threadIndex < 16u)
+    {
+        bool priorRequested = (header.x &
+            SIGMA_NATIVE_OBSERVATION_PRIOR_SUPPORT) != 0u;
+        if (sourceKind == SIGMA_NATIVE_FRESH_SOURCE_FOOTPRINT &&
+            priorRequested)
+        {
+            uint stateAddress = SigmaNativeFreshPriorSlot *
+                SIGMA_PAGE_LANE_COUNT + SigmaNativeFreshPriorSample * 16u +
+                threadIndex;
+            uint certificateAddress = SigmaCarrierRepresentationAddress(
+                SigmaNativeFreshPriorSlot, SigmaNativeFreshPriorSample,
+                SIGMA_REPRESENTATION_CERTIFICATE + threadIndex);
+            SigmaNativeFreshPriorState[threadIndex] =
+                _NativeSourceCarrierState[stateAddress];
+            SigmaNativeFreshPriorCertificate[threadIndex] =
+                _NativeSourceCarrierRepresentation[certificateAddress];
+        }
+        else if (sourceKind == SIGMA_NATIVE_FRESH_SOURCE_COMPLETION)
+        {
+            SigmaNativeFreshPriorState[threadIndex] =
+                _NativeStates[_NativeFreshPriorStateOffset + threadIndex];
+            SigmaNativeFreshPriorCertificate[threadIndex] =
+                _NativeLocalityCertificateWords[threadIndex];
+        }
+        else
+        {
+            SigmaNativeFreshPriorState[threadIndex] = uint2(0u, 0u);
+            SigmaNativeFreshPriorCertificate[threadIndex] = 0u;
+        }
+    }
+    GroupMemoryBarrierWithGroupSync();
+
     SigmaNativeFreshScratch[threadIndex] = 1u;
     if (threadIndex < 2u)
     {
@@ -196,8 +317,8 @@ void SigmaNativeFreshLiftBranch(uint branchIndex, uint threadIndex)
         uint2 roomRay[3];
         [unroll]
         for (uint component = 0u; component < 3u; ++component)
-            roomRay[component] = SigmaNativeFreshLoad2(branchIndex,
-                SIGMA_COMPLETION_ROOM_RAYS + eye * 3u + component);
+            roomRay[component] = SigmaNativeFreshLoad2(sourceKind,
+                sourceIndex, roomRayWord + eye * 3u + component);
         uint valid = contextValid ? 1u : 0u;
         uint4 permutation = uint4(0u, 0u, 0u, 0u);
         int globalSign = 0;
@@ -208,12 +329,12 @@ void SigmaNativeFreshLiftBranch(uint branchIndex, uint threadIndex)
         [unroll]
         for (uint instrumentLeaf = 0u; instrumentLeaf < 4u; ++instrumentLeaf)
         {
-            uint codeWord = SIGMA_COMPLETION_CODE_LEAVES + eye * 8u +
+            uint codeWord = codeLeafWord + eye * 8u +
                 instrumentLeaf * 2u;
-            codeLower[instrumentLeaf] = SigmaNativeFreshLoad2(branchIndex,
-                codeWord);
-            codeUpper[instrumentLeaf] = SigmaNativeFreshLoad2(branchIndex,
-                codeWord + 1u);
+            codeLower[instrumentLeaf] = SigmaNativeFreshLoad2(sourceKind,
+                sourceIndex, codeWord);
+            codeUpper[instrumentLeaf] = SigmaNativeFreshLoad2(sourceKind,
+                sourceIndex, codeWord + 1u);
         }
         uint2 measuredLower[4];
         uint2 measuredUpper[4];
@@ -285,11 +406,11 @@ void SigmaNativeFreshLiftBranch(uint branchIndex, uint threadIndex)
             }
         }
         axisValid &= (eyeMask == 3u && !SigmaI64Less(upper, lower)) ? 1u : 0u;
-        uint4 priorIdentity = _NativeLocalityCertificateWords[
+        uint4 priorIdentity = SigmaNativeFreshPriorCertificate[
             SIGMA_CERTIFICATE_IDENTITY];
         if ((priorIdentity.x & SIGMA_NATIVE_CERTIFICATE_FLAGS_VALID) != 0u)
         {
-            uint4 priorAxis = _NativeLocalityCertificateWords[
+            uint4 priorAxis = SigmaNativeFreshPriorCertificate[
                 SIGMA_CERTIFICATE_AXIS0 + threadIndex];
             lower = SigmaQ48Max(lower, priorAxis.xy);
             upper = SigmaQ48Min(upper, priorAxis.zw);
@@ -309,7 +430,7 @@ void SigmaNativeFreshLiftBranch(uint branchIndex, uint threadIndex)
     bool priorRequested = (header.x &
         SIGMA_NATIVE_OBSERVATION_PRIOR_SUPPORT) != 0u;
     SigmaNativeFreshScratch[threadIndex] = threadIndex < 16u &&
-        any(_NativeStates[_NativeFreshPriorStateOffset + threadIndex] != 0u)
+        any(SigmaNativeFreshPriorState[threadIndex] != 0u)
         ? 1u : 0u;
     uint priorNonzero = SigmaNativeFreshReduceOr(threadIndex);
     if (threadIndex < 4u)
@@ -322,7 +443,7 @@ void SigmaNativeFreshLiftBranch(uint branchIndex, uint threadIndex)
             uint2 weight = SigmaNativeShadowWeight(
                 SigmaMerkabaShadowNumerator(priorLane, threadIndex));
             sum = SigmaQ48AddChecked(sum, SigmaQ48MulNearestEven(
-                _NativeStates[_NativeFreshPriorStateOffset + priorLane],
+                SigmaNativeFreshPriorState[priorLane],
                 weight, priorValid), priorValid);
         }
         SigmaNativeFreshPriorForward[threadIndex] = sum;
@@ -427,7 +548,7 @@ void SigmaNativeFreshLiftBranch(uint branchIndex, uint threadIndex)
     {
         uint laneValid = SigmaNativeFreshPhaseValid;
         uint2 laneValue = SigmaNativeFreshHasPrior != 0u
-            ? _NativeStates[_NativeFreshPriorStateOffset + threadIndex]
+            ? SigmaNativeFreshPriorState[threadIndex]
             : uint2(0u, 0u);
         if (SigmaNativeFreshUsePrior == 0u)
         {
@@ -446,7 +567,7 @@ void SigmaNativeFreshLiftBranch(uint branchIndex, uint threadIndex)
             }
         }
         SigmaNativeFreshState[threadIndex] = laneValue;
-        _NativeStates[branchIndex * 16u + threadIndex] = laneValue;
+        _NativeStates[stateOffset + threadIndex] = laneValue;
         SigmaNativeFreshScratch[threadIndex] = laneValid;
     }
     uint liftValid = SigmaNativeFreshReduceAnd(threadIndex);
@@ -497,21 +618,23 @@ void SigmaNativeFreshLiftBranch(uint branchIndex, uint threadIndex)
     }
     uint rawForwardValid = SigmaNativeFreshReduceAnd(threadIndex);
 
-    if (threadIndex == 0u)
+    if (writeLegacyReceipt && threadIndex == 0u)
     {
         SigmaNativeFreshPhaseValid &= rawForwardValid;
-        _NativeBranchHeaders[branchIndex] = uint4(branchIndex,
+        _NativeBranchHeaders[sourceIndex] = uint4(sourceIndex,
             SigmaNativeFreshPhaseValid, header.x,
             SigmaNativeFreshStaticExclusion);
     }
+    else if (!writeLegacyReceipt && threadIndex == 0u)
+        SigmaNativeFreshPhaseValid &= rawForwardValid;
     GroupMemoryBarrierWithGroupSync();
-    if (threadIndex < 4u)
-        _NativeBranchPredictions[branchIndex * 4u + threadIndex] = uint4(
+    if (writeLegacyReceipt && threadIndex < 4u)
+        _NativeBranchPredictions[sourceIndex * 4u + threadIndex] = uint4(
             SigmaNativeFreshSelected[threadIndex], 0u, 0u);
     if (threadIndex < SIGMA_CERTIFICATE_WORD_COUNT)
     {
         uint4 certificateWord = 0u;
-        uint4 priorIdentity = _NativeLocalityCertificateWords[
+        uint4 priorIdentity = SigmaNativeFreshPriorCertificate[
             SIGMA_CERTIFICATE_IDENTITY];
         if (threadIndex == SIGMA_CERTIFICATE_IDENTITY)
         {
@@ -561,7 +684,7 @@ void SigmaNativeFreshLiftBranch(uint branchIndex, uint threadIndex)
             certificateWord = instrument;
         else if (threadIndex == SIGMA_CERTIFICATE_RECEIPTS0 + 2u)
         {
-            uint4 priorModes = _NativeLocalityCertificateWords[
+            uint4 priorModes = SigmaNativeFreshPriorCertificate[
                 SIGMA_CERTIFICATE_RECEIPTS0 + 2u];
             uint leftMode = SigmaNativeFreshPermutationMode(
                 SigmaNativeFreshEyePermutation[0u],
@@ -580,15 +703,15 @@ void SigmaNativeFreshLiftBranch(uint branchIndex, uint threadIndex)
                 SIGMA_CERTIFICATE_FINGERPRINT[3u]);
         uint4 persistedCertificate = SigmaNativeFreshPhaseValid != 0u
             ? certificateWord : 0u;
-        _NativeLocalityCertificateWords[SIGMA_CERTIFICATE_WORD_COUNT +
-            threadIndex] = persistedCertificate;
+        _NativeLocalityCertificateWords[certificateOffset + threadIndex] =
+            persistedCertificate;
         // The same lane writes its already-contracted proof into the cold
         // persistence envelope.  This is not another pass or authority: the
         // live carrier continues to consume LocalityCertificateWords directly.
-        if (branchIndex == 0u)
+        if (writeLegacyReceipt && sourceIndex == 0u)
         {
-            uint completion = SigmaNativeFreshEvidenceAddress(branchIndex,
-                SIGMA_COMPLETION_CERTIFICATE + threadIndex * 2u);
+            uint completion = SigmaNativeFreshEvidenceAddress(sourceKind,
+                sourceIndex, SIGMA_COMPLETION_CERTIFICATE + threadIndex * 2u);
             _NativeFreshEvidenceWords[completion] = persistedCertificate.xy;
             _NativeFreshEvidenceWords[completion + 1u] =
                 persistedCertificate.zw;
@@ -596,9 +719,807 @@ void SigmaNativeFreshLiftBranch(uint branchIndex, uint threadIndex)
     }
     GroupMemoryBarrierWithGroupSync();
     if (SigmaNativeFreshPhaseValid == 0u && threadIndex < 16u)
-        _NativeStates[branchIndex * 16u + threadIndex] = uint2(0u, 0u);
+        _NativeStates[stateOffset + threadIndex] = uint2(0u, 0u);
 }
 
+void SigmaNativeFreshLiftLegacyBranch(uint branchIndex, uint threadIndex)
+{
+    SigmaNativeFreshLiftSource(SIGMA_NATIVE_FRESH_SOURCE_COMPLETION,
+        branchIndex, branchIndex * 16u, SIGMA_CERTIFICATE_WORD_COUNT,
+        threadIndex, true);
+}
+
+void SigmaNativeFreshLiftFootprint(uint footprint, uint threadIndex)
+{
+    SigmaNativeFreshLiftSource(SIGMA_NATIVE_FRESH_SOURCE_FOOTPRINT,
+        footprint, _NativeFootprintStateOffset + footprint * 16u,
+        _NativeFootprintCertificateOffset + footprint *
+            SIGMA_CERTIFICATE_WORD_COUNT, threadIndex, false);
+}
+#endif
+
+#if defined(SIGMA_N4_TILE_CLOSE_VARIANT)
+uint SigmaN4TileFootprintAddress(uint footprint, uint word)
+{
+    return _NativeTileFootprintScratchOffset +
+        footprint * SIGMA_N4_TILE_FOOTPRINT_RECEIPT_WORDS + word;
+}
+
+uint SigmaN4TileSupportAddress(uint tile, uint summary, uint word)
+{
+    return _NativeTileSupportSummaryScratchOffset +
+        (tile * SIGMA_N4_TILE_FOOTPRINT_CAPACITY + summary) *
+            SIGMA_N4_TILE_SUPPORT_SUMMARY_WORDS + word;
+}
+
+uint SigmaN4TileComponentAddress(uint tile, uint summary, uint word)
+{
+    return _NativeTileComponentSummaryScratchOffset +
+        (tile * SIGMA_N4_TILE_FOOTPRINT_CAPACITY + summary) *
+            SIGMA_N4_TILE_COMPONENT_SUMMARY_WORDS + word;
+}
+
+uint SigmaN4TileGlobalFootprint(uint tile, uint local)
+{
+    uint2 tileCoordinate = uint2(tile % _NativeTileCount.x,
+        tile / _NativeTileCount.x);
+    uint2 localCoordinate = uint2(local & 15u, local >> 4u);
+    uint2 pixel = tileCoordinate * SIGMA_N4_TILE_SIZE + localCoordinate;
+    return pixel.y * _NativeResolution.x + pixel.x;
+}
+
+bool SigmaN4TileFootprintValid(uint footprint)
+{
+    uint required = SIGMA_NATIVE_OBSERVATION_LEFT_EVIDENCE |
+        SIGMA_NATIVE_OBSERVATION_RIGHT_EVIDENCE |
+        SIGMA_NATIVE_OBSERVATION_LEFT_FIRST_HIT |
+        SIGMA_NATIVE_OBSERVATION_RIGHT_FIRST_HIT;
+    uint flags = _NativeObservations[footprint + 1u].Identity.w;
+    uint certificate = _NativeLocalityCertificateWords[
+        _NativeFootprintCertificateOffset +
+        footprint * SIGMA_CERTIFICATE_WORD_COUNT +
+        SIGMA_CERTIFICATE_IDENTITY].x;
+    uint certificateRequired = SIGMA_NATIVE_CERTIFICATE_FLAGS_VALID |
+        SIGMA_NATIVE_CERTIFICATE_FLAGS_DIRECTIONAL |
+        SIGMA_NATIVE_CERTIFICATE_FLAGS_MINIMIZED;
+    return (flags & required) == required &&
+        (certificate & certificateRequired) == certificateRequired;
+}
+
+uint SigmaN4TileSupportKey(uint footprint)
+{
+    uint flags = _NativeObservations[footprint + 1u].Identity.w;
+    uint result = SIGMA_N4_TILE_INVALID;
+    if ((flags & SIGMA_NATIVE_OBSERVATION_PRIOR_SUPPORT) != 0u)
+    {
+        uint2 support = _NativeCloseScratch[
+            footprint * SIGMA_N4_FOOTPRINT_EVIDENCE_WORDS +
+            SIGMA_N4_FOOTPRINT_SUPPORT];
+        if (support.y < SIGMA_PAGE_SAMPLE_COUNT)
+            result = support.x * SIGMA_PAGE_SAMPLE_COUNT + support.y;
+    }
+    return result;
+}
+
+uint SigmaN4TileBoundaryIndex(uint footprint, uint neighbour)
+{
+    uint horizontalCount = (_NativeResolution.x - 1u) *
+        _NativeResolution.y;
+    uint low = min(footprint, neighbour);
+    uint difference = max(footprint, neighbour) - low;
+    uint result = 0u;
+    if (difference == 1u)
+    {
+        uint y = low / _NativeResolution.x;
+        uint x = low - y * _NativeResolution.x;
+        result = y * (_NativeResolution.x - 1u) + x;
+    }
+    else
+    {
+        uint y = low / _NativeResolution.x;
+        uint x = low - y * _NativeResolution.x;
+        result = horizontalCount + y * _NativeResolution.x + x;
+    }
+    return result;
+}
+
+uint4 SigmaN4TileBoundaryHeader(uint boundary)
+{
+    uint address = _NativeBoundaryScratchOffset +
+        boundary * SIGMA_N4_BOUNDARY_RECEIPT_WORDS;
+    return uint4(_NativeCloseScratch[address],
+        _NativeCloseScratch[address + 1u]);
+}
+
+bool SigmaN4TileResolvedEdge(uint footprint, uint neighbour)
+{
+    return SigmaN4TileBoundaryHeader(
+        SigmaN4TileBoundaryIndex(footprint, neighbour)).x ==
+        SIGMA_STITCH_RESOLVED;
+}
+
+uint SigmaN4ChartAssignmentOrbit(uint assignmentIndex)
+{
+    uint4 assignment = SIGMA_STITCH_NATIVE_SECTOR_CHART_ASSIGNMENTS[
+        min(assignmentIndex, 23u)];
+    uint opposite = (assignment.x + 2u) & 3u;
+    return (assignment.z == opposite ? 1u : 0u) |
+        (assignment.w == opposite ? 2u : 0u);
+}
+
+uint SigmaN4ChartOrbitRepresentative(uint orbit)
+{
+    uint representative = 0u;
+    uint found = 0u;
+    [unroll]
+    for (uint assignment = 0u; assignment < 24u; ++assignment)
+        if (found == 0u && SigmaN4ChartAssignmentOrbit(assignment) == orbit)
+        {
+            representative = assignment;
+            found = 1u;
+        }
+    return representative;
+}
+
+int SigmaN4ChartFrameDeterminant(uint frame)
+{
+    int4 value = SIGMA_STITCH_CHART_D4[min(frame, 7u)];
+    return value.x * value.w - value.y * value.z;
+}
+
+int2 SigmaN4ChartDirection(uint assignment, uint frame, uint sector,
+    inout uint valid)
+{
+    int2 source = SigmaMerkabaSectorChartCandidateDirection(assignment,
+        sector, valid);
+    valid &= frame < 8u ? 1u : 0u;
+    int4 transform = SIGMA_STITCH_CHART_D4[min(frame, 7u)];
+    return int2(transform.x * source.x + transform.y * source.y,
+        transform.z * source.x + transform.w * source.y);
+}
+
+bool SigmaN4ResolveAdjacentFrame(uint assignment, uint currentFrame,
+    uint currentSector, uint nextSector, int parity, out uint nextFrame,
+    inout uint valid)
+{
+    int2 direction = SigmaN4ChartDirection(assignment, currentFrame,
+        currentSector, valid);
+    int determinant = SigmaN4ChartFrameDeterminant(currentFrame) * parity;
+    nextFrame = 0u;
+    uint matches = 0u;
+    [unroll]
+    for (uint candidate = 0u; candidate < 8u; ++candidate)
+    {
+        uint candidateValid = valid;
+        int2 reverseDirection = SigmaN4ChartDirection(assignment, candidate,
+            nextSector, candidateValid);
+        bool match = candidateValid != 0u &&
+            all(reverseDirection == -direction) &&
+            SigmaN4ChartFrameDeterminant(candidate) == determinant;
+        if (match)
+        {
+            nextFrame = candidate;
+            ++matches;
+        }
+    }
+    valid &= matches == 1u ? 1u : 0u;
+    return valid != 0u;
+}
+
+bool SigmaN4TileNeighbour(uint tile, uint local, uint direction,
+    out uint neighbourLocal, out uint neighbourFootprint)
+{
+    uint x = local & 15u;
+    uint y = local >> 4u;
+    bool valid = true;
+    if (direction == 0u) valid = x != 0u;
+    else if (direction == 1u) valid = x != 15u;
+    else if (direction == 2u) valid = y != 0u;
+    else valid = y != 15u;
+    int offset = direction == 0u ? -1 :
+        (direction == 1u ? 1 : (direction == 2u ? -16 : 16));
+    neighbourLocal = valid ? (uint)((int)local + offset) : local;
+    neighbourFootprint = SigmaN4TileGlobalFootprint(tile, neighbourLocal);
+    return valid;
+}
+
+void SigmaN4TileSortSupports(uint tile, uint local)
+{
+    uint footprint = SigmaN4TileGlobalFootprint(tile, local);
+    uint key = SigmaN4TileFootprintValid(footprint)
+        ? SigmaN4TileSupportKey(footprint) : SIGMA_N4_TILE_INVALID;
+    SigmaN4TileSort[local] = uint2(key, local);
+    GroupMemoryBarrierWithGroupSync();
+    [loop]
+    for (uint networkSize = 2u; networkSize <= 256u;
+         networkSize <<= 1u)
+    {
+        [loop]
+        for (uint networkStride = networkSize >> 1u;
+             networkStride != 0u; networkStride >>= 1u)
+        {
+            uint peer = local ^ networkStride;
+            uint2 own = SigmaN4TileSort[local];
+            uint2 other = SigmaN4TileSort[peer];
+            bool ascending = (local & networkSize) == 0u;
+            bool greater = own.x > other.x ||
+                (own.x == other.x && own.y > other.y);
+            bool less = own.x < other.x ||
+                (own.x == other.x && own.y < other.y);
+            bool takeMinimum = ascending == (local < peer);
+            if ((takeMinimum && greater) || (!takeMinimum && less))
+                SigmaN4TileSort[local] = other;
+            GroupMemoryBarrierWithGroupSync();
+        }
+    }
+}
+
+uint4 SigmaN4TileCertificate(uint footprint, uint word)
+{
+    return _NativeLocalityCertificateWords[
+        _NativeFootprintCertificateOffset +
+        footprint * SIGMA_CERTIFICATE_WORD_COUNT + word];
+}
+
+void SigmaN4TileStoreCertificate(uint footprint, uint word, uint4 value)
+{
+    _NativeLocalityCertificateWords[_NativeFootprintCertificateOffset +
+        footprint * SIGMA_CERTIFICATE_WORD_COUNT + word] = value;
+}
+
+uint4 SigmaN4TileCertificateReduce(uint word, uint4 left, uint4 right)
+{
+    if (word == SIGMA_CERTIFICATE_IDENTITY)
+        return uint4(left.x | right.x, left.y, 1u, 0u);
+    if (word >= SIGMA_CERTIFICATE_AXIS0 &&
+        word < SIGMA_CERTIFICATE_INFORMATION0)
+        return uint4(SigmaQ48Max(left.xy, right.xy),
+            SigmaQ48Min(left.zw, right.zw));
+    return left | right;
+}
+
+bool SigmaN4TileStructuralCertificateEqual(uint footprint, uint leader)
+{
+    bool equal = true;
+    [unroll]
+    for (uint index = 0u; index < 5u; ++index)
+    {
+        uint word = index == 0u ? SIGMA_CERTIFICATE_CONTEXT :
+            (index == 1u ? SIGMA_CERTIFICATE_RELATION :
+            (index == 2u ? SIGMA_CERTIFICATE_RECEIPTS0 :
+            (index == 3u ? SIGMA_CERTIFICATE_RECEIPTS0 + 1u :
+                SIGMA_CERTIFICATE_RECEIPTS0 + 3u)));
+        equal = equal && all(SigmaN4TileCertificate(footprint,
+            word) == SigmaN4TileCertificate(leader, word));
+    }
+    uint4 identity = SigmaN4TileCertificate(footprint,
+        SIGMA_CERTIFICATE_IDENTITY);
+    uint4 leaderIdentity = SigmaN4TileCertificate(leader,
+        SIGMA_CERTIFICATE_IDENTITY);
+    equal = equal && identity.y == leaderIdentity.y &&
+        ((identity.x ^ leaderIdentity.x) &
+            SIGMA_NATIVE_CERTIFICATE_FLAGS_COUPLED) == 0u;
+    [unroll]
+    for (uint lane = 0u; lane < 16u; ++lane)
+        equal = equal && all(_NativeStates[_NativeFootprintStateOffset +
+            footprint * 16u + lane] ==
+            _NativeStates[_NativeFootprintStateOffset +
+                leader * 16u + lane]);
+    return equal;
+}
+
+void SigmaN4TileMeetSupports(uint tile, uint local)
+{
+    uint2 sorted = SigmaN4TileSort[local];
+    uint key = sorted.x;
+    SigmaNativeFreshScratch[local] = local;
+    GroupMemoryBarrierWithGroupSync();
+    [loop]
+    for (uint segmentStride = 1u; segmentStride < 256u;
+         segmentStride <<= 1u)
+    {
+        uint start = SigmaNativeFreshScratch[local];
+        uint candidate = local >= segmentStride ?
+            SigmaNativeFreshScratch[local - segmentStride] : local;
+        if (local >= segmentStride && key != SIGMA_N4_TILE_INVALID &&
+            SigmaN4TileSort[local - segmentStride].x == key)
+            start = candidate;
+        SigmaN4TileWideA[local].x = start;
+        GroupMemoryBarrierWithGroupSync();
+        SigmaNativeFreshScratch[local] = SigmaN4TileWideA[local].x;
+        GroupMemoryBarrierWithGroupSync();
+    }
+    uint start = SigmaNativeFreshScratch[local];
+    uint leaderLocal = SigmaN4TileSort[start].y;
+    uint footprint = SigmaN4TileGlobalFootprint(tile, sorted.y);
+    uint leaderFootprint = SigmaN4TileGlobalFootprint(tile, leaderLocal);
+    bool active = key != SIGMA_N4_TILE_INVALID;
+    SigmaN4TileFlags[local] = active &&
+        SigmaN4TileStructuralCertificateEqual(footprint, leaderFootprint)
+        ? 1u : (active ? 0u : 1u);
+    SigmaNativeFreshScratch[local] = active && (local == 0u ||
+        SigmaN4TileSort[local - 1u].x != key) ? 1u : 0u;
+    GroupMemoryBarrierWithGroupSync();
+
+    // Inclusive prefix assigns one fixed summary slot per exact locator.
+    [loop]
+    for (uint prefixStride = 1u; prefixStride < 256u;
+         prefixStride <<= 1u)
+    {
+        uint value = SigmaNativeFreshScratch[local];
+        uint add = local >= prefixStride
+            ? SigmaNativeFreshScratch[local - prefixStride] : 0u;
+        GroupMemoryBarrierWithGroupSync();
+        SigmaN4TileWideA[local].x = value + add;
+        GroupMemoryBarrierWithGroupSync();
+        SigmaNativeFreshScratch[local] = SigmaN4TileWideA[local].x;
+        GroupMemoryBarrierWithGroupSync();
+    }
+    uint summary = active ? SigmaNativeFreshScratch[local] - 1u :
+        SIGMA_N4_TILE_INVALID;
+    if (local == 0u)
+        SigmaN4TileSupportSummaryCount = SigmaNativeFreshScratch[255u];
+    GroupMemoryBarrierWithGroupSync();
+    uint footprintReceipt = SigmaN4TileFootprintAddress(footprint, 1u);
+    _NativeCloseScratch[footprintReceipt] = uint2(leaderLocal, summary);
+
+    uint end = local;
+    bool segmentEnd = active && (local == 255u ||
+        SigmaN4TileSort[local + 1u].x != key);
+    // Exact structural/state equality is reduced over each locator segment;
+    // no lane serially walks the segment.
+    SigmaNativeFreshScratch[local] = SigmaN4TileFlags[local];
+    GroupMemoryBarrierWithGroupSync();
+    [loop]
+    for (uint validityStride = 1u; validityStride < 256u;
+         validityStride <<= 1u)
+    {
+        uint value = SigmaNativeFreshScratch[local];
+        if (local >= validityStride && active &&
+            SigmaN4TileSort[local - validityStride].x == key)
+            value &= SigmaNativeFreshScratch[local - validityStride];
+        SigmaN4TileWideA[local].x = value;
+        GroupMemoryBarrierWithGroupSync();
+        SigmaNativeFreshScratch[local] = SigmaN4TileWideA[local].x;
+        GroupMemoryBarrierWithGroupSync();
+    }
+    [loop]
+    for (uint mergeIndex = 0u; mergeIndex < 6u; ++mergeIndex)
+    {
+        uint word = mergeIndex == 0u ? SIGMA_CERTIFICATE_IDENTITY :
+            (mergeIndex < 5u ? SIGMA_CERTIFICATE_AXIS0 + mergeIndex - 1u :
+                SIGMA_CERTIFICATE_RECEIPTS0 + 2u);
+        SigmaN4TileWideA[local] = active
+            ? SigmaN4TileCertificate(footprint, word) : 0u;
+        GroupMemoryBarrierWithGroupSync();
+        [loop]
+        for (uint certificateStride = 1u; certificateStride < 256u;
+             certificateStride <<= 1u)
+        {
+            uint4 value = SigmaN4TileWideA[local];
+            if (local >= certificateStride && active &&
+                SigmaN4TileSort[local - certificateStride].x == key)
+                value = SigmaN4TileCertificateReduce(word,
+                    SigmaN4TileWideA[local - certificateStride], value);
+            SigmaN4TileWideB[local] = value;
+            GroupMemoryBarrierWithGroupSync();
+            SigmaN4TileWideA[local] = SigmaN4TileWideB[local];
+            GroupMemoryBarrierWithGroupSync();
+        }
+        if (segmentEnd)
+            SigmaN4TileStoreCertificate(leaderFootprint, word,
+                SigmaN4TileWideA[local]);
+        GroupMemoryBarrierWithGroupSync();
+    }
+    if (segmentEnd)
+    {
+        uint valid = SigmaNativeFreshScratch[local];
+        uint4 identity = SigmaN4TileCertificate(leaderFootprint,
+            SIGMA_CERTIFICATE_IDENTITY);
+        identity.x |= SIGMA_NATIVE_CERTIFICATE_FLAGS_MINIMIZED;
+        identity.z = 1u;
+        identity.w = 0u;
+        SigmaN4TileStoreCertificate(leaderFootprint,
+            SIGMA_CERTIFICATE_IDENTITY, identity);
+        SigmaN4TileStoreCertificate(leaderFootprint,
+            SIGMA_CERTIFICATE_INDEPENDENCE, 0u);
+        [unroll]
+        for (uint axis = 0u; axis < 4u; ++axis)
+        {
+            uint4 interval = SigmaN4TileCertificate(leaderFootprint,
+                SIGMA_CERTIFICATE_AXIS0 + axis);
+            valid &= !SigmaI64Less(interval.zw, interval.xy) ? 1u : 0u;
+            uint widthValid = valid;
+            uint2 width = SigmaQ48SubChecked(interval.zw, interval.xy,
+                widthValid);
+            valid &= widthValid;
+            SigmaN4TileStoreCertificate(leaderFootprint,
+                SIGMA_CERTIFICATE_INFORMATION0 + axis,
+                valid != 0u ? uint4(width, axis, 3u) : 0u);
+        }
+        uint first = start;
+        uint count = end - first + 1u;
+        _NativeCloseScratch[SigmaN4TileSupportAddress(tile, summary, 0u)] =
+            uint2(key, leaderFootprint);
+        _NativeCloseScratch[SigmaN4TileSupportAddress(tile, summary, 1u)] =
+            uint2(count, valid);
+    }
+    GroupMemoryBarrierWithGroupSync();
+}
+
+uint SigmaN4TileFindRoot(uint value)
+{
+    uint root = value;
+    [unroll]
+    for (uint round = 0u; round < 8u; ++round)
+        root = root == SIGMA_N4_TILE_INVALID ? root :
+            SigmaN4TileFlags[root];
+    return root;
+}
+
+void SigmaN4TileBuildComponents(uint tile, uint local)
+{
+    uint footprint = SigmaN4TileGlobalFootprint(tile, local);
+    bool valid = SigmaN4TileFootprintValid(footprint);
+    uint supportKey = valid ? SigmaN4TileSupportKey(footprint) :
+        SIGMA_N4_TILE_INVALID;
+    uint supportLeader = _NativeCloseScratch[
+        SigmaN4TileFootprintAddress(footprint, 1u)].x;
+    SigmaN4TileFlags[local] = !valid ? SIGMA_N4_TILE_INVALID :
+        (supportKey != SIGMA_N4_TILE_INVALID ? supportLeader : local);
+    GroupMemoryBarrierWithGroupSync();
+
+    // Deterministic hook/compress over the finite 256-node tile.  All edges
+    // hook in parallel; nine fixed rounds are the exact bounded schedule.
+    [loop]
+    for (uint round = 0u; round < SIGMA_N4_TILE_LABEL_ROUNDS; ++round)
+    {
+        if (valid)
+        {
+            uint ownRoot = SigmaN4TileFindRoot(local);
+            [unroll]
+            for (uint direction = 1u; direction < 4u; direction += 2u)
+            {
+                uint neighbourLocal;
+                uint neighbourFootprint;
+                bool inside = SigmaN4TileNeighbour(tile, local, direction,
+                    neighbourLocal, neighbourFootprint);
+                if (inside && SigmaN4TileFootprintValid(neighbourFootprint) &&
+                    SigmaN4TileResolvedEdge(footprint, neighbourFootprint))
+                {
+                    uint neighbourRoot = SigmaN4TileFindRoot(neighbourLocal);
+                    uint low = min(ownRoot, neighbourRoot);
+                    uint high = max(ownRoot, neighbourRoot);
+                    uint ignored;
+                    if (low != high)
+                        InterlockedMin(SigmaN4TileFlags[high], low, ignored);
+                }
+            }
+        }
+        GroupMemoryBarrierWithGroupSync();
+        if (valid)
+        {
+            uint parent = SigmaN4TileFlags[local];
+            SigmaN4TileFlags[local] = SigmaN4TileFlags[parent];
+        }
+        GroupMemoryBarrierWithGroupSync();
+    }
+    uint root = valid ? SigmaN4TileFindRoot(local) : SIGMA_N4_TILE_INVALID;
+    SigmaN4TileLabel[local] = uint2(root, supportLeader);
+    _NativeCloseScratch[SigmaN4TileFootprintAddress(footprint, 0u)] =
+        uint2(root, valid ? 1u : 0u);
+    SigmaN4TileComponentOrbits[local] = 0u;
+    GroupMemoryBarrierWithGroupSync();
+    if (valid && root == local)
+        SigmaN4TileComponentOrbits[root] = 0xffffff07u;
+    GroupMemoryBarrierWithGroupSync();
+}
+
+uint4 SigmaN4TilePackChart(int2 position, uint frame, bool assigned)
+{
+    return uint4(asuint(position.x), asuint(position.y),
+        (frame & 7u) | (assigned ? 8u : 0u), 0u);
+}
+
+bool SigmaN4TileChartAssigned(uint4 value) { return (value.z & 8u) != 0u; }
+uint SigmaN4TileChartFrame(uint4 value) { return value.z & 7u; }
+
+bool SigmaN4TileChartProposal(uint tile, uint targetLocal,
+    uint sourceLocal, uint assignment, uint4 source, out uint4 proposal)
+{
+    proposal = source;
+    if (targetLocal == sourceLocal)
+        return SigmaN4TileChartAssigned(source);
+    uint target = SigmaN4TileGlobalFootprint(tile, targetLocal);
+    uint sourceFootprint = SigmaN4TileGlobalFootprint(tile, sourceLocal);
+    uint targetSupport = SigmaN4TileSupportKey(target);
+    uint sourceSupport = SigmaN4TileSupportKey(sourceFootprint);
+    if (targetSupport != SIGMA_N4_TILE_INVALID &&
+        targetSupport == sourceSupport)
+        return true;
+    uint boundary = SigmaN4TileBoundaryIndex(target, sourceFootprint);
+    uint address = _NativeBoundaryScratchOffset +
+        boundary * SIGMA_N4_BOUNDARY_RECEIPT_WORDS;
+    uint4 header = uint4(_NativeCloseScratch[address],
+        _NativeCloseScratch[address + 1u]);
+    if (header.x != SIGMA_STITCH_RESOLVED)
+        return false;
+    bool sourceFirst = sourceFootprint < target;
+    uint sourceSector = sourceFirst ? header.y : header.z;
+    uint targetSector = sourceFirst ? header.z : header.y;
+    uint signBits = _NativeCloseScratch[address + 5u].x;
+    int parity = ((signBits & 1u) == ((signBits >> 1u) & 1u)) ? 1 : -1;
+    uint exact = 1u;
+    uint nextFrame = 0u;
+    bool frameResolved = SigmaN4ResolveAdjacentFrame(assignment,
+        SigmaN4TileChartFrame(source), sourceSector, targetSector, parity,
+        nextFrame, exact);
+    exact &= frameResolved ? 1u : 0u;
+    int2 direction = SigmaN4ChartDirection(assignment,
+        SigmaN4TileChartFrame(source), sourceSector, exact);
+    proposal = SigmaN4TilePackChart(
+        int2(asint(source.x), asint(source.y)) + direction,
+        nextFrame, exact != 0u);
+    return exact != 0u;
+}
+
+bool SigmaN4TileChartEqual(uint4 left, uint4 right)
+{
+    return left.x == right.x && left.y == right.y && left.z == right.z;
+}
+
+void SigmaN4TileSolveOrbit(uint tile, uint local, uint orbit)
+{
+    uint footprint = SigmaN4TileGlobalFootprint(tile, local);
+    bool valid = SigmaN4TileFootprintValid(footprint);
+    uint root = SigmaN4TileLabel[local].x;
+    uint assignment = SigmaN4ChartOrbitRepresentative(orbit);
+    SigmaN4TileWideA[local] = valid && root == local
+        ? SigmaN4TilePackChart(int2(0, 0), 0u, true) : 0u;
+    GroupMemoryBarrierWithGroupSync();
+    [loop]
+    for (uint round = 0u; round < 32u; ++round)
+    {
+        uint4 current = SigmaN4TileWideA[local];
+        uint4 next = current;
+        bool have = SigmaN4TileChartAssigned(current);
+        bool consistent = true;
+        if (valid)
+        {
+            [unroll]
+            for (uint sourceIndex = 0u; sourceIndex < 5u; ++sourceIndex)
+            {
+                uint sourceLocal = SigmaN4TileSupportKey(footprint) !=
+                    SIGMA_N4_TILE_INVALID ? SigmaN4TileLabel[local].y : local;
+                uint neighbourFootprint = footprint;
+                bool sourcePresent = sourceIndex == 0u;
+                if (sourceIndex != 0u)
+                    sourcePresent = SigmaN4TileNeighbour(tile, local,
+                        sourceIndex - 1u, sourceLocal, neighbourFootprint) &&
+                        SigmaN4TileLabel[sourceLocal].x == root;
+                if (sourcePresent)
+                {
+                    uint4 source = SigmaN4TileWideA[sourceLocal];
+                    uint4 candidate;
+                    if (SigmaN4TileChartAssigned(source) &&
+                        SigmaN4TileChartProposal(tile, local, sourceLocal,
+                            assignment, source, candidate))
+                    {
+                        if (!have) { next = candidate; have = true; }
+                        else consistent = consistent &&
+                            SigmaN4TileChartEqual(next, candidate);
+                    }
+                }
+            }
+        }
+        if (!consistent)
+        {
+            uint ignored;
+            InterlockedAnd(SigmaN4TileComponentOrbits[root],
+                ~(1u << orbit), ignored);
+        }
+        SigmaN4TileWideB[local] = next;
+        GroupMemoryBarrierWithGroupSync();
+        SigmaN4TileWideA[local] = SigmaN4TileWideB[local];
+        GroupMemoryBarrierWithGroupSync();
+    }
+    uint4 solved = SigmaN4TileWideA[local];
+    if (valid && !SigmaN4TileChartAssigned(solved))
+    {
+        uint ignored;
+        InterlockedAnd(SigmaN4TileComponentOrbits[root],
+            ~(1u << orbit), ignored);
+    }
+    uint output = SigmaN4TileFootprintAddress(footprint, 2u + orbit * 2u);
+    _NativeCloseScratch[output] = solved.xy;
+    _NativeCloseScratch[output + 1u] = solved.zw;
+    DeviceMemoryBarrierWithGroupSync();
+}
+
+bool SigmaN4TileD4Equivalent(uint4 left, uint leftOrbit, uint4 right,
+    uint rightOrbit, uint transform)
+{
+    bool equivalent = SigmaN4TileChartAssigned(left) &&
+        SigmaN4TileChartAssigned(right);
+    if (!equivalent)
+        return false;
+    int4 d4 = SIGMA_STITCH_CHART_D4[min(transform, 7u)];
+    int2 leftPosition = int2(asint(left.x), asint(left.y));
+    int2 transformed = int2(d4.x * leftPosition.x + d4.y * leftPosition.y,
+        d4.z * leftPosition.x + d4.w * leftPosition.y);
+    equivalent = all(transformed == int2(asint(right.x), asint(right.y)));
+    if (!equivalent)
+        return false;
+    uint leftAssignment = SigmaN4ChartOrbitRepresentative(leftOrbit);
+    uint rightAssignment = SigmaN4ChartOrbitRepresentative(rightOrbit);
+    uint exact = 1u;
+    [unroll]
+    for (uint sector = 0u; sector < 4u; ++sector)
+    {
+        int2 leftDirection = SigmaN4ChartDirection(leftAssignment,
+            SigmaN4TileChartFrame(left), sector, exact);
+        int2 expected = int2(d4.x * leftDirection.x + d4.y * leftDirection.y,
+            d4.z * leftDirection.x + d4.w * leftDirection.y);
+        int2 actual = SigmaN4ChartDirection(rightAssignment,
+            SigmaN4TileChartFrame(right), sector, exact);
+        if (any(expected != actual)) exact = 0u;
+    }
+    return equivalent && exact != 0u;
+}
+
+void SigmaN4TileFinalizeComponents(uint tile, uint local)
+{
+    uint footprint = SigmaN4TileGlobalFootprint(tile, local);
+    bool valid = SigmaN4TileFootprintValid(footprint);
+    uint root = SigmaN4TileLabel[local].x;
+    if (valid)
+    {
+        [unroll]
+        for (uint pair = 0u; pair < 3u; ++pair)
+        {
+            uint leftOrbit = pair == 2u ? 1u : 0u;
+            uint rightOrbit = pair == 0u ? 1u : 2u;
+            uint leftAddress = SigmaN4TileFootprintAddress(footprint,
+                2u + leftOrbit * 2u);
+            uint rightAddress = SigmaN4TileFootprintAddress(footprint,
+                2u + rightOrbit * 2u);
+            uint4 leftState = uint4(_NativeCloseScratch[leftAddress],
+                _NativeCloseScratch[leftAddress + 1u]);
+            uint4 rightState = uint4(_NativeCloseScratch[rightAddress],
+                _NativeCloseScratch[rightAddress + 1u]);
+            uint mask = 0u;
+            [unroll]
+            for (uint transform = 0u; transform < 8u; ++transform)
+                mask |= SigmaN4TileD4Equivalent(leftState, leftOrbit,
+                    rightState, rightOrbit, transform)
+                    ? 1u << transform : 0u;
+            uint offset = (pair + 1u) * 8u;
+            uint preserve = ~(0xffu << offset) | (mask << offset);
+            uint ignored;
+            InterlockedAnd(SigmaN4TileComponentOrbits[root], preserve, ignored);
+        }
+    }
+    GroupMemoryBarrierWithGroupSync();
+    SigmaN4TileWideA[local] = uint4(0u, SIGMA_N4_TILE_INVALID, 0u, 0u);
+    GroupMemoryBarrierWithGroupSync();
+    if (valid)
+    {
+        uint ignored;
+        InterlockedAdd(SigmaN4TileWideA[root].x, 1u, ignored);
+        uint support = SigmaN4TileSupportKey(footprint);
+        if (support != SIGMA_N4_TILE_INVALID)
+        {
+            InterlockedMin(SigmaN4TileWideA[root].y, support, ignored);
+            InterlockedMax(SigmaN4TileWideA[root].z, support + 1u, ignored);
+        }
+        else
+            InterlockedOr(SigmaN4TileWideA[root].w, 2u, ignored);
+        uint x = local & 15u;
+        uint y = local >> 4u;
+        if (x == 0u || x == 15u || y == 0u || y == 15u)
+            InterlockedOr(SigmaN4TileWideA[root].w, 1u, ignored);
+    }
+    GroupMemoryBarrierWithGroupSync();
+    bool isRoot = valid && root == local;
+    uint orbitReceipt = isRoot ? SigmaN4TileComponentOrbits[root] : 0u;
+    uint feasible = orbitReceipt & 7u;
+    uint feasibleCount = countbits(feasible);
+    bool eq01 = ((orbitReceipt >> 8u) & 0xffu) != 0u;
+    bool eq02 = ((orbitReceipt >> 16u) & 0xffu) != 0u;
+    bool eq12 = ((orbitReceipt >> 24u) & 0xffu) != 0u;
+    bool priorAliasOnly = SigmaN4TileWideA[root].y !=
+            SIGMA_N4_TILE_INVALID &&
+        SigmaN4TileWideA[root].z == SigmaN4TileWideA[root].y + 1u &&
+        (SigmaN4TileWideA[root].w & 2u) == 0u;
+    bool oneClass = priorAliasOnly || feasibleCount == 1u ||
+        (feasibleCount == 2u &&
+            (((feasible & 3u) == 3u && eq01) ||
+             ((feasible & 5u) == 5u && eq02) ||
+             ((feasible & 6u) == 6u && eq12))) ||
+        (feasibleCount == 3u &&
+            ((eq01 && eq02) || (eq01 && eq12) || (eq02 && eq12)));
+    uint selectedOrbit = priorAliasOnly ? 0u :
+        ((feasible & 1u) != 0u ? 0u :
+        ((feasible & 2u) != 0u ? 1u : 2u));
+    bool border = isRoot && (SigmaN4TileWideA[root].w & 1u) != 0u;
+    uint rootFlags = (oneClass ? 1u : 2u) | (border ? 4u : 0u) |
+        (selectedOrbit << 8u);
+    SigmaN4TileSort[local] = uint2(isRoot && border ? 1u : 0u,
+        isRoot && !border ? 1u : 0u);
+    GroupMemoryBarrierWithGroupSync();
+    [loop]
+    for (uint compactionStride = 1u; compactionStride < 256u;
+         compactionStride <<= 1u)
+    {
+        uint2 value = SigmaN4TileSort[local];
+        if (local >= compactionStride)
+            value += SigmaN4TileSort[local - compactionStride];
+        SigmaN4TileLabel[local] = value;
+        GroupMemoryBarrierWithGroupSync();
+        SigmaN4TileSort[local] = SigmaN4TileLabel[local];
+        GroupMemoryBarrierWithGroupSync();
+    }
+    if (local == 0u)
+    {
+        SigmaN4TileBorderComponentCount = SigmaN4TileSort[255u].x;
+        SigmaN4TileComponentCount = SigmaN4TileSort[255u].x +
+            SigmaN4TileSort[255u].y;
+        SigmaN4TileUnresolvedComponentCount = 0u;
+    }
+    GroupMemoryBarrierWithGroupSync();
+    if (isRoot)
+    {
+        uint slot = border ? SigmaN4TileSort[local].x - 1u :
+            SigmaN4TileBorderComponentCount + SigmaN4TileSort[local].y - 1u;
+        uint anchor = SigmaN4TileWideA[root].y != SIGMA_N4_TILE_INVALID &&
+            SigmaN4TileWideA[root].z == SigmaN4TileWideA[root].y + 1u
+            ? SigmaN4TileWideA[root].y : SIGMA_N4_TILE_INVALID;
+        _NativeCloseScratch[SigmaN4TileComponentAddress(tile, slot, 0u)] =
+            uint2(footprint, rootFlags);
+        _NativeCloseScratch[SigmaN4TileComponentAddress(tile, slot, 1u)] =
+            uint2(anchor, SigmaN4TileWideA[root].x);
+        SigmaN4TileFlags[root] = slot;
+        if (!oneClass)
+        {
+            uint ignored;
+            InterlockedAdd(SigmaN4TileUnresolvedComponentCount, 1u, ignored);
+        }
+    }
+    GroupMemoryBarrierWithGroupSync();
+    if (valid)
+    {
+        uint slot = SigmaN4TileFlags[root];
+        uint flags = _NativeCloseScratch[
+            SigmaN4TileComponentAddress(tile, slot, 0u)].y;
+        _NativeCloseScratch[SigmaN4TileFootprintAddress(footprint, 0u)] =
+            uint2(slot, flags);
+    }
+    GroupMemoryBarrierWithGroupSync();
+    if (local == 0u)
+    {
+        uint address = _NativeTileHeaderScratchOffset +
+            tile * SIGMA_N4_TILE_HEADER_WORDS;
+        _NativeCloseScratch[address] = uint2(
+            SigmaN4TileSupportSummaryCount, SigmaN4TileComponentCount);
+        _NativeCloseScratch[address + 1u] = uint2(
+            SigmaN4TileBorderComponentCount,
+            SigmaN4TileUnresolvedComponentCount);
+    }
+}
+
+void SigmaN4TileClose(uint tile, uint local)
+{
+    SigmaN4TileSortSupports(tile, local);
+    SigmaN4TileMeetSupports(tile, local);
+    SigmaN4TileBuildComponents(tile, local);
+    [loop]
+    for (uint orbit = 0u; orbit < 3u; ++orbit)
+        SigmaN4TileSolveOrbit(tile, local, orbit);
+    SigmaN4TileFinalizeComponents(tile, local);
+}
+#endif
+
+#if !defined(SIGMA_N4_TILE_CLOSE_VARIANT)
 void SigmaNativeFreshFinalize(uint threadIndex)
 {
     uint branchCount = _NativeFreshBranchCount;
@@ -670,15 +1591,34 @@ void SigmaNativeFreshFinalize(uint threadIndex)
         _NativeBranchSupports[branchCount] = uint2(0u, 0u);
     }
 }
+#endif
 
+#if defined(SIGMA_N4_TILE_CLOSE_VARIANT)
+[numthreads(256, 1, 1)]
+#else
 [numthreads(64, 1, 1)]
+#endif
 void ContractNativeQuery(uint3 id : SV_DispatchThreadID,
     uint3 groupId : SV_GroupID, uint3 groupThreadId : SV_GroupThreadID)
 {
+#if defined(SIGMA_N4_TILE_CLOSE_VARIANT)
+    uint tileCount = _NativeTileCount.x * _NativeTileCount.y;
+    if (groupId.x < tileCount)
+        SigmaN4TileClose(groupId.x, groupThreadId.x);
+#else
     if (_NativeContractMode == SIGMA_NATIVE_CONTRACT_FRESH_LIFT)
     {
-        if (groupId.x < _NativeFreshBranchCount)
-            SigmaNativeFreshLiftBranch(groupId.x, groupThreadId.x);
+        if (_NativeFootprintCount == 0u)
+        {
+            if (groupId.x < _NativeFreshBranchCount)
+                SigmaNativeFreshLiftLegacyBranch(groupId.x,
+                    groupThreadId.x);
+        }
+        else if (groupId.x == 0u)
+            SigmaNativeFreshLiftLegacyBranch(0u, groupThreadId.x);
+        else if (groupId.x <= _NativeFootprintCount)
+            SigmaNativeFreshLiftFootprint(groupId.x - 1u,
+                groupThreadId.x);
         return;
     }
     if (_NativeContractMode == SIGMA_NATIVE_CONTRACT_FRESH_UNION)
@@ -687,5 +1627,6 @@ void ContractNativeQuery(uint3 id : SV_DispatchThreadID,
             SigmaNativeFreshFinalize(groupThreadId.x);
         return;
     }
+#endif
 }
 #endif

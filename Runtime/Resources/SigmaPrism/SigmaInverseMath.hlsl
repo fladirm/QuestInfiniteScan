@@ -18,6 +18,7 @@ uint2 SigmaCalibrationValue(uint eye, uint field)
 // Q16.48. Every closure decision after this boundary is packed arithmetic.
 uint2 SigmaQ48FromFloatNearestEven(float value, inout uint valid)
 {
+    uint2 result = SIGMA_Q48_ZERO;
     uint bits = asuint(value);
     bool negative = (bits & 0x80000000u) != 0u;
     uint exponentBits = (bits >> 23u) & 0xffu;
@@ -25,23 +26,24 @@ uint2 SigmaQ48FromFloatNearestEven(float value, inout uint valid)
     if (exponentBits == 0xffu)
     {
         valid = 0u;
-        return SIGMA_Q48_ZERO;
     }
-    if (exponentBits == 0u && fraction == 0u)
-        return SIGMA_Q48_ZERO;
-
-    uint mantissa = exponentBits == 0u ? fraction :
-        fraction | 0x00800000u;
-    int exponent = exponentBits == 0u ? -126 : (int)exponentBits - 127;
-    int rawShift = exponent + 25;
-    uint2 magnitude = uint2(mantissa, 0u);
-    if (rawShift >= 0)
-        magnitude = SigmaQ48ShiftLeftChecked(magnitude,
-            (uint)rawShift, valid);
-    else
-        magnitude = SigmaQ48ShiftRightNearestEven(magnitude,
-            (uint)(-rawShift), valid);
-    return SigmaApplyMagnitudeSign(magnitude, negative, valid);
+    else if (exponentBits != 0u || fraction != 0u)
+    {
+        uint mantissa = exponentBits == 0u ? fraction :
+            fraction | 0x00800000u;
+        int exponent = exponentBits == 0u ? -126 :
+            (int)exponentBits - 127;
+        int rawShift = exponent + 25;
+        uint2 magnitude = uint2(mantissa, 0u);
+        if (rawShift >= 0)
+            magnitude = SigmaQ48ShiftLeftChecked(magnitude,
+                (uint)rawShift, valid);
+        else
+            magnitude = SigmaQ48ShiftRightNearestEven(magnitude,
+                (uint)(-rawShift), valid);
+        result = SigmaApplyMagnitudeSign(magnitude, negative, valid);
+    }
+    return result;
 }
 
 uint2 SigmaQ48AbsDifference(uint2 a, uint2 b, inout uint valid)

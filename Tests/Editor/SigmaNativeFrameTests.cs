@@ -8,6 +8,7 @@ using Genesis.RoomScan.SigmaPrism;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
+using UnityEngine.Experimental.Rendering;
 
 namespace Genesis.RoomScan.Tests
 {
@@ -89,7 +90,7 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
-        public void LiveScratchUsesCompletionJournalAsSolePackedBoundary()
+        public void LiveScratchOwnsOneFullFrameArenaAndOneTerminalJournal()
         {
             using var resources = new SigmaNativeFrameResources(
                 new Vector2Int(320, 320), 3);
@@ -110,15 +111,621 @@ namespace Genesis.RoomScan.Tests
                 Assert.That(native.GaugeDelta.count, Is.EqualTo(
                     SigmaNativeFrameSlotResources.RepresentationDeltaCapacity));
                 Assert.That(native.LocalityCertificateWords.count, Is.EqualTo(
-                    (SigmaNativeFrameSlotResources.RepresentationDeltaCapacity + 1) *
+                    native.FootprintCertificateOffset + 320 * 320 *
                     SigmaNativeFrameSlotResources.CertificateWordCount));
                 Assert.That(native.RelationInputs.count,
                     Is.EqualTo(SigmaNativeFrameSlotResources.RelationCapacity));
+                Assert.That(native.FootprintCapacity, Is.EqualTo(320 * 320));
+                Assert.That(native.Observation.count,
+                    Is.EqualTo(320 * 320 + 1));
+                Assert.That(native.BoundaryCapacity, Is.EqualTo(204160));
+                Assert.That(native.CloseScratch.count, Is.EqualTo(
+                    native.TileComponentSummaryScratchOffset +
+                    native.TileCapacity *
+                    SigmaNativeFrameSlotResources.TileFootprintCapacity *
+                    SigmaNativeFrameSlotResources
+                        .TileComponentSummaryWordCount));
             }
             finally
             {
                 resources.Release(slot);
             }
+        }
+
+        [Test]
+        public void BuildObservationWritesEvery320By320FootprintOnGpu()
+        {
+            const int width = 320;
+            const int height = 320;
+            int footprintCount = width * height;
+            ComputeShader frame = LoadShader("SigmaNativeFrame");
+            int kernel = frame.FindKernel("BuildNativeObservation");
+            using var scratch = new SigmaNativeFrameSlotResources(0,
+                new Vector2Int(width, height));
+            using var gate = UIntBuffer(1);
+            using var depthCalibration = UInt2Buffer(72);
+            using var rgbCalibration = UInt2Buffer(16);
+            using var pose = UInt4Buffer(4);
+            using var carrierState = UInt2Buffer(SigmaCarrier.PageLaneCount * 2);
+            using var carrierRepresentation = UInt4Buffer(
+                SigmaCarrier.SamplesPerPage * 2 *
+                SigmaCarrier.RepresentationWordsPerSample);
+            using var metadata = new GraphicsBuffer(
+                GraphicsBuffer.Target.Structured, 2,
+                SigmaCarrier.PageMetadataStride);
+            using var root = UIntBuffer(1);
+            using var completion = UInt2Buffer(
+                SigmaGeneratedFrame.CompletionWordCount);
+            RenderTexture rawDepth = ZeroArrayRenderTexture(width, height,
+                GraphicsFormat.R32_SFloat);
+            RenderTexture metricDepth = ZeroArrayRenderTexture(width,
+                height, GraphicsFormat.R32G32_SFloat);
+            RenderTexture depthFlags = ZeroArrayRenderTexture(width, height,
+                GraphicsFormat.R32_UInt);
+            RenderTexture rays = ZeroRenderTexture(width, height,
+                GraphicsFormat.R32G32B32A32_SFloat);
+            RenderTexture rgb = ZeroRenderTexture(width, height,
+                GraphicsFormat.R32G32B32A32_SFloat);
+            RenderTexture predictionPage = ZeroArrayRenderTexture(width,
+                height, GraphicsFormat.R32G32B32A32_UInt);
+            RenderTexture predictionUv = ZeroArrayRenderTexture(width,
+                height, GraphicsFormat.R32G32B32A32_SFloat);
+            RenderTexture predictionKey = ZeroArrayRenderTexture(width,
+                height, GraphicsFormat.R32G32B32A32_UInt);
+            try
+            {
+                frame.SetBuffer(kernel, "_SigmaExactBackendGate", gate);
+                frame.SetBuffer(kernel, "_DepthCalibrationQ48",
+                    depthCalibration);
+                frame.SetBuffer(kernel, "_RgbCalibrationQ48", rgbCalibration);
+                frame.SetBuffer(kernel, "_PoseResult", pose);
+                frame.SetBuffer(kernel, "_NativeFrames", scratch.NativeFrame);
+                frame.SetBuffer(kernel, "_NativeObservations",
+                    scratch.Observation);
+                frame.SetBuffer(kernel, "_NativeCloseScratch",
+                    scratch.CloseScratch);
+                frame.SetBuffer(kernel, "_NativeStates", scratch.States);
+                frame.SetBuffer(kernel, "_NativeLocalityCertificateWords",
+                    scratch.LocalityCertificateWords);
+                frame.SetBuffer(kernel, "_NativeCounters", scratch.Counters);
+                frame.SetBuffer(kernel, "_NativeCompletionJournal", completion);
+                frame.SetBuffer(kernel, "_NativeSourceCarrierState",
+                    carrierState);
+                frame.SetBuffer(kernel, "_NativeSourceCarrierRepresentation",
+                    carrierRepresentation);
+                frame.SetBuffer(kernel, "_NativeSourcePageMetadata", metadata);
+                frame.SetBuffer(kernel, "_NativeSourcePublicationRoot", root);
+                frame.SetTexture(kernel, "_NativeRawDepth", rawDepth);
+                frame.SetTexture(kernel, "_NativeMetricDepth", metricDepth);
+                frame.SetTexture(kernel, "_NativeDepthFlags", depthFlags);
+                frame.SetTexture(kernel, "_NativeDepthRayCenterLeft", rays);
+                frame.SetTexture(kernel, "_NativeDepthRayCenterRight", rays);
+                frame.SetTexture(kernel, "_NativeDepthRayDifferentialXLeft",
+                    rays);
+                frame.SetTexture(kernel, "_NativeDepthRayDifferentialXRight",
+                    rays);
+                frame.SetTexture(kernel, "_NativeDepthRayDifferentialYLeft",
+                    rays);
+                frame.SetTexture(kernel, "_NativeDepthRayDifferentialYRight",
+                    rays);
+                frame.SetTexture(kernel, "_NativeDepthSlopeBoundsLeft", rays);
+                frame.SetTexture(kernel, "_NativeDepthSlopeBoundsRight", rays);
+                frame.SetTexture(kernel, "_NativeRgbLeft", rgb);
+                frame.SetTexture(kernel, "_NativeRgbRight", rgb);
+                frame.SetTexture(kernel, "_NativePredCarrierPage",
+                    predictionPage);
+                frame.SetTexture(kernel, "_NativePredCarrierUvNormal",
+                    predictionUv);
+                frame.SetTexture(kernel, "_NativePredStateKey", predictionKey);
+                frame.SetInts("_NativeResolution", width, height);
+                frame.SetInts("_NativeRgbLeftResolution", width, height);
+                frame.SetInts("_NativeRgbRightResolution", width, height);
+                frame.SetInts("_NativeOpticalTransfers", -1, -1);
+                frame.SetInt("_NativeRevision", 17);
+                frame.SetInt("_NativeCalibrationEpoch", 9);
+                frame.SetInts("_NativeIndependenceKeys", 1, 2, 3, 4);
+                frame.SetInt("_NativeTargetPageCapacity", 2);
+                frame.SetInt("_NativeTargetSegmentIndex", 0);
+                frame.SetInt("_NativeCompletionRecordIndex", 0);
+                frame.SetInt("_NativeFootprintCount", footprintCount);
+                frame.SetInt("_NativeBoundaryCount", scratch.BoundaryCapacity);
+                frame.SetInt("_NativeBoundaryScratchOffset",
+                    scratch.BoundaryScratchOffset);
+                frame.SetMatrix("_NativeRoomFromDepthLeft", Matrix4x4.identity);
+                frame.SetMatrix("_NativeRoomFromDepthRight", Matrix4x4.identity);
+                frame.SetMatrix("_NativeRgbFromRoomLeft", Matrix4x4.identity);
+                frame.SetMatrix("_NativeRgbFromRoomRight", Matrix4x4.identity);
+                frame.SetMatrix("_PoseConsumeReferenceFromWorld",
+                    Matrix4x4.identity);
+                frame.SetMatrix("_PoseConsumeWorldFromReference",
+                    Matrix4x4.identity);
+                frame.Dispatch(kernel, (footprintCount + 7) / 8, 1, 1);
+
+                var first = new SigmaNativeObservationGpu[1];
+                var last = new SigmaNativeObservationGpu[1];
+                scratch.Observation.GetData(first, 0, 1, 1);
+                scratch.Observation.GetData(last, 0, footprintCount, 1);
+                Assert.That(first[0].Query.X, Is.Zero);
+                Assert.That(first[0].Query.Y, Is.Zero);
+                Assert.That(last[0].Identity.X, Is.EqualTo(17u));
+                Assert.That(last[0].Identity.Y, Is.EqualTo(9u));
+                Assert.That(last[0].Query.X, Is.EqualTo(319u));
+                Assert.That(last[0].Query.Y, Is.EqualTo(319u));
+                var support = new UInt2[2];
+                scratch.CloseScratch.GetData(support, 0,
+                    (footprintCount - 1) *
+                    SigmaNativeFrameSlotResources.FootprintEvidenceWordCount +
+                    50, 2);
+                Assert.That(support[0].Low, Is.EqualTo(uint.MaxValue));
+                Assert.That(support[0].High, Is.Zero);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(rawDepth);
+                UnityEngine.Object.DestroyImmediate(metricDepth);
+                UnityEngine.Object.DestroyImmediate(depthFlags);
+                UnityEngine.Object.DestroyImmediate(rays);
+                UnityEngine.Object.DestroyImmediate(rgb);
+                UnityEngine.Object.DestroyImmediate(predictionPage);
+                UnityEngine.Object.DestroyImmediate(predictionUv);
+                UnityEngine.Object.DestroyImmediate(predictionKey);
+            }
+        }
+
+        [Test]
+        public void ProductionBoundaryPlaneMatchesAcceptedGeneratedStitch()
+        {
+            ComputeShader query = LoadShader("SigmaNativeQuery");
+            int kernel = query.FindKernel("EvaluateNativeRelation");
+            using var scratch = new SigmaNativeFrameSlotResources(0,
+                new Vector2Int(2, 1));
+
+            SigmaS16 leftState = SigmaS16.Basis(1, SigmaNumericDomain.One);
+            SigmaS16 rightState = SigmaS16.Basis(2, SigmaNumericDomain.One);
+            var states = new UInt2[scratch.States.count];
+            WriteState(states, scratch.FootprintStateOffset, leftState);
+            WriteState(states, scratch.FootprintStateOffset +
+                SigmaS16.LaneCount, rightState);
+            scratch.States.SetData(states);
+
+            const uint evidenceFlags = 0x1fu;
+            var observations = new SigmaNativeObservationGpu[3];
+            observations[1].Identity = U4(1u, 1u, 11u, evidenceFlags);
+            observations[2].Identity = U4(1u, 1u, 12u, evidenceFlags);
+            scratch.Observation.SetData(observations);
+
+            var close = new UInt2[scratch.CloseScratch.count];
+            UInt2 point = Packed(SigmaNumericDomain.One);
+            WriteEnvelope(close, 0,
+                SigmaNativeFrameSlotResources.FootprintEvidenceWordCount,
+                side: 1, point);
+            WriteEnvelope(close, 1,
+                SigmaNativeFrameSlotResources.FootprintEvidenceWordCount,
+                side: 0, point);
+            scratch.CloseScratch.SetData(close);
+
+            query.SetBuffer(kernel, "_NativeStates", scratch.States);
+            query.SetBuffer(kernel, "_NativeRelationInputs",
+                scratch.RelationInputs);
+            query.SetBuffer(kernel, "_NativeRelationPlans",
+                scratch.RelationPlans);
+            query.SetBuffer(kernel, "_NativeRelationNearIntervals",
+                scratch.RelationNearIntervals);
+            query.SetBuffer(kernel, "_NativeRelationResults",
+                scratch.RelationResults);
+            query.SetBuffer(kernel, "_NativeRelationFactors",
+                scratch.RelationFactors);
+            query.SetBuffer(kernel, "_NativeRelationHashes",
+                scratch.RelationHashes);
+            query.SetBuffer(kernel, "_NativeRelationNorms",
+                scratch.RelationNorms);
+            query.SetBuffer(kernel, "_NativeObservations",
+                scratch.Observation);
+            query.SetBuffer(kernel, "_NativeCloseScratch",
+                scratch.CloseScratch);
+            query.SetInt("_NativeEntryPointIndex",
+                SigmaGeneratedFrame.IntrinsicRelationEntryPoint);
+            query.SetInt("_NativeRelationCount", 1);
+            query.SetInt("_NativeRelationMode", 1);
+            query.SetInts("_NativeResolution", 2, 1);
+            query.SetInt("_NativeFootprintCount", 2);
+            query.SetInt("_NativeFootprintStateOffset",
+                scratch.FootprintStateOffset);
+            query.SetInt("_NativeBoundaryCount", 1);
+            query.SetInt("_NativeBoundaryScratchOffset",
+                scratch.BoundaryScratchOffset);
+            query.Dispatch(kernel, 2, 1, 1);
+
+            var receipt = new UInt2[6];
+            scratch.CloseScratch.GetData(receipt, 0,
+                scratch.BoundaryScratchOffset, receipt.Length);
+            var gpu = new UInt4
+            {
+                X = receipt[0].Low,
+                Y = receipt[0].High,
+                Z = receipt[1].Low,
+                W = receipt[1].High,
+            };
+
+            var contact = new SigmaStitchContactBranch(new[]
+            {
+                new SigmaQ48Interval(SigmaNumericDomain.One,
+                    SigmaNumericDomain.One),
+                new SigmaQ48Interval(SigmaNumericDomain.One,
+                    SigmaNumericDomain.One),
+                new SigmaQ48Interval(SigmaNumericDomain.One,
+                    SigmaNumericDomain.One),
+            });
+            var boundary = new SigmaImplicitBoundaryRef(0, 11UL, 22UL,
+                SigmaSampleBoundarySide.Right, SigmaSampleBoundarySide.Left,
+                new[] { contact });
+            SigmaStitchWitnessSet cpu = SigmaGeneratedMerkabaProgram
+                .EvaluateModalStitch(boundary,
+                    new SigmaStitchLocality(11UL, 0, leftState,
+                        new string('a', 64)),
+                    new SigmaStitchLocality(22UL, 0, rightState,
+                        new string('b', 64)),
+                    new SigmaStitchNativeContext(SigmaS16.Zero,
+                        new string('c', 64)));
+            Assert.That(gpu.X, Is.EqualTo((uint)cpu.Resolution));
+            Assert.That(gpu.Y, Is.EqualTo((uint)cpu.Resolved.LeftSector));
+            Assert.That(gpu.Z, Is.EqualTo((uint)cpu.Resolved.RightSector));
+            Assert.That(gpu.W,
+                Is.EqualTo((uint)cpu.Resolved.Receipt.TransportAddress));
+
+            // Sampling RIGHT/DOWN is broad phase only. Re-enumerating the
+            // identical native endpoints through the vertical footprint side
+            // must leave the generated stitch result byte-identical.
+            Array.Clear(close, 0, close.Length);
+            WriteEnvelope(close, 0,
+                SigmaNativeFrameSlotResources.FootprintEvidenceWordCount,
+                side: 3, point);
+            WriteEnvelope(close, 1,
+                SigmaNativeFrameSlotResources.FootprintEvidenceWordCount,
+                side: 2, point);
+            scratch.CloseScratch.SetData(close);
+            query.SetInts("_NativeResolution", 1, 2);
+            query.Dispatch(kernel, 2, 1, 1);
+            scratch.CloseScratch.GetData(receipt, 0,
+                scratch.BoundaryScratchOffset, receipt.Length);
+            Assert.That(receipt[0].Low, Is.EqualTo(gpu.X));
+            Assert.That(receipt[0].High, Is.EqualTo(gpu.Y));
+            Assert.That(receipt[1].Low, Is.EqualTo(gpu.Z));
+            Assert.That(receipt[1].High, Is.EqualTo(gpu.W));
+
+            // Adjacent execution samples do not stitch when their exact
+            // calibrated manifestation envelopes are disjoint.
+            Array.Clear(close, 0, close.Length);
+            WriteEnvelope(close, 0,
+                SigmaNativeFrameSlotResources.FootprintEvidenceWordCount,
+                side: 1, point);
+            WriteEnvelope(close, 1,
+                SigmaNativeFrameSlotResources.FootprintEvidenceWordCount,
+                side: 0, Packed(checked(SigmaNumericDomain.One * 2L)));
+            scratch.CloseScratch.SetData(close);
+            query.SetInts("_NativeResolution", 2, 1);
+            query.Dispatch(kernel, 2, 1, 1);
+            scratch.CloseScratch.GetData(receipt, 0,
+                scratch.BoundaryScratchOffset, receipt.Length);
+            Assert.That(receipt[0].Low,
+                Is.EqualTo((uint)SigmaStitchResolution.NoStitch));
+
+            // A valid first-hit carrying no resolved S16 endpoint does not
+            // become a physical tear. All native sector alternatives survive,
+            // so the generated set result is explicitly unresolved.
+            scratch.States.SetData(new UInt2[scratch.States.count]);
+            Array.Clear(close, 0, close.Length);
+            WriteEnvelope(close, 0,
+                SigmaNativeFrameSlotResources.FootprintEvidenceWordCount,
+                side: 1, point);
+            WriteEnvelope(close, 1,
+                SigmaNativeFrameSlotResources.FootprintEvidenceWordCount,
+                side: 0, point);
+            scratch.CloseScratch.SetData(close);
+            query.Dispatch(kernel, 2, 1, 1);
+            scratch.CloseScratch.GetData(receipt, 0,
+                scratch.BoundaryScratchOffset, receipt.Length);
+            Assert.That(receipt[0].Low,
+                Is.EqualTo((uint)SigmaStitchResolution.Unresolved));
+        }
+
+        [Test]
+        public void ProductionTileCloseMatchesBoundedN2ClosureAndMeets256Hits()
+        {
+            const int width = 16;
+            const int height = 16;
+            const uint evidenceFlags = (uint)(
+                SigmaNativeObservationFlags.Coherent |
+                SigmaNativeObservationFlags.LeftFirstHit |
+                SigmaNativeObservationFlags.RightFirstHit |
+                SigmaNativeObservationFlags.LeftEvidence |
+                SigmaNativeObservationFlags.RightEvidence);
+            ComputeShader query = LoadShader("SigmaNativeQuery");
+            ComputeShader contract = LoadShader("SigmaNativeContract");
+            int relation = query.FindKernel("EvaluateNativeRelation");
+            int close = contract.FindKernel("ContractNativeQuery");
+            UnityEngine.Rendering.LocalKeyword tileVariant = new(contract,
+                "SIGMA_N4_TILE_CLOSE_VARIANT");
+            using var scratch = new SigmaNativeFrameSlotResources(0,
+                new Vector2Int(width, height));
+            using var carrierState = UInt2Buffer(SigmaCarrier.PageLaneCount);
+            using var carrierRepresentation = UInt4Buffer(
+                SigmaCarrier.SamplesPerPage *
+                SigmaCarrier.RepresentationWordsPerSample);
+            using var completion = UInt2Buffer(
+                SigmaGeneratedFrame.CompletionWordCount);
+
+            void BindClose()
+            {
+                contract.SetBuffer(close, "_NativeReverseRelationResults",
+                    scratch.RelationResults);
+                contract.SetBuffer(close, "_NativeStates", scratch.States);
+                contract.SetBuffer(close, "_NativeFreshEvidenceWords",
+                    completion);
+                contract.SetBuffer(close, "_NativeObservations",
+                    scratch.Observation);
+                contract.SetBuffer(close, "_NativeCloseScratch",
+                    scratch.CloseScratch);
+                contract.SetBuffer(close, "_NativeSourceCarrierState",
+                    carrierState);
+                contract.SetBuffer(close,
+                    "_NativeSourceCarrierRepresentation",
+                    carrierRepresentation);
+                contract.SetBuffer(close, "_NativeBranchHeaders",
+                    scratch.BranchHeaders);
+                contract.SetBuffer(close, "_NativeBranchSupports",
+                    scratch.BranchSupports);
+                contract.SetBuffer(close, "_NativeBranchPredictions",
+                    scratch.BranchPredictions);
+                contract.SetBuffer(close, "_NativeLocalityCertificateWords",
+                    scratch.LocalityCertificateWords);
+                contract.SetInt("_NativeFootprintCount",
+                    scratch.FootprintCapacity);
+                contract.SetInt("_NativeFootprintStateOffset",
+                    scratch.FootprintStateOffset);
+                contract.SetInt("_NativeFootprintCertificateOffset",
+                    scratch.FootprintCertificateOffset);
+                contract.SetInts("_NativeResolution", width, height);
+                contract.SetInts("_NativeTileCount", 1, 1);
+                contract.SetInt("_NativeBoundaryCount",
+                    scratch.BoundaryCapacity);
+                contract.SetInt("_NativeBoundaryScratchOffset",
+                    scratch.BoundaryScratchOffset);
+                contract.SetInt("_NativeTileHeaderScratchOffset",
+                    scratch.TileHeaderScratchOffset);
+                contract.SetInt("_NativeTileFootprintScratchOffset",
+                    scratch.TileFootprintScratchOffset);
+                contract.SetInt("_NativeTileSupportSummaryScratchOffset",
+                    scratch.TileSupportSummaryScratchOffset);
+                contract.SetInt("_NativeTileComponentSummaryScratchOffset",
+                    scratch.TileComponentSummaryScratchOffset);
+            }
+
+            query.SetBuffer(relation, "_NativeStates", scratch.States);
+            query.SetBuffer(relation, "_NativeRelationInputs",
+                scratch.RelationInputs);
+            query.SetBuffer(relation, "_NativeRelationPlans",
+                scratch.RelationPlans);
+            query.SetBuffer(relation, "_NativeRelationNearIntervals",
+                scratch.RelationNearIntervals);
+            query.SetBuffer(relation, "_NativeRelationResults",
+                scratch.RelationResults);
+            query.SetBuffer(relation, "_NativeRelationFactors",
+                scratch.RelationFactors);
+            query.SetBuffer(relation, "_NativeRelationHashes",
+                scratch.RelationHashes);
+            query.SetBuffer(relation, "_NativeRelationNorms",
+                scratch.RelationNorms);
+            query.SetBuffer(relation, "_NativeObservations",
+                scratch.Observation);
+            query.SetBuffer(relation, "_NativeCloseScratch",
+                scratch.CloseScratch);
+            query.SetInt("_NativeEntryPointIndex",
+                SigmaGeneratedFrame.IntrinsicRelationEntryPoint);
+            query.SetInt("_NativeRelationCount", 1);
+            query.SetInt("_NativeRelationMode", 1);
+            query.SetInts("_NativeResolution", width, height);
+            query.SetInt("_NativeFootprintCount", scratch.FootprintCapacity);
+            query.SetInt("_NativeFootprintStateOffset",
+                scratch.FootprintStateOffset);
+            query.SetInt("_NativeBoundaryCount", scratch.BoundaryCapacity);
+            query.SetInt("_NativeBoundaryScratchOffset",
+                scratch.BoundaryScratchOffset);
+            BindClose();
+
+            // Accepted N2's four-mode exact cycle, placed only on four adjacent
+            // disposable footprint samples. Sampling positions do not supply
+            // the native sectors or chart orientation.
+            int[] cycleFootprints = { 0, 1, 17, 16 };
+            SigmaS16[] cycleStates =
+            {
+                SigmaS16.Basis(1, SigmaNumericDomain.One),
+                SigmaS16.Basis(2, SigmaNumericDomain.One),
+                SigmaS16.Basis(1, -SigmaNumericDomain.One),
+                SigmaS16.Basis(13, -SigmaNumericDomain.One),
+            };
+            var observations = new SigmaNativeObservationGpu[
+                scratch.FootprintCapacity + 1];
+            var states = new UInt2[scratch.States.count];
+            var certificates = new UInt4[
+                scratch.LocalityCertificateWords.count];
+            var arena = new UInt2[scratch.CloseScratch.count];
+            UInt2 contactPoint = Packed(SigmaNumericDomain.One);
+            for (int node = 0; node < cycleFootprints.Length; ++node)
+            {
+                int footprint = cycleFootprints[node];
+                observations[footprint + 1].Identity = U4(1u, 1u,
+                    (uint)(node + 1), evidenceFlags);
+                WriteState(states, scratch.FootprintStateOffset +
+                    footprint * SigmaS16.LaneCount, cycleStates[node]);
+                int certificate = scratch.FootprintCertificateOffset +
+                    footprint * SigmaNativeFrameSlotResources
+                        .CertificateWordCount;
+                certificates[certificate] = new UInt4
+                {
+                    X = (uint)(SigmaNativeCertificateFlags.Valid |
+                        SigmaNativeCertificateFlags.Directional |
+                        SigmaNativeCertificateFlags.Minimized),
+                    Y = 1u,
+                    Z = 1u,
+                };
+                for (int side = 0; side < 4; ++side)
+                    WriteEnvelope(arena, footprint,
+                        SigmaNativeFrameSlotResources
+                            .FootprintEvidenceWordCount,
+                        side, contactPoint);
+            }
+            scratch.Observation.SetData(observations);
+            scratch.States.SetData(states);
+            scratch.LocalityCertificateWords.SetData(certificates);
+            scratch.CloseScratch.SetData(arena);
+            query.Dispatch(relation, scratch.BoundaryCapacity + 1, 1, 1);
+            contract.SetKeyword(tileVariant, true);
+            contract.Dispatch(close, 1, 1, 1);
+            contract.SetKeyword(tileVariant, false);
+
+            var header = new UInt2[2];
+            scratch.CloseScratch.GetData(header, 0,
+                scratch.TileHeaderScratchOffset, header.Length);
+            scratch.CloseScratch.GetData(arena);
+            string cycleReceipts = string.Join(" | ", new[] { 0, 241, 15, 240 }
+                .Select(boundary =>
+                {
+                    int address = scratch.BoundaryScratchOffset + boundary *
+                        SigmaNativeFrameSlotResources.BoundaryReceiptWordCount;
+                    return $"b{boundary}:" + string.Join(",",
+                        Enumerable.Range(0, 6).Select(word =>
+                            $"{arena[address + word].Low:x8}/" +
+                            $"{arena[address + word].High:x8}"));
+                }));
+            var componentReceipt = new UInt2[2];
+            scratch.CloseScratch.GetData(componentReceipt, 0,
+                scratch.TileComponentSummaryScratchOffset,
+                componentReceipt.Length);
+            string chartReceipts = string.Join(" | ", cycleFootprints.Select(
+                footprint =>
+                {
+                    int address = scratch.TileFootprintScratchOffset +
+                        footprint * SigmaNativeFrameSlotResources
+                            .TileFootprintReceiptWordCount;
+                    return $"p{footprint}:" + string.Join(",",
+                        Enumerable.Range(0, 4).Select(slot =>
+                            $"{arena[address + slot * 2].Low:x8}/" +
+                            $"{arena[address + slot * 2].High:x8}," +
+                            $"{arena[address + slot * 2 + 1].Low:x8}/" +
+                            $"{arena[address + slot * 2 + 1].High:x8}"));
+                }));
+            Assert.That(header[0].Low, Is.Zero,
+                "Fresh cycle must not mint a published-support summary.");
+            Assert.That(header[0].High, Is.EqualTo(1u));
+            Assert.That(header[1].Low, Is.EqualTo(1u));
+            Assert.That(header[1].High, Is.Zero,
+                "The accepted N2 exact cycle must have one D4 orbit class; " +
+                $"component={componentReceipt[0].Low:x8}/" +
+                $"{componentReceipt[0].High:x8}," +
+                $"{componentReceipt[1].Low:x8}/" +
+                $"{componentReceipt[1].High:x8}; {cycleReceipts}; " +
+                chartReceipts);
+
+            // Corrupt one redundant abstract-incidence sector.  Native
+            // transport is independently proved by Query; CLOSE must retain
+            // this chart inconsistency as unresolved and never repair it.
+            int redundantBoundary = scratch.BoundaryScratchOffset +
+                15 * SigmaNativeFrameSlotResources.BoundaryReceiptWordCount;
+            scratch.CloseScratch.GetData(arena);
+            arena[redundantBoundary + 1].Low ^= 1u;
+            scratch.CloseScratch.SetData(arena);
+            contract.SetKeyword(tileVariant, true);
+            contract.Dispatch(close, 1, 1, 1);
+            contract.SetKeyword(tileVariant, false);
+            scratch.CloseScratch.GetData(header, 0,
+                scratch.TileHeaderScratchOffset, header.Length);
+            Assert.That(header[1].High, Is.EqualTo(1u),
+                "A contradictory redundant edge must remain unresolved.");
+
+            // All 256 footprint records now prove one already-published support.
+            // The exact interval meet is parallel and has no member capacity.
+            observations = new SigmaNativeObservationGpu[
+                scratch.FootprintCapacity + 1];
+            states = new UInt2[scratch.States.count];
+            certificates = new UInt4[scratch.LocalityCertificateWords.count];
+            arena = new UInt2[scratch.CloseScratch.count];
+            SigmaS16 shared = SigmaS16.Basis(1, SigmaNumericDomain.One);
+            for (int footprint = 0; footprint < scratch.FootprintCapacity;
+                 ++footprint)
+            {
+                observations[footprint + 1].Identity = U4(2u, 1u,
+                    (uint)(footprint + 1), evidenceFlags |
+                    (uint)SigmaNativeObservationFlags.PriorSupport);
+                WriteState(states, scratch.FootprintStateOffset +
+                    footprint * SigmaS16.LaneCount, shared);
+                int certificate = scratch.FootprintCertificateOffset +
+                    footprint * SigmaNativeFrameSlotResources
+                        .CertificateWordCount;
+                certificates[certificate] = new UInt4
+                {
+                    X = (uint)(SigmaNativeCertificateFlags.Valid |
+                        SigmaNativeCertificateFlags.Directional |
+                        SigmaNativeCertificateFlags.Minimized),
+                    Y = 7u,
+                    Z = 1u,
+                };
+                certificates[certificate + 1] = new UInt4
+                    { X = 11u, Y = 12u, Z = 13u, W = 14u };
+                certificates[certificate + 3] = new UInt4
+                    { Y = (uint)SigmaMerkabaRelationClass.Regular };
+                certificates[certificate + 12] = new UInt4
+                    { X = 21u, Y = 22u, Z = 23u, W = 24u };
+                certificates[certificate + 13] = new UInt4
+                    { X = 31u, Y = 32u, Z = 33u, W = 34u };
+                certificates[certificate + 15] = new UInt4
+                    { X = 41u, Y = 42u, Z = 43u, W = 44u };
+                long lower = -100L + footprint;
+                long upper = 1000L - footprint;
+                UInt2 packedLower = Packed(lower);
+                UInt2 packedUpper = Packed(upper);
+                for (int axis = 0; axis < 4; ++axis)
+                    certificates[certificate + 4 + axis] = new UInt4
+                    {
+                        X = packedLower.Low,
+                        Y = packedLower.High,
+                        Z = packedUpper.Low,
+                        W = packedUpper.High,
+                    };
+                int support = footprint *
+                    SigmaNativeFrameSlotResources.FootprintEvidenceWordCount +
+                    50;
+                arena[support] = new UInt2 { Low = 0u, High = 0u };
+            }
+            scratch.Observation.SetData(observations);
+            scratch.States.SetData(states);
+            scratch.LocalityCertificateWords.SetData(certificates);
+            scratch.CloseScratch.SetData(arena);
+            contract.SetKeyword(tileVariant, true);
+            contract.Dispatch(close, 1, 1, 1);
+            contract.SetKeyword(tileVariant, false);
+            scratch.CloseScratch.GetData(header, 0,
+                scratch.TileHeaderScratchOffset, header.Length);
+            Assert.That(header[0].Low, Is.EqualTo(1u));
+            Assert.That(header[0].High, Is.EqualTo(1u));
+            Assert.That(header[1].High, Is.Zero);
+            var supportSummary = new UInt2[2];
+            scratch.CloseScratch.GetData(supportSummary, 0,
+                scratch.TileSupportSummaryScratchOffset,
+                supportSummary.Length);
+            Assert.That(supportSummary[0].Low, Is.Zero);
+            Assert.That(supportSummary[1].Low, Is.EqualTo(256u),
+                "Every same-support member must enter the exact meet.");
+            Assert.That(supportSummary[1].High, Is.EqualTo(1u));
+            var mergedAxis = new UInt4[1];
+            scratch.LocalityCertificateWords.GetData(mergedAxis, 0,
+                scratch.FootprintCertificateOffset + 4, 1);
+            UInt2 expectedLower = Packed(155L);
+            UInt2 expectedUpper = Packed(745L);
+            Assert.That(mergedAxis[0].X, Is.EqualTo(expectedLower.Low));
+            Assert.That(mergedAxis[0].Y, Is.EqualTo(expectedLower.High));
+            Assert.That(mergedAxis[0].Z, Is.EqualTo(expectedUpper.Low));
+            Assert.That(mergedAxis[0].W, Is.EqualTo(expectedUpper.High));
         }
 
         [Test]
@@ -1596,6 +2203,31 @@ namespace Genesis.RoomScan.Tests
             return result;
         }
 
+        private static UInt2 Packed(long value) => new()
+        {
+            Low = unchecked((uint)value),
+            High = unchecked((uint)(value >> 32)),
+        };
+
+        private static void WriteState(UInt2[] target, int offset,
+            SigmaS16 state)
+        {
+            long[] lanes = state.ToArray();
+            for (int lane = 0; lane < lanes.Length; ++lane)
+                target[offset + lane] = Packed(lanes[lane]);
+        }
+
+        private static void WriteEnvelope(UInt2[] target, int footprint,
+            int stride, int side, UInt2 point)
+        {
+            int offset = footprint * stride + 26 + side * 6;
+            for (int axis = 0; axis < 3; ++axis)
+            {
+                target[offset + axis * 2] = point;
+                target[offset + axis * 2 + 1] = point;
+            }
+        }
+
         private static SigmaFrameUInt2Gpu Q2(long value) => new()
         {
             X = unchecked((uint)value),
@@ -1604,6 +2236,59 @@ namespace Genesis.RoomScan.Tests
 
         private static SigmaFrameUInt4Gpu U4(uint x, uint y, uint z, uint w) =>
             new() { X = x, Y = y, Z = z, W = w };
+
+        private static GraphicsBuffer UIntBuffer(int count) =>
+            new(GraphicsBuffer.Target.Structured, count, sizeof(uint));
+
+        private static GraphicsBuffer UInt2Buffer(int count) =>
+            new(GraphicsBuffer.Target.Structured, count, sizeof(uint) * 2);
+
+        private static GraphicsBuffer UInt4Buffer(int count) =>
+            new(GraphicsBuffer.Target.Structured, count, sizeof(uint) * 4);
+
+        private static RenderTexture ZeroArrayRenderTexture(int width,
+            int height, GraphicsFormat format)
+        {
+            var descriptor = new RenderTextureDescriptor(width, height)
+            {
+                graphicsFormat = format,
+                depthBufferBits = 0,
+                msaaSamples = 1,
+                dimension = UnityEngine.Rendering.TextureDimension.Tex2DArray,
+                volumeDepth = 2,
+                enableRandomWrite = true,
+            };
+            var texture = new RenderTexture(descriptor);
+            Assert.That(texture.Create(), Is.True, format.ToString());
+            RenderTexture previous = RenderTexture.active;
+            for (int layer = 0; layer < 2; ++layer)
+            {
+                Graphics.SetRenderTarget(texture, 0, CubemapFace.Unknown,
+                    layer);
+                GL.Clear(false, true, Color.clear);
+            }
+            RenderTexture.active = previous;
+            return texture;
+        }
+
+        private static RenderTexture ZeroRenderTexture(int width, int height,
+            GraphicsFormat format)
+        {
+            var descriptor = new RenderTextureDescriptor(width, height)
+            {
+                graphicsFormat = format,
+                depthBufferBits = 0,
+                msaaSamples = 1,
+                enableRandomWrite = true,
+            };
+            var texture = new RenderTexture(descriptor);
+            Assert.That(texture.Create(), Is.True, format.ToString());
+            RenderTexture previous = RenderTexture.active;
+            Graphics.SetRenderTarget(texture);
+            GL.Clear(false, true, Color.clear);
+            RenderTexture.active = previous;
+            return texture;
+        }
 
         private readonly struct RefinementStep
         {

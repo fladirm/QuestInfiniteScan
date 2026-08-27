@@ -18,16 +18,61 @@ namespace Genesis.RoomScan.SigmaPrism
         internal const int StatesPerSlot = LiveFreshBranchCount + 3;
         internal const int RepresentationDeltaCapacity = 4;
         internal const int CertificateWordCount = 16;
+        internal const int FootprintEvidenceWordCount = 52;
+        internal const int BoundaryReceiptWordCount = 6;
+        internal const int TileSize = 16;
+        internal const int TileFootprintCapacity = TileSize * TileSize;
+        internal const int TileHeaderWordCount = 2;
+        internal const int TileFootprintReceiptWordCount = 8;
+        internal const int TileSupportSummaryWordCount = 2;
+        internal const int TileComponentSummaryWordCount = 2;
 
         internal SigmaNativeFrameSlotResources(int index)
+            : this(index, Vector2Int.one)
         {
+        }
+
+        internal SigmaNativeFrameSlotResources(int index,
+            Vector2Int resolution)
+        {
+            if (resolution.x <= 0 || resolution.y <= 0)
+                throw new ArgumentOutOfRangeException(nameof(resolution));
+            FootprintCapacity = checked(resolution.x * resolution.y);
+            BoundaryCapacity = checked((resolution.x - 1) * resolution.y +
+                resolution.x * (resolution.y - 1));
+            FootprintStateOffset = StatesPerSlot * SigmaS16.LaneCount;
+            FootprintCertificateOffset =
+                (RepresentationDeltaCapacity + 1) * CertificateWordCount;
+            BoundaryScratchOffset = checked(FootprintCapacity *
+                FootprintEvidenceWordCount);
+            TileCountX = checked((resolution.x + TileSize - 1) / TileSize);
+            TileCountY = checked((resolution.y + TileSize - 1) / TileSize);
+            TileCapacity = checked(TileCountX * TileCountY);
+            TileHeaderScratchOffset = checked(BoundaryScratchOffset +
+                BoundaryCapacity * BoundaryReceiptWordCount);
+            TileFootprintScratchOffset = checked(TileHeaderScratchOffset +
+                TileCapacity * TileHeaderWordCount);
+            TileSupportSummaryScratchOffset = checked(
+                TileFootprintScratchOffset + FootprintCapacity *
+                    TileFootprintReceiptWordCount);
+            TileComponentSummaryScratchOffset = checked(
+                TileSupportSummaryScratchOffset + TileCapacity *
+                    TileFootprintCapacity * TileSupportSummaryWordCount);
+            int closeScratchCount = checked(TileComponentSummaryScratchOffset +
+                TileCapacity * TileFootprintCapacity *
+                    TileComponentSummaryWordCount);
             NativeFrame = Buffer<SigmaNativeFrameGpu>(1,
                 SigmaGeneratedFrame.NativeFrameStride, $"native frame {index}");
-            Observation = Buffer<SigmaNativeObservationGpu>(1,
+            // Index zero remains the accepted N3 terminal consumer during CUT A;
+            // the complete disposable footprint domain starts at index one.
+            Observation = Buffer<SigmaNativeObservationGpu>(
+                checked(FootprintCapacity + 1),
                 SigmaGeneratedFrame.NativeObservationStride,
                 $"native observation {index}");
-            States = UInt2(StatesPerSlot * SigmaS16.LaneCount,
-                $"native states {index}");
+            CloseScratch = UInt2(closeScratchCount,
+                $"native close scratch {index}");
+            States = UInt2(checked(FootprintStateOffset + FootprintCapacity *
+                SigmaS16.LaneCount), $"native states {index}");
 
             RelationInputs = CreateUInt4Buffer(RelationCapacity,
                 $"native relation inputs {index}");
@@ -60,7 +105,8 @@ namespace Genesis.RoomScan.SigmaPrism
                 SigmaGeneratedFrame.NativeGaugeDeltaStride,
                 $"native gauge delta {index}");
             LocalityCertificateWords = CreateUInt4Buffer(
-                (RepresentationDeltaCapacity + 1) * CertificateWordCount,
+                checked(FootprintCertificateOffset + FootprintCapacity *
+                    CertificateWordCount),
                 $"native locality certificates {index}");
             Unresolved = Buffer<SigmaUnresolvedConstraintGpu>(1,
                 SigmaGeneratedFrame.UnresolvedConstraintStride,
@@ -75,6 +121,19 @@ namespace Genesis.RoomScan.SigmaPrism
 
         internal GraphicsBuffer NativeFrame { get; }
         internal GraphicsBuffer Observation { get; }
+        internal GraphicsBuffer CloseScratch { get; }
+        internal int FootprintCapacity { get; }
+        internal int BoundaryCapacity { get; }
+        internal int FootprintStateOffset { get; }
+        internal int FootprintCertificateOffset { get; }
+        internal int BoundaryScratchOffset { get; }
+        internal int TileCountX { get; }
+        internal int TileCountY { get; }
+        internal int TileCapacity { get; }
+        internal int TileHeaderScratchOffset { get; }
+        internal int TileFootprintScratchOffset { get; }
+        internal int TileSupportSummaryScratchOffset { get; }
+        internal int TileComponentSummaryScratchOffset { get; }
         internal GraphicsBuffer States { get; }
         internal GraphicsBuffer RelationInputs { get; }
         internal GraphicsBuffer RelationPlans { get; }
@@ -95,7 +154,8 @@ namespace Genesis.RoomScan.SigmaPrism
         internal bool Leased { get; set; }
 
         internal long OwnedBytes =>
-            Bytes(NativeFrame) + Bytes(Observation) + Bytes(States) +
+            Bytes(NativeFrame) + Bytes(Observation) + Bytes(CloseScratch) +
+            Bytes(States) +
             Bytes(RelationInputs) + Bytes(RelationPlans) +
             Bytes(RelationNearIntervals) + Bytes(RelationResults) +
             Bytes(RelationFactors) + Bytes(RelationHashes) +
@@ -109,6 +169,7 @@ namespace Genesis.RoomScan.SigmaPrism
         {
             NativeFrame.Dispose();
             Observation.Dispose();
+            CloseScratch.Dispose();
             States.Dispose();
             RelationInputs.Dispose();
             RelationPlans.Dispose();
@@ -200,7 +261,8 @@ namespace Genesis.RoomScan.SigmaPrism
             FrameCapacity = Mathf.Clamp(capacity, 3, 8);
             _slots = new SigmaNativeFrameSlotResources[FrameCapacity];
             for (int index = 0; index < _slots.Length; ++index)
-                _slots[index] = new SigmaNativeFrameSlotResources(index);
+                _slots[index] = new SigmaNativeFrameSlotResources(index,
+                    resolution);
         }
 
         internal Vector2Int Resolution { get; }

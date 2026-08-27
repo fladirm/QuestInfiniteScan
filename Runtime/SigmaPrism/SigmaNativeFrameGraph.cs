@@ -116,6 +116,7 @@ namespace Genesis.RoomScan.SigmaPrism
         private readonly int _closePublish;
         private readonly int _contractNative;
         private readonly int _evaluateRelation;
+        private readonly LocalKeyword _tileCloseVariant;
         private bool _disposed;
 
         internal SigmaNativeFrameGraph(Vector2Int resolution,
@@ -139,6 +140,8 @@ namespace Genesis.RoomScan.SigmaPrism
                 "CloseAndPublishNativeRevision");
             _contractNative = _contract.FindProfiledKernel(
                 "ContractNativeQuery");
+            _tileCloseVariant = new LocalKeyword(_contract,
+                "SIGMA_N4_TILE_CLOSE_VARIANT");
             _evaluateRelation = _query.FindProfiledKernel(
                 "EvaluateNativeRelation");
             FrameResources = new SigmaNativeFrameResources(resolution,
@@ -180,27 +183,34 @@ namespace Genesis.RoomScan.SigmaPrism
             SigmaNativeFrameSlotResources slot = lease.Resources;
             BindFrameKernels(command, slot, revision, calibrationEpoch, input,
                 completionJournal, completionRecordIndex);
-            command.DispatchComputeProfiled(_frame, _buildObservation, 1, 1, 1);
+            command.DispatchComputeProfiled(_frame, _buildObservation,
+                (slot.FootprintCapacity + 7) / 8, 1, 1);
 
-            BindContract(command, slot, completionJournal,
+            BindContract(command, slot, input, completionJournal,
                 completionRecordIndex);
+            command.SetKeyword(_contract, _tileCloseVariant, false);
             command.SetComputeIntParam(_contract, "_NativeContractMode", 1);
             command.SetComputeIntParam(_contract, "_NativeFreshBranchCount",
                 SigmaNativeFrameSlotResources.LiveFreshBranchCount);
             command.DispatchComputeProfiled(_contract, _contractNative,
-                SigmaNativeFrameSlotResources.LiveFreshBranchCount, 1, 1);
+                slot.FootprintCapacity + 1, 1, 1);
 
             BindRelation(command, slot, 1);
-            command.DispatchComputeProfiled(_query, _evaluateRelation, 1, 1, 1);
+            command.SetComputeIntParam(_query, "_NativeRelationMode", 1);
+            command.DispatchComputeProfiled(_query, _evaluateRelation,
+                slot.BoundaryCapacity + 1, 1, 1);
 
-            command.SetComputeIntParam(_contract, "_NativeContractMode", 2);
-            command.DispatchComputeProfiled(_contract, _contractNative, 1, 1, 1);
+            command.SetKeyword(_contract, _tileCloseVariant, true);
+            command.DispatchComputeProfiled(_contract, _contractNative,
+                slot.TileCapacity, 1, 1);
+            command.SetKeyword(_contract, _tileCloseVariant, false);
 
             // The same hyperdimensional collective now verifies both the fresh
             // ZEmpty boundary and prior-to-selected transport. Two relations are
             // two workgroups in one dispatch, never two relation submissions.
             BindRelation(command, slot,
                 SigmaNativeFrameSlotResources.RelationCapacity);
+            command.SetComputeIntParam(_query, "_NativeRelationMode", 0);
             command.DispatchComputeProfiled(_query, _evaluateRelation,
                 SigmaNativeFrameSlotResources.RelationCapacity, 1, 1);
 
@@ -244,6 +254,8 @@ namespace Genesis.RoomScan.SigmaPrism
                     "_NativeFrames", slot.NativeFrame);
                 command.SetComputeBufferParam(_frame, kernel,
                     "_NativeObservations", slot.Observation);
+                command.SetComputeBufferParam(_frame, kernel,
+                    "_NativeCloseScratch", slot.CloseScratch);
                 command.SetComputeBufferParam(_frame, kernel,
                     "_NativeStates", slot.States);
                 command.SetComputeBufferParam(_frame, kernel,
@@ -331,6 +343,12 @@ namespace Genesis.RoomScan.SigmaPrism
                 "_NativeDepthRayDifferentialYRight",
                 input.ConeLuts.DepthRight.DifferentialYHalfAngle);
             command.SetComputeTextureParam(_frame, _buildObservation,
+                "_NativeDepthSlopeBoundsLeft",
+                input.ConeLuts.DepthLeft.SlopeBounds);
+            command.SetComputeTextureParam(_frame, _buildObservation,
+                "_NativeDepthSlopeBoundsRight",
+                input.ConeLuts.DepthRight.SlopeBounds);
+            command.SetComputeTextureParam(_frame, _buildObservation,
                 "_NativeRgbLeft", source.RgbLeft.Texture);
             command.SetComputeTextureParam(_frame, _buildObservation,
                 "_NativeRgbRight", source.RgbRight.Texture);
@@ -388,11 +406,17 @@ namespace Genesis.RoomScan.SigmaPrism
                 input.Carrier.PageCapacity);
             command.SetComputeIntParam(_frame, "_NativeCompletionRecordIndex",
                 completionRecordIndex);
+            command.SetComputeIntParam(_frame, "_NativeFootprintCount",
+                slot.FootprintCapacity);
+            command.SetComputeIntParam(_frame, "_NativeBoundaryCount",
+                slot.BoundaryCapacity);
+            command.SetComputeIntParam(_frame, "_NativeBoundaryScratchOffset",
+                slot.BoundaryScratchOffset);
         }
 
         private void BindContract(CommandBuffer command,
-            SigmaNativeFrameSlotResources slot, GraphicsBuffer completionJournal,
-            int completionRecordIndex)
+            SigmaNativeFrameSlotResources slot, in SigmaNativeFrameInput input,
+            GraphicsBuffer completionJournal, int completionRecordIndex)
         {
             int kernel = _contractNative;
             command.SetComputeBufferParam(_contract, kernel,
@@ -401,6 +425,15 @@ namespace Genesis.RoomScan.SigmaPrism
                 "_NativeStates", slot.States);
             command.SetComputeBufferParam(_contract, kernel,
                 "_NativeFreshEvidenceWords", completionJournal);
+            command.SetComputeBufferParam(_contract, kernel,
+                "_NativeObservations", slot.Observation);
+            command.SetComputeBufferParam(_contract, kernel,
+                "_NativeCloseScratch", slot.CloseScratch);
+            command.SetComputeBufferParam(_contract, kernel,
+                "_NativeSourceCarrierState", input.Carrier.State);
+            command.SetComputeBufferParam(_contract, kernel,
+                "_NativeSourceCarrierRepresentation",
+                input.Carrier.Representation);
             command.SetComputeBufferParam(_contract, kernel,
                 "_NativeBranchHeaders", slot.BranchHeaders);
             command.SetComputeBufferParam(_contract, kernel,
@@ -422,6 +455,33 @@ namespace Genesis.RoomScan.SigmaPrism
                     SigmaS16.LaneCount + 2 * SigmaS16.LaneCount);
             command.SetComputeIntParam(_contract,
                 "_NativeCompletionRecordIndex", completionRecordIndex);
+            command.SetComputeIntParam(_contract, "_NativeFootprintCount",
+                slot.FootprintCapacity);
+            command.SetComputeIntParam(_contract,
+                "_NativeFootprintStateOffset", slot.FootprintStateOffset);
+            command.SetComputeIntParam(_contract,
+                "_NativeFootprintCertificateOffset",
+                slot.FootprintCertificateOffset);
+            command.SetComputeIntParams(_contract, "_NativeResolution",
+                Resolution.x, Resolution.y);
+            command.SetComputeIntParams(_contract, "_NativeTileCount",
+                slot.TileCountX, slot.TileCountY);
+            command.SetComputeIntParam(_contract, "_NativeBoundaryCount",
+                slot.BoundaryCapacity);
+            command.SetComputeIntParam(_contract,
+                "_NativeBoundaryScratchOffset", slot.BoundaryScratchOffset);
+            command.SetComputeIntParam(_contract,
+                "_NativeTileHeaderScratchOffset",
+                slot.TileHeaderScratchOffset);
+            command.SetComputeIntParam(_contract,
+                "_NativeTileFootprintScratchOffset",
+                slot.TileFootprintScratchOffset);
+            command.SetComputeIntParam(_contract,
+                "_NativeTileSupportSummaryScratchOffset",
+                slot.TileSupportSummaryScratchOffset);
+            command.SetComputeIntParam(_contract,
+                "_NativeTileComponentSummaryScratchOffset",
+                slot.TileComponentSummaryScratchOffset);
         }
 
         private void BindRelation(CommandBuffer command,
@@ -443,9 +503,23 @@ namespace Genesis.RoomScan.SigmaPrism
                 "_NativeRelationHashes", slot.RelationHashes);
             command.SetComputeBufferParam(_query, _evaluateRelation,
                 "_NativeRelationNorms", slot.RelationNorms);
+            command.SetComputeBufferParam(_query, _evaluateRelation,
+                "_NativeObservations", slot.Observation);
+            command.SetComputeBufferParam(_query, _evaluateRelation,
+                "_NativeCloseScratch", slot.CloseScratch);
             command.SetComputeIntParam(_query, "_NativeEntryPointIndex",
                 SigmaGeneratedFrame.IntrinsicRelationEntryPoint);
             command.SetComputeIntParam(_query, "_NativeRelationCount", count);
+            command.SetComputeIntParams(_query, "_NativeResolution",
+                Resolution.x, Resolution.y);
+            command.SetComputeIntParam(_query, "_NativeFootprintCount",
+                slot.FootprintCapacity);
+            command.SetComputeIntParam(_query, "_NativeFootprintStateOffset",
+                slot.FootprintStateOffset);
+            command.SetComputeIntParam(_query, "_NativeBoundaryCount",
+                slot.BoundaryCapacity);
+            command.SetComputeIntParam(_query, "_NativeBoundaryScratchOffset",
+                slot.BoundaryScratchOffset);
         }
 
         private static Vector4 Intrinsics(RigIntrinsics intrinsics) => new(
