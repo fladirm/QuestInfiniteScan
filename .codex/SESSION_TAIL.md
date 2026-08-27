@@ -2,25 +2,25 @@
 
 ## Exchange 1 — user
 
-Asked for current status/ETA and required assurance that corrective N2/N4 would
-not regress into serial kernels or a cardinality-dependent dispatch zoo.
+Rejected the first N2R-7 checkpoint because the GPU emitted only a whole-case
+assignment mask while the C# harness performed the authoritative component-wise
+D4 quotient and repaired the semantic disposition. Required the correction inside
+the existing close dispatch with no new kernel, dispatch or production mutation.
 
 ## Exchange 1 — assistant
 
-Kept corrective N2 to exactly two test-only wide submissions. One 256-thread
-group evaluates each real full-S16 stitch relation; one bounded 256-thread group
-proves the complete chart/set semantics with 192 concurrent assignment/locality
-lanes and fixed group-local rounds. Production Runtime/Resources and the accepted
-nine-dispatch graph remain unchanged.
+Corrected the existing bounded close workgroup to derive transient components,
+component-local assignment masks and D4-orbit receipts, and to emit the final GPU
+disposition. Added the decisive disconnected-different-orbits and later-join
+fixtures; the CPU harness now only independently asserts receipts and disposition.
 
 ## Exchange 2 — user
 
-Requested the ETA for N4R while the full corrective N2 suite was running.
+Demanded immediate closure after the corrective N2 work had taken too long.
 
 ## Exchange 2 — assistant
 
-Reported a realistic six-to-ten-hour N4 implementation/device window after N2,
-without trading exactness for a serial superkernel. The full Unity/Vulkan suite
-then passed 80/80; generator/check, UAV, real SPIR-V compilation and diff gates
-also passed. Corrective N2 is ready for its own checkpoint, after which N4 alone
-resumes.
+Focused Vulkan parity and the full Unity Vulkan suite pass 80/80. The proof graph
+remains exactly two test-only dispatches, Runtime/Resources remain +0/-0, generator,
+UAV and diff gates pass, and the superseding N2 checkpoint is being committed and
+pushed before N4 resumes.

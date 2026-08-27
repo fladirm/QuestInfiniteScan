@@ -792,7 +792,8 @@ namespace Genesis.RoomScan.Tests
         {
             const int maxNodes = 8;
             const int pairStride = 3;
-            const int caseStride = 193;
+            const int componentReceiptOffset = 193;
+            const int caseStride = 201;
             const int assignmentCount = 24;
             const int assignmentNodeStride = 8;
             string Fingerprint(char marker) => new(marker, 64);
@@ -838,6 +839,31 @@ namespace Genesis.RoomScan.Tests
             SigmaStitchLocality q1 = Locality(102UL, State(2, 1), 0, 'j');
             SigmaStitchLocality q2 = Locality(103UL, State(1, -1), 0, 'k');
             SigmaStitchLocality q3 = Locality(104UL, State(13, -1), 0, 'l');
+            SigmaS16 r0State = State(1, 1);
+            SigmaS16 r1State = SigmaS16Operators.RightBasisAction(r0State, 5);
+            SigmaS16 r2State = SigmaS16Operators.RightBasisAction(r1State, 5);
+            SigmaS16 r3State = SigmaS16Operators.RightBasisAction(r2State, 10);
+            Assert.That(SigmaS16Operators.RightBasisAction(r3State, 10),
+                Is.EqualTo(r0State),
+                "The second bounded cycle must close in native S16.");
+            SigmaStitchLocality r0 = Locality(401UL, r0State, 0, 'M');
+            SigmaStitchLocality r1 = Locality(402UL, r1State, 0, 'N');
+            SigmaStitchLocality r2 = Locality(403UL, r2State, 0, 'O');
+            SigmaStitchLocality r3 = Locality(404UL, r3State, 0, 'P');
+            SigmaBoundaryNativeInput[] firstOrbitCycle =
+            {
+                Edge(0, 101UL, 102UL, 'y'),
+                Edge(1, 102UL, 103UL, 'z'),
+                Edge(2, 103UL, 104UL, 'A'),
+                Edge(3, 104UL, 101UL, 'B'),
+            };
+            SigmaBoundaryNativeInput[] secondOrbitCycle =
+            {
+                Edge(4, 401UL, 402UL, 'Q'),
+                Edge(5, 402UL, 403UL, 'R'),
+                Edge(6, 403UL, 404UL, 'S'),
+                Edge(7, 404UL, 401UL, 'T'),
+            };
 
             var fixtures = new List<(string Name,
                 SigmaStitchLocality[] Nodes,
@@ -901,13 +927,17 @@ namespace Genesis.RoomScan.Tests
                         openContinuation: true) }),
                 ("later-side-view-resolves", new[] { a, b },
                     new[] { Edge(0, 11UL, 22UL, 'x') }),
-                ("consistent-native-cycle", new[] { q0, q1, q2, q3 }, new[]
-                {
-                    Edge(0, 101UL, 102UL, 'y'),
-                    Edge(1, 102UL, 103UL, 'z'),
-                    Edge(2, 103UL, 104UL, 'A'),
-                    Edge(3, 104UL, 101UL, 'B'),
-                }),
+                ("consistent-native-cycle", new[] { q0, q1, q2, q3 },
+                    firstOrbitCycle),
+                ("consistent-native-cycle-second-orbit",
+                    new[] { r0, r1, r2, r3 }, secondOrbitCycle),
+                ("disconnected-different-chart-orbits",
+                    new[] { q0, q1, q2, q3, r0, r1, r2, r3 },
+                    firstOrbitCycle.Concat(secondOrbitCycle).ToArray()),
+                ("later-join-different-chart-orbits",
+                    new[] { q0, q1, q2, q3, r0, r1, r2, r3 },
+                    firstOrbitCycle.Concat(secondOrbitCycle).Append(
+                        Edge(8, 101UL, 402UL, 'U')).ToArray()),
                 ("inconsistent-fundamental-cycle", new[] { a, b, c }, new[]
                 {
                     Edge(0, 11UL, 22UL, 'C'),
@@ -1068,6 +1098,8 @@ namespace Genesis.RoomScan.Tests
             int globalWitness = 0;
             var canonicalByFixture = new Dictionary<string, string>(
                 StringComparer.Ordinal);
+            var componentOrbitReceiptsByFixture =
+                new Dictionary<string, uint[]>(StringComparer.Ordinal);
             for (int fixtureIndex = 0; fixtureIndex < fixtures.Count;
                  ++fixtureIndex)
             {
@@ -1160,50 +1192,117 @@ namespace Genesis.RoomScan.Tests
                     .Select(group => group.Select(value => value.ScratchKey)
                         .ToArray()).ToArray();
 
-                UInt4 resultHeader = caseResults[fixtureIndex * caseStride];
+                int caseBase = fixtureIndex * caseStride;
+                UInt4 resultHeader = caseResults[caseBase];
+                var nodeIndexByKey = nodes.Select((value, index) =>
+                        (Key: value.ScratchKey, Index: index))
+                    .ToDictionary(value => value.Key,
+                        value => value.Index);
+                uint expectedRootMask = 0u;
+                var componentGpuClasses = new List<HashSet<string>>();
+                var componentOrbitReceipts = new List<uint>();
+                foreach (ulong[] keys in components)
+                {
+                    int[] memberIndices = keys.Select(key => nodeIndexByKey[key])
+                        .OrderBy(value => value).ToArray();
+                    int root = memberIndices[0];
+                    uint memberMask = memberIndices.Aggregate(0u,
+                        (mask, value) => mask | (1u << value));
+                    expectedRootMask |= 1u << root;
+                    UInt4 receipt = caseResults[caseBase +
+                        componentReceiptOffset + root];
+                    Assert.That(receipt.X, Is.EqualTo((uint)root),
+                        $"{name} component root receipt");
+                    Assert.That(receipt.Y, Is.EqualTo(memberMask),
+                        $"{name} component membership receipt");
+
+                    var classes = new Dictionary<string, int>(
+                        StringComparer.Ordinal);
+                    uint observedValidMask = 0u;
+                    for (int assignment = 0; assignment < assignmentCount;
+                         ++assignment)
+                    {
+                        var cells = new List<SigmaGaugeCell>(memberIndices.Length);
+                        bool valid = true;
+                        foreach (int node in memberIndices)
+                        {
+                            UInt4 record = caseResults[caseBase + 1 +
+                                assignment * assignmentNodeStride + node];
+                            if (record.W == uint.MaxValue)
+                            {
+                                valid = false;
+                                continue;
+                            }
+                            cells.Add(new SigmaGaugeCell(
+                                unchecked((int)record.X),
+                                unchecked((int)record.Y),
+                                checked((int)record.Z), tags[record.W]));
+                        }
+                        Assert.That(valid,
+                            Is.EqualTo((receipt.Z & (1u << assignment)) != 0u),
+                            $"{name} component {root} assignment {assignment}");
+                        if (!valid) continue;
+                        observedValidMask |= 1u << assignment;
+                        string canonical = SigmaGeneratedMerkabaProgram
+                            .CanonicalD4GaugeSerialization(cells);
+                        if (!classes.ContainsKey(canonical))
+                            classes.Add(canonical, assignment);
+                    }
+                    uint independentlyDerivedOrbitMask = classes.Values.Aggregate(
+                        0u, (mask, assignment) => mask | (1u << assignment));
+                    Assert.That(receipt.Z, Is.EqualTo(observedValidMask),
+                        $"{name} component {root} valid-assignment receipt");
+                    Assert.That(receipt.W,
+                        Is.EqualTo(independentlyDerivedOrbitMask),
+                        $"{name} component {root} D4-orbit receipt; " +
+                        string.Join(" | ", Enumerable.Range(0, 3).Select(
+                            assignment => $"a{assignment}:" + string.Join(",",
+                                memberIndices.Select(node =>
+                                {
+                                    UInt4 value = caseResults[caseBase + 1 +
+                                        assignment * assignmentNodeStride + node];
+                                    return $"({unchecked((int)value.X)}," +
+                                        $"{unchecked((int)value.Y)})";
+                                })))));
+                    componentGpuClasses.Add(new HashSet<string>(classes.Keys,
+                        StringComparer.Ordinal));
+                    componentOrbitReceipts.Add(receipt.W);
+                }
+                for (int slot = 0; slot < maxNodes; ++slot)
+                {
+                    UInt4 receipt = caseResults[caseBase +
+                        componentReceiptOffset + slot];
+                    if ((expectedRootMask & (1u << slot)) == 0u)
+                        Assert.That(receipt.X, Is.EqualTo(uint.MaxValue),
+                            $"{name} non-root receipt {slot}");
+                }
+                Assert.That(resultHeader.Y, Is.EqualTo((uint)components.Length),
+                    $"{name} component count");
+                Assert.That(resultHeader.W, Is.EqualTo(expectedRootMask),
+                    $"{name} component partition roots");
+                componentOrbitReceiptsByFixture.Add(name,
+                    componentOrbitReceipts.ToArray());
                 if (string.Equals(name, "unique-neighbour",
                         StringComparison.Ordinal))
+                {
+                    UInt4 receipt = caseResults[caseBase +
+                        componentReceiptOffset];
                     Assert.That(Enumerable.Range(0, assignmentCount).Count(
-                            assignment => (resultHeader.W &
+                            assignment => (receipt.Z &
                                 (1u << assignment)) != 0u),
                         Is.EqualTo(assignmentCount),
                         "All 24 abstract-sector chart assignments, including " +
                         "all eight images of every D4 orbit, must be evaluated.");
-                var gpuClasses = new HashSet<string>(StringComparer.Ordinal);
-                for (int assignment = 0; assignment < assignmentCount;
-                     ++assignment)
-                {
-                    if ((resultHeader.W & (1u << assignment)) == 0u) continue;
-                    var cellByKey = new Dictionary<ulong, SigmaGaugeCell>();
-                    for (int node = 0; node < nodes.Length; ++node)
-                    {
-                        UInt4 record = caseResults[fixtureIndex * caseStride + 1 +
-                            assignment * assignmentNodeStride + node];
-                        Assert.That(record.W, Is.Not.EqualTo(uint.MaxValue), name);
-                        cellByKey.Add(nodes[node].ScratchKey, new SigmaGaugeCell(
-                            unchecked((int)record.X), unchecked((int)record.Y),
-                            checked((int)record.Z), tags[record.W]));
-                    }
-                    string canonical = string.Join("||", components.Select(keys =>
-                            SigmaGeneratedMerkabaProgram
-                                .CanonicalD4GaugeSerialization(keys.Select(key =>
-                                    cellByKey[key])))
-                        .OrderBy(value => value, StringComparer.Ordinal));
-                    gpuClasses.Add(canonical);
                 }
-                SigmaStitchResolution gpuResolution =
-                    resultHeader.X == (uint)SigmaStitchResolution.Unresolved ||
-                    gpuClasses.Count != 1
-                        ? SigmaStitchResolution.Unresolved
-                        : SigmaStitchResolution.Resolved;
                 SigmaStitchPattern cpuPattern = cpuPatterns[fixtureIndex];
-                Assert.That(gpuResolution, Is.EqualTo(cpuPattern.Resolution),
-                    $"{name} set closure; validMask=0x{resultHeader.W:x8}, " +
-                    $"gpuClasses={gpuClasses.Count}");
+                Assert.That(resultHeader.X,
+                    Is.EqualTo((uint)cpuPattern.Resolution),
+                    $"{name} GPU set closure must be final authority; " +
+                    $"componentRoots=0x{resultHeader.W:x8}");
                 if (cpuPattern.Resolution == SigmaStitchResolution.Resolved)
                 {
-                    Assert.That(resultHeader.Y,
-                        Is.EqualTo((uint)cpuPattern.ComponentCount), name);
+                    Assert.That(componentGpuClasses.All(value => value.Count == 1),
+                        Is.True, $"{name} GPU-resolved component orbit count");
                     string cpuCanonical = string.Join("||", components.Select(keys =>
                             SigmaGeneratedMerkabaProgram
                                 .CanonicalD4GaugeSerialization(keys.Select(key =>
@@ -1220,7 +1319,10 @@ namespace Genesis.RoomScan.Tests
                                         value.Level, payload);
                                 })))
                         .OrderBy(value => value, StringComparer.Ordinal));
-                    Assert.That(gpuClasses.Single(), Is.EqualTo(cpuCanonical),
+                    string gpuCanonical = string.Join("||", componentGpuClasses
+                        .Select(value => value.Single())
+                        .OrderBy(value => value, StringComparer.Ordinal));
+                    Assert.That(gpuCanonical, Is.EqualTo(cpuCanonical),
                         $"{name} canonical chart result");
                     canonicalByFixture[name] = cpuCanonical;
                 }
@@ -1253,6 +1355,31 @@ namespace Genesis.RoomScan.Tests
             Assert.That(cpuPatterns[fixtures.FindIndex(value => value.Name ==
                 "consistent-native-cycle")].Resolution,
                 Is.EqualTo(SigmaStitchResolution.Resolved));
+            int disconnectedOrbitFixture = fixtures.FindIndex(value =>
+                value.Name == "disconnected-different-chart-orbits");
+            uint[] disconnectedOrbitReceipts =
+                componentOrbitReceiptsByFixture[
+                    "disconnected-different-chart-orbits"];
+            Assert.That(cpuPatterns[disconnectedOrbitFixture].Resolution,
+                Is.EqualTo(SigmaStitchResolution.Resolved));
+            Assert.That(disconnectedOrbitReceipts.Length, Is.EqualTo(2));
+            Assert.That(disconnectedOrbitReceipts.Distinct().Count(),
+                Is.EqualTo(2),
+                "Disconnected components may resolve independently in different " +
+                "non-D4 chart orbits.");
+            Assert.That(disconnectedOrbitReceipts.All(mask =>
+                    Enumerable.Range(0, assignmentCount).Count(bit =>
+                        (mask & (1u << bit)) != 0u) == 1),
+                Is.True, "Each disconnected component must be uniquely resolved.");
+            int joinedOrbitFixture = fixtures.FindIndex(value =>
+                value.Name == "later-join-different-chart-orbits");
+            Assert.That(cpuPatterns[joinedOrbitFixture].ComponentCount,
+                Is.EqualTo(1),
+                "The later exact stitch removes independent component gauge.");
+            Assert.That(cpuPatterns[joinedOrbitFixture].Resolution,
+                Is.EqualTo(SigmaStitchResolution.Unresolved),
+                "Incompatible joined chart constraints remain unresolved; they " +
+                "are never coordinate-repaired.");
             Assert.That(cpuPatterns[fixtures.FindIndex(value => value.Name ==
                 "inconsistent-fundamental-cycle")].Resolution,
                 Is.EqualTo(SigmaStitchResolution.Unresolved));

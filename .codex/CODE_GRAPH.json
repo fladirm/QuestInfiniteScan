@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "source_digest": "4c43336761803d8a900e98d59bd73eceebba9d28ad88ea62d57ef83cb06b81df",
+  "source_digest": "0137261ab6af40bca86ca9d8c7c9833a6f845bebf5556f91cb5a652c323bcec4",
   "scope": [
     "Runtime/**/*.cs",
     "Runtime/Resources/SigmaPrism/**/*.*",
@@ -10580,67 +10580,67 @@
       "line": 1483
     },
     {
-      "id": "Tests/Editor/SigmaNativeOracleTests.cs::AssertFreshGpuMatchesCpu@1875",
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::AssertFreshGpuMatchesCpu@2002",
       "file": "Tests/Editor/SigmaNativeOracleTests.cs",
       "name": "AssertFreshGpuMatchesCpu",
       "kind": "method",
-      "line": 1875
+      "line": 2002
     },
     {
-      "id": "Tests/Editor/SigmaNativeOracleTests.cs::AssertGpuRelationsMatchCpu@2206",
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::AssertGpuRelationsMatchCpu@2333",
       "file": "Tests/Editor/SigmaNativeOracleTests.cs",
       "name": "AssertGpuRelationsMatchCpu",
       "kind": "method",
-      "line": 2206
+      "line": 2333
     },
     {
-      "id": "Tests/Editor/SigmaNativeOracleTests.cs::AssertGpuShadowEqual@3034",
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::AssertGpuShadowEqual@3161",
       "file": "Tests/Editor/SigmaNativeOracleTests.cs",
       "name": "AssertGpuShadowEqual",
       "kind": "method",
-      "line": 3034
+      "line": 3161
     },
     {
-      "id": "Tests/Editor/SigmaNativeOracleTests.cs::AssertGpuShadowMatchesCpu@3054",
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::AssertGpuShadowMatchesCpu@3181",
       "file": "Tests/Editor/SigmaNativeOracleTests.cs",
       "name": "AssertGpuShadowMatchesCpu",
       "kind": "method",
-      "line": 3054
+      "line": 3181
     },
     {
-      "id": "Tests/Editor/SigmaNativeOracleTests.cs::Axis@2853",
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::Axis@2980",
       "file": "Tests/Editor/SigmaNativeOracleTests.cs",
       "name": "Axis",
       "kind": "method",
-      "line": 2853
+      "line": 2980
     },
     {
-      "id": "Tests/Editor/SigmaNativeOracleTests.cs::BuildPhotometricQuery@2770",
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::BuildPhotometricQuery@2897",
       "file": "Tests/Editor/SigmaNativeOracleTests.cs",
       "name": "BuildPhotometricQuery",
       "kind": "method",
-      "line": 2770
+      "line": 2897
     },
     {
-      "id": "Tests/Editor/SigmaNativeOracleTests.cs::Candidate@2601",
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::Candidate@2728",
       "file": "Tests/Editor/SigmaNativeOracleTests.cs",
       "name": "Candidate",
       "kind": "method",
-      "line": 2601
+      "line": 2728
     },
     {
-      "id": "Tests/Editor/SigmaNativeOracleTests.cs::Cell@2620",
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::Cell@2747",
       "file": "Tests/Editor/SigmaNativeOracleTests.cs",
       "name": "Cell",
       "kind": "method",
-      "line": 2620
+      "line": 2747
     },
     {
-      "id": "Tests/Editor/SigmaNativeOracleTests.cs::CpuCandidate@2607",
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::CpuCandidate@2734",
       "file": "Tests/Editor/SigmaNativeOracleTests.cs",
       "name": "CpuCandidate",
       "kind": "method",
-      "line": 2607
+      "line": 2734
     },
     {
       "id": "Tests/Editor/SigmaNativeOracleTests.cs::DirectionalMouldCorrectsNearSupportAndNeverActsBehindHit@353",
@@ -10650,25 +10650,25 @@
       "line": 353
     },
     {
-      "id": "Tests/Editor/SigmaNativeOracleTests.cs::EmptyOptical@2858",
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::EmptyOptical@2985",
       "file": "Tests/Editor/SigmaNativeOracleTests.cs",
       "name": "EmptyOptical",
       "kind": "method",
-      "line": 2858
+      "line": 2985
     },
     {
-      "id": "Tests/Editor/SigmaNativeOracleTests.cs::EntryPointIndex@3026",
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::EntryPointIndex@3153",
       "file": "Tests/Editor/SigmaNativeOracleTests.cs",
       "name": "EntryPointIndex",
       "kind": "method",
-      "line": 3026
+      "line": 3153
     },
     {
-      "id": "Tests/Editor/SigmaNativeOracleTests.cs::EntryPointIndex@3030",
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::EntryPointIndex@3157",
       "file": "Tests/Editor/SigmaNativeOracleTests.cs",
       "name": "EntryPointIndex",
       "kind": "method",
-      "line": 3030
+      "line": 3157
     },
     {
       "id": "Tests/Editor/SigmaNativeOracleTests.cs::Equals@35",
@@ -10685,11 +10685,11 @@
       "line": 37
     },
     {
-      "id": "Tests/Editor/SigmaNativeOracleTests.cs::EvaluateRelationWindows@2314",
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::EvaluateRelationWindows@2441",
       "file": "Tests/Editor/SigmaNativeOracleTests.cs",
       "name": "EvaluateRelationWindows",
       "kind": "method",
-      "line": 2314
+      "line": 2441
     },
     {
       "id": "Tests/Editor/SigmaNativeOracleTests.cs::ExactInformationAndPhotometricLawPreventWeakRevisitDegradation@480",
@@ -10706,11 +10706,11 @@
       "line": 676
     },
     {
-      "id": "Tests/Editor/SigmaNativeOracleTests.cs::Factor@2862",
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::Factor@2989",
       "file": "Tests/Editor/SigmaNativeOracleTests.cs",
       "name": "Factor",
       "kind": "method",
-      "line": 2862
+      "line": 2989
     },
     {
       "id": "Tests/Editor/SigmaNativeOracleTests.cs::FreshBaseAdmissionStartsAtCoherentObservationAndMatchesVulkan@210",
@@ -10727,11 +10727,11 @@
       "line": 406
     },
     {
-      "id": "Tests/Editor/SigmaNativeOracleTests.cs::FreshObservation@2638",
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::FreshObservation@2765",
       "file": "Tests/Editor/SigmaNativeOracleTests.cs",
       "name": "FreshObservation",
       "kind": "method",
-      "line": 2638
+      "line": 2765
     },
     {
       "id": "Tests/Editor/SigmaNativeOracleTests.cs::GaugeRefinementRelationsAndCoupledShadowModesRemainOneField@549",
@@ -10762,11 +10762,11 @@
       "line": 41
     },
     {
-      "id": "Tests/Editor/SigmaNativeOracleTests.cs::HashS16@2972",
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::HashS16@3099",
       "file": "Tests/Editor/SigmaNativeOracleTests.cs",
       "name": "HashS16",
       "kind": "method",
-      "line": 2972
+      "line": 3099
     },
     {
       "id": "Tests/Editor/SigmaNativeOracleTests.cs::Kernels@736",
@@ -10776,25 +10776,25 @@
       "line": 736
     },
     {
-      "id": "Tests/Editor/SigmaNativeOracleTests.cs::Law@2802",
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::Law@2929",
       "file": "Tests/Editor/SigmaNativeOracleTests.cs",
       "name": "Law",
       "kind": "method",
-      "line": 2802
+      "line": 2929
     },
     {
-      "id": "Tests/Editor/SigmaNativeOracleTests.cs::LeftQuery@2744",
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::LeftQuery@2871",
       "file": "Tests/Editor/SigmaNativeOracleTests.cs",
       "name": "LeftQuery",
       "kind": "method",
-      "line": 2744
+      "line": 2871
     },
     {
-      "id": "Tests/Editor/SigmaNativeOracleTests.cs::LoadShader@3071",
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::LoadShader@3198",
       "file": "Tests/Editor/SigmaNativeOracleTests.cs",
       "name": "LoadShader",
       "kind": "method",
-      "line": 3071
+      "line": 3198
     },
     {
       "id": "Tests/Editor/SigmaNativeOracleTests.cs::OracleGpuGraphIsFixedParallelAndCardinalityInvariant@718",
@@ -10804,123 +10804,123 @@
       "line": 718
     },
     {
-      "id": "Tests/Editor/SigmaNativeOracleTests.cs::Pack@2994",
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::Pack@3121",
       "file": "Tests/Editor/SigmaNativeOracleTests.cs",
       "name": "Pack",
       "kind": "method",
-      "line": 2994
+      "line": 3121
     },
     {
-      "id": "Tests/Editor/SigmaNativeOracleTests.cs::PackGaugeCoordinate@2883",
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::PackGaugeCoordinate@3010",
       "file": "Tests/Editor/SigmaNativeOracleTests.cs",
       "name": "PackGaugeCoordinate",
+      "kind": "method",
+      "line": 3010
+    },
+    {
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::PackGaugeMetadata@3018",
+      "file": "Tests/Editor/SigmaNativeOracleTests.cs",
+      "name": "PackGaugeMetadata",
+      "kind": "method",
+      "line": 3018
+    },
+    {
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::PackInstrumentCodes@2864",
+      "file": "Tests/Editor/SigmaNativeOracleTests.cs",
+      "name": "PackInstrumentCodes",
+      "kind": "method",
+      "line": 2864
+    },
+    {
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::PackInterval@3050",
+      "file": "Tests/Editor/SigmaNativeOracleTests.cs",
+      "name": "PackInterval",
+      "kind": "method",
+      "line": 3050
+    },
+    {
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::PackKeys@3002",
+      "file": "Tests/Editor/SigmaNativeOracleTests.cs",
+      "name": "PackKeys",
+      "kind": "method",
+      "line": 3002
+    },
+    {
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::PackPhotometricLaw@3058",
+      "file": "Tests/Editor/SigmaNativeOracleTests.cs",
+      "name": "PackPhotometricLaw",
+      "kind": "method",
+      "line": 3058
+    },
+    {
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::PackRelationPlan@3036",
+      "file": "Tests/Editor/SigmaNativeOracleTests.cs",
+      "name": "PackRelationPlan",
+      "kind": "method",
+      "line": 3036
+    },
+    {
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::PackRows@3114",
+      "file": "Tests/Editor/SigmaNativeOracleTests.cs",
+      "name": "PackRows",
+      "kind": "method",
+      "line": 3114
+    },
+    {
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::PackStates@3118",
+      "file": "Tests/Editor/SigmaNativeOracleTests.cs",
+      "name": "PackStates",
+      "kind": "method",
+      "line": 3118
+    },
+    {
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::PackU256@3127",
+      "file": "Tests/Editor/SigmaNativeOracleTests.cs",
+      "name": "PackU256",
+      "kind": "method",
+      "line": 3127
+    },
+    {
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::PiecewiseLaw@2951",
+      "file": "Tests/Editor/SigmaNativeOracleTests.cs",
+      "name": "PiecewiseLaw",
+      "kind": "method",
+      "line": 2951
+    },
+    {
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::Point@2983",
+      "file": "Tests/Editor/SigmaNativeOracleTests.cs",
+      "name": "Point",
+      "kind": "method",
+      "line": 2983
+    },
+    {
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::Query@2883",
+      "file": "Tests/Editor/SigmaNativeOracleTests.cs",
+      "name": "Query",
       "kind": "method",
       "line": 2883
     },
     {
-      "id": "Tests/Editor/SigmaNativeOracleTests.cs::PackGaugeMetadata@2891",
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::Raw@2987",
       "file": "Tests/Editor/SigmaNativeOracleTests.cs",
-      "name": "PackGaugeMetadata",
-      "kind": "method",
-      "line": 2891
-    },
-    {
-      "id": "Tests/Editor/SigmaNativeOracleTests.cs::PackInstrumentCodes@2737",
-      "file": "Tests/Editor/SigmaNativeOracleTests.cs",
-      "name": "PackInstrumentCodes",
-      "kind": "method",
-      "line": 2737
-    },
-    {
-      "id": "Tests/Editor/SigmaNativeOracleTests.cs::PackInterval@2923",
-      "file": "Tests/Editor/SigmaNativeOracleTests.cs",
-      "name": "PackInterval",
-      "kind": "method",
-      "line": 2923
-    },
-    {
-      "id": "Tests/Editor/SigmaNativeOracleTests.cs::PackKeys@2875",
-      "file": "Tests/Editor/SigmaNativeOracleTests.cs",
-      "name": "PackKeys",
-      "kind": "method",
-      "line": 2875
-    },
-    {
-      "id": "Tests/Editor/SigmaNativeOracleTests.cs::PackPhotometricLaw@2931",
-      "file": "Tests/Editor/SigmaNativeOracleTests.cs",
-      "name": "PackPhotometricLaw",
-      "kind": "method",
-      "line": 2931
-    },
-    {
-      "id": "Tests/Editor/SigmaNativeOracleTests.cs::PackRelationPlan@2909",
-      "file": "Tests/Editor/SigmaNativeOracleTests.cs",
-      "name": "PackRelationPlan",
-      "kind": "method",
-      "line": 2909
-    },
-    {
-      "id": "Tests/Editor/SigmaNativeOracleTests.cs::PackRows@2987",
-      "file": "Tests/Editor/SigmaNativeOracleTests.cs",
-      "name": "PackRows",
+      "name": "Raw",
       "kind": "method",
       "line": 2987
     },
     {
-      "id": "Tests/Editor/SigmaNativeOracleTests.cs::PackStates@2991",
-      "file": "Tests/Editor/SigmaNativeOracleTests.cs",
-      "name": "PackStates",
-      "kind": "method",
-      "line": 2991
-    },
-    {
-      "id": "Tests/Editor/SigmaNativeOracleTests.cs::PackU256@3000",
-      "file": "Tests/Editor/SigmaNativeOracleTests.cs",
-      "name": "PackU256",
-      "kind": "method",
-      "line": 3000
-    },
-    {
-      "id": "Tests/Editor/SigmaNativeOracleTests.cs::PiecewiseLaw@2824",
-      "file": "Tests/Editor/SigmaNativeOracleTests.cs",
-      "name": "PiecewiseLaw",
-      "kind": "method",
-      "line": 2824
-    },
-    {
-      "id": "Tests/Editor/SigmaNativeOracleTests.cs::Point@2856",
-      "file": "Tests/Editor/SigmaNativeOracleTests.cs",
-      "name": "Point",
-      "kind": "method",
-      "line": 2856
-    },
-    {
-      "id": "Tests/Editor/SigmaNativeOracleTests.cs::Query@2756",
-      "file": "Tests/Editor/SigmaNativeOracleTests.cs",
-      "name": "Query",
-      "kind": "method",
-      "line": 2756
-    },
-    {
-      "id": "Tests/Editor/SigmaNativeOracleTests.cs::Raw@2860",
-      "file": "Tests/Editor/SigmaNativeOracleTests.cs",
-      "name": "Raw",
-      "kind": "method",
-      "line": 2860
-    },
-    {
-      "id": "Tests/Editor/SigmaNativeOracleTests.cs::ReduceWindows@2569",
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::ReduceWindows@2696",
       "file": "Tests/Editor/SigmaNativeOracleTests.cs",
       "name": "ReduceWindows",
       "kind": "method",
-      "line": 2569
+      "line": 2696
     },
     {
-      "id": "Tests/Editor/SigmaNativeOracleTests.cs::RelationFor@2615",
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::RelationFor@2742",
       "file": "Tests/Editor/SigmaNativeOracleTests.cs",
       "name": "RelationFor",
       "kind": "method",
-      "line": 2615
+      "line": 2742
     },
     {
       "id": "Tests/Editor/SigmaNativeOracleTests.cs::ReverseKeepsUnionAndResolvesOnlyUniqueOrCommonDelta@146",
@@ -10930,46 +10930,46 @@
       "line": 146
     },
     {
-      "id": "Tests/Editor/SigmaNativeOracleTests.cs::RightQuery@2750",
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::RightQuery@2877",
       "file": "Tests/Editor/SigmaNativeOracleTests.cs",
       "name": "RightQuery",
       "kind": "method",
-      "line": 2750
+      "line": 2877
     },
     {
-      "id": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuContractOverflow@1890",
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuContractOverflow@2017",
       "file": "Tests/Editor/SigmaNativeOracleTests.cs",
       "name": "RunGpuContractOverflow",
       "kind": "method",
-      "line": 1890
+      "line": 2017
     },
     {
-      "id": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuEyePair@2340",
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuEyePair@2467",
       "file": "Tests/Editor/SigmaNativeOracleTests.cs",
       "name": "RunGpuEyePair",
       "kind": "method",
-      "line": 2340
+      "line": 2467
     },
     {
-      "id": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuFreshAdmission@1690",
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuFreshAdmission@1817",
       "file": "Tests/Editor/SigmaNativeOracleTests.cs",
       "name": "RunGpuFreshAdmission",
       "kind": "method",
-      "line": 1690
+      "line": 1817
     },
     {
-      "id": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuQuery@2332",
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuQuery@2459",
       "file": "Tests/Editor/SigmaNativeOracleTests.cs",
       "name": "RunGpuQuery",
       "kind": "method",
-      "line": 2332
+      "line": 2459
     },
     {
-      "id": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuQuerySet@2347",
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuQuerySet@2474",
       "file": "Tests/Editor/SigmaNativeOracleTests.cs",
       "name": "RunGpuQuerySet",
       "kind": "method",
-      "line": 2347
+      "line": 2474
     },
     {
       "id": "Tests/Editor/SigmaNativeOracleTests.cs::SigmaNativeOracleTests",
@@ -10986,25 +10986,25 @@
       "line": 638
     },
     {
-      "id": "Tests/Editor/SigmaNativeOracleTests.cs::State@2624",
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::State@2751",
       "file": "Tests/Editor/SigmaNativeOracleTests.cs",
       "name": "State",
       "kind": "method",
-      "line": 2624
+      "line": 2751
     },
     {
-      "id": "Tests/Editor/SigmaNativeOracleTests.cs::StateRaw@2627",
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::StateRaw@2754",
       "file": "Tests/Editor/SigmaNativeOracleTests.cs",
       "name": "StateRaw",
       "kind": "method",
-      "line": 2627
+      "line": 2754
     },
     {
-      "id": "Tests/Editor/SigmaNativeOracleTests.cs::Summary@2866",
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::Summary@2993",
       "file": "Tests/Editor/SigmaNativeOracleTests.cs",
       "name": "Summary",
       "kind": "method",
-      "line": 2866
+      "line": 2993
     },
     {
       "id": "Tests/Editor/SigmaNativeOracleTests.cs::UInt2",
@@ -11021,25 +11021,25 @@
       "line": 29
     },
     {
-      "id": "Tests/Editor/SigmaNativeOracleTests.cs::Unpack@3020",
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::Unpack@3147",
       "file": "Tests/Editor/SigmaNativeOracleTests.cs",
       "name": "Unpack",
       "kind": "method",
-      "line": 3020
+      "line": 3147
     },
     {
-      "id": "Tests/Editor/SigmaNativeOracleTests.cs::UnpackKey@3023",
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::UnpackKey@3150",
       "file": "Tests/Editor/SigmaNativeOracleTests.cs",
       "name": "UnpackKey",
       "kind": "method",
-      "line": 3023
+      "line": 3150
     },
     {
-      "id": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanBoundedQueryMatrixMatchesCpuAcrossRepresentationAndOrder@1405",
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanBoundedQueryMatrixMatchesCpuAcrossRepresentationAndOrder@1532",
       "file": "Tests/Editor/SigmaNativeOracleTests.cs",
       "name": "VulkanBoundedQueryMatrixMatchesCpuAcrossRepresentationAndOrder",
       "kind": "method",
-      "line": 1405
+      "line": 1532
     },
     {
       "id": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanConstructiveStitchSetMatchesGeneratedCpuAuthority@791",
@@ -11049,39 +11049,39 @@
       "line": 791
     },
     {
-      "id": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanExportDebugAndEyePairExecuteDistinctGeneratedSemantics@1474",
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanExportDebugAndEyePairExecuteDistinctGeneratedSemantics@1601",
       "file": "Tests/Editor/SigmaNativeOracleTests.cs",
       "name": "VulkanExportDebugAndEyePairExecuteDistinctGeneratedSemantics",
       "kind": "method",
-      "line": 1474
+      "line": 1601
     },
     {
-      "id": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanFieldEntrypointsGroupRefinedU64SupportsBeforeReduction@1357",
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanFieldEntrypointsGroupRefinedU64SupportsBeforeReduction@1484",
       "file": "Tests/Editor/SigmaNativeOracleTests.cs",
       "name": "VulkanFieldEntrypointsGroupRefinedU64SupportsBeforeReduction",
       "kind": "method",
-      "line": 1357
+      "line": 1484
     },
     {
-      "id": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanQueryContractOverflowAndWindowingMatchCpuOracle@1262",
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanQueryContractOverflowAndWindowingMatchCpuOracle@1389",
       "file": "Tests/Editor/SigmaNativeOracleTests.cs",
       "name": "VulkanQueryContractOverflowAndWindowingMatchCpuOracle",
       "kind": "method",
-      "line": 1262
+      "line": 1389
     },
     {
-      "id": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanReducerHandlesMoreThan64AndSignalsBoundedColdContinuation@1557",
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanReducerHandlesMoreThan64AndSignalsBoundedColdContinuation@1684",
       "file": "Tests/Editor/SigmaNativeOracleTests.cs",
       "name": "VulkanReducerHandlesMoreThan64AndSignalsBoundedColdContinuation",
       "kind": "method",
-      "line": 1557
+      "line": 1684
     },
     {
-      "id": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanRelationWorklistMatchesBoundedCartesianCpuCorpus@1606",
+      "id": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanRelationWorklistMatchesBoundedCartesianCpuCorpus@1733",
       "file": "Tests/Editor/SigmaNativeOracleTests.cs",
       "name": "VulkanRelationWorklistMatchesBoundedCartesianCpuCorpus",
       "kind": "method",
-      "line": 1606
+      "line": 1733
     },
     {
       "id": "Tests/Editor/SigmaNativeOracleTests.cs::WholeQueryReductionOwnsFirstHitDisjunctionAndDefault@99",
@@ -20814,62 +20814,62 @@
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::AssertGpuRelationsMatchCpu@2206",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::AssertGpuRelationsMatchCpu@2333",
       "target": "Runtime/SigmaPrism/SigmaExactBackendGate.cs::Dispatch@45",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::AssertGpuRelationsMatchCpu@2206",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::AssertGpuRelationsMatchCpu@2333",
       "target": "Tests/Editor/SigmaMerkabaProgramTests.cs::Buffer@1302",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::AssertGpuRelationsMatchCpu@2206",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::HashS16@2972",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::AssertGpuRelationsMatchCpu@2333",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::HashS16@3099",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::AssertGpuRelationsMatchCpu@2206",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::PackInterval@2923",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::AssertGpuRelationsMatchCpu@2333",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::PackInterval@3050",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::AssertGpuRelationsMatchCpu@2206",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::PackRelationPlan@2909",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::AssertGpuRelationsMatchCpu@2333",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::PackRelationPlan@3036",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::AssertGpuRelationsMatchCpu@2206",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::PackStates@2991",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::AssertGpuRelationsMatchCpu@2333",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::PackStates@3118",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::AssertGpuRelationsMatchCpu@2206",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::PackU256@3000",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::AssertGpuRelationsMatchCpu@2333",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::PackU256@3127",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::BuildPhotometricQuery@2770",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::BuildPhotometricQuery@2897",
       "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Select@182",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::BuildPhotometricQuery@2770",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::BuildPhotometricQuery@2897",
       "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::SigmaNativeOracleQuery",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::BuildPhotometricQuery@2770",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::BuildPhotometricQuery@2897",
       "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::TryApply@121",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::BuildPhotometricQuery@2770",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::Axis@2853",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::BuildPhotometricQuery@2897",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::Axis@2980",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::BuildPhotometricQuery@2770",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::BuildPhotometricQuery@2897",
       "target": "Tools/sigma/generate_sigma_operators.py::SigmaGaugeCell",
       "kind": "calls"
     },
@@ -20885,31 +20885,31 @@
     },
     {
       "source": "Tests/Editor/SigmaNativeOracleTests.cs::DirectionalMouldCorrectsNearSupportAndNeverActsBehindHit@353",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::Candidate@2601",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::Candidate@2728",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaNativeOracleTests.cs::DirectionalMouldCorrectsNearSupportAndNeverActsBehindHit@353",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::Cell@2620",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::Cell@2747",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaNativeOracleTests.cs::DirectionalMouldCorrectsNearSupportAndNeverActsBehindHit@353",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::LeftQuery@2744",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::LeftQuery@2871",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaNativeOracleTests.cs::DirectionalMouldCorrectsNearSupportAndNeverActsBehindHit@353",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::RelationFor@2615",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::RelationFor@2742",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaNativeOracleTests.cs::DirectionalMouldCorrectsNearSupportAndNeverActsBehindHit@353",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::RightQuery@2750",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::RightQuery@2877",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::EvaluateRelationWindows@2314",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::EvaluateRelationWindows@2441",
       "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Select@182",
       "kind": "calls"
     },
@@ -20925,22 +20925,22 @@
     },
     {
       "source": "Tests/Editor/SigmaNativeOracleTests.cs::ExactInformationAndPhotometricLawPreventWeakRevisitDegradation@480",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::Axis@2853",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::Axis@2980",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaNativeOracleTests.cs::ExactInformationAndPhotometricLawPreventWeakRevisitDegradation@480",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::Candidate@2601",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::Candidate@2728",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaNativeOracleTests.cs::ExactInformationAndPhotometricLawPreventWeakRevisitDegradation@480",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::Law@2802",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::Law@2929",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaNativeOracleTests.cs::ExactInformationAndPhotometricLawPreventWeakRevisitDegradation@480",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::LeftQuery@2744",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::LeftQuery@2871",
       "kind": "calls"
     },
     {
@@ -20960,17 +20960,17 @@
     },
     {
       "source": "Tests/Editor/SigmaNativeOracleTests.cs::ExecutionWindowsAndOrderAreInvisibleAndScratchIsTestOnly@676",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::Cell@2620",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::Cell@2747",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaNativeOracleTests.cs::ExecutionWindowsAndOrderAreInvisibleAndScratchIsTestOnly@676",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::LeftQuery@2744",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::LeftQuery@2871",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaNativeOracleTests.cs::ExecutionWindowsAndOrderAreInvisibleAndScratchIsTestOnly@676",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::ReduceWindows@2569",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::ReduceWindows@2696",
       "kind": "calls"
     },
     {
@@ -20990,17 +20990,17 @@
     },
     {
       "source": "Tests/Editor/SigmaNativeOracleTests.cs::FreshBaseAdmissionStartsAtCoherentObservationAndMatchesVulkan@210",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::AssertFreshGpuMatchesCpu@1875",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::AssertFreshGpuMatchesCpu@2002",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaNativeOracleTests.cs::FreshBaseAdmissionStartsAtCoherentObservationAndMatchesVulkan@210",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::FreshObservation@2638",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::FreshObservation@2765",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaNativeOracleTests.cs::FreshBaseAdmissionStartsAtCoherentObservationAndMatchesVulkan@210",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuFreshAdmission@1690",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuFreshAdmission@1817",
       "kind": "calls"
     },
     {
@@ -21025,76 +21025,76 @@
     },
     {
       "source": "Tests/Editor/SigmaNativeOracleTests.cs::FreshContractMarksOnlyExactStereoPreHitForStaticExclusion@406",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::FreshObservation@2638",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::FreshObservation@2765",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaNativeOracleTests.cs::FreshContractMarksOnlyExactStereoPreHitForStaticExclusion@406",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuFreshAdmission@1690",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuFreshAdmission@1817",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaNativeOracleTests.cs::FreshContractMarksOnlyExactStereoPreHitForStaticExclusion@406",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::StateRaw@2627",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::StateRaw@2754",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::FreshObservation@2638",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::FreshObservation@2765",
       "target": "Runtime/SigmaPrism/Capture/RigCalibrationMath.cs::ConeRayAtPixel@89",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::FreshObservation@2638",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::FreshObservation@2765",
       "target": "Runtime/SigmaPrism/Capture/RigCalibrationMath.cs::RangeFromProjectionDepth01@141",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::FreshObservation@2638",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::FreshObservation@2765",
       "target": "Runtime/SigmaPrism/Capture/RigCaptureContracts.cs::RigIntrinsics",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::FreshObservation@2638",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::FreshObservation@2765",
       "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::Aggregate",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::FreshObservation@2638",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::FreshObservation@2765",
       "target": "Runtime/SigmaPrism/SigmaNumericDomain.cs::QAdd@28",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::FreshObservation@2638",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::FreshObservation@2765",
       "target": "Runtime/SigmaPrism/SigmaNumericDomain.cs::QShiftRight@107",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::FreshObservation@2638",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::FreshObservation@2765",
       "target": "Runtime/SigmaPrism/SigmaNumericDomain.cs::SigmaQ48Interval",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::FreshObservation@2638",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::FreshObservation@2765",
       "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::SigmaNativeCoherentQueryContext",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::FreshObservation@2638",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::FreshObservation@2765",
       "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::SigmaNativeFreshObservationBranch",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::FreshObservation@2638",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::Law@2802",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::FreshObservation@2765",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::Law@2929",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::FreshObservation@2638",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::FreshObservation@2765",
       "target": "Tools/sigma/generate_sigma_operators.py::SigmaInstrumentEyeBoundary",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::FreshObservation@2638",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::FreshObservation@2765",
       "target": "Tools/sigma/generate_sigma_operators.py::SigmaInstrumentFootprint",
       "kind": "calls"
     },
@@ -21125,51 +21125,51 @@
     },
     {
       "source": "Tests/Editor/SigmaNativeOracleTests.cs::GaugeRefinementRelationsAndCoupledShadowModesRemainOneField@549",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::EvaluateRelationWindows@2314",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::EvaluateRelationWindows@2441",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaNativeOracleTests.cs::GaugeRefinementRelationsAndCoupledShadowModesRemainOneField@549",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::LeftQuery@2744",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::LeftQuery@2871",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaNativeOracleTests.cs::GaugeRefinementRelationsAndCoupledShadowModesRemainOneField@549",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::RelationFor@2615",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::RelationFor@2742",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::Law@2802",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::Law@2929",
       "target": "Runtime/SigmaPrism/SigmaNumericDomain.cs::FromInteger@193",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::Law@2802",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::Law@2929",
       "target": "Runtime/SigmaPrism/SigmaNumericDomain.cs::SigmaQ48Interval",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::Law@2802",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::Law@2929",
       "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Select@182",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::Law@2802",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::Law@2929",
       "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::ComputeTransferFingerprint@154",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::Law@2802",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::Law@2929",
       "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::SigmaNativePhotometricChannelLaw",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::Law@2802",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::Law@2929",
       "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::SigmaNativePhotometricLaw",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::Law@2802",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::Law@2929",
       "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::SigmaNativePhotometricSegment",
       "kind": "calls"
     },
@@ -21194,32 +21194,32 @@
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::PiecewiseLaw@2824",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::PiecewiseLaw@2951",
       "target": "Runtime/SigmaPrism/SigmaNumericDomain.cs::SigmaQ48Interval",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::PiecewiseLaw@2824",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::PiecewiseLaw@2951",
       "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Select@182",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::PiecewiseLaw@2824",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::PiecewiseLaw@2951",
       "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::ComputeTransferFingerprint@154",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::PiecewiseLaw@2824",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::PiecewiseLaw@2951",
       "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::SigmaNativePhotometricChannelLaw",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::PiecewiseLaw@2824",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::PiecewiseLaw@2951",
       "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::SigmaNativePhotometricLaw",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::PiecewiseLaw@2824",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::PiecewiseLaw@2951",
       "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::SigmaNativePhotometricSegment",
       "kind": "calls"
     },
@@ -21240,17 +21240,17 @@
     },
     {
       "source": "Tests/Editor/SigmaNativeOracleTests.cs::ReverseKeepsUnionAndResolvesOnlyUniqueOrCommonDelta@146",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::Candidate@2601",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::Candidate@2728",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaNativeOracleTests.cs::ReverseKeepsUnionAndResolvesOnlyUniqueOrCommonDelta@146",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::LeftQuery@2744",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::LeftQuery@2871",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaNativeOracleTests.cs::ReverseKeepsUnionAndResolvesOnlyUniqueOrCommonDelta@146",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::RightQuery@2750",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::RightQuery@2877",
       "kind": "calls"
     },
     {
@@ -21259,173 +21259,173 @@
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuContractOverflow@1890",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuContractOverflow@2017",
       "target": "Runtime/SigmaPrism/SigmaExactBackendGate.cs::Dispatch@45",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuContractOverflow@1890",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuContractOverflow@2017",
       "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Max@172",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuContractOverflow@1890",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuContractOverflow@2017",
       "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Select@182",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuContractOverflow@1890",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuContractOverflow@2017",
       "target": "Tests/Editor/SigmaMerkabaProgramTests.cs::Buffer@1302",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuContractOverflow@1890",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuContractOverflow@2017",
       "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::TryApply@121",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuContractOverflow@1890",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::CpuCandidate@2607",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuContractOverflow@2017",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::CpuCandidate@2734",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuContractOverflow@1890",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::HashS16@2972",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuContractOverflow@2017",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::HashS16@3099",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuContractOverflow@1890",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::PackGaugeCoordinate@2883",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuContractOverflow@2017",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::PackGaugeCoordinate@3010",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuContractOverflow@1890",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::PackGaugeMetadata@2891",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuContractOverflow@2017",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::PackGaugeMetadata@3018",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuContractOverflow@1890",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::PackInterval@2923",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuContractOverflow@2017",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::PackInterval@3050",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuContractOverflow@1890",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::PackKeys@2875",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuContractOverflow@2017",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::PackKeys@3002",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuContractOverflow@1890",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::PackPhotometricLaw@2931",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuContractOverflow@2017",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::PackPhotometricLaw@3058",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuContractOverflow@1890",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::PackRelationPlan@2909",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuContractOverflow@2017",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::PackRelationPlan@3036",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuContractOverflow@1890",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::PackRows@2987",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuContractOverflow@2017",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::PackRows@3114",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuContractOverflow@1890",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::PackStates@2991",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuContractOverflow@2017",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::PackStates@3118",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuFreshAdmission@1690",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuFreshAdmission@1817",
       "target": "Runtime/SigmaPrism/SigmaExactBackendGate.cs::Dispatch@45",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuFreshAdmission@1690",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuFreshAdmission@1817",
       "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Copy@251",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuFreshAdmission@1690",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuFreshAdmission@1817",
       "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Max@172",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuFreshAdmission@1690",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuFreshAdmission@1817",
       "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Select@182",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuFreshAdmission@1690",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuFreshAdmission@1817",
       "target": "Runtime/SigmaPrism/SigmaS16.cs::FromArray@82",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuFreshAdmission@1690",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuFreshAdmission@1817",
       "target": "Tests/Editor/SigmaMerkabaProgramTests.cs::Buffer@1302",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuFreshAdmission@1690",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuFreshAdmission@1817",
       "target": "Tests/Editor/SigmaNativeOracleTests.cs::GpuFreshAdmission",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuFreshAdmission@1690",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::PackInstrumentCodes@2737",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuFreshAdmission@1817",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::PackInstrumentCodes@2864",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuFreshAdmission@1690",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::PackInterval@2923",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuFreshAdmission@1817",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::PackInterval@3050",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuFreshAdmission@1690",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::PackStates@2991",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuFreshAdmission@1817",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::PackStates@3118",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuQuerySet@2347",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuQuerySet@2474",
       "target": "Runtime/SigmaPrism/SigmaExactBackendGate.cs::Dispatch@45",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuQuerySet@2347",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuQuerySet@2474",
       "target": "Runtime/SigmaPrism/SigmaNumericDomain.cs::SigmaQ48Interval",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuQuerySet@2347",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuQuerySet@2474",
       "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Max@172",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuQuerySet@2347",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuQuerySet@2474",
       "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Select@182",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuQuerySet@2347",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuQuerySet@2474",
       "target": "Tests/Editor/SigmaMerkabaProgramTests.cs::Buffer@1302",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuQuerySet@2347",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuQuerySet@2474",
       "target": "Tests/Editor/SigmaNativeOracleTests.cs::GpuShadow",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuQuerySet@2347",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::PackInterval@2923",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuQuerySet@2474",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::PackInterval@3050",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuQuerySet@2347",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::PackRelationPlan@2909",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuQuerySet@2474",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::PackRelationPlan@3036",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuQuerySet@2347",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::PackStates@2991",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuQuerySet@2474",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::PackStates@3118",
       "kind": "calls"
     },
     {
@@ -21455,7 +21455,7 @@
     },
     {
       "source": "Tests/Editor/SigmaNativeOracleTests.cs::SparseSupportIndexMatchesExhaustiveMixedRefinedAndNonresidentWorlds@638",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::LeftQuery@2744",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::LeftQuery@2871",
       "kind": "calls"
     },
     {
@@ -21464,47 +21464,47 @@
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::StateRaw@2627",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::StateRaw@2754",
       "target": "Runtime/SigmaPrism/SigmaS16.cs::FromArray@82",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanBoundedQueryMatrixMatchesCpuAcrossRepresentationAndOrder@1405",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanBoundedQueryMatrixMatchesCpuAcrossRepresentationAndOrder@1532",
       "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Select@182",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanBoundedQueryMatrixMatchesCpuAcrossRepresentationAndOrder@1405",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanBoundedQueryMatrixMatchesCpuAcrossRepresentationAndOrder@1532",
       "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::EvaluateAndReduce@1061",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanBoundedQueryMatrixMatchesCpuAcrossRepresentationAndOrder@1405",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanBoundedQueryMatrixMatchesCpuAcrossRepresentationAndOrder@1532",
       "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::SigmaNativeOracleCell",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanBoundedQueryMatrixMatchesCpuAcrossRepresentationAndOrder@1405",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::AssertGpuShadowMatchesCpu@3054",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanBoundedQueryMatrixMatchesCpuAcrossRepresentationAndOrder@1532",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::AssertGpuShadowMatchesCpu@3181",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanBoundedQueryMatrixMatchesCpuAcrossRepresentationAndOrder@1405",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::Axis@2853",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanBoundedQueryMatrixMatchesCpuAcrossRepresentationAndOrder@1532",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::Axis@2980",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanBoundedQueryMatrixMatchesCpuAcrossRepresentationAndOrder@1405",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::Law@2802",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanBoundedQueryMatrixMatchesCpuAcrossRepresentationAndOrder@1532",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::Law@2929",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanBoundedQueryMatrixMatchesCpuAcrossRepresentationAndOrder@1405",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuQuery@2332",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanBoundedQueryMatrixMatchesCpuAcrossRepresentationAndOrder@1532",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuQuery@2459",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanBoundedQueryMatrixMatchesCpuAcrossRepresentationAndOrder@1405",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanBoundedQueryMatrixMatchesCpuAcrossRepresentationAndOrder@1532",
       "target": "Tools/sigma/generate_sigma_operators.py::SigmaGaugeCell",
       "kind": "calls"
     },
@@ -21515,12 +21515,22 @@
     },
     {
       "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanConstructiveStitchSetMatchesGeneratedCpuAuthority@791",
+      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::Aggregate",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanConstructiveStitchSetMatchesGeneratedCpuAuthority@791",
       "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Max@172",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanConstructiveStitchSetMatchesGeneratedCpuAuthority@791",
       "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Select@182",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanConstructiveStitchSetMatchesGeneratedCpuAuthority@791",
+      "target": "Runtime/SigmaPrism/SigmaS16.cs::RightBasisAction@281",
       "kind": "calls"
     },
     {
@@ -21540,12 +21550,12 @@
     },
     {
       "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanConstructiveStitchSetMatchesGeneratedCpuAuthority@791",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::HashS16@2972",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::HashS16@3099",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanConstructiveStitchSetMatchesGeneratedCpuAuthority@791",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::PackStates@2991",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::PackStates@3118",
       "kind": "calls"
     },
     {
@@ -21569,273 +21579,273 @@
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanExportDebugAndEyePairExecuteDistinctGeneratedSemantics@1474",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanExportDebugAndEyePairExecuteDistinctGeneratedSemantics@1601",
       "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::EvaluateAndReduce@1061",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanExportDebugAndEyePairExecuteDistinctGeneratedSemantics@1474",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanExportDebugAndEyePairExecuteDistinctGeneratedSemantics@1601",
       "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::EvaluateAndReduceEyePair@1071",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanExportDebugAndEyePairExecuteDistinctGeneratedSemantics@1474",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanExportDebugAndEyePairExecuteDistinctGeneratedSemantics@1601",
       "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::SigmaNativeCoherentQueryContext",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanExportDebugAndEyePairExecuteDistinctGeneratedSemantics@1474",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanExportDebugAndEyePairExecuteDistinctGeneratedSemantics@1601",
       "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::SigmaNativeEyePairQuery",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanExportDebugAndEyePairExecuteDistinctGeneratedSemantics@1474",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::AssertGpuShadowMatchesCpu@3054",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanExportDebugAndEyePairExecuteDistinctGeneratedSemantics@1601",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::AssertGpuShadowMatchesCpu@3181",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanExportDebugAndEyePairExecuteDistinctGeneratedSemantics@1474",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::Axis@2853",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanExportDebugAndEyePairExecuteDistinctGeneratedSemantics@1601",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::Axis@2980",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanExportDebugAndEyePairExecuteDistinctGeneratedSemantics@1474",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::Law@2802",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanExportDebugAndEyePairExecuteDistinctGeneratedSemantics@1601",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::Law@2929",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanExportDebugAndEyePairExecuteDistinctGeneratedSemantics@1474",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::RelationFor@2615",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanExportDebugAndEyePairExecuteDistinctGeneratedSemantics@1601",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::RelationFor@2742",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanExportDebugAndEyePairExecuteDistinctGeneratedSemantics@1474",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuEyePair@2340",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanExportDebugAndEyePairExecuteDistinctGeneratedSemantics@1601",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuEyePair@2467",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanExportDebugAndEyePairExecuteDistinctGeneratedSemantics@1474",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuQuery@2332",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanExportDebugAndEyePairExecuteDistinctGeneratedSemantics@1601",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuQuery@2459",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanExportDebugAndEyePairExecuteDistinctGeneratedSemantics@1474",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanExportDebugAndEyePairExecuteDistinctGeneratedSemantics@1601",
       "target": "Tools/sigma/generate_sigma_operators.py::SigmaGaugeCell",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanFieldEntrypointsGroupRefinedU64SupportsBeforeReduction@1357",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanFieldEntrypointsGroupRefinedU64SupportsBeforeReduction@1484",
       "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Select@182",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanFieldEntrypointsGroupRefinedU64SupportsBeforeReduction@1357",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanFieldEntrypointsGroupRefinedU64SupportsBeforeReduction@1484",
       "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::EvaluateAndReduce@1061",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanFieldEntrypointsGroupRefinedU64SupportsBeforeReduction@1357",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanFieldEntrypointsGroupRefinedU64SupportsBeforeReduction@1484",
       "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::SigmaNativeOracleCell",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanFieldEntrypointsGroupRefinedU64SupportsBeforeReduction@1357",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanFieldEntrypointsGroupRefinedU64SupportsBeforeReduction@1484",
       "target": "Tests/Editor/SigmaNativeFrameTests.cs::Count@1025",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanFieldEntrypointsGroupRefinedU64SupportsBeforeReduction@1357",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::AssertGpuShadowMatchesCpu@3054",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanFieldEntrypointsGroupRefinedU64SupportsBeforeReduction@1484",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::AssertGpuShadowMatchesCpu@3181",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanFieldEntrypointsGroupRefinedU64SupportsBeforeReduction@1357",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::Axis@2853",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanFieldEntrypointsGroupRefinedU64SupportsBeforeReduction@1484",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::Axis@2980",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanFieldEntrypointsGroupRefinedU64SupportsBeforeReduction@1357",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::Law@2802",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanFieldEntrypointsGroupRefinedU64SupportsBeforeReduction@1484",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::Law@2929",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanFieldEntrypointsGroupRefinedU64SupportsBeforeReduction@1357",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuQuery@2332",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanFieldEntrypointsGroupRefinedU64SupportsBeforeReduction@1484",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuQuery@2459",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanFieldEntrypointsGroupRefinedU64SupportsBeforeReduction@1357",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanFieldEntrypointsGroupRefinedU64SupportsBeforeReduction@1484",
       "target": "Tools/sigma/generate_sigma_operators.py::SigmaGaugeCell",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanQueryContractOverflowAndWindowingMatchCpuOracle@1262",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanQueryContractOverflowAndWindowingMatchCpuOracle@1389",
       "target": "Runtime/SigmaPrism/SigmaExactBackendGate.cs::Dispatch@45",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanQueryContractOverflowAndWindowingMatchCpuOracle@1262",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanQueryContractOverflowAndWindowingMatchCpuOracle@1389",
       "target": "Runtime/SigmaPrism/SigmaNumericDomain.cs::Intersect@288",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanQueryContractOverflowAndWindowingMatchCpuOracle@1262",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanQueryContractOverflowAndWindowingMatchCpuOracle@1389",
       "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Select@182",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanQueryContractOverflowAndWindowingMatchCpuOracle@1262",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanQueryContractOverflowAndWindowingMatchCpuOracle@1389",
       "target": "Tests/Editor/SigmaMerkabaProgramTests.cs::Buffer@1302",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanQueryContractOverflowAndWindowingMatchCpuOracle@1262",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanQueryContractOverflowAndWindowingMatchCpuOracle@1389",
       "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::ContractJoint@1240",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanQueryContractOverflowAndWindowingMatchCpuOracle@1262",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanQueryContractOverflowAndWindowingMatchCpuOracle@1389",
       "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::EvaluateAndReduce@1061",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanQueryContractOverflowAndWindowingMatchCpuOracle@1262",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanQueryContractOverflowAndWindowingMatchCpuOracle@1389",
       "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::SigmaNativeDeltaWitness",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanQueryContractOverflowAndWindowingMatchCpuOracle@1262",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanQueryContractOverflowAndWindowingMatchCpuOracle@1389",
       "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::SigmaNativeOracleCell",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanQueryContractOverflowAndWindowingMatchCpuOracle@1262",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::AssertGpuShadowEqual@3034",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanQueryContractOverflowAndWindowingMatchCpuOracle@1389",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::AssertGpuShadowEqual@3161",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanQueryContractOverflowAndWindowingMatchCpuOracle@1262",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::AssertGpuShadowMatchesCpu@3054",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanQueryContractOverflowAndWindowingMatchCpuOracle@1389",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::AssertGpuShadowMatchesCpu@3181",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanQueryContractOverflowAndWindowingMatchCpuOracle@1262",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::BuildPhotometricQuery@2770",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanQueryContractOverflowAndWindowingMatchCpuOracle@1389",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::BuildPhotometricQuery@2897",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanQueryContractOverflowAndWindowingMatchCpuOracle@1262",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::Candidate@2601",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanQueryContractOverflowAndWindowingMatchCpuOracle@1389",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::Candidate@2728",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanQueryContractOverflowAndWindowingMatchCpuOracle@1262",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::Cell@2620",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanQueryContractOverflowAndWindowingMatchCpuOracle@1389",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::Cell@2747",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanQueryContractOverflowAndWindowingMatchCpuOracle@1262",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::LeftQuery@2744",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanQueryContractOverflowAndWindowingMatchCpuOracle@1389",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::LeftQuery@2871",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanQueryContractOverflowAndWindowingMatchCpuOracle@1262",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::PiecewiseLaw@2824",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanQueryContractOverflowAndWindowingMatchCpuOracle@1389",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::PiecewiseLaw@2951",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanQueryContractOverflowAndWindowingMatchCpuOracle@1262",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::RightQuery@2750",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanQueryContractOverflowAndWindowingMatchCpuOracle@1389",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::RightQuery@2877",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanQueryContractOverflowAndWindowingMatchCpuOracle@1262",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuContractOverflow@1890",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanQueryContractOverflowAndWindowingMatchCpuOracle@1389",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuContractOverflow@2017",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanQueryContractOverflowAndWindowingMatchCpuOracle@1262",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuQuery@2332",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanQueryContractOverflowAndWindowingMatchCpuOracle@1389",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuQuery@2459",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanQueryContractOverflowAndWindowingMatchCpuOracle@1262",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::Summary@2866",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanQueryContractOverflowAndWindowingMatchCpuOracle@1389",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::Summary@2993",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanQueryContractOverflowAndWindowingMatchCpuOracle@1262",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanQueryContractOverflowAndWindowingMatchCpuOracle@1389",
       "target": "Tools/sigma/generate_sigma_operators.py::SigmaGaugeCell",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanReducerHandlesMoreThan64AndSignalsBoundedColdContinuation@1557",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanReducerHandlesMoreThan64AndSignalsBoundedColdContinuation@1684",
       "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Select@182",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanReducerHandlesMoreThan64AndSignalsBoundedColdContinuation@1557",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanReducerHandlesMoreThan64AndSignalsBoundedColdContinuation@1684",
       "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::EvaluateAndReduce@1061",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanReducerHandlesMoreThan64AndSignalsBoundedColdContinuation@1557",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanReducerHandlesMoreThan64AndSignalsBoundedColdContinuation@1684",
       "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::SigmaNativeOracleCell",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanReducerHandlesMoreThan64AndSignalsBoundedColdContinuation@1557",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanReducerHandlesMoreThan64AndSignalsBoundedColdContinuation@1684",
       "target": "Tests/Editor/SigmaNativeFrameTests.cs::Count@1025",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanReducerHandlesMoreThan64AndSignalsBoundedColdContinuation@1557",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::AssertGpuShadowMatchesCpu@3054",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanReducerHandlesMoreThan64AndSignalsBoundedColdContinuation@1684",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::AssertGpuShadowMatchesCpu@3181",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanReducerHandlesMoreThan64AndSignalsBoundedColdContinuation@1557",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::LeftQuery@2744",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanReducerHandlesMoreThan64AndSignalsBoundedColdContinuation@1684",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::LeftQuery@2871",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanReducerHandlesMoreThan64AndSignalsBoundedColdContinuation@1557",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuQuery@2332",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanReducerHandlesMoreThan64AndSignalsBoundedColdContinuation@1684",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuQuery@2459",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanReducerHandlesMoreThan64AndSignalsBoundedColdContinuation@1557",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanReducerHandlesMoreThan64AndSignalsBoundedColdContinuation@1684",
       "target": "Tools/sigma/generate_sigma_operators.py::SigmaGaugeCell",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanRelationWorklistMatchesBoundedCartesianCpuCorpus@1606",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanRelationWorklistMatchesBoundedCartesianCpuCorpus@1733",
       "target": "Runtime/SigmaPrism/SigmaNumericDomain.cs::FromInteger@193",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanRelationWorklistMatchesBoundedCartesianCpuCorpus@1606",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanRelationWorklistMatchesBoundedCartesianCpuCorpus@1733",
       "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Select@182",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanRelationWorklistMatchesBoundedCartesianCpuCorpus@1606",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanRelationWorklistMatchesBoundedCartesianCpuCorpus@1733",
       "target": "Runtime/SigmaPrism/SigmaS16.cs::ToS16@170",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanRelationWorklistMatchesBoundedCartesianCpuCorpus@1606",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanRelationWorklistMatchesBoundedCartesianCpuCorpus@1733",
       "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::SigmaNativeRelationInput",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanRelationWorklistMatchesBoundedCartesianCpuCorpus@1606",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::AssertGpuRelationsMatchCpu@2206",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanRelationWorklistMatchesBoundedCartesianCpuCorpus@1733",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::AssertGpuRelationsMatchCpu@2333",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanRelationWorklistMatchesBoundedCartesianCpuCorpus@1606",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::StateRaw@2627",
+      "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanRelationWorklistMatchesBoundedCartesianCpuCorpus@1733",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::StateRaw@2754",
       "kind": "calls"
     },
     {
@@ -21845,12 +21855,12 @@
     },
     {
       "source": "Tests/Editor/SigmaNativeOracleTests.cs::WholeQueryReductionOwnsFirstHitDisjunctionAndDefault@99",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::Cell@2620",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::Cell@2747",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaNativeOracleTests.cs::WholeQueryReductionOwnsFirstHitDisjunctionAndDefault@99",
-      "target": "Tests/Editor/SigmaNativeOracleTests.cs::LeftQuery@2744",
+      "target": "Tests/Editor/SigmaNativeOracleTests.cs::LeftQuery@2871",
       "kind": "calls"
     },
     {

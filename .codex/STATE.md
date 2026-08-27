@@ -160,12 +160,16 @@ CloseNativeStitchCases       one 256-thread workgroup per bounded proof case
 The pair pass evaluates all 16 abstract sector pairs, signed-XOR transport,
 forward/reverse link, endpoint associators and exact factor receipts in parallel.
 The close pass assigns 24 chart candidates across 192 concurrent locality lanes,
-uses two fixed eight-round group-local contraction schedules, emits every surviving
-candidate and leaves non-D4-equivalent classes unresolved. The rounds are neither
-data-dependent nor host-redispatched; no cross-workgroup barrier, per-component
-submission or serial graph interpreter is hidden in the fixture. The eight-locality
-bound and 32-bit chart scratch are oracle-only; levels outside that scratch domain
-fail closed rather than clamp.
+uses two fixed eight-round group-local contraction schedules, derives transient
+components and their feasible-assignment/D4-orbit masks inside the same dispatch,
+and emits the final authoritative case disposition. Disconnected components own
+independent chart problems; joining them recomputes one common chart problem. The
+CPU harness independently compares component membership, assignment masks, orbit
+receipts and final disposition but never repairs the GPU result. The rounds are
+neither data-dependent nor host-redispatched; no cross-workgroup barrier,
+per-component submission or serial graph interpreter is hidden in the fixture.
+The eight-locality bound and 32-bit chart scratch are oracle-only; levels outside
+that scratch domain fail closed rather than clamp.
 
 ```text
 Unity 6000.5.9f1 Vulkan EditMode       80/80 passed
@@ -173,7 +177,7 @@ generator/check                        passed
 compute UAV limit                      passed (<=8)
 both stitch entrypoints SPIR-V         compiled
 new stitch uninitialized warnings      0
-test/oracle source delta               +1182 / -1
+test/oracle source delta               +1605 / -1
 Runtime/Resources production delta     +0 / -0
 production dispatch graph              unchanged (nine native submissions)
 ```

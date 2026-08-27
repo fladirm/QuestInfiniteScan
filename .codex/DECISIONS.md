@@ -494,6 +494,14 @@ branch/chart decisions remain in Git history only.
   contractions use valid group-local barriers. They are not a data-dependent
   solver, a cross-workgroup synchronization scheme or a physical component-size
   limit.
+- The set-close dispatch derives transient component membership and performs the
+  complete 24-assignment/D4 quotient independently per component. Its result
+  header is the final semantic disposition; host code may independently verify
+  component, assignment and orbit receipts but may not repair or override it.
+- Disconnected components may resolve under different non-D4 chart-orbit classes
+  because each owns an independent chart gauge. A later stitch removes that
+  independence and forces one joined chart problem, which remains unresolved when
+  no unique common orbit survives.
 - N4 may reuse the proved algebra and finite orbit semantics, but not the bounded
   case layout. Full-frame cardinality must become compact wide worklists and fixed
   global synchronization boundaries, never dispatch-per-component or a serial

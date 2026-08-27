@@ -360,7 +360,9 @@ void EvaluateNativeStitchPairs(uint3 groupId : SV_GroupID,
 #define SIGMA_NATIVE_STITCH_MAX_EDGES 12u
 #define SIGMA_NATIVE_STITCH_ASSIGNMENT_COUNT 24u
 #define SIGMA_NATIVE_STITCH_ASSIGNMENT_LANES 192u
-#define SIGMA_NATIVE_STITCH_CASE_STRIDE 193u
+#define SIGMA_NATIVE_STITCH_CANDIDATE_OFFSET 1u
+#define SIGMA_NATIVE_STITCH_COMPONENT_RECEIPT_OFFSET 193u
+#define SIGMA_NATIVE_STITCH_CASE_STRIDE 201u
 #define SIGMA_NATIVE_STITCH_PAIR_STRIDE 3u
 #define SIGMA_NATIVE_STITCH_EDGE_UNKNOWN_CONTINUATION (1u << 24u)
 
@@ -379,11 +381,28 @@ groupshared uint SigmaNativeStitchAssigned[
     SIGMA_NATIVE_STITCH_ASSIGNMENT_LANES];
 groupshared uint SigmaNativeStitchNextAssigned[
     SIGMA_NATIVE_STITCH_ASSIGNMENT_LANES];
+groupshared uint SigmaNativeStitchCanonicalD4[
+    SIGMA_NATIVE_STITCH_ASSIGNMENT_LANES];
+groupshared int2 SigmaNativeStitchCanonicalTranslation[
+    SIGMA_NATIVE_STITCH_ASSIGNMENT_LANES];
 groupshared uint SigmaNativeStitchCloseConflict[
+    SIGMA_NATIVE_STITCH_ASSIGNMENT_LANES];
+groupshared uint SigmaNativeStitchComponentMembers[
+    SIGMA_NATIVE_STITCH_MAX_NODES];
+groupshared uint SigmaNativeStitchComponentValidAssignments[
+    SIGMA_NATIVE_STITCH_MAX_NODES];
+// One bit for the lowest assignment index representing each distinct complete
+// component embedding modulo generated D4.  At most three bits survive, but the
+// 24-bit representation makes the receipt independently auditable.
+groupshared uint SigmaNativeStitchComponentOrbitRepresentatives[
+    SIGMA_NATIVE_STITCH_MAX_NODES];
+groupshared uint SigmaNativeStitchRawOrbitMembers[
     SIGMA_NATIVE_STITCH_ASSIGNMENT_COUNT];
+groupshared uint SigmaNativeStitchRawOrbitRepresentatives;
 groupshared uint SigmaNativeStitchCloseOpen;
 groupshared uint SigmaNativeStitchComponentCount;
-groupshared uint SigmaNativeStitchValidAssignmentMask;
+groupshared uint SigmaNativeStitchComponentRootMask;
+groupshared uint SigmaNativeStitchWholeUnresolved;
 groupshared uint SigmaNativeStitchLevelOverflow;
 
 int2 SigmaNativeStitchAssignmentDirection(uint assignmentIndex, uint sector,
@@ -481,6 +500,30 @@ bool SigmaNativeStitchCellsOverlap(int2 left, uint leftLevel,
         left0.y < right1.y && right0.y < left1.y;
 }
 
+bool SigmaNativeStitchBaseTranslation(int2 transformedRoot, uint rootLevel,
+    out int2 translation)
+{
+    uint rootScale = 1u << rootLevel;
+    uint rootMask = rootScale - 1u;
+    int2 delta = -transformedRoot;
+    bool divisible = (asuint(delta.x) & rootMask) == 0u &&
+        (asuint(delta.y) & rootMask) == 0u;
+    translation = delta >> rootLevel;
+    return divisible;
+}
+
+uint SigmaNativeStitchRawAssignmentOrbit(uint assignmentIndex)
+{
+    uint4 assignment = SIGMA_STITCH_NATIVE_SECTOR_CHART_ASSIGNMENTS[
+        min(assignmentIndex, SIGMA_NATIVE_STITCH_ASSIGNMENT_COUNT - 1u)];
+    uint oppositeDirection = (assignment.x + 2u) & 3u;
+    uint matchY = assignment.y == oppositeDirection ? 1u : 0u;
+    uint matchZ = assignment.z == oppositeDirection ? 1u : 0u;
+    uint matchW = assignment.w == oppositeDirection ? 1u : 0u;
+    uint orbit = matchZ + (matchW << 1u);
+    return matchY + matchZ + matchW == 1u ? orbit : 0xffffffffu;
+}
+
 // The second and only global synchronization boundary of the N2 stitch oracle.
 // One workgroup closes one bounded case.  Lanes [0,192) cover the complete
 // 24-assignment x 8-locality product, so no fixed sector chart convention and no
@@ -499,16 +542,50 @@ void CloseNativeStitchCases(uint3 groupId : SV_GroupID,
     uint edgeOffset = header.z;
     uint edgeCount = min(header.w, SIGMA_NATIVE_STITCH_MAX_EDGES);
 
-    if (threadIndex < SIGMA_NATIVE_STITCH_ASSIGNMENT_COUNT)
+    if (threadIndex < SIGMA_NATIVE_STITCH_ASSIGNMENT_LANES)
         SigmaNativeStitchCloseConflict[threadIndex] =
             header.y > SIGMA_NATIVE_STITCH_MAX_NODES ||
             header.w > SIGMA_NATIVE_STITCH_MAX_EDGES ? 1u : 0u;
+    if (threadIndex < SIGMA_NATIVE_STITCH_MAX_NODES)
+    {
+        SigmaNativeStitchComponentMembers[threadIndex] = 0u;
+        SigmaNativeStitchComponentValidAssignments[threadIndex] = 0u;
+        SigmaNativeStitchComponentOrbitRepresentatives[threadIndex] = 0u;
+    }
     if (threadIndex == 0u)
     {
         SigmaNativeStitchCloseOpen = 0u;
         SigmaNativeStitchComponentCount = 0u;
-        SigmaNativeStitchValidAssignmentMask = 0u;
+        SigmaNativeStitchComponentRootMask = 0u;
+        SigmaNativeStitchWholeUnresolved = 0u;
         SigmaNativeStitchLevelOverflow = 0u;
+        SigmaNativeStitchRawOrbitRepresentatives = 0u;
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    // D4 preserves and is transitive on a square's opposition relation.  Thus a
+    // generated 4! assignment's raw orbit is determined exactly by which native
+    // sector lies opposite sector zero.  This derives the three 8-image orbits
+    // directly from the generated assignment table without a caller-owned map.
+    if (threadIndex < SIGMA_NATIVE_STITCH_ASSIGNMENT_COUNT)
+    {
+        uint orbit = SigmaNativeStitchRawAssignmentOrbit(threadIndex);
+        uint members = 0u;
+        [loop]
+        for (uint candidate = 0u;
+             candidate < SIGMA_NATIVE_STITCH_ASSIGNMENT_COUNT; ++candidate)
+        {
+            uint candidateOrbit = SigmaNativeStitchRawAssignmentOrbit(candidate);
+            if (orbit < 3u && candidateOrbit == orbit)
+                members |= 1u << candidate;
+        }
+        SigmaNativeStitchRawOrbitMembers[threadIndex] = members;
+        uint priorMask = threadIndex == 0u ? 0u : (1u << threadIndex) - 1u;
+        if ((members & priorMask) == 0u)
+            InterlockedOr(SigmaNativeStitchRawOrbitRepresentatives,
+                1u << threadIndex);
+        if (orbit >= 3u || countbits(members) != 8u)
+            InterlockedOr(SigmaNativeStitchWholeUnresolved, 1u);
     }
     GroupMemoryBarrierWithGroupSync();
 
@@ -520,7 +597,7 @@ void CloseNativeStitchCases(uint3 groupId : SV_GroupID,
         _NativeStitchNodeHeaders[nodeOffset + threadIndex].y > 30u)
         InterlockedOr(SigmaNativeStitchLevelOverflow, 1u);
     GroupMemoryBarrierWithGroupSync();
-    if (threadIndex < SIGMA_NATIVE_STITCH_ASSIGNMENT_COUNT &&
+    if (threadIndex < SIGMA_NATIVE_STITCH_ASSIGNMENT_LANES &&
         SigmaNativeStitchLevelOverflow != 0u)
         SigmaNativeStitchCloseConflict[threadIndex] = 1u;
     GroupMemoryBarrierWithGroupSync();
@@ -602,6 +679,16 @@ void CloseNativeStitchCases(uint3 groupId : SV_GroupID,
                 SigmaNativeStitchNextLabels[threadIndex];
         GroupMemoryBarrierWithGroupSync();
     }
+
+    if (threadIndex < nodeCount)
+    {
+        uint root = SigmaNativeStitchLabels[threadIndex];
+        InterlockedOr(SigmaNativeStitchComponentMembers[root],
+            1u << threadIndex);
+        if (root == threadIndex)
+            InterlockedOr(SigmaNativeStitchComponentRootMask, 1u << root);
+    }
+    GroupMemoryBarrierWithGroupSync();
 
     if (threadIndex < SIGMA_NATIVE_STITCH_ASSIGNMENT_LANES)
     {
@@ -690,16 +777,22 @@ void CloseNativeStitchCases(uint3 groupId : SV_GroupID,
                     SigmaNativeStitchPositions[neighbourLane] + direction;
                 if (!frameValid)
                 {
+                    uint component = SigmaNativeStitchLabels[nodeIndex];
                     InterlockedOr(
-                        SigmaNativeStitchCloseConflict[assignmentIndex], 1u);
+                        SigmaNativeStitchCloseConflict[assignmentIndex *
+                            SIGMA_NATIVE_STITCH_MAX_NODES + component], 1u);
                     continue;
                 }
                 if (assigned != 0u)
                 {
                     if (any(proposedPosition != selectedPosition) ||
                         proposedFrame != selectedFrame)
+                    {
+                        uint component = SigmaNativeStitchLabels[nodeIndex];
                         InterlockedOr(
-                            SigmaNativeStitchCloseConflict[assignmentIndex], 1u);
+                            SigmaNativeStitchCloseConflict[assignmentIndex *
+                                SIGMA_NATIVE_STITCH_MAX_NODES + component], 1u);
+                    }
                 }
                 else
                 {
@@ -737,8 +830,11 @@ void CloseNativeStitchCases(uint3 groupId : SV_GroupID,
         uint nodeIndex = threadIndex % SIGMA_NATIVE_STITCH_MAX_NODES;
         if (nodeIndex < nodeCount)
         {
+        uint component = SigmaNativeStitchLabels[nodeIndex];
+        uint conflictIndex = assignmentIndex * SIGMA_NATIVE_STITCH_MAX_NODES +
+            component;
         if (SigmaNativeStitchAssigned[threadIndex] == 0u)
-            InterlockedOr(SigmaNativeStitchCloseConflict[assignmentIndex], 1u);
+            InterlockedOr(SigmaNativeStitchCloseConflict[conflictIndex], 1u);
         [unroll]
         for (uint peer = 0u; peer < SIGMA_NATIVE_STITCH_MAX_NODES; ++peer)
         {
@@ -754,26 +850,224 @@ void CloseNativeStitchCases(uint3 groupId : SV_GroupID,
                     SigmaNativeStitchPositions[threadIndex], leftNode.y,
                     SigmaNativeStitchPositions[peerLane], rightNode.y))
                 InterlockedOr(
-                    SigmaNativeStitchCloseConflict[assignmentIndex], 1u);
+                    SigmaNativeStitchCloseConflict[conflictIndex], 1u);
         }
         }
     }
     GroupMemoryBarrierWithGroupSync();
 
-    if (threadIndex < SIGMA_NATIVE_STITCH_ASSIGNMENT_COUNT &&
-        SigmaNativeStitchCloseOpen == 0u &&
-        SigmaNativeStitchCloseConflict[threadIndex] == 0u)
-        InterlockedOr(SigmaNativeStitchValidAssignmentMask, 1u << threadIndex);
+    // Feasibility belongs to each transient stitch-connected component.  One
+    // assignment may fail in component A and remain exact in disconnected B.
+    if (threadIndex < SIGMA_NATIVE_STITCH_ASSIGNMENT_LANES)
+    {
+        uint assignmentIndex = threadIndex / SIGMA_NATIVE_STITCH_MAX_NODES;
+        uint nodeIndex = threadIndex % SIGMA_NATIVE_STITCH_MAX_NODES;
+        if (nodeIndex < nodeCount &&
+            SigmaNativeStitchLabels[nodeIndex] == nodeIndex &&
+            SigmaNativeStitchCloseConflict[threadIndex] == 0u)
+            InterlockedOr(SigmaNativeStitchComponentValidAssignments[nodeIndex],
+                1u << assignmentIndex);
+    }
     GroupMemoryBarrierWithGroupSync();
 
-    uint resolution = SigmaNativeStitchCloseOpen != 0u ||
-            SigmaNativeStitchValidAssignmentMask == 0u
+    // Canonicalize each component/assignment once under all eight generated D4
+    // images.  Root lanes choose a transform; all locality lanes then apply it
+    // concurrently.  The next arrays are dead propagation scratch at this point
+    // and are deliberately reused rather than allocating another graph buffer.
+    if (threadIndex < SIGMA_NATIVE_STITCH_ASSIGNMENT_LANES)
+    {
+        uint assignmentIndex = threadIndex / SIGMA_NATIVE_STITCH_MAX_NODES;
+        uint componentRoot = threadIndex % SIGMA_NATIVE_STITCH_MAX_NODES;
+        uint validMask = componentRoot < nodeCount &&
+                SigmaNativeStitchLabels[componentRoot] == componentRoot
+            ? SigmaNativeStitchComponentValidAssignments[componentRoot] : 0u;
+        bool root = componentRoot < nodeCount &&
+            SigmaNativeStitchLabels[componentRoot] == componentRoot;
+        bool haveBest = false;
+        uint bestD4 = 0u;
+        int2 bestTranslation = int2(0, 0);
+        if (root && (validMask & (1u << assignmentIndex)) != 0u)
+        {
+            uint rootLane = assignmentIndex * SIGMA_NATIVE_STITCH_MAX_NODES +
+                componentRoot;
+            uint rootLevel = _NativeStitchNodeHeaders[
+                nodeOffset + componentRoot].y;
+            [unroll]
+            for (uint d4 = 0u; d4 < 8u; ++d4)
+            {
+                uint transformValid = 1u;
+                int2 transformedRoot = SigmaMerkabaTransformChartCellLower(
+                    SigmaNativeStitchPositions[rootLane], d4, transformValid);
+                int2 candidateTranslation;
+                bool candidateValid = transformValid != 0u &&
+                    SigmaNativeStitchBaseTranslation(transformedRoot, rootLevel,
+                        candidateTranslation);
+                bool candidateLess = !haveBest;
+                bool decided = !haveBest;
+                [unroll]
+                for (uint node = 0u; node < SIGMA_NATIVE_STITCH_MAX_NODES; ++node)
+                {
+                    if (!candidateValid || decided || node >= nodeCount ||
+                        SigmaNativeStitchLabels[node] != componentRoot)
+                        continue;
+                    uint lane = assignmentIndex *
+                        SIGMA_NATIVE_STITCH_MAX_NODES + node;
+                    uint level = _NativeStitchNodeHeaders[nodeOffset + node].y;
+                    uint leftValid = 1u;
+                    uint rightValid = 1u;
+                    int2 candidate = SigmaMerkabaTransformChartCellLower(
+                            SigmaNativeStitchPositions[lane], d4, leftValid) +
+                        (candidateTranslation << level);
+                    int2 best = SigmaMerkabaTransformChartCellLower(
+                            SigmaNativeStitchPositions[lane], bestD4,
+                            rightValid) + (bestTranslation << level);
+                    candidateValid = candidateValid && leftValid != 0u &&
+                        rightValid != 0u;
+                    if (candidate.x != best.x)
+                    {
+                        candidateLess = candidate.x < best.x;
+                        decided = true;
+                    }
+                    else if (candidate.y != best.y)
+                    {
+                        candidateLess = candidate.y < best.y;
+                        decided = true;
+                    }
+                }
+                if (candidateValid && candidateLess)
+                {
+                    haveBest = true;
+                    bestD4 = d4;
+                    bestTranslation = candidateTranslation;
+                }
+            }
+        }
+        SigmaNativeStitchCanonicalD4[threadIndex] = bestD4;
+        SigmaNativeStitchCanonicalTranslation[threadIndex] = bestTranslation;
+        if (root && (validMask & (1u << assignmentIndex)) != 0u && !haveBest)
+            InterlockedOr(SigmaNativeStitchWholeUnresolved, 1u);
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    if (threadIndex < SIGMA_NATIVE_STITCH_ASSIGNMENT_LANES)
+    {
+        uint assignmentIndex = threadIndex / SIGMA_NATIVE_STITCH_MAX_NODES;
+        uint nodeIndex = threadIndex % SIGMA_NATIVE_STITCH_MAX_NODES;
+        if (nodeIndex < nodeCount)
+        {
+            uint componentRoot = SigmaNativeStitchLabels[nodeIndex];
+            uint rootLane = assignmentIndex * SIGMA_NATIVE_STITCH_MAX_NODES +
+                componentRoot;
+            uint transformValid = 1u;
+            uint level = _NativeStitchNodeHeaders[nodeOffset + nodeIndex].y;
+            SigmaNativeStitchNextPositions[threadIndex] =
+                SigmaMerkabaTransformChartCellLower(
+                    SigmaNativeStitchPositions[threadIndex],
+                    SigmaNativeStitchCanonicalD4[rootLane], transformValid) +
+                (SigmaNativeStitchCanonicalTranslation[rootLane] << level);
+            if (transformValid == 0u)
+                InterlockedOr(SigmaNativeStitchWholeUnresolved, 1u);
+        }
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    // One root lane per transient component compares only the three generated
+    // raw-orbit representatives.  Components execute concurrently; there is no
+    // cross-component atomic election, host repair or component dispatch loop.
+    if (threadIndex < nodeCount &&
+        SigmaNativeStitchLabels[threadIndex] == threadIndex)
+    {
+        uint componentRoot = threadIndex;
+        uint validMask = SigmaNativeStitchComponentValidAssignments[componentRoot];
+        uint componentOrbitMask = 0u;
+        [loop]
+        for (uint assignmentIndex = 0u;
+             assignmentIndex < SIGMA_NATIVE_STITCH_ASSIGNMENT_COUNT;
+             ++assignmentIndex)
+        {
+            if ((SigmaNativeStitchRawOrbitRepresentatives &
+                    (1u << assignmentIndex)) == 0u)
+                continue;
+            uint rawMembers = SigmaNativeStitchRawOrbitMembers[assignmentIndex];
+            uint survivingMembers = validMask & rawMembers;
+            if (survivingMembers != 0u && survivingMembers != rawMembers)
+            {
+                InterlockedOr(SigmaNativeStitchWholeUnresolved, 1u);
+                continue;
+            }
+            if (survivingMembers == 0u)
+                continue;
+            bool representative = true;
+            [loop]
+            for (uint prior = 0u;
+                 prior < SIGMA_NATIVE_STITCH_ASSIGNMENT_COUNT; ++prior)
+            {
+                if (!representative || prior >= assignmentIndex ||
+                (SigmaNativeStitchRawOrbitRepresentatives &
+                    (1u << prior)) == 0u)
+                    continue;
+                uint priorMembers = SigmaNativeStitchRawOrbitMembers[prior];
+                if ((validMask & priorMembers) != priorMembers)
+                    continue;
+                bool equal = true;
+                [unroll]
+                for (uint node = 0u; node < SIGMA_NATIVE_STITCH_MAX_NODES;
+                     ++node)
+                {
+                    if (node >= nodeCount ||
+                        SigmaNativeStitchLabels[node] != componentRoot)
+                        continue;
+                    uint priorLane = prior * SIGMA_NATIVE_STITCH_MAX_NODES + node;
+                    uint currentLane = assignmentIndex *
+                        SIGMA_NATIVE_STITCH_MAX_NODES + node;
+                    equal = equal && all(
+                        SigmaNativeStitchNextPositions[priorLane] ==
+                        SigmaNativeStitchNextPositions[currentLane]);
+                }
+                if (equal)
+                    representative = false;
+            }
+            if (representative)
+                componentOrbitMask |= 1u << assignmentIndex;
+        }
+        SigmaNativeStitchComponentOrbitRepresentatives[componentRoot] =
+            componentOrbitMask;
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    if (threadIndex < nodeCount &&
+        SigmaNativeStitchLabels[threadIndex] == threadIndex)
+    {
+        uint validMask = SigmaNativeStitchComponentValidAssignments[threadIndex];
+        uint orbitMask =
+            SigmaNativeStitchComponentOrbitRepresentatives[threadIndex];
+        if (validMask == 0u || countbits(orbitMask) != 1u)
+            InterlockedOr(SigmaNativeStitchWholeUnresolved, 1u);
+    }
+    if (threadIndex == 0u && SigmaNativeStitchCloseOpen != 0u)
+        SigmaNativeStitchWholeUnresolved = 1u;
+    GroupMemoryBarrierWithGroupSync();
+
+    uint resolution = SigmaNativeStitchWholeUnresolved != 0u
         ? SIGMA_STITCH_UNRESOLVED : SIGMA_STITCH_RESOLVED;
     uint caseOutput = caseIndex * SIGMA_NATIVE_STITCH_CASE_STRIDE;
     if (threadIndex == 0u)
         _NativeStitchCaseResults[caseOutput] = uint4(resolution,
             SigmaNativeStitchComponentCount, nodeCount,
-            SigmaNativeStitchValidAssignmentMask);
+            SigmaNativeStitchComponentRootMask);
+
+    if (threadIndex < SIGMA_NATIVE_STITCH_MAX_NODES)
+    {
+        bool root = threadIndex < nodeCount &&
+            SigmaNativeStitchLabels[threadIndex] == threadIndex;
+        _NativeStitchCaseResults[caseOutput +
+            SIGMA_NATIVE_STITCH_COMPONENT_RECEIPT_OFFSET + threadIndex] = root
+            ? uint4(threadIndex,
+                SigmaNativeStitchComponentMembers[threadIndex],
+                SigmaNativeStitchComponentValidAssignments[threadIndex],
+                SigmaNativeStitchComponentOrbitRepresentatives[threadIndex])
+            : uint4(0xffffffffu, 0u, 0u, 0u);
+    }
 
     // Emit every one of the 24 candidate assignments after component translation
     // normalization.  The harness groups the eight D4 images of each orbit and
@@ -784,7 +1078,8 @@ void CloseNativeStitchCases(uint3 groupId : SV_GroupID,
         uint nodeIndex = threadIndex % SIGMA_NATIVE_STITCH_MAX_NODES;
         if (nodeIndex < nodeCount)
         {
-            uint valid = (SigmaNativeStitchValidAssignmentMask &
+            uint component = SigmaNativeStitchLabels[nodeIndex];
+            uint valid = (SigmaNativeStitchComponentValidAssignments[component] &
                 (1u << assignmentIndex)) != 0u ? 1u : 0u;
             uint anchor = nodeIndex;
             [unroll]
@@ -819,7 +1114,8 @@ void CloseNativeStitchCases(uint3 groupId : SV_GroupID,
             int2 normalized = SigmaNativeStitchPositions[threadIndex] -
                 (translation << level);
             uint tag = _NativeStitchNodeHeaders[nodeOffset + nodeIndex].z;
-            _NativeStitchCaseResults[caseOutput + 1u +
+            _NativeStitchCaseResults[caseOutput +
+                SIGMA_NATIVE_STITCH_CANDIDATE_OFFSET +
                 assignmentIndex * SIGMA_NATIVE_STITCH_MAX_NODES + nodeIndex] =
                 uint4(asuint(normalized.x), asuint(normalized.y), level,
                     valid != 0u ? tag : 0xffffffffu);
