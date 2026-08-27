@@ -16,7 +16,11 @@ namespace Genesis.RoomScan.SigmaPrism
         internal const int LiveFreshBranchCount = 1;
         internal const int RelationCapacity = LiveFreshBranchCount * 2;
         internal const int StatesPerSlot = LiveFreshBranchCount + 3;
-        internal const int RepresentationDeltaCapacity = 4;
+        // One bounded full-frame close can replace every admitted locality by
+        // its four exact dyadic children.  This is a capacity, never a physical
+        // identity or a reason to change the fixed dispatch graph.
+        internal const int MaximumMutationsPerFootprint = 4;
+        internal const int LegacyCertificatePrefixWordCount = 5 * 16;
         internal const int CertificateWordCount = 16;
         internal const int FootprintEvidenceWordCount = 52;
         internal const int BoundaryReceiptWordCount = 6;
@@ -44,11 +48,14 @@ namespace Genesis.RoomScan.SigmaPrism
             if (resolution.x <= 0 || resolution.y <= 0)
                 throw new ArgumentOutOfRangeException(nameof(resolution));
             FootprintCapacity = checked(resolution.x * resolution.y);
+            MutationCapacity = Math.Max(checked(FootprintCapacity *
+                MaximumMutationsPerFootprint),
+                checked((SigmaCarrier.MaximumPagesPerSegment / 2) *
+                    SigmaCarrier.SamplesPerPage));
             BoundaryCapacity = checked((resolution.x - 1) * resolution.y +
                 resolution.x * (resolution.y - 1));
             FootprintStateOffset = StatesPerSlot * SigmaS16.LaneCount;
-            FootprintCertificateOffset =
-                (RepresentationDeltaCapacity + 1) * CertificateWordCount;
+            FootprintCertificateOffset = LegacyCertificatePrefixWordCount;
             BoundaryScratchOffset = checked(FootprintCapacity *
                 FootprintEvidenceWordCount);
             TileCountX = checked((resolution.x + TileSize - 1) / TileSize);
@@ -78,9 +85,24 @@ namespace Genesis.RoomScan.SigmaPrism
                 TileBorderComponentCapacity);
             GlobalTransformScratchOffset = checked(GlobalParentScratchOffset +
                 GlobalBorderComponentCapacity);
-            int closeScratchCount = checked(GlobalTransformScratchOffset +
+            PagePlanScratchOffset = checked(GlobalTransformScratchOffset +
                 GlobalBorderComponentCapacity * ChartOrbitCount *
                     GlobalTransformWordCount);
+            PagePlanCapacity = SigmaCarrier.MaximumPagesPerSegment / 2;
+            PagePlanWordCount = 4;
+            CanonicalComponentScratchOffset = checked(PagePlanScratchOffset +
+                PagePlanCapacity * PagePlanWordCount);
+            CanonicalComponentCapacity = checked(GlobalBorderComponentCapacity +
+                TileCapacity * TileFootprintCapacity);
+            CanonicalComponentWordCount = 10;
+            CanonicalImageScratchOffset = checked(
+                CanonicalComponentScratchOffset +
+                CanonicalComponentCapacity * CanonicalComponentWordCount);
+            CanonicalImageStride = NextPowerOfTwo(FootprintCapacity);
+            CanonicalRankScratchOffset = checked(CanonicalImageScratchOffset +
+                CanonicalImageStride * 10);
+            int closeScratchCount = checked(CanonicalRankScratchOffset +
+                CanonicalImageStride);
             NativeFrame = Buffer<SigmaNativeFrameGpu>(1,
                 SigmaGeneratedFrame.NativeFrameStride, $"native frame {index}");
             // Index zero remains the accepted N3 terminal consumer during CUT A;
@@ -117,18 +139,19 @@ namespace Genesis.RoomScan.SigmaPrism
                 $"native branch predictions {index}");
 
             StateDelta = Buffer<SigmaNativeStateDeltaGpu>(
-                RepresentationDeltaCapacity,
+                MutationCapacity,
                 SigmaGeneratedFrame.NativeStateDeltaStride,
                 $"native state delta {index}");
             GaugeDelta = Buffer<SigmaNativeGaugeDeltaGpu>(
-                RepresentationDeltaCapacity,
+                MutationCapacity,
                 SigmaGeneratedFrame.NativeGaugeDeltaStride,
                 $"native gauge delta {index}");
             LocalityCertificateWords = CreateUInt4Buffer(
                 checked(FootprintCertificateOffset + FootprintCapacity *
                     CertificateWordCount),
                 $"native locality certificates {index}");
-            Unresolved = Buffer<SigmaUnresolvedConstraintGpu>(1,
+            Unresolved = Buffer<SigmaUnresolvedConstraintGpu>(
+                FootprintCapacity,
                 SigmaGeneratedFrame.UnresolvedConstraintStride,
                 $"native unresolved constraint {index}");
             Revisions = Buffer<SigmaNativeFieldRevisionGpu>(2,
@@ -146,6 +169,7 @@ namespace Genesis.RoomScan.SigmaPrism
         internal GraphicsBuffer CloseScratch { get; }
         internal int FootprintCapacity { get; }
         internal int BoundaryCapacity { get; }
+        internal int MutationCapacity { get; }
         internal int FootprintStateOffset { get; }
         internal int FootprintCertificateOffset { get; }
         internal int BoundaryScratchOffset { get; }
@@ -162,6 +186,15 @@ namespace Genesis.RoomScan.SigmaPrism
         internal int GlobalParentScratchOffset { get; }
         internal int GlobalTransformScratchOffset { get; }
         internal int GlobalBorderComponentCapacity { get; }
+        internal int PagePlanScratchOffset { get; }
+        internal int PagePlanCapacity { get; }
+        internal int PagePlanWordCount { get; }
+        internal int CanonicalComponentScratchOffset { get; }
+        internal int CanonicalComponentCapacity { get; }
+        internal int CanonicalComponentWordCount { get; }
+        internal int CanonicalImageScratchOffset { get; }
+        internal int CanonicalImageStride { get; }
+        internal int CanonicalRankScratchOffset { get; }
         internal GraphicsBuffer States { get; }
         internal GraphicsBuffer RelationInputs { get; }
         internal GraphicsBuffer RelationPlans { get; }
@@ -253,6 +286,14 @@ namespace Genesis.RoomScan.SigmaPrism
         private static GraphicsBuffer UInt2(int count, string name) =>
             new(GraphicsBuffer.Target.Structured, Math.Max(1, count),
                 sizeof(uint) * 2) { name = name };
+
+        private static int NextPowerOfTwo(int value)
+        {
+            int result = 1;
+            while (result < value)
+                result = checked(result << 1);
+            return result;
+        }
 
         private static GraphicsBuffer Buffer<T>(int count, int stride,
             string name) where T : struct

@@ -3,8 +3,10 @@
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Numerics;
+using System.Text;
 
 namespace Genesis.RoomScan.SigmaPrism
 {
@@ -610,19 +612,23 @@ namespace Genesis.RoomScan.SigmaPrism
     {
         internal SigmaStitchPattern(SigmaStitchResolution resolution,
             IReadOnlyList<SigmaGaugeCell> packedCells, int componentCount,
-            string canonicalSerialization, int embeddingClassCount = 0)
+            string canonicalSerialization, int embeddingClassCount = 0,
+            IReadOnlyList<byte> canonicalTokens = null)
         {
             Resolution = resolution;
             PackedCells = packedCells ?? Array.Empty<SigmaGaugeCell>();
             ComponentCount = componentCount;
             CanonicalSerialization = canonicalSerialization ?? string.Empty;
             EmbeddingClassCount = embeddingClassCount;
+            CanonicalTokens = canonicalTokens?.ToArray() ??
+                Encoding.ASCII.GetBytes(CanonicalSerialization);
         }
         internal SigmaStitchResolution Resolution { get; }
         internal IReadOnlyList<SigmaGaugeCell> PackedCells { get; }
         internal int ComponentCount { get; }
         internal string CanonicalSerialization { get; }
         internal int EmbeddingClassCount { get; }
+        internal byte[] CanonicalTokens { get; }
     }
 
     internal enum SigmaInstrumentLeafKind : uint
@@ -816,13 +822,13 @@ namespace Genesis.RoomScan.SigmaPrism
     {
         internal const string ProgramVersion = "CPQ4-S16-MERKABA-N1R-8";
         internal const string NumericDomainId = "num.fixed.q16_48.checked.nearest_even";
-        internal const string ProgramFingerprint = "21a3ec65bce186e2157409f8775c773597b8c632a67158f35ee0ca01484203c4";
+        internal const string ProgramFingerprint = "7930afb163870e9bf1d53867b59f25f28277ca17c58b888df29bf378e69fe192";
         internal const string CaptureBoundaryFingerprint =
             "2b492bf2deba23077ff873275f8672a3949e460a2b1ec2429c199fcd62691ba2";
         internal const int CaptureBoundaryLeafCount =
             8;
         internal const string DeclaredToeUpstreamFingerprint = "9d2e3604846305cfe5244a4ef49f169632c60582cf895256fadc36426dc5786f";
-        internal const string GeneratorSourceInputFingerprint = "2e96a23f32788beb185f36b8ec86bc20d2a6cfb87fe950e6f1c2f351e72a2d6c";
+        internal const string GeneratorSourceInputFingerprint = "07eb50fc062bbdb0f0fd98010133f3142e8f82a68a7e9d778c8149fca20bd17c";
         internal const string ToeCapsuleInputFingerprint = "9cdc8b1f3bfecfa3a49805be82ea786cdbf681ee8ffbdab0733d18dc24cfffef";
         internal const string ToeUpstreamDeclaredInputFingerprint = "9d2e3604846305cfe5244a4ef49f169632c60582cf895256fadc36426dc5786f";
         internal const string IQInputFingerprint = "4c811586dc37d02991815629990c9410da3840364d35373008fdba4c2afdeb68";
@@ -1172,6 +1178,80 @@ namespace Genesis.RoomScan.SigmaPrism
             return CanonicalNativeSectorChartAssignment(
                 NativeSectorChartAssignments[assignmentIndex]);
         }
+
+        private sealed class SigmaCanonicalTokenWriter
+        {
+            private readonly List<byte> _tokens = new List<byte>(512);
+
+            internal void Character(char value)
+            {
+                if (value > 0x7f)
+                    throw new ArgumentOutOfRangeException(nameof(value));
+                _tokens.Add((byte)value);
+            }
+
+            internal void Text(string value)
+            {
+                if (value == null) throw new ArgumentNullException(nameof(value));
+                foreach (char character in value)
+                    Character(character);
+            }
+
+            internal void Decimal(long value) => Text(value.ToString(
+                CultureInfo.InvariantCulture));
+
+            internal void Decimal(uint value) => Text(value.ToString(
+                CultureInfo.InvariantCulture));
+
+            internal void Hex64(ulong value)
+            {
+                for (int shift = 60; shift >= 0; shift -= 4)
+                {
+                    int nibble = (int)((value >> shift) & 15UL);
+                    Character((char)(nibble < 10 ? '0' + nibble :
+                        'a' + nibble - 10));
+                }
+            }
+
+            internal void Hex32(uint value)
+            {
+                for (int shift = 28; shift >= 0; shift -= 4)
+                {
+                    int nibble = (int)((value >> shift) & 15u);
+                    Character((char)(nibble < 10 ? '0' + nibble :
+                        'a' + nibble - 10));
+                }
+            }
+
+            internal void Tokens(IReadOnlyList<byte> values)
+            {
+                if (values == null) throw new ArgumentNullException(nameof(values));
+                for (int index = 0; index < values.Count; ++index)
+                    _tokens.Add(values[index]);
+            }
+
+            internal byte[] ToArray() => _tokens.ToArray();
+            internal string ToAscii() =>
+                Encoding.ASCII.GetString(_tokens.ToArray());
+        }
+
+        internal static int CompareCanonicalTokens(
+            IReadOnlyList<byte> left, IReadOnlyList<byte> right)
+        {
+            if (left == null) throw new ArgumentNullException(nameof(left));
+            if (right == null) throw new ArgumentNullException(nameof(right));
+            int shared = Math.Min(left.Count, right.Count);
+            for (int index = 0; index < shared; ++index)
+            {
+                if (left[index] < right[index]) return -1;
+                if (left[index] > right[index]) return 1;
+            }
+            return left.Count.CompareTo(right.Count);
+        }
+
+        internal static int CompareCompleteCanonicalComponentImage(
+            SigmaStitchPattern left, SigmaStitchPattern right) =>
+            CompareCanonicalTokens(left.CanonicalTokens, right.CanonicalTokens);
 
         internal static int BasisSign(int left, int right)
         {
@@ -1932,9 +2012,11 @@ namespace Genesis.RoomScan.SigmaPrism
                 IReadOnlyList<SigmaGaugeCell> cells)
             {
                 Canonical = canonical;
+                CanonicalTokens = Encoding.ASCII.GetBytes(canonical);
                 Cells = cells?.ToArray() ?? Array.Empty<SigmaGaugeCell>();
             }
             internal string Canonical { get; }
+            internal byte[] CanonicalTokens { get; }
             internal SigmaGaugeCell[] Cells { get; }
         }
 
@@ -2084,8 +2166,8 @@ namespace Genesis.RoomScan.SigmaPrism
                 }
                 components.Add(componentForm);
             }
-            components.Sort((left, right) => string.CompareOrdinal(
-                left.Canonical, right.Canonical));
+            components.Sort((left, right) => CompareCanonicalTokens(
+                left.CanonicalTokens, right.CanonicalTokens));
 
             var packed = new List<SigmaGaugeCell>();
             long cursor = 0L;
@@ -2110,19 +2192,25 @@ namespace Genesis.RoomScan.SigmaPrism
             }
             string canonical = string.Join("||", components.Select(value =>
                 value.Canonical));
+            var canonicalWriter = new SigmaCanonicalTokenWriter();
+            for (int component = 0; component < components.Count; ++component)
+            {
+                if (component != 0) canonicalWriter.Text("||");
+                canonicalWriter.Tokens(components[component].CanonicalTokens);
+            }
             pattern = new SigmaStitchPattern(SigmaStitchResolution.Resolved,
                 packed.OrderBy(value => value.Level).ThenBy(value => value.U)
                     .ThenBy(value => value.V).ThenBy(value =>
                         value.PayloadFingerprint, StringComparer.Ordinal).ToArray(),
-                componentCount, canonical, 1);
+                componentCount, canonical, 1, canonicalWriter.ToArray());
             return true;
         }
 
         internal static string CanonicalStitchSerialization(
             SigmaResolvedStitch stitch)
         {
-            string contact = string.Join("|", stitch.Boundary.ContactBranches
-                .Select(value => value.CanonicalSerialization));
+            string contact = Encoding.ASCII.GetString(
+                CanonicalContactTokens(stitch.Boundary));
             // A resolved abstract incidence and its exact reversal are the same
             // undirected stitch.  Direction remains present in both serialized
             // receipt halves; it must not leak endpoint enumeration order into
@@ -2193,9 +2281,10 @@ namespace Genesis.RoomScan.SigmaPrism
                             normalizedPositions))
                     .OrderBy(value => value, StringComparer.Ordinal));
                 string canonical = $"{cellBytes}#{edgeBytes}";
-                if (best == null || string.CompareOrdinal(canonical,
-                        best.Canonical) < 0)
-                    best = new SigmaComponentNormalForm(canonical, normalized);
+                var candidate = new SigmaComponentNormalForm(canonical, normalized);
+                if (best == null || CompareCanonicalTokens(
+                        candidate.CanonicalTokens, best.CanonicalTokens) < 0)
+                    best = candidate;
             }
             return best ?? throw new InvalidOperationException(
                 "D4 chart orbit was empty.");
@@ -2249,16 +2338,52 @@ namespace Genesis.RoomScan.SigmaPrism
             return string.CompareOrdinal(forward, reverse) <= 0 ? forward : reverse;
         }
 
-        private static string CanonicalStitchReceiptSerialization(
+        private static byte[] CanonicalContactTokens(
+            SigmaImplicitBoundaryRef boundary)
+        {
+            var writer = new SigmaCanonicalTokenWriter();
+            for (int branch = 0; branch < boundary.ContactBranches.Length;
+                 ++branch)
+            {
+                if (branch != 0) writer.Character('|');
+                SigmaStitchContactBranch contact = boundary.ContactBranches[branch];
+                for (int axis = 0; axis < contact.RoomBounds.Length; ++axis)
+                {
+                    if (axis != 0) writer.Character(',');
+                    writer.Hex64(unchecked((ulong)contact.RoomBounds[axis].Lower));
+                    writer.Character('-');
+                    writer.Hex64(unchecked((ulong)contact.RoomBounds[axis].Upper));
+                }
+            }
+            return writer.ToArray();
+        }
+
+        internal static string CanonicalStitchReceiptSerialization(
             SigmaStitchRelationReceipt receipt)
         {
-            string forward = DirectedStitchWitnessSerialization(receipt, true);
-            string reverse = DirectedStitchWitnessSerialization(receipt, false);
-            return string.CompareOrdinal(forward, reverse) <= 0
-                ? $"{forward}/{reverse}" : $"{reverse}/{forward}";
+            return Encoding.ASCII.GetString(
+                CanonicalStitchReceiptTokens(receipt));
+        }
+
+        internal static byte[] CanonicalStitchReceiptTokens(
+            SigmaStitchRelationReceipt receipt)
+        {
+            byte[] forward = DirectedStitchWitnessTokens(receipt, true);
+            byte[] reverse = DirectedStitchWitnessTokens(receipt, false);
+            var writer = new SigmaCanonicalTokenWriter();
+            bool forwardFirst = CompareCanonicalTokens(forward, reverse) <= 0;
+            writer.Tokens(forwardFirst ? forward : reverse);
+            writer.Character('/');
+            writer.Tokens(forwardFirst ? reverse : forward);
+            return writer.ToArray();
         }
 
         private static string DirectedStitchWitnessSerialization(
+            SigmaStitchRelationReceipt receipt, bool forward) =>
+            Encoding.ASCII.GetString(DirectedStitchWitnessTokens(receipt,
+                forward));
+
+        private static byte[] DirectedStitchWitnessTokens(
             SigmaStitchRelationReceipt receipt, bool forward)
         {
             SigmaS16 link = forward ? receipt.LinkDefect :
@@ -2283,16 +2408,33 @@ namespace Genesis.RoomScan.SigmaPrism
                 receipt.LeftSector;
             int sign = forward ? receipt.ForwardTransportSign :
                 receipt.ReverseTransportSign;
-            return $"{(uint)from}>{(uint)to}:" +
-                $"{receipt.TransportAddress}:{sign}:" +
-                CanonicalDirectionalFactorSerialization(link, associatorProfile,
-                    normalizedLink, normalizedAssociatorProfile, linkClass,
-                    associatorProfileClasses, associatorClass) +
-                $":{(uint)receipt.ClosureClass}:" +
-                $"{(uint)receipt.RelationClass}:" +
-                $"{(receipt.NonzeroAssociatorProfile ? 1 : 0)}:" +
-                $"{receipt.BracketFingerprint:x16}:" +
-                receipt.ProvenanceFingerprint;
+            int annihilator = forward ? receipt.ExactAnnihilatorAction :
+                receipt.ReverseExactAnnihilatorAction;
+            var writer = new SigmaCanonicalTokenWriter();
+            writer.Decimal((uint)from);
+            writer.Character('>');
+            writer.Decimal((uint)to);
+            writer.Character(':');
+            writer.Decimal((uint)receipt.TransportAddress);
+            writer.Character(':');
+            writer.Decimal(sign);
+            writer.Character(':');
+            WriteCanonicalDirectionalFactor(writer, link, associatorProfile,
+                normalizedLink, normalizedAssociatorProfile, linkClass,
+                associatorProfileClasses, associatorClass);
+            writer.Character(':');
+            writer.Decimal((uint)receipt.ClosureClass);
+            writer.Character(':');
+            writer.Decimal((uint)receipt.RelationClass);
+            writer.Character(':');
+            writer.Decimal(receipt.NonzeroAssociatorProfile ? 1u : 0u);
+            writer.Character(':');
+            writer.Decimal(annihilator);
+            writer.Character(':');
+            writer.Hex64(receipt.BracketFingerprint);
+            writer.Character(':');
+            writer.Text(receipt.ProvenanceFingerprint);
+            return writer.ToArray();
         }
 
         private static string CanonicalDirectionalFactorSerialization(
@@ -2303,19 +2445,61 @@ namespace Genesis.RoomScan.SigmaPrism
             IReadOnlyList<SigmaExactFactorClass> associatorProfileClasses,
             SigmaExactFactorClass associatorClass)
         {
-            string Raw(SigmaS16 value) => string.Join(",", value.ToArray().Select(
-                lane => unchecked((ulong)lane).ToString("x16")));
-            string Intervals(IReadOnlyList<SigmaQ48Interval> values) =>
-                string.Join(",", values.Select(value =>
-                    $"{unchecked((ulong)value.Lower):x16}-" +
-                    $"{unchecked((ulong)value.Upper):x16}"));
-            string profile = string.Join(";", Enumerable.Range(0,
-                SigmaS16.LaneCount).Select(context =>
-                    $"{context}:{(uint)associatorProfileClasses[context]}:" +
-                    $"{Raw(associatorProfile[context])}:" +
-                    Intervals(normalizedAssociatorProfile[context])));
-            return $"{(uint)linkClass}:{Raw(link)}:{Intervals(normalizedLink)}:" +
-                $"{(uint)associatorClass}:[{profile}]";
+            var writer = new SigmaCanonicalTokenWriter();
+            WriteCanonicalDirectionalFactor(writer, link, associatorProfile,
+                normalizedLink, normalizedAssociatorProfile, linkClass,
+                associatorProfileClasses, associatorClass);
+            return writer.ToAscii();
+        }
+
+        private static void WriteCanonicalDirectionalFactor(
+            SigmaCanonicalTokenWriter writer, SigmaS16 link,
+            IReadOnlyList<SigmaS16> associatorProfile,
+            IReadOnlyList<SigmaQ48Interval> normalizedLink,
+            IReadOnlyList<SigmaQ48Interval[]> normalizedAssociatorProfile,
+            SigmaExactFactorClass linkClass,
+            IReadOnlyList<SigmaExactFactorClass> associatorProfileClasses,
+            SigmaExactFactorClass associatorClass)
+        {
+            void Raw(SigmaS16 value)
+            {
+                for (int lane = 0; lane < SigmaS16.LaneCount; ++lane)
+                {
+                    if (lane != 0) writer.Character(',');
+                    writer.Hex64(unchecked((ulong)value[lane]));
+                }
+            }
+            void Intervals(IReadOnlyList<SigmaQ48Interval> values)
+            {
+                for (int lane = 0; lane < values.Count; ++lane)
+                {
+                    if (lane != 0) writer.Character(',');
+                    writer.Hex64(unchecked((ulong)values[lane].Lower));
+                    writer.Character('-');
+                    writer.Hex64(unchecked((ulong)values[lane].Upper));
+                }
+            }
+            writer.Decimal((uint)linkClass);
+            writer.Character(':');
+            Raw(link);
+            writer.Character(':');
+            Intervals(normalizedLink);
+            writer.Character(':');
+            writer.Decimal((uint)associatorClass);
+            writer.Character(':');
+            writer.Character('[');
+            for (int context = 0; context < SigmaS16.LaneCount; ++context)
+            {
+                if (context != 0) writer.Character(';');
+                writer.Decimal((uint)context);
+                writer.Character(':');
+                writer.Decimal((uint)associatorProfileClasses[context]);
+                writer.Character(':');
+                Raw(associatorProfile[context]);
+                writer.Character(':');
+                Intervals(normalizedAssociatorProfile[context]);
+            }
+            writer.Character(']');
         }
 
         private static SigmaS16 ApplyNativeStitchTransport(SigmaS16 state,

@@ -2329,8 +2329,10 @@ def render_merkaba_cs(descriptor: dict) -> str:
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Numerics;
+using System.Text;
 
 namespace Genesis.RoomScan.SigmaPrism
 {{
@@ -2872,19 +2874,23 @@ namespace Genesis.RoomScan.SigmaPrism
     {{
         internal SigmaStitchPattern(SigmaStitchResolution resolution,
             IReadOnlyList<SigmaGaugeCell> packedCells, int componentCount,
-            string canonicalSerialization, int embeddingClassCount = 0)
+            string canonicalSerialization, int embeddingClassCount = 0,
+            IReadOnlyList<byte> canonicalTokens = null)
         {{
             Resolution = resolution;
             PackedCells = packedCells ?? Array.Empty<SigmaGaugeCell>();
             ComponentCount = componentCount;
             CanonicalSerialization = canonicalSerialization ?? string.Empty;
             EmbeddingClassCount = embeddingClassCount;
+            CanonicalTokens = canonicalTokens?.ToArray() ??
+                Encoding.ASCII.GetBytes(CanonicalSerialization);
         }}
         internal SigmaStitchResolution Resolution {{ get; }}
         internal IReadOnlyList<SigmaGaugeCell> PackedCells {{ get; }}
         internal int ComponentCount {{ get; }}
         internal string CanonicalSerialization {{ get; }}
         internal int EmbeddingClassCount {{ get; }}
+        internal byte[] CanonicalTokens {{ get; }}
     }}
 
     internal enum SigmaInstrumentLeafKind : uint
@@ -3266,6 +3272,80 @@ namespace Genesis.RoomScan.SigmaPrism
             return CanonicalNativeSectorChartAssignment(
                 NativeSectorChartAssignments[assignmentIndex]);
         }}
+
+        private sealed class SigmaCanonicalTokenWriter
+        {{
+            private readonly List<byte> _tokens = new List<byte>(512);
+
+            internal void Character(char value)
+            {{
+                if (value > 0x7f)
+                    throw new ArgumentOutOfRangeException(nameof(value));
+                _tokens.Add((byte)value);
+            }}
+
+            internal void Text(string value)
+            {{
+                if (value == null) throw new ArgumentNullException(nameof(value));
+                foreach (char character in value)
+                    Character(character);
+            }}
+
+            internal void Decimal(long value) => Text(value.ToString(
+                CultureInfo.InvariantCulture));
+
+            internal void Decimal(uint value) => Text(value.ToString(
+                CultureInfo.InvariantCulture));
+
+            internal void Hex64(ulong value)
+            {{
+                for (int shift = 60; shift >= 0; shift -= 4)
+                {{
+                    int nibble = (int)((value >> shift) & 15UL);
+                    Character((char)(nibble < 10 ? '0' + nibble :
+                        'a' + nibble - 10));
+                }}
+            }}
+
+            internal void Hex32(uint value)
+            {{
+                for (int shift = 28; shift >= 0; shift -= 4)
+                {{
+                    int nibble = (int)((value >> shift) & 15u);
+                    Character((char)(nibble < 10 ? '0' + nibble :
+                        'a' + nibble - 10));
+                }}
+            }}
+
+            internal void Tokens(IReadOnlyList<byte> values)
+            {{
+                if (values == null) throw new ArgumentNullException(nameof(values));
+                for (int index = 0; index < values.Count; ++index)
+                    _tokens.Add(values[index]);
+            }}
+
+            internal byte[] ToArray() => _tokens.ToArray();
+            internal string ToAscii() =>
+                Encoding.ASCII.GetString(_tokens.ToArray());
+        }}
+
+        internal static int CompareCanonicalTokens(
+            IReadOnlyList<byte> left, IReadOnlyList<byte> right)
+        {{
+            if (left == null) throw new ArgumentNullException(nameof(left));
+            if (right == null) throw new ArgumentNullException(nameof(right));
+            int shared = Math.Min(left.Count, right.Count);
+            for (int index = 0; index < shared; ++index)
+            {{
+                if (left[index] < right[index]) return -1;
+                if (left[index] > right[index]) return 1;
+            }}
+            return left.Count.CompareTo(right.Count);
+        }}
+
+        internal static int CompareCompleteCanonicalComponentImage(
+            SigmaStitchPattern left, SigmaStitchPattern right) =>
+            CompareCanonicalTokens(left.CanonicalTokens, right.CanonicalTokens);
 
         internal static int BasisSign(int left, int right)
         {{
@@ -4026,9 +4106,11 @@ namespace Genesis.RoomScan.SigmaPrism
                 IReadOnlyList<SigmaGaugeCell> cells)
             {{
                 Canonical = canonical;
+                CanonicalTokens = Encoding.ASCII.GetBytes(canonical);
                 Cells = cells?.ToArray() ?? Array.Empty<SigmaGaugeCell>();
             }}
             internal string Canonical {{ get; }}
+            internal byte[] CanonicalTokens {{ get; }}
             internal SigmaGaugeCell[] Cells {{ get; }}
         }}
 
@@ -4178,8 +4260,8 @@ namespace Genesis.RoomScan.SigmaPrism
                 }}
                 components.Add(componentForm);
             }}
-            components.Sort((left, right) => string.CompareOrdinal(
-                left.Canonical, right.Canonical));
+            components.Sort((left, right) => CompareCanonicalTokens(
+                left.CanonicalTokens, right.CanonicalTokens));
 
             var packed = new List<SigmaGaugeCell>();
             long cursor = 0L;
@@ -4204,19 +4286,25 @@ namespace Genesis.RoomScan.SigmaPrism
             }}
             string canonical = string.Join("||", components.Select(value =>
                 value.Canonical));
+            var canonicalWriter = new SigmaCanonicalTokenWriter();
+            for (int component = 0; component < components.Count; ++component)
+            {{
+                if (component != 0) canonicalWriter.Text("||");
+                canonicalWriter.Tokens(components[component].CanonicalTokens);
+            }}
             pattern = new SigmaStitchPattern(SigmaStitchResolution.Resolved,
                 packed.OrderBy(value => value.Level).ThenBy(value => value.U)
                     .ThenBy(value => value.V).ThenBy(value =>
                         value.PayloadFingerprint, StringComparer.Ordinal).ToArray(),
-                componentCount, canonical, 1);
+                componentCount, canonical, 1, canonicalWriter.ToArray());
             return true;
         }}
 
         internal static string CanonicalStitchSerialization(
             SigmaResolvedStitch stitch)
         {{
-            string contact = string.Join("|", stitch.Boundary.ContactBranches
-                .Select(value => value.CanonicalSerialization));
+            string contact = Encoding.ASCII.GetString(
+                CanonicalContactTokens(stitch.Boundary));
             // A resolved abstract incidence and its exact reversal are the same
             // undirected stitch.  Direction remains present in both serialized
             // receipt halves; it must not leak endpoint enumeration order into
@@ -4287,9 +4375,10 @@ namespace Genesis.RoomScan.SigmaPrism
                             normalizedPositions))
                     .OrderBy(value => value, StringComparer.Ordinal));
                 string canonical = $"{{cellBytes}}#{{edgeBytes}}";
-                if (best == null || string.CompareOrdinal(canonical,
-                        best.Canonical) < 0)
-                    best = new SigmaComponentNormalForm(canonical, normalized);
+                var candidate = new SigmaComponentNormalForm(canonical, normalized);
+                if (best == null || CompareCanonicalTokens(
+                        candidate.CanonicalTokens, best.CanonicalTokens) < 0)
+                    best = candidate;
             }}
             return best ?? throw new InvalidOperationException(
                 "D4 chart orbit was empty.");
@@ -4343,16 +4432,52 @@ namespace Genesis.RoomScan.SigmaPrism
             return string.CompareOrdinal(forward, reverse) <= 0 ? forward : reverse;
         }}
 
-        private static string CanonicalStitchReceiptSerialization(
+        private static byte[] CanonicalContactTokens(
+            SigmaImplicitBoundaryRef boundary)
+        {{
+            var writer = new SigmaCanonicalTokenWriter();
+            for (int branch = 0; branch < boundary.ContactBranches.Length;
+                 ++branch)
+            {{
+                if (branch != 0) writer.Character('|');
+                SigmaStitchContactBranch contact = boundary.ContactBranches[branch];
+                for (int axis = 0; axis < contact.RoomBounds.Length; ++axis)
+                {{
+                    if (axis != 0) writer.Character(',');
+                    writer.Hex64(unchecked((ulong)contact.RoomBounds[axis].Lower));
+                    writer.Character('-');
+                    writer.Hex64(unchecked((ulong)contact.RoomBounds[axis].Upper));
+                }}
+            }}
+            return writer.ToArray();
+        }}
+
+        internal static string CanonicalStitchReceiptSerialization(
             SigmaStitchRelationReceipt receipt)
         {{
-            string forward = DirectedStitchWitnessSerialization(receipt, true);
-            string reverse = DirectedStitchWitnessSerialization(receipt, false);
-            return string.CompareOrdinal(forward, reverse) <= 0
-                ? $"{{forward}}/{{reverse}}" : $"{{reverse}}/{{forward}}";
+            return Encoding.ASCII.GetString(
+                CanonicalStitchReceiptTokens(receipt));
+        }}
+
+        internal static byte[] CanonicalStitchReceiptTokens(
+            SigmaStitchRelationReceipt receipt)
+        {{
+            byte[] forward = DirectedStitchWitnessTokens(receipt, true);
+            byte[] reverse = DirectedStitchWitnessTokens(receipt, false);
+            var writer = new SigmaCanonicalTokenWriter();
+            bool forwardFirst = CompareCanonicalTokens(forward, reverse) <= 0;
+            writer.Tokens(forwardFirst ? forward : reverse);
+            writer.Character('/');
+            writer.Tokens(forwardFirst ? reverse : forward);
+            return writer.ToArray();
         }}
 
         private static string DirectedStitchWitnessSerialization(
+            SigmaStitchRelationReceipt receipt, bool forward) =>
+            Encoding.ASCII.GetString(DirectedStitchWitnessTokens(receipt,
+                forward));
+
+        private static byte[] DirectedStitchWitnessTokens(
             SigmaStitchRelationReceipt receipt, bool forward)
         {{
             SigmaS16 link = forward ? receipt.LinkDefect :
@@ -4377,16 +4502,33 @@ namespace Genesis.RoomScan.SigmaPrism
                 receipt.LeftSector;
             int sign = forward ? receipt.ForwardTransportSign :
                 receipt.ReverseTransportSign;
-            return $"{{(uint)from}}>{{(uint)to}}:" +
-                $"{{receipt.TransportAddress}}:{{sign}}:" +
-                CanonicalDirectionalFactorSerialization(link, associatorProfile,
-                    normalizedLink, normalizedAssociatorProfile, linkClass,
-                    associatorProfileClasses, associatorClass) +
-                $":{{(uint)receipt.ClosureClass}}:" +
-                $"{{(uint)receipt.RelationClass}}:" +
-                $"{{(receipt.NonzeroAssociatorProfile ? 1 : 0)}}:" +
-                $"{{receipt.BracketFingerprint:x16}}:" +
-                receipt.ProvenanceFingerprint;
+            int annihilator = forward ? receipt.ExactAnnihilatorAction :
+                receipt.ReverseExactAnnihilatorAction;
+            var writer = new SigmaCanonicalTokenWriter();
+            writer.Decimal((uint)from);
+            writer.Character('>');
+            writer.Decimal((uint)to);
+            writer.Character(':');
+            writer.Decimal((uint)receipt.TransportAddress);
+            writer.Character(':');
+            writer.Decimal(sign);
+            writer.Character(':');
+            WriteCanonicalDirectionalFactor(writer, link, associatorProfile,
+                normalizedLink, normalizedAssociatorProfile, linkClass,
+                associatorProfileClasses, associatorClass);
+            writer.Character(':');
+            writer.Decimal((uint)receipt.ClosureClass);
+            writer.Character(':');
+            writer.Decimal((uint)receipt.RelationClass);
+            writer.Character(':');
+            writer.Decimal(receipt.NonzeroAssociatorProfile ? 1u : 0u);
+            writer.Character(':');
+            writer.Decimal(annihilator);
+            writer.Character(':');
+            writer.Hex64(receipt.BracketFingerprint);
+            writer.Character(':');
+            writer.Text(receipt.ProvenanceFingerprint);
+            return writer.ToArray();
         }}
 
         private static string CanonicalDirectionalFactorSerialization(
@@ -4397,19 +4539,61 @@ namespace Genesis.RoomScan.SigmaPrism
             IReadOnlyList<SigmaExactFactorClass> associatorProfileClasses,
             SigmaExactFactorClass associatorClass)
         {{
-            string Raw(SigmaS16 value) => string.Join(",", value.ToArray().Select(
-                lane => unchecked((ulong)lane).ToString("x16")));
-            string Intervals(IReadOnlyList<SigmaQ48Interval> values) =>
-                string.Join(",", values.Select(value =>
-                    $"{{unchecked((ulong)value.Lower):x16}}-" +
-                    $"{{unchecked((ulong)value.Upper):x16}}"));
-            string profile = string.Join(";", Enumerable.Range(0,
-                SigmaS16.LaneCount).Select(context =>
-                    $"{{context}}:{{(uint)associatorProfileClasses[context]}}:" +
-                    $"{{Raw(associatorProfile[context])}}:" +
-                    Intervals(normalizedAssociatorProfile[context])));
-            return $"{{(uint)linkClass}}:{{Raw(link)}}:{{Intervals(normalizedLink)}}:" +
-                $"{{(uint)associatorClass}}:[{{profile}}]";
+            var writer = new SigmaCanonicalTokenWriter();
+            WriteCanonicalDirectionalFactor(writer, link, associatorProfile,
+                normalizedLink, normalizedAssociatorProfile, linkClass,
+                associatorProfileClasses, associatorClass);
+            return writer.ToAscii();
+        }}
+
+        private static void WriteCanonicalDirectionalFactor(
+            SigmaCanonicalTokenWriter writer, SigmaS16 link,
+            IReadOnlyList<SigmaS16> associatorProfile,
+            IReadOnlyList<SigmaQ48Interval> normalizedLink,
+            IReadOnlyList<SigmaQ48Interval[]> normalizedAssociatorProfile,
+            SigmaExactFactorClass linkClass,
+            IReadOnlyList<SigmaExactFactorClass> associatorProfileClasses,
+            SigmaExactFactorClass associatorClass)
+        {{
+            void Raw(SigmaS16 value)
+            {{
+                for (int lane = 0; lane < SigmaS16.LaneCount; ++lane)
+                {{
+                    if (lane != 0) writer.Character(',');
+                    writer.Hex64(unchecked((ulong)value[lane]));
+                }}
+            }}
+            void Intervals(IReadOnlyList<SigmaQ48Interval> values)
+            {{
+                for (int lane = 0; lane < values.Count; ++lane)
+                {{
+                    if (lane != 0) writer.Character(',');
+                    writer.Hex64(unchecked((ulong)values[lane].Lower));
+                    writer.Character('-');
+                    writer.Hex64(unchecked((ulong)values[lane].Upper));
+                }}
+            }}
+            writer.Decimal((uint)linkClass);
+            writer.Character(':');
+            Raw(link);
+            writer.Character(':');
+            Intervals(normalizedLink);
+            writer.Character(':');
+            writer.Decimal((uint)associatorClass);
+            writer.Character(':');
+            writer.Character('[');
+            for (int context = 0; context < SigmaS16.LaneCount; ++context)
+            {{
+                if (context != 0) writer.Character(';');
+                writer.Decimal((uint)context);
+                writer.Character(':');
+                writer.Decimal((uint)associatorProfileClasses[context]);
+                writer.Character(':');
+                Raw(associatorProfile[context]);
+                writer.Character(':');
+                Intervals(normalizedAssociatorProfile[context]);
+            }}
+            writer.Character(']');
         }}
 
         private static SigmaS16 ApplyNativeStitchTransport(SigmaS16 state,
@@ -5897,6 +6081,209 @@ void SigmaMerkabaEvaluateNativeStitchLink(uint2 left[16], uint2 right[16],
     }}
 }}
 
+int SigmaMerkabaCanonicalCompareU32(uint left, uint right)
+{{
+    if (left == right) return 0;
+    uint leftDivisor = 1u;
+    uint rightDivisor = 1u;
+    while (left / leftDivisor >= 10u && leftDivisor <= 100000000u)
+        leftDivisor *= 10u;
+    while (right / rightDivisor >= 10u && rightDivisor <= 100000000u)
+        rightDivisor *= 10u;
+    uint leftCursor = leftDivisor;
+    uint rightCursor = rightDivisor;
+    while (leftCursor != 0u && rightCursor != 0u)
+    {{
+        uint leftDigit = (left / leftCursor) % 10u;
+        uint rightDigit = (right / rightCursor) % 10u;
+        if (leftDigit != rightDigit)
+            return leftDigit < rightDigit ? -1 : 1;
+        leftCursor /= 10u;
+        rightCursor /= 10u;
+    }}
+    return leftCursor == rightCursor ? 0 : (leftCursor == 0u ? -1 : 1);
+}}
+
+int SigmaMerkabaCanonicalCompareI32(int left, int right)
+{{
+    bool leftNegative = left < 0;
+    bool rightNegative = right < 0;
+    if (leftNegative != rightNegative)
+        return leftNegative ? -1 : 1;
+    uint leftMagnitude = leftNegative ? (uint)(-(left + 1)) + 1u : (uint)left;
+    uint rightMagnitude = rightNegative ? (uint)(-(right + 1)) + 1u :
+        (uint)right;
+    return SigmaMerkabaCanonicalCompareU32(leftMagnitude, rightMagnitude);
+}}
+
+int SigmaMerkabaCanonicalCompareHex64(uint2 left, uint2 right)
+{{
+    if (left.y != right.y) return left.y < right.y ? -1 : 1;
+    if (left.x != right.x) return left.x < right.x ? -1 : 1;
+    return 0;
+}}
+
+int SigmaMerkabaCanonicalCompareReceipt256(uint4 left0, uint4 left1,
+    uint4 right0, uint4 right1)
+{{
+    uint left[8] = {{ left0.x, left0.y, left0.z, left0.w,
+        left1.x, left1.y, left1.z, left1.w }};
+    uint right[8] = {{ right0.x, right0.y, right0.z, right0.w,
+        right1.x, right1.y, right1.z, right1.w }};
+    [unroll]
+    for (uint word = 0u; word < 8u; ++word)
+    {{
+        if (left[word] != right[word])
+            return left[word] < right[word] ? -1 : 1;
+    }}
+    return 0;
+}}
+
+uint SigmaMerkabaCanonicalFactorClassFromNonzero(uint nonzero, uint valid)
+{{
+    return valid == 0u ? SIGMA_EXACT_FACTOR_UNRESOLVED :
+        (nonzero == 0u ? SIGMA_EXACT_FACTOR_PROVEN_CLOSED :
+            SIGMA_EXACT_FACTOR_PROVEN_INCOMPATIBLE);
+}}
+
+uint SigmaMerkabaCanonicalAggregateFactorClass(uint left, uint right)
+{{
+    if (left == SIGMA_EXACT_FACTOR_PROVEN_INCOMPATIBLE ||
+        right == SIGMA_EXACT_FACTOR_PROVEN_INCOMPATIBLE)
+        return SIGMA_EXACT_FACTOR_PROVEN_INCOMPATIBLE;
+    if (left == SIGMA_EXACT_FACTOR_UNRESOLVED ||
+        right == SIGMA_EXACT_FACTOR_UNRESOLVED)
+        return SIGMA_EXACT_FACTOR_UNRESOLVED;
+    return SIGMA_EXACT_FACTOR_PROVEN_CLOSED;
+}}
+
+// Canonical comparison is scheduled cooperatively by the existing 256-thread
+// CLOSE workgroup.  One lane evaluates one link or (context, output) profile
+// coefficient.  This generated surface intentionally owns no scalar 16x16
+// interpreter and persists no profile array per boundary.
+uint2 SigmaMerkabaCanonicalEvaluateLinkLane(uint2 leftTransportSource,
+    uint2 rightAtLane, uint2 rightTransportSource, uint2 leftAtLane,
+    uint leftSector, uint rightSector, uint outputLane, bool forward,
+    inout uint valid)
+{{
+    uint leftAddress = SigmaMerkabaNativeBoundarySectorAddress(leftSector);
+    uint rightAddress = SigmaMerkabaNativeBoundarySectorAddress(rightSector);
+    uint transport = leftAddress ^ rightAddress;
+    uint source = outputLane ^ transport;
+    uint2 transportedLeft = SigmaMerkabaBasisSign(source, transport) < 0
+        ? SigmaQ48NegateChecked(leftTransportSource, valid)
+        : leftTransportSource;
+    uint2 transportedRight = SigmaMerkabaBasisSign(source, transport) < 0
+        ? SigmaQ48NegateChecked(rightTransportSource, valid)
+        : rightTransportSource;
+    int forwardSign = SigmaMerkabaBasisSign(leftAddress, transport);
+    int reverseSign = SigmaMerkabaBasisSign(rightAddress, transport);
+    uint2 forwardValue = forwardSign < 0
+        ? SigmaQ48NegateChecked(transportedLeft, valid) : transportedLeft;
+    uint2 reverseValue = reverseSign < 0
+        ? SigmaQ48NegateChecked(transportedRight, valid) : transportedRight;
+    uint2 forwardLink = SigmaQ48SubChecked(rightAtLane, forwardValue, valid);
+    uint2 reverseLink = SigmaQ48SubChecked(leftAtLane, reverseValue, valid);
+    return forward ? forwardLink : reverseLink;
+}}
+
+uint2 SigmaMerkabaCanonicalEvaluateAssociatorLane(uint2 leftSourceValue,
+    uint2 rightSourceValue, uint leftSector, uint rightSector,
+    uint context, uint outputLane, bool forward, inout uint valid)
+{{
+    uint2 forwardDelta;
+    uint2 reverseDelta;
+    SigmaMerkabaEvaluateAssociatorProfileDeltaLane(leftSourceValue,
+        rightSourceValue, SigmaMerkabaNativeBoundarySectorAddress(leftSector),
+        SigmaMerkabaNativeBoundarySectorAddress(rightSector), context,
+        outputLane, forwardDelta, reverseDelta, valid);
+    return forward ? forwardDelta : reverseDelta;
+}}
+
+// Separators and context ordinals are identical for both sides.  These semantic
+// token ordinals are sign-equivalent to the accepted ASCII serializer.  Exact
+// normalized point intervals need not be emitted twice: they are a total
+// generated function of the raw point factor and are reached only after that raw
+// factor compares equal.
+#define SIGMA_MERKABA_CANONICAL_LINK_TOKEN_BASE 5u
+#define SIGMA_MERKABA_CANONICAL_ASSOCIATOR_CLASS_TOKEN 21u
+#define SIGMA_MERKABA_CANONICAL_PROFILE_TOKEN_BASE 22u
+#define SIGMA_MERKABA_CANONICAL_PROFILE_TOKEN_STRIDE 17u
+#define SIGMA_MERKABA_CANONICAL_SUFFIX_TOKEN_BASE 294u
+#define SIGMA_MERKABA_CANONICAL_DIRECTED_TOKEN_COUNT 306u
+
+int SigmaMerkabaCanonicalCompareDirectedPrefix(uint fromA, uint toA,
+    uint transportA, int signA, uint linkClassA, uint fromB, uint toB,
+    uint transportB, int signB, uint linkClassB)
+{{
+    int comparison = SigmaMerkabaCanonicalCompareU32(fromA, fromB);
+    if (comparison != 0) return comparison;
+    comparison = SigmaMerkabaCanonicalCompareU32(toA, toB);
+    if (comparison != 0) return comparison;
+    comparison = SigmaMerkabaCanonicalCompareU32(transportA, transportB);
+    if (comparison != 0) return comparison;
+    comparison = SigmaMerkabaCanonicalCompareI32(signA, signB);
+    return comparison != 0 ? comparison :
+        SigmaMerkabaCanonicalCompareU32(linkClassA, linkClassB);
+}}
+
+int SigmaMerkabaCanonicalCompareDirectedSuffix(uint associatorClassA,
+    uint closureClassA, uint relationClassA,
+    uint4 provenanceA0, uint4 provenanceA1, uint associatorClassB,
+    uint closureClassB, uint relationClassB,
+    uint4 provenanceB0, uint4 provenanceB1)
+{{
+    int comparison = SigmaMerkabaCanonicalCompareU32(associatorClassA,
+        associatorClassB);
+    if (comparison != 0) return comparison;
+    comparison = SigmaMerkabaCanonicalCompareU32(closureClassA,
+        closureClassB);
+    if (comparison != 0) return comparison;
+    comparison = SigmaMerkabaCanonicalCompareU32(relationClassA,
+        relationClassB);
+    if (comparison != 0) return comparison;
+    comparison = SigmaMerkabaCanonicalCompareU32(
+        associatorClassA == SIGMA_EXACT_FACTOR_PROVEN_CLOSED ? 0u : 1u,
+        associatorClassB == SIGMA_EXACT_FACTOR_PROVEN_CLOSED ? 0u : 1u);
+    if (comparison != 0) return comparison;
+    // The bracket-program fingerprint is identical inside one generated bundle.
+    return SigmaMerkabaCanonicalCompareReceipt256(provenanceA0, provenanceA1,
+        provenanceB0, provenanceB1);
+}}
+
+uint SigmaMerkabaCanonicalDirectionalClass(uint packedClasses, bool forward,
+    bool associator)
+{{
+    uint shift = associator ? (forward ? 8u : 12u) :
+        (forward ? 0u : 4u);
+    return (packedClasses >> shift) & 15u;
+}}
+
+uint SigmaMerkabaCanonicalClosureClass(uint packedClasses)
+{{
+    uint closure = SIGMA_EXACT_FACTOR_PROVEN_CLOSED;
+    [unroll]
+    for (uint factor = 0u; factor < 4u; ++factor)
+        closure = SigmaMerkabaCanonicalAggregateFactorClass(closure,
+            (packedClasses >> (factor * 4u)) & 15u);
+    return closure;
+}}
+
+uint SigmaMerkabaCanonicalRelationClass(uint packedClasses, int annihilator)
+{{
+    uint closure = SigmaMerkabaCanonicalClosureClass(packedClasses);
+    uint associator = SigmaMerkabaCanonicalAggregateFactorClass(
+        (packedClasses >> 8u) & 15u, (packedClasses >> 12u) & 15u);
+    if (closure == SIGMA_EXACT_FACTOR_UNRESOLVED)
+        return SIGMA_MERKABA_RELATION_UNRESOLVED;
+    if (closure == SIGMA_EXACT_FACTOR_PROVEN_INCOMPATIBLE)
+        return associator == SIGMA_EXACT_FACTOR_PROVEN_INCOMPATIBLE
+            ? SIGMA_MERKABA_RELATION_NONASSOCIATIVE_CONTEXT
+            : SIGMA_MERKABA_RELATION_NO_RELATION;
+    return annihilator >= 0 ? SIGMA_MERKABA_RELATION_EXACT_ZD :
+        SIGMA_MERKABA_RELATION_REGULAR;
+}}
+
 uint SigmaMerkabaClassifyPointNativeStitchPair(uint2 left[16],
     uint2 right[16], uint leftSectorOrdinal, uint rightSectorOrdinal,
     inout uint valid)
@@ -6362,6 +6749,37 @@ void MerkabaStitchSetParity(uint3 id : SV_DispatchThreadID)
                 SIGMA_NATIVE_QUERY_FIRST_HIT_MOULD,
                 leftLower, leftUpper, rightLower, rightUpper) ? 1u : 0u,
             0u, 0u, 0u);
+
+        // Exercise the generated ordinal comparator in this existing Vulkan
+        // dispatch.  These probes deliberately distinguish accepted textual
+        // ordering from numeric ordering and carry the full 256-bit provenance
+        // receipt; no hash or host-side semantic repair chooses the result.
+        int unsignedText = SigmaMerkabaCanonicalCompareU32(2u, 10u);
+        int signedText = SigmaMerkabaCanonicalCompareI32(-2, -10);
+        int fixedHex = SigmaMerkabaCanonicalCompareHex64(
+            uint2(0u, 1u), uint2(0xffffffffu, 0u));
+        uint4 provenanceP = uint4(0x70707070u, 0x70707070u,
+            0x70707070u, 0x70707070u);
+        uint4 provenanceY = uint4(0x79797979u, 0x79797979u,
+            0x79797979u, 0x79797979u);
+        int completePrefix = SigmaMerkabaCanonicalCompareDirectedPrefix(
+            2u, 1u, 3u, -1, SIGMA_EXACT_FACTOR_PROVEN_CLOSED,
+            10u, 1u, 3u, -1, SIGMA_EXACT_FACTOR_PROVEN_CLOSED);
+        int completeSuffix = SigmaMerkabaCanonicalCompareDirectedSuffix(
+            SIGMA_EXACT_FACTOR_PROVEN_CLOSED,
+            SIGMA_EXACT_FACTOR_PROVEN_CLOSED,
+            SIGMA_MERKABA_RELATION_REGULAR,
+            provenanceP, provenanceP,
+            SIGMA_EXACT_FACTOR_PROVEN_CLOSED,
+            SIGMA_EXACT_FACTOR_PROVEN_CLOSED,
+            SIGMA_MERKABA_RELATION_REGULAR,
+            provenanceY, provenanceY);
+        _MerkabaStitchResults[45] = uint4(asuint(unsignedText),
+            asuint(signedText), asuint(fixedHex), 1u);
+        _MerkabaStitchResults[46] = uint4(asuint(completePrefix),
+            asuint(completeSuffix),
+            asuint(SigmaMerkabaCanonicalCompareReceipt256(
+                provenanceP, provenanceP, provenanceY, provenanceY)), 1u);
     }}
     if (pair < 8u)
     {{

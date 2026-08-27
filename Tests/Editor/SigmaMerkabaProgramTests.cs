@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Text;
 using Genesis.RoomScan.SigmaPrism;
 using NUnit.Framework;
 using UnityEditor;
@@ -352,6 +353,25 @@ namespace Genesis.RoomScan.Tests
                 System.Reflection.BindingFlags.Instance |
                 System.Reflection.BindingFlags.Public |
                 System.Reflection.BindingFlags.NonPublic), Is.Null);
+            CollectionAssert.AreEqual(
+                Encoding.ASCII.GetBytes(SigmaGeneratedMerkabaProgram
+                    .CanonicalStitchReceiptSerialization(ab.Receipt)),
+                SigmaGeneratedMerkabaProgram.CanonicalStitchReceiptTokens(
+                    ab.Receipt),
+                "The accepted textual receipt and generated canonical byte " +
+                "enumerator must be the same stream.");
+
+            SigmaStitchWitnessSet provenanceCollision =
+                SigmaGeneratedMerkabaProgram.EvaluateModalStitch(boundaries[0],
+                    a, b, Context('y'));
+            Assert.That(provenanceCollision.Resolution,
+                Is.EqualTo(SigmaStitchResolution.Resolved));
+            Assert.That(SigmaGeneratedMerkabaProgram.CompareCanonicalTokens(
+                    SigmaGeneratedMerkabaProgram.CanonicalStitchReceiptTokens(
+                        ab.Receipt),
+                    SigmaGeneratedMerkabaProgram.CanonicalStitchReceiptTokens(
+                        provenanceCollision.Resolved.Receipt)), Is.Not.Zero,
+                "Equal old factor hashes cannot hide distinct exact provenance.");
 
             SigmaImplicitBoundaryRef reversedBoundary = new(0, 22UL, 11UL,
                 SigmaSampleBoundarySide.Left, SigmaSampleBoundarySide.Right,
@@ -414,10 +434,42 @@ namespace Genesis.RoomScan.Tests
                 SigmaStitchResolution.Resolved));
             Assert.That(permuted.CanonicalSerialization,
                 Is.EqualTo(pattern.CanonicalSerialization));
+            CollectionAssert.AreEqual(
+                Encoding.ASCII.GetBytes(pattern.CanonicalSerialization),
+                pattern.CanonicalTokens,
+                "The structured comparator must consume the accepted complete " +
+                "component serialization byte-for-byte.");
+            Assert.That(SigmaGeneratedMerkabaProgram
+                .CompareCompleteCanonicalComponentImage(pattern, permuted),
+                Is.Zero);
             CollectionAssert.AreEqual(pattern.PackedCells.Select(value =>
                 $"{value.Level}:{value.U}:{value.V}:{value.PayloadFingerprint}"),
                 permuted.PackedCells.Select(value =>
                 $"{value.Level}:{value.U}:{value.V}:{value.PayloadFingerprint}"));
+
+            SigmaStitchLocality[] changedCertificate = localities.ToArray();
+            changedCertificate[0] = Locality(11UL, 1, 0, 'z');
+            Assert.That(SigmaGeneratedMerkabaProgram.TryIntegrateStitchPattern(
+                changedCertificate, oneEdge,
+                out SigmaStitchPattern changedCertificatePattern), Is.True);
+            Assert.That(changedCertificatePattern.Resolution,
+                Is.EqualTo(SigmaStitchResolution.Resolved));
+            Assert.That(Math.Sign(SigmaGeneratedMerkabaProgram
+                    .CompareCompleteCanonicalComponentImage(pattern,
+                        changedCertificatePattern)),
+                Is.EqualTo(Math.Sign(string.CompareOrdinal(
+                    pattern.CanonicalSerialization,
+                    changedCertificatePattern.CanonicalSerialization))));
+
+            Assert.That(SigmaGeneratedMerkabaProgram.TryIntegrateStitchPattern(
+                localities, new[] { Edge(0, 11UL, 22UL, 'z') },
+                out SigmaStitchPattern changedProvenancePattern), Is.True);
+            Assert.That(Math.Sign(SigmaGeneratedMerkabaProgram
+                    .CompareCompleteCanonicalComponentImage(pattern,
+                        changedProvenancePattern)),
+                Is.EqualTo(Math.Sign(string.CompareOrdinal(
+                    pattern.CanonicalSerialization,
+                    changedProvenancePattern.CanonicalSerialization))));
 
             SigmaBoundaryNativeInput[] reversedEdges =
             {
@@ -1120,7 +1172,7 @@ namespace Genesis.RoomScan.Tests
             var fresh = new UInt4[23];
             var instrument = new UInt4[8];
             var gauge = new UInt4[40];
-            var stitch = new UInt4[45];
+            var stitch = new UInt4[47];
             using var resultBuffer = Buffer(results.Length);
             using var matrixBuffer = Buffer(matrices.Length);
             using var irBuffer = Buffer(ir.Length);
@@ -1179,6 +1231,28 @@ namespace Genesis.RoomScan.Tests
             Assert.That(stitch[36].X, Is.Zero);
             Assert.That(stitch.Skip(37).Take(8).All(value => value.W == 1u),
                 Is.True);
+            int TokenSign(string left, string right) => Math.Sign(
+                SigmaGeneratedMerkabaProgram.CompareCanonicalTokens(
+                    Encoding.ASCII.GetBytes(left),
+                    Encoding.ASCII.GetBytes(right)));
+            Assert.That(unchecked((int)stitch[45].X),
+                Is.EqualTo(TokenSign("2", "10")));
+            Assert.That(unchecked((int)stitch[45].Y),
+                Is.EqualTo(TokenSign("-2", "-10")));
+            Assert.That(unchecked((int)stitch[45].Z),
+                Is.EqualTo(TokenSign("0000000100000000",
+                    "00000000ffffffff")));
+            Assert.That(unchecked((int)stitch[46].X),
+                Is.EqualTo(TokenSign("2", "10")),
+                "Vulkan must use the accepted textual prefix order.");
+            Assert.That(unchecked((int)stitch[46].Y),
+                Is.EqualTo(TokenSign(new string('p', 64),
+                    new string('y', 64))),
+                "The full provenance receipt must decide the complete suffix.");
+            Assert.That(unchecked((int)stitch[46].Z),
+                Is.EqualTo(TokenSign(new string('p', 64),
+                    new string('y', 64))),
+                "A complete 256-bit receipt compare may not collapse to a hash.");
             var d4Probe = new SigmaGaugeCell(2, -3, 0, "probe");
             for (int image = 0; image < 8; ++image)
             {

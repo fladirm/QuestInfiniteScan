@@ -37,10 +37,12 @@ uint _NativeTileFootprintScratchOffset;
 uint _NativeTileSupportSummaryScratchOffset;
 uint _NativeTileComponentSummaryScratchOffset;
 uint _NativeGlobalHeaderScratchOffset;
+uint _NativeActiveSupportMarkerScratchOffset;
 uint _NativeActiveSupportListScratchOffset;
 uint _NativeGlobalParentScratchOffset;
 uint _NativeGlobalTransformScratchOffset;
 uint _NativeGlobalBorderComponentCapacity;
+uint _NativeSupportLocatorCapacity;
 
 #define SIGMA_NATIVE_RELATION_MODE_STANDARD 0u
 #define SIGMA_NATIVE_RELATION_MODE_BOUNDARY 1u
@@ -711,6 +713,10 @@ void SigmaN4ReduceActiveSupport(uint activeIndex, uint threadIndex)
         _NativeCloseScratch[activeAddress] = uint2(support, meta.x);
         _NativeCloseScratch[activeAddress + 1u] =
             uint2(meta.y, combinedValid);
+        if (support < _NativeSupportLocatorCapacity)
+            _NativeCloseScratch[
+                _NativeActiveSupportMarkerScratchOffset + support].y =
+                meta.x;
     }
 }
 

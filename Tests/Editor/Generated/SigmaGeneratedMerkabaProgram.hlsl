@@ -117,7 +117,7 @@
 static const uint2 SIGMA_STITCH_GENERATED_BRACKET_FINGERPRINT =
     uint2(0x212b1e76u, 0x6094d138u);
 
-static const uint SIGMA_MERKABA_PROGRAM_FINGERPRINT[8] = { 0x21a3ec65u, 0xbce186e2u, 0x157409f8u, 0x775c7735u, 0x97b8c632u, 0xa67158f3u, 0x5ee0ca01u, 0x484203c4u };
+static const uint SIGMA_MERKABA_PROGRAM_FINGERPRINT[8] = { 0x7930afb1u, 0x63870e9bu, 0xf1d53867u, 0xb59f25f2u, 0x8277ca17u, 0xc58b888du, 0xf29bf378u, 0xe69fe192u };
 static const int SIGMA_MERKABA_DIFFRACTION[256] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 8, 0, 0, 8, 0, 0, -12, 4, 0, 4, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 8, 0, 0, -12, 4, 4, 4, 0, 0, 0, -8, 0, 0, 0, 8, 0, 0, 0, 4, 0, -12, 4, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -12, 4, 4, 4, 0, 0, 0, -8, 0, 0, 8, 0, 0, 4, 0, 4, 0, -12, 0, 4, 0, -8, 0, 0, 0, -8, 0, 8, 0, 4, 4, 0, 0, 4, -12, 0, 0, 0, -8, 0, 0, 0, -8, 0, 0, 0, 4, 4, 0, 0, 4, -12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 12, 0, -4, 0, -4, -4, 0, 0, 0, 4, 4, 4, -4, 4, 4, 0, -4, 12, 0, 0, 0, -4, -4, 0, -4, 0, 4, 4, 4, -4, 4, 0, 0, -4, 12, 0, -4, 0, -4, 0, -4, -4, 0, 4, 4, 4, -4, 0, -4, -4, -4, 12, 0, 0, 0, 0, -4, -4, -4, 0, 4, 4, 4, 0, 0, -4, 0, -4, 12, -4, 0, 0, 4, -4, -4, -4, 0, 4, 4, 0, 0, 0, -4, -4, 0, 12, -4, 0, -4, 4, -4, -4, -4, 0, 4, 0, -4, 0, 0, -4, -4, 0, 12, 0, -4, -4, 4, -4, -4, -4, 0 };
 static const int SIGMA_MERKABA_INFORMATION_METRIC[256] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 640, -64, -64, -64, -64, -64, -192, 0, -32, 96, 256, 32, -192, 256, 32, 0, -64, 512, -64, -64, -64, 64, -64, 0, -64, 32, 96, 96, 32, -256, 256, 0, -64, -64, 640, -64, -64, -64, -64, 0, -288, -64, -32, 160, 320, 32, -192, 0, -64, -64, -64, 384, -64, -64, -64, 0, -64, -64, -64, 96, 160, 96, 32, 0, -64, -64, -64, -64, 640, -64, -192, 0, 160, -128, -352, -64, -32, 320, 96, 0, -64, 64, -64, -64, -64, 768, -64, 0, -224, 96, -128, -64, -288, -96, 320, 0, -192, -64, -64, -64, -192, -64, 640, 0, 64, -224, 160, -64, 0, -288, -32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -32, -64, -288, -64, 160, -224, 64, 0, 576, -32, -96, -96, -96, -32, -96, 0, 96, 32, -64, -64, -128, 96, -224, 0, -32, 576, -32, -32, -160, -96, -32, 0, 256, 96, -32, -64, -352, -128, 160, 0, -96, -32, 576, 32, -96, -160, -96, 0, 32, 96, 160, 96, -64, -64, -64, 0, -96, -32, 32, 576, 32, -32, -96, 0, -192, 32, 320, 160, -32, -288, 0, 0, -96, -160, -96, 32, 576, -32, -96, 0, 256, -256, 32, 96, 320, -96, -288, 0, -32, -96, -160, -32, -32, 576, -32, 0, 32, 256, -192, 32, 96, 320, -32, 0, -96, -32, -96, -96, -96, -32, 576 };
 static const int SIGMA_MERKABA_SHELL_SQUARE_BY_RANK[4] = { -1, -3, -7, -15 };
@@ -838,6 +838,209 @@ void SigmaMerkabaEvaluateNativeStitchLink(uint2 left[16], uint2 right[16],
         link[lane] = SigmaQ48SubChecked(right[lane], forwardValue, valid);
         reverseLink[lane] = SigmaQ48SubChecked(left[lane], reverseValue, valid);
     }
+}
+
+int SigmaMerkabaCanonicalCompareU32(uint left, uint right)
+{
+    if (left == right) return 0;
+    uint leftDivisor = 1u;
+    uint rightDivisor = 1u;
+    while (left / leftDivisor >= 10u && leftDivisor <= 100000000u)
+        leftDivisor *= 10u;
+    while (right / rightDivisor >= 10u && rightDivisor <= 100000000u)
+        rightDivisor *= 10u;
+    uint leftCursor = leftDivisor;
+    uint rightCursor = rightDivisor;
+    while (leftCursor != 0u && rightCursor != 0u)
+    {
+        uint leftDigit = (left / leftCursor) % 10u;
+        uint rightDigit = (right / rightCursor) % 10u;
+        if (leftDigit != rightDigit)
+            return leftDigit < rightDigit ? -1 : 1;
+        leftCursor /= 10u;
+        rightCursor /= 10u;
+    }
+    return leftCursor == rightCursor ? 0 : (leftCursor == 0u ? -1 : 1);
+}
+
+int SigmaMerkabaCanonicalCompareI32(int left, int right)
+{
+    bool leftNegative = left < 0;
+    bool rightNegative = right < 0;
+    if (leftNegative != rightNegative)
+        return leftNegative ? -1 : 1;
+    uint leftMagnitude = leftNegative ? (uint)(-(left + 1)) + 1u : (uint)left;
+    uint rightMagnitude = rightNegative ? (uint)(-(right + 1)) + 1u :
+        (uint)right;
+    return SigmaMerkabaCanonicalCompareU32(leftMagnitude, rightMagnitude);
+}
+
+int SigmaMerkabaCanonicalCompareHex64(uint2 left, uint2 right)
+{
+    if (left.y != right.y) return left.y < right.y ? -1 : 1;
+    if (left.x != right.x) return left.x < right.x ? -1 : 1;
+    return 0;
+}
+
+int SigmaMerkabaCanonicalCompareReceipt256(uint4 left0, uint4 left1,
+    uint4 right0, uint4 right1)
+{
+    uint left[8] = { left0.x, left0.y, left0.z, left0.w,
+        left1.x, left1.y, left1.z, left1.w };
+    uint right[8] = { right0.x, right0.y, right0.z, right0.w,
+        right1.x, right1.y, right1.z, right1.w };
+    [unroll]
+    for (uint word = 0u; word < 8u; ++word)
+    {
+        if (left[word] != right[word])
+            return left[word] < right[word] ? -1 : 1;
+    }
+    return 0;
+}
+
+uint SigmaMerkabaCanonicalFactorClassFromNonzero(uint nonzero, uint valid)
+{
+    return valid == 0u ? SIGMA_EXACT_FACTOR_UNRESOLVED :
+        (nonzero == 0u ? SIGMA_EXACT_FACTOR_PROVEN_CLOSED :
+            SIGMA_EXACT_FACTOR_PROVEN_INCOMPATIBLE);
+}
+
+uint SigmaMerkabaCanonicalAggregateFactorClass(uint left, uint right)
+{
+    if (left == SIGMA_EXACT_FACTOR_PROVEN_INCOMPATIBLE ||
+        right == SIGMA_EXACT_FACTOR_PROVEN_INCOMPATIBLE)
+        return SIGMA_EXACT_FACTOR_PROVEN_INCOMPATIBLE;
+    if (left == SIGMA_EXACT_FACTOR_UNRESOLVED ||
+        right == SIGMA_EXACT_FACTOR_UNRESOLVED)
+        return SIGMA_EXACT_FACTOR_UNRESOLVED;
+    return SIGMA_EXACT_FACTOR_PROVEN_CLOSED;
+}
+
+// Canonical comparison is scheduled cooperatively by the existing 256-thread
+// CLOSE workgroup.  One lane evaluates one link or (context, output) profile
+// coefficient.  This generated surface intentionally owns no scalar 16x16
+// interpreter and persists no profile array per boundary.
+uint2 SigmaMerkabaCanonicalEvaluateLinkLane(uint2 leftTransportSource,
+    uint2 rightAtLane, uint2 rightTransportSource, uint2 leftAtLane,
+    uint leftSector, uint rightSector, uint outputLane, bool forward,
+    inout uint valid)
+{
+    uint leftAddress = SigmaMerkabaNativeBoundarySectorAddress(leftSector);
+    uint rightAddress = SigmaMerkabaNativeBoundarySectorAddress(rightSector);
+    uint transport = leftAddress ^ rightAddress;
+    uint source = outputLane ^ transport;
+    uint2 transportedLeft = SigmaMerkabaBasisSign(source, transport) < 0
+        ? SigmaQ48NegateChecked(leftTransportSource, valid)
+        : leftTransportSource;
+    uint2 transportedRight = SigmaMerkabaBasisSign(source, transport) < 0
+        ? SigmaQ48NegateChecked(rightTransportSource, valid)
+        : rightTransportSource;
+    int forwardSign = SigmaMerkabaBasisSign(leftAddress, transport);
+    int reverseSign = SigmaMerkabaBasisSign(rightAddress, transport);
+    uint2 forwardValue = forwardSign < 0
+        ? SigmaQ48NegateChecked(transportedLeft, valid) : transportedLeft;
+    uint2 reverseValue = reverseSign < 0
+        ? SigmaQ48NegateChecked(transportedRight, valid) : transportedRight;
+    uint2 forwardLink = SigmaQ48SubChecked(rightAtLane, forwardValue, valid);
+    uint2 reverseLink = SigmaQ48SubChecked(leftAtLane, reverseValue, valid);
+    return forward ? forwardLink : reverseLink;
+}
+
+uint2 SigmaMerkabaCanonicalEvaluateAssociatorLane(uint2 leftSourceValue,
+    uint2 rightSourceValue, uint leftSector, uint rightSector,
+    uint context, uint outputLane, bool forward, inout uint valid)
+{
+    uint2 forwardDelta;
+    uint2 reverseDelta;
+    SigmaMerkabaEvaluateAssociatorProfileDeltaLane(leftSourceValue,
+        rightSourceValue, SigmaMerkabaNativeBoundarySectorAddress(leftSector),
+        SigmaMerkabaNativeBoundarySectorAddress(rightSector), context,
+        outputLane, forwardDelta, reverseDelta, valid);
+    return forward ? forwardDelta : reverseDelta;
+}
+
+// Separators and context ordinals are identical for both sides.  These semantic
+// token ordinals are sign-equivalent to the accepted ASCII serializer.  Exact
+// normalized point intervals need not be emitted twice: they are a total
+// generated function of the raw point factor and are reached only after that raw
+// factor compares equal.
+#define SIGMA_MERKABA_CANONICAL_LINK_TOKEN_BASE 5u
+#define SIGMA_MERKABA_CANONICAL_ASSOCIATOR_CLASS_TOKEN 21u
+#define SIGMA_MERKABA_CANONICAL_PROFILE_TOKEN_BASE 22u
+#define SIGMA_MERKABA_CANONICAL_PROFILE_TOKEN_STRIDE 17u
+#define SIGMA_MERKABA_CANONICAL_SUFFIX_TOKEN_BASE 294u
+#define SIGMA_MERKABA_CANONICAL_DIRECTED_TOKEN_COUNT 306u
+
+int SigmaMerkabaCanonicalCompareDirectedPrefix(uint fromA, uint toA,
+    uint transportA, int signA, uint linkClassA, uint fromB, uint toB,
+    uint transportB, int signB, uint linkClassB)
+{
+    int comparison = SigmaMerkabaCanonicalCompareU32(fromA, fromB);
+    if (comparison != 0) return comparison;
+    comparison = SigmaMerkabaCanonicalCompareU32(toA, toB);
+    if (comparison != 0) return comparison;
+    comparison = SigmaMerkabaCanonicalCompareU32(transportA, transportB);
+    if (comparison != 0) return comparison;
+    comparison = SigmaMerkabaCanonicalCompareI32(signA, signB);
+    return comparison != 0 ? comparison :
+        SigmaMerkabaCanonicalCompareU32(linkClassA, linkClassB);
+}
+
+int SigmaMerkabaCanonicalCompareDirectedSuffix(uint associatorClassA,
+    uint closureClassA, uint relationClassA,
+    uint4 provenanceA0, uint4 provenanceA1, uint associatorClassB,
+    uint closureClassB, uint relationClassB,
+    uint4 provenanceB0, uint4 provenanceB1)
+{
+    int comparison = SigmaMerkabaCanonicalCompareU32(associatorClassA,
+        associatorClassB);
+    if (comparison != 0) return comparison;
+    comparison = SigmaMerkabaCanonicalCompareU32(closureClassA,
+        closureClassB);
+    if (comparison != 0) return comparison;
+    comparison = SigmaMerkabaCanonicalCompareU32(relationClassA,
+        relationClassB);
+    if (comparison != 0) return comparison;
+    comparison = SigmaMerkabaCanonicalCompareU32(
+        associatorClassA == SIGMA_EXACT_FACTOR_PROVEN_CLOSED ? 0u : 1u,
+        associatorClassB == SIGMA_EXACT_FACTOR_PROVEN_CLOSED ? 0u : 1u);
+    if (comparison != 0) return comparison;
+    // The bracket-program fingerprint is identical inside one generated bundle.
+    return SigmaMerkabaCanonicalCompareReceipt256(provenanceA0, provenanceA1,
+        provenanceB0, provenanceB1);
+}
+
+uint SigmaMerkabaCanonicalDirectionalClass(uint packedClasses, bool forward,
+    bool associator)
+{
+    uint shift = associator ? (forward ? 8u : 12u) :
+        (forward ? 0u : 4u);
+    return (packedClasses >> shift) & 15u;
+}
+
+uint SigmaMerkabaCanonicalClosureClass(uint packedClasses)
+{
+    uint closure = SIGMA_EXACT_FACTOR_PROVEN_CLOSED;
+    [unroll]
+    for (uint factor = 0u; factor < 4u; ++factor)
+        closure = SigmaMerkabaCanonicalAggregateFactorClass(closure,
+            (packedClasses >> (factor * 4u)) & 15u);
+    return closure;
+}
+
+uint SigmaMerkabaCanonicalRelationClass(uint packedClasses, int annihilator)
+{
+    uint closure = SigmaMerkabaCanonicalClosureClass(packedClasses);
+    uint associator = SigmaMerkabaCanonicalAggregateFactorClass(
+        (packedClasses >> 8u) & 15u, (packedClasses >> 12u) & 15u);
+    if (closure == SIGMA_EXACT_FACTOR_UNRESOLVED)
+        return SIGMA_MERKABA_RELATION_UNRESOLVED;
+    if (closure == SIGMA_EXACT_FACTOR_PROVEN_INCOMPATIBLE)
+        return associator == SIGMA_EXACT_FACTOR_PROVEN_INCOMPATIBLE
+            ? SIGMA_MERKABA_RELATION_NONASSOCIATIVE_CONTEXT
+            : SIGMA_MERKABA_RELATION_NO_RELATION;
+    return annihilator >= 0 ? SIGMA_MERKABA_RELATION_EXACT_ZD :
+        SIGMA_MERKABA_RELATION_REGULAR;
 }
 
 uint SigmaMerkabaClassifyPointNativeStitchPair(uint2 left[16],

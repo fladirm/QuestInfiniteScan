@@ -323,6 +323,37 @@ void MerkabaStitchSetParity(uint3 id : SV_DispatchThreadID)
                 SIGMA_NATIVE_QUERY_FIRST_HIT_MOULD,
                 leftLower, leftUpper, rightLower, rightUpper) ? 1u : 0u,
             0u, 0u, 0u);
+
+        // Exercise the generated ordinal comparator in this existing Vulkan
+        // dispatch.  These probes deliberately distinguish accepted textual
+        // ordering from numeric ordering and carry the full 256-bit provenance
+        // receipt; no hash or host-side semantic repair chooses the result.
+        int unsignedText = SigmaMerkabaCanonicalCompareU32(2u, 10u);
+        int signedText = SigmaMerkabaCanonicalCompareI32(-2, -10);
+        int fixedHex = SigmaMerkabaCanonicalCompareHex64(
+            uint2(0u, 1u), uint2(0xffffffffu, 0u));
+        uint4 provenanceP = uint4(0x70707070u, 0x70707070u,
+            0x70707070u, 0x70707070u);
+        uint4 provenanceY = uint4(0x79797979u, 0x79797979u,
+            0x79797979u, 0x79797979u);
+        int completePrefix = SigmaMerkabaCanonicalCompareDirectedPrefix(
+            2u, 1u, 3u, -1, SIGMA_EXACT_FACTOR_PROVEN_CLOSED,
+            10u, 1u, 3u, -1, SIGMA_EXACT_FACTOR_PROVEN_CLOSED);
+        int completeSuffix = SigmaMerkabaCanonicalCompareDirectedSuffix(
+            SIGMA_EXACT_FACTOR_PROVEN_CLOSED,
+            SIGMA_EXACT_FACTOR_PROVEN_CLOSED,
+            SIGMA_MERKABA_RELATION_REGULAR,
+            provenanceP, provenanceP,
+            SIGMA_EXACT_FACTOR_PROVEN_CLOSED,
+            SIGMA_EXACT_FACTOR_PROVEN_CLOSED,
+            SIGMA_MERKABA_RELATION_REGULAR,
+            provenanceY, provenanceY);
+        _MerkabaStitchResults[45] = uint4(asuint(unsignedText),
+            asuint(signedText), asuint(fixedHex), 1u);
+        _MerkabaStitchResults[46] = uint4(asuint(completePrefix),
+            asuint(completeSuffix),
+            asuint(SigmaMerkabaCanonicalCompareReceipt256(
+                provenanceP, provenanceP, provenanceY, provenanceY)), 1u);
     }
     if (pair < 8u)
     {

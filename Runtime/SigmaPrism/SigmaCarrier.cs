@@ -78,7 +78,7 @@ namespace Genesis.RoomScan.SigmaPrism
         // N3 owns only the base-density current/shadow pair.  The decoded
         // budget is a residency ceiling, never an eager allocation target.
         // N5's pager may grow the resident set in similarly bounded quanta.
-        internal const int InitialResidentPageCapacity = 2;
+        internal const int MinimumResidentPageCapacity = 2;
 
         private const string CarrierResource = "SigmaPrism/SigmaCarrier";
         private const long MiB = 1024L * 1024L;
@@ -141,9 +141,12 @@ namespace Genesis.RoomScan.SigmaPrism
             RequireInitialized();
             if (_segments.Count == 0)
             {
-                int capacity = Math.Min(InitialResidentPageCapacity,
-                    Math.Min(_pagesPerSegment, _decodedBudgetPages)) & ~1;
-                if (capacity < InitialResidentPageCapacity)
+                // N4 owns one bounded warm resident segment.  Capacity is a
+                // storage ceiling, not eager world identity; N5 alone adds
+                // paging/growth/persistence.
+                int capacity = Math.Min(_pagesPerSegment,
+                    _decodedBudgetPages) & ~1;
+                if (capacity < MinimumResidentPageCapacity)
                     throw new InvalidOperationException(
                         "Decoded residency cannot hold the initial Sigma " +
                         "current/shadow page pair.");

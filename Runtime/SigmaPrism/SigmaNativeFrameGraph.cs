@@ -1,4 +1,6 @@
 using System;
+using System.IO;
+using System.Security.Cryptography;
 using UnityEngine;
 using UnityEngine.Experimental.Rendering;
 using UnityEngine.Rendering;
@@ -227,10 +229,9 @@ namespace Genesis.RoomScan.SigmaPrism
 
             command.DispatchComputeProfiled(_frame, _prepareRevision, 1, 1, 1);
             command.DispatchComputeProfiled(_frame, _preparePage,
-                Math.Max(SigmaCarrier.PageLaneCount,
-                    SigmaCarrier.SamplesPerPage *
-                    SigmaCarrier.RepresentationWordsPerSample) / 256, 1, 1);
-            command.DispatchComputeProfiled(_frame, _scatterState, 1, 1, 1);
+                slot.Counters, sizeof(uint) * 4u);
+            command.DispatchComputeProfiled(_frame, _scatterState,
+                slot.Counters, sizeof(uint) * 8u);
             command.DispatchComputeProfiled(_frame, _closePublish, 1, 1, 1);
         }
 
@@ -411,6 +412,8 @@ namespace Genesis.RoomScan.SigmaPrism
                 unchecked((int)input.DepthRightKey),
                 unchecked((int)input.RgbLeftKey),
                 unchecked((int)input.RgbRightKey));
+            command.SetComputeIntParams(_frame, "_NativeProvenanceReceipt",
+                BuildProvenanceReceipt(source));
             command.SetComputeIntParam(_frame, "_NativeTargetSegmentIndex",
                 input.Carrier.SegmentIndex);
             command.SetComputeIntParam(_frame, "_NativeTargetPageCapacity",
@@ -423,6 +426,57 @@ namespace Genesis.RoomScan.SigmaPrism
                 slot.BoundaryCapacity);
             command.SetComputeIntParam(_frame, "_NativeBoundaryScratchOffset",
                 slot.BoundaryScratchOffset);
+            command.SetComputeIntParam(_frame, "_NativeFootprintStateOffset",
+                slot.FootprintStateOffset);
+            command.SetComputeIntParam(_frame,
+                "_NativeFootprintCertificateOffset",
+                slot.FootprintCertificateOffset);
+            command.SetComputeIntParams(_frame, "_NativeTileCount",
+                slot.TileCountX, slot.TileCountY);
+            command.SetComputeIntParam(_frame,
+                "_NativeTileHeaderScratchOffset",
+                slot.TileHeaderScratchOffset);
+            command.SetComputeIntParam(_frame,
+                "_NativeTileFootprintScratchOffset",
+                slot.TileFootprintScratchOffset);
+            command.SetComputeIntParam(_frame,
+                "_NativeTileComponentSummaryScratchOffset",
+                slot.TileComponentSummaryScratchOffset);
+            command.SetComputeIntParam(_frame,
+                "_NativeGlobalHeaderScratchOffset",
+                slot.GlobalHeaderScratchOffset);
+            command.SetComputeIntParam(_frame,
+                "_NativeActiveSupportMarkerScratchOffset",
+                slot.ActiveSupportMarkerScratchOffset);
+            command.SetComputeIntParam(_frame,
+                "_NativeGlobalParentScratchOffset",
+                slot.GlobalParentScratchOffset);
+            command.SetComputeIntParam(_frame,
+                "_NativeGlobalTransformScratchOffset",
+                slot.GlobalTransformScratchOffset);
+            command.SetComputeIntParam(_frame,
+                "_NativeGlobalBorderComponentCapacity",
+                slot.GlobalBorderComponentCapacity);
+            command.SetComputeIntParam(_frame, "_NativeMutationCapacity",
+                slot.MutationCapacity);
+            command.SetComputeIntParam(_frame,
+                "_NativePagePlanScratchOffset", slot.PagePlanScratchOffset);
+            command.SetComputeIntParam(_frame, "_NativePagePlanCapacity",
+                slot.PagePlanCapacity);
+            command.SetComputeIntParam(_frame,
+                "_NativeCanonicalComponentScratchOffset",
+                slot.CanonicalComponentScratchOffset);
+            command.SetComputeIntParam(_frame,
+                "_NativeCanonicalComponentCapacity",
+                slot.CanonicalComponentCapacity);
+            command.SetComputeIntParam(_frame,
+                "_NativeCanonicalImageScratchOffset",
+                slot.CanonicalImageScratchOffset);
+            command.SetComputeIntParam(_frame,
+                "_NativeCanonicalImageStride", slot.CanonicalImageStride);
+            command.SetComputeIntParam(_frame,
+                "_NativeCanonicalRankScratchOffset",
+                slot.CanonicalRankScratchOffset);
         }
 
         private void BindContract(CommandBuffer command,
@@ -574,6 +628,9 @@ namespace Genesis.RoomScan.SigmaPrism
                 "_NativeGlobalHeaderScratchOffset",
                 slot.GlobalHeaderScratchOffset);
             command.SetComputeIntParam(_query,
+                "_NativeActiveSupportMarkerScratchOffset",
+                slot.ActiveSupportMarkerScratchOffset);
+            command.SetComputeIntParam(_query,
                 "_NativeActiveSupportListScratchOffset",
                 slot.ActiveSupportListScratchOffset);
             command.SetComputeIntParam(_query,
@@ -585,6 +642,9 @@ namespace Genesis.RoomScan.SigmaPrism
             command.SetComputeIntParam(_query,
                 "_NativeGlobalBorderComponentCapacity",
                 slot.GlobalBorderComponentCapacity);
+            command.SetComputeIntParam(_query,
+                "_NativeSupportLocatorCapacity",
+                SigmaNativeFrameSlotResources.SupportLocatorCapacity);
         }
 
         private static Vector4 Intrinsics(RigIntrinsics intrinsics) => new(
@@ -597,6 +657,43 @@ namespace Genesis.RoomScan.SigmaPrism
                 return uint.MaxValue;
             return GraphicsFormatUtility.IsSRGBFormat(view.GraphicsFormat)
                 ? 1u : 0u;
+        }
+
+        private static int[] BuildProvenanceReceipt(StereoRigFrameLease frame)
+        {
+            using var bytes = new MemoryStream(256);
+            using (var writer = new BinaryWriter(bytes,
+                       System.Text.Encoding.UTF8, true))
+            {
+                writer.Write(frame.Sequence);
+                writer.Write(frame.CalibrationEpoch);
+                WriteViewReceipt(writer, frame.RgbLeft);
+                WriteViewReceipt(writer, frame.RgbRight);
+                WriteViewReceipt(writer, frame.DepthLeft);
+                WriteViewReceipt(writer, frame.DepthRight);
+                writer.Write(SigmaGeneratedFrame.AbiFingerprint);
+                writer.Write(SigmaGeneratedFrame.RepresentationFingerprint);
+            }
+            byte[] digest;
+            using (SHA256 sha = SHA256.Create())
+                digest = sha.ComputeHash(bytes.ToArray());
+            var result = new int[8];
+            for (int word = 0; word < result.Length; ++word)
+                result[word] = BitConverter.ToInt32(digest, word * sizeof(int));
+            return result;
+        }
+
+        private static void WriteViewReceipt(BinaryWriter writer,
+            GpuImageView view)
+        {
+            writer.Write((byte)view.Kind);
+            writer.Write((byte)view.Eye);
+            writer.Write(view.SourceSequence);
+            writer.Write((byte)view.Timestamp.SourceDomain);
+            writer.Write(view.Timestamp.SourceNanoseconds);
+            writer.Write(view.Timestamp.UnixNanoseconds);
+            writer.Write(view.Timestamp.MappingUncertaintyNanoseconds);
+            writer.Write(view.Intrinsics.Signature);
         }
     }
 }

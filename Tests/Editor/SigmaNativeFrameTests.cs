@@ -109,7 +109,7 @@ namespace Genesis.RoomScan.Tests
                     "FreshCodeLeaves",
                     BindingFlags.Instance | BindingFlags.NonPublic), Is.Null);
                 Assert.That(native.GaugeDelta.count, Is.EqualTo(
-                    SigmaNativeFrameSlotResources.RepresentationDeltaCapacity));
+                    native.MutationCapacity));
                 Assert.That(native.LocalityCertificateWords.count, Is.EqualTo(
                     native.FootprintCertificateOffset + 320 * 320 *
                     SigmaNativeFrameSlotResources.CertificateWordCount));
@@ -2374,7 +2374,8 @@ namespace Genesis.RoomScan.Tests
                 if (verifyFirstPreScatterCopy && revision == 2u)
                 {
                     var stagedDeltas = new SigmaNativeStateDeltaGpu[
-                        SigmaNativeFrameSlotResources.RepresentationDeltaCapacity];
+                        SigmaNativeFrameSlotResources.
+                            MaximumMutationsPerFootprint];
                     scratch.StateDelta.GetData(stagedDeltas);
                     for (int child = 0; child < stagedDeltas.Length; ++child)
                     {
