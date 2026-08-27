@@ -19,7 +19,38 @@ Updated: 2026-08-27 (Europe/Prague)
 - Forensic facts and replacement matrix: `analyza.md`.
 - S4‑09 remains pending/unopened.
 
-## N4R clean-restart CUT D checkpoint and CUT E hard stop
+## N4R intrinsic-associator/CUT B-D WIP checkpoint
+
+N4R remains the sole active run.  The N4-discovered narrow generated completion
+removes the undefined caller-supplied `BracketContext` input and evaluates the
+complete intrinsic 16-basis K16 associator profile transiently in the existing
+256-thread BOUNDARY workgroup.  It stores no `16 x S16` profile per boundary,
+does not conflate the associator with the independent zero-divisor/annihilator
+path, and changes no production kernel or submission count.
+
+Actual green regression evidence before CUT E:
+
+```text
+generated CPU associator theorem                 14/14 PASS
+N2 CPU<->Vulkan set oracle                       PASS
+decisive link-closed/nonzero-associator boundary PASS
+CUT C 16x16 production oracle                    PASS
+CUT D global production oracle                   PASS
+SigmaNativeFrameTests                            19/19 PASS
+generator --check / UAV / diff                   PASS
+HotDispatchCount                                 9
+new production kernel / shader helper            0 / 0
+production diff vs b4399db                       +3582/-264, net +3318
+```
+
+The current checkpoint is deliberately WIP, not accepted N4R.  No CUT-E
+production mutation has been added.  The next exact action is one generated,
+collision-free structured canonical comparator whose CPU/HLSL ordering is proved
+against the already-accepted complete canonical serialization.  It must then be
+consumed only in the existing `PrepareNativeRevision` position; a hash/tile/order
+winner or a new kernel/dispatch is forbidden.
+
+## Earlier N4R clean-restart CUT D checkpoint and CUT E hard stop
 
 The clean N4R restart is preserved in local forensic commits `05b43f5` and
 `a637252` above accepted base `b4399db`.  CUT A through CUT D now lower the full

@@ -155,48 +155,6 @@ groupshared uint SigmaNativeStitchFactorClass[4];
 groupshared uint SigmaNativeStitchFactorKernel[4];
 groupshared uint SigmaNativeStitchFactorHash[4];
 
-void SigmaNativeStitchLoadEndpointAssociator(uint stateOffset,
-    uint sectorAddress, uint contextOffset, uint threadIndex,
-    bool retainAsLeft)
-{
-    if (threadIndex < 16u)
-    {
-        SigmaNativeGroupLeft[threadIndex] =
-            _NativeStates[stateOffset + threadIndex];
-        SigmaNativeGroupRight[threadIndex] = threadIndex == sectorAddress
-            ? uint2(0u, 0x00010000u) : uint2(0u, 0u);
-        SigmaNativeGroupContext[threadIndex] =
-            _NativeStates[contextOffset + threadIndex];
-    }
-    GroupMemoryBarrierWithGroupSync();
-    SigmaNativeGroupProduct(SIGMA_NATIVE_PRODUCT_LEFT_RIGHT, threadIndex);
-    SigmaNativeGroupProduct(SIGMA_NATIVE_PRODUCT_RIGHT_CONTEXT, threadIndex);
-    SigmaNativeGroupProduct(SIGMA_NATIVE_PRODUCT_AB_CONTEXT, threadIndex);
-    SigmaNativeGroupProduct(SIGMA_NATIVE_PRODUCT_LEFT_BC, threadIndex);
-    if (threadIndex < 16u)
-    {
-        uint laneValid = 1u;
-        uint2 endpointAssociator = SigmaQ48SubChecked(
-            SigmaNativeGroupLeftBracket[threadIndex],
-            SigmaNativeGroupRightBracket[threadIndex], laneValid);
-        if (retainAsLeft)
-            SigmaNativeGroupTransition[threadIndex] = endpointAssociator;
-        else
-            SigmaNativeGroupAssociator[threadIndex] = SigmaQ48SubChecked(
-                endpointAssociator,
-                SigmaNativeGroupTransition[threadIndex], laneValid);
-        SigmaNativeGroupLaneValid[threadIndex] = laneValid;
-    }
-    GroupMemoryBarrierWithGroupSync();
-    if (threadIndex == 0u)
-    {
-        [unroll]
-        for (uint lane = 0u; lane < 16u; ++lane)
-            SigmaNativeGroupAllValid &= SigmaNativeGroupLaneValid[lane];
-    }
-    GroupMemoryBarrierWithGroupSync();
-}
-
 void SigmaNativeStitchClassifyCurrentFactor(uint factorIndex,
     uint receiptIndex, uint threadIndex)
 {
@@ -204,7 +162,9 @@ void SigmaNativeStitchClassifyCurrentFactor(uint factorIndex,
     if (threadIndex == 0u)
     {
         SigmaNativeStitchFactorClass[receiptIndex] =
-            SigmaNativeGroupFactorClass[factorIndex];
+            SigmaNativeGroupAllValid != 0u
+                ? SigmaNativeGroupFactorClass[factorIndex]
+                : SIGMA_NATIVE_FACTOR_UNRESOLVED;
         SigmaNativeStitchFactorKernel[receiptIndex] =
             SigmaNativeGroupFactorKernel[factorIndex];
         SigmaNativeStitchFactorHash[receiptIndex] =
@@ -264,13 +224,6 @@ void EvaluateNativeStitchPairs(uint3 groupId : SV_GroupID,
     }
     GroupMemoryBarrierWithGroupSync();
 
-    // Explicitly bracketed endpoint associators are evaluated separately and
-    // differenced.  Nonassociativity is retained as a factor, never a tear enum.
-    SigmaNativeStitchLoadEndpointAssociator(leftNode.x, leftAddress,
-        edge.z, threadIndex, true);
-    SigmaNativeStitchLoadEndpointAssociator(rightNode.x, rightAddress,
-        edge.z, threadIndex, false);
-
     if (threadIndex < 16u)
     {
         uint laneValid = 1u;
@@ -308,16 +261,91 @@ void EvaluateNativeStitchPairs(uint3 groupId : SV_GroupID,
             SigmaNativeGroupLeftBracket[threadIndex];
     GroupMemoryBarrierWithGroupSync();
     SigmaNativeStitchClassifyCurrentFactor(0u, 1u, threadIndex);
-    SigmaNativeStitchClassifyCurrentFactor(1u, 2u, threadIndex);
-    if (threadIndex < 16u)
+
+    // One lane owns one (basis-context, output-lane) profile value.  The full
+    // 16x16 semantic profile is transient scratch; only its exact aggregate
+    // class and consistency receipt leave this workgroup.
+    uint context = threadIndex >> 4u;
+    uint profileLane = threadIndex & 15u;
+    uint leftSource = SigmaMerkabaBasisAssociatorSource(profileLane,
+        leftAddress, context);
+    uint rightSource = SigmaMerkabaBasisAssociatorSource(profileLane,
+        rightAddress, context);
+    uint profileValid = 1u;
+    uint2 associator;
+    uint2 reverseAssociator;
+    SigmaMerkabaEvaluateAssociatorProfileDeltaLane(
+        _NativeStates[leftNode.x + leftSource],
+        _NativeStates[rightNode.x + rightSource], leftAddress, rightAddress,
+        context, profileLane, associator, reverseAssociator, profileValid);
+    SigmaNativeGroupResiduals[threadIndex] = uint4(associator,
+        reverseAssociator);
+    SigmaNativeGroupPairValid[threadIndex] = profileValid;
+    GroupMemoryBarrierWithGroupSync();
+
+    uint associatorClass = SIGMA_NATIVE_FACTOR_EXACT_CLOSED;
+    uint reverseAssociatorClass = SIGMA_NATIVE_FACTOR_EXACT_CLOSED;
+    uint associatorHash = 2166136261u;
+    uint reverseAssociatorHash = 2166136261u;
+    [loop]
+    for (uint basisContext = 0u;
+         basisContext < SIGMA_STITCH_COMPLETE_ASSOCIATOR_BASIS_CONTEXT_COUNT;
+         ++basisContext)
     {
-        uint laneValid = 1u;
-        SigmaNativeGroupAssociator[threadIndex] = SigmaQ48NegateChecked(
-            SigmaNativeGroupAssociator[threadIndex], laneValid);
-        SigmaNativeGroupLaneValid[threadIndex] = laneValid;
+        if (threadIndex < 16u)
+        {
+            uint profileIndex = basisContext * 16u + threadIndex;
+            SigmaNativeGroupAssociator[threadIndex] =
+                SigmaNativeGroupResiduals[profileIndex].xy;
+            SigmaNativeGroupLaneValid[threadIndex] =
+                SigmaNativeGroupPairValid[profileIndex];
+        }
+        GroupMemoryBarrierWithGroupSync();
+        if (threadIndex == 0u)
+        {
+            [unroll]
+            for (uint validityLane = 0u; validityLane < 16u; ++validityLane)
+                SigmaNativeGroupAllValid &=
+                    SigmaNativeGroupLaneValid[validityLane];
+        }
+        GroupMemoryBarrierWithGroupSync();
+        SigmaNativeStitchClassifyCurrentFactor(1u, 2u, threadIndex);
+        if (threadIndex == 0u)
+        {
+            associatorClass = SigmaNativeAggregateFactorClass(associatorClass,
+                SigmaNativeStitchFactorClass[2],
+                SIGMA_NATIVE_FACTOR_EXACT_CLOSED);
+            associatorHash = (associatorHash ^
+                SigmaNativeStitchFactorHash[2]) * 16777619u;
+        }
+        GroupMemoryBarrierWithGroupSync();
+
+        if (threadIndex < 16u)
+        {
+            uint profileIndex = basisContext * 16u + threadIndex;
+            SigmaNativeGroupAssociator[threadIndex] =
+                SigmaNativeGroupResiduals[profileIndex].zw;
+        }
+        GroupMemoryBarrierWithGroupSync();
+        SigmaNativeStitchClassifyCurrentFactor(1u, 3u, threadIndex);
+        if (threadIndex == 0u)
+        {
+            reverseAssociatorClass = SigmaNativeAggregateFactorClass(
+                reverseAssociatorClass, SigmaNativeStitchFactorClass[3],
+                SIGMA_NATIVE_FACTOR_EXACT_CLOSED);
+            reverseAssociatorHash = (reverseAssociatorHash ^
+                SigmaNativeStitchFactorHash[3]) * 16777619u;
+        }
+        GroupMemoryBarrierWithGroupSync();
+    }
+    if (threadIndex == 0u)
+    {
+        SigmaNativeStitchFactorClass[2] = associatorClass;
+        SigmaNativeStitchFactorClass[3] = reverseAssociatorClass;
+        SigmaNativeStitchFactorHash[2] = associatorHash;
+        SigmaNativeStitchFactorHash[3] = reverseAssociatorHash;
     }
     GroupMemoryBarrierWithGroupSync();
-    SigmaNativeStitchClassifyCurrentFactor(1u, 3u, threadIndex);
 
     if (threadIndex == 0u)
     {

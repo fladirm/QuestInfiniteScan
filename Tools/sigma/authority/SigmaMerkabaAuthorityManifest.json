@@ -101,8 +101,18 @@
     "weakerRule": "REMOVE_ONLY_EXACT_SUPERSET_WITH_IDENTICAL_SCOPE_AND_INDEPENDENCE_CLASS"
   },
   "constructiveModalStitching": {
+    "associatorContextAuthority": {
+      "S32Required": false,
+      "associatorProfileIsIntrinsicS16": true,
+      "completeBasisContextCount": 16,
+      "completeness": "LINEARITY_IN_THE_THIRD_OPERAND_RECONSTRUCTS_EVERY_S16_CONTEXT_FROM_THE_SIXTEEN_GENERATED_BASIS_CONTEXTS",
+      "externalBracketContextInput": false,
+      "profile": "FOR_EACH_NATIVE_SECTOR_PAIR_A_B_THE_ORDERED_MAP_C_IN_0_TO_15_OF_ASSOCIATOR_U_J_E_B_E_C_MINUS_ASSOCIATOR_U_I_E_A_E_C",
+      "runtimePersistence": "TRANSIENT_PARALLEL_REDUCTION_TO_AN_EXACT_SUFFICIENT_RECEIPT_RECOMPUTE_COMPLETE_PROFILE_ON_DEMAND",
+      "sensorDerivedBracketContext": false
+    },
     "authority": "SCANNER_LEVEL_I_Q_CONTACT_CONJUNCTION_WITH_I_TOE_NATIVE_RELATION_NOT_AN_UPSTREAM_TOE_CLAIM",
-    "executableInput": "ACTUAL_FULL_S16_ENDPOINT_MODES_PLUS_CALIBRATED_SHARED_FOOTPRINT_BOUNDARY_CONTACT_CONTEXT_PLUS_EXPLICIT_NATIVE_BRACKET_CONTEXT",
+    "executableInput": "ACTUAL_FULL_S16_ENDPOINT_MODES_PLUS_CALIBRATED_SHARED_FOOTPRINT_BOUNDARY_CONTACT_CONTEXT_PLUS_COMPLETE_GENERATED_K16_ASSOCIATOR_CONTEXT_BASIS",
     "firstHitPressure": {
       "behindHit": "NO_CLAIM",
       "firstHit": "CONTRACT_SURVIVING_MANIFESTATION_TO_MEASURED_MOULD",
@@ -224,7 +234,7 @@
       "chartEmbeddingOwner": "I_REP_AFTER_ABSTRACT_STITCH_SET_CLOSURE",
       "emptyWitnessSet": "NO_STITCH",
       "evaluation": "SOLE_GENERATED_PROGRAM_COMPUTES_SIGN_TRANSPORT_LINK_ASSOCIATOR_PLAQUETTE_HOLONOMY_AND_RELATION_RECEIPTS_FROM_THE_RAW_INPUTS",
-      "generatedMatchedContinuationSectorWitnessSet": "EXACT_FINITE_SET_DERIVED_FROM_ACTUAL_FULL_S16_MODES_CALIBRATED_CONTACT_AND_EXPLICIT_NATIVE_BRACKET_CONTEXT",
+      "generatedMatchedContinuationSectorWitnessSet": "EXACT_FINITE_SET_DERIVED_FROM_ACTUAL_FULL_S16_MODES_CALIBRATED_CONTACT_AND_THE_COMPLETE_INTRINSIC_S16_ASSOCIATOR_PROFILE",
       "generatedSectorPairTransport": {
         "authority": "I_TOE_SIGNED_XOR_BASIS_MULTIPLICATION_AND_EXPLICIT_BRACKETS",
         "chartCoordinateMeaning": "NONE",
@@ -234,7 +244,7 @@
         "rightSectorAddress": "B_IN_Z2_POWER_4_FROM_THE_GENERATED_CHARACTER_FRAME_SECTOR",
         "transportAddress": "G_AB_EQUALS_A_XOR_B"
       },
-      "input": "POSSIBLE_CONTACT_PLUS_ACTUAL_FULL_S16_MODES_AND_RAW_COMPLETE_I_TOE_NATIVE_LINK_ASSOCIATOR_PLAQUETTE_HOLONOMY_CONTEXT",
+      "input": "POSSIBLE_CONTACT_PLUS_ACTUAL_FULL_S16_MODES_AND_COMPLETE_GENERATED_K16_ASSOCIATOR_CONTEXT_BASIS_PLUS_RAW_I_TOE_LINK_PLAQUETTE_HOLONOMY_CONTEXT",
       "minimumResidualWinner": false,
       "multipleNonEquivalentClasses": "UNRESOLVED_EXACT_DISJUNCTION",
       "nativeBoundarySectorInventory": "FOUR_GENERATED_K16_CHARACTER_FRAME_SECTORS_FROM_I_TOE_SECTION_6_WITH_NO_UV_OR_SAMPLE_SIDE_MEANING",
@@ -1412,16 +1422,16 @@
     },
     "generatorSource": {
       "path": "Tools/sigma/generate_sigma_operators.py",
-      "sha256": "555fecbfe9705fa969167ca049fe7ef8c2db9451324fb87ef9b2e685433ae3bd",
+      "sha256": "2e96a23f32788beb185f36b8ec86bc20d2a6cfb87fe950e6f1c2f351e72a2d6c",
       "version": "CPQ4-S16-GEN-1"
     },
     "queryBoundary": {
       "path": "Tools/sigma/authority/I_Q_SIGMA_PRISM_V1.json",
-      "sha256": "01068e0ca9a12abd80dc58aa172b04da295e3f5de2e235b7be334ced7e749eff"
+      "sha256": "4c811586dc37d02991815629990c9410da3840364d35373008fdba4c2afdeb68"
     },
     "representation": {
       "path": "Tools/sigma/authority/I_REP_SIGMA_PRISM_V1.json",
-      "sha256": "76e118d642d566532cbd81405d9ff80a04c18a6f9b814989afea8176ab644757"
+      "sha256": "b27e74a9b05902741bde4be11cbc3345e0eb3b8a71aa456a14c1c7e0aeeaf5b7"
     },
     "toeCapsule": {
       "admittedSections": [
@@ -1472,8 +1482,8 @@
     "unboundedParameterRegion": "FORBIDDEN_TO_PROVE_COMPATIBILITY_OR_MUTATION",
     "whiteBalance": "BOUNDED_PER_CHANNEL_GAIN"
   },
-  "programFingerprint": "948a856d1bfe7a760d0c1e1b1624343e2d07cafed5548295c7aeee1034a4b3a6",
-  "programVersion": "CPQ4-S16-MERKABA-N1R-7",
+  "programFingerprint": "21a3ec65bce186e2157409f8775c773597b8c632a67158f35ee0ca01484203c4",
+  "programVersion": "CPQ4-S16-MERKABA-N1R-8",
   "proofs": {
     "allDefaultActiveWork": 0,
     "allDefaultRelation": "DEFAULT_SAT",
@@ -1509,11 +1519,14 @@
     "constructiveStitchAbstractNativeSectorCount": 4,
     "constructiveStitchAbstractSectorChartAssignmentCount": 24,
     "constructiveStitchAbstractSectorChartAssignmentOrbitCount": 3,
+    "constructiveStitchAssociatorProfileIsIntrinsicS16": true,
     "constructiveStitchCallerLoopTruthInputCount": 0,
+    "constructiveStitchCompleteAssociatorBasisContextCount": 16,
     "constructiveStitchComponentGauge": "INDEPENDENT_Z2_SEMIDIRECT_D4_CHART_GAUGE",
     "constructiveStitchContactEpsilonCount": 0,
     "constructiveStitchD4ChartImageCount": 8,
     "constructiveStitchExpressionFingerprint": "6094d138212b1e76ab93f5daa17a9096ced145030b3a294cf0e9508786906c22",
+    "constructiveStitchExternalBracketContextInputCount": 0,
     "constructiveStitchExternalSemanticTruthInputCount": 0,
     "constructiveStitchFreshFreshBroadPhase": "SHARED_COHERENT_FOOTPRINT_BOUNDARY_ONLY",
     "constructiveStitchHotSemanticPhaseCount": 3,
@@ -1524,7 +1537,8 @@
     "constructiveStitchNonGaugeEmbeddingAmbiguityCount": 1,
     "constructiveStitchPersistentComponentIdentity": false,
     "constructiveStitchPixelOrXyzAuthorityCount": 0,
-    "constructiveStitchProofFingerprint": "3e13b56d0cd06b864ef946ecc7abc83a390a76c6dc9015e1aad04a1ba6d8dc22",
+    "constructiveStitchProofFingerprint": "a5da79963b840a4964b5c10e3df9c7fe72f478610f2ae7d6003a6cba5e41d112",
+    "constructiveStitchS32Required": false,
     "constructiveStitchSamplingSideToDeltaAuthorityCount": 0,
     "constructiveStitchTargetAdditionalHotSubmissionCount": 2,
     "coupledFactorInputCount": 2,
@@ -1840,13 +1854,17 @@
       "loopClosure": "INSIDE_CLOSE_DERIVE_LOCAL_IMPLICIT_PLAQUETTES_AND_DETERMINISTIC_FUNDAMENTAL_CYCLES_FROM_ACTUAL_FULL_S16_STITCH_WITNESSES_THEN_EVALUATE_COMPLETE_BRACKET_ASSOCIATOR_PLAQUETTE_HOLONOMY_CLOSURE",
       "mixedLevelTranslation": "A_BASE_INTEGER_TRANSLATION_T_ACTS_ON_LEVEL_L_NUMERATOR_AS_T_TIMES_2_POWER_L_AND_COMPONENT_EXTENTS_ARE_COMPUTED_IN_ONE_EXACT_BASE_DYADIC_SPACE",
       "nativeRelativeTransportTheorem": {
+        "S32Required": false,
+        "associatorProfileIsIntrinsicS16": true,
         "callerSuppliedNativeGenerator": false,
         "callerSuppliedOrientationOrDelta": false,
         "callerSuppliedPlaquetteCOrLoopClass": false,
         "callerSuppliedRelationOrFactorClass": false,
         "chartCoordinateAssignment": "ONLY_AFTER_ABSTRACT_INCIDENCE_CLOSURE_BY_CANONICAL_FINITE_SQUARE_DYADIC_EMBEDDING_MODULO_Z2_SEMIDIRECT_D4",
+        "completeBasisContextCount": 16,
+        "externalBracketContextInput": false,
         "generatedIntermediate": "EXACT_FINITE_MATCHED_NATIVE_CONTINUATION_SECTOR_WITNESS_SET_WITH_INTERNALLY_EVALUATED_SIGN_LINK_ASSOCIATOR_PLAQUETTE_HOLONOMY_RECEIPTS",
-        "input": "ACTUAL_FULL_S16_ENDPOINT_MODES_PLUS_CALIBRATED_SHARED_BOUNDARY_CONTACT_CONTEXT_PLUS_EXPLICIT_NATIVE_BRACKET_CONTEXT",
+        "input": "ACTUAL_FULL_S16_ENDPOINT_MODES_PLUS_CALIBRATED_SHARED_BOUNDARY_CONTACT_CONTEXT_PLUS_COMPLETE_GENERATED_K16_ASSOCIATOR_CONTEXT_BASIS",
         "nativeSectorPairToSignedUvRequired": false,
         "nativeTransportRequired": true,
         "output": "NO_STITCH_OR_UNRESOLVED_DISJUNCTION_OR_RESOLVED_ABSTRACT_BOUNDARY_INCIDENCE_NATIVE_TRANSPORT_WITNESS",
@@ -1856,6 +1874,7 @@
         "samplingBoundarySideMayDetermineNativePort": false,
         "sectorPairTransport": "FOR_NATIVE_SECTOR_ADDRESSES_A_B_GENERATE_G_EQUALS_A_XOR_B_AND_U_AB_OF_U_EQUALS_EPSILON_A_G_TIMES_EXPLICIT_RIGHT_BRACKET_U_E_G_WITH_THE_SWAPPED_REVERSE_EVALUATED_SEPARATELY",
         "sectorPairTransportProvenance": "I_TOE_SIGNED_XOR_ADDRESS_AND_SIGN_GEOMETRY_NOT_CHART_COORDINATES",
+        "sensorDerivedBracketContext": false,
         "staticOneHotGeneratorToDeltaMapAuthorized": false,
         "unilateralSideMapping": false,
         "unprovedOrientation": "UNRESOLVED"

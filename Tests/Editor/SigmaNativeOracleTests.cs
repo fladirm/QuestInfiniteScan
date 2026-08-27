@@ -808,9 +808,15 @@ namespace Genesis.RoomScan.Tests
             });
             SigmaStitchLocality Locality(ulong key, SigmaS16 state, int level,
                 char marker) => new(key, level, state, Fingerprint(marker));
+            uint HashProfile(IEnumerable<SigmaS16> profile)
+            {
+                uint hash = 2166136261u;
+                foreach (SigmaS16 factor in profile)
+                    hash = unchecked((hash ^ HashS16(factor)) * 16777619u);
+                return hash;
+            }
             SigmaBoundaryNativeInput Edge(int ordinal, ulong left, ulong right,
-                char marker, SigmaS16 bracket = default,
-                bool openContinuation = false,
+                char marker, bool openContinuation = false,
                 SigmaSampleBoundarySide leftSide = SigmaSampleBoundarySide.Right,
                 SigmaSampleBoundarySide rightSide = SigmaSampleBoundarySide.Left)
             {
@@ -819,53 +825,48 @@ namespace Genesis.RoomScan.Tests
                     ordinal, left, right, leftSide, rightSide,
                     openContinuation ? new[] { contact, contact } :
                         new[] { contact }),
-                    new SigmaStitchNativeContext(bracket, Fingerprint(marker)));
+                    new SigmaStitchNativeContext(Fingerprint(marker)));
             }
 
             SigmaStitchLocality a = Locality(11UL, State(1, 1), 0, 'a');
             SigmaStitchLocality b = Locality(22UL, State(2, 1), 0, 'b');
-            SigmaStitchLocality c = Locality(33UL, State(11, 1), 0, 'c');
+            SigmaStitchLocality c = Locality(33UL, State(4, 1), 0, 'c');
             SigmaStitchLocality nonAssociativeLeft = Locality(44UL,
-                State(9, 1), 0, 'd');
+                State(0, 1), 0, 'd');
             SigmaStitchLocality nonAssociativeRight = Locality(55UL,
-                State(15, 1), 0, 'e');
+                State(3, 1), 0, 'e');
             SigmaStitchLocality incompatibleLeft = Locality(66UL,
                 State(0, 1), 0, 'f');
             SigmaStitchLocality incompatibleRight = Locality(77UL,
                 State(7, 1), 0, 'g');
             SigmaStitchLocality uncertainRight = Locality(88UL,
-                State(3, 1), 0, 'h');
+                State(8, 1), 0, 'h');
 
-            // Four distinct full modes joined by one exact signed-XOR transport
-            // cycle.  This is a bounded frozen fixture, not a runtime search.
-            SigmaStitchLocality q0 = Locality(101UL, State(1, 1), 0, 'i');
+            // Six distinct signed basis modes form the smallest exact intrinsic
+            // cycle admitted by the complete associator profile. This is a
+            // bounded frozen fixture, not a runtime search.
+            SigmaStitchLocality q0 = Locality(101UL, State(1, -1), 0, 'i');
             SigmaStitchLocality q1 = Locality(102UL, State(2, 1), 0, 'j');
-            SigmaStitchLocality q2 = Locality(103UL, State(1, -1), 0, 'k');
-            SigmaStitchLocality q3 = Locality(104UL, State(13, -1), 0, 'l');
+            SigmaStitchLocality q2 = Locality(103UL, State(4, -1), 0, 'k');
+            SigmaStitchLocality q3 = Locality(104UL, State(1, 1), 0, 'l');
+            SigmaStitchLocality q4 = Locality(105UL, State(2, -1), 0, 'L');
+            SigmaStitchLocality q5 = Locality(106UL, State(8, 1), 0, 'K');
             SigmaS16 r0State = State(1, 1);
-            SigmaS16 r1State = SigmaS16Operators.RightBasisAction(r0State, 5);
-            SigmaS16 r2State = SigmaS16Operators.RightBasisAction(r1State, 5);
-            SigmaS16 r3State = SigmaS16Operators.RightBasisAction(r2State, 10);
-            Assert.That(SigmaS16Operators.RightBasisAction(r3State, 10),
-                Is.EqualTo(r0State),
-                "The second bounded cycle must close in native S16.");
+            SigmaS16 r1State = State(2, 1);
             SigmaStitchLocality r0 = Locality(401UL, r0State, 0, 'M');
             SigmaStitchLocality r1 = Locality(402UL, r1State, 0, 'N');
-            SigmaStitchLocality r2 = Locality(403UL, r2State, 0, 'O');
-            SigmaStitchLocality r3 = Locality(404UL, r3State, 0, 'P');
             SigmaBoundaryNativeInput[] firstOrbitCycle =
             {
                 Edge(0, 101UL, 102UL, 'y'),
                 Edge(1, 102UL, 103UL, 'z'),
                 Edge(2, 103UL, 104UL, 'A'),
-                Edge(3, 104UL, 101UL, 'B'),
+                Edge(3, 104UL, 105UL, 'B'),
+                Edge(4, 105UL, 106UL, 'C'),
+                Edge(5, 106UL, 101UL, 'D'),
             };
             SigmaBoundaryNativeInput[] secondOrbitCycle =
             {
-                Edge(4, 401UL, 402UL, 'Q'),
-                Edge(5, 402UL, 403UL, 'R'),
-                Edge(6, 403UL, 404UL, 'S'),
-                Edge(7, 404UL, 401UL, 'T'),
+                Edge(6, 401UL, 402UL, 'Q'),
             };
 
             var fixtures = new List<(string Name,
@@ -894,26 +895,26 @@ namespace Genesis.RoomScan.Tests
                     Edge(1, 22UL, 33UL, 'o'),
                     Edge(0, 11UL, 22UL, 'n'),
                 }),
-                ("valid-nonassociative-fold", new[]
+                ("intrinsic-associator-fold", new[]
                 {
                     nonAssociativeLeft, nonAssociativeRight,
                 }, new[]
                 {
-                    Edge(0, 44UL, 55UL, 'p', State(8, 1)),
+                    Edge(0, 44UL, 55UL, 'p'),
                 }),
-                ("incompatible-bracket", new[]
+                ("incompatible-intrinsic-profile", new[]
                 {
                     incompatibleLeft, incompatibleRight,
                 }, new[]
                 {
-                    Edge(0, 66UL, 77UL, 'q', State(1, 1)),
+                    Edge(0, 66UL, 77UL, 'q'),
                 }),
-                ("uncertain-bracket", new[]
+                ("uncertain-intrinsic-profile", new[]
                 {
                     incompatibleLeft, uncertainRight,
                 }, new[]
                 {
-                    Edge(0, 66UL, 88UL, 'r', State(9, 1)),
+                    Edge(0, 66UL, 88UL, 'r'),
                 }),
                 ("spatially-separated-equal-modes", new[]
                 {
@@ -930,17 +931,17 @@ namespace Genesis.RoomScan.Tests
                         openContinuation: true) }),
                 ("later-side-view-resolves", new[] { a, b },
                     new[] { Edge(0, 11UL, 22UL, 'x') }),
-                ("consistent-native-cycle", new[] { q0, q1, q2, q3 },
+                ("consistent-native-cycle", new[] { q0, q1, q2, q3, q4, q5 },
                     firstOrbitCycle),
                 ("consistent-native-cycle-second-orbit",
-                    new[] { r0, r1, r2, r3 }, secondOrbitCycle),
+                    new[] { r0, r1 }, secondOrbitCycle),
                 ("disconnected-different-chart-orbits",
-                    new[] { q0, q1, q2, q3, r0, r1, r2, r3 },
+                    new[] { q0, q1, q2, q3, q4, q5, r0, r1 },
                     firstOrbitCycle.Concat(secondOrbitCycle).ToArray()),
                 ("later-join-different-chart-orbits",
-                    new[] { q0, q1, q2, q3, r0, r1, r2, r3 },
+                    new[] { q0, q1, q2, q3, q4, q5, r0, r1 },
                     firstOrbitCycle.Concat(secondOrbitCycle).Append(
-                        Edge(8, 101UL, 402UL, 'U')).ToArray()),
+                        Edge(7, 101UL, 402UL, 'U')).ToArray()),
                 ("inconsistent-fundamental-cycle", new[] { a, b, c }, new[]
                 {
                     Edge(0, 11UL, 22UL, 'C'),
@@ -1001,9 +1002,6 @@ namespace Genesis.RoomScan.Tests
                             contacts.Add(Pack(axis.Lower));
                             contacts.Add(Pack(axis.Upper));
                         }
-                    uint contextOffset = checked((uint)(states.Count *
-                        SigmaS16.LaneCount));
-                    states.Add(edge.NativeContext.BracketContext);
                     bool open = edge.Boundary.ContactBranches.Length != 1;
                     uint packed = contactOffset |
                         ((uint)SigmaNativeQueryClaim.FirstHitMould << 20) |
@@ -1013,7 +1011,7 @@ namespace Genesis.RoomScan.Tests
                     {
                         X = checked((uint)nodeByKey[edge.Boundary.LeftKey]),
                         Y = checked((uint)nodeByKey[edge.Boundary.RightKey]),
-                        Z = contextOffset,
+                        Z = 0u,
                         W = packed,
                     });
                     SigmaStitchLocality leftLocality = nodes.Single(value =>
@@ -1144,9 +1142,9 @@ namespace Genesis.RoomScan.Tests
                         Assert.That(hashes.Y, Is.EqualTo(
                             HashS16(receipt.ReverseLinkDefect)), name);
                         Assert.That(hashes.Z, Is.EqualTo(
-                            HashS16(receipt.AssociatorDefect)), name);
+                            HashProfile(receipt.AssociatorProfile)), name);
                         Assert.That(hashes.W, Is.EqualTo(
-                            HashS16(receipt.ReverseAssociatorDefect)), name);
+                            HashProfile(receipt.ReverseAssociatorProfile)), name);
                         Assert.That(factors.X & 0xfu,
                             Is.EqualTo((uint)receipt.LinkClass), name);
                         Assert.That((factors.X >> 4) & 0xfu,

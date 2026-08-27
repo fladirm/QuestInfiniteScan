@@ -117,6 +117,8 @@ namespace Genesis.RoomScan.SigmaPrism
         private readonly int _contractNative;
         private readonly int _evaluateRelation;
         private readonly LocalKeyword _tileCloseVariant;
+        private readonly LocalKeyword _boundaryVariant;
+        private readonly LocalKeyword _globalCloseVariant;
         private bool _disposed;
 
         internal SigmaNativeFrameGraph(Vector2Int resolution,
@@ -144,6 +146,10 @@ namespace Genesis.RoomScan.SigmaPrism
                 "SIGMA_N4_TILE_CLOSE_VARIANT");
             _evaluateRelation = _query.FindProfiledKernel(
                 "EvaluateNativeRelation");
+            _boundaryVariant = new LocalKeyword(_query,
+                "SIGMA_N4_BOUNDARY_VARIANT");
+            _globalCloseVariant = new LocalKeyword(_query,
+                "SIGMA_N4_GLOBAL_CLOSE_VARIANT");
             FrameResources = new SigmaNativeFrameResources(resolution,
                 frameCapacity);
         }
@@ -196,6 +202,8 @@ namespace Genesis.RoomScan.SigmaPrism
                 slot.FootprintCapacity + 1, 1, 1);
 
             BindRelation(command, slot, 1);
+            command.SetKeyword(_query, _boundaryVariant, true);
+            command.SetKeyword(_query, _globalCloseVariant, false);
             command.SetComputeIntParam(_query, "_NativeRelationMode", 1);
             command.DispatchComputeProfiled(_query, _evaluateRelation,
                 slot.BoundaryCapacity + 1, 1, 1);
@@ -210,9 +218,12 @@ namespace Genesis.RoomScan.SigmaPrism
             // two workgroups in one dispatch, never two relation submissions.
             BindRelation(command, slot,
                 SigmaNativeFrameSlotResources.RelationCapacity);
+            command.SetKeyword(_query, _boundaryVariant, false);
+            command.SetKeyword(_query, _globalCloseVariant, true);
             command.SetComputeIntParam(_query, "_NativeRelationMode", 2);
             command.DispatchComputeProfiled(_query, _evaluateRelation,
                 slot.Counters, 3u * sizeof(uint) * 4u);
+            command.SetKeyword(_query, _globalCloseVariant, false);
 
             command.DispatchComputeProfiled(_frame, _prepareRevision, 1, 1, 1);
             command.DispatchComputeProfiled(_frame, _preparePage,

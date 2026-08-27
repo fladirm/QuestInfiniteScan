@@ -24,7 +24,7 @@ namespace Genesis.RoomScan.Tests
         public void AuthorityBoundaryAndExecutableIrAreFrozen()
         {
             Assert.That(SigmaGeneratedMerkabaProgram.ProgramVersion,
-                Is.EqualTo("CPQ4-S16-MERKABA-N1R-7"));
+                Is.EqualTo("CPQ4-S16-MERKABA-N1R-8"));
             Assert.That(SigmaGeneratedMerkabaProgram.NumericDomainId,
                 Is.EqualTo(SigmaNumericDomain.Id));
             Assert.That(SigmaGeneratedMerkabaProgram.DeclaredToeUpstreamFingerprint,
@@ -127,6 +127,15 @@ namespace Genesis.RoomScan.Tests
             Assert.That(SigmaGeneratedMerkabaProgram
                 .ConstructiveStitchTargetAdditionalHotSubmissionCount,
                 Is.LessThanOrEqualTo(2));
+            Assert.That(SigmaGeneratedMerkabaProgram
+                .ConstructiveStitchExternalBracketContextInputCount, Is.Zero);
+            Assert.That(SigmaGeneratedMerkabaProgram
+                .ConstructiveStitchCompleteAssociatorBasisContextCount,
+                Is.EqualTo(16));
+            Assert.That(SigmaGeneratedMerkabaProgram
+                .ConstructiveStitchAssociatorProfileIsIntrinsicS16, Is.True);
+            Assert.That(SigmaGeneratedMerkabaProgram
+                .ConstructiveStitchS32Required, Is.False);
             CollectionAssert.IsEmpty(Enum.GetNames(typeof(SigmaMerkabaIrOpcode))
                 .Intersect(new[]
                 {
@@ -136,6 +145,84 @@ namespace Genesis.RoomScan.Tests
                     "FRESH_SUPPORT_SET_PATTERN",
                     "COMPONENT_TRANSLATION_NORMALIZE",
                 }, StringComparer.Ordinal));
+        }
+
+        [Test]
+        public void CompleteAssociatorBasisProfileReconstructsEveryS16Context()
+        {
+            var random = new System.Random(0x51616);
+            string Fingerprint(char marker) => new(marker, 64);
+            SigmaS16 SmallState()
+            {
+                var lanes = new long[SigmaS16.LaneCount];
+                for (int lane = 0; lane < lanes.Length; ++lane)
+                    lanes[lane] = SigmaNumericDomain.FromInteger(
+                        random.Next(-3, 4));
+                return SigmaS16.FromArray(lanes);
+            }
+
+            for (int fixture = 0; fixture < 12; ++fixture)
+            {
+                SigmaS16 left = fixture == 0
+                    ? SigmaS16.Basis(0, SigmaNumericDomain.One) : SmallState();
+                SigmaS16 right = fixture == 0
+                    ? SigmaS16.Basis(3, SigmaNumericDomain.One) : SmallState();
+                SigmaS16 context = SmallState();
+                for (int leftSector = 0; leftSector < 4; ++leftSector)
+                for (int rightSector = 0; rightSector < 4; ++rightSector)
+                {
+                    var a = (SigmaNativeBoundarySector)leftSector;
+                    var b = (SigmaNativeBoundarySector)rightSector;
+                    SigmaS16[] leftProfile = SigmaGeneratedMerkabaProgram
+                        .EvaluateBasisAssociatorProfile(left, a);
+                    SigmaS16[] rightProfile = SigmaGeneratedMerkabaProgram
+                        .EvaluateBasisAssociatorProfile(right, b);
+                    SigmaS16[] delta = Enumerable.Range(0, SigmaS16.LaneCount)
+                        .Select(index => SigmaS16Operators.Subtract(
+                            rightProfile[index], leftProfile[index])).ToArray();
+                    SigmaS16 direct = SigmaS16Operators.Subtract(
+                        SigmaS16Operators.Associator(right,
+                            SigmaS16.Basis(1 << rightSector,
+                                SigmaNumericDomain.One), context),
+                        SigmaS16Operators.Associator(left,
+                            SigmaS16.Basis(1 << leftSector,
+                                SigmaNumericDomain.One), context));
+                    Assert.That(SigmaGeneratedMerkabaProgram
+                        .ReconstructAssociatorFromBasisProfile(delta, context),
+                        Is.EqualTo(direct),
+                        $"fixture {fixture}, sectors {leftSector}/{rightSector}");
+                }
+            }
+
+            var contact = new SigmaStitchContactBranch(new[]
+            {
+                new SigmaQ48Interval(SigmaNumericDomain.One,
+                    SigmaNumericDomain.One),
+                new SigmaQ48Interval(SigmaNumericDomain.One,
+                    SigmaNumericDomain.One),
+                new SigmaQ48Interval(SigmaNumericDomain.One,
+                    SigmaNumericDomain.One),
+            });
+            SigmaStitchWitnessSet witness = SigmaGeneratedMerkabaProgram
+                .EvaluateModalStitch(new SigmaImplicitBoundaryRef(0, 1UL, 2UL,
+                    SigmaSampleBoundarySide.Right, SigmaSampleBoundarySide.Left,
+                    new[] { contact }),
+                    new SigmaStitchLocality(1UL, 0,
+                        SigmaS16.Basis(0, SigmaNumericDomain.One), Fingerprint('a')),
+                    new SigmaStitchLocality(2UL, 0,
+                        SigmaS16.Basis(3, SigmaNumericDomain.One), Fingerprint('b')),
+                    new SigmaStitchNativeContext(Fingerprint('c')));
+            SigmaStitchRelationReceipt decisive = witness.Receipts.Single(value =>
+                value.LeftSector == SigmaNativeBoundarySector.Sector0 &&
+                value.RightSector == SigmaNativeBoundarySector.Sector1);
+            Assert.That(decisive.LinkClass,
+                Is.EqualTo(SigmaExactFactorClass.ProvenExactClosed));
+            Assert.That(decisive.ReverseLinkClass,
+                Is.EqualTo(SigmaExactFactorClass.ProvenExactClosed));
+            Assert.That(decisive.NonzeroAssociatorProfile, Is.True);
+            Assert.That(decisive.AssociatorClass,
+                Is.Not.EqualTo(SigmaExactFactorClass.ProvenExactClosed),
+                "A zero caller context can no longer mask intrinsic nonassociativity.");
         }
 
         [Test]
@@ -225,21 +312,24 @@ namespace Genesis.RoomScan.Tests
                 new SigmaQ48Interval(SigmaNumericDomain.One,
                     SigmaNumericDomain.One),
             });
-            SigmaStitchNativeContext Context(char marker,
-                SigmaS16 bracket = default) =>
-                new(bracket, Certificate(marker));
+            SigmaStitchNativeContext Context(char marker) =>
+                new(Certificate(marker));
             SigmaStitchLocality Locality(ulong key, int basis, int level,
                 char marker) => new(key, level,
                     SigmaS16.Basis(basis, SigmaNumericDomain.One),
                     Certificate(marker));
+            SigmaStitchLocality SignedLocality(ulong key, int basis, int sign,
+                int level, char marker) => new(key, level,
+                    SigmaS16.Basis(basis, sign < 0
+                        ? SigmaNumericDomain.QNegate(SigmaNumericDomain.One)
+                        : SigmaNumericDomain.One), Certificate(marker));
             SigmaBoundaryNativeInput Edge(int edgeIndex, ulong left, ulong right,
                 char marker,
                 SigmaSampleBoundarySide leftSide = SigmaSampleBoundarySide.Right,
-                SigmaSampleBoundarySide rightSide = SigmaSampleBoundarySide.Left,
-                SigmaS16 bracket = default) =>
+                SigmaSampleBoundarySide rightSide = SigmaSampleBoundarySide.Left) =>
                 new(new SigmaImplicitBoundaryRef(edgeIndex, left, right,
                     leftSide, rightSide, new[] { Contact() }),
-                    Context(marker, bracket));
+                    Context(marker));
 
             SigmaStitchLocality a = Locality(11UL, 1, 0, 'a');
             SigmaStitchLocality b = Locality(22UL, 2, 0, 'b');
@@ -288,7 +378,7 @@ namespace Genesis.RoomScan.Tests
                     SigmaGeneratedMerkabaProgram.CanonicalStitchSerialization(ab)),
                 "Sampling sides may propose contact but cannot choose a chart orbit.");
 
-            SigmaStitchLocality c = Locality(33UL, 11, 0, 'c');
+            SigmaStitchLocality c = Locality(33UL, 4, 0, 'c');
             SigmaStitchLocality[] localities =
             {
                 a,
@@ -361,6 +451,33 @@ namespace Genesis.RoomScan.Tests
                 SigmaStitchResolution.Unresolved),
                 "An inconsistent generated fundamental cycle is never repaired.");
 
+            SigmaStitchLocality[] intrinsicCycleLocalities =
+            {
+                SignedLocality(1001UL, 1, -1, 0, 'h'),
+                SignedLocality(1002UL, 2, 1, 0, 'i'),
+                SignedLocality(1003UL, 4, -1, 0, 'j'),
+                SignedLocality(1004UL, 1, 1, 0, 'k'),
+                SignedLocality(1005UL, 2, -1, 0, 'l'),
+                SignedLocality(1006UL, 8, 1, 0, 'm'),
+            };
+            SigmaBoundaryNativeInput[] intrinsicCycleEdges =
+            {
+                Edge(10, 1001UL, 1002UL, 's'),
+                Edge(11, 1002UL, 1003UL, 't'),
+                Edge(12, 1003UL, 1004UL, 'u'),
+                Edge(13, 1004UL, 1005UL, 'v'),
+                Edge(14, 1005UL, 1006UL, 'w'),
+                Edge(15, 1006UL, 1001UL, 'x'),
+            };
+            Assert.That(SigmaGeneratedMerkabaProgram.TryIntegrateStitchPattern(
+                intrinsicCycleLocalities, intrinsicCycleEdges,
+                out SigmaStitchPattern intrinsicCycle), Is.True);
+            Assert.That(intrinsicCycle.Resolution,
+                Is.EqualTo(SigmaStitchResolution.Resolved),
+                $"Intrinsic four-sector cycle must close in one D4 orbit; " +
+                $"classes={intrinsicCycle.EmbeddingClassCount}.");
+            Assert.That(intrinsicCycle.ComponentCount, Is.EqualTo(1));
+
             SigmaStitchLocality nonAssociativeLeft =
                 Locality(66UL, 9, 0, 'f');
             SigmaStitchLocality nonAssociativeRight =
@@ -368,17 +485,14 @@ namespace Genesis.RoomScan.Tests
             SigmaImplicitBoundaryRef nonAssociativeBoundary = new(3, 66UL, 77UL,
                 SigmaSampleBoundarySide.Right, SigmaSampleBoundarySide.Left,
                 new[] { Contact() });
-            SigmaStitchWitnessSet validNonAssociative =
+            SigmaStitchWitnessSet intrinsicAssociator =
                 SigmaGeneratedMerkabaProgram.EvaluateModalStitch(
                     nonAssociativeBoundary, nonAssociativeLeft,
-                    nonAssociativeRight,
-                    Context('h', SigmaS16.Basis(8,
-                        SigmaNumericDomain.One)));
-            Assert.That(validNonAssociative.Resolution, Is.EqualTo(
-                SigmaStitchResolution.Resolved));
-            Assert.That(validNonAssociative.Resolved.Receipt
-                .NonassociativeBracketContext, Is.True,
-                "Nonassociativity retains brackets; it is not an automatic tear.");
+                    nonAssociativeRight, Context('h'));
+            Assert.That(intrinsicAssociator.Receipts.Any(value =>
+                value.NonzeroAssociatorProfile), Is.True,
+                "Nonassociativity is the complete intrinsic basis profile, not a " +
+                "caller-selected context.");
 
             SigmaStitchWitnessSet incompatible =
                 SigmaGeneratedMerkabaProgram.EvaluateModalStitch(
@@ -387,8 +501,7 @@ namespace Genesis.RoomScan.Tests
                         SigmaSampleBoundarySide.Left, new[] { Contact() }),
                     Locality(88UL, 0, 0, 'i'),
                     Locality(99UL, 7, 0, 'j'),
-                    Context('k', SigmaS16.Basis(1,
-                        SigmaNumericDomain.One)));
+                    Context('k'));
             Assert.That(incompatible.Resolution, Is.EqualTo(
                 SigmaStitchResolution.NoStitch));
 
@@ -398,9 +511,8 @@ namespace Genesis.RoomScan.Tests
                         SigmaSampleBoundarySide.Right,
                         SigmaSampleBoundarySide.Left, new[] { Contact() }),
                     Locality(111UL, 0, 0, 'l'),
-                    Locality(122UL, 3, 0, 'm'),
-                    Context('n', SigmaS16.Basis(9,
-                        SigmaNumericDomain.One)));
+                    Locality(122UL, 8, 0, 'm'),
+                    Context('n'));
             Assert.That(uncertain.Resolution, Is.EqualTo(
                 SigmaStitchResolution.Unresolved));
             Assert.That(uncertain.HasOpenFactor, Is.True);

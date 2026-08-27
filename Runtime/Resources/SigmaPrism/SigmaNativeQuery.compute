@@ -1,6 +1,7 @@
 // Live N3R/N4R native-relation lowering. One 256-thread workgroup owns one
 // complete S16 relation; relation cardinality changes workgroups, never dispatches.
 #pragma kernel EvaluateNativeRelation SIGMA_NATIVE_ORACLE_RELATION_MATH
+#pragma multi_compile_local __ SIGMA_N4_BOUNDARY_VARIANT SIGMA_N4_GLOBAL_CLOSE_VARIANT
 #pragma target 5.0
 
 #include "SigmaFrameAbi.hlsl"
@@ -60,23 +61,15 @@ uint _NativeGlobalBorderComponentCapacity;
 #define SIGMA_N4_CHART_ORBIT_COUNT 3u
 #define SIGMA_N4_INVALID 0xffffffffu
 
-groupshared uint2 SigmaN4BoundaryLeftState[16];
-groupshared uint2 SigmaN4BoundaryRightState[16];
+#if defined(SIGMA_N4_GLOBAL_CLOSE_VARIANT)
 groupshared uint2 SigmaN4BoundaryForwardLink[256];
 groupshared uint2 SigmaN4BoundaryReverseLink[256];
 groupshared uint SigmaN4BoundaryLaneValid[256];
 groupshared uint SigmaN4BoundaryAny[256];
-groupshared uint SigmaN4BoundaryForwardClass[16];
-groupshared uint SigmaN4BoundaryReverseClass[16];
-groupshared uint SigmaN4BoundaryForwardHash[16];
-groupshared uint SigmaN4BoundaryReverseHash[16];
-groupshared uint SigmaN4BoundaryContact;
-groupshared uint SigmaN4BoundaryEndpointClass;
 groupshared uint4 SigmaN4GlobalCertificate[256];
 
-// BOUNDARY and GLOBAL_CLOSE are mutually exclusive modes of this one existing
-// dispatch.  Reuse the boundary plane's shared storage during global close so
-// the complete kernel remains below Adreno/Vulkan's 32 KiB workgroup limit.
+// GLOBAL_CLOSE reuses one fixed 256-lane arena; it never aliases BOUNDARY in a
+// single variant or dispatch.
 uint4 SigmaN4LoadGlobalMeta(uint index)
 {
     return uint4(SigmaN4BoundaryForwardLink[index],
@@ -99,6 +92,25 @@ void SigmaN4StoreGlobalState(uint index, uint2 value)
     SigmaN4BoundaryLaneValid[index] = value.x;
     SigmaN4BoundaryAny[index] = value.y;
 }
+#elif defined(SIGMA_N4_BOUNDARY_VARIANT)
+groupshared uint2 SigmaN4BoundaryLeftState[16];
+groupshared uint2 SigmaN4BoundaryRightState[16];
+groupshared uint2 SigmaN4BoundaryForwardLink[256];
+groupshared uint2 SigmaN4BoundaryReverseLink[256];
+groupshared uint SigmaN4BoundaryLaneValid[256];
+groupshared uint SigmaN4BoundaryAny[256];
+groupshared uint SigmaN4BoundaryForwardClass[16];
+groupshared uint SigmaN4BoundaryReverseClass[16];
+groupshared uint SigmaN4BoundaryForwardHash[16];
+groupshared uint SigmaN4BoundaryReverseHash[16];
+groupshared uint SigmaN4BoundaryLinkForwardClass[16];
+groupshared uint SigmaN4BoundaryLinkReverseClass[16];
+groupshared uint SigmaN4BoundaryAssociatorClass[16];
+groupshared uint SigmaN4BoundaryReverseAssociatorClass[16];
+groupshared uint SigmaN4BoundaryAssociatorHash[16];
+groupshared uint SigmaN4BoundaryReverseAssociatorHash[16];
+groupshared uint SigmaN4BoundaryContact;
+groupshared uint SigmaN4BoundaryEndpointClass;
 
 uint SigmaN4FootprintAddress(uint footprint, uint word)
 {
@@ -368,6 +380,68 @@ void SigmaN4EvaluateImplicitBoundary(uint boundary, uint threadIndex)
 
     SigmaN4ClassifyBoundaryFactors(false, threadIndex);
     SigmaN4ClassifyBoundaryFactors(true, threadIndex);
+    if (lane == 0u)
+    {
+        SigmaN4BoundaryLinkForwardClass[pair] =
+            SigmaN4BoundaryForwardClass[pair];
+        SigmaN4BoundaryLinkReverseClass[pair] =
+            SigmaN4BoundaryReverseClass[pair];
+        SigmaN4BoundaryAssociatorClass[pair] =
+            SIGMA_NATIVE_FACTOR_EXACT_CLOSED;
+        SigmaN4BoundaryReverseAssociatorClass[pair] =
+            SIGMA_NATIVE_FACTOR_EXACT_CLOSED;
+        SigmaN4BoundaryAssociatorHash[pair] = 2166136261u;
+        SigmaN4BoundaryReverseAssociatorHash[pair] = 2166136261u;
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    // The complete intrinsic associator profile is the fixed 16x16
+    // (sector-pair x basis-context) domain.  It is reduced transiently here and
+    // never persisted as 16 full-S16 factors per boundary.
+    [loop]
+    for (uint context = 0u;
+         context < SIGMA_STITCH_COMPLETE_ASSOCIATOR_BASIS_CONTEXT_COUNT;
+         ++context)
+    {
+        uint leftSource = SigmaMerkabaBasisAssociatorSource(lane, leftAddress,
+            context);
+        uint rightSource = SigmaMerkabaBasisAssociatorSource(lane, rightAddress,
+            context);
+        uint profileValid = 1u;
+        uint2 associator;
+        uint2 reverseAssociator;
+        SigmaMerkabaEvaluateAssociatorProfileDeltaLane(
+            SigmaN4BoundaryLeftState[leftSource],
+            SigmaN4BoundaryRightState[rightSource], leftAddress, rightAddress,
+            context, lane, associator, reverseAssociator, profileValid);
+        SigmaN4BoundaryForwardLink[threadIndex] = associator;
+        SigmaN4BoundaryReverseLink[threadIndex] = reverseAssociator;
+        SigmaN4BoundaryLaneValid[threadIndex] = profileValid;
+        GroupMemoryBarrierWithGroupSync();
+
+        SigmaN4ClassifyBoundaryFactors(false, threadIndex);
+        SigmaN4ClassifyBoundaryFactors(true, threadIndex);
+        if (lane == 0u)
+        {
+            SigmaN4BoundaryAssociatorClass[pair] =
+                SigmaNativeAggregateFactorClass(
+                    SigmaN4BoundaryAssociatorClass[pair],
+                    SigmaN4BoundaryForwardClass[pair],
+                    SIGMA_NATIVE_FACTOR_EXACT_CLOSED);
+            SigmaN4BoundaryReverseAssociatorClass[pair] =
+                SigmaNativeAggregateFactorClass(
+                    SigmaN4BoundaryReverseAssociatorClass[pair],
+                    SigmaN4BoundaryReverseClass[pair],
+                    SIGMA_NATIVE_FACTOR_EXACT_CLOSED);
+            SigmaN4BoundaryAssociatorHash[pair] =
+                (SigmaN4BoundaryAssociatorHash[pair] ^
+                    SigmaN4BoundaryForwardHash[pair]) * 16777619u;
+            SigmaN4BoundaryReverseAssociatorHash[pair] =
+                (SigmaN4BoundaryReverseAssociatorHash[pair] ^
+                    SigmaN4BoundaryReverseHash[pair]) * 16777619u;
+        }
+        GroupMemoryBarrierWithGroupSync();
+    }
     if (threadIndex == 0u)
     {
         uint4 closure0 = 0u;
@@ -380,9 +454,12 @@ void SigmaN4EvaluateImplicitBoundary(uint boundary, uint threadIndex)
         for (uint pairIndex = 0u; pairIndex < 16u; ++pairIndex)
         {
             uint factorClass = SigmaNativeAggregateFactorClass(
-                SigmaN4BoundaryForwardClass[pairIndex],
-                SigmaN4BoundaryReverseClass[pairIndex],
-                SIGMA_NATIVE_FACTOR_EXACT_CLOSED);
+                SigmaN4BoundaryLinkForwardClass[pairIndex],
+                SigmaN4BoundaryLinkReverseClass[pairIndex],
+                SigmaNativeAggregateFactorClass(
+                    SigmaN4BoundaryAssociatorClass[pairIndex],
+                    SigmaN4BoundaryReverseAssociatorClass[pairIndex],
+                    SIGMA_NATIVE_FACTOR_EXACT_CLOSED));
             uint closureLane = pairIndex & 3u;
             if ((pairIndex >> 2u) == 0u)
                 closure0[closureLane] = factorClass;
@@ -400,10 +477,17 @@ void SigmaN4EvaluateImplicitBoundary(uint boundary, uint threadIndex)
         uint4 result = SigmaMerkabaFinalizeNativeStitchSet(
             closure0, closure1, closure2, closure3);
         uint selectedPair = result.y * 4u + result.z;
-        uint selectedForwardHash = result.x == SIGMA_STITCH_RESOLVED
-            ? SigmaN4BoundaryForwardHash[selectedPair] : 0u;
-        uint selectedReverseHash = result.x == SIGMA_STITCH_RESOLVED
-            ? SigmaN4BoundaryReverseHash[selectedPair] : 0u;
+        uint selectedFactorClasses = result.x == SIGMA_STITCH_RESOLVED
+            ? SigmaN4BoundaryLinkForwardClass[selectedPair] |
+                (SigmaN4BoundaryLinkReverseClass[selectedPair] << 4u) |
+                (SigmaN4BoundaryAssociatorClass[selectedPair] << 8u) |
+                (SigmaN4BoundaryReverseAssociatorClass[selectedPair] << 12u)
+            : 0u;
+        uint selectedProfileReceipt = result.x == SIGMA_STITCH_RESOLVED
+            ? SigmaN4BoundaryAssociatorHash[selectedPair] ^
+                ((SigmaN4BoundaryReverseAssociatorHash[selectedPair] << 1u) |
+                 (SigmaN4BoundaryReverseAssociatorHash[selectedPair] >> 31u))
+            : 0u;
         uint leftAddress = SigmaMerkabaNativeBoundarySectorAddress(result.y);
         uint rightAddress = SigmaMerkabaNativeBoundarySectorAddress(result.z);
         uint transportAddress = leftAddress ^ rightAddress;
@@ -414,13 +498,15 @@ void SigmaN4EvaluateImplicitBoundary(uint boundary, uint threadIndex)
                     ? 2u : 0u)
             : 0u;
         SigmaN4StoreBoundaryReceipt(boundary, result,
-            uint4(resolvedMask, unresolvedMask, selectedForwardHash,
-                selectedReverseHash),
+            uint4(resolvedMask, unresolvedMask, selectedFactorClasses,
+                selectedProfileReceipt),
             uint4(SIGMA_STITCH_GENERATED_BRACKET_FINGERPRINT,
                 signBits, SigmaN4BoundaryContact));
     }
 }
+#endif
 
+#if defined(SIGMA_N4_GLOBAL_CLOSE_VARIANT)
 uint SigmaN4TileHeaderAddress(uint tile, uint word)
 {
     return _NativeTileHeaderScratchOffset +
@@ -453,45 +539,52 @@ bool SigmaN4FindTileSupport(uint tile, uint support, out uint leader,
         if (key < support) low = middle + 1u;
         else high = middle;
     }
-    if (low >= summaryCount)
-        return false;
-    uint2 summary0 = _NativeCloseScratch[
-        SigmaN4TileSupportAddress(tile, low, 0u)];
-    uint2 summary1 = _NativeCloseScratch[
-        SigmaN4TileSupportAddress(tile, low, 1u)];
-    if (summary0.x != support)
-        return false;
-    leader = summary0.y;
-    count = summary1.x;
-    valid = summary1.y;
-    return true;
+    bool found = false;
+    if (low < summaryCount)
+    {
+        uint2 summary0 = _NativeCloseScratch[
+            SigmaN4TileSupportAddress(tile, low, 0u)];
+        uint2 summary1 = _NativeCloseScratch[
+            SigmaN4TileSupportAddress(tile, low, 1u)];
+        if (summary0.x == support)
+        {
+            leader = summary0.y;
+            count = summary1.x;
+            valid = summary1.y;
+            found = true;
+        }
+    }
+    return found;
 }
 
 uint4 SigmaN4GlobalCertificateReduce(uint word, uint4 left, uint4 right)
 {
+    uint4 result = left;
     if (word == SIGMA_CERTIFICATE_IDENTITY)
-        return uint4(left.x | right.x, left.y, 1u, 0u);
-    if (word >= SIGMA_CERTIFICATE_AXIS0 &&
+        result = uint4(left.x | right.x, left.y, 1u, 0u);
+    else if (word >= SIGMA_CERTIFICATE_AXIS0 &&
         word < SIGMA_CERTIFICATE_INFORMATION0)
-        return uint4(SigmaQ48Max(left.xy, right.xy),
+        result = uint4(SigmaQ48Max(left.xy, right.xy),
             SigmaQ48Min(left.zw, right.zw));
-    if (word == SIGMA_CERTIFICATE_RECEIPTS0 + 2u)
-        return left | right;
-    return left;
+    else if (word == SIGMA_CERTIFICATE_RECEIPTS0 + 2u)
+        result = left | right;
+    return result;
 }
 
 bool SigmaN4GlobalCertificateCompatible(uint word, uint4 left, uint4 right)
 {
+    bool compatible = true;
     if (word == SIGMA_CERTIFICATE_IDENTITY)
-        return left.y == right.y &&
+        compatible = left.y == right.y &&
             ((left.x ^ right.x) &
                 SIGMA_NATIVE_CERTIFICATE_FLAGS_COUPLED) == 0u;
-    return word == SIGMA_CERTIFICATE_CONTEXT ||
-        word == SIGMA_CERTIFICATE_RELATION ||
-        word == SIGMA_CERTIFICATE_RECEIPTS0 ||
-        word == SIGMA_CERTIFICATE_RECEIPTS0 + 1u ||
-        word == SIGMA_CERTIFICATE_RECEIPTS0 + 3u
-        ? all(left == right) : true;
+    else if (word == SIGMA_CERTIFICATE_CONTEXT ||
+             word == SIGMA_CERTIFICATE_RELATION ||
+             word == SIGMA_CERTIFICATE_RECEIPTS0 ||
+             word == SIGMA_CERTIFICATE_RECEIPTS0 + 1u ||
+             word == SIGMA_CERTIFICATE_RECEIPTS0 + 3u)
+        compatible = all(left == right);
+    return compatible;
 }
 
 void SigmaN4ReduceActiveSupport(uint activeIndex, uint threadIndex)
@@ -936,20 +1029,24 @@ void SigmaN4GlobalGeometryClose(uint threadIndex)
     uint nodeCapacity = _NativeGlobalBorderComponentCapacity;
     uint tileCount = _NativeTileCount.x * _NativeTileCount.y;
     [loop]
-    for (uint node = threadIndex; node < nodeCapacity; node += 256u)
+    for (uint initializeNode = threadIndex; initializeNode < nodeCapacity;
+         initializeNode += 256u)
     {
-        uint tile = node / SIGMA_N4_TILE_BORDER_COMPONENT_CAPACITY;
-        uint slot = node - tile * SIGMA_N4_TILE_BORDER_COMPONENT_CAPACITY;
+        uint tile = initializeNode /
+            SIGMA_N4_TILE_BORDER_COMPONENT_CAPACITY;
+        uint slot = initializeNode -
+            tile * SIGMA_N4_TILE_BORDER_COMPONENT_CAPACITY;
         uint borderCount = tile < tileCount ? _NativeCloseScratch[
             SigmaN4TileHeaderAddress(tile, 1u)].x : 0u;
         bool active = slot < borderCount;
-        _NativeCloseScratch[SigmaN4GlobalParentAddress(node)] =
-            uint2(active ? node : SIGMA_N4_INVALID, SIGMA_N4_INVALID);
+        _NativeCloseScratch[SigmaN4GlobalParentAddress(initializeNode)] =
+            uint2(active ? initializeNode : SIGMA_N4_INVALID,
+                SIGMA_N4_INVALID);
         uint orbitReceipt = active ? _NativeCloseScratch[
             SigmaN4TileComponentAddress(tile, slot, 0u)].y : 0u;
         [loop]
         for (uint orbit = 0u; orbit < 3u; ++orbit)
-            SigmaN4StoreGlobalTransform(orbit, node,
+            SigmaN4StoreGlobalTransform(orbit, initializeNode,
                 SigmaN4AffineIdentity(active &&
                     (orbitReceipt & (1u << orbit)) != 0u));
     }
@@ -960,12 +1057,13 @@ void SigmaN4GlobalGeometryClose(uint threadIndex)
     for (uint round = 0u; round < 15u; ++round)
     {
         [loop]
-        for (uint node = threadIndex; node < nodeCapacity; node += 256u)
+        for (uint resetNode = threadIndex; resetNode < nodeCapacity;
+             resetNode += 256u)
         {
             uint parent = _NativeCloseScratch[
-                SigmaN4GlobalParentAddress(node)].x;
-            if (parent == node)
-                _NativeCloseScratch[SigmaN4GlobalParentAddress(node)].y =
+                SigmaN4GlobalParentAddress(resetNode)].x;
+            if (parent == resetNode)
+                _NativeCloseScratch[SigmaN4GlobalParentAddress(resetNode)].y =
                     SIGMA_N4_INVALID;
         }
         DeviceMemoryBarrierWithGroupSync();
@@ -1001,11 +1099,12 @@ void SigmaN4GlobalGeometryClose(uint threadIndex)
         }
         DeviceMemoryBarrierWithGroupSync();
         [loop]
-        for (uint node = threadIndex; node < nodeCapacity; node += 256u)
+        for (uint attachNode = threadIndex; attachNode < nodeCapacity;
+             attachNode += 256u)
         {
             uint2 parent = _NativeCloseScratch[
-                SigmaN4GlobalParentAddress(node)];
-            if (parent.x != node || parent.y == SIGMA_N4_INVALID)
+                SigmaN4GlobalParentAddress(attachNode)];
+            if (parent.x != attachNode || parent.y == SIGMA_N4_INVALID)
                 continue;
             uint edge = parent.y & 0x3fffu;
             uint low = parent.y >> 14u;
@@ -1023,34 +1122,36 @@ void SigmaN4GlobalGeometryClose(uint threadIndex)
                 uint4 rightRootToLeftRoot = SigmaN4GlobalRootLink(boundary,
                     left, right, leftNode, rightNode, orbit, leftRoot,
                     rightRoot);
-                uint4 link = node == rightRoot ? rightRootToLeftRoot :
+                uint4 link = attachNode == rightRoot ? rightRootToLeftRoot :
                     SigmaN4AffineInverse(rightRootToLeftRoot);
                 link.y &= low == min(leftRoot, rightRoot) ? 1u : 0u;
-                SigmaN4StoreGlobalTransform(orbit, node, link);
+                SigmaN4StoreGlobalTransform(orbit, attachNode, link);
             }
-            _NativeCloseScratch[SigmaN4GlobalParentAddress(node)].x = low;
+            _NativeCloseScratch[SigmaN4GlobalParentAddress(attachNode)].x = low;
         }
         DeviceMemoryBarrierWithGroupSync();
     }
 
     [loop]
-    for (uint node = threadIndex; node < nodeCapacity; node += 256u)
+    for (uint rootNode = threadIndex; rootNode < nodeCapacity;
+         rootNode += 256u)
     {
         uint parent = _NativeCloseScratch[
-            SigmaN4GlobalParentAddress(node)].x;
-        if (parent == node)
-            _NativeCloseScratch[SigmaN4GlobalParentAddress(node)].y = 7u;
+            SigmaN4GlobalParentAddress(rootNode)].x;
+        if (parent == rootNode)
+            _NativeCloseScratch[SigmaN4GlobalParentAddress(rootNode)].y = 7u;
     }
     DeviceMemoryBarrierWithGroupSync();
     [loop]
-    for (uint node = threadIndex; node < nodeCapacity; node += 256u)
+    for (uint reduceNode = threadIndex; reduceNode < nodeCapacity;
+         reduceNode += 256u)
     {
         uint parent = _NativeCloseScratch[
-            SigmaN4GlobalParentAddress(node)].x;
+            SigmaN4GlobalParentAddress(reduceNode)].x;
         if (parent == SIGMA_N4_INVALID)
             continue;
-        uint tile = node / SIGMA_N4_TILE_BORDER_COMPONENT_CAPACITY;
-        uint slot = node - tile * SIGMA_N4_TILE_BORDER_COMPONENT_CAPACITY;
+        uint tile = reduceNode / SIGMA_N4_TILE_BORDER_COMPONENT_CAPACITY;
+        uint slot = reduceNode - tile * SIGMA_N4_TILE_BORDER_COMPONENT_CAPACITY;
         uint localMask = _NativeCloseScratch[
             SigmaN4TileComponentAddress(tile, slot, 0u)].y & 7u;
         uint root = parent;
@@ -1058,7 +1159,7 @@ void SigmaN4GlobalGeometryClose(uint threadIndex)
         for (uint orbit = 0u; orbit < 3u; ++orbit)
         {
             uint4 transform;
-            root = SigmaN4FindGlobalRoot(node, orbit, transform);
+            root = SigmaN4FindGlobalRoot(reduceNode, orbit, transform);
             if ((localMask & (1u << orbit)) == 0u || transform.y == 0u)
             {
                 uint ignored;
@@ -1115,17 +1216,18 @@ void SigmaN4GlobalGeometryClose(uint threadIndex)
     uint unresolved = 0u;
     uint borderNodes = 0u;
     [loop]
-    for (uint node = threadIndex; node < nodeCapacity; node += 256u)
+    for (uint countNode = threadIndex; countNode < nodeCapacity;
+         countNode += 256u)
     {
         uint2 parent = _NativeCloseScratch[
-            SigmaN4GlobalParentAddress(node)];
+            SigmaN4GlobalParentAddress(countNode)];
         borderNodes += parent.x != SIGMA_N4_INVALID ? 1u : 0u;
-        if (parent.x != node)
+        if (parent.x != countNode)
             continue;
         uint mask = parent.y & 7u;
         uint members = parent.y >> 3u;
-        uint tile = node / SIGMA_N4_TILE_BORDER_COMPONENT_CAPACITY;
-        uint slot = node - tile * SIGMA_N4_TILE_BORDER_COMPONENT_CAPACITY;
+        uint tile = countNode / SIGMA_N4_TILE_BORDER_COMPONENT_CAPACITY;
+        uint slot = countNode - tile * SIGMA_N4_TILE_BORDER_COMPONENT_CAPACITY;
         uint localFlags = _NativeCloseScratch[
             SigmaN4TileComponentAddress(tile, slot, 1u)].y;
         bool localOneClass = (localFlags & (1u << 17u)) != 0u;
@@ -1171,6 +1273,7 @@ void SigmaN4GlobalGeometryClose(uint threadIndex)
             uint2(crossCount, 0u);
     }
 }
+#endif
 
 #if defined(SIGMA_NATIVE_ORACLE_RELATION_MATH)
 [numthreads(256, 1, 1)]
@@ -1178,27 +1281,27 @@ void EvaluateNativeRelation(uint3 groupId : SV_GroupID,
     uint3 groupThreadId : SV_GroupThreadID)
 {
     uint index = groupId.x;
-    if (_NativeRelationMode == SIGMA_NATIVE_RELATION_MODE_BOUNDARY)
-    {
-        if (index == 0u)
-            SigmaNativeEvaluateRelationGroup(0u, groupThreadId.x, true);
-        else if (index <= _NativeBoundaryCount)
-            SigmaN4EvaluateImplicitBoundary(index - 1u, groupThreadId.x);
+#if defined(SIGMA_N4_GLOBAL_CLOSE_VARIANT)
+    if (_NativeRelationMode != SIGMA_NATIVE_RELATION_MODE_GLOBAL_CLOSE)
         return;
-    }
-    if (_NativeRelationMode == SIGMA_NATIVE_RELATION_MODE_GLOBAL_CLOSE)
-    {
-        if (index == 0u)
-            SigmaN4GlobalGeometryClose(groupThreadId.x);
-        else
-            SigmaN4ReduceActiveSupport(index - 1u, groupThreadId.x);
+    if (index == 0u)
+        SigmaN4GlobalGeometryClose(groupThreadId.x);
+    else
+        SigmaN4ReduceActiveSupport(index - 1u, groupThreadId.x);
+#elif defined(SIGMA_N4_BOUNDARY_VARIANT)
+    if (_NativeRelationMode != SIGMA_NATIVE_RELATION_MODE_BOUNDARY)
         return;
-    }
+    if (index == 0u)
+        SigmaNativeEvaluateRelationGroup(0u, groupThreadId.x, true);
+    else if (index <= _NativeBoundaryCount)
+        SigmaN4EvaluateImplicitBoundary(index - 1u, groupThreadId.x);
+#else
     if (index >= _NativeRelationCount)
         return;
     bool entryValid = _NativeEntryPointIndex < SIGMA_MERKABA_ENTRY_POINT_COUNT &&
         SIGMA_MERKABA_IR_ENTRY_POINTS[_NativeEntryPointIndex].x == 3 &&
         SIGMA_MERKABA_IR_ENTRY_POINTS[_NativeEntryPointIndex].z == 3;
     SigmaNativeEvaluateRelationGroup(index, groupThreadId.x, entryValid);
+#endif
 }
 #endif

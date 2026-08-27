@@ -277,6 +277,9 @@ namespace Genesis.RoomScan.Tests
         {
             ComputeShader query = LoadShader("SigmaNativeQuery");
             int kernel = query.FindKernel("EvaluateNativeRelation");
+            UnityEngine.Rendering.LocalKeyword boundaryVariant = new(query,
+                "SIGMA_N4_BOUNDARY_VARIANT");
+            query.SetKeyword(boundaryVariant, true);
             using var scratch = new SigmaNativeFrameSlotResources(0,
                 new Vector2Int(2, 1));
 
@@ -368,13 +371,57 @@ namespace Genesis.RoomScan.Tests
                         new string('a', 64)),
                     new SigmaStitchLocality(22UL, 0, rightState,
                         new string('b', 64)),
-                    new SigmaStitchNativeContext(SigmaS16.Zero,
-                        new string('c', 64)));
+                    new SigmaStitchNativeContext(new string('c', 64)));
             Assert.That(gpu.X, Is.EqualTo((uint)cpu.Resolution));
             Assert.That(gpu.Y, Is.EqualTo((uint)cpu.Resolved.LeftSector));
             Assert.That(gpu.Z, Is.EqualTo((uint)cpu.Resolved.RightSector));
             Assert.That(gpu.W,
                 Is.EqualTo((uint)cpu.Resolved.Receipt.TransportAddress));
+
+            // The old zero-context shortcut would resolve this pair from its
+            // two exact links alone.  The complete intrinsic basis profile is
+            // nonzero, so production must change closure exactly like generated
+            // CPU authority without persisting the 16 full-S16 profile factors.
+            SigmaS16 profileLeft = SigmaS16.Basis(0,
+                SigmaNumericDomain.One);
+            SigmaS16 profileRight = SigmaS16.Basis(3,
+                SigmaNumericDomain.One);
+            Array.Clear(states, 0, states.Length);
+            WriteState(states, scratch.FootprintStateOffset, profileLeft);
+            WriteState(states, scratch.FootprintStateOffset +
+                SigmaS16.LaneCount, profileRight);
+            scratch.States.SetData(states);
+            query.Dispatch(kernel, 2, 1, 1);
+            scratch.CloseScratch.GetData(receipt, 0,
+                scratch.BoundaryScratchOffset, receipt.Length);
+            SigmaStitchWitnessSet profileCpu = SigmaGeneratedMerkabaProgram
+                .EvaluateModalStitch(boundary,
+                    new SigmaStitchLocality(11UL, 0, profileLeft,
+                        new string('d', 64)),
+                    new SigmaStitchLocality(22UL, 0, profileRight,
+                        new string('e', 64)),
+                    new SigmaStitchNativeContext(new string('f', 64)));
+            SigmaStitchRelationReceipt profileDecisive = profileCpu.Receipts
+                .Single(value =>
+                    value.LeftSector == SigmaNativeBoundarySector.Sector0 &&
+                    value.RightSector == SigmaNativeBoundarySector.Sector1);
+            Assert.That(profileDecisive.LinkClass,
+                Is.EqualTo(SigmaExactFactorClass.ProvenExactClosed));
+            Assert.That(profileDecisive.ReverseLinkClass,
+                Is.EqualTo(SigmaExactFactorClass.ProvenExactClosed));
+            Assert.That(profileDecisive.NonzeroAssociatorProfile, Is.True);
+            Assert.That(profileDecisive.AssociatorClass,
+                Is.Not.EqualTo(SigmaExactFactorClass.ProvenExactClosed));
+            Assert.That(receipt[0].Low,
+                Is.EqualTo((uint)profileCpu.Resolution));
+            Assert.That(profileCpu.Resolution,
+                Is.Not.EqualTo(SigmaStitchResolution.Resolved));
+
+            Array.Clear(states, 0, states.Length);
+            WriteState(states, scratch.FootprintStateOffset, leftState);
+            WriteState(states, scratch.FootprintStateOffset +
+                SigmaS16.LaneCount, rightState);
+            scratch.States.SetData(states);
 
             // Sampling RIGHT/DOWN is broad phase only. Re-enumerating the
             // identical native endpoints through the vertical footprint side
@@ -447,6 +494,9 @@ namespace Genesis.RoomScan.Tests
             ComputeShader contract = LoadShader("SigmaNativeContract");
             int relation = query.FindKernel("EvaluateNativeRelation");
             int close = contract.FindKernel("ContractNativeQuery");
+            UnityEngine.Rendering.LocalKeyword boundaryVariant = new(query,
+                "SIGMA_N4_BOUNDARY_VARIANT");
+            query.SetKeyword(boundaryVariant, true);
             UnityEngine.Rendering.LocalKeyword tileVariant = new(contract,
                 "SIGMA_N4_TILE_CLOSE_VARIANT");
             using var scratch = new SigmaNativeFrameSlotResources(0,
@@ -570,16 +620,18 @@ namespace Genesis.RoomScan.Tests
                 scratch.GlobalBorderComponentCapacity);
             BindClose();
 
-            // Accepted N2's four-mode exact cycle, placed only on four adjacent
-            // disposable footprint samples. Sampling positions do not supply
-            // the native sectors or chart orientation.
-            int[] cycleFootprints = { 0, 1, 17, 16 };
+            // The accepted intrinsic six-mode cycle occupies only a disposable
+            // 2x3 footprint perimeter. Sampling positions do not supply the
+            // native sectors or chart orientation.
+            int[] cycleFootprints = { 1, 0, 16, 32, 33, 17 };
             SigmaS16[] cycleStates =
             {
-                SigmaS16.Basis(1, SigmaNumericDomain.One),
-                SigmaS16.Basis(2, SigmaNumericDomain.One),
                 SigmaS16.Basis(1, -SigmaNumericDomain.One),
-                SigmaS16.Basis(13, -SigmaNumericDomain.One),
+                SigmaS16.Basis(2, SigmaNumericDomain.One),
+                SigmaS16.Basis(4, -SigmaNumericDomain.One),
+                SigmaS16.Basis(1, SigmaNumericDomain.One),
+                SigmaS16.Basis(2, -SigmaNumericDomain.One),
+                SigmaS16.Basis(8, SigmaNumericDomain.One),
             };
             var observations = new SigmaNativeObservationGpu[
                 scratch.FootprintCapacity + 1];
@@ -612,6 +664,17 @@ namespace Genesis.RoomScan.Tests
                             .FootprintEvidenceWordCount,
                         side, contactPoint);
             }
+            // A 2x3 sampling rectangle has a seventh shared middle boundary
+            // in addition to the six-edge perimeter cycle.  The accepted N2
+            // fixture has exactly the perimeter edges, so make that interior
+            // sampling boundary an exact calibrated gap instead of silently
+            // adding a different native constraint problem.
+            WriteEnvelope(arena, 16,
+                SigmaNativeFrameSlotResources.FootprintEvidenceWordCount,
+                side: 1, contactPoint);
+            WriteEnvelope(arena, 17,
+                SigmaNativeFrameSlotResources.FootprintEvidenceWordCount,
+                side: 0, Packed(checked(SigmaNumericDomain.One * 2L)));
             scratch.Observation.SetData(observations);
             scratch.States.SetData(states);
             scratch.LocalityCertificateWords.SetData(certificates);
@@ -625,7 +688,8 @@ namespace Genesis.RoomScan.Tests
             scratch.CloseScratch.GetData(header, 0,
                 scratch.TileHeaderScratchOffset, header.Length);
             scratch.CloseScratch.GetData(arena);
-            string cycleReceipts = string.Join(" | ", new[] { 0, 241, 15, 240 }
+            string cycleReceipts = string.Join(" | ",
+                new[] { 0, 240, 256, 30, 257, 241 }
                 .Select(boundary =>
                 {
                     int address = scratch.BoundaryScratchOffset + boundary *
@@ -668,7 +732,7 @@ namespace Genesis.RoomScan.Tests
             // transport is independently proved by Query; CLOSE must retain
             // this chart inconsistency as unresolved and never repair it.
             int redundantBoundary = scratch.BoundaryScratchOffset +
-                15 * SigmaNativeFrameSlotResources.BoundaryReceiptWordCount;
+                241 * SigmaNativeFrameSlotResources.BoundaryReceiptWordCount;
             scratch.CloseScratch.GetData(arena);
             arena[redundantBoundary + 1].Low ^= 1u;
             scratch.CloseScratch.SetData(arena);
@@ -780,6 +844,10 @@ namespace Genesis.RoomScan.Tests
             ComputeShader contract = LoadShader("SigmaNativeContract");
             int relation = query.FindKernel("EvaluateNativeRelation");
             int close = contract.FindKernel("ContractNativeQuery");
+            UnityEngine.Rendering.LocalKeyword boundaryVariant = new(query,
+                "SIGMA_N4_BOUNDARY_VARIANT");
+            UnityEngine.Rendering.LocalKeyword globalVariant = new(query,
+                "SIGMA_N4_GLOBAL_CLOSE_VARIANT");
             UnityEngine.Rendering.LocalKeyword tileVariant = new(contract,
                 "SIGMA_N4_TILE_CLOSE_VARIANT");
             using var scratch = new SigmaNativeFrameSlotResources(0,
@@ -899,10 +967,12 @@ namespace Genesis.RoomScan.Tests
 
             SigmaS16[] cycleStates =
             {
-                SigmaS16.Basis(1, SigmaNumericDomain.One),
-                SigmaS16.Basis(2, SigmaNumericDomain.One),
                 SigmaS16.Basis(1, -SigmaNumericDomain.One),
-                SigmaS16.Basis(13, -SigmaNumericDomain.One),
+                SigmaS16.Basis(2, SigmaNumericDomain.One),
+                SigmaS16.Basis(4, -SigmaNumericDomain.One),
+                SigmaS16.Basis(1, SigmaNumericDomain.One),
+                SigmaS16.Basis(2, -SigmaNumericDomain.One),
+                SigmaS16.Basis(8, SigmaNumericDomain.One),
             };
             UInt2 contactPoint = Packed(SigmaNumericDomain.One);
 
@@ -915,14 +985,15 @@ namespace Genesis.RoomScan.Tests
                     scratch.LocalityCertificateWords.count];
                 var arena = new UInt2[scratch.CloseScratch.count];
                 uint identity = 1u;
+                int[] stateOrder = { 1, 0, 2, 5, 3, 4 };
                 foreach (int leftColumn in leftColumns)
-                    for (int localY = 0; localY < 2; ++localY)
+                {
+                    for (int localY = 0; localY < 3; ++localY)
                         for (int localX = 0; localX < 2; ++localX)
                         {
                             int footprint = localY * width + leftColumn +
                                 localX;
-                            int stateIndex = localY == 0
-                                ? localX : 3 - localX;
+                            int stateIndex = stateOrder[localY * 2 + localX];
                             observations[footprint + 1].Identity = U4(1u, 1u,
                                 identity++, evidenceFlags);
                             WriteState(states, scratch.FootprintStateOffset +
@@ -946,6 +1017,46 @@ namespace Genesis.RoomScan.Tests
                                         .FootprintEvidenceWordCount,
                                     side, contactPoint);
                         }
+                    int middleLeft = width + leftColumn;
+                    int middleRight = middleLeft + 1;
+                    WriteEnvelope(arena, middleLeft,
+                        SigmaNativeFrameSlotResources
+                            .FootprintEvidenceWordCount,
+                        side: 1, contactPoint);
+                    WriteEnvelope(arena, middleRight,
+                        SigmaNativeFrameSlotResources
+                            .FootprintEvidenceWordCount,
+                        side: 0,
+                        Packed(checked(SigmaNumericDomain.One * 2L)));
+                }
+                // When two 2x3 cycle fixtures meet across a tile seam, retain
+                // exactly the declared top and bottom redundant stitches.  The
+                // middle sampling boundary is an exact gap; otherwise the
+                // implicit stencil correctly adds a third native constraint
+                // that is not part of the accepted two-edge global fixture.
+                for (int leftIndex = 0; leftIndex < leftColumns.Length;
+                     ++leftIndex)
+                    for (int rightIndex = leftIndex + 1;
+                         rightIndex < leftColumns.Length; ++rightIndex)
+                    {
+                        int leftColumn = Math.Min(leftColumns[leftIndex],
+                            leftColumns[rightIndex]);
+                        int rightColumn = Math.Max(leftColumns[leftIndex],
+                            leftColumns[rightIndex]);
+                        if (rightColumn != leftColumn + 2)
+                            continue;
+                        int seamLeft = width + leftColumn + 1;
+                        int seamRight = seamLeft + 1;
+                        WriteEnvelope(arena, seamLeft,
+                            SigmaNativeFrameSlotResources
+                                .FootprintEvidenceWordCount,
+                            side: 1, contactPoint);
+                        WriteEnvelope(arena, seamRight,
+                            SigmaNativeFrameSlotResources
+                                .FootprintEvidenceWordCount,
+                            side: 0,
+                            Packed(checked(SigmaNumericDomain.One * 2L)));
+                    }
                 scratch.Observation.SetData(observations);
                 scratch.States.SetData(states);
                 scratch.LocalityCertificateWords.SetData(certificates);
@@ -955,13 +1066,18 @@ namespace Genesis.RoomScan.Tests
 
             void CloseFrame()
             {
+                query.SetKeyword(boundaryVariant, true);
+                query.SetKeyword(globalVariant, false);
                 query.SetInt("_NativeRelationMode", 1);
                 query.Dispatch(relation, scratch.BoundaryCapacity + 1, 1, 1);
                 contract.SetKeyword(tileVariant, true);
                 contract.Dispatch(close, scratch.TileCapacity, 1, 1);
                 contract.SetKeyword(tileVariant, false);
+                query.SetKeyword(boundaryVariant, false);
+                query.SetKeyword(globalVariant, true);
                 query.SetInt("_NativeRelationMode", 2);
                 query.Dispatch(relation, 1, 1, 1);
+                query.SetKeyword(globalVariant, false);
             }
 
             // Two exact local cycles share two implicit boundaries across the
@@ -972,23 +1088,54 @@ namespace Genesis.RoomScan.Tests
                 SigmaNativeFrameSlotResources.GlobalHeaderWordCount];
             scratch.CloseScratch.GetData(global, 0,
                 scratch.GlobalHeaderScratchOffset, global.Length);
-            Assert.That(global[0].Low, Is.Zero);
-            Assert.That(global[0].High, Is.EqualTo(2u));
-            Assert.That(global[1].Low, Is.EqualTo(1u));
-            Assert.That(global[1].High, Is.Zero);
-            Assert.That(global[2].Low, Is.EqualTo(16u));
+            string globalReceipt = string.Join(",", global.Select(value =>
+                $"{value.Low:x8}/{value.High:x8}"));
+            var tileHeaders = new UInt2[4];
+            scratch.CloseScratch.GetData(tileHeaders, 0,
+                scratch.TileHeaderScratchOffset, tileHeaders.Length);
+            string tileReceipt = string.Join(",", tileHeaders.Select(value =>
+                $"{value.Low:x8}/{value.High:x8}"));
+            var tileComponents = new UInt2[4];
+            scratch.CloseScratch.GetData(tileComponents, 0,
+                scratch.TileComponentSummaryScratchOffset, 2);
+            scratch.CloseScratch.GetData(tileComponents, 2,
+                scratch.TileComponentSummaryScratchOffset +
+                    SigmaNativeFrameSlotResources.TileFootprintCapacity *
+                    SigmaNativeFrameSlotResources
+                        .TileComponentSummaryWordCount,
+                2);
+            string componentReceipt = string.Join(",",
+                tileComponents.Select(value =>
+                    $"{value.Low:x8}/{value.High:x8}"));
+            var seamReceipts = new UInt2[18];
+            for (int seam = 0; seam < 3; ++seam)
+                scratch.CloseScratch.GetData(seamReceipts, seam * 6,
+                    scratch.BoundaryScratchOffset + (15 + seam * 31) *
+                        SigmaNativeFrameSlotResources.BoundaryReceiptWordCount,
+                    6);
+            string seamReceipt = string.Join(",", seamReceipts.Select(value =>
+                $"{value.Low:x8}/{value.High:x8}"));
+            string closeReceipt = $"global={globalReceipt}; tiles={tileReceipt}; " +
+                $"components={componentReceipt}; seams={seamReceipt}";
+            Assert.That(global[0].Low, Is.Zero, closeReceipt);
+            Assert.That(global[0].High, Is.EqualTo(2u), closeReceipt);
+            Assert.That(global[1].Low, Is.EqualTo(1u), closeReceipt);
+            Assert.That(global[1].High, Is.Zero, closeReceipt);
+            Assert.That(global[2].Low, Is.EqualTo(16u), closeReceipt);
 
             // The second seam edge is redundant. Changing its abstract sector
             // must invalidate the integrated orbit instead of repairing it.
             int redundantBoundary = scratch.BoundaryScratchOffset +
-                46 * SigmaNativeFrameSlotResources.BoundaryReceiptWordCount;
+                77 * SigmaNativeFrameSlotResources.BoundaryReceiptWordCount;
             var corrupt = new UInt2[1];
             scratch.CloseScratch.GetData(corrupt, 0,
                 redundantBoundary + 1, 1);
             corrupt[0].Low ^= 1u;
             scratch.CloseScratch.SetData(corrupt, 0,
                 redundantBoundary + 1, 1);
+            query.SetKeyword(globalVariant, true);
             query.Dispatch(relation, 1, 1, 1);
+            query.SetKeyword(globalVariant, false);
             scratch.CloseScratch.GetData(global, 0,
                 scratch.GlobalHeaderScratchOffset, global.Length);
             Assert.That(global[1].High, Is.EqualTo(1u));

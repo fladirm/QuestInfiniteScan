@@ -45,7 +45,7 @@ HLSL_MERKABA_FIXTURE_OUTPUT = (ROOT / "Tests" / "Editor" / "Generated" /
 NUMERIC_ID = "num.fixed.q16_48.checked.nearest_even"
 GENERATOR_VERSION = "CPQ4-S16-GEN-1"
 FRAME_ABI_VERSION = "CPQ4-S16-NATIVE-FRAME-3"
-MERKABA_PROGRAM_VERSION = "CPQ4-S16-MERKABA-N1R-7"
+MERKABA_PROGRAM_VERSION = "CPQ4-S16-MERKABA-N1R-8"
 TOE_UPSTREAM_SHA256 = "9d2e3604846305cfe5244a4ef49f169632c60582cf895256fadc36426dc5786f"
 LANES = 16
 
@@ -1297,6 +1297,7 @@ def constructive_stitch_authority_proof(i_q: dict, i_rep: dict,
     authority = i_q["constructiveModalStitching"]
     boundary = authority["implicitBoundaryField"]
     modal = authority["modalConjunction"]
+    associator_context = authority["associatorContextAuthority"]
     fusion = authority["hotFusion"]
     embedding = i_rep["stitchEmbedding"]
     transport = embedding["nativeRelativeTransportTheorem"]
@@ -1306,6 +1307,11 @@ def constructive_stitch_authority_proof(i_q: dict, i_rep: dict,
             authority["semanticTruthInputs"] != [] or
             authority["semanticClasses"] !=
             "OUTPUT_RECEIPTS_ONLY_NEVER_TRUSTED_INPUT" or
+            associator_context["externalBracketContextInput"] or
+            associator_context["sensorDerivedBracketContext"] or
+            associator_context["completeBasisContextCount"] != LANES or
+            not associator_context["associatorProfileIsIntrinsicS16"] or
+            associator_context["S32Required"] or
             boundary["arbitraryEpsilon"] or
             boundary["pixelAdjacencyAuthority"] or
             not boundary["samplingFootprintAdjacencyBroadPhaseOnly"] or
@@ -1340,6 +1346,11 @@ def constructive_stitch_authority_proof(i_q: dict, i_rep: dict,
                 "LOSSY_RESAMPLING"} or
             gauge["physicalTransformAuthorityFromD4"] or
             not transport["nativeTransportRequired"] or
+            transport["externalBracketContextInput"] or
+            transport["sensorDerivedBracketContext"] or
+            transport["completeBasisContextCount"] != LANES or
+            not transport["associatorProfileIsIntrinsicS16"] or
+            transport["S32Required"] or
             transport["samplingBoundarySideMayDetermineDelta"] or
             transport["samplingBoundarySideMayDetermineNativePort"] or
             transport["nativeSectorPairToSignedUvRequired"] or
@@ -1489,6 +1500,10 @@ def constructive_stitch_authority_proof(i_q: dict, i_rep: dict,
         "freshFreshBroadPhase": "SHARED_COHERENT_FOOTPRINT_BOUNDARY_ONLY",
         "componentGauge": "INDEPENDENT_Z2_SEMIDIRECT_D4_CHART_GAUGE",
         "persistentComponentIdentity": False,
+        "externalBracketContextInputCount": 0,
+        "completeAssociatorBasisContextCount": LANES,
+        "associatorProfileIsIntrinsicS16": True,
+        "s32Required": False,
         "fingerprint": sha256({
             "authority": authority,
             "embedding": embedding,
@@ -1843,6 +1858,14 @@ def build_merkaba_descriptor(algebra: dict) -> dict:
                 stitch_authority_proof["targetAdditionalHotSubmissionCount"],
             "constructiveStitchMixedLevelTranslationProbeCount":
                 stitch_authority_proof["mixedLevelTranslationProbeCount"],
+            "constructiveStitchExternalBracketContextInputCount":
+                stitch_authority_proof["externalBracketContextInputCount"],
+            "constructiveStitchCompleteAssociatorBasisContextCount":
+                stitch_authority_proof["completeAssociatorBasisContextCount"],
+            "constructiveStitchAssociatorProfileIsIntrinsicS16":
+                stitch_authority_proof["associatorProfileIsIntrinsicS16"],
+            "constructiveStitchS32Required":
+                stitch_authority_proof["s32Required"],
             "constructiveStitchFreshFreshBroadPhase":
                 stitch_authority_proof["freshFreshBroadPhase"],
             "constructiveStitchComponentGauge":
@@ -2639,18 +2662,15 @@ namespace Genesis.RoomScan.SigmaPrism
 
     internal readonly struct SigmaStitchNativeContext
     {{
-        internal SigmaStitchNativeContext(SigmaS16 bracketContext,
-            string provenanceFingerprint)
+        internal SigmaStitchNativeContext(string provenanceFingerprint)
         {{
             if (provenanceFingerprint == null ||
                 provenanceFingerprint.Length != 64)
                 throw new ArgumentException(
                     "Native stitch context requires a SHA-256 provenance receipt.",
                     nameof(provenanceFingerprint));
-            BracketContext = bracketContext;
             ProvenanceFingerprint = provenanceFingerprint;
         }}
-        internal SigmaS16 BracketContext {{ get; }}
         internal string ProvenanceFingerprint {{ get; }}
     }}
 
@@ -2660,13 +2680,16 @@ namespace Genesis.RoomScan.SigmaPrism
             SigmaNativeBoundarySector leftSector,
             SigmaNativeBoundarySector rightSector,
             SigmaS16 linkDefect,
-            SigmaS16 reverseLinkDefect, SigmaS16 associatorDefect,
-            SigmaS16 reverseAssociatorDefect, SigmaS16 transition,
+            SigmaS16 reverseLinkDefect,
+            SigmaS16[] associatorProfile,
+            SigmaS16[] reverseAssociatorProfile, SigmaS16 transition,
             SigmaS16 reverseTransition,
             IReadOnlyList<SigmaQ48Interval> normalizedLink,
             IReadOnlyList<SigmaQ48Interval> normalizedReverseLink,
-            IReadOnlyList<SigmaQ48Interval> normalizedAssociator,
-            IReadOnlyList<SigmaQ48Interval> normalizedReverseAssociator,
+            SigmaQ48Interval[][] normalizedAssociatorProfile,
+            SigmaQ48Interval[][] normalizedReverseAssociatorProfile,
+            SigmaExactFactorClass[] associatorProfileClasses,
+            SigmaExactFactorClass[] reverseAssociatorProfileClasses,
             SigmaExactFactorClass linkClass,
             SigmaExactFactorClass reverseLinkClass,
             SigmaExactFactorClass associatorClass,
@@ -2674,7 +2697,7 @@ namespace Genesis.RoomScan.SigmaPrism
             SigmaExactFactorClass closureClass,
             SigmaMerkabaRelationClass relationClass, int transportAddress,
             int forwardTransportSign, int reverseTransportSign,
-            bool nonassociativeBracketContext, int exactAnnihilatorAction,
+            bool nonzeroAssociatorProfile, int exactAnnihilatorAction,
             int reverseExactAnnihilatorAction,
             ulong bracketFingerprint, string provenanceFingerprint)
         {{
@@ -2682,18 +2705,36 @@ namespace Genesis.RoomScan.SigmaPrism
             RightSector = rightSector;
             LinkDefect = linkDefect;
             ReverseLinkDefect = reverseLinkDefect;
-            AssociatorDefect = associatorDefect;
-            ReverseAssociatorDefect = reverseAssociatorDefect;
+            if (associatorProfile == null ||
+                associatorProfile.Length != SigmaS16.LaneCount ||
+                reverseAssociatorProfile == null ||
+                reverseAssociatorProfile.Length != SigmaS16.LaneCount ||
+                normalizedAssociatorProfile == null ||
+                normalizedAssociatorProfile.Length != SigmaS16.LaneCount ||
+                normalizedReverseAssociatorProfile == null ||
+                normalizedReverseAssociatorProfile.Length != SigmaS16.LaneCount ||
+                associatorProfileClasses == null ||
+                associatorProfileClasses.Length != SigmaS16.LaneCount ||
+                reverseAssociatorProfileClasses == null ||
+                reverseAssociatorProfileClasses.Length != SigmaS16.LaneCount)
+                throw new ArgumentException(
+                    "A stitch receipt requires the complete 16-basis associator profile.");
+            AssociatorProfile = associatorProfile.ToArray();
+            ReverseAssociatorProfile = reverseAssociatorProfile.ToArray();
             Transition = transition;
             ReverseTransition = reverseTransition;
             NormalizedLink = normalizedLink?.ToArray() ??
                 Array.Empty<SigmaQ48Interval>();
             NormalizedReverseLink = normalizedReverseLink?.ToArray() ??
                 Array.Empty<SigmaQ48Interval>();
-            NormalizedAssociator = normalizedAssociator?.ToArray() ??
-                Array.Empty<SigmaQ48Interval>();
-            NormalizedReverseAssociator = normalizedReverseAssociator?.ToArray() ??
-                Array.Empty<SigmaQ48Interval>();
+            NormalizedAssociatorProfile = normalizedAssociatorProfile.Select(
+                value => value?.ToArray() ?? Array.Empty<SigmaQ48Interval>()).ToArray();
+            NormalizedReverseAssociatorProfile =
+                normalizedReverseAssociatorProfile.Select(value => value?.ToArray() ??
+                    Array.Empty<SigmaQ48Interval>()).ToArray();
+            AssociatorProfileClasses = associatorProfileClasses.ToArray();
+            ReverseAssociatorProfileClasses =
+                reverseAssociatorProfileClasses.ToArray();
             LinkClass = linkClass;
             ReverseLinkClass = reverseLinkClass;
             AssociatorClass = associatorClass;
@@ -2703,7 +2744,7 @@ namespace Genesis.RoomScan.SigmaPrism
             TransportAddress = transportAddress;
             ForwardTransportSign = forwardTransportSign;
             ReverseTransportSign = reverseTransportSign;
-            NonassociativeBracketContext = nonassociativeBracketContext;
+            NonzeroAssociatorProfile = nonzeroAssociatorProfile;
             ExactAnnihilatorAction = exactAnnihilatorAction;
             ReverseExactAnnihilatorAction = reverseExactAnnihilatorAction;
             BracketFingerprint = bracketFingerprint;
@@ -2713,14 +2754,16 @@ namespace Genesis.RoomScan.SigmaPrism
         internal SigmaNativeBoundarySector RightSector {{ get; }}
         internal SigmaS16 LinkDefect {{ get; }}
         internal SigmaS16 ReverseLinkDefect {{ get; }}
-        internal SigmaS16 AssociatorDefect {{ get; }}
-        internal SigmaS16 ReverseAssociatorDefect {{ get; }}
+        internal SigmaS16[] AssociatorProfile {{ get; }}
+        internal SigmaS16[] ReverseAssociatorProfile {{ get; }}
         internal SigmaS16 Transition {{ get; }}
         internal SigmaS16 ReverseTransition {{ get; }}
         internal SigmaQ48Interval[] NormalizedLink {{ get; }}
         internal SigmaQ48Interval[] NormalizedReverseLink {{ get; }}
-        internal SigmaQ48Interval[] NormalizedAssociator {{ get; }}
-        internal SigmaQ48Interval[] NormalizedReverseAssociator {{ get; }}
+        internal SigmaQ48Interval[][] NormalizedAssociatorProfile {{ get; }}
+        internal SigmaQ48Interval[][] NormalizedReverseAssociatorProfile {{ get; }}
+        internal SigmaExactFactorClass[] AssociatorProfileClasses {{ get; }}
+        internal SigmaExactFactorClass[] ReverseAssociatorProfileClasses {{ get; }}
         internal SigmaExactFactorClass LinkClass {{ get; }}
         internal SigmaExactFactorClass ReverseLinkClass {{ get; }}
         internal SigmaExactFactorClass AssociatorClass {{ get; }}
@@ -2732,7 +2775,7 @@ namespace Genesis.RoomScan.SigmaPrism
         internal int ReverseTransportSign {{ get; }}
         internal int OrientationParity => checked(ForwardTransportSign *
             ReverseTransportSign);
-        internal bool NonassociativeBracketContext {{ get; }}
+        internal bool NonzeroAssociatorProfile {{ get; }}
         internal int ExactAnnihilatorAction {{ get; }}
         internal int ReverseExactAnnihilatorAction {{ get; }}
         internal ulong BracketFingerprint {{ get; }}
@@ -3134,6 +3177,14 @@ namespace Genesis.RoomScan.SigmaPrism
             {proofs['constructiveStitchTargetAdditionalHotSubmissionCount']};
         internal const int ConstructiveStitchMixedLevelTranslationProbeCount =
             {proofs['constructiveStitchMixedLevelTranslationProbeCount']};
+        internal const int ConstructiveStitchExternalBracketContextInputCount =
+            {proofs['constructiveStitchExternalBracketContextInputCount']};
+        internal const int ConstructiveStitchCompleteAssociatorBasisContextCount =
+            {proofs['constructiveStitchCompleteAssociatorBasisContextCount']};
+        internal const bool ConstructiveStitchAssociatorProfileIsIntrinsicS16 =
+            {str(proofs['constructiveStitchAssociatorProfileIsIntrinsicS16']).lower()};
+        internal const bool ConstructiveStitchS32Required =
+            {str(proofs['constructiveStitchS32Required']).lower()};
         internal const string ConstructiveStitchProofFingerprint =
             "{proofs['constructiveStitchProofFingerprint']}";
         internal const ulong GeneratedStitchBracketFingerprint =
@@ -3833,27 +3884,43 @@ namespace Genesis.RoomScan.SigmaPrism
                 transportedRight = NegateS16(transportedRight);
             SigmaS16 reverseLink = SigmaS16Operators.Subtract(left.State,
                 transportedRight);
-            SigmaS16 leftBracket = SigmaS16Operators.Associator(left.State,
-                SigmaS16.Basis(leftAddress, SigmaNumericDomain.One),
-                nativeContext.BracketContext);
-            SigmaS16 rightBracket = SigmaS16Operators.Associator(right.State,
-                SigmaS16.Basis(rightAddress, SigmaNumericDomain.One),
-                nativeContext.BracketContext);
-            SigmaS16 associator = SigmaS16Operators.Subtract(rightBracket,
-                leftBracket);
-            SigmaS16 reverseAssociator = SigmaS16Operators.Subtract(leftBracket,
-                rightBracket);
-            bool nonassociativeContext = !leftBracket.IsZero ||
-                !rightBracket.IsZero;
+            SigmaS16[] leftProfile = EvaluateBasisAssociatorProfile(left.State,
+                leftSector);
+            SigmaS16[] rightProfile = EvaluateBasisAssociatorProfile(right.State,
+                rightSector);
+            var associatorProfile = new SigmaS16[SigmaS16.LaneCount];
+            var reverseAssociatorProfile = new SigmaS16[SigmaS16.LaneCount];
+            var normalizedAssociatorProfile =
+                new SigmaQ48Interval[SigmaS16.LaneCount][];
+            var normalizedReverseAssociatorProfile =
+                new SigmaQ48Interval[SigmaS16.LaneCount][];
+            var associatorProfileClasses =
+                new SigmaExactFactorClass[SigmaS16.LaneCount];
+            var reverseAssociatorProfileClasses =
+                new SigmaExactFactorClass[SigmaS16.LaneCount];
+            bool nonzeroAssociatorProfile = false;
+            for (int context = 0; context < SigmaS16.LaneCount; ++context)
+            {{
+                associatorProfile[context] = SigmaS16Operators.Subtract(
+                    rightProfile[context], leftProfile[context]);
+                reverseAssociatorProfile[context] = SigmaS16Operators.Subtract(
+                    leftProfile[context], rightProfile[context]);
+                nonzeroAssociatorProfile |= !associatorProfile[context].IsZero;
+                associatorProfileClasses[context] = NormalizeStitchFactor(
+                    associatorProfile[context],
+                    out normalizedAssociatorProfile[context]);
+                reverseAssociatorProfileClasses[context] = NormalizeStitchFactor(
+                    reverseAssociatorProfile[context],
+                    out normalizedReverseAssociatorProfile[context]);
+            }}
             SigmaExactFactorClass linkClass = NormalizeStitchFactor(link,
                 out SigmaQ48Interval[] normalizedLink);
             SigmaExactFactorClass reverseLinkClass = NormalizeStitchFactor(
                 reverseLink, out SigmaQ48Interval[] normalizedReverseLink);
-            SigmaExactFactorClass associatorClass = NormalizeStitchFactor(
-                associator, out SigmaQ48Interval[] normalizedAssociator);
-            SigmaExactFactorClass reverseAssociatorClass = NormalizeStitchFactor(
-                reverseAssociator,
-                out SigmaQ48Interval[] normalizedReverseAssociator);
+            SigmaExactFactorClass associatorClass = AggregateStitchFactors(
+                associatorProfileClasses);
+            SigmaExactFactorClass reverseAssociatorClass = AggregateStitchFactors(
+                reverseAssociatorProfileClasses);
             SigmaExactFactorClass closureClass = AggregateStitchFactors(
                 linkClass, reverseLinkClass, associatorClass,
                 reverseAssociatorClass);
@@ -3870,28 +3937,79 @@ namespace Genesis.RoomScan.SigmaPrism
                     SigmaExactFactorClass.Unresolved
                 ? SigmaMerkabaRelationClass.Unresolved
                 : closureClass == SigmaExactFactorClass.ProvenIncompatible
-                    ? nonassociativeContext
+                    ? nonzeroAssociatorProfile
                         ? SigmaMerkabaRelationClass.NonassociativeContext
                         : SigmaMerkabaRelationClass.NoRelation
-                    : nonassociativeContext
+                    : nonzeroAssociatorProfile
                         ? SigmaMerkabaRelationClass.NonassociativeContext
                         : exactZd
                             ? SigmaMerkabaRelationClass.ExactZeroDivisor
                             : SigmaMerkabaRelationClass.Regular;
             return new SigmaStitchRelationReceipt(leftSector, rightSector,
                 link, reverseLink,
-                associator, reverseAssociator, transition, reverseTransition,
+                associatorProfile, reverseAssociatorProfile, transition,
+                reverseTransition,
                 normalizedLink,
-                normalizedReverseLink, normalizedAssociator,
-                normalizedReverseAssociator, linkClass, reverseLinkClass,
+                normalizedReverseLink, normalizedAssociatorProfile,
+                normalizedReverseAssociatorProfile, associatorProfileClasses,
+                reverseAssociatorProfileClasses, linkClass, reverseLinkClass,
                 associatorClass, reverseAssociatorClass,
                 closureClass, relationClass, transportAddress,
                 forwardTransportSign, reverseTransportSign,
-                nonassociativeContext,
+                nonzeroAssociatorProfile,
                 exactAnnihilator, reverseExactAnnihilator,
                 GeneratedStitchBracketFingerprint,
                 nativeContext.ProvenanceFingerprint);
         }}
+
+        internal static SigmaS16[] EvaluateBasisAssociatorProfile(SigmaS16 state,
+            SigmaNativeBoundarySector sector)
+        {{
+            int sectorAddress = NativeBoundaryAddress(sector);
+            var profile = new SigmaS16[SigmaS16.LaneCount];
+            for (int context = 0; context < SigmaS16.LaneCount; ++context)
+            {{
+                var lanes = new long[SigmaS16.LaneCount];
+                for (int outputLane = 0; outputLane < SigmaS16.LaneCount;
+                     ++outputLane)
+                {{
+                    int source = outputLane ^ sectorAddress ^ context;
+                    int coefficient = BasisAssociatorActionCoefficient(source,
+                        sectorAddress, context);
+                    if (coefficient == 0) continue;
+                    if (coefficient != -2 && coefficient != 2)
+                        throw new InvalidOperationException(
+                            "Generated basis associator coefficient escaped 0,+/-2.");
+                    long value = SigmaNumericDomain.QShiftLeft(state[source], 1);
+                    lanes[outputLane] = coefficient < 0
+                        ? SigmaNumericDomain.QNegate(value) : value;
+                }}
+                profile[context] = SigmaS16.FromArray(lanes);
+            }}
+            return profile;
+        }}
+
+        internal static SigmaS16 ReconstructAssociatorFromBasisProfile(
+            IReadOnlyList<SigmaS16> profile, SigmaS16 context)
+        {{
+            if (profile == null || profile.Count != SigmaS16.LaneCount)
+                throw new ArgumentException(
+                    "Associator reconstruction requires sixteen basis factors.",
+                    nameof(profile));
+            var lanes = new long[SigmaS16.LaneCount];
+            for (int basis = 0; basis < SigmaS16.LaneCount; ++basis)
+            for (int lane = 0; lane < SigmaS16.LaneCount; ++lane)
+                lanes[lane] = SigmaNumericDomain.QAdd(lanes[lane],
+                    SigmaNumericDomain.QMul(context[basis], profile[basis][lane]));
+            return SigmaS16.FromArray(lanes);
+        }}
+
+        private static int BasisAssociatorActionCoefficient(int source,
+            int sectorAddress, int contextAddress) =>
+            BasisSign(source, sectorAddress) *
+                BasisSign(source ^ sectorAddress, contextAddress) -
+            BasisSign(sectorAddress, contextAddress) *
+                BasisSign(source, sectorAddress ^ contextAddress);
 
         private static int NativeBoundaryAddress(
             SigmaNativeBoundarySector sector)
@@ -4239,15 +4357,18 @@ namespace Genesis.RoomScan.SigmaPrism
         {{
             SigmaS16 link = forward ? receipt.LinkDefect :
                 receipt.ReverseLinkDefect;
-            SigmaS16 associator = forward ? receipt.AssociatorDefect :
-                receipt.ReverseAssociatorDefect;
+            IReadOnlyList<SigmaS16> associatorProfile = forward
+                ? receipt.AssociatorProfile : receipt.ReverseAssociatorProfile;
             IReadOnlyList<SigmaQ48Interval> normalizedLink = forward
                 ? receipt.NormalizedLink : receipt.NormalizedReverseLink;
-            IReadOnlyList<SigmaQ48Interval> normalizedAssociator = forward
-                ? receipt.NormalizedAssociator :
-                    receipt.NormalizedReverseAssociator;
+            IReadOnlyList<SigmaQ48Interval[]> normalizedAssociatorProfile = forward
+                ? receipt.NormalizedAssociatorProfile :
+                    receipt.NormalizedReverseAssociatorProfile;
             SigmaExactFactorClass linkClass = forward ? receipt.LinkClass :
                 receipt.ReverseLinkClass;
+            IReadOnlyList<SigmaExactFactorClass> associatorProfileClasses = forward
+                ? receipt.AssociatorProfileClasses :
+                    receipt.ReverseAssociatorProfileClasses;
             SigmaExactFactorClass associatorClass = forward
                 ? receipt.AssociatorClass : receipt.ReverseAssociatorClass;
             SigmaNativeBoundarySector from = forward ? receipt.LeftSector :
@@ -4258,21 +4379,22 @@ namespace Genesis.RoomScan.SigmaPrism
                 receipt.ReverseTransportSign;
             return $"{{(uint)from}}>{{(uint)to}}:" +
                 $"{{receipt.TransportAddress}}:{{sign}}:" +
-                CanonicalDirectionalFactorSerialization(link, associator,
-                    normalizedLink, normalizedAssociator, linkClass,
-                    associatorClass) +
+                CanonicalDirectionalFactorSerialization(link, associatorProfile,
+                    normalizedLink, normalizedAssociatorProfile, linkClass,
+                    associatorProfileClasses, associatorClass) +
                 $":{{(uint)receipt.ClosureClass}}:" +
                 $"{{(uint)receipt.RelationClass}}:" +
-                $"{{(receipt.NonassociativeBracketContext ? 1 : 0)}}:" +
+                $"{{(receipt.NonzeroAssociatorProfile ? 1 : 0)}}:" +
                 $"{{receipt.BracketFingerprint:x16}}:" +
                 receipt.ProvenanceFingerprint;
         }}
 
         private static string CanonicalDirectionalFactorSerialization(
-            SigmaS16 link, SigmaS16 associator,
+            SigmaS16 link, IReadOnlyList<SigmaS16> associatorProfile,
             IReadOnlyList<SigmaQ48Interval> normalizedLink,
-            IReadOnlyList<SigmaQ48Interval> normalizedAssociator,
+            IReadOnlyList<SigmaQ48Interval[]> normalizedAssociatorProfile,
             SigmaExactFactorClass linkClass,
+            IReadOnlyList<SigmaExactFactorClass> associatorProfileClasses,
             SigmaExactFactorClass associatorClass)
         {{
             string Raw(SigmaS16 value) => string.Join(",", value.ToArray().Select(
@@ -4281,9 +4403,13 @@ namespace Genesis.RoomScan.SigmaPrism
                 string.Join(",", values.Select(value =>
                     $"{{unchecked((ulong)value.Lower):x16}}-" +
                     $"{{unchecked((ulong)value.Upper):x16}}"));
+            string profile = string.Join(";", Enumerable.Range(0,
+                SigmaS16.LaneCount).Select(context =>
+                    $"{{context}}:{{(uint)associatorProfileClasses[context]}}:" +
+                    $"{{Raw(associatorProfile[context])}}:" +
+                    Intervals(normalizedAssociatorProfile[context])));
             return $"{{(uint)linkClass}}:{{Raw(link)}}:{{Intervals(normalizedLink)}}:" +
-                $"{{(uint)associatorClass}}:{{Raw(associator)}}:" +
-                Intervals(normalizedAssociator);
+                $"{{(uint)associatorClass}}:[{{profile}}]";
         }}
 
         private static SigmaS16 ApplyNativeStitchTransport(SigmaS16 state,
@@ -5198,6 +5324,10 @@ def render_merkaba_hlsl(descriptor: dict, include_prefix: str =
 #define SIGMA_STITCH_NON_GAUGE_EMBEDDING_AMBIGUITY_COUNT {proofs['constructiveStitchNonGaugeEmbeddingAmbiguityCount']}u
 #define SIGMA_STITCH_IMPLICIT_BOUNDARY_COUNT_320 {proofs['constructiveStitchImplicitBoundaryCount320']}u
 #define SIGMA_STITCH_IMPLICIT_PLAQUETTE_COUNT_320 {proofs['constructiveStitchImplicitPlaquetteCount320']}u
+#define SIGMA_STITCH_EXTERNAL_BRACKET_CONTEXT_INPUT_COUNT 0u
+#define SIGMA_STITCH_COMPLETE_ASSOCIATOR_BASIS_CONTEXT_COUNT {proofs['constructiveStitchCompleteAssociatorBasisContextCount']}u
+#define SIGMA_STITCH_ASSOCIATOR_PROFILE_IS_INTRINSIC_S16 1u
+#define SIGMA_STITCH_S32_REQUIRED 0u
 
 static const uint2 SIGMA_STITCH_GENERATED_BRACKET_FINGERPRINT =
     uint2(0x{stitch_bracket_low:08x}u, 0x{stitch_bracket_high:08x}u);
@@ -5236,6 +5366,57 @@ int SigmaMerkabaAssociatorCoefficient(uint a, uint b, uint c)
 {{
     return SigmaMerkabaBasisSign(a, b) * SigmaMerkabaBasisSign(a ^ b, c) -
            SigmaMerkabaBasisSign(b, c) * SigmaMerkabaBasisSign(a, b ^ c);
+}}
+
+int SigmaMerkabaBasisAssociatorActionCoefficient(uint source,
+    uint sectorAddress, uint contextAddress)
+{{
+    return SigmaMerkabaBasisSign(source, sectorAddress) *
+            SigmaMerkabaBasisSign(source ^ sectorAddress, contextAddress) -
+        SigmaMerkabaBasisSign(sectorAddress, contextAddress) *
+            SigmaMerkabaBasisSign(source, sectorAddress ^ contextAddress);
+}}
+
+uint SigmaMerkabaBasisAssociatorSource(uint outputLane, uint sectorAddress,
+    uint contextAddress)
+{{
+    return outputLane ^ sectorAddress ^ contextAddress;
+}}
+
+uint2 SigmaMerkabaScaleBasisAssociatorLane(uint2 sourceValue,
+    int coefficient, inout uint valid)
+{{
+    valid &= coefficient == 0 || coefficient == -2 || coefficient == 2 ? 1u : 0u;
+    uint2 scaled = uint2(0u, 0u);
+    if (coefficient != 0)
+    {{
+        scaled = SigmaQ48ShiftLeftChecked(sourceValue, 1u, valid);
+        if (coefficient < 0)
+            scaled = SigmaQ48NegateChecked(scaled, valid);
+    }}
+    return scaled;
+}}
+
+void SigmaMerkabaEvaluateAssociatorProfileDeltaLane(
+    uint2 leftSourceValue, uint2 rightSourceValue,
+    uint leftSectorAddress, uint rightSectorAddress,
+    uint contextAddress, uint outputLane,
+    out uint2 forwardDelta, out uint2 reverseDelta, inout uint valid)
+{{
+    uint leftSource = SigmaMerkabaBasisAssociatorSource(outputLane,
+        leftSectorAddress, contextAddress);
+    uint rightSource = SigmaMerkabaBasisAssociatorSource(outputLane,
+        rightSectorAddress, contextAddress);
+    int leftCoefficient = SigmaMerkabaBasisAssociatorActionCoefficient(leftSource,
+        leftSectorAddress, contextAddress);
+    int rightCoefficient = SigmaMerkabaBasisAssociatorActionCoefficient(rightSource,
+        rightSectorAddress, contextAddress);
+    uint2 leftValue = SigmaMerkabaScaleBasisAssociatorLane(leftSourceValue,
+        leftCoefficient, valid);
+    uint2 rightValue = SigmaMerkabaScaleBasisAssociatorLane(rightSourceValue,
+        rightCoefficient, valid);
+    forwardDelta = SigmaQ48SubChecked(rightValue, leftValue, valid);
+    reverseDelta = SigmaQ48SubChecked(leftValue, rightValue, valid);
 }}
 
 int SigmaMerkabaSignTransport(uint generator, uint address)
@@ -5741,37 +5922,68 @@ uint SigmaMerkabaClassifyPointNativeStitchPair(uint2 left[16],
 // Four uint4 values are private bounded scratch for the sixteen abstract sector
 // pairs.  N2 fills them from the parallel full-S16/bracket evaluator; no host
 // relation truth enters this finalizer.
+void SigmaMerkabaAccumulateNativeStitchClass(uint factorClass, uint pair,
+    inout uint closedCount, inout uint resolvedPair, inout uint unresolved)
+{{
+    unresolved |= factorClass == SIGMA_EXACT_FACTOR_UNRESOLVED ? 1u : 0u;
+    if (factorClass == SIGMA_EXACT_FACTOR_PROVEN_CLOSED)
+    {{
+        resolvedPair = pair;
+        ++closedCount;
+    }}
+}}
+
 uint4 SigmaMerkabaFinalizeNativeStitchSet(
     uint4 closureClass0, uint4 closureClass1,
     uint4 closureClass2, uint4 closureClass3)
 {{
-    uint4 classes[4] = {{ closureClass0, closureClass1,
-        closureClass2, closureClass3 }};
     uint closedCount = 0u;
     uint resolvedPair = 0u;
-    bool unresolved = false;
-    [unroll]
-    for (uint pair = 0u; pair < 16u; ++pair)
-    {{
-        uint factorClass = classes[pair >> 2u][pair & 3u];
-        unresolved = unresolved ||
-            factorClass == SIGMA_EXACT_FACTOR_UNRESOLVED;
-        if (factorClass == SIGMA_EXACT_FACTOR_PROVEN_CLOSED)
-        {{
-            resolvedPair = pair;
-            ++closedCount;
-        }}
-    }}
-    if (unresolved || closedCount > 1u)
-        return uint4(SIGMA_STITCH_UNRESOLVED, 0u, 0u, 0u);
-    if (closedCount == 0u)
-        return uint4(SIGMA_STITCH_NO_STITCH, 0u, 0u, 0u);
+    uint unresolved = 0u;
+    SigmaMerkabaAccumulateNativeStitchClass(closureClass0.x, 0u,
+        closedCount, resolvedPair, unresolved);
+    SigmaMerkabaAccumulateNativeStitchClass(closureClass0.y, 1u,
+        closedCount, resolvedPair, unresolved);
+    SigmaMerkabaAccumulateNativeStitchClass(closureClass0.z, 2u,
+        closedCount, resolvedPair, unresolved);
+    SigmaMerkabaAccumulateNativeStitchClass(closureClass0.w, 3u,
+        closedCount, resolvedPair, unresolved);
+    SigmaMerkabaAccumulateNativeStitchClass(closureClass1.x, 4u,
+        closedCount, resolvedPair, unresolved);
+    SigmaMerkabaAccumulateNativeStitchClass(closureClass1.y, 5u,
+        closedCount, resolvedPair, unresolved);
+    SigmaMerkabaAccumulateNativeStitchClass(closureClass1.z, 6u,
+        closedCount, resolvedPair, unresolved);
+    SigmaMerkabaAccumulateNativeStitchClass(closureClass1.w, 7u,
+        closedCount, resolvedPair, unresolved);
+    SigmaMerkabaAccumulateNativeStitchClass(closureClass2.x, 8u,
+        closedCount, resolvedPair, unresolved);
+    SigmaMerkabaAccumulateNativeStitchClass(closureClass2.y, 9u,
+        closedCount, resolvedPair, unresolved);
+    SigmaMerkabaAccumulateNativeStitchClass(closureClass2.z, 10u,
+        closedCount, resolvedPair, unresolved);
+    SigmaMerkabaAccumulateNativeStitchClass(closureClass2.w, 11u,
+        closedCount, resolvedPair, unresolved);
+    SigmaMerkabaAccumulateNativeStitchClass(closureClass3.x, 12u,
+        closedCount, resolvedPair, unresolved);
+    SigmaMerkabaAccumulateNativeStitchClass(closureClass3.y, 13u,
+        closedCount, resolvedPair, unresolved);
+    SigmaMerkabaAccumulateNativeStitchClass(closureClass3.z, 14u,
+        closedCount, resolvedPair, unresolved);
+    SigmaMerkabaAccumulateNativeStitchClass(closureClass3.w, 15u,
+        closedCount, resolvedPair, unresolved);
+    uint resolution = unresolved != 0u || closedCount > 1u
+        ? SIGMA_STITCH_UNRESOLVED
+        : closedCount == 0u ? SIGMA_STITCH_NO_STITCH : SIGMA_STITCH_RESOLVED;
     uint leftSector = resolvedPair >> 2u;
     uint rightSector = resolvedPair & 3u;
-    uint transportAddress =
-        SigmaMerkabaNativeBoundarySectorAddress(leftSector) ^
-        SigmaMerkabaNativeBoundarySectorAddress(rightSector);
-    return uint4(SIGMA_STITCH_RESOLVED, leftSector, rightSector,
+    uint transportAddress = resolution == SIGMA_STITCH_RESOLVED
+        ? SigmaMerkabaNativeBoundarySectorAddress(leftSector) ^
+            SigmaMerkabaNativeBoundarySectorAddress(rightSector)
+        : 0u;
+    return uint4(resolution,
+        resolution == SIGMA_STITCH_RESOLVED ? leftSector : 0u,
+        resolution == SIGMA_STITCH_RESOLVED ? rightSector : 0u,
         transportAddress);
 }}
 
@@ -5794,10 +6006,11 @@ int2 SigmaMerkabaSectorChartCandidateDirection(uint assignmentIndex,
     uint4 assignment = SIGMA_STITCH_NATIVE_SECTOR_CHART_ASSIGNMENTS[
         min(assignmentIndex, 23u)];
     uint direction = assignment[min(sectorOrdinal, 3u)];
-    if (direction == 0u) return int2(1, 0);
-    if (direction == 1u) return int2(0, 1);
-    if (direction == 2u) return int2(-1, 0);
-    return int2(0, -1);
+    int2 output = int2(0, -1);
+    if (direction == 0u) output = int2(1, 0);
+    else if (direction == 1u) output = int2(0, 1);
+    else if (direction == 2u) output = int2(-1, 0);
+    return output;
 }}
 
 int2 SigmaMerkabaTransformChartCellLower(int2 lower, uint d4Index,

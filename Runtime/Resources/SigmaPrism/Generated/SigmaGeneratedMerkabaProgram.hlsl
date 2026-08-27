@@ -109,11 +109,15 @@
 #define SIGMA_STITCH_NON_GAUGE_EMBEDDING_AMBIGUITY_COUNT 1u
 #define SIGMA_STITCH_IMPLICIT_BOUNDARY_COUNT_320 204160u
 #define SIGMA_STITCH_IMPLICIT_PLAQUETTE_COUNT_320 101761u
+#define SIGMA_STITCH_EXTERNAL_BRACKET_CONTEXT_INPUT_COUNT 0u
+#define SIGMA_STITCH_COMPLETE_ASSOCIATOR_BASIS_CONTEXT_COUNT 16u
+#define SIGMA_STITCH_ASSOCIATOR_PROFILE_IS_INTRINSIC_S16 1u
+#define SIGMA_STITCH_S32_REQUIRED 0u
 
 static const uint2 SIGMA_STITCH_GENERATED_BRACKET_FINGERPRINT =
     uint2(0x212b1e76u, 0x6094d138u);
 
-static const uint SIGMA_MERKABA_PROGRAM_FINGERPRINT[8] = { 0x948a856du, 0x1bfe7a76u, 0x0d0c1e1bu, 0x1624343eu, 0x2d07cafeu, 0xd5548295u, 0xc7aeee10u, 0x34a4b3a6u };
+static const uint SIGMA_MERKABA_PROGRAM_FINGERPRINT[8] = { 0x21a3ec65u, 0xbce186e2u, 0x157409f8u, 0x775c7735u, 0x97b8c632u, 0xa67158f3u, 0x5ee0ca01u, 0x484203c4u };
 static const int SIGMA_MERKABA_DIFFRACTION[256] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 8, 0, 0, 8, 0, 0, -12, 4, 0, 4, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 8, 0, 0, -12, 4, 4, 4, 0, 0, 0, -8, 0, 0, 0, 8, 0, 0, 0, 4, 0, -12, 4, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -12, 4, 4, 4, 0, 0, 0, -8, 0, 0, 8, 0, 0, 4, 0, 4, 0, -12, 0, 4, 0, -8, 0, 0, 0, -8, 0, 8, 0, 4, 4, 0, 0, 4, -12, 0, 0, 0, -8, 0, 0, 0, -8, 0, 0, 0, 4, 4, 0, 0, 4, -12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 12, 0, -4, 0, -4, -4, 0, 0, 0, 4, 4, 4, -4, 4, 4, 0, -4, 12, 0, 0, 0, -4, -4, 0, -4, 0, 4, 4, 4, -4, 4, 0, 0, -4, 12, 0, -4, 0, -4, 0, -4, -4, 0, 4, 4, 4, -4, 0, -4, -4, -4, 12, 0, 0, 0, 0, -4, -4, -4, 0, 4, 4, 4, 0, 0, -4, 0, -4, 12, -4, 0, 0, 4, -4, -4, -4, 0, 4, 4, 0, 0, 0, -4, -4, 0, 12, -4, 0, -4, 4, -4, -4, -4, 0, 4, 0, -4, 0, 0, -4, -4, 0, 12, 0, -4, -4, 4, -4, -4, -4, 0 };
 static const int SIGMA_MERKABA_INFORMATION_METRIC[256] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 640, -64, -64, -64, -64, -64, -192, 0, -32, 96, 256, 32, -192, 256, 32, 0, -64, 512, -64, -64, -64, 64, -64, 0, -64, 32, 96, 96, 32, -256, 256, 0, -64, -64, 640, -64, -64, -64, -64, 0, -288, -64, -32, 160, 320, 32, -192, 0, -64, -64, -64, 384, -64, -64, -64, 0, -64, -64, -64, 96, 160, 96, 32, 0, -64, -64, -64, -64, 640, -64, -192, 0, 160, -128, -352, -64, -32, 320, 96, 0, -64, 64, -64, -64, -64, 768, -64, 0, -224, 96, -128, -64, -288, -96, 320, 0, -192, -64, -64, -64, -192, -64, 640, 0, 64, -224, 160, -64, 0, -288, -32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -32, -64, -288, -64, 160, -224, 64, 0, 576, -32, -96, -96, -96, -32, -96, 0, 96, 32, -64, -64, -128, 96, -224, 0, -32, 576, -32, -32, -160, -96, -32, 0, 256, 96, -32, -64, -352, -128, 160, 0, -96, -32, 576, 32, -96, -160, -96, 0, 32, 96, 160, 96, -64, -64, -64, 0, -96, -32, 32, 576, 32, -32, -96, 0, -192, 32, 320, 160, -32, -288, 0, 0, -96, -160, -96, 32, 576, -32, -96, 0, 256, -256, 32, 96, 320, -96, -288, 0, -32, -96, -160, -32, -32, 576, -32, 0, 32, 256, -192, 32, 96, 320, -32, 0, -96, -32, -96, -96, -96, -32, 576 };
 static const int SIGMA_MERKABA_SHELL_SQUARE_BY_RANK[4] = { -1, -3, -7, -15 };
@@ -305,6 +309,57 @@ int SigmaMerkabaAssociatorCoefficient(uint a, uint b, uint c)
 {
     return SigmaMerkabaBasisSign(a, b) * SigmaMerkabaBasisSign(a ^ b, c) -
            SigmaMerkabaBasisSign(b, c) * SigmaMerkabaBasisSign(a, b ^ c);
+}
+
+int SigmaMerkabaBasisAssociatorActionCoefficient(uint source,
+    uint sectorAddress, uint contextAddress)
+{
+    return SigmaMerkabaBasisSign(source, sectorAddress) *
+            SigmaMerkabaBasisSign(source ^ sectorAddress, contextAddress) -
+        SigmaMerkabaBasisSign(sectorAddress, contextAddress) *
+            SigmaMerkabaBasisSign(source, sectorAddress ^ contextAddress);
+}
+
+uint SigmaMerkabaBasisAssociatorSource(uint outputLane, uint sectorAddress,
+    uint contextAddress)
+{
+    return outputLane ^ sectorAddress ^ contextAddress;
+}
+
+uint2 SigmaMerkabaScaleBasisAssociatorLane(uint2 sourceValue,
+    int coefficient, inout uint valid)
+{
+    valid &= coefficient == 0 || coefficient == -2 || coefficient == 2 ? 1u : 0u;
+    uint2 scaled = uint2(0u, 0u);
+    if (coefficient != 0)
+    {
+        scaled = SigmaQ48ShiftLeftChecked(sourceValue, 1u, valid);
+        if (coefficient < 0)
+            scaled = SigmaQ48NegateChecked(scaled, valid);
+    }
+    return scaled;
+}
+
+void SigmaMerkabaEvaluateAssociatorProfileDeltaLane(
+    uint2 leftSourceValue, uint2 rightSourceValue,
+    uint leftSectorAddress, uint rightSectorAddress,
+    uint contextAddress, uint outputLane,
+    out uint2 forwardDelta, out uint2 reverseDelta, inout uint valid)
+{
+    uint leftSource = SigmaMerkabaBasisAssociatorSource(outputLane,
+        leftSectorAddress, contextAddress);
+    uint rightSource = SigmaMerkabaBasisAssociatorSource(outputLane,
+        rightSectorAddress, contextAddress);
+    int leftCoefficient = SigmaMerkabaBasisAssociatorActionCoefficient(leftSource,
+        leftSectorAddress, contextAddress);
+    int rightCoefficient = SigmaMerkabaBasisAssociatorActionCoefficient(rightSource,
+        rightSectorAddress, contextAddress);
+    uint2 leftValue = SigmaMerkabaScaleBasisAssociatorLane(leftSourceValue,
+        leftCoefficient, valid);
+    uint2 rightValue = SigmaMerkabaScaleBasisAssociatorLane(rightSourceValue,
+        rightCoefficient, valid);
+    forwardDelta = SigmaQ48SubChecked(rightValue, leftValue, valid);
+    reverseDelta = SigmaQ48SubChecked(leftValue, rightValue, valid);
 }
 
 int SigmaMerkabaSignTransport(uint generator, uint address)
@@ -810,37 +865,68 @@ uint SigmaMerkabaClassifyPointNativeStitchPair(uint2 left[16],
 // Four uint4 values are private bounded scratch for the sixteen abstract sector
 // pairs.  N2 fills them from the parallel full-S16/bracket evaluator; no host
 // relation truth enters this finalizer.
+void SigmaMerkabaAccumulateNativeStitchClass(uint factorClass, uint pair,
+    inout uint closedCount, inout uint resolvedPair, inout uint unresolved)
+{
+    unresolved |= factorClass == SIGMA_EXACT_FACTOR_UNRESOLVED ? 1u : 0u;
+    if (factorClass == SIGMA_EXACT_FACTOR_PROVEN_CLOSED)
+    {
+        resolvedPair = pair;
+        ++closedCount;
+    }
+}
+
 uint4 SigmaMerkabaFinalizeNativeStitchSet(
     uint4 closureClass0, uint4 closureClass1,
     uint4 closureClass2, uint4 closureClass3)
 {
-    uint4 classes[4] = { closureClass0, closureClass1,
-        closureClass2, closureClass3 };
     uint closedCount = 0u;
     uint resolvedPair = 0u;
-    bool unresolved = false;
-    [unroll]
-    for (uint pair = 0u; pair < 16u; ++pair)
-    {
-        uint factorClass = classes[pair >> 2u][pair & 3u];
-        unresolved = unresolved ||
-            factorClass == SIGMA_EXACT_FACTOR_UNRESOLVED;
-        if (factorClass == SIGMA_EXACT_FACTOR_PROVEN_CLOSED)
-        {
-            resolvedPair = pair;
-            ++closedCount;
-        }
-    }
-    if (unresolved || closedCount > 1u)
-        return uint4(SIGMA_STITCH_UNRESOLVED, 0u, 0u, 0u);
-    if (closedCount == 0u)
-        return uint4(SIGMA_STITCH_NO_STITCH, 0u, 0u, 0u);
+    uint unresolved = 0u;
+    SigmaMerkabaAccumulateNativeStitchClass(closureClass0.x, 0u,
+        closedCount, resolvedPair, unresolved);
+    SigmaMerkabaAccumulateNativeStitchClass(closureClass0.y, 1u,
+        closedCount, resolvedPair, unresolved);
+    SigmaMerkabaAccumulateNativeStitchClass(closureClass0.z, 2u,
+        closedCount, resolvedPair, unresolved);
+    SigmaMerkabaAccumulateNativeStitchClass(closureClass0.w, 3u,
+        closedCount, resolvedPair, unresolved);
+    SigmaMerkabaAccumulateNativeStitchClass(closureClass1.x, 4u,
+        closedCount, resolvedPair, unresolved);
+    SigmaMerkabaAccumulateNativeStitchClass(closureClass1.y, 5u,
+        closedCount, resolvedPair, unresolved);
+    SigmaMerkabaAccumulateNativeStitchClass(closureClass1.z, 6u,
+        closedCount, resolvedPair, unresolved);
+    SigmaMerkabaAccumulateNativeStitchClass(closureClass1.w, 7u,
+        closedCount, resolvedPair, unresolved);
+    SigmaMerkabaAccumulateNativeStitchClass(closureClass2.x, 8u,
+        closedCount, resolvedPair, unresolved);
+    SigmaMerkabaAccumulateNativeStitchClass(closureClass2.y, 9u,
+        closedCount, resolvedPair, unresolved);
+    SigmaMerkabaAccumulateNativeStitchClass(closureClass2.z, 10u,
+        closedCount, resolvedPair, unresolved);
+    SigmaMerkabaAccumulateNativeStitchClass(closureClass2.w, 11u,
+        closedCount, resolvedPair, unresolved);
+    SigmaMerkabaAccumulateNativeStitchClass(closureClass3.x, 12u,
+        closedCount, resolvedPair, unresolved);
+    SigmaMerkabaAccumulateNativeStitchClass(closureClass3.y, 13u,
+        closedCount, resolvedPair, unresolved);
+    SigmaMerkabaAccumulateNativeStitchClass(closureClass3.z, 14u,
+        closedCount, resolvedPair, unresolved);
+    SigmaMerkabaAccumulateNativeStitchClass(closureClass3.w, 15u,
+        closedCount, resolvedPair, unresolved);
+    uint resolution = unresolved != 0u || closedCount > 1u
+        ? SIGMA_STITCH_UNRESOLVED
+        : closedCount == 0u ? SIGMA_STITCH_NO_STITCH : SIGMA_STITCH_RESOLVED;
     uint leftSector = resolvedPair >> 2u;
     uint rightSector = resolvedPair & 3u;
-    uint transportAddress =
-        SigmaMerkabaNativeBoundarySectorAddress(leftSector) ^
-        SigmaMerkabaNativeBoundarySectorAddress(rightSector);
-    return uint4(SIGMA_STITCH_RESOLVED, leftSector, rightSector,
+    uint transportAddress = resolution == SIGMA_STITCH_RESOLVED
+        ? SigmaMerkabaNativeBoundarySectorAddress(leftSector) ^
+            SigmaMerkabaNativeBoundarySectorAddress(rightSector)
+        : 0u;
+    return uint4(resolution,
+        resolution == SIGMA_STITCH_RESOLVED ? leftSector : 0u,
+        resolution == SIGMA_STITCH_RESOLVED ? rightSector : 0u,
         transportAddress);
 }
 
@@ -886,10 +972,11 @@ int2 SigmaMerkabaSectorChartCandidateDirection(uint assignmentIndex,
     uint4 assignment = SIGMA_STITCH_NATIVE_SECTOR_CHART_ASSIGNMENTS[
         min(assignmentIndex, 23u)];
     uint direction = assignment[min(sectorOrdinal, 3u)];
-    if (direction == 0u) return int2(1, 0);
-    if (direction == 1u) return int2(0, 1);
-    if (direction == 2u) return int2(-1, 0);
-    return int2(0, -1);
+    int2 output = int2(0, -1);
+    if (direction == 0u) output = int2(1, 0);
+    else if (direction == 1u) output = int2(0, 1);
+    else if (direction == 2u) output = int2(-1, 0);
+    return output;
 }
 
 int2 SigmaMerkabaTransformChartCellLower(int2 lower, uint d4Index,

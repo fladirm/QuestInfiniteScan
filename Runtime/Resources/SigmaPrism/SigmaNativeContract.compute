@@ -975,13 +975,14 @@ void SigmaN4TileStoreCertificate(uint footprint, uint word, uint4 value)
 
 uint4 SigmaN4TileCertificateReduce(uint word, uint4 left, uint4 right)
 {
+    uint4 result = left | right;
     if (word == SIGMA_CERTIFICATE_IDENTITY)
-        return uint4(left.x | right.x, left.y, 1u, 0u);
-    if (word >= SIGMA_CERTIFICATE_AXIS0 &&
+        result = uint4(left.x | right.x, left.y, 1u, 0u);
+    else if (word >= SIGMA_CERTIFICATE_AXIS0 &&
         word < SIGMA_CERTIFICATE_INFORMATION0)
-        return uint4(SigmaQ48Max(left.xy, right.xy),
+        result = uint4(SigmaQ48Max(left.xy, right.xy),
             SigmaQ48Min(left.zw, right.zw));
-    return left | right;
+    return result;
 }
 
 bool SigmaN4TileStructuralCertificateEqual(uint footprint, uint leader)
@@ -1263,39 +1264,47 @@ bool SigmaN4TileChartProposal(uint tile, uint targetLocal,
     uint sourceLocal, uint assignment, uint4 source, out uint4 proposal)
 {
     proposal = source;
-    if (targetLocal == sourceLocal)
-        return SigmaN4TileChartAssigned(source);
-    uint target = SigmaN4TileGlobalFootprint(tile, targetLocal);
-    uint sourceFootprint = SigmaN4TileGlobalFootprint(tile, sourceLocal);
-    uint targetSupport = SigmaN4TileSupportKey(target);
-    uint sourceSupport = SigmaN4TileSupportKey(sourceFootprint);
-    if (targetSupport != SIGMA_N4_TILE_INVALID &&
-        targetSupport == sourceSupport)
-        return true;
-    uint boundary = SigmaN4TileBoundaryIndex(target, sourceFootprint);
-    uint address = _NativeBoundaryScratchOffset +
-        boundary * SIGMA_N4_BOUNDARY_RECEIPT_WORDS;
-    uint4 header = uint4(_NativeCloseScratch[address],
-        _NativeCloseScratch[address + 1u]);
-    if (header.x != SIGMA_STITCH_RESOLVED)
-        return false;
-    bool sourceFirst = sourceFootprint < target;
-    uint sourceSector = sourceFirst ? header.y : header.z;
-    uint targetSector = sourceFirst ? header.z : header.y;
-    uint signBits = _NativeCloseScratch[address + 5u].x;
-    int parity = ((signBits & 1u) == ((signBits >> 1u) & 1u)) ? 1 : -1;
-    uint exact = 1u;
-    uint nextFrame = 0u;
-    bool frameResolved = SigmaN4ResolveAdjacentFrame(assignment,
-        SigmaN4TileChartFrame(source), sourceSector, targetSector, parity,
-        nextFrame, exact);
-    exact &= frameResolved ? 1u : 0u;
-    int2 direction = SigmaN4ChartDirection(assignment,
-        SigmaN4TileChartFrame(source), sourceSector, exact);
-    proposal = SigmaN4TilePackChart(
-        int2(asint(source.x), asint(source.y)) + direction,
-        nextFrame, exact != 0u);
-    return exact != 0u;
+    bool resolved = targetLocal == sourceLocal &&
+        SigmaN4TileChartAssigned(source);
+    if (targetLocal != sourceLocal)
+    {
+        uint target = SigmaN4TileGlobalFootprint(tile, targetLocal);
+        uint sourceFootprint = SigmaN4TileGlobalFootprint(tile, sourceLocal);
+        uint targetSupport = SigmaN4TileSupportKey(target);
+        uint sourceSupport = SigmaN4TileSupportKey(sourceFootprint);
+        resolved = targetSupport != SIGMA_N4_TILE_INVALID &&
+            targetSupport == sourceSupport;
+        if (!resolved)
+        {
+            uint boundary = SigmaN4TileBoundaryIndex(target, sourceFootprint);
+            uint address = _NativeBoundaryScratchOffset +
+                boundary * SIGMA_N4_BOUNDARY_RECEIPT_WORDS;
+            uint4 header = uint4(_NativeCloseScratch[address],
+                _NativeCloseScratch[address + 1u]);
+            if (header.x == SIGMA_STITCH_RESOLVED)
+            {
+                bool sourceFirst = sourceFootprint < target;
+                uint sourceSector = sourceFirst ? header.y : header.z;
+                uint targetSector = sourceFirst ? header.z : header.y;
+                uint signBits = _NativeCloseScratch[address + 5u].x;
+                int parity = ((signBits & 1u) ==
+                    ((signBits >> 1u) & 1u)) ? 1 : -1;
+                uint exact = 1u;
+                uint nextFrame = 0u;
+                bool frameResolved = SigmaN4ResolveAdjacentFrame(assignment,
+                    SigmaN4TileChartFrame(source), sourceSector, targetSector,
+                    parity, nextFrame, exact);
+                exact &= frameResolved ? 1u : 0u;
+                int2 direction = SigmaN4ChartDirection(assignment,
+                    SigmaN4TileChartFrame(source), sourceSector, exact);
+                proposal = SigmaN4TilePackChart(
+                    int2(asint(source.x), asint(source.y)) + direction,
+                    nextFrame, exact != 0u);
+                resolved = exact != 0u;
+            }
+        }
+    }
+    return resolved;
 }
 
 bool SigmaN4TileChartEqual(uint4 left, uint4 right)
@@ -1317,8 +1326,9 @@ void SigmaN4TileSolveOrbit(uint tile, uint local, uint orbit)
     {
         uint4 current = SigmaN4TileWideA[local];
         uint4 next = current;
-        bool have = SigmaN4TileChartAssigned(current);
-        bool consistent = true;
+        bool assigned = SigmaN4TileChartAssigned(current);
+        bool have = assigned;
+        uint selectedSource = SIGMA_N4_TILE_INVALID;
         if (valid)
         {
             [unroll]
@@ -1340,18 +1350,16 @@ void SigmaN4TileSolveOrbit(uint tile, uint local, uint orbit)
                         SigmaN4TileChartProposal(tile, local, sourceLocal,
                             assignment, source, candidate))
                     {
-                        if (!have) { next = candidate; have = true; }
-                        else consistent = consistent &&
-                            SigmaN4TileChartEqual(next, candidate);
+                        if (!assigned &&
+                            (!have || sourceLocal < selectedSource))
+                        {
+                            next = candidate;
+                            have = true;
+                            selectedSource = sourceLocal;
+                        }
                     }
                 }
             }
-        }
-        if (!consistent)
-        {
-            uint ignored;
-            InterlockedAnd(SigmaN4TileComponentOrbits[root],
-                ~(1u << orbit), ignored);
         }
         SigmaN4TileWideB[local] = next;
         GroupMemoryBarrierWithGroupSync();
@@ -1359,7 +1367,39 @@ void SigmaN4TileSolveOrbit(uint tile, uint local, uint orbit)
         GroupMemoryBarrierWithGroupSync();
     }
     uint4 solved = SigmaN4TileWideA[local];
-    if (valid && !SigmaN4TileChartAssigned(solved))
+    bool exact = !valid || SigmaN4TileChartAssigned(solved);
+    if (valid && exact)
+    {
+        [unroll]
+        for (uint direction = 0u; direction < 4u; ++direction)
+        {
+            uint neighbourLocal;
+            uint neighbourFootprint;
+            bool inside = SigmaN4TileNeighbour(tile, local, direction,
+                neighbourLocal, neighbourFootprint);
+            bool sameComponent = inside &&
+                SigmaN4TileLabel[neighbourLocal].x == root;
+            uint support = SigmaN4TileSupportKey(footprint);
+            uint neighbourSupport = inside
+                ? SigmaN4TileSupportKey(neighbourFootprint)
+                : SIGMA_N4_TILE_INVALID;
+            bool priorAlias = sameComponent &&
+                support != SIGMA_N4_TILE_INVALID &&
+                support == neighbourSupport;
+            bool resolvedEdge = sameComponent &&
+                SigmaN4TileResolvedEdge(footprint, neighbourFootprint);
+            if (priorAlias || resolvedEdge)
+            {
+                uint4 proposal;
+                bool proposed = SigmaN4TileChartProposal(tile, local,
+                    neighbourLocal, assignment,
+                    SigmaN4TileWideA[neighbourLocal], proposal);
+                exact = exact && proposed &&
+                    SigmaN4TileChartEqual(solved, proposal);
+            }
+        }
+    }
+    if (valid && !exact)
     {
         uint ignored;
         InterlockedAnd(SigmaN4TileComponentOrbits[root],
@@ -1376,28 +1416,31 @@ bool SigmaN4TileD4Equivalent(uint4 left, uint leftOrbit, uint4 right,
 {
     bool equivalent = SigmaN4TileChartAssigned(left) &&
         SigmaN4TileChartAssigned(right);
-    if (!equivalent)
-        return false;
-    int4 d4 = SIGMA_STITCH_CHART_D4[min(transform, 7u)];
-    int2 leftPosition = int2(asint(left.x), asint(left.y));
-    int2 transformed = int2(d4.x * leftPosition.x + d4.y * leftPosition.y,
-        d4.z * leftPosition.x + d4.w * leftPosition.y);
-    equivalent = all(transformed == int2(asint(right.x), asint(right.y)));
-    if (!equivalent)
-        return false;
-    uint leftAssignment = SigmaN4ChartOrbitRepresentative(leftOrbit);
-    uint rightAssignment = SigmaN4ChartOrbitRepresentative(rightOrbit);
     uint exact = 1u;
-    [unroll]
-    for (uint sector = 0u; sector < 4u; ++sector)
+    if (equivalent)
     {
-        int2 leftDirection = SigmaN4ChartDirection(leftAssignment,
-            SigmaN4TileChartFrame(left), sector, exact);
-        int2 expected = int2(d4.x * leftDirection.x + d4.y * leftDirection.y,
-            d4.z * leftDirection.x + d4.w * leftDirection.y);
-        int2 actual = SigmaN4ChartDirection(rightAssignment,
-            SigmaN4TileChartFrame(right), sector, exact);
-        if (any(expected != actual)) exact = 0u;
+        int4 d4 = SIGMA_STITCH_CHART_D4[min(transform, 7u)];
+        int2 leftPosition = int2(asint(left.x), asint(left.y));
+        uint transformValid = 1u;
+        int2 transformed = SigmaMerkabaTransformChartCellLower(leftPosition,
+            transform, transformValid);
+        equivalent = transformValid != 0u;
+        equivalent = all(transformed == int2(asint(right.x),
+            asint(right.y))) && equivalent;
+        uint leftAssignment = SigmaN4ChartOrbitRepresentative(leftOrbit);
+        uint rightAssignment = SigmaN4ChartOrbitRepresentative(rightOrbit);
+        [unroll]
+        for (uint sector = 0u; sector < 4u; ++sector)
+        {
+            int2 leftDirection = SigmaN4ChartDirection(leftAssignment,
+                SigmaN4TileChartFrame(left), sector, exact);
+            int2 expected = int2(
+                d4.x * leftDirection.x + d4.y * leftDirection.y,
+                d4.z * leftDirection.x + d4.w * leftDirection.y);
+            int2 actual = SigmaN4ChartDirection(rightAssignment,
+                SigmaN4TileChartFrame(right), sector, exact);
+            if (any(expected != actual)) exact = 0u;
+        }
     }
     return equivalent && exact != 0u;
 }
