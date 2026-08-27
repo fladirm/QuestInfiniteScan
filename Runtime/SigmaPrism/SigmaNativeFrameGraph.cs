@@ -269,24 +269,12 @@ namespace Genesis.RoomScan.SigmaPrism
                 command.SetComputeBufferParam(_frame, kernel,
                     "_NativeCloseScratch", slot.CloseScratch);
                 command.SetComputeBufferParam(_frame, kernel,
-                    "_NativeStates", slot.States);
-                command.SetComputeBufferParam(_frame, kernel,
-                    "_NativeBranchHeaders", slot.BranchHeaders);
-                command.SetComputeBufferParam(_frame, kernel,
-                    "_NativeRelationResults", slot.RelationResults);
-                command.SetComputeBufferParam(_frame, kernel,
-                    "_NativeRelationFactors", slot.RelationFactors);
-                command.SetComputeBufferParam(_frame, kernel,
-                    "_NativeRelationHashes", slot.RelationHashes);
-                command.SetComputeBufferParam(_frame, kernel,
                     "_NativeStateDeltas", slot.StateDelta);
                 command.SetComputeBufferParam(_frame, kernel,
                     "_NativeGaugeDeltas", slot.GaugeDelta);
                 command.SetComputeBufferParam(_frame, kernel,
                     "_NativeLocalityCertificateWords",
                     slot.LocalityCertificateWords);
-                command.SetComputeBufferParam(_frame, kernel,
-                    "_NativeUnresolved", slot.Unresolved);
                 command.SetComputeBufferParam(_frame, kernel,
                     "_NativeRevisions", slot.Revisions);
                 command.SetComputeBufferParam(_frame, kernel,
@@ -317,15 +305,6 @@ namespace Genesis.RoomScan.SigmaPrism
                 command.SetComputeBufferParam(_frame, kernel,
                     "_PublishedRevisionRoot", input.Carrier.PublicationRoot);
             }
-            command.SetComputeBufferParam(_frame, _closePublish,
-                "_NativeCloseObservations", slot.Observation);
-            command.SetComputeBufferParam(_frame, _closePublish,
-                "_NativeCloseStateDeltas", slot.StateDelta);
-            command.SetComputeBufferParam(_frame, _closePublish,
-                "_NativeCloseLocalityCertificateWords",
-                slot.LocalityCertificateWords);
-            command.SetComputeBufferParam(_frame, _closePublish,
-                "_NativeCloseCounters", slot.Counters);
             command.SetComputeBufferParam(_frame, _prepareRevision,
                 "_NativePrepareObservations", slot.Observation);
             command.SetComputeBufferParam(_frame, _prepareRevision,

@@ -76,6 +76,8 @@ uint _NativeRevision;
 #define SIGMA_N4_FOOTPRINT_CODE_LEAVES 10u
 #define SIGMA_N4_FOOTPRINT_SUPPORT 50u
 #define SIGMA_N4_FOOTPRINT_EVIDENCE_WORDS 52u
+#define SIGMA_N4_FOOTPRINT_LEVEL_MASK 0x0000003fu
+#define SIGMA_N4_FOOTPRINT_STATIC_EXCLUSION 0x00000100u
 #define SIGMA_N4_BOUNDARY_RECEIPT_WORDS 6u
 #define SIGMA_N4_TILE_SIZE 16u
 #define SIGMA_N4_TILE_FOOTPRINT_CAPACITY 256u
@@ -726,6 +728,18 @@ void SigmaNativeFreshLiftSource(uint sourceKind, uint sourceIndex,
     GroupMemoryBarrierWithGroupSync();
     if (SigmaNativeFreshPhaseValid == 0u && threadIndex < 16u)
         _NativeStates[stateOffset + threadIndex] = uint2(0u, 0u);
+    if (!writeLegacyReceipt && threadIndex == 0u)
+    {
+        // CUT E consumes this generated contractor disposition.  It is
+        // execution evidence beside the level, never another physical state.
+        uint address = sourceIndex * SIGMA_N4_FOOTPRINT_EVIDENCE_WORDS +
+            SIGMA_N4_FOOTPRINT_EVIDENCE_WORDS - 1u;
+        uint2 detail = _NativeCloseScratch[address];
+        detail.y = (detail.y & SIGMA_N4_FOOTPRINT_LEVEL_MASK) |
+            (SigmaNativeFreshStaticExclusion != 0u
+                ? SIGMA_N4_FOOTPRINT_STATIC_EXCLUSION : 0u);
+        _NativeCloseScratch[address] = detail;
+    }
 }
 
 void SigmaNativeFreshLiftLegacyBranch(uint branchIndex, uint threadIndex)
