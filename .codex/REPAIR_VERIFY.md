@@ -107,7 +107,27 @@ Result:
 
 ## R6 Publication
 
-PENDING
+Commit: `d0874f9422807acdb0c9611e1e663edd48c921af`
+
+Command:
+
+```bash
+Tools/unity/run_merkaba_tests.sh
+```
+
+Result:
+
+- Unity EditMode: 37 passed, 0 failed, 0 skipped.
+- Dirty build shape: `dirtyChunkCount × 512 × 64`; exactly one thread per 32³ lattice kernel and no serial kernel loop/group barrier.
+- Per occupied kernel: eight body-diagonal occupancy queries and one atomic reservation for all 8..24 actual triangle records.
+- Static unchanged publication: version/count/draw args remain bit-identical and zero topology/publication workgroups are emitted.
+- Overflow fixture: exact required count 8 against capacity 4; prior bank/count=2/args/version=7 remain visible and unchanged.
+- Exceptional migration copies the active source bank in parallel; successful capacity-8 rebuild atomically publishes count=8/version=8.
+- Runtime record storage is one contiguous two-bank buffer; bank selection is an arithmetic offset, not a per-vertex dual-buffer branch.
+- Residency movement alone does not enqueue topology rebuilds; occupancy transitions are the only normal publication source.
+- Shader import/compile: PASS; no lost compiler connection, invalid kernel, or shader error in final log.
+- Result XML: `/mnt/kingston-unity/Builds/TestResults/merkaba-results.xml`.
+- Log: `/mnt/kingston-unity/Builds/TestResults/merkaba-tests.log`.
 
 ## R7 UX and Export Shell
 

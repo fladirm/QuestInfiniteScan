@@ -23,3 +23,9 @@
 - Topology resolves a body-diagonal neighbour from its live resident page first, then the canonical nonresident boundary summary, and only treats a truly nonexistent canonical chunk as empty.
 - Pending eviction does not remove a page from topology lookup. One eviction readback may be active; after snapshot, summary and page-table replacement are published together.
 - Integration and render desired sets are independent. Render residency refreshes at render cadence with `renderDistance`; retained chunks receive a one-chunk leave guard and stable selection preference.
+- Occupancy transitions dirty a unique chunk queue; residency table changes never redefine or dirty topology because live and summarized occupancy are invariant.
+- A dirty chunk is rebuilt by a flat `dirtyCount × 512 × 64` dispatch with one kernel per thread, eight body-diagonal tests, and one atomic range reservation per occupied kernel.
+- Compact primitive publication uses one contiguous GPU buffer split arithmetically into two banks, initially 32,768 records/chunk/bank; the draw shader selects its bank by offset without a buffer branch.
+- Finalize swaps bank/count/indirect args/version only when the exact required count fits. Overflow preserves the old publication until a fully migrated larger banked buffer is atomically installed.
+- Publication status readback is asynchronous and coalesced to at most 1 Hz; it is diagnostic/overflow control, never a normal-frame synchronization point.
+- R7/R8 device telemetry must use real GPU timestamp queries through the isolated generic mechanism proven in `OtherScan`; Unity Profiler/ProfilerRecorder, CPU timing, and FPS-derived estimates are not accepted as stage timing.

@@ -2,7 +2,7 @@
 
 BASE: `0e9081060ed1068aad6e075f4961ad25b72245ff`
 BRANCH: `fix/merkaba-production-closure`
-HEAD: `094722c014ff6f203d73b2b86abbf9afb85ad5f4`
+HEAD: `d0874f9422807acdb0c9611e1e663edd48c921af`
 GOAL AUTHORITY: `/mnt/aidisk/prace/.codex-pursuits/quest-merkaba-production-closure/REPAIR_GOAL.md`
 GOAL SHA-256: `9135e66973e4fe2e36af2cb67869a56afcc6aee75b9b57f50fdd269e109e923f`
 
@@ -31,24 +31,31 @@ GOAL SHA-256: `9135e66973e4fe2e36af2cb67869a56afcc6aee75b9b57f50fdd269e109e923f`
 - R5 resident, pending-eviction, summarized-nonresident, and reloaded body-diagonal neighbours produce bit-identical primitive masks across an XYZ chunk corner.
 - R5 keeps a pending page live until its snapshot and summary replacement are ready, and permits only one asynchronous eviction at a time.
 - R5 render residency refreshes every render frame independently of 15 Hz integration, with a one-chunk leave guard and stable previous-membership score.
+- R6 occupancy transitions append unique dirty resident slots; residency movement alone cannot dirty canonical topology.
+- R6 rebuilds one dirty chunk as 512 × 64 flat threads, one lattice kernel/thread, with eight body-diagonal queries and one atomic record reservation per occupied kernel.
+- R6 persists compact three-vertex primitive records in two arithmetic bank segments; live draw invokes only active triangles.
+- R6 finalize publishes bank/count/args/version atomically only after a complete build.
+- R6 measured overflow retains the prior bank and exact draw unchanged while an asynchronous replacement is migrated and swapped.
+- R6 clean/static frames execute zero topology/publication workgroups; diagnostic readback is coalesced to at most 1 Hz.
 
 ## CURRENT
 
-- R6: replace per-frame visible-world kernel publication with persistent dirty compact triangle records.
+- R7: opacity, reactive operation-progress UX, validator repair, and export-only evidence-aware clean Merkaba shell.
 
 ## NEXT
 
-- R6: dirty chunk publication and three-vertex actual primitive drawing.
+- R7/R8: add real per-stage GPU timestamps using the generic proven `OtherScan` mechanism, never profiler-derived timing.
 - R7-R9 remain mandatory in the external goal authority.
 
 ## TEST STATUS
 
-- Unity EditMode after R5: 35/35 passed, 0 failed, 0 skipped.
+- Unity EditMode after R6: 37/37 passed, 0 failed, 0 skipped.
 - CPU/HLSL byte identity, CPU/GPU cross-chunk mask identity, and direct GLB counts/non-axis normals passed.
 - Isolated kernel and every body-diagonal pair rule passed; axis/face-diagonal non-activation passed.
 - Depth border/padding, stereo dilation, exact step sequence, consumed-frame cadence, right-eye-only production integration, and false-foreground carve passed.
 - Sparse GPU surface/carve work, no dense fallback symbol, free-volume sparsity, transient-page noncanonicality, negative chunk-border carve, and diagonal ray+guard candidate union passed.
 - Boundary-summary residency invariance, pending live publication, render/integration independence, render-distance use, and 5 cm guard-band stability passed.
+- Flat-parallel dirty publication, CPU/GPU primitive equality, static publication stability, and overflow-safe atomic replacement passed.
 
 ## BUILD STATUS
 
