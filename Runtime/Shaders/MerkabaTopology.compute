@@ -1,5 +1,7 @@
-// Quest Infinite Merkaba - direct octahedron-face / conditional-tip topology.
-#pragma kernel BuildVisibleRecords
+// Quest Infinite Merkaba - flat parallel dirty-chunk triangle publication.
+#pragma kernel RebuildDirtyChunkRecords
+#pragma kernel FinalizeDirtyChunkRecords
+#pragma kernel MigratePublishedChunkRecords
 
 #include "MerkabaCanonicalGeometry.generated.hlsl"
 
@@ -8,6 +10,7 @@
 #define MERKABA_OCCUPIED_FLAG 1u
 #define MERKABA_BOUNDARY_BITS_PER_FACE 1024
 #define MERKABA_BOUNDARY_WORD_COUNT 192
+#define MERKABA_NEUTRAL_PACKED_COLOR 0xffa0a0a0u
 
 struct KernelState
 {
@@ -17,14 +20,10 @@ struct KernelState
     uint flags;
 };
 
-struct RenderRecord
+struct PrimitiveRecord
 {
-    int3 coord;
-    uint activeMask;
+    uint packedLocalPrimitive;
     uint packedColor;
-    uint padding0;
-    uint padding1;
-    uint padding2;
 };
 
 StructuredBuffer<KernelState> _MerkabaKernels;
@@ -32,11 +31,22 @@ StructuredBuffer<int4> _MerkabaPageCoords;
 StructuredBuffer<int> _MerkabaPageNeighbours;
 StructuredBuffer<int4> _MerkabaBoundarySummaryHash;
 StructuredBuffer<uint> _MerkabaBoundarySummaryWords;
-StructuredBuffer<int> _MerkabaVisibleSlots;
-RWStructuredBuffer<uint> _MerkabaKernelDirty;
-RWStructuredBuffer<uint> _MerkabaTopologyMasks;
-AppendStructuredBuffer<RenderRecord> _MerkabaRenderRecords;
-int _MerkabaVisibleChunkCount;
+StructuredBuffer<uint> _MerkabaDirtySlotQueue;
+RWStructuredBuffer<uint> _MerkabaPublicationDirtyChunks;
+RWStructuredBuffer<uint> _MerkabaPublicationVersions;
+RWStructuredBuffer<PrimitiveRecord> _MerkabaPrimitiveRecordBanks;
+RWStructuredBuffer<uint> _MerkabaPrimitiveCounts;
+RWStructuredBuffer<uint> _MerkabaPrimitiveBuildCounts;
+RWStructuredBuffer<uint> _MerkabaPublicationOverflowCounts;
+RWStructuredBuffer<uint> _MerkabaPublishedBanks;
+RWStructuredBuffer<uint> _MerkabaPrimitiveDrawArgs;
+
+StructuredBuffer<PrimitiveRecord> _MerkabaSourcePrimitiveRecordBanks;
+StructuredBuffer<uint> _MerkabaSourcePublishedBanks;
+
+int _MerkabaResidentSlotCapacity;
+int _MerkabaPrimitiveCapacityPerChunk;
+int _MerkabaSourcePrimitiveCapacityPerChunk;
 int _MerkabaBoundarySummaryHashCapacity;
 
 int3 UnflattenKernel(uint index)
@@ -85,9 +95,9 @@ bool BoundarySummaryOccupied(int3 chunkCoord, int3 localCoord)
     int summary = FindBoundarySummary(chunkCoord);
     if (summary < 0) return false;
 
-    int face;
-    int u;
-    int v;
+    int face = -1;
+    int u = 0;
+    int v = 0;
     if (localCoord.x == 0)
     {
         face = 0; u = localCoord.y; v = localCoord.z;
@@ -112,7 +122,7 @@ bool BoundarySummaryOccupied(int3 chunkCoord, int3 localCoord)
     {
         face = 5; u = localCoord.x; v = localCoord.y;
     }
-    else return false;
+    if (face < 0) return false;
 
     uint bitIndex = (uint)(face * MERKABA_BOUNDARY_BITS_PER_FACE +
                            u + MERKABA_CHUNK_SIZE * v);
@@ -140,50 +150,132 @@ bool OccupiedOffset(int slot, int3 localCoord, int3 offset)
     return (_MerkabaKernels[index].flags & MERKABA_OCCUPIED_FLAG) != 0u;
 }
 
-uint BuildDirectPrimitiveMask(int slot, int3 localCoord)
+uint BuildBodyDiagonalNeighbourMask(int slot, int3 localCoord)
 {
     uint mask = 0u;
     [unroll]
     for (uint direction = 0u; direction < MERKABA_DIRECTION_COUNT; direction++)
     {
-        uint firstPrimitive = direction * MERKABA_PRIMITIVES_PER_DIRECTION;
         if (OccupiedOffset(slot, localCoord,
             kMerkabaBodyDiagonalOffsets[direction]))
-            mask |= 0xEu << firstPrimitive;
-        else
-            mask |= 1u << firstPrimitive;
+            mask |= 1u << direction;
     }
     return mask;
 }
 
-[numthreads(64, 1, 1)]
-void BuildVisibleRecords(uint id : SV_DispatchThreadID)
+void StorePrimitive(uint slot, uint localIndex, uint primitiveId,
+    uint packedColor, uint targetBank, uint recordIndex)
 {
-    uint total = (uint)_MerkabaVisibleChunkCount * MERKABA_KERNELS_PER_CHUNK;
-    if (id >= total) return;
-    int visibleIndex = id / MERKABA_KERNELS_PER_CHUNK;
-    uint localIndex = id % MERKABA_KERNELS_PER_CHUNK;
-    int slot = _MerkabaVisibleSlots[visibleIndex];
+    if (recordIndex >= (uint)_MerkabaPrimitiveCapacityPerChunk) return;
+    PrimitiveRecord record;
+    record.packedLocalPrimitive = localIndex | (primitiveId << 15u);
+    record.packedColor = packedColor;
+    uint bankStride = (uint)_MerkabaResidentSlotCapacity *
+        (uint)_MerkabaPrimitiveCapacityPerChunk;
+    uint destination = targetBank * bankStride +
+        slot * (uint)_MerkabaPrimitiveCapacityPerChunk + recordIndex;
+    _MerkabaPrimitiveRecordBanks[destination] = record;
+}
+
+// Dispatch shape: (dirtyChunkCount, 512, 1), 64 threads. Each invocation owns
+// exactly one lattice kernel; there is no serial 32^3 loop or group barrier.
+[numthreads(64, 1, 1)]
+void RebuildDirtyChunkRecords(uint3 groupId : SV_GroupID,
+    uint3 groupThreadId : SV_GroupThreadID)
+{
+    uint slot = _MerkabaDirtySlotQueue[groupId.x];
+    if (slot >= (uint)_MerkabaResidentSlotCapacity ||
+        _MerkabaPublicationDirtyChunks[slot] == 0u)
+        return;
+
+    uint localIndex = groupId.y * 64u + groupThreadId.x;
+    if (localIndex >= MERKABA_KERNELS_PER_CHUNK) return;
     uint stateIndex = slot * MERKABA_KERNELS_PER_CHUNK + localIndex;
     KernelState state = _MerkabaKernels[stateIndex];
-    uint mask = _MerkabaTopologyMasks[stateIndex];
-    int3 localCoord = UnflattenKernel(localIndex);
-    int3 globalCoord = _MerkabaPageCoords[slot].xyz * MERKABA_CHUNK_SIZE + localCoord;
+    if ((state.flags & MERKABA_OCCUPIED_FLAG) == 0u) return;
 
-    if (_MerkabaKernelDirty[stateIndex] != 0u)
+    uint neighbourMask = BuildBodyDiagonalNeighbourMask((int)slot,
+        UnflattenKernel(localIndex));
+    uint packedColor = state.colorConfidence > 0u
+        ? state.packedColor : MERKABA_NEUTRAL_PACKED_COLOR;
+    uint targetBank = 1u - (_MerkabaPublishedBanks[slot] & 1u);
+    uint primitiveCount = MERKABA_DIRECTION_COUNT +
+        2u * countbits(neighbourMask);
+    uint recordIndex;
+    // One atomic reservation per occupied kernel, not one per triangle.
+    InterlockedAdd(_MerkabaPrimitiveBuildCounts[slot], primitiveCount,
+        recordIndex);
+    [unroll]
+    for (uint direction = 0u; direction < MERKABA_DIRECTION_COUNT; direction++)
     {
-        mask = (state.flags & MERKABA_OCCUPIED_FLAG) != 0u
-            ? BuildDirectPrimitiveMask(slot, localCoord)
-            : 0u;
-        _MerkabaTopologyMasks[stateIndex] = mask;
-        _MerkabaKernelDirty[stateIndex] = 0u;
+        uint firstPrimitive = direction * MERKABA_PRIMITIVES_PER_DIRECTION;
+        if ((neighbourMask & (1u << direction)) == 0u)
+        {
+            StorePrimitive(slot, localIndex, firstPrimitive, packedColor,
+                targetBank, recordIndex++);
+        }
+        else
+        {
+            StorePrimitive(slot, localIndex, firstPrimitive + 1u, packedColor,
+                targetBank, recordIndex++);
+            StorePrimitive(slot, localIndex, firstPrimitive + 2u, packedColor,
+                targetBank, recordIndex++);
+            StorePrimitive(slot, localIndex, firstPrimitive + 3u, packedColor,
+                targetBank, recordIndex++);
+        }
+    }
+}
+
+// One thread per dirty chunk. This dispatch follows the parallel rebuild, so all
+// record writes are complete. Overflow leaves bank/count/args/version untouched.
+[numthreads(1, 1, 1)]
+void FinalizeDirtyChunkRecords(uint3 groupId : SV_GroupID)
+{
+    uint slot = _MerkabaDirtySlotQueue[groupId.x];
+    if (slot >= (uint)_MerkabaResidentSlotCapacity ||
+        _MerkabaPublicationDirtyChunks[slot] == 0u)
+        return;
+
+    uint required = _MerkabaPrimitiveBuildCounts[slot];
+    if (required > (uint)_MerkabaPrimitiveCapacityPerChunk)
+    {
+        _MerkabaPublicationOverflowCounts[slot] = required;
+        return;
     }
 
-    if (mask == 0u) return;
-    RenderRecord record;
-    record.coord = globalCoord;
-    record.activeMask = mask;
-    record.packedColor = state.packedColor;
-    record.padding0 = record.padding1 = record.padding2 = 0u;
-    _MerkabaRenderRecords.Append(record);
+    uint nextBank = 1u - (_MerkabaPublishedBanks[slot] & 1u);
+    uint argsOffset = slot * 4u;
+    _MerkabaPublishedBanks[slot] = nextBank;
+    _MerkabaPrimitiveCounts[slot] = required;
+    _MerkabaPrimitiveDrawArgs[argsOffset] = MERKABA_VERTICES_PER_PRIMITIVE;
+    _MerkabaPrimitiveDrawArgs[argsOffset + 1u] = required;
+    _MerkabaPrimitiveDrawArgs[argsOffset + 2u] = 0u;
+    _MerkabaPrimitiveDrawArgs[argsOffset + 3u] = 0u;
+    _MerkabaPublicationOverflowCounts[slot] = 0u;
+    _MerkabaPublicationVersions[slot] += 1u;
+    _MerkabaPublicationDirtyChunks[slot] = 0u;
+    _MerkabaPrimitiveBuildCounts[slot] = 0u;
+}
+
+// Exceptional resize migration. Existing published records are copied to bank A
+// of the replacement while the renderer continues drawing the source buffers.
+[numthreads(64, 1, 1)]
+void MigratePublishedChunkRecords(uint3 groupId : SV_GroupID,
+    uint3 groupThreadId : SV_GroupThreadID)
+{
+    uint slot = groupId.x;
+    if (slot >= (uint)_MerkabaResidentSlotCapacity) return;
+    uint index = groupId.y * 64u + groupThreadId.x;
+    uint count = min(_MerkabaPrimitiveCounts[slot],
+        (uint)_MerkabaSourcePrimitiveCapacityPerChunk);
+    if (index >= count) return;
+
+    uint sourceBankStride = (uint)_MerkabaResidentSlotCapacity *
+        (uint)_MerkabaSourcePrimitiveCapacityPerChunk;
+    uint source = (_MerkabaSourcePublishedBanks[slot] & 1u) *
+        sourceBankStride +
+        slot * (uint)_MerkabaSourcePrimitiveCapacityPerChunk + index;
+    uint destination = slot * (uint)_MerkabaPrimitiveCapacityPerChunk + index;
+    _MerkabaPrimitiveRecordBanks[destination] =
+        _MerkabaSourcePrimitiveRecordBanks[source];
 }

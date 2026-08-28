@@ -22,6 +22,23 @@ namespace Genesis.RoomScan
         }
     }
 
+    internal readonly struct MerkabaPublicationBuffer
+    {
+        public readonly ComputeBuffer Records;
+        public readonly int CapacityPerChunk;
+
+        public MerkabaPublicationBuffer(ComputeBuffer records,
+            int capacityPerChunk)
+        {
+            Records = records;
+            CapacityPerChunk = capacityPerChunk;
+        }
+
+        public bool IsValid => Records != null;
+
+        public void Release() => Records?.Release();
+    }
+
     public sealed partial class MerkabaGrid
     {
         [Header("GPU Residency")]
@@ -67,6 +84,7 @@ namespace Genesis.RoomScan
         private readonly HashSet<int3> _desiredCoords = new();
         private readonly HashSet<int3> _integrationDesiredCoords = new();
         private readonly HashSet<int3> _renderDesiredCoords = new();
+        private readonly SortedSet<int> _cpuPublicationDirtySlots = new();
         private ResidentPage[] _slots;
         private int _gpuGeneration;
         private bool _gpuReady;
@@ -74,8 +92,18 @@ namespace Genesis.RoomScan
         private ComputeBuffer _kernelBuffer;
         private ComputeBuffer _pageCoordsBuffer;
         private ComputeBuffer _pageNeighboursBuffer;
-        private ComputeBuffer _kernelDirtyBuffer;
-        private ComputeBuffer _topologyMaskBuffer;
+        private ComputeBuffer _publicationDirtyChunksBuffer;
+        private ComputeBuffer _publicationVersionBuffer;
+        private ComputeBuffer _primitiveRecordBanksBuffer;
+        private ComputeBuffer _primitiveCountBuffer;
+        private ComputeBuffer _primitiveBuildCountBuffer;
+        private ComputeBuffer _publicationOverflowCountBuffer;
+        private ComputeBuffer _publishedBankBuffer;
+        private ComputeBuffer _primitiveDrawArgsBuffer;
+        private ComputeBuffer _cpuPublicationDirtySlotsBuffer;
+        private ComputeBuffer _gpuPublicationDirtyQueueBuffer;
+        private ComputeBuffer _gpuPublicationDispatchArgsBuffer;
+        private ComputeBuffer _gpuPublicationFinalizeArgsBuffer;
         private ComputeBuffer _integrationSlotsBuffer;
         private ComputeBuffer _integrationEnabledBuffer;
         private ComputeBuffer _visibleSlotsBuffer;
@@ -98,19 +126,22 @@ namespace Genesis.RoomScan
         private int[] _integrationSlotsCpu;
         private uint[] _integrationEnabledCpu;
         private int[] _visibleSlotsCpu;
-        private uint[] _dirtyOnes;
-        private uint[] _zeroMasks;
         private KernelState[] _zeroStates;
         private uint[] _zeroPageBits;
         private uint[] _pageCarveBits;
         private uint[] _pageCarveIndices;
         private readonly uint[] _singleZero = { 0u };
+        private readonly uint[] _singleOne = { 1u };
         private int4[] _pageHashCpu;
+        private uint[] _publicationArgsCpu;
         private int4[] _boundarySummaryHashCpu;
         private uint[] _boundarySummaryWordsCpu;
         private int _boundarySummaryEntryCapacity;
         private int _boundarySummaryHashCapacity;
         private bool _boundarySummariesDirty = true;
+        private bool _gpuPublicationMayBeDirty;
+        private int _primitiveCapacityPerChunk =
+            MerkabaConstants.PrimitiveCapacityPerChunk;
 
         private const int PageHashCapacity = 256;
         private const int WordsPerPage = MerkabaConstants.KernelsPerChunk / 32;
@@ -118,8 +149,26 @@ namespace Genesis.RoomScan
         internal ComputeBuffer KernelBuffer => _kernelBuffer;
         internal ComputeBuffer PageCoordsBuffer => _pageCoordsBuffer;
         internal ComputeBuffer PageNeighboursBuffer => _pageNeighboursBuffer;
-        internal ComputeBuffer KernelDirtyBuffer => _kernelDirtyBuffer;
-        internal ComputeBuffer TopologyMaskBuffer => _topologyMaskBuffer;
+        internal ComputeBuffer PublicationDirtyChunksBuffer =>
+            _publicationDirtyChunksBuffer;
+        internal ComputeBuffer PublicationVersionBuffer => _publicationVersionBuffer;
+        internal ComputeBuffer PrimitiveRecordBanksBuffer =>
+            _primitiveRecordBanksBuffer;
+        internal ComputeBuffer PrimitiveCountBuffer => _primitiveCountBuffer;
+        internal ComputeBuffer PrimitiveBuildCountBuffer =>
+            _primitiveBuildCountBuffer;
+        internal ComputeBuffer PublicationOverflowCountBuffer =>
+            _publicationOverflowCountBuffer;
+        internal ComputeBuffer PublishedBankBuffer => _publishedBankBuffer;
+        internal ComputeBuffer PrimitiveDrawArgsBuffer => _primitiveDrawArgsBuffer;
+        internal ComputeBuffer CpuPublicationDirtySlotsBuffer =>
+            _cpuPublicationDirtySlotsBuffer;
+        internal ComputeBuffer GpuPublicationDirtyQueueBuffer =>
+            _gpuPublicationDirtyQueueBuffer;
+        internal ComputeBuffer GpuPublicationDispatchArgsBuffer =>
+            _gpuPublicationDispatchArgsBuffer;
+        internal ComputeBuffer GpuPublicationFinalizeArgsBuffer =>
+            _gpuPublicationFinalizeArgsBuffer;
         internal ComputeBuffer IntegrationSlotsBuffer => _integrationSlotsBuffer;
         internal ComputeBuffer IntegrationEnabledBuffer => _integrationEnabledBuffer;
         internal ComputeBuffer VisibleSlotsBuffer => _visibleSlotsBuffer;
@@ -154,6 +203,21 @@ namespace Genesis.RoomScan
         internal int IntegrationChunkCount { get; private set; }
         internal int VisibleChunkCount { get; private set; }
         internal int MaxVisibleChunks => maxVisibleChunks;
+        internal int ResidentSlotCapacity => maxResidentChunks;
+        internal int PublicationPrimitiveCapacity => _primitiveCapacityPerChunk;
+        internal int VisibleSlotAt(int index)
+        {
+            if ((uint)index >= VisibleChunkCount)
+                throw new ArgumentOutOfRangeException(nameof(index));
+            return _visibleSlotsCpu[index];
+        }
+
+        internal int3 ResidentCoordAtSlot(int slot)
+        {
+            if ((uint)slot >= _slots.Length || _slots[slot] == null)
+                throw new ArgumentOutOfRangeException(nameof(slot));
+            return _slots[slot].Coord;
+        }
         internal Matrix4x4 GridToWorldMatrix => transform.localToWorldMatrix;
         internal bool GpuReady => _gpuReady;
 
@@ -174,10 +238,32 @@ namespace Genesis.RoomScan
                 ComputeBufferType.Structured);
             _pageNeighboursBuffer = new ComputeBuffer(maxResidentChunks * 27, sizeof(int),
                 ComputeBufferType.Structured);
-            _kernelDirtyBuffer = new ComputeBuffer(totalKernels, sizeof(uint),
-                ComputeBufferType.Structured);
-            _topologyMaskBuffer = new ComputeBuffer(totalKernels, sizeof(uint),
-                ComputeBufferType.Structured);
+            _publicationDirtyChunksBuffer = new ComputeBuffer(maxResidentChunks,
+                sizeof(uint), ComputeBufferType.Structured);
+            _publicationVersionBuffer = new ComputeBuffer(maxResidentChunks,
+                sizeof(uint), ComputeBufferType.Structured);
+            int primitiveRecordCount = checked(2 * maxResidentChunks *
+                                               _primitiveCapacityPerChunk);
+            _primitiveRecordBanksBuffer = new ComputeBuffer(primitiveRecordCount,
+                sizeof(uint) * 2, ComputeBufferType.Structured);
+            _primitiveCountBuffer = new ComputeBuffer(maxResidentChunks,
+                sizeof(uint), ComputeBufferType.Structured);
+            _primitiveBuildCountBuffer = new ComputeBuffer(maxResidentChunks,
+                sizeof(uint), ComputeBufferType.Structured);
+            _publicationOverflowCountBuffer = new ComputeBuffer(maxResidentChunks,
+                sizeof(uint), ComputeBufferType.Structured);
+            _publishedBankBuffer = new ComputeBuffer(maxResidentChunks,
+                sizeof(uint), ComputeBufferType.Structured);
+            _primitiveDrawArgsBuffer = new ComputeBuffer(maxResidentChunks * 4,
+                sizeof(uint), ComputeBufferType.IndirectArguments);
+            _cpuPublicationDirtySlotsBuffer = new ComputeBuffer(maxResidentChunks,
+                sizeof(uint), ComputeBufferType.Structured);
+            _gpuPublicationDirtyQueueBuffer = new ComputeBuffer(maxResidentChunks,
+                sizeof(uint), ComputeBufferType.Append);
+            _gpuPublicationDispatchArgsBuffer = new ComputeBuffer(3, sizeof(uint),
+                ComputeBufferType.IndirectArguments);
+            _gpuPublicationFinalizeArgsBuffer = new ComputeBuffer(3, sizeof(uint),
+                ComputeBufferType.IndirectArguments);
             _integrationSlotsBuffer = new ComputeBuffer(maxIntegrationChunks, sizeof(int),
                 ComputeBufferType.Structured);
             _integrationEnabledBuffer = new ComputeBuffer(maxResidentChunks, sizeof(uint),
@@ -226,17 +312,18 @@ namespace Genesis.RoomScan
             _integrationSlotsCpu = new int[maxIntegrationChunks];
             _integrationEnabledCpu = new uint[maxResidentChunks];
             _visibleSlotsCpu = new int[maxVisibleChunks];
-            _dirtyOnes = new uint[MerkabaConstants.KernelsPerChunk];
-            _zeroMasks = new uint[MerkabaConstants.KernelsPerChunk];
             _zeroStates = new KernelState[MerkabaConstants.KernelsPerChunk];
             _zeroPageBits = new uint[WordsPerPage];
             _pageCarveBits = new uint[WordsPerPage];
             _pageCarveIndices = new uint[MerkabaConstants.KernelsPerChunk];
             _pageHashCpu = new int4[PageHashCapacity];
+            _publicationArgsCpu = new uint[maxResidentChunks * 4];
             _boundarySummaryHashCpu = new int4[_boundarySummaryHashCapacity];
             _boundarySummaryWordsCpu = new uint[checked(_boundarySummaryEntryCapacity *
                                                         MerkabaConstants.BoundaryWordCount)];
-            Array.Fill(_dirtyOnes, 1u);
+            for (int slot = 0; slot < maxResidentChunks; slot++)
+                _publicationArgsCpu[slot * 4] =
+                    MerkabaCanonicalGeometry.VerticesPerPrimitive;
             Array.Fill(_pageNeighboursCpu, -1);
             Array.Fill(_pageHashCpu, new int4(0, 0, 0, -1));
             Array.Fill(_boundarySummaryHashCpu, new int4(0, 0, 0, -1));
@@ -249,6 +336,17 @@ namespace Genesis.RoomScan
             _pageNeighboursBuffer.SetData(_pageNeighboursCpu);
             _pageHashBuffer.SetData(_pageHashCpu);
             _integrationEnabledBuffer.SetData(_integrationEnabledCpu);
+            _publicationDirtyChunksBuffer.SetData(new uint[maxResidentChunks]);
+            _publicationVersionBuffer.SetData(new uint[maxResidentChunks]);
+            _primitiveCountBuffer.SetData(new uint[maxResidentChunks]);
+            _primitiveBuildCountBuffer.SetData(new uint[maxResidentChunks]);
+            _publicationOverflowCountBuffer.SetData(new uint[maxResidentChunks]);
+            _publishedBankBuffer.SetData(new uint[maxResidentChunks]);
+            _primitiveDrawArgsBuffer.SetData(_publicationArgsCpu);
+            _cpuPublicationDirtySlotsBuffer.SetData(new uint[maxResidentChunks]);
+            _gpuPublicationDirtyQueueBuffer.SetCounterValue(0);
+            _gpuPublicationDispatchArgsBuffer.SetData(new uint[] { 0u, 512u, 1u });
+            _gpuPublicationFinalizeArgsBuffer.SetData(new uint[] { 0u, 1u, 1u });
             _surfaceCandidateBitsBuffer.SetData(new uint[totalWords]);
             _surfaceCountBuffer.SetData(_singleZero);
             _carveListedBitsBuffer.SetData(new uint[totalWords]);
@@ -410,8 +508,9 @@ namespace Genesis.RoomScan
             int offset = slot * MerkabaConstants.KernelsPerChunk;
             KernelState[] source = chunk != null ? chunk.States : _zeroStates;
             _kernelBuffer.SetData(source, 0, offset, source.Length);
-            _kernelDirtyBuffer.SetData(_dirtyOnes, 0, offset, _dirtyOnes.Length);
-            _topologyMaskBuffer.SetData(_zeroMasks, 0, offset, _zeroMasks.Length);
+            // A transient empty page already publishes zero records. A loaded
+            // canonical page needs one rebuild only when it actually has geometry.
+            ResetPublicationSlot(slot, chunk != null && chunk.OccupiedCount > 0);
             ResetIntegrationPage(page);
             changed.Add(coord);
             _boundarySummariesDirty = true;
@@ -493,6 +592,7 @@ namespace Genesis.RoomScan
                 victim.PendingEviction = false;
                 _resident.Remove(victim.Coord);
                 _slots[victim.Slot] = null;
+                ResetPublicationSlot(victim.Slot, false);
                 _freeSlots.Add(victim.Slot);
                 if (!hasCanonicalState && victim.Chunk != null &&
                     _chunks.TryGetValue(victim.Coord, out MerkabaChunk current) &&
@@ -670,18 +770,109 @@ namespace Genesis.RoomScan
             _pageHashBuffer.SetData(_pageHashCpu);
             RebuildBoundarySummaryTable();
 
-            var dirtySlots = new HashSet<int>();
-            foreach (int3 changed in changedCoords)
+            // Residency is not geometry. Resident, summarized nonresident, pending,
+            // and reloaded neighbours answer the same canonical occupancy query, so
+            // page-table movement must not dirty otherwise unchanged publication.
+        }
+
+        private void MarkPublicationSlotDirty(int slot)
+        {
+            // A build counter belongs exclusively to the next unpublished bank.
+            // Resetting it never touches the last published count/bank/draw args.
+            _primitiveBuildCountBuffer.SetData(_singleZero, 0, slot, 1);
+            _publicationDirtyChunksBuffer.SetData(_singleOne, 0, slot, 1);
+            _cpuPublicationDirtySlots.Add(slot);
+        }
+
+        private void ResetPublicationSlot(int slot, bool dirty)
+        {
+            _primitiveCountBuffer.SetData(_singleZero, 0, slot, 1);
+            _primitiveBuildCountBuffer.SetData(_singleZero, 0, slot, 1);
+            _publicationOverflowCountBuffer.SetData(_singleZero, 0, slot, 1);
+            _publishedBankBuffer.SetData(_singleZero, 0, slot, 1);
+            var args = new uint[]
             {
-                if (_resident.TryGetValue(changed, out ResidentPage self))
-                    dirtySlots.Add(self.Slot);
-                foreach (int3 offset in MerkabaConstants.Neighbours)
-                    if (_resident.TryGetValue(changed + offset, out ResidentPage neighbour))
-                        dirtySlots.Add(neighbour.Slot);
-            }
-            foreach (int slot in dirtySlots)
-                _kernelDirtyBuffer.SetData(_dirtyOnes, 0,
-                    slot * MerkabaConstants.KernelsPerChunk, _dirtyOnes.Length);
+                MerkabaCanonicalGeometry.VerticesPerPrimitive, 0u, 0u, 0u
+            };
+            _primitiveDrawArgsBuffer.SetData(args, 0, slot * 4, 4);
+            _publicationDirtyChunksBuffer.SetData(dirty ? _singleOne : _singleZero,
+                0, slot, 1);
+            if (dirty) _cpuPublicationDirtySlots.Add(slot);
+            else _cpuPublicationDirtySlots.Remove(slot);
+        }
+
+        internal int FlushCpuPublicationDirtySlots()
+        {
+            int count = _cpuPublicationDirtySlots.Count;
+            if (count == 0) return 0;
+            var slots = new uint[count];
+            int index = 0;
+            foreach (int slot in _cpuPublicationDirtySlots)
+                slots[index++] = (uint)slot;
+            _cpuPublicationDirtySlotsBuffer.SetData(slots, 0, 0, count);
+            _cpuPublicationDirtySlots.Clear();
+            return count;
+        }
+
+        internal void NotifyGpuPublicationMayBeDirty() =>
+            _gpuPublicationMayBeDirty = true;
+
+        internal bool ConsumeGpuPublicationMayBeDirty()
+        {
+            bool value = _gpuPublicationMayBeDirty;
+            _gpuPublicationMayBeDirty = false;
+            return value;
+        }
+
+        internal MerkabaPublicationBuffer CreatePublicationReplacement(uint required)
+        {
+            if (required <= _primitiveCapacityPerChunk)
+                throw new ArgumentOutOfRangeException(nameof(required));
+            int maximum = checked(MerkabaConstants.KernelsPerChunk *
+                                  MerkabaCanonicalGeometry.MaximumActivePrimitiveCount);
+            int requested = (int)Math.Min((uint)maximum, required);
+            int replacementCapacity = Math.Min(maximum,
+                ((requested + 4095) / 4096) * 4096);
+            if (replacementCapacity <= _primitiveCapacityPerChunk)
+                throw new InvalidOperationException(
+                    $"Merkaba publication cannot grow from {_primitiveCapacityPerChunk} " +
+                    $"for measured requirement {required}.");
+            int count = checked(2 * maxResidentChunks * replacementCapacity);
+            var records = new ComputeBuffer(count, sizeof(uint) * 2,
+                ComputeBufferType.Structured);
+            return new MerkabaPublicationBuffer(records, replacementCapacity);
+        }
+
+        internal MerkabaPublicationBuffer CommitPublicationReplacement(
+            MerkabaPublicationBuffer replacement, uint measuredRequired)
+        {
+            if (!replacement.IsValid)
+                throw new ArgumentException("Replacement banks are incomplete.",
+                    nameof(replacement));
+            if (replacement.CapacityPerChunk <= _primitiveCapacityPerChunk)
+                throw new ArgumentOutOfRangeException(nameof(replacement));
+
+            var previous = new MerkabaPublicationBuffer(_primitiveRecordBanksBuffer,
+                _primitiveCapacityPerChunk);
+            _primitiveRecordBanksBuffer = replacement.Records;
+            _primitiveCapacityPerChunk = replacement.CapacityPerChunk;
+            // Migration copied every active source bank into replacement bank A.
+            // Switch the selector only after the copy completion fence fires.
+            _publishedBankBuffer.SetData(new uint[maxResidentChunks]);
+            _primitiveBuildCountBuffer.SetData(new uint[maxResidentChunks]);
+            _publicationOverflowCountBuffer.SetData(new uint[maxResidentChunks]);
+            _gpuPublicationDirtyQueueBuffer.SetCounterValue(0);
+            _gpuPublicationMayBeDirty = false;
+            // Canonical state may have changed while the exceptional migration was in
+            // flight. Preserve migrated publications, then rebuild every resident slot
+            // dirty-only against the latest state.
+            foreach (ResidentPage page in _resident.Values)
+                MarkPublicationSlotDirty(page.Slot);
+            Logger.Warning($"Merkaba publication atomically grew to " +
+                           $"{_primitiveCapacityPerChunk} actual triangles/chunk " +
+                           $"after measured requirement {measuredRequired}; the prior " +
+                           "publication remained visible during migration.");
+            return previous;
         }
 
         private void MarkBoundarySummariesDirty() => _boundarySummariesDirty = true;
@@ -774,6 +965,8 @@ namespace Genesis.RoomScan
             _integrationDesiredCoords.Clear();
             _renderDesiredCoords.Clear();
             _desiredCoords.Clear();
+            _cpuPublicationDirtySlots.Clear();
+            _gpuPublicationMayBeDirty = false;
             Array.Clear(_slots, 0, _slots.Length);
             Array.Fill(_pageNeighboursCpu, -1);
             Array.Fill(_pageHashCpu, new int4(0, 0, 0, -1));
@@ -791,6 +984,16 @@ namespace Genesis.RoomScan
             _boundarySummaryHashBuffer.SetData(_boundarySummaryHashCpu);
             _boundarySummaryWordsBuffer.SetData(_boundarySummaryWordsCpu);
             _boundarySummariesDirty = false;
+            _publicationDirtyChunksBuffer.SetData(new uint[maxResidentChunks]);
+            _publicationVersionBuffer.SetData(new uint[maxResidentChunks]);
+            _primitiveCountBuffer.SetData(new uint[maxResidentChunks]);
+            _primitiveBuildCountBuffer.SetData(new uint[maxResidentChunks]);
+            _publicationOverflowCountBuffer.SetData(new uint[maxResidentChunks]);
+            _publishedBankBuffer.SetData(new uint[maxResidentChunks]);
+            _primitiveDrawArgsBuffer.SetData(_publicationArgsCpu);
+            _gpuPublicationDirtyQueueBuffer.SetCounterValue(0);
+            _gpuPublicationDispatchArgsBuffer.SetData(new uint[] { 0u, 512u, 1u });
+            _gpuPublicationFinalizeArgsBuffer.SetData(new uint[] { 0u, 1u, 1u });
             _surfaceCountBuffer.SetData(_singleZero);
             _carveCountBuffer.SetData(_singleZero);
             SetIntegrationSlots(Array.Empty<int>());
@@ -803,8 +1006,18 @@ namespace Genesis.RoomScan
             _kernelBuffer?.Release();
             _pageCoordsBuffer?.Release();
             _pageNeighboursBuffer?.Release();
-            _kernelDirtyBuffer?.Release();
-            _topologyMaskBuffer?.Release();
+            _publicationDirtyChunksBuffer?.Release();
+            _publicationVersionBuffer?.Release();
+            _primitiveRecordBanksBuffer?.Release();
+            _primitiveCountBuffer?.Release();
+            _primitiveBuildCountBuffer?.Release();
+            _publicationOverflowCountBuffer?.Release();
+            _publishedBankBuffer?.Release();
+            _primitiveDrawArgsBuffer?.Release();
+            _cpuPublicationDirtySlotsBuffer?.Release();
+            _gpuPublicationDirtyQueueBuffer?.Release();
+            _gpuPublicationDispatchArgsBuffer?.Release();
+            _gpuPublicationFinalizeArgsBuffer?.Release();
             _integrationSlotsBuffer?.Release();
             _integrationEnabledBuffer?.Release();
             _visibleSlotsBuffer?.Release();
@@ -824,8 +1037,18 @@ namespace Genesis.RoomScan
             _kernelBuffer = null;
             _pageCoordsBuffer = null;
             _pageNeighboursBuffer = null;
-            _kernelDirtyBuffer = null;
-            _topologyMaskBuffer = null;
+            _publicationDirtyChunksBuffer = null;
+            _publicationVersionBuffer = null;
+            _primitiveRecordBanksBuffer = null;
+            _primitiveCountBuffer = null;
+            _primitiveBuildCountBuffer = null;
+            _publicationOverflowCountBuffer = null;
+            _publishedBankBuffer = null;
+            _primitiveDrawArgsBuffer = null;
+            _cpuPublicationDirtySlotsBuffer = null;
+            _gpuPublicationDirtyQueueBuffer = null;
+            _gpuPublicationDispatchArgsBuffer = null;
+            _gpuPublicationFinalizeArgsBuffer = null;
             _integrationSlotsBuffer = null;
             _integrationEnabledBuffer = null;
             _visibleSlotsBuffer = null;

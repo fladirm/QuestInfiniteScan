@@ -29,17 +29,18 @@ Shader "Genesis/RoomScan/MerkabaGrid"
 
             #define MERKABA_LATTICE_STEP 0.025
 
-            struct RenderRecord
+            struct PrimitiveRecord
             {
-                int3 coord;
-                uint activeMask;
+                uint packedLocalPrimitive;
                 uint packedColor;
-                uint padding0;
-                uint padding1;
-                uint padding2;
             };
 
-            StructuredBuffer<RenderRecord> _MerkabaRenderRecords;
+            StructuredBuffer<PrimitiveRecord> _MerkabaPrimitiveRecordBanks;
+            StructuredBuffer<uint> _MerkabaPublishedBanks;
+            uint _MerkabaResidentSlot;
+            uint _MerkabaResidentSlotCapacity;
+            uint _MerkabaPrimitiveCapacityPerChunk;
+            float3 _MerkabaChunkOrigin;
             float4x4 _MerkabaGridToWorld;
 
             CBUFFER_START(UnityPerMaterial)
@@ -54,30 +55,26 @@ Shader "Genesis/RoomScan/MerkabaGrid"
                 half3 color : TEXCOORD1;
             };
 
-            bool PrimitiveActive(RenderRecord record, uint primitiveId)
-            {
-                return (record.activeMask & (1u << primitiveId)) != 0u;
-            }
-
             Varyings Vert(uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID)
             {
                 Varyings output;
-                RenderRecord record = _MerkabaRenderRecords[instanceID];
-                uint primitiveId = vertexID / MERKABA_VERTICES_PER_PRIMITIVE;
-                uint primitiveVertex = vertexID % MERKABA_VERTICES_PER_PRIMITIVE;
-                if (!PrimitiveActive(record, primitiveId))
-                {
-                    // R6 removes inactive invocations by publishing actual triangles.
-                    output.positionCS = float4(2, 2, 2, 1);
-                    output.normalWS = half3(0, 1, 0);
-                    output.color = half3(0, 0, 0);
-                    return output;
-                }
+                uint bankStride = _MerkabaResidentSlotCapacity *
+                    _MerkabaPrimitiveCapacityPerChunk;
+                uint recordIndex =
+                    (_MerkabaPublishedBanks[_MerkabaResidentSlot] & 1u) * bankStride +
+                    _MerkabaResidentSlot *
+                    _MerkabaPrimitiveCapacityPerChunk + instanceID;
+                PrimitiveRecord record = _MerkabaPrimitiveRecordBanks[recordIndex];
+                uint localIndex = record.packedLocalPrimitive & 32767u;
+                uint primitiveId = (record.packedLocalPrimitive >> 15u) & 31u;
+                uint3 localCoord = uint3(localIndex & 31u,
+                    (localIndex >> 5u) & 31u, (localIndex >> 10u) & 31u);
 
                 float3 localPosition, localNormal;
-                MerkabaCanonicalPrimitiveVertex(primitiveId, primitiveVertex,
+                MerkabaCanonicalPrimitiveVertex(primitiveId, vertexID,
                     localPosition, localNormal);
-                localPosition += (float3)record.coord * MERKABA_LATTICE_STEP;
+                localPosition += (_MerkabaChunkOrigin + (float3)localCoord) *
+                    MERKABA_LATTICE_STEP;
                 float3 worldPosition = mul(_MerkabaGridToWorld,
                     float4(localPosition, 1)).xyz;
                 float3 worldNormal = normalize(mul((float3x3)_MerkabaGridToWorld,

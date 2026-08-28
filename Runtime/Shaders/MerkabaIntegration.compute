@@ -7,6 +7,7 @@
 #pragma kernel IntegrateCarveCandidates
 
 #include "DepthKit.hlsl"
+#include "MerkabaCanonicalGeometry.generated.hlsl"
 
 #define MERKABA_CHUNK_SIZE 32
 #define MERKABA_KERNELS_PER_CHUNK 32768
@@ -37,18 +38,23 @@ StructuredBuffer<int4> _MerkabaPageCoords;
 StructuredBuffer<int> _MerkabaPageNeighbours;
 StructuredBuffer<int> _MerkabaIntegrationSlots;
 StructuredBuffer<uint> _MerkabaIntegrationEnabledSlots;
-RWStructuredBuffer<uint> _MerkabaKernelDirty;
+RWStructuredBuffer<uint> _MerkabaPublicationDirtyChunks;
+AppendStructuredBuffer<uint> _MerkabaGpuPublicationDirtyQueue;
 StructuredBuffer<int4> _MerkabaPageHash;
 int _MerkabaPageHashCapacity;
 
 RWStructuredBuffer<uint> _MerkabaSurfaceCandidateBits;
 RWStructuredBuffer<uint> _MerkabaSurfaceQueue;
 RWStructuredBuffer<uint> _MerkabaSurfaceCount;
+StructuredBuffer<uint> _MerkabaSurfaceQueueRead;
+StructuredBuffer<uint> _MerkabaSurfaceCountRead;
 RWStructuredBuffer<uint> _MerkabaCarveListedBits;
 RWStructuredBuffer<uint> _MerkabaCarveLocalIndices;
 RWStructuredBuffer<uint> _MerkabaCarveCounts;
 RWStructuredBuffer<uint> _MerkabaCarveQueue;
 RWStructuredBuffer<uint> _MerkabaCarveCount;
+StructuredBuffer<uint> _MerkabaCarveQueueRead;
+StructuredBuffer<uint> _MerkabaCarveCountRead;
 StructuredBuffer<uint> _MerkabaWorkCount;
 RWStructuredBuffer<uint> _MerkabaIndirectArgs;
 
@@ -155,8 +161,9 @@ int NeighbourPageSlot(int slot, int3 delta)
     return _MerkabaPageNeighbours[slot * 27 + index];
 }
 
-void MarkKernelDirty(int slot, int3 localCoord)
+void MarkPageAtOffsetDirty(int slot, int3 localCoord, int3 offset)
 {
+    localCoord += offset;
     int3 pageDelta = int3(0, 0, 0);
     if (localCoord.x < 0) { localCoord.x += MERKABA_CHUNK_SIZE; pageDelta.x = -1; }
     else if (localCoord.x >= MERKABA_CHUNK_SIZE) { localCoord.x -= MERKABA_CHUNK_SIZE; pageDelta.x = 1; }
@@ -167,19 +174,19 @@ void MarkKernelDirty(int slot, int3 localCoord)
 
     int targetSlot = NeighbourPageSlot(slot, pageDelta);
     if (targetSlot < 0) return;
-    uint target = targetSlot * MERKABA_KERNELS_PER_CHUNK + FlattenKernel(localCoord);
-    InterlockedOr(_MerkabaKernelDirty[target], 1u);
+    uint previous;
+    InterlockedOr(_MerkabaPublicationDirtyChunks[targetSlot], 1u, previous);
+    if (previous == 0u)
+        _MerkabaGpuPublicationDirtyQueue.Append((uint)targetSlot);
 }
 
 void MarkLocalTopologyDirty(int slot, int3 localCoord)
 {
+    MarkPageAtOffsetDirty(slot, localCoord, int3(0, 0, 0));
     [unroll]
-    for (int z = -1; z <= 1; z++)
-    [unroll]
-    for (int y = -1; y <= 1; y++)
-    [unroll]
-    for (int x = -1; x <= 1; x++)
-        MarkKernelDirty(slot, localCoord + int3(x, y, z));
+    for (uint direction = 0u; direction < MERKABA_DIRECTION_COUNT; direction++)
+        MarkPageAtOffsetDirty(slot, localCoord,
+            kMerkabaBodyDiagonalOffsets[direction]);
 }
 
 float2 ProjectCameraUv(float3 worldPosition)
@@ -406,9 +413,9 @@ void PrepareIndirectArgs(uint id : SV_DispatchThreadID)
 [numthreads(64, 1, 1)]
 void IntegrateSurfaceCandidates(uint id : SV_DispatchThreadID)
 {
-    uint count = min(_MerkabaSurfaceCount[0], (uint)_MerkabaWorkCapacity);
+    uint count = min(_MerkabaSurfaceCountRead[0], (uint)_MerkabaWorkCapacity);
     if (id >= count) return;
-    uint stateIndex = _MerkabaSurfaceQueue[id];
+    uint stateIndex = _MerkabaSurfaceQueueRead[id];
     uint wordIndex = stateIndex >> 5u;
     uint bit = 1u << (stateIndex & 31u);
     InterlockedAnd(_MerkabaSurfaceCandidateBits[wordIndex], ~bit);
@@ -481,9 +488,9 @@ void GatherCarveCandidates(uint threadIndex : SV_GroupIndex,
 [numthreads(64, 1, 1)]
 void IntegrateCarveCandidates(uint id : SV_DispatchThreadID)
 {
-    uint count = min(_MerkabaCarveCount[0], (uint)_MerkabaWorkCapacity);
+    uint count = min(_MerkabaCarveCountRead[0], (uint)_MerkabaWorkCapacity);
     if (id >= count) return;
-    uint stateIndex = _MerkabaCarveQueue[id];
+    uint stateIndex = _MerkabaCarveQueueRead[id];
     KernelState state = _MerkabaKernels[stateIndex];
     if (state.evidence <= MERKABA_EXPORT_KNOWN_FREE &&
         (state.flags & MERKABA_OCCUPIED_FLAG) == 0u)

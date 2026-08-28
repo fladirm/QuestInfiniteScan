@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Reflection;
-using System.Runtime.InteropServices;
 using Genesis.RoomScan;
 using NUnit.Framework;
 using Unity.Mathematics;
@@ -12,13 +12,10 @@ namespace Genesis.RoomScan.Tests
 {
     public sealed class MerkabaGpuIntegrationTests
     {
-        [StructLayout(LayoutKind.Sequential, Pack = 4)]
-        private struct RenderRecord
+        private struct PrimitiveRecord
         {
-            public int X, Y, Z;
-            public uint ActiveMask;
+            public uint PackedLocalPrimitive;
             public uint PackedColor;
-            public uint Padding0, Padding1, Padding2;
         }
 
         [Test, Timeout(30000)]
@@ -144,12 +141,14 @@ namespace Genesis.RoomScan.Tests
                     $"diagonal ray-derived candidate {candidate} was lost");
         }
 
-        [Test, Timeout(30000)]
-        public void ProductionGpuTopology_MatchesCpuOwnershipAcrossChunkBorder()
+        [Test, Timeout(180000)]
+        public void ProductionGpuPublication_MatchesCpuAndStaysStableWhenClean()
         {
             ComputeShader compute = LoadCompute("MerkabaTopology.compute");
-            int kernel = compute.FindKernel("BuildVisibleRecords");
+            int rebuildKernel = compute.FindKernel("RebuildDirtyChunkRecords");
+            int finalizeKernel = compute.FindKernel("FinalizeDirtyChunkRecords");
             const int pageCount = 2;
+            const int recordCapacity = 4096;
             int stateCount = pageCount * MerkabaConstants.KernelsPerChunk;
             var states = new KernelState[stateCount];
             var occupied = new HashSet<int3>
@@ -167,10 +166,15 @@ namespace Genesis.RoomScan.Tests
             }
             var pageCoords = new[] { new int4(0, 0, 0, 0), new int4(1, 0, 0, 1) };
             int[] neighbours = PageNeighbours(pageCoords);
-            var dirty = new uint[stateCount];
-            Array.Fill(dirty, 1u);
-            var masks = new uint[stateCount];
-            var visible = new[] { 0, 1 };
+            var dirty = new uint[] { 1u, 1u };
+            var versions = new uint[pageCount];
+            var counts = new uint[pageCount];
+            var buildCounts = new uint[pageCount];
+            var overflows = new uint[pageCount];
+            var publishedBanks = new uint[pageCount];
+            var args = new uint[pageCount * 4];
+            var dirtySlots = new uint[] { 0u, 1u };
+            for (int slot = 0; slot < pageCount; slot++) args[slot * 4] = 3u;
 
             using var stateBuffer = new ComputeBuffer(stateCount, 16);
             using var pageBuffer = new ComputeBuffer(pageCount, 16);
@@ -178,50 +182,263 @@ namespace Genesis.RoomScan.Tests
             using var summaryHashBuffer = EmptySummaryHash(out int summaryHashCapacity);
             using var summaryWordsBuffer = new ComputeBuffer(
                 MerkabaConstants.BoundaryWordCount, sizeof(uint));
-            using var visibleBuffer = new ComputeBuffer(pageCount, sizeof(int));
-            using var dirtyBuffer = new ComputeBuffer(stateCount, sizeof(uint));
-            using var maskBuffer = new ComputeBuffer(stateCount, sizeof(uint));
-            using var records = new ComputeBuffer(stateCount, 32, ComputeBufferType.Append);
-            using var countBuffer = new ComputeBuffer(1, sizeof(uint),
-                ComputeBufferType.Raw);
+            using var dirtyBuffer = new ComputeBuffer(pageCount, sizeof(uint));
+            using var versionBuffer = new ComputeBuffer(pageCount, sizeof(uint));
+            using var recordBanks = new ComputeBuffer(
+                2 * pageCount * recordCapacity, 8);
+            using var countBuffer = new ComputeBuffer(pageCount, sizeof(uint));
+            using var buildCountBuffer = new ComputeBuffer(pageCount, sizeof(uint));
+            using var overflowBuffer = new ComputeBuffer(pageCount, sizeof(uint));
+            using var publishedBankBuffer = new ComputeBuffer(pageCount, sizeof(uint));
+            using var argsBuffer = new ComputeBuffer(pageCount * 4, sizeof(uint),
+                ComputeBufferType.IndirectArguments);
+            using var dirtySlotsBuffer = new ComputeBuffer(pageCount, sizeof(uint));
             stateBuffer.SetData(states);
             pageBuffer.SetData(pageCoords);
             neighbourBuffer.SetData(neighbours);
             summaryWordsBuffer.SetData(new uint[MerkabaConstants.BoundaryWordCount]);
-            visibleBuffer.SetData(visible);
             dirtyBuffer.SetData(dirty);
-            maskBuffer.SetData(masks);
-            records.SetCounterValue(0);
+            versionBuffer.SetData(versions);
+            countBuffer.SetData(counts);
+            buildCountBuffer.SetData(buildCounts);
+            overflowBuffer.SetData(overflows);
+            publishedBankBuffer.SetData(publishedBanks);
+            argsBuffer.SetData(args);
+            dirtySlotsBuffer.SetData(dirtySlots);
+            BindPublicationRebuild(compute, rebuildKernel, stateBuffer, pageBuffer,
+                neighbourBuffer,
+                summaryHashBuffer, summaryWordsBuffer, dirtyBuffer,
+                dirtySlotsBuffer, recordBanks, buildCountBuffer,
+                publishedBankBuffer, pageCount, recordCapacity, summaryHashCapacity);
+            compute.Dispatch(rebuildKernel, pageCount, 512, 1);
+            BindPublicationFinalize(compute, finalizeKernel, dirtyBuffer, versionBuffer,
+                dirtySlotsBuffer, countBuffer, buildCountBuffer, overflowBuffer,
+                publishedBankBuffer, argsBuffer, pageCount, recordCapacity);
+            compute.Dispatch(finalizeKernel, pageCount, 1, 1);
+            countBuffer.GetData(counts);
+            argsBuffer.GetData(args);
+            overflowBuffer.GetData(overflows);
+            publishedBankBuffer.GetData(publishedBanks);
+            Assert.That(overflows, Is.EqualTo(new uint[pageCount]));
 
-            compute.SetBuffer(kernel, "_MerkabaKernels", stateBuffer);
-            compute.SetBuffer(kernel, "_MerkabaPageCoords", pageBuffer);
-            compute.SetBuffer(kernel, "_MerkabaPageNeighbours", neighbourBuffer);
-            compute.SetBuffer(kernel, "_MerkabaBoundarySummaryHash", summaryHashBuffer);
-            compute.SetBuffer(kernel, "_MerkabaBoundarySummaryWords", summaryWordsBuffer);
-            compute.SetBuffer(kernel, "_MerkabaVisibleSlots", visibleBuffer);
-            compute.SetBuffer(kernel, "_MerkabaKernelDirty", dirtyBuffer);
-            compute.SetBuffer(kernel, "_MerkabaTopologyMasks", maskBuffer);
-            compute.SetBuffer(kernel, "_MerkabaRenderRecords", records);
-            compute.SetInt("_MerkabaVisibleChunkCount", pageCount);
-            compute.SetInt("_MerkabaBoundarySummaryHashCapacity", summaryHashCapacity);
-            compute.Dispatch(kernel, stateCount / 64, 1, 1);
-            ComputeBuffer.CopyCount(records, countBuffer, 0);
-            var count = new uint[1];
-            countBuffer.GetData(count);
-            Assert.That(count[0], Is.EqualTo((uint)occupied.Count));
-
-            var output = new RenderRecord[(int)count[0]];
-            records.GetData(output, 0, 0, output.Length);
             var gpuMasks = new Dictionary<int3, uint>();
-            foreach (RenderRecord record in output)
-                gpuMasks.Add(new int3(record.X, record.Y, record.Z), record.ActiveMask);
+            int expectedPrimitiveCount = 0;
+            for (int slot = 0; slot < pageCount; slot++)
+            {
+                Assert.That(args[slot * 4], Is.EqualTo(3u));
+                Assert.That(args[slot * 4 + 1], Is.EqualTo(counts[slot]));
+                var output = new PrimitiveRecord[(int)counts[slot]];
+                int bankStride = pageCount * recordCapacity;
+                int recordOffset = (int)publishedBanks[slot] * bankStride +
+                                   slot * recordCapacity;
+                recordBanks.GetData(output, 0, recordOffset, output.Length);
+                foreach (PrimitiveRecord record in output)
+                {
+                    uint localIndex = record.PackedLocalPrimitive & 32767u;
+                    int primitiveId = (int)((record.PackedLocalPrimitive >> 15) & 31u);
+                    int3 coord = pageCoords[slot].xyz * MerkabaConstants.ChunkSize +
+                                 MerkabaConstants.Unflatten((int)localIndex);
+                    gpuMasks.TryGetValue(coord, out uint mask);
+                    uint bit = 1u << primitiveId;
+                    Assert.That((mask & bit) == 0u, Is.True,
+                        $"duplicate actual primitive {primitiveId} at {coord}");
+                    gpuMasks[coord] = mask | bit;
+                }
+            }
             foreach (int3 coord in occupied)
             {
                 uint expected = MerkabaCanonicalGeometry.ActivePrimitiveMask(
                     coord, occupied.Contains);
                 Assert.That(gpuMasks[coord], Is.EqualTo(expected),
                     $"GPU direct primitive rule diverged at {coord}");
+                expectedPrimitiveCount += math.countbits(expected);
             }
+            Assert.That((int)(counts[0] + counts[1]),
+                Is.EqualTo(expectedPrimitiveCount));
+
+            versionBuffer.GetData(versions);
+            uint[] firstVersions = (uint[])versions.Clone();
+            uint[] firstCounts = (uint[])counts.Clone();
+            uint[] firstArgs = (uint[])args.Clone();
+            // Production submits no dispatch at all when both dirty queues are empty.
+            // A clean render-frame test therefore deliberately performs no Dispatch.
+            versionBuffer.GetData(versions);
+            countBuffer.GetData(counts);
+            argsBuffer.GetData(args);
+            Assert.That(versions, Is.EqualTo(firstVersions),
+                "clean render frame must not rebuild publication");
+            Assert.That(counts, Is.EqualTo(firstCounts),
+                "clean render frame must preserve compact records");
+            Assert.That(args, Is.EqualTo(firstArgs),
+                "clean render frame must preserve indirect draw publication");
+        }
+
+        [Test]
+        public void ProductionPublication_IsFlatParallelAndNotAResidentSlotSweep()
+        {
+            string topologyPath = AssetDatabase.GetAssetPath(
+                LoadCompute("MerkabaTopology.compute"));
+            string topology = File.ReadAllText(topologyPath);
+            Assert.That(topology, Does.Contain(
+                "uint localIndex = groupId.y * 64u + groupThreadId.x"));
+            Assert.That(topology, Does.Contain(
+                "One atomic reservation per occupied kernel"));
+            Assert.That(topology, Does.Not.Contain("GroupMemoryBarrier"));
+            Assert.That(topology, Does.Not.Contain("GroupMemoryBarrierWithGroupSync"));
+            Assert.That(topology, Does.Not.Contain(
+                "for (uint localIndex = 0u; localIndex < MERKABA_KERNELS_PER_CHUNK"));
+
+            string renderer = File.ReadAllText(
+                "Packages/com.genesis.roomscan/Runtime/Merkaba/" +
+                "MerkabaGridRenderer.cs");
+            Assert.That(renderer, Does.Contain(
+                "if (cpuDirtyGroups > 0)"));
+            Assert.That(renderer, Does.Contain(
+                "Dispatch(_rebuildKernel, groupCount, 512, 1)"));
+            Assert.That(renderer, Does.Not.Contain(
+                "Dispatch(_rebuildKernel, _grid.ResidentSlotCapacity"));
+        }
+
+        [Test, Timeout(30000)]
+        public void PublicationOverflow_PreservesLastValidSegmentUntilLargerReplacement()
+        {
+            ComputeShader compute = LoadCompute("MerkabaTopology.compute");
+            int rebuildKernel = compute.FindKernel("RebuildDirtyChunkRecords");
+            int finalizeKernel = compute.FindKernel("FinalizeDirtyChunkRecords");
+            int migrateKernel = compute.FindKernel("MigratePublishedChunkRecords");
+            const int pageCount = 1;
+            const int smallCapacity = 4;
+            const int grownCapacity = 8;
+            var states = new KernelState[MerkabaConstants.KernelsPerChunk];
+            states[0].SetOccupiedForFixture(true, new Color32(1, 2, 3, 255));
+            var pages = new[] { new int4(0, 0, 0, 0) };
+            int[] neighbours = PageNeighbours(pages);
+            var oldRecords = new[]
+            {
+                new PrimitiveRecord { PackedLocalPrimitive = 0x111u, PackedColor = 0xaau },
+                new PrimitiveRecord { PackedLocalPrimitive = 0x222u, PackedColor = 0xbbu },
+                new PrimitiveRecord { PackedLocalPrimitive = 0x333u, PackedColor = 0xccu },
+                new PrimitiveRecord { PackedLocalPrimitive = 0x444u, PackedColor = 0xddu }
+            };
+            var counts = new uint[] { 2u };
+            var dirty = new uint[] { 1u };
+            var versions = new uint[] { 7u };
+            var args = new uint[] { 3u, 2u, 0u, 0u };
+
+            using var stateBuffer = new ComputeBuffer(states.Length, 16);
+            using var pageBuffer = new ComputeBuffer(1, 16);
+            using var neighbourBuffer = new ComputeBuffer(27, sizeof(int));
+            using var summaryHashBuffer = EmptySummaryHash(out int summaryCapacity);
+            using var summaryWordsBuffer = new ComputeBuffer(
+                MerkabaConstants.BoundaryWordCount, sizeof(uint));
+            using var dirtyBuffer = new ComputeBuffer(1, sizeof(uint));
+            using var versionBuffer = new ComputeBuffer(1, sizeof(uint));
+            using var oldRecordBanks = new ComputeBuffer(2 * smallCapacity, 8);
+            using var grownRecordBanks = new ComputeBuffer(2 * grownCapacity, 8);
+            using var countBuffer = new ComputeBuffer(1, sizeof(uint));
+            using var buildCountBuffer = new ComputeBuffer(1, sizeof(uint));
+            using var overflowBuffer = new ComputeBuffer(1, sizeof(uint));
+            using var publishedBankBuffer = new ComputeBuffer(1, sizeof(uint));
+            using var argsBuffer = new ComputeBuffer(4, sizeof(uint),
+                ComputeBufferType.IndirectArguments);
+            using var queueBuffer = new ComputeBuffer(1, sizeof(uint));
+            stateBuffer.SetData(states);
+            pageBuffer.SetData(pages);
+            neighbourBuffer.SetData(neighbours);
+            summaryWordsBuffer.SetData(new uint[MerkabaConstants.BoundaryWordCount]);
+            dirtyBuffer.SetData(dirty);
+            versionBuffer.SetData(versions);
+            oldRecordBanks.SetData(new PrimitiveRecord[2 * smallCapacity]);
+            oldRecordBanks.SetData(oldRecords, 0, 0, oldRecords.Length);
+            countBuffer.SetData(counts);
+            buildCountBuffer.SetData(new uint[1]);
+            overflowBuffer.SetData(new uint[1]);
+            publishedBankBuffer.SetData(new uint[1]);
+            argsBuffer.SetData(args);
+            queueBuffer.SetData(new uint[] { 0u });
+
+            BindPublicationRebuild(compute, rebuildKernel, stateBuffer, pageBuffer,
+                neighbourBuffer, summaryHashBuffer, summaryWordsBuffer, dirtyBuffer,
+                queueBuffer, oldRecordBanks, buildCountBuffer, publishedBankBuffer,
+                pageCount, smallCapacity, summaryCapacity);
+            compute.Dispatch(rebuildKernel, 1, 512, 1);
+            BindPublicationFinalize(compute, finalizeKernel, dirtyBuffer, versionBuffer,
+                queueBuffer, countBuffer, buildCountBuffer, overflowBuffer,
+                publishedBankBuffer, argsBuffer, pageCount, smallCapacity);
+            compute.Dispatch(finalizeKernel, 1, 1, 1);
+
+            var required = new uint[1];
+            var overflow = new uint[1];
+            buildCountBuffer.GetData(required);
+            overflowBuffer.GetData(overflow);
+            countBuffer.GetData(counts);
+            argsBuffer.GetData(args);
+            dirtyBuffer.GetData(dirty);
+            versionBuffer.GetData(versions);
+            var unchanged = new PrimitiveRecord[smallCapacity];
+            oldRecordBanks.GetData(unchanged, 0, 0, smallCapacity);
+            Assert.That(required[0], Is.EqualTo(8u));
+            Assert.That(overflow[0], Is.EqualTo(8u));
+            Assert.That(counts[0], Is.EqualTo(2u), "published count was truncated");
+            Assert.That(args[1], Is.EqualTo(2u), "last valid draw was blanked");
+            Assert.That(dirty[0], Is.EqualTo(1u));
+            Assert.That(versions[0], Is.EqualTo(7u));
+            for (int i = 0; i < smallCapacity; i++)
+            {
+                Assert.That(unchanged[i].PackedLocalPrimitive,
+                    Is.EqualTo(oldRecords[i].PackedLocalPrimitive));
+                Assert.That(unchanged[i].PackedColor,
+                    Is.EqualTo(oldRecords[i].PackedColor));
+            }
+
+            var banks = new uint[1];
+            publishedBankBuffer.GetData(banks);
+            Assert.That(banks[0], Is.Zero,
+                "overflow switched away from the last valid bank");
+
+            compute.SetBuffer(migrateKernel, "_MerkabaSourcePrimitiveRecordBanks",
+                oldRecordBanks);
+            compute.SetBuffer(migrateKernel, "_MerkabaSourcePublishedBanks",
+                publishedBankBuffer);
+            compute.SetBuffer(migrateKernel, "_MerkabaPrimitiveRecordBanks",
+                grownRecordBanks);
+            compute.SetBuffer(migrateKernel, "_MerkabaPrimitiveCounts", countBuffer);
+            compute.SetInt("_MerkabaResidentSlotCapacity", 1);
+            compute.SetInt("_MerkabaSourcePrimitiveCapacityPerChunk", smallCapacity);
+            compute.SetInt("_MerkabaPrimitiveCapacityPerChunk", grownCapacity);
+            compute.Dispatch(migrateKernel, 1, 1, 1);
+            var migrated = new PrimitiveRecord[grownCapacity];
+            grownRecordBanks.GetData(migrated, 0, 0, grownCapacity);
+            Assert.That(migrated[0].PackedLocalPrimitive,
+                Is.EqualTo(oldRecords[0].PackedLocalPrimitive));
+            Assert.That(migrated[1].PackedLocalPrimitive,
+                Is.EqualTo(oldRecords[1].PackedLocalPrimitive));
+
+            buildCountBuffer.SetData(new uint[1]);
+            overflowBuffer.SetData(new uint[1]);
+            publishedBankBuffer.SetData(new uint[1]);
+            BindPublicationRebuild(compute, rebuildKernel, stateBuffer, pageBuffer,
+                neighbourBuffer, summaryHashBuffer, summaryWordsBuffer, dirtyBuffer,
+                queueBuffer, grownRecordBanks, buildCountBuffer, publishedBankBuffer,
+                pageCount, grownCapacity, summaryCapacity);
+            compute.Dispatch(rebuildKernel, 1, 512, 1);
+            BindPublicationFinalize(compute, finalizeKernel, dirtyBuffer, versionBuffer,
+                queueBuffer, countBuffer, buildCountBuffer, overflowBuffer,
+                publishedBankBuffer, argsBuffer, pageCount, grownCapacity);
+            compute.Dispatch(finalizeKernel, 1, 1, 1);
+            countBuffer.GetData(counts);
+            argsBuffer.GetData(args);
+            dirtyBuffer.GetData(dirty);
+            overflowBuffer.GetData(overflow);
+            versionBuffer.GetData(versions);
+            publishedBankBuffer.GetData(banks);
+            Assert.That(counts[0], Is.EqualTo(8u));
+            Assert.That(args[1], Is.EqualTo(8u));
+            Assert.That(dirty[0], Is.Zero);
+            Assert.That(overflow[0], Is.Zero);
+            Assert.That(versions[0], Is.EqualTo(8u));
+            Assert.That(banks[0], Is.EqualTo(1u),
+                "successful replacement build did not atomically publish inactive bank");
         }
 
         [Test, Timeout(30000)]
@@ -319,42 +536,92 @@ namespace Genesis.RoomScan.Tests
             int localIndex)
         {
             ComputeShader compute = LoadCompute("MerkabaTopology.compute");
-            int kernel = compute.FindKernel("BuildVisibleRecords");
-            grid.VisibleSlotsBuffer.SetData(new[] { visibleSlot }, 0, 0, 1);
-            var dirty = new[] { 1u };
-            grid.KernelDirtyBuffer.SetData(dirty, 0,
-                visibleSlot * MerkabaConstants.KernelsPerChunk + localIndex, 1);
-            using var records = new ComputeBuffer(1, 32, ComputeBufferType.Append);
-            records.SetCounterValue(0);
-            BindTopology(compute, kernel, grid.KernelBuffer, grid.PageCoordsBuffer,
-                grid.PageNeighboursBuffer, grid.BoundarySummaryHashBuffer,
-                grid.BoundarySummaryWordsBuffer, grid.VisibleSlotsBuffer,
-                grid.KernelDirtyBuffer, grid.TopologyMaskBuffer, records,
+            int rebuildKernel = compute.FindKernel("RebuildDirtyChunkRecords");
+            int finalizeKernel = compute.FindKernel("FinalizeDirtyChunkRecords");
+            grid.PublicationDirtyChunksBuffer.SetData(new uint[] { 1u }, 0,
+                visibleSlot, 1);
+            grid.PrimitiveBuildCountBuffer.SetData(new uint[] { 0u }, 0,
+                visibleSlot, 1);
+            using var queue = new ComputeBuffer(1, sizeof(uint));
+            queue.SetData(new uint[] { (uint)visibleSlot });
+            BindPublicationRebuild(compute, rebuildKernel, grid.KernelBuffer,
+                grid.PageCoordsBuffer, grid.PageNeighboursBuffer,
+                grid.BoundarySummaryHashBuffer, grid.BoundarySummaryWordsBuffer,
+                grid.PublicationDirtyChunksBuffer, queue,
+                grid.PrimitiveRecordBanksBuffer, grid.PrimitiveBuildCountBuffer,
+                grid.PublishedBankBuffer,
+                grid.ResidentSlotCapacity, grid.PublicationPrimitiveCapacity,
                 grid.BoundarySummaryHashEntryCount);
-            compute.Dispatch(kernel, MerkabaConstants.KernelsPerChunk / 64, 1, 1);
-            var output = new RenderRecord[1];
-            records.GetData(output);
-            return output[0].ActiveMask;
+            compute.Dispatch(rebuildKernel, 1, 512, 1);
+            BindPublicationFinalize(compute, finalizeKernel,
+                grid.PublicationDirtyChunksBuffer, grid.PublicationVersionBuffer,
+                queue, grid.PrimitiveCountBuffer, grid.PrimitiveBuildCountBuffer,
+                grid.PublicationOverflowCountBuffer, grid.PublishedBankBuffer,
+                grid.PrimitiveDrawArgsBuffer, grid.ResidentSlotCapacity,
+                grid.PublicationPrimitiveCapacity);
+            compute.Dispatch(finalizeKernel, 1, 1, 1);
+
+            var counts = new uint[grid.ResidentSlotCapacity];
+            grid.PrimitiveCountBuffer.GetData(counts);
+            var banks = new uint[grid.ResidentSlotCapacity];
+            grid.PublishedBankBuffer.GetData(banks);
+            var output = new PrimitiveRecord[(int)counts[visibleSlot]];
+            int bankStride = grid.ResidentSlotCapacity *
+                             grid.PublicationPrimitiveCapacity;
+            int recordOffset = (int)banks[visibleSlot] * bankStride +
+                               visibleSlot * grid.PublicationPrimitiveCapacity;
+            grid.PrimitiveRecordBanksBuffer.GetData(output, 0,
+                recordOffset, output.Length);
+            uint mask = 0u;
+            foreach (PrimitiveRecord record in output)
+            {
+                if ((record.PackedLocalPrimitive & 32767u) != (uint)localIndex) continue;
+                int primitiveId = (int)((record.PackedLocalPrimitive >> 15) & 31u);
+                mask |= 1u << primitiveId;
+            }
+            return mask;
         }
 
-        private static void BindTopology(ComputeShader compute, int kernel,
+        private static void BindPublicationRebuild(ComputeShader compute, int kernel,
             ComputeBuffer states, ComputeBuffer pages, ComputeBuffer neighbours,
             ComputeBuffer summaryHash, ComputeBuffer summaryWords,
-            ComputeBuffer visible, ComputeBuffer dirty, ComputeBuffer masks,
-            ComputeBuffer records, int summaryHashCapacity)
+            ComputeBuffer dirty, ComputeBuffer dirtySlots,
+            ComputeBuffer recordBanks, ComputeBuffer buildCounts,
+            ComputeBuffer publishedBanks,
+            int residentCapacity, int recordCapacity, int summaryHashCapacity)
         {
             compute.SetBuffer(kernel, "_MerkabaKernels", states);
             compute.SetBuffer(kernel, "_MerkabaPageCoords", pages);
             compute.SetBuffer(kernel, "_MerkabaPageNeighbours", neighbours);
             compute.SetBuffer(kernel, "_MerkabaBoundarySummaryHash", summaryHash);
             compute.SetBuffer(kernel, "_MerkabaBoundarySummaryWords", summaryWords);
-            compute.SetBuffer(kernel, "_MerkabaVisibleSlots", visible);
-            compute.SetBuffer(kernel, "_MerkabaKernelDirty", dirty);
-            compute.SetBuffer(kernel, "_MerkabaTopologyMasks", masks);
-            compute.SetBuffer(kernel, "_MerkabaRenderRecords", records);
-            compute.SetInt("_MerkabaVisibleChunkCount", 1);
+            compute.SetBuffer(kernel, "_MerkabaDirtySlotQueue", dirtySlots);
+            compute.SetBuffer(kernel, "_MerkabaPublicationDirtyChunks", dirty);
+            compute.SetBuffer(kernel, "_MerkabaPrimitiveRecordBanks", recordBanks);
+            compute.SetBuffer(kernel, "_MerkabaPrimitiveBuildCounts", buildCounts);
+            compute.SetBuffer(kernel, "_MerkabaPublishedBanks", publishedBanks);
+            compute.SetInt("_MerkabaResidentSlotCapacity", residentCapacity);
+            compute.SetInt("_MerkabaPrimitiveCapacityPerChunk", recordCapacity);
             compute.SetInt("_MerkabaBoundarySummaryHashCapacity",
                 summaryHashCapacity);
+        }
+
+        private static void BindPublicationFinalize(ComputeShader compute, int kernel,
+            ComputeBuffer dirty, ComputeBuffer versions, ComputeBuffer dirtySlots,
+            ComputeBuffer counts, ComputeBuffer buildCounts, ComputeBuffer overflows,
+            ComputeBuffer publishedBanks, ComputeBuffer args, int residentCapacity,
+            int recordCapacity)
+        {
+            compute.SetBuffer(kernel, "_MerkabaDirtySlotQueue", dirtySlots);
+            compute.SetBuffer(kernel, "_MerkabaPublicationDirtyChunks", dirty);
+            compute.SetBuffer(kernel, "_MerkabaPublicationVersions", versions);
+            compute.SetBuffer(kernel, "_MerkabaPrimitiveCounts", counts);
+            compute.SetBuffer(kernel, "_MerkabaPrimitiveBuildCounts", buildCounts);
+            compute.SetBuffer(kernel, "_MerkabaPublicationOverflowCounts", overflows);
+            compute.SetBuffer(kernel, "_MerkabaPublishedBanks", publishedBanks);
+            compute.SetBuffer(kernel, "_MerkabaPrimitiveDrawArgs", args);
+            compute.SetInt("_MerkabaResidentSlotCapacity", residentCapacity);
+            compute.SetInt("_MerkabaPrimitiveCapacityPerChunk", recordCapacity);
         }
 
         private static ComputeBuffer EmptySummaryHash(out int capacity)
@@ -398,6 +665,7 @@ namespace Genesis.RoomScan.Tests
             private readonly ComputeBuffer _slots;
             private readonly ComputeBuffer _enabled;
             private readonly ComputeBuffer _dirty;
+            private readonly ComputeBuffer _gpuPublicationDirtyQueue;
             private readonly ComputeBuffer _hash;
             private readonly ComputeBuffer _surfaceBits;
             private readonly ComputeBuffer _surfaceQueue;
@@ -434,7 +702,9 @@ namespace Genesis.RoomScan.Tests
                 _pageNeighbours = new ComputeBuffer(pages.Length * 27, sizeof(int));
                 _slots = new ComputeBuffer(pages.Length, sizeof(int));
                 _enabled = new ComputeBuffer(pages.Length, sizeof(uint));
-                _dirty = new ComputeBuffer(_stateCount, sizeof(uint));
+                _dirty = new ComputeBuffer(pages.Length, sizeof(uint));
+                _gpuPublicationDirtyQueue = new ComputeBuffer(pages.Length,
+                    sizeof(uint), ComputeBufferType.Append);
                 _hash = new ComputeBuffer(HashCapacity, 16);
                 _surfaceBits = new ComputeBuffer(_stateCount / 32, sizeof(uint));
                 _surfaceQueue = new ComputeBuffer(_stateCount, sizeof(uint));
@@ -461,7 +731,8 @@ namespace Genesis.RoomScan.Tests
                 }
                 _slots.SetData(slots);
                 _enabled.SetData(enabled);
-                _dirty.SetData(new uint[_stateCount]);
+                _dirty.SetData(new uint[pages.Length]);
+                _gpuPublicationDirtyQueue.SetCounterValue(0);
                 _surfaceBits.SetData(new uint[_stateCount / 32]);
                 _carveBits.SetData(new uint[_stateCount / 32]);
                 _carveCounts.SetData(new uint[pages.Length]);
@@ -570,8 +841,8 @@ namespace Genesis.RoomScan.Tests
 
                 BindObservation(_surface);
                 _compute.SetBuffer(_surface, "_MerkabaSurfaceCandidateBits", _surfaceBits);
-                _compute.SetBuffer(_surface, "_MerkabaSurfaceQueue", _surfaceQueue);
-                _compute.SetBuffer(_surface, "_MerkabaSurfaceCount", _surfaceCount);
+                _compute.SetBuffer(_surface, "_MerkabaSurfaceQueueRead", _surfaceQueue);
+                _compute.SetBuffer(_surface, "_MerkabaSurfaceCountRead", _surfaceCount);
                 _compute.SetBuffer(_surface, "_MerkabaCarveListedBits", _carveBits);
                 _compute.SetBuffer(_surface, "_MerkabaCarveLocalIndices", _carveLocal);
                 _compute.SetBuffer(_surface, "_MerkabaCarveCounts", _carveCounts);
@@ -585,8 +856,8 @@ namespace Genesis.RoomScan.Tests
                 _compute.SetBuffer(_gather, "_MerkabaCarveCount", _carveCount);
 
                 BindObservation(_carve);
-                _compute.SetBuffer(_carve, "_MerkabaCarveQueue", _carveQueue);
-                _compute.SetBuffer(_carve, "_MerkabaCarveCount", _carveCount);
+                _compute.SetBuffer(_carve, "_MerkabaCarveQueueRead", _carveQueue);
+                _compute.SetBuffer(_carve, "_MerkabaCarveCountRead", _carveCount);
             }
 
             private void BindObservation(int kernel)
@@ -594,7 +865,9 @@ namespace Genesis.RoomScan.Tests
                 _compute.SetBuffer(kernel, "_MerkabaKernels", _states);
                 _compute.SetBuffer(kernel, "_MerkabaPageCoords", _pageCoords);
                 _compute.SetBuffer(kernel, "_MerkabaPageNeighbours", _pageNeighbours);
-                _compute.SetBuffer(kernel, "_MerkabaKernelDirty", _dirty);
+                _compute.SetBuffer(kernel, "_MerkabaPublicationDirtyChunks", _dirty);
+                _compute.SetBuffer(kernel, "_MerkabaGpuPublicationDirtyQueue",
+                    _gpuPublicationDirtyQueue);
                 _compute.SetTexture(kernel, DepthCapture.DepthTexID, _depth);
                 _compute.SetTexture(kernel, DepthCapture.NormTexID, _normals);
                 _compute.SetTexture(kernel, DepthCapture.DilatedDepthTexID, _dilation);
@@ -637,6 +910,7 @@ namespace Genesis.RoomScan.Tests
                 _slots.Dispose();
                 _enabled.Dispose();
                 _dirty.Dispose();
+                _gpuPublicationDirtyQueue.Dispose();
                 _hash.Dispose();
                 _surfaceBits.Dispose();
                 _surfaceQueue.Dispose();

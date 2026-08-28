@@ -17,6 +17,10 @@ namespace Genesis.RoomScan
         public const int BoundaryBitsPerFace = ChunkSize * ChunkSize;
         public const int BoundaryWordsPerFace = BoundaryBitsPerFace / 32;
         public const int BoundaryWordCount = BoundaryFaceCount * BoundaryWordsPerFace;
+        // Initial records per bank. Publication is double-buffered; 32K keeps both
+        // banks for 96 resident chunks near 48 MiB and grows only after measured
+        // overflow while the previous complete bank remains visible.
+        public const int PrimitiveCapacityPerChunk = 32768;
 
         public const int MinimumEvidence = -32768;
         public const int MaximumEvidence = 32767;
@@ -26,6 +30,7 @@ namespace Genesis.RoomScan
         public const int SurfaceEvidenceScale = 640;
         public const int FreeEvidenceScale = 256;
         public const int MaximumColorConfidence = 65535;
+        public const uint NeutralPackedColor = 0xffa0a0a0u;
         public const float MinimumSurfaceQuality = 0.25f;
 
         public const uint OccupiedFlag = 1u << 0;

@@ -48,7 +48,8 @@ namespace Genesis.RoomScan
         private static readonly int PageNeighboursId = Shader.PropertyToID("_MerkabaPageNeighbours");
         private static readonly int IntegrationSlotsId = Shader.PropertyToID("_MerkabaIntegrationSlots");
         private static readonly int IntegrationEnabledId = Shader.PropertyToID("_MerkabaIntegrationEnabledSlots");
-        private static readonly int KernelDirtyId = Shader.PropertyToID("_MerkabaKernelDirty");
+        private static readonly int PublicationDirtyId =
+            Shader.PropertyToID("_MerkabaPublicationDirtyChunks");
         private static readonly int IntegrationCountId = Shader.PropertyToID("_MerkabaIntegrationChunkCount");
         private static readonly int GridToWorldId = Shader.PropertyToID("_MerkabaGridToWorld");
         private static readonly int WorldToGridId = Shader.PropertyToID("_MerkabaWorldToGrid");
@@ -61,11 +62,21 @@ namespace Genesis.RoomScan
         private static readonly int SurfaceBitsId = Shader.PropertyToID("_MerkabaSurfaceCandidateBits");
         private static readonly int SurfaceQueueId = Shader.PropertyToID("_MerkabaSurfaceQueue");
         private static readonly int SurfaceCountId = Shader.PropertyToID("_MerkabaSurfaceCount");
+        private static readonly int SurfaceQueueReadId =
+            Shader.PropertyToID("_MerkabaSurfaceQueueRead");
+        private static readonly int SurfaceCountReadId =
+            Shader.PropertyToID("_MerkabaSurfaceCountRead");
         private static readonly int CarveListedBitsId = Shader.PropertyToID("_MerkabaCarveListedBits");
         private static readonly int CarveLocalIndicesId = Shader.PropertyToID("_MerkabaCarveLocalIndices");
         private static readonly int CarveCountsId = Shader.PropertyToID("_MerkabaCarveCounts");
         private static readonly int CarveQueueId = Shader.PropertyToID("_MerkabaCarveQueue");
         private static readonly int CarveCountId = Shader.PropertyToID("_MerkabaCarveCount");
+        private static readonly int CarveQueueReadId =
+            Shader.PropertyToID("_MerkabaCarveQueueRead");
+        private static readonly int CarveCountReadId =
+            Shader.PropertyToID("_MerkabaCarveCountRead");
+        private static readonly int GpuPublicationDirtyQueueId =
+            Shader.PropertyToID("_MerkabaGpuPublicationDirtyQueue");
         private static readonly int ExclusionCountId = Shader.PropertyToID("_MerkabaExclusionCount");
         private static readonly int ExclusionHeadsId = Shader.PropertyToID("_MerkabaExclusionHeads");
         private static readonly int CameraRgbId = Shader.PropertyToID("_MerkabaCameraRgb");
@@ -175,6 +186,10 @@ namespace Genesis.RoomScan
                 _grid.CarveDispatchArgsBuffer);
             BindCarveIntegration();
             compute.DispatchIndirect(_carveKernel, _grid.CarveDispatchArgsBuffer);
+            // The append queue itself remains GPU-owned. The renderer later issues a
+            // zero-or-more-group indirect publication dispatch; no count readback is
+            // introduced into the integration frame.
+            _grid.NotifyGpuPublicationMayBeDirty();
             _grid.MarkIntegrationPagesGpuCurrent();
             IntegrationCount++;
             _pendingCameraFrame = null;
@@ -224,9 +239,9 @@ namespace Genesis.RoomScan
             BindObservation(_surfaceKernel);
             compute.SetBuffer(_surfaceKernel, SurfaceBitsId,
                 _grid.SurfaceCandidateBitsBuffer);
-            compute.SetBuffer(_surfaceKernel, SurfaceQueueId,
+            compute.SetBuffer(_surfaceKernel, SurfaceQueueReadId,
                 _grid.SurfaceQueueBuffer);
-            compute.SetBuffer(_surfaceKernel, SurfaceCountId,
+            compute.SetBuffer(_surfaceKernel, SurfaceCountReadId,
                 _grid.SurfaceCountBuffer);
             compute.SetBuffer(_surfaceKernel, CarveListedBitsId,
                 _grid.CarveListedBitsBuffer);
@@ -255,8 +270,10 @@ namespace Genesis.RoomScan
         private void BindCarveIntegration()
         {
             BindObservation(_carveKernel);
-            compute.SetBuffer(_carveKernel, CarveQueueId, _grid.CarveQueueBuffer);
-            compute.SetBuffer(_carveKernel, CarveCountId, _grid.CarveCountBuffer);
+            compute.SetBuffer(_carveKernel, CarveQueueReadId,
+                _grid.CarveQueueBuffer);
+            compute.SetBuffer(_carveKernel, CarveCountReadId,
+                _grid.CarveCountBuffer);
         }
 
         private void BindObservation(int kernel)
@@ -264,7 +281,10 @@ namespace Genesis.RoomScan
             compute.SetBuffer(kernel, KernelsId, _grid.KernelBuffer);
             compute.SetBuffer(kernel, PageCoordsId, _grid.PageCoordsBuffer);
             compute.SetBuffer(kernel, PageNeighboursId, _grid.PageNeighboursBuffer);
-            compute.SetBuffer(kernel, KernelDirtyId, _grid.KernelDirtyBuffer);
+            compute.SetBuffer(kernel, PublicationDirtyId,
+                _grid.PublicationDirtyChunksBuffer);
+            compute.SetBuffer(kernel, GpuPublicationDirtyQueueId,
+                _grid.GpuPublicationDirtyQueueBuffer);
             compute.SetTexture(kernel, DepthCapture.DepthTexID,
                 _depthCapture.DepthTex);
             compute.SetTexture(kernel, DepthCapture.NormTexID,
