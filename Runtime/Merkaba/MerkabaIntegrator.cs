@@ -140,10 +140,20 @@ namespace Genesis.RoomScan
             MerkabaResidencyFrame residency = _grid.RefreshResidency(camera,
                 maxUpdateDistance, true);
             if (residency.IntegrationChunkCount == 0) return false;
-            if (!_depthCapture.ConsumeLatestDepthFrame() ||
+            MerkabaGpuTimestamps.TryBeginFrame(
+                unchecked((uint)Math.Max(1, IntegrationCount + 1)));
+            MerkabaGpuTimestamps.BeginCompute(
+                MerkabaGpuStage.DepthPreprocess);
+            bool consumedDepth = _depthCapture.ConsumeLatestDepthFrame();
+            MerkabaGpuTimestamps.EndCompute(
+                MerkabaGpuStage.DepthPreprocess);
+            if (!consumedDepth ||
                 _depthCapture.DepthTex == null || _depthCapture.NormTex == null ||
                 _depthCapture.DilatedDepthTex == null)
+            {
+                MerkabaGpuTimestamps.EndFrame();
                 return false;
+            }
 
             compute.SetMatrixArray(DepthCapture.ViewID, _depthCapture.View);
             compute.SetMatrixArray(DepthCapture.ProjID, _depthCapture.Proj);
@@ -167,6 +177,8 @@ namespace Genesis.RoomScan
             compute.SetInt(ExclusionCountId, exclusionCount);
             compute.SetVectorArray(ExclusionHeadsId, _exclusionPositions);
 
+            MerkabaGpuTimestamps.BeginCompute(
+                MerkabaGpuStage.SurfaceIntegration);
             _grid.BeginIntegrationWorkFrame();
             BindSurfaceGeneration();
             compute.Dispatch(_generateSurfaceKernel,
@@ -178,7 +190,11 @@ namespace Genesis.RoomScan
             BindSurfaceIntegration();
             compute.DispatchIndirect(_surfaceKernel,
                 _grid.SurfaceDispatchArgsBuffer);
+            MerkabaGpuTimestamps.EndCompute(
+                MerkabaGpuStage.SurfaceIntegration);
 
+            MerkabaGpuTimestamps.BeginCompute(
+                MerkabaGpuStage.CarveIntegration);
             BindCarveGather();
             compute.Dispatch(_gatherCarveKernel,
                 residency.IntegrationChunkCount, 1, 1);
@@ -186,6 +202,12 @@ namespace Genesis.RoomScan
                 _grid.CarveDispatchArgsBuffer);
             BindCarveIntegration();
             compute.DispatchIndirect(_carveKernel, _grid.CarveDispatchArgsBuffer);
+            MerkabaGpuTimestamps.EndCompute(
+                MerkabaGpuStage.CarveIntegration);
+            MerkabaGpuTimestamps.CaptureIntegrationMetrics(
+                _grid.SurfaceCountBuffer, _grid.CarveCountBuffer,
+                residency.IntegrationChunkCount, _depthCapture.DepthTex.width,
+                _depthCapture.DepthTex.height);
             // The append queue itself remains GPU-owned. The renderer later issues a
             // zero-or-more-group indirect publication dispatch; no count readback is
             // introduced into the integration frame.

@@ -107,6 +107,7 @@ namespace Genesis.RoomScan
 
         private void Update()
         {
+            MerkabaGpuTimestamps.Poll();
             if (!IsScanning) return;
             ProvideColorFrame();
             if (!DepthCapture.DepthAvailable ||
@@ -143,6 +144,7 @@ namespace Genesis.RoomScan
                 _lastIntegrationTime = Time.time;
                 IsScanning = true;
                 ScanLifecycle = ScanLifecycleState.Running;
+                MerkabaGpuTimestamps.NotifyScanStarted();
                 ScanStarted?.Invoke();
                 Logger.Info("Merkaba scanning started/resumed");
             }
@@ -162,6 +164,7 @@ namespace Genesis.RoomScan
             IsScanning = false;
             _cameraProvider?.StopCapture();
             _depthCapture?.StopDepthCapture();
+            MerkabaGpuTimestamps.EndFrame();
             ScanLifecycle = ScanLifecycleState.Stopped;
             ScanStopped?.Invoke();
             Logger.Info("Merkaba scanning stopped");

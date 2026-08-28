@@ -132,8 +132,16 @@ namespace Genesis.RoomScan
         private void LateUpdate()
         {
             Camera camera = Camera.main;
-            if (camera == null || _grid == null) return;
-            if (!_initialized && !Initialize()) return;
+            if (camera == null || _grid == null)
+            {
+                MerkabaGpuTimestamps.EndFrame();
+                return;
+            }
+            if (!_initialized && !Initialize())
+            {
+                MerkabaGpuTimestamps.EndFrame();
+                return;
+            }
 
             ReleaseRetiredBuffers();
             RoomScanner scanner = RoomScanner.Instance;
@@ -162,7 +170,19 @@ namespace Genesis.RoomScan
                     _statusSampleRequested = true;
             }
 
+            bool drawsMerkaba = _grid.VisibleChunkCount > 0 &&
+                                scanOpacity > 0.001f;
+            if (drawsMerkaba)
+                MerkabaGpuTimestamps.BeginGraphics(
+                    MerkabaGpuStage.MerkabaDraw);
             DrawVisibleChunks(camera);
+            if (drawsMerkaba)
+                MerkabaGpuTimestamps.EndGraphics(
+                    MerkabaGpuStage.MerkabaDraw);
+
+            MerkabaGpuTimestamps.CaptureRenderMetrics(_grid, cpuDirtyGroups,
+                gpuQueueSubmitted);
+            MerkabaGpuTimestamps.EndFrame();
 
             if (_statusSampleRequested && !_statusReadbackPending &&
                 Time.unscaledTime >= _nextStatusSampleTime)
@@ -202,9 +222,17 @@ namespace Genesis.RoomScan
         private void DispatchDirectDirtyQueue(ComputeBuffer queue, int groupCount)
         {
             BindRebuildKernel(queue);
+            MerkabaGpuTimestamps.BeginCompute(
+                MerkabaGpuStage.TopologyUpdate);
             topologyCompute.Dispatch(_rebuildKernel, groupCount, 512, 1);
+            MerkabaGpuTimestamps.EndCompute(
+                MerkabaGpuStage.TopologyUpdate);
             BindFinalizeKernel(queue);
+            MerkabaGpuTimestamps.BeginCompute(
+                MerkabaGpuStage.PublicationCompaction);
             topologyCompute.Dispatch(_finalizeKernel, groupCount, 1, 1);
+            MerkabaGpuTimestamps.EndCompute(
+                MerkabaGpuStage.PublicationCompaction);
         }
 
         private void DispatchGpuDirtyQueue()
@@ -214,11 +242,19 @@ namespace Genesis.RoomScan
             ComputeBuffer.CopyCount(_grid.GpuPublicationDirtyQueueBuffer,
                 _grid.GpuPublicationFinalizeArgsBuffer, 0);
             BindRebuildKernel(_grid.GpuPublicationDirtyQueueBuffer);
+            MerkabaGpuTimestamps.BeginCompute(
+                MerkabaGpuStage.TopologyUpdate);
             topologyCompute.DispatchIndirect(_rebuildKernel,
                 _grid.GpuPublicationDispatchArgsBuffer);
+            MerkabaGpuTimestamps.EndCompute(
+                MerkabaGpuStage.TopologyUpdate);
             BindFinalizeKernel(_grid.GpuPublicationDirtyQueueBuffer);
+            MerkabaGpuTimestamps.BeginCompute(
+                MerkabaGpuStage.PublicationCompaction);
             topologyCompute.DispatchIndirect(_finalizeKernel,
                 _grid.GpuPublicationFinalizeArgsBuffer);
+            MerkabaGpuTimestamps.EndCompute(
+                MerkabaGpuStage.PublicationCompaction);
             _grid.GpuPublicationDirtyQueueBuffer.SetCounterValue(0);
         }
 
