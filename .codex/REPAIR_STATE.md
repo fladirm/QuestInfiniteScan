@@ -2,23 +2,25 @@
 
 BASE: `0e9081060ed1068aad6e075f4961ad25b72245ff`
 BRANCH: `fix/merkaba-production-closure`
-HEAD: R1 checkpoint (resolve with `git rev-parse HEAD` after commit)
+HEAD: R1b/R2 checkpoint (resolve with `git rev-parse HEAD` after commit)
 GOAL AUTHORITY: `/mnt/aidisk/prace/.codex-pursuits/quest-merkaba-production-closure/REPAIR_GOAL.md`
-GOAL SHA-256: `b9fdf457b9fa9c256ed326ae5d1cd46e393fd7a156dc80c779ca1e4cdfff92c2`
+GOAL SHA-256: `9135e66973e4fe2e36af2cb67869a56afcc6aee75b9b57f50fdd269e109e923f`
 
 ## DONE
 
 - Exact forensic baseline verified clean.
 - Isolated repair branch created.
 - Immutable pursuit authority copied outside the repository.
-- R1 exact occupied-Merkaba authority: 24 base facets, 96 fixed micro-triangles, 50 shared vertices.
-- R1 neighbour suppression/ownership predicates frozen from rational plane arrangement.
-- R1 CPU authority deterministically generates the byte-identical shared HLSL include.
-- R1 independent analytic-union coverage passes all required geometry patterns, chunk borders, and negative translations.
+- R1 shared CPU-to-HLSL authority/generator infrastructure committed at `3d14f65`.
+- Geometry-contract correction recorded in the external goal authority; exact Boolean-union extraction is forbidden.
+- R1b direct authority: six octahedron vertices, eight body-diagonal rules, eight neighbour-centre apexes, 32 possible triangles.
+- R1b removed the 96-microtriangle analytic-union oracle and all suppression/coverage tables.
+- R2 CPU topology, generated HLSL, live compute/shader, and GLB now consume the same direct primitive IDs and winding.
+- R2 emits 8 faces for an isolated kernel and 10 primitives per member of a single body-diagonal pair.
 
 ## CURRENT
 
-- R2: replace cube-patch CPU topology, live compute/shader geometry, and GLB enumeration with the shared true-Merkaba primitive authority.
+- R3: fix depth shader OOB access, include dilation step 1, preprocess only consumed frames, and integrate both depth eyes.
 
 ## NEXT
 
@@ -27,9 +29,9 @@ GOAL SHA-256: `b9fdf457b9fa9c256ed326ae5d1cd46e393fd7a156dc80c779ca1e4cdfff92c2`
 
 ## TEST STATUS
 
-- Unity EditMode: 39/39 passed, 0 failed, including 26 R1 geometry tests.
-- Generated HLSL exact-source check passed.
-- C# compile passed under Unity 6000.5.9f1.
+- Direct-rule Unity EditMode: 25/25 passed, 0 failed, 0 skipped.
+- CPU/HLSL byte identity, CPU/GPU cross-chunk mask identity, and direct GLB counts/non-axis normals passed.
+- Isolated kernel and every body-diagonal pair rule passed; axis/face-diagonal non-activation passed.
 
 ## BUILD STATUS
 

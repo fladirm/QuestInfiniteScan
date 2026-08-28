@@ -10,154 +10,205 @@ namespace Genesis.RoomScan.Tests
 {
     public sealed class MerkabaGeometryTests
     {
-        private static IEnumerable<TestCaseData> RequiredPatterns()
-        {
-            yield return Case("single occupied site", Set(new int3(0)), "SingleKernel");
-            yield return Case("two adjacent +X", Set(new int3(0), new int3(1, 0, 0)), "AdjacentPositiveX");
-            yield return Case("two adjacent -X", Set(new int3(0), new int3(-1, 0, 0)), "AdjacentNegativeX");
-            yield return Case("two adjacent +Y", Set(new int3(0), new int3(0, 1, 0)), "AdjacentPositiveY");
-            yield return Case("two adjacent -Y", Set(new int3(0), new int3(0, -1, 0)), "AdjacentNegativeY");
-            yield return Case("two adjacent +Z", Set(new int3(0), new int3(0, 0, 1)), "AdjacentPositiveZ");
-            yield return Case("two adjacent -Z", Set(new int3(0), new int3(0, 0, -1)), "AdjacentNegativeZ");
-            yield return Case("face diagonal", Set(new int3(0), new int3(1, 1, 0)), "FaceDiagonal");
-            yield return Case("body diagonal", Set(new int3(0), new int3(1, 1, 1)), "BodyDiagonal");
-            yield return Case("3x3x3 solid block", Solid(-1, 1), "SolidBlock");
-            yield return Case("large X wall", Wall(0, 0, -3, 3), "XWall");
-            yield return Case("large Y wall", Wall(1, 0, -3, 3), "YWall");
-            yield return Case("large Z wall", Wall(2, 0, -3, 3), "ZWall");
-            yield return Case("90 degree XY corner",
-                Union(Wall(0, 0, -2, 2), Wall(1, 0, -2, 2)), "XYCorner");
-            yield return Case("XYZ corner",
-                Union(Wall(0, 0, -2, 2), Wall(1, 0, -2, 2), Wall(2, 0, -2, 2)),
-                "XYZCorner");
-            yield return Case("diagonal staircase", Diagonal(), "DiagonalStaircase");
-            yield return Case("one-layer thin sheet", Wall(2, 3, -3, 3), "ThinSheet");
-            yield return Case("two close parallel sheets",
-                Union(Wall(2, 0, -2, 2), Wall(2, 3, -2, 2)), "ParallelSheets");
-            yield return Case("cylinder-like occupancy", Cylinder(), "CylinderLike");
-            yield return Case("sphere-like occupancy", Sphere(), "SphereLike");
-        }
+        private const uint IsolatedMask = 0x11111111u;
 
-        [TestCaseSource(nameof(RequiredPatterns))]
-        public void FrozenPrimitivePredicates_EqualIndependentAnalyticUnion(
-            string name, HashSet<int3> occupied)
+        [Test]
+        public void IsolatedOccupiedKernel_EmitsEightOctahedronFacesAndNoTips()
         {
-            Assert.That(occupied, Is.Not.Empty, name);
-            HashSet<MerkabaAnalyticUnionOracle.TriangleKey> expected =
-                MerkabaAnalyticUnionOracle.Boundary(occupied);
-            Dictionary<MerkabaAnalyticUnionOracle.TriangleKey, PrimitiveOwner> actual =
-                ProductionBoundary(occupied);
+            HashSet<int3> occupied = Set(new int3(0));
+            uint mask = MerkabaCanonicalGeometry.ActivePrimitiveMask(new int3(0),
+                occupied.Contains);
 
-            MerkabaAnalyticUnionOracle.TriangleKey[] missing = expected
-                .Except(actual.Keys).Take(8).ToArray();
-            MerkabaAnalyticUnionOracle.TriangleKey[] extra = actual.Keys
-                .Except(expected).Take(8).ToArray();
-            Assert.That(missing, Is.Empty,
-                $"{name}: cracks/missing analytic exterior: {string.Join("; ", missing)}");
-            Assert.That(extra, Is.Empty,
-                $"{name}: interior/non-Merkaba triangles emitted: {string.Join("; ", extra)}");
-            Assert.That(actual.Count, Is.EqualTo(expected.Count),
-                $"{name}: duplicate exterior ownership");
+            Assert.That(mask, Is.EqualTo(IsolatedMask));
+            Assert.That(math.countbits(mask), Is.EqualTo(8));
+            int[] active = MerkabaCanonicalGeometry.VisiblePrimitives(new int3(0),
+                occupied.Contains).ToArray();
+            Assert.That(active, Has.Length.EqualTo(8));
+            Assert.That(active.All(id => !MerkabaCanonicalGeometry.IsTipPrimitive(id)),
+                Is.True);
+            Assert.That(active, Is.EqualTo(Enumerable.Range(0, 8)
+                .Select(direction => direction * 4)));
         }
 
         [Test]
-        public void CanonicalOccupiedSupport_IsStellaOctangulaNotCube()
+        public void EveryBodyDiagonalPair_ReplacesConnectingBaseWithThreeTipSides()
         {
-            Assert.That(MerkabaCanonicalGeometry.TetraA.ToArray(), Is.EquivalentTo(new[]
+            for (int direction = 0;
+                 direction < MerkabaCanonicalGeometry.DirectionCount; direction++)
             {
-                new int3(1, 1, 1), new int3(1, -1, -1),
-                new int3(-1, 1, -1), new int3(-1, -1, 1)
-            }));
-            Assert.That(MerkabaCanonicalGeometry.TetraB.ToArray(), Is.EquivalentTo(new[]
-            {
-                new int3(-1, -1, -1), new int3(-1, 1, 1),
-                new int3(1, -1, 1), new int3(1, 1, -1)
-            }));
-            Assert.That(MerkabaCanonicalGeometry.CentralOctahedron.Length, Is.EqualTo(6));
-            Assert.That(MerkabaCanonicalGeometry.BaseFaces.Length, Is.EqualTo(24));
-            Assert.That(MerkabaCanonicalGeometry.Primitives.Length, Is.EqualTo(96));
+                int3 offset = MerkabaCanonicalGeometry.Directions[direction].Offset;
+                HashSet<int3> occupied = Set(new int3(0), offset);
+                uint originMask = MerkabaCanonicalGeometry.ActivePrimitiveMask(
+                    new int3(0), occupied.Contains);
+                int first = MerkabaCanonicalGeometry.BasePrimitiveId(direction);
 
-            double occupiedVolume = CentralOctahedronVolume() + TipVolume();
-            Assert.That(occupiedVolume, Is.EqualTo(4d).Within(1e-12));
-            Assert.That(occupiedVolume, Is.Not.EqualTo(8d),
-                "The 12 complement wedges would turn the occupied support back into a cube.");
+                Assert.That(originMask & (1u << first), Is.Zero,
+                    $"direction {offset}: connecting octahedron face survived");
+                Assert.That(originMask & (0xEu << first), Is.EqualTo(0xEu << first),
+                    $"direction {offset}: three tip sides were not emitted");
+                Assert.That(math.countbits(originMask), Is.EqualTo(10));
+
+                int reverseDirection = direction ^ 7;
+                uint neighbourMask = MerkabaCanonicalGeometry.ActivePrimitiveMask(
+                    offset, occupied.Contains);
+                int reverseFirst = MerkabaCanonicalGeometry.BasePrimitiveId(reverseDirection);
+                Assert.That(neighbourMask & (1u << reverseFirst), Is.Zero);
+                Assert.That(neighbourMask & (0xEu << reverseFirst),
+                    Is.EqualTo(0xEu << reverseFirst));
+                Assert.That(math.countbits(neighbourMask), Is.EqualTo(10));
+            }
+        }
+
+        [Test]
+        public void RemovingBodyDiagonalNeighbour_RemovesTipAndRestoresBase()
+        {
+            int3 center = new(-7, 11, -31);
+            for (int direction = 0;
+                 direction < MerkabaCanonicalGeometry.DirectionCount; direction++)
+            {
+                int3 neighbour = center +
+                    MerkabaCanonicalGeometry.Directions[direction].Offset;
+                HashSet<int3> occupied = Set(center, neighbour);
+                uint withNeighbour = MerkabaCanonicalGeometry.ActivePrimitiveMask(center,
+                    occupied.Contains);
+                occupied.Remove(neighbour);
+                uint withoutNeighbour = MerkabaCanonicalGeometry.ActivePrimitiveMask(center,
+                    occupied.Contains);
+                int first = MerkabaCanonicalGeometry.BasePrimitiveId(direction);
+
+                Assert.That(withNeighbour & (0xFu << first),
+                    Is.EqualTo(0xEu << first));
+                Assert.That(withoutNeighbour & (0xFu << first),
+                    Is.EqualTo(1u << first));
+                Assert.That(withoutNeighbour, Is.EqualTo(IsolatedMask));
+            }
+        }
+
+        [Test]
+        public void AxisAndFaceDiagonalNeighbours_DoNotActivateTips()
+        {
+            var offsets = new List<int3>();
+            for (int z = -1; z <= 1; z++)
+            for (int y = -1; y <= 1; y++)
+            for (int x = -1; x <= 1; x++)
+            {
+                int3 offset = new(x, y, z);
+                int nonzero = (x == 0 ? 0 : 1) + (y == 0 ? 0 : 1) +
+                              (z == 0 ? 0 : 1);
+                if (nonzero is 1 or 2) offsets.Add(offset);
+            }
+
+            foreach (int3 offset in offsets)
+            {
+                HashSet<int3> occupied = Set(new int3(0), offset);
+                Assert.That(MerkabaCanonicalGeometry.ActivePrimitiveMask(new int3(0),
+                    occupied.Contains), Is.EqualTo(IsolatedMask), offset.ToString());
+                Assert.That(MerkabaCanonicalGeometry.ActivePrimitiveMask(offset,
+                    occupied.Contains), Is.EqualTo(IsolatedMask), offset.ToString());
+            }
+        }
+
+        [Test]
+        public void TipApex_IsExactlyBodyDiagonalNeighbourCentre()
+        {
+            for (int direction = 0;
+                 direction < MerkabaCanonicalGeometry.DirectionCount; direction++)
+            {
+                MerkabaCanonicalGeometry.DirectionRule rule =
+                    MerkabaCanonicalGeometry.Directions[direction];
+                float3 apex = MerkabaCanonicalGeometry.Vertices[rule.ApexVertex].Position;
+                Assert.That(math.distance(apex,
+                    MerkabaConstants.WorldCenter(rule.Offset)), Is.LessThan(1e-8f));
+
+                int baseId = MerkabaCanonicalGeometry.BasePrimitiveId(direction);
+                for (int corner = 0; corner < 3; corner++)
+                {
+                    MerkabaCanonicalGeometry.PrimitiveVertex(baseId, corner,
+                        out float3 vertex, out _);
+                    Assert.That(math.dot((float3)rule.Offset, vertex),
+                        Is.EqualTo(MerkabaConstants.HalfSupport).Within(1e-8f));
+                }
+            }
+        }
+
+        [Test]
+        public void FixedPrimitiveAlphabet_HasEightFacesAndTwentyFourTipSides()
+        {
+            Assert.That(MerkabaCanonicalGeometry.OctahedronVertices.Length, Is.EqualTo(6));
+            Assert.That(MerkabaCanonicalGeometry.Directions.Length, Is.EqualTo(8));
+            Assert.That(MerkabaCanonicalGeometry.Vertices.Length, Is.EqualTo(14));
+            Assert.That(MerkabaCanonicalGeometry.Primitives.Length, Is.EqualTo(32));
+            Assert.That(MerkabaCanonicalGeometry.Primitives.ToArray().Count(value =>
+                value.Kind == MerkabaCanonicalGeometry.PrimitiveKind.OctahedronFace),
+                Is.EqualTo(8));
+            Assert.That(MerkabaCanonicalGeometry.Primitives.ToArray().Count(value =>
+                value.Kind == MerkabaCanonicalGeometry.PrimitiveKind.TipSide),
+                Is.EqualTo(24));
+        }
+
+        [Test]
+        public void PrimitiveWinding_IsDeterministicAndOutward()
+        {
+            for (int direction = 0;
+                 direction < MerkabaCanonicalGeometry.DirectionCount; direction++)
+            {
+                MerkabaCanonicalGeometry.DirectionRule rule =
+                    MerkabaCanonicalGeometry.Directions[direction];
+                int first = MerkabaCanonicalGeometry.BasePrimitiveId(direction);
+                float3 baseNormal = MerkabaCanonicalGeometry.PrimitiveNormal(first);
+                Assert.That(math.dot(baseNormal, rule.Offset), Is.GreaterThan(0.999f));
+
+                for (int side = 1; side <= 3; side++)
+                {
+                    int primitiveId = first + side;
+                    MerkabaCanonicalGeometry.CanonicalPrimitive primitive =
+                        MerkabaCanonicalGeometry.Primitives[primitiveId];
+                    float3 a = MerkabaCanonicalGeometry.Vertices[primitive.Vertex0].Position;
+                    float3 b = MerkabaCanonicalGeometry.Vertices[primitive.Vertex1].Position;
+                    float3 c = MerkabaCanonicalGeometry.Vertices[primitive.Vertex2].Position;
+                    float3 normal = MerkabaCanonicalGeometry.PrimitiveNormal(primitiveId);
+                    Assert.That(math.dot(math.normalize(math.cross(b - a, c - a)),
+                        normal), Is.GreaterThan(0.99999f));
+
+                    byte opposite = OppositeBaseVertex(rule, primitive);
+                    float3 inside = MerkabaCanonicalGeometry.Vertices[opposite].Position;
+                    Assert.That(math.dot(normal, inside - a), Is.LessThan(0f),
+                        $"tip side {primitiveId} points into its tetrahedron");
+                }
+            }
         }
 
         [Test]
         public void CubePatchImplementation_IsNotAcceptedAsMerkaba()
         {
-            var normalDirections = new HashSet<int3>();
             for (int primitive = 0;
                  primitive < MerkabaCanonicalGeometry.PrimitiveCount; primitive++)
             {
                 float3 normal = MerkabaCanonicalGeometry.PrimitiveNormal(primitive);
-                int3 signedDirection = (int3)math.round(normal * math.sqrt(3f));
-                normalDirections.Add(signedDirection);
                 Assert.That(math.abs(normal.x), Is.GreaterThan(0.5f));
                 Assert.That(math.abs(normal.y), Is.GreaterThan(0.5f));
-                Assert.That(math.abs(normal.z), Is.GreaterThan(0.5f));
-            }
-            Assert.That(normalDirections.Count, Is.EqualTo(8));
-            Assert.That(normalDirections.Contains(new int3(1, 0, 0)), Is.False);
-            Assert.That(normalDirections.Contains(new int3(0, 1, 0)), Is.False);
-            Assert.That(normalDirections.Contains(new int3(0, 0, 1)), Is.False);
-        }
-
-        [Test]
-        public void PrimitiveBasis_IsOutwardWoundInsideFiveCentimetreSupport()
-        {
-            var occupied = Set(new int3(0));
-            for (int primitiveId = 0;
-                 primitiveId < MerkabaCanonicalGeometry.PrimitiveCount; primitiveId++)
-            {
-                MerkabaCanonicalGeometry.CanonicalPrimitive primitive =
-                    MerkabaCanonicalGeometry.Primitives[primitiveId];
-                Assert.That(primitive.SuppressionMask >> 26, Is.Zero);
-                var vertices = new float3[3];
-                float3 normal = default;
-                for (int corner = 0; corner < 3; corner++)
-                {
-                    MerkabaCanonicalGeometry.PrimitiveVertex(primitiveId, corner,
-                        out vertices[corner], out normal);
-                    Assert.That(math.cmax(math.abs(vertices[corner])),
-                        Is.LessThanOrEqualTo(MerkabaConstants.HalfSupport + 1e-7f));
-                }
-                float3 cross = math.normalize(math.cross(vertices[1] - vertices[0],
-                    vertices[2] - vertices[0]));
-                Assert.That(math.dot(cross, normal), Is.GreaterThan(0.99999f));
-
-                double3 centroid = ((double3)vertices[0] + vertices[1] + vertices[2]) /
-                    (3d * MerkabaConstants.HalfSupport);
-                Assert.That(MerkabaAnalyticUnionOracle.ContainsUnion(occupied,
-                    centroid - (double3)normal * 1e-5), Is.True);
-                Assert.That(MerkabaAnalyticUnionOracle.ContainsUnion(occupied,
-                    centroid + (double3)normal * 1e-5), Is.False);
+                Assert.That(math.abs(normal.z), Is.GreaterThan(0.5f),
+                    $"primitive {primitive} regressed to a cube-axis normal");
             }
         }
 
         [Test]
-        public void ChunkBorderAndNegativeTranslations_AreTopologyInvariant()
+        public void ChunkBorderAndNegativeTranslations_PreserveDirectRuleExactly()
         {
-            HashSet<int3> pattern = Union(Diagonal(),
-                Set(new int3(0), new int3(1, 0, 0), new int3(1, 1, 0)));
-            HashSet<MerkabaAnalyticUnionOracle.TriangleKey> reference =
-                ProductionBoundary(pattern).Keys.ToHashSet();
+            HashSet<int3> pattern = Set(new int3(0), new int3(1, 1, 1),
+                new int3(-1, 1, -1), new int3(2, 2, 2));
+            Dictionary<int3, uint> reference = MasksRelative(pattern, new int3(0));
 
-            foreach (int3 offset in new[]
+            foreach (int3 translation in new[]
                      {
-                         new int3(31, 0, 0), new int3(32, 31, -1),
-                         new int3(-33, -1, -65)
+                         new int3(31, 31, 31), new int3(32, -1, -33),
+                         new int3(-32, -65, 31), new int3(-33, -1, -65)
                      })
             {
-                HashSet<int3> translated = pattern.Select(value => value + offset).ToHashSet();
-                HashSet<MerkabaAnalyticUnionOracle.TriangleKey> normalized =
-                    ProductionBoundary(translated).Keys
-                        .Select(key => key.RelativeTo(offset)).ToHashSet();
-                Assert.That(normalized, Is.EquivalentTo(reference),
-                    $"translation {offset} changed topology/ownership");
-                Assert.That(normalized, Is.EquivalentTo(
-                    MerkabaAnalyticUnionOracle.Boundary(translated)
-                        .Select(key => key.RelativeTo(offset))));
+                HashSet<int3> translated = pattern.Select(value => value + translation)
+                    .ToHashSet();
+                Assert.That(MasksRelative(translated, translation),
+                    Is.EquivalentTo(reference), translation.ToString());
             }
         }
 
@@ -194,146 +245,28 @@ namespace Genesis.RoomScan.Tests
             }
         }
 
-        private static Dictionary<MerkabaAnalyticUnionOracle.TriangleKey, PrimitiveOwner>
-            ProductionBoundary(HashSet<int3> occupied)
+        private static byte OppositeBaseVertex(
+            MerkabaCanonicalGeometry.DirectionRule rule,
+            MerkabaCanonicalGeometry.CanonicalPrimitive side)
         {
-            var result = new Dictionary<MerkabaAnalyticUnionOracle.TriangleKey, PrimitiveOwner>();
-            foreach (int3 center in occupied.OrderBy(value => value.x)
-                         .ThenBy(value => value.y).ThenBy(value => value.z))
-            foreach (int primitiveId in MerkabaCanonicalGeometry.VisiblePrimitives(
-                         center, occupied.Contains))
-            {
-                var vertices = new double3[3];
-                for (int corner = 0; corner < 3; corner++)
-                {
-                    MerkabaCanonicalGeometry.PrimitiveVertex(primitiveId, corner,
-                        out float3 local, out _);
-                    vertices[corner] = center + (double3)local /
-                        MerkabaConstants.HalfSupport;
-                }
-                var key = new MerkabaAnalyticUnionOracle.TriangleKey(
-                    vertices[0], vertices[1], vertices[2]);
-                Assert.That(result.TryAdd(key, new PrimitiveOwner(center, primitiveId)),
-                    Is.True, $"duplicate triangle {key}: {result.GetValueOrDefault(key)}");
-            }
-            return result;
+            foreach (byte candidate in new[]
+                     {
+                         rule.FaceVertex0, rule.FaceVertex1, rule.FaceVertex2
+                     })
+                if (candidate != side.Vertex1 && candidate != side.Vertex2)
+                    return candidate;
+            throw new InvalidOperationException("Tip side does not use a base edge.");
         }
 
-        private static double CentralOctahedronVolume()
+        private static Dictionary<int3, uint> MasksRelative(HashSet<int3> occupied,
+            int3 translation)
         {
-            double volume = 0d;
-            int3 origin = new(0);
-            for (int x = -1; x <= 1; x += 2)
-            for (int y = -1; y <= 1; y += 2)
-            for (int z = -1; z <= 1; z += 2)
-                volume += TetraVolume(origin, new int3(x, 0, 0),
-                    new int3(0, y, 0), new int3(0, 0, z));
-            return volume;
+            return occupied.OrderBy(value => value.x).ThenBy(value => value.y)
+                .ThenBy(value => value.z).ToDictionary(value => value - translation,
+                    value => MerkabaCanonicalGeometry.ActivePrimitiveMask(value,
+                        occupied.Contains));
         }
 
-        private static double TipVolume()
-        {
-            double volume = 0d;
-            for (int x = -1; x <= 1; x += 2)
-            for (int y = -1; y <= 1; y += 2)
-            for (int z = -1; z <= 1; z += 2)
-                volume += TetraVolume(new int3(x, y, z), new int3(x, 0, 0),
-                    new int3(0, y, 0), new int3(0, 0, z));
-            return volume;
-        }
-
-        private static double TetraVolume(int3 a, int3 b, int3 c, int3 d)
-        {
-            double3 ab = b - a;
-            double3 ac = c - a;
-            double3 ad = d - a;
-            return math.abs(math.dot(ab, math.cross(ac, ad))) / 6d;
-        }
-
-        private static TestCaseData Case(string name, HashSet<int3> occupied,
-            string testName) => new TestCaseData(name, occupied).SetName(testName);
         private static HashSet<int3> Set(params int3[] values) => values.ToHashSet();
-
-        private static HashSet<int3> Union(params HashSet<int3>[] sets)
-        {
-            var result = new HashSet<int3>();
-            foreach (HashSet<int3> set in sets) result.UnionWith(set);
-            return result;
-        }
-
-        private static HashSet<int3> Solid(int minimum, int maximum)
-        {
-            var result = new HashSet<int3>();
-            for (int x = minimum; x <= maximum; x++)
-            for (int y = minimum; y <= maximum; y++)
-            for (int z = minimum; z <= maximum; z++)
-                result.Add(new int3(x, y, z));
-            return result;
-        }
-
-        private static HashSet<int3> Wall(int axis, int coordinate, int minimum,
-            int maximum)
-        {
-            var result = new HashSet<int3>();
-            for (int a = minimum; a <= maximum; a++)
-            for (int b = minimum; b <= maximum; b++)
-            {
-                int3 value = default;
-                value[axis] = coordinate;
-                value[(axis + 1) % 3] = a;
-                value[(axis + 2) % 3] = b;
-                result.Add(value);
-            }
-            return result;
-        }
-
-        private static HashSet<int3> Diagonal()
-        {
-            var result = new HashSet<int3>();
-            for (int diagonal = -3; diagonal <= 3; diagonal++)
-            for (int z = -2; z <= 2; z++)
-                result.Add(new int3(diagonal, diagonal, z));
-            return result;
-        }
-
-        private static HashSet<int3> Cylinder()
-        {
-            var result = new HashSet<int3>();
-            for (int x = -4; x <= 4; x++)
-            for (int y = -4; y <= 4; y++)
-            for (int z = -2; z <= 2; z++)
-            {
-                float radius = math.sqrt(x * x + y * y);
-                if (radius is >= 2.5f and <= 3.5f) result.Add(new int3(x, y, z));
-            }
-            return result;
-        }
-
-        private static HashSet<int3> Sphere()
-        {
-            var result = new HashSet<int3>();
-            for (int x = -4; x <= 4; x++)
-            for (int y = -4; y <= 4; y++)
-            for (int z = -4; z <= 4; z++)
-            {
-                float radius = math.length(new float3(x, y, z));
-                if (math.abs(radius - 3f) <= 0.6f) result.Add(new int3(x, y, z));
-            }
-            return result;
-        }
-
-        private readonly struct PrimitiveOwner
-        {
-            private readonly int3 _center;
-            private readonly int _primitiveId;
-
-            public PrimitiveOwner(int3 center, int primitiveId)
-            {
-                _center = center;
-                _primitiveId = primitiveId;
-            }
-
-            public override string ToString() => $"{_center}/p{_primitiveId}";
-        }
     }
 }

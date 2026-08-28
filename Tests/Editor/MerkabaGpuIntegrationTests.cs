@@ -175,9 +175,12 @@ namespace Genesis.RoomScan.Tests
             foreach (RenderRecord record in output)
                 gpuMasks.Add(new int3(record.X, record.Y, record.Z), record.ActiveMask);
             foreach (int3 coord in occupied)
-                Assert.That(gpuMasks[coord],
-                    Is.EqualTo(MerkabaTopology.BoundaryMask(coord, occupied.Contains)),
-                    $"GPU ownership diverged at {coord}");
+            {
+                uint expected = MerkabaCanonicalGeometry.ActivePrimitiveMask(
+                    coord, occupied.Contains);
+                Assert.That(gpuMasks[coord], Is.EqualTo(expected),
+                    $"GPU direct primitive rule diverged at {coord}");
+            }
         }
 
         private static ComputeShader LoadCompute(string file)

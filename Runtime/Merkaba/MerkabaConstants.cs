@@ -13,8 +13,6 @@ namespace Genesis.RoomScan
         public const int ChunkSize = 32;
         public const int KernelsPerChunk = ChunkSize * ChunkSize * ChunkSize;
         public const int NeighbourCount = 26;
-        public const int BoundaryPatchCount = 24;
-        public const int VerticesPerPatch = 6;
 
         public const int MinimumEvidence = -32768;
         public const int MaximumEvidence = 32767;
@@ -27,9 +25,10 @@ namespace Genesis.RoomScan
 
         public const uint OccupiedFlag = 1u << 0;
 
+        private static readonly int3[] NeighboursValue = BuildNeighbours();
+
         /// <summary>The 6 axis, 12 face-diagonal, and 8 body-diagonal offsets.</summary>
-        public static ReadOnlySpan<int3> Neighbours =>
-            MerkabaCanonicalGeometry.NeighbourOffsets;
+        public static ReadOnlySpan<int3> Neighbours => NeighboursValue;
 
         public static int FloorDiv(int value, int divisor)
         {
@@ -82,6 +81,20 @@ namespace Genesis.RoomScan
             left.x < right.x ||
             (left.x == right.x && (left.y < right.y ||
              (left.y == right.y && left.z < right.z)));
+
+        private static int3[] BuildNeighbours()
+        {
+            var result = new int3[NeighbourCount];
+            int index = 0;
+            for (int z = -1; z <= 1; z++)
+            for (int y = -1; y <= 1; y++)
+            for (int x = -1; x <= 1; x++)
+            {
+                if (x == 0 && y == 0 && z == 0) continue;
+                result[index++] = new int3(x, y, z);
+            }
+            return result;
+        }
 
     }
 }

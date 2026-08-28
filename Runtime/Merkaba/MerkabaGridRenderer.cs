@@ -122,7 +122,8 @@ namespace Genesis.RoomScan
                 ComputeBufferType.IndirectArguments);
             _indirectArgs.SetData(new uint[]
             {
-                MerkabaConstants.BoundaryPatchCount * MerkabaConstants.VerticesPerPatch,
+                MerkabaCanonicalGeometry.PrimitiveCount *
+                MerkabaCanonicalGeometry.VerticesPerPrimitive,
                 0, 0, 0
             });
             _material = new Material(renderShader) { name = "MerkabaGrid (Runtime)" };

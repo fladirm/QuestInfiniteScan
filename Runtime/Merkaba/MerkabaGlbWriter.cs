@@ -13,15 +13,15 @@ namespace Genesis.RoomScan
         public readonly long ByteLength;
         public readonly int VertexCount;
         public readonly int IndexCount;
-        public readonly int PrimitivePatchCount;
+        public readonly int PrimitiveCount;
 
         public MerkabaGlbResult(long byteLength, int vertexCount, int indexCount,
-            int primitivePatchCount)
+            int primitiveCount)
         {
             ByteLength = byteLength;
             VertexCount = vertexCount;
             IndexCount = indexCount;
-            PrimitivePatchCount = primitivePatchCount;
+            PrimitiveCount = primitiveCount;
         }
     }
 
@@ -36,17 +36,17 @@ namespace Genesis.RoomScan
         private const uint BinaryChunkType = 0x004E4942u;
         private const int MaximumVertices = 24_000_000;
 
-        private readonly struct ExportKernel
+        private readonly struct ExportPrimitive
         {
             public readonly int3 Coord;
             public readonly KernelState State;
-            public readonly uint Mask;
+            public readonly byte PrimitiveId;
 
-            public ExportKernel(int3 coord, KernelState state, uint mask)
+            public ExportPrimitive(int3 coord, KernelState state, int primitiveId)
             {
                 Coord = coord;
                 State = state;
-                Mask = mask;
+                PrimitiveId = checked((byte)primitiveId);
             }
         }
 
@@ -64,16 +64,17 @@ namespace Genesis.RoomScan
                     throw new InvalidDataException("GLB input contains duplicate/non-occupied kernels.");
             }
 
-            var export = new List<ExportKernel>(occupied.Count);
-            long patchCount = 0;
+            var export = new List<ExportPrimitive>(occupied.Count * 8);
             foreach (MerkabaKernelSnapshot kernel in occupiedKernels)
             {
-                uint mask = MerkabaTopology.BoundaryMask(kernel.Coord, occupied.Contains);
-                if (mask == 0) continue;
-                export.Add(new ExportKernel(kernel.Coord, kernel.State, mask));
-                patchCount += math.countbits(mask);
+                foreach (int primitiveId in MerkabaCanonicalGeometry.VisiblePrimitives(
+                             kernel.Coord, occupied.Contains))
+                    export.Add(new ExportPrimitive(kernel.Coord, kernel.State,
+                        primitiveId));
             }
-            long vertexCountLong = checked(patchCount * MerkabaConstants.VerticesPerPatch);
+            long primitiveCount = export.Count;
+            long vertexCountLong = checked(primitiveCount *
+                MerkabaCanonicalGeometry.VerticesPerPrimitive);
             if (vertexCountLong <= 0 || vertexCountLong > MaximumVertices)
                 throw new InvalidDataException("GLB boundary vertex count is empty or too large.");
             int vertexCount = checked((int)vertexCountLong);
@@ -149,20 +150,20 @@ namespace Genesis.RoomScan
             if (written != totalLength)
                 throw new InvalidDataException($"GLB length mismatch: {written} != {totalLength}.");
             return new MerkabaGlbResult(written, vertexCount, indexCount,
-                checked((int)patchCount));
+                checked((int)primitiveCount));
         }
 
-        private static void VisitVertices(IReadOnlyList<ExportKernel> kernels,
+        private static void VisitVertices(IReadOnlyList<ExportPrimitive> primitives,
             Action<Vector3, Vector3, Color32> visitor)
         {
-            foreach (ExportKernel kernel in kernels)
-            foreach (int patch in MerkabaTopology.ActivePatches(kernel.Mask))
-            for (int vertex = 0; vertex < MerkabaConstants.VerticesPerPatch; vertex++)
+            foreach (ExportPrimitive primitive in primitives)
+            for (int vertex = 0;
+                 vertex < MerkabaCanonicalGeometry.VerticesPerPrimitive; vertex++)
             {
-                MerkabaTopology.PatchVertex(patch, vertex, out float3 local,
-                    out float3 normal);
-                float3 position = MerkabaConstants.WorldCenter(kernel.Coord) + local;
-                visitor(position, normal, kernel.State.Color);
+                MerkabaCanonicalGeometry.PrimitiveVertex(primitive.PrimitiveId,
+                    vertex, out float3 local, out float3 normal);
+                float3 position = MerkabaConstants.WorldCenter(primitive.Coord) + local;
+                visitor(position, normal, primitive.State.Color);
             }
         }
 

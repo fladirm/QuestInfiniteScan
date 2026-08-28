@@ -4,6 +4,10 @@ All results below are filled with exact commands and outcomes as each checkpoint
 
 ## R1 Geometry Authority
 
+Commit `3d14f65` proved useful shared-authority plumbing but encoded a superseded
+96-microtriangle exact-Boolean-union interpretation. R1b preserves only the plumbing
+and replaces its geometry authority.
+
 Commands:
 
 ```bash
@@ -14,18 +18,26 @@ Commands:
 Tools/unity/run_merkaba_tests.sh
 ```
 
-Result:
+Corrected result:
 
-- Canonical HLSL generation: PASS.
-- Unity C# compilation: PASS.
-- EditMode: 39 passed, 0 failed, 0 skipped.
-- R1 geometry cases: 26 passed, including analytic union, axis/diagonal/body neighbours, solid/walls/corners/sheets/cylinder/sphere, chunk borders, negative coordinates, HLSL identity, and cube anti-regression.
+- CPU-to-HLSL generation: PASS; 14 vertices, 8 directions, 32 possible triangles.
+- Direct-rule EditMode suite: 25 passed, 0 failed, 0 skipped.
+- Isolated kernel: exactly 8 octahedron faces, 0 tip sides.
+- Each of 8 body-diagonal pairs: connecting base suppressed and 3 tip sides emitted on both kernels; 10 active triangles per kernel.
+- Neighbour removal restores base; axis/face-diagonal neighbours do not activate tips.
+- Chunk-border and negative-coordinate translation invariance: PASS.
+- Cube-axis-normal anti-regression: PASS.
 - Result XML: `/mnt/kingston-unity/Builds/TestResults/merkaba-results.xml`.
 - Log: `/mnt/kingston-unity/Builds/TestResults/merkaba-tests.log`.
 
 ## R2 Shared Live/GLB Geometry
 
-PENDING
+- Production CPU topology: direct 32-bit rule mask.
+- GPU topology across chunk border equals CPU mask: PASS.
+- Live shader consumes generated primitive vertex IDs: shader compile PASS.
+- GLB isolated kernel: 8 triangles / 24 vertices, all non-axis normals: PASS.
+- GLB body-diagonal pair: 20 triangles / 60 vertices: PASS.
+- Old `MerkabaTopology`, cube `BoundaryPatchCount`, `PatchVertex`, and cube shader vertex authority removed.
 
 ## R3 Depth Pipeline
 

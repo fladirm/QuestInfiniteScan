@@ -53,7 +53,7 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
-        public void SingleKernelExportsAllFixedBoundaryPatches()
+        public void SingleKernelExportsEightDirectMerkabaFacesWithNonAxisNormals()
         {
             KernelState state = Occupied(new Color32(180, 100, 20, 255));
             var fixture = new List<MerkabaKernelSnapshot>
@@ -62,10 +62,43 @@ namespace Genesis.RoomScan.Tests
             };
             byte[] bytes = Write(fixture, out MerkabaGlbResult result);
             Assert.That(bytes, Is.Not.Empty);
-            Assert.That(result.PrimitivePatchCount,
-                Is.EqualTo(MerkabaConstants.BoundaryPatchCount));
+            Assert.That(result.PrimitiveCount,
+                Is.EqualTo(MerkabaCanonicalGeometry.MinimumActivePrimitiveCount));
             Assert.That(result.VertexCount, Is.EqualTo(
-                MerkabaConstants.BoundaryPatchCount * MerkabaConstants.VerticesPerPatch));
+                MerkabaCanonicalGeometry.MinimumActivePrimitiveCount *
+                MerkabaCanonicalGeometry.VerticesPerPrimitive));
+
+            int jsonLength = checked((int)ReadUInt32(bytes, 12));
+            int binaryStart = 20 + jsonLength + 8;
+            int normalsOffset = result.VertexCount * 12;
+            for (int vertex = 0; vertex < result.VertexCount; vertex++)
+            {
+                int offset = binaryStart + normalsOffset + vertex * 12;
+                float x = Math.Abs(BitConverter.ToSingle(bytes, offset));
+                float y = Math.Abs(BitConverter.ToSingle(bytes, offset + 4));
+                float z = Math.Abs(BitConverter.ToSingle(bytes, offset + 8));
+                Assert.That(x, Is.GreaterThan(0.5f));
+                Assert.That(y, Is.GreaterThan(0.5f));
+                Assert.That(z, Is.GreaterThan(0.5f),
+                    "A cube-only ±axis normal leaked into the GLB.");
+            }
+        }
+
+        [Test]
+        public void BodyDiagonalPairExportsTwoConditionalTipsFromSharedAuthority()
+        {
+            KernelState state = Occupied(new Color32(90, 150, 210, 255));
+            var fixture = new List<MerkabaKernelSnapshot>
+            {
+                new(new int3(0), state),
+                new(new int3(1, 1, 1), state)
+            };
+
+            byte[] bytes = Write(fixture, out MerkabaGlbResult result);
+            Assert.That(bytes, Is.Not.Empty);
+            Assert.That(result.PrimitiveCount, Is.EqualTo(20),
+                "Each kernel must replace one base with three tip sides: 10 + 10.");
+            Assert.That(result.VertexCount, Is.EqualTo(60));
         }
 
         private static List<MerkabaKernelSnapshot> Fixture()

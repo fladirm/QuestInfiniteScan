@@ -7,21 +7,27 @@ using Unity.Mathematics;
 namespace Genesis.RoomScan
 {
     /// <summary>
-    /// The single exact geometry authority for an occupied 5 cm Stella-octangula support.
-    /// Coordinates are stored in half-units: one unit is 12.5 mm. The 24 exterior
-    /// Merkaba faces are split at their edge midpoints into 96 fixed micro-triangles.
-    /// Each micro-triangle carries only the small 26-neighbour suppression predicate
-    /// derived by the independent analytic-union oracle.
+    /// The one direct Merkaba geometry authority. Each occupied lattice site owns one
+    /// central octahedron. For each body-diagonal direction it publishes either the
+    /// exposed octahedron face or the three fixed sides of the tip whose apex is the
+    /// occupied neighbour's centre. Intentional primitive overlap is never clipped.
     /// </summary>
     public static class MerkabaCanonicalGeometry
     {
-        public const int BaseFaceCount = 24;
-        public const int MicroTrianglesPerFace = 4;
-        public const int PrimitiveCount = BaseFaceCount * MicroTrianglesPerFace;
+        public const int DirectionCount = 8;
+        public const int PrimitivesPerDirection = 4;
+        public const int PrimitiveCount = DirectionCount * PrimitivesPerDirection;
         public const int VerticesPerPrimitive = 3;
-        public const float HalfUnit = MerkabaConstants.HalfSupport * 0.5f;
+        public const int MinimumActivePrimitiveCount = 8;
+        public const int MaximumActivePrimitiveCount = 24;
 
-        public readonly struct CanonicalVertex : IEquatable<CanonicalVertex>
+        public enum PrimitiveKind : byte
+        {
+            OctahedronFace = 0,
+            TipSide = 1
+        }
+
+        public readonly struct CanonicalVertex
         {
             public readonly sbyte X;
             public readonly sbyte Y;
@@ -34,27 +40,26 @@ namespace Genesis.RoomScan
                 Z = z;
             }
 
-            public float3 Position => new float3(X, Y, Z) * HalfUnit;
-
-            public bool Equals(CanonicalVertex other) =>
-                X == other.X && Y == other.Y && Z == other.Z;
-            public override bool Equals(object obj) =>
-                obj is CanonicalVertex other && Equals(other);
-            public override int GetHashCode() => HashCode.Combine(X, Y, Z);
-            public override string ToString() => $"({X},{Y},{Z})";
+            public int3 Coordinate => new(X, Y, Z);
+            public float3 Position => (float3)Coordinate * MerkabaConstants.HalfSupport;
         }
 
-        public readonly struct CanonicalFace
+        public readonly struct DirectionRule
         {
-            public readonly byte Vertex0;
-            public readonly byte Vertex1;
-            public readonly byte Vertex2;
+            public readonly int3 Offset;
+            public readonly byte FaceVertex0;
+            public readonly byte FaceVertex1;
+            public readonly byte FaceVertex2;
+            public readonly byte ApexVertex;
 
-            public CanonicalFace(byte vertex0, byte vertex1, byte vertex2)
+            public DirectionRule(int3 offset, byte faceVertex0, byte faceVertex1,
+                byte faceVertex2, byte apexVertex)
             {
-                Vertex0 = vertex0;
-                Vertex1 = vertex1;
-                Vertex2 = vertex2;
+                Offset = offset;
+                FaceVertex0 = faceVertex0;
+                FaceVertex1 = faceVertex1;
+                FaceVertex2 = faceVertex2;
+                ApexVertex = apexVertex;
             }
         }
 
@@ -63,17 +68,17 @@ namespace Genesis.RoomScan
             public readonly byte Vertex0;
             public readonly byte Vertex1;
             public readonly byte Vertex2;
-            public readonly byte SourceFace;
-            public readonly uint SuppressionMask;
+            public readonly byte Direction;
+            public readonly PrimitiveKind Kind;
 
             public CanonicalPrimitive(byte vertex0, byte vertex1, byte vertex2,
-                byte sourceFace, uint suppressionMask)
+                byte direction, PrimitiveKind kind)
             {
                 Vertex0 = vertex0;
                 Vertex1 = vertex1;
                 Vertex2 = vertex2;
-                SourceFace = sourceFace;
-                SuppressionMask = suppressionMask;
+                Direction = direction;
+                Kind = kind;
             }
 
             public byte VertexIndex(int corner) => corner switch
@@ -85,107 +90,80 @@ namespace Genesis.RoomScan
             };
         }
 
-        // Corner order uses x as the low bit, then y, then z. Axis vertices follow.
-        private static readonly CanonicalVertex[] SupportVerticesValue =
+        // Six central-octahedron axis vertices followed by the eight tip apexes.
+        // One coordinate unit is exactly a = 0.025 m.
+        private static readonly CanonicalVertex[] VerticesValue =
         {
-            new(-2, -2, -2), new( 2, -2, -2),
-            new(-2,  2, -2), new( 2,  2, -2),
-            new(-2, -2,  2), new( 2, -2,  2),
-            new(-2,  2,  2), new( 2,  2,  2),
-            new(-2,  0,  0), new( 2,  0,  0),
-            new( 0, -2,  0), new( 0,  2,  0),
-            new( 0,  0, -2), new( 0,  0,  2)
+            new(-1,  0,  0), new( 1,  0,  0),
+            new( 0, -1,  0), new( 0,  1,  0),
+            new( 0,  0, -1), new( 0,  0,  1),
+            new(-1, -1, -1), new( 1, -1, -1),
+            new(-1,  1, -1), new( 1,  1, -1),
+            new(-1, -1,  1), new( 1, -1,  1),
+            new(-1,  1,  1), new( 1,  1,  1)
         };
 
-        // Exactly the outward faces of the eight tip tetrahedra. These are the
-        // boundary of tetrahedron A union tetrahedron B, not faces of the cube.
-        private static readonly CanonicalFace[] BaseFacesValue =
+        // Face winding points out of the central octahedron in Offset direction.
+        // ApexVertex is c + a*Offset, exactly the body-diagonal neighbour centre.
+        private static readonly DirectionRule[] DirectionsValue =
         {
-            new(0, 10,  8), new(0, 12, 10), new(0,  8, 12),
-            new(1,  9, 10), new(1, 10, 12), new(1, 12,  9),
-            new(2,  8, 11), new(2, 11, 12), new(2, 12,  8),
-            new(3, 11,  9), new(3, 12, 11), new(3,  9, 12),
-            new(4,  8, 10), new(4, 10, 13), new(4, 13,  8),
-            new(5, 10,  9), new(5, 13, 10), new(5,  9, 13),
-            new(6, 11,  8), new(6, 13, 11), new(6,  8, 13),
-            new(7,  9, 11), new(7, 11, 13), new(7, 13,  9)
+            new(new int3(-1, -1, -1), 0, 4, 2,  6),
+            new(new int3( 1, -1, -1), 1, 2, 4,  7),
+            new(new int3(-1,  1, -1), 0, 3, 4,  8),
+            new(new int3( 1,  1, -1), 1, 4, 3,  9),
+            new(new int3(-1, -1,  1), 0, 2, 5, 10),
+            new(new int3( 1, -1,  1), 1, 5, 2, 11),
+            new(new int3(-1,  1,  1), 0, 5, 3, 12),
+            new(new int3( 1,  1,  1), 1, 3, 5, 13)
         };
 
-        // Bit i addresses NeighbourOffsets[i]. A set bit means that an occupied
-        // neighbour either covers the outward side of this micro-triangle or is
-        // the lexicographically smaller owner of the same coplanar boundary.
-        // These predicates were frozen from exact rational plane arrangement.
-        private static readonly uint[] SuppressionMasksValue =
-        {
-            0x0000020Bu, 0x0000060Au, 0x0000120Au, 0x0000161Bu, 0x0000020Bu, 0x0000021Au, 0x0000060Au, 0x0000161Bu,
-            0x0000020Bu, 0x0000120Au, 0x0000021Au, 0x0000161Bu, 0x00000806u, 0x00002802u, 0x00000C02u, 0x00002C16u,
-            0x00000006u, 0x00000402u, 0x00000012u, 0x00002416u, 0x00000026u, 0x00000032u, 0x00002022u, 0x00002436u,
-            0x00004048u, 0x00005008u, 0x0000C008u, 0x0000D058u, 0x000040C8u, 0x0000C088u, 0x00004098u, 0x0000D0D8u,
-            0x00004048u, 0x00004018u, 0x00005008u, 0x0000D058u, 0x00010100u, 0x00018000u, 0x00012000u, 0x0001A110u,
-            0x00000180u, 0x00000090u, 0x00008080u, 0x0000A190u, 0x00000120u, 0x00002020u, 0x00000030u, 0x0000A130u,
-            0x00160200u, 0x00141200u, 0x00140600u, 0x00361600u, 0x00160200u, 0x00140600u, 0x00340200u, 0x00361600u,
-            0x00160200u, 0x00340200u, 0x00141200u, 0x00361600u, 0x000C0800u, 0x00040C00u, 0x00042800u, 0x002C2C00u,
-            0x000C0000u, 0x00240000u, 0x00040400u, 0x002C2400u, 0x004C0000u, 0x00442000u, 0x00640000u, 0x006C2400u,
-            0x00904000u, 0x0010C000u, 0x00105000u, 0x00B0D000u, 0x01904000u, 0x01304000u, 0x0110C000u, 0x01B0D000u,
-            0x00904000u, 0x00105000u, 0x00304000u, 0x00B0D000u, 0x02010000u, 0x00012000u, 0x00018000u, 0x0221A000u,
-            0x03000000u, 0x01008000u, 0x01200000u, 0x0320A000u, 0x02400000u, 0x00600000u, 0x00402000u, 0x0260A000u
-        };
+        private static readonly CanonicalPrimitive[] PrimitivesValue = BuildPrimitives();
 
-        private static readonly int3[] NeighbourOffsetsValue = BuildNeighbourOffsets();
-        private static readonly int3[] TetraAValue =
-        {
-            new( 1,  1,  1), new( 1, -1, -1),
-            new(-1,  1, -1), new(-1, -1,  1)
-        };
-        private static readonly int3[] TetraBValue =
-        {
-            new(-1, -1, -1), new(-1,  1,  1),
-            new( 1, -1,  1), new( 1,  1, -1)
-        };
-        private static readonly int3[] CentralOctahedronValue =
-        {
-            new( 1, 0, 0), new(-1, 0, 0),
-            new(0,  1, 0), new(0, -1, 0),
-            new(0, 0,  1), new(0, 0, -1)
-        };
+        public static ReadOnlySpan<CanonicalVertex> Vertices => VerticesValue;
+        public static ReadOnlySpan<CanonicalVertex> OctahedronVertices =>
+            VerticesValue.AsSpan(0, 6);
+        public static ReadOnlySpan<DirectionRule> Directions => DirectionsValue;
+        public static ReadOnlySpan<CanonicalPrimitive> Primitives => PrimitivesValue;
 
-        private static readonly DerivedGeometry Derived = BuildDerivedGeometry();
-
-        public static ReadOnlySpan<CanonicalVertex> SupportVertices => SupportVerticesValue;
-        public static ReadOnlySpan<CanonicalVertex> Vertices => Derived.Vertices;
-        public static ReadOnlySpan<CanonicalFace> BaseFaces => BaseFacesValue;
-        public static ReadOnlySpan<CanonicalPrimitive> Primitives => Derived.Primitives;
-        public static ReadOnlySpan<int3> NeighbourOffsets => NeighbourOffsetsValue;
-        public static ReadOnlySpan<int3> TetraA => TetraAValue;
-        public static ReadOnlySpan<int3> TetraB => TetraBValue;
-        public static ReadOnlySpan<int3> CentralOctahedron => CentralOctahedronValue;
-
-        public static bool IsPrimitiveVisible(int3 center, int primitiveId,
+        public static uint ActivePrimitiveMask(int3 center,
             Func<int3, bool> occupied)
         {
             if (occupied == null) throw new ArgumentNullException(nameof(occupied));
-            if ((uint)primitiveId >= PrimitiveCount)
-                throw new ArgumentOutOfRangeException(nameof(primitiveId));
-            if (!occupied(center)) return false;
+            if (!occupied(center)) return 0u;
 
-            uint mask = Derived.Primitives[primitiveId].SuppressionMask;
-            for (int bit = 0; bit < MerkabaConstants.NeighbourCount; bit++)
+            uint mask = 0u;
+            for (int direction = 0; direction < DirectionCount; direction++)
             {
-                if ((mask & (1u << bit)) != 0u &&
-                    occupied(center + NeighbourOffsetsValue[bit]))
-                    return false;
+                int firstPrimitive = direction * PrimitivesPerDirection;
+                if (occupied(center + DirectionsValue[direction].Offset))
+                    mask |= 0xEu << firstPrimitive;
+                else
+                    mask |= 1u << firstPrimitive;
             }
-            return true;
+            return mask;
         }
 
         public static IEnumerable<int> VisiblePrimitives(int3 center,
             Func<int3, bool> occupied)
         {
-            if (occupied == null) throw new ArgumentNullException(nameof(occupied));
-            if (!occupied(center)) yield break;
+            uint mask = ActivePrimitiveMask(center, occupied);
             for (int primitive = 0; primitive < PrimitiveCount; primitive++)
-                if (IsPrimitiveVisible(center, primitive, occupied))
+                if ((mask & (1u << primitive)) != 0u)
                     yield return primitive;
+        }
+
+        public static bool IsTipPrimitive(int primitiveId)
+        {
+            if ((uint)primitiveId >= PrimitiveCount)
+                throw new ArgumentOutOfRangeException(nameof(primitiveId));
+            return PrimitivesValue[primitiveId].Kind == PrimitiveKind.TipSide;
+        }
+
+        public static int BasePrimitiveId(int direction)
+        {
+            if ((uint)direction >= DirectionCount)
+                throw new ArgumentOutOfRangeException(nameof(direction));
+            return direction * PrimitivesPerDirection;
         }
 
         public static void PrimitiveVertex(int primitiveId, int corner,
@@ -195,8 +173,8 @@ namespace Genesis.RoomScan
                 throw new ArgumentOutOfRangeException(nameof(primitiveId));
             if ((uint)corner >= VerticesPerPrimitive)
                 throw new ArgumentOutOfRangeException(nameof(corner));
-            CanonicalPrimitive primitive = Derived.Primitives[primitiveId];
-            position = Derived.Vertices[primitive.VertexIndex(corner)].Position;
+            CanonicalPrimitive primitive = PrimitivesValue[primitiveId];
+            position = VerticesValue[primitive.VertexIndex(corner)].Position;
             normal = PrimitiveNormal(primitiveId);
         }
 
@@ -204,53 +182,57 @@ namespace Genesis.RoomScan
         {
             if ((uint)primitiveId >= PrimitiveCount)
                 throw new ArgumentOutOfRangeException(nameof(primitiveId));
-            CanonicalPrimitive primitive = Derived.Primitives[primitiveId];
-            float3 a = Derived.Vertices[primitive.Vertex0].Position;
-            float3 b = Derived.Vertices[primitive.Vertex1].Position;
-            float3 c = Derived.Vertices[primitive.Vertex2].Position;
+            CanonicalPrimitive primitive = PrimitivesValue[primitiveId];
+            float3 a = VerticesValue[primitive.Vertex0].Position;
+            float3 b = VerticesValue[primitive.Vertex1].Position;
+            float3 c = VerticesValue[primitive.Vertex2].Position;
             return math.normalize(math.cross(b - a, c - a));
         }
 
 #if UNITY_EDITOR
         internal static string BuildGeneratedHlsl()
         {
-            var text = new StringBuilder(24000);
+            var text = new StringBuilder(12000);
             text.Append("// GENERATED from MerkabaCanonicalGeometry.cs. DO NOT EDIT.\n")
                 .Append("#ifndef GENESIS_MERKABA_CANONICAL_GEOMETRY_INCLUDED\n")
                 .Append("#define GENESIS_MERKABA_CANONICAL_GEOMETRY_INCLUDED\n\n")
-                .Append("#define MERKABA_CANONICAL_VERTEX_COUNT ").Append(Derived.Vertices.Length).Append("\n")
+                .Append("#define MERKABA_DIRECTION_COUNT 8\n")
+                .Append("#define MERKABA_CANONICAL_VERTEX_COUNT ").Append(VerticesValue.Length).Append("\n")
                 .Append("#define MERKABA_CANONICAL_PRIMITIVE_COUNT ").Append(PrimitiveCount).Append("\n")
+                .Append("#define MERKABA_PRIMITIVES_PER_DIRECTION 4\n")
                 .Append("#define MERKABA_VERTICES_PER_PRIMITIVE 3\n")
-                .Append("#define MERKABA_CANONICAL_HALF_UNIT 0.0125\n\n")
-                .Append("static const int3 kMerkabaNeighbourOffsets[26] =\n{\n");
-            for (int index = 0; index < NeighbourOffsetsValue.Length; index++)
+                .Append("#define MERKABA_CANONICAL_UNIT 0.025\n\n")
+                .Append("static const int3 kMerkabaBodyDiagonalOffsets[MERKABA_DIRECTION_COUNT] =\n{\n");
+            for (int index = 0; index < DirectionsValue.Length; index++)
             {
-                int3 value = NeighbourOffsetsValue[index];
+                int3 value = DirectionsValue[index].Offset;
                 text.Append("    int3(").Append(value.x).Append(", ")
                     .Append(value.y).Append(", ").Append(value.z).Append(')')
-                    .Append(index + 1 == NeighbourOffsetsValue.Length ? "\n" : ",\n");
+                    .Append(index + 1 == DirectionsValue.Length ? "\n" : ",\n");
             }
-            text.Append("};\n\nstatic const int3 kMerkabaCanonicalVertexHalfUnits[MERKABA_CANONICAL_VERTEX_COUNT] =\n{\n");
-            for (int index = 0; index < Derived.Vertices.Length; index++)
+            text.Append("};\n\nstatic const int3 kMerkabaCanonicalVertexUnits[MERKABA_CANONICAL_VERTEX_COUNT] =\n{\n");
+            for (int index = 0; index < VerticesValue.Length; index++)
             {
-                CanonicalVertex value = Derived.Vertices[index];
+                CanonicalVertex value = VerticesValue[index];
                 text.Append("    int3(").Append(value.X).Append(", ")
                     .Append(value.Y).Append(", ").Append(value.Z).Append(')')
-                    .Append(index + 1 == Derived.Vertices.Length ? "\n" : ",\n");
+                    .Append(index + 1 == VerticesValue.Length ? "\n" : ",\n");
             }
-            text.Append("};\n\n// xyz = vertex indices, w = neighbour suppression mask.\n")
+            text.Append("};\n\n// xyz = vertex indices, w = (direction << 1) | tip-side flag.\n")
                 .Append("static const uint4 kMerkabaCanonicalPrimitives[MERKABA_CANONICAL_PRIMITIVE_COUNT] =\n{\n");
-            for (int index = 0; index < Derived.Primitives.Length; index++)
+            for (int index = 0; index < PrimitivesValue.Length; index++)
             {
-                CanonicalPrimitive value = Derived.Primitives[index];
+                CanonicalPrimitive value = PrimitivesValue[index];
+                uint metadata = ((uint)value.Direction << 1) |
+                    (value.Kind == PrimitiveKind.TipSide ? 1u : 0u);
                 text.Append("    uint4(").Append(value.Vertex0).Append("u, ")
                     .Append(value.Vertex1).Append("u, ").Append(value.Vertex2)
-                    .Append("u, 0x").Append(value.SuppressionMask.ToString("X8", CultureInfo.InvariantCulture))
-                    .Append("u)").Append(index + 1 == Derived.Primitives.Length ? "\n" : ",\n");
+                    .Append("u, ").Append(metadata.ToString(CultureInfo.InvariantCulture))
+                    .Append("u)").Append(index + 1 == PrimitivesValue.Length ? "\n" : ",\n");
             }
             text.Append("};\n\n")
                 .Append("float3 MerkabaCanonicalVertexPosition(uint vertexIndex)\n{\n")
-                .Append("    return (float3)kMerkabaCanonicalVertexHalfUnits[vertexIndex] * MERKABA_CANONICAL_HALF_UNIT;\n}\n\n")
+                .Append("    return (float3)kMerkabaCanonicalVertexUnits[vertexIndex] * MERKABA_CANONICAL_UNIT;\n}\n\n")
                 .Append("void MerkabaCanonicalPrimitiveVertex(uint primitiveId, uint corner, out float3 position, out float3 normal)\n{\n")
                 .Append("    uint4 primitive = kMerkabaCanonicalPrimitives[primitiveId];\n")
                 .Append("    uint vertexIndex = corner == 0u ? primitive.x : (corner == 1u ? primitive.y : primitive.z);\n")
@@ -264,106 +246,69 @@ namespace Genesis.RoomScan
         }
 #endif
 
-        private static DerivedGeometry BuildDerivedGeometry()
+        private static CanonicalPrimitive[] BuildPrimitives()
         {
-            if (BaseFacesValue.Length != BaseFaceCount ||
-                SuppressionMasksValue.Length != PrimitiveCount)
-                throw new InvalidOperationException("Canonical Merkaba table length mismatch.");
-
-            var vertices = new List<CanonicalVertex>(SupportVerticesValue);
-            var primitives = new CanonicalPrimitive[PrimitiveCount];
-            for (int faceIndex = 0; faceIndex < BaseFacesValue.Length; faceIndex++)
+            var result = new CanonicalPrimitive[PrimitiveCount];
+            for (byte direction = 0; direction < DirectionCount; direction++)
             {
-                CanonicalFace face = BaseFacesValue[faceIndex];
-                byte midpoint01 = IndexOrAdd(vertices, Midpoint(
-                    vertices[face.Vertex0], vertices[face.Vertex1]));
-                byte midpoint12 = IndexOrAdd(vertices, Midpoint(
-                    vertices[face.Vertex1], vertices[face.Vertex2]));
-                byte midpoint20 = IndexOrAdd(vertices, Midpoint(
-                    vertices[face.Vertex2], vertices[face.Vertex0]));
-                int first = faceIndex * MicroTrianglesPerFace;
-                primitives[first + 0] = new CanonicalPrimitive(face.Vertex0,
-                    midpoint01, midpoint20, (byte)faceIndex, SuppressionMasksValue[first + 0]);
-                primitives[first + 1] = new CanonicalPrimitive(midpoint01,
-                    face.Vertex1, midpoint12, (byte)faceIndex, SuppressionMasksValue[first + 1]);
-                primitives[first + 2] = new CanonicalPrimitive(midpoint20,
-                    midpoint12, face.Vertex2, (byte)faceIndex, SuppressionMasksValue[first + 2]);
-                primitives[first + 3] = new CanonicalPrimitive(midpoint01,
-                    midpoint12, midpoint20, (byte)faceIndex, SuppressionMasksValue[first + 3]);
+                DirectionRule rule = DirectionsValue[direction];
+                int first = direction * PrimitivesPerDirection;
+                result[first] = new CanonicalPrimitive(rule.FaceVertex0,
+                    rule.FaceVertex1, rule.FaceVertex2, direction,
+                    PrimitiveKind.OctahedronFace);
+                result[first + 1] = OutwardTipSide(rule.ApexVertex,
+                    rule.FaceVertex0, rule.FaceVertex1, rule.FaceVertex2, direction);
+                result[first + 2] = OutwardTipSide(rule.ApexVertex,
+                    rule.FaceVertex1, rule.FaceVertex2, rule.FaceVertex0, direction);
+                result[first + 3] = OutwardTipSide(rule.ApexVertex,
+                    rule.FaceVertex2, rule.FaceVertex0, rule.FaceVertex1, direction);
             }
-
-            var result = new DerivedGeometry(vertices.ToArray(), primitives);
             Validate(result);
             return result;
         }
 
-        private static void Validate(DerivedGeometry geometry)
+        private static CanonicalPrimitive OutwardTipSide(byte apex, byte edge0,
+            byte edge1, byte oppositeBaseVertex, byte direction)
         {
-            uint invalidMask = ~((1u << MerkabaConstants.NeighbourCount) - 1u);
-            for (int primitiveId = 0; primitiveId < geometry.Primitives.Length; primitiveId++)
+            float3 a = VerticesValue[apex].Coordinate;
+            float3 b = VerticesValue[edge0].Coordinate;
+            float3 c = VerticesValue[edge1].Coordinate;
+            float3 opposite = VerticesValue[oppositeBaseVertex].Coordinate;
+            if (math.dot(math.cross(b - a, c - a), opposite - a) > 0f)
+                (edge0, edge1) = (edge1, edge0);
+            return new CanonicalPrimitive(apex, edge0, edge1, direction,
+                PrimitiveKind.TipSide);
+        }
+
+        private static void Validate(CanonicalPrimitive[] primitives)
+        {
+            if (VerticesValue.Length != 14 || DirectionsValue.Length != DirectionCount ||
+                primitives.Length != PrimitiveCount)
+                throw new InvalidOperationException("Direct Merkaba table length mismatch.");
+
+            for (int direction = 0; direction < DirectionCount; direction++)
             {
-                CanonicalPrimitive primitive = geometry.Primitives[primitiveId];
-                if ((primitive.SuppressionMask & invalidMask) != 0u)
-                    throw new InvalidOperationException($"Primitive {primitiveId} references a non-neighbour bit.");
-                float3 a = geometry.Vertices[primitive.Vertex0].Position;
-                float3 b = geometry.Vertices[primitive.Vertex1].Position;
-                float3 c = geometry.Vertices[primitive.Vertex2].Position;
-                float3 cross = math.cross(b - a, c - a);
-                if (math.lengthsq(cross) <= 1e-12f || math.dot(cross, a + b + c) <= 0f)
-                    throw new InvalidOperationException($"Primitive {primitiveId} is degenerate or not outward wound.");
+                DirectionRule rule = DirectionsValue[direction];
+                if (math.any(math.abs(rule.Offset) != 1) ||
+                    math.any(VerticesValue[rule.ApexVertex].Coordinate != rule.Offset))
+                    throw new InvalidOperationException($"Direction {direction} has an invalid apex.");
+
+                CanonicalPrimitive face = primitives[BasePrimitiveId(direction)];
+                float3 a = VerticesValue[face.Vertex0].Coordinate;
+                float3 b = VerticesValue[face.Vertex1].Coordinate;
+                float3 c = VerticesValue[face.Vertex2].Coordinate;
+                if (math.dot(math.cross(b - a, c - a), rule.Offset) <= 0f)
+                    throw new InvalidOperationException($"Direction {direction} face is not outward wound.");
             }
-        }
 
-        private static CanonicalVertex Midpoint(CanonicalVertex left,
-            CanonicalVertex right)
-        {
-            int x = left.X + right.X;
-            int y = left.Y + right.Y;
-            int z = left.Z + right.Z;
-            if (((x | y | z) & 1) != 0)
-                throw new InvalidOperationException("Canonical midpoint is not an exact half-unit.");
-            return new CanonicalVertex((sbyte)(x / 2), (sbyte)(y / 2),
-                (sbyte)(z / 2));
-        }
-
-        private static byte IndexOrAdd(List<CanonicalVertex> vertices,
-            CanonicalVertex value)
-        {
-            int index = vertices.IndexOf(value);
-            if (index < 0)
+            for (int primitive = 0; primitive < primitives.Length; primitive++)
             {
-                index = vertices.Count;
-                vertices.Add(value);
-            }
-            if (index > byte.MaxValue)
-                throw new InvalidOperationException("Canonical vertex index overflow.");
-            return (byte)index;
-        }
-
-        private static int3[] BuildNeighbourOffsets()
-        {
-            var result = new int3[MerkabaConstants.NeighbourCount];
-            int index = 0;
-            for (int z = -1; z <= 1; z++)
-            for (int y = -1; y <= 1; y++)
-            for (int x = -1; x <= 1; x++)
-            {
-                if (x == 0 && y == 0 && z == 0) continue;
-                result[index++] = new int3(x, y, z);
-            }
-            return result;
-        }
-
-        private sealed class DerivedGeometry
-        {
-            public readonly CanonicalVertex[] Vertices;
-            public readonly CanonicalPrimitive[] Primitives;
-
-            public DerivedGeometry(CanonicalVertex[] vertices,
-                CanonicalPrimitive[] primitives)
-            {
-                Vertices = vertices;
-                Primitives = primitives;
+                CanonicalPrimitive value = primitives[primitive];
+                float3 a = VerticesValue[value.Vertex0].Coordinate;
+                float3 b = VerticesValue[value.Vertex1].Coordinate;
+                float3 c = VerticesValue[value.Vertex2].Coordinate;
+                if (math.lengthsq(math.cross(b - a, c - a)) <= 1e-12f)
+                    throw new InvalidOperationException($"Primitive {primitive} is degenerate.");
             }
         }
     }
