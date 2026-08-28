@@ -27,6 +27,8 @@ namespace Genesis.RoomScan
         public static MerkabaGrid Instance { get; private set; }
 
         private readonly Dictionary<int3, MerkabaChunk> _chunks = new();
+        private readonly Dictionary<int3, HashSet<int3>> _chunkSpatialBuckets = new();
+        internal const int SpatialBucketChunkSpan = 8;
 
         public int ActiveChunkCount => _chunks.Count;
         public int OccupiedKernelCount { get; private set; }
@@ -48,6 +50,7 @@ namespace Genesis.RoomScan
             if (_chunks.TryGetValue(chunkCoord, out MerkabaChunk chunk)) return chunk;
             chunk = new MerkabaChunk(chunkCoord);
             _chunks.Add(chunkCoord, chunk);
+            RegisterChunkCoordinate(chunkCoord);
             return chunk;
         }
 
@@ -163,8 +166,34 @@ namespace Genesis.RoomScan
         {
             ClearGpuResidencyWithoutReadback();
             _chunks.Clear();
+            _chunkSpatialBuckets.Clear();
             OccupiedKernelCount = 0;
             Cleared?.Invoke();
+        }
+
+        internal static int3 SpatialBucketCoord(int3 chunkCoord) => new(
+            MerkabaConstants.FloorDiv(chunkCoord.x, SpatialBucketChunkSpan),
+            MerkabaConstants.FloorDiv(chunkCoord.y, SpatialBucketChunkSpan),
+            MerkabaConstants.FloorDiv(chunkCoord.z, SpatialBucketChunkSpan));
+
+        private void RegisterChunkCoordinate(int3 chunkCoord)
+        {
+            int3 bucketCoord = SpatialBucketCoord(chunkCoord);
+            if (!_chunkSpatialBuckets.TryGetValue(bucketCoord, out HashSet<int3> bucket))
+            {
+                bucket = new HashSet<int3>();
+                _chunkSpatialBuckets.Add(bucketCoord, bucket);
+            }
+            bucket.Add(chunkCoord);
+        }
+
+        private void UnregisterChunkCoordinate(int3 chunkCoord)
+        {
+            int3 bucketCoord = SpatialBucketCoord(chunkCoord);
+            if (!_chunkSpatialBuckets.TryGetValue(bucketCoord, out HashSet<int3> bucket))
+                return;
+            bucket.Remove(chunkCoord);
+            if (bucket.Count == 0) _chunkSpatialBuckets.Remove(bucketCoord);
         }
 
         private static int CompareCoords(int3 left, int3 right)

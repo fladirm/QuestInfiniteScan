@@ -22,13 +22,15 @@ namespace Genesis.RoomScan
         private sealed class RetiredPublication
         {
             public readonly MerkabaPublicationBuffer Buffer;
-            public readonly int ReleaseAfterFrame;
+            public readonly GraphicsFence ProtectingFence;
+            public bool ReleaseSupported;
 
             public RetiredPublication(MerkabaPublicationBuffer buffer,
-                int releaseAfterFrame)
+                GraphicsFence protectingFence, bool releaseSupported)
             {
                 Buffer = buffer;
-                ReleaseAfterFrame = releaseAfterFrame;
+                ProtectingFence = protectingFence;
+                ReleaseSupported = releaseSupported;
             }
         }
 
@@ -48,6 +50,12 @@ namespace Genesis.RoomScan
         private bool _resizeMigrationPending;
         private MerkabaPublicationBuffer _replacementPublication;
         private uint _replacementRequirement;
+        private GraphicsFence _migrationFence;
+        private GraphicsFence _latestSourceUseFence;
+        private bool _migrationFenceValid;
+        private bool _latestSourceUseFenceValid;
+        private bool _sourceRetirementUnsafe;
+        private bool _publicationResizeDisabled;
         private ShadowCastingMode _shadowCastingMode = ShadowCastingMode.On;
         private readonly List<RetiredPublication> _retiredPublications = new();
 
@@ -143,6 +151,7 @@ namespace Genesis.RoomScan
                 return;
             }
 
+            TryCommitPublicationReplacement();
             ReleaseRetiredBuffers();
             RoomScanner scanner = RoomScanner.Instance;
             if (scanner == null || !scanner.IsScanning)
@@ -179,6 +188,8 @@ namespace Genesis.RoomScan
             if (drawsMerkaba)
                 MerkabaGpuTimestamps.EndGraphics(
                     MerkabaGpuStage.MerkabaDraw);
+            if (_resizeMigrationPending && drawsMerkaba)
+                RecordLatestSourceUseFence();
 
             MerkabaGpuTimestamps.CaptureRenderMetrics(_grid, cpuDirtyGroups,
                 gpuQueueSubmitted);
@@ -195,6 +206,7 @@ namespace Genesis.RoomScan
 
             // Start only after this frame queued every draw using the current buffer.
             if (!_resizeMigrationPending &&
+                !_publicationResizeDisabled &&
                 _requestedResizeRequirement > _grid.PublicationPrimitiveCapacity)
                 BeginExceptionalResizeMigration();
         }
@@ -310,6 +322,7 @@ namespace Genesis.RoomScan
         private void DrawVisibleChunks(Camera camera)
         {
             if (_grid.VisibleChunkCount == 0 || scanOpacity <= 0.001f) return;
+            _material.SetBuffer(KernelsId, _grid.KernelBuffer);
             _material.SetBuffer(PrimitiveRecordBanksId,
                 _grid.PrimitiveRecordBanksBuffer);
             _material.SetBuffer(PublishedBanksId, _grid.PublishedBankBuffer);
@@ -426,6 +439,14 @@ namespace Genesis.RoomScan
 
         private void BeginExceptionalResizeMigration()
         {
+            if (!SystemInfo.supportsGraphicsFence)
+            {
+                _publicationResizeDisabled = true;
+                Logger.Error("Merkaba publication growth requires graphics fences; " +
+                             "retaining the last valid publication until teardown.");
+                return;
+            }
+
             uint required = _requestedResizeRequirement;
             try
             {
@@ -459,25 +480,68 @@ namespace Genesis.RoomScan
                 _grid.ResidentSlotCapacity,
                 Mathf.CeilToInt(_grid.PublicationPrimitiveCapacity / 64f), 1);
 
-            // Eight bytes are read only as a nonblocking completion fence for this
-            // exceptional migration; the published source remains live meanwhile.
-            AsyncGPUReadback.Request(_replacementPublication.Records,
-                sizeof(uint) * 2, 0, CompleteResizeMigration);
+            try
+            {
+                _migrationFence = CreatePublicationFence();
+                _migrationFenceValid = true;
+                _latestSourceUseFence = _migrationFence;
+                _latestSourceUseFenceValid = true;
+                _sourceRetirementUnsafe = false;
+            }
+            catch (Exception exception)
+            {
+                _publicationResizeDisabled = true;
+                _sourceRetirementUnsafe = true;
+                Logger.Error("Merkaba publication migration fence failed; retaining " +
+                             $"source and replacement until teardown: {exception.Message}");
+            }
         }
 
-        private void CompleteResizeMigration(AsyncGPUReadbackRequest request)
+        private static GraphicsFence CreatePublicationFence() =>
+            Graphics.CreateGraphicsFence(
+                GraphicsFenceType.AsyncQueueSynchronisation,
+                SynchronisationStageFlags.AllGPUOperations);
+
+        private void RecordLatestSourceUseFence()
         {
-            if (!_resizeMigrationPending) return;
-            if (request.hasError || !_replacementPublication.IsValid)
+            if (!SystemInfo.supportsGraphicsFence)
             {
-                Logger.Error("Merkaba publication migration failed; retaining the " +
-                             "last valid publication and capacity.");
-                _replacementPublication.Release();
-                _replacementPublication = default;
-                _resizeMigrationPending = false;
-                _requestedResizeRequirement = 0u;
+                _sourceRetirementUnsafe = true;
                 return;
             }
+            try
+            {
+                _latestSourceUseFence = CreatePublicationFence();
+                _latestSourceUseFenceValid = true;
+            }
+            catch (Exception exception)
+            {
+                _sourceRetirementUnsafe = true;
+                Logger.Error("Merkaba source-use fence failed; retaining the source " +
+                             $"publication until teardown: {exception.Message}");
+            }
+        }
+
+        private void TryCommitPublicationReplacement()
+        {
+            if (!_resizeMigrationPending || !_migrationFenceValid ||
+                _publicationResizeDisabled)
+                return;
+
+            bool migrationPassed;
+            try
+            {
+                migrationPassed = _migrationFence.passed;
+            }
+            catch (Exception exception)
+            {
+                _publicationResizeDisabled = true;
+                _sourceRetirementUnsafe = true;
+                Logger.Error("Merkaba publication migration fence cannot be polled; " +
+                             $"retaining both generations until teardown: {exception.Message}");
+                return;
+            }
+            if (!migrationPassed || !_replacementPublication.IsValid) return;
 
             MerkabaPublicationBuffer retired =
                 _grid.CommitPublicationReplacement(_replacementPublication,
@@ -485,20 +549,36 @@ namespace Genesis.RoomScan
             _replacementPublication = default;
             _resizeMigrationPending = false;
             _requestedResizeRequirement = 0u;
-            // Retain several frames so already queued draws can finish on every
-            // graphics backend before releasing the prior publication buffer.
+            GraphicsFence protectingFence = _latestSourceUseFenceValid
+                ? _latestSourceUseFence : _migrationFence;
+            bool releaseSupported = !_sourceRetirementUnsafe &&
+                                    (_latestSourceUseFenceValid ||
+                                     _migrationFenceValid);
             _retiredPublications.Add(new RetiredPublication(retired,
-                Time.frameCount + 4));
+                protectingFence, releaseSupported));
+            _migrationFenceValid = false;
+            _latestSourceUseFenceValid = false;
+            _sourceRetirementUnsafe = false;
         }
 
         private void ReleaseRetiredBuffers()
         {
             for (int index = _retiredPublications.Count - 1; index >= 0; index--)
             {
-                if (Time.frameCount <
-                    _retiredPublications[index].ReleaseAfterFrame) continue;
-                _retiredPublications[index].Buffer.Release();
-                _retiredPublications.RemoveAt(index);
+                RetiredPublication retired = _retiredPublications[index];
+                if (!retired.ReleaseSupported) continue;
+                try
+                {
+                    if (!retired.ProtectingFence.passed) continue;
+                    retired.Buffer.Release();
+                    _retiredPublications.RemoveAt(index);
+                }
+                catch (Exception exception)
+                {
+                    retired.ReleaseSupported = false;
+                    Logger.Error("Merkaba retired-publication fence cannot be polled; " +
+                                 $"retaining its buffer until teardown: {exception.Message}");
+                }
             }
         }
     }

@@ -15,7 +15,6 @@ namespace Genesis.RoomScan.Tests
         private struct PrimitiveRecord
         {
             public uint PackedLocalPrimitive;
-            public uint PackedColor;
         }
 
         [Test, Timeout(30000)]
@@ -185,7 +184,7 @@ namespace Genesis.RoomScan.Tests
             using var dirtyBuffer = new ComputeBuffer(pageCount, sizeof(uint));
             using var versionBuffer = new ComputeBuffer(pageCount, sizeof(uint));
             using var recordBanks = new ComputeBuffer(
-                2 * pageCount * recordCapacity, 8);
+                2 * pageCount * recordCapacity, sizeof(uint));
             using var countBuffer = new ComputeBuffer(pageCount, sizeof(uint));
             using var buildCountBuffer = new ComputeBuffer(pageCount, sizeof(uint));
             using var overflowBuffer = new ComputeBuffer(pageCount, sizeof(uint));
@@ -299,6 +298,46 @@ namespace Genesis.RoomScan.Tests
                 "Dispatch(_rebuildKernel, _grid.ResidentSlotCapacity"));
         }
 
+        [Test]
+        public void Cut5Publication_UsesFencePowerOfTwoGrowthAndGeometryOnlyRecords()
+        {
+            int maximum = MerkabaConstants.KernelsPerChunk *
+                          MerkabaCanonicalGeometry.MaximumActivePrimitiveCount;
+            Assert.That(MerkabaGrid.PublicationCapacityForRequirement(
+                32768, maximum, 32769), Is.EqualTo(65536));
+            Assert.That(MerkabaGrid.PublicationCapacityForRequirement(
+                32768, maximum, 57344), Is.EqualTo(65536));
+            Assert.That(MerkabaGrid.PublicationCapacityForRequirement(
+                32768, maximum, 65536), Is.EqualTo(65536));
+
+            string renderer = File.ReadAllText(
+                "Packages/com.genesis.roomscan/Runtime/Merkaba/" +
+                "MerkabaGridRenderer.cs");
+            Assert.That(renderer, Does.Contain("GraphicsFence ProtectingFence"));
+            Assert.That(renderer, Does.Contain(
+                "GraphicsFenceType.AsyncQueueSynchronisation"));
+            Assert.That(renderer, Does.Contain(
+                "SynchronisationStageFlags.AllGPUOperations"));
+            Assert.That(renderer, Does.Not.Contain("ReleaseAfterFrame"));
+            Assert.That(renderer, Does.Not.Contain("Time.frameCount +"));
+            Assert.That(renderer, Does.Not.Contain(
+                "AsyncGPUReadback.Request(_replacementPublication"));
+
+            string topology = File.ReadAllText(
+                AssetDatabase.GetAssetPath(LoadCompute("MerkabaTopology.compute")));
+            string shader = File.ReadAllText(
+                "Packages/com.genesis.roomscan/Runtime/Shaders/MerkabaGrid.shader");
+            Assert.That(StructSource(topology, "PrimitiveRecord"),
+                Does.Not.Contain("packedColor"));
+            Assert.That(StructSource(shader, "PrimitiveRecord"),
+                Does.Not.Contain("packedColor"));
+            Assert.That(topology, Does.Not.Contain("MERKABA_NEUTRAL_PACKED_COLOR"));
+            Assert.That(shader, Does.Contain("StructuredBuffer<KernelState> " +
+                                             "_MerkabaKernels"));
+            Assert.That(shader, Does.Contain("state.colorConfidence"));
+            Assert.That(shader, Does.Contain("discard;"));
+        }
+
         [Test, Timeout(30000)]
         public void PublicationOverflow_PreservesLastValidSegmentUntilLargerReplacement()
         {
@@ -315,10 +354,10 @@ namespace Genesis.RoomScan.Tests
             int[] neighbours = PageNeighbours(pages);
             var oldRecords = new[]
             {
-                new PrimitiveRecord { PackedLocalPrimitive = 0x111u, PackedColor = 0xaau },
-                new PrimitiveRecord { PackedLocalPrimitive = 0x222u, PackedColor = 0xbbu },
-                new PrimitiveRecord { PackedLocalPrimitive = 0x333u, PackedColor = 0xccu },
-                new PrimitiveRecord { PackedLocalPrimitive = 0x444u, PackedColor = 0xddu }
+                new PrimitiveRecord { PackedLocalPrimitive = 0x111u },
+                new PrimitiveRecord { PackedLocalPrimitive = 0x222u },
+                new PrimitiveRecord { PackedLocalPrimitive = 0x333u },
+                new PrimitiveRecord { PackedLocalPrimitive = 0x444u }
             };
             var counts = new uint[] { 2u };
             var dirty = new uint[] { 1u };
@@ -333,8 +372,8 @@ namespace Genesis.RoomScan.Tests
                 MerkabaConstants.BoundaryWordCount, sizeof(uint));
             using var dirtyBuffer = new ComputeBuffer(1, sizeof(uint));
             using var versionBuffer = new ComputeBuffer(1, sizeof(uint));
-            using var oldRecordBanks = new ComputeBuffer(2 * smallCapacity, 8);
-            using var grownRecordBanks = new ComputeBuffer(2 * grownCapacity, 8);
+            using var oldRecordBanks = new ComputeBuffer(2 * smallCapacity, sizeof(uint));
+            using var grownRecordBanks = new ComputeBuffer(2 * grownCapacity, sizeof(uint));
             using var countBuffer = new ComputeBuffer(1, sizeof(uint));
             using var buildCountBuffer = new ComputeBuffer(1, sizeof(uint));
             using var overflowBuffer = new ComputeBuffer(1, sizeof(uint));
@@ -387,8 +426,6 @@ namespace Genesis.RoomScan.Tests
             {
                 Assert.That(unchanged[i].PackedLocalPrimitive,
                     Is.EqualTo(oldRecords[i].PackedLocalPrimitive));
-                Assert.That(unchanged[i].PackedColor,
-                    Is.EqualTo(oldRecords[i].PackedColor));
             }
 
             var banks = new uint[1];
@@ -475,7 +512,6 @@ namespace Genesis.RoomScan.Tests
                 var serialized = new SerializedObject(grid);
                 serialized.FindProperty("maxResidentChunks").intValue = 16;
                 serialized.FindProperty("maxIntegrationChunks").intValue = 8;
-                serialized.FindProperty("maxVisibleChunks").intValue = 8;
                 serialized.ApplyModifiedPropertiesWithoutUndo();
 
                 KernelState occupied = default;
@@ -637,6 +673,15 @@ namespace Genesis.RoomScan.Tests
             var result = new int4[capacity];
             Array.Fill(result, new int4(0, 0, 0, -1));
             return result;
+        }
+
+        private static string StructSource(string source, string name)
+        {
+            int start = source.IndexOf("struct " + name, StringComparison.Ordinal);
+            Assert.That(start, Is.GreaterThanOrEqualTo(0));
+            int end = source.IndexOf("};", start, StringComparison.Ordinal);
+            Assert.That(end, Is.GreaterThan(start));
+            return source.Substring(start, end - start);
         }
 
         private static int3 GlobalCoord(int4[] pages, int stateIndex)

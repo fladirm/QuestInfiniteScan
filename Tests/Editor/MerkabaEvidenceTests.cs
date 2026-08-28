@@ -161,7 +161,6 @@ namespace Genesis.RoomScan.Tests
                 var serialized = new SerializedObject(grid);
                 serialized.FindProperty("maxResidentChunks").intValue = 16;
                 serialized.FindProperty("maxIntegrationChunks").intValue = 8;
-                serialized.FindProperty("maxVisibleChunks").intValue = 8;
                 serialized.ApplyModifiedPropertiesWithoutUndo();
 
                 Camera camera = cameraHost.AddComponent<Camera>();
@@ -213,7 +212,6 @@ namespace Genesis.RoomScan.Tests
                 var serialized = new SerializedObject(grid);
                 serialized.FindProperty("maxResidentChunks").intValue = 16;
                 serialized.FindProperty("maxIntegrationChunks").intValue = 8;
-                serialized.FindProperty("maxVisibleChunks").intValue = 12;
                 serialized.ApplyModifiedPropertiesWithoutUndo();
 
                 KernelState occupied = default;
@@ -228,9 +226,13 @@ namespace Genesis.RoomScan.Tests
                 MerkabaResidencyFrame integration = grid.RefreshResidency(camera,
                     1f, true);
                 Assert.That(integration.IntegrationChunkCount, Is.GreaterThan(0));
+                Assert.That(grid.VisibleSlotsBuffer.count,
+                    Is.EqualTo(grid.ResidentSlotCapacity));
+                Assert.That(grid.PageHashEntryCount, Is.EqualTo(32));
                 int integrationCount = grid.IntegrationChunkCount;
 
                 grid.RefreshResidency(camera, 2f, false);
+                Assert.That(grid.ExactVisibleDemandCount, Is.GreaterThan(0));
                 Assert.That(grid.IntegrationChunkCount, Is.EqualTo(integrationCount),
                     "render-cadence refresh must not overwrite the 15 Hz integration set");
                 HashSet<int3> first = VisibleChunkCoords(grid);
@@ -268,10 +270,10 @@ namespace Genesis.RoomScan.Tests
             int renderBranch = source.IndexOf("if (existingOnly)",
                 System.StringComparison.Ordinal);
             int sparse = source.IndexOf(
-                "new HashSet<int3>(_chunks.Keys)", renderBranch,
+                "_chunkSpatialBuckets.TryGetValue", renderBranch,
                 System.StringComparison.Ordinal);
             int residentUnion = source.IndexOf(
-                "sparseCoords.UnionWith(_resident.Keys)", sparse,
+                "foreach (int3 coord in _resident.Keys)", sparse,
                 System.StringComparison.Ordinal);
             int integrationLoop = source.IndexOf(
                 "for (int z = -radius; z <= radius; z++)", residentUnion,
@@ -281,6 +283,32 @@ namespace Genesis.RoomScan.Tests
             Assert.That(residentUnion, Is.GreaterThan(sparse));
             Assert.That(integrationLoop, Is.GreaterThan(residentUnion),
                 "the XYZ loop must remain only in the unchanged integration branch");
+            string renderSelection = source.Substring(renderBranch,
+                integrationLoop - renderBranch);
+            Assert.That(renderSelection, Does.Not.Contain("_chunks.Keys"));
+            Assert.That(source, Does.Contain(
+                "if (left.ExactVisible != right.ExactVisible)"));
+            Assert.That(source, Does.Contain("return left.ExactVisible ? -1 : 1"));
+        }
+
+        [Test]
+        public void RenderSpatialBucketsAndStereoUnion_AreDeterministic()
+        {
+            Assert.That(MerkabaGrid.SpatialBucketCoord(new int3(7, 8, -1)),
+                Is.EqualTo(new int3(0, 1, -1)));
+            Assert.That(MerkabaGrid.SpatialBucketCoord(new int3(-8, -9, 15)),
+                Is.EqualTo(new int3(-1, -2, 1)));
+
+            Plane[] left = BoxPlanes(new Vector3(-3f, -1f, -1f),
+                new Vector3(-1f, 1f, 1f));
+            Plane[] right = BoxPlanes(new Vector3(1f, -1f, -1f),
+                new Vector3(3f, 1f, 1f));
+            var rightOnly = new Bounds(new Vector3(2f, 0f, 0f),
+                Vector3.one * 0.25f);
+            Assert.That(MerkabaGrid.IntersectsEitherFrustum(rightOnly, left, null),
+                Is.False);
+            Assert.That(MerkabaGrid.IntersectsEitherFrustum(rightOnly, left, right),
+                Is.True);
         }
 
         [Test]
@@ -332,6 +360,16 @@ namespace Genesis.RoomScan.Tests
             Assert.That(field, Is.Not.Null);
             return (HashSet<int3>)field.GetValue(grid);
         }
+
+        private static Plane[] BoxPlanes(Vector3 minimum, Vector3 maximum) => new[]
+        {
+            new Plane(Vector3.right, -minimum.x),
+            new Plane(Vector3.left, maximum.x),
+            new Plane(Vector3.up, -minimum.y),
+            new Plane(Vector3.down, maximum.y),
+            new Plane(Vector3.forward, -minimum.z),
+            new Plane(Vector3.back, maximum.z)
+        };
 
         private static MerkabaObservationInput FreeInput(float kernelDistance,
             float measuredDistance, float normalFacing, float maxDistance) => new(

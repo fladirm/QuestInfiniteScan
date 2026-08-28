@@ -69,8 +69,10 @@ namespace Genesis.RoomScan.Tests
             Assert.That(source, Does.Not.Contain("SampleSH"));
             Assert.That(source, Does.Not.Contain("GetMainLight"));
             Assert.That(source, Does.Not.Contain("normalWS"));
-            Assert.That(source, Does.Not.Contain("if ("),
+            Assert.That(source, Does.Not.Contain("if (_ScanOpacity"),
                 "Opacity must select material state on CPU, not branch per fragment.");
+            Assert.That(source, Does.Contain(
+                "if (input.colorConfidence == 0u) discard;"));
         }
 
         [Test]

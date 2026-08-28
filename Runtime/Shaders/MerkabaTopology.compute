@@ -10,7 +10,6 @@
 #define MERKABA_OCCUPIED_FLAG 1u
 #define MERKABA_BOUNDARY_BITS_PER_FACE 1024
 #define MERKABA_BOUNDARY_WORD_COUNT 192
-#define MERKABA_NEUTRAL_PACKED_COLOR 0xffa0a0a0u
 
 struct KernelState
 {
@@ -23,7 +22,6 @@ struct KernelState
 struct PrimitiveRecord
 {
     uint packedLocalPrimitive;
-    uint packedColor;
 };
 
 StructuredBuffer<KernelState> _MerkabaKernels;
@@ -164,12 +162,11 @@ uint BuildBodyDiagonalNeighbourMask(int slot, int3 localCoord)
 }
 
 void StorePrimitive(uint slot, uint localIndex, uint primitiveId,
-    uint packedColor, uint targetBank, uint recordIndex)
+    uint targetBank, uint recordIndex)
 {
     if (recordIndex >= (uint)_MerkabaPrimitiveCapacityPerChunk) return;
     PrimitiveRecord record;
     record.packedLocalPrimitive = localIndex | (primitiveId << 15u);
-    record.packedColor = packedColor;
     uint bankStride = (uint)_MerkabaResidentSlotCapacity *
         (uint)_MerkabaPrimitiveCapacityPerChunk;
     uint destination = targetBank * bankStride +
@@ -196,8 +193,6 @@ void RebuildDirtyChunkRecords(uint3 groupId : SV_GroupID,
 
     uint neighbourMask = BuildBodyDiagonalNeighbourMask((int)slot,
         UnflattenKernel(localIndex));
-    uint packedColor = state.colorConfidence > 0u
-        ? state.packedColor : MERKABA_NEUTRAL_PACKED_COLOR;
     uint targetBank = 1u - (_MerkabaPublishedBanks[slot] & 1u);
     uint primitiveCount = MERKABA_DIRECTION_COUNT +
         2u * countbits(neighbourMask);
@@ -211,16 +206,16 @@ void RebuildDirtyChunkRecords(uint3 groupId : SV_GroupID,
         uint firstPrimitive = direction * MERKABA_PRIMITIVES_PER_DIRECTION;
         if ((neighbourMask & (1u << direction)) == 0u)
         {
-            StorePrimitive(slot, localIndex, firstPrimitive, packedColor,
+            StorePrimitive(slot, localIndex, firstPrimitive,
                 targetBank, recordIndex++);
         }
         else
         {
-            StorePrimitive(slot, localIndex, firstPrimitive + 1u, packedColor,
+            StorePrimitive(slot, localIndex, firstPrimitive + 1u,
                 targetBank, recordIndex++);
-            StorePrimitive(slot, localIndex, firstPrimitive + 2u, packedColor,
+            StorePrimitive(slot, localIndex, firstPrimitive + 2u,
                 targetBank, recordIndex++);
-            StorePrimitive(slot, localIndex, firstPrimitive + 3u, packedColor,
+            StorePrimitive(slot, localIndex, firstPrimitive + 3u,
                 targetBank, recordIndex++);
         }
     }

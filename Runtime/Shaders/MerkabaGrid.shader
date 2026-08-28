@@ -2,8 +2,6 @@ Shader "Genesis/RoomScan/MerkabaGrid"
 {
     Properties
     {
-        _ColorMultiplier("Color Multiplier", Color) = (1,1,1,1)
-        _AmbientFloor("Ambient Floor", Range(0,1)) = 0.22
         _ScanOpacity("Scan Opacity", Range(0,1)) = 1
         [HideInInspector] _SrcBlend("Source Blend", Float) = 1
         [HideInInspector] _DstBlend("Destination Blend", Float) = 0
@@ -31,13 +29,22 @@ Shader "Genesis/RoomScan/MerkabaGrid"
             #include "MerkabaCanonicalGeometry.generated.hlsl"
 
             #define MERKABA_LATTICE_STEP 0.025
+            #define MERKABA_KERNELS_PER_CHUNK 32768
+
+            struct KernelState
+            {
+                int evidence;
+                uint packedColor;
+                uint colorConfidence;
+                uint flags;
+            };
 
             struct PrimitiveRecord
             {
                 uint packedLocalPrimitive;
-                uint packedColor;
             };
 
+            StructuredBuffer<KernelState> _MerkabaKernels;
             StructuredBuffer<PrimitiveRecord> _MerkabaPrimitiveRecordBanks;
             StructuredBuffer<uint> _MerkabaPublishedBanks;
             uint _MerkabaResidentSlot;
@@ -47,8 +54,6 @@ Shader "Genesis/RoomScan/MerkabaGrid"
             float4x4 _MerkabaGridToWorld;
 
             CBUFFER_START(UnityPerMaterial)
-                half4 _ColorMultiplier;
-                half _AmbientFloor;
                 half _ScanOpacity;
             CBUFFER_END
 
@@ -66,6 +71,7 @@ Shader "Genesis/RoomScan/MerkabaGrid"
             {
                 float4 positionCS : SV_POSITION;
                 half3 color : TEXCOORD0;
+                nointerpolation uint colorConfidence : TEXCOORD1;
                 UNITY_VERTEX_OUTPUT_STEREO
             };
 
@@ -88,6 +94,8 @@ Shader "Genesis/RoomScan/MerkabaGrid"
                 PrimitiveRecord record = _MerkabaPrimitiveRecordBanks[recordIndex];
                 uint localIndex = record.packedLocalPrimitive & 32767u;
                 uint primitiveId = (record.packedLocalPrimitive >> 15u) & 31u;
+                KernelState state = _MerkabaKernels[
+                    _MerkabaResidentSlot * MERKABA_KERNELS_PER_CHUNK + localIndex];
                 uint3 localCoord = uint3(localIndex & 31u,
                     (localIndex >> 5u) & 31u, (localIndex >> 10u) & 31u);
 
@@ -98,15 +106,16 @@ Shader "Genesis/RoomScan/MerkabaGrid"
                 float3 worldPosition = mul(_MerkabaGridToWorld,
                     float4(localPosition, 1)).xyz;
                 output.positionCS = TransformWorldToHClip(worldPosition);
-                output.color = half3(record.packedColor & 255u,
-                    (record.packedColor >> 8) & 255u,
-                    (record.packedColor >> 16) & 255u) / 255.0h *
-                    _ColorMultiplier.rgb;
+                output.color = half3(state.packedColor & 255u,
+                    (state.packedColor >> 8) & 255u,
+                    (state.packedColor >> 16) & 255u) / 255.0h;
+                output.colorConfidence = state.colorConfidence;
                 return output;
             }
 
             half4 Frag(Varyings input) : SV_Target
             {
+                if (input.colorConfidence == 0u) discard;
                 return half4(input.color, _ScanOpacity);
             }
             ENDHLSL
