@@ -141,6 +141,9 @@ namespace Genesis.RoomScan
             try
             {
                 await EnsureRoomAnchorAsync();
+                _grid.EnsureGpuResources();
+                await Task.Yield();
+                await Task.Yield();
                 bool cameraPermission = await PassthroughCameraProvider
                     .RequestCameraPermissionAsync();
                 if (!cameraPermission)

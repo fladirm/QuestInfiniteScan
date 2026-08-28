@@ -156,6 +156,37 @@ namespace Genesis.RoomScan.Tests
             }
         }
 
+        [Test]
+        public void ScanStart_PreparesGpuBeforeStartingQuestCapture()
+        {
+            string scanner = RuntimeSource("Runtime/Core/RoomScanner.cs");
+            string start = Slice(scanner, "public async Task StartScanningAsync()",
+                "public void StopScanning()");
+            int prepare = start.IndexOf("_grid.EnsureGpuResources();",
+                StringComparison.Ordinal);
+            int firstYield = start.IndexOf("await Task.Yield();", prepare,
+                StringComparison.Ordinal);
+            int secondYield = start.IndexOf("await Task.Yield();",
+                firstYield + 1, StringComparison.Ordinal);
+            int pca = start.IndexOf("_cameraProvider?.StartCapture();",
+                StringComparison.Ordinal);
+            int depth = start.IndexOf("_depthCapture.StartDepthCapture();",
+                StringComparison.Ordinal);
+
+            Assert.That(prepare, Is.GreaterThanOrEqualTo(0));
+            Assert.That(firstYield, Is.GreaterThan(prepare));
+            Assert.That(secondYield, Is.GreaterThan(firstYield));
+            Assert.That(pca, Is.GreaterThan(secondYield));
+            Assert.That(depth, Is.GreaterThan(secondYield));
+            Assert.That(start.IndexOf("ArmNextObservation();",
+                StringComparison.Ordinal), Is.GreaterThan(depth));
+
+            string grid = RuntimeSource("Runtime/Merkaba/MerkabaGrid.Gpu.cs");
+            string ensure = Slice(grid, "internal void EnsureGpuResources()",
+                "private void ReleaseGpuResources()");
+            Assert.That(ensure, Does.Contain("if (_gpuReady) return;"));
+        }
+
         [Test, Timeout(30000)]
         public void DepthNormals_BordersDispatchPaddingAndBothEyes_AreFinite()
         {
