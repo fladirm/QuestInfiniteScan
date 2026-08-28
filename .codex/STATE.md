@@ -19,6 +19,51 @@ Updated: 2026-08-28 (Europe/Prague)
 - Forensic facts and replacement matrix: `analyza.md`.
 - S4‑09 remains pending/unopened.
 
+## N4R Quest direct-grid correction WIP
+
+The first installed 14-dispatch CUT-E APK reached the real `320x320` graph but
+failed before its first GPU dispatch because two direct workgroup counts were
+placed wholly in Vulkan X:
+
+```text
+ContractNativeQuery FOOTPRINT       102401 x 1 x 1
+EvaluateNativeRelation BOUNDARY     204161 x 1 x 1
+Quest/Vulkan per-dimension limit     65535
+```
+
+This is an execution-grid lowering defect, not an authority, topology or closure
+defect.  The narrow correction retains the same 14 submissions and reconstructs
+the existing logical group index as `x + y * uniformGridWidth` in only those two
+existing variants.  Group zero remains the collective/control group; logical
+groups `1..102400` and `1..204160` retain their exact former payload ownership.
+Padding groups fail the existing bounds and write nothing.  No kernel, shader
+family, buffer owner, physical ABI, readback, fallback, S32 path or semantic rule
+was added.
+
+Actual post-correction evidence:
+
+```text
+footprint direct grid                              51201 x 2 x 1
+boundary direct grid                               51041 x 4 x 1
+logical coverage / duplicate coverage              exact / zero
+Unity EditMode/Vulkan                              91/91 PASS
+generator --check / UAV / git diff --check         PASS / PASS / PASS
+HotDispatchCount                                   14
+Release Android/Vulkan APK                         BUILD PASS
+APK SHA-256                                        681b8e2f3aed57493062dea51f0d109815af8e4faf690a4625c27b197f99954c
+APK size                                           66965051 bytes
+Quest streamed install                             PASS
+production diff vs b4399db                         +7791/-1308, net +6483
+production diff vs 1d005cc                         +2944/-659, net +2285
+```
+
+The installed app launches, but unattended device smoke is presently paused by
+the Quest system safety overlay requiring a physical power-button press to enable
+cameras and microphones.  Exact next action is capture of the first post-unlock
+terminal frame, all fourteen GPU timestamp rows and absence of the former illegal
+dispatch, followed by the remaining physical corpus/deletion audit.  N4R is not
+yet accepted and N5R remains unopened.
+
 ## N4R 14-dispatch CUT-E Quest-build audit checkpoint
 
 N4R remains the sole active run.  The rejected monolithic CUT-E

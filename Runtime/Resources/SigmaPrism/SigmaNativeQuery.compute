@@ -25,6 +25,7 @@ RWStructuredBuffer<uint2> _NativeCloseScratch;
 uint _NativeEntryPointIndex;
 uint _NativeRelationCount;
 uint _NativeRelationMode;
+uint _NativeLinearDispatchWidth;
 uint2 _NativeResolution;
 uint _NativeFootprintCount;
 uint _NativeFootprintStateOffset;
@@ -1286,8 +1287,8 @@ void SigmaN4GlobalGeometryClose(uint threadIndex)
 void EvaluateNativeRelation(uint3 groupId : SV_GroupID,
     uint3 groupThreadId : SV_GroupThreadID)
 {
-    uint index = groupId.x;
 #if defined(SIGMA_N4_GLOBAL_CLOSE_VARIANT)
+    uint index = groupId.x;
     if (_NativeRelationMode != SIGMA_NATIVE_RELATION_MODE_GLOBAL_CLOSE)
         return;
     if (index == 0u)
@@ -1295,6 +1296,7 @@ void EvaluateNativeRelation(uint3 groupId : SV_GroupID,
     else
         SigmaN4ReduceActiveSupport(index - 1u, groupThreadId.x);
 #elif defined(SIGMA_N4_BOUNDARY_VARIANT)
+    uint index = groupId.x + groupId.y * _NativeLinearDispatchWidth;
     if (_NativeRelationMode != SIGMA_NATIVE_RELATION_MODE_BOUNDARY)
         return;
     if (index == 0u)
@@ -1302,6 +1304,7 @@ void EvaluateNativeRelation(uint3 groupId : SV_GroupID,
     else if (index <= _NativeBoundaryCount)
         SigmaN4EvaluateImplicitBoundary(index - 1u, groupThreadId.x);
 #else
+    uint index = groupId.x;
     if (index >= _NativeRelationCount)
         return;
     bool entryValid = _NativeEntryPointIndex < SIGMA_MERKABA_ENTRY_POINT_COUNT &&

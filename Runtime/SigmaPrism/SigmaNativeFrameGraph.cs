@@ -215,15 +215,25 @@ namespace Genesis.RoomScan.SigmaPrism
             command.SetComputeIntParam(_contract, "_NativeContractMode", 1);
             command.SetComputeIntParam(_contract, "_NativeFreshBranchCount",
                 SigmaNativeFrameSlotResources.LiveFreshBranchCount);
+            Vector2Int footprintGrid =
+                SigmaGpuKernelTelemetry.ComputeLinearDispatchGrid(
+                    slot.FootprintCapacity + 1);
+            command.SetComputeIntParam(_contract,
+                "_NativeLinearDispatchWidth", footprintGrid.x);
             command.DispatchComputeProfiled(_contract, _contractNative,
-                slot.FootprintCapacity + 1, 1, 1);
+                footprintGrid.x, footprintGrid.y, 1);
 
             BindRelation(command, slot, 1);
             command.SetKeyword(_query, _boundaryVariant, true);
             command.SetKeyword(_query, _globalCloseVariant, false);
             command.SetComputeIntParam(_query, "_NativeRelationMode", 1);
+            Vector2Int boundaryGrid =
+                SigmaGpuKernelTelemetry.ComputeLinearDispatchGrid(
+                    slot.BoundaryCapacity + 1);
+            command.SetComputeIntParam(_query,
+                "_NativeLinearDispatchWidth", boundaryGrid.x);
             command.DispatchComputeProfiled(_query, _evaluateRelation,
-                slot.BoundaryCapacity + 1, 1, 1);
+                boundaryGrid.x, boundaryGrid.y, 1);
 
             command.SetKeyword(_contract, _tileCloseVariant, true);
             command.DispatchComputeProfiled(_contract, _contractNative,

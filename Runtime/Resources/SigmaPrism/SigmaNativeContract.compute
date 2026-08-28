@@ -40,6 +40,7 @@ uint _NativeFreshLeftEntryPointIndex;
 uint _NativeFreshRightEntryPointIndex;
 uint _NativeCompletionRecordIndex;
 uint _NativeFootprintCount;
+uint _NativeLinearDispatchWidth;
 uint _NativeFootprintStateOffset;
 uint _NativeFootprintCertificateOffset;
 uint2 _NativeResolution;
@@ -1696,7 +1697,8 @@ void ContractNativeQuery(uint3 id : SV_DispatchThreadID,
     if (groupId.x < tileCount)
         SigmaN4TileClose(groupId.x, groupThreadId.x);
 #else
-    if (groupId.x == 0u && groupThreadId.x == 0u &&
+    uint linearGroup = groupId.x + groupId.y * _NativeLinearDispatchWidth;
+    if (linearGroup == 0u && groupThreadId.x == 0u &&
         _NativeContractMode == SIGMA_NATIVE_CONTRACT_FRESH_LIFT)
     {
         _NativeCounters[3u] = uint4(1u, 1u, 1u, 0u);
@@ -1709,20 +1711,20 @@ void ContractNativeQuery(uint3 id : SV_DispatchThreadID,
     {
         if (_NativeFootprintCount == 0u)
         {
-            if (groupId.x < _NativeFreshBranchCount)
-                SigmaNativeFreshLiftLegacyBranch(groupId.x,
+            if (linearGroup < _NativeFreshBranchCount)
+                SigmaNativeFreshLiftLegacyBranch(linearGroup,
                     groupThreadId.x);
         }
-        else if (groupId.x == 0u)
+        else if (linearGroup == 0u)
             SigmaNativeFreshLiftLegacyBranch(0u, groupThreadId.x);
-        else if (groupId.x <= _NativeFootprintCount)
-            SigmaNativeFreshLiftFootprint(groupId.x - 1u,
+        else if (linearGroup <= _NativeFootprintCount)
+            SigmaNativeFreshLiftFootprint(linearGroup - 1u,
                 groupThreadId.x);
         return;
     }
     if (_NativeContractMode == SIGMA_NATIVE_CONTRACT_FRESH_UNION)
     {
-        if (groupId.x == 0u)
+        if (linearGroup == 0u)
             SigmaNativeFreshFinalize(groupThreadId.x);
         return;
     }

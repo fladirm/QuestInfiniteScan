@@ -773,7 +773,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(contract, Does.Not.Contain("SigmaNativeContractOne"));
             Assert.That(contract, Does.Not.Contain("_NativeReverseKeys"));
             Assert.That(contract, Does.Contain(
-                "SigmaNativeFreshLiftFootprint(groupId.x - 1u,"));
+                "SigmaNativeFreshLiftFootprint(linearGroup - 1u,"));
             Assert.That(contract, Does.Contain(
                 "SigmaNativeFreshFinalize(groupThreadId.x)"));
             Assert.That(contract, Does.Not.Contain(

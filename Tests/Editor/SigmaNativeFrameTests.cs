@@ -93,6 +93,50 @@ namespace Genesis.RoomScan.Tests
                     value.Name == deleted), Is.False, deleted);
         }
 
+        [TestCase(320 * 320 + 1)]
+        [TestCase(2 * 319 * 320 + 1)]
+        public void FullFrameLinearDispatchGridIsQuestLegalAndBijective(
+            int logicalGroups)
+        {
+            Vector2Int grid = SigmaGpuKernelTelemetry.ComputeLinearDispatchGrid(
+                logicalGroups);
+            Assert.That(grid.x, Is.InRange(1,
+                SigmaGpuKernelTelemetry.MaximumThreadGroupsPerDimension));
+            Assert.That(grid.y, Is.InRange(1,
+                SigmaGpuKernelTelemetry.MaximumThreadGroupsPerDimension));
+            Assert.That((long)grid.x * grid.y,
+                Is.GreaterThanOrEqualTo(logicalGroups));
+
+            var seen = new bool[logicalGroups];
+            for (int y = 0; y < grid.y; ++y)
+                for (int x = 0; x < grid.x; ++x)
+                {
+                    int logical = x + y * grid.x;
+                    if (logical >= logicalGroups)
+                        continue;
+                    Assert.That(seen[logical], Is.False,
+                        $"logical group {logical} was enumerated twice");
+                    seen[logical] = true;
+                }
+            Assert.That(seen.All(value => value), Is.True);
+
+            string graph = ReadAssetSource("SigmaNativeFrameGraph t:MonoScript");
+            Assert.That(Count(graph, "ComputeLinearDispatchGrid("),
+                Is.EqualTo(2));
+            Assert.That(Count(graph,
+                "\"_NativeLinearDispatchWidth\""), Is.EqualTo(2));
+            foreach (string shaderName in new[]
+            {
+                "SigmaNativeContract", "SigmaNativeQuery",
+            })
+            {
+                string shader = File.ReadAllText(AssetDatabase.GetAssetPath(
+                    LoadShader(shaderName)));
+                Assert.That(shader, Does.Contain(
+                    "groupId.x + groupId.y * _NativeLinearDispatchWidth"));
+            }
+        }
+
         [Test]
         public void LiveScratchOwnsOneFullFrameArenaAndOneTerminalJournal()
         {
@@ -3359,6 +3403,13 @@ namespace Genesis.RoomScan.Tests
 
         private static GraphicsBuffer UInt4Buffer(int count) =>
             new(GraphicsBuffer.Target.Structured, count, sizeof(uint) * 4);
+
+        private static string ReadAssetSource(string filter)
+        {
+            string[] guids = AssetDatabase.FindAssets(filter);
+            Assert.That(guids, Has.Length.EqualTo(1), filter);
+            return File.ReadAllText(AssetDatabase.GUIDToAssetPath(guids[0]));
+        }
 
         private static RenderTexture ZeroArrayRenderTexture(int width,
             int height, GraphicsFormat format)
