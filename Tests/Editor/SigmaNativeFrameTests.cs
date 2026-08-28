@@ -17,14 +17,18 @@ namespace Genesis.RoomScan.Tests
         [Test]
         public void LiveGraphIsOneBoundedNativeCloseAndLegacyAbiIsAbsent()
         {
-            Assert.That(SigmaNativeFrameGraph.HotDispatchCount, Is.EqualTo(9));
+            Assert.That(SigmaNativeFrameGraph.HotDispatchCount, Is.EqualTo(14));
 
             ComputeShader frame = LoadShader("SigmaNativeFrame");
             ComputeShader query = LoadShader("SigmaNativeQuery");
             ComputeShader contract = LoadShader("SigmaNativeContract");
             foreach (string kernel in new[]
             {
-                "BuildNativeObservation", "PrepareNativeRevision",
+                "BuildNativeObservation", "PrepareNativeCanonicalSeed",
+                "PrepareNativeCanonicalSelect",
+                "PrepareNativeRefinementProof",
+                "PrepareNativeComponentOrder",
+                "PrepareNativeRefinementPlan", "PrepareNativeRevision",
                 "PrepareNativePage", "ScatterNativeState",
                 "CloseAndPublishNativeRevision",
             })
@@ -1196,7 +1200,7 @@ namespace Genesis.RoomScan.Tests
             frame.SetInt("_NativeRevision", 1);
             frame.SetInt("_NativeCalibrationEpoch", 7);
             frame.SetInt("_NativeTargetPageCapacity", 2);
-            frame.Dispatch(prepare, 1, 1, 1);
+            DispatchCutE(frame);
             frame.Dispatch(clone, Math.Max(SigmaCarrier.PageLaneCount,
                 SigmaCarrier.SamplesPerPage *
                 SigmaCarrier.RepresentationWordsPerSample) / 256, 1, 1);
@@ -1216,6 +1220,15 @@ namespace Genesis.RoomScan.Tests
             scratch.CloseScratch.GetData(debugScan, 0,
                 scratch.CanonicalImageScratchOffset +
                     9 * scratch.CanonicalImageStride, 1);
+            var debugComponent = new UInt2[10];
+            scratch.CloseScratch.GetData(debugComponent, 0,
+                scratch.CanonicalComponentScratchOffset +
+                    scratch.GlobalBorderComponentCapacity * 10,
+                debugComponent.Length);
+            var debugMeta = new UInt2[1];
+            scratch.CloseScratch.GetData(debugMeta, 0,
+                scratch.CanonicalImageScratchOffset +
+                    6 * scratch.CanonicalImageStride, 1);
             Assert.That(published[0], Is.EqualTo(1u),
                 $"disposition={terminal[0].Disposition.X}/" +
                 $"{terminal[0].Disposition.Y}/" +
@@ -1229,7 +1242,10 @@ namespace Genesis.RoomScan.Tests
                     $"{value.Low}/{value.High}")) +
                 $", scan={debugScan[0].Low}/{debugScan[0].High}, counters=" +
                 string.Join(";", debugCounters.Select(value =>
-                    $"{value.X}/{value.Y}/{value.Z}/{value.W}")));
+                    $"{value.X}/{value.Y}/{value.Z}/{value.W}")) +
+                ", component=" + string.Join(",", debugComponent.Select(value =>
+                    $"{value.Low:x8}/{value.High:x8}")) +
+                $", meta={debugMeta[0].Low:x8}/{debugMeta[0].High:x8}");
             Assert.That(terminal[0].Disposition.X,
                 Is.EqualTo((uint)SigmaNativeFrameDisposition.Published));
             var firstLane = new UInt2[1];
@@ -1319,7 +1335,7 @@ namespace Genesis.RoomScan.Tests
             frame.SetInt("_NativeRevision", 2);
             frame.SetInt("_NativeCalibrationEpoch", 7);
             frame.SetInt("_NativeTargetPageCapacity", pageCapacity);
-            frame.Dispatch(prepare, 1, 1, 1);
+            DispatchCutE(frame);
 
             var counters = new UInt4[scratch.Counters.count];
             scratch.Counters.GetData(counters);
@@ -1420,7 +1436,7 @@ namespace Genesis.RoomScan.Tests
             frame.SetInt("_NativeRevision", 2);
             frame.SetInt("_NativeCalibrationEpoch", 7);
             frame.SetInt("_NativeTargetPageCapacity", 2);
-            frame.Dispatch(prepare, 1, 1, 1);
+            DispatchCutE(frame);
             frame.Dispatch(clone, Math.Max(SigmaCarrier.PageLaneCount,
                 SigmaCarrier.SamplesPerPage *
                 SigmaCarrier.RepresentationWordsPerSample) / 256, 1, 1);
@@ -1543,7 +1559,7 @@ namespace Genesis.RoomScan.Tests
             // Source slot zero is valid, but its shadow target slot one is
             // deliberately outside this preflight capacity.
             frame.SetInt("_NativeTargetPageCapacity", 1);
-            frame.Dispatch(prepare, 1, 1, 1);
+            DispatchCutE(frame);
             frame.Dispatch(clone, Math.Max(SigmaCarrier.PageLaneCount,
                 SigmaCarrier.SamplesPerPage *
                 SigmaCarrier.RepresentationWordsPerSample) / 256, 1, 1);
@@ -1919,15 +1935,63 @@ namespace Genesis.RoomScan.Tests
                 int representationBase = sample *
                     SigmaCarrier.RepresentationWordsPerSample * 4;
                 Assert.That(copy.RepresentationWords[
-                        representationBase + 4 * 4],
+                        representationBase + 14 * 4],
                     Is.EqualTo(11u), $"{gauge} evidence receipt");
                 Assert.That(copy.RepresentationWords[
-                        representationBase + 4 * 4 + 1],
+                        representationBase + 14 * 4 + 1],
                     Is.EqualTo(12u), $"{gauge} evidence receipt");
             }
             Assert.That(parentCopies, Is.EqualTo(3));
             Assert.That(refinedChildren, Is.EqualTo(1));
             Assert.That(untouchedLocalities, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void RefinementMultiplicityAndParentMeetArePermutationInvariant()
+        {
+            var step = new RefinementStep(
+                new GaugeKey(0L, 0L, 0u), 2u, 100u);
+            RefinementSnapshot forward = RunRefinementSequence(new[] { step },
+                childByFootprint: new[] { 0, 0, 1, 2, 2, 3 },
+                broadenFreshCertificate: true);
+            RefinementSnapshot permuted = RunRefinementSequence(new[] { step },
+                childByFootprint: new[] { 2, 0, 3, 2, 0, 1 },
+                broadenFreshCertificate: true);
+
+            Assert.That(forward.ActiveSampleCount, Is.EqualTo(5u));
+            Assert.That(forward.CertificateCount,
+                Is.EqualTo(forward.ActiveSampleCount));
+            CollectionAssert.AreEqual(forward.StateWords,
+                permuted.StateWords,
+                "state bytes changed with duplicate-observation order");
+            CollectionAssert.AreEqual(forward.RepresentationWords,
+                permuted.RepresentationWords,
+                "canonical publication changed with duplicate-observation order");
+            CollectionAssert.AreEqual(forward.GaugeKeys,
+                permuted.GaugeKeys,
+                "refinement target order changed with observation order");
+
+            UInt2 narrowLower = Packed(-3L << 48);
+            UInt2 narrowUpper = Packed(3L << 48);
+            int refinedChildren = 0;
+            for (int sample = 0; sample < forward.GaugeKeys.Length; ++sample)
+            {
+                if (forward.GaugeKeys[sample].Level != 1u)
+                    continue;
+                refinedChildren++;
+                int axis = (sample * SigmaCarrier.RepresentationWordsPerSample +
+                    2 + 4) * 4;
+                Assert.That(forward.RepresentationWords[axis],
+                    Is.EqualTo(narrowLower.Low));
+                Assert.That(forward.RepresentationWords[axis + 1],
+                    Is.EqualTo(narrowLower.High));
+                Assert.That(forward.RepresentationWords[axis + 2],
+                    Is.EqualTo(narrowUpper.Low));
+                Assert.That(forward.RepresentationWords[axis + 3],
+                    Is.EqualTo(narrowUpper.High));
+            }
+            Assert.That(refinedChildren, Is.EqualTo(4),
+                "all four physical children must receive the narrowed parent meet");
         }
 
         [Test]
@@ -2015,7 +2079,7 @@ namespace Genesis.RoomScan.Tests
             frame.SetInt("_NativeRevision", 2);
             frame.SetInt("_NativeCalibrationEpoch", 7);
             frame.SetInt("_NativeTargetPageCapacity", physicalPages);
-            frame.Dispatch(prepare, 1, 1, 1);
+            DispatchCutE(frame);
             int copyGroups = Math.Max(SigmaCarrier.PageLaneCount,
                 SigmaCarrier.SamplesPerPage *
                     SigmaCarrier.RepresentationWordsPerSample) / 256;
@@ -2187,7 +2251,7 @@ namespace Genesis.RoomScan.Tests
             frame.SetInt("_NativeRevision", 1);
             frame.SetInt("_NativeCalibrationEpoch", 7);
             frame.SetInt("_NativeTargetPageCapacity", 2);
-            frame.Dispatch(prepare, 1, 1, 1);
+            DispatchCutE(frame);
             frame.Dispatch(clone, Math.Max(SigmaCarrier.PageLaneCount,
                 SigmaCarrier.SamplesPerPage *
                     SigmaCarrier.RepresentationWordsPerSample) / 256, 1, 1);
@@ -2323,7 +2387,7 @@ namespace Genesis.RoomScan.Tests
                 Z = 1u,
                 W = generation,
             };
-            certificate[2] = new UInt4
+            certificate[12] = new UInt4
             {
                 X = 11u,
                 Y = 12u,
@@ -2408,7 +2472,7 @@ namespace Genesis.RoomScan.Tests
             frame.SetInt("_NativeRevision", 2);
             frame.SetInt("_NativeCalibrationEpoch", 7);
             frame.SetInt("_NativeTargetPageCapacity", 2);
-            frame.Dispatch(prepare, 1, 1, 1);
+            DispatchCutE(frame);
             frame.Dispatch(clone, Math.Max(SigmaCarrier.PageLaneCount,
                 SigmaCarrier.SamplesPerPage *
                 SigmaCarrier.RepresentationWordsPerSample) / 256, 1, 1);
@@ -2445,6 +2509,20 @@ namespace Genesis.RoomScan.Tests
             return count;
         }
 
+        private static void DispatchCutE(ComputeShader shader)
+        {
+            foreach (string kernelName in new[]
+            {
+                "PrepareNativeCanonicalSeed",
+                "PrepareNativeCanonicalSelect",
+                "PrepareNativeRefinementProof",
+                "PrepareNativeComponentOrder",
+                "PrepareNativeRefinementPlan",
+                "PrepareNativeRevision",
+            })
+                shader.Dispatch(shader.FindKernel(kernelName), 1, 1, 1);
+        }
+
         private static void BindPublication(ComputeShader shader, int kernel,
             SigmaNativeFrameSlotResources scratch, GraphicsBuffer carrierState,
             GraphicsBuffer carrierRepresentation, GraphicsBuffer metadata,
@@ -2453,6 +2531,21 @@ namespace Genesis.RoomScan.Tests
             GraphicsBuffer completionJournal,
             Vector2Int? resolutionOverride = null)
         {
+            if (kernel == shader.FindKernel("PrepareNativeRevision"))
+            {
+                foreach (string stageName in new[]
+                {
+                    "PrepareNativeCanonicalSeed",
+                    "PrepareNativeCanonicalSelect",
+                    "PrepareNativeRefinementProof",
+                    "PrepareNativeComponentOrder",
+                    "PrepareNativeRefinementPlan",
+                })
+                    BindPublication(shader, shader.FindKernel(stageName), scratch,
+                        carrierState, carrierRepresentation, metadata, dirty,
+                        readoutDirty, root, completionJournal,
+                        resolutionOverride);
+            }
             shader.SetBuffer(kernel, "_NativeFrames", scratch.NativeFrame);
             shader.SetBuffer(kernel, "_NativeObservations", scratch.Observation);
             shader.SetBuffer(kernel, "_NativeCloseScratch",
@@ -2710,7 +2803,9 @@ namespace Genesis.RoomScan.Tests
         }
 
         private static RefinementSnapshot RunRefinementSequence(
-            RefinementStep[] steps, bool verifyFirstPreScatterCopy = false)
+            RefinementStep[] steps, bool verifyFirstPreScatterCopy = false,
+            int[] childByFootprint = null,
+            bool broadenFreshCertificate = false)
         {
             ComputeShader frame = LoadShader("SigmaNativeFrame");
             int prepare = frame.FindKernel("PrepareNativeRevision");
@@ -2718,7 +2813,14 @@ namespace Genesis.RoomScan.Tests
             int scatter = frame.FindKernel("ScatterNativeState");
             int close = frame.FindKernel("CloseAndPublishNativeRevision");
 
-            var refinementResolution = new Vector2Int(2, 2);
+            int footprintCount = childByFootprint?.Length ?? 4;
+            childByFootprint ??= new[] { 0, 1, 2, 3 };
+            Assert.That(childByFootprint.Length, Is.EqualTo(footprintCount));
+            Assert.That(childByFootprint.All(child => child >= 0 && child < 4),
+                Is.True);
+            var refinementResolution = footprintCount == 4
+                ? new Vector2Int(2, 2)
+                : new Vector2Int(footprintCount, 1);
             using var scratch = new SigmaNativeFrameSlotResources(0,
                 refinementResolution);
             using var carrierState = new GraphicsBuffer(
@@ -2751,6 +2853,16 @@ namespace Genesis.RoomScan.Tests
                 new GaugeKey(0L, 0L, 0u), 1u);
             WriteRepresentationCell(representation, 0, 1,
                 new GaugeKey(8L, 0L, 0u), 1u);
+            if (broadenFreshCertificate)
+            {
+                UInt4 parentInterval = PackedInterval(-3L << 48, 3L << 48);
+                for (int sample = 0; sample < 2; ++sample)
+                {
+                    int axis = sample *
+                        SigmaCarrier.RepresentationWordsPerSample + 2 + 4;
+                    representation[axis] = parentInterval;
+                }
+            }
             carrierRepresentation.SetData(representation);
             metadata.SetData(new[]
             {
@@ -2790,12 +2902,19 @@ namespace Genesis.RoomScan.Tests
                     parentSample);
                 UInt4[] priorCertificate = ReadCertificate(
                     carrierRepresentation, sourceSlot, parentSample);
+                UInt4[] freshCertificate = priorCertificate;
+                if (broadenFreshCertificate)
+                {
+                    freshCertificate = (UInt4[])priorCertificate.Clone();
+                    freshCertificate[4] = PackedInterval(-8L << 48,
+                        8L << 48);
+                }
                 PrepareRefinementScratch(scratch, revision, sourceSlot,
                     (uint)parentSample, sourceMeta.Generation, step,
-                    priorState, priorCertificate);
+                    priorState, freshCertificate, childByFootprint);
 
                 frame.SetInt("_NativeRevision", (int)revision);
-                frame.Dispatch(prepare, 1, 1, 1);
+                DispatchCutE(frame);
                 frame.Dispatch(clone, Math.Max(SigmaCarrier.PageLaneCount,
                     SigmaCarrier.SamplesPerPage *
                     SigmaCarrier.RepresentationWordsPerSample) / 256, 1, 1);
@@ -2810,6 +2929,37 @@ namespace Genesis.RoomScan.Tests
                         mutationCount];
                     scratch.StateDelta.GetData(stagedDeltas);
                     scratch.GaugeDelta.GetData(stagedGauge);
+                    var refinementDebug = new UInt2[2];
+                    scratch.CloseScratch.GetData(refinementDebug, 0,
+                        scratch.ActiveSupportListScratchOffset, 2);
+                    var representativeDebug = new UInt2[2];
+                    scratch.CloseScratch.GetData(representativeDebug, 0,
+                        scratch.CanonicalImageScratchOffset +
+                            2 * scratch.CanonicalImageStride, 1);
+                    scratch.CloseScratch.GetData(representativeDebug, 1,
+                        scratch.CanonicalImageScratchOffset +
+                            3 * scratch.CanonicalImageStride, 1);
+                    var rankDebug = new UInt2[footprintCount];
+                    scratch.CloseScratch.GetData(rankDebug, 0,
+                        scratch.CanonicalRankScratchOffset, footprintCount);
+                    var componentListDebug = new UInt2[1];
+                    scratch.CloseScratch.GetData(componentListDebug, 0,
+                        scratch.CanonicalImageScratchOffset +
+                            8 * scratch.CanonicalImageStride, 1);
+                    int component = componentListDebug[0].Low == uint.MaxValue
+                        ? scratch.GlobalBorderComponentCapacity
+                        : checked((int)componentListDebug[0].Low);
+                    var componentDebug = new UInt2[2];
+                    scratch.CloseScratch.GetData(componentDebug, 0,
+                        scratch.CanonicalComponentScratchOffset + component * 10,
+                        2);
+                    var streamDebug = new UInt2[footprintCount];
+                    if (componentDebug[0].High != uint.MaxValue)
+                        scratch.CloseScratch.GetData(streamDebug, 0,
+                            scratch.CanonicalImageScratchOffset +
+                                checked((int)componentDebug[0].High),
+                            Math.Min(footprintCount,
+                                checked((int)componentDebug[0].Low)));
                     int refined = 0;
                     for (int mutation = 0; mutation < mutationCount; ++mutation)
                     {
@@ -2824,7 +2974,33 @@ namespace Genesis.RoomScan.Tests
                             Is.EqualTo(expected), $"refinement child {child}");
                     }
                     Assert.That(refined, Is.EqualTo(4),
-                        "The compact schedule must contain all four children.");
+                        "The compact schedule must contain all four children. " +
+                        $"mutations={mutationCount}, counters3=" +
+                        $"{counters[3].X}/{counters[3].Y}/" +
+                        $"{counters[3].Z}/{counters[3].W}, active=" +
+                        $"{refinementDebug[0].Low}/{refinementDebug[0].High};" +
+                        $"{refinementDebug[1].Low:x8}/" +
+                        $"{refinementDebug[1].High:x8}, representatives=" +
+                        $"{representativeDebug[0].Low:x8}/" +
+                        $"{representativeDebug[0].High:x8};" +
+                        $"{representativeDebug[1].Low:x8}/" +
+                        $"{representativeDebug[1].High:x8}, ranks=" +
+                        string.Join(",", rankDebug.Select(value =>
+                            $"{value.Low:x8}/{value.High:x8}")) +
+                        $", list={componentListDebug[0].Low}/" +
+                        $"{componentListDebug[0].High}, component=" +
+                        $"{componentDebug[0].Low}/" +
+                        $"{componentDebug[0].High};" +
+                        $"{componentDebug[1].Low}/{componentDebug[1].High}, " +
+                        "stream=" + string.Join(",", streamDebug.Select(value =>
+                            $"{value.Low:x8}/{value.High:x8}")) +
+                        (mutationCount == 0 ? "." :
+                            $", delta0={stagedDeltas[0].Changed.X:x8}/" +
+                            $"{stagedDeltas[0].Changed.Y:x8}/" +
+                            $"{stagedDeltas[0].Changed.Z:x8}/" +
+                            $"{stagedDeltas[0].Changed.W:x8}, gauge0=" +
+                            $"{stagedGauge[0].Next.X:x8}/" +
+                            $"{stagedGauge[0].Next.Y:x8}."));
                     var stagedRoot = new uint[1];
                     root.GetData(stagedRoot);
                     Assert.That(stagedRoot[0], Is.EqualTo(revision - 1u),
@@ -2835,10 +3011,51 @@ namespace Genesis.RoomScan.Tests
 
                 var terminal = new SigmaNativeFrameGpu[1];
                 scratch.NativeFrame.GetData(terminal);
+                var terminalCounters = new UInt4[scratch.Counters.count];
+                scratch.Counters.GetData(terminalCounters);
+                var terminalRoot = new uint[1];
+                root.GetData(terminalRoot);
+                PageMeta terminalMeta0 = ReadPageMeta(metadata, 0u);
+                PageMeta terminalMeta1 = ReadPageMeta(metadata, 1u);
+                var targetDebug = new UInt2[2];
+                scratch.CloseScratch.GetData(targetDebug, 0,
+                    scratch.ActiveSupportMarkerScratchOffset +
+                        scratch.PagePlanCapacity * SigmaCarrier.SamplesPerPage,
+                    2);
+                var childRankDebug = new UInt2[2];
+                scratch.CloseScratch.GetData(childRankDebug, 0,
+                    scratch.CanonicalImageScratchOffset +
+                        4 * scratch.CanonicalImageStride, 1);
+                scratch.CloseScratch.GetData(childRankDebug, 1,
+                    scratch.CanonicalImageScratchOffset +
+                        5 * scratch.CanonicalImageStride, 1);
+                var pagePlanDebug = new UInt2[4];
+                scratch.CloseScratch.GetData(pagePlanDebug, 0,
+                    scratch.PagePlanScratchOffset, 4);
                 Assert.That(terminal[0].Disposition.X,
                     Is.EqualTo((uint)SigmaNativeFrameDisposition.Published),
                     $"refinement revision {revision}, reason=" +
-                    terminal[0].Disposition.W);
+                    $"{terminal[0].Disposition.W}, publication=" +
+                    $"{terminal[0].Publication.X}/" +
+                    $"{terminal[0].Publication.Y}/" +
+                    $"{terminal[0].Publication.Z}/" +
+                    $"{terminal[0].Publication.W}, counters0=" +
+                    $"{terminalCounters[0].X}/{terminalCounters[0].Y}/" +
+                    $"{terminalCounters[0].Z}/{terminalCounters[0].W}, " +
+                    $"counters1={terminalCounters[1].X}/" +
+                    $"{terminalCounters[1].Y}/{terminalCounters[1].Z}/" +
+                    $"{terminalCounters[1].W}, root={terminalRoot[0]}, " +
+                    $"meta0={terminalMeta0.Revision}/" +
+                    $"{terminalMeta0.ActiveSampleCount}, meta1=" +
+                    $"{terminalMeta1.Revision}/" +
+                    $"{terminalMeta1.ActiveSampleCount}, targets=" +
+                    $"{targetDebug[0].Low:x8}/{targetDebug[0].High};" +
+                    $"{targetDebug[1].Low:x8}/{targetDebug[1].High}, " +
+                    $"childRanks={childRankDebug[0].Low}/" +
+                    $"{childRankDebug[0].High};{childRankDebug[1].Low}/" +
+                    $"{childRankDebug[1].High}, pagePlan=" +
+                    string.Join(",", pagePlanDebug.Select(value =>
+                        $"{value.Low:x8}/{value.High:x8}")));
                 var published = new uint[1];
                 root.GetData(published);
                 Assert.That(published[0], Is.EqualTo(revision));
@@ -2877,9 +3094,11 @@ namespace Genesis.RoomScan.Tests
             SigmaNativeFrameSlotResources scratch, uint revision,
             uint sourceSlot, uint parentSample, uint generation,
             RefinementStep step, UInt2[] priorState,
-            UInt4[] priorCertificate)
+            UInt4[] priorCertificate, int[] childByFootprint = null)
         {
-            Assert.That(scratch.FootprintCapacity, Is.EqualTo(4));
+            int footprintCount = scratch.FootprintCapacity;
+            childByFootprint ??= new[] { 0, 1, 2, 3 };
+            Assert.That(childByFootprint.Length, Is.EqualTo(footprintCount));
             scratch.NativeFrame.SetData(new[]
             {
                 new SigmaNativeFrameGpu
@@ -2900,11 +3119,11 @@ namespace Genesis.RoomScan.Tests
                 SigmaNativeObservationFlags.PriorSupport);
             var observations = new SigmaNativeObservationGpu[
                 scratch.Observation.count];
-            for (int child = 0; child < 4; ++child)
+            for (int footprint = 0; footprint < footprintCount; ++footprint)
             {
-                observations[child + 1] = new SigmaNativeObservationGpu
+                observations[footprint + 1] = new SigmaNativeObservationGpu
                 {
-                    Identity = U4(revision, 7u, (uint)(13 + child),
+                    Identity = U4(revision, 7u, (uint)(13 + footprint),
                         observationFlags),
                     Evidence = U4(11u, 12u, 13u, 14u),
                 };
@@ -2912,22 +3131,22 @@ namespace Genesis.RoomScan.Tests
             scratch.Observation.SetData(observations);
 
             var states = new UInt2[scratch.States.count];
-            for (int child = 0; child < 4; ++child)
+            for (int footprint = 0; footprint < footprintCount; ++footprint)
             {
                 int offset = scratch.FootprintStateOffset +
-                    child * SigmaS16.LaneCount;
+                    footprint * SigmaS16.LaneCount;
                 Array.Copy(priorState, 0, states, offset,
                     SigmaS16.LaneCount);
-                if (child == step.SelectedChild)
+                if ((uint)childByFootprint[footprint] == step.SelectedChild)
                     states[offset].High = step.SelectedStateInteger << 16;
             }
             scratch.States.SetData(states);
 
             var certificates = new UInt4[
                 scratch.LocalityCertificateWords.count];
-            for (int child = 0; child < 4; ++child)
+            for (int footprint = 0; footprint < footprintCount; ++footprint)
                 Array.Copy(priorCertificate, 0, certificates,
-                    scratch.FootprintCertificateOffset + child *
+                    scratch.FootprintCertificateOffset + footprint *
                         SigmaNativeFrameSlotResources.CertificateWordCount,
                     SigmaNativeFrameSlotResources.CertificateWordCount);
             scratch.LocalityCertificateWords.SetData(certificates);
@@ -2937,9 +3156,10 @@ namespace Genesis.RoomScan.Tests
                 parentSample;
             close[scratch.ActiveSupportMarkerScratchOffset + support] =
                 new UInt2 { Low = 0u, High = 0u };
-            for (int child = 0; child < 4; ++child)
+            for (int footprint = 0; footprint < footprintCount; ++footprint)
             {
-                int evidence = child *
+                int child = childByFootprint[footprint];
+                int evidence = footprint *
                     SigmaNativeFrameSlotResources.FootprintEvidenceWordCount;
                 close[evidence + 50] = new UInt2
                 {
@@ -2951,7 +3171,7 @@ namespace Genesis.RoomScan.Tests
                     Low = generation,
                     High = step.Parent.Level,
                 };
-                int receipt = scratch.TileFootprintScratchOffset + child *
+                int receipt = scratch.TileFootprintScratchOffset + footprint *
                     SigmaNativeFrameSlotResources.
                         TileFootprintReceiptWordCount;
                 close[receipt] = new UInt2 { Low = 0u };
@@ -2965,7 +3185,7 @@ namespace Genesis.RoomScan.Tests
             close[scratch.TileComponentSummaryScratchOffset] =
                 new UInt2 { High = 1u };
             close[scratch.TileComponentSummaryScratchOffset + 1] =
-                new UInt2 { High = 4u | (1u << 17) };
+                new UInt2 { High = (uint)footprintCount | (1u << 17) };
             scratch.CloseScratch.SetData(close);
             scratch.StateDelta.SetData(new SigmaNativeStateDeltaGpu[
                 scratch.StateDelta.count]);
@@ -2997,7 +3217,7 @@ namespace Genesis.RoomScan.Tests
                 Z = 1u,
                 W = generation,
             };
-            words[address + 4] = new UInt4
+            words[address + 14] = new UInt4
             {
                 X = 11u,
                 Y = 12u,
@@ -3093,6 +3313,14 @@ namespace Genesis.RoomScan.Tests
         {
             Low = unchecked((uint)value),
             High = unchecked((uint)(value >> 32)),
+        };
+
+        private static UInt4 PackedInterval(long lower, long upper) => new()
+        {
+            X = unchecked((uint)lower),
+            Y = unchecked((uint)(lower >> 32)),
+            Z = unchecked((uint)upper),
+            W = unchecked((uint)(upper >> 32)),
         };
 
         private static void WriteState(UInt2[] target, int offset,

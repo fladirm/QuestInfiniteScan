@@ -1414,11 +1414,11 @@
     "algebraCoreSha256": "f7524a2d348cda462a2c6fa4804cf6be33c2554a69c6ecf67a11ef97009529cc",
     "canonicalSpec": {
       "path": "new_spec.md",
-      "sha256": "7f41a3e24b5c95dda1537b987dff54c0d95481990a3ef830f17148a0f68fde69"
+      "sha256": "73f5086a40288b289ffc7a53798eba5b64d15c9f282415818e21da738321a643"
     },
     "closurePlan": {
       "path": ".codex/S4-08.6_NATIVE_CLOSURE_PLAN.md",
-      "sha256": "6ea515da4b9e721da484251eab914ff9b37ad314fec035209f8b2b5e2e6b4345"
+      "sha256": "10abf2108cfad9740b545df289a61818a7a3f9383d6800ebb7c58c5e6d9cfad1"
     },
     "generatorSource": {
       "path": "Tools/sigma/generate_sigma_operators.py",
@@ -1482,7 +1482,7 @@
     "unboundedParameterRegion": "FORBIDDEN_TO_PROVE_COMPATIBILITY_OR_MUTATION",
     "whiteBalance": "BOUNDED_PER_CHANNEL_GAIN"
   },
-  "programFingerprint": "7930afb163870e9bf1d53867b59f25f28277ca17c58b888df29bf378e69fe192",
+  "programFingerprint": "d2df55df3a1d880c376f5756adb10e59cb4cbcb637ba5da342ef89f160296073",
   "programVersion": "CPQ4-S16-MERKABA-N1R-8",
   "proofs": {
     "allDefaultActiveWork": 0,

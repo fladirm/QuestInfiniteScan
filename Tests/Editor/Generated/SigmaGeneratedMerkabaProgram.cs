@@ -822,7 +822,7 @@ namespace Genesis.RoomScan.SigmaPrism
     {
         internal const string ProgramVersion = "CPQ4-S16-MERKABA-N1R-8";
         internal const string NumericDomainId = "num.fixed.q16_48.checked.nearest_even";
-        internal const string ProgramFingerprint = "7930afb163870e9bf1d53867b59f25f28277ca17c58b888df29bf378e69fe192";
+        internal const string ProgramFingerprint = "d2df55df3a1d880c376f5756adb10e59cb4cbcb637ba5da342ef89f160296073";
         internal const string CaptureBoundaryFingerprint =
             "2b492bf2deba23077ff873275f8672a3949e460a2b1ec2429c199fcd62691ba2";
         internal const int CaptureBoundaryLeafCount =
@@ -833,8 +833,8 @@ namespace Genesis.RoomScan.SigmaPrism
         internal const string ToeUpstreamDeclaredInputFingerprint = "9d2e3604846305cfe5244a4ef49f169632c60582cf895256fadc36426dc5786f";
         internal const string IQInputFingerprint = "4c811586dc37d02991815629990c9410da3840364d35373008fdba4c2afdeb68";
         internal const string IRepresentationInputFingerprint = "b27e74a9b05902741bde4be11cbc3345e0eb3b8a71aa456a14c1c7e0aeeaf5b7";
-        internal const string CanonicalSpecInputFingerprint = "7f41a3e24b5c95dda1537b987dff54c0d95481990a3ef830f17148a0f68fde69";
-        internal const string ClosurePlanInputFingerprint = "6ea515da4b9e721da484251eab914ff9b37ad314fec035209f8b2b5e2e6b4345";
+        internal const string CanonicalSpecInputFingerprint = "73f5086a40288b289ffc7a53798eba5b64d15c9f282415818e21da738321a643";
+        internal const string ClosurePlanInputFingerprint = "10abf2108cfad9740b545df289a61818a7a3f9383d6800ebb7c58c5e6d9cfad1";
         internal const string AlgebraCoreInputFingerprint = "f7524a2d348cda462a2c6fa4804cf6be33c2554a69c6ecf67a11ef97009529cc";
         internal const int ExpressionCount = 17;
         internal const int IrNodeCount = 61;

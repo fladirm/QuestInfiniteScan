@@ -506,3 +506,24 @@ branch/chart decisions remain in Git history only.
   case layout. Full-frame cardinality must become compact wide worklists and fixed
   global synchronization boundaries, never dispatch-per-component or a serial
   superkernel.
+
+## ADR-S450 — N4R CUT-E uses fixed synchronization passes, not one superkernel
+
+- N1R/N2R authority, the `FOOTPRINT -> BOUNDARY -> CLOSE` semantic cut, A--D and
+  root-last publication remain unchanged. This decision changes runtime lowering
+  only.
+- The nine-dispatch WIP placed all CUT-E D4 ordering, exact witness comparison,
+  refinement, component ordering, relocation and page planning in one 256-thread
+  `PrepareNativeRevision`. Unity Vulkan FXC crashed after 600.77 seconds; the
+  standalone lowering has about 4614 CFG blocks, 428 loop nodes and 77 static
+  synchronization sites. It is rejected as a serial-superkernel evasion.
+- N4R replaces that one entry point with at most six fixed wide passes in the
+  existing shader/resource family. The target graph is 14 hot dispatches and the
+  hard ceiling is 16. Submission count never depends on pixels, stitches,
+  components, pages, mutations or history.
+- Existing buffers, bounded close scratch, counters, carrier ABI and generated
+  semantics are reused. No physical identity, manager, host loop, readback,
+  fallback ordering or S32 path is introduced.
+- Every CUT-E pass is timestamped by the existing GPU query instrumentation and
+  reported independently. Final state/gauge/certificate visibility remains one
+  root-last exchange.

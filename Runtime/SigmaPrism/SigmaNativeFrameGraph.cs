@@ -96,22 +96,27 @@ namespace Genesis.RoomScan.SigmaPrism
     }
 
     /// <summary>
-    /// Bounded physical lowering of one NativeCloseCommit. Nine submissions are
-    /// invariant in branch/relation/page cardinality: those cardinalities map to
-    /// workgroups inside the generated collective kernels.
+    /// Bounded physical lowering of one NativeCloseCommit. Fourteen submissions
+    /// are invariant in branch/relation/page cardinality: those cardinalities map
+    /// to workgroups inside the generated collective kernels.
     /// </summary>
     internal sealed class SigmaNativeFrameGraph : IDisposable
     {
         private const string FrameResource = "SigmaPrism/SigmaNativeFrame";
         private const string QueryResource = "SigmaPrism/SigmaNativeQuery";
         private const string ContractResource = "SigmaPrism/SigmaNativeContract";
-        internal const int HotDispatchCount = 9;
+        internal const int HotDispatchCount = 14;
 
         private readonly SigmaExactBackendGate _backendGate;
         private readonly ComputeShader _frame;
         private readonly ComputeShader _query;
         private readonly ComputeShader _contract;
         private readonly int _buildObservation;
+        private readonly int _prepareCanonicalSeed;
+        private readonly int _prepareCanonicalSelect;
+        private readonly int _prepareRefinementProof;
+        private readonly int _prepareComponentOrder;
+        private readonly int _prepareRefinementPlan;
         private readonly int _prepareRevision;
         private readonly int _preparePage;
         private readonly int _scatterState;
@@ -136,6 +141,16 @@ namespace Genesis.RoomScan.SigmaPrism
                     "Generated native close shaders are missing.");
             _buildObservation = _frame.FindProfiledKernel(
                 "BuildNativeObservation");
+            _prepareCanonicalSeed = _frame.FindProfiledKernel(
+                "PrepareNativeCanonicalSeed");
+            _prepareCanonicalSelect = _frame.FindProfiledKernel(
+                "PrepareNativeCanonicalSelect");
+            _prepareRefinementProof = _frame.FindProfiledKernel(
+                "PrepareNativeRefinementProof");
+            _prepareComponentOrder = _frame.FindProfiledKernel(
+                "PrepareNativeComponentOrder");
+            _prepareRefinementPlan = _frame.FindProfiledKernel(
+                "PrepareNativeRefinementPlan");
             _prepareRevision = _frame.FindProfiledKernel(
                 "PrepareNativeRevision");
             _preparePage = _frame.FindProfiledKernel("PrepareNativePage");
@@ -227,6 +242,16 @@ namespace Genesis.RoomScan.SigmaPrism
                 slot.Counters, 3u * sizeof(uint) * 4u);
             command.SetKeyword(_query, _globalCloseVariant, false);
 
+            command.DispatchComputeProfiled(_frame, _prepareCanonicalSeed,
+                1, 1, 1);
+            command.DispatchComputeProfiled(_frame, _prepareCanonicalSelect,
+                1, 1, 1);
+            command.DispatchComputeProfiled(_frame, _prepareRefinementProof,
+                1, 1, 1);
+            command.DispatchComputeProfiled(_frame, _prepareComponentOrder,
+                1, 1, 1);
+            command.DispatchComputeProfiled(_frame, _prepareRefinementPlan,
+                1, 1, 1);
             command.DispatchComputeProfiled(_frame, _prepareRevision, 1, 1, 1);
             command.DispatchComputeProfiled(_frame, _preparePage,
                 slot.Counters, sizeof(uint) * 4u);
@@ -249,8 +274,10 @@ namespace Genesis.RoomScan.SigmaPrism
             uint calibrationEpoch, in SigmaNativeFrameInput input,
             GraphicsBuffer completionJournal, int completionRecordIndex)
         {
-            int[] kernels = { _buildObservation, _prepareRevision, _preparePage,
-                _scatterState, _closePublish };
+            int[] kernels = { _buildObservation, _prepareCanonicalSeed,
+                _prepareCanonicalSelect, _prepareRefinementProof,
+                _prepareComponentOrder, _prepareRefinementPlan,
+                _prepareRevision, _preparePage, _scatterState, _closePublish };
             StereoRigFrameLease source = input.Prediction.Source;
             foreach (int kernel in kernels)
             {
@@ -305,10 +332,17 @@ namespace Genesis.RoomScan.SigmaPrism
                 command.SetComputeBufferParam(_frame, kernel,
                     "_PublishedRevisionRoot", input.Carrier.PublicationRoot);
             }
-            command.SetComputeBufferParam(_frame, _prepareRevision,
-                "_NativePrepareObservations", slot.Observation);
-            command.SetComputeBufferParam(_frame, _prepareRevision,
-                "_NativePrepareStates", slot.States);
+            int[] cutEKernels = { _prepareCanonicalSeed,
+                _prepareCanonicalSelect, _prepareRefinementProof,
+                _prepareComponentOrder, _prepareRefinementPlan,
+                _prepareRevision };
+            foreach (int kernel in cutEKernels)
+            {
+                command.SetComputeBufferParam(_frame, kernel,
+                    "_NativePrepareObservations", slot.Observation);
+                command.SetComputeBufferParam(_frame, kernel,
+                    "_NativePrepareStates", slot.States);
+            }
             // Close reads only the compact page plan. Rebind the existing
             // uint2 SRV alias instead of consuming a ninth UAV or adding a
             // publication dispatch/buffer owner.

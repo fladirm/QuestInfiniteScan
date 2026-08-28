@@ -1,11 +1,11 @@
 # Sigma‑PRISM‑16 implementation state
 
-Updated: 2026-08-27 (Europe/Prague)
+Updated: 2026-08-28 (Europe/Prague)
 
 ## Authority
 
 - Canonical spec: `new_spec.md`, `CPQ4-2026-08-25-S16-v8.3`.
-- Branch: `feat/sigma-prism-16-cpq4-20260822`.
+- Active forensic branch: `forensic/n4r-cut-e-scheduler`.
 - Runtime replacement baseline: `cac9ab012f4ce574e5eb9bee88290982fd9c4fe8`.
 - Accepted primitive milestones: S4‑00 through S4‑07 where compatible with v8.3.
 - Active node: S4‑08. Corrective N1R-7 closes abstract native stitching and the
@@ -18,6 +18,71 @@ Updated: 2026-08-27 (Europe/Prague)
 - Sole routine cursor: `.codex/S4-08.6_RESUME.md`.
 - Forensic facts and replacement matrix: `analyza.md`.
 - S4‑09 remains pending/unopened.
+
+## N4R 14-dispatch CUT-E Quest-build audit checkpoint
+
+N4R remains the sole active run.  The rejected monolithic CUT-E
+`PrepareNativeRevision` lowering (600.77 s cold import followed by compiler
+failure, approximately 4614 CFG blocks / 428 loop nodes / 77 synchronization
+sites) has been mechanically split inside the existing shader/resource family.
+The current fixed native graph contains exactly 14 hot dispatches, below the
+hard ceiling of 16:
+
+```text
+BuildNativeObservation
+ContractNativeQuery FOOTPRINT
+EvaluateNativeRelation BOUNDARY
+ContractNativeQuery TILE_CLOSE
+EvaluateNativeRelation GLOBAL_CLOSE
+PrepareNativeCanonicalSeed
+PrepareNativeCanonicalSelect
+PrepareNativeRefinementProof
+PrepareNativeComponentOrder
+PrepareNativeRefinementPlan
+PrepareNativeRevision
+PrepareNativePage
+ScatterNativeState
+CloseAndPublishNativeRevision
+```
+
+All fourteen calls use the existing `DispatchComputeProfiled` timestamp path.
+No new shader family, buffer owner, physical ABI/authority, CPU semantic path,
+readback, fallback ordering or S32 path was added.  A--D, the complete intrinsic
+16-basis associator, generated collision-free comparator and root-last
+publication semantics remain frozen.  The split stages communicate only through
+the already-owned counters and bounded close scratch.
+
+Actual host evidence for the current dirty-tree source before this forensic
+checkpoint:
+
+```text
+focused CUT-E publication/refinement fixtures       8/8 PASS
+required >4-observation refinement permutation      PASS
+SigmaNativeFrameTests                              23/23 PASS
+complete Unity EditMode/Vulkan suite               89/89 PASS
+full-suite result duration                         23.5301183 s
+generator --check / UAV / git diff --check          PASS / PASS / PASS
+HotDispatchCount                                    14
+Release Android/Vulkan APK                          BUILD PASS
+APK SHA-256                                         dfcb57431d5483ff1976800e8b65414ddab5a2fe4442d05effd556ad41cfd487
+Quest streamed install                              PASS
+production diff vs b4399db                          +7775/-1307, net +6468
+production diff vs 1d005cc                          +2919/-649, net +2270
+production diff vs forensic parent aba829d          +1137/-464, net +673
+```
+
+The first complete suite run exposed four stale shared-shader oracle-fixture ABI
+leaks, not production semantic failures: boundary/global keywords were not reset,
+the fresh fixture did not force `_NativeFootprintCount=0`, `_NativeCounters` was
+unbound, and one source-shape assertion named the removed lift helper.  Those
+fixture defects were corrected narrowly; focused reruns and the complete 89-test
+rerun pass without another production-shader change.
+
+This checkpoint is not accepted N4R.  Exact next gate is the installed Quest
+`320x320` physical corpus with all fourteen per-entrypoint GPU timestamps,
+cardinalities, memory and ordinary/warm p95 evidence.  Any performance failure is
+localized from those timestamps before a runtime-only lowering change.  The
+final deletion audit and N4R acceptance commit remain pending; N5R is unopened.
 
 ## N4R intrinsic-associator/CUT B-D WIP checkpoint
 

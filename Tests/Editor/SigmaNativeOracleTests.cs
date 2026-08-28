@@ -773,7 +773,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(contract, Does.Not.Contain("SigmaNativeContractOne"));
             Assert.That(contract, Does.Not.Contain("_NativeReverseKeys"));
             Assert.That(contract, Does.Contain(
-                "SigmaNativeFreshLiftBranch(groupId.x, groupThreadId.x)"));
+                "SigmaNativeFreshLiftFootprint(groupId.x - 1u,"));
             Assert.That(contract, Does.Contain(
                 "SigmaNativeFreshFinalize(groupThreadId.x)"));
             Assert.That(contract, Does.Not.Contain(
@@ -1910,6 +1910,12 @@ namespace Genesis.RoomScan.Tests
 
             ComputeShader queryShader = LoadShader("SigmaNativeQuery");
             ComputeShader contractShader = LoadShader("SigmaNativeContract");
+            UnityEngine.Rendering.LocalKeyword boundaryVariant = new(queryShader,
+                "SIGMA_N4_BOUNDARY_VARIANT");
+            UnityEngine.Rendering.LocalKeyword globalCloseVariant = new(queryShader,
+                "SIGMA_N4_GLOBAL_CLOSE_VARIANT");
+            queryShader.SetKeyword(boundaryVariant, false);
+            queryShader.SetKeyword(globalCloseVariant, false);
             UnityEngine.Rendering.LocalKeyword tileCloseVariant = new(contractShader,
                 "SIGMA_N4_TILE_CLOSE_VARIANT");
             contractShader.SetKeyword(tileCloseVariant, false);
@@ -1929,6 +1935,7 @@ namespace Genesis.RoomScan.Tests
             using GraphicsBuffer outputSupports = Buffer<UInt2>(branchCount + 1);
             using GraphicsBuffer outputPredictions = Buffer<UInt4>(
                 Math.Max(4, branchCount * 4));
+            using GraphicsBuffer counters = Buffer(new UInt4[4]);
             using GraphicsBuffer observations = new(
                 GraphicsBuffer.Target.Structured, 1,
                 SigmaGeneratedFrame.NativeObservationStride);
@@ -1957,6 +1964,7 @@ namespace Genesis.RoomScan.Tests
                 outputSupports);
             contractShader.SetBuffer(contract, "_NativeBranchPredictions",
                 outputPredictions);
+            contractShader.SetBuffer(contract, "_NativeCounters", counters);
             contractShader.SetBuffer(contract,
                 "_NativeLocalityCertificateWords", certificateWords);
             contractShader.SetInt("_NativeFreshBranchCount", branchCount);
@@ -1968,6 +1976,7 @@ namespace Genesis.RoomScan.Tests
             contractShader.SetInt("_NativeFreshPriorStateOffset",
                 (branchCount + 2) * SigmaS16.LaneCount);
             contractShader.SetInt("_NativeCompletionRecordIndex", 0);
+            contractShader.SetInt("_NativeFootprintCount", 0);
 
             // One workgroup per reverse branch. The first 64 of the fixed 256
             // threads map eight raw
@@ -2022,7 +2031,10 @@ namespace Genesis.RoomScan.Tests
         private static void AssertFreshGpuMatchesCpu(GpuFreshAdmission gpu,
             SigmaFreshBaseAdmission cpu, int expectedBranchCount)
         {
-            Assert.That(gpu.Admitted, Is.True);
+            Assert.That(gpu.Admitted, Is.True,
+                $"status={gpu.Status}, relation={gpu.Relation}, " +
+                $"branches={gpu.BranchCount}, cold={gpu.ColdReason}, " +
+                $"stateZero={gpu.State.IsZero}");
             Assert.That(gpu.Status,
                 Is.EqualTo((uint)SigmaFreshAdmissionStatus.Admitted));
             Assert.That(gpu.State, Is.EqualTo(cpu.State));
@@ -2387,6 +2399,12 @@ namespace Genesis.RoomScan.Tests
             using GraphicsBuffer hashBuffer = Buffer<UInt4>(relations.Count);
             using GraphicsBuffer normBuffer = Buffer<UInt4>(relations.Count * 4);
             int kernel = shader.FindKernel("EvaluateNativeRelation");
+            UnityEngine.Rendering.LocalKeyword boundaryVariant = new(shader,
+                "SIGMA_N4_BOUNDARY_VARIANT");
+            UnityEngine.Rendering.LocalKeyword globalCloseVariant = new(shader,
+                "SIGMA_N4_GLOBAL_CLOSE_VARIANT");
+            shader.SetKeyword(boundaryVariant, false);
+            shader.SetKeyword(globalCloseVariant, false);
             shader.SetBuffer(kernel, "_NativeStates", stateBuffer);
             shader.SetBuffer(kernel, "_NativeRelationInputs", inputBuffer);
             shader.SetBuffer(kernel, "_NativeRelationPlans", planBuffer);

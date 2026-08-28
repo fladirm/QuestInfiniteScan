@@ -1724,27 +1724,51 @@ words for one dispatch lifetime. Only changed localities, unresolved frontier
 factors and certificate/state/gauge deltas survive compaction. Disconnected-
 component packing is backing-only and cannot feed query or relation physics.
 
-`FOOTPRINT`, `BOUNDARY` and `CLOSE` are logical fused phases to be mapped into the
-existing N3/N4 entry points; they are not a request for three new shader families.
-Full-frame admission changes workgroup cardinality and compact scratch, not the
-semantic submission graph. Relative to the accepted N3 native hot graph, the N4
-target is at most two additional bounded hot submissions for demonstrably necessary
-parallel compaction/global reduction.
+`FOOTPRINT`, `BOUNDARY` and `CLOSE` are logical fused phases; they are not shader
+families or additional semantic authorities. Full-frame admission changes
+workgroup cardinality and compact scratch, not this semantic graph.
+
+The N4R CUT-E compiler/runtime closure freezes one narrow execution exception to
+the earlier N3-plus-two target. The nine-dispatch lowering placed all canonical
+D4 ordering, complete witness comparison, refinement scheduling, component
+ordering, relocation and page-plan preparation in one 256-thread
+`PrepareNativeRevision` superkernel. Unity's Vulkan FXC backend spent 600.77 s on
+that entry point and then crashed before producing a valid kernel; its standalone
+lowering contains approximately 4614 control-flow blocks, 428 loop nodes and 77
+static synchronization sites. Keeping the literal count of nine would therefore
+hide serialized full-frame scheduling inside one dispatch, which this section
+already forbids.
+
+N4R may replace that one CUT-E entry point with at most six fixed, wide execution
+passes in the same shader/resource family. Positions 1--5 (`FOOTPRINT`,
+`BOUNDARY`, tile close and global close) and the final page/scatter/root-last
+positions retain their accepted semantics. The target complete native graph is
+14 hot compute dispatches and the hard implementation ceiling is 16. The count is
+constant for an admitted frame and is independent of footprint, stitch,
+component, page, mutation and history cardinality. These passes may persist only
+execution receipts in the already-owned bounded close scratch/counters; they may
+not introduce a buffer owner, persistent component/edge object, host loop or new
+physical ABI.
+
+Every such fixed CUT-E entry point is separately covered by the existing Release
+GPU timestamp/query mechanism and emits the same machine-readable stage,
+work-cardinality and HOT/COLD receipt as the other native kernels. CPU wall timers
+or synchronous readback are not substitutes.
 
 Hot work-submission cardinality is independent of pixel, stitch, transient
 component, page and scan-history counts. Those quantities may change grid/workgroup
 dimensions and bounded compact scratch only. The N4 `D_budget<=64` gate is
 unchanged.
 
-This target never authorizes serialization inside a giant kernel. No global
+The fixed-pass allowance never authorizes serialization inside a smaller set of
+giant kernels. No global
 spin/wait, component-by-component loop, serial prefix/reduction, unbounded
 fixed-point iteration or dispatch-indirect recursion may hide a required
-cross-workgroup synchronization boundary. One additional wide fixed parallel pass
-is preferable to serialized in-kernel work. If the exact generated full-frame
-closure demonstrably requires a third fixed global synchronization boundary, stop
-before runtime implementation and report the irreducible data dependency and why
-fusion or a bounded parallel scan changes semantics; do not silently relax the
-target and do not fake it by serializing. Production kernels named or
+cross-workgroup synchronization boundary. A fixed wide parallel pass is preferable
+to serialized in-kernel work. If the CUT-E lowering cannot close within the hard
+16-dispatch ceiling, stop and report the exact irreducible dependency; do not
+silently relax the ceiling and do not fake it by serializing. Production kernels
+named or
 equivalent to `BuildCandidates`, `SortEdges`, `BuildComponents`, `ResolveLoops`,
 `PackComponents` or `FinalizeStitches` are forbidden. A single serial interpreter
 hidden inside one kernel is equally forbidden.
@@ -2588,11 +2612,13 @@ There is no publication-capable sensor-only intermediate run.
   frame; genuine regional
   refinement is separately reason-coded cold work and is absent from the next
   equivalent warm frame;
-- target no more than two bounded hot submissions over the accepted N3 native
-  graph and map the three logical phases into existing entry points; if a third
-  fixed wide synchronization pass is mathematically irreducible, stop and justify
-  it before implementation. Neither timing, dispatch count nor `D_budget<=64`
-  permits serializing cross-workgroup closure inside one kernel.
+- preserve the three semantic phases while replacing the failed monolithic CUT-E
+  scheduler with a fixed target graph of 14 and hard maximum of 16 native hot
+  dispatches as frozen in Section 24.1; positions 1--5 remain the accepted A--D
+  lowering, CUT-E uses the existing shader/resources/scratch ABI, and final
+  publication remains root-last. Every CUT-E entry point is separately GPU-
+  timestamped. Neither the larger fixed count nor `D_budget<=64` permits a serial
+  full-frame interpreter, per-object dispatch or new runtime authority.
 
 ## N5R — representation-aware sparse commit and durable pager
 

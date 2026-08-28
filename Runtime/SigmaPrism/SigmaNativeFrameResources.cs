@@ -98,7 +98,12 @@ namespace Genesis.RoomScan.SigmaPrism
             CanonicalImageScratchOffset = checked(
                 CanonicalComponentScratchOffset +
                 CanonicalComponentCapacity * CanonicalComponentWordCount);
-            CanonicalImageStride = NextPowerOfTwo(FootprintCapacity);
+            // The shared canonical image arena is addressed by both footprint
+            // rank and transient component id.  Full 320x320 happens to fit
+            // both domains in the same 131072 stride; small exact fixtures must
+            // obey the same alias-free ABI rather than relying on that accident.
+            CanonicalImageStride = NextPowerOfTwo(Math.Max(FootprintCapacity,
+                CanonicalComponentCapacity));
             CanonicalRankScratchOffset = checked(CanonicalImageScratchOffset +
                 CanonicalImageStride * 10);
             int closeScratchCount = checked(CanonicalRankScratchOffset +
