@@ -7,6 +7,8 @@ namespace Genesis.RoomScan.UI
     [RequireComponent(typeof(UIDocument), typeof(DebugMenuFollower))]
     public sealed class DebugMenuController : MonoBehaviour
     {
+        private static readonly string[] SpinnerFrames = { "|", "/", "—", "\\" };
+
         private UIDocument _document;
         private DebugMenuFollower _follower;
         private VisualElement _root;
@@ -14,6 +16,10 @@ namespace Genesis.RoomScan.UI
         private Button _start, _stop, _save, _load, _new, _export;
         private Label _scanning, _chunks, _kernels, _visibleBoundary;
         private Label _saved, _exportStatus, _pointer, _fps;
+        private Slider _opacity;
+        private Label _opacityValue, _operationSpinner, _operationStage;
+        private VisualElement _operationPanel;
+        private ProgressBar _operationProgress;
         private ControllerRayDriver _rayDriver;
         private bool _visible;
         private float _fpsWindow;
@@ -88,6 +94,12 @@ namespace Genesis.RoomScan.UI
             _exportStatus = _root.Q<Label>("val-export");
             _pointer = _root.Q<Label>("val-pointer");
             _fps = _root.Q<Label>("val-fps");
+            _opacity = _root.Q<Slider>("scan-opacity");
+            _opacityValue = _root.Q<Label>("val-opacity");
+            _operationPanel = _root.Q<VisualElement>("operation-panel");
+            _operationSpinner = _root.Q<Label>("operation-spinner");
+            _operationStage = _root.Q<Label>("operation-stage");
+            _operationProgress = _root.Q<ProgressBar>("operation-progress");
         }
 
         private void Bind()
@@ -99,6 +111,11 @@ namespace Genesis.RoomScan.UI
             _load?.RegisterCallback<ClickEvent>(evt => _ = RoomScanner.Instance?.LoadAsync());
             _new?.RegisterCallback<ClickEvent>(evt => _ = RoomScanner.Instance?.NewClearAsync());
             _export?.RegisterCallback<ClickEvent>(evt => _ = RoomScanner.Instance?.ExportGlbAsync());
+            _opacity?.RegisterValueChangedCallback(evt =>
+            {
+                RoomScanner scanner = RoomScanner.Instance;
+                if (scanner != null) scanner.ScanOpacity = evt.newValue;
+            });
         }
 
         private void RefreshStatus()
@@ -130,6 +147,24 @@ namespace Genesis.RoomScan.UI
                 _rayDriver.HasTrackedPose ? StatusKind.Good : StatusKind.Warning);
             Set(_fps, $"{_currentFps:F0} FPS");
 
+            float opacity = scanner.ScanOpacity;
+            _opacity?.SetValueWithoutNotify(opacity);
+            Set(_opacityValue, $"{opacity * 100f:F0}%");
+
+            ScanOperationState operation = scanner.CurrentOperation;
+            RefreshOperation(operation);
+            if (_start != null) _start.text = scanner.IsScanStarting
+                ? "STARTING…" : scanner.IsScanning ? "RUNNING" : "START / RESUME";
+            if (_stop != null) _stop.text = scanner.ScanLifecycle ==
+                ScanLifecycleState.Stopping ? "STOPPING…" : "STOP";
+            if (_save != null) _save.text = operation.Busy &&
+                operation.Kind == ScanOperationKind.Save ? "SAVING…" : "SAVE";
+            if (_load != null) _load.text = operation.Busy &&
+                operation.Kind == ScanOperationKind.Load ? "LOADING…" : "LOAD";
+            if (_export != null) _export.text = operation.Busy &&
+                operation.Kind == ScanOperationKind.ExportGlb
+                ? "EXPORTING…" : "EXPORT GLB";
+
             bool busy = scanner.IsBusy;
             _start?.SetEnabled(!busy && !scanner.IsScanning && !scanner.IsScanStarting);
             _stop?.SetEnabled(!busy && (scanner.IsScanning || scanner.IsScanStarting));
@@ -137,6 +172,38 @@ namespace Genesis.RoomScan.UI
             _load?.SetEnabled(!busy && scanner.SavedSessionExists);
             _new?.SetEnabled(!busy);
             _export?.SetEnabled(!busy && scanner.ActiveChunkCount > 0);
+        }
+
+        private void RefreshOperation(ScanOperationState operation)
+        {
+            if (_operationPanel == null) return;
+            _operationPanel.style.display = operation.Busy
+                ? DisplayStyle.Flex : DisplayStyle.None;
+            if (!operation.Busy) return;
+
+            Set(_operationStage, operation.StatusText);
+            bool indeterminate = operation.IsIndeterminate;
+            if (_operationSpinner != null)
+            {
+                _operationSpinner.style.display = indeterminate
+                    ? DisplayStyle.Flex : DisplayStyle.None;
+                if (indeterminate)
+                {
+                    _operationSpinner.text = SpinnerFrames[
+                        Mathf.FloorToInt(Time.unscaledTime * 8f) & 3];
+                }
+            }
+            if (_operationProgress != null)
+            {
+                _operationProgress.style.display = indeterminate
+                    ? DisplayStyle.None : DisplayStyle.Flex;
+                if (!indeterminate)
+                {
+                    float percent = operation.Progress01 * 100f;
+                    _operationProgress.value = percent;
+                    _operationProgress.title = $"{percent:F0}%";
+                }
+            }
         }
 
         private static void Set(Label label, string text)

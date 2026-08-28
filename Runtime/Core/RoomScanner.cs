@@ -39,6 +39,7 @@ namespace Genesis.RoomScan
         private RoomAnchorManager _anchorManager;
         private DebugMenuController _debugMenu;
         private float _lastIntegrationTime;
+        private ScanOperationState _operation = ScanOperationState.Idle;
 
         public bool IsScanning { get; private set; }
         public bool IsScanStarting => ScanLifecycle == ScanLifecycleState.Starting;
@@ -52,7 +53,14 @@ namespace Genesis.RoomScan
         public bool SavedSessionExists => _persistence != null && _persistence.SavedSessionExists;
         public string PersistenceStatus => _persistence?.LastStatus ?? "Unavailable";
         public string ExportStatus => _exporter?.LastStatus ?? "Unavailable";
-        public bool IsBusy => (_persistence?.IsBusy ?? false) || (_exporter?.IsExporting ?? false);
+        public bool IsBusy => _operation.Busy || (_persistence?.IsBusy ?? false) ||
+                              (_exporter?.IsExporting ?? false);
+        public ScanOperationState CurrentOperation => _operation;
+        public float ScanOpacity
+        {
+            get => _renderer != null ? _renderer.ScanOpacity : 1f;
+            set { if (_renderer != null) _renderer.ScanOpacity = value; }
+        }
 
         public MerkabaGrid Grid => _grid;
         public MerkabaPersistence Persistence => _persistence;
@@ -61,6 +69,7 @@ namespace Genesis.RoomScan
         public event Action ScanStarted;
         public event Action ScanStopped;
         public event Action Integrated;
+        public event Action OperationChanged;
 
         private float IntegrationInterval => 1f / Mathf.Max(1f, integrationHz);
 
@@ -166,6 +175,7 @@ namespace Genesis.RoomScan
 
         public Task<bool> SaveAsync()
         {
+            if (IsBusy) return Task.FromResult(false);
             // Freeze integration before the explicit canonical readback so the
             // snapshot has one well-defined observation boundary.
             StopScanning();
@@ -175,6 +185,7 @@ namespace Genesis.RoomScan
 
         public async Task<bool> LoadAsync()
         {
+            if (IsBusy) return false;
             StopScanning();
             return _persistence != null && await _persistence.LoadAsync();
         }
@@ -191,6 +202,7 @@ namespace Genesis.RoomScan
 
         public Task<bool> ExportGlbAsync()
         {
+            if (IsBusy) return Task.FromResult(false);
             StopScanning();
             return _exporter != null
                 ? _exporter.ExportGlbAsync() : Task.FromResult(false);
@@ -256,5 +268,37 @@ namespace Genesis.RoomScan
         }
 
         private void OnIntegrated() => Integrated?.Invoke();
+
+        internal bool TryBeginOperation(ScanOperationKind kind,
+            ScanOperationStage stage, string statusText)
+        {
+            if (_operation.Busy) return false;
+            SetOperation(new ScanOperationState(kind, stage, -1f, true,
+                statusText));
+            return true;
+        }
+
+        internal void ReportOperation(ScanOperationKind kind,
+            ScanOperationStage stage, float progress01, string statusText)
+        {
+            if (!_operation.Busy || _operation.Kind != kind) return;
+            SetOperation(new ScanOperationState(kind, stage, progress01, true,
+                statusText));
+        }
+
+        internal void FinishOperation(ScanOperationKind kind, bool success,
+            string statusText)
+        {
+            if (_operation.Kind != kind) return;
+            SetOperation(new ScanOperationState(kind, success
+                    ? ScanOperationStage.Complete : ScanOperationStage.Failed,
+                success ? 1f : 0f, false, statusText));
+        }
+
+        private void SetOperation(ScanOperationState operation)
+        {
+            _operation = operation;
+            OperationChanged?.Invoke();
+        }
     }
 }

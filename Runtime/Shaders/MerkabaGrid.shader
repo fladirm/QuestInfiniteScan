@@ -4,6 +4,10 @@ Shader "Genesis/RoomScan/MerkabaGrid"
     {
         _ColorMultiplier("Color Multiplier", Color) = (1,1,1,1)
         _AmbientFloor("Ambient Floor", Range(0,1)) = 0.22
+        _ScanOpacity("Scan Opacity", Range(0,1)) = 1
+        [HideInInspector] _SrcBlend("Source Blend", Float) = 1
+        [HideInInspector] _DstBlend("Destination Blend", Float) = 0
+        [HideInInspector] _ZWrite("Depth Write", Float) = 1
     }
     SubShader
     {
@@ -13,7 +17,8 @@ Shader "Genesis/RoomScan/MerkabaGrid"
             Name "MerkabaForward"
             Tags { "LightMode"="UniversalForward" }
             Cull Back
-            ZWrite On
+            Blend [_SrcBlend] [_DstBlend]
+            ZWrite [_ZWrite]
             ZTest LEqual
 
             HLSLPROGRAM
@@ -46,6 +51,7 @@ Shader "Genesis/RoomScan/MerkabaGrid"
             CBUFFER_START(UnityPerMaterial)
                 half4 _ColorMultiplier;
                 half _AmbientFloor;
+                half _ScanOpacity;
             CBUFFER_END
 
             struct Varyings
@@ -96,7 +102,7 @@ Shader "Genesis/RoomScan/MerkabaGrid"
                 half3 ambient = max(SampleSH(input.normalWS), _AmbientFloor.xxx);
                 half3 lighting = ambient + mainLight.color * ndotl *
                     mainLight.distanceAttenuation;
-                return half4(input.color * lighting, 1);
+                return half4(input.color * lighting, _ScanOpacity);
             }
             ENDHLSL
         }

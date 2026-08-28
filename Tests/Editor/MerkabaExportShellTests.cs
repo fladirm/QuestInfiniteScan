@@ -1,0 +1,295 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using Genesis.RoomScan;
+using NUnit.Framework;
+using Unity.Mathematics;
+using UnityEngine;
+
+namespace Genesis.RoomScan.Tests
+{
+    public sealed class MerkabaExportShellTests
+    {
+        private static readonly Color32 WallColor = new(48, 132, 218, 255);
+
+        [Test]
+        public void StrongKnownFree_UsesTheOneCentralThreshold()
+        {
+            KernelState weak = Free(MerkabaConstants.ExportKnownFreeThreshold + 1);
+            KernelState strong = Free(MerkabaConstants.ExportKnownFreeThreshold);
+
+            Assert.That(MerkabaConstants.ExportKnownFreeThreshold,
+                Is.EqualTo(-MerkabaConstants.OccupiedOnThreshold));
+            Assert.That(MerkabaExportShell.IsStrongKnownFree(weak), Is.False);
+            Assert.That(MerkabaExportShell.IsStrongKnownFree(strong), Is.True);
+        }
+
+        [Test]
+        public void RearOccupancy_IsPrunedToObservedFreeFrontier()
+        {
+            var evidence = new Dictionary<int3, KernelState>
+            {
+                [new int3(-1, 0, 0)] = StrongFree(),
+                [new int3(0, 0, 0)] = Occupied(),
+                [new int3(1, 0, 0)] = Occupied(),
+                [new int3(2, 0, 0)] = Occupied()
+            };
+
+            MerkabaExportShellResult result = MerkabaExportShell.Build(evidence);
+
+            Assert.That(result.ShellCoordinates,
+                Is.EqualTo(new[] { new int3(0, 0, 0) }));
+        }
+
+        [Test]
+        public void BothObservedSidesRemainAndBuriedInteriorIsPruned()
+        {
+            var evidence = new Dictionary<int3, KernelState>
+            {
+                [new int3(-1, 0, 0)] = StrongFree(),
+                [new int3(0, 0, 0)] = Occupied(),
+                [new int3(1, 0, 0)] = Occupied(),
+                [new int3(2, 0, 0)] = Occupied(),
+                [new int3(3, 0, 0)] = Occupied(),
+                [new int3(4, 0, 0)] = StrongFree()
+            };
+
+            MerkabaExportShellResult result = MerkabaExportShell.Build(evidence);
+
+            Assert.That(result.ShellCoordinates, Is.EqualTo(new[]
+            {
+                new int3(0, 0, 0), new int3(3, 0, 0)
+            }));
+        }
+
+        [Test]
+        public void OneUnknownWallHole_IsHealedOnlyInExportReadout()
+        {
+            int3 hole = new(0, 0, 0);
+            Dictionary<int3, KernelState> evidence = AxisWall(hole, 2, hole);
+
+            MerkabaExportShellResult result = MerkabaExportShell.Build(evidence);
+
+            Assert.That(result.HealedCoordinates, Does.Contain(hole));
+            Assert.That(result.ShellCoordinates, Does.Contain(hole));
+            Assert.That(result.SyntheticKernelCount, Is.EqualTo(1));
+            MerkabaKernelSnapshot synthetic = result.Kernels.Single(value =>
+                value.Coord.Equals(hole));
+            Assert.That(synthetic.State.Color, Is.EqualTo(WallColor));
+            Assert.That(evidence.ContainsKey(hole), Is.False,
+                "Export-local healing mutated the canonical evidence map.");
+        }
+
+        [Test]
+        public void StrongKnownFreeOpening_IsNeverFilledByClosing()
+        {
+            int3 opening = new(0, 0, 0);
+            Dictionary<int3, KernelState> evidence = AxisWall(opening, 2, opening);
+            evidence[opening] = StrongFree();
+
+            MerkabaExportShellResult result = MerkabaExportShell.Build(evidence);
+
+            Assert.That(result.HealedCoordinates.Contains(opening), Is.False);
+            Assert.That(result.ShellCoordinates.Contains(opening), Is.False);
+            Assert.That(result.SyntheticKernelCount, Is.Zero);
+        }
+
+        [Test]
+        public void LargeUnknownOpening_SurvivesOneFixedClosingIteration()
+        {
+            var evidence = new Dictionary<int3, KernelState>();
+            for (int y = -5; y <= 5; y++)
+            for (int z = -5; z <= 5; z++)
+            {
+                if (Math.Abs(y) <= 2 && Math.Abs(z) <= 2) continue;
+                evidence[new int3(0, y, z)] = Occupied();
+            }
+
+            MerkabaExportShellResult result = MerkabaExportShell.Build(evidence);
+
+            Assert.That(result.HealedCoordinates.Contains(new int3(0)), Is.False);
+        }
+
+        [Test]
+        public void DiagonalSteppedWall_HealsOneUnknownDropout()
+        {
+            int3 hole = new(0, 0, 0);
+            var evidence = new Dictionary<int3, KernelState>();
+            for (int diagonal = -3; diagonal <= 3; diagonal++)
+            for (int z = -3; z <= 3; z++)
+            {
+                int3 coord = new(diagonal, diagonal, z);
+                if (!coord.Equals(hole)) evidence[coord] = Occupied();
+            }
+
+            MerkabaExportShellResult result = MerkabaExportShell.Build(evidence);
+
+            Assert.That(result.HealedCoordinates, Does.Contain(hole));
+        }
+
+        [Test]
+        public void ChunkBorderTranslation_ProducesIdenticalHealAndShell()
+        {
+            int3 interiorCenter = new(8, 8, 8);
+            int3 borderCenter = new(31, 31, 31);
+            MerkabaExportShellResult interior = MerkabaExportShell.Build(
+                SnapshotFromEvidence(ObservedWallFixture(interiorCenter)));
+            MerkabaExportShellResult border = MerkabaExportShell.Build(
+                SnapshotFromEvidence(ObservedWallFixture(borderCenter)));
+
+            Assert.That(RelativeKey(interior.HealedCoordinates, interiorCenter),
+                Is.EqualTo(RelativeKey(border.HealedCoordinates, borderCenter)));
+            Assert.That(RelativeKey(interior.ShellCoordinates, interiorCenter),
+                Is.EqualTo(RelativeKey(border.ShellCoordinates, borderCenter)));
+        }
+
+        [Test]
+        public void SameSnapshot_ProducesDeterministicCoordinatesAndKernelOrder()
+        {
+            MerkabaSessionSnapshot snapshot = SnapshotFromEvidence(
+                ObservedWallFixture(new int3(-32, 7, 31)));
+
+            MerkabaExportShellResult first = MerkabaExportShell.Build(snapshot);
+            MerkabaExportShellResult second = MerkabaExportShell.Build(snapshot);
+
+            Assert.That(second.HealedCoordinates, Is.EqualTo(first.HealedCoordinates));
+            Assert.That(second.ShellCoordinates, Is.EqualTo(first.ShellCoordinates));
+            Assert.That(second.Kernels.Select(value => value.Coord),
+                Is.EqualTo(first.Kernels.Select(value => value.Coord)));
+            Assert.That(second.Kernels.Select(value => value.State.PackedColor),
+                Is.EqualTo(first.Kernels.Select(value => value.State.PackedColor)));
+        }
+
+        [Test]
+        public void ExportCleanup_DoesNotMutateCanonicalSnapshot()
+        {
+            MerkabaSessionSnapshot snapshot = SnapshotFromEvidence(
+                ObservedWallFixture(new int3(-1, -31, 32)));
+            byte[] before = Serialize(snapshot);
+
+            _ = MerkabaExportShell.Build(snapshot);
+
+            Assert.That(Serialize(snapshot), Is.EqualTo(before));
+        }
+
+        [Test]
+        public void ComponentWithoutFreeEvidence_UsesExteriorCompatibilityFallback()
+        {
+            var evidence = new Dictionary<int3, KernelState>();
+            for (int z = -1; z <= 1; z++)
+            for (int y = -1; y <= 1; y++)
+            for (int x = -1; x <= 1; x++)
+                evidence[new int3(x, y, z)] = Occupied();
+
+            MerkabaExportShellResult result = MerkabaExportShell.Build(evidence);
+
+            Assert.That(result.HealedCoordinates, Has.Length.EqualTo(27));
+            Assert.That(result.ShellCoordinates, Has.Length.EqualTo(26));
+            Assert.That(result.ShellCoordinates.Contains(new int3(0)), Is.False);
+        }
+
+        [Test]
+        public void ExportShell_CanOnlyReachCanonicalNonCubeGlbGeometry()
+        {
+            MerkabaExportShellResult shell = MerkabaExportShell.Build(
+                ObservedWallFixture(new int3(0)));
+            using var stream = new MemoryStream();
+            MerkabaGlbResult result = MerkabaGlbWriter.Write(stream, shell.Kernels);
+            byte[] bytes = stream.ToArray();
+            int jsonLength = checked((int)BitConverter.ToUInt32(bytes, 12));
+            int binaryStart = 20 + jsonLength + 8;
+            int normalsOffset = result.VertexCount * 12;
+
+            Assert.That(result.PrimitiveCount, Is.GreaterThan(0));
+            for (int vertex = 0; vertex < result.VertexCount; vertex++)
+            {
+                int offset = binaryStart + normalsOffset + vertex * 12;
+                float x = Math.Abs(BitConverter.ToSingle(bytes, offset));
+                float y = Math.Abs(BitConverter.ToSingle(bytes, offset + 4));
+                float z = Math.Abs(BitConverter.ToSingle(bytes, offset + 8));
+                Assert.That(math.min(x, math.min(y, z)), Is.GreaterThan(0.5f),
+                    "The export-only cube structuring element leaked cube geometry.");
+            }
+        }
+
+        private static Dictionary<int3, KernelState> AxisWall(int3 center,
+            int radius, int3 omitted)
+        {
+            var evidence = new Dictionary<int3, KernelState>();
+            for (int y = -radius; y <= radius; y++)
+            for (int z = -radius; z <= radius; z++)
+            {
+                int3 coord = center + new int3(0, y, z);
+                if (!coord.Equals(omitted)) evidence[coord] = Occupied();
+            }
+            return evidence;
+        }
+
+        private static Dictionary<int3, KernelState> ObservedWallFixture(int3 center)
+        {
+            var evidence = AxisWall(center, 2, center);
+            for (int y = -2; y <= 2; y++)
+            for (int z = -2; z <= 2; z++)
+                evidence[center + new int3(-1, y, z)] = StrongFree();
+            return evidence;
+        }
+
+        private static MerkabaSessionSnapshot SnapshotFromEvidence(
+            IReadOnlyDictionary<int3, KernelState> evidence)
+        {
+            var chunks = new Dictionary<int3, KernelState[]>();
+            foreach (KeyValuePair<int3, KernelState> pair in evidence)
+            {
+                int3 chunkCoord = MerkabaConstants.ChunkCoord(pair.Key);
+                if (!chunks.TryGetValue(chunkCoord, out KernelState[] states))
+                {
+                    states = new KernelState[MerkabaConstants.KernelsPerChunk];
+                    chunks.Add(chunkCoord, states);
+                }
+                states[MerkabaConstants.Flatten(
+                    MerkabaConstants.LocalCoord(pair.Key))] = pair.Value;
+            }
+
+            var snapshot = new MerkabaSessionSnapshot();
+            foreach (int3 chunkCoord in chunks.Keys.OrderBy(value => value.x)
+                         .ThenBy(value => value.y).ThenBy(value => value.z))
+            {
+                snapshot.Chunks.Add(new MerkabaChunkSnapshot
+                {
+                    Coord = chunkCoord,
+                    States = chunks[chunkCoord]
+                });
+            }
+            return snapshot;
+        }
+
+        private static KernelState Occupied()
+        {
+            KernelState state = default;
+            state.SetOccupiedForFixture(true, WallColor);
+            return state;
+        }
+
+        private static KernelState StrongFree() =>
+            Free(MerkabaConstants.ExportKnownFreeThreshold);
+
+        private static KernelState Free(int evidence) => new()
+        {
+            OccupancyEvidence = evidence
+        };
+
+        private static string RelativeKey(IEnumerable<int3> coords, int3 origin) =>
+            string.Join(";", coords.Select(value => value - origin)
+                .OrderBy(value => value.x).ThenBy(value => value.y)
+                .ThenBy(value => value.z)
+                .Select(value => $"{value.x},{value.y},{value.z}"));
+
+        private static byte[] Serialize(MerkabaSessionSnapshot snapshot)
+        {
+            using var stream = new MemoryStream();
+            MerkabaPersistence.WriteSnapshot(stream, snapshot);
+            return stream.ToArray();
+        }
+    }
+}

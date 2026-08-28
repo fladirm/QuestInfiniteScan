@@ -1,7 +1,5 @@
 using System;
-using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Threading.Tasks;
 using UnityEngine;
 
@@ -15,6 +13,7 @@ namespace Genesis.RoomScan
 
         private MerkabaGrid _grid;
         private MerkabaIntegrator _integrator;
+        private RoomScanner _scanner;
 
         public bool IsExporting { get; private set; }
         public string LastExportPath { get; private set; }
@@ -27,42 +26,70 @@ namespace Genesis.RoomScan
         {
             _grid = GetComponent<MerkabaGrid>();
             _integrator = GetComponent<MerkabaIntegrator>();
+            _scanner = GetComponent<RoomScanner>();
         }
 
         public async Task<bool> ExportGlbAsync()
         {
             if (IsExporting || _grid == null) return false;
+            if (_scanner != null && !_scanner.TryBeginOperation(
+                    ScanOperationKind.ExportGlb,
+                    ScanOperationStage.SynchronizingScan,
+                    "Synchronizing scan"))
+                return false;
             IsExporting = true;
             SetStatus("Exporting GLB…");
+            bool succeeded = false;
             try
             {
+                Report(ScanOperationStage.SynchronizingScan, -1f,
+                    "Synchronizing scan");
                 if (_integrator != null)
                     await _integrator.SynchronizeCanonicalStateAsync();
                 else
                     await _grid.SynchronizeResidentStateAsync();
-                List<MerkabaKernelSnapshot> kernels = _grid.OccupiedKernelsSorted().ToList();
-                if (kernels.Count == 0)
-                    throw new InvalidOperationException("The Merkaba grid has no occupied kernels.");
+
+                Report(ScanOperationStage.CapturingState, 0.08f,
+                    "Capturing canonical evidence");
+                MerkabaSessionSnapshot snapshot = MerkabaPersistence.CaptureSnapshot(
+                    _grid, _integrator != null ? _integrator.IntegrationCount : 0);
+                IProgress<ExportShellProgress> shellProgress =
+                    new Progress<ExportShellProgress>(value =>
+                    Report(value.Stage, value.Progress01, value.Text));
+                MerkabaExportShellResult shell = await Task.Run(() =>
+                    MerkabaExportShell.Build(snapshot, shellProgress));
 
                 string destination = ExportPath;
                 string directory = Path.GetDirectoryName(destination);
+                string temporary = destination + ".tmp";
+                Report(ScanOperationStage.BuildingMerkabaGeometry, 0.72f,
+                    "Building canonical Merkaba geometry");
                 MerkabaGlbResult result = await Task.Run(() =>
                 {
                     Directory.CreateDirectory(directory);
-                    string temporary = destination + ".tmp";
-                    MerkabaGlbResult written;
                     using (var stream = new FileStream(temporary, FileMode.Create,
                                FileAccess.Write, FileShare.None, 1024 * 1024,
                                FileOptions.WriteThrough))
                     {
-                        written = MerkabaGlbWriter.Write(stream, kernels);
+                        MerkabaGlbResult written = MerkabaGlbWriter.Write(stream,
+                            shell.Kernels, () => shellProgress.Report(
+                                new ExportShellProgress(
+                                    ScanOperationStage.WritingFile, 0.84f,
+                                    "Writing GLB")));
                         stream.Flush(true);
+                        return written;
                     }
-                    MerkabaFilePublishing.Publish(temporary, destination);
-                    return written;
                 });
+
+                Report(ScanOperationStage.PublishingFile, 0.95f,
+                    "Publishing GLB file");
+                await Task.Run(() => MerkabaFilePublishing.Publish(temporary,
+                    destination));
                 LastExportPath = destination;
-                SetStatus($"GLB: {result.VertexCount} vertices, {result.ByteLength} bytes");
+                SetStatus($"GLB: {result.PrimitiveCount} triangles, " +
+                          $"{shell.ShellCoordinates.Length} shell kernels, " +
+                          $"{shell.SyntheticKernelCount} healed");
+                succeeded = true;
                 return true;
             }
             catch (Exception exception)
@@ -74,6 +101,8 @@ namespace Genesis.RoomScan
             finally
             {
                 IsExporting = false;
+                _scanner?.FinishOperation(ScanOperationKind.ExportGlb,
+                    succeeded, LastStatus);
                 StatusChanged?.Invoke();
             }
         }
@@ -100,5 +129,9 @@ namespace Genesis.RoomScan
             LastStatus = status;
             StatusChanged?.Invoke();
         }
+
+        private void Report(ScanOperationStage stage, float progress01,
+            string text) => _scanner?.ReportOperation(ScanOperationKind.ExportGlb,
+            stage, progress01, text);
     }
 }

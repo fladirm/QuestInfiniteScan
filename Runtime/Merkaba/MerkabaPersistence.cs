@@ -37,6 +37,7 @@ namespace Genesis.RoomScan
 
         private MerkabaGrid _grid;
         private MerkabaIntegrator _integrator;
+        private RoomScanner _scanner;
 
         public bool IsBusy { get; private set; }
         public bool SavedSessionExists => File.Exists(SessionPath);
@@ -49,27 +50,39 @@ namespace Genesis.RoomScan
         {
             _grid = GetComponent<MerkabaGrid>();
             _integrator = GetComponent<MerkabaIntegrator>();
+            _scanner = GetComponent<RoomScanner>();
         }
 
         public async Task<bool> SaveAsync()
         {
             if (IsBusy || _grid == null) return false;
+            if (_scanner != null && !_scanner.TryBeginOperation(
+                    ScanOperationKind.Save, ScanOperationStage.SynchronizingScan,
+                    "Synchronizing scan"))
+                return false;
             IsBusy = true;
             SetStatus("Saving…");
+            bool succeeded = false;
             try
             {
+                Report(ScanOperationKind.Save, ScanOperationStage.SynchronizingScan,
+                    -1f, "Synchronizing scan");
                 if (_integrator != null)
                     await _integrator.SynchronizeCanonicalStateAsync();
                 else
                     await _grid.SynchronizeResidentStateAsync();
+                Report(ScanOperationKind.Save, ScanOperationStage.CapturingState,
+                    0.25f, "Capturing canonical state");
                 MerkabaSessionSnapshot snapshot = CaptureSnapshot(_grid,
                     _integrator != null ? _integrator.IntegrationCount : 0);
                 string path = SessionPath;
+                string temporary = path + ".tmp";
+                Report(ScanOperationKind.Save, ScanOperationStage.WritingFile,
+                    0.5f, "Writing saved session");
                 await Task.Run(() =>
                 {
                     string directory = Path.GetDirectoryName(path);
                     Directory.CreateDirectory(directory);
-                    string temporary = path + ".tmp";
                     using (var stream = new FileStream(temporary, FileMode.Create,
                                FileAccess.Write, FileShare.None, 1024 * 1024,
                                FileOptions.WriteThrough))
@@ -77,11 +90,14 @@ namespace Genesis.RoomScan
                         WriteSnapshot(stream, snapshot);
                         stream.Flush(true);
                     }
-                    MerkabaFilePublishing.Publish(temporary, path);
                 });
+                Report(ScanOperationKind.Save, ScanOperationStage.PublishingFile,
+                    0.9f, "Publishing saved session");
+                await Task.Run(() => MerkabaFilePublishing.Publish(temporary, path));
                 foreach (MerkabaChunk chunk in _grid.Chunks.Values)
                     chunk.Persisted = true;
                 SetStatus($"Saved {snapshot.Chunks.Count} chunks");
+                succeeded = true;
                 return true;
             }
             catch (Exception exception)
@@ -93,6 +109,8 @@ namespace Genesis.RoomScan
             finally
             {
                 IsBusy = false;
+                _scanner?.FinishOperation(ScanOperationKind.Save, succeeded,
+                    LastStatus);
                 StatusChanged?.Invoke();
             }
         }
@@ -100,11 +118,18 @@ namespace Genesis.RoomScan
         public async Task<bool> LoadAsync()
         {
             if (IsBusy || _grid == null || !SavedSessionExists) return false;
+            if (_scanner != null && !_scanner.TryBeginOperation(
+                    ScanOperationKind.Load, ScanOperationStage.ReadingFile,
+                    "Reading saved session"))
+                return false;
             IsBusy = true;
             SetStatus("Loading…");
+            bool succeeded = false;
             try
             {
                 string path = SessionPath;
+                Report(ScanOperationKind.Load, ScanOperationStage.ReadingFile,
+                    0.1f, "Reading saved session");
                 MerkabaSessionSnapshot snapshot = await Task.Run(() =>
                 {
                     using var stream = new FileStream(path, FileMode.Open, FileAccess.Read,
@@ -114,6 +139,8 @@ namespace Genesis.RoomScan
 
                 if (snapshot.AnchorUuid != Guid.Empty && RoomAnchorManager.Instance != null)
                 {
+                    Report(ScanOperationKind.Load, ScanOperationStage.LocalizingAnchor,
+                        -1f, "Localizing saved anchor");
                     Matrix4x4? localized = await RoomAnchorManager.Instance
                         .LoadSpatialAnchorAsync(snapshot.AnchorUuid);
                     if (localized.HasValue && RoomSpaceRoot.Instance != null)
@@ -123,9 +150,12 @@ namespace Genesis.RoomScan
                             "using current MRUK/world frame fallback.");
                 }
 
+                Report(ScanOperationKind.Load, ScanOperationStage.ApplyingState,
+                    0.78f, "Applying canonical state");
                 ApplySnapshot(_grid, snapshot);
                 _integrator?.RestoreIntegrationCount(snapshot.IntegrationCount);
                 SetStatus($"Loaded {snapshot.Chunks.Count} chunks");
+                succeeded = true;
                 return true;
             }
             catch (Exception exception)
@@ -137,6 +167,8 @@ namespace Genesis.RoomScan
             finally
             {
                 IsBusy = false;
+                _scanner?.FinishOperation(ScanOperationKind.Load, succeeded,
+                    LastStatus);
                 StatusChanged?.Invoke();
             }
         }
@@ -345,6 +377,10 @@ namespace Genesis.RoomScan
             LastStatus = status;
             StatusChanged?.Invoke();
         }
+
+        private void Report(ScanOperationKind kind, ScanOperationStage stage,
+            float progress01, string text) =>
+            _scanner?.ReportOperation(kind, stage, progress01, text);
     }
 
     internal static class MerkabaFilePublishing

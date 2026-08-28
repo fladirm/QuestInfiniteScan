@@ -51,7 +51,8 @@ namespace Genesis.RoomScan
         }
 
         internal static MerkabaGlbResult Write(Stream destination,
-            IReadOnlyList<MerkabaKernelSnapshot> occupiedKernels)
+            IReadOnlyList<MerkabaKernelSnapshot> occupiedKernels,
+            Action onGeometryReadyForWriting = null)
         {
             if (destination == null || !destination.CanWrite)
                 throw new ArgumentException("GLB destination must be writable.", nameof(destination));
@@ -111,6 +112,7 @@ namespace Genesis.RoomScan
             if (totalLength > uint.MaxValue)
                 throw new InvalidDataException("GLB exceeds the 4 GiB container limit.");
 
+            onGeometryReadyForWriting?.Invoke();
             long start = destination.CanSeek ? destination.Position : 0;
             using var writer = new BinaryWriter(destination, new UTF8Encoding(false), true);
             writer.Write(GlbMagic);

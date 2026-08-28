@@ -17,6 +17,7 @@ namespace Genesis.RoomScan
         [SerializeField] private ComputeShader topologyCompute;
         [SerializeField] private Shader renderShader;
         [SerializeField, Range(2f, 12f)] private float renderDistance = 8f;
+        [SerializeField, Range(0f, 1f)] private float scanOpacity = 1f;
 
         private sealed class RetiredPublication
         {
@@ -47,6 +48,7 @@ namespace Genesis.RoomScan
         private bool _resizeMigrationPending;
         private MerkabaPublicationBuffer _replacementPublication;
         private uint _replacementRequirement;
+        private ShadowCastingMode _shadowCastingMode = ShadowCastingMode.On;
         private readonly List<RetiredPublication> _retiredPublications = new();
 
         private const float StatusSampleIntervalSeconds = 1f;
@@ -59,6 +61,15 @@ namespace Genesis.RoomScan
             _grid != null && _grid.GpuReady ? _grid.PublicationPrimitiveCapacity : 0;
         public int LastPublicationDirtyChunkCount { get; private set; }
         public ulong TotalPublicationChunkRebuilds { get; private set; }
+        public float ScanOpacity
+        {
+            get => scanOpacity;
+            set
+            {
+                scanOpacity = Mathf.Clamp01(value);
+                ApplyOpacityState();
+            }
+        }
 
         private static readonly int KernelsId = Shader.PropertyToID("_MerkabaKernels");
         private static readonly int PageCoordsId = Shader.PropertyToID("_MerkabaPageCoords");
@@ -102,6 +113,10 @@ namespace Genesis.RoomScan
             Shader.PropertyToID("_MerkabaResidentSlot");
         private static readonly int ChunkOriginId = Shader.PropertyToID("_MerkabaChunkOrigin");
         private static readonly int GridToWorldId = Shader.PropertyToID("_MerkabaGridToWorld");
+        private static readonly int ScanOpacityId = Shader.PropertyToID("_ScanOpacity");
+        private static readonly int SrcBlendId = Shader.PropertyToID("_SrcBlend");
+        private static readonly int DstBlendId = Shader.PropertyToID("_DstBlend");
+        private static readonly int ZWriteId = Shader.PropertyToID("_ZWrite");
 
         private void Awake() => _grid = GetComponent<MerkabaGrid>();
 
@@ -179,6 +194,7 @@ namespace Genesis.RoomScan
             _material = new Material(renderShader) { name = "MerkabaGrid (Runtime)" };
             _drawProperties = new MaterialPropertyBlock();
             _lastPublicationVersions = new uint[_grid.ResidentSlotCapacity];
+            ApplyOpacityState();
             _initialized = true;
             return true;
         }
@@ -257,7 +273,7 @@ namespace Genesis.RoomScan
 
         private void DrawVisibleChunks(Camera camera)
         {
-            if (_grid.VisibleChunkCount == 0) return;
+            if (_grid.VisibleChunkCount == 0 || scanOpacity <= 0.001f) return;
             _material.SetBuffer(PrimitiveRecordBanksId,
                 _grid.PrimitiveRecordBanksBuffer);
             _material.SetBuffer(PublishedBanksId, _grid.PublishedBankBuffer);
@@ -280,8 +296,24 @@ namespace Genesis.RoomScan
                 Graphics.DrawProceduralIndirect(_material, bounds,
                     MeshTopology.Triangles, _grid.PrimitiveDrawArgsBuffer,
                     slot * 4 * sizeof(uint), null, _drawProperties,
-                    ShadowCastingMode.On, true, gameObject.layer);
+                    _shadowCastingMode, true, gameObject.layer);
             }
+        }
+
+        private void ApplyOpacityState()
+        {
+            if (_material == null) return;
+            bool opaque = scanOpacity >= 0.999f;
+            _material.SetFloat(ScanOpacityId, scanOpacity);
+            _material.SetInt(SrcBlendId, (int)(opaque
+                ? BlendMode.One : BlendMode.SrcAlpha));
+            _material.SetInt(DstBlendId, (int)(opaque
+                ? BlendMode.Zero : BlendMode.OneMinusSrcAlpha));
+            _material.SetInt(ZWriteId, 1);
+            _material.renderQueue = opaque
+                ? (int)RenderQueue.Geometry : (int)RenderQueue.Transparent;
+            _shadowCastingMode = opaque
+                ? ShadowCastingMode.On : ShadowCastingMode.Off;
         }
 
         private void RequestPublicationStatus()

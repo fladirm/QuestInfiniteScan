@@ -45,6 +45,23 @@
             </ui:VisualElement>
         </ui:VisualElement>
 
+        <ui:Label text="DISPLAY" class="section-title" />
+        <ui:VisualElement class="opacity-row">
+            <ui:Label text="Scan opacity" class="status-key" />
+            <ui:Slider name="scan-opacity" low-value="0" high-value="1" value="1"
+                class="opacity-slider" />
+            <ui:Label name="val-opacity" text="100%" class="opacity-value" />
+        </ui:VisualElement>
+
+        <ui:VisualElement name="operation-panel" class="operation-panel">
+            <ui:VisualElement class="operation-title-row">
+                <ui:Label name="operation-spinner" text="|" class="operation-spinner" />
+                <ui:Label name="operation-stage" text="Working…" class="operation-stage" />
+            </ui:VisualElement>
+            <ui:ProgressBar name="operation-progress" value="0" low-value="0"
+                high-value="100" title="0%" class="operation-progress" />
+        </ui:VisualElement>
+
         <ui:VisualElement class="button-row">
             <ui:Button name="btn-start" text="START / RESUME"
                 class="action-btn action-btn--primary" />
