@@ -387,15 +387,12 @@ namespace Genesis.RoomScan
             }
 
             List<ChunkCandidate> candidates = CollectFrustumCandidates(camera,
-                maxDistance, previousDesired);
+                maxDistance, previousDesired, !allocateForIntegration);
             int capacity = allocateForIntegration ? maxIntegrationChunks : maxVisibleChunks;
             var selected = new List<int3>(capacity);
             for (int i = 0; i < candidates.Count && selected.Count < capacity; i++)
             {
                 int3 coord = candidates[i].Coord;
-                if (!allocateForIntegration && !_chunks.ContainsKey(coord) &&
-                    !_resident.ContainsKey(coord))
-                    continue;
                 selected.Add(coord);
             }
             previousDesired.Clear();
@@ -649,7 +646,8 @@ namespace Genesis.RoomScan
         }
 
         private List<ChunkCandidate> CollectFrustumCandidates(Camera camera,
-            float enterDistance, HashSet<int3> previousDesired)
+            float enterDistance, HashSet<int3> previousDesired,
+            bool existingOnly)
         {
             Vector3 localCamera = transform.InverseTransformPoint(camera.transform.position);
             float chunkSpan = MerkabaConstants.ChunkSize * MerkabaConstants.LatticeStep;
@@ -667,6 +665,12 @@ namespace Genesis.RoomScan
             for (int x = -radius; x <= radius; x++)
             {
                 int3 coord = cameraChunk + new int3(x, y, z);
+                // Render residency never materializes untouched world. Reject it
+                // before matrix/AABB/frustum work and before sorting; integration
+                // still receives the complete bounded frustum domain.
+                if (existingOnly && !_chunks.ContainsKey(coord) &&
+                    !_resident.ContainsKey(coord))
+                    continue;
                 Bounds worldBounds = ChunkWorldBounds(coord);
                 float distanceSq = worldBounds.SqrDistance(camera.transform.position);
                 bool retained = previousDesired.Contains(coord);

@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.IO;
 using Genesis.RoomScan;
 using NUnit.Framework;
 using Unity.Mathematics;
@@ -247,6 +248,25 @@ namespace Genesis.RoomScan.Tests
                 Object.DestroyImmediate(cameraHost);
                 Object.DestroyImmediate(host);
             }
+        }
+
+        [Test]
+        public void RenderResidency_RejectsUntouchedWorldBeforeBoundsAndSortWork()
+        {
+            string source = File.ReadAllText(Path.GetFullPath(
+                "Packages/com.genesis.roomscan/Runtime/Merkaba/MerkabaGrid.Gpu.cs"));
+            int filter = source.IndexOf(
+                "if (existingOnly && !_chunks.ContainsKey(coord)",
+                System.StringComparison.Ordinal);
+            int bounds = source.IndexOf(
+                "Bounds worldBounds = ChunkWorldBounds(coord);",
+                System.StringComparison.Ordinal);
+            int sort = source.IndexOf("result.Sort((left, right)",
+                System.StringComparison.Ordinal);
+            Assert.That(filter, Is.GreaterThanOrEqualTo(0));
+            Assert.That(bounds, Is.GreaterThan(filter),
+                "untouched render space must be rejected before AABB work");
+            Assert.That(sort, Is.GreaterThan(bounds));
         }
 
         [Test]
