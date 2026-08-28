@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 using Genesis.RoomScan;
 using NUnit.Framework;
 using Unity.Mathematics;
@@ -222,6 +224,60 @@ namespace Genesis.RoomScan.Tests
                 "Run Quest Infinite Scan/Merkaba/Regenerate Canonical HLSL.");
             Assert.That(File.ReadAllText(path),
                 Is.EqualTo(MerkabaCanonicalGeometry.BuildGeneratedHlsl()));
+        }
+
+        [Test]
+        public void GeneratedHlsl_LiteralCasesMatchAllCpuVerticesAndNormals()
+        {
+            string hlsl = MerkabaCanonicalGeometry.BuildGeneratedHlsl();
+            Assert.That(hlsl, Does.Not.Contain("kMerkabaCanonicalPrimitives"));
+            Assert.That(hlsl, Does.Not.Contain("kMerkabaCanonicalVertexUnits"));
+
+            MatchCollection cases = Regex.Matches(hlsl,
+                @"case (?<id>\d+)u:(?<body>.*?)break;", RegexOptions.Singleline);
+            Assert.That(cases, Has.Count.EqualTo(
+                MerkabaCanonicalGeometry.PrimitiveCount));
+
+            var seen = new HashSet<int>();
+            foreach (Match primitiveCase in cases)
+            {
+                int primitiveId = int.Parse(primitiveCase.Groups["id"].Value,
+                    CultureInfo.InvariantCulture);
+                Assert.That(seen.Add(primitiveId), Is.True,
+                    $"duplicate generated primitive case {primitiveId}");
+                MatchCollection vertices = Regex.Matches(
+                    primitiveCase.Groups["body"].Value,
+                    @"[abc] = float3\((?<x>-?\d+), (?<y>-?\d+), (?<z>-?\d+)\)");
+                Assert.That(vertices, Has.Count.EqualTo(3),
+                    $"primitive {primitiveId} literal vertex count");
+
+                var parsed = new float3[3];
+                for (int corner = 0; corner < 3; corner++)
+                {
+                    Match vertex = vertices[corner];
+                    parsed[corner] = new float3(
+                        int.Parse(vertex.Groups["x"].Value,
+                            CultureInfo.InvariantCulture),
+                        int.Parse(vertex.Groups["y"].Value,
+                            CultureInfo.InvariantCulture),
+                        int.Parse(vertex.Groups["z"].Value,
+                            CultureInfo.InvariantCulture)) * MerkabaConstants.HalfSupport;
+                    MerkabaCanonicalGeometry.PrimitiveVertex(primitiveId, corner,
+                        out float3 expectedPosition, out _);
+                    Assert.That(math.distance(parsed[corner], expectedPosition),
+                        Is.LessThan(1e-8f),
+                        $"primitive {primitiveId}, corner {corner}");
+                }
+
+                float3 parsedNormal = math.normalize(math.cross(
+                    parsed[1] - parsed[0], parsed[2] - parsed[0]));
+                Assert.That(math.distance(parsedNormal,
+                        MerkabaCanonicalGeometry.PrimitiveNormal(primitiveId)),
+                    Is.LessThan(1e-6f), $"primitive {primitiveId} normal");
+            }
+
+            Assert.That(seen, Is.EquivalentTo(Enumerable.Range(0,
+                MerkabaCanonicalGeometry.PrimitiveCount)));
         }
 
         [Test]

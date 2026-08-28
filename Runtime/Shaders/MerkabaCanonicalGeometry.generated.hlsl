@@ -3,7 +3,6 @@
 #define GENESIS_MERKABA_CANONICAL_GEOMETRY_INCLUDED
 
 #define MERKABA_DIRECTION_COUNT 8
-#define MERKABA_CANONICAL_VERTEX_COUNT 14
 #define MERKABA_CANONICAL_PRIMITIVE_COUNT 32
 #define MERKABA_PRIMITIVES_PER_DIRECTION 4
 #define MERKABA_VERTICES_PER_PRIMITIVE 3
@@ -21,74 +20,177 @@ static const int3 kMerkabaBodyDiagonalOffsets[MERKABA_DIRECTION_COUNT] =
     int3(1, 1, 1)
 };
 
-static const int3 kMerkabaCanonicalVertexUnits[MERKABA_CANONICAL_VERTEX_COUNT] =
-{
-    int3(-1, 0, 0),
-    int3(1, 0, 0),
-    int3(0, -1, 0),
-    int3(0, 1, 0),
-    int3(0, 0, -1),
-    int3(0, 0, 1),
-    int3(-1, -1, -1),
-    int3(1, -1, -1),
-    int3(-1, 1, -1),
-    int3(1, 1, -1),
-    int3(-1, -1, 1),
-    int3(1, -1, 1),
-    int3(-1, 1, 1),
-    int3(1, 1, 1)
-};
-
-// xyz = vertex indices, w = (direction << 1) | tip-side flag.
-static const uint4 kMerkabaCanonicalPrimitives[MERKABA_CANONICAL_PRIMITIVE_COUNT] =
-{
-    uint4(0u, 4u, 2u, 0u),
-    uint4(6u, 0u, 4u, 1u),
-    uint4(6u, 4u, 2u, 1u),
-    uint4(6u, 2u, 0u, 1u),
-    uint4(1u, 2u, 4u, 2u),
-    uint4(7u, 1u, 2u, 3u),
-    uint4(7u, 2u, 4u, 3u),
-    uint4(7u, 4u, 1u, 3u),
-    uint4(0u, 3u, 4u, 4u),
-    uint4(8u, 0u, 3u, 5u),
-    uint4(8u, 3u, 4u, 5u),
-    uint4(8u, 4u, 0u, 5u),
-    uint4(1u, 4u, 3u, 6u),
-    uint4(9u, 1u, 4u, 7u),
-    uint4(9u, 4u, 3u, 7u),
-    uint4(9u, 3u, 1u, 7u),
-    uint4(0u, 2u, 5u, 8u),
-    uint4(10u, 0u, 2u, 9u),
-    uint4(10u, 2u, 5u, 9u),
-    uint4(10u, 5u, 0u, 9u),
-    uint4(1u, 5u, 2u, 10u),
-    uint4(11u, 1u, 5u, 11u),
-    uint4(11u, 5u, 2u, 11u),
-    uint4(11u, 2u, 1u, 11u),
-    uint4(0u, 5u, 3u, 12u),
-    uint4(12u, 0u, 5u, 13u),
-    uint4(12u, 5u, 3u, 13u),
-    uint4(12u, 3u, 0u, 13u),
-    uint4(1u, 3u, 5u, 14u),
-    uint4(13u, 1u, 3u, 15u),
-    uint4(13u, 3u, 5u, 15u),
-    uint4(13u, 5u, 1u, 15u)
-};
-
-float3 MerkabaCanonicalVertexPosition(uint vertexIndex)
-{
-    return (float3)kMerkabaCanonicalVertexUnits[vertexIndex] * MERKABA_CANONICAL_UNIT;
-}
-
+// Literal cases avoid nested dynamic static-const indexing on Quest/Vulkan.
 void MerkabaCanonicalPrimitiveVertex(uint primitiveId, uint corner, out float3 position, out float3 normal)
 {
-    uint4 primitive = kMerkabaCanonicalPrimitives[primitiveId];
-    uint vertexIndex = corner == 0u ? primitive.x : (corner == 1u ? primitive.y : primitive.z);
-    float3 a = MerkabaCanonicalVertexPosition(primitive.x);
-    float3 b = MerkabaCanonicalVertexPosition(primitive.y);
-    float3 c = MerkabaCanonicalVertexPosition(primitive.z);
-    position = MerkabaCanonicalVertexPosition(vertexIndex);
+    float3 a = float3(-1, 0, 0) * MERKABA_CANONICAL_UNIT;
+    float3 b = float3(0, 0, -1) * MERKABA_CANONICAL_UNIT;
+    float3 c = float3(0, -1, 0) * MERKABA_CANONICAL_UNIT;
+    switch (primitiveId)
+    {
+        case 0u:
+            a = float3(-1, 0, 0) * MERKABA_CANONICAL_UNIT;
+            b = float3(0, 0, -1) * MERKABA_CANONICAL_UNIT;
+            c = float3(0, -1, 0) * MERKABA_CANONICAL_UNIT;
+            break;
+        case 1u:
+            a = float3(-1, -1, -1) * MERKABA_CANONICAL_UNIT;
+            b = float3(-1, 0, 0) * MERKABA_CANONICAL_UNIT;
+            c = float3(0, 0, -1) * MERKABA_CANONICAL_UNIT;
+            break;
+        case 2u:
+            a = float3(-1, -1, -1) * MERKABA_CANONICAL_UNIT;
+            b = float3(0, 0, -1) * MERKABA_CANONICAL_UNIT;
+            c = float3(0, -1, 0) * MERKABA_CANONICAL_UNIT;
+            break;
+        case 3u:
+            a = float3(-1, -1, -1) * MERKABA_CANONICAL_UNIT;
+            b = float3(0, -1, 0) * MERKABA_CANONICAL_UNIT;
+            c = float3(-1, 0, 0) * MERKABA_CANONICAL_UNIT;
+            break;
+        case 4u:
+            a = float3(1, 0, 0) * MERKABA_CANONICAL_UNIT;
+            b = float3(0, -1, 0) * MERKABA_CANONICAL_UNIT;
+            c = float3(0, 0, -1) * MERKABA_CANONICAL_UNIT;
+            break;
+        case 5u:
+            a = float3(1, -1, -1) * MERKABA_CANONICAL_UNIT;
+            b = float3(1, 0, 0) * MERKABA_CANONICAL_UNIT;
+            c = float3(0, -1, 0) * MERKABA_CANONICAL_UNIT;
+            break;
+        case 6u:
+            a = float3(1, -1, -1) * MERKABA_CANONICAL_UNIT;
+            b = float3(0, -1, 0) * MERKABA_CANONICAL_UNIT;
+            c = float3(0, 0, -1) * MERKABA_CANONICAL_UNIT;
+            break;
+        case 7u:
+            a = float3(1, -1, -1) * MERKABA_CANONICAL_UNIT;
+            b = float3(0, 0, -1) * MERKABA_CANONICAL_UNIT;
+            c = float3(1, 0, 0) * MERKABA_CANONICAL_UNIT;
+            break;
+        case 8u:
+            a = float3(-1, 0, 0) * MERKABA_CANONICAL_UNIT;
+            b = float3(0, 1, 0) * MERKABA_CANONICAL_UNIT;
+            c = float3(0, 0, -1) * MERKABA_CANONICAL_UNIT;
+            break;
+        case 9u:
+            a = float3(-1, 1, -1) * MERKABA_CANONICAL_UNIT;
+            b = float3(-1, 0, 0) * MERKABA_CANONICAL_UNIT;
+            c = float3(0, 1, 0) * MERKABA_CANONICAL_UNIT;
+            break;
+        case 10u:
+            a = float3(-1, 1, -1) * MERKABA_CANONICAL_UNIT;
+            b = float3(0, 1, 0) * MERKABA_CANONICAL_UNIT;
+            c = float3(0, 0, -1) * MERKABA_CANONICAL_UNIT;
+            break;
+        case 11u:
+            a = float3(-1, 1, -1) * MERKABA_CANONICAL_UNIT;
+            b = float3(0, 0, -1) * MERKABA_CANONICAL_UNIT;
+            c = float3(-1, 0, 0) * MERKABA_CANONICAL_UNIT;
+            break;
+        case 12u:
+            a = float3(1, 0, 0) * MERKABA_CANONICAL_UNIT;
+            b = float3(0, 0, -1) * MERKABA_CANONICAL_UNIT;
+            c = float3(0, 1, 0) * MERKABA_CANONICAL_UNIT;
+            break;
+        case 13u:
+            a = float3(1, 1, -1) * MERKABA_CANONICAL_UNIT;
+            b = float3(1, 0, 0) * MERKABA_CANONICAL_UNIT;
+            c = float3(0, 0, -1) * MERKABA_CANONICAL_UNIT;
+            break;
+        case 14u:
+            a = float3(1, 1, -1) * MERKABA_CANONICAL_UNIT;
+            b = float3(0, 0, -1) * MERKABA_CANONICAL_UNIT;
+            c = float3(0, 1, 0) * MERKABA_CANONICAL_UNIT;
+            break;
+        case 15u:
+            a = float3(1, 1, -1) * MERKABA_CANONICAL_UNIT;
+            b = float3(0, 1, 0) * MERKABA_CANONICAL_UNIT;
+            c = float3(1, 0, 0) * MERKABA_CANONICAL_UNIT;
+            break;
+        case 16u:
+            a = float3(-1, 0, 0) * MERKABA_CANONICAL_UNIT;
+            b = float3(0, -1, 0) * MERKABA_CANONICAL_UNIT;
+            c = float3(0, 0, 1) * MERKABA_CANONICAL_UNIT;
+            break;
+        case 17u:
+            a = float3(-1, -1, 1) * MERKABA_CANONICAL_UNIT;
+            b = float3(-1, 0, 0) * MERKABA_CANONICAL_UNIT;
+            c = float3(0, -1, 0) * MERKABA_CANONICAL_UNIT;
+            break;
+        case 18u:
+            a = float3(-1, -1, 1) * MERKABA_CANONICAL_UNIT;
+            b = float3(0, -1, 0) * MERKABA_CANONICAL_UNIT;
+            c = float3(0, 0, 1) * MERKABA_CANONICAL_UNIT;
+            break;
+        case 19u:
+            a = float3(-1, -1, 1) * MERKABA_CANONICAL_UNIT;
+            b = float3(0, 0, 1) * MERKABA_CANONICAL_UNIT;
+            c = float3(-1, 0, 0) * MERKABA_CANONICAL_UNIT;
+            break;
+        case 20u:
+            a = float3(1, 0, 0) * MERKABA_CANONICAL_UNIT;
+            b = float3(0, 0, 1) * MERKABA_CANONICAL_UNIT;
+            c = float3(0, -1, 0) * MERKABA_CANONICAL_UNIT;
+            break;
+        case 21u:
+            a = float3(1, -1, 1) * MERKABA_CANONICAL_UNIT;
+            b = float3(1, 0, 0) * MERKABA_CANONICAL_UNIT;
+            c = float3(0, 0, 1) * MERKABA_CANONICAL_UNIT;
+            break;
+        case 22u:
+            a = float3(1, -1, 1) * MERKABA_CANONICAL_UNIT;
+            b = float3(0, 0, 1) * MERKABA_CANONICAL_UNIT;
+            c = float3(0, -1, 0) * MERKABA_CANONICAL_UNIT;
+            break;
+        case 23u:
+            a = float3(1, -1, 1) * MERKABA_CANONICAL_UNIT;
+            b = float3(0, -1, 0) * MERKABA_CANONICAL_UNIT;
+            c = float3(1, 0, 0) * MERKABA_CANONICAL_UNIT;
+            break;
+        case 24u:
+            a = float3(-1, 0, 0) * MERKABA_CANONICAL_UNIT;
+            b = float3(0, 0, 1) * MERKABA_CANONICAL_UNIT;
+            c = float3(0, 1, 0) * MERKABA_CANONICAL_UNIT;
+            break;
+        case 25u:
+            a = float3(-1, 1, 1) * MERKABA_CANONICAL_UNIT;
+            b = float3(-1, 0, 0) * MERKABA_CANONICAL_UNIT;
+            c = float3(0, 0, 1) * MERKABA_CANONICAL_UNIT;
+            break;
+        case 26u:
+            a = float3(-1, 1, 1) * MERKABA_CANONICAL_UNIT;
+            b = float3(0, 0, 1) * MERKABA_CANONICAL_UNIT;
+            c = float3(0, 1, 0) * MERKABA_CANONICAL_UNIT;
+            break;
+        case 27u:
+            a = float3(-1, 1, 1) * MERKABA_CANONICAL_UNIT;
+            b = float3(0, 1, 0) * MERKABA_CANONICAL_UNIT;
+            c = float3(-1, 0, 0) * MERKABA_CANONICAL_UNIT;
+            break;
+        case 28u:
+            a = float3(1, 0, 0) * MERKABA_CANONICAL_UNIT;
+            b = float3(0, 1, 0) * MERKABA_CANONICAL_UNIT;
+            c = float3(0, 0, 1) * MERKABA_CANONICAL_UNIT;
+            break;
+        case 29u:
+            a = float3(1, 1, 1) * MERKABA_CANONICAL_UNIT;
+            b = float3(1, 0, 0) * MERKABA_CANONICAL_UNIT;
+            c = float3(0, 1, 0) * MERKABA_CANONICAL_UNIT;
+            break;
+        case 30u:
+            a = float3(1, 1, 1) * MERKABA_CANONICAL_UNIT;
+            b = float3(0, 1, 0) * MERKABA_CANONICAL_UNIT;
+            c = float3(0, 0, 1) * MERKABA_CANONICAL_UNIT;
+            break;
+        case 31u:
+            a = float3(1, 1, 1) * MERKABA_CANONICAL_UNIT;
+            b = float3(0, 0, 1) * MERKABA_CANONICAL_UNIT;
+            c = float3(1, 0, 0) * MERKABA_CANONICAL_UNIT;
+            break;
+        default: break;
+    }
+    position = corner == 0u ? a : (corner == 1u ? b : c);
     normal = normalize(cross(b - a, c - a));
 }
 

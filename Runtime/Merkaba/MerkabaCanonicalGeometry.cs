@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.Text;
 using Unity.Mathematics;
 
@@ -192,12 +191,11 @@ namespace Genesis.RoomScan
 #if UNITY_EDITOR
         internal static string BuildGeneratedHlsl()
         {
-            var text = new StringBuilder(12000);
+            var text = new StringBuilder(16000);
             text.Append("// GENERATED from MerkabaCanonicalGeometry.cs. DO NOT EDIT.\n")
                 .Append("#ifndef GENESIS_MERKABA_CANONICAL_GEOMETRY_INCLUDED\n")
                 .Append("#define GENESIS_MERKABA_CANONICAL_GEOMETRY_INCLUDED\n\n")
                 .Append("#define MERKABA_DIRECTION_COUNT 8\n")
-                .Append("#define MERKABA_CANONICAL_VERTEX_COUNT ").Append(VerticesValue.Length).Append("\n")
                 .Append("#define MERKABA_CANONICAL_PRIMITIVE_COUNT ").Append(PrimitiveCount).Append("\n")
                 .Append("#define MERKABA_PRIMITIVES_PER_DIRECTION 4\n")
                 .Append("#define MERKABA_VERTICES_PER_PRIMITIVE 3\n")
@@ -210,36 +208,34 @@ namespace Genesis.RoomScan
                     .Append(value.y).Append(", ").Append(value.z).Append(')')
                     .Append(index + 1 == DirectionsValue.Length ? "\n" : ",\n");
             }
-            text.Append("};\n\nstatic const int3 kMerkabaCanonicalVertexUnits[MERKABA_CANONICAL_VERTEX_COUNT] =\n{\n");
-            for (int index = 0; index < VerticesValue.Length; index++)
-            {
-                CanonicalVertex value = VerticesValue[index];
-                text.Append("    int3(").Append(value.X).Append(", ")
-                    .Append(value.Y).Append(", ").Append(value.Z).Append(')')
-                    .Append(index + 1 == VerticesValue.Length ? "\n" : ",\n");
-            }
-            text.Append("};\n\n// xyz = vertex indices, w = (direction << 1) | tip-side flag.\n")
-                .Append("static const uint4 kMerkabaCanonicalPrimitives[MERKABA_CANONICAL_PRIMITIVE_COUNT] =\n{\n");
+            text.Append("};\n\n")
+                .Append("// Literal cases avoid nested dynamic static-const indexing on Quest/Vulkan.\n")
+                .Append("void MerkabaCanonicalPrimitiveVertex(uint primitiveId, uint corner, out float3 position, out float3 normal)\n{\n")
+                .Append("    float3 a = float3(-1, 0, 0) * MERKABA_CANONICAL_UNIT;\n")
+                .Append("    float3 b = float3(0, 0, -1) * MERKABA_CANONICAL_UNIT;\n")
+                .Append("    float3 c = float3(0, -1, 0) * MERKABA_CANONICAL_UNIT;\n")
+                .Append("    switch (primitiveId)\n    {\n");
             for (int index = 0; index < PrimitivesValue.Length; index++)
             {
-                CanonicalPrimitive value = PrimitivesValue[index];
-                uint metadata = ((uint)value.Direction << 1) |
-                    (value.Kind == PrimitiveKind.TipSide ? 1u : 0u);
-                text.Append("    uint4(").Append(value.Vertex0).Append("u, ")
-                    .Append(value.Vertex1).Append("u, ").Append(value.Vertex2)
-                    .Append("u, ").Append(metadata.ToString(CultureInfo.InvariantCulture))
-                    .Append("u)").Append(index + 1 == PrimitivesValue.Length ? "\n" : ",\n");
+                CanonicalPrimitive primitive = PrimitivesValue[index];
+                int3 a = VerticesValue[primitive.Vertex0].Coordinate;
+                int3 b = VerticesValue[primitive.Vertex1].Coordinate;
+                int3 c = VerticesValue[primitive.Vertex2].Coordinate;
+                text.Append("        case ").Append(index).Append("u:\n")
+                    .Append("            a = float3(").Append(a.x).Append(", ")
+                    .Append(a.y).Append(", ").Append(a.z)
+                    .Append(") * MERKABA_CANONICAL_UNIT;\n")
+                    .Append("            b = float3(").Append(b.x).Append(", ")
+                    .Append(b.y).Append(", ").Append(b.z)
+                    .Append(") * MERKABA_CANONICAL_UNIT;\n")
+                    .Append("            c = float3(").Append(c.x).Append(", ")
+                    .Append(c.y).Append(", ").Append(c.z)
+                    .Append(") * MERKABA_CANONICAL_UNIT;\n")
+                    .Append("            break;\n");
             }
-            text.Append("};\n\n")
-                .Append("float3 MerkabaCanonicalVertexPosition(uint vertexIndex)\n{\n")
-                .Append("    return (float3)kMerkabaCanonicalVertexUnits[vertexIndex] * MERKABA_CANONICAL_UNIT;\n}\n\n")
-                .Append("void MerkabaCanonicalPrimitiveVertex(uint primitiveId, uint corner, out float3 position, out float3 normal)\n{\n")
-                .Append("    uint4 primitive = kMerkabaCanonicalPrimitives[primitiveId];\n")
-                .Append("    uint vertexIndex = corner == 0u ? primitive.x : (corner == 1u ? primitive.y : primitive.z);\n")
-                .Append("    float3 a = MerkabaCanonicalVertexPosition(primitive.x);\n")
-                .Append("    float3 b = MerkabaCanonicalVertexPosition(primitive.y);\n")
-                .Append("    float3 c = MerkabaCanonicalVertexPosition(primitive.z);\n")
-                .Append("    position = MerkabaCanonicalVertexPosition(vertexIndex);\n")
+            text.Append("        default: break;\n")
+                .Append("    }\n")
+                .Append("    position = corner == 0u ? a : (corner == 1u ? b : c);\n")
                 .Append("    normal = normalize(cross(b - a, c - a));\n}\n\n")
                 .Append("#endif\n");
             return text.ToString();
