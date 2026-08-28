@@ -45,8 +45,13 @@ namespace Genesis.RoomScan
         public bool IsScanStarting => ScanLifecycle == ScanLifecycleState.Starting;
         public ScanLifecycleState ScanLifecycle { get; private set; }
         public string LastScanStartError { get; private set; }
-        public int ActiveChunkCount => _grid != null ? _grid.ActiveChunkCount : 0;
+        public int ActiveChunkCount => _grid != null && _grid.GpuReady
+            ? _grid.ResidentPageCount : _grid != null ? _grid.ActiveChunkCount : 0;
         public int OccupiedKernelCount => _grid != null ? _grid.OccupiedKernelCount : 0;
+        public int PublishedPrimitiveCount =>
+            _renderer != null ? _renderer.VisiblePrimitiveCount : 0;
+        public int VisibleChunkCount => _grid != null && _grid.GpuReady
+            ? _grid.VisibleChunkCount : 0;
         public int VisibleSurfaceKernelCount =>
             _renderer != null ? _renderer.VisibleSurfaceKernelCount : 0;
         public int IntegrationCount => _integrator != null ? _integrator.IntegrationCount : 0;

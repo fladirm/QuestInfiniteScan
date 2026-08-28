@@ -134,8 +134,8 @@ namespace Genesis.RoomScan.UI
             SetStatus(_scanning, state, scanner.IsScanning ? StatusKind.Good :
                 scanner.IsScanStarting ? StatusKind.Warning : StatusKind.Neutral);
             Set(_chunks, scanner.ActiveChunkCount.ToString());
-            Set(_kernels, scanner.OccupiedKernelCount.ToString());
-            Set(_visibleBoundary, scanner.VisibleSurfaceKernelCount.ToString());
+            Set(_kernels, scanner.PublishedPrimitiveCount.ToString());
+            Set(_visibleBoundary, scanner.VisibleChunkCount.ToString());
             SetStatus(_saved, scanner.SavedSessionExists
                 ? scanner.PersistenceStatus : "No saved session",
                 scanner.SavedSessionExists ? StatusKind.Good : StatusKind.Neutral);
@@ -168,10 +168,10 @@ namespace Genesis.RoomScan.UI
             bool busy = scanner.IsBusy;
             _start?.SetEnabled(!busy && !scanner.IsScanning && !scanner.IsScanStarting);
             _stop?.SetEnabled(!busy && (scanner.IsScanning || scanner.IsScanStarting));
-            _save?.SetEnabled(!busy && scanner.ActiveChunkCount > 0);
+            _save?.SetEnabled(!busy);
             _load?.SetEnabled(!busy && scanner.SavedSessionExists);
             _new?.SetEnabled(!busy);
-            _export?.SetEnabled(!busy && scanner.ActiveChunkCount > 0);
+            _export?.SetEnabled(!busy);
         }
 
         private void RefreshOperation(ScanOperationState operation)

@@ -33,6 +33,9 @@ namespace Genesis.RoomScan.Tests
             Assert.That(root.Q<Label>("operation-spinner"), Is.Not.Null);
             Assert.That(root.Q<Label>("operation-stage"), Is.Not.Null);
             Assert.That(root.Q<ProgressBar>("operation-progress"), Is.Not.Null);
+            string source = File.ReadAllText(Path.GetFullPath(path));
+            Assert.That(source, Does.Contain("Published triangles"));
+            Assert.That(source, Does.Contain("Visible chunks"));
         }
 
         [Test]
@@ -63,6 +66,38 @@ namespace Genesis.RoomScan.Tests
             Assert.That(source, Does.Contain("_ScanOpacity)"));
             Assert.That(source, Does.Not.Contain("if ("),
                 "Opacity must select material state on CPU, not branch per fragment.");
+        }
+
+        [Test]
+        public void LiveShaderUsesUnitySinglePassInstancedContract()
+        {
+            const string assetPath =
+                "Packages/com.genesis.roomscan/Runtime/Shaders/MerkabaGrid.shader";
+            string source = File.ReadAllText(Path.GetFullPath(assetPath));
+
+            Assert.That(source, Does.Contain("UNITY_VERTEX_INPUT_INSTANCE_ID"));
+            Assert.That(source, Does.Contain("UNITY_SETUP_INSTANCE_ID(input)"));
+            Assert.That(source, Does.Contain("UNITY_VERTEX_OUTPUT_STEREO"));
+            Assert.That(source, Does.Contain(
+                "UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(output)"));
+            Assert.That(source, Does.Contain(
+                "uint primitiveInstanceID = unity_InstanceID"));
+            Assert.That(source, Does.Contain(
+                "_MerkabaPrimitiveCapacityPerChunk + primitiveInstanceID"));
+            Assert.That(source, Does.Not.Contain(
+                "uint instanceID : SV_InstanceID"));
+        }
+
+        [Test]
+        public void SaveAndExportAreNotGatedByStaleCpuChunkCount()
+        {
+            string source = File.ReadAllText(Path.GetFullPath(
+                "Packages/com.genesis.roomscan/Runtime/UI/DebugMenuController.cs"));
+
+            Assert.That(source, Does.Contain("_save?.SetEnabled(!busy)"));
+            Assert.That(source, Does.Contain("_export?.SetEnabled(!busy)"));
+            Assert.That(source, Does.Not.Contain(
+                "scanner.ActiveChunkCount > 0"));
         }
     }
 }

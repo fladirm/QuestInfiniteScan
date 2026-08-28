@@ -54,22 +54,40 @@ Shader "Genesis/RoomScan/MerkabaGrid"
                 half _ScanOpacity;
             CBUFFER_END
 
+            struct Attributes
+            {
+                uint vertexID : SV_VertexID;
+#if UNITY_ANY_INSTANCING_ENABLED
+                UNITY_VERTEX_INPUT_INSTANCE_ID
+#else
+                uint proceduralInstanceID : SV_InstanceID;
+#endif
+            };
+
             struct Varyings
             {
                 float4 positionCS : SV_POSITION;
                 half3 normalWS : TEXCOORD0;
                 half3 color : TEXCOORD1;
+                UNITY_VERTEX_OUTPUT_STEREO
             };
 
-            Varyings Vert(uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID)
+            Varyings Vert(Attributes input)
             {
                 Varyings output;
+                UNITY_SETUP_INSTANCE_ID(input);
+                UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(output);
+#if UNITY_ANY_INSTANCING_ENABLED
+                uint primitiveInstanceID = unity_InstanceID;
+#else
+                uint primitiveInstanceID = input.proceduralInstanceID;
+#endif
                 uint bankStride = _MerkabaResidentSlotCapacity *
                     _MerkabaPrimitiveCapacityPerChunk;
                 uint recordIndex =
                     (_MerkabaPublishedBanks[_MerkabaResidentSlot] & 1u) * bankStride +
                     _MerkabaResidentSlot *
-                    _MerkabaPrimitiveCapacityPerChunk + instanceID;
+                    _MerkabaPrimitiveCapacityPerChunk + primitiveInstanceID;
                 PrimitiveRecord record = _MerkabaPrimitiveRecordBanks[recordIndex];
                 uint localIndex = record.packedLocalPrimitive & 32767u;
                 uint primitiveId = (record.packedLocalPrimitive >> 15u) & 31u;
@@ -77,7 +95,7 @@ Shader "Genesis/RoomScan/MerkabaGrid"
                     (localIndex >> 5u) & 31u, (localIndex >> 10u) & 31u);
 
                 float3 localPosition, localNormal;
-                MerkabaCanonicalPrimitiveVertex(primitiveId, vertexID,
+                MerkabaCanonicalPrimitiveVertex(primitiveId, input.vertexID,
                     localPosition, localNormal);
                 localPosition += (_MerkabaChunkOrigin + (float3)localCoord) *
                     MERKABA_LATTICE_STEP;

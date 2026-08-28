@@ -24,11 +24,11 @@
                 <ui:Label name="val-chunks" text="0" class="status-val" />
             </ui:VisualElement>
             <ui:VisualElement class="status-row">
-                <ui:Label text="Occupied kernels" class="status-key" />
+                <ui:Label text="Published triangles" class="status-key" />
                 <ui:Label name="val-kernels" text="0" class="status-val" />
             </ui:VisualElement>
             <ui:VisualElement class="status-row">
-                <ui:Label text="Visible boundary" class="status-key" />
+                <ui:Label text="Visible chunks" class="status-key" />
                 <ui:Label name="val-visible" text="0" class="status-val" />
             </ui:VisualElement>
             <ui:VisualElement class="status-row">
