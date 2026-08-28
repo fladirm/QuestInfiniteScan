@@ -2,7 +2,7 @@
 
 BASE: `0e9081060ed1068aad6e075f4961ad25b72245ff`
 BRANCH: `fix/merkaba-production-closure`
-HEAD: `fbfc07a`
+HEAD: `14688db07a7f065ee123f407e136037651b11da1`
 GOAL AUTHORITY: `/mnt/aidisk/prace/.codex-pursuits/quest-merkaba-production-closure/REPAIR_GOAL.md`
 GOAL SHA-256: `9135e66973e4fe2e36af2cb67869a56afcc6aee75b9b57f50fdd269e109e923f`
 
@@ -46,6 +46,7 @@ GOAL SHA-256: `9135e66973e4fe2e36af2cb67869a56afcc6aee75b9b57f50fdd269e109e923f`
 - R8 samples one integration/render submission after a two-second delay and then at five-second intervals; unsampled frames emit zero timestamp events and zero telemetry readbacks.
 - R8 sampled diagnostics report depth samples, SURFACE/CARVE candidates, integration/resident/visible chunks, dirty topology work, and published primitive count.
 - R8 built a fresh ARM64 Android APK with the 16 KB-aligned timestamp plugin, verified APK contents, installed it on the single authorized Quest 3S, and launched the activity.
+- R8b render residency rejects untouched world coordinates before matrix/AABB/frustum scoring and sorting; integration residency retains its complete bounded domain.
 
 ## CURRENT
 
@@ -58,7 +59,7 @@ GOAL SHA-256: `9135e66973e4fe2e36af2cb67869a56afcc6aee75b9b57f50fdd269e109e923f`
 
 ## TEST STATUS
 
-- Unity EditMode after R8: 57/57 passed, 0 failed, 0 skipped.
+- Unity EditMode after R8b: 58/58 passed, 0 failed, 0 skipped.
 - CPU/HLSL byte identity, CPU/GPU cross-chunk mask identity, and direct GLB counts/non-axis normals passed.
 - Isolated kernel and every body-diagonal pair rule passed; axis/face-diagonal non-activation passed.
 - Depth border/padding, stereo dilation, exact step sequence, consumed-frame cadence, right-eye-only production integration, and false-foreground carve passed.
@@ -74,15 +75,15 @@ GOAL SHA-256: `9135e66973e4fe2e36af2cb67869a56afcc6aee75b9b57f50fdd269e109e923f`
 
 - Fresh Android build: PASS.
 - APK: `/mnt/kingston-unity/Builds/QuestMerkabaScan/QuestMerkabaScan-release.apk`.
-- APK size: 63,166,399 bytes; SHA-256 `a5607650086656cad8f76b1fbd052c76c4dac8271e286223d8cba0490b3c39ac`.
+- APK size: 63,166,303 bytes; SHA-256 `cb495b49448c2f8e2be143de00bc8834abba6530eb455473087eac6a4667c0da`.
 - APK contains `lib/arm64-v8a/libMerkabaVulkanTimestamps.so`; no Sigma native plugin is present.
 
 ## DEVICE STATUS
 
 - Exactly one authorized Quest 3S: `340YC20G7X0QZ4`.
 - Fresh APK install: PASS (`adb install -r -d` returned `Success`).
-- Activity launch: PASS; package PID 15158 remained alive with no fatal app exception.
-- Idle/non-scanning device run holds 72/72 Hz, App ~3.9 ms, CPU&GPU ~5.0-5.6 ms, GPU%=0.41.
+- Activity launch: PASS; replacement package process remained alive with no fatal app exception.
+- Idle/non-scanning device run holds 72/72 Hz, App ~3.8 ms, CPU&GPU ~5.1-5.7 ms, GPU%=0.40-0.41.
 - Active scan has not yet been started through the real VR control; `rawFrames=0`, so active stage timing and new-build geometry evidence remain pending.
 
 ## MEASUREMENTS
@@ -92,7 +93,8 @@ GOAL SHA-256: `9135e66973e4fe2e36af2cb67869a56afcc6aee75b9b57f50fdd269e109e923f`
 - Baseline App time: ~22.19 ms.
 - Baseline CPU+GPU time: ~29.41 ms.
 - Baseline GLB: cube-only axis normals, 775,724 triangles.
-- Repair idle device: 72/72 Hz, App ~3.9 ms, CPU&GPU ~5.0-5.6 ms, GPU%=0.41.
+- Repair idle device: 72/72 Hz, App ~3.8 ms, CPU&GPU ~5.1-5.7 ms, GPU%=0.40-0.41.
+- Empty-world render-residency CPU load dropped from about 0.35 to 0.24 in matched Quest idle VrApi samples after early existing-chunk rejection.
 
 ## REAL BLOCKERS
 

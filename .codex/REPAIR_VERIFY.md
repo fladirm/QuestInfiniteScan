@@ -157,7 +157,7 @@ Result:
 
 ## R8 Full Local Verification and APK
 
-Commit: `fbfc07a`
+Commits: `fbfc07a`, `14688db`
 
 Commands:
 
@@ -170,13 +170,14 @@ unzip -l /mnt/kingston-unity/Builds/QuestMerkabaScan/QuestMerkabaScan-release.ap
 
 Result:
 
-- Unity EditMode: 57 passed, 0 failed, 0 skipped.
+- Unity EditMode: 58 passed, 0 failed, 0 skipped.
 - Six fixed real GPU timestamp stages: DEPTH_PREPROCESS, SURFACE_INTEGRATION, CARVE_INTEGRATION, TOPOLOGY_UPDATE, PUBLICATION_COMPACTION, MERKABA_DRAW.
 - No Unity Profiler, ProfilerRecorder, CPU stopwatch, or FPS-derived stage timing in production.
 - Timestamp cadence: one sampled frame after 2 s, then at 5 s intervals; normal frames issue no timing events/readbacks.
 - Native plugin: ARM64 Android API 29, NDK r27c, 16 KB ELF segment alignment; required exported ABI symbols present.
-- Fresh APK: 63,166,399 bytes, mtime 2026-08-28 19:14:37 +0200.
-- APK SHA-256: `a5607650086656cad8f76b1fbd052c76c4dac8271e286223d8cba0490b3c39ac`.
+- Render residency rejects untouched coordinates before AABB/frustum work and sorting while integration coverage remains unchanged.
+- Fresh APK: 63,166,303 bytes, mtime 2026-08-28 19:39:07 +0200.
+- APK SHA-256: `cb495b49448c2f8e2be143de00bc8834abba6530eb455473087eac6a4667c0da`.
 - APK contains `lib/arm64-v8a/libMerkabaVulkanTimestamps.so`; no Sigma plugin/path present.
 - Unity build log: `Build Finished, Result: Success` and fresh-output verification PASS.
 
@@ -184,6 +185,6 @@ Result:
 
 - Device: authorized Quest 3S `340YC20G7X0QZ4`.
 - Install: `adb -s 340YC20G7X0QZ4 install -r -d <APK>` returned `Success`.
-- Launch: `adb -s 340YC20G7X0QZ4 shell am start -n com.genesis.questmerkabascan/com.unity3d.player.UnityPlayerGameActivity` succeeded; PID 15158 remained alive.
-- Idle/non-scanning performance: 72/72 Hz, App ~3.9 ms, CPU&GPU ~5.0-5.6 ms, GPU%=0.41.
+- Launch: `adb -s 340YC20G7X0QZ4 shell am start -n com.genesis.questmerkabascan/com.unity3d.player.UnityPlayerGameActivity` succeeded; replacement process remained alive.
+- Idle/non-scanning performance: 72/72 Hz, App ~3.8 ms, CPU&GPU ~5.1-5.7 ms, GPU%=0.40-0.41.
 - Active scan, timestamps, fresh GLB, opacity/progress interaction, and scan screenshots: PENDING real VR control input.

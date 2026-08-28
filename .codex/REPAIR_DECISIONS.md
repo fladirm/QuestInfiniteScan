@@ -39,3 +39,4 @@
 - GPU telemetry is one isolated ARM64 Vulkan query plugin with six fixed stage IDs. One frame is sampled every five seconds; normal frames issue no plugin events and no diagnostic readbacks.
 - Timestamp spans surround the existing coarse parallel passes only; telemetry does not split integration/publication into additional compute dispatches.
 - Shader branches retained in production are bounds/validity rejection, SURFACE/FREE/UNKNOWN semantics, and the fixed eight-direction face-versus-tip choice. Branch-count cosmetics must not replace measured structural optimization or increase emitted work.
+- Render residency's bounded coordinate walk rejects coordinates absent from both canonical and resident maps before world-bounds/frustum math or sorting. Integration residency deliberately does not use this filter because it must prepare transient pages for new observations.
