@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.IO;
+using System.Reflection;
 using Genesis.RoomScan;
 using NUnit.Framework;
 using Unity.Mathematics;
@@ -235,6 +236,8 @@ namespace Genesis.RoomScan.Tests
                 HashSet<int3> first = VisibleChunkCoords(grid);
                 Assert.That(first, Does.Contain(renderOnlyChunk),
                     "render distance must publish canonical chunks outside integration range");
+                Assert.That(first.Count, Is.GreaterThan(1),
+                    "resident transient GPU pages must participate in sparse render selection");
                 Assert.That(grid.TransientResidentPageCount, Is.GreaterThan(0));
 
                 camera.transform.position += new Vector3(0.05f, 0f, 0f);
@@ -242,6 +245,13 @@ namespace Genesis.RoomScan.Tests
                 HashSet<int3> afterSmallMove = VisibleChunkCoords(grid);
                 Assert.That(afterSmallMove.SetEquals(first), Is.True,
                     "one-chunk guard/hysteresis must prevent 5 cm page churn");
+
+                camera.transform.rotation = Quaternion.Euler(0f, 90f, 0f);
+                grid.RefreshResidency(camera, 2f, false);
+                Assert.That(RenderDesiredCoords(grid).Contains(renderOnlyChunk), Is.True,
+                    "one-chunk hysteresis must retain residency outside exact frustum");
+                Assert.That(VisibleChunkCoords(grid).Contains(renderOnlyChunk), Is.False,
+                    "residency hysteresis must never leak into the draw list");
             }
             finally
             {
@@ -251,22 +261,26 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
-        public void RenderResidency_RejectsUntouchedWorldBeforeBoundsAndSortWork()
+        public void RenderResidency_EnumeratesSparseCoordsWhileIntegrationKeepsVolumeLoop()
         {
             string source = File.ReadAllText(Path.GetFullPath(
                 "Packages/com.genesis.roomscan/Runtime/Merkaba/MerkabaGrid.Gpu.cs"));
-            int filter = source.IndexOf(
-                "if (existingOnly && !_chunks.ContainsKey(coord)",
+            int renderBranch = source.IndexOf("if (existingOnly)",
                 System.StringComparison.Ordinal);
-            int bounds = source.IndexOf(
-                "Bounds worldBounds = ChunkWorldBounds(coord);",
+            int sparse = source.IndexOf(
+                "new HashSet<int3>(_chunks.Keys)", renderBranch,
                 System.StringComparison.Ordinal);
-            int sort = source.IndexOf("result.Sort((left, right)",
+            int residentUnion = source.IndexOf(
+                "sparseCoords.UnionWith(_resident.Keys)", sparse,
                 System.StringComparison.Ordinal);
-            Assert.That(filter, Is.GreaterThanOrEqualTo(0));
-            Assert.That(bounds, Is.GreaterThan(filter),
-                "untouched render space must be rejected before AABB work");
-            Assert.That(sort, Is.GreaterThan(bounds));
+            int integrationLoop = source.IndexOf(
+                "for (int z = -radius; z <= radius; z++)", residentUnion,
+                System.StringComparison.Ordinal);
+            Assert.That(renderBranch, Is.GreaterThanOrEqualTo(0));
+            Assert.That(sparse, Is.GreaterThan(renderBranch));
+            Assert.That(residentUnion, Is.GreaterThan(sparse));
+            Assert.That(integrationLoop, Is.GreaterThan(residentUnion),
+                "the XYZ loop must remain only in the unchanged integration branch");
         }
 
         [Test]
@@ -309,6 +323,14 @@ namespace Genesis.RoomScan.Tests
             for (int i = 0; i < grid.VisibleChunkCount; i++)
                 result.Add(pages[visible[i]].xyz);
             return result;
+        }
+
+        private static HashSet<int3> RenderDesiredCoords(MerkabaGrid grid)
+        {
+            FieldInfo field = typeof(MerkabaGrid).GetField("_renderDesiredCoords",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.That(field, Is.Not.Null);
+            return (HashSet<int3>)field.GetValue(grid);
         }
 
         private static MerkabaObservationInput FreeInput(float kernelDistance,

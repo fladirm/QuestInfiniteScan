@@ -386,8 +386,10 @@ namespace Genesis.RoomScan
                     VisibleChunkCount);
             }
 
+            HashSet<int3> exactVisible = allocateForIntegration
+                ? null : new HashSet<int3>();
             List<ChunkCandidate> candidates = CollectFrustumCandidates(camera,
-                maxDistance, previousDesired, !allocateForIntegration);
+                maxDistance, previousDesired, !allocateForIntegration, exactVisible);
             int capacity = allocateForIntegration ? maxIntegrationChunks : maxVisibleChunks;
             var selected = new List<int3>(capacity);
             for (int i = 0; i < candidates.Count && selected.Count < capacity; i++)
@@ -401,13 +403,16 @@ namespace Genesis.RoomScan
 
             var changed = new List<int3>();
             var frameSlots = new List<int>(capacity);
+            int residentSelectionCount = 0;
             for (int i = 0; i < selected.Count; i++)
             {
                 ResidentPage page = EnsureResident(selected[i], allocateForIntegration,
                     changed);
                 if (page == null) continue;
                 page.LastTouchedFrame = Time.frameCount;
-                frameSlots.Add(page.Slot);
+                residentSelectionCount++;
+                if (allocateForIntegration || exactVisible.Contains(selected[i]))
+                    frameSlots.Add(page.Slot);
             }
 
             if (changed.Count > 0) RebuildPageTablesAndDirtyLocal(changed);
@@ -415,7 +420,7 @@ namespace Genesis.RoomScan
             if (allocateForIntegration) SetIntegrationSlots(frameSlots);
             else SetVisibleSlots(frameSlots);
 
-            if (frameSlots.Count < selected.Count) ScheduleOneEviction();
+            if (residentSelectionCount < selected.Count) ScheduleOneEviction();
 
             return new MerkabaResidencyFrame(IntegrationChunkCount, VisibleChunkCount);
         }
@@ -647,7 +652,7 @@ namespace Genesis.RoomScan
 
         private List<ChunkCandidate> CollectFrustumCandidates(Camera camera,
             float enterDistance, HashSet<int3> previousDesired,
-            bool existingOnly)
+            bool existingOnly, HashSet<int3> exactVisible)
         {
             Vector3 localCamera = transform.InverseTransformPoint(camera.transform.position);
             float chunkSpan = MerkabaConstants.ChunkSize * MerkabaConstants.LatticeStep;
@@ -660,32 +665,58 @@ namespace Genesis.RoomScan
             Plane[] planes = GeometryUtility.CalculateFrustumPlanes(camera);
             var result = new List<ChunkCandidate>(512);
 
-            for (int z = -radius; z <= radius; z++)
-            for (int y = -radius; y <= radius; y++)
-            for (int x = -radius; x <= radius; x++)
+            if (existingOnly)
             {
-                int3 coord = cameraChunk + new int3(x, y, z);
-                // Render residency never materializes untouched world. Reject it
-                // before matrix/AABB/frustum work and before sorting; integration
-                // still receives the complete bounded frustum domain.
-                if (existingOnly && !_chunks.ContainsKey(coord) &&
-                    !_resident.ContainsKey(coord))
-                    continue;
-                Bounds worldBounds = ChunkWorldBounds(coord);
-                float distanceSq = worldBounds.SqrDistance(camera.transform.position);
-                bool retained = previousDesired.Contains(coord);
-                float allowedDistance = retained ? leaveDistance : enterDistance;
-                if (distanceSq > allowedDistance * allowedDistance) continue;
+                var sparseCoords = new HashSet<int3>(_chunks.Keys);
+                sparseCoords.UnionWith(_resident.Keys);
+                foreach (int3 coord in sparseCoords)
+                {
+                    Bounds worldBounds = ChunkWorldBounds(coord);
+                    float distanceSq = worldBounds.SqrDistance(camera.transform.position);
+                    bool visible = distanceSq <= enterDistance * enterDistance &&
+                                   GeometryUtility.TestPlanesAABB(planes, worldBounds);
+                    bool retained = previousDesired.Contains(coord);
+                    bool keep = visible;
+                    if (!keep && retained && distanceSq <= leaveDistance * leaveDistance)
+                    {
+                        Bounds keepBounds = worldBounds;
+                        keepBounds.Expand(chunkSpan * 2f);
+                        keep = GeometryUtility.TestPlanesAABB(planes, keepBounds);
+                    }
+                    if (!keep) continue;
+                    if (visible) exactVisible.Add(coord);
 
-                Bounds cullBounds = worldBounds;
-                if (retained) cullBounds.Expand(chunkSpan * 2f);
-                if (!GeometryUtility.TestPlanesAABB(planes, cullBounds)) continue;
+                    float distance = Mathf.Sqrt(distanceSq);
+                    float stableDistance = Mathf.Max(0f,
+                        distance - (retained ? chunkSpan : 0f));
+                    result.Add(new ChunkCandidate(coord, distanceSq,
+                        stableDistance * stableDistance));
+                }
+            }
+            else
+            {
+                // Integration keeps its complete bounded frustum domain.
+                for (int z = -radius; z <= radius; z++)
+                for (int y = -radius; y <= radius; y++)
+                for (int x = -radius; x <= radius; x++)
+                {
+                    int3 coord = cameraChunk + new int3(x, y, z);
+                    Bounds worldBounds = ChunkWorldBounds(coord);
+                    float distanceSq = worldBounds.SqrDistance(camera.transform.position);
+                    bool retained = previousDesired.Contains(coord);
+                    float allowedDistance = retained ? leaveDistance : enterDistance;
+                    if (distanceSq > allowedDistance * allowedDistance) continue;
 
-                float distance = Mathf.Sqrt(distanceSq);
-                float stableDistance = Mathf.Max(0f,
-                    distance - (retained ? chunkSpan : 0f));
-                result.Add(new ChunkCandidate(coord, distanceSq,
-                    stableDistance * stableDistance));
+                    Bounds cullBounds = worldBounds;
+                    if (retained) cullBounds.Expand(chunkSpan * 2f);
+                    if (!GeometryUtility.TestPlanesAABB(planes, cullBounds)) continue;
+
+                    float distance = Mathf.Sqrt(distanceSq);
+                    float stableDistance = Mathf.Max(0f,
+                        distance - (retained ? chunkSpan : 0f));
+                    result.Add(new ChunkCandidate(coord, distanceSq,
+                        stableDistance * stableDistance));
+                }
             }
 
             result.Sort((left, right) =>
