@@ -74,6 +74,8 @@ namespace Genesis.RoomScan
         public static readonly int DilatedDepthTexID = Shader.PropertyToID("gsDilatedDepth");
         public static readonly int VoxDistID = Shader.PropertyToID("gsVoxDist");
         public static readonly int VoxSizeShaderID = Shader.PropertyToID("gsVoxSize");
+        private static readonly int InputProjectionDepthID =
+            Shader.PropertyToID("gsInputProjectionDepth");
 
         // Bilateral filter property IDs
         private static readonly int BilSrcDepthID = Shader.PropertyToID("_SrcDepth");
@@ -102,6 +104,7 @@ namespace Genesis.RoomScan
         private bool _captureActive;
 
         private ComputeKernelHelper _normKernel;
+        private ComputeKernelHelper _projectionDepthCopyKernel;
         private ComputeKernelHelper _monoConvertKernel;
         private ComputeKernelHelper _initDilateKernel;
         private ComputeKernelHelper _dilateStepKernel;
@@ -200,6 +203,8 @@ namespace Genesis.RoomScan
             CacheTrackingSpaceTransform();
 
             _normKernel = new ComputeKernelHelper(depthNormalCompute, "DepthNorm");
+            _projectionDepthCopyKernel = new ComputeKernelHelper(depthNormalCompute,
+                "CopyProjectionDepthArray");
             _monoConvertKernel = new ComputeKernelHelper(depthNormalCompute, "MonoRawDepthToStereo");
             _initDilateKernel = new ComputeKernelHelper(depthDilationCompute, "InitDepthDilation");
             _dilateStepKernel = new ComputeKernelHelper(depthDilationCompute, "DilateDepthStep");
@@ -515,8 +520,7 @@ namespace Genesis.RoomScan
             _planes = new Vector2(_mainCam.nearClipPlane,
                 _mainCam.farClipPlane);
 
-            EnsureOwnedRawDepth(rawDepth.width, rawDepth.height,
-                GraphicsFormat.R16_UNorm);
+            EnsureOwnedRawDepth(rawDepth.width, rawDepth.height);
 
             depthNormalCompute.SetVector(ZParamsID, _planes);
             _monoConvertKernel.Set(DepthTexRWID, _ownedRawDepthTex);
@@ -567,22 +571,32 @@ namespace Genesis.RoomScan
                 transientDepth.dimension != TextureDimension.Tex2DArray)
                 return false;
 
-            EnsureOwnedRawDepth(transientDepth.width, transientDepth.height,
-                transientDepth.graphicsFormat);
-            Graphics.CopyTexture(transientDepth, _ownedRawDepthTex);
+            EnsureOwnedRawDepth(transientDepth.width, transientDepth.height);
+            if (transientDepth.graphicsFormat == GraphicsFormat.R32_SFloat)
+            {
+                Graphics.CopyTexture(transientDepth, _ownedRawDepthTex);
+            }
+            else
+            {
+                _projectionDepthCopyKernel.Set(InputProjectionDepthID, transientDepth);
+                _projectionDepthCopyKernel.Set(DepthTexRWID, _ownedRawDepthTex);
+                _projectionDepthCopyKernel.DispatchFit(transientDepth.width,
+                    transientDepth.height, 2);
+            }
             MarkOwnedDepthSnapshotReady();
             return true;
         }
 
-        private void EnsureOwnedRawDepth(int width, int height, GraphicsFormat format)
+        private void EnsureOwnedRawDepth(int width, int height)
         {
             if (_ownedRawDepthTex != null && _ownedRawDepthTex.width == width &&
                 _ownedRawDepthTex.height == height &&
-                _ownedRawDepthTex.graphicsFormat == format)
+                _ownedRawDepthTex.graphicsFormat == GraphicsFormat.R32_SFloat)
                 return;
 
             if (_ownedRawDepthTex) Destroy(_ownedRawDepthTex);
-            _ownedRawDepthTex = new RenderTexture(width, height, 0, format, 1)
+            _ownedRawDepthTex = new RenderTexture(width, height, 0,
+                GraphicsFormat.R32_SFloat, 1)
             {
                 dimension = TextureDimension.Tex2DArray,
                 volumeDepth = 2,

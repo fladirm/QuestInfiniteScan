@@ -2,8 +2,11 @@
 #include "DepthKit.hlsl"
 
 RWTexture2DArray<float4> gsDepthNormalTexRW;
+Texture2DArray<float> gsInputProjectionDepth;
+RWTexture2DArray<float> gsDepthTexRW;
 
 #pragma kernel DepthNorm
+#pragma kernel CopyProjectionDepthArray
 
 [numthreads(8, 8, 1)]
 void DepthNorm(uint3 id : SV_DispatchThreadID)
@@ -53,9 +56,20 @@ void DepthNorm(uint3 id : SV_DispatchThreadID)
     gsDepthNormalTexRW[id] = float4(-crossValue * rsqrt(lengthSquared), 1.0);
 }
 
+// Quest Environment Depth is an external depth attachment with no portable
+// colour GraphicsFormat. Materialize it while the AR frame is current by
+// sampling the attachment into scanner-owned R32 stereo storage.
+[numthreads(8, 8, 1)]
+void CopyProjectionDepthArray(uint3 id : SV_DispatchThreadID)
+{
+    uint width, height, slices;
+    gsInputProjectionDepth.GetDimensions(width, height, slices);
+    if (id.x >= width || id.y >= height || id.z >= min(slices, 2u)) return;
+    gsDepthTexRW[id] = gsInputProjectionDepth[id];
+}
+
 // Editor simulation: convert mono linear depth to stereo NDC depth.
 Texture2D<float> gsInputRawMonoDepth;
-RWTexture2DArray<float> gsDepthTexRW;
 
 #pragma kernel MonoRawDepthToStereo
 

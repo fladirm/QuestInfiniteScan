@@ -57,6 +57,8 @@ namespace Genesis.RoomScan.Tests
                 int version = capture.LatestRawFrameVersion;
                 Assert.That(owned, Is.Not.Null);
                 Assert.That(owned, Is.Not.SameAs(first));
+                Assert.That(owned.graphicsFormat,
+                    Is.EqualTo(GraphicsFormat.R32_SFloat));
                 Assert.That(capture.DepthFrameRequested, Is.False);
                 Assert.That(capture.OwnedDepthSnapshotReady, Is.True);
                 Assert.That(capture.HasUnprocessedFrame, Is.True);
@@ -98,6 +100,8 @@ namespace Genesis.RoomScan.Tests
             Assert.That(consume, Does.Contain("ComputeDilation();"));
             Assert.That(consume, Does.Contain("_ownedDepthSnapshotReady = false;"));
             Assert.That(source, Does.Not.Contain("private Texture _rawDepthTex"));
+            Assert.That(source, Does.Contain("CopyProjectionDepthArray"));
+            Assert.That(source, Does.Contain("GraphicsFormat.R32_SFloat"));
         }
 
         [Test]
