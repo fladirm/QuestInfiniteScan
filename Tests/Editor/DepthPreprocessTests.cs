@@ -45,6 +45,11 @@ namespace Genesis.RoomScan.Tests
             RenderTexture owned = null;
             try
             {
+                typeof(DepthCapture).GetField("_projectionDepthCopyKernel",
+                        BindingFlags.Instance | BindingFlags.NonPublic)
+                    ?.SetValue(capture, new ComputeKernelHelper(
+                        LoadCompute("DepthNormals.compute"),
+                        "CopyProjectionDepthArray"));
                 capture.StartDepthCapture();
                 Assert.That(capture.TryLatchDepthSnapshot(first), Is.False,
                     "An unrequested producer frame must be discarded.");
@@ -76,6 +81,24 @@ namespace Genesis.RoomScan.Tests
                 UnityEngine.Object.DestroyImmediate(second);
                 UnityEngine.Object.DestroyImmediate(host);
             }
+        }
+
+        [Test]
+        public void RequestedDepthSnapshot_AlwaysSamplesExternalTexture()
+        {
+            string source = RuntimeSource("Runtime/Core/DepthCapture.cs");
+            string latch = Slice(source,
+                "internal bool TryLatchDepthSnapshot(Texture transientDepth)",
+                "private void EnsureOwnedRawDepth");
+
+            Assert.That(latch, Does.Not.Contain("Graphics.CopyTexture"));
+            Assert.That(latch, Does.Not.Contain("transientDepth.graphicsFormat"));
+            Assert.That(latch, Does.Contain(
+                "_projectionDepthCopyKernel.Set(InputProjectionDepthID, transientDepth);"));
+            Assert.That(latch, Does.Contain(
+                "_projectionDepthCopyKernel.Set(DepthTexRWID, _ownedRawDepthTex);"));
+            Assert.That(latch, Does.Contain(
+                "_projectionDepthCopyKernel.DispatchFit(transientDepth.width,"));
         }
 
         [Test]

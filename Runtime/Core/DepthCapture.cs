@@ -572,17 +572,10 @@ namespace Genesis.RoomScan
                 return false;
 
             EnsureOwnedRawDepth(transientDepth.width, transientDepth.height);
-            if (transientDepth.graphicsFormat == GraphicsFormat.R32_SFloat)
-            {
-                Graphics.CopyTexture(transientDepth, _ownedRawDepthTex);
-            }
-            else
-            {
-                _projectionDepthCopyKernel.Set(InputProjectionDepthID, transientDepth);
-                _projectionDepthCopyKernel.Set(DepthTexRWID, _ownedRawDepthTex);
-                _projectionDepthCopyKernel.DispatchFit(transientDepth.width,
-                    transientDepth.height, 2);
-            }
+            _projectionDepthCopyKernel.Set(InputProjectionDepthID, transientDepth);
+            _projectionDepthCopyKernel.Set(DepthTexRWID, _ownedRawDepthTex);
+            _projectionDepthCopyKernel.DispatchFit(transientDepth.width,
+                transientDepth.height, 2);
             MarkOwnedDepthSnapshotReady();
             return true;
         }
