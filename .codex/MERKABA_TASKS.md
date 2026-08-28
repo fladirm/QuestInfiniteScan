@@ -5,9 +5,9 @@
 - [x] Verify Unity/Android/build/deploy environment and inspect host embedding.
 - [x] Create independent target Unity host and immutable ledgers.
 - [ ] Preserve QRS observation frontend while removing reconstruction authority.
-- [ ] Implement canonical geometry, local ownership, and required geometry tests.
-- [ ] Implement sparse chunks, negative addressing, evidence/refinement/carve tests.
-- [ ] Run the real classification/quality/evidence path in integration tests.
+- [x] Implement canonical geometry, local ownership, and required geometry tests.
+- [x] Implement sparse chunks, negative addressing, evidence/refinement/carve tests.
+- [x] Run the real classification/quality/evidence path in integration tests.
 - [ ] Implement GPU-oriented integration and fixed procedural boundary renderer.
 - [ ] Adapt donor-style controller ray and six-action Quest menu.
 - [ ] Implement canonical-state save/load/resume.

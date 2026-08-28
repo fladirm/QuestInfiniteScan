@@ -12,6 +12,9 @@
   each patch emits two fixed triangles. It is derived only from the 26 neighbours.
 - Patch ownership is the lexicographically least occupied centre sharing a coplanar
   patch; any occupied centre one half-support outward suppresses the patch as interior.
+- Topology has exactly the specified immediate 26 inputs. Kernels separated by an empty
+  lattice centre remain distinct close sheets even where their 5 cm support bounds touch;
+  an unobservable distance-two kernel cannot silently become a topology input.
 - Topology dirtiness propagates only to self plus the 26 local neighbours on occupancy
   threshold transitions.
 - The target host is `/mnt/kingston-unity/Unity/Projects/QuestMerkabaScanHost` and embeds
