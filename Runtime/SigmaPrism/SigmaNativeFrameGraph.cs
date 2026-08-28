@@ -309,6 +309,11 @@ namespace Genesis.RoomScan.SigmaPrism
                 "_NativePrepareObservations", slot.Observation);
             command.SetComputeBufferParam(_frame, _prepareRevision,
                 "_NativePrepareStates", slot.States);
+            // Close reads only the compact page plan. Rebind the existing
+            // uint2 SRV alias instead of consuming a ninth UAV or adding a
+            // publication dispatch/buffer owner.
+            command.SetComputeBufferParam(_frame, _closePublish,
+                "_NativeSourceCarrierState", slot.CloseScratch);
             command.SetComputeTextureParam(_frame, _buildObservation,
                 "_NativeMetricDepth", input.MetricDepth);
             command.SetComputeTextureParam(_frame, _buildObservation,
