@@ -131,7 +131,29 @@ Result:
 
 ## R7 UX and Export Shell
 
-PENDING
+Commit: `f6d011a8e16dd84ce9df83d734f88fb2d04bd6e4`
+
+Commands:
+
+```bash
+Tools/unity/run_merkaba_tests.sh
+Tools/gltf/validate_merkaba_glb.sh
+Tools/gltf/validate_merkaba_glb.sh \
+  /mnt/kingston-unity/Builds/TestResults/merkaba-fixture.glb
+```
+
+Result:
+
+- Unity EditMode: 52 passed, 0 failed, 0 skipped; C#, shader, UXML and USS import clean.
+- Opacity: 0..1 live slider, default 1.0, CPU-selected opaque/ghost material state, no dynamic opacity branch in the Merkaba shader.
+- SAVE/LOAD/EXPORT: one operation state; indeterminate spinner, measurable progress bar, current stage text, reactive busy button labels.
+- Export evidence: full canonical snapshot including local negative evidence, centralized `ExportKnownFreeThreshold = -OccupiedOnThreshold`.
+- Cleanup: one sparse 3x3x3 closing, strong-FREE veto, observed-frontier selection, two-sided retention, component fallback, deterministic synthetic colour.
+- Rear occupancy pruning, UNKNOWN single-cell heal, real opening preservation, large opening, diagonal wall, chunk-border equivalence, deterministic ordering, and no canonical mutation: PASS.
+- Final geometry after cleanup comes only from shared direct Merkaba primitives; cube normals/faces cannot leak from the morphological structuring element.
+- Fixture GLB: 4,948 bytes, 120 vertices/indices = 40 triangles, POSITION/NORMAL/COLOR_0, metallic 0, roughness 0.85.
+- glTF Validator: 0 errors, 0 warnings.
+- Explicit-path validator completed in 0.15 s and validated the supplied fixture without launching Unity or substituting another file.
 
 ## R8 Full Local Verification and APK
 

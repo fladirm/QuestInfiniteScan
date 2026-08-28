@@ -11,6 +11,13 @@
 - Canonical CPU/HLSL tables contain six octahedron vertices, eight body-diagonal face rules, eight apexes at neighbour centres, and 32 possible triangles.
 - Axis and face-diagonal neighbours do not activate tips.
 - Export cleanup is a read-only sparse CPU readout using signed evidence and exactly one radius-1 morphological closing; it never changes canonical state or emits cube geometry.
+- Export synchronization captures full canonical chunk states so local negative evidence is retained; one pass classifies only occupied and strong-known-free coordinates without an intermediate full evidence copy.
+- Export closing adds UNKNOWN candidates only, with strong FREE as a hard veto. Components touching FREE select only the observed frontier; components without FREE use a one-kernel exterior compatibility shell.
+- Synthetic export-only kernels take confidence-weighted colour from occupied 6-neighbours, then 26-neighbours, then the explicit neutral fallback. They are never written to `MerkabaGrid` or persistence.
+- Export shell output is sorted coordinates plus kernel colours only; the unchanged GLB writer enumerates the same canonical direct-Merkaba primitive IDs as live rendering.
+- Scan opacity switches opaque versus alpha-blended material state on CPU. The GPU shader has one branch-free `_ScanOpacity` multiply; transparent mode retains ZWrite for useful passthrough depth rejection.
+- SAVE, LOAD, and EXPORT publish one shared immutable operation state with stage, progress, busy flag, and status text; UI polls it without adding scan-frame GPU work.
+- `validate_merkaba_glb.sh FILE` resolves and validates exactly `FILE`; fixture generation occurs only when no argument is supplied.
 - Raw sensor callbacks publish only the latest depth texture and calibrated transforms; bilateral filtering, normals, and dilation execute once only when an integration tick consumes a newer raw-frame version.
 - Dilation is a two-layer texture-array pipeline with the fixed default sequence `256,128,64,32,16,8,4,2,1`.
 - Both calibrated depth eyes contribute in one integration dispatch. If the eyes disagree at an occlusion boundary, valid SURFACE evidence takes precedence over destructive FREE; equal classes select the higher quality observation.

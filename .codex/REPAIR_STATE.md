@@ -2,7 +2,7 @@
 
 BASE: `0e9081060ed1068aad6e075f4961ad25b72245ff`
 BRANCH: `fix/merkaba-production-closure`
-HEAD: `d0874f9422807acdb0c9611e1e663edd48c921af`
+HEAD: `f6d011a8e16dd84ce9df83d734f88fb2d04bd6e4`
 GOAL AUTHORITY: `/mnt/aidisk/prace/.codex-pursuits/quest-merkaba-production-closure/REPAIR_GOAL.md`
 GOAL SHA-256: `9135e66973e4fe2e36af2cb67869a56afcc6aee75b9b57f50fdd269e109e923f`
 
@@ -37,25 +37,33 @@ GOAL SHA-256: `9135e66973e4fe2e36af2cb67869a56afcc6aee75b9b57f50fdd269e109e923f`
 - R6 finalize publishes bank/count/args/version atomically only after a complete build.
 - R6 measured overflow retains the prior bank and exact draw unchanged while an asynchronous replacement is migrated and swapped.
 - R6 clean/static frames execute zero topology/publication workgroups; diagnostic readback is coalesced to at most 1 Hz.
+- R7 scan opacity is live 0..1; opaque and ghost-overlay material states are selected on CPU with no per-vertex/per-fragment branch.
+- R7 SAVE/LOAD/EXPORT share one reactive operation state with indeterminate spinner, measured progress, stage text, and busy button labels.
+- R7 export captures full canonical chunk evidence, performs one sparse radius-1 closing with strong-FREE veto, and selects observed-frontier shells without mutating the grid.
+- R7 components without usable FREE evidence retain a one-kernel exterior compatibility shell; synthetic heal colour is deterministic and export-local.
+- R7 GLB continues through the shared direct Merkaba primitive authority and the existing PBR writer; the validator now validates the exact supplied path.
 
 ## CURRENT
 
-- R7: opacity, reactive operation-progress UX, validator repair, and export-only evidence-aware clean Merkaba shell.
+- R8: isolated real GPU timestamp telemetry, cleanup, full local verification, and fresh Android APK.
 
 ## NEXT
 
-- R7/R8: add real per-stage GPU timestamps using the generic proven `OtherScan` mechanism, never profiler-derived timing.
-- R7-R9 remain mandatory in the external goal authority.
+- R8: add real per-stage GPU timestamps using the generic proven `OtherScan` mechanism, never profiler-derived timing.
+- R9: install/run on the one Quest if authorized and collect timestamps, screenshots, GLB, logs, and closure evidence.
 
 ## TEST STATUS
 
-- Unity EditMode after R6: 37/37 passed, 0 failed, 0 skipped.
+- Unity EditMode after R7: 52/52 passed, 0 failed, 0 skipped.
 - CPU/HLSL byte identity, CPU/GPU cross-chunk mask identity, and direct GLB counts/non-axis normals passed.
 - Isolated kernel and every body-diagonal pair rule passed; axis/face-diagonal non-activation passed.
 - Depth border/padding, stereo dilation, exact step sequence, consumed-frame cadence, right-eye-only production integration, and false-foreground carve passed.
 - Sparse GPU surface/carve work, no dense fallback symbol, free-volume sparsity, transient-page noncanonicality, negative chunk-border carve, and diagonal ray+guard candidate union passed.
 - Boundary-summary residency invariance, pending live publication, render/integration independence, render-distance use, and 5 cm guard-band stability passed.
 - Flat-parallel dirty publication, CPU/GPU primitive equality, static publication stability, and overflow-safe atomic replacement passed.
+- Evidence-aware export rear pruning, two-sided wall, UNKNOWN heal, strong-FREE veto, large opening, diagonal wall, chunk-border, determinism, no-mutation, and canonical-GLB tests passed.
+- Opacity shader branch anti-regression and required Quest menu/progress controls passed.
+- Fixture GLB and exact-path validator: 0 errors, 0 warnings; 4,948 bytes, 40 triangles, POSITION/NORMAL/COLOR_0 and matte PBR.
 
 ## BUILD STATUS
 
