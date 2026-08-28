@@ -34,3 +34,18 @@
   metallic-zero, roughness-0.85 material without UVs or textures.
 - Quest UI styling/ray mechanics come from the current read-only donor UI files, with all
   controller bindings rewritten to the one Merkaba scanner.
+- The sole lifecycle component is `RoomScanner`; it directly owns the retained sensor
+  frontend and one grid/integrator/renderer/persistence/export set, without backend modes.
+- Occupancy-to-empty transitions discard stale RGB/confidence so a disproved foreground
+  cannot bias a later real surface; signed free evidence remains reversible canonical state.
+- GPU pages that read back with no canonical state are removed from the sparse CPU map.
+- The VR menu exposes exactly Start/Resume, Stop, Save, Load, New/Clear, and Export GLB;
+  left thumbstick toggles it and the right controller ray/trigger selects controls.
+- The canonical target setup writes one Android manifest, min SDK 32, Vulkan/ARM64/IL2CPP,
+  the target scene, and required scene/anchor/headset-camera permissions.
+- Meta SDK 205 injects a workstation address/token during Android preprocess even when its
+  DevAgent is disabled; a target-only callback at order 10000 sanitizes the build asset.
+- Target Gradle state is isolated under the target build root because the user-level Gradle
+  daemon path is a broken external symlink; Unity's bundled SDK/OpenJDK/NDK remain canonical.
+- Final APK identity is `com.genesis.questmerkabascan`, version 0.1.0/code 8, at the frozen
+  target APK path; fresh-mtime and Unity success-marker checks are mandatory.
