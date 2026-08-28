@@ -116,6 +116,34 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test, Timeout(30000)]
+        public void SurfaceCandidateQueue_ContainsRayBandAndBoundaryGuardUnion()
+        {
+            Matrix4x4 projection = Matrix4x4.Perspective(90f, 1f, 0.1f, 10f);
+            FindDiagonalCandidateCase(projection, out int pixelX, out int pixelY,
+                out float distance, out HashSet<int3> rayCandidates,
+                out HashSet<int3> guardCandidates);
+
+            var expected = new HashSet<int3>(rayCandidates);
+            expected.UnionWith(guardCandidates);
+            var rayOnly = new HashSet<int3>(rayCandidates);
+            rayOnly.ExceptWith(guardCandidates);
+            Assert.That(rayOnly, Is.Not.Empty,
+                "fixture must contain a diagonal ray transition that dominant-axis guards miss");
+
+            int4[] pages = CandidatePages(expected);
+            using var fixture = new SparseIntegrationFixture(pages);
+            fixture.SetSingleDepthPixel(pixelX, pixelY, distance);
+            HashSet<int3> actual = fixture.GenerateSurfaceCandidates();
+
+            Assert.That(actual.SetEquals(expected), Is.True,
+                $"GPU candidate queue did not contain the deduplicated ray+guard union; " +
+                $"expected={FormatCoords(expected)} actual={FormatCoords(actual)}");
+            foreach (int3 candidate in rayOnly)
+                Assert.That(actual.Contains(candidate), Is.True,
+                    $"diagonal ray-derived candidate {candidate} was lost");
+        }
+
+        [Test, Timeout(30000)]
         public void ProductionGpuTopology_MatchesCpuOwnershipAcrossChunkBorder()
         {
             ComputeShader compute = LoadCompute("MerkabaTopology.compute");
@@ -303,6 +331,37 @@ namespace Genesis.RoomScan.Tests
                 SetDilation(_dilation, leftNdc, rightNdc);
             }
 
+            public void SetSingleDepthPixel(int x, int y, float distance)
+            {
+                float depthNdc = DepthNdc(_projection, distance);
+                var left = new Color[16 * 16];
+                left[y * 16 + x] = new Color(depthNdc, 0, 0, 0);
+                _depth.SetPixels(left, 0, 0);
+                _depth.SetPixels(new Color[16 * 16], 1, 0);
+                _depth.Apply(false, false);
+
+                var dilation = new Color[16 * 16];
+                dilation[y * 16 + x] = new Color(0, 0, depthNdc, 0);
+                _dilation.SetPixels(dilation, 0, 0);
+                _dilation.SetPixels(new Color[16 * 16], 1, 0);
+                _dilation.Apply(false, false);
+            }
+
+            public HashSet<int3> GenerateSurfaceCandidates()
+            {
+                _surfaceBits.SetData(new uint[_stateCount / 32]);
+                _surfaceCount.SetData(_zero);
+                _compute.Dispatch(_generate, 2, 2, 2);
+                uint count = ReadCount(_surfaceCount);
+                var queue = new uint[count];
+                if (count > 0u)
+                    _surfaceQueue.GetData(queue, 0, 0, (int)count);
+                var result = new HashSet<int3>();
+                foreach (uint stateIndex in queue)
+                    result.Add(GlobalCoord(_pages, (int)stateIndex));
+                return result;
+            }
+
             public void Run()
             {
                 _surfaceCount.SetData(_zero);
@@ -467,6 +526,98 @@ namespace Genesis.RoomScan.Tests
         {
             Vector4 clip = projection * new Vector4(0, 0, -distance, 1);
             return clip.z / clip.w * 0.5f + 0.5f;
+        }
+
+        private static void FindDiagonalCandidateCase(Matrix4x4 projection,
+            out int pixelX, out int pixelY, out float distance,
+            out HashSet<int3> rayCandidates, out HashSet<int3> guardCandidates)
+        {
+            float[] distances = { 0.613f, 0.827f, 1.073f, 1.337f, 1.619f };
+            foreach (float candidateDistance in distances)
+            for (int y = 2; y <= 13; y++)
+            for (int x = 2; x <= 13; x++)
+            {
+                CandidateSets(projection, x, y, candidateDistance,
+                    out HashSet<int3> rays, out HashSet<int3> guards);
+                var rayOnly = new HashSet<int3>(rays);
+                rayOnly.ExceptWith(guards);
+                if (rayOnly.Count == 0) continue;
+                pixelX = x;
+                pixelY = y;
+                distance = candidateDistance;
+                rayCandidates = rays;
+                guardCandidates = guards;
+                return;
+            }
+            throw new AssertionException(
+                "could not construct a deterministic diagonal-ray candidate fixture");
+        }
+
+        private static void CandidateSets(Matrix4x4 projection, int pixelX,
+            int pixelY, float distance, out HashSet<int3> rayCandidates,
+            out HashSet<int3> guardCandidates)
+        {
+            float depthNdc = DepthNdc(projection, distance);
+            float2 uv = (new float2(pixelX, pixelY) + 0.5f) / 16f;
+            Vector4 worldH = projection.inverse * new Vector4(
+                uv.x * 2f - 1f, uv.y * 2f - 1f, depthNdc * 2f - 1f, 1f);
+            float3 surface = new(worldH.x / worldH.w, worldH.y / worldH.w,
+                worldH.z / worldH.w);
+            float3 ray = math.normalize(surface);
+
+            rayCandidates = new HashSet<int3>();
+            for (int layer = -1; layer <= 1; layer++)
+                rayCandidates.Add(RoundGrid(surface + ray *
+                    (layer * MerkabaConstants.HalfSupport)));
+
+            float3 absoluteRay = math.abs(ray);
+            int3 step = int3.zero;
+            if (absoluteRay.x >= absoluteRay.y && absoluteRay.x >= absoluteRay.z)
+                step.x = ray.x >= 0f ? 1 : -1;
+            else if (absoluteRay.y >= absoluteRay.z)
+                step.y = ray.y >= 0f ? 1 : -1;
+            else
+                step.z = ray.z >= 0f ? 1 : -1;
+            int3 nearest = RoundGrid(surface);
+            guardCandidates = new HashSet<int3>
+            {
+                nearest - step,
+                nearest,
+                nearest + step
+            };
+        }
+
+        private static int3 RoundGrid(float3 world) =>
+            (int3)math.round(world / MerkabaConstants.LatticeStep);
+
+        private static int4[] CandidatePages(HashSet<int3> candidates)
+        {
+            var unique = new HashSet<int3>();
+            foreach (int3 candidate in candidates)
+                unique.Add(MerkabaConstants.ChunkCoord(candidate));
+            var sorted = new List<int3>(unique);
+            sorted.Sort((left, right) =>
+            {
+                if (left.x != right.x) return left.x.CompareTo(right.x);
+                if (left.y != right.y) return left.y.CompareTo(right.y);
+                return left.z.CompareTo(right.z);
+            });
+            var pages = new int4[sorted.Count];
+            for (int slot = 0; slot < sorted.Count; slot++)
+                pages[slot] = new int4(sorted[slot], slot);
+            return pages;
+        }
+
+        private static string FormatCoords(HashSet<int3> coords)
+        {
+            var sorted = new List<int3>(coords);
+            sorted.Sort((left, right) =>
+            {
+                if (left.x != right.x) return left.x.CompareTo(right.x);
+                if (left.y != right.y) return left.y.CompareTo(right.y);
+                return left.z.CompareTo(right.z);
+            });
+            return string.Join(", ", sorted);
         }
 
         private static Texture2DArray MakeDepth(float depth)

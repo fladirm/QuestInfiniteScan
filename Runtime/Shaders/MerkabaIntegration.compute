@@ -358,6 +358,24 @@ void GenerateSurfaceCandidates(uint3 id : SV_DispatchThreadID)
     float distance = length(eyeToSurface);
     if (distance <= 0.05 || distance > _MerkabaMaxUpdateDistance) return;
     float3 ray = eyeToSurface / distance;
+
+    // Preserve the isotropic ray-derived support band. These are only work
+    // candidates: IntegrateSurfaceCandidates re-runs the complete depth,
+    // normal, dilation/disparity, and quality classification before evidence.
+    [unroll]
+    for (int layer = -1; layer <= 1; layer++)
+    {
+        float3 worldCandidate = worldSurface + ray *
+            ((float)layer * MERKABA_HALF_SUPPORT);
+        float3 gridCandidate = mul(_MerkabaWorldToGrid,
+            float4(worldCandidate, 1.0)).xyz;
+        AppendSurfaceCandidate((int3)round(
+            gridCandidate / MERKABA_LATTICE_STEP));
+    }
+
+    // Integer boundary guards prevent half-step rounding from omitting one side
+    // of a chunk boundary. The shared bitset deduplicates this union with the
+    // ray-derived candidates above.
     float3 gridSurface = mul(_MerkabaWorldToGrid,
         float4(worldSurface, 1.0)).xyz / MERKABA_LATTICE_STEP;
     float3 gridRay = mul((float3x3)_MerkabaWorldToGrid, ray);

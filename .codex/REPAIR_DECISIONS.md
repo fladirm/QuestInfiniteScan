@@ -15,7 +15,7 @@
 - Dilation is a two-layer texture-array pipeline with the fixed default sequence `256,128,64,32,16,8,4,2,1`.
 - Both calibrated depth eyes contribute in one integration dispatch. If the eyes disagree at an occlusion boundary, valid SURFACE evidence takes precedence over destructive FREE; equal classes select the higher quality observation.
 - Missing canonical chunks may occupy zero-initialized transient GPU residency pages, but these pages hold no CPU `MerkabaChunk` and materialize canonically only if synchronization finds nonzero SURFACE-derived state.
-- Surface work generation reconstructs each valid depth pixel and proposes the nearest integer lattice coordinate plus/minus one coordinate on the dominant grid-space ray axis; a per-kernel bitset deduplicates the queue.
+- Surface work generation reconstructs each valid depth pixel and enqueues the deduplicated union of the original ray-derived support band (`surface + {-a,0,+a} × ray`) and nearest-coordinate dominant-axis boundary guards. These are work candidates only: the indirect SURFACE stage re-runs both-eye depth relation, normal, dilation/disparity, distance and angle quality predicates before adding evidence.
 - Carve membership is a per-resident-page compact list populated only by valid SURFACE writes or positive/occupied loaded states. Frame carve work is gathered from those lists and never scans dense empty page volumes.
 - Carve continues until a disproved local kernel reaches centralized `ExportKnownFreeThreshold = -OccupiedOnThreshold`; untouched free world never enters a page list or canonical storage.
 - GPU work queues are capacity-bounded by the maximum integration resident kernel count and dispatched indirectly; no per-frame counter readback is used.

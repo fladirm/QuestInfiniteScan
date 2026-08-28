@@ -71,9 +71,11 @@ rg -n "IntegrateMerkaba|IntegrationChunkCount \\* MerkabaConstants.KernelsPerChu
 
 Result at R4 checkpoint:
 
-- Unity EditMode: 32 passed, 0 failed, 0 skipped.
+- Unity EditMode after R4b correction: 33 passed, 0 failed, 0 skipped.
 - Old production domain: up to `48 × 32768 = 1,572,864` depth projections/tick.
-- New production domain: depth pixels generate three bounded candidate insertions; deduplicated SURFACE and existing-evidence CARVE queues dispatch indirectly.
+- New production domain: depth pixels generate a bounded deduplicated union of three ray-band candidates and three dominant-axis boundary guards; deduplicated SURFACE and existing-evidence CARVE queues dispatch indirectly.
+- A single-pixel off-axis GPU fixture proves the queue retains at least one diagonal ray-derived lattice transition absent from the dominant-axis guard set, and equals the exact deduplicated union.
+- `IntegrateSurfaceCandidates` re-runs the preserved stereo depth relation, normal, dilation/disparity, distance and angle quality predicates; work-list broadening cannot add positive evidence without full SURFACE revalidation.
 - Test fixture explicitly asserts surface work is less than the resident dense state count.
 - Sparse production GPU path: false 1 m foreground removed; true 2 m wall retained.
 - Right-eye-only valid depth reaches occupied state through the actual sparse path.

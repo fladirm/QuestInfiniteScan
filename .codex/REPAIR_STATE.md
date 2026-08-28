@@ -2,7 +2,7 @@
 
 BASE: `0e9081060ed1068aad6e075f4961ad25b72245ff`
 BRANCH: `fix/merkaba-production-closure`
-HEAD: `54b18be227f1ed5d24deac2fb2bd93fc31dd83c1`
+HEAD: `627aa1af7bebb640fdd61a6cdc08d1bc9979a696`
 GOAL AUTHORITY: `/mnt/aidisk/prace/.codex-pursuits/quest-merkaba-production-closure/REPAIR_GOAL.md`
 GOAL SHA-256: `9135e66973e4fe2e36af2cb67869a56afcc6aee75b9b57f50fdd269e109e923f`
 
@@ -22,7 +22,8 @@ GOAL SHA-256: `9135e66973e4fe2e36af2cb67869a56afcc6aee75b9b57f50fdd269e109e923f`
 - R3 retains only the latest raw sensor frame and preprocesses it once at the consuming integration tick.
 - R3 integrates both depth eyes in one compute dispatch with SURFACE winning over conflicting destructive FREE.
 - R4 removed dense `integrationChunks × 32768` depth projection.
-- R4 depth pixels generate three deterministic lattice candidates, deduplicated into an indirect SURFACE queue.
+- R4b depth pixels generate a deduplicated union of the original three ray-band candidates and three dominant-axis boundary guards.
+- R4b candidates are work only; both eyes re-run the preserved depth relation, normal, dilation/disparity, distance and angle quality predicates before positive evidence.
 - R4 CARVE projects only kernels previously touched by valid surface evidence, retaining local negative evidence down to the export-known-free threshold.
 - R4 uses transient empty GPU pages; only nonzero SURFACE-derived state materializes a canonical chunk during synchronization/eviction.
 - R4 FREE in never-seen world allocates no canonical chunk; false foreground carve remains correct across a negative chunk border.
@@ -38,11 +39,11 @@ GOAL SHA-256: `9135e66973e4fe2e36af2cb67869a56afcc6aee75b9b57f50fdd269e109e923f`
 
 ## TEST STATUS
 
-- Unity EditMode after R4: 32/32 passed, 0 failed, 0 skipped.
+- Unity EditMode after R4b: 33/33 passed, 0 failed, 0 skipped.
 - CPU/HLSL byte identity, CPU/GPU cross-chunk mask identity, and direct GLB counts/non-axis normals passed.
 - Isolated kernel and every body-diagonal pair rule passed; axis/face-diagonal non-activation passed.
 - Depth border/padding, stereo dilation, exact step sequence, consumed-frame cadence, right-eye-only production integration, and false-foreground carve passed.
-- Sparse GPU surface/carve work, no dense fallback symbol, free-volume sparsity, transient-page noncanonicality, and negative chunk-border carve passed.
+- Sparse GPU surface/carve work, no dense fallback symbol, free-volume sparsity, transient-page noncanonicality, negative chunk-border carve, and diagonal ray+guard candidate union passed.
 
 ## BUILD STATUS
 
