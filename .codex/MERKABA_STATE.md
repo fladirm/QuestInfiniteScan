@@ -3,10 +3,10 @@
 ```text
 BASE COMMIT: 2fdaaae71f60b21b7853e67db943fc42f75d0c2f
 WORK BRANCH: feat/simple-infinite-merkaba
-HEAD: de9ffa675f4cf69d4b5fddf7fdb02f8d2a647c70
+HEAD: 547f4489a6653f9c25e95dd00fdea8abbeab2f50
 OTHER_SCAN_ROOT: /mnt/aidisk/prace/otherscan
 TARGET UNITY HOST: /mnt/kingston-unity/Unity/Projects/QuestMerkabaScanHost
-CURRENT TASK: Canonical persistence/resume and offline GLB PBR readout
+CURRENT TASK: Replace lifecycle/input/menu with donor-style six-action Merkaba UX
 ```
 
 ## DONE
@@ -29,16 +29,21 @@ CURRENT TASK: Canonical persistence/resume and offline GLB PBR readout
   and indirect fixed-primitive rendering without normal-frame readback.
 - Actual Vulkan compute tests pass for false-foreground carve/true-wall persistence and
   CPU/GPU topology parity across a chunk border.
+- Added deterministic canonical-only chunk persistence/resume with spatial-anchor metadata,
+  asynchronous GPU sync only on save/eviction, validation, and atomic publication.
+- Added deterministic offline GLB 2.0 boundary readout with indexed POSITION/NORMAL/COLOR_0
+  and honest matte non-metallic PBR; container, material, handedness, and state tests pass.
 
 ## NEXT
 
-- Implement persistence, GLB, donor-style UX, and target setup/build tooling.
+- Replace the old orchestrator/input/UI with donor-style six-action Merkaba UX, then
+  consolidate target setup/build tooling.
 - Remove superseded production architecture, build/test/deploy, then audit and commit.
 
 ## TEST STATUS
 
 - Unity/toolchain verification: PASS.
-- Merkaba EditMode/Vulkan tests: PASS, 25/25, 7.501 s.
+- Merkaba EditMode/Vulkan tests: PASS, 30/30, 3.242 s.
 
 ## BUILD STATUS
 

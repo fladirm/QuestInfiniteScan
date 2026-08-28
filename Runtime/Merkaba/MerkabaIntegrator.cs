@@ -155,6 +155,11 @@ namespace Genesis.RoomScan
             IntegrationCount = 0;
         }
 
+        internal void RestoreIntegrationCount(int integrationCount)
+        {
+            IntegrationCount = Mathf.Max(0, integrationCount);
+        }
+
         public Task SynchronizeCanonicalStateAsync() =>
             _grid != null ? _grid.SynchronizeResidentStateAsync() : Task.CompletedTask;
 

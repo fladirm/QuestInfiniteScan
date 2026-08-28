@@ -10,8 +10,8 @@
 - [x] Run the real classification/quality/evidence path in integration tests.
 - [x] Implement GPU-oriented integration and fixed procedural boundary renderer.
 - [ ] Adapt donor-style controller ray and six-action Quest menu.
-- [ ] Implement canonical-state save/load/resume.
-- [ ] Implement/validate offline GLB PBR readout.
+- [x] Implement canonical-state save/load/resume.
+- [x] Implement/validate offline GLB PBR readout.
 - [ ] Consolidate target setup wizard and generic build/test/deploy scripts.
 - [ ] Delete legacy TSDF/SN/triplanar/GSplat/submap/detail production systems.
 - [ ] Run Unity tests, setup, compile/shader checks, fresh Android build, and eligible deploy.

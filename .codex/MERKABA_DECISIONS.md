@@ -26,5 +26,11 @@
   `/mnt/aidisk/prace/simplescan` via `Packages/com.genesis.roomscan`.
 - GLB mechanics come from the target's own historical `e9f37c1` writer/validator, adapted
   to Merkaba kernel boundary readout; PRISM world/export controllers are not imported.
+- Persistence format v1 stores sorted chunk coordinates followed by dense 16-byte
+  evidence/RGB/confidence/flag records, plus integration count and spatial-anchor metadata.
+  Empty never-observed chunks and all derived topology/render data are omitted.
+- GLB mirrors Unity X and reverses triangle winding, matching the proven historical writer;
+  it emits float POSITION/NORMAL, normalized RGBA8 COLOR_0, uint indices, and one white,
+  metallic-zero, roughness-0.85 material without UVs or textures.
 - Quest UI styling/ray mechanics come from the current read-only donor UI files, with all
   controller bindings rewritten to the one Merkaba scanner.
