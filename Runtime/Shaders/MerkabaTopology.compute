@@ -243,7 +243,7 @@ void FinalizeDirtyChunkRecords(uint3 groupId : SV_GroupID)
     _MerkabaPublishedBanks[slot] = nextBank;
     _MerkabaPrimitiveCounts[slot] = required;
     _MerkabaPrimitiveDrawArgs[argsOffset] = MERKABA_VERTICES_PER_PRIMITIVE;
-    _MerkabaPrimitiveDrawArgs[argsOffset + 1u] = required;
+    _MerkabaPrimitiveDrawArgs[argsOffset + 1u] = required * 2u;
     _MerkabaPrimitiveDrawArgs[argsOffset + 2u] = 0u;
     _MerkabaPrimitiveDrawArgs[argsOffset + 3u] = 0u;
     _MerkabaPublicationOverflowCounts[slot] = 0u;

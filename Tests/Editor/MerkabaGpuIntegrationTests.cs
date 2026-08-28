@@ -225,7 +225,8 @@ namespace Genesis.RoomScan.Tests
             for (int slot = 0; slot < pageCount; slot++)
             {
                 Assert.That(args[slot * 4], Is.EqualTo(3u));
-                Assert.That(args[slot * 4 + 1], Is.EqualTo(counts[slot]));
+                Assert.That(args[slot * 4 + 1], Is.EqualTo(counts[slot] * 2u),
+                    "SPI raw instance count must be twice the logical primitive count");
                 var output = new PrimitiveRecord[(int)counts[slot]];
                 int bankStride = pageCount * recordCapacity;
                 int recordOffset = (int)publishedBanks[slot] * bankStride +
@@ -366,7 +367,7 @@ namespace Genesis.RoomScan.Tests
             var counts = new uint[] { 2u };
             var dirty = new uint[] { 1u };
             var versions = new uint[] { 7u };
-            var args = new uint[] { 3u, 2u, 0u, 0u };
+            var args = new uint[] { 3u, 4u, 0u, 0u };
 
             using var stateBuffer = new ComputeBuffer(states.Length, 16);
             using var pageBuffer = new ComputeBuffer(1, 16);
@@ -423,7 +424,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(required[0], Is.EqualTo(8u));
             Assert.That(overflow[0], Is.EqualTo(8u));
             Assert.That(counts[0], Is.EqualTo(2u), "published count was truncated");
-            Assert.That(args[1], Is.EqualTo(2u), "last valid draw was blanked");
+            Assert.That(args[1], Is.EqualTo(4u), "last valid draw was blanked");
             Assert.That(dirty[0], Is.EqualTo(1u));
             Assert.That(versions[0], Is.EqualTo(7u));
             for (int i = 0; i < smallCapacity; i++)
@@ -474,7 +475,7 @@ namespace Genesis.RoomScan.Tests
             versionBuffer.GetData(versions);
             publishedBankBuffer.GetData(banks);
             Assert.That(counts[0], Is.EqualTo(8u));
-            Assert.That(args[1], Is.EqualTo(8u));
+            Assert.That(args[1], Is.EqualTo(16u));
             Assert.That(dirty[0], Is.Zero);
             Assert.That(overflow[0], Is.Zero);
             Assert.That(versions[0], Is.EqualTo(8u));
