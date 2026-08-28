@@ -335,6 +335,10 @@ namespace Genesis.RoomScan.Tests
             Assert.That(shader, Does.Contain("StructuredBuffer<KernelState> " +
                                              "_MerkabaKernels"));
             Assert.That(shader, Does.Contain("state.colorConfidence"));
+            Assert.That(shader, Does.Not.Contain(
+                "if (input.colorConfidence == 0u) discard;"));
+            Assert.That(shader, Does.Contain("fwidth(input.barycentric)"));
+            Assert.That(shader, Does.Contain("half3(0.0h, 0.8h, 1.0h)"));
             Assert.That(shader, Does.Contain("discard;"));
         }
 

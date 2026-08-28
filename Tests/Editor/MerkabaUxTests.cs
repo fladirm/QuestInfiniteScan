@@ -71,8 +71,14 @@ namespace Genesis.RoomScan.Tests
             Assert.That(source, Does.Not.Contain("normalWS"));
             Assert.That(source, Does.Not.Contain("if (_ScanOpacity"),
                 "Opacity must select material state on CPU, not branch per fragment.");
-            Assert.That(source, Does.Contain(
+            Assert.That(source, Does.Not.Contain(
                 "if (input.colorConfidence == 0u) discard;"));
+            Assert.That(source, Does.Contain("half3 barycentric : TEXCOORD2;"));
+            Assert.That(source, Does.Contain("fwidth(input.barycentric)"));
+            Assert.That(source, Does.Contain(
+                "if (input.colorConfidence > 0u)"));
+            Assert.That(source, Does.Contain(
+                "half3(0.0h, 0.8h, 1.0h)"));
         }
 
         [Test]

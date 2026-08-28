@@ -72,6 +72,7 @@ Shader "Genesis/RoomScan/MerkabaGrid"
                 float4 positionCS : SV_POSITION;
                 half3 color : TEXCOORD0;
                 nointerpolation uint colorConfidence : TEXCOORD1;
+                half3 barycentric : TEXCOORD2;
                 UNITY_VERTEX_OUTPUT_STEREO
             };
 
@@ -110,13 +111,22 @@ Shader "Genesis/RoomScan/MerkabaGrid"
                     (state.packedColor >> 8) & 255u,
                     (state.packedColor >> 16) & 255u) / 255.0h;
                 output.colorConfidence = state.colorConfidence;
+                output.barycentric = input.vertexID == 0u ? half3(1.0h, 0.0h, 0.0h) :
+                    input.vertexID == 1u ? half3(0.0h, 1.0h, 0.0h) :
+                                           half3(0.0h, 0.0h, 1.0h);
                 return output;
             }
 
             half4 Frag(Varyings input) : SV_Target
             {
-                if (input.colorConfidence == 0u) discard;
-                return half4(input.color, _ScanOpacity);
+                if (input.colorConfidence > 0u)
+                    return half4(input.color, _ScanOpacity);
+
+                float3 pixelDistance = input.barycentric /
+                    max(fwidth(input.barycentric), 1e-5h);
+                if (min(pixelDistance.x, min(pixelDistance.y, pixelDistance.z)) > 1.5h)
+                    discard;
+                return half4(half3(0.0h, 0.8h, 1.0h), _ScanOpacity);
             }
             ENDHLSL
         }
