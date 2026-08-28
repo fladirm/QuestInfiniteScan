@@ -273,11 +273,12 @@ or pending-only device status is stale and cannot be used as closure evidence.
 
 ## Evidence package
 
-The external evidence archive contains the raw app log, extracted metrics, VrApi log,
-idle/active meminfo, both post-START screenshots, build/test logs, test XML, APK,
-fixture GLB, pre-repair device GLB with explicit provenance, validator reports, source
-audit excerpts, and SHA-256 manifest. Large binary evidence is deliberately not
-committed to this Git branch.
+The external evidence archive is intentionally limited to the current repaired build
+and current active device run: active app/metrics/VrApi/meminfo logs, both post-START
+screenshots, current build/test logs, test XML, APK, repaired fixture GLB, source audit
+excerpts, and a SHA-256 manifest. Historical idle/input logs and the pre-repair device
+GLB are not bundled. Large binary evidence is deliberately not committed to this Git
+branch.
 
 No production source, Unity host setting, APK or Quest state was changed by this
 audit.
