@@ -36,3 +36,6 @@
 - Finalize swaps bank/count/indirect args/version only when the exact required count fits. Overflow preserves the old publication until a fully migrated larger banked buffer is atomically installed.
 - Publication status readback is asynchronous and coalesced to at most 1 Hz; it is diagnostic/overflow control, never a normal-frame synchronization point.
 - R7/R8 device telemetry must use real GPU timestamp queries through the isolated generic mechanism proven in `OtherScan`; Unity Profiler/ProfilerRecorder, CPU timing, and FPS-derived estimates are not accepted as stage timing.
+- GPU telemetry is one isolated ARM64 Vulkan query plugin with six fixed stage IDs. One frame is sampled every five seconds; normal frames issue no plugin events and no diagnostic readbacks.
+- Timestamp spans surround the existing coarse parallel passes only; telemetry does not split integration/publication into additional compute dispatches.
+- Shader branches retained in production are bounds/validity rejection, SURFACE/FREE/UNKNOWN semantics, and the fixed eight-direction face-versus-tip choice. Branch-count cosmetics must not replace measured structural optimization or increase emitted work.
