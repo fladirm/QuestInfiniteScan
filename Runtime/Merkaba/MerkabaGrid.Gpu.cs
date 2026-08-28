@@ -31,13 +31,15 @@ namespace Genesis.RoomScan
 
         private sealed class ResidentPage
         {
-            public readonly MerkabaChunk Chunk;
+            public readonly int3 Coord;
+            public MerkabaChunk Chunk;
             public readonly int Slot;
             public int LastTouchedFrame;
             public bool PendingEviction;
 
-            public ResidentPage(MerkabaChunk chunk, int slot, int frame)
+            public ResidentPage(int3 coord, MerkabaChunk chunk, int slot, int frame)
             {
+                Coord = coord;
                 Chunk = chunk;
                 Slot = slot;
                 LastTouchedFrame = frame;
@@ -69,14 +71,36 @@ namespace Genesis.RoomScan
         private ComputeBuffer _kernelDirtyBuffer;
         private ComputeBuffer _topologyMaskBuffer;
         private ComputeBuffer _integrationSlotsBuffer;
+        private ComputeBuffer _integrationEnabledBuffer;
         private ComputeBuffer _visibleSlotsBuffer;
+        private ComputeBuffer _pageHashBuffer;
+        private ComputeBuffer _surfaceCandidateBitsBuffer;
+        private ComputeBuffer _surfaceQueueBuffer;
+        private ComputeBuffer _surfaceCountBuffer;
+        private ComputeBuffer _carveListedBitsBuffer;
+        private ComputeBuffer _carveLocalIndicesBuffer;
+        private ComputeBuffer _carveCountsBuffer;
+        private ComputeBuffer _carveQueueBuffer;
+        private ComputeBuffer _carveCountBuffer;
+        private ComputeBuffer _surfaceDispatchArgsBuffer;
+        private ComputeBuffer _carveDispatchArgsBuffer;
 
         private int4[] _pageCoordsCpu;
         private int[] _pageNeighboursCpu;
         private int[] _integrationSlotsCpu;
+        private uint[] _integrationEnabledCpu;
         private int[] _visibleSlotsCpu;
         private uint[] _dirtyOnes;
         private uint[] _zeroMasks;
+        private KernelState[] _zeroStates;
+        private uint[] _zeroPageBits;
+        private uint[] _pageCarveBits;
+        private uint[] _pageCarveIndices;
+        private readonly uint[] _singleZero = { 0u };
+        private int4[] _pageHashCpu;
+
+        private const int PageHashCapacity = 256;
+        private const int WordsPerPage = MerkabaConstants.KernelsPerChunk / 32;
 
         internal ComputeBuffer KernelBuffer => _kernelBuffer;
         internal ComputeBuffer PageCoordsBuffer => _pageCoordsBuffer;
@@ -84,7 +108,33 @@ namespace Genesis.RoomScan
         internal ComputeBuffer KernelDirtyBuffer => _kernelDirtyBuffer;
         internal ComputeBuffer TopologyMaskBuffer => _topologyMaskBuffer;
         internal ComputeBuffer IntegrationSlotsBuffer => _integrationSlotsBuffer;
+        internal ComputeBuffer IntegrationEnabledBuffer => _integrationEnabledBuffer;
         internal ComputeBuffer VisibleSlotsBuffer => _visibleSlotsBuffer;
+        internal ComputeBuffer PageHashBuffer => _pageHashBuffer;
+        internal ComputeBuffer SurfaceCandidateBitsBuffer => _surfaceCandidateBitsBuffer;
+        internal ComputeBuffer SurfaceQueueBuffer => _surfaceQueueBuffer;
+        internal ComputeBuffer SurfaceCountBuffer => _surfaceCountBuffer;
+        internal ComputeBuffer CarveListedBitsBuffer => _carveListedBitsBuffer;
+        internal ComputeBuffer CarveLocalIndicesBuffer => _carveLocalIndicesBuffer;
+        internal ComputeBuffer CarveCountsBuffer => _carveCountsBuffer;
+        internal ComputeBuffer CarveQueueBuffer => _carveQueueBuffer;
+        internal ComputeBuffer CarveCountBuffer => _carveCountBuffer;
+        internal ComputeBuffer SurfaceDispatchArgsBuffer => _surfaceDispatchArgsBuffer;
+        internal ComputeBuffer CarveDispatchArgsBuffer => _carveDispatchArgsBuffer;
+        internal int IntegrationWorkCapacity => maxIntegrationChunks *
+                                                MerkabaConstants.KernelsPerChunk;
+        internal int PageHashEntryCount => PageHashCapacity;
+        internal int ResidentPageCount => _resident.Count;
+        internal int TransientResidentPageCount
+        {
+            get
+            {
+                int count = 0;
+                foreach (ResidentPage page in _resident.Values)
+                    if (page.Chunk == null) count++;
+                return count;
+            }
+        }
         internal int IntegrationChunkCount { get; private set; }
         internal int VisibleChunkCount { get; private set; }
         internal int MaxVisibleChunks => maxVisibleChunks;
@@ -114,18 +164,51 @@ namespace Genesis.RoomScan
                 ComputeBufferType.Structured);
             _integrationSlotsBuffer = new ComputeBuffer(maxIntegrationChunks, sizeof(int),
                 ComputeBufferType.Structured);
+            _integrationEnabledBuffer = new ComputeBuffer(maxResidentChunks, sizeof(uint),
+                ComputeBufferType.Structured);
             _visibleSlotsBuffer = new ComputeBuffer(maxVisibleChunks, sizeof(int),
                 ComputeBufferType.Structured);
+            _pageHashBuffer = new ComputeBuffer(PageHashCapacity, sizeof(int) * 4,
+                ComputeBufferType.Structured);
+            int totalWords = totalKernels / 32;
+            int workCapacity = IntegrationWorkCapacity;
+            _surfaceCandidateBitsBuffer = new ComputeBuffer(totalWords, sizeof(uint),
+                ComputeBufferType.Structured);
+            _surfaceQueueBuffer = new ComputeBuffer(workCapacity, sizeof(uint),
+                ComputeBufferType.Structured);
+            _surfaceCountBuffer = new ComputeBuffer(1, sizeof(uint),
+                ComputeBufferType.Structured);
+            _carveListedBitsBuffer = new ComputeBuffer(totalWords, sizeof(uint),
+                ComputeBufferType.Structured);
+            _carveLocalIndicesBuffer = new ComputeBuffer(totalKernels, sizeof(uint),
+                ComputeBufferType.Structured);
+            _carveCountsBuffer = new ComputeBuffer(maxResidentChunks, sizeof(uint),
+                ComputeBufferType.Structured);
+            _carveQueueBuffer = new ComputeBuffer(workCapacity, sizeof(uint),
+                ComputeBufferType.Structured);
+            _carveCountBuffer = new ComputeBuffer(1, sizeof(uint),
+                ComputeBufferType.Structured);
+            _surfaceDispatchArgsBuffer = new ComputeBuffer(3, sizeof(uint),
+                ComputeBufferType.IndirectArguments);
+            _carveDispatchArgsBuffer = new ComputeBuffer(3, sizeof(uint),
+                ComputeBufferType.IndirectArguments);
 
             _slots = new ResidentPage[maxResidentChunks];
             _pageCoordsCpu = new int4[maxResidentChunks];
             _pageNeighboursCpu = new int[maxResidentChunks * 27];
             _integrationSlotsCpu = new int[maxIntegrationChunks];
+            _integrationEnabledCpu = new uint[maxResidentChunks];
             _visibleSlotsCpu = new int[maxVisibleChunks];
             _dirtyOnes = new uint[MerkabaConstants.KernelsPerChunk];
             _zeroMasks = new uint[MerkabaConstants.KernelsPerChunk];
+            _zeroStates = new KernelState[MerkabaConstants.KernelsPerChunk];
+            _zeroPageBits = new uint[WordsPerPage];
+            _pageCarveBits = new uint[WordsPerPage];
+            _pageCarveIndices = new uint[MerkabaConstants.KernelsPerChunk];
+            _pageHashCpu = new int4[PageHashCapacity];
             Array.Fill(_dirtyOnes, 1u);
             Array.Fill(_pageNeighboursCpu, -1);
+            Array.Fill(_pageHashCpu, new int4(0, 0, 0, -1));
             for (int slot = 0; slot < maxResidentChunks; slot++)
             {
                 _freeSlots.Add(slot);
@@ -133,7 +216,22 @@ namespace Genesis.RoomScan
             }
             _pageCoordsBuffer.SetData(_pageCoordsCpu);
             _pageNeighboursBuffer.SetData(_pageNeighboursCpu);
+            _pageHashBuffer.SetData(_pageHashCpu);
+            _integrationEnabledBuffer.SetData(_integrationEnabledCpu);
+            _surfaceCandidateBitsBuffer.SetData(new uint[totalWords]);
+            _surfaceCountBuffer.SetData(_singleZero);
+            _carveListedBitsBuffer.SetData(new uint[totalWords]);
+            _carveCountsBuffer.SetData(new uint[maxResidentChunks]);
+            _carveCountBuffer.SetData(_singleZero);
+            _surfaceDispatchArgsBuffer.SetData(new uint[] { 0, 1, 1 });
+            _carveDispatchArgsBuffer.SetData(new uint[] { 0, 1, 1 });
             _gpuReady = true;
+        }
+
+        internal void BeginIntegrationWorkFrame()
+        {
+            _surfaceCountBuffer.SetData(_singleZero);
+            _carveCountBuffer.SetData(_singleZero);
         }
 
         /// <summary>
@@ -195,7 +293,7 @@ namespace Genesis.RoomScan
             for (int i = 0; i < IntegrationChunkCount; i++)
             {
                 ResidentPage page = _slots[_integrationSlotsCpu[i]];
-                if (page != null && !page.PendingEviction)
+                if (page?.Chunk != null && !page.PendingEviction)
                 {
                     page.Chunk.CpuStateCurrent = false;
                     page.Chunk.Persisted = false;
@@ -234,25 +332,59 @@ namespace Genesis.RoomScan
             List<int3> changed)
         {
             if (_resident.TryGetValue(coord, out ResidentPage existing)) return existing;
-            if (!_chunks.TryGetValue(coord, out MerkabaChunk chunk))
-            {
-                if (!createIfMissing) return null;
-                chunk = GetOrCreateChunk(coord);
-            }
+            _chunks.TryGetValue(coord, out MerkabaChunk chunk);
+            if (chunk == null && !createIfMissing) return null;
             if (_freeSlots.Count == 0) return null;
 
             int slot = _freeSlots.Min;
             _freeSlots.Remove(slot);
-            var page = new ResidentPage(chunk, slot, Time.frameCount);
+            // A missing canonical chunk receives only an empty transient GPU page.
+            // It is materialised in _chunks only after a SURFACE write survives a
+            // synchronization/eviction readback. FREE can therefore never allocate air.
+            var page = new ResidentPage(coord, chunk, slot, Time.frameCount);
             _resident.Add(coord, page);
             _slots[slot] = page;
 
             int offset = slot * MerkabaConstants.KernelsPerChunk;
-            _kernelBuffer.SetData(chunk.States, 0, offset, chunk.States.Length);
+            KernelState[] source = chunk != null ? chunk.States : _zeroStates;
+            _kernelBuffer.SetData(source, 0, offset, source.Length);
             _kernelDirtyBuffer.SetData(_dirtyOnes, 0, offset, _dirtyOnes.Length);
             _topologyMaskBuffer.SetData(_zeroMasks, 0, offset, _zeroMasks.Length);
+            ResetIntegrationPage(page);
             changed.Add(coord);
             return page;
+        }
+
+        private void ResetIntegrationPage(ResidentPage page)
+        {
+            int wordOffset = page.Slot * WordsPerPage;
+            _surfaceCandidateBitsBuffer.SetData(_zeroPageBits, 0,
+                wordOffset, WordsPerPage);
+            _carveListedBitsBuffer.SetData(_zeroPageBits, 0,
+                wordOffset, WordsPerPage);
+            _carveCountsBuffer.SetData(_singleZero, 0, page.Slot, 1);
+
+            if (page.Chunk == null) return;
+            Array.Clear(_pageCarveBits, 0, _pageCarveBits.Length);
+            int count = 0;
+            KernelState[] states = page.Chunk.States;
+            for (int index = 0; index < states.Length; index++)
+            {
+                KernelState state = states[index];
+                if (state.OccupancyEvidence <= MerkabaConstants.ExportKnownFreeThreshold &&
+                    !state.IsOccupied)
+                    continue;
+                if (state.OccupancyEvidence <= 0 && !state.IsOccupied) continue;
+                _pageCarveBits[index >> 5] |= 1u << (index & 31);
+                _pageCarveIndices[count++] = (uint)index;
+            }
+            if (count == 0) return;
+            _carveListedBitsBuffer.SetData(_pageCarveBits, 0,
+                wordOffset, WordsPerPage);
+            _carveLocalIndicesBuffer.SetData(_pageCarveIndices, 0,
+                page.Slot * MerkabaConstants.KernelsPerChunk, count);
+            var countValue = new[] { (uint)count };
+            _carveCountsBuffer.SetData(countValue, 0, page.Slot, 1);
         }
 
         private bool ScheduleOneEviction()
@@ -260,7 +392,7 @@ namespace Genesis.RoomScan
             ResidentPage victim = null;
             foreach (ResidentPage candidate in _resident.Values)
             {
-                if (candidate.PendingEviction || _desiredCoords.Contains(candidate.Chunk.Coord))
+                if (candidate.PendingEviction || _desiredCoords.Contains(candidate.Coord))
                     continue;
                 if (victim == null || candidate.LastTouchedFrame < victim.LastTouchedFrame ||
                     (candidate.LastTouchedFrame == victim.LastTouchedFrame &&
@@ -270,7 +402,7 @@ namespace Genesis.RoomScan
             if (victim == null) return false;
 
             victim.PendingEviction = true;
-            RebuildPageTablesAndDirtyLocal(new List<int3> { victim.Chunk.Coord });
+            RebuildPageTablesAndDirtyLocal(new List<int3> { victim.Coord });
             int generation = _gpuGeneration;
             int byteSize = MerkabaConstants.KernelsPerChunk * Marshal.SizeOf<KernelState>();
             int byteOffset = victim.Slot * byteSize;
@@ -280,19 +412,19 @@ namespace Genesis.RoomScan
                 if (request.hasError)
                 {
                     victim.PendingEviction = false;
-                    Logger.Error($"MerkabaGrid: eviction readback failed for {victim.Chunk.Coord}");
+                    Logger.Error($"MerkabaGrid: eviction readback failed for {victim.Coord}");
                     return;
                 }
                 bool hasCanonicalState = CopyPageSnapshot(victim,
                     request.GetData<KernelState>(), 0);
-                _resident.Remove(victim.Chunk.Coord);
+                _resident.Remove(victim.Coord);
                 _slots[victim.Slot] = null;
                 _freeSlots.Add(victim.Slot);
-                if (!hasCanonicalState &&
-                    _chunks.TryGetValue(victim.Chunk.Coord, out MerkabaChunk current) &&
+                if (!hasCanonicalState && victim.Chunk != null &&
+                    _chunks.TryGetValue(victim.Coord, out MerkabaChunk current) &&
                     ReferenceEquals(current, victim.Chunk))
-                    _chunks.Remove(victim.Chunk.Coord);
-                RebuildPageTablesAndDirtyLocal(new List<int3> { victim.Chunk.Coord });
+                    _chunks.Remove(victim.Coord);
+                RebuildPageTablesAndDirtyLocal(new List<int3> { victim.Coord });
             });
             return true;
         }
@@ -302,16 +434,34 @@ namespace Genesis.RoomScan
         {
             int occupied = 0;
             bool hasCanonicalState = false;
-            KernelState[] destination = page.Chunk.States;
-            for (int i = 0; i < destination.Length; i++)
+            for (int i = 0; i < MerkabaConstants.KernelsPerChunk; i++)
             {
                 KernelState state = data[sourceOffset + i];
-                destination[i] = state;
                 if (state.IsOccupied) occupied++;
                 if (state.OccupancyEvidence != 0 || state.PackedColor != 0 ||
                     state.ColorConfidence != 0 || state.Flags != 0)
                     hasCanonicalState = true;
             }
+            if (!hasCanonicalState)
+            {
+                if (page.Chunk != null)
+                {
+                    OccupiedKernelCount -= page.Chunk.OccupiedCount;
+                    page.Chunk.OccupiedCount = 0;
+                    Array.Clear(page.Chunk.States, 0, page.Chunk.States.Length);
+                    page.Chunk.CpuStateCurrent = true;
+                    page.Chunk.Persisted = false;
+                }
+                return false;
+            }
+
+            if (page.Chunk == null)
+            {
+                page.Chunk = GetOrCreateChunk(page.Coord);
+            }
+            KernelState[] destination = page.Chunk.States;
+            for (int i = 0; i < destination.Length; i++)
+                destination[i] = data[sourceOffset + i];
             OccupiedKernelCount += occupied - page.Chunk.OccupiedCount;
             page.Chunk.OccupiedCount = occupied;
             page.Chunk.CpuStateCurrent = true;
@@ -383,12 +533,17 @@ namespace Genesis.RoomScan
             IntegrationChunkCount = Mathf.Min(integration.Count, maxIntegrationChunks);
             VisibleChunkCount = Mathf.Min(visible.Count, maxVisibleChunks);
             Array.Fill(_integrationSlotsCpu, 0);
+            Array.Clear(_integrationEnabledCpu, 0, _integrationEnabledCpu.Length);
             Array.Fill(_visibleSlotsCpu, 0);
             for (int i = 0; i < IntegrationChunkCount; i++)
+            {
                 _integrationSlotsCpu[i] = integration[i];
+                _integrationEnabledCpu[integration[i]] = 1u;
+            }
             for (int i = 0; i < VisibleChunkCount; i++)
                 _visibleSlotsCpu[i] = visible[i];
             _integrationSlotsBuffer.SetData(_integrationSlotsCpu);
+            _integrationEnabledBuffer.SetData(_integrationEnabledCpu);
             _visibleSlotsBuffer.SetData(_visibleSlotsCpu);
         }
 
@@ -396,14 +551,16 @@ namespace Genesis.RoomScan
         {
             if (!_gpuReady) return;
             Array.Fill(_pageNeighboursCpu, -1);
+            Array.Fill(_pageHashCpu, new int4(0, 0, 0, -1));
             for (int slot = 0; slot < maxResidentChunks; slot++)
                 _pageCoordsCpu[slot] = new int4(0, 0, 0, -1);
 
             foreach (ResidentPage page in _resident.Values)
             {
                 if (page.PendingEviction) continue;
-                int3 coord = page.Chunk.Coord;
+                int3 coord = page.Coord;
                 _pageCoordsCpu[page.Slot] = new int4(coord, page.Slot);
+                InsertPageHash(coord, page.Slot);
                 for (int dz = -1; dz <= 1; dz++)
                 for (int dy = -1; dy <= 1; dy++)
                 for (int dx = -1; dx <= 1; dx++)
@@ -417,6 +574,7 @@ namespace Genesis.RoomScan
             }
             _pageCoordsBuffer.SetData(_pageCoordsCpu);
             _pageNeighboursBuffer.SetData(_pageNeighboursCpu);
+            _pageHashBuffer.SetData(_pageHashCpu);
 
             var dirtySlots = new HashSet<int>();
             foreach (int3 changed in changedCoords)
@@ -433,6 +591,31 @@ namespace Genesis.RoomScan
                     slot * MerkabaConstants.KernelsPerChunk, _dirtyOnes.Length);
         }
 
+        private void InsertPageHash(int3 coord, int slot)
+        {
+            int index = (int)(HashPageCoord(coord) & (PageHashCapacity - 1));
+            for (int probe = 0; probe < PageHashCapacity; probe++)
+            {
+                if (_pageHashCpu[index].w < 0)
+                {
+                    _pageHashCpu[index] = new int4(coord, slot);
+                    return;
+                }
+                index = (index + 1) & (PageHashCapacity - 1);
+            }
+            throw new InvalidOperationException("Merkaba resident page hash is full.");
+        }
+
+        internal static uint HashPageCoord(int3 coord)
+        {
+            unchecked
+            {
+                return (uint)coord.x * 73856093u ^
+                       (uint)coord.y * 19349663u ^
+                       (uint)coord.z * 83492791u;
+            }
+        }
+
         private void ClearGpuResidencyWithoutReadback()
         {
             if (!_gpuReady) return;
@@ -441,6 +624,7 @@ namespace Genesis.RoomScan
             _freeSlots.Clear();
             Array.Clear(_slots, 0, _slots.Length);
             Array.Fill(_pageNeighboursCpu, -1);
+            Array.Fill(_pageHashCpu, new int4(0, 0, 0, -1));
             for (int slot = 0; slot < maxResidentChunks; slot++)
             {
                 _freeSlots.Add(slot);
@@ -448,6 +632,9 @@ namespace Genesis.RoomScan
             }
             _pageCoordsBuffer.SetData(_pageCoordsCpu);
             _pageNeighboursBuffer.SetData(_pageNeighboursCpu);
+            _pageHashBuffer.SetData(_pageHashCpu);
+            _surfaceCountBuffer.SetData(_singleZero);
+            _carveCountBuffer.SetData(_singleZero);
             SetFrameSlots(Array.Empty<int>(), Array.Empty<int>());
         }
 
@@ -460,14 +647,38 @@ namespace Genesis.RoomScan
             _kernelDirtyBuffer?.Release();
             _topologyMaskBuffer?.Release();
             _integrationSlotsBuffer?.Release();
+            _integrationEnabledBuffer?.Release();
             _visibleSlotsBuffer?.Release();
+            _pageHashBuffer?.Release();
+            _surfaceCandidateBitsBuffer?.Release();
+            _surfaceQueueBuffer?.Release();
+            _surfaceCountBuffer?.Release();
+            _carveListedBitsBuffer?.Release();
+            _carveLocalIndicesBuffer?.Release();
+            _carveCountsBuffer?.Release();
+            _carveQueueBuffer?.Release();
+            _carveCountBuffer?.Release();
+            _surfaceDispatchArgsBuffer?.Release();
+            _carveDispatchArgsBuffer?.Release();
             _kernelBuffer = null;
             _pageCoordsBuffer = null;
             _pageNeighboursBuffer = null;
             _kernelDirtyBuffer = null;
             _topologyMaskBuffer = null;
             _integrationSlotsBuffer = null;
+            _integrationEnabledBuffer = null;
             _visibleSlotsBuffer = null;
+            _pageHashBuffer = null;
+            _surfaceCandidateBitsBuffer = null;
+            _surfaceQueueBuffer = null;
+            _surfaceCountBuffer = null;
+            _carveListedBitsBuffer = null;
+            _carveLocalIndicesBuffer = null;
+            _carveCountsBuffer = null;
+            _carveQueueBuffer = null;
+            _carveCountBuffer = null;
+            _surfaceDispatchArgsBuffer = null;
+            _carveDispatchArgsBuffer = null;
             _gpuReady = false;
         }
     }

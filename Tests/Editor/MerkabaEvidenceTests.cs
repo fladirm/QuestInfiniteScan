@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using Genesis.RoomScan;
 using NUnit.Framework;
 using Unity.Mathematics;
+using UnityEditor;
 using UnityEngine;
 
 namespace Genesis.RoomScan.Tests
@@ -143,6 +144,58 @@ namespace Genesis.RoomScan.Tests
             }
             finally
             {
+                Object.DestroyImmediate(host);
+            }
+        }
+
+        [Test]
+        public void FreeVolumeSparsity_TransientPagesAndFreeObservationsStayNonCanonical()
+        {
+            GameObject host = new("MerkabaSparseAllocationFixture");
+            GameObject cameraHost = new("MerkabaSparseAllocationCamera");
+            try
+            {
+                MerkabaGrid grid = host.AddComponent<MerkabaGrid>();
+                var serialized = new SerializedObject(grid);
+                serialized.FindProperty("maxResidentChunks").intValue = 16;
+                serialized.FindProperty("maxIntegrationChunks").intValue = 8;
+                serialized.FindProperty("maxVisibleChunks").intValue = 8;
+                serialized.ApplyModifiedPropertiesWithoutUndo();
+
+                Camera camera = cameraHost.AddComponent<Camera>();
+                camera.nearClipPlane = 0.05f;
+                camera.farClipPlane = 4f;
+                camera.fieldOfView = 90f;
+                MerkabaResidencyFrame frame = grid.RefreshResidency(camera, 1f, true);
+                Assert.That(frame.IntegrationChunkCount, Is.GreaterThan(0));
+                Assert.That(grid.TransientResidentPageCount, Is.GreaterThan(0));
+                Assert.That(grid.ActiveChunkCount, Is.Zero,
+                    "empty frustum residency must remain a transient GPU cache only");
+
+                grid.Clear();
+                for (int x = -96; x <= 96; x += 16)
+                    grid.ApplyObservation(new int3(x, 0, 0),
+                        FreeInput(0.5f, 2f, 1f, 5f), Blue);
+                Assert.That(grid.ActiveChunkCount, Is.Zero,
+                    "FREE in never-seen world must not allocate canonical chunks");
+
+                int3 surfaceCoord = new(-33, 2, 7);
+                grid.ApplyObservation(surfaceCoord,
+                    SurfaceInput(0.5f, 0.5f, 1f, 5f), Red);
+                Assert.That(grid.ActiveChunkCount, Is.EqualTo(1));
+                for (int pass = 0; pass < 8; pass++)
+                    grid.ApplyObservation(surfaceCoord,
+                        FreeInput(0.5f, 2f, 1f, 5f), Blue);
+                Assert.That(grid.TryGetState(surfaceCoord, out KernelState carved), Is.True);
+                Assert.That(carved.IsOccupied, Is.False);
+                Assert.That(carved.OccupancyEvidence, Is.LessThan(0),
+                    "allocated surface chunks retain useful local known-free evidence");
+                Assert.That(grid.ActiveChunkCount, Is.EqualTo(1),
+                    "local FREE evidence must not allocate additional air chunks");
+            }
+            finally
+            {
+                Object.DestroyImmediate(cameraHost);
                 Object.DestroyImmediate(host);
             }
         }

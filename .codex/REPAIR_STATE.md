@@ -2,7 +2,7 @@
 
 BASE: `0e9081060ed1068aad6e075f4961ad25b72245ff`
 BRANCH: `fix/merkaba-production-closure`
-HEAD: `ee6071bd79b5c386791a465b46ba92883b0095c4`
+HEAD: `54b18be227f1ed5d24deac2fb2bd93fc31dd83c1`
 GOAL AUTHORITY: `/mnt/aidisk/prace/.codex-pursuits/quest-merkaba-production-closure/REPAIR_GOAL.md`
 GOAL SHA-256: `9135e66973e4fe2e36af2cb67869a56afcc6aee75b9b57f50fdd269e109e923f`
 
@@ -21,22 +21,28 @@ GOAL SHA-256: `9135e66973e4fe2e36af2cb67869a56afcc6aee75b9b57f50fdd269e109e923f`
 - R3 dilation is stereo and executes the exact `256..1` sequence.
 - R3 retains only the latest raw sensor frame and preprocesses it once at the consuming integration tick.
 - R3 integrates both depth eyes in one compute dispatch with SURFACE winning over conflicting destructive FREE.
+- R4 removed dense `integrationChunks × 32768` depth projection.
+- R4 depth pixels generate three deterministic lattice candidates, deduplicated into an indirect SURFACE queue.
+- R4 CARVE projects only kernels previously touched by valid surface evidence, retaining local negative evidence down to the export-known-free threshold.
+- R4 uses transient empty GPU pages; only nonzero SURFACE-derived state materializes a canonical chunk during synchronization/eviction.
+- R4 FREE in never-seen world allocates no canonical chunk; false foreground carve remains correct across a negative chunk border.
 
 ## CURRENT
 
-- R4: replace dense volume-chunk integration with surface candidates plus carve of existing evidence; prohibit free-only chunk allocation.
+- R5: make topology invariant under resident, pending-eviction, summarized-nonresident, and reloaded neighbour states; add stable render residency.
 
 ## NEXT
 
-- R4: surface-driven positive work, existing-state carve work, free-volume sparsity, and carve regressions.
-- R5-R9 remain mandatory in the external goal authority.
+- R5: canonical boundary summaries, publication-safe eviction, render/integration separation, guard band and stable capacity ordering.
+- R6-R9 remain mandatory in the external goal authority.
 
 ## TEST STATUS
 
-- Unity EditMode after R3: 30/30 passed, 0 failed, 0 skipped.
+- Unity EditMode after R4: 32/32 passed, 0 failed, 0 skipped.
 - CPU/HLSL byte identity, CPU/GPU cross-chunk mask identity, and direct GLB counts/non-axis normals passed.
 - Isolated kernel and every body-diagonal pair rule passed; axis/face-diagonal non-activation passed.
 - Depth border/padding, stereo dilation, exact step sequence, consumed-frame cadence, right-eye-only production integration, and false-foreground carve passed.
+- Sparse GPU surface/carve work, no dense fallback symbol, free-volume sparsity, transient-page noncanonicality, and negative chunk-border carve passed.
 
 ## BUILD STATUS
 

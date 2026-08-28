@@ -62,7 +62,27 @@ Result at R3 checkpoint:
 
 ## R4 Integration and Carve
 
-PENDING
+Command:
+
+```bash
+Tools/unity/run_merkaba_tests.sh
+rg -n "IntegrateMerkaba|IntegrationChunkCount \\* MerkabaConstants.KernelsPerChunk|_MerkabaIntegrationChunkCount \\* MERKABA_KERNELS_PER_CHUNK" Runtime Tests
+```
+
+Result at R4 checkpoint:
+
+- Unity EditMode: 32 passed, 0 failed, 0 skipped.
+- Old production domain: up to `48 × 32768 = 1,572,864` depth projections/tick.
+- New production domain: depth pixels generate three bounded candidate insertions; deduplicated SURFACE and existing-evidence CARVE queues dispatch indirectly.
+- Test fixture explicitly asserts surface work is less than the resident dense state count.
+- Sparse production GPU path: false 1 m foreground removed; true 2 m wall retained.
+- Right-eye-only valid depth reaches occupied state through the actual sparse path.
+- Surface and carve cross the negative z=-32/-33 chunk boundary identically.
+- Empty frustum residency consists only of transient pages and leaves canonical chunk count zero.
+- Repeated FREE observations over untouched world allocate zero canonical chunks.
+- An allocated surface chunk retains useful local signed FREE evidence without allocating neighbouring air.
+- Dense `IntegrateMerkaba` kernel/symbol and dense total-work multiplication search: zero matches.
+- Result XML: `/mnt/kingston-unity/Builds/TestResults/merkaba-results.xml`.
 
 ## R5 Residency
 

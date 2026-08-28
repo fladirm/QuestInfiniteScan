@@ -8,7 +8,8 @@ namespace Genesis.RoomScan
 {
     /// <summary>
     /// Applies QRS depth/normal/dilation/projection observations to reversible evidence.
-    /// The Quest path is one coarse GPU pass over current frustum chunks; the static
+    /// The Quest path is a bounded surface queue plus a compact existing-state carve
+    /// queue; the static
     /// reference entry point is its deterministic semantic oracle for tests/replay.
     /// </summary>
     [DisallowMultipleComponent]
@@ -21,7 +22,11 @@ namespace Genesis.RoomScan
 
         private MerkabaGrid _grid;
         private DepthCapture _depthCapture;
-        private int _kernel = -1;
+        private int _generateSurfaceKernel = -1;
+        private int _prepareArgsKernel = -1;
+        private int _surfaceKernel = -1;
+        private int _gatherCarveKernel = -1;
+        private int _carveKernel = -1;
         private Texture _pendingCameraFrame;
         private Vector3 _pendingCameraPosition;
         private Quaternion _pendingCameraRotation;
@@ -42,10 +47,25 @@ namespace Genesis.RoomScan
         private static readonly int PageCoordsId = Shader.PropertyToID("_MerkabaPageCoords");
         private static readonly int PageNeighboursId = Shader.PropertyToID("_MerkabaPageNeighbours");
         private static readonly int IntegrationSlotsId = Shader.PropertyToID("_MerkabaIntegrationSlots");
+        private static readonly int IntegrationEnabledId = Shader.PropertyToID("_MerkabaIntegrationEnabledSlots");
         private static readonly int KernelDirtyId = Shader.PropertyToID("_MerkabaKernelDirty");
         private static readonly int IntegrationCountId = Shader.PropertyToID("_MerkabaIntegrationChunkCount");
         private static readonly int GridToWorldId = Shader.PropertyToID("_MerkabaGridToWorld");
+        private static readonly int WorldToGridId = Shader.PropertyToID("_MerkabaWorldToGrid");
         private static readonly int MaxDistanceId = Shader.PropertyToID("_MerkabaMaxUpdateDistance");
+        private static readonly int PageHashId = Shader.PropertyToID("_MerkabaPageHash");
+        private static readonly int PageHashCapacityId = Shader.PropertyToID("_MerkabaPageHashCapacity");
+        private static readonly int WorkCapacityId = Shader.PropertyToID("_MerkabaWorkCapacity");
+        private static readonly int WorkCountId = Shader.PropertyToID("_MerkabaWorkCount");
+        private static readonly int IndirectArgsId = Shader.PropertyToID("_MerkabaIndirectArgs");
+        private static readonly int SurfaceBitsId = Shader.PropertyToID("_MerkabaSurfaceCandidateBits");
+        private static readonly int SurfaceQueueId = Shader.PropertyToID("_MerkabaSurfaceQueue");
+        private static readonly int SurfaceCountId = Shader.PropertyToID("_MerkabaSurfaceCount");
+        private static readonly int CarveListedBitsId = Shader.PropertyToID("_MerkabaCarveListedBits");
+        private static readonly int CarveLocalIndicesId = Shader.PropertyToID("_MerkabaCarveLocalIndices");
+        private static readonly int CarveCountsId = Shader.PropertyToID("_MerkabaCarveCounts");
+        private static readonly int CarveQueueId = Shader.PropertyToID("_MerkabaCarveQueue");
+        private static readonly int CarveCountId = Shader.PropertyToID("_MerkabaCarveCount");
         private static readonly int ExclusionCountId = Shader.PropertyToID("_MerkabaExclusionCount");
         private static readonly int ExclusionHeadsId = Shader.PropertyToID("_MerkabaExclusionHeads");
         private static readonly int CameraRgbId = Shader.PropertyToID("_MerkabaCameraRgb");
@@ -62,7 +82,14 @@ namespace Genesis.RoomScan
         {
             _grid = GetComponent<MerkabaGrid>();
             _depthCapture = GetComponent<DepthCapture>();
-            if (compute != null) _kernel = compute.FindKernel("IntegrateMerkaba");
+            if (compute != null)
+            {
+                _generateSurfaceKernel = compute.FindKernel("GenerateSurfaceCandidates");
+                _prepareArgsKernel = compute.FindKernel("PrepareIndirectArgs");
+                _surfaceKernel = compute.FindKernel("IntegrateSurfaceCandidates");
+                _gatherCarveKernel = compute.FindKernel("GatherCarveCandidates");
+                _carveKernel = compute.FindKernel("IntegrateCarveCandidates");
+            }
             _dummyCameraTexture = new Texture2D(1, 1, TextureFormat.RGBA32, false);
             _dummyCameraTexture.SetPixel(0, 0, Color.black);
             _dummyCameraTexture.Apply(false, true);
@@ -92,7 +119,9 @@ namespace Genesis.RoomScan
 
         public bool Integrate(Camera camera)
         {
-            if (_grid == null || _depthCapture == null || compute == null || _kernel < 0 ||
+            if (_grid == null || _depthCapture == null || compute == null ||
+                _generateSurfaceKernel < 0 || _prepareArgsKernel < 0 ||
+                _surfaceKernel < 0 || _gatherCarveKernel < 0 || _carveKernel < 0 ||
                 camera == null || !DepthCapture.DepthAvailable ||
                 !_depthCapture.HasUnprocessedFrame)
                 return false;
@@ -113,18 +142,12 @@ namespace Genesis.RoomScan
             compute.SetVector(DepthCapture.TexSizeID,
                 new Vector2(_depthCapture.DepthTex.width, _depthCapture.DepthTex.height));
 
-            compute.SetBuffer(_kernel, KernelsId, _grid.KernelBuffer);
-            compute.SetBuffer(_kernel, PageCoordsId, _grid.PageCoordsBuffer);
-            compute.SetBuffer(_kernel, PageNeighboursId, _grid.PageNeighboursBuffer);
-            compute.SetBuffer(_kernel, IntegrationSlotsId, _grid.IntegrationSlotsBuffer);
-            compute.SetBuffer(_kernel, KernelDirtyId, _grid.KernelDirtyBuffer);
-            compute.SetTexture(_kernel, DepthCapture.DepthTexID, _depthCapture.DepthTex);
-            compute.SetTexture(_kernel, DepthCapture.NormTexID, _depthCapture.NormTex);
-            compute.SetTexture(_kernel, DepthCapture.DilatedDepthTexID,
-                _depthCapture.DilatedDepthTex);
             compute.SetInt(IntegrationCountId, residency.IntegrationChunkCount);
             compute.SetMatrix(GridToWorldId, _grid.GridToWorldMatrix);
+            compute.SetMatrix(WorldToGridId, _grid.GridToWorldMatrix.inverse);
             compute.SetFloat(MaxDistanceId, maxUpdateDistance);
+            compute.SetInt(PageHashCapacityId, _grid.PageHashEntryCount);
+            compute.SetInt(WorkCapacityId, _grid.IntegrationWorkCapacity);
 
             int exclusionCount = Mathf.Min(ExclusionZones.Count, _exclusionPositions.Length);
             for (int i = 0; i < exclusionCount; i++)
@@ -133,9 +156,25 @@ namespace Genesis.RoomScan
             compute.SetInt(ExclusionCountId, exclusionCount);
             compute.SetVectorArray(ExclusionHeadsId, _exclusionPositions);
 
-            BindCamera();
-            int total = residency.IntegrationChunkCount * MerkabaConstants.KernelsPerChunk;
-            compute.Dispatch(_kernel, Mathf.CeilToInt(total / 64f), 1, 1);
+            _grid.BeginIntegrationWorkFrame();
+            BindSurfaceGeneration();
+            compute.Dispatch(_generateSurfaceKernel,
+                Mathf.CeilToInt(_depthCapture.DepthTex.width / 8f),
+                Mathf.CeilToInt(_depthCapture.DepthTex.height / 8f), 2);
+
+            PrepareIndirect(_grid.SurfaceCountBuffer,
+                _grid.SurfaceDispatchArgsBuffer);
+            BindSurfaceIntegration();
+            compute.DispatchIndirect(_surfaceKernel,
+                _grid.SurfaceDispatchArgsBuffer);
+
+            BindCarveGather();
+            compute.Dispatch(_gatherCarveKernel,
+                residency.IntegrationChunkCount, 1, 1);
+            PrepareIndirect(_grid.CarveCountBuffer,
+                _grid.CarveDispatchArgsBuffer);
+            BindCarveIntegration();
+            compute.DispatchIndirect(_carveKernel, _grid.CarveDispatchArgsBuffer);
             _grid.MarkIntegrationPagesGpuCurrent();
             IntegrationCount++;
             _pendingCameraFrame = null;
@@ -165,11 +204,87 @@ namespace Genesis.RoomScan
         public Task SynchronizeCanonicalStateAsync() =>
             _grid != null ? _grid.SynchronizeResidentStateAsync() : Task.CompletedTask;
 
-        private void BindCamera()
+        private void BindSurfaceGeneration()
+        {
+            compute.SetBuffer(_generateSurfaceKernel, PageHashId, _grid.PageHashBuffer);
+            compute.SetBuffer(_generateSurfaceKernel, IntegrationEnabledId,
+                _grid.IntegrationEnabledBuffer);
+            compute.SetBuffer(_generateSurfaceKernel, SurfaceBitsId,
+                _grid.SurfaceCandidateBitsBuffer);
+            compute.SetBuffer(_generateSurfaceKernel, SurfaceQueueId,
+                _grid.SurfaceQueueBuffer);
+            compute.SetBuffer(_generateSurfaceKernel, SurfaceCountId,
+                _grid.SurfaceCountBuffer);
+            compute.SetTexture(_generateSurfaceKernel, DepthCapture.DepthTexID,
+                _depthCapture.DepthTex);
+        }
+
+        private void BindSurfaceIntegration()
+        {
+            BindObservation(_surfaceKernel);
+            compute.SetBuffer(_surfaceKernel, SurfaceBitsId,
+                _grid.SurfaceCandidateBitsBuffer);
+            compute.SetBuffer(_surfaceKernel, SurfaceQueueId,
+                _grid.SurfaceQueueBuffer);
+            compute.SetBuffer(_surfaceKernel, SurfaceCountId,
+                _grid.SurfaceCountBuffer);
+            compute.SetBuffer(_surfaceKernel, CarveListedBitsId,
+                _grid.CarveListedBitsBuffer);
+            compute.SetBuffer(_surfaceKernel, CarveLocalIndicesId,
+                _grid.CarveLocalIndicesBuffer);
+            compute.SetBuffer(_surfaceKernel, CarveCountsId,
+                _grid.CarveCountsBuffer);
+            BindCamera(_surfaceKernel);
+        }
+
+        private void BindCarveGather()
+        {
+            compute.SetBuffer(_gatherCarveKernel, KernelsId, _grid.KernelBuffer);
+            compute.SetBuffer(_gatherCarveKernel, IntegrationSlotsId,
+                _grid.IntegrationSlotsBuffer);
+            compute.SetBuffer(_gatherCarveKernel, CarveLocalIndicesId,
+                _grid.CarveLocalIndicesBuffer);
+            compute.SetBuffer(_gatherCarveKernel, CarveCountsId,
+                _grid.CarveCountsBuffer);
+            compute.SetBuffer(_gatherCarveKernel, CarveQueueId,
+                _grid.CarveQueueBuffer);
+            compute.SetBuffer(_gatherCarveKernel, CarveCountId,
+                _grid.CarveCountBuffer);
+        }
+
+        private void BindCarveIntegration()
+        {
+            BindObservation(_carveKernel);
+            compute.SetBuffer(_carveKernel, CarveQueueId, _grid.CarveQueueBuffer);
+            compute.SetBuffer(_carveKernel, CarveCountId, _grid.CarveCountBuffer);
+        }
+
+        private void BindObservation(int kernel)
+        {
+            compute.SetBuffer(kernel, KernelsId, _grid.KernelBuffer);
+            compute.SetBuffer(kernel, PageCoordsId, _grid.PageCoordsBuffer);
+            compute.SetBuffer(kernel, PageNeighboursId, _grid.PageNeighboursBuffer);
+            compute.SetBuffer(kernel, KernelDirtyId, _grid.KernelDirtyBuffer);
+            compute.SetTexture(kernel, DepthCapture.DepthTexID,
+                _depthCapture.DepthTex);
+            compute.SetTexture(kernel, DepthCapture.NormTexID,
+                _depthCapture.NormTex);
+            compute.SetTexture(kernel, DepthCapture.DilatedDepthTexID,
+                _depthCapture.DilatedDepthTex);
+        }
+
+        private void PrepareIndirect(ComputeBuffer count, ComputeBuffer args)
+        {
+            compute.SetBuffer(_prepareArgsKernel, WorkCountId, count);
+            compute.SetBuffer(_prepareArgsKernel, IndirectArgsId, args);
+            compute.Dispatch(_prepareArgsKernel, 1, 1, 1);
+        }
+
+        private void BindCamera(int kernel)
         {
             EnsureCameraCopy();
             bool available = _pendingCameraFrame != null && _cameraFrameCopy != null;
-            compute.SetTexture(_kernel, CameraRgbId,
+            compute.SetTexture(kernel, CameraRgbId,
                 available ? _cameraFrameCopy : _dummyCameraTexture);
             compute.SetInt(CameraAvailableId, available ? 1 : 0);
             if (!available) return;

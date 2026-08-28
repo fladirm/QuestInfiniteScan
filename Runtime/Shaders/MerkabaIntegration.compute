@@ -1,6 +1,10 @@
-// Quest Infinite Merkaba - direct depth -> reversible occupancy integration.
+// Quest Infinite Merkaba - sparse depth candidates + reversible occupancy evidence.
 // The signed depth relation is transient classification only; no field is stored.
-#pragma kernel IntegrateMerkaba
+#pragma kernel GenerateSurfaceCandidates
+#pragma kernel PrepareIndirectArgs
+#pragma kernel IntegrateSurfaceCandidates
+#pragma kernel GatherCarveCandidates
+#pragma kernel IntegrateCarveCandidates
 
 #include "DepthKit.hlsl"
 
@@ -12,6 +16,7 @@
 #define MERKABA_EVIDENCE_MAX 32767
 #define MERKABA_OCCUPIED_ON 512
 #define MERKABA_OCCUPIED_OFF 128
+#define MERKABA_EXPORT_KNOWN_FREE -512
 #define MERKABA_SURFACE_SCALE 640.0
 #define MERKABA_FREE_SCALE 256.0
 #define MERKABA_MIN_SURFACE_QUALITY 0.25
@@ -31,10 +36,26 @@ RWStructuredBuffer<KernelState> _MerkabaKernels;
 StructuredBuffer<int4> _MerkabaPageCoords;
 StructuredBuffer<int> _MerkabaPageNeighbours;
 StructuredBuffer<int> _MerkabaIntegrationSlots;
+StructuredBuffer<uint> _MerkabaIntegrationEnabledSlots;
 RWStructuredBuffer<uint> _MerkabaKernelDirty;
+StructuredBuffer<int4> _MerkabaPageHash;
+int _MerkabaPageHashCapacity;
+
+RWStructuredBuffer<uint> _MerkabaSurfaceCandidateBits;
+RWStructuredBuffer<uint> _MerkabaSurfaceQueue;
+RWStructuredBuffer<uint> _MerkabaSurfaceCount;
+RWStructuredBuffer<uint> _MerkabaCarveListedBits;
+RWStructuredBuffer<uint> _MerkabaCarveLocalIndices;
+RWStructuredBuffer<uint> _MerkabaCarveCounts;
+RWStructuredBuffer<uint> _MerkabaCarveQueue;
+RWStructuredBuffer<uint> _MerkabaCarveCount;
+StructuredBuffer<uint> _MerkabaWorkCount;
+RWStructuredBuffer<uint> _MerkabaIndirectArgs;
 
 int _MerkabaIntegrationChunkCount;
+int _MerkabaWorkCapacity;
 float4x4 _MerkabaGridToWorld;
+float4x4 _MerkabaWorldToGrid;
 float _MerkabaMaxUpdateDistance;
 
 Texture2DArray<float4> gsDilatedDepth;
@@ -67,6 +88,65 @@ uint FlattenKernel(int3 localCoord)
 {
     return (uint)(localCoord.x + MERKABA_CHUNK_SIZE *
         (localCoord.y + MERKABA_CHUNK_SIZE * localCoord.z));
+}
+
+int FloorDivChunk(int value)
+{
+    return value >= 0 ? value / MERKABA_CHUNK_SIZE :
+        -((-value + MERKABA_CHUNK_SIZE - 1) / MERKABA_CHUNK_SIZE);
+}
+
+int3 ChunkCoordOf(int3 globalCoord)
+{
+    return int3(FloorDivChunk(globalCoord.x), FloorDivChunk(globalCoord.y),
+        FloorDivChunk(globalCoord.z));
+}
+
+int3 LocalCoordOf(int3 globalCoord, int3 chunkCoord)
+{
+    return globalCoord - chunkCoord * MERKABA_CHUNK_SIZE;
+}
+
+uint HashPageCoord(int3 coord)
+{
+    return (uint)coord.x * 73856093u ^ (uint)coord.y * 19349663u ^
+        (uint)coord.z * 83492791u;
+}
+
+int FindIntegrationPage(int3 chunkCoord)
+{
+    uint mask = (uint)(_MerkabaPageHashCapacity - 1);
+    uint index = HashPageCoord(chunkCoord) & mask;
+    [loop]
+    for (int probe = 0; probe < _MerkabaPageHashCapacity; probe++)
+    {
+        int4 entry = _MerkabaPageHash[index];
+        if (entry.w < 0) return -1;
+        if (all(entry.xyz == chunkCoord))
+            return _MerkabaIntegrationEnabledSlots[entry.w] != 0u ? entry.w : -1;
+        index = (index + 1u) & mask;
+    }
+    return -1;
+}
+
+void AppendSurfaceCandidate(int3 globalCoord)
+{
+    int3 chunkCoord = ChunkCoordOf(globalCoord);
+    int slot = FindIntegrationPage(chunkCoord);
+    if (slot < 0) return;
+    int3 localCoord = LocalCoordOf(globalCoord, chunkCoord);
+    uint stateIndex = (uint)slot * MERKABA_KERNELS_PER_CHUNK +
+        FlattenKernel(localCoord);
+    uint wordIndex = stateIndex >> 5u;
+    uint bit = 1u << (stateIndex & 31u);
+    uint previous;
+    InterlockedOr(_MerkabaSurfaceCandidateBits[wordIndex], bit, previous);
+    if ((previous & bit) != 0u) return;
+
+    uint queueIndex;
+    InterlockedAdd(_MerkabaSurfaceCount[0], 1u, queueIndex);
+    if (queueIndex < (uint)_MerkabaWorkCapacity)
+        _MerkabaSurfaceQueue[queueIndex] = stateIndex;
 }
 
 int NeighbourPageSlot(int slot, int3 delta)
@@ -191,47 +271,8 @@ bool ObserveDepthEye(uint eye, float3 worldPosition, out int kind,
     return kind != 2 || quality >= MERKABA_MIN_SURFACE_QUALITY;
 }
 
-[numthreads(64, 1, 1)]
-void IntegrateMerkaba(uint id : SV_DispatchThreadID)
+bool IsExcluded(float3 worldPosition)
 {
-    uint total = (uint)_MerkabaIntegrationChunkCount * MERKABA_KERNELS_PER_CHUNK;
-    if (id >= total) return;
-
-    int activeIndex = id / MERKABA_KERNELS_PER_CHUNK;
-    uint localIndex = id % MERKABA_KERNELS_PER_CHUNK;
-    int slot = _MerkabaIntegrationSlots[activeIndex];
-    int3 localCoord = UnflattenKernel(localIndex);
-    int3 globalCoord = _MerkabaPageCoords[slot].xyz * MERKABA_CHUNK_SIZE + localCoord;
-    float3 gridPosition = (float3)globalCoord * MERKABA_LATTICE_STEP;
-    float3 worldPosition = mul(_MerkabaGridToWorld, float4(gridPosition, 1.0)).xyz;
-
-    int kind = 0;
-    float quality = 0.0;
-    [unroll]
-    for (uint eye = 0u; eye < 2u; eye++)
-    {
-        int eyeKind;
-        float eyeQuality;
-        if (!ObserveDepthEye(eye, worldPosition, eyeKind, eyeQuality)) continue;
-
-        // Stereo fusion is conservative: a valid surface observation wins over
-        // destructive FREE evidence from the other eye at an occlusion boundary.
-        if (eyeKind == 2)
-        {
-            if (kind != 2 || eyeQuality > quality)
-            {
-                kind = eyeKind;
-                quality = eyeQuality;
-            }
-        }
-        else if (kind == 0 || (kind == 1 && eyeQuality > quality))
-        {
-            kind = eyeKind;
-            quality = eyeQuality;
-        }
-    }
-    if (kind == 0) return;
-
     [loop]
     for (int exclusion = 0; exclusion < _MerkabaExclusionCount; exclusion++)
     {
@@ -240,15 +281,55 @@ void IntegrateMerkaba(uint id : SV_DispatchThreadID)
         if (dot(difference, difference) < EXCLUSION_RADIUS * EXCLUSION_RADIUS &&
             worldPosition.y < head.y + EXCLUSION_TOP &&
             worldPosition.y > head.y - EXCLUSION_BOTTOM)
-            return;
+            return true;
     }
+    return false;
+}
 
-    uint stateIndex = slot * MERKABA_KERNELS_PER_CHUNK + localIndex;
-    KernelState state = _MerkabaKernels[stateIndex];
+void FuseDepth(float3 worldPosition, out int kind, out float quality)
+{
+    kind = 0;
+    quality = 0.0;
+    [unroll]
+    for (uint eye = 0u; eye < 2u; eye++)
+    {
+        int eyeKind;
+        float eyeQuality;
+        if (!ObserveDepthEye(eye, worldPosition, eyeKind, eyeQuality)) continue;
+        // A valid surface wins over destructive FREE at stereo occlusion boundaries.
+        if (eyeKind == 2)
+        {
+            if (kind != 2 || eyeQuality > quality)
+            {
+                kind = 2;
+                quality = eyeQuality;
+            }
+        }
+        else if (kind == 0 || (kind == 1 && eyeQuality > quality))
+        {
+            kind = 1;
+            quality = eyeQuality;
+        }
+    }
+}
+
+void EnsureCarveListed(uint stateIndex, int slot, uint localIndex)
+{
+    uint wordIndex = stateIndex >> 5u;
+    uint bit = 1u << (stateIndex & 31u);
+    uint previous;
+    InterlockedOr(_MerkabaCarveListedBits[wordIndex], bit, previous);
+    if ((previous & bit) != 0u) return;
+    uint listIndex;
+    InterlockedAdd(_MerkabaCarveCounts[slot], 1u, listIndex);
+    if (listIndex < MERKABA_KERNELS_PER_CHUNK)
+        _MerkabaCarveLocalIndices[(uint)slot * MERKABA_KERNELS_PER_CHUNK +
+            listIndex] = localIndex;
+}
+
+void UpdateOccupancy(inout KernelState state, int delta, out bool transitioned)
+{
     bool occupiedBefore = (state.flags & MERKABA_OCCUPIED_FLAG) != 0u;
-    int delta = kind == 2
-        ? max(1, (int)round(quality * quality * MERKABA_SURFACE_SCALE))
-        : -max(1, (int)round(quality * quality * MERKABA_FREE_SCALE));
     state.evidence = clamp(state.evidence + delta,
         MERKABA_EVIDENCE_MIN, MERKABA_EVIDENCE_MAX);
     bool occupiedAfter = occupiedBefore
@@ -261,8 +342,85 @@ void IntegrateMerkaba(uint id : SV_DispatchThreadID)
         state.packedColor = 0u;
         state.colorConfidence = 0u;
     }
+    transitioned = occupiedBefore != occupiedAfter;
+}
 
-    if (kind == 2 && _MerkabaCameraAvailable != 0)
+[numthreads(8, 8, 1)]
+void GenerateSurfaceCandidates(uint3 id : SV_DispatchThreadID)
+{
+    if (id.z >= 2u || id.x >= gsDepthTexSize.x || id.y >= gsDepthTexSize.y)
+        return;
+    float depthNdc = gsDepthTex[id];
+    if (depthNdc <= 0.0 || depthNdc >= 1.0) return;
+    float2 uv = ((float2)id.xy + 0.5) / (float2)gsDepthTexSize;
+    float3 worldSurface = gsDepthNDCtoWorld(float3(uv, depthNdc), id.z);
+    float3 eyeToSurface = worldSurface - gsDepthEyePos(id.z);
+    float distance = length(eyeToSurface);
+    if (distance <= 0.05 || distance > _MerkabaMaxUpdateDistance) return;
+    float3 ray = eyeToSurface / distance;
+    float3 gridSurface = mul(_MerkabaWorldToGrid,
+        float4(worldSurface, 1.0)).xyz / MERKABA_LATTICE_STEP;
+    float3 gridRay = mul((float3x3)_MerkabaWorldToGrid, ray);
+    float3 absoluteRay = abs(gridRay);
+    int3 stepCoord = int3(0, 0, 0);
+    if (absoluteRay.x >= absoluteRay.y && absoluteRay.x >= absoluteRay.z)
+        stepCoord.x = gridRay.x >= 0.0 ? 1 : -1;
+    else if (absoluteRay.y >= absoluteRay.z)
+        stepCoord.y = gridRay.y >= 0.0 ? 1 : -1;
+    else
+        stepCoord.z = gridRay.z >= 0.0 ? 1 : -1;
+
+    int3 nearest = (int3)round(gridSurface);
+    AppendSurfaceCandidate(nearest - stepCoord);
+    AppendSurfaceCandidate(nearest);
+    AppendSurfaceCandidate(nearest + stepCoord);
+}
+
+[numthreads(1, 1, 1)]
+void PrepareIndirectArgs(uint id : SV_DispatchThreadID)
+{
+    uint count = min(_MerkabaWorkCount[0], (uint)_MerkabaWorkCapacity);
+    _MerkabaIndirectArgs[0] = (count + 63u) / 64u;
+    _MerkabaIndirectArgs[1] = 1u;
+    _MerkabaIndirectArgs[2] = 1u;
+}
+
+[numthreads(64, 1, 1)]
+void IntegrateSurfaceCandidates(uint id : SV_DispatchThreadID)
+{
+    uint count = min(_MerkabaSurfaceCount[0], (uint)_MerkabaWorkCapacity);
+    if (id >= count) return;
+    uint stateIndex = _MerkabaSurfaceQueue[id];
+    uint wordIndex = stateIndex >> 5u;
+    uint bit = 1u << (stateIndex & 31u);
+    InterlockedAnd(_MerkabaSurfaceCandidateBits[wordIndex], ~bit);
+
+    int slot = (int)(stateIndex / MERKABA_KERNELS_PER_CHUNK);
+    uint localIndex = stateIndex % MERKABA_KERNELS_PER_CHUNK;
+    int3 localCoord = UnflattenKernel(localIndex);
+    int3 globalCoord = _MerkabaPageCoords[slot].xyz * MERKABA_CHUNK_SIZE +
+        localCoord;
+    float3 worldPosition = mul(_MerkabaGridToWorld,
+        float4((float3)globalCoord * MERKABA_LATTICE_STEP, 1.0)).xyz;
+    if (IsExcluded(worldPosition)) return;
+
+    float quality = 0.0;
+    [unroll]
+    for (uint eye = 0u; eye < 2u; eye++)
+    {
+        int eyeKind;
+        float eyeQuality;
+        if (ObserveDepthEye(eye, worldPosition, eyeKind, eyeQuality) &&
+            eyeKind == 2 && eyeQuality > quality)
+            quality = eyeQuality;
+    }
+    if (quality < MERKABA_MIN_SURFACE_QUALITY) return;
+
+    KernelState state = _MerkabaKernels[stateIndex];
+    bool transitioned;
+    UpdateOccupancy(state, max(1, (int)round(quality * quality *
+        MERKABA_SURFACE_SCALE)), transitioned);
+    if (_MerkabaCameraAvailable != 0)
     {
         float2 cameraUv = ProjectCameraUv(worldPosition);
         if (cameraUv.x > 0.02 && cameraUv.x < 0.98 &&
@@ -273,8 +431,62 @@ void IntegrateMerkaba(uint id : SV_DispatchThreadID)
             AccumulateColor(state, rgb, quality);
         }
     }
-
     _MerkabaKernels[stateIndex] = state;
-    if (occupiedBefore != occupiedAfter)
-        MarkLocalTopologyDirty(slot, localCoord);
+    EnsureCarveListed(stateIndex, slot, localIndex);
+    if (transitioned) MarkLocalTopologyDirty(slot, localCoord);
+}
+
+[numthreads(64, 1, 1)]
+void GatherCarveCandidates(uint threadIndex : SV_GroupIndex,
+    uint3 groupId : SV_GroupID)
+{
+    if (groupId.x >= (uint)_MerkabaIntegrationChunkCount) return;
+    int slot = _MerkabaIntegrationSlots[groupId.x];
+    uint count = min(_MerkabaCarveCounts[slot],
+        (uint)MERKABA_KERNELS_PER_CHUNK);
+    for (uint listIndex = threadIndex; listIndex < count; listIndex += 64u)
+    {
+        uint localIndex = _MerkabaCarveLocalIndices[(uint)slot *
+            MERKABA_KERNELS_PER_CHUNK + listIndex];
+        uint stateIndex = (uint)slot * MERKABA_KERNELS_PER_CHUNK + localIndex;
+        KernelState state = _MerkabaKernels[stateIndex];
+        if (state.evidence <= MERKABA_EXPORT_KNOWN_FREE &&
+            (state.flags & MERKABA_OCCUPIED_FLAG) == 0u)
+            continue;
+        uint queueIndex;
+        InterlockedAdd(_MerkabaCarveCount[0], 1u, queueIndex);
+        if (queueIndex < (uint)_MerkabaWorkCapacity)
+            _MerkabaCarveQueue[queueIndex] = stateIndex;
+    }
+}
+
+[numthreads(64, 1, 1)]
+void IntegrateCarveCandidates(uint id : SV_DispatchThreadID)
+{
+    uint count = min(_MerkabaCarveCount[0], (uint)_MerkabaWorkCapacity);
+    if (id >= count) return;
+    uint stateIndex = _MerkabaCarveQueue[id];
+    KernelState state = _MerkabaKernels[stateIndex];
+    if (state.evidence <= MERKABA_EXPORT_KNOWN_FREE &&
+        (state.flags & MERKABA_OCCUPIED_FLAG) == 0u)
+        return;
+
+    int slot = (int)(stateIndex / MERKABA_KERNELS_PER_CHUNK);
+    uint localIndex = stateIndex % MERKABA_KERNELS_PER_CHUNK;
+    int3 localCoord = UnflattenKernel(localIndex);
+    int3 globalCoord = _MerkabaPageCoords[slot].xyz * MERKABA_CHUNK_SIZE +
+        localCoord;
+    float3 worldPosition = mul(_MerkabaGridToWorld,
+        float4((float3)globalCoord * MERKABA_LATTICE_STEP, 1.0)).xyz;
+    if (IsExcluded(worldPosition)) return;
+
+    int kind;
+    float quality;
+    FuseDepth(worldPosition, kind, quality);
+    if (kind != 1) return;
+    bool transitioned;
+    UpdateOccupancy(state, -max(1, (int)round(quality * quality *
+        MERKABA_FREE_SCALE)), transitioned);
+    _MerkabaKernels[stateIndex] = state;
+    if (transitioned) MarkLocalTopologyDirty(slot, localCoord);
 }
