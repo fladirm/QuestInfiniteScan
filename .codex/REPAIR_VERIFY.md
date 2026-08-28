@@ -188,3 +188,23 @@ Result:
 - Launch: `adb -s 340YC20G7X0QZ4 shell am start -n com.genesis.questmerkabascan/com.unity3d.player.UnityPlayerGameActivity` succeeded; replacement process remained alive.
 - Idle/non-scanning performance: 72/72 Hz, App ~3.8 ms, CPU&GPU ~5.1-5.7 ms, GPU%=0.40-0.41.
 - Active scan, timestamps, fresh GLB, opacity/progress interaction, and scan screenshots: PENDING real VR control input.
+
+## Final Forensic Audit
+
+Commands:
+
+```bash
+Tools/unity/run_merkaba_tests.sh
+Tools/gltf/validate_merkaba_glb.sh /mnt/kingston-unity/Builds/TestResults/merkaba-fixture.glb
+git diff --check 0e9081060ed1068aad6e075f4961ad25b72245ff
+rg -i 'BoundaryPatchCount|PatchVertex|SurfaceNets|GPUSurfaceNets|TSDF|Triplanar|GSplat|DiffSoup|SigmaPrism|SigmaFrame|SigmaRenderer|DETAIL' Runtime Editor Resources Scenes Prefabs Materials
+```
+
+Result:
+
+- Final EditMode rerun: 58 passed, 0 failed, 0 skipped in 8.09 s.
+- Exact supplied fixture GLB: 0 validator errors, 0 warnings; 4,948 bytes and 40 direct-Merkaba triangles.
+- Baseline-to-branch whitespace check: PASS.
+- Production legacy/reconstruction contamination search: zero matches.
+- Normal-frame full world/kernel readback: absent. Remaining readbacks are save/export synchronization, sampled telemetry, dirty-publication diagnostics, bounded eviction, and exceptional overflow migration.
+- Device export at 2026-08-28 15:09 remained older than the repaired APK and was excluded from repaired evidence.

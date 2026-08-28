@@ -2,7 +2,7 @@
 
 BASE: `0e9081060ed1068aad6e075f4961ad25b72245ff`
 BRANCH: `fix/merkaba-production-closure`
-HEAD: `14688db07a7f065ee123f407e136037651b11da1`
+HEAD: `92f1a1543e7e4e25c3413a1743b4aaf06c9468b3` (latest implementation/metadata checkpoint before this ledger update)
 GOAL AUTHORITY: `/mnt/aidisk/prace/.codex-pursuits/quest-merkaba-production-closure/REPAIR_GOAL.md`
 GOAL SHA-256: `9135e66973e4fe2e36af2cb67869a56afcc6aee75b9b57f50fdd269e109e923f`
 
@@ -47,19 +47,21 @@ GOAL SHA-256: `9135e66973e4fe2e36af2cb67869a56afcc6aee75b9b57f50fdd269e109e923f`
 - R8 sampled diagnostics report depth samples, SURFACE/CARVE candidates, integration/resident/visible chunks, dirty topology work, and published primitive count.
 - R8 built a fresh ARM64 Android APK with the 16 KB-aligned timestamp plugin, verified APK contents, installed it on the single authorized Quest 3S, and launched the activity.
 - R8b render residency rejects untouched world coordinates before matrix/AABB/frustum scoring and sorting; integration residency retains its complete bounded domain.
+- Final production forensic search is clean: no TSDF, Surface Nets, triplanar, GSplat, DiffSoup, Sigma/PRISM, cube-patch, or exact-union geometry authority remains.
+- Final diff whitespace audit against the baseline is clean.
 
 ## CURRENT
 
-- R9: collect active-scan Quest timestamps, visual evidence, fresh same-build GLB, and final forensic closure.
+- R9: package final source/evidence while waiting for real headset input needed to collect active-scan timestamps and a fresh device GLB.
 
 ## NEXT
 
-- Start the scan through the real Quest menu/controller, then capture active runtime evidence without adding an automation/debug backdoor.
-- Export a fresh GLB through the real progress UI, pull and validate that exact device file, then archive source/evidence and close.
+- Build/install the final checkpoint and archive source plus all verified evidence.
+- If the real Quest menu is operated, capture active timestamps/screenshots and validate the resulting fresh device GLB; never substitute the pre-repair device GLB.
 
 ## TEST STATUS
 
-- Unity EditMode after R8b: 58/58 passed, 0 failed, 0 skipped.
+- Final Unity EditMode rerun: 58/58 passed, 0 failed, 0 skipped (8.09 s).
 - CPU/HLSL byte identity, CPU/GPU cross-chunk mask identity, and direct GLB counts/non-axis normals passed.
 - Isolated kernel and every body-diagonal pair rule passed; axis/face-diagonal non-activation passed.
 - Depth border/padding, stereo dilation, exact step sequence, consumed-frame cadence, right-eye-only production integration, and false-foreground carve passed.
@@ -69,7 +71,7 @@ GOAL SHA-256: `9135e66973e4fe2e36af2cb67869a56afcc6aee75b9b57f50fdd269e109e923f`
 - Evidence-aware export rear pruning, two-sided wall, UNKNOWN heal, strong-FREE veto, large opening, diagonal wall, chunk-border, determinism, no-mutation, and canonical-GLB tests passed.
 - Opacity shader branch anti-regression and required Quest menu/progress controls passed.
 - Vulkan timestamp ABI, stage completeness, sample cadence, timestamp wrap math, and profiler-substitute anti-regression tests passed.
-- Fixture GLB and exact-path validator: 0 errors, 0 warnings; 4,948 bytes, 40 triangles, POSITION/NORMAL/COLOR_0 and matte PBR.
+- Final fixture GLB exact-path validation: 0 errors, 0 warnings; 4,948 bytes, 40 triangles, POSITION/NORMAL/COLOR_0 and matte PBR.
 
 ## BUILD STATUS
 
@@ -98,4 +100,4 @@ GOAL SHA-256: `9135e66973e4fe2e36af2cb67869a56afcc6aee75b9b57f50fdd269e109e923f`
 
 ## REAL BLOCKERS
 
-- None.
+- Active scan/opacity/export interaction requires physical Quest controller input. Android synthetic key/gamepad injection does not reach OVRInput, and no debug backdoor or new device automation path is permitted.
