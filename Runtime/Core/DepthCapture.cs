@@ -108,7 +108,7 @@ namespace Genesis.RoomScan
         private ComputeKernelHelper _bilateralKernel;
         private bool _hasBilateralKernel;
 
-        private Texture _rawDepthTex;
+        private RenderTexture _ownedRawDepthTex;
         private Texture _depthTex;
         /// <summary>The latest depth frame actually preprocessed for integration.</summary>
         public Texture DepthTex => _depthTex;
@@ -122,7 +122,6 @@ namespace Genesis.RoomScan
         /// <summary>Depth texture after jump-flood dilation, used by the integrator to fill holes near voxel boundaries.</summary>
         public RenderTexture DilatedDepthTex => _dilatedDepth;
 
-        private RenderTexture _simulatedDepthTex;
         private RenderTexture _filteredDepthTex;
         private Texture _rgbGuide;
 
@@ -135,12 +134,19 @@ namespace Genesis.RoomScan
         private int _preprocessedFrameCount;
         private int _latestRawFrameVersion;
         private int _processedRawFrameVersion;
+        private bool _depthFrameRequested;
+        private bool _ownedDepthSnapshotReady;
         private float _lastLogTime;
 
         internal int LatestRawFrameVersion => _latestRawFrameVersion;
         internal int ProcessedRawFrameVersion => _processedRawFrameVersion;
         internal int PreprocessedFrameCount => _preprocessedFrameCount;
-        public bool HasUnprocessedFrame => DepthAvailable && _rawDepthTex != null &&
+        internal bool DepthFrameRequested => _depthFrameRequested;
+        internal bool OwnedDepthSnapshotReady => _ownedDepthSnapshotReady;
+        internal RenderTexture OwnedRawDepthSnapshot => _ownedRawDepthTex;
+        internal Texture RGBGuide => _rgbGuide;
+        public bool HasUnprocessedFrame => DepthAvailable &&
+            _ownedDepthSnapshotReady && _ownedRawDepthTex != null &&
             ShouldPreprocessFrame(_latestRawFrameVersion, _processedRawFrameVersion);
 
         private const string ScenePermission = "com.oculus.permission.USE_SCENE";
@@ -149,8 +155,7 @@ namespace Genesis.RoomScan
         public event Action Updated;
 
         /// <summary>
-        /// Provide an RGB texture as edge guide for bilateral depth filtering.
-        /// Call each frame from RoomScanner with the passthrough camera frame.
+        /// Provide the scanner-owned RGB observation as edge guide for bilateral depth filtering.
         /// </summary>
         public void SetRGBGuide(Texture tex) => _rgbGuide = tex;
 
@@ -329,6 +334,12 @@ namespace Genesis.RoomScan
             Logger.Info("DepthCapture: subsystem started");
         }
 
+        public void RequestNextDepthFrame()
+        {
+            if (!_captureActive || _depthFrameRequested || _ownedDepthSnapshotReady) return;
+            _depthFrameRequested = true;
+        }
+
         /// <summary>
         /// Unsubscribes from depth frames and disables the AROcclusionManager,
         /// stopping the depth sensor and neural inference pipeline on Quest.
@@ -347,7 +358,8 @@ namespace Genesis.RoomScan
                 _arOcclusionManager.enabled = false;
             }
             DepthAvailable = false;
-            _rawDepthTex = null;
+            _depthFrameRequested = false;
+            _ownedDepthSnapshotReady = false;
             _depthTex = null;
             _processedRawFrameVersion = _latestRawFrameVersion;
         }
@@ -365,7 +377,8 @@ namespace Genesis.RoomScan
                     _subscribed = false;
                 }
                 DepthAvailable = false;
-                _rawDepthTex = null;
+                _depthFrameRequested = false;
+                _ownedDepthSnapshotReady = false;
                 _depthTex = null;
                 _processedRawFrameVersion = _latestRawFrameVersion;
             }
@@ -398,10 +411,12 @@ namespace Genesis.RoomScan
             if (_normTex) { Destroy(_normTex); _normTex = null; }
             if (_dilationA) { Destroy(_dilationA); _dilationA = null; }
             if (_dilationB) { Destroy(_dilationB); _dilationB = null; }
-            if (_simulatedDepthTex) { Destroy(_simulatedDepthTex); _simulatedDepthTex = null; }
+            if (_ownedRawDepthTex) { Destroy(_ownedRawDepthTex); _ownedRawDepthTex = null; }
             if (_filteredDepthTex) { Destroy(_filteredDepthTex); _filteredDepthTex = null; }
             _dilatedDepth = null;
             _depthTex = null;
+            _depthFrameRequested = false;
+            _ownedDepthSnapshotReady = false;
             _processedRawFrameVersion = _latestRawFrameVersion;
             Logger.Info("DepthCapture: GPU resources released");
         }
@@ -414,7 +429,7 @@ namespace Genesis.RoomScan
                 _lastLogTime = t;
                 var sub = _arOcclusionManager != null ? _arOcclusionManager.subsystem : null;
                 Logger.Info($"DepthCapture: rawFrames={_frameCount}, preprocessed={_preprocessedFrameCount}, " +
-                          $"pending={ShouldPreprocessFrame(_latestRawFrameVersion, _processedRawFrameVersion)}, depthAvail={DepthAvailable}, " +
+                          $"pending={_ownedDepthSnapshotReady}, depthAvail={DepthAvailable}, " +
                           $"occMgr.enabled={_arOcclusionManager?.enabled}, sub={sub?.GetType().Name ?? "null"}, " +
                           $"running={sub?.running}");
             }
@@ -426,17 +441,9 @@ namespace Genesis.RoomScan
             if (_frameCount <= 3 || _frameCount % 100 == 0)
                 Logger.Info($"OnDepthFrame #{_frameCount}, textures={args.externalTextures.Count}");
 
-            if (Application.isEditor)
-                HandleEditorSimulation(args);
-            else
-                HandleDeviceDepth(args);
-
-            if (!DepthAvailable) return;
-            unchecked
-            {
-                _latestRawFrameVersion++;
-                if (_latestRawFrameVersion == 0) _latestRawFrameVersion = 1;
-            }
+            if (!_depthFrameRequested || _ownedDepthSnapshotReady) return;
+            if (Application.isEditor) HandleEditorSimulation(args);
+            else HandleDeviceDepth(args);
         }
 
         /// <summary>
@@ -446,17 +453,19 @@ namespace Genesis.RoomScan
         /// </summary>
         public bool ConsumeLatestDepthFrame()
         {
-            if (!DepthAvailable || _rawDepthTex == null ||
+            if (!DepthAvailable || !_ownedDepthSnapshotReady ||
+                _ownedRawDepthTex == null ||
                 !ShouldPreprocessFrame(_latestRawFrameVersion,
                     _processedRawFrameVersion))
                 return false;
 
-            _depthTex = _rawDepthTex;
+            _depthTex = _ownedRawDepthTex;
             ApplyBilateralFilter();
             SetGlobalShaderProperties();
             ComputeNormals();
             ComputeDilation();
             _processedRawFrameVersion = _latestRawFrameVersion;
+            _ownedDepthSnapshotReady = false;
             _preprocessedFrameCount++;
             Updated?.Invoke();
             return true;
@@ -482,16 +491,12 @@ namespace Genesis.RoomScan
 
         private void HandleEditorSimulation(AROcclusionFrameEventArgs args)
         {
+            if (args.externalTextures.Count == 0) return;
             Texture rawDepth = args.externalTextures[0].texture;
-            DepthAvailable = rawDepth != null;
-            if (!DepthAvailable) return;
+            if (rawDepth == null) return;
 
             if (!_mainCam) _mainCam = Camera.main;
-            if (!_mainCam)
-            {
-                DepthAvailable = false;
-                return;
-            }
+            if (!_mainCam) return;
 
             Matrix4x4 p = _mainCam.projectionMatrix;
             Matrix4x4 pi = p.inverse;
@@ -510,43 +515,30 @@ namespace Genesis.RoomScan
             _planes = new Vector2(_mainCam.nearClipPlane,
                 _mainCam.farClipPlane);
 
-            if (_simulatedDepthTex == null ||
-                _simulatedDepthTex.width != rawDepth.width ||
-                _simulatedDepthTex.height != rawDepth.height)
-            {
-                if (_simulatedDepthTex) Destroy(_simulatedDepthTex);
-                _simulatedDepthTex = new RenderTexture(rawDepth.width, rawDepth.height, 0,
-                    GraphicsFormat.R16_UNorm, 1)
-                {
-                    dimension = TextureDimension.Tex2DArray,
-                    volumeDepth = 2,
-                    enableRandomWrite = true
-                };
-                _simulatedDepthTex.Create();
-            }
+            EnsureOwnedRawDepth(rawDepth.width, rawDepth.height,
+                GraphicsFormat.R16_UNorm);
 
             depthNormalCompute.SetVector(ZParamsID, _planes);
-            _monoConvertKernel.Set(DepthTexRWID, _simulatedDepthTex);
+            _monoConvertKernel.Set(DepthTexRWID, _ownedRawDepthTex);
             _monoConvertKernel.Set(InputRawMonoDepthID, rawDepth);
             _monoConvertKernel.DispatchFit(rawDepth.width, rawDepth.height);
-            _rawDepthTex = _simulatedDepthTex;
+            MarkOwnedDepthSnapshotReady();
         }
 
         private void HandleDeviceDepth(AROcclusionFrameEventArgs args)
         {
-            _rawDepthTex = args.externalTextures[0].texture;
+            if (args.externalTextures.Count == 0) return;
+            Texture rawDepth = args.externalTextures[0].texture;
 
             ReadOnlyList<XRFov> fovs = default;
             ReadOnlyList<Pose> poses = default;
             XRNearFarPlanes depthPlanes = default;
 
-            DepthAvailable = _rawDepthTex != null &&
-                             args.TryGetFovs(out fovs) &&
-                             args.TryGetPoses(out poses) &&
-                             args.TryGetNearFarPlanes(out depthPlanes) &&
-                             fovs.Count >= 2 && poses.Count >= 2;
-
-            if (!DepthAvailable) return;
+            if (rawDepth == null || rawDepth.dimension != TextureDimension.Tex2DArray ||
+                !args.TryGetFovs(out fovs) || !args.TryGetPoses(out poses) ||
+                !args.TryGetNearFarPlanes(out depthPlanes) ||
+                fovs.Count < 2 || poses.Count < 2)
+                return;
 
             for (int i = 0; i < 2; i++)
             {
@@ -565,6 +557,52 @@ namespace Genesis.RoomScan
             }
 
             _planes = new Vector2(depthPlanes.nearZ, depthPlanes.farZ);
+            TryLatchDepthSnapshot(rawDepth);
+        }
+
+        internal bool TryLatchDepthSnapshot(Texture transientDepth)
+        {
+            if (!_depthFrameRequested || _ownedDepthSnapshotReady ||
+                transientDepth == null ||
+                transientDepth.dimension != TextureDimension.Tex2DArray)
+                return false;
+
+            EnsureOwnedRawDepth(transientDepth.width, transientDepth.height,
+                transientDepth.graphicsFormat);
+            Graphics.CopyTexture(transientDepth, _ownedRawDepthTex);
+            MarkOwnedDepthSnapshotReady();
+            return true;
+        }
+
+        private void EnsureOwnedRawDepth(int width, int height, GraphicsFormat format)
+        {
+            if (_ownedRawDepthTex != null && _ownedRawDepthTex.width == width &&
+                _ownedRawDepthTex.height == height &&
+                _ownedRawDepthTex.graphicsFormat == format)
+                return;
+
+            if (_ownedRawDepthTex) Destroy(_ownedRawDepthTex);
+            _ownedRawDepthTex = new RenderTexture(width, height, 0, format, 1)
+            {
+                dimension = TextureDimension.Tex2DArray,
+                volumeDepth = 2,
+                enableRandomWrite = true,
+                filterMode = FilterMode.Point,
+                wrapMode = TextureWrapMode.Clamp
+            };
+            _ownedRawDepthTex.Create();
+        }
+
+        private void MarkOwnedDepthSnapshotReady()
+        {
+            _depthFrameRequested = false;
+            _ownedDepthSnapshotReady = true;
+            DepthAvailable = true;
+            unchecked
+            {
+                _latestRawFrameVersion++;
+                if (_latestRawFrameVersion == 0) _latestRawFrameVersion = 1;
+            }
         }
 
         private bool _loggedBilateralSkip;

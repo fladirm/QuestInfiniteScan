@@ -114,13 +114,15 @@ namespace Genesis.RoomScan
         {
             MerkabaGpuTimestamps.Poll();
             if (!IsScanning) return;
-            ProvideColorFrame();
-            if (!DepthCapture.DepthAvailable ||
+            if (!_depthCapture.HasUnprocessedFrame ||
                 Time.time - _lastIntegrationTime < IntegrationInterval)
                 return;
             Camera camera = Camera.main;
             if (camera != null && _integrator.Integrate(camera))
+            {
                 _lastIntegrationTime = Time.time;
+                ArmNextObservation();
+            }
         }
 
         private void OnDisable() => StopScanning();
@@ -149,6 +151,7 @@ namespace Genesis.RoomScan
                 _lastIntegrationTime = Time.time;
                 IsScanning = true;
                 ScanLifecycle = ScanLifecycleState.Running;
+                ArmNextObservation();
                 MerkabaGpuTimestamps.NotifyScanStarted();
                 ScanStarted?.Invoke();
                 Logger.Info("Merkaba scanning started/resumed");
@@ -263,7 +266,6 @@ namespace Genesis.RoomScan
                 Texture frame = _cameraProvider.CurrentFrame;
                 if (frame != null)
                 {
-                    _depthCapture.SetRGBGuide(frame);
                     Pose pose = _depthCapture.TrackingToWorld(_cameraProvider.CameraPose);
                     _integrator.SetCameraData(frame, pose.position, pose.rotation,
                         _cameraProvider.FocalLength, _cameraProvider.PrincipalPoint,
@@ -273,6 +275,12 @@ namespace Genesis.RoomScan
             }
             _integrator.SetCameraData(null, Vector3.zero, Quaternion.identity,
                 Vector2.one, Vector2.zero, Vector2.one, Vector2.one);
+        }
+
+        private void ArmNextObservation()
+        {
+            ProvideColorFrame();
+            _depthCapture.RequestNextDepthFrame();
         }
 
         private void OnIntegrated() => Integrated?.Invoke();

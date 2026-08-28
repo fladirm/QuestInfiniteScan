@@ -1,4 +1,6 @@
 using System;
+using System.IO;
+using System.Reflection;
 using Genesis.RoomScan;
 using NUnit.Framework;
 using Unity.Mathematics;
@@ -31,6 +33,123 @@ namespace Genesis.RoomScan.Tests
             Assert.That(DepthCapture.ShouldPreprocessFrame(7, 1), Is.True,
                 "Dropped/intermediate sensor versions must collapse into one latest-frame consume.");
             Assert.That(DepthCapture.ShouldPreprocessFrame(7, 7), Is.False);
+        }
+
+        [Test]
+        public void RequestedDepthSnapshot_LatchesExactlyOneOwnedFrame()
+        {
+            var host = new GameObject("Depth snapshot test");
+            DepthCapture capture = host.AddComponent<DepthCapture>();
+            Texture2DArray first = MakeDepth(4, 4, 0.2f, 0.3f);
+            Texture2DArray second = MakeDepth(4, 4, 0.7f, 0.8f);
+            RenderTexture owned = null;
+            try
+            {
+                capture.StartDepthCapture();
+                Assert.That(capture.TryLatchDepthSnapshot(first), Is.False,
+                    "An unrequested producer frame must be discarded.");
+                Assert.That(capture.OwnedRawDepthSnapshot, Is.Null);
+
+                capture.RequestNextDepthFrame();
+                Assert.That(capture.DepthFrameRequested, Is.True);
+                Assert.That(capture.TryLatchDepthSnapshot(first), Is.True);
+                owned = capture.OwnedRawDepthSnapshot;
+                int version = capture.LatestRawFrameVersion;
+                Assert.That(owned, Is.Not.Null);
+                Assert.That(owned, Is.Not.SameAs(first));
+                Assert.That(capture.DepthFrameRequested, Is.False);
+                Assert.That(capture.OwnedDepthSnapshotReady, Is.True);
+                Assert.That(capture.HasUnprocessedFrame, Is.True);
+
+                Assert.That(capture.TryLatchDepthSnapshot(second), Is.False,
+                    "An unconsumed owned snapshot must not be overwritten.");
+                Assert.That(capture.OwnedRawDepthSnapshot, Is.SameAs(owned));
+                Assert.That(capture.LatestRawFrameVersion, Is.EqualTo(version));
+            }
+            finally
+            {
+                capture.StopDepthCapture();
+                if (owned != null) UnityEngine.Object.DestroyImmediate(owned);
+                UnityEngine.Object.DestroyImmediate(first);
+                UnityEngine.Object.DestroyImmediate(second);
+                UnityEngine.Object.DestroyImmediate(host);
+            }
+        }
+
+        [Test]
+        public void OwnedDepthSnapshot_IsPreprocessedOnlyOnConsume()
+        {
+            string source = RuntimeSource("Runtime/Core/DepthCapture.cs");
+            string callback = Slice(source, "private void OnDepthFrame(",
+                "public bool ConsumeLatestDepthFrame()");
+            int requestGuard = callback.IndexOf(
+                "if (!_depthFrameRequested || _ownedDepthSnapshotReady) return;",
+                StringComparison.Ordinal);
+            Assert.That(requestGuard, Is.GreaterThanOrEqualTo(0));
+            Assert.That(callback, Does.Not.Contain("ApplyBilateralFilter()"));
+            Assert.That(callback, Does.Not.Contain("ComputeNormals()"));
+            Assert.That(callback, Does.Not.Contain("ComputeDilation()"));
+
+            string consume = Slice(source, "public bool ConsumeLatestDepthFrame()",
+                "internal static bool ShouldPreprocessFrame");
+            Assert.That(consume, Does.Contain("_depthTex = _ownedRawDepthTex;"));
+            Assert.That(consume, Does.Contain("ApplyBilateralFilter();"));
+            Assert.That(consume, Does.Contain("ComputeNormals();"));
+            Assert.That(consume, Does.Contain("ComputeDilation();"));
+            Assert.That(consume, Does.Contain("_ownedDepthSnapshotReady = false;"));
+            Assert.That(source, Does.Not.Contain("private Texture _rawDepthTex"));
+        }
+
+        [Test]
+        public void ObservationCadence_LatchesPcaCopyAndMatchingMetadataOnce()
+        {
+            var host = new GameObject("PCA snapshot test");
+            DepthCapture depth = host.AddComponent<DepthCapture>();
+            MerkabaIntegrator integrator = host.AddComponent<MerkabaIntegrator>();
+            var external = new Texture2D(4, 4, TextureFormat.RGBA32, false);
+            external.Apply(false, false);
+            RenderTexture owned = null;
+            Texture2D dummy = null;
+            Vector3 sampledPosition = new(1f, 2f, 3f);
+            try
+            {
+                typeof(MerkabaIntegrator).GetField("_depthCapture",
+                        BindingFlags.Instance | BindingFlags.NonPublic)
+                    ?.SetValue(integrator, depth);
+                integrator.SetCameraData(external, sampledPosition,
+                    Quaternion.Euler(4f, 5f, 6f), new Vector2(7f, 8f),
+                    new Vector2(9f, 10f), new Vector2(11f, 12f),
+                    new Vector2(13f, 14f));
+                owned = integrator.OwnedCameraFrame;
+                Assert.That(owned, Is.Not.Null);
+                Assert.That(owned, Is.Not.SameAs(external));
+                Assert.That(integrator.CameraFrameAvailable, Is.True);
+                Assert.That(depth.RGBGuide, Is.SameAs(owned));
+                Assert.That(PrivateField<Vector3>(integrator,
+                    "_pendingCameraPosition"), Is.EqualTo(sampledPosition));
+                Assert.That(typeof(MerkabaIntegrator).GetField("_pendingCameraFrame",
+                    BindingFlags.Instance | BindingFlags.NonPublic), Is.Null,
+                    "The producer-owned PCA texture must not be retained.");
+
+                string scanner = RuntimeSource("Runtime/Core/RoomScanner.cs");
+                string update = Slice(scanner, "private void Update()",
+                    "private void OnDisable()");
+                Assert.That(update, Does.Not.Contain("ProvideColorFrame();"));
+                string arm = Slice(scanner, "private void ArmNextObservation()",
+                    "private void OnIntegrated()");
+                Assert.That(arm.IndexOf("ProvideColorFrame();", StringComparison.Ordinal),
+                    Is.LessThan(arm.IndexOf("RequestNextDepthFrame();",
+                        StringComparison.Ordinal)));
+            }
+            finally
+            {
+                dummy = PrivateField<Texture2D>(integrator, "_dummyCameraTexture");
+                if (RenderTexture.active == owned) RenderTexture.active = null;
+                if (owned != null) UnityEngine.Object.DestroyImmediate(owned);
+                if (dummy != null) UnityEngine.Object.DestroyImmediate(dummy);
+                UnityEngine.Object.DestroyImmediate(external);
+                UnityEngine.Object.DestroyImmediate(host);
+            }
         }
 
         [Test, Timeout(30000)]
@@ -147,6 +266,25 @@ namespace Genesis.RoomScan.Tests
             Assert.That(shader, Is.Not.Null, path);
             return shader;
         }
+
+        private static string RuntimeSource(string relativePath) =>
+            File.ReadAllText(Path.GetFullPath(
+                "Packages/com.genesis.roomscan/" + relativePath));
+
+        private static string Slice(string source, string start, string end)
+        {
+            int first = source.IndexOf(start, StringComparison.Ordinal);
+            int last = source.IndexOf(end, first + start.Length,
+                StringComparison.Ordinal);
+            Assert.That(first, Is.GreaterThanOrEqualTo(0), start);
+            Assert.That(last, Is.GreaterThan(first), end);
+            return source.Substring(first, last - first);
+        }
+
+        private static T PrivateField<T>(object target, string name) =>
+            (T)target.GetType().GetField(name,
+                    BindingFlags.Instance | BindingFlags.NonPublic)
+                ?.GetValue(target);
 
         private static void BindDepthMatrices(ComputeShader compute,
             Matrix4x4 projection, int width, int height)

@@ -27,7 +27,7 @@ namespace Genesis.RoomScan
         private int _surfaceKernel = -1;
         private int _gatherCarveKernel = -1;
         private int _carveKernel = -1;
-        private Texture _pendingCameraFrame;
+        private bool _cameraFrameAvailable;
         private Vector3 _pendingCameraPosition;
         private Quaternion _pendingCameraRotation;
         private Vector2 _pendingFocalLength;
@@ -41,6 +41,8 @@ namespace Genesis.RoomScan
         public readonly List<Transform> ExclusionZones = new();
         public int IntegrationCount { get; private set; }
         public float MaxUpdateDistance => maxUpdateDistance;
+        internal RenderTexture OwnedCameraFrame => _cameraFrameCopy;
+        internal bool CameraFrameAvailable => _cameraFrameAvailable;
         public event Action Integrated;
 
         private static readonly int KernelsId = Shader.PropertyToID("_MerkabaKernels");
@@ -119,13 +121,16 @@ namespace Genesis.RoomScan
             Vector2 focalLength, Vector2 principalPoint, Vector2 sensorResolution,
             Vector2 currentResolution)
         {
-            _pendingCameraFrame = frame;
+            _cameraFrameAvailable = frame != null;
+            if (_cameraFrameAvailable) CopyCameraFrame(frame);
             _pendingCameraPosition = position;
             _pendingCameraRotation = rotation;
             _pendingFocalLength = focalLength;
             _pendingPrincipalPoint = principalPoint;
             _pendingSensorResolution = sensorResolution;
             _pendingCurrentResolution = currentResolution;
+            _depthCapture?.SetRGBGuide(
+                _cameraFrameAvailable ? _cameraFrameCopy : null);
         }
 
         public bool Integrate(Camera camera)
@@ -214,7 +219,7 @@ namespace Genesis.RoomScan
             _grid.NotifyGpuPublicationMayBeDirty();
             _grid.MarkIntegrationPagesGpuCurrent();
             IntegrationCount++;
-            _pendingCameraFrame = null;
+            _cameraFrameAvailable = false;
 
             if (warmupIntegrations > 0 && IntegrationCount == warmupIntegrations)
             {
@@ -324,8 +329,7 @@ namespace Genesis.RoomScan
 
         private void BindCamera(int kernel)
         {
-            EnsureCameraCopy();
-            bool available = _pendingCameraFrame != null && _cameraFrameCopy != null;
+            bool available = _cameraFrameAvailable && _cameraFrameCopy != null;
             compute.SetTexture(kernel, CameraRgbId,
                 available ? _cameraFrameCopy : _dummyCameraTexture);
             compute.SetInt(CameraAvailableId, available ? 1 : 0);
@@ -341,11 +345,10 @@ namespace Genesis.RoomScan
             compute.SetFloat(CameraExposureId, cameraExposure);
         }
 
-        private void EnsureCameraCopy()
+        private void CopyCameraFrame(Texture frame)
         {
-            if (_pendingCameraFrame == null) return;
-            int width = _pendingCameraFrame.width;
-            int height = _pendingCameraFrame.height;
+            int width = frame.width;
+            int height = frame.height;
             if (_cameraFrameCopy == null || _cameraFrameCopy.width != width ||
                 _cameraFrameCopy.height != height)
             {
@@ -358,7 +361,7 @@ namespace Genesis.RoomScan
                 };
                 _cameraFrameCopy.Create();
             }
-            Graphics.Blit(_pendingCameraFrame, _cameraFrameCopy);
+            Graphics.Blit(frame, _cameraFrameCopy);
         }
 
         public static MerkabaObservationResult IntegrateObservation(ref KernelState state,
