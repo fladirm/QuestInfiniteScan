@@ -14,7 +14,8 @@ namespace Genesis.RoomScan
     /// <summary>
     /// Captures stereo depth from the AR occlusion subsystem, computes world-space normals,
     /// runs optional bilateral filtering guided by the passthrough RGB feed, and produces
-    /// dilated depth textures consumed by <see cref="VolumeIntegrator"/> for TSDF integration.
+    /// dilated depth textures consumed by <see cref="MerkabaIntegrator"/> for reversible
+    /// surface/free-space evidence integration.
     /// </summary>
     [DefaultExecutionOrder(-40)]
     public class DepthCapture : MonoBehaviour
@@ -430,7 +431,7 @@ namespace Genesis.RoomScan
 
         /// <summary>
         /// Run dilation if depth has been updated since last call.
-        /// Called by VolumeIntegrator before integration (not every frame).
+        /// Called by MerkabaIntegrator before integration (not every frame).
         /// </summary>
         public void UpdateDilationIfNeeded()
         {
@@ -681,7 +682,7 @@ namespace Genesis.RoomScan
         }
 
         /// <summary>
-        /// Update voxel parameters used by dilation (called by VolumeIntegrator when its values change).
+        /// Update lattice parameters used by dilation when the integrator changes them.
         /// </summary>
         public void SetVoxelParams(float voxDist, float voxSize)
         {

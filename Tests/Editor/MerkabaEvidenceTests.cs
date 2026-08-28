@@ -55,6 +55,8 @@ namespace Genesis.RoomScan.Tests
             Assert.That(state.IsOccupied, Is.False);
             Assert.That(state.OccupancyEvidence,
                 Is.LessThanOrEqualTo(MerkabaConstants.OccupiedOffThreshold));
+            Assert.That(state.ColorConfidence, Is.Zero,
+                "disproved foreground colour must not bias a later real surface");
         }
 
         [Test]

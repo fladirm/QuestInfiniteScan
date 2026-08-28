@@ -1,5 +1,5 @@
 // Quest Infinite Merkaba - direct depth -> reversible occupancy integration.
-// The signed depth relation is transient classification only; no TSDF is stored.
+// The signed depth relation is transient classification only; no field is stored.
 #pragma kernel IntegrateMerkaba
 
 #include "DepthKit.hlsl"
@@ -217,6 +217,11 @@ void IntegrateMerkaba(uint id : SV_DispatchThreadID)
         : state.evidence >= MERKABA_OCCUPIED_ON;
     if (occupiedAfter) state.flags |= MERKABA_OCCUPIED_FLAG;
     else state.flags &= ~MERKABA_OCCUPIED_FLAG;
+    if (!occupiedAfter && occupiedBefore)
+    {
+        state.packedColor = 0u;
+        state.colorConfidence = 0u;
+    }
 
     if (kind == 2 && _MerkabaCameraAvailable != 0)
     {

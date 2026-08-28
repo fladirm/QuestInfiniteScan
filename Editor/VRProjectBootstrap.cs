@@ -387,14 +387,14 @@ namespace Genesis.RoomScan.Editor
 
         static VRCheck MakeMinSdkCheck() => new()
         {
-            Id = "android.player.minsdk.29",
-            Label = "Android: min SDK >= 29 (Quest 3 floor)",
+            Id = "android.player.minsdk.32",
+            Label = "Android: min SDK >= 32 (passthrough camera requirement)",
             Severity = CheckSeverity.Outstanding,
             Group = BuildTargetGroup.Android,
             CurrentValue = () => ((int)PlayerSettings.Android.minSdkVersion).ToString(),
-            TargetValue = ">= 29",
-            IsOk = () => (int)PlayerSettings.Android.minSdkVersion >= 29,
-            Fix = () => PlayerSettings.Android.minSdkVersion = AndroidSdkVersions.AndroidApiLevel29,
+            TargetValue = ">= 32",
+            IsOk = () => (int)PlayerSettings.Android.minSdkVersion >= 32,
+            Fix = () => PlayerSettings.Android.minSdkVersion = AndroidSdkVersions.AndroidApiLevel32,
         };
 
         static VRCheck MakeTargetSdkCheck() => new()

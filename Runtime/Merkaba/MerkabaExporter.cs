@@ -19,6 +19,8 @@ namespace Genesis.RoomScan
         public bool IsExporting { get; private set; }
         public string LastExportPath { get; private set; }
         public string LastStatus { get; private set; } = "Not exported";
+        public string ExportPath => Path.Combine(Application.persistentDataPath,
+            "MerkabaScan", "exports", ExportFileName);
         public event Action StatusChanged;
 
         private void Awake()
@@ -42,9 +44,8 @@ namespace Genesis.RoomScan
                 if (kernels.Count == 0)
                     throw new InvalidOperationException("The Merkaba grid has no occupied kernels.");
 
-                string directory = Path.Combine(Application.persistentDataPath,
-                    "MerkabaScan", "exports");
-                string destination = Path.Combine(directory, ExportFileName);
+                string destination = ExportPath;
+                string directory = Path.GetDirectoryName(destination);
                 MerkabaGlbResult result = await Task.Run(() =>
                 {
                     Directory.CreateDirectory(directory);
@@ -74,6 +75,23 @@ namespace Genesis.RoomScan
             {
                 IsExporting = false;
                 StatusChanged?.Invoke();
+            }
+        }
+
+        public void ClearExport()
+        {
+            if (IsExporting) return;
+            try
+            {
+                if (File.Exists(ExportPath)) File.Delete(ExportPath);
+                if (File.Exists(ExportPath + ".tmp")) File.Delete(ExportPath + ".tmp");
+                LastExportPath = null;
+                SetStatus("Not exported");
+            }
+            catch (Exception exception)
+            {
+                Logger.Error("Could not clear Merkaba GLB export: " + exception.Message);
+                SetStatus("Export clear failed: " + exception.Message);
             }
         }
 

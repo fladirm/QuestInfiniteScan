@@ -162,11 +162,13 @@ namespace Genesis.RoomScan
             var visible = new List<int>(maxVisibleChunks);
 
             for (int i = 0; i < candidates.Count &&
-                 (integration.Count < maxIntegrationChunks || visible.Count < maxVisibleChunks); i++)
+                 (integration.Count < maxIntegrationChunks ||
+                  visible.Count < maxVisibleChunks); i++)
             {
                 int3 coord = candidates[i].Coord;
                 bool chunkExists = _chunks.ContainsKey(coord);
-                bool mayAllocate = allocateForIntegration && integration.Count < maxIntegrationChunks;
+                bool mayAllocate = allocateForIntegration &&
+                                   integration.Count < maxIntegrationChunks;
                 if (!chunkExists && !mayAllocate) continue;
 
                 ResidentPage page = EnsureResident(coord, mayAllocate, changed);
@@ -281,30 +283,40 @@ namespace Genesis.RoomScan
                     Logger.Error($"MerkabaGrid: eviction readback failed for {victim.Chunk.Coord}");
                     return;
                 }
-                CopyPageSnapshot(victim, request.GetData<KernelState>(), 0);
+                bool hasCanonicalState = CopyPageSnapshot(victim,
+                    request.GetData<KernelState>(), 0);
                 _resident.Remove(victim.Chunk.Coord);
                 _slots[victim.Slot] = null;
                 _freeSlots.Add(victim.Slot);
+                if (!hasCanonicalState &&
+                    _chunks.TryGetValue(victim.Chunk.Coord, out MerkabaChunk current) &&
+                    ReferenceEquals(current, victim.Chunk))
+                    _chunks.Remove(victim.Chunk.Coord);
                 RebuildPageTablesAndDirtyLocal(new List<int3> { victim.Chunk.Coord });
             });
             return true;
         }
 
-        private void CopyPageSnapshot(ResidentPage page, NativeArray<KernelState> data,
+        private bool CopyPageSnapshot(ResidentPage page, NativeArray<KernelState> data,
             int sourceOffset)
         {
             int occupied = 0;
+            bool hasCanonicalState = false;
             KernelState[] destination = page.Chunk.States;
             for (int i = 0; i < destination.Length; i++)
             {
                 KernelState state = data[sourceOffset + i];
                 destination[i] = state;
                 if (state.IsOccupied) occupied++;
+                if (state.OccupancyEvidence != 0 || state.PackedColor != 0 ||
+                    state.ColorConfidence != 0 || state.Flags != 0)
+                    hasCanonicalState = true;
             }
             OccupiedKernelCount += occupied - page.Chunk.OccupiedCount;
             page.Chunk.OccupiedCount = occupied;
             page.Chunk.CpuStateCurrent = true;
             page.Chunk.Persisted = false;
+            return hasCanonicalState;
         }
 
         private List<ChunkCandidate> CollectFrustumCandidates(Camera camera, float maxDistance)

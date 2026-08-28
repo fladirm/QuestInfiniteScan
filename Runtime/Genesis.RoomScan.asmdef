@@ -6,7 +6,6 @@
     "Unity.XR.ARSubsystems",
     "Unity.XR.CoreUtils",
     "Unity.XR.Management",
-    "Unity.Burst",
     "Unity.Collections",
     "Unity.Mathematics",
     "Unity.RenderPipelines.Universal.Runtime",
@@ -22,12 +21,6 @@
   "precompiledReferences": [],
   "autoReferenced": true,
   "defineConstraints": [],
-  "versionDefines": [
-    {
-      "name": "com.unity.ai.inference",
-      "expression": "",
-      "define": "HAS_AI_INFERENCE"
-    }
-  ],
+  "versionDefines": [],
   "noEngineReferences": false
 }

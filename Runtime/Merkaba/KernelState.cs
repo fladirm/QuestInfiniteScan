@@ -57,6 +57,13 @@ namespace Genesis.RoomScan
 
             if (occupiedAfter) Flags |= MerkabaConstants.OccupiedFlag;
             else Flags &= ~MerkabaConstants.OccupiedFlag;
+            if (!occupiedAfter && occupiedBefore)
+            {
+                // Once a claimed surface is disproved, its colour must not bias a
+                // later better observation. Signed free evidence remains canonical.
+                PackedColor = 0;
+                ColorConfidence = 0;
+            }
             return occupiedBefore != occupiedAfter;
         }
 

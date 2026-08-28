@@ -34,15 +34,9 @@ namespace Genesis.RoomScan
     /// </para>
     ///
     /// <para>
-    /// <b>Which recipe to use.</b> Content you can parent belongs here: store
-    /// local coordinates, reload them, done. Data with world coordinates baked
-    /// into an array — vertex buffers, precomputed fields, anything a transform
-    /// cannot move — cannot use this, and must instead store
-    /// <see cref="RoomAnchorManager.SpatialAnchorMatrix"/> alongside itself and
-    /// be relocated on load by
-    /// <see cref="RoomAnchorManager.ComputeRelocationMatrix(Matrix4x4, Matrix4x4)"/>.
-    /// That is how the refined scan mesh itself survives a restart. See the
-    /// README's persistence section.
+    /// The Merkaba lattice is authored in this room frame. Its signed integer
+    /// coordinates therefore resume directly after anchor localization, without
+    /// relocating or resampling a dense volume.
     /// </para>
     ///
     /// <para>

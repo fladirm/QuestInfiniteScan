@@ -4,29 +4,18 @@ using UnityEngine.UIElements;
 
 namespace Genesis.RoomScan.UI
 {
-    /// <summary>
-    /// Picks the active VR controller, keeps <see cref="OVRInputModule.rayTransform"/>
-    /// pointing along the controller ray, and draws a laser + cursor dot.
-    /// Place on the same GameObject as the <c>EventSystem</c> / <c>OVRInputModule</c>.
-    /// </summary>
+    /// <summary>Donor-proven right-controller UI pointer with laser and cursor feedback.</summary>
+    [DisallowMultipleComponent]
     [RequireComponent(typeof(OVRInputModule))]
-    public class ControllerRayDriver : MonoBehaviour
+    public sealed class ControllerRayDriver : MonoBehaviour
     {
-        [Header("Ray")]
-        [SerializeField, Tooltip("Forward offset from controller origin (meters)")]
-        private float rayStartOffset = 0.05f;
+        [SerializeField] private float rayStartOffset = 0.05f;
         [SerializeField] private float maxLength = 5f;
-
-        [Header("Laser Visual")]
-        [SerializeField] private float beamWidth = 0.002f;
-        [SerializeField] private Color idleColor = new(1f, 1f, 1f, 0.15f);
-        [SerializeField] private Color hoverColor = new(0f, 0.8f, 1f, 0.7f);
-
-        [Header("Cursor Dot")]
+        [SerializeField] private float beamWidth = 0.003f;
+        [SerializeField] private Color idleColor = new(0.25f, 0.85f, 1f, 0.65f);
+        [SerializeField] private Color hoverColor = new(0.1f, 1f, 0.65f, 0.95f);
         [SerializeField] private float cursorRadius = 0.006f;
         [SerializeField] private Color cursorColor = new(1f, 1f, 1f, 0.9f);
-
-        [Header("Rendering")]
         [SerializeField] internal Shader overlayShader;
 
         private OVRInputModule _inputModule;
@@ -34,111 +23,110 @@ namespace Genesis.RoomScan.UI
         private LineRenderer _line;
         private GameObject _cursor;
         private MeshRenderer _cursorRenderer;
-        private OVRInput.Controller _activeController = OVRInput.Controller.RTouch;
+        private Material _overlayMaterial;
+        private MaterialPropertyBlock _cursorProperties;
+        private OVRInput.Controller _activeController = OVRInput.Controller.None;
+        private bool _hasTrackedPose;
+        private int _uiLayerMask;
 
         private static OVRPlugin.HandState _handState = new();
+        private static readonly int ColorId = Shader.PropertyToID("_Color");
 
-        // Layer mask matching the debug menu's panel collider layer
-        private int _uiLayerMask;
+        public Shader OverlayShader => overlayShader;
+        public bool HasTrackedPose => _hasTrackedPose;
 
         private void Awake()
         {
             _inputModule = GetComponent<OVRInputModule>();
-
             _rayHelper = new GameObject("ControllerRayHelper").transform;
             _rayHelper.SetParent(transform, false);
             _inputModule.rayTransform = _rayHelper;
-            _inputModule.joyPadClickButton = OVRInput.Button.PrimaryIndexTrigger;
-
+            _inputModule.joyPadClickButton = OVRInput.Button.SecondaryIndexTrigger;
             _uiLayerMask = LayerMask.GetMask("Default", "UI");
 
+            if (overlayShader == null)
+            {
+                Logger.Error("ControllerRayDriver: shader is not wired; pointer remains active.");
+                return;
+            }
+            _overlayMaterial = new Material(overlayShader)
+            {
+                name = "Merkaba Controller Ray (Runtime)",
+                hideFlags = HideFlags.DontSave
+            };
             SetupLineRenderer();
             SetupCursor();
         }
 
         private void Update()
         {
-            _activeController = ChooseBestController(_activeController);
-            UpdateRayOrigin();
+            _activeController = OVRInput.GetActiveControllerForHand(
+                OVRInput.Handedness.RightHanded);
+            _hasTrackedPose = TryUpdateRayOrigin();
+            if (_line != null) _line.enabled = _hasTrackedPose;
+            if (!_hasTrackedPose && _cursor != null) _cursor.SetActive(false);
         }
 
         private void LateUpdate()
         {
-            DrawLaser();
+            if (_hasTrackedPose) DrawLaser();
         }
 
         private void OnDestroy()
         {
             if (_rayHelper != null) Destroy(_rayHelper.gameObject);
             if (_cursor != null) Destroy(_cursor);
+            if (_overlayMaterial != null) Destroy(_overlayMaterial);
         }
 
-        // ─── Controller Selection (adapted from Meta ImmersiveDebugger) ───
-
-        private static OVRInput.Controller ChooseBestController(OVRInput.Controller previous)
+        private bool TryUpdateRayOrigin()
         {
-            var left = OVRInput.GetActiveControllerForHand(OVRInput.Handedness.LeftHanded);
-            var right = OVRInput.GetActiveControllerForHand(OVRInput.Handedness.RightHanded);
-
-            var ctrl = previous;
-            if (ctrl == OVRInput.Controller.None || (ctrl != left && ctrl != right))
+            if (_activeController == OVRInput.Controller.None || _rayHelper == null)
+                return false;
+            bool hand = _activeController is OVRInput.Controller.LHand or
+                OVRInput.Controller.RHand;
+            Vector3 localPosition;
+            Quaternion localRotation;
+            if (hand)
             {
-                ctrl = right != OVRInput.Controller.None ? right
-                     : left != OVRInput.Controller.None ? left
-                     : OVRInput.GetDominantHand() == OVRInput.Handedness.LeftHanded ? left : right;
-            }
-
-            if (ctrl != left && OVRInput.Get(OVRInput.Button.Any, left)) ctrl = left;
-            if (ctrl != right && OVRInput.Get(OVRInput.Button.Any, right)) ctrl = right;
-            if (ctrl == OVRInput.Controller.None) ctrl = OVRInput.Controller.RTouch;
-
-            return ctrl;
-        }
-
-        // ─── Ray Transform ───
-
-        private void UpdateRayOrigin()
-        {
-            bool isHand = _activeController is OVRInput.Controller.LHand or OVRInput.Controller.RHand;
-
-            Vector3 localPos;
-            Quaternion localRot;
-
-            if (isHand)
-            {
-                var hand = _activeController == OVRInput.Controller.LHand
+                OVRPlugin.Hand which = _activeController == OVRInput.Controller.LHand
                     ? OVRPlugin.Hand.HandLeft : OVRPlugin.Hand.HandRight;
-                OVRPlugin.GetHandState(OVRPlugin.Step.Render, hand, ref _handState);
-                localPos = _handState.PointerPose.Position.FromFlippedZVector3f();
-                localRot = _handState.PointerPose.Orientation.FromFlippedZQuatf();
+                if (!OVRPlugin.GetHandState(OVRPlugin.Step.Render, which, ref _handState))
+                    return false;
+                localPosition = _handState.PointerPose.Position.FromFlippedZVector3f();
+                localRotation = _handState.PointerPose.Orientation.FromFlippedZQuatf();
             }
             else
             {
-                localPos = OVRInput.GetLocalControllerPosition(_activeController);
-                localRot = OVRInput.GetLocalControllerRotation(_activeController);
+                if (!OVRInput.GetControllerPositionTracked(_activeController) &&
+                    !OVRInput.GetControllerOrientationTracked(_activeController))
+                    return false;
+                localPosition = OVRInput.GetLocalControllerPosition(_activeController);
+                localRotation = OVRInput.GetLocalControllerRotation(_activeController);
             }
-
-            var pose = new OVRPose { position = localPos, orientation = localRot };
-
-            var cam = Camera.main;
-            if (cam != null) pose = pose.ToWorldSpacePose(cam);
-
+            Camera camera = Camera.main;
+            if (camera == null) return false;
+            OVRPose pose = new OVRPose
+            {
+                position = localPosition,
+                orientation = localRotation
+            }.ToWorldSpacePose(camera);
             _rayHelper.SetPositionAndRotation(pose.position, pose.orientation);
+            return true;
         }
-
-        // ─── Laser Visual ───
 
         private void SetupLineRenderer()
         {
-            _line = gameObject.AddComponent<LineRenderer>();
+            _line = GetComponent<LineRenderer>() ?? gameObject.AddComponent<LineRenderer>();
             _line.positionCount = 2;
             _line.startWidth = beamWidth;
             _line.endWidth = beamWidth * 0.5f;
-            _line.material = new Material(overlayShader);
+            _line.sharedMaterial = _overlayMaterial;
             _line.startColor = _line.endColor = idleColor;
             _line.useWorldSpace = true;
             _line.receiveShadows = false;
             _line.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            _line.enabled = false;
         }
 
         private void SetupCursor()
@@ -146,58 +134,49 @@ namespace Genesis.RoomScan.UI
             _cursor = GameObject.CreatePrimitive(PrimitiveType.Sphere);
             _cursor.name = "RayCursor";
             _cursor.transform.localScale = Vector3.one * (cursorRadius * 2f);
-
-            // Remove the collider so it doesn't interfere with raycasts
-            var col = _cursor.GetComponent<Collider>();
-            if (col != null) Destroy(col);
-
+            Collider collider = _cursor.GetComponent<Collider>();
+            if (collider != null) Destroy(collider);
             _cursorRenderer = _cursor.GetComponent<MeshRenderer>();
-            _cursorRenderer.material = new Material(overlayShader);
-            _cursorRenderer.material.color = cursorColor;
+            _cursorRenderer.sharedMaterial = _overlayMaterial;
+            _cursorProperties = new MaterialPropertyBlock();
+            SetCursorColor(cursorColor);
             _cursorRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             _cursorRenderer.receiveShadows = false;
-
             _cursor.SetActive(false);
         }
 
         private void DrawLaser()
         {
-            if (_rayHelper == null || _line == null) return;
-
-            var origin = _rayHelper.position;
-            var dir = _rayHelper.forward;
-            var start = origin + dir * rayStartOffset;
-            var end = start + dir * maxLength;
-            bool hoveringUI = false;
-
-            // Only highlight when hitting a world-space UI Toolkit panel collider
-            if (Physics.Raycast(origin, dir, out var hit, maxLength + rayStartOffset))
+            Vector3 origin = _rayHelper.position;
+            Vector3 direction = _rayHelper.forward;
+            Vector3 start = origin + direction * rayStartOffset;
+            Vector3 end = start + direction * maxLength;
+            bool hovering = false;
+            if (Physics.Raycast(origin, direction, out RaycastHit hit,
+                    maxLength + rayStartOffset, _uiLayerMask,
+                    QueryTriggerInteraction.Collide))
             {
                 end = hit.point;
-
-                // Check if we hit a UIDocument's auto-generated panel collider
-                var uiDoc = hit.collider.GetComponentInParent<UIDocument>();
-                hoveringUI = uiDoc != null;
+                hovering = hit.collider.GetComponentInParent<UIDocument>() != null;
             }
-
             _line.SetPosition(0, start);
             _line.SetPosition(1, end);
-
-            var color = hoveringUI ? hoverColor : idleColor;
+            Color color = hovering ? hoverColor : idleColor;
             _line.startColor = _line.endColor = color;
+            if (_cursor == null) return;
+            _cursor.SetActive(hovering);
+            if (!hovering) return;
+            _cursor.transform.position = end;
+            _cursor.transform.LookAt(_rayHelper);
+            SetCursorColor(hoverColor);
+        }
 
-            // Position cursor dot at the end of the ray
-            if (_cursor != null)
-            {
-                bool showCursor = hoveringUI;
-                _cursor.SetActive(showCursor);
-                if (showCursor)
-                {
-                    _cursor.transform.position = end;
-                    _cursor.transform.LookAt(_rayHelper);
-                    _cursorRenderer.material.color = hoverColor;
-                }
-            }
+        private void SetCursorColor(Color color)
+        {
+            if (_cursorRenderer == null) return;
+            _cursorProperties ??= new MaterialPropertyBlock();
+            _cursorProperties.SetColor(ColorId, color);
+            _cursorRenderer.SetPropertyBlock(_cursorProperties);
         }
     }
 }

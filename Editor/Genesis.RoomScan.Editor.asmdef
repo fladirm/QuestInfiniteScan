@@ -3,13 +3,10 @@
   "rootNamespace": "Genesis.RoomScan.Editor",
   "references": [
     "Genesis.RoomScan",
-    "Genesis.RoomScan.GSplat",
-    "Genesis.RoomScan.AIDetection",
     "Unity.XR.ARFoundation",
     "Unity.XR.CoreUtils",
     "Unity.RenderPipelines.Universal.Runtime",
     "Unity.RenderPipelines.Core.Runtime",
-    "Unity.InferenceEngine",
     "Unity.XR.OpenXR",
     "Unity.XR.OpenXR.Editor",
     "Unity.XR.Management",
@@ -17,9 +14,7 @@
     "meta.xr.mrutilitykit",
     "Meta.XR.BuildingBlocks",
     "Oculus.VR",
-    "Oculus.VR.Editor",
-    "GaussianSplatting",
-    "GaussianSplattingEditor"
+    "Oculus.VR.Editor"
   ],
   "includePlatforms": [
     "Editor"
@@ -30,17 +25,6 @@
   "precompiledReferences": [],
   "autoReferenced": true,
   "defineConstraints": [],
-  "versionDefines": [
-    {
-      "name": "org.nesnausk.gaussian-splatting",
-      "expression": "",
-      "define": "HAS_GAUSSIAN_SPLATTING"
-    },
-    {
-      "name": "com.unity.ai.inference",
-      "expression": "",
-      "define": "HAS_AI_INFERENCE"
-    }
-  ],
+  "versionDefines": [],
   "noEngineReferences": false
 }

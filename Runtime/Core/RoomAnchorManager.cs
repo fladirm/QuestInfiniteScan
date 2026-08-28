@@ -13,14 +13,8 @@ namespace Genesis.RoomScan
     /// Computes per-artifact relocation matrices via <c>R = A_now * Inv(A_create)</c>.
     /// </summary>
     [DisallowMultipleComponent]
-    public class RoomAnchorManager : MonoBehaviour, IRoomScanModule
+    public sealed class RoomAnchorManager : MonoBehaviour
     {
-        /// <inheritdoc />
-        public string ModuleName => "Room Anchor";
-
-        /// <inheritdoc />
-        public void OnModuleInitialize(RoomScanner scanner) { }
-
         /// <summary>Singleton instance set in <see cref="Awake"/>.</summary>
         public static RoomAnchorManager Instance { get; private set; }
 
@@ -166,11 +160,9 @@ namespace Genesis.RoomScan
         /// <para><b>Persisting data baked in world space.</b> Store this
         /// alongside the data at the moment you bake it, and on load multiply
         /// by <c>ComputeRelocationMatrix(SpatialAnchorMatrix, stored)</c> to
-        /// bring it into the current session's world frame. This is how the
-        /// refined mesh survives a restart, and it is the right recipe only for
-        /// data a transform cannot move — vertex buffers, precomputed fields.
-        /// Anything you can parent should use <see cref="RoomSpaceRoot"/>
-        /// instead and store plain local coordinates.</para>
+        /// bring it into the current session's world frame. Canonical Merkaba
+        /// coordinates are stored relative to <see cref="RoomSpaceRoot"/>, so
+        /// they ordinarily need no resampling or relocation.</para>
         /// </summary>
         public Matrix4x4 SpatialAnchorMatrix =>
             _activeSpatialAnchor != null
