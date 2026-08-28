@@ -35,7 +35,7 @@ namespace Genesis.RoomScan
         [SerializeField, Range(1, 5)] private int filterRadius = 2;
 
         [Header("Dilation")]
-        [SerializeField] private int dilationSteps = 8;
+        [SerializeField, Range(0, 12)] private int dilationSteps = 8;
         [SerializeField] private float voxelDistance = 0.2f;
         [SerializeField] private float voxelSize = 0.05f;
 
@@ -108,8 +108,9 @@ namespace Genesis.RoomScan
         private ComputeKernelHelper _bilateralKernel;
         private bool _hasBilateralKernel;
 
+        private Texture _rawDepthTex;
         private Texture _depthTex;
-        /// <summary>The current depth texture (raw or bilateral-filtered), as a stereo Tex2DArray.</summary>
+        /// <summary>The latest depth frame actually preprocessed for integration.</summary>
         public Texture DepthTex => _depthTex;
 
         private RenderTexture _normTex;
@@ -123,8 +124,6 @@ namespace Genesis.RoomScan
 
         private RenderTexture _simulatedDepthTex;
         private RenderTexture _filteredDepthTex;
-        private int _dilationMaxStep;
-
         private Texture _rgbGuide;
 
         private AROcclusionManager _arOcclusionManager;
@@ -132,13 +131,21 @@ namespace Genesis.RoomScan
         private Transform _trackingSpaceTransform;
         private Camera _mainCam;
         private bool _started;
-        private bool _dilationDirty;
         private int _frameCount;
+        private int _preprocessedFrameCount;
+        private int _latestRawFrameVersion;
+        private int _processedRawFrameVersion;
         private float _lastLogTime;
+
+        internal int LatestRawFrameVersion => _latestRawFrameVersion;
+        internal int ProcessedRawFrameVersion => _processedRawFrameVersion;
+        internal int PreprocessedFrameCount => _preprocessedFrameCount;
+        public bool HasUnprocessedFrame => DepthAvailable && _rawDepthTex != null &&
+            ShouldPreprocessFrame(_latestRawFrameVersion, _processedRawFrameVersion);
 
         private const string ScenePermission = "com.oculus.permission.USE_SCENE";
 
-        /// <summary>Raised after each depth frame is processed (filtering, normals computed, globals set).</summary>
+        /// <summary>Raised only after an integration consumer preprocesses the latest frame.</summary>
         public event Action Updated;
 
         /// <summary>
@@ -196,10 +203,6 @@ namespace Genesis.RoomScan
                 _bilateralKernel = new ComputeKernelHelper(bilateralFilterCompute, "BilateralFilter");
                 _hasBilateralKernel = true;
             }
-
-            _dilationMaxStep = 1;
-            for (int i = 0; i < dilationSteps; i++)
-                _dilationMaxStep *= 2;
 
             // Disable occlusion manager initially, enable after permission is confirmed
             _arOcclusionManager.enabled = false;
@@ -344,6 +347,9 @@ namespace Genesis.RoomScan
                 _arOcclusionManager.enabled = false;
             }
             DepthAvailable = false;
+            _rawDepthTex = null;
+            _depthTex = null;
+            _processedRawFrameVersion = _latestRawFrameVersion;
         }
 
         private void OnApplicationPause(bool paused)
@@ -359,6 +365,9 @@ namespace Genesis.RoomScan
                     _subscribed = false;
                 }
                 DepthAvailable = false;
+                _rawDepthTex = null;
+                _depthTex = null;
+                _processedRawFrameVersion = _latestRawFrameVersion;
             }
             else if (_captureActive)
             {
@@ -392,6 +401,8 @@ namespace Genesis.RoomScan
             if (_simulatedDepthTex) { Destroy(_simulatedDepthTex); _simulatedDepthTex = null; }
             if (_filteredDepthTex) { Destroy(_filteredDepthTex); _filteredDepthTex = null; }
             _dilatedDepth = null;
+            _depthTex = null;
+            _processedRawFrameVersion = _latestRawFrameVersion;
             Logger.Info("DepthCapture: GPU resources released");
         }
 
@@ -402,7 +413,8 @@ namespace Genesis.RoomScan
             {
                 _lastLogTime = t;
                 var sub = _arOcclusionManager != null ? _arOcclusionManager.subsystem : null;
-                Logger.Info($"DepthCapture: frames={_frameCount}, depthAvail={DepthAvailable}, " +
+                Logger.Info($"DepthCapture: rawFrames={_frameCount}, preprocessed={_preprocessedFrameCount}, " +
+                          $"pending={ShouldPreprocessFrame(_latestRawFrameVersion, _processedRawFrameVersion)}, depthAvail={DepthAvailable}, " +
                           $"occMgr.enabled={_arOcclusionManager?.enabled}, sub={sub?.GetType().Name ?? "null"}, " +
                           $"running={sub?.running}");
             }
@@ -420,24 +432,52 @@ namespace Genesis.RoomScan
                 HandleDeviceDepth(args);
 
             if (!DepthAvailable) return;
-
-            ApplyBilateralFilter();
-            SetGlobalShaderProperties();
-            ComputeNormals();
-            _dilationDirty = true;
-
-            Updated?.Invoke();
+            unchecked
+            {
+                _latestRawFrameVersion++;
+                if (_latestRawFrameVersion == 0) _latestRawFrameVersion = 1;
+            }
         }
 
         /// <summary>
-        /// Run dilation if depth has been updated since last call.
-        /// Called by MerkabaIntegrator before integration (not every frame).
+        /// Preprocesses exactly the latest raw frame for the integration tick that will
+        /// consume it. Intermediate sensor frames are intentionally never filtered,
+        /// normalised, or dilated.
         /// </summary>
-        public void UpdateDilationIfNeeded()
+        public bool ConsumeLatestDepthFrame()
         {
-            if (!_dilationDirty || !DepthAvailable) return;
+            if (!DepthAvailable || _rawDepthTex == null ||
+                !ShouldPreprocessFrame(_latestRawFrameVersion,
+                    _processedRawFrameVersion))
+                return false;
+
+            _depthTex = _rawDepthTex;
+            ApplyBilateralFilter();
+            SetGlobalShaderProperties();
+            ComputeNormals();
             ComputeDilation();
-            _dilationDirty = false;
+            _processedRawFrameVersion = _latestRawFrameVersion;
+            _preprocessedFrameCount++;
+            Updated?.Invoke();
+            return true;
+        }
+
+        internal static bool ShouldPreprocessFrame(int latestRawVersion,
+            int processedRawVersion) => latestRawVersion != 0 &&
+                                        latestRawVersion != processedRawVersion;
+
+        internal static int[] BuildDilationStepSequence(int maximumExponent)
+        {
+            if (maximumExponent is < 0 or > 30)
+                throw new ArgumentOutOfRangeException(nameof(maximumExponent));
+            var result = new int[maximumExponent + 1];
+            int step = 1 << maximumExponent;
+            for (int index = 0; index < result.Length; index++)
+            {
+                result[index] = step;
+                step >>= 1;
+            }
+            return result;
         }
 
         private void HandleEditorSimulation(AROcclusionFrameEventArgs args)
@@ -446,27 +486,12 @@ namespace Genesis.RoomScan
             DepthAvailable = rawDepth != null;
             if (!DepthAvailable) return;
 
-            if (_simulatedDepthTex == null ||
-                _simulatedDepthTex.width != rawDepth.width ||
-                _simulatedDepthTex.height != rawDepth.height)
-            {
-                if (_simulatedDepthTex) Destroy(_simulatedDepthTex);
-                _simulatedDepthTex = new RenderTexture(rawDepth.width, rawDepth.height, 0,
-                    GraphicsFormat.R16_UNorm, 1)
-                {
-                    dimension = TextureDimension.Tex2DArray,
-                    volumeDepth = 2,
-                    enableRandomWrite = true
-                };
-            }
-
-            _monoConvertKernel.Set(DepthTexRWID, _simulatedDepthTex);
-            _monoConvertKernel.Set(InputRawMonoDepthID, rawDepth);
-            _monoConvertKernel.DispatchFit(rawDepth.width, rawDepth.height);
-            _depthTex = _simulatedDepthTex;
-
             if (!_mainCam) _mainCam = Camera.main;
-            if (!_mainCam) return;
+            if (!_mainCam)
+            {
+                DepthAvailable = false;
+                return;
+            }
 
             Matrix4x4 p = _mainCam.projectionMatrix;
             Matrix4x4 pi = p.inverse;
@@ -482,21 +507,44 @@ namespace Genesis.RoomScan
                 _viewInv[i] = vi;
             }
 
-            _planes = new Vector2(_mainCam.nearClipPlane, _mainCam.farClipPlane);
+            _planes = new Vector2(_mainCam.nearClipPlane,
+                _mainCam.farClipPlane);
+
+            if (_simulatedDepthTex == null ||
+                _simulatedDepthTex.width != rawDepth.width ||
+                _simulatedDepthTex.height != rawDepth.height)
+            {
+                if (_simulatedDepthTex) Destroy(_simulatedDepthTex);
+                _simulatedDepthTex = new RenderTexture(rawDepth.width, rawDepth.height, 0,
+                    GraphicsFormat.R16_UNorm, 1)
+                {
+                    dimension = TextureDimension.Tex2DArray,
+                    volumeDepth = 2,
+                    enableRandomWrite = true
+                };
+                _simulatedDepthTex.Create();
+            }
+
+            depthNormalCompute.SetVector(ZParamsID, _planes);
+            _monoConvertKernel.Set(DepthTexRWID, _simulatedDepthTex);
+            _monoConvertKernel.Set(InputRawMonoDepthID, rawDepth);
+            _monoConvertKernel.DispatchFit(rawDepth.width, rawDepth.height);
+            _rawDepthTex = _simulatedDepthTex;
         }
 
         private void HandleDeviceDepth(AROcclusionFrameEventArgs args)
         {
-            _depthTex = args.externalTextures[0].texture;
+            _rawDepthTex = args.externalTextures[0].texture;
 
             ReadOnlyList<XRFov> fovs = default;
             ReadOnlyList<Pose> poses = default;
             XRNearFarPlanes depthPlanes = default;
 
-            DepthAvailable = _depthTex != null &&
+            DepthAvailable = _rawDepthTex != null &&
                              args.TryGetFovs(out fovs) &&
                              args.TryGetPoses(out poses) &&
-                             args.TryGetNearFarPlanes(out depthPlanes);
+                             args.TryGetNearFarPlanes(out depthPlanes) &&
+                             fovs.Count >= 2 && poses.Count >= 2;
 
             if (!DepthAvailable) return;
 
@@ -590,6 +638,7 @@ namespace Genesis.RoomScan
                     useMipMap = false,
                     enableRandomWrite = true
                 };
+                _normTex.Create();
             }
 
             _normKernel.Set(DepthTexID, _depthTex);
@@ -609,8 +658,8 @@ namespace Genesis.RoomScan
                 {
                     width = _depthTex.width,
                     height = _depthTex.height,
-                    volumeDepth = 1,
-                    dimension = TextureDimension.Tex2D,
+                    volumeDepth = 2,
+                    dimension = TextureDimension.Tex2DArray,
                     autoGenerateMips = false,
                     enableRandomWrite = true,
                     graphicsFormat = GraphicsFormat.R16G16B16A16_SFloat,
@@ -619,6 +668,8 @@ namespace Genesis.RoomScan
 
                 _dilationA = new RenderTexture(desc);
                 _dilationB = new RenderTexture(desc);
+                _dilationA.Create();
+                _dilationB.Create();
             }
 
             depthDilationCompute.SetFloat(VoxDistID, voxelDistance);
@@ -627,17 +678,15 @@ namespace Genesis.RoomScan
             _initDilateKernel.Set(DepthTexID, _depthTex);
             _initDilateKernel.Set(DilateSrcID, _dilationA);
             _initDilateKernel.Set(DilateDestID, _dilationB);
-            _initDilateKernel.DispatchFit(_dilationA.width, _dilationA.height);
+            _initDilateKernel.DispatchFit(_dilationA.width, _dilationA.height, 2);
 
-            int stepSize = _dilationMaxStep;
-            for (int i = 0; i < dilationSteps; i++)
+            foreach (int stepSize in BuildDilationStepSequence(dilationSteps))
             {
                 _dilateStepKernel.Set(DilateSrcID, _dilationA);
                 _dilateStepKernel.Set(DilateDestID, _dilationB);
                 depthDilationCompute.SetInt(DilateStepSizeID, stepSize);
-                _dilateStepKernel.DispatchFit(_dilationA.width, _dilationA.height);
+                _dilateStepKernel.DispatchFit(_dilationA.width, _dilationA.height, 2);
 
-                stepSize /= 2;
                 (_dilationA, _dilationB) = (_dilationB, _dilationA);
             }
 

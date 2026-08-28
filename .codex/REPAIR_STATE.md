@@ -2,7 +2,7 @@
 
 BASE: `0e9081060ed1068aad6e075f4961ad25b72245ff`
 BRANCH: `fix/merkaba-production-closure`
-HEAD: R1b/R2 checkpoint (resolve with `git rev-parse HEAD` after commit)
+HEAD: `ee6071bd79b5c386791a465b46ba92883b0095c4`
 GOAL AUTHORITY: `/mnt/aidisk/prace/.codex-pursuits/quest-merkaba-production-closure/REPAIR_GOAL.md`
 GOAL SHA-256: `9135e66973e4fe2e36af2cb67869a56afcc6aee75b9b57f50fdd269e109e923f`
 
@@ -17,21 +17,26 @@ GOAL SHA-256: `9135e66973e4fe2e36af2cb67869a56afcc6aee75b9b57f50fdd269e109e923f`
 - R1b removed the 96-microtriangle analytic-union oracle and all suppression/coverage tables.
 - R2 CPU topology, generated HLSL, live compute/shader, and GLB now consume the same direct primitive IDs and winding.
 - R2 emits 8 faces for an isolated kernel and 10 primitives per member of a single body-diagonal pair.
+- R3 depth kernels guard padded dispatch and every neighbour read before access.
+- R3 dilation is stereo and executes the exact `256..1` sequence.
+- R3 retains only the latest raw sensor frame and preprocesses it once at the consuming integration tick.
+- R3 integrates both depth eyes in one compute dispatch with SURFACE winning over conflicting destructive FREE.
 
 ## CURRENT
 
-- R3: fix depth shader OOB access, include dilation step 1, preprocess only consumed frames, and integrate both depth eyes.
+- R4: replace dense volume-chunk integration with surface candidates plus carve of existing evidence; prohibit free-only chunk allocation.
 
 ## NEXT
 
-- R3: depth OOB, complete dilation, stereo consumption, and preprocess cadence.
-- R4-R9 remain mandatory in the external goal authority.
+- R4: surface-driven positive work, existing-state carve work, free-volume sparsity, and carve regressions.
+- R5-R9 remain mandatory in the external goal authority.
 
 ## TEST STATUS
 
-- Direct-rule Unity EditMode: 25/25 passed, 0 failed, 0 skipped.
+- Unity EditMode after R3: 30/30 passed, 0 failed, 0 skipped.
 - CPU/HLSL byte identity, CPU/GPU cross-chunk mask identity, and direct GLB counts/non-axis normals passed.
 - Isolated kernel and every body-diagonal pair rule passed; axis/face-diagonal non-activation passed.
+- Depth border/padding, stereo dilation, exact step sequence, consumed-frame cadence, right-eye-only production integration, and false-foreground carve passed.
 
 ## BUILD STATUS
 

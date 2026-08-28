@@ -41,7 +41,24 @@ Corrected result:
 
 ## R3 Depth Pipeline
 
-PENDING
+Command:
+
+```bash
+Tools/unity/run_merkaba_tests.sh
+```
+
+Result at R3 checkpoint:
+
+- Unity EditMode: 30 passed, 0 failed, 0 skipped.
+- `DepthNormals.compute`: all padded threads guard dimensions before reads; border taps are forward/backward bounded; both array layers finite and written.
+- `DepthDilation.compute`: signed tap coordinates are validated before reads; both layers independently retain their depth.
+- Exact default dilation steps: `256,128,64,32,16,8,4,2,1`.
+- Raw-frame cadence fixture: repeated consumer call on one sensor version does no preprocessing; skipped intermediate versions collapse to the latest frame.
+- Production integration fixture with invalid left eye and valid right eye reaches OCCUPIED.
+- Production false-foreground carve and true-wall preservation remains PASS.
+- C# and compute shader import/compile: PASS.
+- Result XML: `/mnt/kingston-unity/Builds/TestResults/merkaba-results.xml`.
+- Log: `/mnt/kingston-unity/Builds/TestResults/merkaba-tests.log`.
 
 ## R4 Integration and Carve
 

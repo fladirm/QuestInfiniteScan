@@ -1,27 +1,25 @@
-// Genesis RoomScan - Jump-flood depth dilation for hole-filling
+// Genesis RoomScan - stereo jump-flood depth dilation with strict bounds guards.
 #include "DepthKit.hlsl"
 
-RWTexture2D<float4> gsDilateDest;
-RWTexture2D<float4> gsDilateSrc;
+RWTexture2DArray<float4> gsDilateDest;
+RWTexture2DArray<float4> gsDilateSrc;
 int gsDilateStepSize;
 
-// Volume params needed for radius calculation
 float gsVoxDist;
 float gsVoxSize;
 
 #pragma kernel InitDepthDilation
 
 [numthreads(8, 8, 1)]
-void InitDepthDilation(uint2 coord : SV_DispatchThreadID)
+void InitDepthDilation(uint3 coord : SV_DispatchThreadID)
 {
-    float depth = gsDepthTex[uint3(coord.xy, 0)];
+    if (coord.z >= 2u || coord.x >= gsDepthTexSize.x ||
+        coord.y >= gsDepthTexSize.y) return;
 
-    float4 val = float4(0, 0, 0, 0);
-    val.xy = (float2)coord.xy;
-    val.z = depth;
-
-    gsDilateSrc[coord] = val;
-    gsDilateDest[coord] = val;
+    float depth = gsDepthTex[coord];
+    float4 value = float4((float2)coord.xy, depth, 0);
+    gsDilateSrc[coord] = value;
+    gsDilateDest[coord] = value;
 }
 
 static const int2 kOffsets[8] =
@@ -39,35 +37,38 @@ static const int2 kOffsets[8] =
 #pragma kernel DilateDepthStep
 
 [numthreads(8, 8, 1)]
-void DilateDepthStep(uint2 coord : SV_DispatchThreadID)
+void DilateDepthStep(uint3 coord : SV_DispatchThreadID)
 {
-    float4 val = gsDilateSrc[coord];
-    float focalLength = gsDepthProj[0]._m00;
+    if (coord.z >= 2u || coord.x >= gsDepthTexSize.x ||
+        coord.y >= gsDepthTexSize.y) return;
+
+    float4 value = gsDilateSrc[coord];
+    float focalLength = abs(gsDepthProj[coord.z]._m00);
+    int2 size = int2(gsDepthTexSize);
+    int2 destinationCoord = int2(coord.xy);
 
     [unroll]
-    for (int i = 0; i < 8; i++)
+    for (int index = 0; index < 8; index++)
     {
-        uint2 srcCoord = coord + kOffsets[i] * gsDilateStepSize;
+        int2 sourceCoord = destinationCoord +
+            kOffsets[index] * gsDilateStepSize;
+        if (sourceCoord.x < 0 || sourceCoord.y < 0 ||
+            sourceCoord.x >= size.x || sourceCoord.y >= size.y)
+            continue;
 
-        bool withinTexBounds =
-            srcCoord.x < gsDepthTexSize.x &&
-            srcCoord.y < gsDepthTexSize.y;
+        // The signed coordinate is validated before conversion/read.
+        float4 sourceValue = gsDilateSrc[uint3((uint2)sourceCoord, coord.z)];
+        if (sourceValue.z <= 0.0 || sourceValue.z >= 1.0) continue;
 
-        float4 srcVal = gsDilateSrc[srcCoord];
-
-        float srcDepthLinear = gsDepthNDCToLinear(srcVal.z);
-        float pixelSize = 2.0 * srcDepthLinear / (focalLength * gsDepthTexSize.x);
-        float radius = (gsVoxDist + gsVoxSize) / pixelSize;
-
-        float2 diff = srcVal.xy - (float2)coord.xy;
-        bool withinRadius = dot(diff, diff) < radius * radius;
-
-        bool newMinimum = srcVal.z < val.z;
-        bool notZero = srcVal.z != 0;
-
-        if (withinTexBounds & withinRadius & newMinimum & notZero)
-            val = srcVal;
+        float sourceLinear = gsDepthNDCToLinear(sourceValue.z, coord.z);
+        float pixelSize = 2.0 * sourceLinear /
+            max(focalLength * gsDepthTexSize.x, 1e-6);
+        float radius = (gsVoxDist + gsVoxSize) / max(pixelSize, 1e-6);
+        float2 difference = sourceValue.xy - (float2)destinationCoord;
+        bool withinRadius = dot(difference, difference) < radius * radius;
+        bool newMinimum = value.z <= 0.0 || sourceValue.z < value.z;
+        if (withinRadius && newMinimum) value = sourceValue;
     }
 
-    gsDilateDest[coord] = val;
+    gsDilateDest[coord] = value;
 }

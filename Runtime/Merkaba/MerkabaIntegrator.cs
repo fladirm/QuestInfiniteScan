@@ -94,14 +94,16 @@ namespace Genesis.RoomScan
         {
             if (_grid == null || _depthCapture == null || compute == null || _kernel < 0 ||
                 camera == null || !DepthCapture.DepthAvailable ||
-                _depthCapture.DepthTex == null || _depthCapture.NormTex == null)
+                !_depthCapture.HasUnprocessedFrame)
                 return false;
 
             MerkabaResidencyFrame residency = _grid.RefreshResidency(camera,
                 maxUpdateDistance, true);
             if (residency.IntegrationChunkCount == 0) return false;
-            _depthCapture.UpdateDilationIfNeeded();
-            if (_depthCapture.DilatedDepthTex == null) return false;
+            if (!_depthCapture.ConsumeLatestDepthFrame() ||
+                _depthCapture.DepthTex == null || _depthCapture.NormTex == null ||
+                _depthCapture.DilatedDepthTex == null)
+                return false;
 
             compute.SetMatrixArray(DepthCapture.ViewID, _depthCapture.View);
             compute.SetMatrixArray(DepthCapture.ProjID, _depthCapture.Proj);

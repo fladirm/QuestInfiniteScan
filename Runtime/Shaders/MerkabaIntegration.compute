@@ -37,7 +37,7 @@ int _MerkabaIntegrationChunkCount;
 float4x4 _MerkabaGridToWorld;
 float _MerkabaMaxUpdateDistance;
 
-Texture2D<float4> gsDilatedDepth;
+Texture2DArray<float4> gsDilatedDepth;
 
 int _MerkabaExclusionCount;
 float3 _MerkabaExclusionHeads[64];
@@ -141,6 +141,56 @@ void AccumulateColor(inout KernelState state, float3 observed, float quality)
     state.colorConfidence = min(65535u, divisor);
 }
 
+bool ObserveDepthEye(uint eye, float3 worldPosition, out int kind,
+    out float quality)
+{
+    kind = 0;
+    quality = 0.0;
+    float3 viewPosition = mul(gsDepthView[eye],
+        float4(worldPosition, 1.0)).xyz;
+    if (viewPosition.z > -0.05) return false;
+
+    float3 ndc = gsDepthWorldToNDC(worldPosition, eye);
+    if (ndc.x < 0.01 || ndc.x > 0.99 || ndc.y < 0.01 || ndc.y > 0.99)
+        return false;
+
+    float depthNdc = gsDepthSample(ndc.xy, eye);
+    if (depthNdc <= 0.0 || depthNdc >= 1.0) return false;
+    float3 depthNormal = gsDepthNormalSample(ndc.xy, eye).xyz;
+    float3 depthPosition = gsDepthNDCtoWorld(float3(ndc.xy, depthNdc), eye);
+    float3 eyePosition = gsDepthEyePos(eye);
+    float3 eyeToKernel = worldPosition - eyePosition;
+    float3 eyeToDepth = depthPosition - eyePosition;
+    float kernelDistance = length(eyeToKernel);
+    float measuredDistance = length(eyeToDepth);
+    if (kernelDistance <= 0.0 || measuredDistance <= 0.0) return false;
+    float relation = measuredDistance - kernelDistance;
+
+    if (relation > MERKABA_HALF_SUPPORT) kind = 1; // FREE
+    else if (abs(relation) <= MERKABA_HALF_SUPPORT) kind = 2; // SURFACE
+    else return false; // UNKNOWN / BEHIND
+
+    float normalFacing = -dot(eyeToKernel, depthNormal) / kernelDistance;
+    float measuredLinear = gsDepthNDCToLinear(depthNdc, eye);
+    float dilatedNdc = gsDilatedDepth.SampleLevel(gsPointClampSampler,
+        float3(ndc.xy, eye), 0).z;
+    if (dilatedNdc <= 0.0 || dilatedNdc >= 1.0) return false;
+    float dilatedLinear = gsDepthNDCToLinear(dilatedNdc, eye);
+    bool acceptableDisparity = measuredLinear <
+        dilatedLinear + MERKABA_DEPTH_DISPARITY;
+    bool unoccluded = abs(viewPosition.z) < dilatedLinear ||
+        acceptableDisparity;
+    bool validNormal = kind == 1 || normalFacing > MERKABA_NORMAL_MIN;
+    if (!unoccluded || !validNormal) return false;
+
+    float distanceFactor = saturate(1.0 -
+        kernelDistance / _MerkabaMaxUpdateDistance);
+    float angleFactor = saturate(normalFacing);
+    if (kind == 1) angleFactor = max(angleFactor, 0.5);
+    quality = distanceFactor * angleFactor;
+    return kind != 2 || quality >= MERKABA_MIN_SURFACE_QUALITY;
+}
+
 [numthreads(64, 1, 1)]
 void IntegrateMerkaba(uint id : SV_DispatchThreadID)
 {
@@ -155,37 +205,32 @@ void IntegrateMerkaba(uint id : SV_DispatchThreadID)
     float3 gridPosition = (float3)globalCoord * MERKABA_LATTICE_STEP;
     float3 worldPosition = mul(_MerkabaGridToWorld, float4(gridPosition, 1.0)).xyz;
 
-    float3 viewPosition = mul(gsDepthView[0], float4(worldPosition, 1.0)).xyz;
-    if (viewPosition.z > -0.05) return;
-    float3 ndc = gsDepthWorldToNDC(worldPosition);
-    if (ndc.x < 0.01 || ndc.x > 0.99 || ndc.y < 0.01 || ndc.y > 0.99)
-        return;
-
-    float depthNdc = gsDepthSample(ndc.xy);
-    if (depthNdc <= 0.0 || depthNdc >= 1.0) return;
-    float3 depthNormal = gsDepthNormalSample(ndc.xy).xyz;
-    float3 depthPosition = gsDepthNDCtoWorld(float3(ndc.xy, depthNdc));
-    float3 eyePosition = gsDepthEyePos();
-    float3 eyeToKernel = worldPosition - eyePosition;
-    float3 eyeToDepth = depthPosition - eyePosition;
-    float kernelDistance = length(eyeToKernel);
-    float measuredDistance = length(eyeToDepth);
-    if (kernelDistance <= 0.0 || measuredDistance <= 0.0) return;
-    float relation = measuredDistance - kernelDistance;
-
     int kind = 0;
-    if (relation > MERKABA_HALF_SUPPORT) kind = 1; // FREE
-    else if (abs(relation) <= MERKABA_HALF_SUPPORT) kind = 2; // SURFACE
-    else return; // UNKNOWN / BEHIND
+    float quality = 0.0;
+    [unroll]
+    for (uint eye = 0u; eye < 2u; eye++)
+    {
+        int eyeKind;
+        float eyeQuality;
+        if (!ObserveDepthEye(eye, worldPosition, eyeKind, eyeQuality)) continue;
 
-    float normalFacing = -dot(eyeToKernel, depthNormal) / kernelDistance;
-    float measuredLinear = gsDepthNDCToLinear(depthNdc);
-    float dilatedNdc = gsDilatedDepth.SampleLevel(gsPointClampSampler, ndc.xy, 0).z;
-    float dilatedLinear = gsDepthNDCToLinear(dilatedNdc);
-    bool acceptableDisparity = measuredLinear < dilatedLinear + MERKABA_DEPTH_DISPARITY;
-    bool unoccluded = abs(viewPosition.z) < dilatedLinear || acceptableDisparity;
-    bool validNormal = kind == 1 || normalFacing > MERKABA_NORMAL_MIN;
-    if (!unoccluded || !validNormal) return;
+        // Stereo fusion is conservative: a valid surface observation wins over
+        // destructive FREE evidence from the other eye at an occlusion boundary.
+        if (eyeKind == 2)
+        {
+            if (kind != 2 || eyeQuality > quality)
+            {
+                kind = eyeKind;
+                quality = eyeQuality;
+            }
+        }
+        else if (kind == 0 || (kind == 1 && eyeQuality > quality))
+        {
+            kind = eyeKind;
+            quality = eyeQuality;
+        }
+    }
+    if (kind == 0) return;
 
     [loop]
     for (int exclusion = 0; exclusion < _MerkabaExclusionCount; exclusion++)
@@ -197,12 +242,6 @@ void IntegrateMerkaba(uint id : SV_DispatchThreadID)
             worldPosition.y > head.y - EXCLUSION_BOTTOM)
             return;
     }
-
-    float distanceFactor = saturate(1.0 - kernelDistance / _MerkabaMaxUpdateDistance);
-    float angleFactor = saturate(normalFacing);
-    if (kind == 1) angleFactor = max(angleFactor, 0.5);
-    float quality = distanceFactor * angleFactor;
-    if (kind == 2 && quality < MERKABA_MIN_SURFACE_QUALITY) return;
 
     uint stateIndex = slot * MERKABA_KERNELS_PER_CHUNK + localIndex;
     KernelState state = _MerkabaKernels[stateIndex];

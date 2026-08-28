@@ -11,3 +11,6 @@
 - Canonical CPU/HLSL tables contain six octahedron vertices, eight body-diagonal face rules, eight apexes at neighbour centres, and 32 possible triangles.
 - Axis and face-diagonal neighbours do not activate tips.
 - Export cleanup is a read-only sparse CPU readout using signed evidence and exactly one radius-1 morphological closing; it never changes canonical state or emits cube geometry.
+- Raw sensor callbacks publish only the latest depth texture and calibrated transforms; bilateral filtering, normals, and dilation execute once only when an integration tick consumes a newer raw-frame version.
+- Dilation is a two-layer texture-array pipeline with the fixed default sequence `256,128,64,32,16,8,4,2,1`.
+- Both calibrated depth eyes contribute in one integration dispatch. If the eyes disagree at an occlusion boundary, valid SURFACE evidence takes precedence over destructive FREE; equal classes select the higher quality observation.

@@ -50,7 +50,7 @@ namespace Genesis.RoomScan.Tests
             Matrix4x4[] views = { Matrix4x4.identity, Matrix4x4.identity };
             Texture2DArray depth = MakeDepth(DepthNdc(projection, 1f));
             Texture2DArray normals = MakeNormals();
-            Texture2D dilation = MakeDilation(DepthNdc(projection, 1f));
+            Texture2DArray dilation = MakeDilation(DepthNdc(projection, 1f));
             Texture2D camera = MakeCamera();
 
             try
@@ -100,6 +100,81 @@ namespace Genesis.RoomScan.Tests
                     Is.LessThanOrEqualTo(MerkabaConstants.OccupiedOffThreshold));
                 Assert.That(states[wallIndex].OccupancyEvidence,
                     Is.GreaterThan(MerkabaConstants.OccupiedOnThreshold));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(depth);
+                UnityEngine.Object.DestroyImmediate(normals);
+                UnityEngine.Object.DestroyImmediate(dilation);
+                UnityEngine.Object.DestroyImmediate(camera);
+            }
+        }
+
+        [Test, Timeout(30000)]
+        public void ProductionGpuDepthPath_ConsumesRightEyeWhenLeftEyeIsInvalid()
+        {
+            ComputeShader compute = LoadCompute("MerkabaIntegration.compute");
+            int kernel = compute.FindKernel("IntegrateMerkaba");
+            int stateCount = MerkabaConstants.KernelsPerChunk;
+            var states = new KernelState[stateCount];
+            var pageCoords = new[] { new int4(0, 0, -2, 0) };
+            int[] neighbours = PageNeighbours(pageCoords);
+            var activeSlots = new[] { 0 };
+            var dirty = new uint[stateCount];
+
+            using var stateBuffer = new ComputeBuffer(stateCount, 16);
+            using var pageBuffer = new ComputeBuffer(1, 16);
+            using var neighbourBuffer = new ComputeBuffer(27, sizeof(int));
+            using var activeBuffer = new ComputeBuffer(1, sizeof(int));
+            using var dirtyBuffer = new ComputeBuffer(stateCount, sizeof(uint));
+            stateBuffer.SetData(states);
+            pageBuffer.SetData(pageCoords);
+            neighbourBuffer.SetData(neighbours);
+            activeBuffer.SetData(activeSlots);
+            dirtyBuffer.SetData(dirty);
+
+            Matrix4x4 projection = Matrix4x4.Perspective(90f, 1f, 0.1f, 10f);
+            Matrix4x4[] projections = { projection, projection };
+            Matrix4x4[] projectionInv = { projection.inverse, projection.inverse };
+            Matrix4x4[] views = { Matrix4x4.identity, Matrix4x4.identity };
+            float rightDepth = DepthNdc(projection, 1f);
+            Texture2DArray depth = MakeDepth(0f, rightDepth);
+            Texture2DArray normals = MakeNormals();
+            Texture2DArray dilation = MakeDilation(0f, rightDepth);
+            Texture2D camera = MakeCamera();
+
+            try
+            {
+                compute.SetBuffer(kernel, "_MerkabaKernels", stateBuffer);
+                compute.SetBuffer(kernel, "_MerkabaPageCoords", pageBuffer);
+                compute.SetBuffer(kernel, "_MerkabaPageNeighbours", neighbourBuffer);
+                compute.SetBuffer(kernel, "_MerkabaIntegrationSlots", activeBuffer);
+                compute.SetBuffer(kernel, "_MerkabaKernelDirty", dirtyBuffer);
+                compute.SetInt("_MerkabaIntegrationChunkCount", 1);
+                compute.SetMatrix("_MerkabaGridToWorld", Matrix4x4.identity);
+                compute.SetFloat("_MerkabaMaxUpdateDistance", 5f);
+                compute.SetInt("_MerkabaExclusionCount", 0);
+                compute.SetInt("_MerkabaCameraAvailable", 0);
+                compute.SetTexture(kernel, "_MerkabaCameraRgb", camera);
+                compute.SetTexture(kernel, DepthCapture.DepthTexID, depth);
+                compute.SetTexture(kernel, DepthCapture.NormTexID, normals);
+                compute.SetTexture(kernel, DepthCapture.DilatedDepthTexID, dilation);
+                compute.SetMatrixArray(DepthCapture.ProjID, projections);
+                compute.SetMatrixArray(DepthCapture.ProjInvID, projectionInv);
+                compute.SetMatrixArray(DepthCapture.ViewID, views);
+                compute.SetMatrixArray(DepthCapture.ViewInvID, views);
+                compute.SetVector(DepthCapture.ZParamsID,
+                    new Vector4(0.1f, 10f, 0f, 0f));
+                compute.SetVector(DepthCapture.TexSizeID,
+                    new Vector4(16, 16, 0, 0));
+
+                int groups = stateCount / 64;
+                compute.Dispatch(kernel, groups, 1, 1);
+                compute.Dispatch(kernel, groups, 1, 1);
+                stateBuffer.GetData(states);
+                int surfaceIndex = MerkabaConstants.Flatten(new int3(0, 0, 24));
+                Assert.That(states[surfaceIndex].IsOccupied, Is.True,
+                    "Right-eye-only valid depth did not contribute to integration.");
             }
             finally
             {
@@ -213,21 +288,29 @@ namespace Genesis.RoomScan.Tests
         }
 
         private static Texture2DArray MakeDepth(float depth)
+            => MakeDepth(depth, depth);
+
+        private static Texture2DArray MakeDepth(float leftDepth, float rightDepth)
         {
             var texture = new Texture2DArray(16, 16, 2, TextureFormat.RFloat, false, true)
             {
                 filterMode = FilterMode.Point,
                 wrapMode = TextureWrapMode.Clamp
             };
-            SetDepth(texture, depth);
+            SetDepth(texture, leftDepth, rightDepth);
             return texture;
         }
 
         private static void SetDepth(Texture2DArray texture, float depth)
+            => SetDepth(texture, depth, depth);
+
+        private static void SetDepth(Texture2DArray texture, float leftDepth,
+            float rightDepth)
         {
             var pixels = new Color[16 * 16];
-            Array.Fill(pixels, new Color(depth, 0, 0, 0));
+            Array.Fill(pixels, new Color(leftDepth, 0, 0, 0));
             texture.SetPixels(pixels, 0, 0);
+            Array.Fill(pixels, new Color(rightDepth, 0, 0, 0));
             texture.SetPixels(pixels, 1, 0);
             texture.Apply(false, false);
         }
@@ -248,22 +331,33 @@ namespace Genesis.RoomScan.Tests
             return texture;
         }
 
-        private static Texture2D MakeDilation(float depth)
+        private static Texture2DArray MakeDilation(float depth) =>
+            MakeDilation(depth, depth);
+
+        private static Texture2DArray MakeDilation(float leftDepth,
+            float rightDepth)
         {
-            var texture = new Texture2D(16, 16, TextureFormat.RGBAFloat, false, true)
+            var texture = new Texture2DArray(16, 16, 2, TextureFormat.RGBAFloat,
+                false, true)
             {
                 filterMode = FilterMode.Point,
                 wrapMode = TextureWrapMode.Clamp
             };
-            SetDilation(texture, depth);
+            SetDilation(texture, leftDepth, rightDepth);
             return texture;
         }
 
-        private static void SetDilation(Texture2D texture, float depth)
+        private static void SetDilation(Texture2DArray texture, float depth) =>
+            SetDilation(texture, depth, depth);
+
+        private static void SetDilation(Texture2DArray texture, float leftDepth,
+            float rightDepth)
         {
             var pixels = new Color[16 * 16];
-            Array.Fill(pixels, new Color(0, 0, depth, 0));
-            texture.SetPixels(pixels);
+            Array.Fill(pixels, new Color(0, 0, leftDepth, 0));
+            texture.SetPixels(pixels, 0, 0);
+            Array.Fill(pixels, new Color(0, 0, rightDepth, 0));
+            texture.SetPixels(pixels, 1, 0);
             texture.Apply(false, false);
         }
 

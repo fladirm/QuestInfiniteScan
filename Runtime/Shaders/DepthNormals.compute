@@ -1,4 +1,4 @@
-// Genesis RoomScan - Derive world-space normals from depth via finite differences
+// Genesis RoomScan - derive world-space stereo normals with padded-dispatch guards.
 #include "DepthKit.hlsl"
 
 RWTexture2DArray<float4> gsDepthNormalTexRW;
@@ -8,30 +8,52 @@ RWTexture2DArray<float4> gsDepthNormalTexRW;
 [numthreads(8, 8, 1)]
 void DepthNorm(uint3 id : SV_DispatchThreadID)
 {
-    float2 texSizeF = (float2)gsDepthTexSize;
-    uint eye = id.z;
+    uint2 size = gsDepthTexSize;
+    if (id.z >= 2u || id.x >= size.x || id.y >= size.y) return;
 
-    uint2 ind = id.xy;
-    float2 uv = id.xy / texSizeF;
-    float3 depthWorld = gsDepthNDCtoWorld(float3(uv, gsDepthTex[uint3(ind, eye)]), eye);
+    int2 baseCoord = int2(id.xy);
+    int2 maximum = int2(size) - 1;
+    int2 horizontalCoord = min(baseCoord + int2(2, 0), maximum);
+    int2 verticalCoord = min(baseCoord + int2(0, 2), maximum);
+    if (horizontalCoord.x == baseCoord.x)
+        horizontalCoord.x = max(0, baseCoord.x - 2);
+    if (verticalCoord.y == baseCoord.y)
+        verticalCoord.y = max(0, baseCoord.y - 2);
 
-    ind = id.xy + uint2(2, 0);
-    uv = ind / texSizeF;
-    float3 depthWorldH = gsDepthNDCtoWorld(float3(uv, gsDepthTex[uint3(ind, eye)]), eye);
+    float centerDepth = gsDepthTex[uint3(baseCoord, id.z)];
+    float horizontalDepth = gsDepthTex[uint3(horizontalCoord, id.z)];
+    float verticalDepth = gsDepthTex[uint3(verticalCoord, id.z)];
+    if (centerDepth <= 0.0 || centerDepth >= 1.0 ||
+        horizontalDepth <= 0.0 || horizontalDepth >= 1.0 ||
+        verticalDepth <= 0.0 || verticalDepth >= 1.0)
+    {
+        gsDepthNormalTexRW[id] = float4(0, 0, 0, 0);
+        return;
+    }
 
-    ind = id.xy + uint2(0, 2);
-    uv = ind / texSizeF;
-    float3 depthWorldV = gsDepthNDCtoWorld(float3(uv, gsDepthTex[uint3(ind, eye)]), eye);
+    float2 sizeF = (float2)size;
+    float3 centerWorld = gsDepthNDCtoWorld(float3(
+        (float2)baseCoord / sizeF, centerDepth), id.z);
+    float3 horizontalWorld = gsDepthNDCtoWorld(float3(
+        (float2)horizontalCoord / sizeF, horizontalDepth), id.z);
+    float3 verticalWorld = gsDepthNDCtoWorld(float3(
+        (float2)verticalCoord / sizeF, verticalDepth), id.z);
+    float3 horizontalDerivative = horizontalWorld - centerWorld;
+    float3 verticalDerivative = verticalWorld - centerWorld;
+    float orientation = (horizontalCoord.x - baseCoord.x) *
+        (verticalCoord.y - baseCoord.y) >= 0 ? 1.0 : -1.0;
+    float3 crossValue = cross(horizontalDerivative, verticalDerivative) * orientation;
+    float lengthSquared = dot(crossValue, crossValue);
+    if (lengthSquared <= 1e-16)
+    {
+        gsDepthNormalTexRW[id] = float4(0, 0, 0, 0);
+        return;
+    }
 
-    float3 hDeriv = depthWorldH - depthWorld;
-    float3 vDeriv = depthWorldV - depthWorld;
-
-    float3 worldNorm = -normalize(cross(hDeriv, vDeriv));
-
-    gsDepthNormalTexRW[id] = float4(worldNorm, 1.0);
+    gsDepthNormalTexRW[id] = float4(-crossValue * rsqrt(lengthSquared), 1.0);
 }
 
-// Editor simulation: convert mono linear depth to stereo NDC depth
+// Editor simulation: convert mono linear depth to stereo NDC depth.
 Texture2D<float> gsInputRawMonoDepth;
 RWTexture2DArray<float> gsDepthTexRW;
 
@@ -40,10 +62,15 @@ RWTexture2DArray<float> gsDepthTexRW;
 [numthreads(8, 8, 1)]
 void MonoRawDepthToStereo(uint2 id : SV_DispatchThreadID)
 {
+    uint width, height;
+    gsInputRawMonoDepth.GetDimensions(width, height);
+    if (id.x >= width || id.y >= height) return;
+
     float z = gsInputRawMonoDepth[id.xy];
     float near = gsDepthZParams.x;
     float far = gsDepthZParams.y;
-    float depth = (far / (far - near)) - (far * near) / ((far - near) * z);
+    float depth = (far / (far - near)) -
+        (far * near) / ((far - near) * max(z, 1e-6));
 
     gsDepthTexRW[uint3(id.xy, 0)] = depth;
     gsDepthTexRW[uint3(id.xy, 1)] = depth;
