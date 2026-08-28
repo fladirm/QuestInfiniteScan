@@ -17,6 +17,11 @@
   an unobservable distance-two kernel cannot silently become a topology input.
 - Topology dirtiness propagates only to self plus the 26 local neighbours on occupancy
   threshold transitions.
+- GPU residency is a bounded 96-slot LRU working set; at most 48 frustum chunks integrate
+  and 64 frustum-culled chunks compact/render in one coarse pass. Eviction uses one-shot
+  asynchronous page readback; ordinary scanning/rendering has no CPU readback.
+- Derived topology masks live per resident GPU slot. A transition dirties only its 3x3x3
+  kernel neighbourhood; a residency edge dirties only the changed page and adjacent pages.
 - The target host is `/mnt/kingston-unity/Unity/Projects/QuestMerkabaScanHost` and embeds
   `/mnt/aidisk/prace/simplescan` via `Packages/com.genesis.roomscan`.
 - GLB mechanics come from the target's own historical `e9f37c1` writer/validator, adapted

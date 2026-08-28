@@ -22,7 +22,7 @@ namespace Genesis.RoomScan
     /// dense allocated chunks of minimal canonical kernel state.
     /// </summary>
     [DisallowMultipleComponent]
-    public sealed class MerkabaGrid : MonoBehaviour
+    public sealed partial class MerkabaGrid : MonoBehaviour
     {
         public static MerkabaGrid Instance { get; private set; }
 
@@ -39,6 +39,7 @@ namespace Genesis.RoomScan
 
         private void OnDestroy()
         {
+            ReleaseGpuResources();
             if (Instance == this) Instance = null;
         }
 
@@ -153,6 +154,7 @@ namespace Genesis.RoomScan
 
         public void Clear()
         {
+            ClearGpuResidencyWithoutReadback();
             _chunks.Clear();
             OccupiedKernelCount = 0;
             Cleared?.Invoke();

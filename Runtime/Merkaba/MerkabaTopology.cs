@@ -7,6 +7,9 @@ namespace Genesis.RoomScan
     /// <summary>Frozen canonical Merkaba decomposition and exact local boundary ownership.</summary>
     public static class MerkabaTopology
     {
+        private static readonly int[] ForwardVertexOrder = { 0, 1, 2, 0, 2, 3 };
+        private static readonly int[] ReverseVertexOrder = { 0, 2, 1, 0, 3, 2 };
+
         public static readonly int3[] CubeCorners =
         {
             new(-1, -1, -1), new(-1, -1,  1), new(-1,  1, -1), new(-1,  1,  1),
@@ -136,9 +139,7 @@ namespace Genesis.RoomScan
             float3 p01 = p00 + c * (v * a);
 
             bool forward = sign * u * v > 0;
-            int corner = forward
-                ? new[] { 0, 1, 2, 0, 2, 3 }[vertex]
-                : new[] { 0, 2, 1, 0, 3, 2 }[vertex];
+            int corner = forward ? ForwardVertexOrder[vertex] : ReverseVertexOrder[vertex];
             position = corner switch
             {
                 0 => p00,

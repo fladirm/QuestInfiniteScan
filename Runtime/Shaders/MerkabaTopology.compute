@@ -1,0 +1,165 @@
+// Quest Infinite Merkaba - dirty local topology and visible-record compaction.
+#pragma kernel BuildVisibleRecords
+
+#define MERKABA_CHUNK_SIZE 32
+#define MERKABA_KERNELS_PER_CHUNK 32768
+#define MERKABA_OCCUPIED_FLAG 1u
+
+struct KernelState
+{
+    int evidence;
+    uint packedColor;
+    uint colorConfidence;
+    uint flags;
+};
+
+struct RenderRecord
+{
+    int3 coord;
+    uint activeMask;
+    uint packedColor;
+    uint padding0;
+    uint padding1;
+    uint padding2;
+};
+
+StructuredBuffer<KernelState> _MerkabaKernels;
+StructuredBuffer<int4> _MerkabaPageCoords;
+StructuredBuffer<int> _MerkabaPageNeighbours;
+StructuredBuffer<int> _MerkabaVisibleSlots;
+RWStructuredBuffer<uint> _MerkabaKernelDirty;
+RWStructuredBuffer<uint> _MerkabaTopologyMasks;
+AppendStructuredBuffer<RenderRecord> _MerkabaRenderRecords;
+int _MerkabaVisibleChunkCount;
+
+int3 UnflattenKernel(uint index)
+{
+    int x = index % MERKABA_CHUNK_SIZE;
+    int yz = index / MERKABA_CHUNK_SIZE;
+    return int3(x, yz % MERKABA_CHUNK_SIZE, yz / MERKABA_CHUNK_SIZE);
+}
+
+uint FlattenKernel(int3 localCoord)
+{
+    return (uint)(localCoord.x + MERKABA_CHUNK_SIZE *
+        (localCoord.y + MERKABA_CHUNK_SIZE * localCoord.z));
+}
+
+int NeighbourPageSlot(int slot, int3 delta)
+{
+    int index = (delta.x + 1) + 3 * (delta.y + 1) + 9 * (delta.z + 1);
+    return _MerkabaPageNeighbours[slot * 27 + index];
+}
+
+bool OccupiedOffset(int slot, int3 localCoord, int3 offset)
+{
+    localCoord += offset;
+    int3 pageDelta = int3(0, 0, 0);
+    if (localCoord.x < 0) { localCoord.x += MERKABA_CHUNK_SIZE; pageDelta.x = -1; }
+    else if (localCoord.x >= MERKABA_CHUNK_SIZE) { localCoord.x -= MERKABA_CHUNK_SIZE; pageDelta.x = 1; }
+    if (localCoord.y < 0) { localCoord.y += MERKABA_CHUNK_SIZE; pageDelta.y = -1; }
+    else if (localCoord.y >= MERKABA_CHUNK_SIZE) { localCoord.y -= MERKABA_CHUNK_SIZE; pageDelta.y = 1; }
+    if (localCoord.z < 0) { localCoord.z += MERKABA_CHUNK_SIZE; pageDelta.z = -1; }
+    else if (localCoord.z >= MERKABA_CHUNK_SIZE) { localCoord.z -= MERKABA_CHUNK_SIZE; pageDelta.z = 1; }
+    int targetSlot = NeighbourPageSlot(slot, pageDelta);
+    if (targetSlot < 0) return false;
+    uint index = targetSlot * MERKABA_KERNELS_PER_CHUNK + FlattenKernel(localCoord);
+    return (_MerkabaKernels[index].flags & MERKABA_OCCUPIED_FLAG) != 0u;
+}
+
+void PatchAxes(int axis, out int3 normal, out int3 tangent0, out int3 tangent1)
+{
+    if (axis == 0)
+    {
+        normal = int3(1, 0, 0); tangent0 = int3(0, 1, 0); tangent1 = int3(0, 0, 1);
+    }
+    else if (axis == 1)
+    {
+        normal = int3(0, 1, 0); tangent0 = int3(0, 0, 1); tangent1 = int3(1, 0, 0);
+    }
+    else
+    {
+        normal = int3(0, 0, 1); tangent0 = int3(1, 0, 0); tangent1 = int3(0, 1, 0);
+    }
+}
+
+bool LexLess(int3 left, int3 right)
+{
+    return left.x < right.x ||
+        (left.x == right.x && (left.y < right.y ||
+        (left.y == right.y && left.z < right.z)));
+}
+
+bool OwnsPatch(int slot, int3 localCoord, int3 globalCoord, int patch)
+{
+    int face = patch / 4;
+    int quadrant = patch % 4;
+    int axis = face / 2;
+    int sign = (face & 1) == 0 ? -1 : 1;
+    int u = (quadrant & 1) == 0 ? -1 : 1;
+    int v = (quadrant & 2) == 0 ? -1 : 1;
+    int3 normal, tangent0, tangent1;
+    PatchAxes(axis, normal, tangent0, tangent1);
+    int3 outward = normal * sign;
+    int3 tangentOffset0 = tangent0 * u;
+    int3 tangentOffset1 = tangent1 * v;
+
+    [unroll]
+    for (int b = 0; b <= 1; b++)
+    [unroll]
+    for (int c = 0; c <= 1; c++)
+        if (OccupiedOffset(slot, localCoord, outward +
+            (b == 0 ? int3(0, 0, 0) : tangentOffset0) +
+            (c == 0 ? int3(0, 0, 0) : tangentOffset1)))
+            return false;
+
+    int3 coplanar[3] =
+    {
+        tangentOffset0,
+        tangentOffset1,
+        tangentOffset0 + tangentOffset1
+    };
+    [unroll]
+    for (int i = 0; i < 3; i++)
+        if (OccupiedOffset(slot, localCoord, coplanar[i]) &&
+            LexLess(globalCoord + coplanar[i], globalCoord))
+            return false;
+    return true;
+}
+
+[numthreads(64, 1, 1)]
+void BuildVisibleRecords(uint id : SV_DispatchThreadID)
+{
+    uint total = (uint)_MerkabaVisibleChunkCount * MERKABA_KERNELS_PER_CHUNK;
+    if (id >= total) return;
+    int visibleIndex = id / MERKABA_KERNELS_PER_CHUNK;
+    uint localIndex = id % MERKABA_KERNELS_PER_CHUNK;
+    int slot = _MerkabaVisibleSlots[visibleIndex];
+    uint stateIndex = slot * MERKABA_KERNELS_PER_CHUNK + localIndex;
+    KernelState state = _MerkabaKernels[stateIndex];
+    uint mask = _MerkabaTopologyMasks[stateIndex];
+    int3 localCoord = UnflattenKernel(localIndex);
+    int3 globalCoord = _MerkabaPageCoords[slot].xyz * MERKABA_CHUNK_SIZE + localCoord;
+
+    if (_MerkabaKernelDirty[stateIndex] != 0u)
+    {
+        mask = 0u;
+        if ((state.flags & MERKABA_OCCUPIED_FLAG) != 0u)
+        {
+            [unroll]
+            for (int patch = 0; patch < 24; patch++)
+                if (OwnsPatch(slot, localCoord, globalCoord, patch))
+                    mask |= 1u << patch;
+        }
+        _MerkabaTopologyMasks[stateIndex] = mask;
+        _MerkabaKernelDirty[stateIndex] = 0u;
+    }
+
+    if (mask == 0u) return;
+    RenderRecord record;
+    record.coord = globalCoord;
+    record.activeMask = mask;
+    record.packedColor = state.packedColor;
+    record.padding0 = record.padding1 = record.padding2 = 0u;
+    _MerkabaRenderRecords.Append(record);
+}

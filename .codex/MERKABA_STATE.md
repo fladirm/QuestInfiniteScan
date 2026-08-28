@@ -3,10 +3,10 @@
 ```text
 BASE COMMIT: 2fdaaae71f60b21b7853e67db943fc42f75d0c2f
 WORK BRANCH: feat/simple-infinite-merkaba
-HEAD: 2d5e4d17d6cd36c51fa27f48d50f1d4fb0b63b18
+HEAD: de9ffa675f4cf69d4b5fddf7fdb02f8d2a647c70
 OTHER_SCAN_ROOT: /mnt/aidisk/prace/otherscan
 TARGET UNITY HOST: /mnt/kingston-unity/Unity/Projects/QuestMerkabaScanHost
-CURRENT TASK: Sparse GPU page residency, depth integration, and dirty topology
+CURRENT TASK: Canonical persistence/resume and offline GLB PBR readout
 ```
 
 ## DONE
@@ -24,18 +24,21 @@ CURRENT TASK: Sparse GPU page residency, depth integration, and dirty topology
   hysteresis, and RGB accumulation.
 - Unity EditMode geometry/refinement suite passes all 23 tests, including every required
   shape, chunk/negative equivalence, real classification, carve, wall, and corner cases.
+- Added bounded sparse GPU residency with asynchronous eviction/sync, one current-frustum
+  integration dispatch, local transition dirtiness, GPU ownership/masks, visible compaction,
+  and indirect fixed-primitive rendering without normal-frame readback.
+- Actual Vulkan compute tests pass for false-foreground carve/true-wall persistence and
+  CPU/GPU topology parity across a chunk border.
 
 ## NEXT
 
-- Wire sparse GPU page residency, QRS depth classification, transition dirtiness, and
-  direct procedural rendering without normal-frame readback.
 - Implement persistence, GLB, donor-style UX, and target setup/build tooling.
 - Remove superseded production architecture, build/test/deploy, then audit and commit.
 
 ## TEST STATUS
 
 - Unity/toolchain verification: PASS.
-- Merkaba EditMode tests: PASS, 23/23, 2.005 s.
+- Merkaba EditMode/Vulkan tests: PASS, 25/25, 7.501 s.
 
 ## BUILD STATUS
 

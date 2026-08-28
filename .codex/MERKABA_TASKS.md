@@ -8,7 +8,7 @@
 - [x] Implement canonical geometry, local ownership, and required geometry tests.
 - [x] Implement sparse chunks, negative addressing, evidence/refinement/carve tests.
 - [x] Run the real classification/quality/evidence path in integration tests.
-- [ ] Implement GPU-oriented integration and fixed procedural boundary renderer.
+- [x] Implement GPU-oriented integration and fixed procedural boundary renderer.
 - [ ] Adapt donor-style controller ray and six-action Quest menu.
 - [ ] Implement canonical-state save/load/resume.
 - [ ] Implement/validate offline GLB PBR readout.

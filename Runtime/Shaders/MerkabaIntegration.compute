@@ -1,0 +1,236 @@
+// Quest Infinite Merkaba - direct depth -> reversible occupancy integration.
+// The signed depth relation is transient classification only; no TSDF is stored.
+#pragma kernel IntegrateMerkaba
+
+#include "DepthKit.hlsl"
+
+#define MERKABA_CHUNK_SIZE 32
+#define MERKABA_KERNELS_PER_CHUNK 32768
+#define MERKABA_LATTICE_STEP 0.025
+#define MERKABA_HALF_SUPPORT 0.025
+#define MERKABA_EVIDENCE_MIN -32768
+#define MERKABA_EVIDENCE_MAX 32767
+#define MERKABA_OCCUPIED_ON 512
+#define MERKABA_OCCUPIED_OFF 128
+#define MERKABA_SURFACE_SCALE 640.0
+#define MERKABA_FREE_SCALE 256.0
+#define MERKABA_MIN_SURFACE_QUALITY 0.25
+#define MERKABA_OCCUPIED_FLAG 1u
+#define MERKABA_NORMAL_MIN 0.3
+#define MERKABA_DEPTH_DISPARITY 0.5
+
+struct KernelState
+{
+    int evidence;
+    uint packedColor;
+    uint colorConfidence;
+    uint flags;
+};
+
+RWStructuredBuffer<KernelState> _MerkabaKernels;
+StructuredBuffer<int4> _MerkabaPageCoords;
+StructuredBuffer<int> _MerkabaPageNeighbours;
+StructuredBuffer<int> _MerkabaIntegrationSlots;
+RWStructuredBuffer<uint> _MerkabaKernelDirty;
+
+int _MerkabaIntegrationChunkCount;
+float4x4 _MerkabaGridToWorld;
+float _MerkabaMaxUpdateDistance;
+
+Texture2D<float4> gsDilatedDepth;
+
+int _MerkabaExclusionCount;
+float3 _MerkabaExclusionHeads[64];
+
+#define EXCLUSION_TOP 0.25
+#define EXCLUSION_BOTTOM 1.7
+#define EXCLUSION_RADIUS 0.6
+
+Texture2D<float4> _MerkabaCameraRgb;
+int _MerkabaCameraAvailable;
+float3 _MerkabaCameraPosition;
+float4x4 _MerkabaCameraInverseRotation;
+float2 _MerkabaCameraFocalLength;
+float2 _MerkabaCameraPrincipalPoint;
+float2 _MerkabaCameraSensorResolution;
+float2 _MerkabaCameraCurrentResolution;
+float _MerkabaCameraExposure;
+
+int3 UnflattenKernel(uint index)
+{
+    int x = index % MERKABA_CHUNK_SIZE;
+    int yz = index / MERKABA_CHUNK_SIZE;
+    return int3(x, yz % MERKABA_CHUNK_SIZE, yz / MERKABA_CHUNK_SIZE);
+}
+
+uint FlattenKernel(int3 localCoord)
+{
+    return (uint)(localCoord.x + MERKABA_CHUNK_SIZE *
+        (localCoord.y + MERKABA_CHUNK_SIZE * localCoord.z));
+}
+
+int NeighbourPageSlot(int slot, int3 delta)
+{
+    int index = (delta.x + 1) + 3 * (delta.y + 1) + 9 * (delta.z + 1);
+    return _MerkabaPageNeighbours[slot * 27 + index];
+}
+
+void MarkKernelDirty(int slot, int3 localCoord)
+{
+    int3 pageDelta = int3(0, 0, 0);
+    if (localCoord.x < 0) { localCoord.x += MERKABA_CHUNK_SIZE; pageDelta.x = -1; }
+    else if (localCoord.x >= MERKABA_CHUNK_SIZE) { localCoord.x -= MERKABA_CHUNK_SIZE; pageDelta.x = 1; }
+    if (localCoord.y < 0) { localCoord.y += MERKABA_CHUNK_SIZE; pageDelta.y = -1; }
+    else if (localCoord.y >= MERKABA_CHUNK_SIZE) { localCoord.y -= MERKABA_CHUNK_SIZE; pageDelta.y = 1; }
+    if (localCoord.z < 0) { localCoord.z += MERKABA_CHUNK_SIZE; pageDelta.z = -1; }
+    else if (localCoord.z >= MERKABA_CHUNK_SIZE) { localCoord.z -= MERKABA_CHUNK_SIZE; pageDelta.z = 1; }
+
+    int targetSlot = NeighbourPageSlot(slot, pageDelta);
+    if (targetSlot < 0) return;
+    uint target = targetSlot * MERKABA_KERNELS_PER_CHUNK + FlattenKernel(localCoord);
+    InterlockedOr(_MerkabaKernelDirty[target], 1u);
+}
+
+void MarkLocalTopologyDirty(int slot, int3 localCoord)
+{
+    [unroll]
+    for (int z = -1; z <= 1; z++)
+    [unroll]
+    for (int y = -1; y <= 1; y++)
+    [unroll]
+    for (int x = -1; x <= 1; x++)
+        MarkKernelDirty(slot, localCoord + int3(x, y, z));
+}
+
+float2 ProjectCameraUv(float3 worldPosition)
+{
+    float3 local = mul(_MerkabaCameraInverseRotation,
+        float4(worldPosition - _MerkabaCameraPosition, 1.0)).xyz;
+    if (local.z <= 0.001) return float2(-1, -1);
+    float2 sensorPoint = float2(
+        local.x / local.z * _MerkabaCameraFocalLength.x + _MerkabaCameraPrincipalPoint.x,
+        local.y / local.z * _MerkabaCameraFocalLength.y + _MerkabaCameraPrincipalPoint.y);
+    float2 scale = _MerkabaCameraCurrentResolution / _MerkabaCameraSensorResolution;
+    scale /= max(scale.x, scale.y);
+    float2 cropMin = _MerkabaCameraSensorResolution * (1.0 - scale) * 0.5;
+    float2 cropSize = _MerkabaCameraSensorResolution * scale;
+    return (sensorPoint - cropMin) / cropSize;
+}
+
+uint PackRgb(uint r, uint g, uint b)
+{
+    return r | (g << 8) | (b << 16) | (255u << 24);
+}
+
+void AccumulateColor(inout KernelState state, float3 observed, float quality)
+{
+    uint incomingWeight = (uint)clamp(round(quality * 256.0), 1.0, 256.0);
+    uint oldWeight = min(state.colorConfidence, 65535u);
+    uint3 sample = (uint3)round(saturate(observed) * 255.0);
+    if (oldWeight == 0u)
+    {
+        state.packedColor = PackRgb(sample.r, sample.g, sample.b);
+        state.colorConfidence = incomingWeight;
+        return;
+    }
+    uint3 old = uint3(state.packedColor & 255u,
+        (state.packedColor >> 8) & 255u, (state.packedColor >> 16) & 255u);
+    uint divisor = oldWeight + incomingWeight;
+    uint3 blended = (old * oldWeight + sample * incomingWeight + divisor / 2u) / divisor;
+    state.packedColor = PackRgb(blended.r, blended.g, blended.b);
+    state.colorConfidence = min(65535u, divisor);
+}
+
+[numthreads(64, 1, 1)]
+void IntegrateMerkaba(uint id : SV_DispatchThreadID)
+{
+    uint total = (uint)_MerkabaIntegrationChunkCount * MERKABA_KERNELS_PER_CHUNK;
+    if (id >= total) return;
+
+    int activeIndex = id / MERKABA_KERNELS_PER_CHUNK;
+    uint localIndex = id % MERKABA_KERNELS_PER_CHUNK;
+    int slot = _MerkabaIntegrationSlots[activeIndex];
+    int3 localCoord = UnflattenKernel(localIndex);
+    int3 globalCoord = _MerkabaPageCoords[slot].xyz * MERKABA_CHUNK_SIZE + localCoord;
+    float3 gridPosition = (float3)globalCoord * MERKABA_LATTICE_STEP;
+    float3 worldPosition = mul(_MerkabaGridToWorld, float4(gridPosition, 1.0)).xyz;
+
+    float3 viewPosition = mul(gsDepthView[0], float4(worldPosition, 1.0)).xyz;
+    if (viewPosition.z > -0.05) return;
+    float3 ndc = gsDepthWorldToNDC(worldPosition);
+    if (ndc.x < 0.01 || ndc.x > 0.99 || ndc.y < 0.01 || ndc.y > 0.99)
+        return;
+
+    float depthNdc = gsDepthSample(ndc.xy);
+    if (depthNdc <= 0.0 || depthNdc >= 1.0) return;
+    float3 depthNormal = gsDepthNormalSample(ndc.xy).xyz;
+    float3 depthPosition = gsDepthNDCtoWorld(float3(ndc.xy, depthNdc));
+    float3 eyePosition = gsDepthEyePos();
+    float3 eyeToKernel = worldPosition - eyePosition;
+    float3 eyeToDepth = depthPosition - eyePosition;
+    float kernelDistance = length(eyeToKernel);
+    float measuredDistance = length(eyeToDepth);
+    if (kernelDistance <= 0.0 || measuredDistance <= 0.0) return;
+    float relation = measuredDistance - kernelDistance;
+
+    int kind = 0;
+    if (relation > MERKABA_HALF_SUPPORT) kind = 1; // FREE
+    else if (abs(relation) <= MERKABA_HALF_SUPPORT) kind = 2; // SURFACE
+    else return; // UNKNOWN / BEHIND
+
+    float normalFacing = -dot(eyeToKernel, depthNormal) / kernelDistance;
+    float measuredLinear = gsDepthNDCToLinear(depthNdc);
+    float dilatedNdc = gsDilatedDepth.SampleLevel(gsPointClampSampler, ndc.xy, 0).z;
+    float dilatedLinear = gsDepthNDCToLinear(dilatedNdc);
+    bool acceptableDisparity = measuredLinear < dilatedLinear + MERKABA_DEPTH_DISPARITY;
+    bool unoccluded = abs(viewPosition.z) < dilatedLinear || acceptableDisparity;
+    bool validNormal = kind == 1 || normalFacing > MERKABA_NORMAL_MIN;
+    if (!unoccluded || !validNormal) return;
+
+    [loop]
+    for (int exclusion = 0; exclusion < _MerkabaExclusionCount; exclusion++)
+    {
+        float3 head = _MerkabaExclusionHeads[exclusion];
+        float2 difference = worldPosition.xz - head.xz;
+        if (dot(difference, difference) < EXCLUSION_RADIUS * EXCLUSION_RADIUS &&
+            worldPosition.y < head.y + EXCLUSION_TOP &&
+            worldPosition.y > head.y - EXCLUSION_BOTTOM)
+            return;
+    }
+
+    float distanceFactor = saturate(1.0 - kernelDistance / _MerkabaMaxUpdateDistance);
+    float angleFactor = saturate(normalFacing);
+    if (kind == 1) angleFactor = max(angleFactor, 0.5);
+    float quality = distanceFactor * angleFactor;
+    if (kind == 2 && quality < MERKABA_MIN_SURFACE_QUALITY) return;
+
+    uint stateIndex = slot * MERKABA_KERNELS_PER_CHUNK + localIndex;
+    KernelState state = _MerkabaKernels[stateIndex];
+    bool occupiedBefore = (state.flags & MERKABA_OCCUPIED_FLAG) != 0u;
+    int delta = kind == 2
+        ? max(1, (int)round(quality * quality * MERKABA_SURFACE_SCALE))
+        : -max(1, (int)round(quality * quality * MERKABA_FREE_SCALE));
+    state.evidence = clamp(state.evidence + delta,
+        MERKABA_EVIDENCE_MIN, MERKABA_EVIDENCE_MAX);
+    bool occupiedAfter = occupiedBefore
+        ? state.evidence > MERKABA_OCCUPIED_OFF
+        : state.evidence >= MERKABA_OCCUPIED_ON;
+    if (occupiedAfter) state.flags |= MERKABA_OCCUPIED_FLAG;
+    else state.flags &= ~MERKABA_OCCUPIED_FLAG;
+
+    if (kind == 2 && _MerkabaCameraAvailable != 0)
+    {
+        float2 cameraUv = ProjectCameraUv(worldPosition);
+        if (cameraUv.x > 0.02 && cameraUv.x < 0.98 &&
+            cameraUv.y > 0.02 && cameraUv.y < 0.98)
+        {
+            float3 rgb = _MerkabaCameraRgb.SampleLevel(gsBilinearClampSampler,
+                cameraUv, 0).rgb * _MerkabaCameraExposure;
+            AccumulateColor(state, rgb, quality);
+        }
+    }
+
+    _MerkabaKernels[stateIndex] = state;
+    if (occupiedBefore != occupiedAfter)
+        MarkLocalTopologyDirty(slot, localCoord);
+}
