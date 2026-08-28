@@ -142,6 +142,8 @@ uint _NativeProvenanceReceipt[8];
 #define SIGMA_N4_REFINEMENT_STATE_DIFFERENCE 0x80000000u
 #define SIGMA_N4_REFINEMENT_STRUCTURAL_INVALID 0x40000000u
 #define SIGMA_N4_CERTIFICATE_SOURCE_CARRIER 0x80000000u
+#define SIGMA_N4_CANONICAL_IMAGE_MAX_LOG2 17u
+#define SIGMA_N4_LOGICAL_CAPACITY_MAX_LOG2 19u
 #define SIGMA_N4_INVALID 0xffffffffu
 
 groupshared uint SigmaNativeObservationValid[64];
@@ -999,13 +1001,13 @@ uint SigmaN4PublishActiveSupportAddress(uint activeIndex, uint word)
     return SigmaN4PublishActiveSupportListOffset() + activeIndex * 2u + word;
 }
 
-uint SigmaN4PublishRefinementMember(uint activeIndex, uint ordinal)
+uint SigmaN4PublishRefinementMember(uint activeIndex, uint memberOrdinal)
 {
-    uint image = ordinal < 2u ? SIGMA_N4_RADIX_U_IMAGE :
+    uint image = memberOrdinal < 2u ? SIGMA_N4_RADIX_U_IMAGE :
         SIGMA_N4_RADIX_V_IMAGE;
     uint2 pair = _NativeCloseScratch[
         SigmaN4PublishImageAddress(image, activeIndex)];
-    return (ordinal & 1u) == 0u ? pair.x : pair.y;
+    return (memberOrdinal & 1u) == 0u ? pair.x : pair.y;
 }
 
 bool SigmaN4PublishStateEqual(uint left, uint right)
@@ -1188,18 +1190,19 @@ void SigmaN4PublishBuildRefinementGroups(uint threadIndex)
                     _NativeCloseScratch[
                         _NativeCanonicalRankScratchOffset + footprint].y =
                         activeIndex;
-                    uint ordinal;
+                    uint memberOrdinal;
                     InterlockedAdd(_NativeCloseScratch[
                         SigmaN4PublishActiveSupportAddress(activeIndex, 1u)].x,
-                        1u, ordinal);
-                    if (ordinal < 4u)
+                        1u, memberOrdinal);
+                    if (memberOrdinal < 4u)
                     {
-                        uint image = ordinal < 2u ? SIGMA_N4_RADIX_U_IMAGE :
+                        uint image = memberOrdinal < 2u
+                            ? SIGMA_N4_RADIX_U_IMAGE :
                             SIGMA_N4_RADIX_V_IMAGE;
                         uint address = SigmaN4PublishImageAddress(image,
                             activeIndex);
                         uint ignored;
-                        if ((ordinal & 1u) == 0u)
+                        if ((memberOrdinal & 1u) == 0u)
                             InterlockedExchange(_NativeCloseScratch[address].x,
                                 footprint, ignored);
                         else
@@ -1226,7 +1229,7 @@ void SigmaN4PublishBuildRefinementGroups(uint threadIndex)
     }
     DeviceMemoryBarrierWithGroupSync();
 
-    uint activeRounds = (SigmaN4PublishCount + 255u) / 256u;
+    uint activeRounds = (_NativeFootprintCount + 255u) / 256u;
     [loop]
     for (uint activeRound = 0u; activeRound < activeRounds; ++activeRound)
     {
@@ -1244,9 +1247,11 @@ void SigmaN4PublishBuildRefinementGroups(uint threadIndex)
         bool structural = count >= 2u && count <= 4u &&
             (detail.y & SIGMA_N4_REFINEMENT_STRUCTURAL_INVALID) == 0u;
         [loop]
-        for (uint ordinal = 0u; ordinal < min(count, 4u); ++ordinal)
+        for (uint memberOrdinal = 0u; memberOrdinal < min(count, 4u);
+             ++memberOrdinal)
         {
-            uint member = SigmaN4PublishRefinementMember(activeIndex, ordinal);
+            uint member = SigmaN4PublishRefinementMember(activeIndex,
+                memberOrdinal);
             structural = structural && member != SIGMA_N4_INVALID &&
                 SigmaN4PublishFootprintValid(member) &&
                 SigmaN4PublishStructuralCertificateCompatible(leader, member);
@@ -1265,10 +1270,11 @@ void SigmaN4PublishBuildRefinementGroups(uint threadIndex)
             [unroll]
             for (uint slot = 0u; slot < 4u; ++slot) positions[slot] = 0;
             [loop]
-            for (uint ordinal = 0u; ordinal < min(count, 4u); ++ordinal)
+            for (uint memberOrdinal = 0u; memberOrdinal < min(count, 4u);
+                 ++memberOrdinal)
             {
                 uint member = SigmaN4PublishRefinementMember(activeIndex,
-                    ordinal);
+                    memberOrdinal);
                 uint memberComponent;
                 uint orbit;
                 uint4 chart;
@@ -1282,7 +1288,7 @@ void SigmaN4PublishBuildRefinementGroups(uint threadIndex)
                 int2 position = SigmaMerkabaTransformChartCellLower(
                     int2(asint(chart.z), asint(chart.w)), image,
                     transformValid);
-                positions[ordinal] = position;
+                positions[memberOrdinal] = position;
                 structural = structural && transformValid != 0u &&
                     (component == SIGMA_N4_INVALID ||
                         component == memberComponent) &&
@@ -1301,9 +1307,11 @@ void SigmaN4PublishBuildRefinementGroups(uint threadIndex)
                 maximumV - minimumV <= 1;
             uint occupied = 0u;
             [loop]
-            for (uint ordinal = 0u; ordinal < min(count, 4u); ++ordinal)
+            for (uint memberOrdinal = 0u; memberOrdinal < min(count, 4u);
+                 ++memberOrdinal)
             {
-                int2 relative = positions[ordinal] - int2(minimumU, minimumV);
+                int2 relative = positions[memberOrdinal] -
+                    int2(minimumU, minimumV);
                 bool inChild = relative.x >= 0 && relative.x <= 1 &&
                     relative.y >= 0 && relative.y <= 1;
                 uint child = inChild
@@ -1312,7 +1320,8 @@ void SigmaN4PublishBuildRefinementGroups(uint threadIndex)
                     (occupied & (1u << child)) == 0u;
                 occupied |= 1u << child;
                 childMap |= child <<
-                    (SIGMA_N4_REFINEMENT_CHILD_SHIFT + ordinal * 2u);
+                    (SIGMA_N4_REFINEMENT_CHILD_SHIFT +
+                        memberOrdinal * 2u);
             }
             uint sourceSlot = supportRecord.x / SIGMA_PAGE_SAMPLE_COUNT;
             uint sourceSample = supportRecord.x -
@@ -1324,10 +1333,12 @@ void SigmaN4PublishBuildRefinementGroups(uint threadIndex)
                 (sourcePlan.y & SIGMA_NATIVE_GAUGE_CELL_FLAGS_ACTIVE) != 0u &&
                 sourcePlan.x < 62u && selectedImage < 8u;
             [loop]
-            for (uint ordinal = 0u;
-                 structural && ordinal < min(count, 4u); ++ordinal)
+            for (uint memberOrdinal = 0u;
+                 structural && memberOrdinal < min(count, 4u);
+                 ++memberOrdinal)
                 structural = SigmaN4PublishMeetParentCertificate(
-                    SigmaN4PublishRefinementMember(activeIndex, ordinal),
+                    SigmaN4PublishRefinementMember(activeIndex,
+                        memberOrdinal),
                     sourceSlot, sourceSample);
             status = structural ? SIGMA_N4_REFINEMENT_PROVED :
                 SIGMA_N4_REFINEMENT_UNRESOLVED;
@@ -1419,6 +1430,15 @@ int SigmaN4PublishCompareCoordinateKey(uint left, uint leftImage, uint right,
     return comparison;
 }
 
+int SigmaN4PublishCompareReceipt128(uint4 left, uint4 right)
+{
+    if (left.x != right.x) return left.x < right.x ? -1 : 1;
+    if (left.y != right.y) return left.y < right.y ? -1 : 1;
+    if (left.z != right.z) return left.z < right.z ? -1 : 1;
+    if (left.w != right.w) return left.w < right.w ? -1 : 1;
+    return 0;
+}
+
 int SigmaN4PublishCompareCell(uint left, uint leftImage, uint right,
     uint rightImage)
 {
@@ -1447,8 +1467,82 @@ int SigmaN4PublishCompareCell(uint left, uint leftImage, uint right,
             uint4 b = _NativeLocalityCertificateWords[
                 _NativeFootprintCertificateOffset +
                 right * SIGMA_CERTIFICATE_WORD_COUNT + word];
-            comparison = SigmaMerkabaCanonicalCompareReceipt256(
-                a, 0u, b, 0u);
+            comparison = SigmaN4PublishCompareReceipt128(a, b);
+        }
+    }
+    return comparison;
+}
+
+int SigmaN4PublishCompareSelectedCoordinateKey(uint left, uint right,
+    out uint valid)
+{
+    uint2 leftMeta = _NativeCloseScratch[SigmaN4PublishImageAddress(
+        SIGMA_N4_RADIX_META_IMAGE, left)];
+    uint2 rightMeta = _NativeCloseScratch[SigmaN4PublishImageAddress(
+        SIGMA_N4_RADIX_META_IMAGE, right)];
+    valid = leftMeta.y < _NativeCanonicalComponentCapacity &&
+        rightMeta.y < _NativeCanonicalComponentCapacity ? 1u : 0u;
+    if (valid == 0u)
+        return left < right ? -1 : (left == right ? 0 : 1);
+    if (leftMeta.x != rightMeta.x)
+        return leftMeta.x < rightMeta.x ? -1 : 1;
+
+    // After D4 selection the former Morton images hold the selected normalized
+    // U/V coordinate.  This keeps the disconnected-component sort from
+    // rebuilding the root/D4 chart call graph at every comparison.  The images
+    // are overwritten by refinement target ranks only after component order is
+    // complete.
+    uint4 leftCoordinate = uint4(_NativeCloseScratch[
+            SigmaN4PublishImageAddress(
+                SIGMA_N4_RADIX_MORTON_LO_IMAGE, left)],
+        _NativeCloseScratch[SigmaN4PublishImageAddress(
+            SIGMA_N4_RADIX_MORTON_HI_IMAGE, left)]);
+    uint4 rightCoordinate = uint4(_NativeCloseScratch[
+            SigmaN4PublishImageAddress(
+                SIGMA_N4_RADIX_MORTON_LO_IMAGE, right)],
+        _NativeCloseScratch[SigmaN4PublishImageAddress(
+            SIGMA_N4_RADIX_MORTON_HI_IMAGE, right)]);
+    uint4 leftMorton = SigmaMerkabaGaugeSignedMorton(leftCoordinate.xy,
+        leftCoordinate.zw, valid);
+    uint4 rightMorton = SigmaMerkabaGaugeSignedMorton(rightCoordinate.xy,
+        rightCoordinate.zw, valid);
+    if (any(leftMorton != rightMorton))
+        return SigmaMerkabaGaugeMortonLess(leftMorton, rightMorton) ? -1 : 1;
+    int comparison = SigmaMerkabaCanonicalCompareHex64(leftCoordinate.xy,
+        rightCoordinate.xy);
+    if (comparison != 0) return comparison;
+    return SigmaMerkabaCanonicalCompareHex64(leftCoordinate.zw,
+        rightCoordinate.zw);
+}
+
+int SigmaN4PublishCompareSelectedCell(uint left, uint right)
+{
+    uint valid;
+    int comparison = SigmaN4PublishCompareSelectedCoordinateKey(left, right,
+        valid);
+    if (comparison != 0 || valid == 0u) return comparison;
+    [loop]
+    for (uint lane = 0u; lane < 16u; ++lane)
+    {
+        if (comparison == 0)
+            comparison = SigmaMerkabaCanonicalCompareHex64(
+                _NativePrepareStates[_NativeFootprintStateOffset +
+                    left * 16u + lane],
+                _NativePrepareStates[_NativeFootprintStateOffset +
+                    right * 16u + lane]);
+    }
+    [loop]
+    for (uint word = 0u; word < SIGMA_CERTIFICATE_WORD_COUNT; ++word)
+    {
+        if (comparison == 0)
+        {
+            uint4 a = _NativeLocalityCertificateWords[
+                _NativeFootprintCertificateOffset +
+                left * SIGMA_CERTIFICATE_WORD_COUNT + word];
+            uint4 b = _NativeLocalityCertificateWords[
+                _NativeFootprintCertificateOffset +
+                right * SIGMA_CERTIFICATE_WORD_COUNT + word];
+            comparison = SigmaN4PublishCompareReceipt128(a, b);
         }
     }
     return comparison;
@@ -1599,14 +1693,12 @@ uint SigmaN4PublishResolvedOutgoingEdge(uint component, uint footprint,
         ? SigmaN4PublishImageAddress(SIGMA_N4_RADIX_TEMP_IMAGE, neighbour)
         : _NativeCanonicalRankScratchOffset + neighbour;
     uint2 neighbourRank = _NativeCloseScratch[rankAddress];
-    uint neighbourComponent;
-    uint neighbourOrbit;
-    uint4 neighbourChart;
-    uint neighbourLevel;
-    uint neighbourSupport;
-    if (!SigmaN4PublishChart(neighbour, neighbourComponent,
-            neighbourOrbit, neighbourChart, neighbourLevel,
-            neighbourSupport) || neighbourComponent != component ||
+    // RADIX_META is written for every candidate image, but component and level
+    // are D4-invariant.  Reading it avoids rebuilding the chart/root traversal
+    // for every outgoing-edge comparison.
+    uint2 neighbourMeta = _NativeCloseScratch[SigmaN4PublishImageAddress(
+        SIGMA_N4_RADIX_META_IMAGE, neighbour)];
+    if (neighbourMeta.y != component ||
         neighbourRank.x <= localRank)
         return SIGMA_N4_INVALID;
     uint boundary = SigmaN4PublishBoundaryIndex(footprint, neighbour);
@@ -1617,37 +1709,62 @@ uint SigmaN4PublishResolvedOutgoingEdge(uint component, uint footprint,
         : SIGMA_N4_INVALID;
 }
 
-void SigmaN4PublishSwapEdges(inout uint left, inout uint right,
-    bool candidateRank)
-{
-    if (SigmaN4PublishCompareEncodedEdge(right, left, candidateRank) >= 0)
-        return;
-    uint swap = left;
-    left = right;
-    right = swap;
-}
-
 uint SigmaN4PublishCollectEdges(uint component, uint footprint,
     uint localRank, bool candidateRank, out uint4 edges)
 {
-    uint edge0 = SigmaN4PublishResolvedOutgoingEdge(component, footprint,
-        localRank, 0u, candidateRank);
-    uint edge1 = SigmaN4PublishResolvedOutgoingEdge(component, footprint,
-        localRank, 1u, candidateRank);
-    uint edge2 = SigmaN4PublishResolvedOutgoingEdge(component, footprint,
-        localRank, 2u, candidateRank);
-    uint edge3 = SigmaN4PublishResolvedOutgoingEdge(component, footprint,
-        localRank, 3u, candidateRank);
-    SigmaN4PublishSwapEdges(edge0, edge1, candidateRank);
-    SigmaN4PublishSwapEdges(edge2, edge3, candidateRank);
-    SigmaN4PublishSwapEdges(edge0, edge2, candidateRank);
-    SigmaN4PublishSwapEdges(edge1, edge3, candidateRank);
-    SigmaN4PublishSwapEdges(edge1, edge2, candidateRank);
-    edges = uint4(edge0, edge1, edge2, edge3);
-    return (edge0 != SIGMA_N4_INVALID ? 1u : 0u) +
-        (edge1 != SIGMA_N4_INVALID ? 1u : 0u) +
-        (edge2 != SIGMA_N4_INVALID ? 1u : 0u) +
-        (edge3 != SIGMA_N4_INVALID ? 1u : 0u);
+    uint ordered[4];
+    [loop]
+    for (uint direction = 0u; direction < 4u; ++direction)
+        ordered[direction] = SigmaN4PublishResolvedOutgoingEdge(component,
+            footprint, localRank, direction, candidateRank);
+
+    // Four entries have one fixed local insertion schedule. Keeping the exact
+    // comparator in one loop body avoids duplicating its complete generated
+    // witness comparison at every hand-written sorting-network comparator.
+    [loop]
+    for (uint item = 1u; item < 4u; ++item)
+    {
+        uint key = ordered[item];
+        uint destination = item;
+        [loop]
+        for (uint shift = 0u; shift < 3u; ++shift)
+        {
+            if (destination != 0u && SigmaN4PublishCompareEncodedEdge(key,
+                    ordered[destination - 1u], candidateRank) < 0)
+            {
+                ordered[destination] = ordered[destination - 1u];
+                --destination;
+            }
+        }
+        ordered[destination] = key;
+    }
+    edges = uint4(ordered[0], ordered[1], ordered[2], ordered[3]);
+    return (ordered[0] != SIGMA_N4_INVALID ? 1u : 0u) +
+        (ordered[1] != SIGMA_N4_INVALID ? 1u : 0u) +
+        (ordered[2] != SIGMA_N4_INVALID ? 1u : 0u) +
+        (ordered[3] != SIGMA_N4_INVALID ? 1u : 0u);
+}
+
+int SigmaN4PublishCompareEdgeStreams(uint4 leftEdges, uint leftCount,
+    uint4 rightEdges, uint rightCount)
+{
+    int comparison = 0;
+    uint common = min(leftCount, rightCount);
+    [loop]
+    for (uint edge = 0u; edge < 4u; ++edge)
+    {
+        if (comparison == 0 && edge < common)
+        {
+            uint left = leftEdges[edge];
+            uint right = rightEdges[edge];
+            comparison = SigmaN4PublishCompareBoundary(
+                left & 0x7fffffffu, left >> 31u,
+                right & 0x7fffffffu, right >> 31u);
+        }
+    }
+    if (comparison == 0 && leftCount != rightCount)
+        comparison = leftCount < rightCount ? -1 : 1;
+    return comparison;
 }
 
 int SigmaN4PublishCompareComponents(uint leftComponent,
@@ -1657,10 +1774,6 @@ int SigmaN4PublishCompareComponents(uint leftComponent,
         SigmaN4PublishComponentAddress(leftComponent, 0u)];
     uint2 rightMeta = _NativeCloseScratch[
         SigmaN4PublishComponentAddress(rightComponent, 0u)];
-    uint leftImage = _NativeCloseScratch[
-        SigmaN4PublishComponentAddress(leftComponent, 1u)].x;
-    uint rightImage = _NativeCloseScratch[
-        SigmaN4PublishComponentAddress(rightComponent, 1u)].x;
     uint common = min(leftMeta.x, rightMeta.x);
     int comparison = 0;
     [loop]
@@ -1672,8 +1785,7 @@ int SigmaN4PublishCompareComponents(uint leftComponent,
                 SIGMA_N4_RADIX_WORK_IMAGE, leftMeta.y + cellItem)].x;
             uint right = _NativeCloseScratch[SigmaN4PublishImageAddress(
                 SIGMA_N4_RADIX_WORK_IMAGE, rightMeta.y + cellItem)].x;
-            comparison = SigmaN4PublishCompareCell(left, leftImage,
-                right, rightImage);
+            comparison = SigmaN4PublishCompareSelectedCell(left, right);
         }
     }
     if (comparison != 0) return comparison;
@@ -1695,25 +1807,8 @@ int SigmaN4PublishCompareComponents(uint leftComponent,
                 edgeItem, false, leftEdges);
             uint rightCount = SigmaN4PublishCollectEdges(rightComponent,
                 right, edgeItem, false, rightEdges);
-            uint edgeCommon = min(leftCount, rightCount);
-            if (edgeCommon > 0u)
-                comparison = SigmaN4PublishCompareBoundary(
-                    leftEdges.x & 0x7fffffffu, leftEdges.x >> 31u,
-                    rightEdges.x & 0x7fffffffu, rightEdges.x >> 31u);
-            if (comparison == 0 && edgeCommon > 1u)
-                comparison = SigmaN4PublishCompareBoundary(
-                    leftEdges.y & 0x7fffffffu, leftEdges.y >> 31u,
-                    rightEdges.y & 0x7fffffffu, rightEdges.y >> 31u);
-            if (comparison == 0 && edgeCommon > 2u)
-                comparison = SigmaN4PublishCompareBoundary(
-                    leftEdges.z & 0x7fffffffu, leftEdges.z >> 31u,
-                    rightEdges.z & 0x7fffffffu, rightEdges.z >> 31u);
-            if (comparison == 0 && edgeCommon > 3u)
-                comparison = SigmaN4PublishCompareBoundary(
-                    leftEdges.w & 0x7fffffffu, leftEdges.w >> 31u,
-                    rightEdges.w & 0x7fffffffu, rightEdges.w >> 31u);
-            if (comparison == 0 && leftCount != rightCount)
-                comparison = leftCount < rightCount ? -1 : 1;
+            comparison = SigmaN4PublishCompareEdgeStreams(leftEdges,
+                leftCount, rightEdges, rightCount);
         }
     }
     return comparison;
@@ -2034,34 +2129,8 @@ void SigmaN4PublishSelectCandidate(uint threadIndex, uint candidate)
                         candidateEntry.x, localRank, true, candidateEdges);
                     uint bestCount = SigmaN4PublishCollectEdges(component,
                         bestEntry.x, localRank, false, bestEdges);
-                    int comparison = 0;
-                    uint common = min(candidateCount, bestCount);
-                    if (common > 0u)
-                        comparison = SigmaN4PublishCompareBoundary(
-                            candidateEdges.x & 0x7fffffffu,
-                            candidateEdges.x >> 31u,
-                            bestEdges.x & 0x7fffffffu,
-                            bestEdges.x >> 31u);
-                    if (comparison == 0 && common > 1u)
-                        comparison = SigmaN4PublishCompareBoundary(
-                            candidateEdges.y & 0x7fffffffu,
-                            candidateEdges.y >> 31u,
-                            bestEdges.y & 0x7fffffffu,
-                            bestEdges.y >> 31u);
-                    if (comparison == 0 && common > 2u)
-                        comparison = SigmaN4PublishCompareBoundary(
-                            candidateEdges.z & 0x7fffffffu,
-                            candidateEdges.z >> 31u,
-                            bestEdges.z & 0x7fffffffu,
-                            bestEdges.z >> 31u);
-                    if (comparison == 0 && common > 3u)
-                        comparison = SigmaN4PublishCompareBoundary(
-                            candidateEdges.w & 0x7fffffffu,
-                            candidateEdges.w >> 31u,
-                            bestEdges.w & 0x7fffffffu,
-                            bestEdges.w >> 31u);
-                    if (comparison == 0 && candidateCount != bestCount)
-                        comparison = candidateCount < bestCount ? -1 : 1;
+                    int comparison = SigmaN4PublishCompareEdgeStreams(
+                        candidateEdges, candidateCount, bestEdges, bestCount);
                     if (comparison != 0)
                     {
                         uint encoded = (localRank << 1u) |
@@ -2205,11 +2274,43 @@ void SigmaN4PublishAcceptFirstImage(uint threadIndex)
     DeviceMemoryBarrierWithGroupSync();
 }
 
+void SigmaN4PublishCacheSelectedCoordinates(uint threadIndex)
+{
+    uint rounds = (_NativeFootprintCount + 255u) / 256u;
+    [loop]
+    for (uint selectedCoordinateRound = 0u;
+         selectedCoordinateRound < rounds; ++selectedCoordinateRound)
+    {
+        uint footprint = selectedCoordinateRound * 256u + threadIndex;
+        if (footprint < _NativeFootprintCount)
+        {
+            uint2 meta = _NativeCloseScratch[SigmaN4PublishImageAddress(
+                SIGMA_N4_RADIX_META_IMAGE, footprint)];
+            uint valid = meta.y < _NativeCanonicalComponentCapacity ? 1u : 0u;
+            uint selectedImage = valid != 0u ? _NativeCloseScratch[
+                SigmaN4PublishComponentAddress(meta.y, 1u)].x : 0u;
+            uint level = 0u;
+            uint4 coordinate = valid != 0u
+                ? SigmaN4PublishCoordinate(footprint, selectedImage, level,
+                    valid)
+                : 0u;
+            _NativeCloseScratch[SigmaN4PublishImageAddress(
+                SIGMA_N4_RADIX_MORTON_LO_IMAGE, footprint)] = coordinate.xy;
+            _NativeCloseScratch[SigmaN4PublishImageAddress(
+                SIGMA_N4_RADIX_MORTON_HI_IMAGE, footprint)] = coordinate.zw;
+            _NativeCloseScratch[SigmaN4PublishImageAddress(
+                SIGMA_N4_RADIX_META_IMAGE, footprint)] = valid != 0u
+                ? uint2(level, meta.y)
+                : uint2(SIGMA_N4_INVALID, SIGMA_N4_INVALID);
+        }
+    }
+    DeviceMemoryBarrierWithGroupSync();
+}
+
 void SigmaN4PublishSortComponents(uint threadIndex, uint componentCount)
 {
     uint listImage = SIGMA_N4_COMPONENT_LIST_IMAGE;
-    uint padded = componentCount <= 1u ? 1u :
-        1u << (firstbithigh(componentCount - 1u) + 1u);
+    uint padded = _NativeCanonicalImageStride;
     [loop]
     for (uint width = 2u; width <= padded; width <<= 1u)
     {
@@ -2217,7 +2318,7 @@ void SigmaN4PublishSortComponents(uint threadIndex, uint componentCount)
         for (uint componentSortStride = width >> 1u;
              componentSortStride != 0u; componentSortStride >>= 1u)
         {
-            uint rounds = (padded + 255u) / 256u;
+            uint rounds = (_NativeCanonicalImageStride + 255u) / 256u;
             [loop]
             for (uint componentSortRound = 0u;
                  componentSortRound < rounds; ++componentSortRound)
@@ -2337,78 +2438,92 @@ void SigmaN4PublishBuildComponentOrder(uint threadIndex,
     }
     GroupMemoryBarrierWithGroupSync();
     componentCount = SigmaN4PublishCount;
-    uint padded = componentCount <= 1u ? 1u :
-        1u << (firstbithigh(componentCount - 1u) + 1u);
-    uint padding = padded - componentCount;
-    uint paddingRounds = (padding + 255u) / 256u;
+    uint paddingRounds = (_NativeCanonicalImageStride + 255u) / 256u;
     [loop]
     for (uint componentPaddingRound = 0u;
          componentPaddingRound < paddingRounds; ++componentPaddingRound)
     {
-        uint paddingIndex = componentPaddingRound * 256u + threadIndex;
-        if (paddingIndex < padding)
+        uint offset = componentPaddingRound * 256u + threadIndex;
+        uint index = componentCount + offset;
+        if (index < _NativeCanonicalImageStride)
             _NativeCloseScratch[SigmaN4PublishImageAddress(
-                SIGMA_N4_COMPONENT_LIST_IMAGE,
-                componentCount + paddingIndex)] =
+                SIGMA_N4_COMPONENT_LIST_IMAGE, index)] =
                 uint2(SIGMA_N4_INVALID, 0u);
     }
     DeviceMemoryBarrierWithGroupSync();
     SigmaN4PublishSortComponents(threadIndex, componentCount);
 
-    uint orderedRounds = (componentCount + 255u) / 256u;
+    uint fixedRounds = (_NativeCanonicalImageStride + 255u) / 256u;
     [loop]
     for (uint componentScanSeedRound = 0u;
-         componentScanSeedRound < orderedRounds; ++componentScanSeedRound)
+         componentScanSeedRound < fixedRounds; ++componentScanSeedRound)
     {
         uint index = componentScanSeedRound * 256u + threadIndex;
+        uint2 value = 0u;
         if (index < componentCount)
         {
             uint2 entry = _NativeCloseScratch[SigmaN4PublishImageAddress(
                 SIGMA_N4_COMPONENT_LIST_IMAGE, index)];
             uint fresh = SigmaN4PublishFreshCount(entry.x);
             uint width = SigmaN4PublishFreshWidth(entry.x);
-            _NativeCloseScratch[SigmaN4PublishImageAddress(
-                SIGMA_N4_COMPONENT_SCAN_IMAGE, index)] = uint2(fresh, width);
+            value = uint2(fresh, width);
         }
+        if (index < _NativeCanonicalImageStride)
+            _NativeCloseScratch[SigmaN4PublishImageAddress(
+                SIGMA_N4_COMPONENT_SCAN_IMAGE, index)] = value;
     }
     DeviceMemoryBarrierWithGroupSync();
-    if (threadIndex == 0u) SigmaN4PublishCarry = 0u;
-    GroupMemoryBarrierWithGroupSync();
+
+    bool sourceIsScan = true;
+    uint componentScanStride = 1u;
     [loop]
-    for (uint block = 0u; block < componentCount; block += 256u)
+    for (uint componentScanPass = 0u;
+         componentScanPass < SIGMA_N4_CANONICAL_IMAGE_MAX_LOG2;
+         ++componentScanPass)
     {
-        uint index = block + threadIndex;
-        SigmaN4PublishWide[threadIndex] = index < componentCount
-            ? _NativeCloseScratch[SigmaN4PublishImageAddress(
-                SIGMA_N4_COMPONENT_SCAN_IMAGE, index)] : 0u;
-        GroupMemoryBarrierWithGroupSync();
-        [unroll]
-        for (uint componentScanStride = 1u; componentScanStride < 256u;
-             componentScanStride <<= 1u)
+        uint sourceImage = sourceIsScan ? SIGMA_N4_COMPONENT_SCAN_IMAGE :
+            SIGMA_N4_RADIX_TEMP_IMAGE;
+        uint targetImage = sourceIsScan ? SIGMA_N4_RADIX_TEMP_IMAGE :
+            SIGMA_N4_COMPONENT_SCAN_IMAGE;
+        [loop]
+        for (uint componentScanRound = 0u;
+             componentScanRound < fixedRounds; ++componentScanRound)
         {
-            uint2 value = SigmaN4PublishWide[threadIndex];
-            if (threadIndex >= componentScanStride)
-                value += SigmaN4PublishWide[threadIndex - componentScanStride];
-            SigmaN4PublishFlags[threadIndex] = value.x;
-            SigmaN4PublishFlagsHigh[threadIndex] = value.y;
-            GroupMemoryBarrierWithGroupSync();
-            SigmaN4PublishWide[threadIndex] = uint2(
-                SigmaN4PublishFlags[threadIndex],
-                SigmaN4PublishFlagsHigh[threadIndex]);
-            GroupMemoryBarrierWithGroupSync();
+            uint index = componentScanRound * 256u + threadIndex;
+            if (index < _NativeCanonicalImageStride)
+            {
+                uint2 value = 0u;
+                if (index < componentCount)
+                {
+                    value = _NativeCloseScratch[
+                        SigmaN4PublishImageAddress(sourceImage, index)];
+                    if (componentScanStride < _NativeCanonicalImageStride &&
+                        index >= componentScanStride)
+                        value += _NativeCloseScratch[
+                            SigmaN4PublishImageAddress(sourceImage,
+                                index - componentScanStride)];
+                }
+                _NativeCloseScratch[SigmaN4PublishImageAddress(targetImage,
+                    index)] = value;
+            }
         }
-        uint2 carry = SigmaN4PublishCarry;
-        uint blockCount = min(256u, componentCount - block);
-        if (index < componentCount)
-            _NativeCloseScratch[SigmaN4PublishImageAddress(
-                SIGMA_N4_COMPONENT_SCAN_IMAGE, index)] =
-                SigmaN4PublishWide[threadIndex] + carry;
-        GroupMemoryBarrierWithGroupSync();
-        if (threadIndex == 0u)
-            SigmaN4PublishCarry = carry +
-                SigmaN4PublishWide[blockCount - 1u];
-        GroupMemoryBarrierWithGroupSync();
+        DeviceMemoryBarrierWithGroupSync();
+        sourceIsScan = !sourceIsScan;
+        componentScanStride <<= 1u;
     }
+
+    [loop]
+    for (uint componentScanCopyRound = 0u;
+         componentScanCopyRound < fixedRounds; ++componentScanCopyRound)
+    {
+        uint index = componentScanCopyRound * 256u + threadIndex;
+        if (!sourceIsScan && index < componentCount)
+            _NativeCloseScratch[SigmaN4PublishImageAddress(
+                SIGMA_N4_COMPONENT_SCAN_IMAGE, index)] = _NativeCloseScratch[
+                    SigmaN4PublishImageAddress(SIGMA_N4_RADIX_TEMP_IMAGE,
+                        index)];
+    }
+    DeviceMemoryBarrierWithGroupSync();
 }
 
 uint SigmaN4PublishVisibleSlot(uint logicalPage)
@@ -2559,14 +2674,15 @@ bool SigmaN4PublishAppendRefinementChild(uint activeIndex, uint child,
     bool occupied = false;
     uint memberCount = min(refinement.x, 4u);
     [loop]
-    for (uint ordinal = 0u; ordinal < memberCount; ++ordinal)
+    for (uint memberOrdinal = 0u; memberOrdinal < memberCount;
+         ++memberOrdinal)
     {
         uint mapped = (refinement.y >>
-            (SIGMA_N4_REFINEMENT_CHILD_SHIFT + ordinal * 2u)) & 3u;
+            (SIGMA_N4_REFINEMENT_CHILD_SHIFT + memberOrdinal * 2u)) & 3u;
         if (!occupied && mapped == child)
         {
             stateFootprint = SigmaN4PublishRefinementMember(activeIndex,
-                ordinal);
+                memberOrdinal);
             occupied = true;
         }
     }
@@ -2760,8 +2876,8 @@ uint SigmaN4PublishChildRadixDigit(uint candidate, uint digit)
 void SigmaN4PublishSortRefinementChildren(uint threadIndex,
     uniform uint childCount)
 {
-    uint chunk = (childCount + 255u) / 256u;
-    uint begin = min(threadIndex * chunk, childCount);
+    uint chunk = (_NativeMutationCapacity + 255u) / 256u;
+    uint begin = threadIndex * chunk;
     [loop]
     for (uint digit = 0u; digit < 40u; ++digit)
     {
@@ -2769,15 +2885,17 @@ void SigmaN4PublishSortRefinementChildren(uint threadIndex,
         uint localCounts[16];
         uint localOffsets[16];
         [unroll]
-        for (uint bin = 0u; bin < 16u; ++bin)
+        for (uint initializeChildBin = 0u; initializeChildBin < 16u;
+             ++initializeChildBin)
         {
-            localCounts[bin] = 0u;
-            localOffsets[bin] = 0u;
+            localCounts[initializeChildBin] = 0u;
+            localOffsets[initializeChildBin] = 0u;
         }
         [loop]
-        for (uint local = 0u; local < chunk; ++local)
+        for (uint countChildLocal = 0u; countChildLocal < chunk;
+             ++countChildLocal)
         {
-            uint index = begin + local;
+            uint index = begin + countChildLocal;
             if (index < childCount)
             {
                 uint candidate = _NativeCloseScratch[sourceWork
@@ -2788,9 +2906,10 @@ void SigmaN4PublishSortRefinementChildren(uint threadIndex,
             }
         }
         [unroll]
-        for (uint bin = 0u; bin < 16u; ++bin)
-            SigmaN4PublishRadixCounts[bin * 256u + threadIndex] =
-                localCounts[bin];
+        for (uint publishChildBin = 0u; publishChildBin < 16u;
+             ++publishChildBin)
+            SigmaN4PublishRadixCounts[publishChildBin * 256u + threadIndex] =
+                localCounts[publishChildBin];
         GroupMemoryBarrierWithGroupSync();
         if (threadIndex < 16u)
         {
@@ -2810,28 +2929,32 @@ void SigmaN4PublishSortRefinementChildren(uint threadIndex,
         {
             uint prefix = 0u;
             [unroll]
-            for (uint bin = 0u; bin < 16u; ++bin)
+            for (uint baseChildBin = 0u; baseChildBin < 16u;
+                 ++baseChildBin)
             {
-                uint count = SigmaN4PublishRadixBase[bin];
-                SigmaN4PublishRadixBase[bin] = prefix;
+                uint count = SigmaN4PublishRadixBase[baseChildBin];
+                SigmaN4PublishRadixBase[baseChildBin] = prefix;
                 prefix += count;
             }
         }
         GroupMemoryBarrierWithGroupSync();
         [loop]
-        for (uint local = 0u; local < chunk; ++local)
+        for (uint scatterChildLocal = 0u; scatterChildLocal < chunk;
+             ++scatterChildLocal)
         {
-            uint index = begin + local;
+            uint index = begin + scatterChildLocal;
             if (index < childCount)
             {
                 uint sourceAddress = sourceWork
                     ? SigmaN4PublishTargetWorkAddress(index)
                     : SigmaN4PublishTargetTempAddress(index);
                 uint candidate = _NativeCloseScratch[sourceAddress].x;
-                uint bin = SigmaN4PublishChildRadixDigit(candidate, digit);
-                uint output = SigmaN4PublishRadixBase[bin] +
-                    SigmaN4PublishRadixCounts[bin * 256u + threadIndex] +
-                    localOffsets[bin]++;
+                uint childBin = SigmaN4PublishChildRadixDigit(candidate,
+                    digit);
+                uint output = SigmaN4PublishRadixBase[childBin] +
+                    SigmaN4PublishRadixCounts[
+                        childBin * 256u + threadIndex] +
+                    localOffsets[childBin]++;
                 _NativeCloseScratch[sourceWork
                     ? SigmaN4PublishTargetTempAddress(output)
                     : SigmaN4PublishTargetWorkAddress(output)] =
@@ -2944,20 +3067,18 @@ uint SigmaN4PublishCompleteRefinementTargetPlan(uint threadIndex,
     uniform uint oldExtent, uniform uint childCount)
 {
     uint logicalCapacity = SigmaN4PublishLogicalCapacity();
-    uint oldRounds = (oldExtent + 255u) / 256u;
-    if (childCount > logicalCapacity)
-    {
-        if (threadIndex == 0u) SigmaN4PublishFault = 1u;
-        return 0u;
-    }
-    if (childCount == 0u)
-        return 0u;
+    bool childCountValid = childCount <= logicalCapacity;
+    uint safeChildCount = childCountValid ? childCount : 0u;
+    if (threadIndex == 0u && !childCountValid)
+        SigmaN4PublishFault = 1u;
+    uint logicalRounds = (logicalCapacity + 255u) / 256u;
+    uint childRounds = (_NativeMutationCapacity + 255u) / 256u;
 
     // Capture support-marker meaning before its large disposable range changes
     // lifetime into the target-order radix work/temp pair.  This history-sized
-    // walk is refinement-only; the ordinary/no-change hot path returned above.
+    // walk is bounded by the fixed logical carrier capacity.
     [loop]
-    for (uint captureRound = 0u; captureRound < oldRounds; ++captureRound)
+    for (uint captureRound = 0u; captureRound < logicalRounds; ++captureRound)
     {
         uint logical = captureRound * 256u + threadIndex;
         if (logical < oldExtent)
@@ -2974,6 +3095,8 @@ uint SigmaN4PublishCompleteRefinementTargetPlan(uint threadIndex,
                 sourceSlot * SIGMA_PAGE_SAMPLE_COUNT + sourceSample,
                 activeIndex, refinement);
             SigmaNativeGaugeDeltaGpu scratch = (SigmaNativeGaugeDeltaGpu)0;
+            scratch.Coordinate.x = observed &&
+                refinement == SIGMA_N4_REFINEMENT_PROVED ? 1u : 0u;
             scratch.Witness = uint4(observed ? activeIndex + 1u : 0u,
                 refinement, sourceSlot, sourceSample);
             _NativeGaugeDeltas[logical] = scratch;
@@ -2985,18 +3108,17 @@ uint SigmaN4PublishCompleteRefinementTargetPlan(uint threadIndex,
         }
     }
     DeviceMemoryBarrierWithGroupSync();
-    uint childRounds = (childCount + 255u) / 256u;
     [loop]
     for (uint initializeChildRound = 0u;
          initializeChildRound < childRounds; ++initializeChildRound)
     {
         uint candidate = initializeChildRound * 256u + threadIndex;
-        if (candidate < childCount)
+        if (candidate < safeChildCount)
             _NativeCloseScratch[SigmaN4PublishTargetWorkAddress(candidate)] =
                 uint2(candidate, 0u);
     }
     DeviceMemoryBarrierWithGroupSync();
-    SigmaN4PublishSortRefinementChildren(threadIndex, childCount);
+    SigmaN4PublishSortRefinementChildren(threadIndex, safeChildCount);
 
     // The old dense stream must already be canonical.  Equal generated child
     // keys or collision with a retained old locality are real unresolved
@@ -3005,7 +3127,7 @@ uint SigmaN4PublishCompleteRefinementTargetPlan(uint threadIndex,
     for (uint childRound = 0u; childRound < childRounds; ++childRound)
     {
         uint position = childRound * 256u + threadIndex;
-        if (position < childCount)
+        if (position < safeChildCount)
         {
             uint candidate = _NativeCloseScratch[
                 SigmaN4PublishTargetWorkAddress(position)].x;
@@ -3028,49 +3150,60 @@ uint SigmaN4PublishCompleteRefinementTargetPlan(uint threadIndex,
     }
     DeviceMemoryBarrierWithGroupSync();
 
-    if (threadIndex == 0u) SigmaN4PublishCarry = 0u;
-    GroupMemoryBarrierWithGroupSync();
+    // GaugeDelta.Coordinate.x and TargetTemp.x alternate as one fixed-capacity
+    // inclusive scan. Runtime extent predicates payload only; every lane reaches
+    // the same device synchronization count.
+    bool prefixSourceGauge = true;
+    uint prefixStride = 1u;
     [loop]
-    for (uint block = 0u; block < oldExtent; block += 256u)
+    for (uint prefixPass = 0u;
+         prefixPass < SIGMA_N4_LOGICAL_CAPACITY_MAX_LOG2;
+         ++prefixPass)
     {
-        uint logical = block + threadIndex;
-        uint refined = logical < oldExtent &&
-            _NativeGaugeDeltas[logical].Witness.x != 0u &&
-            _NativeGaugeDeltas[logical].Witness.y ==
-                SIGMA_N4_REFINEMENT_PROVED ? 1u : 0u;
-        SigmaN4PublishWide[threadIndex] = uint2(refined, 0u);
-        GroupMemoryBarrierWithGroupSync();
-        [unroll]
-        for (uint stride = 1u; stride < 256u; stride <<= 1u)
+        [loop]
+        for (uint prefixRound = 0u; prefixRound < logicalRounds;
+             ++prefixRound)
         {
-            uint value = SigmaN4PublishWide[threadIndex].x;
-            if (threadIndex >= stride)
-                value += SigmaN4PublishWide[threadIndex - stride].x;
-            SigmaN4PublishFlags[threadIndex] = value;
-            GroupMemoryBarrierWithGroupSync();
-            SigmaN4PublishWide[threadIndex].x =
-                SigmaN4PublishFlags[threadIndex];
-            GroupMemoryBarrierWithGroupSync();
+            uint index = prefixRound * 256u + threadIndex;
+            if (index < logicalCapacity)
+            {
+                uint value = 0u;
+                if (index < oldExtent)
+                {
+                    value = prefixSourceGauge
+                        ? _NativeGaugeDeltas[index].Coordinate.x
+                        : _NativeCloseScratch[
+                            SigmaN4PublishTargetTempAddress(index)].x;
+                    if (index >= prefixStride)
+                        value += prefixSourceGauge
+                            ? _NativeGaugeDeltas[
+                                index - prefixStride].Coordinate.x
+                            : _NativeCloseScratch[
+                                SigmaN4PublishTargetTempAddress(
+                                    index - prefixStride)].x;
+                }
+                if (prefixSourceGauge)
+                {
+                    _NativeCloseScratch[
+                        SigmaN4PublishTargetTempAddress(index)].x = value;
+                }
+                else
+                {
+                    SigmaNativeGaugeDeltaGpu scratch =
+                        _NativeGaugeDeltas[index];
+                    scratch.Coordinate.x = value;
+                    _NativeGaugeDeltas[index] = scratch;
+                }
+            }
         }
-        if (logical < oldExtent)
-        {
-            uint prefix = SigmaN4PublishCarry.x +
-                SigmaN4PublishWide[threadIndex].x;
-            uint observed = _NativeGaugeDeltas[logical].Witness.x != 0u
-                ? 0x40000000u : 0u;
-            _NativeCloseScratch[SigmaN4PublishTargetTempAddress(logical)] =
-                uint2(prefix | observed | (refined << 31u), 0u);
-        }
-        GroupMemoryBarrierWithGroupSync();
-        uint blockCount = min(256u, oldExtent - block);
-        if (threadIndex == 0u)
-            SigmaN4PublishCarry.x +=
-                SigmaN4PublishWide[blockCount - 1u].x;
-        GroupMemoryBarrierWithGroupSync();
+        DeviceMemoryBarrierWithGroupSync();
+        prefixSourceGauge = !prefixSourceGauge;
+        prefixStride <<= 1u;
     }
 
     [loop]
-    for (uint oldRankRound = 0u; oldRankRound < oldRounds; ++oldRankRound)
+    for (uint oldRankRound = 0u; oldRankRound < logicalRounds;
+         ++oldRankRound)
     {
         uint logical = oldRankRound * 256u + threadIndex;
         if (logical < oldExtent)
@@ -3081,16 +3214,21 @@ uint SigmaN4PublishCompleteRefinementTargetPlan(uint threadIndex,
             uint level;
             uint valid = SigmaN4PublishSourceLogical(logical, sourceSlot,
                 sourceSample, coordinate, level) ? 1u : 0u;
+            uint prefix = prefixSourceGauge
+                ? _NativeGaugeDeltas[logical].Coordinate.x
+                : _NativeCloseScratch[
+                    SigmaN4PublishTargetTempAddress(logical)].x;
+            bool observed = _NativeGaugeDeltas[logical].Witness.x != 0u;
+            bool refined = _NativeGaugeDeltas[logical].Witness.y ==
+                SIGMA_N4_REFINEMENT_PROVED;
             uint childBefore = SigmaN4PublishChildLowerBound(coordinate,
-                level, childCount, valid);
-            uint2 receipt = _NativeCloseScratch[
-                SigmaN4PublishTargetTempAddress(logical)];
-            uint prefix = receipt.x & 0x3fffffffu;
-            uint refined = receipt.x >> 31u;
-            uint refinedBefore = prefix - refined;
-            receipt.y = logical - refinedBefore + childBefore;
+                level, safeChildCount, valid);
+            uint refinedBefore = prefix - (refined ? 1u : 0u);
+            uint target = logical - refinedBefore + childBefore;
             _NativeCloseScratch[SigmaN4PublishTargetTempAddress(logical)] =
-                receipt;
+                uint2(prefix |
+                    (observed ? 0x40000000u : 0u) |
+                    (refined ? 0x80000000u : 0u), target);
             if (valid == 0u)
             {
                 uint ignored;
@@ -3105,7 +3243,7 @@ uint SigmaN4PublishCompleteRefinementTargetPlan(uint threadIndex,
          ++childRankRound)
     {
         uint position = childRankRound * 256u + threadIndex;
-        if (position < childCount)
+        if (position < safeChildCount)
         {
             uint candidate = _NativeCloseScratch[
                 SigmaN4PublishTargetWorkAddress(position)].x;
@@ -3156,7 +3294,7 @@ uint SigmaN4PublishCompleteRefinementTargetPlan(uint threadIndex,
     // Relocation appends only records not already owned by a current support
     // contraction/refinement mutation.
     [loop]
-    for (uint relocationRound = 0u; relocationRound < oldRounds;
+    for (uint relocationRound = 0u; relocationRound < logicalRounds;
          ++relocationRound)
     {
         uint logical = relocationRound * 256u + threadIndex;
@@ -3184,7 +3322,7 @@ uint SigmaN4PublishCompleteRefinementTargetPlan(uint threadIndex,
         }
     }
     DeviceMemoryBarrierWithGroupSync();
-    return childCount >> 2u;
+    return childCountValid ? (safeChildCount >> 2u) : 0u;
 }
 
 [numthreads(256, 1, 1)]
@@ -3311,6 +3449,7 @@ void PrepareNativeRevision(uint3 threadId : SV_GroupThreadID)
     }
     DeviceMemoryBarrierWithGroupSync();
 
+    SigmaN4PublishCacheSelectedCoordinates(threadIndex);
     SigmaN4PublishBuildRefinementGroups(threadIndex);
 
     uint componentCount;
@@ -3326,10 +3465,10 @@ void PrepareNativeRevision(uint3 threadId : SV_GroupThreadID)
         {
             uint source = _NativeCloseScratch[
                 SigmaN4PublishPlanAddress(page, 0u)].y;
-            uint active = source == SIGMA_N4_INVALID ? 0u :
-                _NativeSourcePageMetadata[source].activeSampleCount;
-            oldExtent = max(oldExtent,
-                page * SIGMA_PAGE_SAMPLE_COUNT + active);
+            if (source != SIGMA_N4_INVALID)
+                oldExtent = max(oldExtent,
+                    page * SIGMA_PAGE_SAMPLE_COUNT +
+                    _NativeSourcePageMetadata[source].activeSampleCount);
         }
     }
     SigmaN4PublishWide[threadIndex] = uint2(oldExtent, 0u);
@@ -3349,7 +3488,8 @@ void PrepareNativeRevision(uint3 threadId : SV_GroupThreadID)
     uint refinementCount = SigmaN4PublishBuildRefinementTargetPlan(
         threadIndex, oldExtent, _NativeCounters[3u].w);
 
-    uint componentMutationRounds = (componentCount + 255u) / 256u;
+    uint componentMutationRounds =
+        (_NativeCanonicalComponentCapacity + 255u) / 256u;
     [loop]
     for (uint componentMutationRound = 0u;
          componentMutationRound < componentMutationRounds;
@@ -3767,10 +3907,10 @@ void CloseAndPublishNativeRevision(uint3 threadId : SV_GroupThreadID)
     SigmaNativeFrameGpu frame = _NativeFrames[0u];
     uint touched = frame.Publication.y;
     [loop]
-    for (uint planIndex = threadIndex; planIndex < touched;
-         planIndex += 256u)
+    for (uint validatePagePlanIndex = threadIndex;
+         validatePagePlanIndex < touched; validatePagePlanIndex += 256u)
     {
-        uint address = SigmaN4PublishPlanAddress(planIndex, 0u);
+        uint address = SigmaN4PublishPlanAddress(validatePagePlanIndex, 0u);
         uint2 plan0 = _NativeSourceCarrierState[address];
         uint2 plan1 = _NativeSourceCarrierState[address + 1u];
         uint2 plan2 = _NativeSourceCarrierState[address + 2u];
@@ -3808,10 +3948,10 @@ void CloseAndPublishNativeRevision(uint3 threadId : SV_GroupThreadID)
     }
 
     [loop]
-    for (uint planIndex = threadIndex; planIndex < touched;
-         planIndex += 256u)
+    for (uint publishPagePlanIndex = threadIndex;
+         publishPagePlanIndex < touched; publishPagePlanIndex += 256u)
     {
-        uint address = SigmaN4PublishPlanAddress(planIndex, 0u);
+        uint address = SigmaN4PublishPlanAddress(publishPagePlanIndex, 0u);
         uint2 plan0 = _NativeSourceCarrierState[address];
         uint2 plan1 = _NativeSourceCarrierState[address + 1u];
         uint2 plan2 = _NativeSourceCarrierState[address + 2u];

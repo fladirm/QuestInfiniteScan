@@ -1209,11 +1209,25 @@ namespace Genesis.RoomScan.Tests
             scratch.NativeFrame.GetData(terminal);
             var debugCounters = new UInt4[scratch.Counters.count];
             scratch.Counters.GetData(debugCounters);
+            var debugPlan = new UInt2[4];
+            scratch.CloseScratch.GetData(debugPlan, 0,
+                scratch.PagePlanScratchOffset, debugPlan.Length);
+            var debugScan = new UInt2[1];
+            scratch.CloseScratch.GetData(debugScan, 0,
+                scratch.CanonicalImageScratchOffset +
+                    9 * scratch.CanonicalImageStride, 1);
             Assert.That(published[0], Is.EqualTo(1u),
                 $"disposition={terminal[0].Disposition.X}/" +
                 $"{terminal[0].Disposition.Y}/" +
                 $"{terminal[0].Disposition.Z}/" +
-                $"{terminal[0].Disposition.W}, counters=" +
+                $"{terminal[0].Disposition.W}, publication=" +
+                $"{terminal[0].Publication.X}/" +
+                $"{terminal[0].Publication.Y}/" +
+                $"{terminal[0].Publication.Z}/" +
+                $"{terminal[0].Publication.W}, plan=" +
+                string.Join(",", debugPlan.Select(value =>
+                    $"{value.Low}/{value.High}")) +
+                $", scan={debugScan[0].Low}/{debugScan[0].High}, counters=" +
                 string.Join(";", debugCounters.Select(value =>
                     $"{value.X}/{value.Y}/{value.Z}/{value.W}")));
             Assert.That(terminal[0].Disposition.X,
