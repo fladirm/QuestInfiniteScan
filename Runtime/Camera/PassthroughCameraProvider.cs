@@ -32,6 +32,10 @@ namespace Genesis.RoomScan
         [SerializeField] private int maxFramerate = 30;
 
         private PassthroughCameraAccess _pca;
+        private bool _ownsPca;
+
+        internal PassthroughCameraAccess CameraAccess => _pca;
+        internal bool OwnsCameraAccess => _ownsPca;
 
         /// <inheritdoc />
         public bool IsReady => _pca != null && _pca.IsPlaying && _pca.IsUpdatedThisFrame;
@@ -132,12 +136,14 @@ namespace Genesis.RoomScan
             // self-disables and from then on neither one plays.
             if (_pca == null)
             {
+                _ownsPca = false;
                 _pca = FindAnyObjectByType<PassthroughCameraAccess>(FindObjectsInactive.Include);
                 if (_pca == null)
                 {
-                    Logger.Warning("PassthroughCameraProvider: no PassthroughCameraAccess in scene — adding one to " +
-                                   $"'{gameObject.name}'. Prefer letting Meta's Building Block place it on the OVRCameraRig.");
-                    _pca = gameObject.AddComponent<PassthroughCameraAccess>();
+                    Logger.Warning("PassthroughCameraProvider: no PassthroughCameraAccess in scene — " +
+                                   "creating a provider-owned instance. Prefer letting Meta's Building Block place it on the OVRCameraRig.");
+                    _pca = CreateOwnedPca();
+                    _ownsPca = true;
                 }
                 else
                 {
@@ -145,27 +151,57 @@ namespace Genesis.RoomScan
                 }
             }
 
-            // PCA forbids MaxFramerate changes while running. Drive it disabled
-            // for the property writes, then re-enable so OnEnable runs cleanly.
-            // No-op if it was already disabled.
-            bool wasEnabled = _pca.enabled;
-            if (wasEnabled) _pca.enabled = false;
-            _pca.CameraPosition = cameraPosition;
-            _pca.RequestedResolution = requestedResolution;
-            _pca.MaxFramerate = maxFramerate;
+            // A scene/building-block PCA may already own the active native
+            // camera stream before scanner START. Borrow it as-is: bouncing
+            // enabled would stop/restart cam2bridge, and MaxFramerate cannot be
+            // changed while PCA is running. A faster producer is valid because
+            // the scanner consumes RGB only on its own integration cadence.
+            if (_pca.enabled || _pca.IsPlaying)
+                return;
+
+            // An inactive PCA can be configured safely before it is enabled.
+            // This also handles restarting a provider-owned PCA after STOP.
+            ApplyConfiguration(_pca);
             _pca.enabled = true;
         }
 
         /// <inheritdoc />
         public void StopCapture()
         {
-            if (_pca != null)
+            // A scene/building-block PCA is shared infrastructure. Its native
+            // lifetime is not owned by this provider and scanner STOP must not
+            // interrupt it.
+            if (_ownsPca && _pca != null)
                 _pca.enabled = false;
         }
 
         private void OnDestroy()
         {
             StopCapture();
+        }
+
+        private PassthroughCameraAccess CreateOwnedPca()
+        {
+            // Keep the host inactive until configuration is complete so PCA's
+            // OnEnable cannot start the native stream with default settings.
+            var host = new GameObject("[RoomScan] Passthrough Camera Access");
+            host.transform.SetParent(transform, false);
+            host.SetActive(false);
+
+            var pca = host.AddComponent<PassthroughCameraAccess>();
+            pca.enabled = false;
+            ApplyConfiguration(pca);
+
+            host.SetActive(true);
+            pca.enabled = true;
+            return pca;
+        }
+
+        private void ApplyConfiguration(PassthroughCameraAccess pca)
+        {
+            pca.CameraPosition = cameraPosition;
+            pca.RequestedResolution = requestedResolution;
+            pca.MaxFramerate = maxFramerate;
         }
     }
 }

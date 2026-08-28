@@ -3,7 +3,8 @@
   "rootNamespace": "Genesis.RoomScan.Tests",
   "references": [
     "Genesis.RoomScan",
-    "Unity.Mathematics"
+    "Unity.Mathematics",
+    "meta.xr.mrutilitykit"
   ],
   "includePlatforms": [
     "Editor"
