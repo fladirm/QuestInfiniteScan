@@ -201,6 +201,55 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
+        public void RenderResidency_IsIndependentStableAndKeepsTransientPagesVisible()
+        {
+            GameObject host = new("MerkabaResidencyCadenceFixture");
+            GameObject cameraHost = new("MerkabaResidencyCadenceCamera");
+            try
+            {
+                MerkabaGrid grid = host.AddComponent<MerkabaGrid>();
+                var serialized = new SerializedObject(grid);
+                serialized.FindProperty("maxResidentChunks").intValue = 16;
+                serialized.FindProperty("maxIntegrationChunks").intValue = 8;
+                serialized.FindProperty("maxVisibleChunks").intValue = 12;
+                serialized.ApplyModifiedPropertiesWithoutUndo();
+
+                KernelState occupied = default;
+                occupied.SetOccupiedForFixture(true, Red);
+                int3 renderOnlyChunk = new(0, 0, 2);
+                grid.SetState(MerkabaConstants.ChunkOrigin(renderOnlyChunk), occupied);
+
+                Camera camera = cameraHost.AddComponent<Camera>();
+                camera.nearClipPlane = 0.05f;
+                camera.farClipPlane = 5f;
+                camera.fieldOfView = 90f;
+                MerkabaResidencyFrame integration = grid.RefreshResidency(camera,
+                    1f, true);
+                Assert.That(integration.IntegrationChunkCount, Is.GreaterThan(0));
+                int integrationCount = grid.IntegrationChunkCount;
+
+                grid.RefreshResidency(camera, 2f, false);
+                Assert.That(grid.IntegrationChunkCount, Is.EqualTo(integrationCount),
+                    "render-cadence refresh must not overwrite the 15 Hz integration set");
+                HashSet<int3> first = VisibleChunkCoords(grid);
+                Assert.That(first, Does.Contain(renderOnlyChunk),
+                    "render distance must publish canonical chunks outside integration range");
+                Assert.That(grid.TransientResidentPageCount, Is.GreaterThan(0));
+
+                camera.transform.position += new Vector3(0.05f, 0f, 0f);
+                grid.RefreshResidency(camera, 2f, false);
+                HashSet<int3> afterSmallMove = VisibleChunkCoords(grid);
+                Assert.That(afterSmallMove.SetEquals(first), Is.True,
+                    "one-chunk guard/hysteresis must prevent 5 cm page churn");
+            }
+            finally
+            {
+                Object.DestroyImmediate(cameraHost);
+                Object.DestroyImmediate(host);
+            }
+        }
+
+        [Test]
         public void InvalidDilationNormalAndBehindDepthRemainUnknownAndNonDestructive()
         {
             KernelState state = default;
@@ -229,6 +278,18 @@ namespace Genesis.RoomScan.Tests
                 true, true, true, kernelDistance, measuredDistance,
                 kernelDistance, measuredDistance, measuredDistance + 0.1f,
                 normalFacing, maxDistance);
+
+        private static HashSet<int3> VisibleChunkCoords(MerkabaGrid grid)
+        {
+            var visible = new int[grid.VisibleSlotsBuffer.count];
+            var pages = new int4[grid.PageCoordsBuffer.count];
+            grid.VisibleSlotsBuffer.GetData(visible);
+            grid.PageCoordsBuffer.GetData(pages);
+            var result = new HashSet<int3>();
+            for (int i = 0; i < grid.VisibleChunkCount; i++)
+                result.Add(pages[visible[i]].xyz);
+            return result;
+        }
 
         private static MerkabaObservationInput FreeInput(float kernelDistance,
             float measuredDistance, float normalFacing, float maxDistance) => new(

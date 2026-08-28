@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using Genesis.RoomScan;
 using NUnit.Framework;
@@ -174,6 +175,9 @@ namespace Genesis.RoomScan.Tests
             using var stateBuffer = new ComputeBuffer(stateCount, 16);
             using var pageBuffer = new ComputeBuffer(pageCount, 16);
             using var neighbourBuffer = new ComputeBuffer(pageCount * 27, sizeof(int));
+            using var summaryHashBuffer = EmptySummaryHash(out int summaryHashCapacity);
+            using var summaryWordsBuffer = new ComputeBuffer(
+                MerkabaConstants.BoundaryWordCount, sizeof(uint));
             using var visibleBuffer = new ComputeBuffer(pageCount, sizeof(int));
             using var dirtyBuffer = new ComputeBuffer(stateCount, sizeof(uint));
             using var maskBuffer = new ComputeBuffer(stateCount, sizeof(uint));
@@ -183,6 +187,7 @@ namespace Genesis.RoomScan.Tests
             stateBuffer.SetData(states);
             pageBuffer.SetData(pageCoords);
             neighbourBuffer.SetData(neighbours);
+            summaryWordsBuffer.SetData(new uint[MerkabaConstants.BoundaryWordCount]);
             visibleBuffer.SetData(visible);
             dirtyBuffer.SetData(dirty);
             maskBuffer.SetData(masks);
@@ -191,11 +196,14 @@ namespace Genesis.RoomScan.Tests
             compute.SetBuffer(kernel, "_MerkabaKernels", stateBuffer);
             compute.SetBuffer(kernel, "_MerkabaPageCoords", pageBuffer);
             compute.SetBuffer(kernel, "_MerkabaPageNeighbours", neighbourBuffer);
+            compute.SetBuffer(kernel, "_MerkabaBoundarySummaryHash", summaryHashBuffer);
+            compute.SetBuffer(kernel, "_MerkabaBoundarySummaryWords", summaryWordsBuffer);
             compute.SetBuffer(kernel, "_MerkabaVisibleSlots", visibleBuffer);
             compute.SetBuffer(kernel, "_MerkabaKernelDirty", dirtyBuffer);
             compute.SetBuffer(kernel, "_MerkabaTopologyMasks", maskBuffer);
             compute.SetBuffer(kernel, "_MerkabaRenderRecords", records);
             compute.SetInt("_MerkabaVisibleChunkCount", pageCount);
+            compute.SetInt("_MerkabaBoundarySummaryHashCapacity", summaryHashCapacity);
             compute.Dispatch(kernel, stateCount / 64, 1, 1);
             ComputeBuffer.CopyCount(records, countBuffer, 0);
             var count = new uint[1];
@@ -214,6 +222,154 @@ namespace Genesis.RoomScan.Tests
                 Assert.That(gpuMasks[coord], Is.EqualTo(expected),
                     $"GPU direct primitive rule diverged at {coord}");
             }
+        }
+
+        [Test, Timeout(30000)]
+        public void ProductionGpuTopology_IsIdenticalForResidentPendingSummaryAndReloaded()
+        {
+            Assert.That(MerkabaConstants.BoundaryWordCount * sizeof(uint),
+                Is.EqualTo(768));
+            // Cross x/y/z chunk borders at once: target local coord is (31,0,0),
+            // proving a face summary also answers edge/corner chunk transitions.
+            int3 source = new(0, 31, 31);
+            int3 neighbour = new(-1, 32, 32);
+            uint expected = MerkabaCanonicalGeometry.ActivePrimitiveMask(source,
+                coord => coord.Equals(source) || coord.Equals(neighbour));
+
+            DispatchGridResidencyMasks(source, neighbour, out uint summarized,
+                out uint resident, out uint pending, out uint reloaded);
+
+            Assert.That(resident, Is.EqualTo(expected));
+            Assert.That(pending, Is.EqualTo(resident),
+                "pending eviction must retain the live neighbour occupancy");
+            Assert.That(summarized, Is.EqualTo(resident),
+                "nonresident canonical halo must equal resident occupancy");
+            Assert.That(reloaded, Is.EqualTo(resident));
+        }
+
+        private static void DispatchGridResidencyMasks(int3 source, int3 neighbour,
+            out uint summarized, out uint resident, out uint pending,
+            out uint reloaded)
+        {
+            GameObject host = new("MerkabaPendingResidencyFixture");
+            try
+            {
+                MerkabaGrid grid = host.AddComponent<MerkabaGrid>();
+                var serialized = new SerializedObject(grid);
+                serialized.FindProperty("maxResidentChunks").intValue = 16;
+                serialized.FindProperty("maxIntegrationChunks").intValue = 8;
+                serialized.FindProperty("maxVisibleChunks").intValue = 8;
+                serialized.ApplyModifiedPropertiesWithoutUndo();
+
+                KernelState occupied = default;
+                occupied.SetOccupiedForFixture(true, new Color32(30, 60, 90, 255));
+                grid.SetState(source, occupied);
+                grid.SetState(neighbour, occupied);
+                grid.EnsureGpuResources();
+
+                MethodInfo ensure = typeof(MerkabaGrid).GetMethod("EnsureResident",
+                    BindingFlags.Instance | BindingFlags.NonPublic);
+                MethodInfo rebuild = typeof(MerkabaGrid).GetMethod(
+                    "RebuildPageTablesAndDirtyLocal",
+                    BindingFlags.Instance | BindingFlags.NonPublic);
+                Assert.That(ensure, Is.Not.Null);
+                Assert.That(rebuild, Is.Not.Null);
+                var changed = new List<int3>();
+                int3 sourceChunk = MerkabaConstants.ChunkCoord(source);
+                int3 neighbourChunk = MerkabaConstants.ChunkCoord(neighbour);
+                object sourcePage = ensure.Invoke(grid,
+                    new object[] { sourceChunk, false, changed });
+                rebuild.Invoke(grid, new object[] { changed });
+                Type pageType = sourcePage.GetType();
+                int sourceSlot = (int)pageType.GetField("Slot").GetValue(sourcePage);
+                int localIndex = MerkabaConstants.Flatten(
+                    MerkabaConstants.LocalCoord(source));
+                summarized = DispatchGridVisibleMask(grid, sourceSlot, localIndex);
+
+                changed.Clear();
+                object neighbourPage = ensure.Invoke(grid,
+                    new object[] { neighbourChunk, false, changed });
+                rebuild.Invoke(grid, new object[] { changed });
+                resident = DispatchGridVisibleMask(grid, sourceSlot, localIndex);
+                int neighbourSlot = (int)pageType.GetField("Slot").GetValue(neighbourPage);
+                pageType.GetField("PendingEviction").SetValue(neighbourPage, true);
+                rebuild.Invoke(grid, new object[] { new List<int3> { neighbourChunk } });
+
+                var pageNeighbours = new int[16 * 27];
+                grid.PageNeighboursBuffer.GetData(pageNeighbours);
+                int3 delta = neighbourChunk - sourceChunk;
+                int lookup = (delta.x + 1) + 3 * (delta.y + 1) +
+                             9 * (delta.z + 1);
+                Assert.That(pageNeighbours[sourceSlot * 27 + lookup],
+                    Is.EqualTo(neighbourSlot),
+                    "pending page was removed from the live topology table");
+                pending = DispatchGridVisibleMask(grid, sourceSlot, localIndex);
+
+                pageType.GetField("PendingEviction").SetValue(neighbourPage, false);
+                rebuild.Invoke(grid, new object[] { new List<int3> { neighbourChunk } });
+                reloaded = DispatchGridVisibleMask(grid, sourceSlot, localIndex);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(host);
+            }
+        }
+
+        private static uint DispatchGridVisibleMask(MerkabaGrid grid, int visibleSlot,
+            int localIndex)
+        {
+            ComputeShader compute = LoadCompute("MerkabaTopology.compute");
+            int kernel = compute.FindKernel("BuildVisibleRecords");
+            grid.VisibleSlotsBuffer.SetData(new[] { visibleSlot }, 0, 0, 1);
+            var dirty = new[] { 1u };
+            grid.KernelDirtyBuffer.SetData(dirty, 0,
+                visibleSlot * MerkabaConstants.KernelsPerChunk + localIndex, 1);
+            using var records = new ComputeBuffer(1, 32, ComputeBufferType.Append);
+            records.SetCounterValue(0);
+            BindTopology(compute, kernel, grid.KernelBuffer, grid.PageCoordsBuffer,
+                grid.PageNeighboursBuffer, grid.BoundarySummaryHashBuffer,
+                grid.BoundarySummaryWordsBuffer, grid.VisibleSlotsBuffer,
+                grid.KernelDirtyBuffer, grid.TopologyMaskBuffer, records,
+                grid.BoundarySummaryHashEntryCount);
+            compute.Dispatch(kernel, MerkabaConstants.KernelsPerChunk / 64, 1, 1);
+            var output = new RenderRecord[1];
+            records.GetData(output);
+            return output[0].ActiveMask;
+        }
+
+        private static void BindTopology(ComputeShader compute, int kernel,
+            ComputeBuffer states, ComputeBuffer pages, ComputeBuffer neighbours,
+            ComputeBuffer summaryHash, ComputeBuffer summaryWords,
+            ComputeBuffer visible, ComputeBuffer dirty, ComputeBuffer masks,
+            ComputeBuffer records, int summaryHashCapacity)
+        {
+            compute.SetBuffer(kernel, "_MerkabaKernels", states);
+            compute.SetBuffer(kernel, "_MerkabaPageCoords", pages);
+            compute.SetBuffer(kernel, "_MerkabaPageNeighbours", neighbours);
+            compute.SetBuffer(kernel, "_MerkabaBoundarySummaryHash", summaryHash);
+            compute.SetBuffer(kernel, "_MerkabaBoundarySummaryWords", summaryWords);
+            compute.SetBuffer(kernel, "_MerkabaVisibleSlots", visible);
+            compute.SetBuffer(kernel, "_MerkabaKernelDirty", dirty);
+            compute.SetBuffer(kernel, "_MerkabaTopologyMasks", masks);
+            compute.SetBuffer(kernel, "_MerkabaRenderRecords", records);
+            compute.SetInt("_MerkabaVisibleChunkCount", 1);
+            compute.SetInt("_MerkabaBoundarySummaryHashCapacity",
+                summaryHashCapacity);
+        }
+
+        private static ComputeBuffer EmptySummaryHash(out int capacity)
+        {
+            capacity = 16;
+            var buffer = new ComputeBuffer(capacity, 16);
+            buffer.SetData(EmptySummaryHashData(capacity));
+            return buffer;
+        }
+
+        private static int4[] EmptySummaryHashData(int capacity)
+        {
+            var result = new int4[capacity];
+            Array.Fill(result, new int4(0, 0, 0, -1));
+            return result;
         }
 
         private static int3 GlobalCoord(int4[] pages, int stateIndex)

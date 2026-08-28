@@ -38,6 +38,12 @@ namespace Genesis.RoomScan
         private static readonly int KernelsId = Shader.PropertyToID("_MerkabaKernels");
         private static readonly int PageCoordsId = Shader.PropertyToID("_MerkabaPageCoords");
         private static readonly int PageNeighboursId = Shader.PropertyToID("_MerkabaPageNeighbours");
+        private static readonly int BoundarySummaryHashId =
+            Shader.PropertyToID("_MerkabaBoundarySummaryHash");
+        private static readonly int BoundarySummaryWordsId =
+            Shader.PropertyToID("_MerkabaBoundarySummaryWords");
+        private static readonly int BoundarySummaryHashCountId =
+            Shader.PropertyToID("_MerkabaBoundarySummaryHashCapacity");
         private static readonly int VisibleSlotsId = Shader.PropertyToID("_MerkabaVisibleSlots");
         private static readonly int DirtyId = Shader.PropertyToID("_MerkabaKernelDirty");
         private static readonly int MasksId = Shader.PropertyToID("_MerkabaTopologyMasks");
@@ -65,7 +71,10 @@ namespace Genesis.RoomScan
 
             RoomScanner scanner = RoomScanner.Instance;
             if (scanner == null || !scanner.IsScanning)
-                _grid.RefreshResidency(camera, renderDistance, false);
+                _grid.ClearIntegrationResidencyDemand();
+            // Render culling/residency runs at render cadence and retains its own
+            // distance; it is never inherited from the 15 Hz integration working set.
+            _grid.RefreshResidency(camera, renderDistance, false);
             if (_grid.VisibleChunkCount == 0) return;
 
             _renderRecords.SetCounterValue(0);
@@ -73,11 +82,17 @@ namespace Genesis.RoomScan
             topologyCompute.SetBuffer(_buildKernel, PageCoordsId, _grid.PageCoordsBuffer);
             topologyCompute.SetBuffer(_buildKernel, PageNeighboursId,
                 _grid.PageNeighboursBuffer);
+            topologyCompute.SetBuffer(_buildKernel, BoundarySummaryHashId,
+                _grid.BoundarySummaryHashBuffer);
+            topologyCompute.SetBuffer(_buildKernel, BoundarySummaryWordsId,
+                _grid.BoundarySummaryWordsBuffer);
             topologyCompute.SetBuffer(_buildKernel, VisibleSlotsId, _grid.VisibleSlotsBuffer);
             topologyCompute.SetBuffer(_buildKernel, DirtyId, _grid.KernelDirtyBuffer);
             topologyCompute.SetBuffer(_buildKernel, MasksId, _grid.TopologyMaskBuffer);
             topologyCompute.SetBuffer(_buildKernel, RecordsId, _renderRecords);
             topologyCompute.SetInt(VisibleCountId, _grid.VisibleChunkCount);
+            topologyCompute.SetInt(BoundarySummaryHashCountId,
+                _grid.BoundarySummaryHashEntryCount);
             int total = _grid.VisibleChunkCount * MerkabaConstants.KernelsPerChunk;
             topologyCompute.Dispatch(_buildKernel, Mathf.CeilToInt(total / 64f), 1, 1);
 

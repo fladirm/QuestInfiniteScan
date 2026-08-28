@@ -13,6 +13,10 @@ namespace Genesis.RoomScan
         public const int ChunkSize = 32;
         public const int KernelsPerChunk = ChunkSize * ChunkSize * ChunkSize;
         public const int NeighbourCount = 26;
+        public const int BoundaryFaceCount = 6;
+        public const int BoundaryBitsPerFace = ChunkSize * ChunkSize;
+        public const int BoundaryWordsPerFace = BoundaryBitsPerFace / 32;
+        public const int BoundaryWordCount = BoundaryFaceCount * BoundaryWordsPerFace;
 
         public const int MinimumEvidence = -32768;
         public const int MaximumEvidence = 32767;

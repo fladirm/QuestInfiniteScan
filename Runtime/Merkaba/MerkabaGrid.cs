@@ -81,6 +81,8 @@ namespace Genesis.RoomScan
             chunk.CpuStateCurrent = true;
             chunk.Persisted = false;
             if (before == after) return;
+            chunk.SetBoundaryOccupancy(MerkabaConstants.LocalCoord(globalCoord), after);
+            MarkBoundarySummariesDirty();
             int delta = after ? 1 : -1;
             chunk.OccupiedCount += delta;
             OccupiedKernelCount += delta;
@@ -109,6 +111,9 @@ namespace Genesis.RoomScan
             chunk.Persisted = false;
             if (transition)
             {
+                chunk.SetBoundaryOccupancy(MerkabaConstants.LocalCoord(globalCoord),
+                    state.IsOccupied);
+                MarkBoundarySummariesDirty();
                 int delta = state.IsOccupied ? 1 : -1;
                 chunk.OccupiedCount += delta;
                 OccupiedKernelCount += delta;
@@ -148,8 +153,10 @@ namespace Genesis.RoomScan
                 foreach (KernelState state in chunk.States)
                     if (state.IsOccupied) count++;
                 chunk.OccupiedCount = count;
+                chunk.RebuildBoundaryOccupancy();
                 OccupiedKernelCount += count;
             }
+            MarkBoundarySummariesDirty();
         }
 
         public void Clear()

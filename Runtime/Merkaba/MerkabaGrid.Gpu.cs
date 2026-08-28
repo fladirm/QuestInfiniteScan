@@ -36,6 +36,7 @@ namespace Genesis.RoomScan
             public readonly int Slot;
             public int LastTouchedFrame;
             public bool PendingEviction;
+            public int EvictionVersion;
 
             public ResidentPage(int3 coord, MerkabaChunk chunk, int slot, int frame)
             {
@@ -50,17 +51,22 @@ namespace Genesis.RoomScan
         {
             public readonly int3 Coord;
             public readonly float DistanceSquared;
+            public readonly float SelectionScore;
 
-            public ChunkCandidate(int3 coord, float distanceSquared)
+            public ChunkCandidate(int3 coord, float distanceSquared,
+                float selectionScore)
             {
                 Coord = coord;
                 DistanceSquared = distanceSquared;
+                SelectionScore = selectionScore;
             }
         }
 
         private readonly Dictionary<int3, ResidentPage> _resident = new();
         private readonly SortedSet<int> _freeSlots = new();
         private readonly HashSet<int3> _desiredCoords = new();
+        private readonly HashSet<int3> _integrationDesiredCoords = new();
+        private readonly HashSet<int3> _renderDesiredCoords = new();
         private ResidentPage[] _slots;
         private int _gpuGeneration;
         private bool _gpuReady;
@@ -84,6 +90,8 @@ namespace Genesis.RoomScan
         private ComputeBuffer _carveCountBuffer;
         private ComputeBuffer _surfaceDispatchArgsBuffer;
         private ComputeBuffer _carveDispatchArgsBuffer;
+        private ComputeBuffer _boundarySummaryHashBuffer;
+        private ComputeBuffer _boundarySummaryWordsBuffer;
 
         private int4[] _pageCoordsCpu;
         private int[] _pageNeighboursCpu;
@@ -98,6 +106,11 @@ namespace Genesis.RoomScan
         private uint[] _pageCarveIndices;
         private readonly uint[] _singleZero = { 0u };
         private int4[] _pageHashCpu;
+        private int4[] _boundarySummaryHashCpu;
+        private uint[] _boundarySummaryWordsCpu;
+        private int _boundarySummaryEntryCapacity;
+        private int _boundarySummaryHashCapacity;
+        private bool _boundarySummariesDirty = true;
 
         private const int PageHashCapacity = 256;
         private const int WordsPerPage = MerkabaConstants.KernelsPerChunk / 32;
@@ -121,6 +134,9 @@ namespace Genesis.RoomScan
         internal ComputeBuffer CarveCountBuffer => _carveCountBuffer;
         internal ComputeBuffer SurfaceDispatchArgsBuffer => _surfaceDispatchArgsBuffer;
         internal ComputeBuffer CarveDispatchArgsBuffer => _carveDispatchArgsBuffer;
+        internal ComputeBuffer BoundarySummaryHashBuffer => _boundarySummaryHashBuffer;
+        internal ComputeBuffer BoundarySummaryWordsBuffer => _boundarySummaryWordsBuffer;
+        internal int BoundarySummaryHashEntryCount => _boundarySummaryHashCapacity;
         internal int IntegrationWorkCapacity => maxIntegrationChunks *
                                                 MerkabaConstants.KernelsPerChunk;
         internal int PageHashEntryCount => PageHashCapacity;
@@ -192,6 +208,17 @@ namespace Genesis.RoomScan
                 ComputeBufferType.IndirectArguments);
             _carveDispatchArgsBuffer = new ComputeBuffer(3, sizeof(uint),
                 ComputeBufferType.IndirectArguments);
+            _boundarySummaryEntryCapacity = checked(maxResidentChunks *
+                                                     MerkabaConstants.NeighbourCount);
+            _boundarySummaryHashCapacity = Mathf.NextPowerOfTwo(
+                _boundarySummaryEntryCapacity * 2);
+            _boundarySummaryHashBuffer = new ComputeBuffer(
+                _boundarySummaryHashCapacity, sizeof(int) * 4,
+                ComputeBufferType.Structured);
+            _boundarySummaryWordsBuffer = new ComputeBuffer(
+                checked(_boundarySummaryEntryCapacity *
+                        MerkabaConstants.BoundaryWordCount), sizeof(uint),
+                ComputeBufferType.Structured);
 
             _slots = new ResidentPage[maxResidentChunks];
             _pageCoordsCpu = new int4[maxResidentChunks];
@@ -206,9 +233,13 @@ namespace Genesis.RoomScan
             _pageCarveBits = new uint[WordsPerPage];
             _pageCarveIndices = new uint[MerkabaConstants.KernelsPerChunk];
             _pageHashCpu = new int4[PageHashCapacity];
+            _boundarySummaryHashCpu = new int4[_boundarySummaryHashCapacity];
+            _boundarySummaryWordsCpu = new uint[checked(_boundarySummaryEntryCapacity *
+                                                        MerkabaConstants.BoundaryWordCount)];
             Array.Fill(_dirtyOnes, 1u);
             Array.Fill(_pageNeighboursCpu, -1);
             Array.Fill(_pageHashCpu, new int4(0, 0, 0, -1));
+            Array.Fill(_boundarySummaryHashCpu, new int4(0, 0, 0, -1));
             for (int slot = 0; slot < maxResidentChunks; slot++)
             {
                 _freeSlots.Add(slot);
@@ -225,7 +256,10 @@ namespace Genesis.RoomScan
             _carveCountBuffer.SetData(_singleZero);
             _surfaceDispatchArgsBuffer.SetData(new uint[] { 0, 1, 1 });
             _carveDispatchArgsBuffer.SetData(new uint[] { 0, 1, 1 });
+            _boundarySummaryHashBuffer.SetData(_boundarySummaryHashCpu);
+            _boundarySummaryWordsBuffer.SetData(_boundarySummaryWordsCpu);
             _gpuReady = true;
+            RebuildBoundarySummaryTable();
         }
 
         internal void BeginIntegrationWorkFrame()
@@ -242,50 +276,69 @@ namespace Genesis.RoomScan
             bool allocateForIntegration)
         {
             EnsureGpuResources();
+            HashSet<int3> previousDesired = allocateForIntegration
+                ? _integrationDesiredCoords : _renderDesiredCoords;
             if (camera == null || maxDistance <= 0f)
             {
-                SetFrameSlots(Array.Empty<int>(), Array.Empty<int>());
-                return default;
+                previousDesired.Clear();
+                RebuildCombinedDesired();
+                if (allocateForIntegration) SetIntegrationSlots(Array.Empty<int>());
+                else SetVisibleSlots(Array.Empty<int>());
+                return new MerkabaResidencyFrame(IntegrationChunkCount,
+                    VisibleChunkCount);
             }
 
-            List<ChunkCandidate> candidates = CollectFrustumCandidates(camera, maxDistance);
-            _desiredCoords.Clear();
-            int desiredLimit = Mathf.Min(candidates.Count,
-                Mathf.Max(maxIntegrationChunks, maxVisibleChunks));
-            for (int i = 0; i < desiredLimit; i++)
-                _desiredCoords.Add(candidates[i].Coord);
-
-            var changed = new List<int3>();
-            var integration = new List<int>(maxIntegrationChunks);
-            var visible = new List<int>(maxVisibleChunks);
-
-            for (int i = 0; i < candidates.Count &&
-                 (integration.Count < maxIntegrationChunks ||
-                  visible.Count < maxVisibleChunks); i++)
+            List<ChunkCandidate> candidates = CollectFrustumCandidates(camera,
+                maxDistance, previousDesired);
+            int capacity = allocateForIntegration ? maxIntegrationChunks : maxVisibleChunks;
+            var selected = new List<int3>(capacity);
+            for (int i = 0; i < candidates.Count && selected.Count < capacity; i++)
             {
                 int3 coord = candidates[i].Coord;
-                bool chunkExists = _chunks.ContainsKey(coord);
-                bool mayAllocate = allocateForIntegration &&
-                                   integration.Count < maxIntegrationChunks;
-                if (!chunkExists && !mayAllocate) continue;
+                if (!allocateForIntegration && !_chunks.ContainsKey(coord) &&
+                    !_resident.ContainsKey(coord))
+                    continue;
+                selected.Add(coord);
+            }
+            previousDesired.Clear();
+            foreach (int3 coord in selected) previousDesired.Add(coord);
+            RebuildCombinedDesired();
 
-                ResidentPage page = EnsureResident(coord, mayAllocate, changed);
-                if (page == null || page.PendingEviction) continue;
+            var changed = new List<int3>();
+            var frameSlots = new List<int>(capacity);
+            for (int i = 0; i < selected.Count; i++)
+            {
+                ResidentPage page = EnsureResident(selected[i], allocateForIntegration,
+                    changed);
+                if (page == null) continue;
                 page.LastTouchedFrame = Time.frameCount;
-                if (visible.Count < maxVisibleChunks) visible.Add(page.Slot);
-                if (allocateForIntegration && integration.Count < maxIntegrationChunks)
-                    integration.Add(page.Slot);
+                frameSlots.Add(page.Slot);
             }
 
             if (changed.Count > 0) RebuildPageTablesAndDirtyLocal(changed);
-            SetFrameSlots(integration, visible);
+            else if (_boundarySummariesDirty) RebuildBoundarySummaryTable();
+            if (allocateForIntegration) SetIntegrationSlots(frameSlots);
+            else SetVisibleSlots(frameSlots);
 
-            int missing = allocateForIntegration
-                ? Mathf.Min(candidates.Count, maxIntegrationChunks) - integration.Count
-                : 0;
-            while (missing-- > 0 && ScheduleOneEviction()) { }
+            if (frameSlots.Count < selected.Count) ScheduleOneEviction();
 
             return new MerkabaResidencyFrame(IntegrationChunkCount, VisibleChunkCount);
+        }
+
+        internal void ClearIntegrationResidencyDemand()
+        {
+            if (_integrationDesiredCoords.Count == 0 && IntegrationChunkCount == 0)
+                return;
+            _integrationDesiredCoords.Clear();
+            RebuildCombinedDesired();
+            SetIntegrationSlots(Array.Empty<int>());
+        }
+
+        private void RebuildCombinedDesired()
+        {
+            _desiredCoords.Clear();
+            _desiredCoords.UnionWith(_integrationDesiredCoords);
+            _desiredCoords.UnionWith(_renderDesiredCoords);
         }
 
         internal void MarkIntegrationPagesGpuCurrent()
@@ -323,6 +376,7 @@ namespace Genesis.RoomScan
                 NativeArray<KernelState> data = request.GetData<KernelState>();
                 foreach (ResidentPage page in _resident.Values)
                     CopyPageSnapshot(page, data, page.Slot * MerkabaConstants.KernelsPerChunk);
+                RebuildBoundarySummaryTable();
                 completion.TrySetResult(true);
             });
             return completion.Task;
@@ -331,7 +385,15 @@ namespace Genesis.RoomScan
         private ResidentPage EnsureResident(int3 coord, bool createIfMissing,
             List<int3> changed)
         {
-            if (_resident.TryGetValue(coord, out ResidentPage existing)) return existing;
+            if (_resident.TryGetValue(coord, out ResidentPage existing))
+            {
+                if (existing.PendingEviction)
+                {
+                    existing.PendingEviction = false;
+                    existing.EvictionVersion++;
+                }
+                return existing;
+            }
             _chunks.TryGetValue(coord, out MerkabaChunk chunk);
             if (chunk == null && !createIfMissing) return null;
             if (_freeSlots.Count == 0) return null;
@@ -352,6 +414,7 @@ namespace Genesis.RoomScan
             _topologyMaskBuffer.SetData(_zeroMasks, 0, offset, _zeroMasks.Length);
             ResetIntegrationPage(page);
             changed.Add(coord);
+            _boundarySummariesDirty = true;
             return page;
         }
 
@@ -389,6 +452,11 @@ namespace Genesis.RoomScan
 
         private bool ScheduleOneEviction()
         {
+            // One publication-safe eviction at a time prevents multi-page holes and
+            // bounds asynchronous state movement.
+            foreach (ResidentPage page in _resident.Values)
+                if (page.PendingEviction) return false;
+
             ResidentPage victim = null;
             foreach (ResidentPage candidate in _resident.Values)
             {
@@ -402,13 +470,18 @@ namespace Genesis.RoomScan
             if (victim == null) return false;
 
             victim.PendingEviction = true;
-            RebuildPageTablesAndDirtyLocal(new List<int3> { victim.Coord });
+            int evictionVersion = ++victim.EvictionVersion;
+            // Pending pages remain in the live topology table. Their canonical halo
+            // replacement is published only after the snapshot has completed.
             int generation = _gpuGeneration;
             int byteSize = MerkabaConstants.KernelsPerChunk * Marshal.SizeOf<KernelState>();
             int byteOffset = victim.Slot * byteSize;
             AsyncGPUReadback.Request(_kernelBuffer, byteSize, byteOffset, request =>
             {
                 if (generation != _gpuGeneration) return;
+                if (!victim.PendingEviction ||
+                    victim.EvictionVersion != evictionVersion)
+                    return;
                 if (request.hasError)
                 {
                     victim.PendingEviction = false;
@@ -417,6 +490,7 @@ namespace Genesis.RoomScan
                 }
                 bool hasCanonicalState = CopyPageSnapshot(victim,
                     request.GetData<KernelState>(), 0);
+                victim.PendingEviction = false;
                 _resident.Remove(victim.Coord);
                 _slots[victim.Slot] = null;
                 _freeSlots.Add(victim.Slot);
@@ -424,6 +498,7 @@ namespace Genesis.RoomScan
                     _chunks.TryGetValue(victim.Coord, out MerkabaChunk current) &&
                     ReferenceEquals(current, victim.Chunk))
                     _chunks.Remove(victim.Coord);
+                _boundarySummariesDirty = true;
                 RebuildPageTablesAndDirtyLocal(new List<int3> { victim.Coord });
             });
             return true;
@@ -449,8 +524,10 @@ namespace Genesis.RoomScan
                     OccupiedKernelCount -= page.Chunk.OccupiedCount;
                     page.Chunk.OccupiedCount = 0;
                     Array.Clear(page.Chunk.States, 0, page.Chunk.States.Length);
+                    page.Chunk.RebuildBoundaryOccupancy();
                     page.Chunk.CpuStateCurrent = true;
                     page.Chunk.Persisted = false;
+                    _boundarySummariesDirty = true;
                 }
                 return false;
             }
@@ -462,14 +539,17 @@ namespace Genesis.RoomScan
             KernelState[] destination = page.Chunk.States;
             for (int i = 0; i < destination.Length; i++)
                 destination[i] = data[sourceOffset + i];
+            page.Chunk.RebuildBoundaryOccupancy();
             OccupiedKernelCount += occupied - page.Chunk.OccupiedCount;
             page.Chunk.OccupiedCount = occupied;
             page.Chunk.CpuStateCurrent = true;
             page.Chunk.Persisted = false;
+            _boundarySummariesDirty = true;
             return hasCanonicalState;
         }
 
-        private List<ChunkCandidate> CollectFrustumCandidates(Camera camera, float maxDistance)
+        private List<ChunkCandidate> CollectFrustumCandidates(Camera camera,
+            float enterDistance, HashSet<int3> previousDesired)
         {
             Vector3 localCamera = transform.InverseTransformPoint(camera.transform.position);
             float chunkSpan = MerkabaConstants.ChunkSize * MerkabaConstants.LatticeStep;
@@ -477,10 +557,10 @@ namespace Genesis.RoomScan
                 Mathf.FloorToInt(localCamera.x / chunkSpan),
                 Mathf.FloorToInt(localCamera.y / chunkSpan),
                 Mathf.FloorToInt(localCamera.z / chunkSpan));
-            int radius = Mathf.CeilToInt(maxDistance / chunkSpan) + 1;
+            float leaveDistance = enterDistance + chunkSpan;
+            int radius = Mathf.CeilToInt(leaveDistance / chunkSpan) + 1;
             Plane[] planes = GeometryUtility.CalculateFrustumPlanes(camera);
             var result = new List<ChunkCandidate>(512);
-            float maxDistanceSq = maxDistance * maxDistance;
 
             for (int z = -radius; z <= radius; z++)
             for (int y = -radius; y <= radius; y++)
@@ -489,15 +569,26 @@ namespace Genesis.RoomScan
                 int3 coord = cameraChunk + new int3(x, y, z);
                 Bounds worldBounds = ChunkWorldBounds(coord);
                 float distanceSq = worldBounds.SqrDistance(camera.transform.position);
-                if (distanceSq > maxDistanceSq ||
-                    !GeometryUtility.TestPlanesAABB(planes, worldBounds))
-                    continue;
-                result.Add(new ChunkCandidate(coord, distanceSq));
+                bool retained = previousDesired.Contains(coord);
+                float allowedDistance = retained ? leaveDistance : enterDistance;
+                if (distanceSq > allowedDistance * allowedDistance) continue;
+
+                Bounds cullBounds = worldBounds;
+                if (retained) cullBounds.Expand(chunkSpan * 2f);
+                if (!GeometryUtility.TestPlanesAABB(planes, cullBounds)) continue;
+
+                float distance = Mathf.Sqrt(distanceSq);
+                float stableDistance = Mathf.Max(0f,
+                    distance - (retained ? chunkSpan : 0f));
+                result.Add(new ChunkCandidate(coord, distanceSq,
+                    stableDistance * stableDistance));
             }
 
             result.Sort((left, right) =>
             {
-                int distance = left.DistanceSquared.CompareTo(right.DistanceSquared);
+                int distance = left.SelectionScore.CompareTo(right.SelectionScore);
+                if (distance != 0) return distance;
+                distance = left.DistanceSquared.CompareTo(right.DistanceSquared);
                 if (distance != 0) return distance;
                 if (left.Coord.x != right.Coord.x)
                     return left.Coord.x.CompareTo(right.Coord.x);
@@ -528,22 +619,26 @@ namespace Genesis.RoomScan
             return new Bounds(worldCenter, worldExtents * 2f);
         }
 
-        private void SetFrameSlots(IReadOnlyList<int> integration, IReadOnlyList<int> visible)
+        private void SetIntegrationSlots(IReadOnlyList<int> integration)
         {
             IntegrationChunkCount = Mathf.Min(integration.Count, maxIntegrationChunks);
-            VisibleChunkCount = Mathf.Min(visible.Count, maxVisibleChunks);
             Array.Fill(_integrationSlotsCpu, 0);
             Array.Clear(_integrationEnabledCpu, 0, _integrationEnabledCpu.Length);
-            Array.Fill(_visibleSlotsCpu, 0);
             for (int i = 0; i < IntegrationChunkCount; i++)
             {
                 _integrationSlotsCpu[i] = integration[i];
                 _integrationEnabledCpu[integration[i]] = 1u;
             }
-            for (int i = 0; i < VisibleChunkCount; i++)
-                _visibleSlotsCpu[i] = visible[i];
             _integrationSlotsBuffer.SetData(_integrationSlotsCpu);
             _integrationEnabledBuffer.SetData(_integrationEnabledCpu);
+        }
+
+        private void SetVisibleSlots(IReadOnlyList<int> visible)
+        {
+            VisibleChunkCount = Mathf.Min(visible.Count, maxVisibleChunks);
+            Array.Fill(_visibleSlotsCpu, 0);
+            for (int i = 0; i < VisibleChunkCount; i++)
+                _visibleSlotsCpu[i] = visible[i];
             _visibleSlotsBuffer.SetData(_visibleSlotsCpu);
         }
 
@@ -557,7 +652,6 @@ namespace Genesis.RoomScan
 
             foreach (ResidentPage page in _resident.Values)
             {
-                if (page.PendingEviction) continue;
                 int3 coord = page.Coord;
                 _pageCoordsCpu[page.Slot] = new int4(coord, page.Slot);
                 InsertPageHash(coord, page.Slot);
@@ -567,28 +661,83 @@ namespace Genesis.RoomScan
                 {
                     int neighbourIndex = (dx + 1) + 3 * (dy + 1) + 9 * (dz + 1);
                     int3 neighbourCoord = coord + new int3(dx, dy, dz);
-                    if (_resident.TryGetValue(neighbourCoord, out ResidentPage neighbour) &&
-                        !neighbour.PendingEviction)
+                    if (_resident.TryGetValue(neighbourCoord, out ResidentPage neighbour))
                         _pageNeighboursCpu[page.Slot * 27 + neighbourIndex] = neighbour.Slot;
                 }
             }
             _pageCoordsBuffer.SetData(_pageCoordsCpu);
             _pageNeighboursBuffer.SetData(_pageNeighboursCpu);
             _pageHashBuffer.SetData(_pageHashCpu);
+            RebuildBoundarySummaryTable();
 
             var dirtySlots = new HashSet<int>();
             foreach (int3 changed in changedCoords)
             {
-                if (_resident.TryGetValue(changed, out ResidentPage self) && !self.PendingEviction)
+                if (_resident.TryGetValue(changed, out ResidentPage self))
                     dirtySlots.Add(self.Slot);
                 foreach (int3 offset in MerkabaConstants.Neighbours)
-                    if (_resident.TryGetValue(changed + offset, out ResidentPage neighbour) &&
-                        !neighbour.PendingEviction)
+                    if (_resident.TryGetValue(changed + offset, out ResidentPage neighbour))
                         dirtySlots.Add(neighbour.Slot);
             }
             foreach (int slot in dirtySlots)
                 _kernelDirtyBuffer.SetData(_dirtyOnes, 0,
                     slot * MerkabaConstants.KernelsPerChunk, _dirtyOnes.Length);
+        }
+
+        private void MarkBoundarySummariesDirty() => _boundarySummariesDirty = true;
+
+        private void RebuildBoundarySummaryTable()
+        {
+            if (!_gpuReady) return;
+            Array.Fill(_boundarySummaryHashCpu, new int4(0, 0, 0, -1));
+            Array.Clear(_boundarySummaryWordsCpu, 0,
+                _boundarySummaryWordsCpu.Length);
+
+            var summaryCoords = new HashSet<int3>();
+            foreach (ResidentPage page in _resident.Values)
+            foreach (int3 offset in MerkabaConstants.Neighbours)
+            {
+                int3 coord = page.Coord + offset;
+                if (_chunks.ContainsKey(coord) && !_resident.ContainsKey(coord))
+                    summaryCoords.Add(coord);
+            }
+
+            var sorted = new List<int3>(summaryCoords);
+            sorted.Sort(CompareCoords);
+            if (sorted.Count > _boundarySummaryEntryCapacity)
+                throw new InvalidOperationException(
+                    "Merkaba boundary-summary capacity invariant failed.");
+
+            for (int summaryIndex = 0; summaryIndex < sorted.Count; summaryIndex++)
+            {
+                int3 coord = sorted[summaryIndex];
+                MerkabaChunk chunk = _chunks[coord];
+                Array.Copy(chunk.BoundaryOccupancyWords, 0,
+                    _boundarySummaryWordsCpu,
+                    summaryIndex * MerkabaConstants.BoundaryWordCount,
+                    MerkabaConstants.BoundaryWordCount);
+                InsertBoundarySummaryHash(coord, summaryIndex);
+            }
+            _boundarySummaryHashBuffer.SetData(_boundarySummaryHashCpu);
+            _boundarySummaryWordsBuffer.SetData(_boundarySummaryWordsCpu);
+            _boundarySummariesDirty = false;
+        }
+
+        private void InsertBoundarySummaryHash(int3 coord, int summaryIndex)
+        {
+            int index = (int)(HashPageCoord(coord) &
+                              (uint)(_boundarySummaryHashCapacity - 1));
+            for (int probe = 0; probe < _boundarySummaryHashCapacity; probe++)
+            {
+                if (_boundarySummaryHashCpu[index].w < 0)
+                {
+                    _boundarySummaryHashCpu[index] = new int4(coord, summaryIndex);
+                    return;
+                }
+                index = (index + 1) & (_boundarySummaryHashCapacity - 1);
+            }
+            throw new InvalidOperationException(
+                "Merkaba boundary-summary hash is full.");
         }
 
         private void InsertPageHash(int3 coord, int slot)
@@ -622,6 +771,9 @@ namespace Genesis.RoomScan
             _gpuGeneration++;
             _resident.Clear();
             _freeSlots.Clear();
+            _integrationDesiredCoords.Clear();
+            _renderDesiredCoords.Clear();
+            _desiredCoords.Clear();
             Array.Clear(_slots, 0, _slots.Length);
             Array.Fill(_pageNeighboursCpu, -1);
             Array.Fill(_pageHashCpu, new int4(0, 0, 0, -1));
@@ -633,9 +785,16 @@ namespace Genesis.RoomScan
             _pageCoordsBuffer.SetData(_pageCoordsCpu);
             _pageNeighboursBuffer.SetData(_pageNeighboursCpu);
             _pageHashBuffer.SetData(_pageHashCpu);
+            Array.Fill(_boundarySummaryHashCpu, new int4(0, 0, 0, -1));
+            Array.Clear(_boundarySummaryWordsCpu, 0,
+                _boundarySummaryWordsCpu.Length);
+            _boundarySummaryHashBuffer.SetData(_boundarySummaryHashCpu);
+            _boundarySummaryWordsBuffer.SetData(_boundarySummaryWordsCpu);
+            _boundarySummariesDirty = false;
             _surfaceCountBuffer.SetData(_singleZero);
             _carveCountBuffer.SetData(_singleZero);
-            SetFrameSlots(Array.Empty<int>(), Array.Empty<int>());
+            SetIntegrationSlots(Array.Empty<int>());
+            SetVisibleSlots(Array.Empty<int>());
         }
 
         private void ReleaseGpuResources()
@@ -660,6 +819,8 @@ namespace Genesis.RoomScan
             _carveCountBuffer?.Release();
             _surfaceDispatchArgsBuffer?.Release();
             _carveDispatchArgsBuffer?.Release();
+            _boundarySummaryHashBuffer?.Release();
+            _boundarySummaryWordsBuffer?.Release();
             _kernelBuffer = null;
             _pageCoordsBuffer = null;
             _pageNeighboursBuffer = null;
@@ -679,6 +840,8 @@ namespace Genesis.RoomScan
             _carveCountBuffer = null;
             _surfaceDispatchArgsBuffer = null;
             _carveDispatchArgsBuffer = null;
+            _boundarySummaryHashBuffer = null;
+            _boundarySummaryWordsBuffer = null;
             _gpuReady = false;
         }
     }

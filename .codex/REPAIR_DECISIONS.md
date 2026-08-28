@@ -19,3 +19,7 @@
 - Carve membership is a per-resident-page compact list populated only by valid SURFACE writes or positive/occupied loaded states. Frame carve work is gathered from those lists and never scans dense empty page volumes.
 - Carve continues until a disproved local kernel reaches centralized `ExportKnownFreeThreshold = -OccupiedOnThreshold`; untouched free world never enters a page list or canonical storage.
 - GPU work queues are capacity-bounded by the maximum integration resident kernel count and dispatched indirectly; no per-frame counter readback is used.
+- Every canonical chunk maintains a derived, non-persisted `6 × 32 × 32` occupancy-bit face summary (192 uints / 768 bytes). Only summaries adjacent to resident pages are uploaded through a bounded hash table.
+- Topology resolves a body-diagonal neighbour from its live resident page first, then the canonical nonresident boundary summary, and only treats a truly nonexistent canonical chunk as empty.
+- Pending eviction does not remove a page from topology lookup. One eviction readback may be active; after snapshot, summary and page-table replacement are published together.
+- Integration and render desired sets are independent. Render residency refreshes at render cadence with `renderDistance`; retained chunks receive a one-chunk leave guard and stable selection preference.

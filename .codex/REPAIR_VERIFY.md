@@ -88,7 +88,22 @@ Result at R4 checkpoint:
 
 ## R5 Residency
 
-PENDING
+Command:
+
+```bash
+Tools/unity/run_merkaba_tests.sh
+```
+
+Result:
+
+- Unity EditMode: 35 passed, 0 failed, 0 skipped.
+- Derived canonical halo: exactly `6 × 32²` bits = 192 uints = 768 bytes/chunk; persistence remains `KernelState` only.
+- Production GPU topology across simultaneous X/Y/Z chunk boundaries: resident, pending eviction, summarized nonresident, and reloaded masks are bit-identical.
+- A pending page remains in the live 27-slot page-neighbour table until its readback completes.
+- Eviction scheduling is bounded to one outstanding page and publishes the summary before removing live lookup.
+- Render refresh leaves integration slots unchanged, includes transient GPU pages and honors an independently farther render range.
+- A 5 cm camera move retains the identical visible page set under the one-chunk guard/hysteresis rule.
+- Renderer invokes render residency every `LateUpdate`, including while scanning.
 
 ## R6 Publication
 
