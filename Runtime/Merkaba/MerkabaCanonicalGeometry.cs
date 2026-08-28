@@ -210,7 +210,7 @@ namespace Genesis.RoomScan
             }
             text.Append("};\n\n")
                 .Append("// Literal cases avoid nested dynamic static-const indexing on Quest/Vulkan.\n")
-                .Append("void MerkabaCanonicalPrimitiveVertex(uint primitiveId, uint corner, out float3 position, out float3 normal)\n{\n")
+                .Append("float3 MerkabaCanonicalPrimitivePosition(uint primitiveId, uint corner)\n{\n")
                 .Append("    float3 a = float3(-1, 0, 0) * MERKABA_CANONICAL_UNIT;\n")
                 .Append("    float3 b = float3(0, 0, -1) * MERKABA_CANONICAL_UNIT;\n")
                 .Append("    float3 c = float3(0, -1, 0) * MERKABA_CANONICAL_UNIT;\n")
@@ -235,8 +235,7 @@ namespace Genesis.RoomScan
             }
             text.Append("        default: break;\n")
                 .Append("    }\n")
-                .Append("    position = corner == 0u ? a : (corner == 1u ? b : c);\n")
-                .Append("    normal = normalize(cross(b - a, c - a));\n}\n\n")
+                .Append("    return corner == 0u ? a : (corner == 1u ? b : c);\n}\n\n")
                 .Append("#endif\n");
             return text.ToString();
         }

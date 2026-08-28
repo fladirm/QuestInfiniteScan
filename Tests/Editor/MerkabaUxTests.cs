@@ -64,6 +64,11 @@ namespace Genesis.RoomScan.Tests
             string source = File.ReadAllText(Path.GetFullPath(assetPath));
             Assert.That(source, Does.Contain("Blend [_SrcBlend] [_DstBlend]"));
             Assert.That(source, Does.Contain("_ScanOpacity)"));
+            Assert.That(source, Does.Contain(
+                "return half4(input.color, _ScanOpacity);"));
+            Assert.That(source, Does.Not.Contain("SampleSH"));
+            Assert.That(source, Does.Not.Contain("GetMainLight"));
+            Assert.That(source, Does.Not.Contain("normalWS"));
             Assert.That(source, Does.Not.Contain("if ("),
                 "Opacity must select material state on CPU, not branch per fragment.");
         }

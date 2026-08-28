@@ -26,10 +26,8 @@ Shader "Genesis/RoomScan/MerkabaGrid"
             #pragma vertex Vert
             #pragma fragment Frag
             #pragma multi_compile_instancing
-            #pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE
 
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
-            #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl"
             #include "MerkabaCanonicalGeometry.generated.hlsl"
 
             #define MERKABA_LATTICE_STEP 0.025
@@ -67,8 +65,7 @@ Shader "Genesis/RoomScan/MerkabaGrid"
             struct Varyings
             {
                 float4 positionCS : SV_POSITION;
-                half3 normalWS : TEXCOORD0;
-                half3 color : TEXCOORD1;
+                half3 color : TEXCOORD0;
                 UNITY_VERTEX_OUTPUT_STEREO
             };
 
@@ -94,17 +91,13 @@ Shader "Genesis/RoomScan/MerkabaGrid"
                 uint3 localCoord = uint3(localIndex & 31u,
                     (localIndex >> 5u) & 31u, (localIndex >> 10u) & 31u);
 
-                float3 localPosition, localNormal;
-                MerkabaCanonicalPrimitiveVertex(primitiveId, input.vertexID,
-                    localPosition, localNormal);
+                float3 localPosition = MerkabaCanonicalPrimitivePosition(
+                    primitiveId, input.vertexID);
                 localPosition += (_MerkabaChunkOrigin + (float3)localCoord) *
                     MERKABA_LATTICE_STEP;
                 float3 worldPosition = mul(_MerkabaGridToWorld,
                     float4(localPosition, 1)).xyz;
-                float3 worldNormal = normalize(mul((float3x3)_MerkabaGridToWorld,
-                    localNormal));
                 output.positionCS = TransformWorldToHClip(worldPosition);
-                output.normalWS = worldNormal;
                 output.color = half3(record.packedColor & 255u,
                     (record.packedColor >> 8) & 255u,
                     (record.packedColor >> 16) & 255u) / 255.0h *
@@ -114,13 +107,7 @@ Shader "Genesis/RoomScan/MerkabaGrid"
 
             half4 Frag(Varyings input) : SV_Target
             {
-                Light mainLight = GetMainLight();
-                half ndotl = saturate(dot(normalize(input.normalWS),
-                    mainLight.direction));
-                half3 ambient = max(SampleSH(input.normalWS), _AmbientFloor.xxx);
-                half3 lighting = ambient + mainLight.color * ndotl *
-                    mainLight.distanceAttenuation;
-                return half4(input.color * lighting, _ScanOpacity);
+                return half4(input.color, _ScanOpacity);
             }
             ENDHLSL
         }

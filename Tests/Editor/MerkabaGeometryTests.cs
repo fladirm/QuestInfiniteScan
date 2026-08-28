@@ -227,11 +227,13 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
-        public void GeneratedHlsl_LiteralCasesMatchAllCpuVerticesAndNormals()
+        public void GeneratedHlsl_LiteralCasesMatchAllCpuVertexPositions()
         {
             string hlsl = MerkabaCanonicalGeometry.BuildGeneratedHlsl();
             Assert.That(hlsl, Does.Not.Contain("kMerkabaCanonicalPrimitives"));
             Assert.That(hlsl, Does.Not.Contain("kMerkabaCanonicalVertexUnits"));
+            Assert.That(hlsl, Does.Not.Contain("cross("));
+            Assert.That(hlsl, Does.Not.Contain("normalize("));
 
             MatchCollection cases = Regex.Matches(hlsl,
                 @"case (?<id>\d+)u:(?<body>.*?)break;", RegexOptions.Singleline);
@@ -269,11 +271,6 @@ namespace Genesis.RoomScan.Tests
                         $"primitive {primitiveId}, corner {corner}");
                 }
 
-                float3 parsedNormal = math.normalize(math.cross(
-                    parsed[1] - parsed[0], parsed[2] - parsed[0]));
-                Assert.That(math.distance(parsedNormal,
-                        MerkabaCanonicalGeometry.PrimitiveNormal(primitiveId)),
-                    Is.LessThan(1e-6f), $"primitive {primitiveId} normal");
             }
 
             Assert.That(seen, Is.EquivalentTo(Enumerable.Range(0,

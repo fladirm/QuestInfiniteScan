@@ -21,7 +21,7 @@ static const int3 kMerkabaBodyDiagonalOffsets[MERKABA_DIRECTION_COUNT] =
 };
 
 // Literal cases avoid nested dynamic static-const indexing on Quest/Vulkan.
-void MerkabaCanonicalPrimitiveVertex(uint primitiveId, uint corner, out float3 position, out float3 normal)
+float3 MerkabaCanonicalPrimitivePosition(uint primitiveId, uint corner)
 {
     float3 a = float3(-1, 0, 0) * MERKABA_CANONICAL_UNIT;
     float3 b = float3(0, 0, -1) * MERKABA_CANONICAL_UNIT;
@@ -190,8 +190,7 @@ void MerkabaCanonicalPrimitiveVertex(uint primitiveId, uint corner, out float3 p
             break;
         default: break;
     }
-    position = corner == 0u ? a : (corner == 1u ? b : c);
-    normal = normalize(cross(b - a, c - a));
+    return corner == 0u ? a : (corner == 1u ? b : c);
 }
 
 #endif
