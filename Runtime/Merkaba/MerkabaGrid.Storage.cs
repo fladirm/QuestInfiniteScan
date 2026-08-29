@@ -22,6 +22,7 @@ namespace Genesis.RoomScan
 
         private MerkabaSsdStore _ssdStore;
         private bool _streamCounterPending;
+        private bool _evictionSelectionPendingSample;
         private float _nextStreamPoll;
         private uint _loadRequestCursor;
         private uint _observedLoadRequestCount;
@@ -33,10 +34,10 @@ namespace Genesis.RoomScan
         private Task _writebackStorageTask;
         private int _writebackBatchCount;
         private bool _flushAllDirty;
-        private bool _storageWriteDisabled;
         private TaskCompletionSource<bool> _flushCompletion;
         private uint _issuedObservationToken;
         private uint _completedObservationToken;
+        private uint _completedObservationFailure;
         private readonly uint[] _streamControlWord = new uint[1];
         private readonly double[] _loadLatencies = new double[64];
         private readonly double[] _writeLatencies = new double[64];
@@ -69,6 +70,8 @@ namespace Genesis.RoomScan
             _loadInstallStatusPending;
 
         internal uint CompletedObservationToken => _completedObservationToken;
+        internal uint CompletedObservationFailure =>
+            _completedObservationFailure;
 
         private void EnsureStorage()
         {
@@ -83,15 +86,16 @@ namespace Genesis.RoomScan
             _loadAddresses = null;
             _loadStorageTask = null;
             _loadAddressReadbackPending = false;
+            _evictionSelectionPendingSample = false;
             _loadInstallStatusPending = false;
             _writebackReadbackPending = false;
             _writebackStorageTask = null;
             _writebackBatchCount = 0;
             _flushAllDirty = false;
-            _storageWriteDisabled = false;
             _flushCompletion = null;
             _issuedObservationToken = 0u;
             _completedObservationToken = 0u;
+            _completedObservationFailure = 0u;
             _loadLatencyCount = _loadLatencyCursor = 0;
             _writeLatencyCount = _writeLatencyCursor = 0;
             _loadIoStartedAt = _writeIoStartedAt = 0.0;
@@ -109,9 +113,6 @@ namespace Genesis.RoomScan
             if (_streamCounterPending || Time.unscaledTime < _nextStreamPoll)
                 return;
             _nextStreamPoll = Time.unscaledTime + 0.05f;
-            if (!_storageWriteDisabled && !_writebackReadbackPending &&
-                _writebackStorageTask == null)
-                SelectEvictionVictims(_flushAllDirty);
             _streamCounterPending = true;
             int generation = _gpuGeneration;
             AsyncGPUReadback.Request(_m8Counters, request =>
@@ -122,7 +123,11 @@ namespace Genesis.RoomScan
                 ApplySampledCounters(values);
                 _observedLoadRequestCount = values[19];
                 if (values[44] != 0u)
+                {
                     _completedObservationToken = values[47];
+                    _completedObservationFailure =
+                        values[CounterObservationFailure];
+                }
                 if (!_loadAddressReadbackPending && _loadStorageTask == null &&
                     !_loadInstallStatusPending &&
                     _loadRequestCursor != _observedLoadRequestCount)
@@ -131,14 +136,30 @@ namespace Genesis.RoomScan
                     (uint)StreamBatchCapacity);
                 if (writebackCount > 0u && !_writebackReadbackPending &&
                     _writebackStorageTask == null)
-                    BeginWritebackReadback((int)writebackCount);
-                else if (_flushAllDirty && writebackCount == 0u &&
-                         !_writebackReadbackPending &&
-                         _writebackStorageTask == null)
                 {
-                    _flushAllDirty = false;
-                    _flushCompletion?.TrySetResult(true);
-                    _flushCompletion = null;
+                    _evictionSelectionPendingSample = false;
+                    BeginWritebackReadback((int)writebackCount);
+                }
+                else if (_evictionSelectionPendingSample &&
+                         writebackCount == 0u)
+                {
+                    _evictionSelectionPendingSample = false;
+                    if (_flushAllDirty && !_writebackReadbackPending &&
+                        _writebackStorageTask == null)
+                    {
+                        _flushAllDirty = false;
+                        _flushCompletion?.TrySetResult(true);
+                        _flushCompletion = null;
+                    }
+                }
+                else if (!_writebackReadbackPending &&
+                         _writebackStorageTask == null &&
+                         (_flushAllDirty ||
+                          values[CounterEvictionNeeded] != 0u))
+                {
+                    SelectEvictionVictims(_flushAllDirty);
+                    _evictionSelectionPendingSample = true;
+                    _nextStreamPoll = 0f;
                 }
             });
         }
@@ -222,16 +243,16 @@ namespace Genesis.RoomScan
                     ref _writeLatencyCursor, ref _writeIoStartedAt);
                 if (task.IsFaulted)
                 {
-                    Logger.Error("M8 SSD writeback failed; canonical tiles remain " +
-                                 "EVICTING and are not reused: " +
+                    Logger.Error("M8 SSD writeback failed; canonical tiles " +
+                                 "returned HOT and remain dirty: " +
                                  task.Exception?.GetBaseException().Message);
                     _flushCompletion?.TrySetException(
                         task.Exception?.GetBaseException() ??
                         new IOException("M8 SSD writeback failed."));
                     _flushCompletion = null;
                     _flushAllDirty = false;
-                    _storageWriteDisabled = true;
                     FailWritebackBatch(_writebackBatchCount);
+                    _nextStreamPoll = 0f;
                 }
                 else
                 {
@@ -310,11 +331,15 @@ namespace Genesis.RoomScan
                     if (generation != _gpuGeneration || request.hasError)
                     {
                         Logger.Error("M8 writeback staging readback failed; " +
-                                     "EVICTING tiles are retained.");
+                                     "canonical tiles return HOT and dirty.");
                         if (generation == _gpuGeneration)
                         {
-                            _storageWriteDisabled = true;
+                            _flushCompletion?.TrySetException(new IOException(
+                                "M8 writeback staging readback failed."));
+                            _flushCompletion = null;
+                            _flushAllDirty = false;
                             FailWritebackBatch(count);
+                            _nextStreamPoll = 0f;
                         }
                         return;
                     }
@@ -408,9 +433,6 @@ namespace Genesis.RoomScan
         internal Task FlushAllDirtyTilesAsync()
         {
             EnsureGpuResources();
-            if (_storageWriteDisabled)
-                return Task.FromException(new IOException(
-                    "M8 SSD writeback is disabled after a prior storage failure."));
             if (_flushCompletion != null) return _flushCompletion.Task;
             _flushAllDirty = true;
             _flushCompletion = new TaskCompletionSource<bool>();

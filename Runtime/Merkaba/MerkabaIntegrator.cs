@@ -16,6 +16,8 @@ namespace Genesis.RoomScan
         [SerializeField, Range(1f, 10f)] private float cameraExposure = 3f;
         [SerializeField, Min(0)] private int warmupIntegrations = 3;
 
+        private const double HeldObservationTimeoutSeconds = 10.0;
+
         private MerkabaGrid _grid;
         private DepthCapture _depthCapture;
         private int _discoverKernel;
@@ -34,6 +36,7 @@ namespace Genesis.RoomScan
         private bool _initialized;
         private bool _observationPrepared;
         private uint _observationToken;
+        private double _observationPreparedAt;
 
         private readonly bool[] _cameraAvailable = new bool[2];
         private readonly Vector3[] _cameraPosition = new Vector3[2];
@@ -102,6 +105,8 @@ namespace Genesis.RoomScan
             Shader.PropertyToID("_MerkabaCameraCurrentResolution");
         private static readonly int CameraExposureId =
             Shader.PropertyToID("_MerkabaCameraExposure");
+        private static readonly int AbortObservationId =
+            Shader.PropertyToID("_M8AbortObservation");
 
         private void Awake()
         {
@@ -206,7 +211,7 @@ namespace Genesis.RoomScan
                 return false;
             if (_observationPrepared &&
                 _grid.CompletedObservationToken == _observationToken)
-                return FinishIntegratedObservation();
+                return FinishObservation(_grid.CompletedObservationFailure);
             if (!_observationPrepared && !_depthCapture.HasUnprocessedFrame)
                 return false;
             CommandBuffer command = CommandBufferPool.Get(
@@ -231,6 +236,8 @@ namespace Genesis.RoomScan
                     }
                     _observationToken =
                         _grid.RecordResetObservationGpuCounters(command);
+                    _observationPreparedAt =
+                        Time.realtimeSinceStartupAsDouble;
                     ConfigureObservation(camera);
                     command.DispatchComputeProfiled(compute, _discoverKernel,
                         Mathf.CeilToInt(_depthCapture.DepthTex.width / 8f),
@@ -253,11 +260,10 @@ namespace Genesis.RoomScan
                 command.DispatchComputeProfiled(compute, _resolveTilesKernel,
                     _grid.M8ObservationDispatchArgs);
                 command.DispatchComputeProfiled(compute,
-                    _retryPendingTilesKernel,
-                    MerkabaSpatial.PhysicalTileCapacity / 64, 1, 1);
+                    _retryPendingTilesKernel, _grid.M8ObservationDispatchArgs);
+                _grid.RecordPrepareNewTileDispatch(command);
                 _grid.RecordInitializeClaimedTiles(command);
                 _grid.RecordResetClaimQueues(command);
-                _grid.RecordResetResolveCounter(command);
                 command.DispatchComputeProfiled(compute, _queueResolvedKernel,
                     _grid.M8ObservationDispatchArgs);
 
@@ -290,10 +296,18 @@ namespace Genesis.RoomScan
             }
         }
 
-        private bool FinishIntegratedObservation()
+        private bool FinishObservation(uint failureReason)
         {
             _observationPrepared = false;
+            _observationToken = 0u;
+            _observationPreparedAt = 0.0;
             ReleaseOwnedObservation();
+            if (failureReason != 0u)
+            {
+                Logger.Error("Merkaba observation rejected without canonical " +
+                             $"mutation; failure=0x{failureReason:x}");
+                return false;
+            }
             IntegrationCount++;
             if (warmupIntegrations > 0 && IntegrationCount == warmupIntegrations)
             {
@@ -331,6 +345,11 @@ namespace Genesis.RoomScan
             compute.SetMatrix(GridToWorldId, _grid.GridToWorldMatrix);
             compute.SetMatrix(WorldToGridId, _grid.GridToWorldMatrix.inverse);
             compute.SetFloat(MaxDistanceId, maxUpdateDistance);
+            bool timedOut = _observationPreparedAt > 0.0 &&
+                            Time.realtimeSinceStartupAsDouble -
+                            _observationPreparedAt >=
+                            HeldObservationTimeoutSeconds;
+            compute.SetInt(AbortObservationId, timedOut ? 1 : 0);
 
             int exclusionCount = Mathf.Min(ExclusionZones.Count,
                 _exclusionPositions.Length);
@@ -471,6 +490,7 @@ namespace Genesis.RoomScan
             _grid?.Clear();
             _observationPrepared = false;
             _observationToken = 0u;
+            _observationPreparedAt = 0.0;
             ReleaseOwnedObservation();
             _readyCameraSlot = -1;
             IntegrationCount = 0;

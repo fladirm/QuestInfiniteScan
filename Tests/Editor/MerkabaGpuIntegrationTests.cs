@@ -1,5 +1,7 @@
 using System;
 using System.IO;
+using System.Linq;
+using System.Text.RegularExpressions;
 using NUnit.Framework;
 using UnityEditor;
 using Unity.Mathematics;
@@ -70,6 +72,26 @@ namespace Genesis.RoomScan.Tests
                 "physicalSlot & MERKABA_M8_TILE_BANK_MASK"));
             Assert.That(world, Does.Not.Contain(
                 "physicalSlot / MERKABA_M8_TILE_BANK_CAPACITY"));
+
+            long[] allBuffers =
+            {
+                32768L * 16, 8192L * 16, 8192L * 512 * 4,
+                8192L * 4, 8192L * 8 * 4, 8192L * 64 * 4,
+                262144L * 8, 262144L * 64 * 4, 262144L * 4,
+                262144L * 8 * 4,
+                stateBank, stateBank, stateBank, stateBank,
+                32768L * 16 * 4, 32768L * 16 * 4, 32768L * 16 * 4,
+                32768L * 16, 32768L * 16, 32768L * 4, 4, 64L * 4,
+                8192L * 8, 262144L * 8, 32768L * 8, 32768L * 4,
+                262144L * 16, 4, 2097152L * 16, 1048576L * 4,
+                32768L * 4, 32768L * 4, 12, 32768L * 4,
+                1048576L * 16, 12, 16, 12, 32L * 8,
+                32L * 513 * 16, 32L * 16, 32L * 512 * 16,
+                32L * 4, 8192L * 16
+            };
+            Assert.That(allBuffers, Has.Length.EqualTo(44));
+            Assert.That(allBuffers.Max(), Is.EqualTo(64L * 1024 * 1024));
+            Assert.That(allBuffers.Sum(), Is.EqualTo(436700860L));
         }
 
         [Test]
@@ -139,10 +161,18 @@ namespace Genesis.RoomScan.Tests
         public void TileGroupReturns_AreUniformAroundGroupBarriers()
         {
             string compute = Source("Runtime/Shaders/MerkabaWorld.compute");
+            string initialize = Slice(compute, "void InitializeNewTiles",
+                "void ResetClaimQueueCounts");
             string install = Slice(compute, "void InstallLoadedTiles",
                 "void FailLoadedTiles");
             Assert.That(install, Does.Contain("if (item >= _M8StreamBatchCount) return;"));
             Assert.That(install, Does.Contain("GroupMemoryBarrierWithGroupSync();"));
+            Assert.That(initialize, Does.Contain(
+                "DeviceMemoryBarrierWithGroupSync();"));
+            Assert.That(install, Does.Contain(
+                "DeviceMemoryBarrierWithGroupSync();"));
+            Assert.That(install, Does.Contain(
+                "AllMemoryBarrierWithGroupSync();"));
             Assert.That(install, Does.Contain("if (gLoadReady != 1u) return;"));
             Assert.That(install.IndexOf("if (gLoadReady != 1u) return;",
                 StringComparison.Ordinal), Is.GreaterThan(install.IndexOf(
@@ -254,19 +284,22 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
-        public void FailedWriteback_IsCountedWithoutFreeingEvictingTiles()
+        public void FailedWriteback_ReturnsCanonicalTileHotDirtyWithoutFreeingIt()
         {
             string world = Source("Runtime/Shaders/MerkabaWorld.compute");
             string failure = Slice(world, "void FailWritebackBatch",
                 "groupshared uint gLoadSlot");
             Assert.That(failure, Does.Contain("M8_COUNTER_FAILED_WRITES"));
             Assert.That(failure, Does.Contain("M8_COUNTER_STORAGE_BACKPRESSURE"));
+            Assert.That(failure, Does.Contain("MERKABA_REF_EVICTING"));
+            Assert.That(failure, Does.Contain("queued.x + 1u"));
+            Assert.That(failure, Does.Contain(
+                "_M8TileRuntime[queued.x].y = 1u"));
             Assert.That(failure, Does.Not.Contain("M8PushPhysicalTile"));
             Assert.That(failure, Does.Not.Contain("MERKABA_REF_COLD_ON_SSD"));
             string storage = Source("Runtime/Merkaba/MerkabaGrid.Storage.cs");
-            Assert.That(storage, Does.Contain("_storageWriteDisabled = true"));
-            Assert.That(storage, Does.Contain(
-                "if (!_storageWriteDisabled &&"));
+            Assert.That(storage, Does.Not.Contain("_storageWriteDisabled"));
+            Assert.That(storage, Does.Contain("FailWritebackBatch"));
         }
 
         [Test]
@@ -285,6 +318,134 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
+        public void Quest3M8Queries_UseOneSixtyFourLaneGroupPerBlock()
+        {
+            string scan = Source("Runtime/Shaders/MerkabaIntegration.compute");
+            string frame = Source("Runtime/Shaders/MerkabaFrameCompiler.compute");
+            string scanQuery = Slice(scan, "groupshared uint gScanBlockRef",
+                "void PrepareCarveArgs");
+            string frameQuery = Slice(frame, "groupshared uint gFrameBlockRef",
+                "void PrepareFrameCompilerArgs");
+
+            foreach (string query in new[] { scanQuery, frameQuery })
+            {
+                Assert.That(query, Does.Contain("[numthreads(64, 1, 1)]"));
+                Assert.That(query, Does.Contain("SV_GroupIndex"));
+                Assert.That(query, Does.Contain("thread >> 3u"));
+                Assert.That(query, Does.Contain("thread & 7u"));
+                Assert.That(query, Does.Contain("GroupMemoryBarrierWithGroupSync"));
+            }
+            Assert.That(scan, Does.Not.Contain(
+                "[numthreads(1, 1, 1)]\nvoid QueryCarveTiles"));
+            Assert.That(frame, Does.Not.Contain(
+                "[numthreads(1, 1, 1)]\nvoid QueryM8Frame"));
+        }
+
+        [Test]
+        public void Quest3KernelCensus_HasNoSerialDomainKernelOrNewDispatchZoo()
+        {
+            string world = Source("Runtime/Shaders/MerkabaWorld.compute");
+            string scan = Source("Runtime/Shaders/MerkabaIntegration.compute");
+            string frame = Source("Runtime/Shaders/MerkabaFrameCompiler.compute");
+            string all = world + scan + frame;
+            Assert.That(Regex.Matches(all, @"^#pragma kernel ",
+                RegexOptions.Multiline), Has.Count.EqualTo(43));
+
+            string[] serial = Regex.Matches(all,
+                    @"\[numthreads\(1,\s*1,\s*1\)\]\s*void\s+(\w+)")
+                .Cast<Match>().Select(match => match.Groups[1].Value)
+                .OrderBy(name => name).ToArray();
+            Assert.That(serial, Is.EqualTo(new[]
+            {
+                "FinalizeDrawArgs",
+                "FinalizeObservation",
+                "PrepareAllocatedClearArgs",
+                "PrepareCarveArgs",
+                "PrepareFrameCompilerArgs",
+                "PrepareIntegrateArgs",
+                "PrepareNewTileDispatchArgs",
+                "PrepareResolveArgs",
+                "ResetClaimQueueCounts",
+                "ResetFrame",
+                "ResetObservationCounters"
+            }));
+            foreach (string kernel in serial)
+            {
+                string source = world.Contains("void " + kernel)
+                    ? world : scan.Contains("void " + kernel) ? scan : frame;
+                int start = source.IndexOf("void " + kernel,
+                    StringComparison.Ordinal);
+                int next = source.IndexOf("[numthreads", start + 5,
+                    StringComparison.Ordinal);
+                string body = next > start
+                    ? source.Substring(start, next - start)
+                    : source.Substring(start);
+                Assert.That(body, Does.Not.Contain("for ("), kernel);
+                Assert.That(body, Does.Not.Contain("while ("), kernel);
+            }
+        }
+
+        [Test]
+        public void Quest3DepthKernels_UseTwoDimensionalSixtyFourLaneGroups()
+        {
+            string depth = Source("Runtime/Shaders/DepthNormals.compute") +
+                Source("Runtime/Shaders/DepthDilation.compute") +
+                Source("Runtime/Shaders/BilateralDepthFilter.compute");
+            Assert.That(Regex.Matches(depth, @"^#pragma kernel ",
+                RegexOptions.Multiline), Has.Count.EqualTo(6));
+            Assert.That(Regex.Matches(depth,
+                @"\[numthreads\(8,\s*8,\s*1\)\]"), Has.Count.EqualTo(6));
+            Assert.That(depth, Does.Not.Contain("[numthreads(1, 1, 1)]"));
+        }
+
+        [Test]
+        public void NewTileWork_UsesMeasuredIndirectDomainsInsteadOfCacheCapacity()
+        {
+            string integrator = Source("Runtime/Merkaba/MerkabaIntegrator.cs");
+            string grid = Source("Runtime/Merkaba/MerkabaGrid.Gpu.cs");
+            string world = Source("Runtime/Shaders/MerkabaWorld.compute");
+            Assert.That(integrator, Does.Contain(
+                "_retryPendingTilesKernel, _grid.M8ObservationDispatchArgs"));
+            Assert.That(integrator, Does.Not.Contain(
+                "MerkabaSpatial.PhysicalTileCapacity / 64"));
+            Assert.That(grid, Does.Contain(
+                "_initializeNewTilesKernel, _m8ObservationDispatchArgs"));
+            Assert.That(grid, Does.Not.Contain(
+                "_initializeNewTilesKernel, 512"));
+            Assert.That(grid, Does.Not.Contain("ResetResolveCounter"));
+            Assert.That(grid, Does.Contain(
+                "_publishNewBlocksKernel, _m8ObservationDispatchArgs"));
+            Assert.That(grid, Does.Contain(
+                "_publishNewChunksKernel, _m8ObservationDispatchArgs"));
+            string publishBlocks = Slice(world, "void PublishNewBlocks",
+                "void PublishNewChunks");
+            string publishChunks = Slice(world, "void PublishNewChunks",
+                "void InitializeNewTiles");
+            Assert.That(publishBlocks + publishChunks,
+                Does.Not.Contain("index += 64u"));
+        }
+
+        [Test]
+        public void EvictionDomain_RunsOnlyAfterGpuPressureOrExplicitFlush()
+        {
+            string world = Source("Runtime/Shaders/MerkabaWorld.hlsl");
+            string eviction = Source("Runtime/Shaders/MerkabaWorld.compute");
+            string storage = Source("Runtime/Merkaba/MerkabaGrid.Storage.cs");
+            string pump = Slice(storage, "private void PumpStorage()",
+                "private void ApplySampledCounters");
+            Assert.That(world, Does.Contain("M8_COUNTER_EVICTION_NEEDED"));
+            Assert.That(world, Does.Contain(
+                "InterlockedExchange(_M8Counters[M8_COUNTER_EVICTION_NEEDED], 1u"));
+            Assert.That(eviction, Does.Contain(
+                "_M8Counters[M8_COUNTER_EVICTION_NEEDED] = 0u"));
+            Assert.That(pump.IndexOf("SelectEvictionVictims",
+                    StringComparison.Ordinal),
+                Is.GreaterThan(pump.IndexOf("request.GetData<uint>()",
+                    StringComparison.Ordinal)));
+            Assert.That(pump, Does.Contain("CounterEvictionNeeded"));
+        }
+
+        [Test]
         public void CandidateClearAndNewScanClearTouchOnlyAllocatedWork()
         {
             string integration = Source(
@@ -300,6 +461,57 @@ namespace Genesis.RoomScan.Tests
             Assert.That(clear, Does.Contain("_clearAllocatedChunksKernel"));
             Assert.That(clear, Does.Not.Contain("ClearStates("));
             Assert.That(clear, Does.Not.Contain("_m8KernelStates"));
+        }
+
+        [Test]
+        public void ObservationCapacityFailure_IsPerObservationAndCommitsNoEvidence()
+        {
+            string integration = Source(
+                "Runtime/Shaders/MerkabaIntegration.compute");
+            string world = Source("Runtime/Shaders/MerkabaWorld.hlsl");
+            string integrator = Source("Runtime/Merkaba/MerkabaIntegrator.cs");
+            string prepare = Slice(integration, "void PrepareIntegrateArgs",
+                "void IntegrateSurfaceCandidates");
+            string carve = Slice(integration, "void PrepareCarveArgs",
+                "void IntegrateCarveTiles");
+
+            Assert.That(prepare, Does.Contain("failure == 0u"));
+            Assert.That(prepare, Does.Contain("? (count + 63u) / 64u : 0u"));
+            Assert.That(carve, Does.Contain(
+                "M8_COUNTER_OBSERVATION_FAILURE] == 0u"));
+            foreach (string kernel in new[]
+                     {
+                         "ResolveSurfaceChunks", "ResolveSurfaceTiles",
+                         "QueueResolvedSurfaceCandidates",
+                         "RetryPendingNewTiles"
+                     })
+            {
+                int start = integration.IndexOf("void " + kernel,
+                    StringComparison.Ordinal);
+                int next = integration.IndexOf("[numthreads", start + 5,
+                    StringComparison.Ordinal);
+                string body = next > start
+                    ? integration.Substring(start, next - start)
+                    : integration.Substring(start);
+                Assert.That(body, Does.Contain(
+                    "M8_COUNTER_OBSERVATION_FAILURE"), kernel);
+            }
+            Assert.That(integration, Does.Contain(
+                "M8_COUNTER_FAILED_OBSERVATIONS"));
+            Assert.That(world, Does.Contain(
+                "out uint failureReason"));
+            string failureReason = Slice(integration,
+                "uint M8ObservationFailureReason()", "float2 ProjectCameraUv");
+            Assert.That(failureReason, Does.Not.Contain(
+                "M8_COUNTER_BLOCK_OVERFLOW"));
+            Assert.That(failureReason, Does.Not.Contain(
+                "M8_COUNTER_HASH_FULL"));
+            Assert.That(integrator, Does.Contain(
+                "FinishObservation(_grid.CompletedObservationFailure)"));
+            Assert.That(integrator, Does.Contain(
+                "failureReason != 0u"));
+            Assert.That(integrator, Does.Contain(
+                "HeldObservationTimeoutSeconds"));
         }
 
         [Test]

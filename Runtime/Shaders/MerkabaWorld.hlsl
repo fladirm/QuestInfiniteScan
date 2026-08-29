@@ -13,6 +13,7 @@
 #define MERKABA_M8_VISIBLE_PRIMITIVE_CAPACITY 1048576u
 #define MERKABA_M8_LOAD_REQUEST_CAPACITY 262144u
 #define MERKABA_M8_LOAD_REQUEST_MASK 262143u
+#define MERKABA_M8_SURFACE_CANDIDATE_CAPACITY 2097152u
 #define MERKABA_EXPORT_KNOWN_FREE -512
 
 #define M8_COUNTER_BLOCK_COUNT 0u
@@ -59,14 +60,23 @@
 #define M8_COUNTER_STORAGE_BACKPRESSURE 41u
 #define M8_COUNTER_OCCUPIED_KERNEL_COUNT 42u
 #define M8_COUNTER_CARVE_TILE_COUNT 43u
-#define M8_COUNTER_OBSERVATION_INTEGRATED 44u
+#define M8_COUNTER_OBSERVATION_COMPLETED 44u
 #define M8_COUNTER_EVICTION_CURSOR 45u
 #define M8_COUNTER_LOADS_INSTALLED 46u
 #define M8_COUNTER_OBSERVATION_TOKEN 47u
 #define M8_COUNTER_CARVE_QUERY_BLOCKS 48u
 #define M8_COUNTER_WRITEBACK_TILES 49u
 #define M8_COUNTER_VISIBLE_SAFE_COUNT 50u
+#define M8_COUNTER_EVICTION_NEEDED 51u
+#define M8_COUNTER_OBSERVATION_FAILURE 52u
+#define M8_COUNTER_FAILED_OBSERVATIONS 53u
 #define M8_COUNTER_COUNT 64u
+
+#define M8_OBSERVATION_FAILURE_SURFACE_CAPACITY 1u
+#define M8_OBSERVATION_FAILURE_BLOCK_CAPACITY 2u
+#define M8_OBSERVATION_FAILURE_CHUNK_CAPACITY 4u
+#define M8_OBSERVATION_FAILURE_HASH_CAPACITY 8u
+#define M8_OBSERVATION_FAILURE_TIMEOUT 16u
 
 struct KernelState
 {
@@ -135,10 +145,12 @@ KernelState M8LoadKernelState(uint physicalSlot, uint kernelLocal)
 {
     uint index = M8BankStateIndex(physicalSlot, kernelLocal);
     uint bank = physicalSlot >> MERKABA_M8_TILE_BANK_SHIFT;
-    if (bank == 0u) return _M8KernelStates0[index];
-    if (bank == 1u) return _M8KernelStates1[index];
-    if (bank == 2u) return _M8KernelStates2[index];
-    return _M8KernelStates3[index];
+    KernelState state = (KernelState)0;
+    if (bank == 0u) state = _M8KernelStates0[index];
+    else if (bank == 1u) state = _M8KernelStates1[index];
+    else if (bank == 2u) state = _M8KernelStates2[index];
+    else state = _M8KernelStates3[index];
+    return state;
 }
 
 void M8StoreKernelState(uint physicalSlot, uint kernelLocal, KernelState state)
@@ -169,13 +181,19 @@ uint M8PhysicalSlot(uint tileRef)
 
 bool M8TryPopPhysicalTile(out uint physicalSlot)
 {
+    physicalSlot = 0u;
     int previous;
     InterlockedAdd(_M8FreeTileCount[0], -1, previous);
+    if (previous <= 256)
+    {
+        uint ignoredSignal;
+        InterlockedExchange(_M8Counters[M8_COUNTER_EVICTION_NEEDED], 1u,
+            ignoredSignal);
+    }
     if (previous <= 0)
     {
         int ignored;
         InterlockedAdd(_M8FreeTileCount[0], 1, ignored);
-        physicalSlot = 0u;
         return false;
     }
     physicalSlot = _M8FreeTileStack[(uint)(previous - 1)];
@@ -197,6 +215,7 @@ uint M8HashEntryIndex(uint bucket, uint slot)
 
 bool M8FindBlock(int3 blockCoord, out uint blockIndex)
 {
+    blockIndex = 0u;
     uint2 buckets = MerkabaHashBucketSearchOrder(blockCoord);
     [unroll]
     for (uint bucketOrder = 0u; bucketOrder < 2u; bucketOrder++)
@@ -216,14 +235,16 @@ bool M8FindBlock(int3 blockCoord, out uint blockIndex)
             }
         }
     }
-    blockIndex = 0u;
     return false;
 }
 
 // Returns READY block index or leaves a single CLAIMED entry for the publish pass.
 // Any observed CLAIMED entry defers instead of walking to a later empty slot.
-bool M8FindOrClaimBlock(int3 blockCoord, out uint blockIndex)
+bool M8FindOrClaimBlock(int3 blockCoord, out uint blockIndex,
+    out uint failureReason)
 {
+    blockIndex = 0u;
+    failureReason = 0u;
     uint2 buckets = MerkabaHashBucketSearchOrder(blockCoord);
     uint firstEmpty = 0xffffffffu;
     uint probes = 0u;
@@ -269,6 +290,7 @@ bool M8FindOrClaimBlock(int3 blockCoord, out uint blockIndex)
     if (firstEmpty == 0xffffffffu)
     {
         M8CounterIncrement(M8_COUNTER_HASH_FULL);
+        failureReason = M8_OBSERVATION_FAILURE_HASH_CAPACITY;
         blockIndex = 0u;
         return false;
     }
@@ -287,6 +309,7 @@ bool M8FindOrClaimBlock(int3 blockCoord, out uint blockIndex)
     if (allocated >= MERKABA_M8_BLOCK_CAPACITY)
     {
         _M8Counters[M8_COUNTER_BLOCK_OVERFLOW] = 1u;
+        failureReason = M8_OBSERVATION_FAILURE_BLOCK_CAPACITY;
         _M8HashEntries[firstEmpty].blockRef = MERKABA_REF_EMPTY;
         blockIndex = 0u;
         return false;
@@ -303,8 +326,10 @@ bool M8FindOrClaimBlock(int3 blockCoord, out uint blockIndex)
 }
 
 bool M8FindOrClaimChunk(uint blockIndex, uint chunkLocal,
-    out uint chunkIndex)
+    out uint chunkIndex, out uint failureReason)
 {
+    chunkIndex = 0u;
+    failureReason = 0u;
     uint refIndex = blockIndex * MERKABA_M8_BLOCK_CHUNK_COUNT + chunkLocal;
     uint chunkRef = _M8BlockChunkRefs[refIndex];
     if (chunkRef != MERKABA_REF_EMPTY &&
@@ -332,6 +357,7 @@ bool M8FindOrClaimChunk(uint blockIndex, uint chunkLocal,
     if (allocated >= MERKABA_M8_CHUNK_CAPACITY)
     {
         _M8Counters[M8_COUNTER_CHUNK_OVERFLOW] = 1u;
+        failureReason = M8_OBSERVATION_FAILURE_CHUNK_CAPACITY;
         _M8BlockChunkRefs[refIndex] = MERKABA_REF_EMPTY;
         chunkIndex = 0u;
         return false;
@@ -349,8 +375,11 @@ bool M8FindOrClaimChunk(uint blockIndex, uint chunkLocal,
 bool M8FindTile(int3 globalCoord, out uint physicalSlot,
     out MerkabaM8Address address, out uint tileRefIndex, out uint tileRef)
 {
+    physicalSlot = 0u;
+    tileRefIndex = 0u;
+    tileRef = MERKABA_REF_EMPTY;
     address = MerkabaAddressOf(globalCoord);
-    uint blockIndex;
+    uint blockIndex = 0u;
     if (!M8FindBlock(address.blockCoord, blockIndex))
     {
         physicalSlot = 0u; tileRefIndex = 0u; tileRef = MERKABA_REF_EMPTY;
@@ -381,23 +410,19 @@ bool M8FindTile(int3 globalCoord, out uint physicalSlot,
 // and must never be interpreted as empty topology.
 bool M8TryOccupiedExact(int3 globalCoord, out bool occupied)
 {
+    occupied = false;
     MerkabaM8Address address = MerkabaAddressOf(globalCoord);
-    uint blockIndex;
+    uint blockIndex = 0u;
     if (!M8FindBlock(address.blockCoord, blockIndex))
-    {
-        occupied = false;
         return true;
-    }
     uint chunkRef = _M8BlockChunkRefs[blockIndex *
         MERKABA_M8_BLOCK_CHUNK_COUNT + address.chunkLocal];
     if (chunkRef == MERKABA_REF_EMPTY)
     {
-        occupied = false;
         return true;
     }
     if (chunkRef == MERKABA_REF_CLAIMED_NEW)
     {
-        occupied = false;
         return false;
     }
     uint chunkIndex = chunkRef - 1u;
@@ -405,12 +430,10 @@ bool M8TryOccupiedExact(int3 globalCoord, out bool occupied)
         MERKABA_M8_TILES_PER_CHUNK + address.tileLocal];
     if (tileRef == MERKABA_REF_EMPTY)
     {
-        occupied = false;
         return true;
     }
     if (!M8IsHotRef(tileRef))
     {
-        occupied = false;
         return false;
     }
     uint physicalSlot = M8PhysicalSlot(tileRef);

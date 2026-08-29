@@ -98,99 +98,144 @@ void ResetFrame(uint id : SV_DispatchThreadID)
     _M8DrawArgs[3] = 0u;
 }
 
-[numthreads(1, 1, 1)]
-void QueryM8Frame(uint3 groupId : SV_GroupID)
-{
-    uint linear = groupId.x;
-    uint side = (uint)_M8QueryBlockSide;
-    if (linear >= side * side * side) return;
-    M8CounterIncrement(M8_COUNTER_CANDIDATE_BLOCKS);
-    int3 offset;
-    offset.x = (int)(linear % side) - _M8QueryBlockRadius;
-    offset.y = (int)((linear / side) % side) - _M8QueryBlockRadius;
-    offset.z = (int)(linear / (side * side)) - _M8QueryBlockRadius;
-    int3 blockCoord = _M8QueryCenterBlock + offset;
-    int3 blockMin = blockCoord * MERKABA_M8_BLOCK_KERNEL_SPAN;
-    if (!M8AabbIntersectsDistance(blockMin,
-        MERKABA_M8_BLOCK_KERNEL_SPAN, _M8WarmDistance)) return;
-    uint blockIndex;
-    if (!M8FindBlock(blockCoord, blockIndex)) return;
-    M8CounterIncrement(M8_COUNTER_HASH_HIT_BLOCKS);
+groupshared uint gFrameBlockRef;
+groupshared int3 gFrameBlockMin;
+groupshared uint gFrameWarm4;
+groupshared uint gFrameDraw4;
+groupshared uint gFrameWarm3[8];
+groupshared uint gFrameDraw3[8];
 
-    uint warm4 = M8DistanceChildMask(blockMin, 256, _M8WarmDistance);
-    uint draw4 = M8DrawChildMask(blockMin, 256);
-    uint support4 = (_M8BlockPresenceL0[blockIndex] & 255u) & warm4;
-    while (support4 != 0u)
+[numthreads(64, 1, 1)]
+void QueryM8Frame(uint3 groupId : SV_GroupID, uint thread : SV_GroupIndex)
+{
+    uint linearBlockIndex = groupId.x;
+    uint side = (uint)_M8QueryBlockSide;
+    if (linearBlockIndex >= side * side * side) return;
+    if (thread == 0u)
     {
-        uint d4 = (uint)firstbitlow(support4); support4 &= support4 - 1u;
-        int3 min4 = blockMin + MerkabaM8OctantOffset(d4, 128);
-        uint warm3 = M8DistanceChildMask(min4, 128, _M8WarmDistance);
-        uint draw3 = M8DrawChildMask(min4, 128);
-        uint support3 = (_M8BlockPresenceL1[blockIndex * 8u + d4] & 255u) &
-            warm3;
-        while (support3 != 0u)
+        int3 offset;
+        offset.x = (int)(linearBlockIndex % side) - _M8QueryBlockRadius;
+        offset.y = (int)((linearBlockIndex / side) % side) -
+            _M8QueryBlockRadius;
+        offset.z = (int)(linearBlockIndex / (side * side)) -
+            _M8QueryBlockRadius;
+        int3 blockCoord = _M8QueryCenterBlock + offset;
+        gFrameBlockMin = blockCoord * MERKABA_M8_BLOCK_KERNEL_SPAN;
+        gFrameBlockRef = 0u;
+        gFrameWarm4 = 0u;
+        gFrameDraw4 = 0u;
+        M8CounterIncrement(M8_COUNTER_CANDIDATE_BLOCKS);
+        if (M8AabbIntersectsDistance(gFrameBlockMin,
+            MERKABA_M8_BLOCK_KERNEL_SPAN, _M8WarmDistance))
         {
-            uint d3 = (uint)firstbitlow(support3); support3 &= support3 - 1u;
-            int3 min3 = min4 + MerkabaM8OctantOffset(d3, 64);
-            uint warm2 = M8DistanceChildMask(min3, 64, _M8WarmDistance);
-            uint draw2 = M8DrawChildMask(min3, 64);
-            uint support2 = (_M8BlockPresenceL2[blockIndex * 64u +
-                d4 * 8u + d3] & 255u) & warm2;
-            while (support2 != 0u)
+            uint blockIndex = 0u;
+            if (M8FindBlock(blockCoord, blockIndex))
             {
-                uint d2 = (uint)firstbitlow(support2); support2 &= support2 - 1u;
-                uint chunkLocal = (d4 << 6u) | (d3 << 3u) | d2;
-                uint chunkRef = _M8BlockChunkRefs[blockIndex * 512u + chunkLocal];
-                if (chunkRef == 0u || chunkRef >= MERKABA_REF_EVICTING) continue;
-                uint chunkIndex = chunkRef - 1u;
-                int3 min2 = min3 + MerkabaM8OctantOffset(d2, 32);
-                uint warm1 = M8DistanceChildMask(min2, 32, _M8WarmDistance);
-                uint draw1 = M8DrawChildMask(min2, 32);
-                uint support1 = (_M8ChunkPresenceL0[chunkIndex] & 255u) & warm1;
-                bool visibleChunk = false;
-                while (support1 != 0u)
-                {
-                    uint d1 = (uint)firstbitlow(support1); support1 &= support1 - 1u;
-                    int3 min1 = min2 + MerkabaM8OctantOffset(d1, 16);
-                    uint warm0 = M8DistanceChildMask(min1, 16, _M8WarmDistance);
-                    uint draw0 = M8DrawChildMask(min1, 16);
-                    uint support0 = (_M8ChunkPresenceL1[chunkIndex * 8u + d1] &
-                        255u) & warm0;
-                    while (support0 != 0u)
-                    {
-                        uint d0 = (uint)firstbitlow(support0); support0 &= support0 - 1u;
-                        uint tileLocal = (d1 << 3u) | d0;
-                        uint tileRefIndex = chunkIndex * 64u + tileLocal;
-                        uint tileRef = _M8ChunkTileRefs[tileRefIndex];
-                        bool inDraw = ((draw4 >> d4) & (draw3 >> d3) &
-                            (draw2 >> d2) & (draw1 >> d1) & (draw0 >> d0) & 1u) != 0u;
-                        if (tileRef == MERKABA_REF_COLD_ON_SSD)
-                        {
-                            M8RequestWarmLoad(tileRefIndex, chunkIndex, tileLocal,
-                                inDraw);
-                            continue;
-                        }
-                        if (!M8IsHotRef(tileRef))
-                        {
-                            if (inDraw)
-                                M8CounterIncrement(M8_COUNTER_LATE_DRAW_COLD_MISSES);
-                            continue;
-                        }
-                        uint physicalSlot = M8PhysicalSlot(tileRef);
-                        _M8TileRuntime[physicalSlot].z =
-                            _M8Counters[M8_COUNTER_FRAME_EPOCH];
-                        if (!inDraw || _M8TileMeta[physicalSlot].z == 0u) continue;
-                        uint visibleIndex;
-                        InterlockedAdd(_M8Counters[M8_COUNTER_VISIBLE_TILE_COUNT],
-                            1u, visibleIndex);
-                        if (visibleIndex < MERKABA_M8_PHYSICAL_TILE_CAPACITY)
-                            _M8VisibleTiles[visibleIndex] = physicalSlot;
-                        visibleChunk = true;
-                    }
-                }
-                if (visibleChunk) M8CounterIncrement(M8_COUNTER_VISIBLE_CHUNKS);
+                gFrameBlockRef = blockIndex + 1u;
+                gFrameWarm4 = M8DistanceChildMask(gFrameBlockMin, 256,
+                    _M8WarmDistance);
+                gFrameDraw4 = M8DrawChildMask(gFrameBlockMin, 256);
+                M8CounterIncrement(M8_COUNTER_HASH_HIT_BLOCKS);
             }
         }
+    }
+    GroupMemoryBarrierWithGroupSync();
+    if (gFrameBlockRef == 0u) return;
+
+    uint blockIndex = gFrameBlockRef - 1u;
+    int3 blockMin = gFrameBlockMin;
+    if (thread < 8u)
+    {
+        uint d4ForMask = thread;
+        if (((_M8BlockPresenceL0[blockIndex] & gFrameWarm4) &
+            (1u << d4ForMask)) != 0u)
+        {
+            int3 min4ForMask = blockMin +
+                MerkabaM8OctantOffset(d4ForMask, 128);
+            gFrameWarm3[d4ForMask] = M8DistanceChildMask(min4ForMask, 128,
+                _M8WarmDistance);
+            gFrameDraw3[d4ForMask] = ((gFrameDraw4 >> d4ForMask) & 1u) != 0u
+                ? M8DrawChildMask(min4ForMask, 128) : 0u;
+        }
+        else
+        {
+            gFrameWarm3[d4ForMask] = 0u;
+            gFrameDraw3[d4ForMask] = 0u;
+        }
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    uint d4 = thread >> 3u;
+    uint d3 = thread & 7u;
+    if (((gFrameWarm4 >> d4) & 1u) == 0u ||
+        (((_M8BlockPresenceL1[blockIndex * 8u + d4] &
+        gFrameWarm3[d4]) >> d3) & 1u) == 0u) return;
+
+    int3 min4 = blockMin + MerkabaM8OctantOffset(d4, 128);
+    int3 min3 = min4 + MerkabaM8OctantOffset(d3, 64);
+    uint warm2 = M8DistanceChildMask(min3, 64, _M8WarmDistance);
+    bool drawPath3 = ((gFrameDraw4 >> d4) & 1u) != 0u &&
+        ((gFrameDraw3[d4] >> d3) & 1u) != 0u;
+    uint draw2 = drawPath3 ? M8DrawChildMask(min3, 64) : 0u;
+    uint support2 = (_M8BlockPresenceL2[blockIndex * 64u +
+        d4 * 8u + d3] & 255u) & warm2;
+    while (support2 != 0u)
+    {
+        uint d2 = (uint)firstbitlow(support2);
+        support2 &= support2 - 1u;
+        uint chunkLocal = (d4 << 6u) | (d3 << 3u) | d2;
+        uint chunkRef = _M8BlockChunkRefs[blockIndex * 512u + chunkLocal];
+        if (chunkRef == 0u || chunkRef >= MERKABA_REF_EVICTING) continue;
+        uint chunkIndex = chunkRef - 1u;
+        int3 min2 = min3 + MerkabaM8OctantOffset(d2, 32);
+        uint warm1 = M8DistanceChildMask(min2, 32, _M8WarmDistance);
+        bool drawPath2 = drawPath3 && ((draw2 >> d2) & 1u) != 0u;
+        uint draw1 = drawPath2 ? M8DrawChildMask(min2, 32) : 0u;
+        uint support1 = (_M8ChunkPresenceL0[chunkIndex] & 255u) & warm1;
+        bool visibleChunk = false;
+        while (support1 != 0u)
+        {
+            uint d1 = (uint)firstbitlow(support1);
+            support1 &= support1 - 1u;
+            int3 min1 = min2 + MerkabaM8OctantOffset(d1, 16);
+            uint warm0 = M8DistanceChildMask(min1, 16, _M8WarmDistance);
+            bool drawPath1 = drawPath2 && ((draw1 >> d1) & 1u) != 0u;
+            uint draw0 = drawPath1 ? M8DrawChildMask(min1, 16) : 0u;
+            uint support0 = (_M8ChunkPresenceL1[chunkIndex * 8u + d1] &
+                255u) & warm0;
+            while (support0 != 0u)
+            {
+                uint d0 = (uint)firstbitlow(support0);
+                support0 &= support0 - 1u;
+                uint tileLocal = (d1 << 3u) | d0;
+                uint tileRefIndex = chunkIndex * 64u + tileLocal;
+                uint tileRef = _M8ChunkTileRefs[tileRefIndex];
+                bool inDraw = drawPath1 && ((draw0 >> d0) & 1u) != 0u;
+                if (tileRef == MERKABA_REF_COLD_ON_SSD)
+                {
+                    M8RequestWarmLoad(tileRefIndex, chunkIndex, tileLocal,
+                        inDraw);
+                    continue;
+                }
+                if (!M8IsHotRef(tileRef))
+                {
+                    if (inDraw)
+                        M8CounterIncrement(M8_COUNTER_LATE_DRAW_COLD_MISSES);
+                    continue;
+                }
+                uint physicalSlot = M8PhysicalSlot(tileRef);
+                _M8TileRuntime[physicalSlot].z =
+                    _M8Counters[M8_COUNTER_FRAME_EPOCH];
+                if (!inDraw || _M8TileMeta[physicalSlot].z == 0u) continue;
+                uint visibleIndex;
+                InterlockedAdd(_M8Counters[M8_COUNTER_VISIBLE_TILE_COUNT],
+                    1u, visibleIndex);
+                if (visibleIndex < MERKABA_M8_PHYSICAL_TILE_CAPACITY)
+                    _M8VisibleTiles[visibleIndex] = physicalSlot;
+                visibleChunk = true;
+            }
+        }
+        if (visibleChunk) M8CounterIncrement(M8_COUNTER_VISIBLE_CHUNKS);
     }
 }
 
@@ -240,7 +285,7 @@ void CompileVisiblePrimitives(uint3 groupId : SV_GroupID,
     [unroll]
     for (uint direction = 0u; direction < MERKABA_DIRECTION_COUNT; direction++)
     {
-        bool occupied;
+        bool occupied = false;
         if (!M8TryOccupiedExact(globalCoord +
             kMerkabaBodyDiagonalOffsets[direction], occupied))
         {

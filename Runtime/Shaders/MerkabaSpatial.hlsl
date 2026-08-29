@@ -29,18 +29,18 @@ struct MerkabaM8Address
     uint kernelLocal;
 };
 
-int MerkabaFloorDiv256(int value)
+void MerkabaFloorDivMod256(int value, out int quotient, out uint remainder)
 {
-    int quotient = value / MERKABA_M8_BLOCK_KERNEL_SPAN;
-    int remainder = value - quotient * MERKABA_M8_BLOCK_KERNEL_SPAN;
-    return remainder < 0 ? quotient - 1 : quotient;
-}
-
-uint MerkabaFloorMod256(int value)
-{
-    int quotient = value / MERKABA_M8_BLOCK_KERNEL_SPAN;
-    int remainder = value - quotient * MERKABA_M8_BLOCK_KERNEL_SPAN;
-    return (uint)(remainder < 0 ? remainder + MERKABA_M8_BLOCK_KERNEL_SPAN : remainder);
+    uint bits = asuint(value);
+    bool negative = value < 0;
+    uint magnitude = negative ? (~bits + 1u) : bits;
+    uint magnitudeRemainder = magnitude & 255u;
+    quotient = negative
+        ? -(int)((magnitude + 255u) >> 8u)
+        : (int)(magnitude >> 8u);
+    remainder = negative && magnitudeRemainder != 0u
+        ? 256u - magnitudeRemainder
+        : magnitudeRemainder;
 }
 
 uint MerkabaOctantDigit(uint3 local, uint bit)
@@ -52,11 +52,13 @@ uint MerkabaOctantDigit(uint3 local, uint bit)
 
 MerkabaM8Address MerkabaAddressOf(int3 globalCoord)
 {
-    MerkabaM8Address address;
-    address.blockCoord = int3(MerkabaFloorDiv256(globalCoord.x),
-        MerkabaFloorDiv256(globalCoord.y), MerkabaFloorDiv256(globalCoord.z));
-    address.local = uint3(MerkabaFloorMod256(globalCoord.x),
-        MerkabaFloorMod256(globalCoord.y), MerkabaFloorMod256(globalCoord.z));
+    MerkabaM8Address address = (MerkabaM8Address)0;
+    MerkabaFloorDivMod256(globalCoord.x, address.blockCoord.x,
+        address.local.x);
+    MerkabaFloorDivMod256(globalCoord.y, address.blockCoord.y,
+        address.local.y);
+    MerkabaFloorDivMod256(globalCoord.z, address.blockCoord.z,
+        address.local.z);
     address.d4 = MerkabaOctantDigit(address.local, 7u);
     address.d3 = MerkabaOctantDigit(address.local, 6u);
     address.d2 = MerkabaOctantDigit(address.local, 5u);

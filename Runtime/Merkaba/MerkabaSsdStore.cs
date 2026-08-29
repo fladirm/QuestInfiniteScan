@@ -47,6 +47,19 @@ namespace Genesis.RoomScan
             }
         }
 
+        private readonly struct PendingIndexUpdate
+        {
+            internal readonly MerkabaTileSnapshot Tile;
+            internal readonly Location Location;
+
+            internal PendingIndexUpdate(MerkabaTileSnapshot tile,
+                Location location)
+            {
+                Tile = tile;
+                Location = location;
+            }
+        }
+
         internal MerkabaSsdStore(string directory)
         {
             _directory = directory ?? throw new ArgumentNullException(nameof(directory));
@@ -69,7 +82,8 @@ namespace Genesis.RoomScan
             var rebuilt = new Dictionary<MerkabaTileAddress, Location>();
             if (File.Exists(CheckpointPath))
                 ScanCheckpoint(CheckpointPath, rebuilt);
-            if (File.Exists(OverlayPath))
+            if (File.Exists(OverlayPath) &&
+                new FileInfo(OverlayPath).Length > 0)
                 ScanOverlay(OverlayPath, rebuilt);
             lock (_gate)
             {
@@ -90,37 +104,71 @@ namespace Genesis.RoomScan
             Directory.CreateDirectory(_directory);
             bool newFile = !File.Exists(OverlayPath) ||
                            new FileInfo(OverlayPath).Length == 0;
-            using var stream = new FileStream(OverlayPath, FileMode.Append,
-                FileAccess.Write, FileShare.Read, 256 * 1024,
-                FileOptions.WriteThrough);
-            using var writer = new BinaryWriter(stream, new UTF8Encoding(false), true);
-            if (newFile)
+            long originalLength = newFile ? 0L : new FileInfo(OverlayPath).Length;
+            var pending = new List<PendingIndexUpdate>(tiles.Count);
+            try
             {
-                writer.Write(OverlayMagic);
-                writer.Write(FormatVersion);
-            }
-            foreach (MerkabaTileSnapshot tile in tiles)
-            {
-                ValidateTile(tile);
-                uint generation;
-                lock (_gate)
+                using var stream = new FileStream(OverlayPath, FileMode.Append,
+                    FileAccess.Write, FileShare.Read, 256 * 1024,
+                    FileOptions.WriteThrough);
+                using var writer = new BinaryWriter(stream,
+                    new UTF8Encoding(false), true);
+                if (newFile)
                 {
-                    generation = _index.TryGetValue(tile.Address, out Location prior)
-                        ? checked(prior.Generation + 1u) : 1u;
+                    writer.Write(OverlayMagic);
+                    writer.Write(FormatVersion);
                 }
-                WriteAddress(writer, tile.Address);
-                writer.Write(generation);
-                writer.Write(TilePayloadBytes);
-                writer.Write(Crc32(tile.States));
-                long payloadOffset = stream.Position;
-                WriteStates(writer, tile.States);
-                lock (_gate)
-                    _index[tile.Address] = new Location(OverlayPath,
-                        payloadOffset, generation);
-                tile.Generation = generation;
+                foreach (MerkabaTileSnapshot tile in tiles)
+                {
+                    ValidateTile(tile);
+                    uint generation;
+                    lock (_gate)
+                    {
+                        generation = _index.TryGetValue(tile.Address,
+                            out Location prior)
+                            ? checked(prior.Generation + 1u) : 1u;
+                    }
+                    WriteAddress(writer, tile.Address);
+                    writer.Write(generation);
+                    writer.Write(TilePayloadBytes);
+                    writer.Write(Crc32(tile.States));
+                    long payloadOffset = stream.Position;
+                    WriteStates(writer, tile.States);
+                    pending.Add(new PendingIndexUpdate(tile,
+                        new Location(OverlayPath, payloadOffset, generation)));
+                }
+                writer.Flush();
+                stream.Flush(true);
             }
-            writer.Flush();
-            stream.Flush(true);
+            catch
+            {
+                TryTruncateOverlay(originalLength);
+                throw;
+            }
+            lock (_gate)
+            {
+                foreach (PendingIndexUpdate update in pending)
+                {
+                    _index[update.Tile.Address] = update.Location;
+                    update.Tile.Generation = update.Location.Generation;
+                }
+            }
+        }
+
+        private void TryTruncateOverlay(long length)
+        {
+            try
+            {
+                using var stream = new FileStream(OverlayPath, FileMode.Open,
+                    FileAccess.Write, FileShare.Read);
+                stream.SetLength(length);
+                stream.Flush(true);
+            }
+            catch (Exception exception)
+            {
+                Logger.Error("Could not roll back failed M8 overlay append: " +
+                             exception.Message);
+            }
         }
 
         internal Task<MerkabaTileSnapshot[]> ReadAsync(

@@ -97,6 +97,8 @@ namespace Genesis.RoomScan
             internal uint RejectedPrimitives;
             internal uint LateColdMisses;
             internal uint RenderPrimitiveOverflow;
+            internal uint ObservationFailure;
+            internal uint FailedObservations;
             internal float LoadBytesPerSecond;
             internal float WriteBytesPerSecond;
             internal float LoadLatencyP50Ms;
@@ -440,6 +442,8 @@ namespace Genesis.RoomScan
                     sample.StorageBackpressure = values[41];
                     sample.CarveQueryBlocks = values[48];
                     sample.WritebackTiles = values[49];
+                    sample.ObservationFailure = values[52];
+                    sample.FailedObservations = values[53];
                 }
                 sample.PendingReadbacks--;
                 TryLogMetrics(sample);
@@ -627,7 +631,9 @@ namespace Genesis.RoomScan
                         $"rawSPIInstances={sample.LogicalPrimitives * 2u} " +
                         $"primitivesRejectedBothEyes={sample.RejectedPrimitives} " +
                         $"lateDrawColdMisses={sample.LateColdMisses} " +
-                        $"renderPrimitiveOverflow={sample.RenderPrimitiveOverflow}");
+                        $"renderPrimitiveOverflow={sample.RenderPrimitiveOverflow} " +
+                        $"observationFailure=0x{sample.ObservationFailure:x} " +
+                        $"failedObservations={sample.FailedObservations}");
         }
 
         private static void CancelFrame()

@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using UnityEngine;
 
@@ -177,25 +178,28 @@ namespace Genesis.RoomScan
 
     internal static class MerkabaFilePublishing
     {
+#if UNITY_ANDROID && !UNITY_EDITOR
+        [DllImport("libc", EntryPoint = "rename", SetLastError = true)]
+        private static extern int RenameAtomic(string source, string destination);
+#endif
+
         internal static void Publish(string temporary, string destination)
         {
+#if UNITY_ANDROID && !UNITY_EDITOR
+            if (RenameAtomic(temporary, destination) != 0)
+                throw new IOException("Atomic checkpoint rename failed with " +
+                                      $"errno {Marshal.GetLastWin32Error()}.");
+#else
             if (!File.Exists(destination))
             {
                 File.Move(temporary, destination);
                 return;
             }
             string backup = destination + ".bak";
-            try
-            {
-                if (File.Exists(backup)) File.Delete(backup);
-                File.Replace(temporary, destination, backup, true);
-                if (File.Exists(backup)) File.Delete(backup);
-            }
-            catch (PlatformNotSupportedException)
-            {
-                File.Copy(temporary, destination, true);
-                File.Delete(temporary);
-            }
+            if (File.Exists(backup)) File.Delete(backup);
+            File.Replace(temporary, destination, backup, true);
+            if (File.Exists(backup)) File.Delete(backup);
+#endif
         }
     }
 }

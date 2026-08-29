@@ -134,6 +134,27 @@ namespace Genesis.RoomScan.Tests
             }
         }
 
+        [Test]
+        public void DurableOverlayAndCheckpointPublishBeforeTheirCpuAuthority()
+        {
+            string store = File.ReadAllText(Path.GetFullPath(
+                "Packages/com.genesis.roomscan/Runtime/Merkaba/" +
+                "MerkabaSsdStore.cs"));
+            int durable = store.IndexOf("stream.Flush(true);",
+                StringComparison.Ordinal);
+            int indexPublish = store.IndexOf(
+                "_index[update.Tile.Address] = update.Location;",
+                StringComparison.Ordinal);
+            Assert.That(durable, Is.GreaterThanOrEqualTo(0));
+            Assert.That(indexPublish, Is.GreaterThan(durable));
+
+            string persistence = File.ReadAllText(Path.GetFullPath(
+                "Packages/com.genesis.roomscan/Runtime/Merkaba/" +
+                "MerkabaPersistence.cs"));
+            Assert.That(persistence, Does.Contain("RenameAtomic"));
+            Assert.That(persistence, Does.Not.Contain("File.Copy("));
+        }
+
         private static MerkabaSessionSnapshot Fixture()
         {
             var snapshot = new MerkabaSessionSnapshot

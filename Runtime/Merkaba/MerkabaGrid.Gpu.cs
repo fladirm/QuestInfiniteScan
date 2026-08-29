@@ -27,6 +27,9 @@ namespace Genesis.RoomScan
         internal const int CounterChunkOverflow = 8;
         internal const int CounterHashFull = 38;
         internal const int CounterOccupiedKernelCount = 42;
+        internal const int CounterEvictionNeeded = 51;
+        internal const int CounterObservationFailure = 52;
+        internal const int CounterFailedObservations = 53;
 
         private bool _gpuReady;
         private int _gpuGeneration;
@@ -46,7 +49,7 @@ namespace Genesis.RoomScan
         private int _initializeNewTilesKernel;
         private int _resetObservationKernel;
         private int _resetClaimQueuesKernel;
-        private int _resetResolveCounterKernel;
+        private int _prepareNewTileDispatchKernel;
         private int _clearTouchedCandidatesKernel;
         private int _selectEvictionVictimsKernel;
         private int _gatherWritebackBatchKernel;
@@ -249,7 +252,7 @@ namespace Genesis.RoomScan
                     ComputeBufferType.IndirectArguments);
                 _m8ObservationDispatchArgs = Allocate(3, sizeof(uint),
                     ComputeBufferType.IndirectArguments);
-                _m8WritebackQueue = Allocate(MerkabaSpatial.PhysicalTileCapacity,
+                _m8WritebackQueue = Allocate(StreamBatchCapacity,
                     sizeof(uint) * 2);
                 _m8WritebackStaging = Allocate(StreamBatchCapacity *
                     (MerkabaSpatial.KernelsPerTile + 1), 16);
@@ -269,7 +272,7 @@ namespace Genesis.RoomScan
                 BindWorldBuffers(worldCompute, _initializeNewTilesKernel);
                 BindWorldBuffers(worldCompute, _resetObservationKernel);
                 BindWorldBuffers(worldCompute, _resetClaimQueuesKernel);
-                BindWorldBuffers(worldCompute, _resetResolveCounterKernel);
+                BindWorldBuffers(worldCompute, _prepareNewTileDispatchKernel);
                 BindWorldBuffers(worldCompute, _clearTouchedCandidatesKernel);
                 BindWorldBuffers(worldCompute, _selectEvictionVictimsKernel);
                 BindWorldBuffers(worldCompute, _gatherWritebackBatchKernel);
@@ -284,6 +287,10 @@ namespace Genesis.RoomScan
                     ClearBlockArgsId, _m8FrameDispatchArgs);
                 worldCompute.SetBuffer(_prepareAllocatedClearKernel,
                     ClearChunkArgsId, _m8ObservationDispatchArgs);
+                worldCompute.SetBuffer(_prepareNewTileDispatchKernel,
+                    "_M8ObservationDispatchArgs", _m8ObservationDispatchArgs);
+                worldCompute.SetBuffer(_resetClaimQueuesKernel,
+                    "_M8ObservationDispatchArgs", _m8ObservationDispatchArgs);
                 InitializeGpuWorld();
                 EnsureStorage();
                 _gpuReady = true;
@@ -320,8 +327,9 @@ namespace Genesis.RoomScan
                 "ResetObservationCounters", MerkabaGpuStage.SurfaceIntegration);
             _resetClaimQueuesKernel = worldCompute.FindProfiledKernel(
                 "ResetClaimQueueCounts", MerkabaGpuStage.SurfaceIntegration);
-            _resetResolveCounterKernel = worldCompute.FindProfiledKernel(
-                "ResetResolveCounter", MerkabaGpuStage.SurfaceIntegration);
+            _prepareNewTileDispatchKernel = worldCompute.FindProfiledKernel(
+                "PrepareNewTileDispatchArgs",
+                MerkabaGpuStage.SurfaceIntegration);
             _clearTouchedCandidatesKernel = worldCompute.FindProfiledKernel(
                 "ClearTouchedSurfaceCandidates",
                 MerkabaGpuStage.SurfaceIntegration);
@@ -480,14 +488,14 @@ namespace Genesis.RoomScan
 
         internal void RecordPublishClaimedBlocks(CommandBuffer command) =>
             command.DispatchComputeProfiled(worldCompute,
-                _publishNewBlocksKernel, 1, 1, 1);
+                _publishNewBlocksKernel, _m8ObservationDispatchArgs);
 
         internal void PublishClaimedChunks() =>
             worldCompute.Dispatch(_publishNewChunksKernel, 1, 1, 1);
 
         internal void RecordPublishClaimedChunks(CommandBuffer command) =>
             command.DispatchComputeProfiled(worldCompute,
-                _publishNewChunksKernel, 1, 1, 1);
+                _publishNewChunksKernel, _m8ObservationDispatchArgs);
 
         internal void PublishClaimedBlocksAndChunks()
         {
@@ -495,13 +503,9 @@ namespace Genesis.RoomScan
             PublishClaimedChunks();
         }
 
-        internal void InitializeClaimedTiles() =>
-            worldCompute.Dispatch(_initializeNewTilesKernel,
-                512, 1, 1);
-
         internal void RecordInitializeClaimedTiles(CommandBuffer command) =>
             command.DispatchComputeProfiled(worldCompute,
-                _initializeNewTilesKernel, 512, 1, 1);
+                _initializeNewTilesKernel, _m8ObservationDispatchArgs);
 
         internal void ResetClaimQueues() =>
             worldCompute.Dispatch(_resetClaimQueuesKernel, 1, 1, 1);
@@ -510,12 +514,9 @@ namespace Genesis.RoomScan
             command.DispatchComputeProfiled(worldCompute,
                 _resetClaimQueuesKernel, 1, 1, 1);
 
-        internal void ResetResolveCounter() =>
-            worldCompute.Dispatch(_resetResolveCounterKernel, 1, 1, 1);
-
-        internal void RecordResetResolveCounter(CommandBuffer command) =>
+        internal void RecordPrepareNewTileDispatch(CommandBuffer command) =>
             command.DispatchComputeProfiled(worldCompute,
-                _resetResolveCounterKernel, 1, 1, 1);
+                _prepareNewTileDispatchKernel, 1, 1, 1);
 
         internal void ClearTouchedSurfaceCandidates()
         {

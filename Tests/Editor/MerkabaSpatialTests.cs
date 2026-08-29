@@ -94,6 +94,8 @@ namespace Genesis.RoomScan.Tests
                 "Packages/com.genesis.roomscan/Runtime/Shaders/MerkabaSpatial.hlsl");
             string hlsl = File.ReadAllText(path);
             StringAssert.Contains("1664525u * v + 1013904223u", hlsl);
+            StringAssert.Contains("magnitude >> 8u", hlsl);
+            StringAssert.DoesNotContain("value /", hlsl);
             StringAssert.DoesNotContain("uint64", hlsl);
             StringAssert.DoesNotContain("% MERKABA_M8_HASH_BUCKET_COUNT", hlsl);
             string mixer = hlsl.Substring(hlsl.IndexOf("uint3 MerkabaPcg3d",

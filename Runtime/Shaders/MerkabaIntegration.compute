@@ -29,7 +29,6 @@
 #define MERKABA_OCCUPIED_FLAG 1u
 #define MERKABA_NORMAL_MIN 0.3
 #define MERKABA_DEPTH_DISPARITY 0.5
-#define MERKABA_SURFACE_CANDIDATE_CAPACITY 2097152u
 #define MERKABA_SURFACE_QUEUE_CAPACITY 1048576u
 
 RWStructuredBuffer<int4> _M8SurfaceCandidates;
@@ -61,6 +60,7 @@ float2 _MerkabaCameraPrincipalPoint;
 float2 _MerkabaCameraSensorResolution;
 float2 _MerkabaCameraCurrentResolution;
 float _MerkabaCameraExposure;
+int _M8AbortObservation;
 
 float4 _M8ScanPlanes[12];
 float3 _M8ScanCameraWorld;
@@ -68,19 +68,37 @@ int3 _M8ScanCenterBlock;
 int _M8ScanBlockRadius;
 int _M8ScanBlockSide;
 
+uint M8ObservationFailureReason()
+{
+    uint reason = _M8Counters[M8_COUNTER_OBSERVATION_FAILURE];
+    if (_M8Counters[M8_COUNTER_SURFACE_CANDIDATE_OVERFLOW] != 0u)
+        reason |= M8_OBSERVATION_FAILURE_SURFACE_CAPACITY;
+    if (_M8AbortObservation != 0)
+        reason |= M8_OBSERVATION_FAILURE_TIMEOUT;
+    return reason;
+}
+
 float2 ProjectCameraUv(float3 worldPosition)
 {
     float3 local = mul(_MerkabaCameraInverseRotation,
         float4(worldPosition - _MerkabaCameraPosition, 1.0)).xyz;
-    if (local.z <= 0.001) return float2(-1, -1);
-    float2 sensorPoint = float2(
-        local.x / local.z * _MerkabaCameraFocalLength.x + _MerkabaCameraPrincipalPoint.x,
-        local.y / local.z * _MerkabaCameraFocalLength.y + _MerkabaCameraPrincipalPoint.y);
-    float2 scale = _MerkabaCameraCurrentResolution / _MerkabaCameraSensorResolution;
-    scale /= max(scale.x, scale.y);
-    float2 cropMin = _MerkabaCameraSensorResolution * (1.0 - scale) * 0.5;
-    float2 cropSize = _MerkabaCameraSensorResolution * scale;
-    return (sensorPoint - cropMin) / cropSize;
+    float2 cameraUv = float2(-1.0, -1.0);
+    if (local.z > 0.001)
+    {
+        float2 sensorPoint = float2(
+            local.x / local.z * _MerkabaCameraFocalLength.x +
+                _MerkabaCameraPrincipalPoint.x,
+            local.y / local.z * _MerkabaCameraFocalLength.y +
+                _MerkabaCameraPrincipalPoint.y);
+        float2 scale = _MerkabaCameraCurrentResolution /
+            _MerkabaCameraSensorResolution;
+        scale /= max(scale.x, scale.y);
+        float2 cropMin = _MerkabaCameraSensorResolution *
+            (1.0 - scale) * 0.5;
+        float2 cropSize = _MerkabaCameraSensorResolution * scale;
+        cameraUv = (sensorPoint - cropMin) / cropSize;
+    }
+    return cameraUv;
 }
 
 uint PackRgb(uint r, uint g, uint b)
@@ -92,10 +110,11 @@ void AccumulateColor(inout KernelState state, float3 observed, float quality)
 {
     uint incomingWeight = (uint)clamp(round(quality * 256.0), 1.0, 256.0);
     uint oldWeight = min(state.colorConfidence, 65535u);
-    uint3 sample = (uint3)round(saturate(observed) * 255.0);
+    uint3 observedRgb = (uint3)round(saturate(observed) * 255.0);
     if (oldWeight == 0u)
     {
-        state.packedColor = PackRgb(sample.r, sample.g, sample.b);
+        state.packedColor = PackRgb(observedRgb.r, observedRgb.g,
+            observedRgb.b);
         state.colorConfidence = incomingWeight;
         return;
     }
@@ -103,8 +122,8 @@ void AccumulateColor(inout KernelState state, float3 observed, float quality)
         (state.packedColor >> 8u) & 255u,
         (state.packedColor >> 16u) & 255u);
     uint divisor = oldWeight + incomingWeight;
-    uint3 blended = (old * oldWeight + sample * incomingWeight + divisor / 2u) /
-        divisor;
+    uint3 blended = (old * oldWeight + observedRgb * incomingWeight +
+        divisor / 2u) / divisor;
     state.packedColor = PackRgb(blended.r, blended.g, blended.b);
     state.colorConfidence = min(65535u, divisor);
 }
@@ -160,8 +179,8 @@ void FuseDepth(float3 worldPosition, out int kind, out float quality)
     [unroll]
     for (uint eye = 0u; eye < 2u; eye++)
     {
-        int eyeKind;
-        float eyeQuality;
+        int eyeKind = 0;
+        float eyeQuality = 0.0;
         if (!ObserveDepthEye(eye, worldPosition, eyeKind, eyeQuality)) continue;
         if (eyeKind == 2)
         {
@@ -250,8 +269,8 @@ void AppendValidatedSurfaceCandidate(int3 globalCoord)
     [unroll]
     for (uint eye = 0u; eye < 2u; eye++)
     {
-        int kind;
-        float candidateQuality;
+        int kind = 0;
+        float candidateQuality = 0.0;
         if (ObserveDepthEye(eye, worldPosition, kind, candidateQuality) &&
             kind == 2 && candidateQuality > quality)
             quality = candidateQuality;
@@ -261,7 +280,7 @@ void AppendValidatedSurfaceCandidate(int3 globalCoord)
     uint index;
     InterlockedAdd(_M8Counters[M8_COUNTER_SURFACE_CANDIDATE_COUNT], 1u,
         index);
-    if (index < MERKABA_SURFACE_CANDIDATE_CAPACITY)
+    if (index < MERKABA_M8_SURFACE_CANDIDATE_CAPACITY)
     {
         _M8SurfaceCandidates[index] = int4(globalCoord, 0);
         M8CounterIncrement(M8_COUNTER_VALID_SURFACE_CANDIDATES);
@@ -316,8 +335,13 @@ void DiscoverSurfaceCandidates(uint3 id : SV_DispatchThreadID)
 void PrepareResolveArgs(uint id : SV_DispatchThreadID)
 {
     uint count = min(_M8Counters[M8_COUNTER_SURFACE_CANDIDATE_COUNT],
-        MERKABA_SURFACE_CANDIDATE_CAPACITY);
-    _M8ObservationDispatchArgs[0] = (count + 63u) / 64u;
+        MERKABA_M8_SURFACE_CANDIDATE_CAPACITY);
+    uint completed = _M8Counters[M8_COUNTER_OBSERVATION_COMPLETED];
+    uint failure = completed == 0u ? M8ObservationFailureReason() :
+        _M8Counters[M8_COUNTER_OBSERVATION_FAILURE];
+    _M8Counters[M8_COUNTER_OBSERVATION_FAILURE] = failure;
+    _M8ObservationDispatchArgs[0] = completed == 0u && failure == 0u
+        ? (count + 63u) / 64u : 0u;
     _M8ObservationDispatchArgs[1] = 1u;
     _M8ObservationDispatchArgs[2] = 1u;
 }
@@ -332,7 +356,7 @@ void RequestColdTile(uint tileRefIndex, uint chunkIndex, uint tileLocal,
 bool CandidateAt(uint id, out MerkabaM8Address address)
 {
     uint count = min(_M8Counters[M8_COUNTER_SURFACE_CANDIDATE_COUNT],
-        MERKABA_SURFACE_CANDIDATE_CAPACITY);
+        MERKABA_M8_SURFACE_CANDIDATE_CAPACITY);
     if (id >= count)
     {
         address = (MerkabaM8Address)0;
@@ -345,32 +369,49 @@ bool CandidateAt(uint id, out MerkabaM8Address address)
 [numthreads(64, 1, 1)]
 void ResolveSurfaceBlocks(uint id : SV_DispatchThreadID)
 {
-    if (_M8Counters[M8_COUNTER_OBSERVATION_INTEGRATED] != 0u) return;
-    MerkabaM8Address address;
+    if (_M8Counters[M8_COUNTER_OBSERVATION_COMPLETED] != 0u) return;
+    MerkabaM8Address address = (MerkabaM8Address)0;
     if (!CandidateAt(id, address)) return;
-    uint blockIndex;
-    M8FindOrClaimBlock(address.blockCoord, blockIndex);
+    uint blockIndex = 0u;
+    uint failureReason = 0u;
+    M8FindOrClaimBlock(address.blockCoord, blockIndex, failureReason);
+    if (failureReason != 0u)
+    {
+        uint ignored;
+        InterlockedOr(_M8Counters[M8_COUNTER_OBSERVATION_FAILURE],
+            failureReason, ignored);
+    }
 }
 
 [numthreads(64, 1, 1)]
 void ResolveSurfaceChunks(uint id : SV_DispatchThreadID)
 {
-    if (_M8Counters[M8_COUNTER_OBSERVATION_INTEGRATED] != 0u) return;
-    MerkabaM8Address address;
+    if (_M8Counters[M8_COUNTER_OBSERVATION_COMPLETED] != 0u) return;
+    if (_M8Counters[M8_COUNTER_OBSERVATION_FAILURE] != 0u) return;
+    MerkabaM8Address address = (MerkabaM8Address)0;
     if (!CandidateAt(id, address)) return;
-    uint blockIndex;
+    uint blockIndex = 0u;
     if (!M8FindBlock(address.blockCoord, blockIndex)) return;
-    uint chunkIndex;
-    M8FindOrClaimChunk(blockIndex, address.chunkLocal, chunkIndex);
+    uint chunkIndex = 0u;
+    uint failureReason = 0u;
+    M8FindOrClaimChunk(blockIndex, address.chunkLocal, chunkIndex,
+        failureReason);
+    if (failureReason != 0u)
+    {
+        uint ignored;
+        InterlockedOr(_M8Counters[M8_COUNTER_OBSERVATION_FAILURE],
+            failureReason, ignored);
+    }
 }
 
 [numthreads(64, 1, 1)]
 void ResolveSurfaceTiles(uint id : SV_DispatchThreadID)
 {
-    if (_M8Counters[M8_COUNTER_OBSERVATION_INTEGRATED] != 0u) return;
-    MerkabaM8Address address;
+    if (_M8Counters[M8_COUNTER_OBSERVATION_COMPLETED] != 0u) return;
+    if (_M8Counters[M8_COUNTER_OBSERVATION_FAILURE] != 0u) return;
+    MerkabaM8Address address = (MerkabaM8Address)0;
     if (!CandidateAt(id, address)) return;
-    uint blockIndex;
+    uint blockIndex = 0u;
     if (!M8FindBlock(address.blockCoord, blockIndex)) return;
     uint chunkRef = _M8BlockChunkRefs[blockIndex *
         MERKABA_M8_BLOCK_CHUNK_COUNT + address.chunkLocal];
@@ -387,7 +428,7 @@ void ResolveSurfaceTiles(uint id : SV_DispatchThreadID)
             MERKABA_REF_EMPTY, MERKABA_REF_CLAIMED_NEW, prior);
         if (prior == MERKABA_REF_EMPTY)
         {
-            uint physicalSlot;
+            uint physicalSlot = 0u;
             if (M8TryPopPhysicalTile(physicalSlot))
             {
                 uint queueIndex;
@@ -419,10 +460,11 @@ void ResolveSurfaceTiles(uint id : SV_DispatchThreadID)
 [numthreads(64, 1, 1)]
 void QueueResolvedSurfaceCandidates(uint id : SV_DispatchThreadID)
 {
-    if (_M8Counters[M8_COUNTER_OBSERVATION_INTEGRATED] != 0u) return;
-    MerkabaM8Address address;
+    if (_M8Counters[M8_COUNTER_OBSERVATION_COMPLETED] != 0u) return;
+    if (_M8Counters[M8_COUNTER_OBSERVATION_FAILURE] != 0u) return;
+    MerkabaM8Address address = (MerkabaM8Address)0;
     if (!CandidateAt(id, address)) return;
-    uint blockIndex;
+    uint blockIndex = 0u;
     if (!M8FindBlock(address.blockCoord, blockIndex))
     {
         M8CounterIncrement(M8_COUNTER_UNRESOLVED_SURFACE_TILES);
@@ -483,13 +525,14 @@ void QueueResolvedSurfaceCandidates(uint id : SV_DispatchThreadID)
 [numthreads(64, 1, 1)]
 void RetryPendingNewTiles(uint id : SV_DispatchThreadID)
 {
-    if (_M8Counters[M8_COUNTER_OBSERVATION_INTEGRATED] != 0u) return;
+    if (_M8Counters[M8_COUNTER_OBSERVATION_COMPLETED] != 0u) return;
+    if (_M8Counters[M8_COUNTER_OBSERVATION_FAILURE] != 0u) return;
     uint count = min(_M8Counters[M8_COUNTER_PENDING_NEW_TILE_COUNT],
         MERKABA_M8_PHYSICAL_TILE_CAPACITY);
     if (id >= count) return;
     uint tileRefIndex = _M8PendingNewTileRefs[id];
     if (_M8ChunkTileRefs[tileRefIndex] != MERKABA_REF_CLAIMED_NEW) return;
-    uint physicalSlot;
+    uint physicalSlot = 0u;
     if (!M8TryPopPhysicalTile(physicalSlot)) return;
     uint queueIndex;
     InterlockedAdd(_M8Counters[M8_COUNTER_NEW_TILE_QUEUE_COUNT], 1u,
@@ -503,9 +546,13 @@ void PrepareIntegrateArgs(uint id : SV_DispatchThreadID)
 {
     uint count = min(_M8Counters[M8_COUNTER_SURFACE_QUEUE_COUNT],
         MERKABA_SURFACE_QUEUE_CAPACITY);
+    uint completed = _M8Counters[M8_COUNTER_OBSERVATION_COMPLETED];
+    uint failure = completed == 0u ? M8ObservationFailureReason() :
+        _M8Counters[M8_COUNTER_OBSERVATION_FAILURE];
+    _M8Counters[M8_COUNTER_OBSERVATION_FAILURE] = failure;
     _M8ObservationDispatchArgs[0] =
         _M8Counters[M8_COUNTER_UNRESOLVED_SURFACE_TILES] == 0u &&
-        _M8Counters[M8_COUNTER_OBSERVATION_INTEGRATED] == 0u
+        completed == 0u && failure == 0u
         ? (count + 63u) / 64u : 0u;
     _M8ObservationDispatchArgs[1] = 1u;
     _M8ObservationDispatchArgs[2] = 1u;
@@ -528,8 +575,8 @@ void IntegrateSurfaceCandidates(uint id : SV_DispatchThreadID)
     [unroll]
     for (uint eye = 0u; eye < 2u; eye++)
     {
-        int kind;
-        float eyeQuality;
+        int kind = 0;
+        float eyeQuality = 0.0;
         if (ObserveDepthEye(eye, worldPosition, kind, eyeQuality) &&
             kind == 2 && eyeQuality > quality)
             quality = eyeQuality;
@@ -576,82 +623,115 @@ uint M8ScanChildMask(int3 parentMin, int parentSpan)
     return stereo & distance;
 }
 
-[numthreads(1, 1, 1)]
-void QueryCarveTiles(uint3 groupId : SV_GroupID)
-{
-    if (_M8Counters[M8_COUNTER_OBSERVATION_INTEGRATED] != 0u) return;
-    if (_M8Counters[M8_COUNTER_UNRESOLVED_SURFACE_TILES] != 0u) return;
-    uint linear = groupId.x;
-    uint side = (uint)_M8ScanBlockSide;
-    if (linear >= side * side * side) return;
-    int3 offset;
-    offset.x = (int)(linear % side) - _M8ScanBlockRadius;
-    offset.y = (int)((linear / side) % side) - _M8ScanBlockRadius;
-    offset.z = (int)(linear / (side * side)) - _M8ScanBlockRadius;
-    int3 blockCoord = _M8ScanCenterBlock + offset;
-    int3 blockMin = blockCoord * MERKABA_M8_BLOCK_KERNEL_SPAN;
-    uint scan4 = M8ScanChildMask(blockMin, 256);
-    if (scan4 == 0u) return;
-    uint blockIndex;
-    if (!M8FindBlock(blockCoord, blockIndex)) return;
-    M8CounterIncrement(M8_COUNTER_CARVE_QUERY_BLOCKS);
+groupshared uint gScanBlockRef;
+groupshared int3 gScanBlockMin;
+groupshared uint gScanSupport4;
+groupshared uint gScanSupport3[8];
 
-    uint l0 = (_M8BlockPresenceL0[blockIndex] & 255u) & scan4;
-    while (l0 != 0u)
+[numthreads(64, 1, 1)]
+void QueryCarveTiles(uint3 groupId : SV_GroupID, uint thread : SV_GroupIndex)
+{
+    if (_M8Counters[M8_COUNTER_OBSERVATION_COMPLETED] != 0u) return;
+    if (_M8Counters[M8_COUNTER_OBSERVATION_FAILURE] != 0u) return;
+    if (_M8Counters[M8_COUNTER_UNRESOLVED_SURFACE_TILES] != 0u) return;
+    uint linearBlockIndex = groupId.x;
+    uint side = (uint)_M8ScanBlockSide;
+    if (linearBlockIndex >= side * side * side) return;
+    if (thread == 0u)
     {
-        uint d4 = (uint)firstbitlow(l0); l0 &= l0 - 1u;
-        int3 min4 = blockMin + MerkabaM8OctantOffset(d4, 128);
-        uint scan3 = M8ScanChildMask(min4, 128);
-        uint l1 = (_M8BlockPresenceL1[blockIndex * 8u + d4] & 255u) &
-            scan3;
-        while (l1 != 0u)
+        int3 offset;
+        offset.x = (int)(linearBlockIndex % side) - _M8ScanBlockRadius;
+        offset.y = (int)((linearBlockIndex / side) % side) -
+            _M8ScanBlockRadius;
+        offset.z = (int)(linearBlockIndex / (side * side)) -
+            _M8ScanBlockRadius;
+        int3 blockCoord = _M8ScanCenterBlock + offset;
+        gScanBlockMin = blockCoord * MERKABA_M8_BLOCK_KERNEL_SPAN;
+        gScanBlockRef = 0u;
+        gScanSupport4 = M8ScanChildMask(gScanBlockMin, 256);
+        if (gScanSupport4 != 0u)
         {
-            uint d3 = (uint)firstbitlow(l1); l1 &= l1 - 1u;
-            int3 min3 = min4 + MerkabaM8OctantOffset(d3, 64);
-            uint scan2 = M8ScanChildMask(min3, 64);
-            uint l2 = (_M8BlockPresenceL2[blockIndex * 64u +
-                d4 * 8u + d3] & 255u) & scan2;
-            while (l2 != 0u)
+            uint blockIndex = 0u;
+            if (M8FindBlock(blockCoord, blockIndex))
             {
-                uint d2 = (uint)firstbitlow(l2); l2 &= l2 - 1u;
-                uint chunkLocal = (d4 << 6u) | (d3 << 3u) | d2;
-                uint chunkRef = _M8BlockChunkRefs[blockIndex * 512u + chunkLocal];
-                if (chunkRef == 0u || chunkRef >= MERKABA_REF_EVICTING) continue;
-                uint chunkIndex = chunkRef - 1u;
-                int3 min2 = min3 + MerkabaM8OctantOffset(d2, 32);
-                uint scan1 = M8ScanChildMask(min2, 32);
-                uint c0 = (_M8ChunkPresenceL0[chunkIndex] & 255u) & scan1;
-                while (c0 != 0u)
+                gScanBlockRef = blockIndex + 1u;
+                M8CounterIncrement(M8_COUNTER_CARVE_QUERY_BLOCKS);
+            }
+        }
+    }
+    GroupMemoryBarrierWithGroupSync();
+    if (gScanBlockRef == 0u) return;
+
+    uint blockIndex = gScanBlockRef - 1u;
+    int3 blockMin = gScanBlockMin;
+    if (thread < 8u)
+    {
+        uint d4ForMask = thread;
+        if (((_M8BlockPresenceL0[blockIndex] & gScanSupport4) &
+            (1u << d4ForMask)) != 0u)
+        {
+            int3 min4ForMask = blockMin +
+                MerkabaM8OctantOffset(d4ForMask, 128);
+            gScanSupport3[d4ForMask] = M8ScanChildMask(min4ForMask, 128);
+        }
+        else
+            gScanSupport3[d4ForMask] = 0u;
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    uint d4 = thread >> 3u;
+    uint d3 = thread & 7u;
+    if (((gScanSupport4 >> d4) & 1u) == 0u ||
+        (((_M8BlockPresenceL1[blockIndex * 8u + d4] &
+        gScanSupport3[d4]) >> d3) & 1u) == 0u) return;
+
+    int3 min4 = blockMin + MerkabaM8OctantOffset(d4, 128);
+    int3 min3 = min4 + MerkabaM8OctantOffset(d3, 64);
+    uint scan2 = M8ScanChildMask(min3, 64);
+    uint support2 = (_M8BlockPresenceL2[blockIndex * 64u +
+        d4 * 8u + d3] & 255u) & scan2;
+    while (support2 != 0u)
+    {
+        uint d2 = (uint)firstbitlow(support2);
+        support2 &= support2 - 1u;
+        uint chunkLocal = (d4 << 6u) | (d3 << 3u) | d2;
+        uint chunkRef = _M8BlockChunkRefs[blockIndex * 512u + chunkLocal];
+        if (chunkRef == 0u || chunkRef >= MERKABA_REF_EVICTING) continue;
+        uint chunkIndex = chunkRef - 1u;
+        int3 min2 = min3 + MerkabaM8OctantOffset(d2, 32);
+        uint scan1 = M8ScanChildMask(min2, 32);
+        uint support1 = (_M8ChunkPresenceL0[chunkIndex] & 255u) & scan1;
+        while (support1 != 0u)
+        {
+            uint d1 = (uint)firstbitlow(support1);
+            support1 &= support1 - 1u;
+            int3 min1 = min2 + MerkabaM8OctantOffset(d1, 16);
+            uint scan0 = M8ScanChildMask(min1, 16);
+            uint support0 = (_M8ChunkPresenceL1[chunkIndex * 8u + d1] &
+                255u) & scan0;
+            while (support0 != 0u)
+            {
+                uint d0 = (uint)firstbitlow(support0);
+                support0 &= support0 - 1u;
+                uint tileLocal = (d1 << 3u) | d0;
+                uint tileRefIndex = chunkIndex * 64u + tileLocal;
+                uint tileRef = _M8ChunkTileRefs[tileRefIndex];
+                if (tileRef == MERKABA_REF_COLD_ON_SSD)
                 {
-                    uint d1 = (uint)firstbitlow(c0); c0 &= c0 - 1u;
-                    int3 min1 = min2 + MerkabaM8OctantOffset(d1, 16);
-                    uint scan0 = M8ScanChildMask(min1, 16);
-                    uint c1 = (_M8ChunkPresenceL1[chunkIndex * 8u + d1] &
-                        255u) & scan0;
-                    while (c1 != 0u)
-                    {
-                        uint d0 = (uint)firstbitlow(c1); c1 &= c1 - 1u;
-                        uint tileLocal = (d1 << 3u) | d0;
-                        uint tileRefIndex = chunkIndex * 64u + tileLocal;
-                        uint tileRef = _M8ChunkTileRefs[tileRefIndex];
-                        if (tileRef == MERKABA_REF_COLD_ON_SSD)
-                        {
-                            RequestColdTile(tileRefIndex, chunkIndex, tileLocal, true);
-                            continue;
-                        }
-                        if (!M8IsHotRef(tileRef)) continue;
-                        uint physicalSlot = M8PhysicalSlot(tileRef);
-                        _M8TileRuntime[physicalSlot].z =
-                            _M8Counters[M8_COUNTER_FRAME_EPOCH];
-                        if (_M8TileMeta[physicalSlot].w == 0u) continue;
-                        uint queueIndex;
-                        InterlockedAdd(_M8Counters[M8_COUNTER_CARVE_TILE_COUNT],
-                            1u, queueIndex);
-                        if (queueIndex < MERKABA_M8_PHYSICAL_TILE_CAPACITY)
-                            _M8CarveTiles[queueIndex] = physicalSlot;
-                        M8CounterIncrement(M8_COUNTER_CARVE_QUERY_TILES);
-                    }
+                    RequestColdTile(tileRefIndex, chunkIndex, tileLocal, true);
+                    continue;
                 }
+                if (!M8IsHotRef(tileRef)) continue;
+                uint physicalSlot = M8PhysicalSlot(tileRef);
+                _M8TileRuntime[physicalSlot].z =
+                    _M8Counters[M8_COUNTER_FRAME_EPOCH];
+                if (_M8TileMeta[physicalSlot].w == 0u) continue;
+                uint queueIndex;
+                InterlockedAdd(_M8Counters[M8_COUNTER_CARVE_TILE_COUNT],
+                    1u, queueIndex);
+                if (queueIndex < MERKABA_M8_PHYSICAL_TILE_CAPACITY)
+                    _M8CarveTiles[queueIndex] = physicalSlot;
+                M8CounterIncrement(M8_COUNTER_CARVE_QUERY_TILES);
             }
         }
     }
@@ -663,7 +743,8 @@ void PrepareCarveArgs(uint id : SV_DispatchThreadID)
     uint count = min(_M8Counters[M8_COUNTER_CARVE_TILE_COUNT],
         MERKABA_M8_PHYSICAL_TILE_CAPACITY);
     _M8CarveDispatchArgs[0] =
-        _M8Counters[M8_COUNTER_OBSERVATION_INTEGRATED] == 0u
+        _M8Counters[M8_COUNTER_OBSERVATION_COMPLETED] == 0u &&
+        _M8Counters[M8_COUNTER_OBSERVATION_FAILURE] == 0u
         ? count : 0u;
     _M8CarveDispatchArgs[1] = 8u;
     _M8CarveDispatchArgs[2] = 1u;
@@ -702,8 +783,8 @@ void IntegrateCarveTiles(uint3 groupId : SV_GroupID,
     float3 worldPosition = mul(_MerkabaGridToWorld,
         float4((float3)globalCoord * MERKABA_LATTICE_STEP, 1.0)).xyz;
     if (IsExcluded(worldPosition)) return;
-    int kind;
-    float quality;
+    int kind = 0;
+    float quality = 0.0;
     FuseDepth(worldPosition, kind, quality);
     if (kind != 1) return;
     UpdateOccupancy(physicalSlot, kernelLocal, state,
@@ -726,8 +807,18 @@ void IntegrateCarveTiles(uint3 groupId : SV_GroupID,
 [numthreads(1, 1, 1)]
 void FinalizeObservation(uint id : SV_DispatchThreadID)
 {
-    if (_M8Counters[M8_COUNTER_UNRESOLVED_SURFACE_TILES] == 0u)
-        _M8Counters[M8_COUNTER_OBSERVATION_INTEGRATED] = 1u;
+    if (_M8Counters[M8_COUNTER_OBSERVATION_COMPLETED] == 0u)
+    {
+        uint failure = M8ObservationFailureReason();
+        _M8Counters[M8_COUNTER_OBSERVATION_FAILURE] = failure;
+        if (failure != 0u)
+        {
+            _M8Counters[M8_COUNTER_FAILED_OBSERVATIONS] += 1u;
+            _M8Counters[M8_COUNTER_OBSERVATION_COMPLETED] = 1u;
+        }
+        else if (_M8Counters[M8_COUNTER_UNRESOLVED_SURFACE_TILES] == 0u)
+            _M8Counters[M8_COUNTER_OBSERVATION_COMPLETED] = 1u;
+    }
     _M8ObservationDispatchArgs[0] = min(
         _M8Counters[M8_COUNTER_TOUCHED_TILE_COUNT],
         MERKABA_M8_PHYSICAL_TILE_CAPACITY);
