@@ -2241,6 +2241,64 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
+        public void PublishedCertificateDeltaCountIsNotACompletionFault()
+        {
+            const uint revision = 42u;
+            const uint certificateDeltaCount = 4887u;
+            var frame = new SigmaNativeFrameGpu
+            {
+                Identity = U4(revision, 7u, 1u, 0u),
+                Disposition = U4(
+                    (uint)SigmaNativeFrameDisposition.Published,
+                    3u, 2u, certificateDeltaCount),
+                Publication = U4(41u, revision, 2u, 7u),
+            };
+
+            SigmaFrameCompletionDisposition disposition =
+                SigmaInverseController.ClassifyFrameCompletion(frame,
+                    revision, revision, out string error);
+
+            Assert.That(disposition,
+                Is.EqualTo(SigmaFrameCompletionDisposition.Published));
+            Assert.That(error, Is.Null);
+
+            SigmaRuntimeTelemetrySnapshot telemetry =
+                SigmaRuntimeTelemetrySnapshot.From(revision, revision,
+                    disposition, frame, default);
+            Assert.That(telemetry.CertificateDeltaCount,
+                Is.EqualTo(certificateDeltaCount));
+            Assert.That(telemetry.FaultMask, Is.Zero);
+            Assert.That(telemetry.Frontier,
+                Is.EqualTo("root-last-publication"));
+            StringAssert.Contains("certificateDeltas=4887",
+                telemetry.FormatLogLine());
+            StringAssert.Contains("fault=0x00000000",
+                telemetry.FormatLogLine());
+        }
+
+        [Test]
+        public void FaultedDispositionStillUsesItsFaultReceipt()
+        {
+            const uint revision = 43u;
+            var frame = new SigmaNativeFrameGpu
+            {
+                Identity = U4(revision, 7u, 1u, 0u),
+                Disposition = U4(
+                    (uint)SigmaNativeFrameDisposition.Faulted,
+                    0u, 0u, (uint)SigmaNativeColdReason.PageFault),
+                Publication = U4(42u, 0u, 0u, 0u),
+            };
+
+            SigmaFrameCompletionDisposition disposition =
+                SigmaInverseController.ClassifyFrameCompletion(frame, 42u,
+                    revision, out string error);
+
+            Assert.That(disposition,
+                Is.EqualTo(SigmaFrameCompletionDisposition.Faulted));
+            StringAssert.Contains("fault 0x00000003", error);
+        }
+
+        [Test]
         public void RepeatedRefinementNormalizesIndependentlyOfSplitOrder()
         {
             RefinementSnapshot leftFirst = RunRefinementSequence(new[]

@@ -1162,31 +1162,37 @@ namespace Genesis.RoomScan.SigmaPrism
         }
 
         internal static SigmaFrameCompletionDisposition ClassifyFrameCompletion(
-            SigmaNativeFrameGpu frame, uint publishedRoot, uint revision,
+            SigmaNativeFrameGpu frame, uint publishedRoot,
+            uint expectedRevision,
             out string error)
         {
-            if (revision == 0u || frame.Identity.X != revision)
+            if (expectedRevision == 0u ||
+                frame.Identity.X != expectedRevision)
             {
                 error = $"Sigma frame disposition revision mismatch: expected " +
-                    $"{revision}, received {frame.Identity.X}.";
+                    $"{expectedRevision}, received {frame.Identity.X}.";
                 return SigmaFrameCompletionDisposition.Faulted;
             }
             SigmaNativeFrameDisposition state =
                 (SigmaNativeFrameDisposition)frame.Disposition.X;
-            if (state == SigmaNativeFrameDisposition.Faulted ||
-                frame.Disposition.W != 0u)
+            // Disposition is state-tagged: W is a fault receipt only for the
+            // Faulted state. A resolved/published frame carries its exact
+            // certificate-delta count in the same word.
+            if (state == SigmaNativeFrameDisposition.Faulted)
             {
-                error = $"Sigma frame revision {revision} reported publication " +
+                error = $"Sigma frame revision {expectedRevision} reported " +
+                    "publication " +
                     $"fault 0x{frame.Disposition.W:x8}.";
                 return SigmaFrameCompletionDisposition.Faulted;
             }
             if (state == SigmaNativeFrameDisposition.Published)
             {
-                if (publishedRoot != revision ||
-                    frame.Publication.Y != revision)
+                if (publishedRoot != expectedRevision ||
+                    frame.Publication.Y != expectedRevision)
                 {
-                    error = $"Sigma frame revision {revision} reported publication " +
-                        $"evidence before publication root {publishedRoot}.";
+                    error = $"Sigma frame revision {expectedRevision} reported " +
+                        "publication evidence before publication root " +
+                        $"{publishedRoot}.";
                     return SigmaFrameCompletionDisposition.Faulted;
                 }
                 error = null;
@@ -1203,8 +1209,8 @@ namespace Genesis.RoomScan.SigmaPrism
                 return SigmaFrameCompletionDisposition.Unresolved;
             }
 
-            error = $"Sigma frame revision {revision} ended at illegal post-fence " +
-                $"state {state}.";
+            error = $"Sigma frame revision {expectedRevision} ended at illegal " +
+                $"post-fence state {state}.";
             return SigmaFrameCompletionDisposition.Faulted;
         }
     }

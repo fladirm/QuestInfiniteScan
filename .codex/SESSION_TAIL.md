@@ -2,34 +2,29 @@
 
 ## Exchange 1 — user
 
-Requested one exact corrective N4R cut from the current tree and a commit before
-the next physical test.  The cut must repair the audited production D4/orbit
-equivalence mismatch without changing authority, CUT A--D, the fixed graph,
-buffers, ontology or N5 scope.
+Directed a narrow fix for the first live blocker: valid publication must not stop
+because `Disposition.w` contains a nonzero certificate-delta count.  Fence
+timeouts are currently only evidence that Quest cannot keep up; do not implement
+a watchdog/retry workaround before reducing the measured slow kernels.  Also
+confirmed that this repository keeps `DEPTH_L`, `DEPTH_R`, `RGB_L` and `RGB_R` as
+four separate exact query inputs rather than pre-fusing a world voxel.
 
 ## Exchange 1 — assistant
 
-Removed the latent four-sector chart-map comparison from production component
-equivalence so only realized cells and their already-resolved edge constraints
-enter the D4 quotient.  The focused production corpus exposed and then closed the
-accepted overlapping-cell negative case: distinct localities cannot occupy one
-dyadic cell, while multiple observations of one exact published support remain a
-legal alias.  No new kernel, dispatch, buffer or authority was added.
-
-Final-source evidence is focused production Vulkan 1/1, SigmaNativeFrameTests
-28/28 and complete Unity EditMode/Vulkan 95/95.  Generator/check/UAV/diff gates
-pass, the new compiler warning is absent, authority/generator files are unchanged,
-`HotDispatchCount` remains 16 and the correction production delta is `+39/-21`.
+Corrected the host tagged-receipt interpretation without changing shaders or the
+16-dispatch graph.  `FAULTED` alone interprets `Disposition.w` as a fault receipt;
+`PUBLISHED` exposes it as `CertificateDeltaCount`.  Expected revision remains an
+independent completion reservation.  Focused tests pass 3/3 and the complete
+SigmaNativeFrame corpus passes 30/30.
 
 ## Exchange 2 — user
 
-Froze a later performance requirement: after N4R, all scanner kernels must be
-systematically reduced so reconstruction sustains at least 15 Hz while immutable-
-root display remains independently at 72 Hz.  This belongs to the later N6R
-performance/readout run, not to the present semantic corrective cut.
+Requested the full test/build checkpoint, commit and push, with the resulting APK
+installed on Quest but not launched.
 
 ## Exchange 2 — assistant
 
-Kept that future 15 Hz scan / 72 Hz independent-render target out of the current
-N4R correction.  The next action is the user-directed Quest execution of this
-committed semantic fix; N5R/N6R implementation remains unopened.
+Complete Unity EditMode/Vulkan passes 97/97.  Release APK SHA-256
+`ab0a979421bc8173c893b516bfaf27c8d54883369cf72eddab3330af4aa13cb7`
+builds and installs successfully.  The next exact action after this checkpoint is
+measured optimization of the slowest native kernels; N5R/S4-09 remain unopened.

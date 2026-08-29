@@ -174,7 +174,8 @@ namespace Genesis.RoomScan.UI
                 telemetry?.HasSample == true
                     ? $"root={telemetry.PublishedRoot} · " +
                       $"stateDelta={telemetry.StateDeltaCount} · " +
-                      $"gaugeDelta={telemetry.GaugeDeltaCount}"
+                      $"gaugeDelta={telemetry.GaugeDeltaCount} · " +
+                      $"certificateDelta={telemetry.CertificateDeltaCount}"
                     : "ready · awaiting GPU telemetry";
             StatusKind carrierKind = carrier == null ? StatusKind.Error :
                 !carrier.IsInitialized ? StatusKind.Warning :
@@ -198,7 +199,8 @@ namespace Genesis.RoomScan.UI
                     $"{inverse.SubmittedFrames} · root=" +
                     $"{telemetry.PublishedRoot} · stateΔ=" +
                     $"{telemetry.StateDeltaCount} · unresolved=" +
-                    $"{telemetry.UnresolvedConstraintCount} · " +
+                    $"{telemetry.UnresolvedConstraintCount} · certΔ=" +
+                    $"{telemetry.CertificateDeltaCount} · " +
                     $"dispatch={telemetry.NativeCloseDispatches} · " +
                     $"ms={telemetry.Timing.Frame.LastMs:F1} · " +
                     $"at={telemetry.Frontier}";

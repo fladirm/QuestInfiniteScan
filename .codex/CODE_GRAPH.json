@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "source_digest": "c946faf7de22a55942fe219c0ad56b25e3a5da5880f324b899fc37a6a8f30986",
+  "source_digest": "38bc48848ab78ecc5ed8a0635a35ab7f9aa7e532668e626fdbcb89177584579e",
   "scope": [
     "Runtime/**/*.cs",
     "Runtime/Resources/SigmaPrism/**/*.*",
@@ -11,8 +11,8 @@
   ],
   "summary": {
     "files": 103,
-    "symbols": 1987,
-    "methods_and_functions": 1664,
+    "symbols": 1989,
+    "methods_and_functions": 1666,
     "gpu_kernels": 37,
     "event_links": 5
   },
@@ -7318,18 +7318,18 @@
       "line": 52
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaDiagnosticTelemetry.cs::FormatLogLine@136",
+      "id": "Runtime/SigmaPrism/SigmaDiagnosticTelemetry.cs::FormatLogLine@141",
       "file": "Runtime/SigmaPrism/SigmaDiagnosticTelemetry.cs",
       "name": "FormatLogLine",
       "kind": "method",
-      "line": 136
+      "line": 141
     },
     {
-      "id": "Runtime/SigmaPrism/SigmaDiagnosticTelemetry.cs::From@111",
+      "id": "Runtime/SigmaPrism/SigmaDiagnosticTelemetry.cs::From@115",
       "file": "Runtime/SigmaPrism/SigmaDiagnosticTelemetry.cs",
       "name": "From",
       "kind": "method",
-      "line": 111
+      "line": 115
     },
     {
       "id": "Runtime/SigmaPrism/SigmaDiagnosticTelemetry.cs::SigmaRuntimeTelemetrySnapshot",
@@ -10692,18 +10692,18 @@
       "line": 119
     },
     {
-      "id": "Runtime/UI/DebugMenuController.cs::Set@241",
+      "id": "Runtime/UI/DebugMenuController.cs::Set@243",
       "file": "Runtime/UI/DebugMenuController.cs",
       "name": "Set",
       "kind": "method",
-      "line": 241
+      "line": 243
     },
     {
-      "id": "Runtime/UI/DebugMenuController.cs::SetStatus@247",
+      "id": "Runtime/UI/DebugMenuController.cs::SetStatus@249",
       "file": "Runtime/UI/DebugMenuController.cs",
       "name": "SetStatus",
       "kind": "method",
-      "line": 247
+      "line": 249
     },
     {
       "id": "Runtime/UI/DebugMenuController.cs::Show@75",
@@ -10717,7 +10717,7 @@
       "file": "Runtime/UI/DebugMenuController.cs",
       "name": "StatusKind",
       "kind": "enum",
-      "line": 269
+      "line": 271
     },
     {
       "id": "Runtime/UI/DebugMenuController.cs::Toggle@69",
@@ -12092,18 +12092,18 @@
       "line": 969
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::BindPublication@2927",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::BindPublication@2985",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "BindPublication",
       "kind": "method",
-      "line": 2927
+      "line": 2985
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::BuildLocalityCertificate@2747",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::BuildLocalityCertificate@2805",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "BuildLocalityCertificate",
       "kind": "method",
-      "line": 2747
+      "line": 2805
     },
     {
       "id": "Tests/Editor/SigmaNativeFrameTests.cs::BuildObservationWritesEvery320By320FootprintOnGpu@181",
@@ -12120,18 +12120,18 @@
       "line": 694
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::CertificateDifference@3199",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::CertificateDifference@3257",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "CertificateDifference",
       "kind": "method",
-      "line": 3199
+      "line": 3257
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::CertifiedConstraintRecord@3110",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::CertifiedConstraintRecord@3168",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "CertifiedConstraintRecord",
       "kind": "method",
-      "line": 3110
+      "line": 3168
     },
     {
       "id": "Tests/Editor/SigmaNativeFrameTests.cs::CompactedBoundaryOrderIsExecutionOnlyAcrossAllResults@589",
@@ -12141,11 +12141,11 @@
       "line": 589
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::Compare@3944",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::Compare@4002",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "Compare",
       "kind": "method",
-      "line": 3944
+      "line": 4002
     },
     {
       "id": "Tests/Editor/SigmaNativeFrameTests.cs::CompletionClassificationRejectsWrongNonzeroGpuRevision@2224",
@@ -12162,53 +12162,53 @@
       "line": 2198
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::ConstraintRecord@3080",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::ConstraintRecord@3138",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "ConstraintRecord",
       "kind": "method",
-      "line": 3080
+      "line": 3138
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::Count@2873",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::Count@2931",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "Count",
       "kind": "method",
-      "line": 2873
+      "line": 2931
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::CutEUsesDirectedWitnessWhenD4CellStreamsTie@2489",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::CutEUsesDirectedWitnessWhenD4CellStreamsTie@2547",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "CutEUsesDirectedWitnessWhenD4CellStreamsTie",
       "kind": "method",
-      "line": 2489
+      "line": 2547
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::DirectionModeMask@3180",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::DirectionModeMask@3238",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "DirectionModeMask",
       "kind": "method",
-      "line": 3180
+      "line": 3238
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::DispatchCutE@2882",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::DispatchCutE@2940",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "DispatchCutE",
       "kind": "method",
-      "line": 2882
+      "line": 2940
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::Equals@3932",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::Equals@3990",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "Equals",
       "kind": "method",
-      "line": 3932
+      "line": 3990
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::Equals@3935",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::Equals@3993",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "Equals",
       "kind": "method",
-      "line": 3935
+      "line": 3993
     },
     {
       "id": "Tests/Editor/SigmaNativeFrameTests.cs::ExactConstraintJournalMinimizesWithoutBranchIdentity@1943",
@@ -12218,6 +12218,13 @@
       "line": 1943
     },
     {
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::FaultedDispositionStillUsesItsFaultReceipt@2280",
+      "file": "Tests/Editor/SigmaNativeFrameTests.cs",
+      "name": "FaultedDispositionStillUsesItsFaultReceipt",
+      "kind": "method",
+      "line": 2280
+    },
+    {
       "id": "Tests/Editor/SigmaNativeFrameTests.cs::FeasibleCurrentStateIsBytePreservedAndDoesNotClonePage@1721",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "FeasibleCurrentStateIsBytePreservedAndDoesNotClonePage",
@@ -12225,32 +12232,32 @@
       "line": 1721
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::FindGaugeSample@3650",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::FindGaugeSample@3708",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "FindGaugeSample",
       "kind": "method",
-      "line": 3650
+      "line": 3708
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::Flatten@3694",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::Flatten@3752",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "Flatten",
       "kind": "method",
-      "line": 3694
+      "line": 3752
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::Flatten@3705",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::Flatten@3763",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "Flatten",
       "kind": "method",
-      "line": 3705
+      "line": 3763
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::From@3926",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::From@3984",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "From",
       "kind": "method",
-      "line": 3926
+      "line": 3984
     },
     {
       "id": "Tests/Editor/SigmaNativeFrameTests.cs::FullFrameLinearDispatchGridIsQuestLegalAndBijective@100",
@@ -12264,21 +12271,21 @@
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "GaugeKey",
       "kind": "struct",
-      "line": 3905
+      "line": 3963
     },
     {
       "id": "Tests/Editor/SigmaNativeFrameTests.cs::GaugeKeyComparer",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "GaugeKeyComparer",
       "kind": "class",
-      "line": 3940
+      "line": 3998
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::GetHashCode@3937",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::GetHashCode@3995",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "GetHashCode",
       "kind": "method",
-      "line": 3937
+      "line": 3995
     },
     {
       "id": "Tests/Editor/SigmaNativeFrameTests.cs::LegacyConstraintSnapshotMigratesOnceToBoundedDeltaStore@2017",
@@ -12302,11 +12309,11 @@
       "line": 141
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::LoadShader@2645",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::LoadShader@2703",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "LoadShader",
       "kind": "method",
-      "line": 2645
+      "line": 2703
     },
     {
       "id": "Tests/Editor/SigmaNativeFrameTests.cs::LocalityCertificateBoundsTenThousandRevisitsAndIsOrderIndependent@2051",
@@ -12330,32 +12337,32 @@
       "line": 1985
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::Packed@3718",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::Packed@3776",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "Packed",
       "kind": "method",
-      "line": 3718
+      "line": 3776
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::PackedInterval@3724",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::PackedInterval@3782",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "PackedInterval",
       "kind": "method",
-      "line": 3724
+      "line": 3782
     },
     {
       "id": "Tests/Editor/SigmaNativeFrameTests.cs::PageMeta",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "PageMeta",
       "kind": "struct",
-      "line": 3997
+      "line": 4055
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::PersistAndReload@3168",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::PersistAndReload@3226",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "PersistAndReload",
       "kind": "method",
-      "line": 3168
+      "line": 3226
     },
     {
       "id": "Tests/Editor/SigmaNativeFrameTests.cs::PreRootFaultLeavesStateGaugeCertificateAndRootUntouched@1831",
@@ -12365,11 +12372,11 @@
       "line": 1831
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::PrepareRefinementScratch@3499",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::PrepareRefinementScratch@3557",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "PrepareRefinementScratch",
       "kind": "method",
-      "line": 3499
+      "line": 3557
     },
     {
       "id": "Tests/Editor/SigmaNativeFrameTests.cs::ProductionBoundaryPlaneMatchesAcceptedGeneratedStitch@376",
@@ -12400,81 +12407,88 @@
       "line": 1504
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::Q2@3775",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::PublishedCertificateDeltaCountIsNotACompletionFault@2244",
+      "file": "Tests/Editor/SigmaNativeFrameTests.cs",
+      "name": "PublishedCertificateDeltaCountIsNotACompletionFault",
+      "kind": "method",
+      "line": 2244
+    },
+    {
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::Q2@3833",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "Q2",
       "kind": "method",
-      "line": 3775
+      "line": 3833
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::Q4@3191",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::Q4@3249",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "Q4",
       "kind": "method",
-      "line": 3191
+      "line": 3249
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::ReadAssetSource@3793",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::ReadAssetSource@3851",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "ReadAssetSource",
       "kind": "method",
-      "line": 3793
+      "line": 3851
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::ReadCertificate@3682",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::ReadCertificate@3740",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "ReadCertificate",
       "kind": "method",
-      "line": 3682
+      "line": 3740
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::ReadPageMeta@3642",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::ReadPageMeta@3700",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "ReadPageMeta",
       "kind": "method",
-      "line": 3642
+      "line": 3700
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::ReadState@3672",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::ReadState@3730",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "ReadState",
       "kind": "method",
-      "line": 3672
+      "line": 3730
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::RefinementAtFullPageBoundarySpillsIntoNextLogicalPage@2369",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::RefinementAtFullPageBoundarySpillsIntoNextLogicalPage@2427",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "RefinementAtFullPageBoundarySpillsIntoNextLogicalPage",
       "kind": "method",
-      "line": 2369
+      "line": 2427
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::RefinementCopiesTheCompletePriorBeforeAddingDetail@2279",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::RefinementCopiesTheCompletePriorBeforeAddingDetail@2337",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "RefinementCopiesTheCompletePriorBeforeAddingDetail",
       "kind": "method",
-      "line": 2279
+      "line": 2337
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::RefinementMultiplicityAndParentMeetArePermutationInvariant@2321",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::RefinementMultiplicityAndParentMeetArePermutationInvariant@2379",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "RefinementMultiplicityAndParentMeetArePermutationInvariant",
       "kind": "method",
-      "line": 2321
+      "line": 2379
     },
     {
       "id": "Tests/Editor/SigmaNativeFrameTests.cs::RefinementSnapshot",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "RefinementSnapshot",
       "kind": "class",
-      "line": 3859
+      "line": 3917
     },
     {
       "id": "Tests/Editor/SigmaNativeFrameTests.cs::RefinementStep",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "RefinementStep",
       "kind": "struct",
-      "line": 3844
+      "line": 3902
     },
     {
       "id": "Tests/Editor/SigmaNativeFrameTests.cs::ReloadedCertificateMeetsLikeUninterruptedCertificate@2164",
@@ -12484,25 +12498,25 @@
       "line": 2164
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::RepeatedRefinementNormalizesIndependentlyOfSplitOrder@2244",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::RepeatedRefinementNormalizesIndependentlyOfSplitOrder@2302",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "RepeatedRefinementNormalizesIndependentlyOfSplitOrder",
       "kind": "method",
-      "line": 2244
+      "line": 2302
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::RunRefinementSequence@3211",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::RunRefinementSequence@3269",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "RunRefinementSequence",
       "kind": "method",
-      "line": 3211
+      "line": 3269
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::RunStaticExclusion@2781",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::RunStaticExclusion@2839",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "RunStaticExclusion",
       "kind": "method",
-      "line": 2781
+      "line": 2839
     },
     {
       "id": "Tests/Editor/SigmaNativeFrameTests.cs::ScatterConsumesMutationCountInsteadOfResidentWorldExtent@1610",
@@ -12512,32 +12526,32 @@
       "line": 1610
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::SeedBoundaryWorklist@3751",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::SeedBoundaryWorklist@3809",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "SeedBoundaryWorklist",
       "kind": "method",
-      "line": 3751
+      "line": 3809
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::SeedSingleFootprintClosedCutE@2658",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::SeedSingleFootprintClosedCutE@2716",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "SeedSingleFootprintClosedCutE",
       "kind": "method",
-      "line": 2658
+      "line": 2716
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::SetEqualCertificates@3057",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::SetEqualCertificates@3115",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "SetEqualCertificates",
       "kind": "method",
-      "line": 3057
+      "line": 3115
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::SetValidNextCertificate@3040",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::SetValidNextCertificate@3098",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "SetValidNextCertificate",
       "kind": "method",
-      "line": 3040
+      "line": 3098
     },
     {
       "id": "Tests/Editor/SigmaNativeFrameTests.cs::SigmaNativeFrameTests",
@@ -12547,25 +12561,25 @@
       "line": 15
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::SignedMorton@3957",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::SignedMorton@4015",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "SignedMorton",
       "kind": "method",
-      "line": 3957
+      "line": 4015
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::StateWithLane0@2774",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::StateWithLane0@2832",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "StateWithLane0",
       "kind": "method",
-      "line": 2774
+      "line": 2832
     },
     {
       "id": "Tests/Editor/SigmaNativeFrameTests.cs::StaticExclusionSnapshot",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "StaticExclusionSnapshot",
       "kind": "class",
-      "line": 3881
+      "line": 3939
     },
     {
       "id": "Tests/Editor/SigmaNativeFrameTests.cs::StereoStaticExclusionPublishesOnlyZEmptyAtTheSameGauge@1811",
@@ -12575,95 +12589,95 @@
       "line": 1811
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::ToRaw@3918",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::ToRaw@3976",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "ToRaw",
       "kind": "method",
-      "line": 3918
+      "line": 3976
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::ToString@3938",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::ToString@3996",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "ToString",
       "kind": "method",
-      "line": 3938
+      "line": 3996
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::U4@3781",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::U4@3839",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "U4",
       "kind": "method",
-      "line": 3781
+      "line": 3839
     },
     {
       "id": "Tests/Editor/SigmaNativeFrameTests.cs::UInt2",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "UInt2",
       "kind": "struct",
-      "line": 3981
+      "line": 4039
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::UInt2Buffer@3787",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::UInt2Buffer@3845",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "UInt2Buffer",
       "kind": "method",
-      "line": 3787
+      "line": 3845
     },
     {
       "id": "Tests/Editor/SigmaNativeFrameTests.cs::UInt4",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "UInt4",
       "kind": "struct",
-      "line": 3988
+      "line": 4046
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::UInt4Buffer@3790",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::UInt4Buffer@3848",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "UInt4Buffer",
+      "kind": "method",
+      "line": 3848
+    },
+    {
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::UIntBuffer@3842",
+      "file": "Tests/Editor/SigmaNativeFrameTests.cs",
+      "name": "UIntBuffer",
+      "kind": "method",
+      "line": 3842
+    },
+    {
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::WriteEnvelope@3798",
+      "file": "Tests/Editor/SigmaNativeFrameTests.cs",
+      "name": "WriteEnvelope",
+      "kind": "method",
+      "line": 3798
+    },
+    {
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::WriteRepresentationCell@3661",
+      "file": "Tests/Editor/SigmaNativeFrameTests.cs",
+      "name": "WriteRepresentationCell",
+      "kind": "method",
+      "line": 3661
+    },
+    {
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::WriteState@3790",
+      "file": "Tests/Editor/SigmaNativeFrameTests.cs",
+      "name": "WriteState",
       "kind": "method",
       "line": 3790
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::UIntBuffer@3784",
-      "file": "Tests/Editor/SigmaNativeFrameTests.cs",
-      "name": "UIntBuffer",
-      "kind": "method",
-      "line": 3784
-    },
-    {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::WriteEnvelope@3740",
-      "file": "Tests/Editor/SigmaNativeFrameTests.cs",
-      "name": "WriteEnvelope",
-      "kind": "method",
-      "line": 3740
-    },
-    {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::WriteRepresentationCell@3603",
-      "file": "Tests/Editor/SigmaNativeFrameTests.cs",
-      "name": "WriteRepresentationCell",
-      "kind": "method",
-      "line": 3603
-    },
-    {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::WriteState@3732",
-      "file": "Tests/Editor/SigmaNativeFrameTests.cs",
-      "name": "WriteState",
-      "kind": "method",
-      "line": 3732
-    },
-    {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::ZeroArrayRenderTexture@3800",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::ZeroArrayRenderTexture@3858",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "ZeroArrayRenderTexture",
       "kind": "method",
-      "line": 3800
+      "line": 3858
     },
     {
-      "id": "Tests/Editor/SigmaNativeFrameTests.cs::ZeroRenderTexture@3825",
+      "id": "Tests/Editor/SigmaNativeFrameTests.cs::ZeroRenderTexture@3883",
       "file": "Tests/Editor/SigmaNativeFrameTests.cs",
       "name": "ZeroRenderTexture",
       "kind": "method",
-      "line": 3825
+      "line": 3883
     },
     {
       "id": "Tests/Editor/SigmaNativeOracleTests.cs::AssertFreshGpuMatchesCpu@2233",
@@ -23529,7 +23543,7 @@
     },
     {
       "source": "Runtime/UI/DebugMenuController.cs::RefreshStatus@119",
-      "target": "Runtime/UI/DebugMenuController.cs::SetStatus@247",
+      "target": "Runtime/UI/DebugMenuController.cs::SetStatus@249",
       "kind": "calls"
     },
     {
@@ -24299,7 +24313,7 @@
     },
     {
       "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::CertificateMinimizerIsExactBoundedAndCouplingAware@954",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::Count@2873",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::Count@2931",
       "kind": "calls"
     },
     {
@@ -24399,7 +24413,7 @@
     },
     {
       "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::ConstructiveCaptureBoundaryBuildsCalibratedEightLeafPair@627",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::Count@2873",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::Count@2931",
       "kind": "calls"
     },
     {
@@ -24444,7 +24458,7 @@
     },
     {
       "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::ConstructiveModalStitchingUsesAbstractWitnessesAndD4ChartGauge@230",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::Count@2873",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::Count@2931",
       "kind": "calls"
     },
     {
@@ -24569,7 +24583,7 @@
     },
     {
       "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::GeneratedHlslMatchesCpuTablesIrAndDirectionalAction@1152",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::Count@2873",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::Count@2931",
       "kind": "calls"
     },
     {
@@ -24579,7 +24593,7 @@
     },
     {
       "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::GeneratedReverseDescriptorsRetainZeroBranchesAndSceneDisjunction@918",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::Count@2873",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::Count@2931",
       "kind": "calls"
     },
     {
@@ -25063,7 +25077,7 @@
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::BindPublication@2927",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::BindPublication@2985",
       "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Max@172",
       "kind": "calls"
     },
@@ -25079,32 +25093,32 @@
     },
     {
       "source": "Tests/Editor/SigmaNativeFrameTests.cs::BuildObservationWritesEvery320By320FootprintOnGpu@181",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::U4@3781",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::U4@3839",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaNativeFrameTests.cs::BuildObservationWritesEvery320By320FootprintOnGpu@181",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::UInt2Buffer@3787",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::UInt2Buffer@3845",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaNativeFrameTests.cs::BuildObservationWritesEvery320By320FootprintOnGpu@181",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::UInt4Buffer@3790",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::UInt4Buffer@3848",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaNativeFrameTests.cs::BuildObservationWritesEvery320By320FootprintOnGpu@181",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::UIntBuffer@3784",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::UIntBuffer@3842",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaNativeFrameTests.cs::BuildObservationWritesEvery320By320FootprintOnGpu@181",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::ZeroArrayRenderTexture@3800",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::ZeroArrayRenderTexture@3858",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaNativeFrameTests.cs::BuildObservationWritesEvery320By320FootprintOnGpu@181",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::ZeroRenderTexture@3825",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::ZeroRenderTexture@3883",
       "kind": "calls"
     },
     {
@@ -25119,47 +25133,47 @@
     },
     {
       "source": "Tests/Editor/SigmaNativeFrameTests.cs::CanonicalSeedPreservesGlobalCloseUnresolvedReceipt@694",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::BindPublication@2927",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::BindPublication@2985",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaNativeFrameTests.cs::CanonicalSeedPreservesGlobalCloseUnresolvedReceipt@694",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::UInt2Buffer@3787",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::UInt2Buffer@3845",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaNativeFrameTests.cs::CanonicalSeedPreservesGlobalCloseUnresolvedReceipt@694",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::UInt4Buffer@3790",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::UInt4Buffer@3848",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaNativeFrameTests.cs::CanonicalSeedPreservesGlobalCloseUnresolvedReceipt@694",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::UIntBuffer@3784",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::UIntBuffer@3842",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::CertifiedConstraintRecord@3110",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::CertifiedConstraintRecord@3168",
       "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::SigmaExactConstraintRecord",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::CertifiedConstraintRecord@3110",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::DirectionModeMask@3180",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::CertifiedConstraintRecord@3168",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::DirectionModeMask@3238",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::CertifiedConstraintRecord@3110",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::Q2@3775",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::CertifiedConstraintRecord@3168",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::Q2@3833",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::CertifiedConstraintRecord@3110",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::Q4@3191",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::CertifiedConstraintRecord@3168",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::Q4@3249",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::CertifiedConstraintRecord@3110",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::U4@3781",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::CertifiedConstraintRecord@3168",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::U4@3839",
       "kind": "calls"
     },
     {
@@ -25184,22 +25198,22 @@
     },
     {
       "source": "Tests/Editor/SigmaNativeFrameTests.cs::CompactedBoundaryOrderIsExecutionOnlyAcrossAllResults@589",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::Packed@3718",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::Packed@3776",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaNativeFrameTests.cs::CompactedBoundaryOrderIsExecutionOnlyAcrossAllResults@589",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::SeedBoundaryWorklist@3751",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::SeedBoundaryWorklist@3809",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaNativeFrameTests.cs::CompactedBoundaryOrderIsExecutionOnlyAcrossAllResults@589",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::U4@3781",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::U4@3839",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaNativeFrameTests.cs::CompactedBoundaryOrderIsExecutionOnlyAcrossAllResults@589",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::WriteEnvelope@3740",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::WriteEnvelope@3798",
       "kind": "calls"
     },
     {
@@ -25209,7 +25223,7 @@
     },
     {
       "source": "Tests/Editor/SigmaNativeFrameTests.cs::CompletionClassificationRejectsWrongNonzeroGpuRevision@2224",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::U4@3781",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::U4@3839",
       "kind": "calls"
     },
     {
@@ -25223,72 +25237,72 @@
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::ConstraintRecord@3080",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::ConstraintRecord@3138",
       "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::SigmaExactConstraintRecord",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::ConstraintRecord@3080",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::Q2@3775",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::ConstraintRecord@3138",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::Q2@3833",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::ConstraintRecord@3080",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::U4@3781",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::ConstraintRecord@3138",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::U4@3839",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::CutEUsesDirectedWitnessWhenD4CellStreamsTie@2489",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::CutEUsesDirectedWitnessWhenD4CellStreamsTie@2547",
       "target": "Runtime/SigmaPrism/SigmaExactBackendGate.cs::Dispatch@45",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::CutEUsesDirectedWitnessWhenD4CellStreamsTie@2489",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::CutEUsesDirectedWitnessWhenD4CellStreamsTie@2547",
       "target": "Runtime/SigmaPrism/SigmaNativeFrameResources.cs::SigmaNativeFrameSlotResources",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::CutEUsesDirectedWitnessWhenD4CellStreamsTie@2489",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::CutEUsesDirectedWitnessWhenD4CellStreamsTie@2547",
       "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Copy@251",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::CutEUsesDirectedWitnessWhenD4CellStreamsTie@2489",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::CutEUsesDirectedWitnessWhenD4CellStreamsTie@2547",
       "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Max@172",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::CutEUsesDirectedWitnessWhenD4CellStreamsTie@2489",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::BindPublication@2927",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::CutEUsesDirectedWitnessWhenD4CellStreamsTie@2547",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::BindPublication@2985",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::CutEUsesDirectedWitnessWhenD4CellStreamsTie@2489",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::BuildLocalityCertificate@2747",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::CutEUsesDirectedWitnessWhenD4CellStreamsTie@2547",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::BuildLocalityCertificate@2805",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::CutEUsesDirectedWitnessWhenD4CellStreamsTie@2489",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::DispatchCutE@2882",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::CutEUsesDirectedWitnessWhenD4CellStreamsTie@2547",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::DispatchCutE@2940",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::CutEUsesDirectedWitnessWhenD4CellStreamsTie@2489",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::StateWithLane0@2774",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::CutEUsesDirectedWitnessWhenD4CellStreamsTie@2547",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::StateWithLane0@2832",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::CutEUsesDirectedWitnessWhenD4CellStreamsTie@2489",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::U4@3781",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::CutEUsesDirectedWitnessWhenD4CellStreamsTie@2547",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::U4@3839",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::DispatchCutE@2882",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::DispatchCutE@2940",
       "target": "Runtime/SigmaPrism/SigmaExactBackendGate.cs::Dispatch@45",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::DispatchCutE@2882",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::DispatchCutE@2940",
       "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Min@170",
       "kind": "calls"
     },
@@ -25309,7 +25323,17 @@
     },
     {
       "source": "Tests/Editor/SigmaNativeFrameTests.cs::ExactConstraintJournalMinimizesWithoutBranchIdentity@1943",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::ConstraintRecord@3080",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::ConstraintRecord@3138",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::FaultedDispositionStillUsesItsFaultReceipt@2280",
+      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::ClassifyFrameCompletion@1163",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::FaultedDispositionStillUsesItsFaultReceipt@2280",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::U4@3839",
       "kind": "calls"
     },
     {
@@ -25329,12 +25353,12 @@
     },
     {
       "source": "Tests/Editor/SigmaNativeFrameTests.cs::FeasibleCurrentStateIsBytePreservedAndDoesNotClonePage@1721",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::BindPublication@2927",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::BindPublication@2985",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaNativeFrameTests.cs::FeasibleCurrentStateIsBytePreservedAndDoesNotClonePage@1721",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::DispatchCutE@2882",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::DispatchCutE@2940",
       "kind": "calls"
     },
     {
@@ -25344,17 +25368,17 @@
     },
     {
       "source": "Tests/Editor/SigmaNativeFrameTests.cs::FeasibleCurrentStateIsBytePreservedAndDoesNotClonePage@1721",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::SeedSingleFootprintClosedCutE@2658",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::SeedSingleFootprintClosedCutE@2716",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaNativeFrameTests.cs::FeasibleCurrentStateIsBytePreservedAndDoesNotClonePage@1721",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::StateWithLane0@2774",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::StateWithLane0@2832",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaNativeFrameTests.cs::FeasibleCurrentStateIsBytePreservedAndDoesNotClonePage@1721",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::WriteRepresentationCell@3603",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::WriteRepresentationCell@3661",
       "kind": "calls"
     },
     {
@@ -25364,12 +25388,12 @@
     },
     {
       "source": "Tests/Editor/SigmaNativeFrameTests.cs::FullFrameLinearDispatchGridIsQuestLegalAndBijective@100",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::Count@2873",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::Count@2931",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaNativeFrameTests.cs::FullFrameLinearDispatchGridIsQuestLegalAndBijective@100",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::ReadAssetSource@3793",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::ReadAssetSource@3851",
       "kind": "calls"
     },
     {
@@ -25404,12 +25428,12 @@
     },
     {
       "source": "Tests/Editor/SigmaNativeFrameTests.cs::LegacyConstraintSnapshotMigratesOnceToBoundedDeltaStore@2017",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::CertifiedConstraintRecord@3110",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::CertifiedConstraintRecord@3168",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaNativeFrameTests.cs::LiveGraphIsOneBoundedNativeCloseAndLegacyAbiIsAbsent@18",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::Count@2873",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::Count@2931",
       "kind": "calls"
     },
     {
@@ -25444,17 +25468,17 @@
     },
     {
       "source": "Tests/Editor/SigmaNativeFrameTests.cs::LocalityCertificateBoundsTenThousandRevisitsAndIsOrderIndependent@2051",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::CertificateDifference@3199",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::CertificateDifference@3257",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaNativeFrameTests.cs::LocalityCertificateBoundsTenThousandRevisitsAndIsOrderIndependent@2051",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::CertifiedConstraintRecord@3110",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::CertifiedConstraintRecord@3168",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaNativeFrameTests.cs::LocalityCertificateBoundsTenThousandRevisitsAndIsOrderIndependent@2051",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::PersistAndReload@3168",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::PersistAndReload@3226",
       "kind": "calls"
     },
     {
@@ -25469,12 +25493,12 @@
     },
     {
       "source": "Tests/Editor/SigmaNativeFrameTests.cs::LocalityCertificatePreservesViewDiversityAndRawContradiction@2118",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::CertifiedConstraintRecord@3110",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::CertifiedConstraintRecord@3168",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaNativeFrameTests.cs::LocalityCertificatePreservesViewDiversityAndRawContradiction@2118",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::PersistAndReload@3168",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::PersistAndReload@3226",
       "kind": "calls"
     },
     {
@@ -25509,31 +25533,31 @@
     },
     {
       "source": "Tests/Editor/SigmaNativeFrameTests.cs::MinimizedConstraintJournalPersistsAtomicallyOffFrameThread@1985",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::ConstraintRecord@3080",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::ConstraintRecord@3138",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::PersistAndReload@3168",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::PersistAndReload@3226",
       "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::EncodeCanonical@745",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::PersistAndReload@3168",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::PersistAndReload@3226",
       "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Load@55",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::PersistAndReload@3168",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::PersistAndReload@3226",
       "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::SigmaExactConstraintStore",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::PersistAndReload@3168",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::PersistAndReload@3226",
       "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Stage@80",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::PersistAndReload@3168",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::PersistAndReload@3226",
       "target": "Runtime/SigmaPrism/SigmaS16.cs::Combine@421",
       "kind": "calls"
     },
@@ -25554,12 +25578,12 @@
     },
     {
       "source": "Tests/Editor/SigmaNativeFrameTests.cs::PreRootFaultLeavesStateGaugeCertificateAndRootUntouched@1831",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::BindPublication@2927",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::BindPublication@2985",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaNativeFrameTests.cs::PreRootFaultLeavesStateGaugeCertificateAndRootUntouched@1831",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::DispatchCutE@2882",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::DispatchCutE@2940",
       "kind": "calls"
     },
     {
@@ -25569,32 +25593,32 @@
     },
     {
       "source": "Tests/Editor/SigmaNativeFrameTests.cs::PreRootFaultLeavesStateGaugeCertificateAndRootUntouched@1831",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::ReadPageMeta@3642",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::ReadPageMeta@3700",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaNativeFrameTests.cs::PreRootFaultLeavesStateGaugeCertificateAndRootUntouched@1831",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::SeedSingleFootprintClosedCutE@2658",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::SeedSingleFootprintClosedCutE@2716",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaNativeFrameTests.cs::PreRootFaultLeavesStateGaugeCertificateAndRootUntouched@1831",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::StateWithLane0@2774",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::StateWithLane0@2832",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaNativeFrameTests.cs::PreRootFaultLeavesStateGaugeCertificateAndRootUntouched@1831",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::WriteRepresentationCell@3603",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::WriteRepresentationCell@3661",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::PrepareRefinementScratch@3499",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::PrepareRefinementScratch@3557",
       "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Copy@251",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::PrepareRefinementScratch@3499",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::U4@3781",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::PrepareRefinementScratch@3557",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::U4@3839",
       "kind": "calls"
     },
     {
@@ -25624,22 +25648,22 @@
     },
     {
       "source": "Tests/Editor/SigmaNativeFrameTests.cs::ProductionBoundaryPlaneMatchesAcceptedGeneratedStitch@376",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::Packed@3718",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::Packed@3776",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaNativeFrameTests.cs::ProductionBoundaryPlaneMatchesAcceptedGeneratedStitch@376",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::SeedBoundaryWorklist@3751",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::SeedBoundaryWorklist@3809",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaNativeFrameTests.cs::ProductionBoundaryPlaneMatchesAcceptedGeneratedStitch@376",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::U4@3781",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::U4@3839",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaNativeFrameTests.cs::ProductionBoundaryPlaneMatchesAcceptedGeneratedStitch@376",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::WriteEnvelope@3740",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::WriteEnvelope@3798",
       "kind": "calls"
     },
     {
@@ -25699,32 +25723,32 @@
     },
     {
       "source": "Tests/Editor/SigmaNativeFrameTests.cs::ProductionGlobalCloseJoinsTilesAndRejectsInconsistentCycle@1182",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::Packed@3718",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::Packed@3776",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaNativeFrameTests.cs::ProductionGlobalCloseJoinsTilesAndRejectsInconsistentCycle@1182",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::SeedBoundaryWorklist@3751",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::SeedBoundaryWorklist@3809",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaNativeFrameTests.cs::ProductionGlobalCloseJoinsTilesAndRejectsInconsistentCycle@1182",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::U4@3781",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::U4@3839",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaNativeFrameTests.cs::ProductionGlobalCloseJoinsTilesAndRejectsInconsistentCycle@1182",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::UInt2Buffer@3787",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::UInt2Buffer@3845",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaNativeFrameTests.cs::ProductionGlobalCloseJoinsTilesAndRejectsInconsistentCycle@1182",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::UInt4Buffer@3790",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::UInt4Buffer@3848",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaNativeFrameTests.cs::ProductionGlobalCloseJoinsTilesAndRejectsInconsistentCycle@1182",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::WriteEnvelope@3740",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::WriteEnvelope@3798",
       "kind": "calls"
     },
     {
@@ -25754,32 +25778,32 @@
     },
     {
       "source": "Tests/Editor/SigmaNativeFrameTests.cs::ProductionTileCloseMatchesBoundedN2ClosureAndMeets256Hits@733",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::Packed@3718",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::Packed@3776",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaNativeFrameTests.cs::ProductionTileCloseMatchesBoundedN2ClosureAndMeets256Hits@733",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::SeedBoundaryWorklist@3751",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::SeedBoundaryWorklist@3809",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaNativeFrameTests.cs::ProductionTileCloseMatchesBoundedN2ClosureAndMeets256Hits@733",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::U4@3781",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::U4@3839",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaNativeFrameTests.cs::ProductionTileCloseMatchesBoundedN2ClosureAndMeets256Hits@733",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::UInt2Buffer@3787",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::UInt2Buffer@3845",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaNativeFrameTests.cs::ProductionTileCloseMatchesBoundedN2ClosureAndMeets256Hits@733",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::UInt4Buffer@3790",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::UInt4Buffer@3848",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaNativeFrameTests.cs::ProductionTileCloseMatchesBoundedN2ClosureAndMeets256Hits@733",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::WriteEnvelope@3740",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::WriteEnvelope@3798",
       "kind": "calls"
     },
     {
@@ -25809,112 +25833,122 @@
     },
     {
       "source": "Tests/Editor/SigmaNativeFrameTests.cs::ProvenFreshAdmissionPublishesExactlyOneRoot@1504",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::BindPublication@2927",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::BindPublication@2985",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaNativeFrameTests.cs::ProvenFreshAdmissionPublishesExactlyOneRoot@1504",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::DispatchCutE@2882",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::DispatchCutE@2940",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaNativeFrameTests.cs::ProvenFreshAdmissionPublishesExactlyOneRoot@1504",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::SeedSingleFootprintClosedCutE@2658",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::SeedSingleFootprintClosedCutE@2716",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaNativeFrameTests.cs::ProvenFreshAdmissionPublishesExactlyOneRoot@1504",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::StateWithLane0@2774",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::StateWithLane0@2832",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RefinementAtFullPageBoundarySpillsIntoNextLogicalPage@2369",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::PublishedCertificateDeltaCountIsNotACompletionFault@2244",
+      "target": "Runtime/SigmaPrism/SigmaInverseController.cs::ClassifyFrameCompletion@1163",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::PublishedCertificateDeltaCountIsNotACompletionFault@2244",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::U4@3839",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RefinementAtFullPageBoundarySpillsIntoNextLogicalPage@2427",
       "target": "Runtime/SigmaPrism/SigmaExactBackendGate.cs::Dispatch@45",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RefinementAtFullPageBoundarySpillsIntoNextLogicalPage@2369",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RefinementAtFullPageBoundarySpillsIntoNextLogicalPage@2427",
       "target": "Runtime/SigmaPrism/SigmaNativeFrameResources.cs::SigmaNativeFrameSlotResources",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RefinementAtFullPageBoundarySpillsIntoNextLogicalPage@2369",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RefinementAtFullPageBoundarySpillsIntoNextLogicalPage@2427",
       "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Copy@251",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RefinementAtFullPageBoundarySpillsIntoNextLogicalPage@2369",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RefinementAtFullPageBoundarySpillsIntoNextLogicalPage@2427",
       "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Max@172",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RefinementAtFullPageBoundarySpillsIntoNextLogicalPage@2369",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::BindPublication@2927",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RefinementAtFullPageBoundarySpillsIntoNextLogicalPage@2427",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::BindPublication@2985",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RefinementAtFullPageBoundarySpillsIntoNextLogicalPage@2369",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::DispatchCutE@2882",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RefinementAtFullPageBoundarySpillsIntoNextLogicalPage@2427",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::DispatchCutE@2940",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RefinementAtFullPageBoundarySpillsIntoNextLogicalPage@2369",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RefinementAtFullPageBoundarySpillsIntoNextLogicalPage@2427",
       "target": "Tests/Editor/SigmaNativeFrameTests.cs::GaugeKey",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RefinementAtFullPageBoundarySpillsIntoNextLogicalPage@2369",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::PrepareRefinementScratch@3499",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RefinementAtFullPageBoundarySpillsIntoNextLogicalPage@2427",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::PrepareRefinementScratch@3557",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RefinementAtFullPageBoundarySpillsIntoNextLogicalPage@2369",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::ReadPageMeta@3642",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RefinementAtFullPageBoundarySpillsIntoNextLogicalPage@2427",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::ReadPageMeta@3700",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RefinementAtFullPageBoundarySpillsIntoNextLogicalPage@2369",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RefinementAtFullPageBoundarySpillsIntoNextLogicalPage@2427",
       "target": "Tests/Editor/SigmaNativeFrameTests.cs::RefinementStep",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RefinementAtFullPageBoundarySpillsIntoNextLogicalPage@2369",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::WriteRepresentationCell@3603",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RefinementAtFullPageBoundarySpillsIntoNextLogicalPage@2427",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::WriteRepresentationCell@3661",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RefinementCopiesTheCompletePriorBeforeAddingDetail@2279",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RefinementCopiesTheCompletePriorBeforeAddingDetail@2337",
       "target": "Tests/Editor/SigmaNativeFrameTests.cs::GaugeKey",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RefinementCopiesTheCompletePriorBeforeAddingDetail@2279",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RefinementCopiesTheCompletePriorBeforeAddingDetail@2337",
       "target": "Tests/Editor/SigmaNativeFrameTests.cs::RefinementStep",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RefinementCopiesTheCompletePriorBeforeAddingDetail@2279",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::RunRefinementSequence@3211",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RefinementCopiesTheCompletePriorBeforeAddingDetail@2337",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::RunRefinementSequence@3269",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RefinementMultiplicityAndParentMeetArePermutationInvariant@2321",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RefinementMultiplicityAndParentMeetArePermutationInvariant@2379",
       "target": "Tests/Editor/SigmaNativeFrameTests.cs::GaugeKey",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RefinementMultiplicityAndParentMeetArePermutationInvariant@2321",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::Packed@3718",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RefinementMultiplicityAndParentMeetArePermutationInvariant@2379",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::Packed@3776",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RefinementMultiplicityAndParentMeetArePermutationInvariant@2321",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RefinementMultiplicityAndParentMeetArePermutationInvariant@2379",
       "target": "Tests/Editor/SigmaNativeFrameTests.cs::RefinementStep",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RefinementMultiplicityAndParentMeetArePermutationInvariant@2321",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::RunRefinementSequence@3211",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RefinementMultiplicityAndParentMeetArePermutationInvariant@2379",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::RunRefinementSequence@3269",
       "kind": "calls"
     },
     {
@@ -25929,157 +25963,157 @@
     },
     {
       "source": "Tests/Editor/SigmaNativeFrameTests.cs::ReloadedCertificateMeetsLikeUninterruptedCertificate@2164",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::CertifiedConstraintRecord@3110",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::CertifiedConstraintRecord@3168",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaNativeFrameTests.cs::ReloadedCertificateMeetsLikeUninterruptedCertificate@2164",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::PersistAndReload@3168",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::PersistAndReload@3226",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RepeatedRefinementNormalizesIndependentlyOfSplitOrder@2244",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::Count@2873",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RepeatedRefinementNormalizesIndependentlyOfSplitOrder@2302",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::Count@2931",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RepeatedRefinementNormalizesIndependentlyOfSplitOrder@2244",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RepeatedRefinementNormalizesIndependentlyOfSplitOrder@2302",
       "target": "Tests/Editor/SigmaNativeFrameTests.cs::GaugeKey",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RepeatedRefinementNormalizesIndependentlyOfSplitOrder@2244",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RepeatedRefinementNormalizesIndependentlyOfSplitOrder@2302",
       "target": "Tests/Editor/SigmaNativeFrameTests.cs::RefinementStep",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RepeatedRefinementNormalizesIndependentlyOfSplitOrder@2244",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::RunRefinementSequence@3211",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RepeatedRefinementNormalizesIndependentlyOfSplitOrder@2302",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::RunRefinementSequence@3269",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunRefinementSequence@3211",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunRefinementSequence@3269",
       "target": "Runtime/SigmaPrism/SigmaExactBackendGate.cs::Dispatch@45",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunRefinementSequence@3211",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunRefinementSequence@3269",
       "target": "Runtime/SigmaPrism/SigmaNativeFrameResources.cs::SigmaNativeFrameSlotResources",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunRefinementSequence@3211",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunRefinementSequence@3269",
       "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Max@172",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunRefinementSequence@3211",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunRefinementSequence@3269",
       "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Min@170",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunRefinementSequence@3211",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunRefinementSequence@3269",
       "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Select@182",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunRefinementSequence@3211",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunRefinementSequence@3269",
       "target": "Tests/Editor/SigmaMerkabaProgramTests.cs::Join@1426",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunRefinementSequence@3211",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::BindPublication@2927",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunRefinementSequence@3269",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::BindPublication@2985",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunRefinementSequence@3211",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::DispatchCutE@2882",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunRefinementSequence@3269",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::DispatchCutE@2940",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunRefinementSequence@3211",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::FindGaugeSample@3650",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunRefinementSequence@3269",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::FindGaugeSample@3708",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunRefinementSequence@3211",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunRefinementSequence@3269",
       "target": "Tests/Editor/SigmaNativeFrameTests.cs::GaugeKey",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunRefinementSequence@3211",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::PackedInterval@3724",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunRefinementSequence@3269",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::PackedInterval@3782",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunRefinementSequence@3211",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::PrepareRefinementScratch@3499",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunRefinementSequence@3269",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::PrepareRefinementScratch@3557",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunRefinementSequence@3211",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::ReadCertificate@3682",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunRefinementSequence@3269",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::ReadCertificate@3740",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunRefinementSequence@3211",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::ReadPageMeta@3642",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunRefinementSequence@3269",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::ReadPageMeta@3700",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunRefinementSequence@3211",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunRefinementSequence@3269",
       "target": "Tests/Editor/SigmaNativeFrameTests.cs::RefinementSnapshot",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunRefinementSequence@3211",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::WriteRepresentationCell@3603",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunRefinementSequence@3269",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::WriteRepresentationCell@3661",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunStaticExclusion@2781",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunStaticExclusion@2839",
       "target": "Runtime/SigmaPrism/SigmaExactBackendGate.cs::Dispatch@45",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunStaticExclusion@2781",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunStaticExclusion@2839",
       "target": "Runtime/SigmaPrism/SigmaNativeFrameResources.cs::SigmaNativeFrameSlotResources",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunStaticExclusion@2781",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunStaticExclusion@2839",
       "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Max@172",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunStaticExclusion@2781",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::BindPublication@2927",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunStaticExclusion@2839",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::BindPublication@2985",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunStaticExclusion@2781",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::DispatchCutE@2882",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunStaticExclusion@2839",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::DispatchCutE@2940",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunStaticExclusion@2781",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunStaticExclusion@2839",
       "target": "Tests/Editor/SigmaNativeFrameTests.cs::GaugeKey",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunStaticExclusion@2781",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::SeedSingleFootprintClosedCutE@2658",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunStaticExclusion@2839",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::SeedSingleFootprintClosedCutE@2716",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunStaticExclusion@2781",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunStaticExclusion@2839",
       "target": "Tests/Editor/SigmaNativeFrameTests.cs::StaticExclusionSnapshot",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunStaticExclusion@2781",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::WriteRepresentationCell@3603",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::RunStaticExclusion@2839",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::WriteRepresentationCell@3661",
       "kind": "calls"
     },
     {
@@ -26099,12 +26133,12 @@
     },
     {
       "source": "Tests/Editor/SigmaNativeFrameTests.cs::ScatterConsumesMutationCountInsteadOfResidentWorldExtent@1610",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::BindPublication@2927",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::BindPublication@2985",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaNativeFrameTests.cs::ScatterConsumesMutationCountInsteadOfResidentWorldExtent@1610",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::DispatchCutE@2882",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::DispatchCutE@2940",
       "kind": "calls"
     },
     {
@@ -26114,61 +26148,61 @@
     },
     {
       "source": "Tests/Editor/SigmaNativeFrameTests.cs::ScatterConsumesMutationCountInsteadOfResidentWorldExtent@1610",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::SeedSingleFootprintClosedCutE@2658",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::SeedSingleFootprintClosedCutE@2716",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaNativeFrameTests.cs::ScatterConsumesMutationCountInsteadOfResidentWorldExtent@1610",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::StateWithLane0@2774",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::StateWithLane0@2832",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaNativeFrameTests.cs::ScatterConsumesMutationCountInsteadOfResidentWorldExtent@1610",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::U4@3781",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::U4@3839",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaNativeFrameTests.cs::ScatterConsumesMutationCountInsteadOfResidentWorldExtent@1610",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::WriteRepresentationCell@3603",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::WriteRepresentationCell@3661",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::SeedSingleFootprintClosedCutE@2658",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::SeedSingleFootprintClosedCutE@2716",
       "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Copy@251",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::SeedSingleFootprintClosedCutE@2658",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::BuildLocalityCertificate@2747",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::SeedSingleFootprintClosedCutE@2716",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::BuildLocalityCertificate@2805",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::SeedSingleFootprintClosedCutE@2658",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::U4@3781",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::SeedSingleFootprintClosedCutE@2716",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::U4@3839",
       "kind": "calls"
     },
     {
       "source": "Tests/Editor/SigmaNativeFrameTests.cs::StereoStaticExclusionPublishesOnlyZEmptyAtTheSameGauge@1811",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::RunStaticExclusion@2781",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::RunStaticExclusion@2839",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::WriteRepresentationCell@3603",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::ToRaw@3918",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::WriteRepresentationCell@3661",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::ToRaw@3976",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::WriteState@3732",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::Packed@3718",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::WriteState@3790",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::Packed@3776",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::ZeroArrayRenderTexture@3800",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::ZeroArrayRenderTexture@3858",
       "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Clear@798",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaNativeFrameTests.cs::ZeroRenderTexture@3825",
+      "source": "Tests/Editor/SigmaNativeFrameTests.cs::ZeroRenderTexture@3883",
       "target": "Runtime/SigmaPrism/SigmaExactConstraintJournal.cs::Clear@798",
       "kind": "calls"
     },
@@ -26314,7 +26348,7 @@
     },
     {
       "source": "Tests/Editor/SigmaNativeOracleTests.cs::ExecutionWindowsAndOrderAreInvisibleAndScratchIsTestOnly@691",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::Count@2873",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::Count@2931",
       "kind": "calls"
     },
     {
@@ -26949,7 +26983,7 @@
     },
     {
       "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanConstructiveStitchSetMatchesGeneratedCpuAuthority@809",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::Count@2873",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::Count@2931",
       "kind": "calls"
     },
     {
@@ -27054,7 +27088,7 @@
     },
     {
       "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanFieldEntrypointsGroupRefinedU64SupportsBeforeReduction@1500",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::Count@2873",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::Count@2931",
       "kind": "calls"
     },
     {
@@ -27199,7 +27233,7 @@
     },
     {
       "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanReducerHandlesMoreThan64AndSignalsBoundedColdContinuation@1700",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::Count@2873",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::Count@2931",
       "kind": "calls"
     },
     {

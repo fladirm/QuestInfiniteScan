@@ -19,6 +19,44 @@ Updated: 2026-08-30 (Europe/Prague)
 - Forensic facts and replacement matrix: `analyza.md`.
 - S4‑09 remains pending/unopened.
 
+## N4R completion-disposition correction and installed Quest build
+
+The first post-publication Quest capture exposed a host-only tagged-receipt
+decode defect.  Production correctly retained `Disposition.w` as the exact
+certificate-delta count when `Disposition.x` changed from `RESOLVED` to
+`PUBLISHED`, but `SigmaInverseController` treated every nonzero word as a fault.
+The first sealed 16-record completion batch therefore misclassified a valid
+publication containing 4887 certificate deltas, latched `_completionFaulted` and
+stopped reconstruction while capture and XR rendering continued.
+
+The correction interprets `Disposition.w` by its disposition tag: it is a fault
+receipt only for `FAULTED`, and a certificate-delta count for `PUBLISHED`.
+Runtime telemetry and the debug UI now expose `CertificateDeltaCount` separately
+and never render that count as `FaultMask`.  The independently reserved submitted
+revision remains the host comparison authority; the existing wrong-nonzero-GPU-
+revision negative control stays green.  No shader, generated ABI, authority,
+buffer, kernel or dispatch changed.
+
+Actual evidence:
+
+```text
+focused completion classification corpus                    3/3 PASS
+SigmaNativeFrameTests                                      30/30 PASS
+complete Unity EditMode/Vulkan                             97/97 PASS
+generator --check / UAV / git diff --check          PASS / PASS / PASS
+HotDispatchCount                                                16
+Release Android/Vulkan APK                                   PASS
+APK SHA-256             ab0a979421bc8173c893b516bfaf27c8d54883369cf72eddab3330af4aa13cb7
+APK bytes                                                 67526535
+Quest streamed install                                      PASS
+```
+
+N4R remains WIP.  The exact next implementation cut is measured algorithmic
+reduction of the real Quest hot kernels, starting with the two
+`ContractNativeQuery` modes and then component/canonical preparation.  Fence
+timeouts are treated as a symptom of GPU starvation, not an independent retry or
+watchdog feature.  N5R and S4-09 remain unopened.
+
 ## N4R realized-component D4 parity corrective cut
 
 The current WIP aligns production TILE_CLOSE orbit equivalence with the accepted
