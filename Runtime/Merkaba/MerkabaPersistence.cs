@@ -47,9 +47,10 @@ namespace Genesis.RoomScan
             {
                 Report(ScanOperationKind.Save,
                     ScanOperationStage.SynchronizingScan, -1f,
-                    "Finishing current observation");
-                if (_integrator != null)
-                    await _integrator.FinishCurrentObservationAsync();
+                    "Scan quiesced");
+                if (_integrator != null && _integrator.HasPendingObservation)
+                    throw new InvalidOperationException(
+                        "Save requires RoomScanner quiesce before persistence.");
                 Report(ScanOperationKind.Save,
                     ScanOperationStage.CapturingState, 0.2f,
                     "Flushing dirty M8 tiles");

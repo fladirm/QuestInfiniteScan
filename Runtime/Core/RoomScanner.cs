@@ -10,7 +10,7 @@ namespace Genesis.RoomScan
         Stopped,
         Starting,
         Running,
-        Stopping
+        Quiescing
     }
 
     /// <summary>
@@ -40,6 +40,8 @@ namespace Genesis.RoomScan
         private DebugMenuController _debugMenu;
         private float _lastIntegrationTime;
         private ScanOperationState _operation = ScanOperationState.Idle;
+        private Task<bool> _quiesceTask;
+        private uint _lifecycleGeneration;
 
         public bool IsScanning { get; private set; }
         public bool IsScanStarting => ScanLifecycle == ScanLifecycleState.Starting;
@@ -57,7 +59,8 @@ namespace Genesis.RoomScan
         public bool SavedSessionExists => _persistence != null && _persistence.SavedSessionExists;
         public string PersistenceStatus => _persistence?.LastStatus ?? "Unavailable";
         public string ExportStatus => _exporter?.LastStatus ?? "Unavailable";
-        public bool IsBusy => _operation.Busy || (_persistence?.IsBusy ?? false) ||
+        public bool IsBusy => ScanLifecycle == ScanLifecycleState.Quiescing ||
+                              _operation.Busy || (_persistence?.IsBusy ?? false) ||
                               (_exporter?.IsExporting ?? false);
         public ScanOperationState CurrentOperation => _operation;
         public float ScanOpacity
@@ -113,20 +116,20 @@ namespace Genesis.RoomScan
         {
             MerkabaGpuTimestamps.Poll();
             if (!IsScanning) return;
-            if (Time.time - _lastIntegrationTime < IntegrationInterval) return;
-            Camera camera = Camera.main;
+            _integrator.TryRetireObservationAttempt();
             if (_integrator.HasPendingObservation)
             {
-                if (camera == null) return;
-                _integrator.Integrate(camera);
-                _lastIntegrationTime = Time.time;
-                ArmNextObservation();
+                if (!_integrator.HasAttemptInFlight)
+                    _integrator.TrySubmitObservationAttempt();
                 return;
             }
-            if (!_depthCapture.HasUnprocessedFrame || camera == null) return;
-            _integrator.Integrate(camera);
-            _lastIntegrationTime = Time.time;
-            ArmNextObservation();
+            if (Time.time - _lastIntegrationTime < IntegrationInterval) return;
+            if (!_depthCapture.HasUnprocessedFrame) return;
+            if (_integrator.TrySubmitObservationAttempt())
+            {
+                _lastIntegrationTime = Time.time;
+                ArmNextObservation();
+            }
         }
 
         private void OnDisable() => StopScanning();
@@ -140,16 +143,23 @@ namespace Genesis.RoomScan
         public async Task StartScanningAsync()
         {
             if (IsScanning || IsScanStarting) return;
+            if (ScanLifecycle == ScanLifecycleState.Quiescing &&
+                !await QuiesceScanningAsync())
+                return;
+            uint generation = NextLifecycleGeneration();
             ScanLifecycle = ScanLifecycleState.Starting;
             LastScanStartError = null;
             try
             {
                 await EnsureRoomAnchorAsync();
+                if (!StartIsCurrent(generation)) return;
                 _grid.EnsureGpuResources();
                 await Task.Yield();
                 await Task.Yield();
+                if (!StartIsCurrent(generation)) return;
                 bool cameraPermission = await PassthroughCameraProvider
                     .RequestCameraPermissionAsync();
+                if (!StartIsCurrent(generation)) return;
                 if (!cameraPermission)
                     Logger.Warning("HEADSET_CAMERA permission denied; scanning continues without RGB.");
                 else
@@ -165,52 +175,41 @@ namespace Genesis.RoomScan
             }
             catch (Exception exception)
             {
-                IsScanning = false;
-                ScanLifecycle = ScanLifecycleState.Stopped;
+                if (!StartIsCurrent(generation)) return;
                 LastScanStartError = exception.Message;
                 Logger.Error("Could not start Merkaba scan: " + exception);
+                await QuiesceScanningAsync();
             }
         }
 
         public void StopScanning()
         {
-            if (!IsScanning && ScanLifecycle != ScanLifecycleState.Starting) return;
-            ScanLifecycle = ScanLifecycleState.Stopping;
-            IsScanning = false;
-            _cameraProvider?.StopCapture();
-            _depthCapture?.StopDepthCapture();
-            MerkabaGpuTimestamps.CloseIncompleteFrame();
-            ScanLifecycle = ScanLifecycleState.Stopped;
-            ScanStopped?.Invoke();
-            Logger.Info("Merkaba scanning stopped");
+            _ = QuiesceScanningAsync();
         }
 
         public void ToggleScanning()
         {
-            if (IsScanning) StopScanning();
+            if (IsScanning || IsScanStarting) StopScanning();
             else _ = StartScanningAsync();
         }
 
-        public Task<bool> SaveAsync()
+        public async Task<bool> SaveAsync()
         {
-            if (IsBusy) return Task.FromResult(false);
-            // Freeze integration before the explicit canonical readback so the
-            // snapshot has one well-defined observation boundary.
-            StopScanning();
-            return _persistence != null
-                ? _persistence.SaveAsync() : Task.FromResult(false);
+            if (IsBusy) return false;
+            if (!await QuiesceScanningAsync()) return false;
+            return _persistence != null && await _persistence.SaveAsync();
         }
 
         public async Task<bool> LoadAsync()
         {
             if (IsBusy) return false;
-            StopScanning();
+            if (!await QuiesceScanningAsync()) return false;
             return _persistence != null && await _persistence.LoadAsync();
         }
 
         public async Task NewClearAsync()
         {
-            StopScanning();
+            if (!await QuiesceScanningAsync()) return;
             _integrator?.Clear();
             _persistence?.ClearSavedSession();
             _exporter?.ClearExport();
@@ -218,12 +217,11 @@ namespace Genesis.RoomScan
             Logger.Info("Started a new empty Merkaba session");
         }
 
-        public Task<bool> ExportGlbAsync()
+        public async Task<bool> ExportGlbAsync()
         {
-            if (IsBusy) return Task.FromResult(false);
-            StopScanning();
-            return _exporter != null
-                ? _exporter.ExportGlbAsync() : Task.FromResult(false);
+            if (IsBusy) return false;
+            if (!await QuiesceScanningAsync()) return false;
+            return _exporter != null && await _exporter.ExportGlbAsync();
         }
 
         public async void ClearAllDataAsync(Action onComplete = null)
@@ -291,6 +289,68 @@ namespace Genesis.RoomScan
         }
 
         private void OnIntegrated() => Integrated?.Invoke();
+
+        internal Task<bool> QuiesceScanningAsync()
+        {
+            if (_quiesceTask != null && !_quiesceTask.IsCompleted)
+                return _quiesceTask;
+            if (ScanLifecycle == ScanLifecycleState.Stopped &&
+                !IsScanning && !(_integrator?.HasPendingObservation ?? false))
+                return Task.FromResult(true);
+            _quiesceTask = QuiesceCoreAsync();
+            return _quiesceTask;
+        }
+
+        private async Task<bool> QuiesceCoreAsync()
+        {
+            NextLifecycleGeneration();
+            ScanLifecycle = ScanLifecycleState.Quiescing;
+            IsScanning = false;
+            _depthCapture?.BeginQuiesceDepthCapture();
+            _integrator?.BeginObservationQuiesce();
+            try
+            {
+                if (_integrator != null)
+                    await _integrator.FinishCurrentObservationAsync();
+                Task depthRetirement = _depthCapture != null
+                    ? _depthCapture.RetireSubmittedDepthCopiesAsync()
+                    : Task.CompletedTask;
+                Task cameraRetirement = _integrator != null
+                    ? _integrator.RetireSubmittedCameraCopiesAsync()
+                    : Task.CompletedTask;
+                await Task.WhenAll(depthRetirement, cameraRetirement);
+                _depthCapture?.CompleteDepthCaptureStop();
+                _cameraProvider?.StopCapture();
+                MerkabaGpuTimestamps.CloseIncompleteFrame();
+                ScanLifecycle = ScanLifecycleState.Stopped;
+                ScanStopped?.Invoke();
+                Logger.Info("Merkaba scanning stopped after observation and " +
+                            "capture-copy retirement");
+                return true;
+            }
+            catch (Exception exception)
+            {
+                // Fail safe: the callbacks are detached, but producer-owned GPU
+                // resources remain alive because their retirement was not proven.
+                Logger.Error("Merkaba quiesce failed; capture providers retained: " +
+                             exception);
+                return false;
+            }
+        }
+
+        private uint NextLifecycleGeneration()
+        {
+            unchecked
+            {
+                _lifecycleGeneration++;
+                if (_lifecycleGeneration == 0u) _lifecycleGeneration = 1u;
+            }
+            return _lifecycleGeneration;
+        }
+
+        private bool StartIsCurrent(uint generation) =>
+            generation == _lifecycleGeneration &&
+            ScanLifecycle == ScanLifecycleState.Starting;
 
         internal bool TryBeginOperation(ScanOperationKind kind,
             ScanOperationStage stage, string statusText)

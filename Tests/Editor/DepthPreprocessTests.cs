@@ -77,7 +77,8 @@ namespace Genesis.RoomScan.Tests
             }
             finally
             {
-                capture.StopDepthCapture();
+                capture.BeginQuiesceDepthCapture();
+                capture.CompleteDepthCaptureStop();
                 if (owned != null) UnityEngine.Object.DestroyImmediate(owned);
                 UnityEngine.Object.DestroyImmediate(first);
                 UnityEngine.Object.DestroyImmediate(second);
@@ -218,6 +219,92 @@ namespace Genesis.RoomScan.Tests
             string ensure = Slice(grid, "internal void EnsureGpuResources()",
                 "private void ReleaseGpuResources()");
             Assert.That(ensure, Does.Contain("if (_gpuReady) return;"));
+        }
+
+        [Test]
+        public void Quiesce_RetiresObservationAndCopiesBeforeProviderTeardown()
+        {
+            string scanner = RuntimeSource("Runtime/Core/RoomScanner.cs");
+            string quiesce = Slice(scanner, "private async Task<bool> QuiesceCoreAsync()",
+                "private uint NextLifecycleGeneration()");
+            int stopAdmission = quiesce.IndexOf("IsScanning = false;",
+                StringComparison.Ordinal);
+            int detach = quiesce.IndexOf("BeginQuiesceDepthCapture();",
+                StringComparison.Ordinal);
+            int observation = quiesce.IndexOf("FinishCurrentObservationAsync();",
+                StringComparison.Ordinal);
+            int copies = quiesce.IndexOf("await Task.WhenAll(depthRetirement, cameraRetirement);",
+                StringComparison.Ordinal);
+            int depthStop = quiesce.IndexOf("CompleteDepthCaptureStop();",
+                StringComparison.Ordinal);
+            int pcaStop = quiesce.IndexOf("_cameraProvider?.StopCapture();",
+                StringComparison.Ordinal);
+
+            Assert.That(stopAdmission, Is.GreaterThanOrEqualTo(0));
+            Assert.That(detach, Is.GreaterThan(stopAdmission));
+            Assert.That(observation, Is.GreaterThan(detach));
+            Assert.That(copies, Is.GreaterThan(observation));
+            Assert.That(depthStop, Is.GreaterThan(copies));
+            Assert.That(pcaStop, Is.GreaterThan(depthStop));
+
+            string depth = RuntimeSource("Runtime/Core/DepthCapture.cs");
+            string begin = Slice(depth, "internal void BeginQuiesceDepthCapture()",
+                "internal Task RetireSubmittedDepthCopiesAsync()");
+            string complete = Slice(depth, "internal void CompleteDepthCaptureStop()",
+                "private void OnApplicationPause");
+            Assert.That(begin, Does.Not.Contain("_arOcclusionManager.enabled = false"));
+            Assert.That(complete, Does.Contain("_arOcclusionManager.enabled = false"));
+            Assert.That(depth, Does.Not.Contain("WaitForCompletion"));
+            Assert.That(depth, Does.Not.Contain("Thread.Sleep"));
+            Assert.That(depth, Does.Not.Contain("Task.Delay"));
+        }
+
+        [Test]
+        public void ObservationAttempt_IsTokenRetiredWithoutBlindRedispatch()
+        {
+            string scanner = RuntimeSource("Runtime/Core/RoomScanner.cs");
+            string update = Slice(scanner, "private void Update()",
+                "private void OnDisable()");
+            Assert.That(update, Does.Contain("TryRetireObservationAttempt();"));
+            Assert.That(update, Does.Contain("!_integrator.HasAttemptInFlight"));
+            Assert.That(update, Does.Contain("TrySubmitObservationAttempt()"));
+            Assert.That(update, Does.Not.Contain("_integrator.Integrate(camera)"));
+
+            string integrator = RuntimeSource(
+                "Runtime/Merkaba/MerkabaIntegrator.cs");
+            string retry = Slice(integrator,
+                "private bool CanRetryPreparedObservation()",
+                "private bool ObservationTimedOut()");
+            Assert.That(retry, Does.Contain("ObservationDependencyVersion"));
+            Assert.That(retry, Does.Contain("_retryDependencyVersion"));
+
+            string shader = RuntimeSource(
+                "Runtime/Shaders/MerkabaIntegration.compute");
+            Assert.That(shader, Does.Contain(
+                "M8_COUNTER_ATTEMPT_COMPLETED_TOKEN] = _M8AttemptToken"));
+        }
+
+        [Test]
+        public void SaveAndExport_AwaitSharedQuiesceBeforeExplicitOperation()
+        {
+            string scanner = RuntimeSource("Runtime/Core/RoomScanner.cs");
+            string save = Slice(scanner, "public async Task<bool> SaveAsync()",
+                "public async Task<bool> LoadAsync()");
+            string export = Slice(scanner,
+                "public async Task<bool> ExportGlbAsync()",
+                "public async void ClearAllDataAsync");
+            Assert.That(save.IndexOf("await QuiesceScanningAsync()",
+                    StringComparison.Ordinal),
+                Is.LessThan(save.IndexOf("_persistence.SaveAsync()",
+                    StringComparison.Ordinal)));
+            Assert.That(export.IndexOf("await QuiesceScanningAsync()",
+                    StringComparison.Ordinal),
+                Is.LessThan(export.IndexOf("_exporter.ExportGlbAsync()",
+                    StringComparison.Ordinal)));
+            Assert.That(RuntimeSource("Runtime/Merkaba/MerkabaPersistence.cs"),
+                Does.Not.Contain("await _integrator.FinishCurrentObservationAsync()"));
+            Assert.That(RuntimeSource("Runtime/Merkaba/MerkabaExporter.cs"),
+                Does.Not.Contain("await _integrator.FinishCurrentObservationAsync()"));
         }
 
         [Test, Timeout(30000)]

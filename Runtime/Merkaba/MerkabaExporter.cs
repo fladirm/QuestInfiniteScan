@@ -43,9 +43,10 @@ namespace Genesis.RoomScan
             try
             {
                 Report(ScanOperationStage.SynchronizingScan, -1f,
-                    "Synchronizing scan");
-                if (_integrator != null)
-                    await _integrator.FinishCurrentObservationAsync();
+                    "Scan quiesced");
+                if (_integrator != null && _integrator.HasPendingObservation)
+                    throw new InvalidOperationException(
+                        "Export requires RoomScanner quiesce before readout.");
                 await _grid.FlushAllDirtyTilesAsync();
 
                 Report(ScanOperationStage.CapturingState, 0.08f,

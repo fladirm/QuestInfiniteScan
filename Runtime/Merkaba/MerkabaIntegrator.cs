@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Threading.Tasks;
 using Unity.Mathematics;
 using UnityEngine;
 using UnityEngine.Experimental.Rendering;
@@ -37,6 +39,12 @@ namespace Genesis.RoomScan
         private bool _observationPrepared;
         private uint _observationToken;
         private double _observationPreparedAt;
+        private int _observationDepthVersion;
+        private bool _attemptInFlight;
+        private bool _waitingForDependency;
+        private uint _attemptSequence;
+        private uint _attemptToken;
+        private uint _retryDependencyVersion;
 
         private readonly bool[] _cameraAvailable = new bool[2];
         private readonly Vector3[] _cameraPosition = new Vector3[2];
@@ -49,6 +57,10 @@ namespace Genesis.RoomScan
         private int _readyCameraSlot = -1;
         private int _heldCameraSlot = -1;
         private bool _cameraObservationHeld;
+        private ulong _cameraCopySubmittedEpoch;
+        private ulong _cameraCopyRetiredEpoch;
+        private int _lastCameraCopySlot = -1;
+        private Task _cameraCopyRetirementTask = Task.CompletedTask;
         private Texture2D _dummyCameraTexture;
         private readonly Vector4[] _exclusionPositions = new Vector4[64];
         private readonly Vector4[] _scanPlanes = new Vector4[12];
@@ -58,6 +70,9 @@ namespace Genesis.RoomScan
         public int IntegrationCount { get; private set; }
         public float MaxUpdateDistance => maxUpdateDistance;
         public bool HasPendingObservation => _observationPrepared;
+        public bool HasAttemptInFlight => _attemptInFlight;
+        internal uint ObservationToken => _observationToken;
+        internal uint AttemptToken => _attemptToken;
         internal RenderTexture OwnedCameraFrame
         {
             get
@@ -107,6 +122,8 @@ namespace Genesis.RoomScan
             Shader.PropertyToID("_MerkabaCameraExposure");
         private static readonly int AbortObservationId =
             Shader.PropertyToID("_M8AbortObservation");
+        private static readonly int AttemptTokenId =
+            Shader.PropertyToID("_M8AttemptToken");
 
         private void Awake()
         {
@@ -210,15 +227,46 @@ namespace Genesis.RoomScan
             _readyCameraSlot = slot;
         }
 
-        public bool Integrate(Camera camera)
+        internal bool TryRetireObservationAttempt()
         {
-            if (!Initialize() || camera == null || !DepthCapture.DepthAvailable)
+            if (!_observationPrepared || !_attemptInFlight ||
+                _grid.CompletedAttemptToken != _attemptToken)
                 return false;
-            if (_observationPrepared &&
-                _grid.CompletedObservationToken == _observationToken)
+
+            _attemptInFlight = false;
+            if (_grid.CompletedObservationToken == _observationToken)
+            {
+                Logger.Info("Merkaba observation complete " +
+                            $"observation={_observationToken} " +
+                            $"attempt={_attemptToken} " +
+                            $"depthVersion={_observationDepthVersion} " +
+                            $"failure=0x{_grid.CompletedObservationFailure:x}");
                 return FinishObservation(_grid.CompletedObservationFailure);
-            if (!_observationPrepared && !_depthCapture.HasUnprocessedFrame)
+            }
+
+            _waitingForDependency = true;
+            _retryDependencyVersion = _grid.ObservationDependencyVersion;
+            Logger.Info("Merkaba observation attempt unresolved " +
+                        $"observation={_observationToken} " +
+                        $"attempt={_attemptToken} " +
+                        $"dependencyVersion={_retryDependencyVersion}");
+            return false;
+        }
+
+        internal bool TrySubmitObservationAttempt()
+        {
+            if (!Initialize() || _attemptInFlight)
                 return false;
+            bool newObservation = !_observationPrepared;
+            if (newObservation)
+            {
+                if (!DepthCapture.DepthAvailable ||
+                    !_depthCapture.HasUnprocessedFrame)
+                    return false;
+            }
+            else if (!CanRetryPreparedObservation())
+                return false;
+
             CommandBuffer command = CommandBufferPool.Get(
                 "Merkaba M8 observation");
             bool submitted = false;
@@ -227,7 +275,7 @@ namespace Genesis.RoomScan
                 MerkabaGpuTimestamps.TryBeginFrame(
                     unchecked((uint)Math.Max(1, IntegrationCount + 1)));
                 MerkabaGpuTimestamps.RecordProfileBegin(command);
-                if (!_observationPrepared)
+                if (newObservation)
                 {
                     AcquireCameraObservation();
                     bool consumed = _depthCapture.ConsumeLatestDepthFrame(command);
@@ -243,14 +291,23 @@ namespace Genesis.RoomScan
                         _grid.RecordResetObservationGpuCounters(command);
                     _observationPreparedAt =
                         Time.realtimeSinceStartupAsDouble;
-                    ConfigureObservation(camera);
+                    _observationDepthVersion =
+                        _depthCapture.ProcessedRawFrameVersion;
+                    _observationPrepared = true;
+                }
+
+                _attemptToken = NextAttemptToken();
+                command.SetComputeIntParam(compute, AttemptTokenId,
+                    unchecked((int)_attemptToken));
+                if (newObservation)
+                {
+                    ConfigureObservation();
                     command.DispatchComputeProfiled(compute, _discoverKernel,
                         Mathf.CeilToInt(_depthCapture.DepthTex.width / 8f),
                         Mathf.CeilToInt(_depthCapture.DepthTex.height / 8f), 2);
-                    _observationPrepared = true;
                 }
                 else
-                    ConfigureObservation(camera);
+                    ConfigureAttempt();
 
                 // Dispatch boundaries publish each CLAIMED radix level before the
                 // next one. CLAIMED never spins inside a shader invocation.
@@ -288,10 +345,17 @@ namespace Genesis.RoomScan
 
                 Graphics.ExecuteCommandBuffer(command);
                 submitted = true;
+                _attemptInFlight = true;
+                _waitingForDependency = false;
+                Logger.Info("Merkaba observation attempt submitted " +
+                            $"observation={_observationToken} " +
+                            $"attempt={_attemptToken} " +
+                            $"depthVersion={_observationDepthVersion} " +
+                            $"retry={!newObservation}");
 
                 // Completion is sampled by the fixed SSD control pump. Until its
                 // exact token completes, this owned observation remains immutable.
-                return false;
+                return true;
             }
             finally
             {
@@ -301,11 +365,40 @@ namespace Genesis.RoomScan
             }
         }
 
+        private bool CanRetryPreparedObservation()
+        {
+            if (!_observationPrepared || _attemptInFlight) return false;
+            if (ObservationTimedOut()) return true;
+            return _waitingForDependency &&
+                   _grid.ObservationDependencyVersion !=
+                   _retryDependencyVersion;
+        }
+
+        private bool ObservationTimedOut() =>
+            _observationPreparedAt > 0.0 &&
+            Time.realtimeSinceStartupAsDouble - _observationPreparedAt >=
+            HeldObservationTimeoutSeconds;
+
+        private uint NextAttemptToken()
+        {
+            unchecked
+            {
+                _attemptSequence++;
+                if (_attemptSequence == 0u) _attemptSequence = 1u;
+            }
+            return _attemptSequence;
+        }
+
         private bool FinishObservation(uint failureReason)
         {
             _observationPrepared = false;
             _observationToken = 0u;
             _observationPreparedAt = 0.0;
+            _observationDepthVersion = 0;
+            _attemptInFlight = false;
+            _attemptToken = 0u;
+            _waitingForDependency = false;
+            _retryDependencyVersion = 0u;
             ReleaseOwnedObservation();
             if (failureReason != 0u)
             {
@@ -328,16 +421,15 @@ namespace Genesis.RoomScan
         {
             while (_observationPrepared)
             {
-                Camera camera = Camera.main;
-                if (camera == null)
-                    throw new InvalidOperationException(
-                        "Cannot finish M8 observation without the XR camera.");
-                Integrate(camera);
+                TryRetireObservationAttempt();
+                if (!_observationPrepared) break;
+                if (!_attemptInFlight)
+                    TrySubmitObservationAttempt();
                 if (_observationPrepared) await System.Threading.Tasks.Task.Yield();
             }
         }
 
-        private void ConfigureObservation(Camera camera)
+        private void ConfigureObservation()
         {
             compute.SetMatrixArray(DepthCapture.ViewID, _depthCapture.View);
             compute.SetMatrixArray(DepthCapture.ProjID, _depthCapture.Proj);
@@ -350,11 +442,7 @@ namespace Genesis.RoomScan
             compute.SetMatrix(GridToWorldId, _grid.GridToWorldMatrix);
             compute.SetMatrix(WorldToGridId, _grid.GridToWorldMatrix.inverse);
             compute.SetFloat(MaxDistanceId, maxUpdateDistance);
-            bool timedOut = _observationPreparedAt > 0.0 &&
-                            Time.realtimeSinceStartupAsDouble -
-                            _observationPreparedAt >=
-                            HeldObservationTimeoutSeconds;
-            compute.SetInt(AbortObservationId, timedOut ? 1 : 0);
+            ConfigureAttempt();
 
             int exclusionCount = Mathf.Min(ExclusionZones.Count,
                 _exclusionPositions.Length);
@@ -368,6 +456,12 @@ namespace Genesis.RoomScan
             BindDepth(_integrateSurfaceKernel);
             BindDepth(_integrateCarveKernel);
             BindCamera(_integrateSurfaceKernel);
+        }
+
+        private void ConfigureAttempt()
+        {
+            compute.SetInt(AbortObservationId,
+                ObservationTimedOut() ? 1 : 0);
         }
 
         private void BindDepth(int kernel)
@@ -478,6 +572,51 @@ namespace Genesis.RoomScan
                 _cameraFrameCopies[slot] = owned;
             }
             Graphics.Blit(frame, owned);
+            unchecked
+            {
+                _cameraCopySubmittedEpoch++;
+                if (_cameraCopySubmittedEpoch == 0u)
+                    _cameraCopySubmittedEpoch = 1u;
+            }
+            _lastCameraCopySlot = slot;
+        }
+
+        internal void BeginObservationQuiesce()
+        {
+            _readyCameraSlot = -1;
+        }
+
+        internal Task RetireSubmittedCameraCopiesAsync()
+        {
+            ulong target = _cameraCopySubmittedEpoch;
+            if (_cameraCopyRetiredEpoch >= target || target == 0u)
+                return Task.CompletedTask;
+            if (!_cameraCopyRetirementTask.IsCompleted)
+                return _cameraCopyRetirementTask;
+            if (!SystemInfo.supportsAsyncGPUReadback)
+                return Task.FromException(new NotSupportedException(
+                    "Quest PCA copy retirement requires asynchronous GPU readback."));
+            if (_lastCameraCopySlot < 0 ||
+                _cameraFrameCopies[_lastCameraCopySlot] == null)
+                return Task.FromException(new IOException(
+                    "Owned PCA copy target disappeared before retirement."));
+
+            RenderTexture owned = _cameraFrameCopies[_lastCameraCopySlot];
+            var completion = new TaskCompletionSource<bool>();
+            _cameraCopyRetirementTask = completion.Task;
+            AsyncGPUReadback.Request(owned, 0, 0, 1, 0, 1, 0, 1, request =>
+            {
+                if (request.hasError)
+                {
+                    completion.TrySetException(new IOException(
+                        "Owned PCA GPU-copy retirement readback failed."));
+                    return;
+                }
+                _cameraCopyRetiredEpoch = Math.Max(
+                    _cameraCopyRetiredEpoch, target);
+                completion.TrySetResult(true);
+            });
+            return _cameraCopyRetirementTask;
         }
 
         private Texture2D DummyCameraTexture()
@@ -496,6 +635,11 @@ namespace Genesis.RoomScan
             _observationPrepared = false;
             _observationToken = 0u;
             _observationPreparedAt = 0.0;
+            _observationDepthVersion = 0;
+            _attemptInFlight = false;
+            _attemptToken = 0u;
+            _waitingForDependency = false;
+            _retryDependencyVersion = 0u;
             ReleaseOwnedObservation();
             _readyCameraSlot = -1;
             IntegrationCount = 0;

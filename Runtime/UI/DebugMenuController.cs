@@ -126,7 +126,7 @@ namespace Genesis.RoomScan.UI
             {
                 ScanLifecycleState.Starting => "Starting…",
                 ScanLifecycleState.Running => "Active",
-                ScanLifecycleState.Stopping => "Stopping…",
+                ScanLifecycleState.Quiescing => "Quiescing…",
                 _ when !string.IsNullOrEmpty(scanner.LastScanStartError) =>
                     "Failed: " + scanner.LastScanStartError,
                 _ => "Stopped"
@@ -156,7 +156,7 @@ namespace Genesis.RoomScan.UI
             if (_start != null) _start.text = scanner.IsScanStarting
                 ? "STARTING…" : scanner.IsScanning ? "RUNNING" : "START / RESUME";
             if (_stop != null) _stop.text = scanner.ScanLifecycle ==
-                ScanLifecycleState.Stopping ? "STOPPING…" : "STOP";
+                ScanLifecycleState.Quiescing ? "QUIESCING…" : "STOP";
             if (_save != null) _save.text = operation.Busy &&
                 operation.Kind == ScanOperationKind.Save ? "SAVING…" : "SAVE";
             if (_load != null) _load.text = operation.Busy &&

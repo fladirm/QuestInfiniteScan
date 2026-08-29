@@ -64,6 +64,7 @@ float2 _MerkabaCameraSensorResolution;
 float2 _MerkabaCameraCurrentResolution;
 float _MerkabaCameraExposure;
 int _M8AbortObservation;
+uint _M8AttemptToken;
 
 float4 _M8ScanPlanes[12];
 float3 _M8ScanCameraWorld;
@@ -338,6 +339,8 @@ void DiscoverSurfaceCandidates(uint3 id : SV_DispatchThreadID)
 [numthreads(1, 1, 1)]
 void PrepareResolveArgs(uint id : SV_DispatchThreadID)
 {
+    _M8Counters[M8_COUNTER_ATTEMPT_TOKEN] = _M8AttemptToken;
+    _M8Counters[M8_COUNTER_ATTEMPT_COMPLETED_TOKEN] = 0u;
     uint count = min(_M8Counters[M8_COUNTER_SURFACE_CANDIDATE_COUNT],
         MERKABA_M8_SURFACE_CANDIDATE_CAPACITY);
     uint completed = _M8Counters[M8_COUNTER_OBSERVATION_COMPLETED];
@@ -852,4 +855,5 @@ void FinalizeObservation(uint id : SV_DispatchThreadID)
         MERKABA_M8_PHYSICAL_TILE_CAPACITY);
     _M8ObservationDispatchArgs[1] = 1u;
     _M8ObservationDispatchArgs[2] = 1u;
+    _M8Counters[M8_COUNTER_ATTEMPT_COMPLETED_TOKEN] = _M8AttemptToken;
 }

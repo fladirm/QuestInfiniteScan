@@ -1,4 +1,6 @@
 using System;
+using System.IO;
+using System.Threading.Tasks;
 using Unity.XR.CoreUtils.Collections;
 using UnityEngine;
 using UnityEngine.Experimental.Rendering;
@@ -147,12 +149,18 @@ namespace Genesis.RoomScan
         private int _latestRawFrameVersion;
         private int _processedRawFrameVersion;
         private bool _depthFrameRequested;
+        private ulong _copySubmittedEpoch;
+        private ulong _copyRetiredEpoch;
+        private int _lastCopySlot = -1;
+        private Task _copyRetirementTask = Task.CompletedTask;
         private float _lastLogTime;
 
         internal int LatestRawFrameVersion => _latestRawFrameVersion;
         internal int ProcessedRawFrameVersion => _processedRawFrameVersion;
         internal int PreprocessedFrameCount => _preprocessedFrameCount;
         internal bool DepthFrameRequested => _depthFrameRequested;
+        internal ulong CopySubmittedEpoch => _copySubmittedEpoch;
+        internal ulong CopyRetiredEpoch => _copyRetiredEpoch;
         internal bool OwnedDepthSnapshotReady => _readyDepthSlot >= 0;
         internal RenderTexture OwnedRawDepthSnapshot => _readyDepthSlot >= 0
             ? _ownedRawDepth[_readyDepthSlot]
@@ -374,12 +382,7 @@ namespace Genesis.RoomScan
             return true;
         }
 
-        /// <summary>
-        /// Unsubscribes from depth frames and disables the AROcclusionManager,
-        /// stopping the depth sensor and neural inference pipeline on Quest.
-        /// Called by RoomScanner when scanning stops.
-        /// </summary>
-        public void StopDepthCapture()
+        internal void BeginQuiesceDepthCapture()
         {
             _captureActive = false;
             if (_arOcclusionManager != null)
@@ -389,8 +392,49 @@ namespace Genesis.RoomScan
                     _arOcclusionManager.frameReceived -= OnDepthFrame;
                     _subscribed = false;
                 }
-                _arOcclusionManager.enabled = false;
             }
+            _depthFrameRequested = false;
+            _requestedDepthSlot = -1;
+            // A ready B frame was admitted but is not the immutable observation A.
+            // Quiesce drops B while retaining the held A until its GPU token retires.
+            _readyDepthSlot = -1;
+        }
+
+        internal Task RetireSubmittedDepthCopiesAsync()
+        {
+            ulong target = _copySubmittedEpoch;
+            if (_copyRetiredEpoch >= target || target == 0u)
+                return Task.CompletedTask;
+            if (!_copyRetirementTask.IsCompleted)
+                return _copyRetirementTask;
+            if (!SystemInfo.supportsAsyncGPUReadback)
+                return Task.FromException(new NotSupportedException(
+                    "Quest depth copy retirement requires asynchronous GPU readback."));
+            if (_lastCopySlot < 0 || _ownedRawDepth[_lastCopySlot] == null)
+                return Task.FromException(new IOException(
+                    "Owned depth copy target disappeared before retirement."));
+
+            RenderTexture owned = _ownedRawDepth[_lastCopySlot];
+            var completion = new TaskCompletionSource<bool>();
+            _copyRetirementTask = completion.Task;
+            AsyncGPUReadback.Request(owned, 0, 0, 1, 0, 1, 0, 1, request =>
+            {
+                if (request.hasError)
+                {
+                    completion.TrySetException(new IOException(
+                        "Owned depth GPU-copy retirement readback failed."));
+                    return;
+                }
+                _copyRetiredEpoch = Math.Max(_copyRetiredEpoch, target);
+                completion.TrySetResult(true);
+            });
+            return _copyRetirementTask;
+        }
+
+        internal void CompleteDepthCaptureStop()
+        {
+            if (_arOcclusionManager != null)
+                _arOcclusionManager.enabled = false;
             DepthAvailable = false;
             _depthFrameRequested = false;
             _requestedDepthSlot = -1;
@@ -402,28 +446,8 @@ namespace Genesis.RoomScan
 
         private void OnApplicationPause(bool paused)
         {
-            if (!_started) return;
-
-            if (paused)
-            {
-                if (_arOcclusionManager != null)
-                {
-                    _arOcclusionManager.frameReceived -= OnDepthFrame;
-                    _arOcclusionManager.enabled = false;
-                    _subscribed = false;
-                }
-                DepthAvailable = false;
-                _depthFrameRequested = false;
-                _requestedDepthSlot = -1;
-                _readyDepthSlot = -1;
-                _heldDepthSlot = -1;
-                _depthTex = null;
-                _processedRawFrameVersion = _latestRawFrameVersion;
-            }
-            else if (_captureActive)
-            {
-                CheckPermissionAndEnable();
-            }
+            if (_started && paused && _captureActive)
+                RoomScanner.Instance?.StopScanning();
         }
 
         private void OnDisable()
@@ -685,6 +709,12 @@ namespace Genesis.RoomScan
         private void MarkOwnedDepthSnapshotReady()
         {
             int slot = _requestedDepthSlot;
+            unchecked
+            {
+                _copySubmittedEpoch++;
+                if (_copySubmittedEpoch == 0u) _copySubmittedEpoch = 1u;
+            }
+            _lastCopySlot = slot;
             _depthFrameRequested = false;
             _requestedDepthSlot = -1;
             _readyDepthSlot = slot;

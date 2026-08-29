@@ -30,6 +30,10 @@ namespace Genesis.RoomScan
         internal const int CounterEvictionNeeded = 51;
         internal const int CounterObservationFailure = 52;
         internal const int CounterFailedObservations = 53;
+        internal const int CounterFreeTileCount = 54;
+        internal const int CounterLoadsInstalled = 46;
+        internal const int CounterAttemptToken = 56;
+        internal const int CounterAttemptCompletedToken = 57;
 
         private bool _gpuReady;
         private int _gpuGeneration;
