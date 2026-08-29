@@ -1,6 +1,6 @@
 using System;
 using System.IO;
-using Genesis.RoomScan;
+using System.Threading.Tasks;
 using NUnit.Framework;
 using Unity.Mathematics;
 using UnityEngine;
@@ -10,7 +10,7 @@ namespace Genesis.RoomScan.Tests
     public sealed class MerkabaPersistenceTests
     {
         [Test]
-        public void CanonicalSnapshot_RoundTripsDeterministicallyAcrossNegativeChunks()
+        public void V2SparseTiles_RoundTripDeterministicallyAcrossNegativeBlocks()
         {
             MerkabaSessionSnapshot source = Fixture();
             byte[] first = Write(source);
@@ -22,37 +22,99 @@ namespace Genesis.RoomScan.Tests
             Assert.That(second, Is.EqualTo(first));
             Assert.That(restored.AnchorUuid, Is.EqualTo(source.AnchorUuid));
             Assert.That(restored.IntegrationCount, Is.EqualTo(47));
-            Assert.That(restored.Chunks, Has.Count.EqualTo(2));
-            Assert.That(restored.Chunks[0].Coord, Is.EqualTo(new int3(-2, -1, 0)));
-            Assert.That(restored.Chunks[1].Coord, Is.EqualTo(new int3(1, 0, 3)));
-            KernelState occupied = restored.Chunks[0].States[17];
-            KernelState carved = restored.Chunks[1].States[900];
-            Assert.That(occupied.IsOccupied, Is.True);
-            Assert.That(occupied.Color, Is.EqualTo(new Color32(12, 34, 56, 255)));
-            Assert.That(carved.IsOccupied, Is.False);
-            Assert.That(carved.OccupancyEvidence, Is.LessThan(0));
+            Assert.That(restored.Tiles, Has.Count.EqualTo(2));
+            Assert.That(restored.Tiles[0].Address.BlockCoord,
+                Is.EqualTo(new int3(-2, -1, 0)));
+            Assert.That(restored.Tiles[1].Address.BlockCoord,
+                Is.EqualTo(new int3(1, 0, 3)));
+            Assert.That(restored.Tiles[0].States[17].IsOccupied, Is.True);
+            Assert.That(restored.Tiles[1].States[500].OccupancyEvidence,
+                Is.LessThan(0));
         }
 
         [Test]
-        public void LoaderRejectsStateThatViolatesHysteresisContract()
-        {
-            byte[] bytes = Write(Fixture());
-            // Header 108 bytes + first chunk header 16 bytes = first KernelState.
-            Buffer.BlockCopy(BitConverter.GetBytes(
-                MerkabaConstants.OccupiedOnThreshold + 10), 0, bytes, 124, 4);
-            // The first state is empty, so evidence above ON is corrupt.
-            using var stream = new MemoryStream(bytes, false);
-            Assert.Throws<InvalidDataException>(() => MerkabaPersistence.ReadSnapshot(stream));
-        }
-
-        [Test]
-        public void SnapshotContainsOnlyMinimalSixteenByteKernelRecords()
+        public void CheckpointContainsOnlySparse8192ByteTilePayloads()
         {
             MerkabaSessionSnapshot snapshot = Fixture();
             byte[] bytes = Write(snapshot);
-            int expected = 108 + snapshot.Chunks.Count * 16 +
-                snapshot.Chunks.Count * MerkabaConstants.KernelsPerChunk * 16;
+            int expected = 108 + snapshot.Tiles.Count *
+                (MerkabaSsdStore.TileRecordHeaderBytes +
+                 MerkabaSsdStore.TilePayloadBytes);
             Assert.That(bytes.Length, Is.EqualTo(expected));
+        }
+
+        [Test]
+        public void GreenfieldReaderRejectsOldFormatVersion()
+        {
+            byte[] bytes = Write(Fixture());
+            Buffer.BlockCopy(BitConverter.GetBytes(1), 0, bytes, 4, 4);
+            using var stream = new MemoryStream(bytes, false);
+            Assert.Throws<InvalidDataException>(() =>
+                MerkabaPersistence.ReadSnapshot(stream));
+        }
+
+        [Test]
+        public void PayloadCrcRejectsCanonicalCorruption()
+        {
+            byte[] bytes = Write(Fixture());
+            bytes[108 + MerkabaSsdStore.TileRecordHeaderBytes + 7] ^= 0x40;
+            using var stream = new MemoryStream(bytes, false);
+            Assert.Throws<InvalidDataException>(() =>
+                MerkabaPersistence.ReadSnapshot(stream));
+        }
+
+        [Test]
+        public void ExplicitLoadCountsCanonicalOccupiedStatesExactly()
+        {
+            MerkabaSessionSnapshot snapshot = Fixture();
+            Assert.That(MerkabaGrid.CountOccupiedStates(snapshot), Is.EqualTo(1u));
+        }
+
+        [Test]
+        public async Task OverlayIndexReturnsNewestExactTileGeneration()
+        {
+            string directory = Path.Combine(Path.GetTempPath(),
+                "merkaba-m8-" + Guid.NewGuid().ToString("N"));
+            var store = new MerkabaSsdStore(directory);
+            var address = new MerkabaTileAddress(new int3(-3, 2, -1),
+                (uint)(17 | (42 << 9)));
+            try
+            {
+                KernelState[] firstStates = new KernelState[
+                    MerkabaSpatial.KernelsPerTile];
+                firstStates[5].Apply(MerkabaObservationKind.Surface, 1f,
+                    new Color32(1, 2, 3, 255));
+                var first = new MerkabaTileSnapshot
+                {
+                    Address = address,
+                    States = firstStates
+                };
+                await store.AppendAsync(new[] { first });
+
+                KernelState[] secondStates = (KernelState[])firstStates.Clone();
+                secondStates[6].Apply(MerkabaObservationKind.Surface, 1f,
+                    new Color32(4, 5, 6, 255));
+                var second = new MerkabaTileSnapshot
+                {
+                    Address = address,
+                    States = secondStates
+                };
+                await store.AppendAsync(new[] { second });
+                await store.RebuildIndexAsync();
+                MerkabaTileSnapshot[] restored = await store.ReadAsync(
+                    new[] { address });
+
+                Assert.That(store.IndexedTileCount, Is.EqualTo(1));
+                Assert.That(first.Generation, Is.EqualTo(1u));
+                Assert.That(second.Generation, Is.EqualTo(2u));
+                Assert.That(restored[0].Generation, Is.EqualTo(2u));
+                Assert.That(restored[0].States[6].IsOccupied, Is.True);
+            }
+            finally
+            {
+                store.Clear();
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
         }
 
         private static MerkabaSessionSnapshot Fixture()
@@ -64,20 +126,24 @@ namespace Genesis.RoomScan.Tests
                     Quaternion.Euler(0, 30, 0), Vector3.one),
                 IntegrationCount = 47
             };
-            var negative = new KernelState[MerkabaConstants.KernelsPerChunk];
-            MerkabaIntegrator.IntegrateClassified(ref negative[17],
-                MerkabaObservationKind.Surface, 1f, new Color32(12, 34, 56, 255));
-            var positive = new KernelState[MerkabaConstants.KernelsPerChunk];
-            for (int i = 0; i < 3; i++)
-                MerkabaIntegrator.IntegrateClassified(ref positive[900],
-                    MerkabaObservationKind.Free, 1f, default);
-            snapshot.Chunks.Add(new MerkabaChunkSnapshot
+            var negative = new KernelState[MerkabaSpatial.KernelsPerTile];
+            negative[17].Apply(MerkabaObservationKind.Surface, 1f,
+                new Color32(12, 34, 56, 255));
+            var positive = new KernelState[MerkabaSpatial.KernelsPerTile];
+            for (int index = 0; index < 3; index++)
+                positive[500].Apply(MerkabaObservationKind.Free, 1f, default);
+            snapshot.Tiles.Add(new MerkabaTileSnapshot
             {
-                Coord = new int3(-2, -1, 0), States = negative
+                Address = new MerkabaTileAddress(new int3(-2, -1, 0),
+                    (uint)(511 | (63 << 9))),
+                Generation = 2,
+                States = negative
             });
-            snapshot.Chunks.Add(new MerkabaChunkSnapshot
+            snapshot.Tiles.Add(new MerkabaTileSnapshot
             {
-                Coord = new int3(1, 0, 3), States = positive
+                Address = new MerkabaTileAddress(new int3(1, 0, 3), 0u),
+                Generation = 7,
+                States = positive
             });
             return snapshot;
         }

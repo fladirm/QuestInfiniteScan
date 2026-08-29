@@ -45,14 +45,22 @@ namespace Genesis.RoomScan
                 Report(ScanOperationStage.SynchronizingScan, -1f,
                     "Synchronizing scan");
                 if (_integrator != null)
-                    await _integrator.SynchronizeCanonicalStateAsync();
-                else
-                    await _grid.SynchronizeResidentStateAsync();
+                    await _integrator.FinishCurrentObservationAsync();
+                await _grid.FlushAllDirtyTilesAsync();
 
                 Report(ScanOperationStage.CapturingState, 0.08f,
                     "Capturing canonical evidence");
-                MerkabaSessionSnapshot snapshot = MerkabaPersistence.CaptureSnapshot(
-                    _grid, _integrator != null ? _integrator.IntegrationCount : 0);
+                Guid anchorUuid = Guid.Empty;
+                Matrix4x4 anchorAtSave = Matrix4x4.identity;
+                RoomAnchorManager anchor = RoomAnchorManager.Instance;
+                if (anchor != null && anchor.HasSpatialAnchor)
+                {
+                    anchorUuid = anchor.SpatialAnchorUuid;
+                    anchorAtSave = anchor.SpatialAnchorMatrix;
+                }
+                MerkabaSessionSnapshot snapshot = await _grid
+                    .CaptureStoredSnapshotAsync(anchorUuid, anchorAtSave,
+                        _integrator != null ? _integrator.IntegrationCount : 0);
                 IProgress<ExportShellProgress> shellProgress =
                     new Progress<ExportShellProgress>(value =>
                     Report(value.Stage, value.Progress01, value.Text));

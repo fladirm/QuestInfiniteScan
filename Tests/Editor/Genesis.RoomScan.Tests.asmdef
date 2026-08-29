@@ -4,6 +4,7 @@
   "references": [
     "Genesis.RoomScan",
     "Unity.Mathematics",
+    "Unity.RenderPipelines.Core.Runtime",
     "meta.xr.mrutilitykit"
   ],
   "includePlatforms": [

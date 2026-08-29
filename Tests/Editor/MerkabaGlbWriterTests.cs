@@ -101,6 +101,20 @@ namespace Genesis.RoomScan.Tests
             Assert.That(result.VertexCount, Is.EqualTo(60));
         }
 
+        [Test]
+        public void WriterHasNoLegacy24MVertexLimitAndStillEnforcesGlb4GiB()
+        {
+            Assert.That(MerkabaGlbWriter.CheckedVertexCountForPrimitiveCount(
+                8_000_001), Is.EqualTo(24_000_003));
+            Assert.Throws<InvalidDataException>(() =>
+                MerkabaGlbWriter.CheckedVertexCountForPrimitiveCount(50_000_000));
+            string source = File.ReadAllText(Path.GetFullPath(
+                "Packages/com.genesis.roomscan/Runtime/Merkaba/" +
+                "MerkabaGlbWriter.cs"));
+            Assert.That(source, Does.Not.Contain("MaximumVertices"));
+            Assert.That(source, Does.Not.Contain("List<ExportPrimitive>"));
+        }
+
         private static List<MerkabaKernelSnapshot> Fixture()
         {
             Color32 color = new(25, 100, 220, 255);

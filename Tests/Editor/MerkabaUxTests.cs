@@ -52,7 +52,7 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
-        public void OpacityShaderHasNoDynamicBranch()
+        public void OpacityAndPresentationFallbackRemainCheapAndFragmentOnly()
         {
             const string assetPath =
                 "Packages/com.genesis.roomscan/Runtime/Shaders/MerkabaGrid.shader";
@@ -65,7 +65,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(source, Does.Contain("Blend [_SrcBlend] [_DstBlend]"));
             Assert.That(source, Does.Contain("_ScanOpacity)"));
             Assert.That(source, Does.Contain(
-                "return half4(input.color, _ScanOpacity);"));
+                "return half4(color, _ScanOpacity);"));
             Assert.That(source, Does.Not.Contain("SampleSH"));
             Assert.That(source, Does.Not.Contain("GetMainLight"));
             Assert.That(source, Does.Not.Contain("normalWS"));
@@ -78,11 +78,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(source, Does.Not.Contain("pixelDistance"));
             Assert.That(source, Does.Not.Contain("discard;"));
             Assert.That(source, Does.Contain(
-                "if (input.colorConfidence > 0u)"));
-            Assert.That(source, Does.Contain(
-                "return half4(input.color, _ScanOpacity);"));
-            Assert.That(source, Does.Contain(
-                "return half4(half3(0.55h, 0.16h, 0.42h), _ScanOpacity);"));
+                "? input.color : half3(0.55h, 0.16h, 0.42h)"));
         }
 
         [Test]
@@ -98,9 +94,11 @@ namespace Genesis.RoomScan.Tests
             Assert.That(source, Does.Contain(
                 "UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(output)"));
             Assert.That(source, Does.Contain(
-                "uint primitiveInstanceID = unity_InstanceID"));
+                "uint logicalPrimitive = unity_InstanceID"));
             Assert.That(source, Does.Contain(
-                "_MerkabaPrimitiveCapacityPerChunk + primitiveInstanceID"));
+                "_M8VisiblePrimitives[logicalPrimitive]"));
+            Assert.That(source, Does.Not.Contain(
+                "_MerkabaPrimitiveCapacityPerChunk"));
             Assert.That(source, Does.Not.Contain(
                 "uint instanceID : SV_InstanceID"));
         }

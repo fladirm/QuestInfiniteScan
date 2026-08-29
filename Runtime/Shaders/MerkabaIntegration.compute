@@ -1,65 +1,44 @@
-// Quest Infinite Merkaba - sparse depth candidates + reversible occupancy evidence.
-// The signed depth relation is transient classification only; no field is stored.
-#pragma kernel GenerateSurfaceCandidates
-#pragma kernel PrepareIndirectArgs
+// GPU-authoritative M8 SURFACE DISCOVER/INTEGRATE and Q_SCAN carve.
+#pragma kernel DiscoverSurfaceCandidates
+#pragma kernel PrepareResolveArgs
+#pragma kernel ResolveSurfaceBlocks
+#pragma kernel ResolveSurfaceChunks
+#pragma kernel ResolveSurfaceTiles
+#pragma kernel QueueResolvedSurfaceCandidates
+#pragma kernel RetryPendingNewTiles
+#pragma kernel PrepareIntegrateArgs
 #pragma kernel IntegrateSurfaceCandidates
-#pragma kernel GatherCarveCandidates
-#pragma kernel IntegrateCarveCandidates
+#pragma kernel QueryCarveTiles
+#pragma kernel PrepareCarveArgs
+#pragma kernel IntegrateCarveTiles
+#pragma kernel FinalizeObservation
 
 #include "DepthKit.hlsl"
 #include "MerkabaCanonicalGeometry.generated.hlsl"
+#include "MerkabaWorld.hlsl"
 
-#define MERKABA_CHUNK_SIZE 32
-#define MERKABA_KERNELS_PER_CHUNK 32768
 #define MERKABA_LATTICE_STEP 0.025
 #define MERKABA_HALF_SUPPORT 0.025
 #define MERKABA_EVIDENCE_MIN -32768
 #define MERKABA_EVIDENCE_MAX 32767
 #define MERKABA_OCCUPIED_ON 512
 #define MERKABA_OCCUPIED_OFF 128
-#define MERKABA_EXPORT_KNOWN_FREE -512
 #define MERKABA_SURFACE_SCALE 640.0
 #define MERKABA_FREE_SCALE 256.0
 #define MERKABA_MIN_SURFACE_QUALITY 0.25
 #define MERKABA_OCCUPIED_FLAG 1u
 #define MERKABA_NORMAL_MIN 0.3
 #define MERKABA_DEPTH_DISPARITY 0.5
+#define MERKABA_SURFACE_CANDIDATE_CAPACITY 2097152u
+#define MERKABA_SURFACE_QUEUE_CAPACITY 1048576u
 
-struct KernelState
-{
-    int evidence;
-    uint packedColor;
-    uint colorConfidence;
-    uint flags;
-};
+RWStructuredBuffer<int4> _M8SurfaceCandidates;
+RWStructuredBuffer<uint> _M8SurfaceQueue;
+RWStructuredBuffer<uint> _M8TouchedTileQueue;
+RWStructuredBuffer<uint> _M8CarveTiles;
+RWStructuredBuffer<uint> _M8ObservationDispatchArgs;
+RWStructuredBuffer<uint> _M8CarveDispatchArgs;
 
-RWStructuredBuffer<KernelState> _MerkabaKernels;
-StructuredBuffer<int4> _MerkabaPageCoords;
-StructuredBuffer<int> _MerkabaPageNeighbours;
-StructuredBuffer<int> _MerkabaIntegrationSlots;
-StructuredBuffer<uint> _MerkabaIntegrationEnabledSlots;
-RWStructuredBuffer<uint> _MerkabaPublicationDirtyChunks;
-AppendStructuredBuffer<uint> _MerkabaGpuPublicationDirtyQueue;
-StructuredBuffer<int4> _MerkabaPageHash;
-int _MerkabaPageHashCapacity;
-
-RWStructuredBuffer<uint> _MerkabaSurfaceCandidateBits;
-RWStructuredBuffer<uint> _MerkabaSurfaceQueue;
-RWStructuredBuffer<uint> _MerkabaSurfaceCount;
-StructuredBuffer<uint> _MerkabaSurfaceQueueRead;
-StructuredBuffer<uint> _MerkabaSurfaceCountRead;
-RWStructuredBuffer<uint> _MerkabaCarveListedBits;
-RWStructuredBuffer<uint> _MerkabaCarveLocalIndices;
-RWStructuredBuffer<uint> _MerkabaCarveCounts;
-RWStructuredBuffer<uint> _MerkabaCarveQueue;
-RWStructuredBuffer<uint> _MerkabaCarveCount;
-StructuredBuffer<uint> _MerkabaCarveQueueRead;
-StructuredBuffer<uint> _MerkabaCarveCountRead;
-StructuredBuffer<uint> _MerkabaWorkCount;
-RWStructuredBuffer<uint> _MerkabaIndirectArgs;
-
-int _MerkabaIntegrationChunkCount;
-int _MerkabaWorkCapacity;
 float4x4 _MerkabaGridToWorld;
 float4x4 _MerkabaWorldToGrid;
 float _MerkabaMaxUpdateDistance;
@@ -83,111 +62,11 @@ float2 _MerkabaCameraSensorResolution;
 float2 _MerkabaCameraCurrentResolution;
 float _MerkabaCameraExposure;
 
-int3 UnflattenKernel(uint index)
-{
-    int x = index % MERKABA_CHUNK_SIZE;
-    int yz = index / MERKABA_CHUNK_SIZE;
-    return int3(x, yz % MERKABA_CHUNK_SIZE, yz / MERKABA_CHUNK_SIZE);
-}
-
-uint FlattenKernel(int3 localCoord)
-{
-    return (uint)(localCoord.x + MERKABA_CHUNK_SIZE *
-        (localCoord.y + MERKABA_CHUNK_SIZE * localCoord.z));
-}
-
-int FloorDivChunk(int value)
-{
-    return value >= 0 ? value / MERKABA_CHUNK_SIZE :
-        -((-value + MERKABA_CHUNK_SIZE - 1) / MERKABA_CHUNK_SIZE);
-}
-
-int3 ChunkCoordOf(int3 globalCoord)
-{
-    return int3(FloorDivChunk(globalCoord.x), FloorDivChunk(globalCoord.y),
-        FloorDivChunk(globalCoord.z));
-}
-
-int3 LocalCoordOf(int3 globalCoord, int3 chunkCoord)
-{
-    return globalCoord - chunkCoord * MERKABA_CHUNK_SIZE;
-}
-
-uint HashPageCoord(int3 coord)
-{
-    return (uint)coord.x * 73856093u ^ (uint)coord.y * 19349663u ^
-        (uint)coord.z * 83492791u;
-}
-
-int FindIntegrationPage(int3 chunkCoord)
-{
-    uint mask = (uint)(_MerkabaPageHashCapacity - 1);
-    uint index = HashPageCoord(chunkCoord) & mask;
-    [loop]
-    for (int probe = 0; probe < _MerkabaPageHashCapacity; probe++)
-    {
-        int4 entry = _MerkabaPageHash[index];
-        if (entry.w < 0) return -1;
-        if (all(entry.xyz == chunkCoord))
-            return _MerkabaIntegrationEnabledSlots[entry.w] != 0u ? entry.w : -1;
-        index = (index + 1u) & mask;
-    }
-    return -1;
-}
-
-void AppendSurfaceCandidate(int3 globalCoord)
-{
-    int3 chunkCoord = ChunkCoordOf(globalCoord);
-    int slot = FindIntegrationPage(chunkCoord);
-    if (slot < 0) return;
-    int3 localCoord = LocalCoordOf(globalCoord, chunkCoord);
-    uint stateIndex = (uint)slot * MERKABA_KERNELS_PER_CHUNK +
-        FlattenKernel(localCoord);
-    uint wordIndex = stateIndex >> 5u;
-    uint bit = 1u << (stateIndex & 31u);
-    uint previous;
-    InterlockedOr(_MerkabaSurfaceCandidateBits[wordIndex], bit, previous);
-    if ((previous & bit) != 0u) return;
-
-    uint queueIndex;
-    InterlockedAdd(_MerkabaSurfaceCount[0], 1u, queueIndex);
-    if (queueIndex < (uint)_MerkabaWorkCapacity)
-        _MerkabaSurfaceQueue[queueIndex] = stateIndex;
-}
-
-int NeighbourPageSlot(int slot, int3 delta)
-{
-    int index = (delta.x + 1) + 3 * (delta.y + 1) + 9 * (delta.z + 1);
-    return _MerkabaPageNeighbours[slot * 27 + index];
-}
-
-void MarkPageAtOffsetDirty(int slot, int3 localCoord, int3 offset)
-{
-    localCoord += offset;
-    int3 pageDelta = int3(0, 0, 0);
-    if (localCoord.x < 0) { localCoord.x += MERKABA_CHUNK_SIZE; pageDelta.x = -1; }
-    else if (localCoord.x >= MERKABA_CHUNK_SIZE) { localCoord.x -= MERKABA_CHUNK_SIZE; pageDelta.x = 1; }
-    if (localCoord.y < 0) { localCoord.y += MERKABA_CHUNK_SIZE; pageDelta.y = -1; }
-    else if (localCoord.y >= MERKABA_CHUNK_SIZE) { localCoord.y -= MERKABA_CHUNK_SIZE; pageDelta.y = 1; }
-    if (localCoord.z < 0) { localCoord.z += MERKABA_CHUNK_SIZE; pageDelta.z = -1; }
-    else if (localCoord.z >= MERKABA_CHUNK_SIZE) { localCoord.z -= MERKABA_CHUNK_SIZE; pageDelta.z = 1; }
-
-    int targetSlot = NeighbourPageSlot(slot, pageDelta);
-    if (targetSlot < 0) return;
-    uint previous;
-    InterlockedOr(_MerkabaPublicationDirtyChunks[targetSlot], 1u, previous);
-    if (previous == 0u)
-        _MerkabaGpuPublicationDirtyQueue.Append((uint)targetSlot);
-}
-
-void MarkLocalTopologyDirty(int slot, int3 localCoord)
-{
-    MarkPageAtOffsetDirty(slot, localCoord, int3(0, 0, 0));
-    [unroll]
-    for (uint direction = 0u; direction < MERKABA_DIRECTION_COUNT; direction++)
-        MarkPageAtOffsetDirty(slot, localCoord,
-            kMerkabaBodyDiagonalOffsets[direction]);
-}
+float4 _M8ScanPlanes[12];
+float3 _M8ScanCameraWorld;
+int3 _M8ScanCenterBlock;
+int _M8ScanBlockRadius;
+int _M8ScanBlockSide;
 
 float2 ProjectCameraUv(float3 worldPosition)
 {
@@ -206,7 +85,7 @@ float2 ProjectCameraUv(float3 worldPosition)
 
 uint PackRgb(uint r, uint g, uint b)
 {
-    return r | (g << 8) | (b << 16) | (255u << 24);
+    return r | (g << 8u) | (b << 16u) | (255u << 24u);
 }
 
 void AccumulateColor(inout KernelState state, float3 observed, float quality)
@@ -221,9 +100,11 @@ void AccumulateColor(inout KernelState state, float3 observed, float quality)
         return;
     }
     uint3 old = uint3(state.packedColor & 255u,
-        (state.packedColor >> 8) & 255u, (state.packedColor >> 16) & 255u);
+        (state.packedColor >> 8u) & 255u,
+        (state.packedColor >> 16u) & 255u);
     uint divisor = oldWeight + incomingWeight;
-    uint3 blended = (old * oldWeight + sample * incomingWeight + divisor / 2u) / divisor;
+    uint3 blended = (old * oldWeight + sample * incomingWeight + divisor / 2u) /
+        divisor;
     state.packedColor = PackRgb(blended.r, blended.g, blended.b);
     state.colorConfidence = min(65535u, divisor);
 }
@@ -233,14 +114,11 @@ bool ObserveDepthEye(uint eye, float3 worldPosition, out int kind,
 {
     kind = 0;
     quality = 0.0;
-    float3 viewPosition = mul(gsDepthView[eye],
-        float4(worldPosition, 1.0)).xyz;
+    float3 viewPosition = mul(gsDepthView[eye], float4(worldPosition, 1.0)).xyz;
     if (viewPosition.z > -0.05) return false;
-
     float3 ndc = gsDepthWorldToNDC(worldPosition, eye);
     if (ndc.x < 0.01 || ndc.x > 0.99 || ndc.y < 0.01 || ndc.y > 0.99)
         return false;
-
     float depthNdc = gsDepthSample(ndc.xy, eye);
     if (depthNdc <= 0.0 || depthNdc >= 1.0) return false;
     float3 depthNormal = gsDepthNormalSample(ndc.xy, eye).xyz;
@@ -252,10 +130,9 @@ bool ObserveDepthEye(uint eye, float3 worldPosition, out int kind,
     float measuredDistance = length(eyeToDepth);
     if (kernelDistance <= 0.0 || measuredDistance <= 0.0) return false;
     float relation = measuredDistance - kernelDistance;
-
-    if (relation > MERKABA_HALF_SUPPORT) kind = 1; // FREE
-    else if (abs(relation) <= MERKABA_HALF_SUPPORT) kind = 2; // SURFACE
-    else return false; // UNKNOWN / BEHIND
+    if (relation > MERKABA_HALF_SUPPORT) kind = 1;
+    else if (abs(relation) <= MERKABA_HALF_SUPPORT) kind = 2;
+    else return false;
 
     float normalFacing = -dot(eyeToKernel, depthNormal) / kernelDistance;
     float measuredLinear = gsDepthNDCToLinear(depthNdc, eye);
@@ -263,19 +140,43 @@ bool ObserveDepthEye(uint eye, float3 worldPosition, out int kind,
         float3(ndc.xy, eye), 0).z;
     if (dilatedNdc <= 0.0 || dilatedNdc >= 1.0) return false;
     float dilatedLinear = gsDepthNDCToLinear(dilatedNdc, eye);
-    bool acceptableDisparity = measuredLinear <
-        dilatedLinear + MERKABA_DEPTH_DISPARITY;
-    bool unoccluded = abs(viewPosition.z) < dilatedLinear ||
-        acceptableDisparity;
+    bool acceptableDisparity = measuredLinear < dilatedLinear +
+        MERKABA_DEPTH_DISPARITY;
+    bool unoccluded = abs(viewPosition.z) < dilatedLinear || acceptableDisparity;
     bool validNormal = kind == 1 || normalFacing > MERKABA_NORMAL_MIN;
     if (!unoccluded || !validNormal) return false;
-
-    float distanceFactor = saturate(1.0 -
-        kernelDistance / _MerkabaMaxUpdateDistance);
+    float distanceFactor = saturate(1.0 - kernelDistance /
+        _MerkabaMaxUpdateDistance);
     float angleFactor = saturate(normalFacing);
     if (kind == 1) angleFactor = max(angleFactor, 0.5);
     quality = distanceFactor * angleFactor;
     return kind != 2 || quality >= MERKABA_MIN_SURFACE_QUALITY;
+}
+
+void FuseDepth(float3 worldPosition, out int kind, out float quality)
+{
+    kind = 0;
+    quality = 0.0;
+    [unroll]
+    for (uint eye = 0u; eye < 2u; eye++)
+    {
+        int eyeKind;
+        float eyeQuality;
+        if (!ObserveDepthEye(eye, worldPosition, eyeKind, eyeQuality)) continue;
+        if (eyeKind == 2)
+        {
+            if (kind != 2 || eyeQuality > quality)
+            {
+                kind = 2;
+                quality = eyeQuality;
+            }
+        }
+        else if (kind == 0 || (kind == 1 && eyeQuality > quality))
+        {
+            kind = 1;
+            quality = eyeQuality;
+        }
+    }
 }
 
 bool IsExcluded(float3 worldPosition)
@@ -293,48 +194,8 @@ bool IsExcluded(float3 worldPosition)
     return false;
 }
 
-void FuseDepth(float3 worldPosition, out int kind, out float quality)
-{
-    kind = 0;
-    quality = 0.0;
-    [unroll]
-    for (uint eye = 0u; eye < 2u; eye++)
-    {
-        int eyeKind;
-        float eyeQuality;
-        if (!ObserveDepthEye(eye, worldPosition, eyeKind, eyeQuality)) continue;
-        // A valid surface wins over destructive FREE at stereo occlusion boundaries.
-        if (eyeKind == 2)
-        {
-            if (kind != 2 || eyeQuality > quality)
-            {
-                kind = 2;
-                quality = eyeQuality;
-            }
-        }
-        else if (kind == 0 || (kind == 1 && eyeQuality > quality))
-        {
-            kind = 1;
-            quality = eyeQuality;
-        }
-    }
-}
-
-void EnsureCarveListed(uint stateIndex, int slot, uint localIndex)
-{
-    uint wordIndex = stateIndex >> 5u;
-    uint bit = 1u << (stateIndex & 31u);
-    uint previous;
-    InterlockedOr(_MerkabaCarveListedBits[wordIndex], bit, previous);
-    if ((previous & bit) != 0u) return;
-    uint listIndex;
-    InterlockedAdd(_MerkabaCarveCounts[slot], 1u, listIndex);
-    if (listIndex < MERKABA_KERNELS_PER_CHUNK)
-        _MerkabaCarveLocalIndices[(uint)slot * MERKABA_KERNELS_PER_CHUNK +
-            listIndex] = localIndex;
-}
-
-void UpdateOccupancy(inout KernelState state, int delta, out bool transitioned)
+void UpdateOccupancy(uint physicalSlot, uint kernelLocal,
+    inout KernelState state, int delta)
 {
     bool occupiedBefore = (state.flags & MERKABA_OCCUPIED_FLAG) != 0u;
     state.evidence = clamp(state.evidence + delta,
@@ -344,16 +205,73 @@ void UpdateOccupancy(inout KernelState state, int delta, out bool transitioned)
         : state.evidence >= MERKABA_OCCUPIED_ON;
     if (occupiedAfter) state.flags |= MERKABA_OCCUPIED_FLAG;
     else state.flags &= ~MERKABA_OCCUPIED_FLAG;
-    if (!occupiedAfter && occupiedBefore)
+    if (occupiedBefore == occupiedAfter) return;
+
+    uint wordIndex = physicalSlot * MERKABA_M8_TILE_WORDS +
+        (kernelLocal >> 5u);
+    uint bit = 1u << (kernelLocal & 31u);
+    uint ignored;
+    if (occupiedAfter)
     {
-        state.packedColor = 0u;
-        state.colorConfidence = 0u;
+        InterlockedOr(_M8OccupiedBits[wordIndex], bit, ignored);
+        InterlockedAdd(_M8TileMeta[physicalSlot].z, 1u, ignored);
+        InterlockedAdd(_M8Counters[M8_COUNTER_OCCUPIED_KERNEL_COUNT], 1u,
+            ignored);
     }
-    transitioned = occupiedBefore != occupiedAfter;
+    else
+    {
+        InterlockedAnd(_M8OccupiedBits[wordIndex], ~bit, ignored);
+        InterlockedAdd(_M8TileMeta[physicalSlot].z, 0xffffffffu, ignored);
+        InterlockedAdd(_M8Counters[M8_COUNTER_OCCUPIED_KERNEL_COUNT],
+            0xffffffffu, ignored);
+    }
+}
+
+void EnsureCarveActive(uint physicalSlot, uint kernelLocal)
+{
+    uint wordIndex = physicalSlot * MERKABA_M8_TILE_WORDS +
+        (kernelLocal >> 5u);
+    uint bit = 1u << (kernelLocal & 31u);
+    uint previous;
+    InterlockedOr(_M8CarveActiveBits[wordIndex], bit, previous);
+    if ((previous & bit) == 0u)
+    {
+        uint ignored;
+        InterlockedAdd(_M8TileMeta[physicalSlot].w, 1u, ignored);
+    }
+}
+
+void AppendValidatedSurfaceCandidate(int3 globalCoord)
+{
+    float3 worldPosition = mul(_MerkabaGridToWorld,
+        float4((float3)globalCoord * MERKABA_LATTICE_STEP, 1.0)).xyz;
+    if (IsExcluded(worldPosition)) return;
+    float quality = 0.0;
+    [unroll]
+    for (uint eye = 0u; eye < 2u; eye++)
+    {
+        int kind;
+        float candidateQuality;
+        if (ObserveDepthEye(eye, worldPosition, kind, candidateQuality) &&
+            kind == 2 && candidateQuality > quality)
+            quality = candidateQuality;
+    }
+    if (quality < MERKABA_MIN_SURFACE_QUALITY) return;
+
+    uint index;
+    InterlockedAdd(_M8Counters[M8_COUNTER_SURFACE_CANDIDATE_COUNT], 1u,
+        index);
+    if (index < MERKABA_SURFACE_CANDIDATE_CAPACITY)
+    {
+        _M8SurfaceCandidates[index] = int4(globalCoord, 0);
+        M8CounterIncrement(M8_COUNTER_VALID_SURFACE_CANDIDATES);
+    }
+    else
+        _M8Counters[M8_COUNTER_SURFACE_CANDIDATE_OVERFLOW] = 1u;
 }
 
 [numthreads(8, 8, 1)]
-void GenerateSurfaceCandidates(uint3 id : SV_DispatchThreadID)
+void DiscoverSurfaceCandidates(uint3 id : SV_DispatchThreadID)
 {
     if (id.z >= 2u || id.x >= gsDepthTexSize.x || id.y >= gsDepthTexSize.y)
         return;
@@ -366,9 +284,6 @@ void GenerateSurfaceCandidates(uint3 id : SV_DispatchThreadID)
     if (distance <= 0.05 || distance > _MerkabaMaxUpdateDistance) return;
     float3 ray = eyeToSurface / distance;
 
-    // Preserve the isotropic ray-derived support band. These are only work
-    // candidates: IntegrateSurfaceCandidates re-runs the complete depth,
-    // normal, dilation/disparity, and quality classification before evidence.
     [unroll]
     for (int layer = -1; layer <= 1; layer++)
     {
@@ -376,75 +291,254 @@ void GenerateSurfaceCandidates(uint3 id : SV_DispatchThreadID)
             ((float)layer * MERKABA_HALF_SUPPORT);
         float3 gridCandidate = mul(_MerkabaWorldToGrid,
             float4(worldCandidate, 1.0)).xyz;
-        AppendSurfaceCandidate((int3)round(
-            gridCandidate / MERKABA_LATTICE_STEP));
+        AppendValidatedSurfaceCandidate((int3)round(gridCandidate /
+            MERKABA_LATTICE_STEP));
     }
 
-    // Integer boundary guards prevent half-step rounding from omitting one side
-    // of a chunk boundary. The shared bitset deduplicates this union with the
-    // ray-derived candidates above.
     float3 gridSurface = mul(_MerkabaWorldToGrid,
         float4(worldSurface, 1.0)).xyz / MERKABA_LATTICE_STEP;
     float3 gridRay = mul((float3x3)_MerkabaWorldToGrid, ray);
     float3 absoluteRay = abs(gridRay);
-    int3 stepCoord = int3(0, 0, 0);
+    int3 stepCoord = 0;
     if (absoluteRay.x >= absoluteRay.y && absoluteRay.x >= absoluteRay.z)
         stepCoord.x = gridRay.x >= 0.0 ? 1 : -1;
     else if (absoluteRay.y >= absoluteRay.z)
         stepCoord.y = gridRay.y >= 0.0 ? 1 : -1;
     else
         stepCoord.z = gridRay.z >= 0.0 ? 1 : -1;
-
     int3 nearest = (int3)round(gridSurface);
-    AppendSurfaceCandidate(nearest - stepCoord);
-    AppendSurfaceCandidate(nearest);
-    AppendSurfaceCandidate(nearest + stepCoord);
+    AppendValidatedSurfaceCandidate(nearest - stepCoord);
+    AppendValidatedSurfaceCandidate(nearest);
+    AppendValidatedSurfaceCandidate(nearest + stepCoord);
 }
 
 [numthreads(1, 1, 1)]
-void PrepareIndirectArgs(uint id : SV_DispatchThreadID)
+void PrepareResolveArgs(uint id : SV_DispatchThreadID)
 {
-    uint count = min(_MerkabaWorkCount[0], (uint)_MerkabaWorkCapacity);
-    _MerkabaIndirectArgs[0] = (count + 63u) / 64u;
-    _MerkabaIndirectArgs[1] = 1u;
-    _MerkabaIndirectArgs[2] = 1u;
+    uint count = min(_M8Counters[M8_COUNTER_SURFACE_CANDIDATE_COUNT],
+        MERKABA_SURFACE_CANDIDATE_CAPACITY);
+    _M8ObservationDispatchArgs[0] = (count + 63u) / 64u;
+    _M8ObservationDispatchArgs[1] = 1u;
+    _M8ObservationDispatchArgs[2] = 1u;
+}
+
+void RequestColdTile(uint tileRefIndex, uint chunkIndex, uint tileLocal,
+    bool scanRequest)
+{
+    M8QueueColdTileLoad(tileRefIndex, chunkIndex, tileLocal);
+    if (scanRequest) M8CounterIncrement(M8_COUNTER_SCAN_COLD_MISSES);
+}
+
+bool CandidateAt(uint id, out MerkabaM8Address address)
+{
+    uint count = min(_M8Counters[M8_COUNTER_SURFACE_CANDIDATE_COUNT],
+        MERKABA_SURFACE_CANDIDATE_CAPACITY);
+    if (id >= count)
+    {
+        address = (MerkabaM8Address)0;
+        return false;
+    }
+    address = MerkabaAddressOf(_M8SurfaceCandidates[id].xyz);
+    return true;
+}
+
+[numthreads(64, 1, 1)]
+void ResolveSurfaceBlocks(uint id : SV_DispatchThreadID)
+{
+    if (_M8Counters[M8_COUNTER_OBSERVATION_INTEGRATED] != 0u) return;
+    MerkabaM8Address address;
+    if (!CandidateAt(id, address)) return;
+    uint blockIndex;
+    M8FindOrClaimBlock(address.blockCoord, blockIndex);
+}
+
+[numthreads(64, 1, 1)]
+void ResolveSurfaceChunks(uint id : SV_DispatchThreadID)
+{
+    if (_M8Counters[M8_COUNTER_OBSERVATION_INTEGRATED] != 0u) return;
+    MerkabaM8Address address;
+    if (!CandidateAt(id, address)) return;
+    uint blockIndex;
+    if (!M8FindBlock(address.blockCoord, blockIndex)) return;
+    uint chunkIndex;
+    M8FindOrClaimChunk(blockIndex, address.chunkLocal, chunkIndex);
+}
+
+[numthreads(64, 1, 1)]
+void ResolveSurfaceTiles(uint id : SV_DispatchThreadID)
+{
+    if (_M8Counters[M8_COUNTER_OBSERVATION_INTEGRATED] != 0u) return;
+    MerkabaM8Address address;
+    if (!CandidateAt(id, address)) return;
+    uint blockIndex;
+    if (!M8FindBlock(address.blockCoord, blockIndex)) return;
+    uint chunkRef = _M8BlockChunkRefs[blockIndex *
+        MERKABA_M8_BLOCK_CHUNK_COUNT + address.chunkLocal];
+    if (chunkRef == MERKABA_REF_EMPTY ||
+        chunkRef >= MERKABA_REF_EVICTING) return;
+    uint chunkIndex = chunkRef - 1u;
+    uint tileRefIndex = chunkIndex * MERKABA_M8_TILES_PER_CHUNK +
+        address.tileLocal;
+    uint tileRef = _M8ChunkTileRefs[tileRefIndex];
+    if (tileRef == MERKABA_REF_EMPTY)
+    {
+        uint prior;
+        InterlockedCompareExchange(_M8ChunkTileRefs[tileRefIndex],
+            MERKABA_REF_EMPTY, MERKABA_REF_CLAIMED_NEW, prior);
+        if (prior == MERKABA_REF_EMPTY)
+        {
+            uint physicalSlot;
+            if (M8TryPopPhysicalTile(physicalSlot))
+            {
+                uint queueIndex;
+                InterlockedAdd(_M8Counters[M8_COUNTER_NEW_TILE_QUEUE_COUNT],
+                    1u, queueIndex);
+                if (queueIndex < MERKABA_M8_PHYSICAL_TILE_CAPACITY)
+                    _M8NewTileQueue[queueIndex] = uint2(tileRefIndex,
+                        physicalSlot);
+            }
+            else
+            {
+                uint pendingIndex;
+                InterlockedAdd(_M8Counters[M8_COUNTER_PENDING_NEW_TILE_COUNT],
+                    1u, pendingIndex);
+                if (pendingIndex < MERKABA_M8_PHYSICAL_TILE_CAPACITY)
+                    _M8PendingNewTileRefs[pendingIndex] = tileRefIndex;
+                _M8Counters[M8_COUNTER_TILE_STARVATION] = 1u;
+            }
+        }
+        return;
+    }
+    if (tileRef == MERKABA_REF_COLD_ON_SSD)
+    {
+        RequestColdTile(tileRefIndex, chunkIndex, address.tileLocal, true);
+        return;
+    }
+}
+
+[numthreads(64, 1, 1)]
+void QueueResolvedSurfaceCandidates(uint id : SV_DispatchThreadID)
+{
+    if (_M8Counters[M8_COUNTER_OBSERVATION_INTEGRATED] != 0u) return;
+    MerkabaM8Address address;
+    if (!CandidateAt(id, address)) return;
+    uint blockIndex;
+    if (!M8FindBlock(address.blockCoord, blockIndex))
+    {
+        M8CounterIncrement(M8_COUNTER_UNRESOLVED_SURFACE_TILES);
+        return;
+    }
+    uint chunkRef = _M8BlockChunkRefs[blockIndex *
+        MERKABA_M8_BLOCK_CHUNK_COUNT + address.chunkLocal];
+    if (chunkRef == MERKABA_REF_EMPTY ||
+        chunkRef >= MERKABA_REF_EVICTING)
+    {
+        M8CounterIncrement(M8_COUNTER_UNRESOLVED_SURFACE_TILES);
+        return;
+    }
+    uint chunkIndex = chunkRef - 1u;
+    uint tileRefIndex = chunkIndex * MERKABA_M8_TILES_PER_CHUNK +
+        address.tileLocal;
+    uint tileRef = _M8ChunkTileRefs[tileRefIndex];
+    if (!M8IsHotRef(tileRef))
+    {
+        M8CounterIncrement(M8_COUNTER_UNRESOLVED_SURFACE_TILES);
+        return;
+    }
+    uint physicalSlot = M8PhysicalSlot(tileRef);
+    _M8TileRuntime[physicalSlot].z =
+        _M8Counters[M8_COUNTER_FRAME_EPOCH];
+    uint wordIndex = physicalSlot * MERKABA_M8_TILE_WORDS +
+        (address.kernelLocal >> 5u);
+    uint bit = 1u << (address.kernelLocal & 31u);
+    uint previous;
+    InterlockedOr(_M8SurfaceCandidateBits[wordIndex], bit, previous);
+    if ((previous & bit) != 0u) return;
+
+    uint touchedBefore;
+    InterlockedCompareExchange(_M8TileRuntime[physicalSlot].x, 0u, 1u,
+        touchedBefore);
+    if (touchedBefore == 0u)
+    {
+        uint touchedIndex;
+        InterlockedAdd(_M8Counters[M8_COUNTER_TOUCHED_TILE_COUNT], 1u,
+            touchedIndex);
+        if (touchedIndex < MERKABA_M8_PHYSICAL_TILE_CAPACITY)
+            _M8TouchedTileQueue[touchedIndex] = physicalSlot;
+    }
+
+    uint queueIndex;
+    InterlockedAdd(_M8Counters[M8_COUNTER_SURFACE_QUEUE_COUNT], 1u,
+        queueIndex);
+    if (queueIndex < MERKABA_SURFACE_QUEUE_CAPACITY)
+    {
+        _M8SurfaceQueue[queueIndex] = physicalSlot *
+            MERKABA_M8_KERNELS_PER_TILE + address.kernelLocal;
+        M8CounterIncrement(M8_COUNTER_UNIQUE_SURFACE_KERNELS);
+    }
+    else
+        _M8Counters[M8_COUNTER_SURFACE_CANDIDATE_OVERFLOW] = 1u;
+}
+
+[numthreads(64, 1, 1)]
+void RetryPendingNewTiles(uint id : SV_DispatchThreadID)
+{
+    if (_M8Counters[M8_COUNTER_OBSERVATION_INTEGRATED] != 0u) return;
+    uint count = min(_M8Counters[M8_COUNTER_PENDING_NEW_TILE_COUNT],
+        MERKABA_M8_PHYSICAL_TILE_CAPACITY);
+    if (id >= count) return;
+    uint tileRefIndex = _M8PendingNewTileRefs[id];
+    if (_M8ChunkTileRefs[tileRefIndex] != MERKABA_REF_CLAIMED_NEW) return;
+    uint physicalSlot;
+    if (!M8TryPopPhysicalTile(physicalSlot)) return;
+    uint queueIndex;
+    InterlockedAdd(_M8Counters[M8_COUNTER_NEW_TILE_QUEUE_COUNT], 1u,
+        queueIndex);
+    if (queueIndex < MERKABA_M8_PHYSICAL_TILE_CAPACITY)
+        _M8NewTileQueue[queueIndex] = uint2(tileRefIndex, physicalSlot);
+}
+
+[numthreads(1, 1, 1)]
+void PrepareIntegrateArgs(uint id : SV_DispatchThreadID)
+{
+    uint count = min(_M8Counters[M8_COUNTER_SURFACE_QUEUE_COUNT],
+        MERKABA_SURFACE_QUEUE_CAPACITY);
+    _M8ObservationDispatchArgs[0] =
+        _M8Counters[M8_COUNTER_UNRESOLVED_SURFACE_TILES] == 0u &&
+        _M8Counters[M8_COUNTER_OBSERVATION_INTEGRATED] == 0u
+        ? (count + 63u) / 64u : 0u;
+    _M8ObservationDispatchArgs[1] = 1u;
+    _M8ObservationDispatchArgs[2] = 1u;
 }
 
 [numthreads(64, 1, 1)]
 void IntegrateSurfaceCandidates(uint id : SV_DispatchThreadID)
 {
-    uint count = min(_MerkabaSurfaceCountRead[0], (uint)_MerkabaWorkCapacity);
+    uint count = min(_M8Counters[M8_COUNTER_SURFACE_QUEUE_COUNT],
+        MERKABA_SURFACE_QUEUE_CAPACITY);
     if (id >= count) return;
-    uint stateIndex = _MerkabaSurfaceQueueRead[id];
-    uint wordIndex = stateIndex >> 5u;
-    uint bit = 1u << (stateIndex & 31u);
-    InterlockedAnd(_MerkabaSurfaceCandidateBits[wordIndex], ~bit);
-
-    int slot = (int)(stateIndex / MERKABA_KERNELS_PER_CHUNK);
-    uint localIndex = stateIndex % MERKABA_KERNELS_PER_CHUNK;
-    int3 localCoord = UnflattenKernel(localIndex);
-    int3 globalCoord = _MerkabaPageCoords[slot].xyz * MERKABA_CHUNK_SIZE +
-        localCoord;
+    uint key = _M8SurfaceQueue[id];
+    uint physicalSlot = key / MERKABA_M8_KERNELS_PER_TILE;
+    uint kernelLocal = key % MERKABA_M8_KERNELS_PER_TILE;
+    int3 globalCoord = M8GlobalKernelCoord(physicalSlot, kernelLocal);
     float3 worldPosition = mul(_MerkabaGridToWorld,
         float4((float3)globalCoord * MERKABA_LATTICE_STEP, 1.0)).xyz;
-    if (IsExcluded(worldPosition)) return;
 
     float quality = 0.0;
     [unroll]
     for (uint eye = 0u; eye < 2u; eye++)
     {
-        int eyeKind;
+        int kind;
         float eyeQuality;
-        if (ObserveDepthEye(eye, worldPosition, eyeKind, eyeQuality) &&
-            eyeKind == 2 && eyeQuality > quality)
+        if (ObserveDepthEye(eye, worldPosition, kind, eyeQuality) &&
+            kind == 2 && eyeQuality > quality)
             quality = eyeQuality;
     }
     if (quality < MERKABA_MIN_SURFACE_QUALITY) return;
 
-    KernelState state = _MerkabaKernels[stateIndex];
-    bool transitioned;
-    UpdateOccupancy(state, max(1, (int)round(quality * quality *
-        MERKABA_SURFACE_SCALE)), transitioned);
+    KernelState state = M8LoadKernelState(physicalSlot, kernelLocal);
+    UpdateOccupancy(physicalSlot, kernelLocal, state,
+        max(1, (int)round(quality * quality * MERKABA_SURFACE_SCALE)));
     if (_MerkabaCameraAvailable != 0)
     {
         float2 cameraUv = ProjectCameraUv(worldPosition);
@@ -456,62 +550,187 @@ void IntegrateSurfaceCandidates(uint id : SV_DispatchThreadID)
             AccumulateColor(state, rgb, quality);
         }
     }
-    _MerkabaKernels[stateIndex] = state;
-    EnsureCarveListed(stateIndex, slot, localIndex);
-    if (transitioned) MarkLocalTopologyDirty(slot, localCoord);
+    M8StoreKernelState(physicalSlot, kernelLocal, state);
+    EnsureCarveActive(physicalSlot, kernelLocal);
+    _M8TileRuntime[physicalSlot].y = 1u;
 }
 
-[numthreads(64, 1, 1)]
-void GatherCarveCandidates(uint threadIndex : SV_GroupIndex,
-    uint3 groupId : SV_GroupID)
+uint M8ScanEyeChildMask(int3 parentMin, int parentSpan, uint eye)
 {
-    if (groupId.x >= (uint)_MerkabaIntegrationChunkCount) return;
-    int slot = _MerkabaIntegrationSlots[groupId.x];
-    uint count = min(_MerkabaCarveCounts[slot],
-        (uint)MERKABA_KERNELS_PER_CHUNK);
-    for (uint listIndex = threadIndex; listIndex < count; listIndex += 64u)
+    uint support = 255u;
+    [unroll]
+    for (uint plane = 0u; plane < 6u; plane++)
+        support &= MerkabaM8PlaneChildMask(parentMin, parentSpan,
+            _M8ScanPlanes[eye * 6u + plane], _MerkabaGridToWorld,
+            MERKABA_LATTICE_STEP, MERKABA_HALF_SUPPORT);
+    return support;
+}
+
+uint M8ScanChildMask(int3 parentMin, int parentSpan)
+{
+    uint stereo = M8ScanEyeChildMask(parentMin, parentSpan, 0u) |
+        M8ScanEyeChildMask(parentMin, parentSpan, 1u);
+    uint distance = MerkabaM8DistanceChildMask(parentMin, parentSpan,
+        _MerkabaMaxUpdateDistance, _M8ScanCameraWorld, _MerkabaGridToWorld,
+        _MerkabaWorldToGrid, MERKABA_LATTICE_STEP, MERKABA_HALF_SUPPORT);
+    return stereo & distance;
+}
+
+[numthreads(1, 1, 1)]
+void QueryCarveTiles(uint3 groupId : SV_GroupID)
+{
+    if (_M8Counters[M8_COUNTER_OBSERVATION_INTEGRATED] != 0u) return;
+    if (_M8Counters[M8_COUNTER_UNRESOLVED_SURFACE_TILES] != 0u) return;
+    uint linear = groupId.x;
+    uint side = (uint)_M8ScanBlockSide;
+    if (linear >= side * side * side) return;
+    int3 offset;
+    offset.x = (int)(linear % side) - _M8ScanBlockRadius;
+    offset.y = (int)((linear / side) % side) - _M8ScanBlockRadius;
+    offset.z = (int)(linear / (side * side)) - _M8ScanBlockRadius;
+    int3 blockCoord = _M8ScanCenterBlock + offset;
+    int3 blockMin = blockCoord * MERKABA_M8_BLOCK_KERNEL_SPAN;
+    uint scan4 = M8ScanChildMask(blockMin, 256);
+    if (scan4 == 0u) return;
+    uint blockIndex;
+    if (!M8FindBlock(blockCoord, blockIndex)) return;
+    M8CounterIncrement(M8_COUNTER_CARVE_QUERY_BLOCKS);
+
+    uint l0 = (_M8BlockPresenceL0[blockIndex] & 255u) & scan4;
+    while (l0 != 0u)
     {
-        uint localIndex = _MerkabaCarveLocalIndices[(uint)slot *
-            MERKABA_KERNELS_PER_CHUNK + listIndex];
-        uint stateIndex = (uint)slot * MERKABA_KERNELS_PER_CHUNK + localIndex;
-        KernelState state = _MerkabaKernels[stateIndex];
-        if (state.evidence <= MERKABA_EXPORT_KNOWN_FREE &&
-            (state.flags & MERKABA_OCCUPIED_FLAG) == 0u)
-            continue;
-        uint queueIndex;
-        InterlockedAdd(_MerkabaCarveCount[0], 1u, queueIndex);
-        if (queueIndex < (uint)_MerkabaWorkCapacity)
-            _MerkabaCarveQueue[queueIndex] = stateIndex;
+        uint d4 = (uint)firstbitlow(l0); l0 &= l0 - 1u;
+        int3 min4 = blockMin + MerkabaM8OctantOffset(d4, 128);
+        uint scan3 = M8ScanChildMask(min4, 128);
+        uint l1 = (_M8BlockPresenceL1[blockIndex * 8u + d4] & 255u) &
+            scan3;
+        while (l1 != 0u)
+        {
+            uint d3 = (uint)firstbitlow(l1); l1 &= l1 - 1u;
+            int3 min3 = min4 + MerkabaM8OctantOffset(d3, 64);
+            uint scan2 = M8ScanChildMask(min3, 64);
+            uint l2 = (_M8BlockPresenceL2[blockIndex * 64u +
+                d4 * 8u + d3] & 255u) & scan2;
+            while (l2 != 0u)
+            {
+                uint d2 = (uint)firstbitlow(l2); l2 &= l2 - 1u;
+                uint chunkLocal = (d4 << 6u) | (d3 << 3u) | d2;
+                uint chunkRef = _M8BlockChunkRefs[blockIndex * 512u + chunkLocal];
+                if (chunkRef == 0u || chunkRef >= MERKABA_REF_EVICTING) continue;
+                uint chunkIndex = chunkRef - 1u;
+                int3 min2 = min3 + MerkabaM8OctantOffset(d2, 32);
+                uint scan1 = M8ScanChildMask(min2, 32);
+                uint c0 = (_M8ChunkPresenceL0[chunkIndex] & 255u) & scan1;
+                while (c0 != 0u)
+                {
+                    uint d1 = (uint)firstbitlow(c0); c0 &= c0 - 1u;
+                    int3 min1 = min2 + MerkabaM8OctantOffset(d1, 16);
+                    uint scan0 = M8ScanChildMask(min1, 16);
+                    uint c1 = (_M8ChunkPresenceL1[chunkIndex * 8u + d1] &
+                        255u) & scan0;
+                    while (c1 != 0u)
+                    {
+                        uint d0 = (uint)firstbitlow(c1); c1 &= c1 - 1u;
+                        uint tileLocal = (d1 << 3u) | d0;
+                        uint tileRefIndex = chunkIndex * 64u + tileLocal;
+                        uint tileRef = _M8ChunkTileRefs[tileRefIndex];
+                        if (tileRef == MERKABA_REF_COLD_ON_SSD)
+                        {
+                            RequestColdTile(tileRefIndex, chunkIndex, tileLocal, true);
+                            continue;
+                        }
+                        if (!M8IsHotRef(tileRef)) continue;
+                        uint physicalSlot = M8PhysicalSlot(tileRef);
+                        _M8TileRuntime[physicalSlot].z =
+                            _M8Counters[M8_COUNTER_FRAME_EPOCH];
+                        if (_M8TileMeta[physicalSlot].w == 0u) continue;
+                        uint queueIndex;
+                        InterlockedAdd(_M8Counters[M8_COUNTER_CARVE_TILE_COUNT],
+                            1u, queueIndex);
+                        if (queueIndex < MERKABA_M8_PHYSICAL_TILE_CAPACITY)
+                            _M8CarveTiles[queueIndex] = physicalSlot;
+                        M8CounterIncrement(M8_COUNTER_CARVE_QUERY_TILES);
+                    }
+                }
+            }
+        }
     }
 }
 
-[numthreads(64, 1, 1)]
-void IntegrateCarveCandidates(uint id : SV_DispatchThreadID)
+[numthreads(1, 1, 1)]
+void PrepareCarveArgs(uint id : SV_DispatchThreadID)
 {
-    uint count = min(_MerkabaCarveCountRead[0], (uint)_MerkabaWorkCapacity);
-    if (id >= count) return;
-    uint stateIndex = _MerkabaCarveQueueRead[id];
-    KernelState state = _MerkabaKernels[stateIndex];
+    uint count = min(_M8Counters[M8_COUNTER_CARVE_TILE_COUNT],
+        MERKABA_M8_PHYSICAL_TILE_CAPACITY);
+    _M8CarveDispatchArgs[0] =
+        _M8Counters[M8_COUNTER_OBSERVATION_INTEGRATED] == 0u
+        ? count : 0u;
+    _M8CarveDispatchArgs[1] = 8u;
+    _M8CarveDispatchArgs[2] = 1u;
+}
+
+[numthreads(64, 1, 1)]
+void IntegrateCarveTiles(uint3 groupId : SV_GroupID,
+    uint thread : SV_GroupIndex)
+{
+    uint tileCount = min(_M8Counters[M8_COUNTER_CARVE_TILE_COUNT],
+        MERKABA_M8_PHYSICAL_TILE_CAPACITY);
+    if (groupId.x >= tileCount) return;
+    uint physicalSlot = _M8CarveTiles[groupId.x];
+    uint kernelLocal = groupId.y * 64u + thread;
+    uint wordIndex = physicalSlot * MERKABA_M8_TILE_WORDS +
+        (kernelLocal >> 5u);
+    uint bit = 1u << (kernelLocal & 31u);
+    if ((_M8CarveActiveBits[wordIndex] & bit) == 0u) return;
+    M8CounterIncrement(M8_COUNTER_CARVE_ACTIVE_KERNELS);
+
+    KernelState state = M8LoadKernelState(physicalSlot, kernelLocal);
     if (state.evidence <= MERKABA_EXPORT_KNOWN_FREE &&
         (state.flags & MERKABA_OCCUPIED_FLAG) == 0u)
+    {
+        uint previous;
+        InterlockedAnd(_M8CarveActiveBits[wordIndex], ~bit, previous);
+        if ((previous & bit) != 0u)
+        {
+            uint ignored;
+            InterlockedAdd(_M8TileMeta[physicalSlot].w, 0xffffffffu, ignored);
+        }
         return;
+    }
 
-    int slot = (int)(stateIndex / MERKABA_KERNELS_PER_CHUNK);
-    uint localIndex = stateIndex % MERKABA_KERNELS_PER_CHUNK;
-    int3 localCoord = UnflattenKernel(localIndex);
-    int3 globalCoord = _MerkabaPageCoords[slot].xyz * MERKABA_CHUNK_SIZE +
-        localCoord;
+    int3 globalCoord = M8GlobalKernelCoord(physicalSlot, kernelLocal);
     float3 worldPosition = mul(_MerkabaGridToWorld,
         float4((float3)globalCoord * MERKABA_LATTICE_STEP, 1.0)).xyz;
     if (IsExcluded(worldPosition)) return;
-
     int kind;
     float quality;
     FuseDepth(worldPosition, kind, quality);
     if (kind != 1) return;
-    bool transitioned;
-    UpdateOccupancy(state, -max(1, (int)round(quality * quality *
-        MERKABA_FREE_SCALE)), transitioned);
-    _MerkabaKernels[stateIndex] = state;
-    if (transitioned) MarkLocalTopologyDirty(slot, localCoord);
+    UpdateOccupancy(physicalSlot, kernelLocal, state,
+        -max(1, (int)round(quality * quality * MERKABA_FREE_SCALE)));
+    M8StoreKernelState(physicalSlot, kernelLocal, state);
+    _M8TileRuntime[physicalSlot].y = 1u;
+    if (state.evidence <= MERKABA_EXPORT_KNOWN_FREE &&
+        (state.flags & MERKABA_OCCUPIED_FLAG) == 0u)
+    {
+        uint previous;
+        InterlockedAnd(_M8CarveActiveBits[wordIndex], ~bit, previous);
+        if ((previous & bit) != 0u)
+        {
+            uint ignored;
+            InterlockedAdd(_M8TileMeta[physicalSlot].w, 0xffffffffu, ignored);
+        }
+    }
+}
+
+[numthreads(1, 1, 1)]
+void FinalizeObservation(uint id : SV_DispatchThreadID)
+{
+    if (_M8Counters[M8_COUNTER_UNRESOLVED_SURFACE_TILES] == 0u)
+        _M8Counters[M8_COUNTER_OBSERVATION_INTEGRATED] = 1u;
+    _M8ObservationDispatchArgs[0] = min(
+        _M8Counters[M8_COUNTER_TOUCHED_TILE_COUNT],
+        MERKABA_M8_PHYSICAL_TILE_CAPACITY);
+    _M8ObservationDispatchArgs[1] = 1u;
+    _M8ObservationDispatchArgs[2] = 1u;
 }

@@ -1,0 +1,478 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Runtime.InteropServices;
+using System.Threading.Tasks;
+using Unity.Mathematics;
+using UnityEngine;
+using UnityEngine.Rendering;
+
+namespace Genesis.RoomScan
+{
+    public sealed partial class MerkabaGrid
+    {
+        [StructLayout(LayoutKind.Sequential)]
+        private readonly struct Raw16
+        {
+            internal readonly uint X;
+            internal readonly uint Y;
+            internal readonly uint Z;
+            internal readonly uint W;
+        }
+
+        private MerkabaSsdStore _ssdStore;
+        private bool _streamCounterPending;
+        private float _nextStreamPoll;
+        private uint _loadRequestCursor;
+        private uint _observedLoadRequestCount;
+        private bool _loadAddressReadbackPending;
+        private MerkabaTileAddress[] _loadAddresses;
+        private Task<MerkabaTileSnapshot[]> _loadStorageTask;
+        private bool _loadInstallStatusPending;
+        private bool _writebackReadbackPending;
+        private Task _writebackStorageTask;
+        private int _writebackBatchCount;
+        private bool _flushAllDirty;
+        private TaskCompletionSource<bool> _flushCompletion;
+        private uint _issuedObservationToken;
+        private uint _completedObservationToken;
+        private readonly uint[] _streamControlWord = new uint[1];
+        private readonly double[] _loadLatencies = new double[64];
+        private readonly double[] _writeLatencies = new double[64];
+        private int _loadLatencyCount;
+        private int _loadLatencyCursor;
+        private int _writeLatencyCount;
+        private int _writeLatencyCursor;
+        private double _loadIoStartedAt;
+        private double _writeIoStartedAt;
+        private ulong _loadBytesTotal;
+        private ulong _writeBytesTotal;
+        private ulong _loadBytesAtRateSample;
+        private ulong _writeBytesAtRateSample;
+        private double _storageRateSampleAt;
+        private float _loadBytesPerSecond;
+        private float _writeBytesPerSecond;
+
+        internal string CheckpointPath
+        {
+            get
+            {
+                EnsureStorage();
+                return _ssdStore.CheckpointPath;
+            }
+        }
+
+        internal bool HasUnresolvedStorageRequests =>
+            _loadRequestCursor != _observedLoadRequestCount ||
+            _loadAddressReadbackPending || _loadStorageTask != null ||
+            _loadInstallStatusPending;
+
+        internal uint CompletedObservationToken => _completedObservationToken;
+
+        private void EnsureStorage()
+        {
+            _ssdStore ??= new MerkabaSsdStore(Path.Combine(
+                Application.persistentDataPath, "MerkabaScan"));
+        }
+
+        private void ResetStorageRuntimeState()
+        {
+            _loadRequestCursor = 0u;
+            _observedLoadRequestCount = 0u;
+            _loadAddresses = null;
+            _loadStorageTask = null;
+            _loadAddressReadbackPending = false;
+            _loadInstallStatusPending = false;
+            _writebackReadbackPending = false;
+            _writebackStorageTask = null;
+            _writebackBatchCount = 0;
+            _flushAllDirty = false;
+            _flushCompletion = null;
+            _issuedObservationToken = 0u;
+            _completedObservationToken = 0u;
+            _loadLatencyCount = _loadLatencyCursor = 0;
+            _writeLatencyCount = _writeLatencyCursor = 0;
+            _loadIoStartedAt = _writeIoStartedAt = 0.0;
+            _loadBytesTotal = _writeBytesTotal = 0uL;
+            _loadBytesAtRateSample = _writeBytesAtRateSample = 0uL;
+            _storageRateSampleAt = Time.realtimeSinceStartupAsDouble;
+            _loadBytesPerSecond = _writeBytesPerSecond = 0f;
+        }
+
+        private void PumpStorage()
+        {
+            if (!_gpuReady) return;
+            CompleteStorageTasks();
+            UpdateStorageRates();
+            if (_streamCounterPending || Time.unscaledTime < _nextStreamPoll)
+                return;
+            _nextStreamPoll = Time.unscaledTime + 0.05f;
+            if (!_writebackReadbackPending && _writebackStorageTask == null)
+                SelectEvictionVictims(_flushAllDirty);
+            _streamCounterPending = true;
+            int generation = _gpuGeneration;
+            AsyncGPUReadback.Request(_m8Counters, request =>
+            {
+                _streamCounterPending = false;
+                if (generation != _gpuGeneration || request.hasError) return;
+                var values = request.GetData<uint>();
+                ApplySampledCounters(values);
+                _observedLoadRequestCount = values[19];
+                if (values[44] != 0u)
+                    _completedObservationToken = values[47];
+                if (!_loadAddressReadbackPending && _loadStorageTask == null &&
+                    !_loadInstallStatusPending &&
+                    _loadRequestCursor != _observedLoadRequestCount)
+                    BeginLoadAddressReadback();
+                uint writebackCount = Math.Min(values[20],
+                    (uint)StreamBatchCapacity);
+                if (writebackCount > 0u && !_writebackReadbackPending &&
+                    _writebackStorageTask == null)
+                    BeginWritebackReadback((int)writebackCount);
+                else if (_flushAllDirty && writebackCount == 0u &&
+                         !_writebackReadbackPending &&
+                         _writebackStorageTask == null)
+                {
+                    _flushAllDirty = false;
+                    _flushCompletion?.TrySetResult(true);
+                    _flushCompletion = null;
+                }
+            });
+        }
+
+        private void ApplySampledCounters(Unity.Collections.NativeArray<uint> values)
+        {
+            M8BlockCount = ToInt(values[CounterBlockCount]);
+            M8ChunkCount = ToInt(values[CounterChunkCount]);
+            M8HotTileCount = ToInt(values[CounterHotTileCount]);
+            M8ColdTileCount = ToInt(values[CounterColdTileCount]);
+            M8OccupiedKernelCount = ToInt(values[CounterOccupiedKernelCount]);
+        }
+
+        private void BeginLoadAddressReadback()
+        {
+            uint available = _observedLoadRequestCount - _loadRequestCursor;
+            uint queueIndex = _loadRequestCursor & LoadRequestMask;
+            uint contiguous = (uint)LoadRequestCapacity - queueIndex;
+            int count = (int)Math.Min(Math.Min(available,
+                (uint)StreamBatchCapacity), contiguous);
+            if (count <= 0) return;
+            _loadAddressReadbackPending = true;
+            int generation = _gpuGeneration;
+            AsyncGPUReadback.Request(_m8LoadRequests, count * 16,
+                checked((int)queueIndex * 16), request =>
+                {
+                    _loadAddressReadbackPending = false;
+                    if (generation != _gpuGeneration) return;
+                    if (request.hasError)
+                    {
+                        Logger.Error("M8 SSD load-request readback failed.");
+                        return;
+                    }
+                    var raw = request.GetData<Raw16>();
+                    var addresses = new MerkabaTileAddress[raw.Length];
+                    for (int index = 0; index < raw.Length; index++)
+                        addresses[index] = new MerkabaTileAddress(new int3(
+                            unchecked((int)raw[index].X),
+                            unchecked((int)raw[index].Y),
+                            unchecked((int)raw[index].Z)), raw[index].W);
+                    _loadAddresses = addresses;
+                    EnsureStorage();
+                    _loadIoStartedAt = Time.realtimeSinceStartupAsDouble;
+                    _loadStorageTask = _ssdStore.ReadAsync(addresses);
+                });
+        }
+
+        private void CompleteStorageTasks()
+        {
+            if (_loadStorageTask != null && _loadStorageTask.IsCompleted)
+            {
+                Task<MerkabaTileSnapshot[]> task = _loadStorageTask;
+                _loadStorageTask = null;
+                bool completedStorageRead = _loadIoStartedAt > 0.0;
+                RecordStorageLatency(_loadLatencies, ref _loadLatencyCount,
+                    ref _loadLatencyCursor, ref _loadIoStartedAt);
+                if (task.IsFaulted)
+                {
+                    Logger.Error("M8 SSD tile load failed: " +
+                                 task.Exception?.GetBaseException().Message);
+                    UploadLoadAddresses(_loadAddresses);
+                    FailLoadedTiles(_loadAddresses.Length);
+                    _loadRequestCursor += (uint)_loadAddresses.Length;
+                    AcknowledgeLoadRequests();
+                    _loadAddresses = null;
+                }
+                else
+                {
+                    if (completedStorageRead)
+                        _loadBytesTotal += (ulong)task.Result.Length *
+                            MerkabaSsdStore.TilePayloadBytes;
+                    SubmitLoadedTiles(task.Result);
+                }
+            }
+            if (_writebackStorageTask != null &&
+                _writebackStorageTask.IsCompleted)
+            {
+                Task task = _writebackStorageTask;
+                _writebackStorageTask = null;
+                RecordStorageLatency(_writeLatencies, ref _writeLatencyCount,
+                    ref _writeLatencyCursor, ref _writeIoStartedAt);
+                if (task.IsFaulted)
+                {
+                    Logger.Error("M8 SSD writeback failed; canonical tiles remain " +
+                                 "EVICTING and are not reused: " +
+                                 task.Exception?.GetBaseException().Message);
+                    _flushCompletion?.TrySetException(
+                        task.Exception?.GetBaseException() ??
+                        new IOException("M8 SSD writeback failed."));
+                    _flushCompletion = null;
+                    _flushAllDirty = false;
+                    FailWritebackBatch(_writebackBatchCount);
+                }
+                else
+                {
+                    _writeBytesTotal += (ulong)_writebackBatchCount *
+                        MerkabaSsdStore.TilePayloadBytes;
+                    AcknowledgeWritebackBatch(_writebackBatchCount);
+                }
+                _writebackBatchCount = 0;
+            }
+        }
+
+        private void SubmitLoadedTiles(MerkabaTileSnapshot[] tiles)
+        {
+            var addresses = new MerkabaTileAddress[tiles.Length];
+            var states = new KernelState[tiles.Length *
+                MerkabaSpatial.KernelsPerTile];
+            for (int item = 0; item < tiles.Length; item++)
+            {
+                addresses[item] = tiles[item].Address;
+                Array.Copy(tiles[item].States, 0, states,
+                    item * MerkabaSpatial.KernelsPerTile,
+                    MerkabaSpatial.KernelsPerTile);
+            }
+            _m8LoadStagingAddresses.SetData(addresses, 0, 0, addresses.Length);
+            _m8LoadStagingStates.SetData(states, 0, 0, states.Length);
+            InstallLoadedTiles(tiles.Length);
+            _loadInstallStatusPending = true;
+            int generation = _gpuGeneration;
+            AsyncGPUReadback.Request(_m8StreamStatus, tiles.Length * sizeof(uint),
+                0, request =>
+                {
+                    _loadInstallStatusPending = false;
+                    if (generation != _gpuGeneration) return;
+                    bool complete = !request.hasError;
+                    if (complete)
+                    {
+                        var statuses = request.GetData<uint>();
+                        for (int index = 0; index < statuses.Length; index++)
+                            complete &= statuses[index] != 0u;
+                    }
+                    if (complete)
+                    {
+                        _loadRequestCursor += (uint)tiles.Length;
+                        AcknowledgeLoadRequests();
+                        _loadAddresses = null;
+                    }
+                    else
+                    {
+                        _loadStorageTask = Task.FromResult(tiles);
+                        _nextStreamPoll = Time.unscaledTime + 0.05f;
+                    }
+                });
+        }
+
+        private void UploadLoadAddresses(MerkabaTileAddress[] addresses)
+        {
+            _m8LoadStagingAddresses.SetData(addresses, 0, 0,
+                addresses.Length);
+        }
+
+        private void AcknowledgeLoadRequests()
+        {
+            _streamControlWord[0] = _loadRequestCursor;
+            _m8LoadRequestReadCount.SetData(_streamControlWord);
+        }
+
+        private void BeginWritebackReadback(int count)
+        {
+            _writebackReadbackPending = true;
+            int rawCount = count * (MerkabaSpatial.KernelsPerTile + 1);
+            int generation = _gpuGeneration;
+            AsyncGPUReadback.Request(_m8WritebackStaging, rawCount * 16, 0,
+                request =>
+                {
+                    _writebackReadbackPending = false;
+                    if (generation != _gpuGeneration || request.hasError)
+                    {
+                        Logger.Error("M8 writeback staging readback failed; " +
+                                     "EVICTING tiles are retained.");
+                        if (generation == _gpuGeneration)
+                            FailWritebackBatch(count);
+                        return;
+                    }
+                    var raw = request.GetData<Raw16>();
+                    var tiles = new List<MerkabaTileSnapshot>(count);
+                    for (int item = 0; item < count; item++)
+                    {
+                        int baseIndex = item *
+                            (MerkabaSpatial.KernelsPerTile + 1);
+                        Raw16 header = raw[baseIndex];
+                        var states = new KernelState[MerkabaSpatial.KernelsPerTile];
+                        for (int kernel = 0; kernel < states.Length; kernel++)
+                        {
+                            Raw16 value = raw[baseIndex + 1 + kernel];
+                            states[kernel].OccupancyEvidence =
+                                unchecked((int)value.X);
+                            states[kernel].PackedColor = value.Y;
+                            states[kernel].ColorConfidence = value.Z;
+                            states[kernel].Flags = value.W;
+                        }
+                        tiles.Add(new MerkabaTileSnapshot
+                        {
+                            Address = new MerkabaTileAddress(new int3(
+                                unchecked((int)header.X),
+                                unchecked((int)header.Y),
+                                unchecked((int)header.Z)), header.W),
+                            States = states
+                        });
+                    }
+                    EnsureStorage();
+                    _writebackBatchCount = count;
+                    _writeIoStartedAt = Time.realtimeSinceStartupAsDouble;
+                    _writebackStorageTask = _ssdStore.AppendAsync(tiles);
+                });
+        }
+
+        internal void CaptureStorageMetrics(out float loadBytesPerSecond,
+            out float writeBytesPerSecond, out float loadLatencyP50Ms,
+            out float loadLatencyP95Ms, out float writeLatencyP50Ms,
+            out float writeLatencyP95Ms)
+        {
+            loadBytesPerSecond = _loadBytesPerSecond;
+            writeBytesPerSecond = _writeBytesPerSecond;
+            loadLatencyP50Ms = StorageLatencyPercentile(
+                _loadLatencies, _loadLatencyCount, 0.50f);
+            loadLatencyP95Ms = StorageLatencyPercentile(
+                _loadLatencies, _loadLatencyCount, 0.95f);
+            writeLatencyP50Ms = StorageLatencyPercentile(
+                _writeLatencies, _writeLatencyCount, 0.50f);
+            writeLatencyP95Ms = StorageLatencyPercentile(
+                _writeLatencies, _writeLatencyCount, 0.95f);
+        }
+
+        private void UpdateStorageRates()
+        {
+            double now = Time.realtimeSinceStartupAsDouble;
+            double elapsed = now - _storageRateSampleAt;
+            if (elapsed < 1.0) return;
+            _loadBytesPerSecond = (float)((_loadBytesTotal -
+                _loadBytesAtRateSample) / elapsed);
+            _writeBytesPerSecond = (float)((_writeBytesTotal -
+                _writeBytesAtRateSample) / elapsed);
+            _loadBytesAtRateSample = _loadBytesTotal;
+            _writeBytesAtRateSample = _writeBytesTotal;
+            _storageRateSampleAt = now;
+        }
+
+        private static void RecordStorageLatency(double[] samples,
+            ref int count, ref int cursor, ref double startedAt)
+        {
+            if (startedAt <= 0.0) return;
+            samples[cursor] = Math.Max(0.0,
+                Time.realtimeSinceStartupAsDouble - startedAt);
+            cursor = (cursor + 1) % samples.Length;
+            count = Math.Min(count + 1, samples.Length);
+            startedAt = 0.0;
+        }
+
+        private static float StorageLatencyPercentile(double[] samples,
+            int count, float percentile)
+        {
+            if (count <= 0) return 0f;
+            var sorted = new double[count];
+            Array.Copy(samples, sorted, count);
+            Array.Sort(sorted);
+            int index = Mathf.Clamp(Mathf.CeilToInt((count - 1) * percentile),
+                0, count - 1);
+            return (float)(sorted[index] * 1000.0);
+        }
+
+        internal Task FlushAllDirtyTilesAsync()
+        {
+            EnsureGpuResources();
+            if (_flushCompletion != null) return _flushCompletion.Task;
+            _flushAllDirty = true;
+            _flushCompletion = new TaskCompletionSource<bool>();
+            _nextStreamPoll = 0f;
+            return _flushCompletion.Task;
+        }
+
+        internal async Task<MerkabaSessionSnapshot> CaptureStoredSnapshotAsync(
+            Guid anchorUuid, Matrix4x4 anchorAtSave, int integrationCount)
+        {
+            EnsureStorage();
+            return await _ssdStore.ReadCanonicalSnapshotAsync(anchorUuid,
+                anchorAtSave, integrationCount);
+        }
+
+        internal async Task PublishCheckpointAsync(MerkabaSessionSnapshot snapshot)
+        {
+            EnsureStorage();
+            await _ssdStore.PublishCheckpointAsync(snapshot);
+        }
+
+        internal async Task<MerkabaSessionSnapshot> ReadCheckpointSnapshotAsync()
+        {
+            EnsureStorage();
+            MerkabaSessionSnapshot snapshot = await Task.Run(() =>
+            {
+                using var stream = new FileStream(_ssdStore.CheckpointPath,
+                    FileMode.Open, FileAccess.Read, FileShare.Read,
+                    1024 * 1024, FileOptions.SequentialScan);
+                return MerkabaSsdStore.ReadCheckpoint(stream);
+            });
+            await _ssdStore.RebuildIndexAsync();
+            return snapshot;
+        }
+
+        internal async Task LoadStoredSnapshotAsync(MerkabaSessionSnapshot snapshot)
+        {
+            if (snapshot == null) throw new ArgumentNullException(nameof(snapshot));
+            EnsureGpuResources();
+            ClearGpuWorldForNewScan();
+            uint occupiedCount = CountOccupiedStates(snapshot);
+            for (int offset = 0; offset < snapshot.Tiles.Count;
+                 offset += StreamBatchCapacity)
+            {
+                int count = Math.Min(StreamBatchCapacity,
+                    snapshot.Tiles.Count - offset);
+                var addresses = new MerkabaTileAddress[count];
+                for (int item = 0; item < count; item++)
+                    addresses[item] = snapshot.Tiles[offset + item].Address;
+                UploadLoadAddresses(addresses);
+                RegisterLoadedTileAddresses(count);
+                await Task.Yield();
+            }
+            _streamControlWord[0] = occupiedCount;
+            _m8Counters.SetData(_streamControlWord, 0,
+                CounterOccupiedKernelCount, 1);
+            M8OccupiedKernelCount = ToInt(occupiedCount);
+        }
+
+        internal static uint CountOccupiedStates(MerkabaSessionSnapshot snapshot)
+        {
+            uint count = 0u;
+            foreach (MerkabaTileSnapshot tile in snapshot.Tiles)
+                foreach (KernelState state in tile.States)
+                    if (state.IsOccupied) count++;
+            return count;
+        }
+
+        internal void ClearStorage()
+        {
+            EnsureStorage();
+            _ssdStore.Clear();
+        }
+    }
+}

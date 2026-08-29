@@ -57,18 +57,18 @@ namespace Genesis.RoomScan
             var occupied = new HashSet<int3>();
             var strongFree = new HashSet<int3>();
             var realStates = new Dictionary<int3, KernelState>();
-            foreach (MerkabaChunkSnapshot chunk in snapshot.Chunks)
+            foreach (MerkabaTileSnapshot tile in snapshot.Tiles)
             {
-                if (chunk?.States == null ||
-                    chunk.States.Length != MerkabaConstants.KernelsPerChunk)
+                if (tile?.States == null ||
+                    tile.States.Length != MerkabaSpatial.KernelsPerTile)
                     throw new InvalidOperationException(
-                        "Export snapshot contains an invalid chunk payload.");
-                int3 origin = MerkabaConstants.ChunkOrigin(chunk.Coord);
-                for (int index = 0; index < chunk.States.Length; index++)
+                        "Export snapshot contains an invalid M8 tile payload.");
+                for (int index = 0; index < tile.States.Length; index++)
                 {
-                    KernelState state = chunk.States[index];
-                    AddEvidence(origin + MerkabaConstants.Unflatten(index), state,
-                        occupied, strongFree, realStates);
+                    KernelState state = tile.States[index];
+                    int3 coord = MerkabaSpatial.Decode(tile.Address.BlockCoord,
+                        tile.Address.LocalAddress, index);
+                    AddEvidence(coord, state, occupied, strongFree, realStates);
                 }
             }
             return Build(occupied, strongFree, realStates, progress);

@@ -34,22 +34,6 @@ namespace Genesis.RoomScan
         private const uint GlbMagic = 0x46546C67u;
         private const uint JsonChunkType = 0x4E4F534Au;
         private const uint BinaryChunkType = 0x004E4942u;
-        private const int MaximumVertices = 24_000_000;
-
-        private readonly struct ExportPrimitive
-        {
-            public readonly int3 Coord;
-            public readonly KernelState State;
-            public readonly byte PrimitiveId;
-
-            public ExportPrimitive(int3 coord, KernelState state, int primitiveId)
-            {
-                Coord = coord;
-                State = state;
-                PrimitiveId = checked((byte)primitiveId);
-            }
-        }
-
         internal static MerkabaGlbResult Write(Stream destination,
             IReadOnlyList<MerkabaKernelSnapshot> occupiedKernels,
             Action onGeometryReadyForWriting = null)
@@ -65,42 +49,45 @@ namespace Genesis.RoomScan
                     throw new InvalidDataException("GLB input contains duplicate/non-occupied kernels.");
             }
 
-            var export = new List<ExportPrimitive>(occupied.Count * 8);
-            foreach (MerkabaKernelSnapshot kernel in occupiedKernels)
-            {
-                foreach (int primitiveId in MerkabaCanonicalGeometry.VisiblePrimitives(
-                             kernel.Coord, occupied.Contains))
-                    export.Add(new ExportPrimitive(kernel.Coord, kernel.State,
-                        primitiveId));
-            }
-            long primitiveCount = export.Count;
-            long vertexCountLong = checked(primitiveCount *
-                MerkabaCanonicalGeometry.VerticesPerPrimitive);
-            if (vertexCountLong <= 0 || vertexCountLong > MaximumVertices)
-                throw new InvalidDataException("GLB boundary vertex count is empty or too large.");
-            int vertexCount = checked((int)vertexCountLong);
-            int indexCount = vertexCount;
-
+            long primitiveCount = 0;
             Vector3 minimum = new(float.PositiveInfinity, float.PositiveInfinity,
                 float.PositiveInfinity);
             Vector3 maximum = new(float.NegativeInfinity, float.NegativeInfinity,
                 float.NegativeInfinity);
-            VisitVertices(export, (position, _, _) =>
+            foreach (MerkabaKernelSnapshot kernel in occupiedKernels)
             {
-                Vector3 converted = Convert(position);
-                minimum = Vector3.Min(minimum, converted);
-                maximum = Vector3.Max(maximum, converted);
-            });
+                foreach (int primitiveId in MerkabaCanonicalGeometry.VisiblePrimitives(
+                             kernel.Coord, occupied.Contains))
+                {
+                    primitiveCount = checked(primitiveCount + 1);
+                    for (int vertex = 0;
+                         vertex < MerkabaCanonicalGeometry.VerticesPerPrimitive;
+                         vertex++)
+                    {
+                        MerkabaCanonicalGeometry.PrimitiveVertex(primitiveId,
+                            vertex, out float3 local, out _);
+                        Vector3 converted = Convert(
+                            MerkabaConstants.WorldCenter(kernel.Coord) + local);
+                        minimum = Vector3.Min(minimum, converted);
+                        maximum = Vector3.Max(maximum, converted);
+                    }
+                }
+            }
+            int vertexCount = CheckedVertexCountForPrimitiveCount(primitiveCount);
+            int indexCount = vertexCount;
 
-            int positionsOffset = 0;
-            int positionsLength = checked(vertexCount * 12);
-            int normalsOffset = positionsOffset + positionsLength;
-            int normalsLength = checked(vertexCount * 12);
-            int colorsOffset = normalsOffset + normalsLength;
-            int colorsLength = checked(vertexCount * 4);
-            int indicesOffset = colorsOffset + colorsLength;
-            int indicesLength = checked(indexCount * 4);
-            int binaryLength = checked(indicesOffset + indicesLength);
+            long positionsOffset = 0;
+            long positionsLength = checked((long)vertexCount * 12);
+            long normalsOffset = positionsOffset + positionsLength;
+            long normalsLength = checked((long)vertexCount * 12);
+            long colorsOffset = normalsOffset + normalsLength;
+            long colorsLength = checked((long)vertexCount * 4);
+            long indicesOffset = colorsOffset + colorsLength;
+            long indicesLength = checked((long)indexCount * 4);
+            long binaryLength = checked(indicesOffset + indicesLength);
+            if (binaryLength > uint.MaxValue)
+                throw new InvalidDataException(
+                    "GLB binary chunk exceeds the 4 GiB container limit.");
 
             string json = BuildJson(vertexCount, indexCount, binaryLength,
                 positionsOffset, positionsLength, normalsOffset, normalsLength,
@@ -125,22 +112,22 @@ namespace Genesis.RoomScan
             writer.Write((uint)binaryLength);
             writer.Write(BinaryChunkType);
 
-            VisitVertices(export, (position, _, _) =>
+            VisitVertices(occupiedKernels, occupied, (position, _, _) =>
             {
                 Vector3 value = Convert(position);
                 writer.Write(value.x); writer.Write(value.y); writer.Write(value.z);
             });
-            VisitVertices(export, (_, normal, _) =>
+            VisitVertices(occupiedKernels, occupied, (_, normal, _) =>
             {
                 Vector3 value = Convert(normal).normalized;
                 writer.Write(value.x); writer.Write(value.y); writer.Write(value.z);
             });
-            VisitVertices(export, (_, _, color) =>
+            VisitVertices(occupiedKernels, occupied, (_, _, color) =>
             {
                 writer.Write(color.r); writer.Write(color.g); writer.Write(color.b);
                 writer.Write((byte)255);
             });
-            for (uint triangle = 0; triangle < indexCount; triangle += 3)
+            for (uint triangle = 0; triangle < (uint)indexCount; triangle += 3)
             {
                 // Mirroring X changes handedness; reverse every source triangle.
                 writer.Write(triangle);
@@ -155,17 +142,41 @@ namespace Genesis.RoomScan
                 checked((int)primitiveCount));
         }
 
-        private static void VisitVertices(IReadOnlyList<ExportPrimitive> primitives,
-            Action<Vector3, Vector3, Color32> visitor)
+        internal static int CheckedVertexCountForPrimitiveCount(long primitiveCount)
         {
-            foreach (ExportPrimitive primitive in primitives)
+            if (primitiveCount <= 0)
+                throw new InvalidDataException("GLB boundary is empty.");
+            try
+            {
+                long vertices = checked(primitiveCount *
+                    MerkabaCanonicalGeometry.VerticesPerPrimitive);
+                long binaryBytes = checked(vertices * 32L);
+                if (binaryBytes > uint.MaxValue || vertices > int.MaxValue)
+                    throw new InvalidDataException(
+                        "GLB geometry exceeds the 4 GiB container limit.");
+                return (int)vertices;
+            }
+            catch (OverflowException exception)
+            {
+                throw new InvalidDataException(
+                    "GLB geometry exceeds the 4 GiB container limit.", exception);
+            }
+        }
+
+        private static void VisitVertices(
+            IReadOnlyList<MerkabaKernelSnapshot> occupiedKernels,
+            HashSet<int3> occupied, Action<Vector3, Vector3, Color32> visitor)
+        {
+            foreach (MerkabaKernelSnapshot kernel in occupiedKernels)
+            foreach (int primitiveId in MerkabaCanonicalGeometry.VisiblePrimitives(
+                         kernel.Coord, occupied.Contains))
             for (int vertex = 0;
                  vertex < MerkabaCanonicalGeometry.VerticesPerPrimitive; vertex++)
             {
-                MerkabaCanonicalGeometry.PrimitiveVertex(primitive.PrimitiveId,
+                MerkabaCanonicalGeometry.PrimitiveVertex(primitiveId,
                     vertex, out float3 local, out float3 normal);
-                float3 position = MerkabaConstants.WorldCenter(primitive.Coord) + local;
-                visitor(position, normal, primitive.State.Color);
+                float3 position = MerkabaConstants.WorldCenter(kernel.Coord) + local;
+                visitor(position, normal, kernel.State.Color);
             }
         }
 
@@ -173,9 +184,10 @@ namespace Genesis.RoomScan
             new(-unity.x, unity.y, unity.z);
         private static Vector3 Convert(float3 unity) => Convert((Vector3)unity);
 
-        private static string BuildJson(int vertexCount, int indexCount, int binaryLength,
-            int positionsOffset, int positionsLength, int normalsOffset, int normalsLength,
-            int colorsOffset, int colorsLength, int indicesOffset, int indicesLength,
+        private static string BuildJson(int vertexCount, int indexCount,
+            long binaryLength, long positionsOffset, long positionsLength,
+            long normalsOffset, long normalsLength, long colorsOffset,
+            long colorsLength, long indicesOffset, long indicesLength,
             Vector3 minimum, Vector3 maximum)
         {
             string min = $"[{Number(minimum.x)},{Number(minimum.y)},{Number(minimum.z)}]";
@@ -209,7 +221,8 @@ namespace Genesis.RoomScan
             return json.ToString();
         }
 
-        private static void BufferView(StringBuilder json, int offset, int length, int target)
+        private static void BufferView(StringBuilder json, long offset,
+            long length, int target)
         {
             json.Append("{\"buffer\":0,\"byteOffset\":").Append(offset)
                 .Append(",\"byteLength\":").Append(length)

@@ -11,19 +11,20 @@ namespace Genesis.RoomScan
         DepthPreprocess,
         SurfaceIntegration,
         CarveIntegration,
-        TopologyUpdate,
-        PublicationCompaction,
+        WorldQuery,
+        FrameCompile,
         MerkabaDraw,
         Count
     }
 
     /// <summary>
-    /// Periodic one-frame Vulkan query timestamps. Normal frames execute no timing
-    /// events or diagnostic readbacks; a sampled frame emits fixed stage spans only.
+    /// Periodic Vulkan timestamps recorded in the same command buffers as each
+    /// measured compute dispatch and the actual URP Merkaba draw. Normal frames
+    /// emit no plugin events or timing readbacks.
     /// </summary>
     internal static class MerkabaGpuTimestamps
     {
-        private const int MaximumSpans = 64;
+        private const int MaximumTimedEntries = 4096;
         private const float InitialSampleDelaySeconds = 2f;
         private const float SampleIntervalSeconds = 5f;
         private const float UnavailableRetrySeconds = 30f;
@@ -35,16 +36,23 @@ namespace Genesis.RoomScan
             AwaitingResults
         }
 
-        private readonly struct Span
+        private sealed class TimingEntry
         {
-            internal readonly MerkabaGpuStage Stage;
-            internal readonly bool Graphics;
-
-            internal Span(MerkabaGpuStage stage, bool graphics)
+            internal TimingEntry(MerkabaGpuStage stage, string name)
             {
                 Stage = stage;
-                Graphics = graphics;
+                Name = name;
             }
+
+            internal MerkabaGpuStage Stage { get; }
+            internal string Name { get; }
+        }
+
+        private sealed class Aggregate
+        {
+            internal int Invocations;
+            internal double TotalNanoseconds;
+            internal double MaximumNanoseconds;
         }
 
         private sealed class SampleMetrics
@@ -54,15 +62,47 @@ namespace Genesis.RoomScan
             internal bool TimingComplete;
             internal bool ReadbackValid = true;
             internal bool Logged;
-            internal int IntegrationChunks;
-            internal int DepthSamples;
-            internal uint SurfaceCandidates;
-            internal uint CarveCandidates;
-            internal int ResidentChunks;
-            internal int VisibleChunks;
-            internal int CpuDirtyChunks;
-            internal uint GpuDirtyChunks;
-            internal ulong PublishedPrimitives;
+            internal bool MetricsCaptureRequested;
+            internal uint BlockCount;
+            internal uint ChunkCount;
+            internal uint HotTiles;
+            internal uint ColdTiles;
+            internal uint HashCollisions;
+            internal uint HashProbes;
+            internal uint HashMaxProbe;
+            internal uint BlockOverflow;
+            internal uint ChunkOverflow;
+            internal uint TileStarvation;
+            internal uint HashFull;
+            internal uint ValidSurfaceCandidates;
+            internal uint UniqueSurfaceKernels;
+            internal uint UnresolvedSurfaceTiles;
+            internal uint SurfaceTilesAllocated;
+            internal uint ScanColdMisses;
+            internal uint CarveQueryBlocks;
+            internal uint CarveQueryTiles;
+            internal uint CarveActiveKernels;
+            internal uint LoadRequests;
+            internal uint WritebackTiles;
+            internal uint FailedReads;
+            internal uint FailedWrites;
+            internal uint StorageBackpressure;
+            internal uint CandidateBlocks;
+            internal uint HashHitBlocks;
+            internal uint VisibleChunks;
+            internal uint VisibleTiles;
+            internal uint OccupiedKernelsConsidered;
+            internal uint PrimitivesBeforeFacing;
+            internal uint LogicalPrimitives;
+            internal uint RejectedPrimitives;
+            internal uint LateColdMisses;
+            internal uint RenderPrimitiveOverflow;
+            internal float LoadBytesPerSecond;
+            internal float WriteBytesPerSecond;
+            internal float LoadLatencyP50Ms;
+            internal float LoadLatencyP95Ms;
+            internal float WriteLatencyP50Ms;
+            internal float WriteLatencyP95Ms;
         }
 
         private static readonly string[] StageNames =
@@ -70,20 +110,23 @@ namespace Genesis.RoomScan
             "DEPTH_PREPROCESS",
             "SURFACE_INTEGRATION",
             "CARVE_INTEGRATION",
-            "TOPOLOGY_UPDATE",
-            "PUBLICATION_COMPACTION",
+            "M8_WORLD_QUERY",
+            "M8_FRAME_COMPILE",
             "MERKABA_DRAW"
         };
-        private static readonly List<Span> Spans = new(MaximumSpans);
+        private static readonly Dictionary<(ulong Shader, int Kernel), TimingEntry>
+            EntriesByKernel = new();
+        private static readonly List<TimingEntry> EntrySequence =
+            new(MaximumTimedEntries);
+        private static readonly TimingEntry DrawEntry = new(
+            MerkabaGpuStage.MerkabaDraw, "MerkabaGrid.DrawProceduralIndirect");
         private static readonly ulong[] TimestampPairs =
-            new ulong[MaximumSpans * 2];
-        private static readonly int[] EventIds = new int[Native.EventCount];
+            new ulong[MaximumTimedEntries * 2];
 
         private static CaptureState _state;
-        private static Span? _openSpan;
         private static uint _revision;
         private static float _nextSampleTime;
-        private static IntPtr _renderEvent;
+        private static bool _submissionBegan;
 #if !UNITY_EDITOR
         private static bool _unavailableWarningLogged;
 #endif
@@ -98,12 +141,12 @@ namespace Genesis.RoomScan
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
         private static void Reset()
         {
-            Spans.Clear();
+            EntriesByKernel.Clear();
+            EntrySequence.Clear();
             _state = CaptureState.Idle;
-            _openSpan = null;
             _revision = 0u;
             _nextSampleTime = float.PositiveInfinity;
-            _renderEvent = IntPtr.Zero;
+            _submissionBegan = false;
 #if !UNITY_EDITOR
             _unavailableWarningLogged = false;
 #endif
@@ -111,6 +154,39 @@ namespace Genesis.RoomScan
 #if UNITY_EDITOR
             _testAvailable = false;
 #endif
+        }
+
+        internal static int FindProfiledKernel(this ComputeShader shader,
+            string kernelName, MerkabaGpuStage stage)
+        {
+            if (shader == null) throw new ArgumentNullException(nameof(shader));
+            if (string.IsNullOrWhiteSpace(kernelName))
+                throw new ArgumentException("Kernel name is required.",
+                    nameof(kernelName));
+            if ((uint)stage >= (uint)MerkabaGpuStage.Count)
+                throw new ArgumentOutOfRangeException(nameof(stage));
+            int kernel = shader.FindKernel(kernelName);
+            RegisterKernel(shader, kernel, stage, kernelName);
+            return kernel;
+        }
+
+        internal static void RegisterKernel(ComputeShader shader, int kernel,
+            MerkabaGpuStage stage, string kernelName)
+        {
+            if (shader == null) throw new ArgumentNullException(nameof(shader));
+            if ((uint)stage >= (uint)MerkabaGpuStage.Count)
+                throw new ArgumentOutOfRangeException(nameof(stage));
+            string name = shader.name + '.' + kernelName;
+            var key = (EntityId.ToULong(shader.GetEntityId()), kernel);
+            if (EntriesByKernel.TryGetValue(key, out TimingEntry existing))
+            {
+                if (existing.Name != name || existing.Stage != stage)
+                    throw new InvalidOperationException(
+                        $"GPU timing registration collision: {existing.Name} " +
+                        $"versus {name}.");
+                return;
+            }
+            EntriesByKernel.Add(key, new TimingEntry(stage, name));
         }
 
         internal static void NotifyScanStarted()
@@ -130,53 +206,152 @@ namespace Genesis.RoomScan
 #else
             if (Time.unscaledTime < _nextSampleTime)
                 return false;
-            if (!Native.TryArm(revision, out _renderEvent, EventIds))
+            if (!Native.TryArm(revision))
             {
                 if (!_unavailableWarningLogged)
                 {
                     _unavailableWarningLogged = true;
-                    Logger.Warning("Merkaba GPU timestamps unavailable; Vulkan " +
-                                   "query plugin was not loaded.");
+                    Logger.Warning("Merkaba GPU kernel timestamps unavailable; " +
+                                   "Vulkan query plugin was not loaded.");
                 }
                 _nextSampleTime = Time.unscaledTime + UnavailableRetrySeconds;
                 return false;
             }
 #endif
-            Spans.Clear();
-            _openSpan = null;
+            EntrySequence.Clear();
             _revision = revision;
             _metrics = new SampleMetrics { Revision = revision };
+            _submissionBegan = false;
             _state = CaptureState.Recording;
-            Issue(Native.SubmissionBegin);
             return true;
         }
 
-        internal static void BeginCompute(MerkabaGpuStage stage) =>
-            Begin(stage, false);
+        internal static void RecordProfileBegin(CommandBuffer command)
+        {
+            if (_state != CaptureState.Recording || _submissionBegan)
+                return;
+            if (command == null) throw new ArgumentNullException(nameof(command));
+#if !UNITY_EDITOR && UNITY_ANDROID
+            command.IssuePluginEvent(Native.RenderEvent,
+                Native.EventId(Native.SubmissionBegin));
+#endif
+            _submissionBegan = true;
+        }
 
-        internal static void EndCompute(MerkabaGpuStage stage) =>
-            End(stage, false);
+        internal static void DispatchComputeProfiled(this CommandBuffer command,
+            ComputeShader shader, int kernel, int x, int y, int z)
+        {
+            if (command == null) throw new ArgumentNullException(nameof(command));
+            ValidateDispatchDimensions(x, y, z);
+            bool timed = Observe(shader, kernel);
+            RecordDispatchEvent(command, timed, true);
+            command.DispatchCompute(shader, kernel, x, y, z);
+            RecordDispatchEvent(command, timed, false);
+        }
 
-        internal static void BeginGraphics(MerkabaGpuStage stage) =>
-            Begin(stage, true);
+        internal static void DrawProceduralIndirectProfiled(
+            this RasterCommandBuffer command, Matrix4x4 matrix,
+            Material material, int shaderPass, MeshTopology topology,
+            ComputeBuffer arguments, int argumentsOffset)
+        {
+            if (command == null) throw new ArgumentNullException(nameof(command));
+            if (material == null) throw new ArgumentNullException(nameof(material));
+            if (arguments == null) throw new ArgumentNullException(nameof(arguments));
+            bool timed = Observe(DrawEntry);
+            RecordDrawEvent(command, timed, true);
+            command.DrawProceduralIndirect(matrix, material, shaderPass,
+                topology, arguments, argumentsOffset);
+            RecordDrawEvent(command, timed, false);
+        }
 
-        internal static void EndGraphics(MerkabaGpuStage stage) =>
-            End(stage, true);
+        internal static void DispatchComputeProfiled(this CommandBuffer command,
+            ComputeShader shader, int kernel, ComputeBuffer arguments,
+            uint offset = 0u)
+        {
+            if (command == null) throw new ArgumentNullException(nameof(command));
+            if (arguments == null) throw new ArgumentNullException(nameof(arguments));
+            bool timed = Observe(shader, kernel);
+            RecordDispatchEvent(command, timed, true);
+            command.DispatchCompute(shader, kernel, arguments, offset);
+            RecordDispatchEvent(command, timed, false);
+        }
 
-        internal static void EndFrame()
+        internal static void RecordProfileEnd(CommandBuffer command)
         {
             if (_state != CaptureState.Recording)
                 return;
-            if (_openSpan.HasValue)
+            if (command == null) throw new ArgumentNullException(nameof(command));
+            if (!_submissionBegan)
             {
-                Span open = _openSpan.Value;
-                End(open.Stage, open.Graphics);
+                CancelFrame();
+                return;
             }
-            Issue(Native.SubmissionEnd);
+#if !UNITY_EDITOR && UNITY_ANDROID
+            command.IssuePluginEvent(Native.RenderEvent,
+                Native.EventId(Native.SubmissionEnd));
+#endif
+        }
+
+        internal static void RecordProfileEnd(RasterCommandBuffer command)
+        {
+            if (_state != CaptureState.Recording)
+                return;
+            if (command == null) throw new ArgumentNullException(nameof(command));
+            if (!_submissionBegan)
+            {
+                CancelFrame();
+                return;
+            }
+#if !UNITY_EDITOR && UNITY_ANDROID
+            command.IssuePluginEvent(Native.RenderEvent,
+                Native.EventId(Native.SubmissionEnd));
+#endif
+        }
+
+        internal static void CompleteFrameSubmission(bool submitted)
+        {
+            if (_state != CaptureState.Recording)
+                return;
+            if (!submitted)
+            {
+                CancelFrame();
+                return;
+            }
             _state = CaptureState.AwaitingResults;
 #if !UNITY_EDITOR
             _nextSampleTime = Time.unscaledTime + SampleIntervalSeconds;
 #endif
+        }
+
+        internal static void CloseIncompleteFrame()
+        {
+            if (_state != CaptureState.Recording)
+                return;
+            if (!_submissionBegan)
+            {
+                CancelFrame();
+                return;
+            }
+            CommandBuffer command = CommandBufferPool.Get(
+                "Merkaba GPU timestamp close");
+            bool submitted = false;
+            try
+            {
+                RecordProfileEnd(command);
+                Graphics.ExecuteCommandBuffer(command);
+                submitted = true;
+            }
+            finally
+            {
+                CompleteFrameSubmission(submitted);
+                CommandBufferPool.Release(command);
+            }
+        }
+
+        internal static void CancelUnsubmittedFrame()
+        {
+            if (_state == CaptureState.Recording)
+                CancelFrame();
         }
 
         internal static void Poll()
@@ -186,77 +361,85 @@ namespace Genesis.RoomScan
 #if UNITY_EDITOR
             return;
 #else
-            int status = Native.TryRead(TimestampPairs, out int spanCount,
+            int status = Native.TryRead(TimestampPairs, out int entryCount,
                 out double timestampPeriod, out int validBits,
                 out ulong capturedRevision, out bool overflow);
             if (status == 0)
                 return;
             bool valid = status > 0 && !overflow &&
                          capturedRevision == _revision &&
-                         spanCount == Spans.Count;
+                         entryCount == EntrySequence.Count;
             if (valid)
-                LogTimings(spanCount, timestampPeriod, validBits);
+                LogTimings(entryCount, timestampPeriod, validBits);
             else
                 Logger.Warning($"Merkaba GPU timestamp sample invalid " +
                                $"revision={_revision} nativeRevision=" +
-                               $"{capturedRevision} expectedSpans={Spans.Count} " +
-                               $"actualSpans={spanCount} overflow={overflow}");
+                               $"{capturedRevision} expectedEntries=" +
+                               $"{EntrySequence.Count} actualEntries=" +
+                               $"{entryCount} overflow={overflow}");
             if (_metrics != null)
             {
                 _metrics.TimingComplete = true;
                 _metrics.ReadbackValid &= valid;
                 TryLogMetrics(_metrics);
             }
-            Spans.Clear();
-            _openSpan = null;
-            _state = CaptureState.Idle;
-            _revision = 0u;
+            FinishFrame();
 #endif
         }
 
-        internal static void CaptureIntegrationMetrics(ComputeBuffer surfaceCount,
-            ComputeBuffer carveCount, int integrationChunks, int depthWidth,
-            int depthHeight)
+        internal static void CaptureM8Metrics(MerkabaGrid grid)
         {
             SampleMetrics sample = RecordingMetrics();
-            if (sample == null)
+            if (sample == null || grid == null || grid.M8Counters == null ||
+                sample.MetricsCaptureRequested)
                 return;
-            sample.IntegrationChunks = integrationChunks;
-            sample.DepthSamples = checked(depthWidth * depthHeight * 2);
-            RequestCounter(surfaceCount, sample,
-                value => sample.SurfaceCandidates = value);
-            RequestCounter(carveCount, sample,
-                value => sample.CarveCandidates = value);
-        }
-
-        internal static void CaptureRenderMetrics(MerkabaGrid grid,
-            int cpuDirtyChunks, bool gpuDirtySubmitted)
-        {
-            SampleMetrics sample = RecordingMetrics();
-            if (sample == null || grid == null)
-                return;
-            sample.ResidentChunks = grid.ResidentPageCount;
-            sample.VisibleChunks = grid.VisibleChunkCount;
-            sample.CpuDirtyChunks = cpuDirtyChunks;
-            if (gpuDirtySubmitted)
-                RequestCounter(grid.GpuPublicationDispatchArgsBuffer, sample,
-                    value => sample.GpuDirtyChunks = value);
-
-            int[] visibleSlots = new int[grid.VisibleChunkCount];
-            for (int index = 0; index < visibleSlots.Length; index++)
-                visibleSlots[index] = grid.VisibleSlotAt(index);
+            sample.MetricsCaptureRequested = true;
+            grid.CaptureStorageMetrics(out sample.LoadBytesPerSecond,
+                out sample.WriteBytesPerSecond, out sample.LoadLatencyP50Ms,
+                out sample.LoadLatencyP95Ms, out sample.WriteLatencyP50Ms,
+                out sample.WriteLatencyP95Ms);
             sample.PendingReadbacks++;
-            AsyncGPUReadback.Request(grid.PrimitiveCountBuffer, request =>
+            AsyncGPUReadback.Request(grid.M8Counters, request =>
             {
                 if (request.hasError)
                     sample.ReadbackValid = false;
                 else
                 {
-                    var counts = request.GetData<uint>();
-                    ulong total = 0;
-                    foreach (int slot in visibleSlots)
-                        total += counts[slot];
-                    sample.PublishedPrimitives = total;
+                    var values = request.GetData<uint>();
+                    sample.BlockCount = values[0];
+                    sample.ChunkCount = values[1];
+                    sample.HotTiles = values[2];
+                    sample.ColdTiles = values[3];
+                    sample.HashCollisions = values[4];
+                    sample.HashProbes = values[5];
+                    sample.HashMaxProbe = values[6];
+                    sample.BlockOverflow = values[7];
+                    sample.ChunkOverflow = values[8];
+                    sample.TileStarvation = values[9];
+                    sample.ValidSurfaceCandidates = values[10];
+                    sample.UniqueSurfaceKernels = values[11];
+                    sample.UnresolvedSurfaceTiles = values[12];
+                    sample.SurfaceTilesAllocated = values[13];
+                    sample.ScanColdMisses = values[14];
+                    sample.CarveQueryTiles = values[17];
+                    sample.CarveActiveKernels = values[18];
+                    sample.LoadRequests = values[19];
+                    sample.VisibleTiles = values[21];
+                    sample.LogicalPrimitives = values[22];
+                    sample.RenderPrimitiveOverflow = values[23];
+                    sample.LateColdMisses = values[24];
+                    sample.CandidateBlocks = values[26];
+                    sample.HashHitBlocks = values[27];
+                    sample.VisibleChunks = values[28];
+                    sample.OccupiedKernelsConsidered = values[29];
+                    sample.PrimitivesBeforeFacing = values[30];
+                    sample.RejectedPrimitives = values[31];
+                    sample.HashFull = values[38];
+                    sample.FailedReads = values[39];
+                    sample.FailedWrites = values[40];
+                    sample.StorageBackpressure = values[41];
+                    sample.CarveQueryBlocks = values[48];
+                    sample.WritebackTiles = values[49];
                 }
                 sample.PendingReadbacks--;
                 TryLogMetrics(sample);
@@ -273,90 +456,127 @@ namespace Genesis.RoomScan
             return ((end & mask) - (begin & mask) & mask) * timestampPeriod;
         }
 
-        private static void Begin(MerkabaGpuStage stage, bool graphics)
+        private static bool Observe(ComputeShader shader, int kernel)
         {
+            if (shader == null) throw new ArgumentNullException(nameof(shader));
             if (_state != CaptureState.Recording)
-                return;
-            if ((uint)stage >= (uint)MerkabaGpuStage.Count ||
-                _openSpan.HasValue || Spans.Count >= MaximumSpans)
+                return false;
+            if (!EntriesByKernel.TryGetValue((
+                    EntityId.ToULong(shader.GetEntityId()), kernel),
+                    out TimingEntry entry))
                 throw new InvalidOperationException(
-                    "Merkaba GPU timestamp span sequence is invalid.");
-            Issue(graphics ? Native.GraphicsBegin : Native.ComputeBegin);
-            _openSpan = new Span(stage, graphics);
+                    $"GPU timing kernel {shader.name}#{kernel} was not registered.");
+            return Observe(entry);
         }
 
-        private static void End(MerkabaGpuStage stage, bool graphics)
+        private static bool Observe(TimingEntry entry)
         {
             if (_state != CaptureState.Recording)
-                return;
-            if (!_openSpan.HasValue || _openSpan.Value.Stage != stage ||
-                _openSpan.Value.Graphics != graphics)
+                return false;
+            if (EntrySequence.Count >= MaximumTimedEntries)
                 throw new InvalidOperationException(
-                    "Merkaba GPU timestamp span pairing is invalid.");
-            Issue(graphics ? Native.GraphicsEnd : Native.ComputeEnd);
-            Spans.Add(_openSpan.Value);
-            _openSpan = null;
+                    $"GPU timing capture exceeds {MaximumTimedEntries} entries.");
+            EntrySequence.Add(entry);
+            return true;
         }
 
-        private static void Issue(int offset)
+        private static void RecordDispatchEvent(CommandBuffer command,
+            bool timed, bool begin)
         {
 #if !UNITY_EDITOR && UNITY_ANDROID
-            GL.IssuePluginEvent(_renderEvent, EventIds[offset]);
+            if (timed)
+                command.IssuePluginEvent(Native.RenderEvent,
+                    Native.EventId(begin
+                        ? Native.DispatchBegin : Native.DispatchEnd));
 #endif
         }
 
-        private static void LogTimings(int spanCount, double timestampPeriod,
-            int validBits)
+        private static void RecordDrawEvent(RasterCommandBuffer command,
+            bool timed, bool begin)
         {
-            int stageCount = (int)MerkabaGpuStage.Count;
-            var totals = new double[stageCount];
-            var maxima = new double[stageCount];
-            var counts = new int[stageCount];
+#if !UNITY_EDITOR && UNITY_ANDROID
+            if (timed)
+                command.IssuePluginEvent(Native.RenderEvent,
+                    Native.EventId(begin ? Native.DrawBegin : Native.DrawEnd));
+#endif
+        }
+
+        private static void ValidateDispatchDimensions(int x, int y, int z)
+        {
+            const int maximum = 65535;
+            if (x <= 0 || y <= 0 || z <= 0 ||
+                x > maximum || y > maximum || z > maximum)
+                throw new InvalidOperationException(
+                    $"Illegal compute dispatch ({x},{y},{z}); each dimension " +
+                    $"must be in [1,{maximum}].");
+        }
+
+        private static void LogTimings(int entryCount,
+            double timestampPeriod, int validBits)
+        {
+            var operationTotals = new Dictionary<TimingEntry, Aggregate>();
+            var stageTotals = new Aggregate[(int)MerkabaGpuStage.Count];
+            for (int stage = 0; stage < stageTotals.Length; stage++)
+                stageTotals[stage] = new Aggregate();
             double checksum = 0.0;
-            for (int index = 0; index < spanCount; index++)
+            for (int index = 0; index < entryCount; index++)
             {
                 double nanoseconds = ElapsedNanoseconds(
                     TimestampPairs[index * 2], TimestampPairs[index * 2 + 1],
                     timestampPeriod, validBits);
-                int stage = (int)Spans[index].Stage;
-                totals[stage] += nanoseconds;
-                maxima[stage] = Math.Max(maxima[stage], nanoseconds);
-                counts[stage]++;
+                TimingEntry entry = EntrySequence[index];
+                if (!operationTotals.TryGetValue(entry, out Aggregate operation))
+                {
+                    operation = new Aggregate();
+                    operationTotals.Add(entry, operation);
+                }
+                Add(operation, nanoseconds);
+                Add(stageTotals[(int)entry.Stage], nanoseconds);
                 checksum += nanoseconds;
             }
-            for (int stage = 0; stage < stageCount; stage++)
-                Logger.Info($"Merkaba GPU timestamp revision={_revision} " +
-                            $"stage={StageNames[stage]} spans={counts[stage]} " +
-                            $"total={totals[stage] / 1_000_000.0:F3}ms " +
-                            $"maximum={maxima[stage] / 1_000_000.0:F3}ms");
-            Logger.Info($"Merkaba GPU timestamp revision={_revision} " +
-                        $"stage-checksum={checksum / 1_000_000.0:F3}ms " +
-                        $"spans={spanCount} timestampPeriod=" +
-                        $"{timestampPeriod:F6}ns validBits={validBits}");
+            var ranked = new List<KeyValuePair<TimingEntry, Aggregate>>(
+                operationTotals);
+            ranked.Sort((left, right) => right.Value.TotalNanoseconds
+                .CompareTo(left.Value.TotalNanoseconds));
+            for (int index = 0; index < ranked.Count; index++)
+            {
+                TimingEntry entry = ranked[index].Key;
+                Aggregate value = ranked[index].Value;
+                Logger.Info($"Merkaba gpu-operation revision={_revision} " +
+                            $"rank={index + 1} stage=" +
+                            $"{StageNames[(int)entry.Stage]} " +
+                            $"name={entry.Name} invocations={value.Invocations} " +
+                            $"total={value.TotalNanoseconds / 1000.0:F1}us " +
+                            $"average={value.TotalNanoseconds / value.Invocations / 1000.0:F1}us " +
+                            $"maximum={value.MaximumNanoseconds / 1000.0:F1}us");
+            }
+            for (int stage = 0; stage < stageTotals.Length; stage++)
+            {
+                Aggregate value = stageTotals[stage];
+                Logger.Info($"Merkaba gpu-stage revision={_revision} " +
+                            $"stage={StageNames[stage]} " +
+                            $"invocations={value.Invocations} " +
+                            $"total={value.TotalNanoseconds / 1_000_000.0:F3}ms " +
+                            $"maximum={value.MaximumNanoseconds / 1_000_000.0:F3}ms");
+            }
+            Logger.Info($"Merkaba gpu-sample revision={_revision} " +
+                        $"timestamp-checksum={checksum / 1_000_000.0:F3}ms " +
+                        $"entries={entryCount} operations={ranked.Count} " +
+                        $"timestampPeriod={timestampPeriod:F6}ns " +
+                        $"validBits={validBits}");
+        }
+
+        private static void Add(Aggregate aggregate, double nanoseconds)
+        {
+            aggregate.Invocations++;
+            aggregate.TotalNanoseconds += nanoseconds;
+            aggregate.MaximumNanoseconds = Math.Max(
+                aggregate.MaximumNanoseconds, nanoseconds);
         }
 
         private static SampleMetrics RecordingMetrics() =>
-            _state == CaptureState.Recording ? _metrics : null;
-
-        private static void RequestCounter(ComputeBuffer buffer,
-            SampleMetrics sample, Action<uint> assign)
-        {
-            if (buffer == null)
-            {
-                sample.ReadbackValid = false;
-                return;
-            }
-            sample.PendingReadbacks++;
-            AsyncGPUReadback.Request(buffer, sizeof(uint), 0, request =>
-            {
-                if (request.hasError || request.GetData<uint>().Length == 0)
-                    sample.ReadbackValid = false;
-                else
-                    assign(request.GetData<uint>()[0]);
-                sample.PendingReadbacks--;
-                TryLogMetrics(sample);
-            });
-        }
+            _state is CaptureState.Recording or CaptureState.AwaitingResults
+                ? _metrics : null;
 
         private static void TryLogMetrics(SampleMetrics sample)
         {
@@ -366,26 +586,96 @@ namespace Genesis.RoomScan
             sample.Logged = true;
             Logger.Info($"Merkaba GPU metrics revision={sample.Revision} " +
                         $"valid={sample.ReadbackValid} " +
-                        $"depthSamples={sample.DepthSamples} " +
-                        $"surfaceCandidates={sample.SurfaceCandidates} " +
-                        $"carveCandidates={sample.CarveCandidates} " +
-                        $"integrationChunks={sample.IntegrationChunks} " +
-                        $"residentChunks={sample.ResidentChunks} " +
+                        $"m8Blocks={sample.BlockCount} " +
+                        $"chunks={sample.ChunkCount} " +
+                        $"hotTiles={sample.HotTiles} " +
+                        $"coldTiles={sample.ColdTiles} " +
+                        $"hashLoad={(double)sample.BlockCount / 32768.0:F4} " +
+                        $"hashCollisions={sample.HashCollisions} " +
+                        $"hashProbes={sample.HashProbes} " +
+                        $"hashMaxProbe={sample.HashMaxProbe} " +
+                        $"blockOverflow={sample.BlockOverflow} " +
+                        $"chunkOverflow={sample.ChunkOverflow} " +
+                        $"physicalTileStarvation={sample.TileStarvation} " +
+                        $"hashFull={sample.HashFull} " +
+                        $"validSurfaceCandidates={sample.ValidSurfaceCandidates} " +
+                        $"uniqueSurfaceKernels={sample.UniqueSurfaceKernels} " +
+                        $"unresolvedSurfaceTiles={sample.UnresolvedSurfaceTiles} " +
+                        $"surfaceTilesAllocated={sample.SurfaceTilesAllocated} " +
+                        $"scanColdMisses={sample.ScanColdMisses} " +
+                        $"carveQueryBlocks={sample.CarveQueryBlocks} " +
+                        $"carveQueryTiles={sample.CarveQueryTiles} " +
+                        $"carveActiveKernels={sample.CarveActiveKernels} " +
+                        $"loadRequests={sample.LoadRequests} " +
+                        $"loadBytesPerSecond={sample.LoadBytesPerSecond:F0} " +
+                        $"loadLatencyP50={sample.LoadLatencyP50Ms:F2}ms " +
+                        $"loadLatencyP95={sample.LoadLatencyP95Ms:F2}ms " +
+                        $"writebackTiles={sample.WritebackTiles} " +
+                        $"writeBytesPerSecond={sample.WriteBytesPerSecond:F0} " +
+                        $"writeLatencyP50={sample.WriteLatencyP50Ms:F2}ms " +
+                        $"writeLatencyP95={sample.WriteLatencyP95Ms:F2}ms " +
+                        $"storageBackpressure={sample.StorageBackpressure} " +
+                        $"failedReads={sample.FailedReads} " +
+                        $"failedWrites={sample.FailedWrites} " +
+                        $"candidateM8Blocks={sample.CandidateBlocks} " +
+                        $"hashHitM8Blocks={sample.HashHitBlocks} " +
                         $"visibleChunks={sample.VisibleChunks} " +
-                        $"topologyDirtyChunks=" +
-                        $"{sample.CpuDirtyChunks + sample.GpuDirtyChunks} " +
-                        $"publishedPrimitives={sample.PublishedPrimitives}");
+                        $"visibleTiles={sample.VisibleTiles} " +
+                        $"occupiedKernelsConsidered={sample.OccupiedKernelsConsidered} " +
+                        $"primitivesBeforeFacing={sample.PrimitivesBeforeFacing} " +
+                        $"logicalVisiblePrimitives={sample.LogicalPrimitives} " +
+                        $"rawSPIInstances={sample.LogicalPrimitives * 2u} " +
+                        $"primitivesRejectedBothEyes={sample.RejectedPrimitives} " +
+                        $"lateDrawColdMisses={sample.LateColdMisses} " +
+                        $"renderPrimitiveOverflow={sample.RenderPrimitiveOverflow}");
         }
+
+        private static void CancelFrame()
+        {
+#if !UNITY_EDITOR && UNITY_ANDROID
+            Native.Cancel();
+#endif
+            FinishFrame();
+        }
+
+        private static void FinishFrame()
+        {
+            EntrySequence.Clear();
+            _state = CaptureState.Idle;
+            _revision = 0u;
+            _submissionBegan = false;
+        }
+
+#if UNITY_EDITOR
+        internal static void SetAvailableForTests(bool available)
+        {
+            _testAvailable = available;
+            if (!available)
+            {
+                _state = CaptureState.Idle;
+                _revision = 0u;
+                _submissionBegan = false;
+                EntrySequence.Clear();
+            }
+        }
+
+        internal static MerkabaGpuStage[] RecordedStagesForTests()
+        {
+            var result = new MerkabaGpuStage[EntrySequence.Count];
+            for (int index = 0; index < result.Length; index++)
+                result[index] = EntrySequence[index].Stage;
+            return result;
+        }
+#endif
 
         private static class Native
         {
             internal const int SubmissionBegin = 0;
-            internal const int ComputeBegin = 1;
-            internal const int ComputeEnd = 2;
-            internal const int GraphicsBegin = 3;
-            internal const int GraphicsEnd = 4;
+            internal const int DispatchBegin = 1;
+            internal const int DispatchEnd = 2;
+            internal const int DrawBegin = 3;
+            internal const int DrawEnd = 4;
             internal const int SubmissionEnd = 5;
-            internal const int EventCount = 6;
 #if !UNITY_EDITOR && UNITY_ANDROID
             private const string Library = "MerkabaVulkanTimestamps";
 
@@ -401,96 +691,75 @@ namespace Genesis.RoomScan
             private static extern int GetEventIdNative(int offset);
             [DllImport(Library, EntryPoint = "MerkabaTimestamp_Read")]
             private static extern int ReadNative([Out] ulong[] timestamps,
-                int timestampCapacity, out int spanCount,
+                int timestampCapacity, out int entryCount,
                 out double timestampPeriod, out int validBits,
                 out ulong revision, out int overflow);
 
-            internal static bool TryArm(uint revision, out IntPtr renderEvent,
-                int[] eventIds)
+            internal static IntPtr RenderEvent => GetRenderEventFuncNative();
+            internal static int EventId(int offset) => GetEventIdNative(offset);
+            internal static bool TryArm(uint revision)
             {
-                renderEvent = IntPtr.Zero;
                 try
                 {
-                    if (IsAvailableNative() == 0 || ArmNative(revision) == 0)
-                        return false;
-                    renderEvent = GetRenderEventFuncNative();
-                    if (renderEvent == IntPtr.Zero)
-                    {
-                        CancelNative();
-                        return false;
-                    }
-                    for (int index = 0; index < EventCount; index++)
-                        eventIds[index] = GetEventIdNative(index);
-                    return true;
+                    return IsAvailableNative() != 0 &&
+                           ArmNative(revision) != 0;
                 }
                 catch (DllNotFoundException) { return false; }
                 catch (EntryPointNotFoundException) { return false; }
             }
 
+            internal static void Cancel()
+            {
+                try { CancelNative(); }
+                catch (DllNotFoundException) { }
+                catch (EntryPointNotFoundException) { }
+            }
+
             internal static int TryRead(ulong[] timestamps,
-                out int spanCount, out double timestampPeriod,
+                out int entryCount, out double timestampPeriod,
                 out int validBits, out ulong revision, out bool overflow)
             {
                 try
                 {
                     int result = ReadNative(timestamps, timestamps.Length,
-                        out spanCount, out timestampPeriod, out validBits,
+                        out entryCount, out timestampPeriod, out validBits,
                         out revision, out int overflowValue);
                     overflow = overflowValue != 0;
                     return result;
                 }
                 catch (DllNotFoundException)
                 {
-                    spanCount = validBits = 0;
+                    entryCount = validBits = 0;
                     timestampPeriod = 0.0;
-                    revision = 0;
+                    revision = 0u;
                     overflow = false;
                     return -1;
                 }
                 catch (EntryPointNotFoundException)
                 {
-                    spanCount = validBits = 0;
+                    entryCount = validBits = 0;
                     timestampPeriod = 0.0;
-                    revision = 0;
+                    revision = 0u;
                     overflow = false;
                     return -1;
                 }
             }
 #else
-            internal static bool TryArm(uint revision, out IntPtr renderEvent,
-                int[] eventIds)
-            {
-                renderEvent = IntPtr.Zero;
-                return false;
-            }
-
+            internal static IntPtr RenderEvent => IntPtr.Zero;
+            internal static int EventId(int offset) => 0;
+            internal static bool TryArm(uint revision) => false;
+            internal static void Cancel() { }
             internal static int TryRead(ulong[] timestamps,
-                out int spanCount, out double timestampPeriod,
+                out int entryCount, out double timestampPeriod,
                 out int validBits, out ulong revision, out bool overflow)
             {
-                spanCount = validBits = 0;
+                entryCount = validBits = 0;
                 timestampPeriod = 0.0;
-                revision = 0;
+                revision = 0u;
                 overflow = false;
                 return -1;
             }
 #endif
         }
-
-#if UNITY_EDITOR
-        internal static void SetAvailableForTests(bool available)
-        {
-            Reset();
-            _testAvailable = available;
-        }
-
-        internal static MerkabaGpuStage[] RecordedStagesForTests()
-        {
-            var result = new MerkabaGpuStage[Spans.Count];
-            for (int index = 0; index < result.Length; index++)
-                result[index] = Spans[index].Stage;
-            return result;
-        }
-#endif
     }
 }

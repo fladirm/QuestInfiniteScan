@@ -238,27 +238,27 @@ namespace Genesis.RoomScan.Tests
         private static MerkabaSessionSnapshot SnapshotFromEvidence(
             IReadOnlyDictionary<int3, KernelState> evidence)
         {
-            var chunks = new Dictionary<int3, KernelState[]>();
+            var tiles = new Dictionary<MerkabaTileAddress, KernelState[]>();
             foreach (KeyValuePair<int3, KernelState> pair in evidence)
             {
-                int3 chunkCoord = MerkabaConstants.ChunkCoord(pair.Key);
-                if (!chunks.TryGetValue(chunkCoord, out KernelState[] states))
+                MerkabaSpatial.Address address = MerkabaSpatial.Encode(pair.Key);
+                var tileAddress = new MerkabaTileAddress(address.BlockCoord,
+                    address.LocalAddress);
+                if (!tiles.TryGetValue(tileAddress, out KernelState[] states))
                 {
-                    states = new KernelState[MerkabaConstants.KernelsPerChunk];
-                    chunks.Add(chunkCoord, states);
+                    states = new KernelState[MerkabaSpatial.KernelsPerTile];
+                    tiles.Add(tileAddress, states);
                 }
-                states[MerkabaConstants.Flatten(
-                    MerkabaConstants.LocalCoord(pair.Key))] = pair.Value;
+                states[address.KernelLocal] = pair.Value;
             }
 
             var snapshot = new MerkabaSessionSnapshot();
-            foreach (int3 chunkCoord in chunks.Keys.OrderBy(value => value.x)
-                         .ThenBy(value => value.y).ThenBy(value => value.z))
+            foreach (MerkabaTileAddress address in tiles.Keys.OrderBy(value => value))
             {
-                snapshot.Chunks.Add(new MerkabaChunkSnapshot
+                snapshot.Tiles.Add(new MerkabaTileSnapshot
                 {
-                    Coord = chunkCoord,
-                    States = chunks[chunkCoord]
+                    Address = address,
+                    States = tiles[address]
                 });
             }
             return snapshot;

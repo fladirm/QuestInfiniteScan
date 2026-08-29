@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.Rendering;
 
 namespace Genesis.RoomScan
 {
@@ -24,9 +25,19 @@ namespace Genesis.RoomScan
             Shader.SetTexture(KernelIndex, nameID, tex);
         }
 
+        public void Set(CommandBuffer command, int nameID, Texture tex)
+        {
+            command.SetComputeTextureParam(Shader, KernelIndex, nameID, tex);
+        }
+
         public void Set(int nameID, ComputeBuffer buffer)
         {
             Shader.SetBuffer(KernelIndex, nameID, buffer);
+        }
+
+        public void Set(CommandBuffer command, int nameID, ComputeBuffer buffer)
+        {
+            command.SetComputeBufferParam(Shader, KernelIndex, nameID, buffer);
         }
 
         public void Set(int nameID, GraphicsBuffer buffer)
@@ -42,6 +53,16 @@ namespace Genesis.RoomScan
             Shader.Dispatch(KernelIndex, Mathf.Max(1, gx), Mathf.Max(1, gy), Mathf.Max(1, gz));
         }
 
+        public void DispatchFit(CommandBuffer command, int sizeX, int sizeY,
+            int sizeZ = 1)
+        {
+            int gx = Mathf.CeilToInt((float)sizeX / _threadGroupX);
+            int gy = Mathf.CeilToInt((float)sizeY / _threadGroupY);
+            int gz = Mathf.CeilToInt((float)sizeZ / _threadGroupZ);
+            command.DispatchComputeProfiled(Shader, KernelIndex,
+                Mathf.Max(1, gx), Mathf.Max(1, gy), Mathf.Max(1, gz));
+        }
+
         public void DispatchFit(Texture tex)
         {
             int w = tex.width;
@@ -55,6 +76,12 @@ namespace Genesis.RoomScan
         public void DispatchFit(RenderTexture volume)
         {
             DispatchFit(volume.width, volume.height, volume.volumeDepth);
+        }
+
+        public void DispatchFit(CommandBuffer command, RenderTexture volume)
+        {
+            DispatchFit(command, volume.width, volume.height,
+                volume.volumeDepth);
         }
     }
 }

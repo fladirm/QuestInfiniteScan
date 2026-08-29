@@ -1,17 +1,13 @@
 using System;
 using System.Collections.Generic;
-using System.Threading.Tasks;
+using Unity.Mathematics;
 using UnityEngine;
 using UnityEngine.Experimental.Rendering;
+using UnityEngine.Rendering;
 
 namespace Genesis.RoomScan
 {
-    /// <summary>
-    /// Applies QRS depth/normal/dilation/projection observations to reversible evidence.
-    /// The Quest path is a bounded surface queue plus a compact existing-state carve
-    /// queue; the static
-    /// reference entry point is its deterministic semantic oracle for tests/replay.
-    /// </summary>
+    /// <summary>GPU-only M8 surface discovery/integration and Q_SCAN carve.</summary>
     [DisallowMultipleComponent]
     public sealed class MerkabaIntegrator : MonoBehaviour
     {
@@ -22,296 +18,336 @@ namespace Genesis.RoomScan
 
         private MerkabaGrid _grid;
         private DepthCapture _depthCapture;
-        private int _generateSurfaceKernel = -1;
-        private int _prepareArgsKernel = -1;
-        private int _surfaceKernel = -1;
-        private int _gatherCarveKernel = -1;
-        private int _carveKernel = -1;
-        private bool _cameraFrameAvailable;
-        private Vector3 _pendingCameraPosition;
-        private Quaternion _pendingCameraRotation;
-        private Vector2 _pendingFocalLength;
-        private Vector2 _pendingPrincipalPoint;
-        private Vector2 _pendingSensorResolution;
-        private Vector2 _pendingCurrentResolution;
-        private RenderTexture _cameraFrameCopy;
+        private int _discoverKernel;
+        private int _prepareResolveKernel;
+        private int _resolveBlocksKernel;
+        private int _resolveChunksKernel;
+        private int _resolveTilesKernel;
+        private int _queueResolvedKernel;
+        private int _retryPendingTilesKernel;
+        private int _prepareIntegrateKernel;
+        private int _integrateSurfaceKernel;
+        private int _queryCarveKernel;
+        private int _prepareCarveKernel;
+        private int _integrateCarveKernel;
+        private int _finalizeKernel;
+        private bool _initialized;
+        private bool _observationPrepared;
+        private uint _observationToken;
+
+        private readonly bool[] _cameraAvailable = new bool[2];
+        private readonly Vector3[] _cameraPosition = new Vector3[2];
+        private readonly Quaternion[] _cameraRotation = new Quaternion[2];
+        private readonly Vector2[] _cameraFocalLength = new Vector2[2];
+        private readonly Vector2[] _cameraPrincipalPoint = new Vector2[2];
+        private readonly Vector2[] _cameraSensorResolution = new Vector2[2];
+        private readonly Vector2[] _cameraCurrentResolution = new Vector2[2];
+        private readonly RenderTexture[] _cameraFrameCopies = new RenderTexture[2];
+        private int _readyCameraSlot = -1;
+        private int _heldCameraSlot = -1;
+        private bool _cameraObservationHeld;
         private Texture2D _dummyCameraTexture;
         private readonly Vector4[] _exclusionPositions = new Vector4[64];
+        private readonly Vector4[] _scanPlanes = new Vector4[12];
+        private readonly Plane[] _frustumScratch = new Plane[6];
 
         public readonly List<Transform> ExclusionZones = new();
         public int IntegrationCount { get; private set; }
         public float MaxUpdateDistance => maxUpdateDistance;
-        internal RenderTexture OwnedCameraFrame => _cameraFrameCopy;
-        internal bool CameraFrameAvailable => _cameraFrameAvailable;
+        public bool HasPendingObservation => _observationPrepared;
+        internal RenderTexture OwnedCameraFrame
+        {
+            get
+            {
+                int slot = _readyCameraSlot >= 0
+                    ? _readyCameraSlot : _heldCameraSlot;
+                return slot >= 0 ? _cameraFrameCopies[slot] : null;
+            }
+        }
+        internal bool CameraFrameAvailable
+        {
+            get
+            {
+                int slot = _readyCameraSlot >= 0
+                    ? _readyCameraSlot : _heldCameraSlot;
+                return slot >= 0 && _cameraAvailable[slot];
+            }
+        }
         public event Action Integrated;
 
-        private static readonly int KernelsId = Shader.PropertyToID("_MerkabaKernels");
-        private static readonly int PageCoordsId = Shader.PropertyToID("_MerkabaPageCoords");
-        private static readonly int PageNeighboursId = Shader.PropertyToID("_MerkabaPageNeighbours");
-        private static readonly int IntegrationSlotsId = Shader.PropertyToID("_MerkabaIntegrationSlots");
-        private static readonly int IntegrationEnabledId = Shader.PropertyToID("_MerkabaIntegrationEnabledSlots");
-        private static readonly int PublicationDirtyId =
-            Shader.PropertyToID("_MerkabaPublicationDirtyChunks");
-        private static readonly int IntegrationCountId = Shader.PropertyToID("_MerkabaIntegrationChunkCount");
-        private static readonly int GridToWorldId = Shader.PropertyToID("_MerkabaGridToWorld");
-        private static readonly int WorldToGridId = Shader.PropertyToID("_MerkabaWorldToGrid");
-        private static readonly int MaxDistanceId = Shader.PropertyToID("_MerkabaMaxUpdateDistance");
-        private static readonly int PageHashId = Shader.PropertyToID("_MerkabaPageHash");
-        private static readonly int PageHashCapacityId = Shader.PropertyToID("_MerkabaPageHashCapacity");
-        private static readonly int WorkCapacityId = Shader.PropertyToID("_MerkabaWorkCapacity");
-        private static readonly int WorkCountId = Shader.PropertyToID("_MerkabaWorkCount");
-        private static readonly int IndirectArgsId = Shader.PropertyToID("_MerkabaIndirectArgs");
-        private static readonly int SurfaceBitsId = Shader.PropertyToID("_MerkabaSurfaceCandidateBits");
-        private static readonly int SurfaceQueueId = Shader.PropertyToID("_MerkabaSurfaceQueue");
-        private static readonly int SurfaceCountId = Shader.PropertyToID("_MerkabaSurfaceCount");
-        private static readonly int SurfaceQueueReadId =
-            Shader.PropertyToID("_MerkabaSurfaceQueueRead");
-        private static readonly int SurfaceCountReadId =
-            Shader.PropertyToID("_MerkabaSurfaceCountRead");
-        private static readonly int CarveListedBitsId = Shader.PropertyToID("_MerkabaCarveListedBits");
-        private static readonly int CarveLocalIndicesId = Shader.PropertyToID("_MerkabaCarveLocalIndices");
-        private static readonly int CarveCountsId = Shader.PropertyToID("_MerkabaCarveCounts");
-        private static readonly int CarveQueueId = Shader.PropertyToID("_MerkabaCarveQueue");
-        private static readonly int CarveCountId = Shader.PropertyToID("_MerkabaCarveCount");
-        private static readonly int CarveQueueReadId =
-            Shader.PropertyToID("_MerkabaCarveQueueRead");
-        private static readonly int CarveCountReadId =
-            Shader.PropertyToID("_MerkabaCarveCountRead");
-        private static readonly int GpuPublicationDirtyQueueId =
-            Shader.PropertyToID("_MerkabaGpuPublicationDirtyQueue");
-        private static readonly int ExclusionCountId = Shader.PropertyToID("_MerkabaExclusionCount");
-        private static readonly int ExclusionHeadsId = Shader.PropertyToID("_MerkabaExclusionHeads");
+        private static readonly int GridToWorldId =
+            Shader.PropertyToID("_MerkabaGridToWorld");
+        private static readonly int WorldToGridId =
+            Shader.PropertyToID("_MerkabaWorldToGrid");
+        private static readonly int MaxDistanceId =
+            Shader.PropertyToID("_MerkabaMaxUpdateDistance");
+        private static readonly int ExclusionCountId =
+            Shader.PropertyToID("_MerkabaExclusionCount");
+        private static readonly int ExclusionHeadsId =
+            Shader.PropertyToID("_MerkabaExclusionHeads");
         private static readonly int CameraRgbId = Shader.PropertyToID("_MerkabaCameraRgb");
-        private static readonly int CameraAvailableId = Shader.PropertyToID("_MerkabaCameraAvailable");
-        private static readonly int CameraPositionId = Shader.PropertyToID("_MerkabaCameraPosition");
-        private static readonly int CameraInverseRotationId = Shader.PropertyToID("_MerkabaCameraInverseRotation");
-        private static readonly int CameraFocalLengthId = Shader.PropertyToID("_MerkabaCameraFocalLength");
-        private static readonly int CameraPrincipalPointId = Shader.PropertyToID("_MerkabaCameraPrincipalPoint");
-        private static readonly int CameraSensorResolutionId = Shader.PropertyToID("_MerkabaCameraSensorResolution");
-        private static readonly int CameraCurrentResolutionId = Shader.PropertyToID("_MerkabaCameraCurrentResolution");
-        private static readonly int CameraExposureId = Shader.PropertyToID("_MerkabaCameraExposure");
+        private static readonly int CameraAvailableId =
+            Shader.PropertyToID("_MerkabaCameraAvailable");
+        private static readonly int CameraPositionId =
+            Shader.PropertyToID("_MerkabaCameraPosition");
+        private static readonly int CameraInverseRotationId =
+            Shader.PropertyToID("_MerkabaCameraInverseRotation");
+        private static readonly int CameraFocalLengthId =
+            Shader.PropertyToID("_MerkabaCameraFocalLength");
+        private static readonly int CameraPrincipalPointId =
+            Shader.PropertyToID("_MerkabaCameraPrincipalPoint");
+        private static readonly int CameraSensorResolutionId =
+            Shader.PropertyToID("_MerkabaCameraSensorResolution");
+        private static readonly int CameraCurrentResolutionId =
+            Shader.PropertyToID("_MerkabaCameraCurrentResolution");
+        private static readonly int CameraExposureId =
+            Shader.PropertyToID("_MerkabaCameraExposure");
 
         private void Awake()
         {
             _grid = GetComponent<MerkabaGrid>();
             _depthCapture = GetComponent<DepthCapture>();
-            if (compute != null)
-            {
-                _generateSurfaceKernel = compute.FindKernel("GenerateSurfaceCandidates");
-                _prepareArgsKernel = compute.FindKernel("PrepareIndirectArgs");
-                _surfaceKernel = compute.FindKernel("IntegrateSurfaceCandidates");
-                _gatherCarveKernel = compute.FindKernel("GatherCarveCandidates");
-                _carveKernel = compute.FindKernel("IntegrateCarveCandidates");
-            }
-            _dummyCameraTexture = new Texture2D(1, 1, TextureFormat.RGBA32, false);
-            _dummyCameraTexture.SetPixel(0, 0, Color.black);
-            _dummyCameraTexture.Apply(false, true);
-            _depthCapture?.SetVoxelParams(
-                MerkabaConstants.SupportSize + MerkabaConstants.LatticeStep,
-                MerkabaConstants.LatticeStep);
         }
 
         private void OnDestroy()
         {
-            if (_cameraFrameCopy != null) Destroy(_cameraFrameCopy);
+            for (int slot = 0; slot < _cameraFrameCopies.Length; slot++)
+                if (_cameraFrameCopies[slot] != null)
+                    Destroy(_cameraFrameCopies[slot]);
             if (_dummyCameraTexture != null) Destroy(_dummyCameraTexture);
         }
 
-        public void SetCameraData(Texture frame, Vector3 position, Quaternion rotation,
-            Vector2 focalLength, Vector2 principalPoint, Vector2 sensorResolution,
-            Vector2 currentResolution)
+        private bool Initialize()
         {
-            _cameraFrameAvailable = frame != null;
-            if (_cameraFrameAvailable) CopyCameraFrame(frame);
-            _pendingCameraPosition = position;
-            _pendingCameraRotation = rotation;
-            _pendingFocalLength = focalLength;
-            _pendingPrincipalPoint = principalPoint;
-            _pendingSensorResolution = sensorResolution;
-            _pendingCurrentResolution = currentResolution;
-            _depthCapture?.SetRGBGuide(
-                _cameraFrameAvailable ? _cameraFrameCopy : null);
+            if (_initialized) return true;
+            if (compute == null || _grid == null || _depthCapture == null)
+                return false;
+            _grid.EnsureGpuResources();
+            _discoverKernel = compute.FindProfiledKernel(
+                "DiscoverSurfaceCandidates", MerkabaGpuStage.SurfaceIntegration);
+            _prepareResolveKernel = compute.FindProfiledKernel(
+                "PrepareResolveArgs", MerkabaGpuStage.SurfaceIntegration);
+            _resolveBlocksKernel = compute.FindProfiledKernel(
+                "ResolveSurfaceBlocks", MerkabaGpuStage.SurfaceIntegration);
+            _resolveChunksKernel = compute.FindProfiledKernel(
+                "ResolveSurfaceChunks", MerkabaGpuStage.SurfaceIntegration);
+            _resolveTilesKernel = compute.FindProfiledKernel(
+                "ResolveSurfaceTiles", MerkabaGpuStage.SurfaceIntegration);
+            _queueResolvedKernel = compute.FindProfiledKernel(
+                "QueueResolvedSurfaceCandidates",
+                MerkabaGpuStage.SurfaceIntegration);
+            _retryPendingTilesKernel = compute.FindProfiledKernel(
+                "RetryPendingNewTiles", MerkabaGpuStage.SurfaceIntegration);
+            _prepareIntegrateKernel = compute.FindProfiledKernel(
+                "PrepareIntegrateArgs", MerkabaGpuStage.SurfaceIntegration);
+            _integrateSurfaceKernel = compute.FindProfiledKernel(
+                "IntegrateSurfaceCandidates",
+                MerkabaGpuStage.SurfaceIntegration);
+            _queryCarveKernel = compute.FindProfiledKernel(
+                "QueryCarveTiles", MerkabaGpuStage.CarveIntegration);
+            _prepareCarveKernel = compute.FindProfiledKernel(
+                "PrepareCarveArgs", MerkabaGpuStage.CarveIntegration);
+            _integrateCarveKernel = compute.FindProfiledKernel(
+                "IntegrateCarveTiles", MerkabaGpuStage.CarveIntegration);
+            _finalizeKernel = compute.FindProfiledKernel(
+                "FinalizeObservation", MerkabaGpuStage.SurfaceIntegration);
+            foreach (int kernel in new[]
+                     {
+                         _discoverKernel, _prepareResolveKernel,
+                         _resolveBlocksKernel, _resolveChunksKernel,
+                         _resolveTilesKernel, _queueResolvedKernel,
+                         _retryPendingTilesKernel, _prepareIntegrateKernel,
+                         _integrateSurfaceKernel, _queryCarveKernel,
+                         _prepareCarveKernel, _integrateCarveKernel, _finalizeKernel
+                     })
+            {
+                _grid.BindWorldBuffers(compute, kernel);
+                BindWorkBuffers(kernel);
+            }
+            _initialized = true;
+            return true;
+        }
+
+        private void BindWorkBuffers(int kernel)
+        {
+            compute.SetBuffer(kernel, "_M8SurfaceCandidates",
+                _grid.M8SurfaceCandidates);
+            compute.SetBuffer(kernel, "_M8SurfaceQueue", _grid.M8SurfaceQueue);
+            compute.SetBuffer(kernel, "_M8TouchedTileQueue",
+                _grid.M8TouchedTileQueue);
+            compute.SetBuffer(kernel, "_M8CarveTiles", _grid.M8CarveTiles);
+            compute.SetBuffer(kernel, "_M8ObservationDispatchArgs",
+                _grid.M8ObservationDispatchArgs);
+            compute.SetBuffer(kernel, "_M8CarveDispatchArgs",
+                _grid.M8CarveDispatchArgs);
+        }
+
+        public void SetCameraData(Texture frame, Vector3 position,
+            Quaternion rotation, Vector2 focalLength, Vector2 principalPoint,
+            Vector2 sensorResolution, Vector2 currentResolution)
+        {
+            int slot = _cameraObservationHeld && _heldCameraSlot >= 0
+                ? 1 - _heldCameraSlot
+                : _readyCameraSlot >= 0 ? _readyCameraSlot : 0;
+            _cameraAvailable[slot] = frame != null;
+            if (frame != null) CopyCameraFrame(frame, slot);
+            _cameraPosition[slot] = position;
+            _cameraRotation[slot] = rotation;
+            _cameraFocalLength[slot] = focalLength;
+            _cameraPrincipalPoint[slot] = principalPoint;
+            _cameraSensorResolution[slot] = sensorResolution;
+            _cameraCurrentResolution[slot] = currentResolution;
+            _readyCameraSlot = slot;
         }
 
         public bool Integrate(Camera camera)
         {
-            if (_grid == null || _depthCapture == null || compute == null ||
-                _generateSurfaceKernel < 0 || _prepareArgsKernel < 0 ||
-                _surfaceKernel < 0 || _gatherCarveKernel < 0 || _carveKernel < 0 ||
-                camera == null || !DepthCapture.DepthAvailable ||
-                !_depthCapture.HasUnprocessedFrame)
+            if (!Initialize() || camera == null || !DepthCapture.DepthAvailable)
                 return false;
-
-            MerkabaResidencyFrame residency = _grid.RefreshResidency(camera,
-                maxUpdateDistance, true);
-            if (residency.IntegrationChunkCount == 0) return false;
-            MerkabaGpuTimestamps.TryBeginFrame(
-                unchecked((uint)Math.Max(1, IntegrationCount + 1)));
-            MerkabaGpuTimestamps.BeginCompute(
-                MerkabaGpuStage.DepthPreprocess);
-            bool consumedDepth = _depthCapture.ConsumeLatestDepthFrame();
-            MerkabaGpuTimestamps.EndCompute(
-                MerkabaGpuStage.DepthPreprocess);
-            if (!consumedDepth ||
-                _depthCapture.DepthTex == null || _depthCapture.NormTex == null ||
-                _depthCapture.DilatedDepthTex == null)
+            if (_observationPrepared &&
+                _grid.CompletedObservationToken == _observationToken)
+                return FinishIntegratedObservation();
+            if (!_observationPrepared && !_depthCapture.HasUnprocessedFrame)
+                return false;
+            CommandBuffer command = CommandBufferPool.Get(
+                "Merkaba M8 observation");
+            bool submitted = false;
+            try
             {
-                MerkabaGpuTimestamps.EndFrame();
+                MerkabaGpuTimestamps.TryBeginFrame(
+                    unchecked((uint)Math.Max(1, IntegrationCount + 1)));
+                MerkabaGpuTimestamps.RecordProfileBegin(command);
+                if (!_observationPrepared)
+                {
+                    AcquireCameraObservation();
+                    bool consumed = _depthCapture.ConsumeLatestDepthFrame(command);
+                    if (!consumed || _depthCapture.DepthTex == null ||
+                        _depthCapture.NormTex == null ||
+                        _depthCapture.DilatedDepthTex == null)
+                    {
+                        ReleaseOwnedObservation();
+                        MerkabaGpuTimestamps.CancelUnsubmittedFrame();
+                        return false;
+                    }
+                    _observationToken =
+                        _grid.RecordResetObservationGpuCounters(command);
+                    ConfigureObservation(camera);
+                    command.DispatchComputeProfiled(compute, _discoverKernel,
+                        Mathf.CeilToInt(_depthCapture.DepthTex.width / 8f),
+                        Mathf.CeilToInt(_depthCapture.DepthTex.height / 8f), 2);
+                    _observationPrepared = true;
+                }
+                else
+                    ConfigureObservation(camera);
+
+                // Dispatch boundaries publish each CLAIMED radix level before the
+                // next one. CLAIMED never spins inside a shader invocation.
+                command.DispatchComputeProfiled(compute, _prepareResolveKernel,
+                    1, 1, 1);
+                command.DispatchComputeProfiled(compute, _resolveBlocksKernel,
+                    _grid.M8ObservationDispatchArgs);
+                _grid.RecordPublishClaimedBlocks(command);
+                command.DispatchComputeProfiled(compute, _resolveChunksKernel,
+                    _grid.M8ObservationDispatchArgs);
+                _grid.RecordPublishClaimedChunks(command);
+                command.DispatchComputeProfiled(compute, _resolveTilesKernel,
+                    _grid.M8ObservationDispatchArgs);
+                command.DispatchComputeProfiled(compute,
+                    _retryPendingTilesKernel,
+                    MerkabaSpatial.PhysicalTileCapacity / 64, 1, 1);
+                _grid.RecordInitializeClaimedTiles(command);
+                _grid.RecordResetClaimQueues(command);
+                _grid.RecordResetResolveCounter(command);
+                command.DispatchComputeProfiled(compute, _queueResolvedKernel,
+                    _grid.M8ObservationDispatchArgs);
+
+                command.DispatchComputeProfiled(compute,
+                    _prepareIntegrateKernel, 1, 1, 1);
+                command.DispatchComputeProfiled(compute,
+                    _integrateSurfaceKernel, _grid.M8ObservationDispatchArgs);
+
+                DispatchCarveQuery(command);
+                command.DispatchComputeProfiled(compute, _prepareCarveKernel,
+                    1, 1, 1);
+                command.DispatchComputeProfiled(compute, _integrateCarveKernel,
+                    _grid.M8CarveDispatchArgs);
+                command.DispatchComputeProfiled(compute, _finalizeKernel,
+                    1, 1, 1);
+                _grid.RecordClearTouchedSurfaceCandidates(command);
+
+                Graphics.ExecuteCommandBuffer(command);
+                submitted = true;
+
+                // Completion is sampled by the fixed SSD control pump. Until its
+                // exact token completes, this owned observation remains immutable.
                 return false;
             }
+            finally
+            {
+                if (!submitted)
+                    MerkabaGpuTimestamps.CancelUnsubmittedFrame();
+                CommandBufferPool.Release(command);
+            }
+        }
 
+        private bool FinishIntegratedObservation()
+        {
+            _observationPrepared = false;
+            ReleaseOwnedObservation();
+            IntegrationCount++;
+            if (warmupIntegrations > 0 && IntegrationCount == warmupIntegrations)
+            {
+                _grid.Clear();
+                Logger.Info($"Merkaba warmup complete ({warmupIntegrations}); " +
+                            "discarded startup evidence");
+            }
+            Integrated?.Invoke();
+            return true;
+        }
+
+        internal async System.Threading.Tasks.Task FinishCurrentObservationAsync()
+        {
+            while (_observationPrepared)
+            {
+                Camera camera = Camera.main;
+                if (camera == null)
+                    throw new InvalidOperationException(
+                        "Cannot finish M8 observation without the XR camera.");
+                Integrate(camera);
+                if (_observationPrepared) await System.Threading.Tasks.Task.Yield();
+            }
+        }
+
+        private void ConfigureObservation(Camera camera)
+        {
             compute.SetMatrixArray(DepthCapture.ViewID, _depthCapture.View);
             compute.SetMatrixArray(DepthCapture.ProjID, _depthCapture.Proj);
             compute.SetMatrixArray(DepthCapture.ViewInvID, _depthCapture.ViewInv);
             compute.SetMatrixArray(DepthCapture.ProjInvID, _depthCapture.ProjInv);
             compute.SetVector(DepthCapture.ZParamsID, _depthCapture.Planes);
             compute.SetVector(DepthCapture.TexSizeID,
-                new Vector2(_depthCapture.DepthTex.width, _depthCapture.DepthTex.height));
-
-            compute.SetInt(IntegrationCountId, residency.IntegrationChunkCount);
+                new Vector2(_depthCapture.DepthTex.width,
+                    _depthCapture.DepthTex.height));
             compute.SetMatrix(GridToWorldId, _grid.GridToWorldMatrix);
             compute.SetMatrix(WorldToGridId, _grid.GridToWorldMatrix.inverse);
             compute.SetFloat(MaxDistanceId, maxUpdateDistance);
-            compute.SetInt(PageHashCapacityId, _grid.PageHashEntryCount);
-            compute.SetInt(WorkCapacityId, _grid.IntegrationWorkCapacity);
 
-            int exclusionCount = Mathf.Min(ExclusionZones.Count, _exclusionPositions.Length);
+            int exclusionCount = Mathf.Min(ExclusionZones.Count,
+                _exclusionPositions.Length);
             for (int i = 0; i < exclusionCount; i++)
                 _exclusionPositions[i] = ExclusionZones[i] != null
                     ? ExclusionZones[i].position : Vector3.positiveInfinity;
             compute.SetInt(ExclusionCountId, exclusionCount);
             compute.SetVectorArray(ExclusionHeadsId, _exclusionPositions);
 
-            MerkabaGpuTimestamps.BeginCompute(
-                MerkabaGpuStage.SurfaceIntegration);
-            _grid.BeginIntegrationWorkFrame();
-            BindSurfaceGeneration();
-            compute.Dispatch(_generateSurfaceKernel,
-                Mathf.CeilToInt(_depthCapture.DepthTex.width / 8f),
-                Mathf.CeilToInt(_depthCapture.DepthTex.height / 8f), 2);
-
-            PrepareIndirect(_grid.SurfaceCountBuffer,
-                _grid.SurfaceDispatchArgsBuffer);
-            BindSurfaceIntegration();
-            compute.DispatchIndirect(_surfaceKernel,
-                _grid.SurfaceDispatchArgsBuffer);
-            MerkabaGpuTimestamps.EndCompute(
-                MerkabaGpuStage.SurfaceIntegration);
-
-            MerkabaGpuTimestamps.BeginCompute(
-                MerkabaGpuStage.CarveIntegration);
-            BindCarveGather();
-            compute.Dispatch(_gatherCarveKernel,
-                residency.IntegrationChunkCount, 1, 1);
-            PrepareIndirect(_grid.CarveCountBuffer,
-                _grid.CarveDispatchArgsBuffer);
-            BindCarveIntegration();
-            compute.DispatchIndirect(_carveKernel, _grid.CarveDispatchArgsBuffer);
-            MerkabaGpuTimestamps.EndCompute(
-                MerkabaGpuStage.CarveIntegration);
-            MerkabaGpuTimestamps.CaptureIntegrationMetrics(
-                _grid.SurfaceCountBuffer, _grid.CarveCountBuffer,
-                residency.IntegrationChunkCount, _depthCapture.DepthTex.width,
-                _depthCapture.DepthTex.height);
-            // The append queue itself remains GPU-owned. The renderer later issues a
-            // zero-or-more-group indirect publication dispatch; no count readback is
-            // introduced into the integration frame.
-            _grid.NotifyGpuPublicationMayBeDirty();
-            _grid.MarkIntegrationPagesGpuCurrent();
-            IntegrationCount++;
-            _cameraFrameAvailable = false;
-
-            if (warmupIntegrations > 0 && IntegrationCount == warmupIntegrations)
-            {
-                // Preserve QRS startup-noise semantics without resetting the counter and
-                // accidentally repeating warmup forever.
-                _grid.Clear();
-                Logger.Info($"Merkaba warmup complete ({warmupIntegrations}); discarded startup evidence");
-            }
-            Integrated?.Invoke();
-            return true;
+            BindDepth(_discoverKernel);
+            BindDepth(_integrateSurfaceKernel);
+            BindDepth(_integrateCarveKernel);
+            BindCamera(_integrateSurfaceKernel);
         }
 
-        public void Clear()
+        private void BindDepth(int kernel)
         {
-            _grid?.Clear();
-            IntegrationCount = 0;
-        }
-
-        internal void RestoreIntegrationCount(int integrationCount)
-        {
-            IntegrationCount = Mathf.Max(0, integrationCount);
-        }
-
-        public Task SynchronizeCanonicalStateAsync() =>
-            _grid != null ? _grid.SynchronizeResidentStateAsync() : Task.CompletedTask;
-
-        private void BindSurfaceGeneration()
-        {
-            compute.SetBuffer(_generateSurfaceKernel, PageHashId, _grid.PageHashBuffer);
-            compute.SetBuffer(_generateSurfaceKernel, IntegrationEnabledId,
-                _grid.IntegrationEnabledBuffer);
-            compute.SetBuffer(_generateSurfaceKernel, SurfaceBitsId,
-                _grid.SurfaceCandidateBitsBuffer);
-            compute.SetBuffer(_generateSurfaceKernel, SurfaceQueueId,
-                _grid.SurfaceQueueBuffer);
-            compute.SetBuffer(_generateSurfaceKernel, SurfaceCountId,
-                _grid.SurfaceCountBuffer);
-            compute.SetTexture(_generateSurfaceKernel, DepthCapture.DepthTexID,
-                _depthCapture.DepthTex);
-        }
-
-        private void BindSurfaceIntegration()
-        {
-            BindObservation(_surfaceKernel);
-            compute.SetBuffer(_surfaceKernel, SurfaceBitsId,
-                _grid.SurfaceCandidateBitsBuffer);
-            compute.SetBuffer(_surfaceKernel, SurfaceQueueReadId,
-                _grid.SurfaceQueueBuffer);
-            compute.SetBuffer(_surfaceKernel, SurfaceCountReadId,
-                _grid.SurfaceCountBuffer);
-            compute.SetBuffer(_surfaceKernel, CarveListedBitsId,
-                _grid.CarveListedBitsBuffer);
-            compute.SetBuffer(_surfaceKernel, CarveLocalIndicesId,
-                _grid.CarveLocalIndicesBuffer);
-            compute.SetBuffer(_surfaceKernel, CarveCountsId,
-                _grid.CarveCountsBuffer);
-            BindCamera(_surfaceKernel);
-        }
-
-        private void BindCarveGather()
-        {
-            compute.SetBuffer(_gatherCarveKernel, KernelsId, _grid.KernelBuffer);
-            compute.SetBuffer(_gatherCarveKernel, IntegrationSlotsId,
-                _grid.IntegrationSlotsBuffer);
-            compute.SetBuffer(_gatherCarveKernel, CarveLocalIndicesId,
-                _grid.CarveLocalIndicesBuffer);
-            compute.SetBuffer(_gatherCarveKernel, CarveCountsId,
-                _grid.CarveCountsBuffer);
-            compute.SetBuffer(_gatherCarveKernel, CarveQueueId,
-                _grid.CarveQueueBuffer);
-            compute.SetBuffer(_gatherCarveKernel, CarveCountId,
-                _grid.CarveCountBuffer);
-        }
-
-        private void BindCarveIntegration()
-        {
-            BindObservation(_carveKernel);
-            compute.SetBuffer(_carveKernel, CarveQueueReadId,
-                _grid.CarveQueueBuffer);
-            compute.SetBuffer(_carveKernel, CarveCountReadId,
-                _grid.CarveCountBuffer);
-        }
-
-        private void BindObservation(int kernel)
-        {
-            compute.SetBuffer(kernel, KernelsId, _grid.KernelBuffer);
-            compute.SetBuffer(kernel, PageCoordsId, _grid.PageCoordsBuffer);
-            compute.SetBuffer(kernel, PageNeighboursId, _grid.PageNeighboursBuffer);
-            compute.SetBuffer(kernel, PublicationDirtyId,
-                _grid.PublicationDirtyChunksBuffer);
-            compute.SetBuffer(kernel, GpuPublicationDirtyQueueId,
-                _grid.GpuPublicationDirtyQueueBuffer);
             compute.SetTexture(kernel, DepthCapture.DepthTexID,
                 _depthCapture.DepthTex);
             compute.SetTexture(kernel, DepthCapture.NormTexID,
@@ -320,57 +356,128 @@ namespace Genesis.RoomScan
                 _depthCapture.DilatedDepthTex);
         }
 
-        private void PrepareIndirect(ComputeBuffer count, ComputeBuffer args)
-        {
-            compute.SetBuffer(_prepareArgsKernel, WorkCountId, count);
-            compute.SetBuffer(_prepareArgsKernel, IndirectArgsId, args);
-            compute.Dispatch(_prepareArgsKernel, 1, 1, 1);
-        }
-
         private void BindCamera(int kernel)
         {
-            bool available = _cameraFrameAvailable && _cameraFrameCopy != null;
-            compute.SetTexture(kernel, CameraRgbId,
-                available ? _cameraFrameCopy : _dummyCameraTexture);
+            bool available = _cameraObservationHeld && _heldCameraSlot >= 0 &&
+                             _cameraAvailable[_heldCameraSlot];
+            Texture cameraTexture = available
+                ? _cameraFrameCopies[_heldCameraSlot] : DummyCameraTexture();
+            compute.SetTexture(kernel, CameraRgbId, cameraTexture);
             compute.SetInt(CameraAvailableId, available ? 1 : 0);
-            if (!available) return;
-
-            compute.SetVector(CameraPositionId, _pendingCameraPosition);
+            int slot = _heldCameraSlot;
+            compute.SetVector(CameraPositionId, slot >= 0
+                ? _cameraPosition[slot] : Vector3.zero);
             compute.SetMatrix(CameraInverseRotationId,
-                Matrix4x4.Rotate(Quaternion.Inverse(_pendingCameraRotation)));
-            compute.SetVector(CameraFocalLengthId, _pendingFocalLength);
-            compute.SetVector(CameraPrincipalPointId, _pendingPrincipalPoint);
-            compute.SetVector(CameraSensorResolutionId, _pendingSensorResolution);
-            compute.SetVector(CameraCurrentResolutionId, _pendingCurrentResolution);
+                Matrix4x4.Rotate(slot >= 0
+                    ? _cameraRotation[slot] : Quaternion.identity).inverse);
+            compute.SetVector(CameraFocalLengthId, slot >= 0
+                ? _cameraFocalLength[slot] : Vector2.one);
+            compute.SetVector(CameraPrincipalPointId, slot >= 0
+                ? _cameraPrincipalPoint[slot] : Vector2.zero);
+            compute.SetVector(CameraSensorResolutionId, slot >= 0
+                ? _cameraSensorResolution[slot] : Vector2.one);
+            compute.SetVector(CameraCurrentResolutionId, slot >= 0
+                ? _cameraCurrentResolution[slot] : Vector2.one);
             compute.SetFloat(CameraExposureId, cameraExposure);
         }
 
-        private void CopyCameraFrame(Texture frame)
+        private void DispatchCarveQuery(CommandBuffer command)
         {
-            int width = frame.width;
-            int height = frame.height;
-            if (_cameraFrameCopy == null || _cameraFrameCopy.width != width ||
-                _cameraFrameCopy.height != height)
+            Vector3 leftOrigin = _depthCapture.ViewInv[0].GetColumn(3);
+            Vector3 rightOrigin = _depthCapture.ViewInv[1].GetColumn(3);
+            Vector3 observationOrigin = (leftOrigin + rightOrigin) * 0.5f;
+            Matrix4x4 worldToGrid = _grid.GridToWorldMatrix.inverse;
+            float3 gridCamera = (float3)worldToGrid.MultiplyPoint3x4(
+                observationOrigin) / MerkabaConstants.LatticeStep;
+            int3 globalKernel = (int3)math.floor(gridCamera);
+            int3 centerBlock = MerkabaSpatial.Encode(globalKernel).BlockCoord;
+            int radius = Mathf.CeilToInt(maxUpdateDistance /
+                MerkabaSpatial.BlockWorldSize) + 1;
+            int side = radius * 2 + 1;
+            compute.SetInts("_M8ScanCenterBlock", centerBlock.x,
+                centerBlock.y, centerBlock.z);
+            compute.SetInt("_M8ScanBlockRadius", radius);
+            compute.SetInt("_M8ScanBlockSide", side);
+            compute.SetVector("_M8ScanCameraWorld", observationOrigin);
+
+            WriteFrustumPlanes(_depthCapture.Proj[0] * _depthCapture.View[0], 0);
+            WriteFrustumPlanes(_depthCapture.Proj[1] * _depthCapture.View[1], 6);
+            compute.SetVectorArray("_M8ScanPlanes", _scanPlanes);
+            command.DispatchComputeProfiled(compute, _queryCarveKernel,
+                side * side * side, 1, 1);
+        }
+
+        private void WriteFrustumPlanes(Matrix4x4 matrix, int offset)
+        {
+            GeometryUtility.CalculateFrustumPlanes(matrix, _frustumScratch);
+            for (int i = 0; i < 6; i++)
+                _scanPlanes[offset + i] = new Vector4(
+                    _frustumScratch[i].normal.x, _frustumScratch[i].normal.y,
+                    _frustumScratch[i].normal.z, _frustumScratch[i].distance);
+        }
+
+        private void AcquireCameraObservation()
+        {
+            _cameraObservationHeld = true;
+            _heldCameraSlot = _readyCameraSlot;
+            _readyCameraSlot = -1;
+            bool available = _heldCameraSlot >= 0 &&
+                             _cameraAvailable[_heldCameraSlot];
+            _depthCapture.SetRGBGuide(available
+                ? _cameraFrameCopies[_heldCameraSlot] : null);
+        }
+
+        private void ReleaseOwnedObservation()
+        {
+            _depthCapture?.ReleaseConsumedObservation();
+            _depthCapture?.SetRGBGuide(null);
+            _cameraObservationHeld = false;
+            _heldCameraSlot = -1;
+        }
+
+        private void CopyCameraFrame(Texture frame, int slot)
+        {
+            int width = Mathf.Max(1, frame.width);
+            int height = Mathf.Max(1, frame.height);
+            RenderTexture owned = _cameraFrameCopies[slot];
+            if (owned == null || owned.width != width || owned.height != height)
             {
-                if (_cameraFrameCopy != null) Destroy(_cameraFrameCopy);
-                _cameraFrameCopy = new RenderTexture(width, height, 0,
-                    GraphicsFormat.R8G8B8A8_SRGB, 0)
+                if (owned != null) Destroy(owned);
+                owned = new RenderTexture(width, height, 0,
+                    GraphicsFormat.R8G8B8A8_UNorm)
                 {
+                    name = $"Merkaba Owned PCA {slot}",
                     filterMode = FilterMode.Bilinear,
                     wrapMode = TextureWrapMode.Clamp
                 };
-                _cameraFrameCopy.Create();
+                owned.Create();
+                _cameraFrameCopies[slot] = owned;
             }
-            Graphics.Blit(frame, _cameraFrameCopy);
+            Graphics.Blit(frame, owned);
         }
 
-        public static MerkabaObservationResult IntegrateObservation(ref KernelState state,
-            in MerkabaObservationInput input, Color32 color)
+        private Texture2D DummyCameraTexture()
         {
-            MerkabaObservationResult result = MerkabaObservation.Classify(input);
-            IntegrateClassified(ref state, result.Kind, result.Quality, color);
-            return result;
+            if (_dummyCameraTexture != null) return _dummyCameraTexture;
+            _dummyCameraTexture = new Texture2D(1, 1,
+                TextureFormat.RGBA32, false, true);
+            _dummyCameraTexture.SetPixel(0, 0, Color.black);
+            _dummyCameraTexture.Apply(false, true);
+            return _dummyCameraTexture;
         }
+
+        public void Clear()
+        {
+            _grid?.Clear();
+            _observationPrepared = false;
+            _observationToken = 0u;
+            ReleaseOwnedObservation();
+            _readyCameraSlot = -1;
+            IntegrationCount = 0;
+        }
+
+        internal void RestoreIntegrationCount(int integrationCount) =>
+            IntegrationCount = Mathf.Max(0, integrationCount);
 
         public static bool IntegrateClassified(ref KernelState state,
             MerkabaObservationKind kind, float quality, Color32 color) =>

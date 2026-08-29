@@ -201,7 +201,7 @@ namespace Genesis.RoomScan.Editor
 
             DepthCapture depth = GetOrAdd<DepthCapture>(scannerObject);
             GetOrAdd<PassthroughCameraProvider>(scannerObject);
-            GetOrAdd<MerkabaGrid>(scannerObject);
+            MerkabaGrid grid = GetOrAdd<MerkabaGrid>(scannerObject);
             MerkabaIntegrator integrator = GetOrAdd<MerkabaIntegrator>(scannerObject);
             MerkabaGridRenderer renderer = GetOrAdd<MerkabaGridRenderer>(scannerObject);
             GetOrAdd<MerkabaPersistence>(scannerObject);
@@ -216,8 +216,10 @@ namespace Genesis.RoomScan.Editor
                 "Packages/com.genesis.roomscan/Runtime/Shaders/BilateralDepthFilter.compute");
             AssignAsset(integrator, "compute",
                 "Packages/com.genesis.roomscan/Runtime/Shaders/MerkabaIntegration.compute");
-            AssignAsset(renderer, "topologyCompute",
-                "Packages/com.genesis.roomscan/Runtime/Shaders/MerkabaTopology.compute");
+            AssignAsset(grid, "worldCompute",
+                "Packages/com.genesis.roomscan/Runtime/Shaders/MerkabaWorld.compute");
+            AssignAsset(renderer, "frameCompilerCompute",
+                "Packages/com.genesis.roomscan/Runtime/Shaders/MerkabaFrameCompiler.compute");
             AssignAsset(renderer, "renderShader",
                 "Packages/com.genesis.roomscan/Runtime/Shaders/MerkabaGrid.shader");
         }

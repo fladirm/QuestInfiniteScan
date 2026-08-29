@@ -89,6 +89,7 @@ namespace Genesis.RoomScan.Editor
                 }
 
                 ApplyQuestFriendlyDefaults(pipeline);
+                EnsureMerkabaRenderFeature(pipeline);
 
                 // Wire into GraphicsSettings + every quality level.
                 if (GraphicsSettings.defaultRenderPipeline != pipeline)
@@ -212,6 +213,26 @@ namespace Genesis.RoomScan.Editor
                 Debug.Log("[RoomScan Setup] Applied Quest-friendly defaults to URP-Pipeline.asset " +
                           "(4x MSAA, no HDR, 1 shadow cascade, 30m shadow distance, no soft shadows).");
             }
+        }
+
+        static void EnsureMerkabaRenderFeature(
+            UniversalRenderPipelineAsset pipeline)
+        {
+            ScriptableRendererData rendererData = pipeline.rendererDataList.Length > 0
+                ? pipeline.rendererDataList[0] : null;
+            if (rendererData == null ||
+                rendererData.TryGetRendererFeature<MerkabaRenderFeature>(out _))
+                return;
+
+            var feature = CreateInstance<MerkabaRenderFeature>();
+            feature.name = "Merkaba M8 Readout";
+            feature.hideFlags = HideFlags.HideInHierarchy;
+            AssetDatabase.AddObjectToAsset(feature, rendererData);
+            rendererData.rendererFeatures.Add(feature);
+            feature.Create();
+            rendererData.SetDirty();
+            EditorUtility.SetDirty(rendererData);
+            Debug.Log("[RoomScan Setup] Installed Merkaba M8 URP render pass.");
         }
 
         static void AssignToAllQualityLevels(UniversalRenderPipelineAsset pipeline)

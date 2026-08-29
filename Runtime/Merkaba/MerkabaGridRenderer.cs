@@ -1,55 +1,40 @@
 using System;
-using System.Collections.Generic;
-using Unity.Mathematics;
 using UnityEngine;
 using UnityEngine.Rendering;
 
 namespace Genesis.RoomScan
 {
-    /// <summary>
-    /// Rebuilds only queued dirty resident chunks into persistent compact triangle
-    /// records, then draws exactly three vertices per published canonical primitive.
-    /// A clean frame submits zero topology/publication groups.
-    /// </summary>
+    /// <summary>GPU M8 Q_DRAW/Q_WARM frame compiler and one indirect SPI draw.</summary>
     [DisallowMultipleComponent]
     public sealed class MerkabaGridRenderer : MonoBehaviour
     {
-        [SerializeField] private ComputeShader topologyCompute;
+        private static MerkabaGridRenderer _active;
+
+        [SerializeField] private ComputeShader frameCompilerCompute;
         [SerializeField] private Shader renderShader;
         [SerializeField, Range(2f, 12f)] private float renderDistance = 8f;
         [SerializeField, Range(0f, 1f)] private float scanOpacity = 1f;
 
         private MerkabaGrid _grid;
         private Material _material;
-        private MaterialPropertyBlock _drawProperties;
-        private int _rebuildKernel = -1;
-        private int _finalizeKernel = -1;
-        private int _migrateKernel = -1;
+        private int _resetKernel;
+        private int _queryKernel;
+        private int _prepareKernel;
+        private int _compileKernel;
+        private int _finalizeKernel;
         private bool _initialized;
         private bool _statusReadbackPending;
-        private bool _statusSampleRequested;
-        private int _statusPartsPending;
-        private float _nextStatusSampleTime;
-        private uint[] _lastPublicationVersions;
-        private uint _requestedResizeRequirement;
-        private bool _resizeMigrationPending;
-        private MerkabaPublicationBuffer _replacementPublication;
-        private uint _replacementRequirement;
-        private bool _publicationResizeDisabled;
-        private bool _destroyed;
-        private ShadowCastingMode _shadowCastingMode = ShadowCastingMode.On;
-        private readonly List<MerkabaPublicationBuffer> _retiredPublications = new();
-
-        private const float StatusSampleIntervalSeconds = 1f;
+        private float _nextStatusReadback;
+        private readonly Vector4[] _drawPlanes = new Vector4[12];
+        private readonly Vector4[] _eyePositions = new Vector4[2];
+        private readonly Plane[] _frustumScratch = new Plane[6];
 
         public int VisiblePrimitiveCount { get; private set; }
-        public int VisibleSurfaceKernelCount => VisiblePrimitiveCount;
-        public int PublicationOverflowChunkCount { get; private set; }
-        public uint PeakPrimitiveRequirement { get; private set; }
-        public int PublicationPrimitiveCapacity =>
-            _grid != null && _grid.GpuReady ? _grid.PublicationPrimitiveCapacity : 0;
-        public int LastPublicationDirtyChunkCount { get; private set; }
-        public ulong TotalPublicationChunkRebuilds { get; private set; }
+        public int VisibleSurfaceKernelCount { get; private set; }
+        public int VisibleChunkCount { get; private set; }
+        public int VisibleTileCount { get; private set; }
+        public int LateDrawColdMisses { get; private set; }
+        public bool RenderPrimitiveOverflow { get; private set; }
         public float ScanOpacity
         {
             get => scanOpacity;
@@ -60,48 +45,17 @@ namespace Genesis.RoomScan
             }
         }
 
-        private static readonly int KernelsId = Shader.PropertyToID("_MerkabaKernels");
-        private static readonly int PageCoordsId = Shader.PropertyToID("_MerkabaPageCoords");
-        private static readonly int PageNeighboursId =
-            Shader.PropertyToID("_MerkabaPageNeighbours");
-        private static readonly int BoundarySummaryHashId =
-            Shader.PropertyToID("_MerkabaBoundarySummaryHash");
-        private static readonly int BoundarySummaryWordsId =
-            Shader.PropertyToID("_MerkabaBoundarySummaryWords");
-        private static readonly int BoundarySummaryHashCountId =
-            Shader.PropertyToID("_MerkabaBoundarySummaryHashCapacity");
-        private static readonly int DirtySlotQueueId =
-            Shader.PropertyToID("_MerkabaDirtySlotQueue");
-        private static readonly int PublicationDirtyId =
-            Shader.PropertyToID("_MerkabaPublicationDirtyChunks");
-        private static readonly int PublicationVersionsId =
-            Shader.PropertyToID("_MerkabaPublicationVersions");
-        private static readonly int PrimitiveRecordBanksId =
-            Shader.PropertyToID("_MerkabaPrimitiveRecordBanks");
-        private static readonly int SourcePrimitiveRecordBanksId =
-            Shader.PropertyToID("_MerkabaSourcePrimitiveRecordBanks");
-        private static readonly int SourcePublishedBanksId =
-            Shader.PropertyToID("_MerkabaSourcePublishedBanks");
-        private static readonly int PrimitiveCountsId =
-            Shader.PropertyToID("_MerkabaPrimitiveCounts");
-        private static readonly int PrimitiveBuildCountsId =
-            Shader.PropertyToID("_MerkabaPrimitiveBuildCounts");
-        private static readonly int PublicationOverflowCountsId =
-            Shader.PropertyToID("_MerkabaPublicationOverflowCounts");
-        private static readonly int PublishedBanksId =
-            Shader.PropertyToID("_MerkabaPublishedBanks");
-        private static readonly int PrimitiveDrawArgsId =
-            Shader.PropertyToID("_MerkabaPrimitiveDrawArgs");
-        private static readonly int ResidentCapacityId =
-            Shader.PropertyToID("_MerkabaResidentSlotCapacity");
-        private static readonly int PrimitiveCapacityId =
-            Shader.PropertyToID("_MerkabaPrimitiveCapacityPerChunk");
-        private static readonly int SourcePrimitiveCapacityId =
-            Shader.PropertyToID("_MerkabaSourcePrimitiveCapacityPerChunk");
-        private static readonly int ResidentSlotId =
-            Shader.PropertyToID("_MerkabaResidentSlot");
-        private static readonly int ChunkOriginId = Shader.PropertyToID("_MerkabaChunkOrigin");
-        private static readonly int GridToWorldId = Shader.PropertyToID("_MerkabaGridToWorld");
+        private static readonly int GridToWorldId =
+            Shader.PropertyToID("_MerkabaGridToWorld");
+        private static readonly int WorldToGridId =
+            Shader.PropertyToID("_MerkabaWorldToGrid");
+        private static readonly int VisibleTilesId =
+            Shader.PropertyToID("_M8VisibleTiles");
+        private static readonly int VisiblePrimitivesId =
+            Shader.PropertyToID("_M8VisiblePrimitives");
+        private static readonly int FrameDispatchArgsId =
+            Shader.PropertyToID("_M8FrameDispatchArgs");
+        private static readonly int DrawArgsId = Shader.PropertyToID("_M8DrawArgs");
         private static readonly int ScanOpacityId = Shader.PropertyToID("_ScanOpacity");
         private static readonly int SrcBlendId = Shader.PropertyToID("_SrcBlend");
         private static readonly int DstBlendId = Shader.PropertyToID("_DstBlend");
@@ -109,221 +63,188 @@ namespace Genesis.RoomScan
 
         private void Awake() => _grid = GetComponent<MerkabaGrid>();
 
+        private void OnEnable() => _active = this;
+
+        private void OnDisable()
+        {
+            if (_active == this) _active = null;
+            MerkabaGpuTimestamps.CloseIncompleteFrame();
+        }
+
         private void OnDestroy()
         {
-            _destroyed = true;
-            _replacementPublication.Release();
-            foreach (MerkabaPublicationBuffer retired in _retiredPublications)
-                retired.Release();
-            _retiredPublications.Clear();
+            if (_active == this) _active = null;
             if (_material != null) Destroy(_material);
         }
 
-        private void LateUpdate()
+        internal static bool TryGetActive(Camera camera,
+            out MerkabaGridRenderer renderer)
         {
-            Camera camera = Camera.main;
-            if (camera == null || _grid == null)
-            {
-                MerkabaGpuTimestamps.EndFrame();
-                return;
-            }
-            if (!_initialized && !Initialize())
-            {
-                MerkabaGpuTimestamps.EndFrame();
-                return;
-            }
-
-            RoomScanner scanner = RoomScanner.Instance;
-            if (scanner == null || !scanner.IsScanning)
-                _grid.ClearIntegrationResidencyDemand();
-            _grid.RefreshResidency(camera, renderDistance, false);
-
-            int cpuDirtyGroups = 0;
-            bool gpuQueueSubmitted = false;
-            // During the exceptional migration, current records remain the render
-            // authority and dirty state accumulates without modifying them.
-            if (!_resizeMigrationPending)
-            {
-                cpuDirtyGroups = _grid.FlushCpuPublicationDirtySlots();
-                if (cpuDirtyGroups > 0)
-                    DispatchDirectDirtyQueue(_grid.CpuPublicationDirtySlotsBuffer,
-                        cpuDirtyGroups);
-
-                if (_grid.ConsumeGpuPublicationMayBeDirty())
-                {
-                    DispatchGpuDirtyQueue();
-                    gpuQueueSubmitted = true;
-                }
-
-                if (cpuDirtyGroups > 0 || gpuQueueSubmitted)
-                    _statusSampleRequested = true;
-            }
-
-            bool drawsMerkaba = _grid.VisibleChunkCount > 0 &&
-                                scanOpacity > 0.001f;
-            if (drawsMerkaba)
-                MerkabaGpuTimestamps.BeginGraphics(
-                    MerkabaGpuStage.MerkabaDraw);
-            DrawVisibleChunks(camera);
-            if (drawsMerkaba)
-                MerkabaGpuTimestamps.EndGraphics(
-                    MerkabaGpuStage.MerkabaDraw);
-            MerkabaGpuTimestamps.CaptureRenderMetrics(_grid, cpuDirtyGroups,
-                gpuQueueSubmitted);
-            MerkabaGpuTimestamps.EndFrame();
-
-            if (_statusSampleRequested && !_statusReadbackPending &&
-                Time.unscaledTime >= _nextStatusSampleTime)
-            {
-                _statusSampleRequested = false;
-                _nextStatusSampleTime = Time.unscaledTime +
-                                        StatusSampleIntervalSeconds;
-                RequestPublicationStatus();
-            }
-
-            // Start only after this frame queued every draw using the current buffer.
-            if (!_resizeMigrationPending &&
-                !_publicationResizeDisabled &&
-                _requestedResizeRequirement > _grid.PublicationPrimitiveCapacity)
-                BeginExceptionalResizeMigration();
+            renderer = _active;
+            return renderer != null && renderer._initialized &&
+                   renderer.isActiveAndEnabled && camera == Camera.main;
         }
 
         private bool Initialize()
         {
-            if (topologyCompute == null || renderShader == null)
+            if (_initialized) return true;
+            if (_grid == null || frameCompilerCompute == null || renderShader == null)
             {
-                Logger.Error("MerkabaGridRenderer: shader references are not wired");
+                Logger.Error("Merkaba frame compiler assets are not wired.");
                 enabled = false;
                 return false;
             }
             _grid.EnsureGpuResources();
-            _rebuildKernel = topologyCompute.FindKernel("RebuildDirtyChunkRecords");
-            _finalizeKernel = topologyCompute.FindKernel("FinalizeDirtyChunkRecords");
-            _migrateKernel = topologyCompute.FindKernel("MigratePublishedChunkRecords");
-            _material = new Material(renderShader) { name = "MerkabaGrid (Runtime)" };
-            _drawProperties = new MaterialPropertyBlock();
-            _lastPublicationVersions = new uint[_grid.ResidentSlotCapacity];
+            _resetKernel = frameCompilerCompute.FindProfiledKernel(
+                "ResetFrame", MerkabaGpuStage.WorldQuery);
+            _queryKernel = frameCompilerCompute.FindProfiledKernel(
+                "QueryM8Frame", MerkabaGpuStage.WorldQuery);
+            _prepareKernel = frameCompilerCompute.FindProfiledKernel(
+                "PrepareFrameCompilerArgs", MerkabaGpuStage.FrameCompile);
+            _compileKernel = frameCompilerCompute.FindProfiledKernel(
+                "CompileVisiblePrimitives", MerkabaGpuStage.FrameCompile);
+            _finalizeKernel = frameCompilerCompute.FindProfiledKernel(
+                "FinalizeDrawArgs", MerkabaGpuStage.FrameCompile);
+            foreach (int kernel in new[]
+                     {
+                         _resetKernel, _queryKernel, _prepareKernel,
+                         _compileKernel, _finalizeKernel
+                     })
+            {
+                _grid.BindWorldBuffers(frameCompilerCompute, kernel);
+                frameCompilerCompute.SetBuffer(kernel, VisibleTilesId,
+                    _grid.M8VisibleTiles);
+                frameCompilerCompute.SetBuffer(kernel, VisiblePrimitivesId,
+                    _grid.M8VisiblePrimitives);
+                frameCompilerCompute.SetBuffer(kernel, FrameDispatchArgsId,
+                    _grid.M8FrameDispatchArgs);
+                frameCompilerCompute.SetBuffer(kernel, DrawArgsId,
+                    _grid.M8DrawArgs);
+            }
+            _material = new Material(renderShader)
+            {
+                name = "Merkaba M8 Readout"
+            };
+            _material.SetBuffer(VisiblePrimitivesId, _grid.M8VisiblePrimitives);
             ApplyOpacityState();
             _initialized = true;
             return true;
         }
 
-        private void DispatchDirectDirtyQueue(ComputeBuffer queue, int groupCount)
+        private void LateUpdate()
         {
-            BindRebuildKernel(queue);
-            MerkabaGpuTimestamps.BeginCompute(
-                MerkabaGpuStage.TopologyUpdate);
-            topologyCompute.Dispatch(_rebuildKernel, groupCount, 512, 1);
-            MerkabaGpuTimestamps.EndCompute(
-                MerkabaGpuStage.TopologyUpdate);
-            BindFinalizeKernel(queue);
-            MerkabaGpuTimestamps.BeginCompute(
-                MerkabaGpuStage.PublicationCompaction);
-            topologyCompute.Dispatch(_finalizeKernel, groupCount, 1, 1);
-            MerkabaGpuTimestamps.EndCompute(
-                MerkabaGpuStage.PublicationCompaction);
-        }
-
-        private void DispatchGpuDirtyQueue()
-        {
-            ComputeBuffer.CopyCount(_grid.GpuPublicationDirtyQueueBuffer,
-                _grid.GpuPublicationDispatchArgsBuffer, 0);
-            ComputeBuffer.CopyCount(_grid.GpuPublicationDirtyQueueBuffer,
-                _grid.GpuPublicationFinalizeArgsBuffer, 0);
-            BindRebuildKernel(_grid.GpuPublicationDirtyQueueBuffer);
-            MerkabaGpuTimestamps.BeginCompute(
-                MerkabaGpuStage.TopologyUpdate);
-            topologyCompute.DispatchIndirect(_rebuildKernel,
-                _grid.GpuPublicationDispatchArgsBuffer);
-            MerkabaGpuTimestamps.EndCompute(
-                MerkabaGpuStage.TopologyUpdate);
-            BindFinalizeKernel(_grid.GpuPublicationDirtyQueueBuffer);
-            MerkabaGpuTimestamps.BeginCompute(
-                MerkabaGpuStage.PublicationCompaction);
-            topologyCompute.DispatchIndirect(_finalizeKernel,
-                _grid.GpuPublicationFinalizeArgsBuffer);
-            MerkabaGpuTimestamps.EndCompute(
-                MerkabaGpuStage.PublicationCompaction);
-            _grid.GpuPublicationDirtyQueueBuffer.SetCounterValue(0);
-        }
-
-        private void BindRebuildKernel(ComputeBuffer dirtyQueue)
-        {
-            topologyCompute.SetBuffer(_rebuildKernel, KernelsId, _grid.KernelBuffer);
-            topologyCompute.SetBuffer(_rebuildKernel, PageCoordsId,
-                _grid.PageCoordsBuffer);
-            topologyCompute.SetBuffer(_rebuildKernel, PageNeighboursId,
-                _grid.PageNeighboursBuffer);
-            topologyCompute.SetBuffer(_rebuildKernel, BoundarySummaryHashId,
-                _grid.BoundarySummaryHashBuffer);
-            topologyCompute.SetBuffer(_rebuildKernel, BoundarySummaryWordsId,
-                _grid.BoundarySummaryWordsBuffer);
-            topologyCompute.SetBuffer(_rebuildKernel, DirtySlotQueueId, dirtyQueue);
-            topologyCompute.SetBuffer(_rebuildKernel, PublicationDirtyId,
-                _grid.PublicationDirtyChunksBuffer);
-            topologyCompute.SetBuffer(_rebuildKernel, PrimitiveRecordBanksId,
-                _grid.PrimitiveRecordBanksBuffer);
-            topologyCompute.SetBuffer(_rebuildKernel, PrimitiveBuildCountsId,
-                _grid.PrimitiveBuildCountBuffer);
-            topologyCompute.SetBuffer(_rebuildKernel, PublishedBanksId,
-                _grid.PublishedBankBuffer);
-            topologyCompute.SetInt(ResidentCapacityId, _grid.ResidentSlotCapacity);
-            topologyCompute.SetInt(PrimitiveCapacityId,
-                _grid.PublicationPrimitiveCapacity);
-            topologyCompute.SetInt(BoundarySummaryHashCountId,
-                _grid.BoundarySummaryHashEntryCount);
-        }
-
-        private void BindFinalizeKernel(ComputeBuffer dirtyQueue)
-        {
-            topologyCompute.SetBuffer(_finalizeKernel, DirtySlotQueueId, dirtyQueue);
-            topologyCompute.SetBuffer(_finalizeKernel, PublicationDirtyId,
-                _grid.PublicationDirtyChunksBuffer);
-            topologyCompute.SetBuffer(_finalizeKernel, PublicationVersionsId,
-                _grid.PublicationVersionBuffer);
-            topologyCompute.SetBuffer(_finalizeKernel, PrimitiveCountsId,
-                _grid.PrimitiveCountBuffer);
-            topologyCompute.SetBuffer(_finalizeKernel, PrimitiveBuildCountsId,
-                _grid.PrimitiveBuildCountBuffer);
-            topologyCompute.SetBuffer(_finalizeKernel, PublicationOverflowCountsId,
-                _grid.PublicationOverflowCountBuffer);
-            topologyCompute.SetBuffer(_finalizeKernel, PublishedBanksId,
-                _grid.PublishedBankBuffer);
-            topologyCompute.SetBuffer(_finalizeKernel, PrimitiveDrawArgsId,
-                _grid.PrimitiveDrawArgsBuffer);
-            topologyCompute.SetInt(ResidentCapacityId, _grid.ResidentSlotCapacity);
-            topologyCompute.SetInt(PrimitiveCapacityId,
-                _grid.PublicationPrimitiveCapacity);
-        }
-
-        private void DrawVisibleChunks(Camera camera)
-        {
-            if (_grid.VisibleChunkCount == 0 || scanOpacity <= 0.001f) return;
-            _material.SetBuffer(KernelsId, _grid.KernelBuffer);
-            _material.SetBuffer(PrimitiveRecordBanksId,
-                _grid.PrimitiveRecordBanksBuffer);
-            _material.SetBuffer(PublishedBanksId, _grid.PublishedBankBuffer);
-            _material.SetInt(ResidentCapacityId, _grid.ResidentSlotCapacity);
-            _material.SetInt(PrimitiveCapacityId,
-                _grid.PublicationPrimitiveCapacity);
-            _material.SetMatrix(GridToWorldId, _grid.GridToWorldMatrix);
-            Bounds bounds = new(camera.transform.position,
-                Vector3.one * (renderDistance * 2.5f));
-            for (int visibleIndex = 0;
-                 visibleIndex < _grid.VisibleChunkCount; visibleIndex++)
+            Camera camera = Camera.main;
+            if (camera == null || !Initialize())
             {
-                int slot = _grid.VisibleSlotAt(visibleIndex);
-                int3 chunkOrigin = MerkabaConstants.ChunkOrigin(
-                    _grid.ResidentCoordAtSlot(slot));
-                _drawProperties.Clear();
-                _drawProperties.SetInt(ResidentSlotId, slot);
-                _drawProperties.SetVector(ChunkOriginId,
-                    new Vector4(chunkOrigin.x, chunkOrigin.y, chunkOrigin.z, 0f));
-                Graphics.DrawProceduralIndirect(_material, bounds,
-                    MeshTopology.Triangles, _grid.PrimitiveDrawArgsBuffer,
-                    slot * 4 * sizeof(uint), null, _drawProperties,
-                    _shadowCastingMode, true, gameObject.layer);
+                MerkabaGpuTimestamps.CloseIncompleteFrame();
+                return;
             }
+
+            ConfigureFrame(camera);
+            CommandBuffer command = CommandBufferPool.Get(
+                "Merkaba M8 frame compiler");
+            bool submitted = false;
+            try
+            {
+                if (MerkabaGpuTimestamps.IsRecording)
+                    _grid.RecordHashBenchmark(command);
+                int querySide = Mathf.CeilToInt((renderDistance +
+                    MerkabaSpatial.BlockWorldSize) /
+                    MerkabaSpatial.BlockWorldSize) * 2 + 3;
+                command.DispatchComputeProfiled(frameCompilerCompute,
+                    _resetKernel, 1, 1, 1);
+                command.DispatchComputeProfiled(frameCompilerCompute,
+                    _queryKernel, querySide * querySide * querySide, 1, 1);
+                command.DispatchComputeProfiled(frameCompilerCompute,
+                    _prepareKernel, 1, 1, 1);
+                command.DispatchComputeProfiled(frameCompilerCompute,
+                    _compileKernel, _grid.M8FrameDispatchArgs);
+                command.DispatchComputeProfiled(frameCompilerCompute,
+                    _finalizeKernel, 1, 1, 1);
+                Graphics.ExecuteCommandBuffer(command);
+                submitted = true;
+            }
+            finally
+            {
+                if (!submitted)
+                    MerkabaGpuTimestamps.CancelUnsubmittedFrame();
+                CommandBufferPool.Release(command);
+            }
+            _material.SetMatrix(GridToWorldId, _grid.GridToWorldMatrix);
+            MerkabaGpuTimestamps.CaptureM8Metrics(_grid);
+            RequestStatusIfDue();
+        }
+
+        internal void RecordRenderPass(RasterCommandBuffer command)
+        {
+            if (command == null) throw new ArgumentNullException(nameof(command));
+            if (_initialized && _material != null && scanOpacity > 0.001f)
+                command.DrawProceduralIndirectProfiled(Matrix4x4.identity,
+                    _material, 0, MeshTopology.Triangles, _grid.M8DrawArgs, 0);
+            MerkabaGpuTimestamps.RecordProfileEnd(command);
+            MerkabaGpuTimestamps.CompleteFrameSubmission(true);
+        }
+
+        private void ConfigureFrame(Camera camera)
+        {
+            Matrix4x4 leftView;
+            Matrix4x4 rightView;
+            Matrix4x4 leftProjection;
+            Matrix4x4 rightProjection;
+            if (camera.stereoEnabled)
+            {
+                leftView = camera.GetStereoViewMatrix(Camera.StereoscopicEye.Left);
+                rightView = camera.GetStereoViewMatrix(Camera.StereoscopicEye.Right);
+                leftProjection = camera.GetStereoProjectionMatrix(
+                    Camera.StereoscopicEye.Left);
+                rightProjection = camera.GetStereoProjectionMatrix(
+                    Camera.StereoscopicEye.Right);
+            }
+            else
+            {
+                leftView = rightView = camera.worldToCameraMatrix;
+                leftProjection = rightProjection = camera.projectionMatrix;
+            }
+            WritePlanes(leftProjection * leftView, 0);
+            WritePlanes(rightProjection * rightView, 6);
+            _eyePositions[0] = leftView.inverse.GetColumn(3);
+            _eyePositions[1] = rightView.inverse.GetColumn(3);
+
+            Matrix4x4 worldToGrid = _grid.GridToWorldMatrix.inverse;
+            Vector3 cameraGridMeters = worldToGrid.MultiplyPoint3x4(
+                camera.transform.position);
+            var global = new Unity.Mathematics.int3(
+                Mathf.FloorToInt(cameraGridMeters.x / MerkabaConstants.LatticeStep),
+                Mathf.FloorToInt(cameraGridMeters.y / MerkabaConstants.LatticeStep),
+                Mathf.FloorToInt(cameraGridMeters.z / MerkabaConstants.LatticeStep));
+            Unity.Mathematics.int3 centerBlock = MerkabaSpatial.Encode(global).BlockCoord;
+            float warmDistance = renderDistance + MerkabaSpatial.BlockWorldSize;
+            int radius = Mathf.CeilToInt(warmDistance /
+                MerkabaSpatial.BlockWorldSize) + 1;
+            int side = radius * 2 + 1;
+
+            frameCompilerCompute.SetMatrix(GridToWorldId,
+                _grid.GridToWorldMatrix);
+            frameCompilerCompute.SetMatrix(WorldToGridId, worldToGrid);
+            frameCompilerCompute.SetVectorArray("_M8DrawPlanes", _drawPlanes);
+            frameCompilerCompute.SetVectorArray("_M8EyePositions", _eyePositions);
+            frameCompilerCompute.SetVector("_M8CameraWorld",
+                camera.transform.position);
+            frameCompilerCompute.SetFloat("_M8RenderDistance", renderDistance);
+            frameCompilerCompute.SetFloat("_M8WarmDistance", warmDistance);
+            frameCompilerCompute.SetInts("_M8QueryCenterBlock", centerBlock.x,
+                centerBlock.y, centerBlock.z);
+            frameCompilerCompute.SetInt("_M8QueryBlockRadius", radius);
+            frameCompilerCompute.SetInt("_M8QueryBlockSide", side);
+        }
+
+        private void WritePlanes(Matrix4x4 matrix, int offset)
+        {
+            GeometryUtility.CalculateFrustumPlanes(matrix, _frustumScratch);
+            for (int i = 0; i < 6; i++)
+                _drawPlanes[offset + i] = new Vector4(
+                    _frustumScratch[i].normal.x, _frustumScratch[i].normal.y,
+                    _frustumScratch[i].normal.z, _frustumScratch[i].distance);
         }
 
         private void ApplyOpacityState()
@@ -338,177 +259,29 @@ namespace Genesis.RoomScan
             _material.SetInt(ZWriteId, 1);
             _material.renderQueue = opaque
                 ? (int)RenderQueue.Geometry : (int)RenderQueue.Transparent;
-            _shadowCastingMode = opaque
-                ? ShadowCastingMode.On : ShadowCastingMode.Off;
         }
 
-        private void RequestPublicationStatus()
+        private void RequestStatusIfDue()
         {
+            if (_statusReadbackPending || Time.unscaledTime < _nextStatusReadback)
+                return;
             _statusReadbackPending = true;
-            _statusPartsPending = 3;
-            int visibleCount = _grid.VisibleChunkCount;
-            var visibleSlots = new int[visibleCount];
-            for (int i = 0; i < visibleCount; i++)
-                visibleSlots[i] = _grid.VisibleSlotAt(i);
-
-            AsyncGPUReadback.Request(_grid.PrimitiveCountBuffer, request =>
+            _nextStatusReadback = Time.unscaledTime + 1f;
+            AsyncGPUReadback.Request(_grid.M8Counters, request =>
             {
-                if (!request.hasError)
-                {
-                    var counts = request.GetData<uint>();
-                    ulong visible = 0;
-                    foreach (int slot in visibleSlots) visible += counts[slot];
-                    VisiblePrimitiveCount = (int)Math.Min((ulong)int.MaxValue, visible);
-                }
-                CompleteStatusPart();
-            });
-            AsyncGPUReadback.Request(_grid.PublicationOverflowCountBuffer, request =>
-            {
-                if (!request.hasError)
-                {
-                    var overflows = request.GetData<uint>();
-                    uint maximum = 0;
-                    int overflowChunks = 0;
-                    for (int slot = 0; slot < overflows.Length; slot++)
-                    {
-                        uint required = overflows[slot];
-                        if (required == 0u) continue;
-                        overflowChunks++;
-                        maximum = Math.Max(maximum, required);
-                    }
-                    PublicationOverflowChunkCount = overflowChunks;
-                    PeakPrimitiveRequirement = Math.Max(PeakPrimitiveRequirement,
-                        maximum);
-                    _requestedResizeRequirement = Math.Max(
-                        _requestedResizeRequirement, maximum);
-                }
-                CompleteStatusPart();
-            });
-            AsyncGPUReadback.Request(_grid.PublicationVersionBuffer, request =>
-            {
-                if (!request.hasError)
-                {
-                    var versions = request.GetData<uint>();
-                    int rebuilt = 0;
-                    int count = Math.Min(versions.Length,
-                        _lastPublicationVersions.Length);
-                    for (int slot = 0; slot < count; slot++)
-                    {
-                        uint previous = _lastPublicationVersions[slot];
-                        uint current = versions[slot];
-                        uint delta = current >= previous
-                            ? current - previous : current;
-                        rebuilt += (int)Math.Min(delta, (uint)int.MaxValue);
-                        _lastPublicationVersions[slot] = current;
-                    }
-                    LastPublicationDirtyChunkCount = rebuilt;
-                    TotalPublicationChunkRebuilds += (ulong)Math.Max(0, rebuilt);
-                }
-                CompleteStatusPart();
+                _statusReadbackPending = false;
+                if (request.hasError) return;
+                var counters = request.GetData<uint>();
+                VisibleTileCount = ToInt(counters[21]);
+                VisiblePrimitiveCount = ToInt(counters[22]);
+                LateDrawColdMisses = ToInt(counters[24]);
+                VisibleChunkCount = ToInt(counters[28]);
+                VisibleSurfaceKernelCount = ToInt(counters[29]);
+                RenderPrimitiveOverflow = counters[23] != 0u;
             });
         }
 
-        private void CompleteStatusPart()
-        {
-            if (--_statusPartsPending > 0) return;
-            _statusReadbackPending = false;
-        }
-
-        private void BeginExceptionalResizeMigration()
-        {
-            if (!SystemInfo.supportsAsyncGPUReadback)
-            {
-                _publicationResizeDisabled = true;
-                _requestedResizeRequirement = 0u;
-                Logger.Error("Merkaba publication growth requires asynchronous GPU " +
-                             "readback; retaining the last valid publication.");
-                return;
-            }
-
-            uint required = _requestedResizeRequirement;
-            try
-            {
-                _replacementPublication =
-                    _grid.CreatePublicationReplacement(required);
-            }
-            catch (Exception exception)
-            {
-                Logger.Error($"Merkaba publication capacity growth failed for " +
-                             $"measured requirement {required}: {exception}");
-                _requestedResizeRequirement = 0u;
-                return;
-            }
-
-            _replacementRequirement = required;
-            _resizeMigrationPending = true;
-            try
-            {
-                topologyCompute.SetBuffer(_migrateKernel,
-                    SourcePrimitiveRecordBanksId,
-                    _grid.PrimitiveRecordBanksBuffer);
-                topologyCompute.SetBuffer(_migrateKernel, SourcePublishedBanksId,
-                    _grid.PublishedBankBuffer);
-                topologyCompute.SetBuffer(_migrateKernel, PrimitiveRecordBanksId,
-                    _replacementPublication.Records);
-                topologyCompute.SetBuffer(_migrateKernel, PrimitiveCountsId,
-                    _grid.PrimitiveCountBuffer);
-                topologyCompute.SetInt(ResidentCapacityId,
-                    _grid.ResidentSlotCapacity);
-                topologyCompute.SetInt(SourcePrimitiveCapacityId,
-                    _grid.PublicationPrimitiveCapacity);
-                topologyCompute.SetInt(PrimitiveCapacityId,
-                    _replacementPublication.CapacityPerChunk);
-                topologyCompute.Dispatch(_migrateKernel,
-                    _grid.ResidentSlotCapacity,
-                    Mathf.CeilToInt(_grid.PublicationPrimitiveCapacity / 64f), 1);
-
-                // This four-byte readback is only a nonblocking completion token for
-                // the scanner-owned replacement buffer. The source remains live.
-                AsyncGPUReadback.Request(_replacementPublication.Records,
-                    sizeof(uint), 0, CompleteResizeMigration);
-            }
-            catch (Exception exception)
-            {
-                FailResizeMigration(exception.Message);
-            }
-        }
-
-        private void CompleteResizeMigration(AsyncGPUReadbackRequest request)
-        {
-            if (_destroyed || !_resizeMigrationPending) return;
-            if (request.hasError || !_replacementPublication.IsValid)
-            {
-                FailResizeMigration("asynchronous completion token failed");
-                return;
-            }
-
-            try
-            {
-                MerkabaPublicationBuffer retired =
-                    _grid.CommitPublicationReplacement(_replacementPublication,
-                        _replacementRequirement);
-                _replacementPublication = default;
-                _resizeMigrationPending = false;
-                _requestedResizeRequirement = 0u;
-                // Prior generations may still be referenced by queued Quest draws.
-                // Publication growth is exceptional; retain them until teardown.
-                _retiredPublications.Add(retired);
-            }
-            catch (Exception exception)
-            {
-                FailResizeMigration(exception.Message);
-            }
-        }
-
-        private void FailResizeMigration(string reason)
-        {
-            _publicationResizeDisabled = true;
-            _resizeMigrationPending = false;
-            _requestedResizeRequirement = 0u;
-            // A submitted migration may still reference the replacement. Keep both
-            // generations alive until teardown and resume source publication work.
-            Logger.Error("Merkaba publication migration failed; retaining source " +
-                         $"and replacement until teardown: {reason}");
-        }
+        private static int ToInt(uint value) =>
+            value > int.MaxValue ? int.MaxValue : (int)value;
     }
 }

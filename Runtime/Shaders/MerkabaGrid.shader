@@ -29,28 +29,14 @@ Shader "Genesis/RoomScan/MerkabaGrid"
             #include "MerkabaCanonicalGeometry.generated.hlsl"
 
             #define MERKABA_LATTICE_STEP 0.025
-            #define MERKABA_KERNELS_PER_CHUNK 32768
 
-            struct KernelState
+            struct VisiblePrimitiveRecord
             {
-                int evidence;
-                uint packedColor;
-                uint colorConfidence;
-                uint flags;
+                int3 globalKernelCoord;
+                uint packed;
             };
 
-            struct PrimitiveRecord
-            {
-                uint packedLocalPrimitive;
-            };
-
-            StructuredBuffer<KernelState> _MerkabaKernels;
-            StructuredBuffer<PrimitiveRecord> _MerkabaPrimitiveRecordBanks;
-            StructuredBuffer<uint> _MerkabaPublishedBanks;
-            uint _MerkabaResidentSlot;
-            uint _MerkabaResidentSlotCapacity;
-            uint _MerkabaPrimitiveCapacityPerChunk;
-            float3 _MerkabaChunkOrigin;
+            StructuredBuffer<VisiblePrimitiveRecord> _M8VisiblePrimitives;
             float4x4 _MerkabaGridToWorld;
 
             CBUFFER_START(UnityPerMaterial)
@@ -71,7 +57,7 @@ Shader "Genesis/RoomScan/MerkabaGrid"
             {
                 float4 positionCS : SV_POSITION;
                 half3 color : TEXCOORD0;
-                nointerpolation uint colorConfidence : TEXCOORD1;
+                nointerpolation uint hasRgb : TEXCOORD1;
                 UNITY_VERTEX_OUTPUT_STEREO
             };
 
@@ -81,44 +67,31 @@ Shader "Genesis/RoomScan/MerkabaGrid"
                 UNITY_SETUP_INSTANCE_ID(input);
                 UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(output);
 #if UNITY_ANY_INSTANCING_ENABLED
-                uint primitiveInstanceID = unity_InstanceID;
+                uint logicalPrimitive = unity_InstanceID;
 #else
-                uint primitiveInstanceID = input.proceduralInstanceID;
+                uint logicalPrimitive = input.proceduralInstanceID;
 #endif
-                uint bankStride = _MerkabaResidentSlotCapacity *
-                    _MerkabaPrimitiveCapacityPerChunk;
-                uint recordIndex =
-                    (_MerkabaPublishedBanks[_MerkabaResidentSlot] & 1u) * bankStride +
-                    _MerkabaResidentSlot *
-                    _MerkabaPrimitiveCapacityPerChunk + primitiveInstanceID;
-                PrimitiveRecord record = _MerkabaPrimitiveRecordBanks[recordIndex];
-                uint localIndex = record.packedLocalPrimitive & 32767u;
-                uint primitiveId = (record.packedLocalPrimitive >> 15u) & 31u;
-                KernelState state = _MerkabaKernels[
-                    _MerkabaResidentSlot * MERKABA_KERNELS_PER_CHUNK + localIndex];
-                uint3 localCoord = uint3(localIndex & 31u,
-                    (localIndex >> 5u) & 31u, (localIndex >> 10u) & 31u);
-
-                float3 localPosition = MerkabaCanonicalPrimitivePosition(
-                    primitiveId, input.vertexID);
-                localPosition += (_MerkabaChunkOrigin + (float3)localCoord) *
-                    MERKABA_LATTICE_STEP;
+                VisiblePrimitiveRecord record =
+                    _M8VisiblePrimitives[logicalPrimitive];
+                uint primitiveId = record.packed & 31u;
+                float3 localPosition = (float3)record.globalKernelCoord *
+                    MERKABA_LATTICE_STEP + MerkabaCanonicalPrimitivePosition(
+                        primitiveId, input.vertexID);
                 float3 worldPosition = mul(_MerkabaGridToWorld,
-                    float4(localPosition, 1)).xyz;
+                    float4(localPosition, 1.0)).xyz;
                 output.positionCS = TransformWorldToHClip(worldPosition);
-                output.color = half3(state.packedColor & 255u,
-                    (state.packedColor >> 8) & 255u,
-                    (state.packedColor >> 16) & 255u) / 255.0h;
-                output.colorConfidence = state.colorConfidence;
+                uint rgb = (record.packed >> 6u) & 0x00ffffffu;
+                output.color = half3(rgb & 255u, (rgb >> 8u) & 255u,
+                    (rgb >> 16u) & 255u) / 255.0h;
+                output.hasRgb = (record.packed >> 5u) & 1u;
                 return output;
             }
 
             half4 Frag(Varyings input) : SV_Target
             {
-                if (input.colorConfidence > 0u)
-                    return half4(input.color, _ScanOpacity);
-
-                return half4(half3(0.55h, 0.16h, 0.42h), _ScanOpacity);
+                half3 color = input.hasRgb != 0u
+                    ? input.color : half3(0.55h, 0.16h, 0.42h);
+                return half4(color, _ScanOpacity);
             }
             ENDHLSL
         }

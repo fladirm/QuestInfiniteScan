@@ -6,9 +6,9 @@
 
 namespace
 {
-    constexpr uint32_t kMaximumSpans = 64;
-    constexpr uint32_t kMaximumQueries = kMaximumSpans * 2;
-    constexpr uint32_t kNoSpan = UINT32_MAX;
+    constexpr uint32_t kMaximumEntries = 4096;
+    constexpr uint32_t kMaximumQueries = kMaximumEntries * 2;
+    constexpr uint32_t kNoEntry = UINT32_MAX;
 
     enum CaptureState : int
     {
@@ -23,12 +23,19 @@ namespace
     enum EventOffset : int
     {
         kSubmissionBegin = 0,
-        kComputeBegin,
-        kComputeEnd,
-        kGraphicsBegin,
-        kGraphicsEnd,
+        kDispatchBegin,
+        kDispatchEnd,
+        kDrawBegin,
+        kDrawEnd,
         kSubmissionEnd,
         kEventCount,
+    };
+
+    enum EntryKind : uint32_t
+    {
+        kEntryNone = 0,
+        kEntryCompute,
+        kEntryDraw,
     };
 
     IUnityInterfaces* g_interfaces = nullptr;
@@ -37,9 +44,10 @@ namespace
     UnityVulkanInstance g_instance = {};
     VkQueryPool g_queryPool = VK_NULL_HANDLE;
     std::atomic<int> g_state{kUnavailable};
-    uint32_t g_spanCount = 0;
-    uint32_t g_recordedSpans = 0;
-    uint32_t g_openSpan = kNoSpan;
+    uint32_t g_entryCount = 0;
+    uint32_t g_recordedEntries = 0;
+    uint32_t g_openEntry = kNoEntry;
+    EntryKind g_openKind = kEntryNone;
     uint32_t g_overflow = 0;
     uint64_t g_revision = 0;
     double g_timestampPeriod = 0.0;
@@ -55,34 +63,36 @@ namespace
                 kUnityVulkanGraphicsQueueAccess_DontCare);
     }
 
-    void BeginSpan(VkPipelineStageFlagBits pipelineStage,
-        UnityVulkanRecordingState* recording)
+    void BeginEntry(UnityVulkanRecordingState* recording,
+        VkPipelineStageFlagBits stage, EntryKind kind)
     {
         if (g_state.load(std::memory_order_acquire) != kRecording)
             return;
-        if (g_openSpan != kNoSpan || g_spanCount >= kMaximumSpans)
+        if (g_openEntry != kNoEntry || g_entryCount >= kMaximumEntries)
         {
             g_overflow = 1;
             return;
         }
-        g_openSpan = g_spanCount;
-        vkCmdWriteTimestamp(recording->commandBuffer, pipelineStage, g_queryPool,
-            g_openSpan * 2);
+        g_openEntry = g_entryCount;
+        g_openKind = kind;
+        vkCmdWriteTimestamp(recording->commandBuffer, stage, g_queryPool,
+            g_openEntry * 2);
     }
 
-    void EndSpan(VkPipelineStageFlagBits pipelineStage,
-        UnityVulkanRecordingState* recording)
+    void EndEntry(UnityVulkanRecordingState* recording,
+        VkPipelineStageFlagBits stage, EntryKind kind)
     {
         if (g_state.load(std::memory_order_acquire) != kRecording ||
-            g_openSpan == kNoSpan)
+            g_openEntry == kNoEntry || g_openKind != kind)
         {
             g_overflow = 1;
             return;
         }
-        vkCmdWriteTimestamp(recording->commandBuffer, pipelineStage, g_queryPool,
-            g_openSpan * 2 + 1);
-        ++g_spanCount;
-        g_openSpan = kNoSpan;
+        vkCmdWriteTimestamp(recording->commandBuffer, stage, g_queryPool,
+            g_openEntry * 2 + 1);
+        ++g_entryCount;
+        g_openEntry = kNoEntry;
+        g_openKind = kEntryNone;
     }
 
     void UNITY_INTERFACE_API OnRenderEvent(int eventId)
@@ -97,40 +107,46 @@ namespace
                 return;
             vkCmdResetQueryPool(recording.commandBuffer, g_queryPool, 0,
                 kMaximumQueries);
-            g_spanCount = 0;
-            g_recordedSpans = 0;
-            g_openSpan = kNoSpan;
+            g_entryCount = 0;
+            g_recordedEntries = 0;
+            g_openEntry = kNoEntry;
+            g_openKind = kEntryNone;
             g_overflow = 0;
             g_state.store(kRecording, std::memory_order_release);
             return;
         }
-        if (event == kComputeBegin)
+        if (event == kDispatchBegin)
         {
-            BeginSpan(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, &recording);
+            BeginEntry(&recording, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                kEntryCompute);
             return;
         }
-        if (event == kComputeEnd)
+        if (event == kDispatchEnd)
         {
-            EndSpan(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, &recording);
+            EndEntry(&recording, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                kEntryCompute);
             return;
         }
-        if (event == kGraphicsBegin)
+        if (event == kDrawBegin)
         {
-            BeginSpan(VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, &recording);
+            BeginEntry(&recording, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                kEntryDraw);
             return;
         }
-        if (event == kGraphicsEnd)
+        if (event == kDrawEnd)
         {
-            EndSpan(VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, &recording);
+            EndEntry(&recording, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+                kEntryDraw);
             return;
         }
         if (event != kSubmissionEnd ||
             g_state.load(std::memory_order_acquire) != kRecording)
             return;
-        if (g_openSpan != kNoSpan)
+        if (g_openEntry != kNoEntry)
             g_overflow = 1;
-        g_recordedSpans = g_spanCount;
-        g_openSpan = kNoSpan;
+        g_recordedEntries = g_entryCount;
+        g_openEntry = kNoEntry;
+        g_openKind = kEntryNone;
         g_state.store(kRecorded, std::memory_order_release);
     }
 
@@ -276,11 +292,11 @@ extern "C"
     }
 
     int UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API MerkabaTimestamp_Read(
-        uint64_t* timestamps, int timestampCapacity, int* spanCount,
+        uint64_t* timestamps, int timestampCapacity, int* entryCount,
         double* timestampPeriod, int* validBits, uint64_t* revision,
         int* overflow)
     {
-        if (timestamps == nullptr || spanCount == nullptr ||
+        if (timestamps == nullptr || entryCount == nullptr ||
             timestampPeriod == nullptr || validBits == nullptr ||
             revision == nullptr || overflow == nullptr)
             return -1;
@@ -289,7 +305,7 @@ extern "C"
             return 0;
         if (state != kRecorded)
             return -1;
-        uint32_t queryCount = g_recordedSpans * 2;
+        uint32_t queryCount = g_recordedEntries * 2;
         if (timestampCapacity < static_cast<int>(queryCount))
             return -1;
         if (queryCount != 0)
@@ -311,7 +327,7 @@ extern "C"
                 timestamps[query] = g_queryScratch[query * 2];
             }
         }
-        *spanCount = static_cast<int>(g_recordedSpans);
+        *entryCount = static_cast<int>(g_recordedEntries);
         *timestampPeriod = g_timestampPeriod;
         *validBits = static_cast<int>(g_timestampValidBits);
         *revision = g_revision;

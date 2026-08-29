@@ -55,7 +55,7 @@ namespace Genesis.RoomScan.Tests
                     "An unrequested producer frame must be discarded.");
                 Assert.That(capture.OwnedRawDepthSnapshot, Is.Null);
 
-                capture.RequestNextDepthFrame();
+                Assert.That(capture.RequestNextDepthFrame(), Is.True);
                 Assert.That(capture.DepthFrameRequested, Is.True);
                 Assert.That(capture.TryLatchDepthSnapshot(first), Is.True);
                 owned = capture.OwnedRawDepthSnapshot;
@@ -70,6 +70,8 @@ namespace Genesis.RoomScan.Tests
 
                 Assert.That(capture.TryLatchDepthSnapshot(second), Is.False,
                     "An unconsumed owned snapshot must not be overwritten.");
+                Assert.That(capture.RequestNextDepthFrame(), Is.False,
+                    "Without a held A observation, a ready snapshot is the only owned slot.");
                 Assert.That(capture.OwnedRawDepthSnapshot, Is.SameAs(owned));
                 Assert.That(capture.LatestRawFrameVersion, Is.EqualTo(version));
             }
@@ -96,7 +98,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(latch, Does.Contain(
                 "_projectionDepthCopyKernel.Set(InputProjectionDepthID, transientDepth);"));
             Assert.That(latch, Does.Contain(
-                "_projectionDepthCopyKernel.Set(DepthTexRWID, _ownedRawDepthTex);"));
+                "_projectionDepthCopyKernel.Set(DepthTexRWID, _ownedRawDepth[slot]);"));
             Assert.That(latch, Does.Contain(
                 "_projectionDepthCopyKernel.DispatchFit(transientDepth.width,"));
         }
@@ -108,7 +110,7 @@ namespace Genesis.RoomScan.Tests
             string callback = Slice(source, "private void OnDepthFrame(",
                 "public bool ConsumeLatestDepthFrame()");
             int requestGuard = callback.IndexOf(
-                "if (!_depthFrameRequested || _ownedDepthSnapshotReady) return;",
+                "if (!_depthFrameRequested || _requestedDepthSlot < 0) return;",
                 StringComparison.Ordinal);
             Assert.That(requestGuard, Is.GreaterThanOrEqualTo(0));
             Assert.That(callback, Does.Not.Contain("ApplyBilateralFilter()"));
@@ -116,12 +118,15 @@ namespace Genesis.RoomScan.Tests
             Assert.That(callback, Does.Not.Contain("ComputeDilation()"));
 
             string consume = Slice(source, "public bool ConsumeLatestDepthFrame()",
-                "internal static bool ShouldPreprocessFrame");
-            Assert.That(consume, Does.Contain("_depthTex = _ownedRawDepthTex;"));
-            Assert.That(consume, Does.Contain("ApplyBilateralFilter();"));
-            Assert.That(consume, Does.Contain("ComputeNormals();"));
-            Assert.That(consume, Does.Contain("ComputeDilation();"));
-            Assert.That(consume, Does.Contain("_ownedDepthSnapshotReady = false;"));
+                "public void ReleaseConsumedObservation()");
+            Assert.That(consume, Does.Contain(
+                "_depthTex = _ownedRawDepth[_heldDepthSlot];"));
+            Assert.That(consume, Does.Contain("ApplyBilateralFilter(command);"));
+            Assert.That(consume, Does.Contain("ComputeNormals(command);"));
+            Assert.That(consume, Does.Contain("ComputeDilation(command);"));
+            Assert.That(consume, Does.Contain("_heldDepthSlot = _readyDepthSlot;"));
+            Assert.That(consume, Does.Not.Contain("_heldDepthSlot = -1;"),
+                "A must remain owned until the integration token completes.");
             Assert.That(source, Does.Not.Contain("private Texture _rawDepthTex"));
             Assert.That(source, Does.Contain("CopyProjectionDepthArray"));
             Assert.That(source, Does.Contain("GraphicsFormat.R32_SFloat"));
@@ -151,9 +156,11 @@ namespace Genesis.RoomScan.Tests
                 Assert.That(owned, Is.Not.Null);
                 Assert.That(owned, Is.Not.SameAs(external));
                 Assert.That(integrator.CameraFrameAvailable, Is.True);
-                Assert.That(depth.RGBGuide, Is.SameAs(owned));
-                Assert.That(PrivateField<Vector3>(integrator,
-                    "_pendingCameraPosition"), Is.EqualTo(sampledPosition));
+                Assert.That(depth.RGBGuide, Is.Null,
+                    "The ready B snapshot is not the active guide until promoted to A.");
+                Vector3[] positions = PrivateField<Vector3[]>(integrator,
+                    "_cameraPosition");
+                Assert.That(positions[0], Is.EqualTo(sampledPosition));
                 Assert.That(typeof(MerkabaIntegrator).GetField("_pendingCameraFrame",
                     BindingFlags.Instance | BindingFlags.NonPublic), Is.Null,
                     "The producer-owned PCA texture must not be retained.");
@@ -164,8 +171,11 @@ namespace Genesis.RoomScan.Tests
                 Assert.That(update, Does.Not.Contain("ProvideColorFrame();"));
                 string arm = Slice(scanner, "private void ArmNextObservation()",
                     "private void OnIntegrated()");
-                Assert.That(arm.IndexOf("ProvideColorFrame();", StringComparison.Ordinal),
-                    Is.LessThan(arm.IndexOf("RequestNextDepthFrame();",
+                Assert.That(arm, Does.Contain(
+                    "if (_depthCapture.RequestNextDepthFrame())"));
+                Assert.That(arm.IndexOf("RequestNextDepthFrame()",
+                        StringComparison.Ordinal),
+                    Is.LessThan(arm.IndexOf("ProvideColorFrame();",
                         StringComparison.Ordinal)));
             }
             finally
