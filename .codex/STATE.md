@@ -19,6 +19,55 @@ Updated: 2026-08-29 (Europe/Prague)
 - Forensic facts and replacement matrix: `analyza.md`.
 - S4‑09 remains pending/unopened.
 
+## N4R exact footprint-team / compact-boundary WIP
+
+Current source above `e192462a` closes the accepted A--D execution cut without
+adding a seventeenth submission.  `BuildNativeObservation` retains its measured
+eight independent 8-lane footprint teams.  `ContractNativeQuery FOOTPRINT` now
+uses sixteen disjoint 16-lane teams in one 256-thread workgroup: every former
+shared value/reduction is partitioned by team, the 48 neutral lanes of the old
+isolated 64-lane lowering are removed, and every output remains addressed by its
+original footprint id.  The full 320x320 workgroup count is therefore 6401
+(one retained legacy group plus 6400 footprint groups), down from 102401.
+
+`ContractNativeQuery` performs only the generated exact first-hit boundary-
+envelope contact test before atomically appending execution-only canonical
+boundary ids.  Invalid or exactly separated endpoints receive an explicit fresh
+`NO_STITCH` receipt; contact candidates retain the unchanged 256-lane heavy
+evaluator over all 16 sector pairs and all 16 intrinsic associator contexts, and
+write back by original boundary id.  Unequal-level contact remains heavy and
+therefore preserves `UNRESOLVED`.  Atomic append order cannot reach component,
+D4, canonical, publication or physical identity.  GLOBAL_CLOSE unresolved state
+is captured by canonical seed before scratch/counter reuse, so a genuine
+unresolved frame can no longer become false `NO_CHANGE`.
+
+Actual host/build evidence:
+
+```text
+HotDispatchCount / profiled calls                         16 / 16
+BuildNativeObservation 320x320 groups                     12800
+ContractNativeQuery FOOTPRINT groups                       6401
+implicit adjacency boundaries                            204160
+footprint isolated/team/tail/order parity                   PASS
+boundary execution-order/result-class parity                PASS
+GLOBAL_CLOSE unresolved -> CUT E receipt                    PASS
+Unity EditMode/Vulkan                                    95/95 PASS
+generator --check / UAV / git diff --check         PASS / PASS / PASS
+Release Android/Vulkan APK                                  PASS
+APK SHA-256                    59042dacf1a94f8695da07796ac6bef40435d32189a2ad71997879f48f8178ad
+Quest streamed install                                      PASS
+production delta vs e192462                         +515/-267, net +248
+production delta vs N2R b4399db                    +9469/-1505, net +7964
+```
+
+Real Quest timing remains unclaimed: the connected device is stopped by Meta's
+system `com.oculus.os.vrlockscreen/.SensorLockActivity` before the application
+process is created.  A clean device run requires physical camera-safety unlock,
+then Start Scan.  Exact next action is one clean capture of all 16 timestamped
+submissions, revision/root progression and KGSL/fence evidence from this already
+installed APK; source must not change before that measurement.  N4R remains WIP
+and S4-09/N5R remains unopened.
+
 ## N4R Quest lifecycle / parallel CUT-E forensic WIP
 
 Current dirty work above `6d231c3d` is being preserved as a forensic WIP

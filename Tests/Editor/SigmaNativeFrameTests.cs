@@ -124,19 +124,17 @@ namespace Genesis.RoomScan.Tests
 
             string graph = ReadAssetSource("SigmaNativeFrameGraph t:MonoScript");
             Assert.That(Count(graph, "ComputeLinearDispatchGrid("),
-                Is.EqualTo(2));
+                Is.EqualTo(1));
             Assert.That(Count(graph,
                 "\"_NativeLinearDispatchWidth\""), Is.EqualTo(2));
-            foreach (string shaderName in new[]
-            {
-                "SigmaNativeContract", "SigmaNativeQuery",
-            })
-            {
-                string shader = File.ReadAllText(AssetDatabase.GetAssetPath(
-                    LoadShader(shaderName)));
-                Assert.That(shader, Does.Contain(
-                    "groupId.x + groupId.y * _NativeLinearDispatchWidth"));
-            }
+            string contract = File.ReadAllText(AssetDatabase.GetAssetPath(
+                LoadShader("SigmaNativeContract")));
+            Assert.That(contract, Does.Contain(
+                "groupId.x + groupId.y * _NativeLinearDispatchWidth"));
+            string query = File.ReadAllText(AssetDatabase.GetAssetPath(
+                LoadShader("SigmaNativeQuery")));
+            Assert.That(query, Does.Contain(
+                "groupId.x + groupId.y * _NativeLinearDispatchWidth"));
         }
 
         [Test]
@@ -407,6 +405,7 @@ namespace Genesis.RoomScan.Tests
             WriteEnvelope(close, 1,
                 SigmaNativeFrameSlotResources.FootprintEvidenceWordCount,
                 side: 0, point);
+            SeedBoundaryWorklist(close, scratch);
             scratch.CloseScratch.SetData(close);
 
             query.SetBuffer(kernel, "_NativeStates", scratch.States);
@@ -442,6 +441,8 @@ namespace Genesis.RoomScan.Tests
             query.SetInt("_NativeBoundaryCount", 1);
             query.SetInt("_NativeBoundaryScratchOffset",
                 scratch.BoundaryScratchOffset);
+            query.SetInt("_NativeActiveSupportListScratchOffset",
+                scratch.ActiveSupportListScratchOffset);
             query.Dispatch(kernel, 2, 1, 1);
 
             var receipt = new UInt2[6];
@@ -535,6 +536,7 @@ namespace Genesis.RoomScan.Tests
             WriteEnvelope(close, 1,
                 SigmaNativeFrameSlotResources.FootprintEvidenceWordCount,
                 side: 2, point);
+            SeedBoundaryWorklist(close, scratch);
             scratch.CloseScratch.SetData(close);
             query.SetInts("_NativeResolution", 1, 2);
             query.Dispatch(kernel, 2, 1, 1);
@@ -554,6 +556,7 @@ namespace Genesis.RoomScan.Tests
             WriteEnvelope(close, 1,
                 SigmaNativeFrameSlotResources.FootprintEvidenceWordCount,
                 side: 0, Packed(checked(SigmaNumericDomain.One * 2L)));
+            SeedBoundaryWorklist(close, scratch);
             scratch.CloseScratch.SetData(close);
             query.SetInts("_NativeResolution", 2, 1);
             query.Dispatch(kernel, 2, 1, 1);
@@ -573,12 +576,157 @@ namespace Genesis.RoomScan.Tests
             WriteEnvelope(close, 1,
                 SigmaNativeFrameSlotResources.FootprintEvidenceWordCount,
                 side: 0, point);
+            SeedBoundaryWorklist(close, scratch);
             scratch.CloseScratch.SetData(close);
             query.Dispatch(kernel, 2, 1, 1);
             scratch.CloseScratch.GetData(receipt, 0,
                 scratch.BoundaryScratchOffset, receipt.Length);
             Assert.That(receipt[0].Low,
                 Is.EqualTo((uint)SigmaStitchResolution.Unresolved));
+        }
+
+        [Test]
+        public void CompactedBoundaryOrderIsExecutionOnlyAcrossAllResults()
+        {
+            const int width = 2;
+            const int height = 2;
+            const uint evidenceFlags = 0x1fu;
+            ComputeShader query = LoadShader("SigmaNativeQuery");
+            int kernel = query.FindKernel("EvaluateNativeRelation");
+            UnityEngine.Rendering.LocalKeyword boundaryVariant = new(query,
+                "SIGMA_N4_BOUNDARY_VARIANT");
+            query.SetKeyword(boundaryVariant, true);
+            using var scratch = new SigmaNativeFrameSlotResources(0,
+                new Vector2Int(width, height));
+
+            var observations = new SigmaNativeObservationGpu[5];
+            for (int footprint = 0; footprint < 4; ++footprint)
+                observations[footprint + 1].Identity = U4(1u, 1u,
+                    checked((uint)(footprint + 1)), evidenceFlags);
+            scratch.Observation.SetData(observations);
+            var states = new UInt2[scratch.States.count];
+            WriteState(states, scratch.FootprintStateOffset,
+                SigmaS16.Basis(1, SigmaNumericDomain.One));
+            WriteState(states, scratch.FootprintStateOffset + 16,
+                SigmaS16.Basis(2, SigmaNumericDomain.One));
+            WriteState(states, scratch.FootprintStateOffset + 32,
+                SigmaS16.Basis(1, -SigmaNumericDomain.One));
+            WriteState(states, scratch.FootprintStateOffset + 48,
+                SigmaS16.Basis(2, -SigmaNumericDomain.One));
+            scratch.States.SetData(states);
+
+            var arena = new UInt2[scratch.CloseScratch.count];
+            UInt2 contact = Packed(SigmaNumericDomain.One);
+            UInt2 separated = Packed(checked(SigmaNumericDomain.One * 2L));
+            WriteEnvelope(arena, 0, 52, 1, contact);
+            WriteEnvelope(arena, 1, 52, 0, contact);
+            WriteEnvelope(arena, 2, 52, 1, contact);
+            WriteEnvelope(arena, 3, 52, 0, contact);
+            WriteEnvelope(arena, 0, 52, 3, contact);
+            WriteEnvelope(arena, 2, 52, 2, contact);
+            WriteEnvelope(arena, 1, 52, 3, contact);
+            WriteEnvelope(arena, 3, 52, 2, separated);
+            arena[2 * 52 + 51].High = 1u;
+
+            query.SetBuffer(kernel, "_NativeStates", scratch.States);
+            query.SetBuffer(kernel, "_NativeRelationInputs",
+                scratch.RelationInputs);
+            query.SetBuffer(kernel, "_NativeRelationPlans",
+                scratch.RelationPlans);
+            query.SetBuffer(kernel, "_NativeRelationNearIntervals",
+                scratch.RelationNearIntervals);
+            query.SetBuffer(kernel, "_NativeRelationResults",
+                scratch.RelationResults);
+            query.SetBuffer(kernel, "_NativeRelationFactors",
+                scratch.RelationFactors);
+            query.SetBuffer(kernel, "_NativeRelationHashes",
+                scratch.RelationHashes);
+            query.SetBuffer(kernel, "_NativeRelationNorms",
+                scratch.RelationNorms);
+            query.SetBuffer(kernel, "_NativeObservations",
+                scratch.Observation);
+            query.SetBuffer(kernel, "_NativeCloseScratch",
+                scratch.CloseScratch);
+            query.SetBuffer(kernel, "_NativeLocalityCertificateWords",
+                scratch.LocalityCertificateWords);
+            query.SetBuffer(kernel, "_NativeCounters", scratch.Counters);
+            query.SetInt("_NativeEntryPointIndex",
+                SigmaGeneratedFrame.IntrinsicRelationEntryPoint);
+            query.SetInt("_NativeRelationCount", 1);
+            query.SetInt("_NativeRelationMode", 1);
+            query.SetInts("_NativeResolution", width, height);
+            query.SetInt("_NativeFootprintCount", 4);
+            query.SetInt("_NativeFootprintStateOffset",
+                scratch.FootprintStateOffset);
+            query.SetInt("_NativeBoundaryCount", scratch.BoundaryCapacity);
+            query.SetInt("_NativeBoundaryScratchOffset",
+                scratch.BoundaryScratchOffset);
+            query.SetInt("_NativeActiveSupportListScratchOffset",
+                scratch.ActiveSupportListScratchOffset);
+
+            SeedBoundaryWorklist(arena, scratch);
+            scratch.CloseScratch.SetData(arena);
+            query.Dispatch(kernel, scratch.BoundaryCapacity + 1, 1, 1);
+            var canonical = new UInt2[scratch.BoundaryCapacity * 6];
+            scratch.CloseScratch.GetData(canonical, 0,
+                scratch.BoundaryScratchOffset, canonical.Length);
+            Assert.That(canonical[0].Low,
+                Is.EqualTo((uint)SigmaStitchResolution.Resolved));
+            Assert.That(canonical[6].Low,
+                Is.EqualTo((uint)SigmaStitchResolution.Unresolved));
+            Assert.That(canonical[12].Low,
+                Is.EqualTo((uint)SigmaStitchResolution.Unresolved));
+            Assert.That(canonical[18].Low,
+                Is.EqualTo((uint)SigmaStitchResolution.NoStitch));
+
+            Array.Clear(arena, scratch.BoundaryScratchOffset,
+                canonical.Length);
+            SeedBoundaryWorklist(arena, scratch, new[] { 2, 0, 3, 1 });
+            scratch.CloseScratch.SetData(arena);
+            query.Dispatch(kernel, scratch.BoundaryCapacity + 1, 1, 1);
+            var permuted = new UInt2[canonical.Length];
+            scratch.CloseScratch.GetData(permuted, 0,
+                scratch.BoundaryScratchOffset, permuted.Length);
+            Assert.That(permuted, Is.EqualTo(canonical));
+        }
+
+        [Test]
+        public void CanonicalSeedPreservesGlobalCloseUnresolvedReceipt()
+        {
+            ComputeShader frame = LoadShader("SigmaNativeFrame");
+            int seed = frame.FindKernel("PrepareNativeCanonicalSeed");
+            using var scratch = new SigmaNativeFrameSlotResources(0,
+                Vector2Int.one);
+            using var state = UInt2Buffer(SigmaCarrier.PageLaneCount * 2);
+            using var representation = UInt4Buffer(
+                SigmaCarrier.SamplesPerPage * 2 *
+                SigmaCarrier.RepresentationWordsPerSample);
+            using var metadata = new GraphicsBuffer(
+                GraphicsBuffer.Target.Structured, 2,
+                SigmaCarrier.PageMetadataStride);
+            using var dirty = UIntBuffer(2);
+            using var readoutDirty = UIntBuffer(2);
+            using var root = UIntBuffer(1);
+            using var completion = UInt2Buffer(
+                SigmaGeneratedFrame.CompletionWordCount);
+            BindPublication(frame, seed, scratch, state, representation,
+                metadata, dirty, readoutDirty, root, completion);
+
+            var global = new UInt2[4];
+            global[1].High = 1u;
+            scratch.CloseScratch.SetData(global, 0,
+                scratch.GlobalHeaderScratchOffset, global.Length);
+            frame.Dispatch(seed, 1, 1, 1);
+            var counters = new UInt4[4];
+            scratch.Counters.GetData(counters);
+            Assert.That(counters[0].W, Is.EqualTo(1u));
+
+            global[1].High = 0u;
+            scratch.CloseScratch.SetData(global, 0,
+                scratch.GlobalHeaderScratchOffset, global.Length);
+            frame.Dispatch(seed, 1, 1, 1);
+            scratch.Counters.GetData(counters);
+            Assert.That(counters[0].W, Is.Zero);
         }
 
         [Test]
@@ -780,6 +928,7 @@ namespace Genesis.RoomScan.Tests
             scratch.Observation.SetData(observations);
             scratch.States.SetData(states);
             scratch.LocalityCertificateWords.SetData(certificates);
+            SeedBoundaryWorklist(arena, scratch);
             scratch.CloseScratch.SetData(arena);
             query.Dispatch(relation, scratch.BoundaryCapacity + 1, 1, 1);
             contract.SetKeyword(tileVariant, true);
@@ -1162,8 +1311,8 @@ namespace Genesis.RoomScan.Tests
                 scratch.Observation.SetData(observations);
                 scratch.States.SetData(states);
                 scratch.LocalityCertificateWords.SetData(certificates);
+                SeedBoundaryWorklist(arena, scratch);
                 scratch.CloseScratch.SetData(arena);
-                scratch.Counters.SetData(new UInt4[4]);
             }
 
             void CloseFrame()
@@ -3500,6 +3649,30 @@ namespace Genesis.RoomScan.Tests
                 target[offset + axis * 2] = point;
                 target[offset + axis * 2 + 1] = point;
             }
+        }
+
+        private static void SeedBoundaryWorklist(UInt2[] target,
+            SigmaNativeFrameSlotResources scratch,
+            IReadOnlyList<int> permutation = null)
+        {
+            int count = permutation?.Count ?? scratch.BoundaryCapacity;
+            Assert.That(count, Is.EqualTo(scratch.BoundaryCapacity));
+            for (int index = 0; index < count; ++index)
+            {
+                int boundary = permutation == null ? index :
+                    permutation[index];
+                target[scratch.ActiveSupportListScratchOffset + index] =
+                    new UInt2 { Low = checked((uint)boundary), High = 0u };
+            }
+            var counters = new UInt4[4];
+            counters[2] = new UInt4
+            {
+                X = checked((uint)(count + 1)),
+                Y = 1u,
+                Z = 1u,
+                W = checked((uint)count),
+            };
+            scratch.Counters.SetData(counters);
         }
 
         private static SigmaFrameUInt2Gpu Q2(long value) => new()

@@ -114,6 +114,8 @@ groupshared uint SigmaN4BoundaryAssociatorHash[16];
 groupshared uint SigmaN4BoundaryReverseAssociatorHash[16];
 groupshared uint SigmaN4BoundaryContact;
 groupshared uint SigmaN4BoundaryEndpointClass;
+groupshared uint SigmaN4BoundaryCanonicalId;
+groupshared uint SigmaN4BoundaryExecutionActive;
 
 uint SigmaN4FootprintAddress(uint footprint, uint word)
 {
@@ -136,6 +138,17 @@ void SigmaN4StoreBoundaryReceipt(uint boundary, uint4 header,
     _NativeCloseScratch[address + 3u] = factors.zw;
     _NativeCloseScratch[address + 4u] = witness.xy;
     _NativeCloseScratch[address + 5u] = witness.zw;
+}
+
+void SigmaN4CountBoundaryResult(uint resolution)
+{
+    uint ignored;
+    if (resolution == SIGMA_STITCH_NO_STITCH)
+        InterlockedAdd(_NativeCounters[0u].x, 1u, ignored);
+    else if (resolution == SIGMA_STITCH_RESOLVED)
+        InterlockedAdd(_NativeCounters[0u].y, 1u, ignored);
+    else
+        InterlockedAdd(_NativeCounters[0u].z, 1u, ignored);
 }
 
 void SigmaN4DecodeBoundary(uint boundary, out uint left, out uint right,
@@ -322,7 +335,8 @@ void SigmaN4EvaluateImplicitBoundary(uint boundary, uint threadIndex)
             rightLower[axis] = _NativeCloseScratch[rightAddress];
             rightUpper[axis] = _NativeCloseScratch[rightAddress + 1u];
         }
-        bool validEndpoints = (leftFlags & required) == required &&
+        bool validEndpoints = SigmaN4BoundaryExecutionActive != 0u &&
+            (leftFlags & required) == required &&
             (rightFlags & required) == required;
         uint leftLevel = _NativeCloseScratch[SigmaN4FootprintAddress(left,
             SIGMA_N4_FOOTPRINT_EVIDENCE_WORDS - 1u)].y;
@@ -341,18 +355,30 @@ void SigmaN4EvaluateImplicitBoundary(uint boundary, uint threadIndex)
     if (SigmaN4BoundaryEndpointClass == 0u || SigmaN4BoundaryContact == 0u)
     {
         if (threadIndex == 0u)
-            SigmaN4StoreBoundaryReceipt(boundary,
-                uint4(SIGMA_STITCH_NO_STITCH, 0u, 0u, 0u), 0u,
-                uint4(SIGMA_STITCH_GENERATED_BRACKET_FINGERPRINT, 0u, 0u));
+        {
+            if (SigmaN4BoundaryExecutionActive != 0u)
+            {
+                SigmaN4StoreBoundaryReceipt(boundary,
+                    uint4(SIGMA_STITCH_NO_STITCH, 0u, 0u, 0u), 0u,
+                    uint4(SIGMA_STITCH_GENERATED_BRACKET_FINGERPRINT, 0u, 0u));
+                SigmaN4CountBoundaryResult(SIGMA_STITCH_NO_STITCH);
+            }
+        }
         return;
     }
     if (SigmaN4BoundaryEndpointClass == 2u)
     {
         if (threadIndex == 0u)
-            SigmaN4StoreBoundaryReceipt(boundary,
-                uint4(SIGMA_STITCH_UNRESOLVED, 0u, 0u, 0u),
-                uint4(0u, 0xffffu, 0u, 0u),
-                uint4(SIGMA_STITCH_GENERATED_BRACKET_FINGERPRINT, 0u, 1u));
+        {
+            if (SigmaN4BoundaryExecutionActive != 0u)
+            {
+                SigmaN4StoreBoundaryReceipt(boundary,
+                    uint4(SIGMA_STITCH_UNRESOLVED, 0u, 0u, 0u),
+                    uint4(0u, 0xffffu, 0u, 0u),
+                    uint4(SIGMA_STITCH_GENERATED_BRACKET_FINGERPRINT, 0u, 1u));
+                SigmaN4CountBoundaryResult(SIGMA_STITCH_UNRESOLVED);
+            }
+        }
         return;
     }
 
@@ -500,12 +526,35 @@ void SigmaN4EvaluateImplicitBoundary(uint boundary, uint threadIndex)
                 (SigmaMerkabaBasisSign(rightAddress, transportAddress) < 0
                     ? 2u : 0u)
             : 0u;
-        SigmaN4StoreBoundaryReceipt(boundary, result,
-            uint4(resolvedMask, unresolvedMask, selectedFactorClasses,
-                selectedProfileReceipt),
-            uint4(SIGMA_STITCH_GENERATED_BRACKET_FINGERPRINT,
-                signBits, SigmaN4BoundaryContact));
+        if (SigmaN4BoundaryExecutionActive != 0u)
+        {
+            SigmaN4StoreBoundaryReceipt(boundary, result,
+                uint4(resolvedMask, unresolvedMask, selectedFactorClasses,
+                    selectedProfileReceipt),
+                uint4(SIGMA_STITCH_GENERATED_BRACKET_FINGERPRINT,
+                    signBits, SigmaN4BoundaryContact));
+            SigmaN4CountBoundaryResult(result.x);
+        }
     }
+}
+
+void SigmaN4EvaluateCompactedBoundary(uint compactIndex, uint threadIndex)
+{
+    // The UAV-derived count controls payload only.  Every dispatched candidate
+    // workgroup traverses this setup barrier and the unchanged exact 256-lane
+    // evaluator.  Padding in the final 65535-wide row is therefore Vulkan-safe
+    // and cannot retain or overwrite a canonical boundary receipt.
+    if (threadIndex == 0u)
+    {
+        uint candidateCount = _NativeCounters[2u].w;
+        SigmaN4BoundaryExecutionActive = compactIndex < candidateCount ? 1u : 0u;
+        uint safeIndex = SigmaN4BoundaryExecutionActive != 0u
+            ? compactIndex : 0u;
+        SigmaN4BoundaryCanonicalId = _NativeCloseScratch[
+            _NativeActiveSupportListScratchOffset + safeIndex].x;
+    }
+    GroupMemoryBarrierWithGroupSync();
+    SigmaN4EvaluateImplicitBoundary(SigmaN4BoundaryCanonicalId, threadIndex);
 }
 #endif
 
@@ -1276,8 +1325,12 @@ void SigmaN4GlobalGeometryClose(uint threadIndex)
         _NativeCloseScratch[_NativeGlobalHeaderScratchOffset + 1u] = uint2(
             SigmaN4LoadGlobalMeta(0u).x + interiorResolved,
             SigmaN4LoadGlobalMeta(0u).y + interiorUnresolved);
+        uint prefilterNoStitch = _NativeCloseScratch[
+            _NativeGlobalHeaderScratchOffset + 3u].y;
         _NativeCloseScratch[_NativeGlobalHeaderScratchOffset + 2u] =
-            uint2(crossCount, 0u);
+            uint2(crossCount, prefilterNoStitch);
+        _NativeCloseScratch[_NativeGlobalHeaderScratchOffset + 3u] =
+            uint2(_NativeCounters[0u].y, _NativeCounters[0u].z);
     }
 }
 #endif
@@ -1301,8 +1354,8 @@ void EvaluateNativeRelation(uint3 groupId : SV_GroupID,
         return;
     if (index == 0u)
         SigmaNativeEvaluateRelationGroup(0u, groupThreadId.x, true);
-    else if (index <= _NativeBoundaryCount)
-        SigmaN4EvaluateImplicitBoundary(index - 1u, groupThreadId.x);
+    else
+        SigmaN4EvaluateCompactedBoundary(index - 1u, groupThreadId.x);
 #else
     uint index = groupId.x;
     if (index >= _NativeRelationCount)

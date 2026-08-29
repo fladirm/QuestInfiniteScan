@@ -781,6 +781,17 @@ void BuildNativeObservation(uint3 groupId : SV_GroupID,
         frame.Publication = uint4(_NativeSourcePublicationRoot[0u],
             0u, 0u, 0u);
         _NativeFrames[0u] = frame;
+        // Fixed graph indirect receipts. BOUNDARY starts at group zero for
+        // the retained legacy relation and atomically appends exact contact
+        // candidate ids from ContractNativeQuery.
+        _NativeCounters[0u] = 0u;
+        _NativeCounters[1u] = 0u;
+        _NativeCounters[2u] = uint4(1u, 1u, 1u, 0u);
+        _NativeCounters[3u] = uint4(1u, 1u, 1u, 0u);
+        _NativeCloseScratch[_NativeGlobalHeaderScratchOffset] = 0u;
+        _NativeCloseScratch[_NativeGlobalHeaderScratchOffset + 1u] = 0u;
+        _NativeCloseScratch[_NativeGlobalHeaderScratchOffset + 2u] = 0u;
+        _NativeCloseScratch[_NativeGlobalHeaderScratchOffset + 3u] = 0u;
     }
     SigmaNativeBuildFullFrameFootprints(groupId.x, threadId.x);
 }
@@ -4989,10 +5000,16 @@ void PrepareNativeCanonicalSeed(uint3 threadId : SV_GroupThreadID)
     uint threadIndex = threadId.x;
     if (threadIndex == 0u)
     {
+        // GLOBAL_CLOSE is the physical closure authority. Preserve its exact
+        // unresolved result across the CUT-E scratch/counter repurposing; an
+        // empty canonical stream must never turn ambiguity into NO_CHANGE.
+        uint globalUnresolved = _NativeCloseScratch[
+            _NativeGlobalHeaderScratchOffset + 1u].y;
         SigmaN4PublishCount = 0u;
         SigmaN4PublishFault = 0u;
-        SigmaN4PublishUnresolved = 0u;
-        _NativeCounters[0u] = 0u;
+        SigmaN4PublishUnresolved = globalUnresolved != 0u ? 1u : 0u;
+        _NativeCounters[0u] = uint4(0u, 0u, 0u,
+            SigmaN4PublishUnresolved);
         _NativeCounters[1u] = 0u;
         _NativeCounters[2u] = 0u;
         _NativeCounters[3u] = 0u;

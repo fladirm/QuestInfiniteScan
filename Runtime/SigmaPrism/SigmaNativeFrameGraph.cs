@@ -221,9 +221,11 @@ namespace Genesis.RoomScan.SigmaPrism
             command.SetComputeIntParam(_contract, "_NativeContractMode", 1);
             command.SetComputeIntParam(_contract, "_NativeFreshBranchCount",
                 SigmaNativeFrameSlotResources.LiveFreshBranchCount);
+            int footprintTeamGroups = checked(
+                (slot.FootprintCapacity + 15) / 16 + 1);
             Vector2Int footprintGrid =
                 SigmaGpuKernelTelemetry.ComputeLinearDispatchGrid(
-                    slot.FootprintCapacity + 1);
+                    footprintTeamGroups);
             command.SetComputeIntParam(_contract,
                 "_NativeLinearDispatchWidth", footprintGrid.x);
             command.DispatchComputeProfiled(_contract, _contractNative,
@@ -233,13 +235,11 @@ namespace Genesis.RoomScan.SigmaPrism
             command.SetKeyword(_query, _boundaryVariant, true);
             command.SetKeyword(_query, _globalCloseVariant, false);
             command.SetComputeIntParam(_query, "_NativeRelationMode", 1);
-            Vector2Int boundaryGrid =
-                SigmaGpuKernelTelemetry.ComputeLinearDispatchGrid(
-                    slot.BoundaryCapacity + 1);
             command.SetComputeIntParam(_query,
-                "_NativeLinearDispatchWidth", boundaryGrid.x);
+                "_NativeLinearDispatchWidth",
+                SigmaGpuKernelTelemetry.MaximumThreadGroupsPerDimension);
             command.DispatchComputeProfiled(_query, _evaluateRelation,
-                boundaryGrid.x, boundaryGrid.y, 1);
+                slot.Counters, 2u * 4u * sizeof(uint));
 
             command.SetKeyword(_contract, _tileCloseVariant, true);
             command.DispatchComputeProfiled(_contract, _contractNative,

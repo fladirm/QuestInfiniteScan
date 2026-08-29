@@ -95,6 +95,21 @@ namespace Genesis.RoomScan.Tests
             internal bool Admitted => Status == 1u;
         }
 
+        private sealed class GpuFootprintLiftReceipt
+        {
+            internal GpuFootprintLiftReceipt(UInt2[] state, UInt4[] certificate,
+                UInt2 detail)
+            {
+                State = state;
+                Certificate = certificate;
+                Detail = detail;
+            }
+
+            internal UInt2[] State { get; }
+            internal UInt4[] Certificate { get; }
+            internal UInt2 Detail { get; }
+        }
+
         [Test]
         public void WholeQueryReductionOwnsFirstHitDisjunctionAndDefault()
         {
@@ -768,12 +783,12 @@ namespace Genesis.RoomScan.Tests
             Assert.That(contract, Does.Contain(
                 "#if defined(SIGMA_N4_TILE_CLOSE_VARIANT)\n" +
                 "[numthreads(256, 1, 1)]\n#else\n" +
-                "[numthreads(64, 1, 1)]\n#endif\n" +
+                "[numthreads(256, 1, 1)]\n#endif\n" +
                 "void ContractNativeQuery"));
             Assert.That(contract, Does.Not.Contain("SigmaNativeContractOne"));
             Assert.That(contract, Does.Not.Contain("_NativeReverseKeys"));
             Assert.That(contract, Does.Contain(
-                "SigmaNativeFreshLiftFootprint(linearGroup - 1u,"));
+                "SigmaNativeFreshLiftFootprint(active ? footprint : 0u,"));
             Assert.That(contract, Does.Contain(
                 "SigmaNativeFreshFinalize(groupThreadId.x)"));
             Assert.That(contract, Does.Not.Contain(
@@ -1814,6 +1829,194 @@ namespace Genesis.RoomScan.Tests
                 value.ExactAnnihilatorAction >= 0), Is.True,
                 "Bounded corpus must exercise an exact zero-divisor action.");
             AssertGpuRelationsMatchCpu(queryShader, relations, cpu);
+        }
+
+        [Test]
+        public void FootprintTeamsAreByteIdenticalToIsolatedEvaluationAcrossOrder()
+        {
+            long one = SigmaNumericDomain.One;
+            SigmaNativeFreshObservationBranch[] seeds =
+            {
+                FreshObservation(new[] { one, -one, 0L, 0L }, 91UL, 31),
+                FreshObservation(new[] { 0L, one, -one, 0L }, 92UL, 32,
+                    leftBroad: true),
+                FreshObservation(new[] { 0L, 0L, one, -one }, 93UL, 33,
+                    negateRightRows: true),
+                FreshObservation(new[] { -one, 0L, 0L, one }, 94UL, 34,
+                    evidence: false),
+            };
+            SigmaNativeFreshObservationBranch[] branches = Enumerable.Range(0,
+                    19)
+                .Select(index => seeds[index % seeds.Length])
+                .ToArray();
+            GpuFootprintLiftReceipt[] isolated = branches.Select(branch =>
+                RunGpuFootprintLift(new[] { branch })[0]).ToArray();
+
+            foreach (int[] order in new[]
+            {
+                Enumerable.Range(0, branches.Length).ToArray(),
+                Enumerable.Range(0, branches.Length).Reverse().ToArray(),
+                Enumerable.Range(0, branches.Length)
+                    .OrderBy(index => (index * 7) % branches.Length).ToArray(),
+            })
+            {
+                GpuFootprintLiftReceipt[] batched = RunGpuFootprintLift(
+                    order.Select(index => branches[index]).ToArray());
+                for (int lane = 0; lane < order.Length; ++lane)
+                {
+                    GpuFootprintLiftReceipt expected = isolated[order[lane]];
+                    CollectionAssert.AreEqual(expected.State,
+                        batched[lane].State, $"state team {lane}");
+                    CollectionAssert.AreEqual(expected.Certificate,
+                        batched[lane].Certificate, $"certificate team {lane}");
+                    Assert.That(batched[lane].Detail.X,
+                        Is.EqualTo(expected.Detail.X), $"detail.x team {lane}");
+                    Assert.That(batched[lane].Detail.Y,
+                        Is.EqualTo(expected.Detail.Y), $"detail.y team {lane}");
+                }
+            }
+        }
+
+        private static GpuFootprintLiftReceipt[] RunGpuFootprintLift(
+            SigmaNativeFreshObservationBranch[] branches)
+        {
+            Assert.That(branches, Has.Length.InRange(1, 32));
+            int count = branches.Length;
+            using var scratch = new SigmaNativeFrameSlotResources(0,
+                new Vector2Int(count, 1));
+            using GraphicsBuffer completionEvidence = Buffer(new UInt2[
+                SigmaGeneratedFrame.CompletionWordCount]);
+            ComputeShader shader = LoadShader("SigmaNativeContract");
+            UnityEngine.Rendering.LocalKeyword tileVariant = new(shader,
+                "SIGMA_N4_TILE_CLOSE_VARIANT");
+            shader.SetKeyword(tileVariant, false);
+            int kernel = shader.FindKernel("ContractNativeQuery");
+
+            var evidence = new UInt2[scratch.CloseScratch.count];
+            for (int footprint = 0; footprint < count; ++footprint)
+            {
+                SigmaNativeFreshObservationBranch branch = branches[footprint];
+                uint flags = 1u |
+                    (branch.LeftFirstHit ? 2u : 0u) |
+                    (branch.RightFirstHit ? 4u : 0u) |
+                    (branch.LeftEvidence ? 8u : 0u) |
+                    (branch.RightEvidence ? 16u : 0u);
+                ulong revision = branch.CoherentContext.ObservationRevision;
+                uint provenance = Convert.ToUInt32(
+                    branch.ProvenanceFingerprint.Substring(56, 8), 16);
+                ulong epoch = branch.InstrumentLeft.CalibrationEpoch;
+                uint foldedEpoch = (uint)epoch ^ (uint)(epoch >> 32);
+                uint poseProvenance = Convert.ToUInt32(
+                    branch.InstrumentLeft.PoseCalibrationFingerprint
+                        .Substring(56, 8), 16);
+                int record = footprint *
+                    SigmaNativeFrameSlotResources.FootprintEvidenceWordCount;
+                evidence[record] = new UInt2 { X = flags, Y = (uint)revision };
+                evidence[record + 1] = new UInt2
+                {
+                    X = (uint)(revision >> 32),
+                    Y = provenance == 0u ? (uint)footprint + 1u : provenance,
+                };
+                evidence[record + 2] = new UInt2
+                {
+                    X = (uint)branch.InstrumentLeft.OpticalTransfer,
+                    Y = (uint)branch.InstrumentRight.OpticalTransfer,
+                };
+                evidence[record + 3] = new UInt2
+                {
+                    X = foldedEpoch == 0u ? 1u : foldedEpoch,
+                    Y = poseProvenance == 0u ? 1u : poseProvenance,
+                };
+                UInt2[] rays = branch.InstrumentLeft.Footprint.Ray.Concat(
+                    branch.InstrumentRight.Footprint.Ray).Select(Pack).ToArray();
+                Array.Copy(rays, 0, evidence, record + 4, rays.Length);
+                UInt2[] codes = PackInstrumentCodes(branch.InstrumentLeft).Concat(
+                    PackInstrumentCodes(branch.InstrumentRight)).ToArray();
+                Array.Copy(codes, 0, evidence, record + 10, codes.Length);
+                evidence[record + 50] = new UInt2
+                    { X = uint.MaxValue, Y = 0u };
+                evidence[record + 51] = new UInt2 { X = 1u, Y = 0u };
+            }
+
+            scratch.CloseScratch.SetData(evidence);
+            scratch.States.SetData(new UInt2[scratch.States.count]);
+            scratch.LocalityCertificateWords.SetData(new UInt4[
+                scratch.LocalityCertificateWords.count]);
+            scratch.Observation.SetData(new SigmaNativeObservationGpu[
+                scratch.Observation.count]);
+            scratch.RelationResults.SetData(new UInt4[
+                scratch.RelationResults.count]);
+            scratch.Counters.SetData(new UInt4[scratch.Counters.count]);
+
+            shader.SetBuffer(kernel, "_NativeReverseRelationResults",
+                scratch.RelationResults);
+            shader.SetBuffer(kernel, "_NativeStates", scratch.States);
+            shader.SetBuffer(kernel, "_NativeFreshEvidenceWords",
+                completionEvidence);
+            shader.SetBuffer(kernel, "_NativeObservations", scratch.Observation);
+            shader.SetBuffer(kernel, "_NativeSourceCarrierState", scratch.States);
+            shader.SetBuffer(kernel, "_NativeSourceCarrierRepresentation",
+                scratch.LocalityCertificateWords);
+            shader.SetBuffer(kernel, "_NativeCloseScratch", scratch.CloseScratch);
+            shader.SetBuffer(kernel, "_NativeBranchHeaders",
+                scratch.BranchHeaders);
+            shader.SetBuffer(kernel, "_NativeBranchSupports",
+                scratch.BranchSupports);
+            shader.SetBuffer(kernel, "_NativeBranchPredictions",
+                scratch.BranchPredictions);
+            shader.SetBuffer(kernel, "_NativeLocalityCertificateWords",
+                scratch.LocalityCertificateWords);
+            shader.SetBuffer(kernel, "_NativeCounters", scratch.Counters);
+            shader.SetInt("_NativeContractMode", 1);
+            shader.SetInt("_NativeFreshBranchCount", 0);
+            shader.SetInt("_NativeFreshLeftEntryPointIndex",
+                EntryPointIndex("SENSOR_LEFT"));
+            shader.SetInt("_NativeFreshRightEntryPointIndex",
+                EntryPointIndex("SENSOR_RIGHT"));
+            shader.SetInt("_NativeFreshPriorStateOffset", 0);
+            shader.SetInt("_NativeCompletionRecordIndex", 0);
+            shader.SetInt("_NativeFootprintCount", count);
+            int groupCount = (count + 15) / 16 + 1;
+            shader.SetInt("_NativeLinearDispatchWidth", groupCount);
+            shader.SetInt("_NativeFootprintStateOffset",
+                scratch.FootprintStateOffset);
+            shader.SetInt("_NativeFootprintCertificateOffset",
+                scratch.FootprintCertificateOffset);
+            shader.SetInts("_NativeResolution", count, 1);
+            shader.SetInt("_NativeBoundaryCount", scratch.BoundaryCapacity);
+            shader.SetInt("_NativeBoundaryScratchOffset",
+                scratch.BoundaryScratchOffset);
+            shader.SetInt("_NativeGlobalHeaderScratchOffset",
+                scratch.GlobalHeaderScratchOffset);
+            shader.SetInt("_NativeActiveSupportListScratchOffset",
+                scratch.ActiveSupportListScratchOffset);
+            shader.SetInt("_NativeRevision", 1);
+            shader.Dispatch(kernel, groupCount, 1, 1);
+
+            var states = new UInt2[count * SigmaS16.LaneCount];
+            scratch.States.GetData(states, 0, scratch.FootprintStateOffset,
+                states.Length);
+            var certificates = new UInt4[count *
+                SigmaNativeFrameSlotResources.CertificateWordCount];
+            scratch.LocalityCertificateWords.GetData(certificates, 0,
+                scratch.FootprintCertificateOffset, certificates.Length);
+            scratch.CloseScratch.GetData(evidence);
+            var result = new GpuFootprintLiftReceipt[count];
+            for (int footprint = 0; footprint < count; ++footprint)
+            {
+                var state = new UInt2[SigmaS16.LaneCount];
+                Array.Copy(states, footprint * SigmaS16.LaneCount, state, 0,
+                    state.Length);
+                var certificate = new UInt4[
+                    SigmaNativeFrameSlotResources.CertificateWordCount];
+                Array.Copy(certificates, footprint * certificate.Length,
+                    certificate, 0, certificate.Length);
+                result[footprint] = new GpuFootprintLiftReceipt(state,
+                    certificate, evidence[footprint *
+                        SigmaNativeFrameSlotResources.FootprintEvidenceWordCount +
+                        51]);
+            }
+            return result;
         }
 
         private static GpuFreshAdmission RunGpuFreshAdmission(
