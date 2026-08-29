@@ -307,10 +307,15 @@ namespace Genesis.RoomScan.Tests
             string frame = Source("Runtime/Shaders/MerkabaReadout.compute");
             string renderer = Source("Runtime/Merkaba/MerkabaGridRenderer.cs");
             string feature = Source("Runtime/Merkaba/MerkabaRenderFeature.cs");
+            Assert.That(frame, Does.Contain("M8ReadoutEvenFace"));
+            Assert.That(frame, Does.Contain("M8ReadoutOddFace"));
             Assert.That(frame, Does.Contain(
-                "MerkabaReadoutCubeTriangle(neighbourMask, triangleIndex"));
+                "M8TryLoadReadoutNeighbourState"));
             Assert.That(frame, Does.Contain(
-                "for (uint triangleIndex = 0u; triangleIndex < 12u;"));
+                "candidateCount - surfaceCount"));
+            Assert.That(frame, Does.Contain("M8StoreReadoutVertex"));
+            Assert.That(frame, Does.Not.Contain("MerkabaReadoutCubeTriangle"));
+            Assert.That(frame, Does.Not.Contain("triangleIndex < 12u"));
             Assert.That(frame, Does.Contain(
                 "M8_COUNTER_LOGICAL_VISIBLE_PRIMITIVES"));
             Assert.That(frame, Does.Contain(
@@ -329,35 +334,39 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
-        public void ReadoutFacingGuard_UsesTheExactCanonicalRasterWinding()
+        public void ReadoutSkinWinding_UsesOccupiedOppositeAndStereoFallback()
         {
             string frame = Source("Runtime/Shaders/MerkabaReadout.compute");
             string shader = Source("Runtime/Shaders/MerkabaGrid.shader");
-            Assert.That(frame, Does.Contain("MerkabaCanonicalPrimitiveFacing"));
+            Assert.That(frame, Does.Contain("opposite0 != opposite1"));
+            Assert.That(frame, Does.Contain(
+                "dot(normal, (float3)occupiedOpposite)"));
             Assert.That(frame, Does.Contain("_M8EyeGridPositions"));
             Assert.That(frame, Does.Contain("_M8GridWindingSign"));
-            Assert.That(frame, Does.Contain(
-                "_M8ReadoutTranslationGuardGrid * length(guardedNormal)"));
-            Assert.That(frame, Does.Not.Contain(
-                "cross(worldB - worldA, worldC - worldA)"));
-            Assert.That(frame, Does.Not.Contain(
-                "MerkabaCanonicalPrimitivePosition(primitiveId, 0u)"));
+            Assert.That(frame, Does.Contain("swapWinding"));
+            Assert.That(frame, Does.Contain("KernelState swapState"));
             Assert.That(shader, Does.Contain("Cull Back"));
             Assert.That(shader, Does.Not.Contain(
                 "MerkabaCanonicalPrimitivePosition"));
-            for (int primitive = 0;
-                 primitive < MerkabaCanonicalGeometry.PrimitiveCount;
-                 primitive++)
-            {
-                MerkabaCanonicalGeometry.PrimitiveVertex(primitive, 0,
-                    out float3 a, out float3 normal);
-                MerkabaCanonicalGeometry.PrimitiveVertex(primitive, 1,
-                    out float3 b, out _);
-                MerkabaCanonicalGeometry.PrimitiveVertex(primitive, 2,
-                    out float3 c, out _);
-                Assert.That(math.dot(math.cross(b - a, c - a), normal),
-                    Is.GreaterThan(0f), $"primitive {primitive}");
-            }
+        }
+
+        [Test]
+        public void ReadoutSkin_UsesOneConformingParityScaffoldWithoutCubeFallback()
+        {
+            string frame = Source("Runtime/Shaders/MerkabaReadout.compute");
+            Assert.That(frame, Does.Contain(
+                "asuint(globalCoord.x) ^ asuint(globalCoord.y) ^"));
+            Assert.That(frame, Does.Contain(
+                "uint offsetCount = evenVertex ? 14u : 6u;"));
+            Assert.That(frame, Does.Contain(
+                "uint faceCount = evenVertex ? 17u : 3u;"));
+            Assert.That(frame, Does.Contain(
+                "if (!(opposite0 && opposite1)) surfaceMask"));
+            Assert.That(frame, Does.Contain("candidateMask"));
+            Assert.That(frame, Does.Contain("surfaceMask"));
+            Assert.That(frame, Does.Not.Contain("MerkabaReadoutCubeTriangle"));
+            Assert.That(frame, Does.Not.Contain(
+                "MerkabaCanonicalPrimitivePosition"));
         }
 
         [Test]
@@ -422,14 +431,14 @@ namespace Genesis.RoomScan.Tests
             string reset = Slice(readout, "void ResetReadoutBuild",
                 "groupshared uint gFrameBlockRef");
             string prepare = Slice(readout, "void PrepareReadoutBuild",
-                "bool PrimitiveFrontFacingEitherEye");
+                "uint M8ReadoutPackedColor");
             Assert.That(reset, Does.Not.Contain("_M8DrawArgs"));
             Assert.That(prepare, Does.Contain("MERKABA_READOUT_SKIPPED"));
             Assert.That(prepare, Does.Contain("_M8FrameDispatchArgs[0] = 0u"));
         }
 
         [Test]
-        public void ReadoutVertexAbi_MaterializesCanonicalGeometryWithoutFallbackState()
+        public void ReadoutVertexAbi_MaterializesKernelCenterSkinWithoutFallbackState()
         {
             string readout = Source("Runtime/Shaders/MerkabaReadout.compute");
             string shader = Source("Runtime/Shaders/MerkabaGrid.shader");
@@ -443,12 +452,15 @@ namespace Genesis.RoomScan.Tests
                 Is.EqualTo(96L * 1024 * 1024));
             Assert.That(readout, Does.Contain("struct MerkabaReadoutVertex"));
             Assert.That(readout, Does.Contain(
-                "MerkabaReadoutCubeTriangle(neighbourMask, triangleIndex"));
+                "vertex.gridPosition = (float3)globalCoord *"));
             Assert.That(readout, Does.Contain(
                 "_M8ReadoutVertices0[outputVertex + corner] = vertex"));
             Assert.That(readout, Does.Contain(
                 "_M8ReadoutVertices1[outputVertex + corner] = vertex"));
+            Assert.That(readout, Does.Contain("M8ReadoutPackedColor(stateB)"));
+            Assert.That(readout, Does.Contain("M8ReadoutPackedColor(stateC)"));
             Assert.That(readout, Does.Contain("hasRgb << 24u"));
+            Assert.That(readout, Does.Not.Contain("MerkabaReadoutCubeTriangle"));
             Assert.That(readout, Does.Not.Contain("half3(0.55h"));
             Assert.That(shader, Does.Contain("half3(0.55h, 0.16h, 0.42h)"));
             Assert.That(shader, Does.Contain("packedColor >> 24u"));

@@ -315,50 +315,172 @@ void PrepareReadoutBuild(uint id : SV_DispatchThreadID)
     _M8FrameDispatchArgs[2] = 1u;
 }
 
-bool PrimitiveFrontFacingEitherEye(int3 globalCoord, uint primitiveId)
+uint M8ReadoutPackedColor(KernelState state)
 {
-    float3 kernelCenter = (float3)globalCoord * MERKABA_LATTICE_STEP;
-    float3 primitiveCenterOffset;
-    float3 orientedNormal;
-    MerkabaCanonicalPrimitiveFacing(primitiveId, primitiveCenterOffset,
-        orientedNormal);
-    float3 center = kernelCenter + primitiveCenterOffset;
-    float3 guardedNormal = orientedNormal * _M8GridWindingSign;
-    float leftFacing = dot(guardedNormal,
-        _M8EyeGridPositions[0] - center);
-    float rightFacing = dot(guardedNormal,
-        _M8EyeGridPositions[1] - center);
-    return max(leftFacing, rightFacing) +
-        _M8ReadoutTranslationGuardGrid * length(guardedNormal) > 0.0;
+    uint rgb = state.packedColor & 0x00ffffffu;
+    uint hasRgb = state.colorConfidence > 0u ? 1u : 0u;
+    return rgb | (hasRgb << 24u);
 }
 
-void MerkabaReadoutCubeTriangle(uint neighbourMask, uint triangleIndex,
-    out float3 vertex0, out float3 vertex1, out float3 vertex2)
+// The globally-even cube corners form the central tetrahedron. The other four
+// corners form the four corner tetrahedra. Translating the cube flips the local
+// pattern while retaining the same global-even face diagonal, so adjacent cubes
+// remain conforming. These literal switches avoid dynamic constant-array indexing
+// on Quest/Vulkan.
+int3 M8ReadoutEvenOffset(uint index)
 {
-    uint corner0 = 0u;
-    uint corner1 = 4u;
-    uint corner2 = 6u;
-    switch (triangleIndex)
+    switch (index)
     {
-        case 0u: corner0 = 0u; corner1 = 4u; corner2 = 6u; break;
-        case 1u: corner0 = 0u; corner1 = 6u; corner2 = 2u; break;
-        case 2u: corner0 = 1u; corner1 = 3u; corner2 = 7u; break;
-        case 3u: corner0 = 1u; corner1 = 7u; corner2 = 5u; break;
-        case 4u: corner0 = 0u; corner1 = 1u; corner2 = 5u; break;
-        case 5u: corner0 = 0u; corner1 = 5u; corner2 = 4u; break;
-        case 6u: corner0 = 2u; corner1 = 6u; corner2 = 7u; break;
-        case 7u: corner0 = 2u; corner1 = 7u; corner2 = 3u; break;
-        case 8u: corner0 = 0u; corner1 = 2u; corner2 = 3u; break;
-        case 9u: corner0 = 0u; corner1 = 3u; corner2 = 1u; break;
-        case 10u: corner0 = 4u; corner1 = 5u; corner2 = 7u; break;
-        case 11u: corner0 = 4u; corner1 = 7u; corner2 = 6u; break;
+        case 0u: return int3(-1,  0,  1);
+        case 1u: return int3(-1,  1,  0);
+        case 2u: return int3( 0, -1, -1);
+        case 3u: return int3( 0, -1,  1);
+        case 4u: return int3( 0,  0, -1);
+        case 5u: return int3( 0,  0,  1);
+        case 6u: return int3( 0,  1, -1);
+        case 7u: return int3( 0,  1,  0);
+        case 8u: return int3( 0,  1,  1);
+        case 9u: return int3( 1, -1,  0);
+        case 10u: return int3(1,  0, -1);
+        case 11u: return int3(1,  0,  0);
+        case 12u: return int3(1,  0,  1);
+        default: return int3(1,  1,  0);
     }
-    float extent0 = (neighbourMask & (1u << corner0)) != 0u ? 1.0 : 0.5;
-    float extent1 = (neighbourMask & (1u << corner1)) != 0u ? 1.0 : 0.5;
-    float extent2 = (neighbourMask & (1u << corner2)) != 0u ? 1.0 : 0.5;
-    vertex0 = (float3)kMerkabaBodyDiagonalOffsets[corner0] * extent0;
-    vertex1 = (float3)kMerkabaBodyDiagonalOffsets[corner1] * extent1;
-    vertex2 = (float3)kMerkabaBodyDiagonalOffsets[corner2] * extent2;
+}
+
+uint4 M8ReadoutEvenFace(uint index)
+{
+    switch (index)
+    {
+        case 0u: return uint4( 5u,  8u,  0u, 12u);
+        case 1u: return uint4( 5u, 12u,  3u,  8u);
+        case 2u: return uint4( 6u,  7u,  1u, 13u);
+        case 3u: return uint4( 6u, 10u,  4u, 13u);
+        case 4u: return uint4( 6u, 13u,  7u, 10u);
+        case 5u: return uint4( 7u,  8u,  1u, 13u);
+        case 6u: return uint4( 7u, 13u,  6u,  8u);
+        case 7u: return uint4( 8u, 12u,  5u, 13u);
+        case 8u: return uint4( 8u, 13u,  7u, 12u);
+        case 9u: return uint4( 9u, 10u,  2u, 11u);
+        case 10u: return uint4(9u, 11u, 10u, 12u);
+        case 11u: return uint4(9u, 12u,  3u, 11u);
+        case 12u: return uint4(10u, 11u, 9u, 13u);
+        case 13u: return uint4(10u, 13u, 6u, 11u);
+        case 14u: return uint4(11u, 12u, 9u, 13u);
+        case 15u: return uint4(11u, 13u, 10u, 12u);
+        default: return uint4(12u, 13u, 8u, 11u);
+    }
+}
+
+int3 M8ReadoutOddOffset(uint index)
+{
+    switch (index)
+    {
+        case 0u: return int3(-1,  0,  0);
+        case 1u: return int3( 0, -1,  0);
+        case 2u: return int3( 0,  0, -1);
+        case 3u: return int3( 0,  0,  1);
+        case 4u: return int3( 0,  1,  0);
+        default: return int3(1,  0,  0);
+    }
+}
+
+uint4 M8ReadoutOddFace(uint index)
+{
+    switch (index)
+    {
+        case 0u: return uint4(3u, 4u, 0u, 5u);
+        case 1u: return uint4(3u, 5u, 1u, 4u);
+        default: return uint4(4u, 5u, 2u, 3u);
+    }
+}
+
+int3 M8ReadoutOffset(bool evenVertex, uint index)
+{
+    return evenVertex ? M8ReadoutEvenOffset(index) :
+        M8ReadoutOddOffset(index);
+}
+
+uint4 M8ReadoutFace(bool evenVertex, uint index)
+{
+    return evenVertex ? M8ReadoutEvenFace(index) :
+        M8ReadoutOddFace(index);
+}
+
+bool M8TryLoadReadoutNeighbourState(MerkabaM8Address currentAddress,
+    uint currentPhysicalSlot, uint currentChunkIndex, uint currentBlockIndex,
+    int3 neighbourStep, out KernelState state)
+{
+    state = (KernelState)0;
+    int3 localSigned = int3(currentAddress.local) + neighbourStep;
+    bool sameBlock = all(localSigned >= 0) && all(localSigned < 256);
+    int3 blockCoord = currentAddress.blockCoord;
+    if (!sameBlock)
+    {
+        if (localSigned.x < 0) { blockCoord.x--; localSigned.x += 256; }
+        else if (localSigned.x >= 256) { blockCoord.x++; localSigned.x -= 256; }
+        if (localSigned.y < 0) { blockCoord.y--; localSigned.y += 256; }
+        else if (localSigned.y >= 256) { blockCoord.y++; localSigned.y -= 256; }
+        if (localSigned.z < 0) { blockCoord.z--; localSigned.z += 256; }
+        else if (localSigned.z >= 256) { blockCoord.z++; localSigned.z -= 256; }
+    }
+    MerkabaM8Address neighbourAddress = MerkabaAddressFromBlockLocal(
+        blockCoord, uint3(localSigned));
+
+    if (sameBlock &&
+        neighbourAddress.chunkLocal == currentAddress.chunkLocal &&
+        neighbourAddress.tileLocal == currentAddress.tileLocal)
+    {
+        state = M8LoadKernelStateRead(currentPhysicalSlot,
+            neighbourAddress.kernelLocal);
+        return true;
+    }
+
+    uint chunkIndex = currentChunkIndex;
+    if (neighbourAddress.chunkLocal != currentAddress.chunkLocal || !sameBlock)
+    {
+        uint blockIndex = currentBlockIndex;
+        if (!sameBlock && !M8FindBlock(blockCoord, blockIndex)) return true;
+        uint chunkRef = _M8BlockChunkRefsRead[blockIndex *
+            MERKABA_M8_BLOCK_CHUNK_COUNT + neighbourAddress.chunkLocal];
+        if (chunkRef == MERKABA_REF_EMPTY) return true;
+        if (chunkRef == MERKABA_REF_CLAIMED_NEW) return false;
+        chunkIndex = chunkRef - 1u;
+    }
+
+    uint tileRef = _M8ChunkTileRefsRead[chunkIndex *
+        MERKABA_M8_TILES_PER_CHUNK + neighbourAddress.tileLocal];
+    if (tileRef == MERKABA_REF_EMPTY) return true;
+    if (!M8IsHotRef(tileRef)) return false;
+    state = M8LoadKernelStateRead(M8PhysicalSlot(tileRef),
+        neighbourAddress.kernelLocal);
+    return true;
+}
+
+void M8FailReadoutDependency()
+{
+    M8CounterIncrement(M8_COUNTER_LATE_DRAW_COLD_MISSES);
+    M8CounterIncrement(M8_COUNTER_READOUT_UNRESOLVED);
+    uint ignored;
+    InterlockedMax(_M8Counters[M8_COUNTER_READOUT_BUILD_STATUS],
+        MERKABA_READOUT_FAILED, ignored);
+}
+
+void M8StoreReadoutVertex(uint outputTriangle, uint corner,
+    int3 globalCoord, uint packedColor)
+{
+    uint outputVertex = outputTriangle * MERKABA_VERTICES_PER_PRIMITIVE;
+    bool secondBuffer = outputTriangle >=
+        MERKABA_M8_READOUT_TRIANGLES_PER_BUFFER;
+    if (secondBuffer)
+        outputVertex -= MERKABA_M8_READOUT_VERTICES_PER_BUFFER;
+    MerkabaReadoutVertex vertex;
+    vertex.gridPosition = (float3)globalCoord * MERKABA_LATTICE_STEP;
+    vertex.packedColor = packedColor;
+    if (secondBuffer)
+        _M8ReadoutVertices1[outputVertex + corner] = vertex;
+    else
+        _M8ReadoutVertices0[outputVertex + corner] = vertex;
 }
 
 [numthreads(64, 1, 1)]
@@ -380,33 +502,52 @@ void CompileReadoutVertices(uint3 groupId : SV_GroupID,
     uint4 tileMeta = M8LoadTileMetaRead(physicalSlot);
     uint2 chunkOwner = M8LoadChunkOwnerRead(tileMeta.x);
 
-    uint neighbourMask = 0u;
-    [unroll]
-    for (uint direction = 0u; direction < MERKABA_DIRECTION_COUNT; direction++)
+    bool evenVertex = ((asuint(globalCoord.x) ^ asuint(globalCoord.y) ^
+        asuint(globalCoord.z)) & 1u) == 0u;
+    uint offsetCount = evenVertex ? 14u : 6u;
+    uint faceCount = evenVertex ? 17u : 3u;
+    uint occupiedMask = 0u;
+    [loop]
+    for (uint offsetIndex = 0u; offsetIndex < offsetCount; offsetIndex++)
     {
         bool occupied = false;
         if (!M8TryOccupiedNeighbour(currentAddress, physicalSlot,
             tileMeta.x, chunkOwner.x,
-            kMerkabaBodyDiagonalOffsets[direction], occupied))
+            M8ReadoutOffset(evenVertex, offsetIndex), occupied))
         {
-            M8CounterIncrement(M8_COUNTER_LATE_DRAW_COLD_MISSES);
-            M8CounterIncrement(M8_COUNTER_READOUT_UNRESOLVED);
-            uint failureStatus;
-            InterlockedMax(_M8Counters[M8_COUNTER_READOUT_BUILD_STATUS],
-                MERKABA_READOUT_FAILED, failureStatus);
+            M8FailReadoutDependency();
             return;
         }
-        if (occupied) neighbourMask |= 1u << direction;
+        if (occupied) occupiedMask |= 1u << offsetIndex;
     }
 
+    uint candidateMask = 0u;
+    uint surfaceMask = 0u;
+    [loop]
+    for (uint faceIndex = 0u; faceIndex < faceCount; faceIndex++)
+    {
+        uint4 face = M8ReadoutFace(evenVertex, faceIndex);
+        uint vertices = (1u << face.x) | (1u << face.y);
+        if ((occupiedMask & vertices) != vertices) continue;
+        candidateMask |= 1u << faceIndex;
+        bool opposite0 = (occupiedMask & (1u << face.z)) != 0u;
+        bool opposite1 = (occupiedMask & (1u << face.w)) != 0u;
+        if (!(opposite0 && opposite1)) surfaceMask |= 1u << faceIndex;
+    }
+
+    uint candidateCount = countbits(candidateMask);
+    uint surfaceCount = countbits(surfaceMask);
     uint ignored;
     InterlockedAdd(_M8Counters[M8_COUNTER_PRIMITIVES_BEFORE_FACING],
-        12u, ignored);
+        candidateCount, ignored);
+    InterlockedAdd(_M8Counters[M8_COUNTER_PRIMITIVES_REJECTED],
+        candidateCount - surfaceCount, ignored);
+    if (surfaceCount == 0u) return;
 
     uint baseIndex;
     InterlockedAdd(_M8Counters[M8_COUNTER_LOGICAL_VISIBLE_PRIMITIVES],
-        12u, baseIndex);
-    if (baseIndex + 12u >
+        surfaceCount, baseIndex);
+    if (baseIndex + surfaceCount >
         MERKABA_M8_READOUT_TRIANGLE_CAPACITY)
     {
         _M8Counters[M8_COUNTER_RENDER_PRIMITIVE_OVERFLOW] = 1u;
@@ -414,39 +555,70 @@ void CompileReadoutVertices(uint3 groupId : SV_GroupID,
             MERKABA_READOUT_FAILED, ignored);
         return;
     }
-    uint rgb = state.packedColor & 0x00ffffffu;
-    uint hasRgb = state.colorConfidence > 0u ? 1u : 0u;
-    uint packedColor = rgb | (hasRgb << 24u);
-    float3 kernelCenter = (float3)globalCoord * MERKABA_LATTICE_STEP;
 
-    [unroll]
-    for (uint triangleIndex = 0u; triangleIndex < 12u; triangleIndex++)
+    uint outputOffset = 0u;
+    [loop]
+    for (uint faceIndex = 0u; faceIndex < faceCount; faceIndex++)
     {
-        float3 corner0;
-        float3 corner1;
-        float3 corner2;
-        MerkabaReadoutCubeTriangle(neighbourMask, triangleIndex,
-            corner0, corner1, corner2);
-        uint outputTriangle = baseIndex + triangleIndex;
-        uint outputVertex = outputTriangle * MERKABA_VERTICES_PER_PRIMITIVE;
-        bool secondBuffer = outputTriangle >=
-            MERKABA_M8_READOUT_TRIANGLES_PER_BUFFER;
-        if (secondBuffer)
-            outputVertex -= MERKABA_M8_READOUT_VERTICES_PER_BUFFER;
-        [unroll]
-        for (uint corner = 0u; corner < 3u; corner++)
+        if ((surfaceMask & (1u << faceIndex)) == 0u) continue;
+        uint4 face = M8ReadoutFace(evenVertex, faceIndex);
+        int3 offsetB = M8ReadoutOffset(evenVertex, face.x);
+        int3 offsetC = M8ReadoutOffset(evenVertex, face.y);
+        int3 offsetD0 = M8ReadoutOffset(evenVertex, face.z);
+        int3 offsetD1 = M8ReadoutOffset(evenVertex, face.w);
+        bool opposite0 = (occupiedMask & (1u << face.z)) != 0u;
+        bool opposite1 = (occupiedMask & (1u << face.w)) != 0u;
+
+        float3 normal = cross((float3)offsetB, (float3)offsetC);
+        bool swapWinding = false;
+        if (opposite0 != opposite1)
         {
-            MerkabaReadoutVertex vertex;
-            float3 cubeCorner = corner == 0u ? corner0 :
-                (corner == 1u ? corner1 : corner2);
-            vertex.gridPosition = kernelCenter + cubeCorner *
-                MERKABA_CANONICAL_UNIT;
-            vertex.packedColor = packedColor;
-            if (secondBuffer)
-                _M8ReadoutVertices1[outputVertex + corner] = vertex;
-            else
-                _M8ReadoutVertices0[outputVertex + corner] = vertex;
+            int3 occupiedOpposite = opposite0 ? offsetD0 : offsetD1;
+            swapWinding = dot(normal, (float3)occupiedOpposite) > 0.0;
+            if (_M8GridWindingSign < 0.0) swapWinding = !swapWinding;
         }
+        else
+        {
+            float3 center = ((float3)globalCoord +
+                ((float3)offsetB + (float3)offsetC) / 3.0) *
+                MERKABA_LATTICE_STEP;
+            float3 guardedNormal = normal * _M8GridWindingSign;
+            float leftFacing = dot(guardedNormal,
+                _M8EyeGridPositions[0] - center);
+            float rightFacing = dot(guardedNormal,
+                _M8EyeGridPositions[1] - center);
+            swapWinding = max(leftFacing, rightFacing) < 0.0;
+        }
+
+        KernelState stateB;
+        KernelState stateC;
+        if (!M8TryLoadReadoutNeighbourState(currentAddress, physicalSlot,
+            tileMeta.x, chunkOwner.x, offsetB, stateB) ||
+            !M8TryLoadReadoutNeighbourState(currentAddress, physicalSlot,
+            tileMeta.x, chunkOwner.x, offsetC, stateC))
+        {
+            M8FailReadoutDependency();
+            return;
+        }
+
+        int3 coordB = globalCoord + offsetB;
+        int3 coordC = globalCoord + offsetC;
+        if (swapWinding)
+        {
+            int3 swapCoord = coordB;
+            coordB = coordC;
+            coordC = swapCoord;
+            KernelState swapState = stateB;
+            stateB = stateC;
+            stateC = swapState;
+        }
+        uint outputTriangle = baseIndex + outputOffset++;
+        M8StoreReadoutVertex(outputTriangle, 0u, globalCoord,
+            M8ReadoutPackedColor(state));
+        M8StoreReadoutVertex(outputTriangle, 1u, coordB,
+            M8ReadoutPackedColor(stateB));
+        M8StoreReadoutVertex(outputTriangle, 2u, coordC,
+            M8ReadoutPackedColor(stateC));
     }
 }
 
