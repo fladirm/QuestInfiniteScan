@@ -1,6 +1,6 @@
 # Sigma‑PRISM‑16 implementation state
 
-Updated: 2026-08-29 (Europe/Prague)
+Updated: 2026-08-30 (Europe/Prague)
 
 ## Authority
 
@@ -18,6 +18,49 @@ Updated: 2026-08-29 (Europe/Prague)
 - Sole routine cursor: `.codex/S4-08.6_RESUME.md`.
 - Forensic facts and replacement matrix: `analyza.md`.
 - S4‑09 remains pending/unopened.
+
+## N4R realized-component D4 parity corrective cut
+
+The current WIP aligns production TILE_CLOSE orbit equivalence with the accepted
+N1R/N2R canonical component stream.  Production previously compared the four
+latent native-sector-to-chart directions for every chart assignment, including
+directions absent from the realized component.  An edge-free singleton therefore
+manufactured three non-D4 physical alternatives and the live full frame failed
+closed as `UNRESOLVED`.  The correction compares only realized component cells
+under one common D4 action; resolved native edge receipts remain the incidence
+constraints and unused latent directions have no canonical bytes.
+
+The focused Vulkan regression also exposed one adjacent accepted invariant:
+distinct realized localities may not occupy the same dyadic cell.  TILE_CLOSE now
+invalidates such an orbit before the D4 quotient while allowing repeated
+observations carrying the same exact published-support locator to remain one
+logical locality.  This is a fixed bounded tile-local check in the existing
+`ContractNativeQuery` entry point.  It adds no submission, kernel, buffer owner,
+authority input or physical identity.
+
+Actual evidence over the final source:
+
+```text
+focused production TILE_CLOSE orbit corpus                 1/1 PASS
+SigmaNativeFrameTests                                      28/28 PASS
+complete Unity EditMode/Vulkan suite                       95/95 PASS
+generator --check / UAV / git diff --check         PASS / PASS / PASS
+new correction shader warning                                   0
+HotDispatchCount                                               16
+authority/capsule/generator semantic diff                        0
+correction production diff vs 4b757f0                    +39/-21
+cumulative production diff vs N2R b4399db             +9487/-1505
+```
+
+The decisive production cases are one edge-free singleton, two disconnected
+singletons with independent chart gauges, one exact resolved edge and a generated
+three-locality incidence whose distinct localities overlap in every candidate
+embedding and therefore remains unresolved.  Existing resolved cycle, redundant-
+edge inconsistency and 256-hit same-support certificate meet assertions remain
+green.  N4R remains WIP: the exact next action is the user-directed Quest run from
+this corrective commit, measuring whether revisions now escape the prior all-
+unresolved stream and profiling the still-open N4 performance gate.  N5R and
+S4-09 remain unopened.
 
 ## N4R exact footprint-team / compact-boundary WIP
 

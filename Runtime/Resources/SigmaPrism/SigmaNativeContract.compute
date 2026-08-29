@@ -1483,6 +1483,33 @@ bool SigmaN4TileChartEqual(uint4 left, uint4 right)
     return left.x == right.x && left.y == right.y && left.z == right.z;
 }
 
+bool SigmaN4TileChartHasDistinctOverlap(uint tile, uint local, uint root,
+    uint4 solved)
+{
+    bool assigned = SigmaN4TileChartAssigned(solved);
+    uint footprint = SigmaN4TileGlobalFootprint(tile, local);
+    uint support = assigned
+        ? SigmaN4TileSupportKey(footprint) : SIGMA_N4_TILE_INVALID;
+    uint overlap = 0u;
+    [loop]
+    for (uint other = 0u; other < local; ++other)
+    {
+        uint otherFootprint = SigmaN4TileGlobalFootprint(tile, other);
+        uint4 otherSolved = SigmaN4TileWideA[other];
+        bool sameComponent = SigmaN4TileLabel[other].x == root;
+        bool sameCell = SigmaN4TileChartAssigned(otherSolved) &&
+            solved.x == otherSolved.x && solved.y == otherSolved.y;
+        uint otherSupport = sameComponent
+            ? SigmaN4TileSupportKey(otherFootprint) : SIGMA_N4_TILE_INVALID;
+        bool samePublishedLocality = support != SIGMA_N4_TILE_INVALID &&
+            support == otherSupport;
+        overlap |= assigned && sameComponent && sameCell &&
+            !samePublishedLocality
+            ? 1u : 0u;
+    }
+    return overlap != 0u;
+}
+
 void SigmaN4TileSolveOrbit(uint tile, uint local, uint orbit)
 {
     uint footprint = SigmaN4TileGlobalFootprint(tile, local);
@@ -1570,6 +1597,9 @@ void SigmaN4TileSolveOrbit(uint tile, uint local, uint orbit)
             }
         }
     }
+    if (valid && exact && SigmaN4TileChartHasDistinctOverlap(tile, local,
+            root, solved))
+        exact = false;
     if (valid && !exact)
     {
         uint ignored;
@@ -1582,15 +1612,12 @@ void SigmaN4TileSolveOrbit(uint tile, uint local, uint orbit)
     DeviceMemoryBarrierWithGroupSync();
 }
 
-bool SigmaN4TileD4Equivalent(uint4 left, uint leftOrbit, uint4 right,
-    uint rightOrbit, uint transform)
+bool SigmaN4TileD4Equivalent(uint4 left, uint4 right, uint transform)
 {
     bool equivalent = SigmaN4TileChartAssigned(left) &&
         SigmaN4TileChartAssigned(right);
-    uint exact = 1u;
     if (equivalent)
     {
-        int4 d4 = SIGMA_STITCH_CHART_D4[min(transform, 7u)];
         int2 leftPosition = int2(asint(left.x), asint(left.y));
         uint transformValid = 1u;
         int2 transformed = SigmaMerkabaTransformChartCellLower(leftPosition,
@@ -1598,22 +1625,13 @@ bool SigmaN4TileD4Equivalent(uint4 left, uint leftOrbit, uint4 right,
         equivalent = transformValid != 0u;
         equivalent = all(transformed == int2(asint(right.x),
             asint(right.y))) && equivalent;
-        uint leftAssignment = SigmaN4ChartOrbitRepresentative(leftOrbit);
-        uint rightAssignment = SigmaN4ChartOrbitRepresentative(rightOrbit);
-        [unroll]
-        for (uint sector = 0u; sector < 4u; ++sector)
-        {
-            int2 leftDirection = SigmaN4ChartDirection(leftAssignment,
-                SigmaN4TileChartFrame(left), sector, exact);
-            int2 expected = int2(
-                d4.x * leftDirection.x + d4.y * leftDirection.y,
-                d4.z * leftDirection.x + d4.w * leftDirection.y);
-            int2 actual = SigmaN4ChartDirection(rightAssignment,
-                SigmaN4TileChartFrame(right), sector, exact);
-            if (any(expected != actual)) exact = 0u;
-        }
     }
-    return equivalent && exact != 0u;
+    // This predicate is accumulated for the same footprint over every actual
+    // member of the component.  Only those realized cells (and the resolved
+    // edge receipts that produced them) occur in the accepted canonical stream.
+    // Comparing all four latent sector directions would distinguish unused
+    // chart assignments that serialize to the same physical component image.
+    return equivalent;
 }
 
 void SigmaN4TileFinalizeComponents(uint tile, uint local)
@@ -1639,8 +1657,8 @@ void SigmaN4TileFinalizeComponents(uint tile, uint local)
             uint mask = 0u;
             [unroll]
             for (uint transform = 0u; transform < 8u; ++transform)
-                mask |= SigmaN4TileD4Equivalent(leftState, leftOrbit,
-                    rightState, rightOrbit, transform)
+                mask |= SigmaN4TileD4Equivalent(leftState, rightState,
+                    transform)
                     ? 1u << transform : 0u;
             uint offset = (pair + 1u) * 8u;
             uint preserve = ~(0xffu << offset) | (mask << offset);

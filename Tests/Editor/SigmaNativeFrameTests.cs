@@ -870,6 +870,104 @@ namespace Genesis.RoomScan.Tests
                 scratch.GlobalBorderComponentCapacity);
             BindClose();
 
+            void UploadRealizedPattern(params (int Footprint,
+                SigmaS16 State)[] nodes)
+            {
+                var patternObservations = new SigmaNativeObservationGpu[
+                    scratch.FootprintCapacity + 1];
+                var patternStates = new UInt2[scratch.States.count];
+                var patternCertificates = new UInt4[
+                    scratch.LocalityCertificateWords.count];
+                var patternArena = new UInt2[scratch.CloseScratch.count];
+                UInt2 point = Packed(SigmaNumericDomain.One);
+                for (int node = 0; node < nodes.Length; ++node)
+                {
+                    int footprint = nodes[node].Footprint;
+                    patternObservations[footprint + 1].Identity = U4(1u, 1u,
+                        checked((uint)(node + 1)), evidenceFlags);
+                    WriteState(patternStates, scratch.FootprintStateOffset +
+                        footprint * SigmaS16.LaneCount, nodes[node].State);
+                    int certificate = scratch.FootprintCertificateOffset +
+                        footprint * SigmaNativeFrameSlotResources
+                            .CertificateWordCount;
+                    patternCertificates[certificate] = new UInt4
+                    {
+                        X = (uint)(SigmaNativeCertificateFlags.Valid |
+                            SigmaNativeCertificateFlags.Directional |
+                            SigmaNativeCertificateFlags.Minimized),
+                        Y = 1u,
+                        Z = 1u,
+                    };
+                    for (int side = 0; side < 4; ++side)
+                        WriteEnvelope(patternArena, footprint,
+                            SigmaNativeFrameSlotResources
+                                .FootprintEvidenceWordCount, side, point);
+                }
+                scratch.Observation.SetData(patternObservations);
+                scratch.States.SetData(patternStates);
+                scratch.LocalityCertificateWords.SetData(patternCertificates);
+                SeedBoundaryWorklist(patternArena, scratch);
+                scratch.CloseScratch.SetData(patternArena);
+                query.Dispatch(relation, scratch.BoundaryCapacity + 1, 1, 1);
+                contract.SetKeyword(tileVariant, true);
+                contract.Dispatch(close, 1, 1, 1);
+                contract.SetKeyword(tileVariant, false);
+            }
+
+            UInt2[] ReadTileHeader()
+            {
+                var result = new UInt2[2];
+                scratch.CloseScratch.GetData(result, 0,
+                    scratch.TileHeaderScratchOffset, result.Length);
+                return result;
+            }
+
+            SigmaS16 mode1 = SigmaS16.Basis(1, SigmaNumericDomain.One);
+            SigmaS16 mode2 = SigmaS16.Basis(2, SigmaNumericDomain.One);
+            SigmaS16 mode4 = SigmaS16.Basis(4, SigmaNumericDomain.One);
+
+            // The accepted component serializer contains only realized cells
+            // and edges.  Unused latent sector-to-side assignments therefore
+            // collapse for an edge-free component instead of manufacturing
+            // three non-D4 physical alternatives.
+            UploadRealizedPattern((17, mode1));
+            UInt2[] realizedHeader = ReadTileHeader();
+            Assert.That(realizedHeader[0].High, Is.EqualTo(1u));
+            Assert.That(realizedHeader[1].Low, Is.Zero);
+            Assert.That(realizedHeader[1].High, Is.Zero,
+                "One edge-free realized component has one canonical D4 class.");
+
+            UploadRealizedPattern((17, mode1), (34, mode2));
+            realizedHeader = ReadTileHeader();
+            Assert.That(realizedHeader[0].High, Is.EqualTo(2u));
+            Assert.That(realizedHeader[1].Low, Is.Zero);
+            Assert.That(realizedHeader[1].High, Is.Zero,
+                "Disconnected components own independent chart gauges.");
+
+            UploadRealizedPattern((17, mode1), (18, mode2));
+            realizedHeader = ReadTileHeader();
+            Assert.That(realizedHeader[0].High, Is.EqualTo(1u));
+            Assert.That(realizedHeader[1].High, Is.Zero,
+                "One accepted resolved edge remains one D4 class.");
+
+            // The correction is not a blanket collapse of the three abstract
+            // assignment classes.  These two generated edges realize the N2
+            // chain/corner ambiguity and must remain non-D4-equivalent.
+            UploadRealizedPattern((17, mode1), (18, mode2), (19, mode4));
+            realizedHeader = ReadTileHeader();
+            var chainBoundaries = new UInt2[12];
+            scratch.CloseScratch.GetData(chainBoundaries, 0,
+                scratch.BoundaryScratchOffset + 16 *
+                    SigmaNativeFrameSlotResources.BoundaryReceiptWordCount,
+                chainBoundaries.Length);
+            Assert.That(chainBoundaries[0].Low,
+                Is.EqualTo((uint)SigmaStitchResolution.Resolved));
+            Assert.That(chainBoundaries[6].Low,
+                Is.EqualTo((uint)SigmaStitchResolution.Resolved));
+            Assert.That(realizedHeader[0].High, Is.EqualTo(1u));
+            Assert.That(realizedHeader[1].High, Is.Not.Zero,
+                "Distinct realized chain/corner images must stay unresolved.");
+
             // The accepted intrinsic six-mode cycle occupies only a disposable
             // 2x3 footprint perimeter. Sampling positions do not supply the
             // native sectors or chart orientation.
