@@ -1077,21 +1077,27 @@ namespace Genesis.RoomScan.SigmaPrism
     internal sealed class SigmaNativeCompletionRecord
     {
         private SigmaNativeCompletionRecord(SigmaNativeFrameGpu frame,
-            uint publishedRoot, SigmaExactConstraintRecord evidence)
+            uint publishedRoot, uint expectedRevision,
+            SigmaExactConstraintRecord evidence)
         {
             Frame = frame;
             PublishedRoot = publishedRoot;
+            ExpectedRevision = expectedRevision;
             Evidence = evidence;
         }
 
         internal SigmaNativeFrameGpu Frame { get; }
         internal uint PublishedRoot { get; }
+        internal uint ExpectedRevision { get; }
         internal SigmaExactConstraintRecord Evidence { get; }
         internal uint Revision => Frame.Identity.X;
 
         internal static SigmaNativeCompletionRecord Decode(
-            NativeArray<SigmaFrameUInt2Gpu> batch, int recordIndex)
+            NativeArray<SigmaFrameUInt2Gpu> batch, int recordIndex,
+            uint expectedRevision)
         {
+            Require(expectedRevision != 0u,
+                "Completion reservation has no submitted revision.");
             int recordBase = checked(recordIndex *
                 SigmaGeneratedFrame.CompletionWordCount);
             Require(recordBase >= 0 && recordBase +
@@ -1148,6 +1154,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 certificate[index] = Read4(
                     SigmaGeneratedFrame.CompletionCertificate + index * 2);
             return new SigmaNativeCompletionRecord(frame, root.X,
+                expectedRevision,
                 new SigmaExactConstraintRecord(constraint, headers, rays,
                     leaves, certificate));
         }
@@ -1181,27 +1188,32 @@ namespace Genesis.RoomScan.SigmaPrism
             internal readonly Segment _segment;
 
             internal Reservation(Segment segment, int recordIndex,
-                bool sealsBatch)
+                bool sealsBatch, uint expectedRevision)
             {
                 _segment = segment;
                 RecordIndex = recordIndex;
                 SealsBatch = sealsBatch;
+                ExpectedRevision = expectedRevision;
             }
 
             internal GraphicsBuffer Buffer => _segment?.Buffer;
             internal int RecordIndex { get; }
             internal bool SealsBatch { get; }
+            internal uint ExpectedRevision { get; }
             internal bool IsValid => _segment != null;
         }
 
-        internal Reservation Reserve()
+        internal Reservation Reserve(uint expectedRevision)
         {
+            if (expectedRevision == 0u)
+                throw new ArgumentOutOfRangeException(nameof(expectedRevision));
             lock (_gate)
             {
                 ThrowIfDisposed();
                 if (_open == null)
                     _open = AcquireSegment();
                 int index = _open.RecordCount++;
+                _open.ExpectedRevisions[index] = expectedRevision;
                 bool seals = _open.RecordCount == RecordsPerBatch;
                 Segment segment = _open;
                 if (seals)
@@ -1209,7 +1221,8 @@ namespace Genesis.RoomScan.SigmaPrism
                     segment.Sealed = true;
                     _open = null;
                 }
-                return new Reservation(segment, index, seals);
+                return new Reservation(segment, index, seals,
+                    expectedRevision);
             }
         }
 
@@ -1248,6 +1261,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 // never submitted, so a recorded readback command was discarded
                 // together with that command buffer and has no callback.
                 segment.ReadbackIssued = false;
+                segment.ExpectedRevisions[reservation.RecordIndex] = 0u;
                 segment.RecordCount--;
                 segment.Sealed = false;
                 if (_open == null)
@@ -1347,7 +1361,8 @@ namespace Genesis.RoomScan.SigmaPrism
                             "Batched exact completion size mismatch.");
                     for (int index = 0; index < segment.RecordCount; ++index)
                         decoded.Add(new TransferResult(
-                            SigmaNativeCompletionRecord.Decode(words, index),
+                            SigmaNativeCompletionRecord.Decode(words, index,
+                                segment.ExpectedRevisions[index]),
                             null));
                 }
                 catch (Exception exception)
@@ -1384,11 +1399,14 @@ namespace Genesis.RoomScan.SigmaPrism
         {
             internal Segment(GraphicsBuffer buffer) => Buffer = buffer;
             internal GraphicsBuffer Buffer { get; }
+            internal uint[] ExpectedRevisions { get; } =
+                new uint[RecordsPerBatch];
             internal int RecordCount { get; set; }
             internal bool Sealed { get; set; }
             internal bool ReadbackIssued { get; set; }
             internal void Reset()
             {
+                Array.Clear(ExpectedRevisions, 0, ExpectedRevisions.Length);
                 RecordCount = 0;
                 Sealed = false;
                 ReadbackIssued = false;

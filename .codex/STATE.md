@@ -1,6 +1,6 @@
 # Sigma‑PRISM‑16 implementation state
 
-Updated: 2026-08-28 (Europe/Prague)
+Updated: 2026-08-29 (Europe/Prague)
 
 ## Authority
 
@@ -18,6 +18,35 @@ Updated: 2026-08-28 (Europe/Prague)
 - Sole routine cursor: `.codex/S4-08.6_RESUME.md`.
 - Forensic facts and replacement matrix: `analyza.md`.
 - S4‑09 remains pending/unopened.
+
+## N4R Quest lifecycle / parallel CUT-E forensic WIP
+
+Current dirty work above `6d231c3d` is being preserved as a forensic WIP
+checkpoint, not accepted N4R.  It contains the production frame-slot lifecycle
+initialization and independent submitted-revision verification discovered by the
+live Quest run, plus the in-progress fixed-graph CUT-E parallel lowering and its
+production-faithful fixtures.  No N5R work is open.
+
+The live evidence that motivates the next correction remains:
+
+```text
+first profiled frame total GPU                         528.927 ms
+ContractNativeQuery                                   278.991 ms
+EvaluateNativeRelation                                 95.172 ms
+observed terminal receipts                             176 x NO_CHANGE
+observed published root / unresolved                    0 / 0
+KGSL fence-timeout samples                              324
+```
+
+Source audit identifies two still-open N4R defects: FOOTPRINT/BOUNDARY currently
+overdispatch one large workgroup per logical item instead of batching the fixed
+domains, and the GLOBAL_CLOSE unresolved/component receipt is not consumed by
+CUT E before its no-change decision.  The exact next implementation action after
+this WIP checkpoint is a runtime-only fixed-pass batching of those two existing
+phases plus lossless propagation of the existing global close receipt.  It must
+retain the current fixed graph ceiling, accepted N1R/N2R semantics, root-last
+publication, GPU-only authority and zero new physical ontology.  No acceptance,
+performance closure or Quest pass is claimed by this checkpoint.
 
 ## N4R Quest direct-grid correction WIP
 

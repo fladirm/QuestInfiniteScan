@@ -307,7 +307,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 if (!_graph.TryAcquire(out ownedFrame))
                     return false;
 
-                completion = _completionTransfer.Reserve();
+                completion = _completionTransfer.Reserve(revision);
 
                 _graph.RecordNativeCloseCommit(command, ownedFrame, revision,
                     source.CalibrationEpoch, input, completion.Buffer,
@@ -395,7 +395,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 }
                 SigmaFrameCompletionDisposition disposition =
                     ClassifyFrameCompletion(completion.Frame,
-                        completion.PublishedRoot, completion.Revision,
+                        completion.PublishedRoot, completion.ExpectedRevision,
                         out string classificationError);
                 if (disposition == SigmaFrameCompletionDisposition.Faulted)
                 {

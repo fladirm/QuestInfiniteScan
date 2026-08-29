@@ -96,7 +96,7 @@ namespace Genesis.RoomScan.SigmaPrism
     }
 
     /// <summary>
-    /// Bounded physical lowering of one NativeCloseCommit. Fourteen submissions
+    /// Bounded physical lowering of one NativeCloseCommit. Sixteen submissions
     /// are invariant in branch/relation/page cardinality: those cardinalities map
     /// to workgroups inside the generated collective kernels.
     /// </summary>
@@ -105,7 +105,7 @@ namespace Genesis.RoomScan.SigmaPrism
         private const string FrameResource = "SigmaPrism/SigmaNativeFrame";
         private const string QueryResource = "SigmaPrism/SigmaNativeQuery";
         private const string ContractResource = "SigmaPrism/SigmaNativeContract";
-        internal const int HotDispatchCount = 14;
+        internal const int HotDispatchCount = 16;
 
         private readonly SigmaExactBackendGate _backendGate;
         private readonly ComputeShader _frame;
@@ -113,9 +113,11 @@ namespace Genesis.RoomScan.SigmaPrism
         private readonly ComputeShader _contract;
         private readonly int _buildObservation;
         private readonly int _prepareCanonicalSeed;
+        private readonly int _prepareCanonicalRuns;
         private readonly int _prepareCanonicalSelect;
         private readonly int _prepareRefinementProof;
         private readonly int _prepareComponentOrder;
+        private readonly int _prepareRefinementScan;
         private readonly int _prepareRefinementPlan;
         private readonly int _prepareRevision;
         private readonly int _preparePage;
@@ -143,12 +145,16 @@ namespace Genesis.RoomScan.SigmaPrism
                 "BuildNativeObservation");
             _prepareCanonicalSeed = _frame.FindProfiledKernel(
                 "PrepareNativeCanonicalSeed");
+            _prepareCanonicalRuns = _frame.FindProfiledKernel(
+                "PrepareNativeCanonicalRuns");
             _prepareCanonicalSelect = _frame.FindProfiledKernel(
                 "PrepareNativeCanonicalSelect");
             _prepareRefinementProof = _frame.FindProfiledKernel(
                 "PrepareNativeRefinementProof");
             _prepareComponentOrder = _frame.FindProfiledKernel(
                 "PrepareNativeComponentOrder");
+            _prepareRefinementScan = _frame.FindProfiledKernel(
+                "PrepareNativeRefinementScan");
             _prepareRefinementPlan = _frame.FindProfiledKernel(
                 "PrepareNativeRefinementPlan");
             _prepareRevision = _frame.FindProfiledKernel(
@@ -254,15 +260,24 @@ namespace Genesis.RoomScan.SigmaPrism
 
             command.DispatchComputeProfiled(_frame, _prepareCanonicalSeed,
                 1, 1, 1);
+            int canonicalRunSize = Math.Min(16384,
+                slot.CanonicalImageStride);
+            int canonicalRunCount = (slot.FootprintCapacity +
+                canonicalRunSize - 1) / canonicalRunSize;
+            command.DispatchComputeProfiled(_frame, _prepareCanonicalRuns,
+                canonicalRunCount * 8, 1, 1);
             command.DispatchComputeProfiled(_frame, _prepareCanonicalSelect,
-                1, 1, 1);
+                (slot.FootprintCapacity * 8 + 255) / 256, 1, 1);
             command.DispatchComputeProfiled(_frame, _prepareRefinementProof,
-                1, 1, 1);
+                (slot.FootprintCapacity * 28 + 255) / 256, 1, 1);
             command.DispatchComputeProfiled(_frame, _prepareComponentOrder,
-                1, 1, 1);
+                (slot.FootprintCapacity + 255) / 256, 1, 1);
+            command.DispatchComputeProfiled(_frame, _prepareRefinementScan,
+                slot.Counters, 2u * sizeof(uint) * 4u);
             command.DispatchComputeProfiled(_frame, _prepareRefinementPlan,
-                1, 1, 1);
-            command.DispatchComputeProfiled(_frame, _prepareRevision, 1, 1, 1);
+                slot.Counters, 2u * sizeof(uint) * 4u);
+            command.DispatchComputeProfiled(_frame, _prepareRevision,
+                slot.Counters, 2u * sizeof(uint) * 4u);
             command.DispatchComputeProfiled(_frame, _preparePage,
                 slot.Counters, sizeof(uint) * 4u);
             command.DispatchComputeProfiled(_frame, _scatterState,
@@ -285,8 +300,10 @@ namespace Genesis.RoomScan.SigmaPrism
             GraphicsBuffer completionJournal, int completionRecordIndex)
         {
             int[] kernels = { _buildObservation, _prepareCanonicalSeed,
+                _prepareCanonicalRuns,
                 _prepareCanonicalSelect, _prepareRefinementProof,
-                _prepareComponentOrder, _prepareRefinementPlan,
+                _prepareComponentOrder, _prepareRefinementScan,
+                _prepareRefinementPlan,
                 _prepareRevision, _preparePage, _scatterState, _closePublish };
             StereoRigFrameLease source = input.Prediction.Source;
             foreach (int kernel in kernels)
@@ -343,8 +360,10 @@ namespace Genesis.RoomScan.SigmaPrism
                     "_PublishedRevisionRoot", input.Carrier.PublicationRoot);
             }
             int[] cutEKernels = { _prepareCanonicalSeed,
+                _prepareCanonicalRuns,
                 _prepareCanonicalSelect, _prepareRefinementProof,
-                _prepareComponentOrder, _prepareRefinementPlan,
+                _prepareComponentOrder, _prepareRefinementScan,
+                _prepareRefinementPlan,
                 _prepareRevision };
             foreach (int kernel in cutEKernels)
             {
