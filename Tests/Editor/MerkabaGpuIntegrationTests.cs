@@ -439,11 +439,9 @@ namespace Genesis.RoomScan.Tests
                 "state.evidence <= MERKABA_EXPORT_KNOWN_FREE"));
             Assert.That(carve, Does.Not.Contain("M8FindOrClaimBlock"));
             Assert.That(carve, Does.Not.Contain("M8FindOrClaimChunk"));
-            Assert.That(Regex.Matches(carve, @"\breturn;"), Has.Count.EqualTo(1));
-            Assert.That(carve.IndexOf("return;", StringComparison.Ordinal),
-                Is.LessThan(carve.IndexOf(
-                    "GroupMemoryBarrierWithGroupSync();",
-                    StringComparison.Ordinal)));
+            Assert.That(Regex.Matches(carve, @"\breturn;"), Has.Count.Zero,
+                "Indirect dispatch owns the exact domain; no lane may return " +
+                "before either group barrier.");
 
             string install = Slice(compute, "void InstallLoadedTiles",
                 "void FailLoadedTiles");

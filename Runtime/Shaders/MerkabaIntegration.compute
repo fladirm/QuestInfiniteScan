@@ -809,9 +809,6 @@ void FlushCarveStat(uint counterIndex, uint value)
 void IntegrateCarveTiles(uint3 groupId : SV_GroupID,
     uint thread : SV_GroupIndex)
 {
-    uint tileCount = min(_M8Counters[M8_COUNTER_CARVE_TILE_COUNT],
-        MERKABA_M8_PHYSICAL_TILE_CAPACITY);
-    if (groupId.x >= tileCount) return;
     uint physicalSlot = _M8CarveTilesRead[groupId.x];
     uint kernelLocal = groupId.y * 64u + thread;
     uint wordIndex = M8TileWordIndex(physicalSlot, kernelLocal >> 5u);
