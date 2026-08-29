@@ -73,12 +73,16 @@ namespace Genesis.RoomScan.Tests
                 "Opacity must select material state on CPU, not branch per fragment.");
             Assert.That(source, Does.Not.Contain(
                 "if (input.colorConfidence == 0u) discard;"));
-            Assert.That(source, Does.Contain("half3 barycentric : TEXCOORD2;"));
-            Assert.That(source, Does.Contain("fwidth(input.barycentric)"));
+            Assert.That(source, Does.Not.Contain("barycentric"));
+            Assert.That(source, Does.Not.Contain("fwidth"));
+            Assert.That(source, Does.Not.Contain("pixelDistance"));
+            Assert.That(source, Does.Not.Contain("discard;"));
             Assert.That(source, Does.Contain(
                 "if (input.colorConfidence > 0u)"));
             Assert.That(source, Does.Contain(
-                "half3(0.0h, 0.8h, 1.0h)"));
+                "return half4(input.color, _ScanOpacity);"));
+            Assert.That(source, Does.Contain(
+                "return half4(half3(0.55h, 0.16h, 0.42h), _ScanOpacity);"));
         }
 
         [Test]

@@ -338,9 +338,14 @@ namespace Genesis.RoomScan.Tests
             Assert.That(shader, Does.Contain("state.colorConfidence"));
             Assert.That(shader, Does.Not.Contain(
                 "if (input.colorConfidence == 0u) discard;"));
-            Assert.That(shader, Does.Contain("fwidth(input.barycentric)"));
-            Assert.That(shader, Does.Contain("half3(0.0h, 0.8h, 1.0h)"));
-            Assert.That(shader, Does.Contain("discard;"));
+            Assert.That(shader, Does.Not.Contain("barycentric"));
+            Assert.That(shader, Does.Not.Contain("fwidth"));
+            Assert.That(shader, Does.Not.Contain("pixelDistance"));
+            Assert.That(shader, Does.Not.Contain("discard;"));
+            Assert.That(shader, Does.Contain(
+                "return half4(input.color, _ScanOpacity);"));
+            Assert.That(shader, Does.Contain(
+                "return half4(half3(0.55h, 0.16h, 0.42h), _ScanOpacity);"));
         }
 
         [Test, Timeout(30000)]
