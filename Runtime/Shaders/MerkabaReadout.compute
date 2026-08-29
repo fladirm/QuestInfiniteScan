@@ -331,6 +331,155 @@ bool PrimitiveFrontFacingEitherEye(int3 globalCoord, uint primitiveId)
         _M8ReadoutTranslationGuardGrid * length(guardedNormal) > 0.0;
 }
 
+bool MerkabaReadoutSurfacePatch(uint neighbourMask, out int3 patch0,
+    out int3 patch1, out int3 patch2, out int3 patch3,
+    out uint triangleCount)
+{
+    int3 outward = 0;
+    [unroll]
+    for (uint direction = 0u; direction < MERKABA_DIRECTION_COUNT; direction++)
+    {
+        int3 tip = kMerkabaBodyDiagonalOffsets[direction];
+        outward += (neighbourMask & (1u << direction)) != 0u ? -tip : tip;
+    }
+
+    patch0 = 0;
+    patch1 = 0;
+    patch2 = 0;
+    patch3 = 0;
+    triangleCount = 0u;
+    if (all(outward == 0)) return false;
+
+    int3 magnitude = abs(outward);
+    int3 signDirection = int3(
+        outward.x >= 0 ? 1 : -1,
+        outward.y >= 0 ? 1 : -1,
+        outward.z >= 0 ? 1 : -1);
+
+    uint axis = 0u;
+    int largest = magnitude.x;
+    if (magnitude.y > largest)
+    {
+        axis = 1u;
+        largest = magnitude.y;
+    }
+    if (magnitude.z > largest)
+    {
+        axis = 2u;
+        largest = magnitude.z;
+    }
+
+    uint omittedAxis = 0u;
+    int smallest = magnitude.x;
+    if (magnitude.y < smallest)
+    {
+        omittedAxis = 1u;
+        smallest = magnitude.y;
+    }
+    if (magnitude.z < smallest)
+    {
+        omittedAxis = 2u;
+        smallest = magnitude.z;
+    }
+    int middle = magnitude.x + magnitude.y + magnitude.z - largest - smallest;
+
+    uint patchKind = 1u;
+    int bestNumerator = largest * largest;
+    int bestDenominator = 1;
+    if (middle > 0)
+    {
+        int faceSum = largest + middle;
+        int faceNumerator = faceSum * faceSum;
+        if (faceNumerator * bestDenominator > bestNumerator * 2)
+        {
+            patchKind = 2u;
+            bestNumerator = faceNumerator;
+            bestDenominator = 2;
+        }
+    }
+    if (smallest > 0)
+    {
+        int bodySum = magnitude.x + magnitude.y + magnitude.z;
+        int bodyNumerator = bodySum * bodySum;
+        if (bodyNumerator * bestDenominator > bestNumerator * 3)
+            patchKind = 3u;
+    }
+
+    if (patchKind == 1u)
+    {
+        int3 normal = 0;
+        int3 tangent0 = 0;
+        int3 tangent1 = 0;
+        if (axis == 0u)
+        {
+            normal.x = signDirection.x;
+            tangent0.y = 1;
+            tangent1.z = signDirection.x;
+        }
+        else if (axis == 1u)
+        {
+            normal.y = signDirection.y;
+            tangent0.z = 1;
+            tangent1.x = signDirection.y;
+        }
+        else
+        {
+            normal.z = signDirection.z;
+            tangent0.x = 1;
+            tangent1.y = signDirection.z;
+        }
+        patch0 = normal - tangent0 - tangent1;
+        patch1 = normal + tangent0 - tangent1;
+        patch2 = normal + tangent0 + tangent1;
+        patch3 = normal - tangent0 + tangent1;
+        triangleCount = 2u;
+        return true;
+    }
+
+    if (patchKind == 2u)
+    {
+        int3 tangent0;
+        int3 tangent1;
+        if (omittedAxis == 2u)
+        {
+            tangent0 = int3(signDirection.x, -signDirection.y, 0);
+            tangent1 = int3(0, 0,
+                -signDirection.x * signDirection.y);
+        }
+        else if (omittedAxis == 1u)
+        {
+            tangent0 = int3(signDirection.x, 0, -signDirection.z);
+            tangent1 = int3(0,
+                signDirection.x * signDirection.z, 0);
+        }
+        else
+        {
+            tangent0 = int3(0, signDirection.y, -signDirection.z);
+            tangent1 = int3(
+                -signDirection.y * signDirection.z, 0, 0);
+        }
+        patch0 = -tangent0 - tangent1;
+        patch1 = tangent0 - tangent1;
+        patch2 = tangent0 + tangent1;
+        patch3 = -tangent0 + tangent1;
+        triangleCount = 2u;
+        return true;
+    }
+
+    patch0 = int3(-signDirection.x, signDirection.y, signDirection.z);
+    patch1 = int3(signDirection.x, -signDirection.y, signDirection.z);
+    patch2 = int3(signDirection.x, signDirection.y, -signDirection.z);
+    if (signDirection.x * signDirection.y * signDirection.z < 0)
+    {
+        int3 swapValue = patch1;
+        patch1 = patch2;
+        patch2 = swapValue;
+    }
+    patch3 = patch2;
+    triangleCount = 1u;
+    return true;
+}
+
 [numthreads(64, 1, 1)]
 void CompileReadoutVertices(uint3 groupId : SV_GroupID,
     uint thread : SV_GroupIndex)
@@ -369,37 +518,22 @@ void CompileReadoutVertices(uint3 groupId : SV_GroupID,
         if (occupied) neighbourMask |= 1u << direction;
     }
 
-    uint activeMask = 0u;
-    [unroll]
-    for (uint topologyDirection = 0u;
-         topologyDirection < MERKABA_DIRECTION_COUNT; topologyDirection++)
-    {
-        uint first = topologyDirection * MERKABA_PRIMITIVES_PER_DIRECTION;
-        activeMask |= (neighbourMask & (1u << topologyDirection)) == 0u
-            ? 1u << first : 14u << first;
-    }
-    uint beforeFacing = countbits(activeMask);
+    int3 patch0;
+    int3 patch1;
+    int3 patch2;
+    int3 patch3;
+    uint patchTriangleCount;
+    if (!MerkabaReadoutSurfacePatch(neighbourMask, patch0, patch1, patch2,
+        patch3, patchTriangleCount)) return;
+
     uint ignored;
     InterlockedAdd(_M8Counters[M8_COUNTER_PRIMITIVES_BEFORE_FACING],
-        beforeFacing, ignored);
-    uint survivingMask = 0u;
-    uint remaining = activeMask;
-    while (remaining != 0u)
-    {
-        uint primitiveId = (uint)firstbitlow(remaining);
-        remaining &= remaining - 1u;
-        if (PrimitiveFrontFacingEitherEye(globalCoord, primitiveId))
-            survivingMask |= 1u << primitiveId;
-    }
-    uint survivingCount = countbits(survivingMask);
-    InterlockedAdd(_M8Counters[M8_COUNTER_PRIMITIVES_REJECTED],
-        beforeFacing - survivingCount, ignored);
-    if (survivingCount == 0u) return;
+        patchTriangleCount, ignored);
 
     uint baseIndex;
     InterlockedAdd(_M8Counters[M8_COUNTER_LOGICAL_VISIBLE_PRIMITIVES],
-        survivingCount, baseIndex);
-    if (baseIndex + survivingCount >
+        patchTriangleCount, baseIndex);
+    if (baseIndex + patchTriangleCount >
         MERKABA_M8_READOUT_TRIANGLE_CAPACITY)
     {
         _M8Counters[M8_COUNTER_RENDER_PRIMITIVE_OVERFLOW] = 1u;
@@ -409,20 +543,31 @@ void CompileReadoutVertices(uint3 groupId : SV_GroupID,
     }
     uint rgb = state.packedColor & 0x00ffffffu;
     uint hasRgb = state.colorConfidence > 0u ? 1u : 0u;
+    uint packedColor = rgb | (hasRgb << 24u);
     uint outputVertex = baseIndex * MERKABA_VERTICES_PER_PRIMITIVE;
-    while (survivingMask != 0u)
+    float3 kernelCenter = (float3)globalCoord * MERKABA_LATTICE_STEP;
+
+    [unroll]
+    for (uint firstCorner = 0u; firstCorner < 3u; firstCorner++)
     {
-        uint primitiveId = (uint)firstbitlow(survivingMask);
-        survivingMask &= survivingMask - 1u;
-        uint packedColor = rgb | (hasRgb << 24u);
+        int3 patchCorner = firstCorner == 0u ? patch0 :
+            (firstCorner == 1u ? patch1 : patch2);
+        MerkabaReadoutVertex vertex;
+        vertex.gridPosition = kernelCenter +
+            (float3)patchCorner * MERKABA_CANONICAL_UNIT;
+        vertex.packedColor = packedColor;
+        _M8ReadoutVertices[outputVertex++] = vertex;
+    }
+    if (patchTriangleCount == 2u)
+    {
         [unroll]
-        for (uint corner = 0u; corner < MERKABA_VERTICES_PER_PRIMITIVE;
-             corner++)
+        for (uint secondCorner = 0u; secondCorner < 3u; secondCorner++)
         {
+            int3 patchCorner = secondCorner == 0u ? patch0 :
+                (secondCorner == 1u ? patch2 : patch3);
             MerkabaReadoutVertex vertex;
-            vertex.gridPosition = (float3)globalCoord *
-                MERKABA_LATTICE_STEP + MerkabaCanonicalPrimitivePosition(
-                    primitiveId, corner);
+            vertex.gridPosition = kernelCenter +
+                (float3)patchCorner * MERKABA_CANONICAL_UNIT;
             vertex.packedColor = packedColor;
             _M8ReadoutVertices[outputVertex++] = vertex;
         }
